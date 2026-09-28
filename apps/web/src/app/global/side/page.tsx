@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 const SideView = dynamic(
-  () => import("@/components/global/SideView"),
+  () => import("@/components/side/SideView"),
   {
     ssr: false,
     loading: () => (

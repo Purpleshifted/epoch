@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { useControls, folder } from "leva";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useRadialBlurEffect, RadialBlurDriver } from "./scene/RadialBlurEffect";
+import { useSessionAngle } from "@/components/spacetime/useSessionAngle";
 
 import { CmbSkybox }      from "./scene/CmbSkybox";
 import { getWaveHeight }   from "./scene/WaveTerrain";
@@ -147,10 +148,12 @@ export default function MobileScene() {
   const timeRef      = useRef(0);
   const playerPosRef = useRef({ x: 0, z: 0 });
   const playerYRef   = useRef(0.45);
-  // 이동 속도 ref: SceneController → RadialBlurDriver
   const speedRef    = useRef(0);
-  // RadialBlur Effect 인스턴스
   const { effect: radialBlurEffect, effectRef: radialBlurEffectRef } = useRadialBlurEffect();
+
+  // ── 세션 고유 관측 각도 (공통 시공간 로직에서 배정) ──────────────
+  const sessionPlane = useSessionAngle();
+  // sessionPlane.angle, .slotIndex, .color → 나중에 UI/카메라 틸트에 사용
 
   const {
     // ── Orb
@@ -178,6 +181,8 @@ export default function MobileScene() {
     ambientInt, stormLightScale,
     // ── World
     octaves, amplitudeScale, freqScale, fogNear, fogFar,
+    // ── Debug
+    botEnabled, botCount,
   } = useControls({
 
     "Orb (나)": folder({
@@ -272,6 +277,11 @@ export default function MobileScene() {
       freqScale:      { value: 1.0, min: 0.1, max: 5,  step: 0.05, label: "주파수" },
       fogNear:        { value: 18,  min: 5, max: 80,  step: 1,    label: "안개 시작" },
       fogFar:         { value: 80,  min: 20, max: 200, step: 5,   label: "안개 끝" },
+    }, { collapsed: true }),
+
+    "Debug / 봇": folder({
+      botEnabled: { value: false, label: "봇 활성화" },
+      botCount:   { value: 5,   min: 1, max: 30, step: 1, label: "봇 수" },
     }, { collapsed: true }),
   });
 
@@ -400,7 +410,15 @@ export default function MobileScene() {
           {solarWind.protonSpeed.toFixed(0)} km/s · Kp {solarWind.kpIndex}
           {solarWind.stormLevel > 0.5 && " · STORM"}
         </div>
+        {botEnabled && (
+          <div className="text-yellow-400/40">BOT ×{botCount}</div>
+        )}
       </div>
     </div>
   );
 }
+
+// ── 봇 시뮬레이터 ─────────────────────────────────────────────
+// MobileScene 내부 useEffect로 botEnabled 시 가상 플레이어 이동 시뮬레이션
+// (실제 구현은 SceneController의 playerPosRef를 직접 건드리지 않고
+//  window dispatch로 synthetic WASD 이벤트 발생)

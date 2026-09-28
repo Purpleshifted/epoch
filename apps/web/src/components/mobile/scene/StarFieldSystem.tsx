@@ -1,38 +1,16 @@
 "use client";
 /**
  * StarFieldSystem — 자체 GPGPU ping-pong (GPUComputationRenderer 우회)
- *
- * Three.js 0.186.1 + Turbopack 환경에서 GPUComputationRenderer가
- * FullScreenQuad 내부에서 intersectsFrustum, determinantAffine 등
- * 버전 불일치 메서드를 연속으로 요구하므로 raw WebGL2로 직접 구현.
- *
- * 방식: WebGL2 Transform Feedback 없이, 두 개의 WebGLRenderTarget에
- * 직접 fullscreen quad를 그려 ping-pong 연산. Three.js 표준 API만 사용.
  */
 
 import { useRef, useMemo, useEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
-// ──────────────────────────────────────────────────────────────────────
-// Types
-// ──────────────────────────────────────────────────────────────────────
-export type StarPhase = "nebula" | "protostar" | "mainSequence" | "redGiant" | "supernova" | "remnant";
-
-export interface StarBody {
-  id: string;
-  x: number;
-  y: number;
-  z: number;
-  vx: number;        // 별 이동 속도 (별끼리 인력으로 움직임)
-  vz: number;
-  phaseAge: number;  // 현재 위상에서 경과 시간(초) — TTL/Supernova 타이밍에 사용
-  mass: number;
-  phase: StarPhase;
-  age: number;
-  radius: number;
-  isPermanent: boolean;
-}
+// 공통 시공간 타입 → spacetime 모듈에서 import
+import { SS_PLANE_KEY } from "@/components/spacetime/types";
+export type { StarPhase, StarBody } from "@/components/spacetime/types";
+import type { StarPhase, StarBody } from "@/components/spacetime/types";
 
 // ──────────────────────────────────────────────────────────────────────
 // Constants
@@ -940,7 +918,7 @@ export function StarFieldSystem({
                 x: comX, y: comY, z: comZ,
                 vx: initVx, vz: initVz, phaseAge: 0,
                 mass: gpuCount,
-                phase: "nebula", age: 0, radius: 0.3, isPermanent: false,
+                phase: "nebula", age: 0, radius: 0.3, isPermanent: false, creatorAngle: (typeof sessionStorage !== "undefined" ? (() => { try { const d = sessionStorage.getItem(SS_PLANE_KEY); return d ? JSON.parse(d).angle : 0; } catch { return 0; } })() : 0),
               });
 
               spawnCounts.current.set(key, 0);

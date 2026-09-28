@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 const TopView = dynamic(
-  () => import("@/components/global/TopView"),
+  () => import("@/components/top/TopView"),
   {
     ssr: false,
     loading: () => (
