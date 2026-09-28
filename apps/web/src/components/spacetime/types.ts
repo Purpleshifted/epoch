@@ -3,9 +3,13 @@
  *
  * 시공간 블록 공통 타입 정의.
  * 특수상대성이론 개념:
- *   - 3D+T 시공간 덩어리 (X, Z: 공간, T: 시간)
- *   - 각 관객은 고유한 각도 θ의 동시성 평면(hyperplane of simultaneity)에서 움직임
- *   - creatorAngle: 별을 만든 관객의 평면 각도 → top/side 뷰에서 색상/기울기로 표현
+ *   - 3D 시공간 (x, z, t): 공간 2축 + 시간 1축
+ *   - 관측자의 동시성 초평면(hyperplane of simultaneity)은 두 값으로 정의:
+ *       φ (phi):  XZ 평면에서 운동 방향 (0 ~ 2π)
+ *       β (beta): 속도 v/c (0 ~ 0.9) → 기울기 크기
+ *   - 별 worldline pillar:
+ *       bottom = (x, 0, z)
+ *       top    = (x + cos(φ)·β·age, age·scale, z + sin(φ)·β·age)
  */
 
 // ── 별 위상 ──────────────────────────────────────────────
@@ -25,17 +29,31 @@ export interface StarBody {
   phaseAge: number;                   // 현재 위상 경과 시간(초)
   mass: number;
   phase: StarPhase;
-  age: number;                        // 총 경과 시간(초) → side view Y축
+  age: number;                        // 총 경과 시간(초) → timespace Y축
   radius: number;
   isPermanent: boolean;               // mainSequence+ → true
-  creatorAngle?: number;              // 생성자 관측 평면 각도 (rad, 0~2π)
+  // 생성자 동시성 평면 (두 값으로 정의)
+  creatorPhi?: number;   // 운동 방향 φ ∈ [0, 2π]
+  creatorBeta?: number;  // 속도 β ∈ [0, 0.9]
+  /** @deprecated use creatorPhi + creatorBeta */
+  creatorAngle?: number;
 }
 
-// ── 관측 평면 (Observer's Hyperplane of Simultaneity) ───
+/**
+ * 관측 평면 (Observer's Hyperplane of Simultaneity)
+ *
+ * 3D 시공간 (x, z, t)에서 동시성 평면을 정의하려면 두 값이 필요:
+ *   φ (phi):  XZ 평면에서 운동 방향 (0 ~ 2π)
+ *             → pillar가 XZ에서 어느 쪽으로 기울어지는지
+ *   β (beta): 속도 v/c (0 ~ ~0.9)
+ *             → pillar 기울기 크기 (β=0이면 수직, β→1이면 광속 극한)
+ *
+ * 평면 방정식: t_recorded = t_real + (x·cos(φ) + z·sin(φ))·β·k
+ */
 export interface SessionPlane {
-  angle: number;       // 0 ~ 2π
-  slotIndex: number;   // 12분할 슬롯 인덱스 (0~11)
-  /** 이 평면에 대응하는 색상 — top/side 뷰에서 시각화 */
+  phi: number;         // XZ 운동 방향 (0 ~ 2π)
+  beta: number;        // 속도 fraction v/c (0 ~ 0.9)
+  slotIndex: number;   // 12분할 슬롯 (색상 인덱스)
   color: string;
 }
 

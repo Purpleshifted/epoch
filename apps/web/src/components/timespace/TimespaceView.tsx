@@ -163,8 +163,10 @@ function StarsAndPillars({
     stars.forEach((s, i) => {
       pos[i*3]=s.x; pos[i*3+1]=0; pos[i*3+2]=s.z;
       ages[i]    = s.age;
-      coss[i]    = Math.cos(s.creatorAngle ?? 0) * DRIFT;
-      sins[i]    = Math.sin(s.creatorAngle ?? 0) * DRIFT;
+      const phi2  = s.creatorPhi  ?? s.creatorAngle ?? 0;
+      const beta2 = s.creatorBeta ?? DRIFT;
+      coss[i]    = Math.cos(phi2) * beta2;
+      sins[i]    = Math.sin(phi2) * beta2;
       const [r,g,b] = starActualColor(s);
       colors[i*3]=r; colors[i*3+1]=g; colors[i*3+2]=b;
     });
@@ -179,11 +181,12 @@ function StarsAndPillars({
     const col: number[] = [];
     stars.forEach((s) => {
       const [r,gv,b] = starActualColor(s);
-      const θ    = s.creatorAngle ?? 0;
+      const phi  = s.creatorPhi  ?? s.creatorAngle ?? 0;
+      const beta = s.creatorBeta ?? DRIFT;  // 각 별 고유 β, fallback = global DRIFT
       const age  = s.age;
       const yTop = age * AGE_SCALE;
-      const xTop = s.x + Math.cos(θ) * age * DRIFT;
-      const zTop = s.z + Math.sin(θ) * age * DRIFT;
+      const xTop = s.x + Math.cos(phi) * beta * age;
+      const zTop = s.z + Math.sin(phi) * beta * age;
 
       // bottom: star's spatial birth position, very dark
       pts.push(s.x, 0, s.z);
@@ -327,8 +330,8 @@ function PlayerPillar({
     player.x, 0, player.z,
     player.x, 0.01, player.z,  // top Y will be updated by useFrame
   ], 3));
-  const hex = player.color.replace("#", "");
-  const n   = parseInt(hex, 16);
+  const hex = (player.color ?? "#ffffff").replace("#", "");
+  const n   = parseInt(hex, 16) || 0xffffff;
   const r   = (n >> 16) / 255;
   const gv  = ((n >> 8) & 0xff) / 255;
   const b   = (n & 0xff) / 255;

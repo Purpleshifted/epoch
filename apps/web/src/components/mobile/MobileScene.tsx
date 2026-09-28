@@ -161,14 +161,15 @@ export default function MobileScene() {
         localStorage.setItem("anthropocene:player:v1", JSON.stringify({
           x: playerPosRef.current.x,
           z: playerPosRef.current.z,
-          angle: sessionPlane.angle,
+          phi:   sessionPlane.phi,
+          beta:  sessionPlane.beta,
           color: sessionPlane.color,
           ts: Date.now(),
         }));
       } catch {}
     }, 800);
     return () => { clearInterval(id); localStorage.removeItem("anthropocene:player:v1"); };
-  }, [sessionPlane.angle, sessionPlane.color]);
+  }, [sessionPlane.phi, sessionPlane.beta, sessionPlane.color]);
 
   const {
     // ── Orb
@@ -370,8 +371,9 @@ export default function MobileScene() {
           botPositions={botEnabled ? Array.from({ length: botCount }, (_, i) => ({
             x: Math.cos((i / botCount) * Math.PI * 2) * 8,
             z: Math.sin((i / botCount) * Math.PI * 2) * 8,
-            // θ ∈ [0, π/2]: SR 동시성 평면 기울기는 광속 이내 (< 45° from t-axis)
-            angle: (i / Math.max(botCount - 1, 1)) * (Math.PI / 2),
+            // 각 봇: φ = 전방향 균등 분배, β = 속도 독립 배정 (0.15 ~ 0.85)
+            phi:  (i / botCount) * Math.PI * 2,
+            beta: 0.15 + (i / Math.max(botCount - 1, 1)) * 0.7,
           })) : undefined}
         />
 
