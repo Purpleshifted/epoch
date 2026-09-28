@@ -1,0 +1,104 @@
+[
+  {
+    "nodeId": "171",
+    "paramName": "value",
+    "operation": "multiply",
+    "enabled": false,
+    "streams": [
+      {
+        "stream": "closingSpeed",
+        "interpolation": "exponential",
+        "inputMin": 0,
+        "inputMax": 0.5,
+        "outputMin": 0.1,
+        "outputMax": 0.9
+      }
+    ],
+    "id": "1765025808441"
+  },
+  {
+    "nodeId": "206",
+    "paramName": "value",
+    "operation": "add",
+    "enabled": true,
+    "streams": [
+      {
+        "stream": "velocity",
+        "interpolation": "logarithmic",
+        "inputMin": 0,
+        "inputMax": 0.5,
+        "outputMin": 0.005,
+        "outputMax": 0.025
+      }
+    ],
+    "id": "1765025986121"
+  },
+  {
+    "nodeId": "163",
+    "paramName": "value",
+    "operation": "add",
+    "enabled": false,
+    "streams": [
+      {
+        "stream": "distance",
+        "interpolation": "linear",
+        "inputMin": 0,
+        "inputMax": 1000,
+        "outputMin": 1,
+        "outputMax": 0.2
+      }
+    ],
+    "id": "1765026259200"
+  },
+  {
+    "nodeId": "183",
+    "paramName": "value",
+    "operation": "none",
+    "enabled": true,
+    "streams": [
+      {
+        "stream": "attraction",
+        "interpolation": "linear",
+        "inputMin": 0,
+        "inputMax": 1,
+        "outputMin": 0,
+        "outputMax": 1
+      }
+    ],
+    "id": "1765026671061"
+  },
+  {
+    "nodeId": "194",
+    "paramName": "value",
+    "operation": "none",
+    "enabled": false,
+    "streams": [
+      {
+        "stream": "isOuter",
+        "interpolation": "linear",
+        "inputMin": 0,
+        "inputMax": 1,
+        "outputMin": 0.05,
+        "outputMax": 0.2
+      }
+    ],
+    "id": "1765027574808"
+  },
+  {
+    "nodeId": "214",
+    "paramName": "value",
+    "operation": "none",
+    "enabled": true,
+    "streams": [
+      {
+        "stream": "pan",
+        "interpolation": "linear",
+        "inputMin": -1,
+        "inputMax": 1,
+        "outputMin": 1,
+        "outputMax": 0
+      }
+    ],
+    "id": "1765029000000"
+  }
+]

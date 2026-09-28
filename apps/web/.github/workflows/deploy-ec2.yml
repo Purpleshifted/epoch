@@ -1,0 +1,53 @@
+name: Deploy to EC2
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy (default: main)"
+        required: false
+        default: "main"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          script: |
+            set -e
+
+            # 필요한 도구는 EC2에 한 번만 수동 설치하고,
+            # 워크플로우에서는 매 배포마다 재설치 시도하지 않도록 함
+            if ! command -v git >/dev/null 2>&1; then
+              sudo apt-get update -y
+              sudo apt-get install -y git
+            fi
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "Docker is not installed on EC2. Please install Docker & docker compose once manually."
+              exit 1
+            fi
+
+            # 코드 체크아웃/업데이트
+            if [ ! -d ~/intersection-nextjs ]; then
+              git clone https://github.com/${GITHUB_REPOSITORY}.git ~/intersection-nextjs
+            fi
+
+            cd ~/intersection-nextjs
+            git fetch origin
+            # workflow_dispatch로 들어온 경우에는 입력 브랜치, 아니면 main 사용
+            BRANCH="${{ github.event.inputs.branch || 'main' }}"
+            git reset --hard "origin/$BRANCH"
+
+            # 최신 이미지/의존성 반영 및 재기동
+            docker compose pull || true
+            docker compose up -d --build

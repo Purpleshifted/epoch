@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>NoiseCraft Embedded</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/public/style.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: transparent;
+        color: #eee;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .wrap {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 10px;
+        background: rgba(0, 0, 0, 0.4);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        flex-shrink: 0;
+      }
+      .status {
+        opacity: 0.8;
+        font-size: 13px;
+      }
+      button {
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        border-radius: 9999px;
+        padding: 6px 12px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      button:hover {
+        background: rgba(255, 255, 255, 0.18);
+      }
+      /* Start/Stop 버튼을 흰색 계열, 반투명 캡슐로 통일 (붉은색 강조 제거) */
+      #btn_start,
+      #btn_stop {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: rgba(255, 255, 255, 0.45) !important;
+        color: #fff !important;
+        width: auto;
+        min-width: 72px;
+      }
+      #btn_start:hover,
+      #btn_stop:hover {
+        background: rgba(255, 255, 255, 0.22) !important;
+      }
+      #editor_div {
+        flex: 1;
+        position: relative;
+        overflow: scroll;
+        background: transparent;
+      }
+      #graph_div {
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+      #graph_svg {
+        position: absolute;
+        top: 0px;
+        left: 0px;
+        z-index: 0;
+        pointer-events: none;
+        overflow: visible;
+      }
+      #graph_bg_text {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: rgba(255, 255, 255, 0.3);
+        font-size: 14px;
+        pointer-events: none;
+      }
+      #project_title {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 14px;
+        pointer-events: none;
+        z-index: 10;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap" id="toolbar">
+      <button id="btn_start">Start Audio</button>
+      <button id="btn_stop" style="display: none">Stop</button>
+      <div class="status" id="status"></div>
+    </div>
+    <div id="editor_div">
+      <div id="graph_div"></div>
+      <svg id="graph_svg" version="1.1"></svg>
+      <div id="graph_bg_text">Loading project...</div>
+      <input
+        type="text"
+        id="project_title"
+        size="32"
+        maxlength="60"
+        value=""
+        readonly
+      />
+    </div>
+    <input
+      type="file"
+      id="file_input"
+      accept=".ncft,.json,application/json"
+      style="display: none"
+    />
+
+    <script type="module">
+      import { Model, SetParam, Play, Stop } from "/public/model.js";
+      import { AudioView } from "/public/audioview.js";
+      import { Editor } from "/public/editor.js";
+
+      const urlForEmbed = new URL(window.location.href);
+      const editorMode = urlForEmbed.searchParams.get("editor") || "";
+      const isEmbedded = window.self !== window.top && editorMode !== "full";
+      if (isEmbedded) {
+        // 임베디드 모드에서는 패널(에디터)을 숨기고 버튼 영역만 딱 맞게 보이도록 레이아웃 축소
+        document.addEventListener("DOMContentLoaded", () => {
+          const editorDiv = document.getElementById("editor_div");
+          if (editorDiv) editorDiv.style.display = "none";
+          document.body.style.display = "block";
+          document.body.style.height = "auto";
+        });
+      }
+
+      // 1) 프로젝트(JSON) 준비
+      // - 아래 기본 패치는 Knob -> Sine(freq) -> AudioOut 스테레오 라우팅입니다.
+      // - 본인이 가진 JSON(프로젝트 스냅샷)을 붙여넣거나, URL 파라미터 src로 가져올 수 있습니다.
+      //   예) /public/embedded.html?src=/public/examples/saw_synth_stereo_delay.ncft
+      const defaultProject = {
+        title: "Intersection Audio Patch",
+        nodes: {
+          0: {
+            type: "Knob",
+            name: "SelfFreq",
+            x: 40,
+            y: 40,
+            ins: [],
+            inNames: [],
+            outNames: [""],
+            params: {
+              minVal: 100,
+              maxVal: 900,
+              value: 220,
+              deviceId: null,
+              controlId: null,
+            },
+          },
+          1: {
+            type: "Knob",
+            name: "SelfGain",
+            x: 40,
+            y: 110,
+            ins: [],
+            inNames: [],
+            outNames: [""],
+            params: {
+              minVal: 0,
+              maxVal: 1,
+              value: 0.2,
+              deviceId: null,
+              controlId: null,
+            },
+          },
+          2: {
+            type: "Sine",
+            name: "SelfSine",
+            x: 200,
+            y: 40,
+            ins: [["0", 0], null],
+            inNames: ["freq", "sync"],
+            outNames: ["out"],
+            params: { minVal: -1, maxVal: 1 },
+          },
+          3: {
+            type: "Mul",
+            name: "SelfAmp",
+            x: 340,
+            y: 50,
+            ins: [
+              ["2", 0],
+              ["1", 0],
+            ],
+            inNames: ["in0", "in1"],
+            outNames: ["out"],
+            params: {},
+          },
+          4: {
+            type: "Knob",
+            name: "ChordA",
+            x: 40,
+            y: 190,
+            ins: [],
+            inNames: [],
+            outNames: [""],
+            params: {
+              minVal: 150,
+              maxVal: 800,
+              value: 261.63,
+              deviceId: null,
+              controlId: null,
+            },
+          },
+          5: {
+            type: "Sine",
+            name: "ChordSineA",
+            x: 200,
+            y: 190,
+            ins: [["4", 0], null],
+            inNames: ["freq", "sync"],
+            outNames: ["out"],
+            params: { minVal: -1, maxVal: 1 },
+          },
+          6: {
+            type: "Knob",
+            name: "ChordB",
+            x: 40,
+            y: 250,
+            ins: [],
+            inNames: [],
+            outNames: [""],
+            params: {
+              minVal: 150,
+              maxVal: 800,
+              value: 329.63,
+              deviceId: null,
+              controlId: null,
+            },
+          },
+          7: {
+            type: "Sine",
+            name: "ChordSineB",
+            x: 200,
+            y: 250,
+            ins: [["6", 0], null],
+            inNames: ["freq", "sync"],
+            outNames: ["out"],
+            params: { minVal: -1, maxVal: 1 },
+          },
+          8: {
+            type: "Knob",
+            name: "ChordC",
+            x: 40,
+            y: 310,
+            ins: [],
+            inNames: [],
+            outNames: [""],
+            params: {
+              minVal: 150,
+              maxVal: 800,
+              value: 392,
+              deviceId: null,
+              controlId: null,
+            },
+          },
+          9: {
+            type: "Sine",
+            name: "ChordSineC",
+            x: 200,
+            y: 310,
+            ins: [["8", 0], null],
+            inNames: ["freq", "sync"],
+            outNames: ["out"],
+            params: { minVal: -1, maxVal: 1 },
+          },
+          10: {
+            type: "Add",
+            name: "ChordMixA",
+            x: 340,
+            y: 240,
+            ins: [
+              ["5", 0],
+              ["7", 0],
+            ],
+            inNames: ["in0", "in1"],
+            outNames: ["out"],
+            params: {},
+          },
+          11: {
+            type: "Add",
+            name: "ChordMixB",
+            x: 470,
+            y: 270,
+            ins: [
+              ["10", 0],
+              ["9", 0],
+            ],
+            inNames: ["in0", "in1"],
+            outNames: ["out"],
+            params: {},
+          },
+          12: {
+            type: "Knob",
+            name: "ChordGain",
+            x: 40,
+            y: 380,
+            ins: [],
+            inNames: [],
+            outNames: [""],
+            params: {
+              minVal: 0,
+              maxVal: 1,
+              value: 0.2,
+              deviceId: null,
+              controlId: null,
+            },
+          },
+          13: {
+            type: "Mul",
+            name: "ChordAmp",
+            x: 580,
+            y: 270,
+            ins: [
+              ["11", 0],
+              ["12", 0],
+            ],
+            inNames: ["in0", "in1"],
+            outNames: ["out"],
+            params: {},
+          },
+          14: {
+            type: "Add",
+            name: "MasterMix",
+            x: 720,
+            y: 160,
+            ins: [
+              ["3", 0],
+              ["13", 0],
+            ],
+            inNames: ["in0", "in1"],
+            outNames: ["out"],
+            params: {},
+          },
+          15: {
+            type: "AudioOut",
+            name: "Out",
+            x: 880,
+            y: 150,
+            ins: [
+              ["14", 0],
+              ["14", 0],
+            ],
+            inNames: ["left", "right"],
+            outNames: [],
+            params: {},
+          },
+        },
+      };
+
+      const resolveProjectEndpoint = (projectId) => {
+        return new URL(
+          `../projects/${projectId}`,
+          window.location.href
+        ).toString();
+      };
+
+      async function loadProjectFromSrc(src) {
+        // Use cache-busting for .ncft files to ensure we get the latest saved version
+        const cacheBuster = src.includes(".ncft") ? `?t=${Date.now()}` : "";
+        const url = src + cacheBuster;
+        const resp = await fetch(url, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+          },
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const txt = await resp.text();
+        return JSON.parse(txt);
+      }
+
+      async function loadProjectFromId(projectId) {
+        if (!/^[0-9]+$/.test(projectId)) {
+          throw new Error(`Invalid project id "${projectId}"`);
+        }
+        const endpoint = resolveProjectEndpoint(projectId);
+        const resp = await fetch(endpoint, { cache: "no-store" });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = await resp.json();
+        if (!json || typeof json.data !== "string") {
+          throw new Error("Malformed project payload");
+        }
+        const data = json.data;
+        return JSON.parse(data);
+      }
+
+      async function loadInitialProject() {
+        const url = new URL(window.location.href);
+        const src = url.searchParams.get("src");
+        const projectId = url.searchParams.get("project");
+        const fallbackSrc = url.searchParams.get("fallbackSrc");
+
+        try {
+          if (src) {
+            // Check if this is a file we auto-save to (indiv_audio_map.ncft)
+            // If so, try to fetch with cache-busting to get the latest version
+            if (src.includes("indiv_audio_map.ncft")) {
+              try {
+                const latest = await loadProjectFromSrc(
+                  src + "?t=" + Date.now()
+                );
+                console.log(
+                  "[Load] Loaded latest indiv_audio_map.ncft from server"
+                );
+                return latest;
+              } catch (e) {
+                console.warn(
+                  "[Load] Failed to load latest, trying original:",
+                  e
+                );
+                // Fall through to try without cache-busting
+              }
+            }
+            return await loadProjectFromSrc(src);
+          }
+          if (projectId) {
+            return await loadProjectFromId(projectId);
+          }
+        } catch (e) {
+          console.warn(
+            "Failed to load remote project, falling back to default:",
+            e
+          );
+        }
+
+        try {
+          if (fallbackSrc) {
+            return await loadProjectFromSrc(fallbackSrc);
+          }
+          // Intersection 프로젝트 기본 패치: chord_spatial
+          const DEFAULT_PATCH_SRC = "/public/examples/chord_spatial.ncft";
+          return await loadProjectFromSrc(DEFAULT_PATCH_SRC);
+        } catch (e) {
+          console.warn("Failed to load default chord_spatial patch:", e);
+        }
+
+        return defaultProject;
+      }
+
+      // 2) Model + AudioView + Editor 초기화 (main.js 없이 순수 엔진만 사용)
+      const model = new Model();
+      const audioView = new AudioView(model);
+      const editor = new Editor(model);
+
+      // Hook into node selection to notify parent window
+      const originalSelectNodes = editor.selectNodes.bind(editor);
+      editor.selectNodes = function (nodeIds) {
+        originalSelectNodes(nodeIds);
+        // Notify parent window about node selection
+        const nodeIdsArray = Array.from(nodeIds).map((id) => String(id));
+        if (nodeIdsArray.length > 0) {
+          notifyParent({
+            type: "noiseCraft:nodeSelection",
+            nodeIds: nodeIdsArray,
+          });
+        }
+      };
+
+      // Track browse mode state for single-click node selection
+      window.browseModeActive = false;
+      window.browseModeMappingId = null;
+
+      // Track if we should auto-save and the filename
+      let autoSaveEnabled = false;
+      let autoSaveFilename = null;
+      let saveDebounceTimer = null;
+      const SAVE_DEBOUNCE_MS = 1000; // Wait 1 second after last change before saving
+
+      // Function to save the current state to the server
+      const saveProjectToServer = async (filename, force = false) => {
+        // force=true allows manual saves even if auto-save is disabled
+        if (!filename || (!autoSaveEnabled && !force)) {
+          if (!force) {
+            console.warn(
+              `[Save] Save skipped - filename: ${filename}, autoSaveEnabled: ${autoSaveEnabled}`
+            );
+          }
+          return;
+        }
+
+        try {
+          const state = model.state;
+          if (!state) {
+            console.warn(`[Save] No state available to save ${filename}`);
+            return;
+          }
+
+          // Use a timeout to prevent save from blocking indefinitely
+          const savePromise = (async () => {
+            // Use model.serialize() to properly format the state (includes resetState cleanup)
+            // This ensures deleted nodes are not included in the serialization
+            let serialized;
+            try {
+              serialized = model.serialize();
+              if (!serialized || typeof serialized !== "string") {
+                throw new Error("model.serialize() returned invalid result");
+              }
+            } catch (err) {
+              console.error(`[Save] Error serializing model:`, err);
+              throw new Error(
+                `Failed to serialize model: ${err.message || String(err)}`
+              );
+            }
+
+            // Format with indentation for readability (parse and stringify with indent)
+            let formatted;
+            try {
+              const parsed = JSON.parse(serialized);
+              formatted = JSON.stringify(parsed, null, 2);
+
+              // Log node count for debugging
+              const nodeCount = Object.keys(parsed.nodes || {}).length;
+              console.log(`[Save] Serialized state with ${nodeCount} nodes`);
+              console.log(`[Save] Saving to filename: ${filename}`);
+
+              // Verify the filename matches what we're trying to save
+              if (
+                filename !== "indiv_audio_map.ncft" &&
+                filename.endsWith(".ncft")
+              ) {
+                console.warn(
+                  `[Save] Saving to ${filename}, but expected indiv_audio_map.ncft`
+                );
+              }
+            } catch (e) {
+              console.error(`[Save] Error formatting serialized data:`, e);
+              // If parsing fails, use as-is
+              formatted = serialized;
+            }
+
+            console.log(
+              `[Save] Sending POST request to /save-ncft/${filename}`
+            );
+            const response = await fetch(`/save-ncft/${filename}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ data: formatted }),
+              cache: "no-store", // Ensure no caching
+            });
+
+            console.log(
+              `[Save] Response status: ${response.status} ${response.statusText}`
+            );
+
+            if (response.ok) {
+              const result = await response.json();
+              const size = result.size || formatted.length;
+              const prefix = force ? "[Save]" : "[Auto-save]";
+              console.log(
+                `${prefix} ✓ Saved ${filename} to server (${size} bytes)`
+              );
+              console.log(`[Save] File path: ${result.path || "unknown"}`);
+              notifyParent({
+                type: "noiseCraft:saveStatus",
+                status: "saved",
+                filename,
+                size: size,
+                path: result.path,
+                manual: force,
+              });
+
+              // Update the model's serialization timestamp to help detect changes
+              if (state) {
+                state._lastSaved = Date.now();
+              }
+            } else {
+              const errorText = await response.text();
+              let errorMessage = errorText;
+              try {
+                const errorJson = JSON.parse(errorText);
+                errorMessage = errorJson.error || errorText;
+              } catch (e) {
+                // Not JSON, use as-is
+              }
+              const prefix = force ? "[Save]" : "[Auto-save]";
+              console.error(
+                `${prefix} ✗ Failed to save ${filename}:`,
+                errorMessage
+              );
+              notifyParent({
+                type: "noiseCraft:saveStatus",
+                status: "error",
+                filename,
+                error: errorMessage,
+                manual: force,
+              });
+              throw new Error(errorMessage);
+            }
+          })();
+
+          // Race with a timeout to prevent blocking
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Save timeout")), 5000)
+          );
+
+          await Promise.race([savePromise, timeoutPromise]);
+        } catch (err) {
+          // Don't let save errors break the editor
+          const errorMsg = err.message || String(err);
+          if (err.message !== "Save timeout") {
+            console.error(`[Save] Error saving ${filename}:`, err);
+            console.error(`[Save] Error details:`, err.stack || err);
+          } else {
+            console.warn(`[Save] Save timeout for ${filename}`);
+          }
+          notifyParent({
+            type: "noiseCraft:saveStatus",
+            status: "error",
+            filename,
+            error: errorMsg,
+          });
+          // Re-throw if it's a manual save so the caller can handle it
+          if (force) {
+            throw err;
+          }
+        }
+      };
+
+      // Track update count for debugging
+      let updateCount = 0;
+      let lastUpdateTime = Date.now();
+
+      // Hook into model updates to detect state changes for auto-save
+      const originalModelUpdate = model.update.bind(model);
+      model.update = function (action) {
+        try {
+          updateCount++;
+          const actionType = action?.constructor?.name || "Unknown";
+          if (updateCount % 100 === 0) {
+            const now = Date.now();
+            const elapsed = now - lastUpdateTime;
+            console.log(
+              `[Model.update] Update #${updateCount}, ${
+                updateCount / (elapsed / 1000)
+              } updates/sec, last action: ${actionType}`
+            );
+            lastUpdateTime = now;
+          }
+
+          const result = originalModelUpdate(action);
+
+          // Auto-save after state changes (debounced)
+          if (autoSaveEnabled && autoSaveFilename && action) {
+            if (saveDebounceTimer) {
+              clearTimeout(saveDebounceTimer);
+            }
+            saveDebounceTimer = setTimeout(() => {
+              saveProjectToServer(autoSaveFilename);
+            }, SAVE_DEBOUNCE_MS);
+          }
+
+          return result;
+        } catch (err) {
+          console.error(
+            `[Model.update] Error during update #${updateCount}:`,
+            err,
+            action
+          );
+          // Re-throw to maintain error propagation, but log it first
+          throw err;
+        }
+      };
+
+      // Track pending timeouts to prevent accumulation
+      let clickHandlerTimeout = null;
+      let edgeRenderTimeout = null;
+
+      // Track editor update count for debugging
+      let editorUpdateCount = 0;
+
+      // Add click handlers for node selection (single-click when browse mode is active)
+      const originalUpdate = editor.update.bind(editor);
+      editor.update = function (newState, action) {
+        editorUpdateCount++;
+        try {
+          originalUpdate(newState, action);
+        } catch (err) {
+          console.error(
+            `[Editor.update] Error during update #${editorUpdateCount}:`,
+            err,
+            action
+          );
+          // Continue execution even if update fails partially
+          // This ensures the editor doesn't completely stop responding
+        }
+
+        // After nodes are created/updated, add click handlers for selection
+        if (
+          newState &&
+          newState.nodes &&
+          Object.keys(newState.nodes).length > 0
+        ) {
+          // Clear previous timeout to prevent accumulation
+          if (clickHandlerTimeout) {
+            clearTimeout(clickHandlerTimeout);
+          }
+          clickHandlerTimeout = setTimeout(() => {
+            try {
+              editor.nodes.forEach((node, nodeId) => {
+                if (!node.nodeDiv.dataset.clickSelectEnabled) {
+                  node.nodeDiv.dataset.clickSelectEnabled = "true";
+
+                  // Single-click selection when browse mode is active
+                  // Store click tracking data on the node element
+                  node.nodeDiv._browseClickStartTime = 0;
+                  node.nodeDiv._browseClickStartPos = null;
+
+                  node.nodeDiv.addEventListener(
+                    "mousedown",
+                    (evt) => {
+                      // Allow sequencer grid clicks to always work - don't interfere with grid editing
+                      // Check if click is on a sequencer cell or grid (has cell_on/cell_off class, or is in sequencer grid area)
+                      const target = evt.target;
+                      const isSequencerElement =
+                        target &&
+                        (target.classList?.contains("cell_on") ||
+                          target.classList?.contains("cell_off") ||
+                          target.closest('div[style*="overflow-x: scroll"]') || // gridDiv has overflow-x: scroll
+                          target.closest("select") || // Scale/root dropdowns
+                          target.tagName === "BUTTON"); // Pattern buttons, extend/shrink buttons, etc.
+                      if (isSequencerElement) {
+                        return; // Let sequencer cells and buttons handle their own clicks - don't interfere
+                      }
+                      if (window.browseModeActive) {
+                        node.nodeDiv._browseClickStartTime = Date.now();
+                        node.nodeDiv._browseClickStartPos = {
+                          x: evt.clientX,
+                          y: evt.clientY,
+                        };
+                      }
+                    },
+                    true
+                  );
+
+                  node.nodeDiv.addEventListener(
+                    "mouseup",
+                    (evt) => {
+                      // Allow sequencer grid clicks to always work - don't interfere with grid editing
+                      const target = evt.target;
+                      const isSequencerElement =
+                        target &&
+                        (target.classList?.contains("cell_on") ||
+                          target.classList?.contains("cell_off") ||
+                          target.closest('div[style*="overflow-x: scroll"]') ||
+                          target.closest("select") ||
+                          target.tagName === "BUTTON");
+                      if (isSequencerElement) {
+                        return; // Let sequencer cells and buttons handle their own clicks - don't interfere
+                      }
+                      if (
+                        window.browseModeActive &&
+                        node.nodeDiv._browseClickStartTime > 0
+                      ) {
+                        const clickDuration =
+                          Date.now() - node.nodeDiv._browseClickStartTime;
+                        const moveDistance = node.nodeDiv._browseClickStartPos
+                          ? Math.sqrt(
+                              Math.pow(
+                                evt.clientX -
+                                  node.nodeDiv._browseClickStartPos.x,
+                                2
+                              ) +
+                                Math.pow(
+                                  evt.clientY -
+                                    node.nodeDiv._browseClickStartPos.y,
+                                  2
+                                )
+                            )
+                          : 0;
+
+                        // Consider it a click if it was quick and didn't move much
+                        if (clickDuration < 300 && moveDistance < 10) {
+                          // Only allow Const and Knob nodes to be selected
+                          const nodeType = model.state.nodes[nodeId]?.type;
+                          const nodeName =
+                            model.state.nodes[nodeId]?.name || nodeType;
+
+                          console.log(
+                            `Node clicked in browse mode: ${nodeId}, type: ${nodeType}`
+                          );
+
+                          if (nodeType === "Const" || nodeType === "Knob") {
+                            evt.preventDefault();
+                            evt.stopPropagation();
+                            evt.stopImmediatePropagation();
+                            const nodeIdStr = String(nodeId);
+                            editor.selectNodes([nodeIdStr]);
+
+                            // Notify parent window about node selection
+                            console.log(
+                              `Sending node selection: ${nodeIdStr}, type: ${nodeType}, name: ${nodeName}`
+                            );
+                            notifyParent({
+                              type: "noiseCraft:nodeSelection",
+                              nodeIds: [nodeIdStr],
+                              nodeType: nodeType,
+                              nodeName: nodeName,
+                            });
+                          } else {
+                            console.log(
+                              `Node type ${nodeType} is not selectable (must be Const or Knob)`
+                            );
+                          }
+                        }
+                        node.nodeDiv._browseClickStartTime = 0;
+                        node.nodeDiv._browseClickStartPos = null;
+                      }
+                    },
+                    true
+                  );
+
+                  // Double-click selection (always available, but only for Const and Knob in browse mode)
+                  node.nodeDiv.addEventListener(
+                    "dblclick",
+                    (evt) => {
+                      const nodeType = model.state.nodes[nodeId]?.type;
+                      if (
+                        window.browseModeActive &&
+                        nodeType !== "Const" &&
+                        nodeType !== "Knob"
+                      ) {
+                        return; // Skip non-Const/Knob nodes in browse mode
+                      }
+                      evt.stopPropagation();
+                      const nodeIdStr = String(nodeId);
+                      editor.selectNodes([nodeIdStr]);
+                      notifyParent({
+                        type: "noiseCraft:nodeSelection",
+                        nodeIds: [nodeIdStr],
+                        nodeType: nodeType,
+                        nodeName: model.state.nodes[nodeId]?.name || nodeType,
+                      });
+                    },
+                    true
+                  );
+                }
+              });
+            } catch (err) {
+              console.error(
+                "[Editor.update] Error adding click handlers:",
+                err
+              );
+            }
+          }, 200);
+
+          // Force edge re-rendering after nodes are fully laid out
+          // Clear previous timeout to prevent accumulation
+          if (edgeRenderTimeout) {
+            clearTimeout(edgeRenderTimeout);
+          }
+          edgeRenderTimeout = setTimeout(() => {
+            try {
+              if (editor && editor.nodes) {
+                editor.nodes.forEach((node) => {
+                  // Re-render incoming edges
+                  for (let dstPort in node.inEdges) {
+                    const edge = node.inEdges[dstPort];
+                    if (edge && edge.render) {
+                      try {
+                        const [cx, cy] = node.getPortPos(
+                          Number(dstPort),
+                          "dst"
+                        );
+                        edge.moveDst(cx, cy);
+                      } catch (err) {
+                        console.warn(
+                          "[Editor.update] Error rendering edge:",
+                          err
+                        );
+                      }
+                    }
+                  }
+                  // Re-render outgoing edges
+                  for (let srcPort in node.outEdges) {
+                    const edges = node.outEdges[srcPort];
+                    if (edges) {
+                      edges.forEach((edge) => {
+                        if (edge && edge.render) {
+                          try {
+                            const [cx, cy] = node.getPortPos(
+                              Number(srcPort),
+                              "src"
+                            );
+                            edge.moveSrc(cx, cy);
+                          } catch (err) {
+                            console.warn(
+                              "[Editor.update] Error rendering edge:",
+                              err
+                            );
+                          }
+                        }
+                      });
+                    }
+                  }
+                });
+              }
+            } catch (err) {
+              console.error("[Editor.update] Error rendering edges:", err);
+            }
+          }, 300);
+        }
+      };
+
+      // 간단한 앱 래퍼: 외부에서 상태 접근/변경용
+      const app = {
+        getState: () => model.state,
+        setState: (state) => {
+          try {
+            if (!state || typeof state !== "object") {
+              console.error("[App.setState] Invalid state:", state);
+              return;
+            }
+            model.load(state);
+            // Ensure editor is updated after state is loaded
+            setTimeout(() => {
+              try {
+                if (editor && model.state) {
+                  editor.update(model.state, null);
+                }
+              } catch (err) {
+                console.error("[App.setState] Error updating editor:", err);
+              }
+            }, 100);
+          } catch (err) {
+            console.error("[App.setState] Error loading state:", err);
+          }
+        },
+        updateParam: (nodeId, paramName, value) =>
+          model.update(new SetParam(String(nodeId), paramName, value)),
+        play: () => model.update(new Play()),
+        stop: () => model.update(new Stop()),
+        model,
+        audioView,
+        editor,
+      };
+      window.noiseCraftApp = app;
+
+      const statusEl = document.getElementById("status");
+      const btnStart = document.getElementById("btn_start");
+      const btnStop = document.getElementById("btn_stop");
+      const btnOpen = document.getElementById("btn_open");
+      const fileInput = document.getElementById("file_input");
+
+      const notifyParent = (payload) => {
+        if (!payload || typeof payload !== "object") return;
+        if (window.parent && window.parent !== window) {
+          try {
+            window.parent.postMessage(payload, "*");
+          } catch (err) {
+            console.warn("Failed to notify parent window", err);
+          }
+        }
+      };
+
+      // Helper function to sync button states with model.playing
+      const syncButtonStates = () => {
+        if (!statusEl) return;
+        const playing = model.playing;
+        if (btnStart && btnStop) {
+          if (playing) {
+            btnStart.style.display = "none";
+            btnStop.style.display = "inline-block";
+          } else {
+            btnStart.style.display = "inline-block";
+            btnStop.style.display = "none";
+          }
+        }
+        // 패널(에디터)는 임베디드일 땐 항상 숨긴다
+        if (!isEmbedded) {
+          const editorDiv = document.getElementById("editor_div");
+          if (editorDiv) {
+            editorDiv.style.display = "block";
+          }
+        } else {
+          const editorDiv = document.getElementById("editor_div");
+          if (editorDiv) {
+            editorDiv.style.display = "none";
+          }
+        }
+        statusEl.textContent = playing ? "Playing" : "Stopped";
+      };
+
+      const ensurePlaying = (customStatus) => {
+        if (!statusEl) return;
+        // Don't start if already playing
+        if (model.playing) {
+          console.log("Already playing, skipping start");
+          return;
+        }
+        try {
+          app.play();
+          // Wait a tiny bit for model.playing to update, then sync buttons
+          setTimeout(() => {
+            syncButtonStates();
+            if (customStatus && statusEl) {
+              statusEl.textContent = customStatus;
+            }
+            notifyParent({ type: "noiseCraft:audioState", status: "playing" });
+          }, 10);
+        } catch (err) {
+          console.warn("Failed to start audio automatically", err);
+          statusEl.textContent = "Autoplay blocked. Click Start.";
+          notifyParent({ type: "noiseCraft:audioState", status: "blocked" });
+        }
+      };
+
+      if (btnStart) {
+        btnStart.addEventListener("click", () => ensurePlaying());
+      }
+      if (btnStop) {
+        btnStop.addEventListener("click", () => {
+          try {
+            app.stop();
+            syncButtonStates();
+            notifyParent({ type: "noiseCraft:audioState", status: "stopped" });
+          } catch (err) {
+            console.warn("Failed to stop audio", err);
+          }
+        });
+      }
+
+      const handleExternalMessage = (event) => {
+        const data = event.data;
+        if (!data || typeof data !== "object") return;
+
+        // Enable/disable auto-save for a specific file
+        if (data.type === "noiseCraft:enableAutoSave") {
+          autoSaveEnabled = data.enabled !== false;
+          autoSaveFilename = data.filename || null;
+          if (autoSaveEnabled && autoSaveFilename) {
+            console.log(`[Auto-save] Enabled for ${autoSaveFilename}`);
+          } else {
+            console.log(`[Auto-save] Disabled`);
+          }
+          return;
+        }
+
+        // Manual save request
+        if (data.type === "noiseCraft:saveProject") {
+          const filename = data.filename || autoSaveFilename;
+          if (filename) {
+            saveProjectToServer(filename);
+          }
+          return;
+        }
+
+        if (
+          data.type === "noiseCraft:setParams" &&
+          Array.isArray(data.params)
+        ) {
+          try {
+            console.log("[Embedded] received params", data.params);
+          } catch (e) {}
+          data.params.forEach((param) => {
+            if (!param || param.value === undefined) return;
+            const nodeId = param.nodeId ?? param.id;
+            if (nodeId === undefined) return;
+            const paramName = param.paramName ?? "value";
+            const id = String(nodeId);
+            const node = app.model?.state?.nodes?.[id];
+            if (!node || !node.params || !(paramName in node.params)) {
+              return;
+            }
+            app.updateParam(id, paramName, Number(param.value));
+          });
+        } else if (data.type === "noiseCraft:toggleCell") {
+          // Support for pattern cell updates (for tone assignment)
+          const { nodeId, patIdx, stepIdx, rowIdx, value } = data;
+          if (
+            nodeId !== undefined &&
+            patIdx !== undefined &&
+            stepIdx !== undefined &&
+            rowIdx !== undefined
+          ) {
+            try {
+              const node = app.model?.state?.nodes?.[String(nodeId)];
+              if (
+                node &&
+                node.patterns &&
+                node.patterns[patIdx] &&
+                node.patterns[patIdx][stepIdx]
+              ) {
+                // For MonoSeq, clear all rows first, then set the target row
+                if (node.type === "MonoSeq") {
+                  const numRows = node.patterns[patIdx][stepIdx].length;
+                  for (let i = 0; i < numRows; i++) {
+                    node.patterns[patIdx][stepIdx][i] = 0;
+                  }
+                }
+                // Set the target row
+                const targetValue = value !== undefined ? value : 1;
+                node.patterns[patIdx][stepIdx][rowIdx] = targetValue;
+                // Broadcast the change
+                app.model?.broadcast(app.model.state, {
+                  type: "toggleCell",
+                  nodeId: String(nodeId),
+                  patIdx,
+                  stepIdx,
+                  rowIdx,
+                  value: targetValue,
+                });
+              }
+            } catch (e) {
+              console.warn("Failed to toggle cell:", e);
+            }
+          }
+        } else if (data.type === "noiseCraft:play") {
+          ensurePlaying();
+        } else if (data.type === "noiseCraft:stop") {
+          // Don't stop if already stopped
+          if (!model.playing) {
+            console.log("Already stopped, skipping stop");
+            syncButtonStates();
+            return;
+          }
+          app.stop();
+          // Wait a tiny bit for model.playing to update, then sync buttons
+          setTimeout(() => {
+            syncButtonStates();
+            notifyParent({ type: "noiseCraft:audioState", status: "stopped" });
+          }, 10);
+        }
+      };
+      window.addEventListener("message", handleExternalMessage);
+
+      // 3) 초기 프로젝트 로드
+      const initialState = await loadInitialProject();
+      app.setState(initialState);
+
+      // Extract and set filename from URL for save functionality
+      const loadUrl = new URL(window.location.href);
+      const loadSrc = loadUrl.searchParams.get("src");
+      if (loadSrc) {
+        const match = loadSrc.match(/([^\/]+\.ncft)(?:\?|$)/);
+        if (match) {
+          autoSaveFilename = match[1];
+          console.log(
+            `[Save] Set auto-save filename from URL: ${autoSaveFilename}`
+          );
+        }
+      }
+
+      // Update background text visibility (임베디드일 때도 내부 레이아웃은 유지하되 표시만 제어)
+      const graphBgText = document.getElementById("graph_bg_text");
+      if (graphBgText) {
+        if (initialState && Object.keys(initialState.nodes || {}).length > 0) {
+          graphBgText.style.display = "none";
+        } else {
+          graphBgText.style.display = "block";
+        }
+      }
+
+      // Update project title
+      const projectTitle = document.getElementById("project_title");
+      if (projectTitle && initialState?.title) {
+        projectTitle.value = initialState.title;
+      }
+
+      // Ensure edges are visible after load - force editor update after everything is laid out
+      setTimeout(() => {
+        if (editor && editor.model && editor.model.state) {
+          // Force a complete re-render of the editor to ensure edges are created
+          editor.update(editor.model.state, null);
+
+          // Also ensure resize is called
+          if (editor.resize) {
+            editor.resize();
+          }
+
+          // Double-check edges are visible by re-rendering after resize
+          setTimeout(() => {
+            const svg = document.getElementById("graph_svg");
+            if (svg) {
+              console.log(`SVG contains ${svg.children.length} edge elements`);
+              // Verify edges have valid path data
+              const paths = Array.from(svg.querySelectorAll("path"));
+              const validPaths = paths.filter(
+                (p) => p.getAttribute("d") && p.getAttribute("d").length > 0
+              );
+              console.log(
+                `${validPaths.length} of ${paths.length} edges have valid path data`
+              );
+            }
+          }, 200);
+        }
+      }, 500);
+
+      statusEl.textContent = "";
+      notifyParent({
+        type: "noiseCraft:projectLoaded",
+        title: initialState?.title || null,
+      });
+      notifyParent({ type: "noiseCraft:audioState", status: "ready" });
+
+      // 4) 오디오 시작/정지 (브라우저 자동재생 정책 대응)
+      btnStart.onclick = () => {
+        ensurePlaying();
+      };
+      btnStop.onclick = () => {
+        // Don't stop if already stopped
+        if (!model.playing) {
+          console.log("Already stopped, skipping stop");
+          syncButtonStates();
+          return;
+        }
+        app.stop();
+        // Wait a tiny bit for model.playing to update, then sync buttons
+        setTimeout(() => {
+          syncButtonStates();
+          notifyParent({ type: "noiseCraft:audioState", status: "stopped" });
+        }, 10);
+      };
+
+      const handleFileSelection = (event) => {
+        const file = event.target?.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const text = e?.target?.result;
+            if (typeof text !== "string")
+              throw new Error("Invalid file content");
+            const data = JSON.parse(text);
+            app.setState(data);
+            statusEl.textContent = `Loaded "${file.name}". Starting…`;
+            ensurePlaying();
+          } catch (err) {
+            console.error("Failed to load project file", err);
+            statusEl.textContent = "Failed to load project";
+            alert(
+              "프로젝트 파일을 불러오지 못했습니다. .ncft/.json 형식을 확인하세요."
+            );
+          } finally {
+            if (event.target) {
+              event.target.value = "";
+            }
+          }
+        };
+        reader.readAsText(file, "utf-8");
+      };
+
+      if (btnOpen && fileInput) {
+        btnOpen.onclick = () => fileInput.click();
+        fileInput.addEventListener("change", handleFileSelection);
+      }
+
+      // 5) 실시간 연동: WebSocket 또는 Socket.IO 중 하나를 사용
+      const urlParams = new URL(window.location.href).searchParams;
+      const wsURL = urlParams.get("ws") || "";
+      const ioURL = urlParams.get("io") || "";
+
+      // 표준 WebSocket 연동
+      if (wsURL) {
+        try {
+          const socket = new WebSocket(wsURL);
+          socket.addEventListener(
+            "open",
+            () => (statusEl.textContent = "Playing (WS connected)")
+          );
+          socket.addEventListener(
+            "close",
+            () => (statusEl.textContent = "Playing (WS closed)")
+          );
+          socket.addEventListener(
+            "error",
+            () => (statusEl.textContent = "Playing (WS error)")
+          );
+          socket.addEventListener("message", (event) => {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === "setParam") {
+                app.updateParam(msg.nodeId, msg.paramName, msg.value);
+              }
+            } catch (e) {
+              console.warn("WS message parse error", e);
+            }
+          });
+        } catch (e) {
+          console.warn("Failed to open WebSocket:", e);
+        }
+      }
+
+      // Socket.IO 연동 (쿼리스트링 io= 으로 서버 URL 지정)
+      if (!wsURL && ioURL) {
+        // 동적으로 Socket.IO 클라이언트 로드
+        const script = document.createElement("script");
+        script.src = "https://cdn.socket.io/4.7.4/socket.io.min.js";
+        script.onload = () => {
+          try {
+            // @ts-ignore
+            const sock = window.io(ioURL, {
+              path: "/socket",
+              transports: ["websocket"],
+              query: { type: "spectator" },
+            });
+            const setStatus = (t) => {
+              if (statusEl) statusEl.textContent = t;
+            };
+            sock.on("connect", () => setStatus("Playing (IO connected)"));
+            sock.on("disconnect", () => setStatus("Playing (IO disconnected)"));
+            sock.on("param", (msg) => {
+              try {
+                if (msg && msg.type === "setParam") {
+                  app.updateParam(msg.nodeId, msg.paramName, msg.value);
+                }
+              } catch (e) {
+                console.warn("IO param handler error", e);
+              }
+            });
+          } catch (e) {
+            console.warn("Failed to open Socket.IO:", e);
+          }
+        };
+        document.head.appendChild(script);
+      }
+
+      // Add keyboard handlers for full NoiseCraft editor controls (delete key, etc.)
+      // Use both window and document to ensure events are caught in iframe
+      const handleKeyDown = function (event) {
+        // If a text input box is active, do nothing
+        if (
+          document.activeElement &&
+          (document.activeElement.nodeName.toLowerCase() == "input" ||
+            document.activeElement.nodeName.toLowerCase() == "textarea")
+        )
+          return;
+
+        // Spacebar triggers play/stop
+        if (event.code == "Space") {
+          if (model.playing) {
+            app.stop();
+            setTimeout(() => {
+              syncButtonStates();
+              notifyParent({
+                type: "noiseCraft:audioState",
+                status: "stopped",
+              });
+            }, 10);
+          } else {
+            ensurePlaying();
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
+        // Ctrl or Command key
+        if (event.ctrlKey || event.metaKey) {
+          // Ctrl + S (save) - manual save like original NoiseCraft
+          if (event.code == "KeyS") {
+            event.preventDefault();
+            event.stopPropagation();
+
+            // Determine filename from URL or use auto-save filename
+            const url = new URL(window.location.href);
+            const src = url.searchParams.get("src");
+            let filename = autoSaveFilename;
+
+            // Try to extract filename from src URL parameter
+            if (src) {
+              // Match filename pattern: /examples/filename.ncft or /public/examples/filename.ncft
+              const match = src.match(/([^\/]+\.ncft)(?:\?|$)/);
+              if (match) {
+                filename = match[1];
+                console.log(`[Save] Extracted filename from URL: ${filename}`);
+              }
+            }
+
+            // If still no filename, try auto-save filename or fallback
+            if (!filename) {
+              if (autoSaveFilename) {
+                filename = autoSaveFilename;
+                console.log(`[Save] Using auto-save filename: ${filename}`);
+              } else {
+                // Fallback: try to get from project title or use default
+                const projectTitle = document.getElementById("project_title");
+                if (projectTitle && projectTitle.value) {
+                  filename =
+                    projectTitle.value
+                      .toLowerCase()
+                      .replace(/[^a-z0-9.]/gi, "_") + ".ncft";
+                } else {
+                  filename = "indiv_audio_map.ncft"; // Default for this workspace
+                }
+                console.log(`[Save] Using fallback filename: ${filename}`);
+              }
+            }
+
+            console.log(`[Save] Manual save triggered for ${filename}`);
+            console.log(
+              `[Save] URL src param: ${src}, extracted filename: ${filename}`
+            );
+            if (statusEl) statusEl.textContent = "Saving...";
+
+            // Save immediately (no debounce for manual save, force=true bypasses autoSaveEnabled check)
+            saveProjectToServer(filename, true)
+              .then(() => {
+                console.log(`[Save] Successfully saved to ${filename}`);
+                if (statusEl) statusEl.textContent = `✓ Saved ${filename}`;
+                notifyParent({
+                  type: "noiseCraft:saveStatus",
+                  status: "saved",
+                  filename,
+                  manual: true,
+                });
+                setTimeout(() => {
+                  // Sync button states whenever model updates (in case state changed externally)
+                  syncButtonStates();
+                }, 2000);
+              })
+              .catch((err) => {
+                if (statusEl)
+                  statusEl.textContent = `✗ Save failed: ${err.message}`;
+                console.error("[Save] Manual save failed:", err);
+                notifyParent({
+                  type: "noiseCraft:saveStatus",
+                  status: "error",
+                  filename,
+                  error: err.message,
+                  manual: true,
+                });
+              });
+
+            return;
+          }
+
+          // Ctrl + Z (undo) - also handle Ctrl+Shift+Z for redo on some systems
+          if (event.code == "KeyZ" && !event.shiftKey) {
+            console.log("[Undo] Attempting undo...");
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+              const hadUndo = model.undoStack && model.undoStack.length > 0;
+              model.undo();
+              console.log("[Undo]", hadUndo ? "Undone" : "No undo history");
+            } catch (err) {
+              console.error("[Undo] Error:", err);
+            }
+          }
+          // Ctrl + Shift + Z or Ctrl + Y (redo)
+          else if (
+            (event.code == "KeyZ" && event.shiftKey) ||
+            event.code == "KeyY"
+          ) {
+            console.log("[Redo] Attempting redo...");
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+              const hadRedo = model.redoStack && model.redoStack.length > 0;
+              model.redo();
+              console.log("[Redo]", hadRedo ? "Redone" : "No redo history");
+            } catch (err) {
+              console.error("[Redo] Error:", err);
+            }
+          }
+          // Ctrl + A (select all)
+          else if (event.code == "KeyA") {
+            event.preventDefault();
+            event.stopPropagation();
+            editor.selectAll();
+          }
+          // Ctrl + G (group nodes) - only on localhost
+          else if (event.code == "KeyG" && location.hostname == "localhost") {
+            console.log("group nodes");
+            event.preventDefault();
+            event.stopPropagation();
+            editor.groupSelected();
+          }
+
+          return;
+        }
+
+        // Delete or backspace key
+        if (event.code == "Backspace" || event.code == "Delete") {
+          console.log("delete key");
+          event.preventDefault();
+          event.stopPropagation();
+          editor.deleteSelected();
+          return;
+        }
+      };
+
+      // Attach to both window and document for better iframe compatibility
+      window.addEventListener("keydown", handleKeyDown, true);
+      document.addEventListener("keydown", handleKeyDown, true);
+    </script>
+  </body>
+</html>

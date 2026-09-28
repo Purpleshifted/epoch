@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NoiseCraft Visualization</title>
+    <link rel="stylesheet" href="/public/style.css" />
+    <link rel="icon" type="image/x-icon" href="/public/favicon.ico" />
+    <style>
+      body {
+        background: #04070c;
+        color: #e4e4e7;
+        font-family: "Inter", "Pretendard", system-ui, -apple-system,
+          BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .vis-layout {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .vis-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 24px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(5, 10, 18, 0.9);
+      }
+      .vis-header h1 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0;
+      }
+      .vis-controls {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .vis-button {
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.05);
+        color: #fff;
+        border-radius: 999px;
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: background 0.2s ease, border 0.2s ease;
+      }
+      .vis-button.primary {
+        border-color: rgba(59, 130, 246, 0.9);
+        background: rgba(59, 130, 246, 0.15);
+      }
+      .vis-button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .vis-status-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        padding: 0 24px 16px;
+        font-size: 13px;
+        color: rgba(228, 228, 231, 0.8);
+      }
+      .vis-status-row span {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .vis-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        display: inline-flex;
+        background: #ef4444;
+      }
+      .vis-status-dot.ok {
+        background: #22c55e;
+      }
+      #editor_div {
+        flex-grow: 1;
+        padding: 0;
+        margin: 0;
+        overflow: scroll;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      #graph_div {
+        pointer-events: none;
+      }
+      #project_title {
+        pointer-events: none;
+        border: none;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 14px;
+        position: absolute;
+        top: 20px;
+        left: 20px;
+      }
+      #graph_bg_text {
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 14px;
+      }
+      .vis-note {
+        padding: 12px 24px 24px;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.5);
+      }
+    </style>
+    <script type="module" src="/public/visualization.js"></script>
+  </head>
+  <body>
+    <div class="vis-layout">
+      <header class="vis-header">
+        <div>
+          <h1>NoiseCraft Visualization</h1>
+          <div style="font-size: 13px; color: rgba(255, 255, 255, 0.6)">
+            Load a project snapshot and mirror realtime param updates.
+          </div>
+        </div>
+        <div class="vis-controls">
+          <button class="vis-button" id="btn_upload" type="button">
+            Upload .ncft/.json
+          </button>
+          <button class="vis-button primary" id="btn_start" type="button">
+            Start Audio
+          </button>
+          <button class="vis-button" id="btn_stop" type="button" disabled>
+            Stop
+          </button>
+        </div>
+      </header>
+      <div class="vis-status-row">
+        <span>
+          <span class="vis-status-dot" id="audio_status_dot"></span>
+          <span id="audio_status">Audio: Idle</span>
+        </span>
+        <span>
+          <span class="vis-status-dot" id="socket_status_dot"></span>
+          <span id="socket_status">Socket: Not connected</span>
+        </span>
+        <span id="project_meta">Project: (loading)</span>
+      </div>
+      <div id="editor_div">
+        <div id="graph_div"></div>
+        <svg id="graph_svg" version="1.1"></svg>
+        <div id="graph_bg_text">
+          Upload a NoiseCraft project to visualize it.
+        </div>
+        <input
+          type="text"
+          id="project_title"
+          size="32"
+          maxlength="60"
+          value=""
+          readonly
+        />
+      </div>
+      <div class="vis-note">
+        Tip: provide <code>?io=&lt;socket-url&gt;</code> (defaults to
+        <code>https://intersection-game.onrender.com/socket</code>) or
+        <code>?src=&lt;project-json&gt;</code>
+        to preload a project. Uploading a file replaces the current state
+        locally.
+      </div>
+    </div>
+    <input
+      type="file"
+      id="file_input"
+      accept=".ncft,.json,application/json"
+      style="display: none"
+    />
+  </body>
+</html>

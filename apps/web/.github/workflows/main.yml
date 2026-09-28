@@ -1,0 +1,15 @@
+name: Keep Render App Awake
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'  # 10분마다 실행
+
+jobs:
+  keep_alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send request to keep app awake
+        run:  |
+          curl -s https://intersection-game.onrender.com > /dev/null
+          curl -s https://intersection-nextjs.onrender.com > /dev/null
+          curl -s https://intersection-audio.onrender.com > /dev/null

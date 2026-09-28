@@ -1,0 +1,107 @@
+{
+    "title": "New Project",
+    "nodes": {
+        "1": {
+            "type": "Saw",
+            "name": "Saw",
+            "x": 390,
+            "y": 153,
+            "ins": [
+                [
+                    "4",
+                    0
+                ]
+            ],
+            "inNames": [
+                "freq"
+            ],
+            "outNames": [
+                "out"
+            ],
+            "params": {
+                "minVal": -1,
+                "maxVal": 1
+            }
+        },
+        "2": {
+            "type": "AudioOut",
+            "name": "AudioOut",
+            "x": 915,
+            "y": 223,
+            "ins": [
+                [
+                    "5",
+                    0
+                ],
+                [
+                    "5",
+                    0
+                ]
+            ],
+            "inNames": [
+                "left",
+                "right"
+            ],
+            "outNames": [],
+            "params": {}
+        },
+        "4": {
+            "type": "Const",
+            "name": "Const",
+            "x": 243,
+            "y": 229,
+            "ins": [],
+            "inNames": [],
+            "outNames": [
+                ""
+            ],
+            "params": {
+                "value": 500
+            }
+        },
+        "5": {
+            "type": "Filter",
+            "name": "Filter",
+            "x": 631,
+            "y": 240,
+            "ins": [
+                [
+                    "1",
+                    0
+                ],
+                [
+                    "11",
+                    0
+                ],
+                null
+            ],
+            "inNames": [
+                "in",
+                "cutoff",
+                "reso"
+            ],
+            "outNames": [
+                "out"
+            ],
+            "params": {}
+        },
+        "11": {
+            "type": "Knob",
+            "name": "Knob",
+            "x": 464,
+            "y": 308,
+            "ins": [],
+            "inNames": [],
+            "outNames": [
+                ""
+            ],
+            "params": {
+                "minVal": 0,
+                "maxVal": 1,
+                "value": 0.26660156249999994,
+                "deviceId": null,
+                "controlId": null
+            }
+        }
+    }
+}

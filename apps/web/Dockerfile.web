@@ -1,0 +1,32 @@
+FROM node:24-alpine AS deps
+WORKDIR /app
+
+# Install root dependencies (Next.js app only)
+COPY package.json yarn.lock ./
+RUN corepack enable \
+  && corepack prepare yarn@1.22.22 --activate \
+  && yarn install --frozen-lockfile
+
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_WS_URL=https://intersection-game.onrender.com/socket
+ENV NEXT_PUBLIC_NOISECRAFT_WS_URL=https://intersection-audio.onrender.com
+ENV NEXT_PUBLIC_NOISECRAFT_PATCH_SRC=/public/examples/chord_spatial.ncft
+
+# Build Next.js (standalone)
+COPY . .
+RUN corepack enable \
+  && corepack prepare yarn@1.22.22 --activate \
+  && yarn build
+
+FROM node:24-alpine AS runner
+WORKDIR /app
+
+# Copy Next.js standalone output
+COPY --from=deps /app/.next/standalone ./ 
+COPY --from=deps /app/.next/static ./.next/static
+COPY --from=deps /app/public ./public
+
+EXPOSE 10000
+
+# CMD ["node", "server.js"]
+CMD ["sh", "-c", "HOSTNAME=0.0.0.0 PORT=${PORT:-10000} node server.js"]
