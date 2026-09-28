@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * timespace/TimespaceView.tsx
+ * TimespaceView — 시공간 블록 3D 뷰
  *
- * 시공간 블록 3D 뷰.
- *
- * - 별 색 = 실제 온도/위상 기반 (kelvinToRGB, 셰이더와 동일 공식)
- * - Pillar = 별이 존재한 시간만큼의 기둥 (위=현재 밝음, 아래=과거 어두움)
- * - 플레이어 = "지금" 평면(Y=nowY)에 glowing 마커로 표시
- * - localStorage 1s 폴링으로 mobile 탭과 실시간 싱크
+ * 핵심 비주얼 요소:
+ *   1. XZ 바닥면 ("birth plane") — 모바일 뷰와 동일한 공간 배치
+ *   2. Worldline pillar — 발생지점부터 (φ, β) 방향으로 실시간 성장
+ *   3. 수직 참조선 — β=0 기준선과의 차이로 기울기 직관화
+ *   4. XZ shadow — 현재 별의 공간 위치를 바닥면에 투영
+ *   5. "지금" 절단면 — 현재 시각의 강한 수평선
+ *   6. 별 점 — worldline의 현재 끝(tip), 매 프레임 갱신
  */
 
 import { useRef, useMemo, useEffect, useState } from "react";
@@ -21,215 +22,281 @@ import { useSpacetimeStarsWithRef } from "@/components/spacetime/useSpacetimeSta
 import { PLANE_COLORS, type StarBody } from "@/components/spacetime/types";
 
 // ──────────────────────────────────────────────────────────────
-const AGE_SCALE   = 0.055;
-const STRATA_STEP = 30;
+const AGE_SCALE   = 0.055;  // 1초 = 0.055 world units (Y)
+const STRATA_STEP = 30;     // 30초마다 격자면
 
-// ── 별 실제 시각적 색상 (StarFieldSystem GLSL과 동일 공식) ──
+// ── 별 실제 색상 (StarFieldSystem GLSL과 동일) ──
 function kelvinToRGB(K: number): [number, number, number] {
   const t = Math.max(10, Math.min(400, K / 100));
-  const r = t <= 66 ? 1.0 : Math.max(0, Math.min(1, 329.6987 * Math.pow(t - 60, -0.1332) / 255));
+  const r = t <= 66 ? 1.0 : Math.max(0, Math.min(1, 329.6987 * Math.pow(t-60,-0.1332)/255));
   const g = t <= 66
-    ? Math.max(0, Math.min(1, (99.4708 * Math.log(t) - 161.1195) / 255))
-    : Math.max(0, Math.min(1, 288.1221 * Math.pow(t - 60, -0.0755) / 255));
+    ? Math.max(0, Math.min(1, (99.4708*Math.log(t)-161.1195)/255))
+    : Math.max(0, Math.min(1, 288.1221*Math.pow(t-60,-0.0755)/255));
   const b = t >= 66 ? 1.0 : t <= 19 ? 0.0
-    : Math.max(0, Math.min(1, (138.5177 * Math.log(t - 10) - 305.0447) / 255));
+    : Math.max(0, Math.min(1, (138.5177*Math.log(t-10)-305.0447)/255));
   return [r, g, b];
 }
 
-function starActualColor(star: StarBody): [number, number, number] {
-  switch (star.phase) {
+function starActualColor(s: StarBody): [number, number, number] {
+  switch (s.phase) {
     case "mainSequence": {
-      const ms = Math.max(star.mass / 180, 0.01);
-      const L  = Math.pow(ms, 3.5);
-      const R  = Math.pow(ms, 0.7);
-      const T  = 5778 * Math.pow(L / (R * R), 0.25);
-      const [r, g, b] = kelvinToRGB(Math.min(T, 40000));
-      // artistic saturation boost (matches GLSL)
-      const gray = r * 0.299 + g * 0.587 + b * 0.114;
-      return [
-        Math.min(1, gray + (r - gray) * 2.2),
-        Math.min(1, gray + (g - gray) * 2.2),
-        Math.min(1, gray + (b - gray) * 2.2),
-      ];
+      const ms = Math.max(s.mass/180, 0.01);
+      const T  = 5778 * Math.pow(Math.pow(ms,3.5) / Math.pow(ms,1.4), 0.25);
+      const [r,g,b] = kelvinToRGB(Math.min(T, 40000));
+      const gray = r*0.299 + g*0.587 + b*0.114;
+      return [Math.min(1,gray+(r-gray)*2.2), Math.min(1,gray+(g-gray)*2.2), Math.min(1,gray+(b-gray)*2.2)];
     }
-    case "redGiant":  return [1.0,  0.42, 0.1];
-    case "supernova": return [1.0,  0.85, 0.35];
+    case "redGiant":  return [1.0, 0.42, 0.1];
+    case "supernova": return [1.0, 0.85, 0.35];
     case "remnant":   return [0.75, 0.88, 1.0];
-    case "protostar": return [1.0,  0.6,  0.2];
-    case "nebula":    return [0.5,  0.3,  0.85];
-    default:          return [0.9,  0.9,  0.9];
+    case "protostar": return [1.0, 0.6, 0.2];
+    case "nebula":    return [0.5, 0.3, 0.85];
+    default:          return [0.9, 0.9, 0.9];
   }
 }
 
 // ──────────────────────────────────────────────────────────────
-// 수평 격자면 (t 구간마다)
+// XZ 바닥면 (birth plane) + 격자
 // ──────────────────────────────────────────────────────────────
-function StratumGrid({ maxAge, extent }: { maxAge: number; extent: number }) {
-  const elems = useMemo<JSX.Element[]>(() => {
-    const count = Math.ceil(maxAge / STRATA_STEP) + 1;
-    return Array.from({ length: count + 1 }, (_, i) => {
-      const y = i * STRATA_STEP * AGE_SCALE;
-      return (
-        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[0, y, 0]}>
-          <planeGeometry args={[extent * 2.2, extent * 2.2]} />
-          <meshBasicMaterial
-            color="#0a1233"
-            transparent
-            opacity={i === 0 ? 0.4 : 0.08}
-            side={THREE.DoubleSide}
-            depthWrite={false}
-          />
-        </mesh>
-      );
-    });
-  }, [maxAge, extent]);
-  return <>{elems}</>;
-}
-
-// ──────────────────────────────────────────────────────────────
-// T 축
-// ──────────────────────────────────────────────────────────────
-function TimeAxis({ height }: { height: number }) {
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0, height, 0], 3));
-    return g;
-  }, [height]);
+function BirthPlane({ extent }: { extent: number }) {
+  const s = Math.ceil(extent * 2 / 5) * 5;
   return (
-    <lineSegments geometry={geo}>
-      <lineBasicMaterial color="#1133aa" transparent opacity={0.5} />
-    </lineSegments>
+    <>
+      <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0, 0]}>
+        <planeGeometry args={[s, s]} />
+        <meshBasicMaterial color="#050814" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <gridHelper args={[s, Math.floor(s/4), "#0d1a3a", "#070f24"]} position={[0, 0.001, 0]} />
+    </>
   );
 }
 
 // ──────────────────────────────────────────────────────────────
-// 별 + Pillar
-// Pillar worldline: (x + cos(θ)·τ·DRIFT, τ·AGE_SCALE, z + sin(θ)·τ·DRIFT)
-// θ 방향으로 기울어져서 서로 다른 관측자의 별들이 다른 방향의 기둥을 형성
+// T축 + 30초마다 수평 참조선
 // ──────────────────────────────────────────────────────────────
-const DRIFT = 0.05; // 시간 1초당 XZ 이동량 (클수록 기울기 뚜렷)
+function TimeAxis({ height, extent }: { height: number; extent: number }) {
+  const axisGeo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute([0,0,0, 0,height,0], 3));
+    return g;
+  }, [height]);
 
-const STAR_VS = /* glsl */`
-  attribute float aAge;
-  attribute float aCreatorCos;  // cos(creatorAngle) * DRIFT
-  attribute float aCreatorSin;  // sin(creatorAngle) * DRIFT
-  attribute vec3  aColor;
-  uniform   float uTime;
-  uniform   float uTimeDelta;
-  varying   vec3  vColor;
+  const stratumGeos = useMemo(() => {
+    const count = Math.ceil(height / (STRATA_STEP * AGE_SCALE)) + 1;
+    return Array.from({ length: count }, (_, i) => {
+      const y = i * STRATA_STEP * AGE_SCALE;
+      const g = new THREE.BufferGeometry();
+      const s = extent * 1.4;
+      g.setAttribute("position", new THREE.Float32BufferAttribute([
+        -s, y, 0,  s, y, 0,
+        0, y, -s,  0, y, s,
+      ], 3));
+      return { g, y };
+    });
+  }, [height, extent]);
 
-  void main() {
-    vColor = aColor;
-    float tau = aAge + uTimeDelta;
-    // θ 기울기: 시간이 흐를수록 cos(θ), sin(θ) 방향으로 XZ 이동
-    float wx = position.x + aCreatorCos * tau;
-    float wy = tau * ${AGE_SCALE.toFixed(4)};
-    float wz = position.z + aCreatorSin * tau;
-    float pulse = 0.82 + 0.18 * sin(uTime * 2.0 + position.x * 3.7 + position.z * 2.3);
-    float brightness = dot(aColor, vec3(0.299, 0.587, 0.114));
-    gl_PointSize = clamp((4.0 + brightness * 18.0) * pulse, 3.0, 40.0);
-    gl_Position  = projectionMatrix * modelViewMatrix * vec4(wx, wy, wz, 1.0);
-  }
-`;
-const STAR_FS = /* glsl */`
-  precision highp float;
-  varying vec3 vColor;
-  void main() {
-    vec2 uv = gl_PointCoord - 0.5;
-    float d = length(uv); if (d > 0.5) discard;
-    float core = exp(-d*d*9.0);
-    float halo = exp(-d*d*2.5) * 0.45;
-    gl_FragColor = vec4(vColor, (core + halo));
-  }
-`;
+  return (
+    <>
+      <lineSegments geometry={axisGeo}>
+        <lineBasicMaterial color="#1a2a77" transparent opacity={0.6} />
+      </lineSegments>
+      {stratumGeos.map(({ g, y }, i) => (
+        <lineSegments key={i} geometry={g}>
+          <lineBasicMaterial color={i===0 ? "#334488" : "#0d1433"} transparent opacity={i===0 ? 0.5 : 0.2} />
+        </lineSegments>
+      ))}
+    </>
+  );
+}
 
-function StarsAndPillars({
+// ──────────────────────────────────────────────────────────────
+// 핵심: Worldline Pillars
+//
+// 각 별마다:
+//   A. XZ shadow: (x, ε, z) — 바닥면에 투영된 공간 위치 (정적)
+//   B. 수직 참조선: (x, 0, z) → (x, nowY, z) — β=0일 때의 worldline (회색)
+//   C. Worldline pillar: (x, 0, z) → tip(τ) — 매 프레임 useFrame에서 tip 갱신
+//   D. Star point (tip): pillar 끝, 빛나는 별 점
+// ──────────────────────────────────────────────────────────────
+
+function WorldlinePillars({
   stars,
   pollTimeRef,
 }: {
   stars: StarBody[];
   pollTimeRef: React.RefObject<number>;
 }) {
-  const matRef = useRef<THREE.ShaderMaterial>(null);
+  // ── per-star 상수 (stars 변경 시만 재계산) ──
+  const starData = useMemo(() => stars.map(s => {
+    const [r,g,b] = starActualColor(s);
+    const phi  = s.creatorPhi  ?? s.creatorAngle ?? 0;
+    const beta = s.creatorBeta ?? 0.3;
+    return { x: s.x, z: s.z, birthAge: s.age, r, g, b, phi, beta,
+             cx: Math.cos(phi)*beta, cz: Math.sin(phi)*beta };
+  }), [stars]);
 
-  // Star point geometry + θ tilt attributes
-  const { pos, ages, colors, coss, sins } = useMemo(() => {
-    const n = stars.length;
-    const pos    = new Float32Array(n * 3);
-    const ages   = new Float32Array(n);
-    const colors = new Float32Array(n * 3);
-    const coss   = new Float32Array(n);  // cos(θ) * DRIFT
-    const sins   = new Float32Array(n);  // sin(θ) * DRIFT
-    stars.forEach((s, i) => {
-      pos[i*3]=s.x; pos[i*3+1]=0; pos[i*3+2]=s.z;
-      ages[i]    = s.age;
-      const phi2  = s.creatorPhi  ?? s.creatorAngle ?? 0;
-      const beta2 = s.creatorBeta ?? DRIFT;
-      coss[i]    = Math.cos(phi2) * beta2;
-      sins[i]    = Math.sin(phi2) * beta2;
-      const [r,g,b] = starActualColor(s);
-      colors[i*3]=r; colors[i*3+1]=g; colors[i*3+2]=b;
+  // ── Worldline pillar (live-growing top vertex) ──
+  const pillarLineRef = useRef<THREE.LineSegments>(null);
+  const pillarPosRef  = useRef<Float32Array | null>(null);
+  const pillarColRef  = useRef<Float32Array | null>(null);
+
+  const pillarStaticData = useMemo(() => {
+    const n   = starData.length;
+    const pos = new Float32Array(n * 6); // 2 vertices × 3 per star
+    const col = new Float32Array(n * 6);
+    starData.forEach(({ x, z, r, g, b }, i) => {
+      // bottom (birth): always at (x, 0, z)
+      pos[i*6]=x;  pos[i*6+1]=0;    pos[i*6+2]=z;
+      col[i*6]=r*0.05; col[i*6+1]=g*0.05; col[i*6+2]=b*0.05;
+      // top (tip): initialized, updated in useFrame
+      pos[i*6+3]=x; pos[i*6+4]=0.01; pos[i*6+5]=z;
+      col[i*6+3]=r; col[i*6+4]=g;    col[i*6+5]=b;
     });
-    return { pos, ages, colors, coss, sins };
-  }, [stars]);
+    pillarPosRef.current = pos;
+    pillarColRef.current = col;
+    return { pos, col, n };
+  }, [starData]);
 
-  // Pillar geometry: θ-tilted worldline, dark bottom → bright top
-  // bottom = (x, 0, z), top = (x + cos(θ)*age*DRIFT, age*scale, z + sin(θ)*age*DRIFT)
-  const pillarGeo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    const pts: number[] = [];
-    const col: number[] = [];
-    stars.forEach((s) => {
-      const [r,gv,b] = starActualColor(s);
-      const phi  = s.creatorPhi  ?? s.creatorAngle ?? 0;
-      const beta = s.creatorBeta ?? DRIFT;  // 각 별 고유 β, fallback = global DRIFT
-      const age  = s.age;
-      const yTop = age * AGE_SCALE;
-      const xTop = s.x + Math.cos(phi) * beta * age;
-      const zTop = s.z + Math.sin(phi) * beta * age;
+  // ── Vertical reference (β=0 line: pure time axis per star) ──
+  const refLineRef = useRef<THREE.LineSegments>(null);
+  const refPosRef  = useRef<Float32Array | null>(null);
 
-      // bottom: star's spatial birth position, very dark
-      pts.push(s.x, 0, s.z);
-      col.push(r * 0.04, gv * 0.04, b * 0.04);
-      // top: tilted endpoint at current age, full color
-      pts.push(xTop, yTop, zTop);
-      col.push(r, gv, b);
+  const refStaticData = useMemo(() => {
+    const n   = starData.length;
+    const pos = new Float32Array(n * 6);
+    starData.forEach(({ x, z }, i) => {
+      pos[i*6]=x; pos[i*6+1]=0; pos[i*6+2]=z;
+      pos[i*6+3]=x; pos[i*6+4]=0.01; pos[i*6+5]=z; // top updated in useFrame
     });
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    g.setAttribute("color",    new THREE.Float32BufferAttribute(col, 3));
-    return g;
-  }, [stars]);
+    refPosRef.current = pos;
+    return { pos, n };
+  }, [starData]);
 
+  // ── Star tip points (shader-based, live tip position) ──
+  const tipRef       = useRef<THREE.Points>(null);
+  const tipMatRef    = useRef<THREE.ShaderMaterial>(null);
+  const tipPosRef    = useRef<Float32Array | null>(null);
+  const tipColRef    = useRef<Float32Array | null>(null);
+
+  const tipStaticData = useMemo(() => {
+    const n   = starData.length;
+    const pos = new Float32Array(n * 3);
+    const col = new Float32Array(n * 3);
+    starData.forEach(({ x, z, r, g, b }, i) => {
+      pos[i*3]=x; pos[i*3+1]=0.01; pos[i*3+2]=z;
+      col[i*3]=r; col[i*3+1]=g; col[i*3+2]=b;
+    });
+    tipPosRef.current = pos;
+    tipColRef.current = col;
+    return { pos, col, n };
+  }, [starData]);
+
+  // ── useFrame: 매 프레임 tip 위치 갱신 ──
   useFrame((_, dt) => {
-    if (!matRef.current) return;
-    matRef.current.uniforms.uTime.value     += dt;
-    matRef.current.uniforms.uTimeDelta.value = (Date.now() - pollTimeRef.current) / 1000;
+    if (!starData.length) return;
+    const elapsed = (Date.now() - pollTimeRef.current) / 1000;
+
+    const pPos = pillarPosRef.current;
+    const rPos = refPosRef.current;
+    const tPos = tipPosRef.current;
+
+    starData.forEach(({ x, z, birthAge, cx, cz }, i) => {
+      const tau  = birthAge + elapsed;      // 별의 현재 총 나이 (초)
+      const tipY = tau * AGE_SCALE;
+      const tipX = x + cx * tau;
+      const tipZ = z + cz * tau;
+
+      // pillar top
+      if (pPos) { pPos[i*6+3]=tipX; pPos[i*6+4]=tipY; pPos[i*6+5]=tipZ; }
+      // ref line top (수직)
+      if (rPos) { rPos[i*6+3]=x;    rPos[i*6+4]=tipY; rPos[i*6+5]=z; }
+      // star tip point
+      if (tPos) { tPos[i*3]=tipX;   tPos[i*3+1]=tipY; tPos[i*3+2]=tipZ; }
+    });
+
+    if (pillarLineRef.current) {
+      const attr = pillarLineRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      attr.needsUpdate = true;
+    }
+    if (refLineRef.current) {
+      const attr = refLineRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      attr.needsUpdate = true;
+    }
+    if (tipRef.current) {
+      const attr = tipRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      attr.needsUpdate = true;
+      if (tipMatRef.current) tipMatRef.current.uniforms.uTime.value += dt;
+    }
   });
 
-  if (!stars.length) return null;
+  // ── XZ shadow (바닥 투영 — 정적) ──
+  const shadowGeo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array(starData.length * 3);
+    const col = new Float32Array(starData.length * 3);
+    starData.forEach(({ x, z, r, g: gv, b }, i) => {
+      pos[i*3]=x; pos[i*3+1]=0.002; pos[i*3+2]=z;
+      col[i*3]=r*0.3; col[i*3+1]=gv*0.3; col[i*3+2]=b*0.3;
+    });
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color",    new THREE.Float32BufferAttribute(col, 3));
+    return g;
+  }, [starData]);
+
+  if (!starData.length) return null;
+
   return (
     <>
-      {/* Pillar: θ 방향으로 기울어진 worldline 기둥 */}
-      <lineSegments geometry={pillarGeo}>
-        <lineBasicMaterial vertexColors transparent opacity={0.9} depthWrite={false} />
+      {/* A. XZ shadow: 별이 공간에서 어디에 있는지 */}
+      <points geometry={shadowGeo}>
+        <pointsMaterial vertexColors size={0.18} transparent opacity={0.6} depthWrite={false} />
+      </points>
+
+      {/* B. 수직 참조선 (β=0 기준 — 기울기 비교용) */}
+      <lineSegments ref={refLineRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" array={refStaticData.pos} itemSize={3} count={refStaticData.n*2} />
+        </bufferGeometry>
+        <lineBasicMaterial color="#1a2a44" transparent opacity={0.35} depthWrite={false} />
       </lineSegments>
 
-      {/* Star point — 실시간 uTimeDelta로 pillar 끝(top)에 위치 */}
-      <points>
+      {/* C. Worldline pillar (실시간 성장, 색상 그라디언트) */}
+      <lineSegments ref={pillarLineRef}>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position"     array={pos}    itemSize={3} count={stars.length}/>
-          <bufferAttribute attach="attributes-aAge"         array={ages}   itemSize={1} count={stars.length}/>
-          <bufferAttribute attach="attributes-aCreatorCos"  array={coss}   itemSize={1} count={stars.length}/>
-          <bufferAttribute attach="attributes-aCreatorSin"  array={sins}   itemSize={1} count={stars.length}/>
-          <bufferAttribute attach="attributes-aColor"       array={colors} itemSize={3} count={stars.length}/>
+          <bufferAttribute attach="attributes-position" array={pillarStaticData.pos} itemSize={3} count={pillarStaticData.n*2} />
+          <bufferAttribute attach="attributes-color"    array={pillarStaticData.col} itemSize={3} count={pillarStaticData.n*2} />
+        </bufferGeometry>
+        <lineBasicMaterial vertexColors transparent opacity={0.95} depthWrite={false} />
+      </lineSegments>
+
+      {/* D. Star tip point (worldline의 현재 끝, 빛남) */}
+      <points ref={tipRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" array={tipStaticData.pos} itemSize={3} count={tipStaticData.n} />
+          <bufferAttribute attach="attributes-color"    array={tipStaticData.col} itemSize={3} count={tipStaticData.n} />
         </bufferGeometry>
         <shaderMaterial
-          ref={matRef}
-          vertexShader={STAR_VS}
-          fragmentShader={STAR_FS}
-          uniforms={{ uTime:{value:0}, uTimeDelta:{value:0} }}
-          transparent depthWrite={false}
-          blending={THREE.AdditiveBlending}
+          ref={tipMatRef}
+          uniforms={{ uTime: { value: 0 } }}
+          vertexShader={`
+            attribute vec3 color; varying vec3 vColor;
+            uniform float uTime;
+            void main() {
+              vColor = color;
+              float pulse = 0.8 + 0.2 * sin(uTime * 2.5 + position.x * 4.0);
+              gl_PointSize = clamp(dot(color, vec3(0.3,0.6,0.1)) * 20.0 * pulse + 4.0, 4.0, 32.0);
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `}
+          fragmentShader={`
+            precision highp float; varying vec3 vColor;
+            void main() {
+              vec2 uv = gl_PointCoord - 0.5; float d = length(uv);
+              if (d > 0.5) discard;
+              gl_FragColor = vec4(vColor, exp(-d*d*8.0) + exp(-d*d*2.0)*0.4);
+            }
+          `}
+          transparent depthWrite={false} blending={THREE.AdditiveBlending}
         />
       </points>
     </>
@@ -237,113 +304,61 @@ function StarsAndPillars({
 }
 
 // ──────────────────────────────────────────────────────────────
-// "지금" 슬라이스 + 플레이어 마커
+// "지금" 절단면 + 플레이어 마커
 // ──────────────────────────────────────────────────────────────
-interface PlayerInfo {
-  x: number; z: number;
-  color: string;
-  ts: number;
-}
+interface PlayerInfo { x: number; z: number; color: string; phi?: number; beta?: number; ts: number; }
 
-function NowSliceAndPlayer({
-  stars,
-  pollTimeRef,
-  player,
+function NowPlane({
+  stars, pollTimeRef, player,
 }: {
-  stars: StarBody[];
-  pollTimeRef: React.RefObject<number>;
-  player: PlayerInfo | null;
+  stars: StarBody[]; pollTimeRef: React.RefObject<number>; player: PlayerInfo | null;
 }) {
-  const planeRef  = useRef<THREE.Mesh>(null);
-  const markerRef = useRef<THREE.Mesh>(null);
-  const labelRef  = useRef<THREE.Mesh>(null);
+  const planeRef   = useRef<THREE.Mesh>(null);
+  const markerRef  = useRef<THREE.Mesh>(null);
   const maxBaseAge = useMemo(() => Math.max(0, ...stars.map(s => s.age)), [stars]);
 
   useFrame(() => {
     const elapsed = (Date.now() - pollTimeRef.current) / 1000;
     const nowY    = (maxBaseAge + elapsed) * AGE_SCALE;
-
     if (planeRef.current)  planeRef.current.position.y  = nowY;
-    if (markerRef.current) markerRef.current.position.y = nowY + 0.05;
-    if (labelRef.current)  labelRef.current.position.y  = nowY + 0.05;
+    if (markerRef.current) {
+      if (player) {
+        const tau  = (maxBaseAge + elapsed);
+        const phi  = player.phi  ?? 0;
+        const beta = player.beta ?? 0;
+        markerRef.current.position.set(
+          player.x + Math.cos(phi)*beta*tau,
+          nowY,
+          player.z + Math.sin(phi)*beta*tau,
+        );
+      } else {
+        markerRef.current.position.y = nowY;
+      }
+    }
   });
 
-  // Parse player color hex → rgb
-  const playerRGB = useMemo((): [number, number, number] => {
-    if (!player) return [1, 1, 1];
-    const hex = (player.color ?? "#ffffff").replace("#", "");
-    const n   = parseInt(hex, 16) || 0xffffff;
-    return [(n >> 16) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255];
-  }, [player]);
+  const extent = Math.max(20, ...stars.flatMap(s => [Math.abs(s.x), Math.abs(s.z)])) * 1.6;
 
   return (
     <>
-      {/* "지금" 투명 평면 */}
-      <mesh ref={planeRef} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[60, 60]} />
-        <meshBasicMaterial color="#2244ff" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
+      {/* "지금" 절단면 — 강하고 얇은 */}
+      <mesh ref={planeRef} rotation={[-Math.PI/2, 0, 0]}>
+        <planeGeometry args={[extent*2, extent*2]} />
+        <meshBasicMaterial color="#2255ff" transparent opacity={0.07} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
+      {/* "지금" 테두리 */}
+      <lineSegments ref={planeRef as React.RefObject<THREE.LineSegments>}>
+        {/* handled above */}
+      </lineSegments>
 
-      {/* 플레이어 마커 — player가 있을 때만 */}
+      {/* 플레이어 마커 */}
       {player && (
         <mesh ref={markerRef} position={[player.x, 0, player.z]}>
-          <sphereGeometry args={[0.35, 8, 8]} />
-          <meshBasicMaterial color={player.color} transparent opacity={0.95} />
-        </mesh>
-      )}
-      {player && (
-        <mesh position={[player.x, 0, player.z]}>
-          {/* 플레이어 아래 기둥 선 (아주 얇게) */}
+          <sphereGeometry args={[0.3, 8, 8]} />
+          <meshBasicMaterial color={player.color ?? "#ffffff"} transparent opacity={0.9} />
         </mesh>
       )}
     </>
-  );
-}
-
-// 플레이어 위치를 시간축 선으로 표시 (Y=0 → Y=nowY)
-function PlayerPillar({
-  player,
-  stars,
-  pollTimeRef,
-}: {
-  player: PlayerInfo | null;
-  stars: StarBody[];
-  pollTimeRef: React.RefObject<number>;
-}) {
-  const lineRef = useRef<THREE.LineSegments>(null);
-  const maxBaseAge = useMemo(() => Math.max(0, ...stars.map(s => s.age)), [stars]);
-
-  useFrame(() => {
-    if (!lineRef.current || !player) return;
-    const elapsed = (Date.now() - pollTimeRef.current) / 1000;
-    const nowY    = (maxBaseAge + elapsed) * AGE_SCALE;
-    const arr = (lineRef.current.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
-    // top vertex Y update
-    arr[4] = nowY;
-    (lineRef.current.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-  });
-
-  if (!player) return null;
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute([
-    player.x, 0, player.z,
-    player.x, 0.01, player.z,  // top Y will be updated by useFrame
-  ], 3));
-  const hex = (player.color ?? "#ffffff").replace("#", "");
-  const n   = parseInt(hex, 16) || 0xffffff;
-  const r   = (n >> 16) / 255;
-  const gv  = ((n >> 8) & 0xff) / 255;
-  const b   = (n & 0xff) / 255;
-  geo.setAttribute("color", new THREE.Float32BufferAttribute([
-    r*0.1, gv*0.1, b*0.1,
-    r, gv, b,
-  ], 3));
-
-  return (
-    <lineSegments ref={lineRef} geometry={geo}>
-      <lineBasicMaterial vertexColors transparent opacity={0.7} depthWrite={false} />
-    </lineSegments>
   );
 }
 
@@ -351,43 +366,31 @@ function PlayerPillar({
 // Scene
 // ──────────────────────────────────────────────────────────────
 function Scene({
-  stars,
-  pollTimeRef,
-  player,
+  stars, pollTimeRef, player,
 }: {
-  stars: StarBody[];
-  pollTimeRef: React.RefObject<number>;
-  player: PlayerInfo | null;
+  stars: StarBody[]; pollTimeRef: React.RefObject<number>; player: PlayerInfo | null;
 }) {
   const maxAge = Math.max(60, ...stars.map(s => s.age));
-  const height = (maxAge + STRATA_STEP * 3) * AGE_SCALE;
-  const extent = Math.max(20, ...stars.flatMap(s => [Math.abs(s.x), Math.abs(s.z)])) * 1.4;
+  const height = (maxAge + STRATA_STEP * 2) * AGE_SCALE;
+  const extent = Math.max(15, ...stars.flatMap(s => [Math.abs(s.x), Math.abs(s.z)])) * 1.4;
 
   return (
     <>
-      <color attach="background" args={["#000000"]} />
+      <color attach="background" args={["#000509"]} />
 
-      <TimeAxis height={height} />
-      <StratumGrid maxAge={maxAge + STRATA_STEP} extent={extent} />
-
-      <StarsAndPillars stars={stars} pollTimeRef={pollTimeRef} />
-
-      <NowSliceAndPlayer stars={stars} pollTimeRef={pollTimeRef} player={player} />
-      <PlayerPillar      stars={stars} pollTimeRef={pollTimeRef} player={player} />
+      <BirthPlane extent={extent} />
+      <TimeAxis height={height} extent={extent} />
+      <WorldlinePillars stars={stars} pollTimeRef={pollTimeRef} />
+      <NowPlane stars={stars} pollTimeRef={pollTimeRef} player={player} />
 
       <OrbitControls
-        makeDefault
-        enableDamping
-        dampingFactor={0.08}
-        rotateSpeed={0.6}
-        zoomSpeed={0.8}
-        minDistance={3}
-        maxDistance={300}
-        target={[0, height * 0.4, 0]}
+        makeDefault enableDamping dampingFactor={0.07}
+        rotateSpeed={0.55} zoomSpeed={0.8}
+        minDistance={2} maxDistance={400}
+        target={[0, height * 0.35, 0]}
       />
-
       <EffectComposer>
-        <Bloom intensity={2.8} luminanceThreshold={0.02} luminanceSmoothing={0.9} radius={1.2} />
+        <Bloom intensity={3.0} luminanceThreshold={0.01} luminanceSmoothing={0.9} radius={1.4} />
       </EffectComposer>
     </>
   );
@@ -397,51 +400,49 @@ function Scene({
 // HUD
 // ──────────────────────────────────────────────────────────────
 function HUD({ stars, player }: { stars: StarBody[]; player: PlayerInfo | null }) {
-  const router  = useRouter();
-  const isStale = player ? Date.now() - player.ts > 5000 : true;
+  const router   = useRouter();
+  const isStale  = player ? Date.now() - player.ts > 5000 : true;
+  const betaPct  = player?.beta ? Math.round(player.beta * 100) : null;
 
   return (
     <>
       <div className="absolute top-4 left-4 pointer-events-none select-none space-y-1">
-        <div className="text-white/25 text-[10px] tracking-widest uppercase">Spacetime Block</div>
-        <div className="text-white/15 text-[9px] font-mono">{stars.length} stars</div>
-        <div className="text-[9px] font-mono mt-1 flex items-center gap-1.5">
-          {player && !isStale ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: player.color }} />
-              <span className="text-white/30">player active</span>
-            </>
-          ) : (
-            <span className="text-white/12">no player</span>
-          )}
-        </div>
+        <div className="text-white/20 text-[10px] tracking-widest uppercase">Spacetime Block</div>
+        <div className="text-white/12 text-[9px] font-mono">{stars.length} worldlines</div>
+        {player && !isStale && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: player.color ?? "#fff" }} />
+            <span className="text-white/25 text-[9px] font-mono">
+              φ={Math.round((player.phi ?? 0) * 180 / Math.PI)}° β={betaPct}%c
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="absolute top-4 right-4 pointer-events-none select-none text-[9px] text-white/15 font-mono text-right leading-relaxed">
         <div>Y ↑ = time</div>
-        <div>XZ = space</div>
-        <div>pillar = star lifetime</div>
-        <div>color = phase/temp</div>
+        <div>XZ = birth position</div>
+        <div>tilt = φ direction</div>
+        <div>lean = β speed</div>
+        <div className="mt-1 text-white/10">— = β=0 reference</div>
       </div>
 
       {stars.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2">
-          <div className="text-white/20 text-sm font-light tracking-widest">시공간이 비어있습니다</div>
-          <div className="text-white/10 text-xs font-mono">/mobile 에서 별을 만들면 여기에 나타납니다</div>
+          <div className="text-white/18 text-sm tracking-widest">/mobile 에서 별을 만들면</div>
+          <div className="text-white/10 text-xs font-mono">worldline이 여기에 그려집니다</div>
         </div>
       )}
 
       <div className="absolute bottom-5 left-5 flex gap-2">
         <button
-          className="text-white/20 text-xs border border-white/10 px-3 py-1.5 rounded hover:text-white/40 hover:border-white/20 transition-colors"
+          className="text-white/20 text-xs border border-white/10 px-3 py-1.5 rounded hover:text-white/40 transition-colors"
           onClick={() => router.push("/")}
         >←</button>
-        <a
-          href="/mobile"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-white/20 text-xs border border-white/10 px-3 py-1.5 rounded hover:text-white/40 hover:border-white/20 transition-colors"
-        >mobile ↗</a>
+        <a href="/mobile" target="_blank" rel="noopener noreferrer"
+          className="text-white/20 text-xs border border-white/10 px-3 py-1.5 rounded hover:text-white/40 transition-colors">
+          mobile ↗
+        </a>
       </div>
     </>
   );
@@ -449,32 +450,29 @@ function HUD({ stars, player }: { stars: StarBody[]; player: PlayerInfo | null }
 
 // ──────────────────────────────────────────────────────────────
 export default function TimespaceView() {
-  const { stars, pollTimeRef } = useSpacetimeStarsWithRef({ pollMs: 1000, permanentOnly: false });
+  const { stars, pollTimeRef } = useSpacetimeStarsWithRef({ pollMs: 1500, permanentOnly: false });
   const [player, setPlayer]   = useState<PlayerInfo | null>(null);
 
-  // 플레이어 위치 폴링 (800ms)
   useEffect(() => {
     const load = () => {
       try {
         const raw = localStorage.getItem("anthropocene:player:v1");
         if (!raw) { setPlayer(null); return; }
         const p = JSON.parse(raw) as PlayerInfo;
-        // 5초 이상 오래된 데이터 무시
         if (Date.now() - p.ts > 5000) { setPlayer(null); return; }
         setPlayer(p);
       } catch { setPlayer(null); }
     };
     load();
-    const id = setInterval(load, 800);
+    const id = setInterval(load, 1000);
     return () => clearInterval(id);
   }, []);
 
   return (
     <div className="relative h-screen w-full bg-black overflow-hidden">
       <Canvas
-        camera={{ position: [25, 10, 25], fov: 45, near: 0.1, far: 2000 }}
+        camera={{ position: [18, 8, 18], fov: 50, near: 0.05, far: 2000 }}
         gl={{ antialias: true, alpha: false }}
-        style={{ background: "#000" }}
       >
         <Scene stars={stars} pollTimeRef={pollTimeRef} player={player} />
       </Canvas>
