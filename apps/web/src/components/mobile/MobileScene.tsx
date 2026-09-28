@@ -153,7 +153,22 @@ export default function MobileScene() {
 
   // ── 세션 고유 관측 각도 (공통 시공간 로직에서 배정) ──────────────
   const sessionPlane = useSessionAngle();
-  // sessionPlane.angle, .slotIndex, .color → 나중에 UI/카메라 틸트에 사용
+
+  // ── 플레이어 위치를 localStorage에 브로드캐스트 → timespace 뷰에서 실시간 표시 ──
+  useEffect(() => {
+    const id = setInterval(() => {
+      try {
+        localStorage.setItem("anthropocene:player:v1", JSON.stringify({
+          x: playerPosRef.current.x,
+          z: playerPosRef.current.z,
+          angle: sessionPlane.angle,
+          color: sessionPlane.color,
+          ts: Date.now(),
+        }));
+      } catch {}
+    }, 800);
+    return () => { clearInterval(id); localStorage.removeItem("anthropocene:player:v1"); };
+  }, [sessionPlane.angle, sessionPlane.color]);
 
   const {
     // ── Orb
