@@ -104,10 +104,15 @@ function TimeAxis({ height }: { height: number }) {
 
 // ──────────────────────────────────────────────────────────────
 // 별 + Pillar
-// Pillar: 별 실제 색으로, 아래=어두움 위=밝음 그라디언트
+// Pillar worldline: (x + cos(θ)·τ·DRIFT, τ·AGE_SCALE, z + sin(θ)·τ·DRIFT)
+// θ 방향으로 기울어져서 서로 다른 관측자의 별들이 다른 방향의 기둥을 형성
 // ──────────────────────────────────────────────────────────────
+const DRIFT = 0.05; // 시간 1초당 XZ 이동량 (클수록 기울기 뚜렷)
+
 const STAR_VS = /* glsl */`
   attribute float aAge;
+  attribute float aCreatorCos;  // cos(creatorAngle) * DRIFT
+  attribute float aCreatorSin;  // sin(creatorAngle) * DRIFT
   attribute vec3  aColor;
   uniform   float uTime;
   uniform   float uTimeDelta;
@@ -115,12 +120,15 @@ const STAR_VS = /* glsl */`
 
   void main() {
     vColor = aColor;
-    float y = (aAge + uTimeDelta) * ${AGE_SCALE.toFixed(4)};
+    float tau = aAge + uTimeDelta;
+    // θ 기울기: 시간이 흐를수록 cos(θ), sin(θ) 방향으로 XZ 이동
+    float wx = position.x + aCreatorCos * tau;
+    float wy = tau * ${AGE_SCALE.toFixed(4)};
+    float wz = position.z + aCreatorSin * tau;
     float pulse = 0.82 + 0.18 * sin(uTime * 2.0 + position.x * 3.7 + position.z * 2.3);
-    // 질량·위상에 따른 크기는 aColor brightness로 대략 반영
     float brightness = dot(aColor, vec3(0.299, 0.587, 0.114));
     gl_PointSize = clamp((4.0 + brightness * 18.0) * pulse, 3.0, 40.0);
-    gl_Position  = projectionMatrix * modelViewMatrix * vec4(position.x, y, position.z, 1.0);
+    gl_Position  = projectionMatrix * modelViewMatrix * vec4(wx, wy, wz, 1.0);
   }
 `;
 const STAR_FS = /* glsl */`
@@ -144,34 +152,44 @@ function StarsAndPillars({
 }) {
   const matRef = useRef<THREE.ShaderMaterial>(null);
 
-  // Star point geometry (XZ position, Y computed in shader)
-  const { pos, ages, colors } = useMemo(() => {
+  // Star point geometry + θ tilt attributes
+  const { pos, ages, colors, coss, sins } = useMemo(() => {
     const n = stars.length;
     const pos    = new Float32Array(n * 3);
     const ages   = new Float32Array(n);
     const colors = new Float32Array(n * 3);
+    const coss   = new Float32Array(n);  // cos(θ) * DRIFT
+    const sins   = new Float32Array(n);  // sin(θ) * DRIFT
     stars.forEach((s, i) => {
       pos[i*3]=s.x; pos[i*3+1]=0; pos[i*3+2]=s.z;
-      ages[i] = s.age;
+      ages[i]    = s.age;
+      coss[i]    = Math.cos(s.creatorAngle ?? 0) * DRIFT;
+      sins[i]    = Math.sin(s.creatorAngle ?? 0) * DRIFT;
       const [r,g,b] = starActualColor(s);
       colors[i*3]=r; colors[i*3+1]=g; colors[i*3+2]=b;
     });
-    return { pos, ages, colors };
+    return { pos, ages, colors, coss, sins };
   }, [stars]);
 
-  // Pillar geometry: gradient from dark (bottom) to bright (top)
+  // Pillar geometry: θ-tilted worldline, dark bottom → bright top
+  // bottom = (x, 0, z), top = (x + cos(θ)*age*DRIFT, age*scale, z + sin(θ)*age*DRIFT)
   const pillarGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
     const pts: number[] = [];
     const col: number[] = [];
     stars.forEach((s) => {
       const [r,gv,b] = starActualColor(s);
-      const yTop = s.age * AGE_SCALE;
-      // bottom vertex: very dark
+      const θ    = s.creatorAngle ?? 0;
+      const age  = s.age;
+      const yTop = age * AGE_SCALE;
+      const xTop = s.x + Math.cos(θ) * age * DRIFT;
+      const zTop = s.z + Math.sin(θ) * age * DRIFT;
+
+      // bottom: star's spatial birth position, very dark
       pts.push(s.x, 0, s.z);
       col.push(r * 0.04, gv * 0.04, b * 0.04);
-      // top vertex: full star color
-      pts.push(s.x, yTop, s.z);
+      // top: tilted endpoint at current age, full color
+      pts.push(xTop, yTop, zTop);
       col.push(r, gv, b);
     });
     g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
@@ -188,17 +206,19 @@ function StarsAndPillars({
   if (!stars.length) return null;
   return (
     <>
-      {/* Pillar: 별 실제 색 그라디언트 기둥 */}
+      {/* Pillar: θ 방향으로 기울어진 worldline 기둥 */}
       <lineSegments geometry={pillarGeo}>
         <lineBasicMaterial vertexColors transparent opacity={0.9} depthWrite={false} />
       </lineSegments>
 
-      {/* Star point (uTimeDelta로 Y 실시간 갱신) */}
+      {/* Star point — 실시간 uTimeDelta로 pillar 끝(top)에 위치 */}
       <points>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position" array={pos}    itemSize={3} count={stars.length}/>
-          <bufferAttribute attach="attributes-aAge"     array={ages}   itemSize={1} count={stars.length}/>
-          <bufferAttribute attach="attributes-aColor"   array={colors} itemSize={3} count={stars.length}/>
+          <bufferAttribute attach="attributes-position"     array={pos}    itemSize={3} count={stars.length}/>
+          <bufferAttribute attach="attributes-aAge"         array={ages}   itemSize={1} count={stars.length}/>
+          <bufferAttribute attach="attributes-aCreatorCos"  array={coss}   itemSize={1} count={stars.length}/>
+          <bufferAttribute attach="attributes-aCreatorSin"  array={sins}   itemSize={1} count={stars.length}/>
+          <bufferAttribute attach="attributes-aColor"       array={colors} itemSize={3} count={stars.length}/>
         </bufferGeometry>
         <shaderMaterial
           ref={matRef}
