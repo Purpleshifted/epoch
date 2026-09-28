@@ -268,8 +268,8 @@ function NowSliceAndPlayer({
   // Parse player color hex → rgb
   const playerRGB = useMemo((): [number, number, number] => {
     if (!player) return [1, 1, 1];
-    const hex = player.color.replace("#", "");
-    const n   = parseInt(hex, 16);
+    const hex = (player.color ?? "#ffffff").replace("#", "");
+    const n   = parseInt(hex, 16) || 0xffffff;
     return [(n >> 16) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255];
   }, [player]);
 

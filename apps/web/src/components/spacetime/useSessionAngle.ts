@@ -41,9 +41,9 @@ export function useSessionAngle(): SessionPlane {
       }
     }
 
-    // 신규 배정
+    // 신규 배정: θ ∈ [0, π/2] (SR 광속 제한: 동시성 평면은 t축에서 45° 이내)
     const slotIndex = Math.floor(Math.random() * PLANE_SLOT_COUNT);
-    const angle     = (slotIndex / PLANE_SLOT_COUNT) * Math.PI * 2;
+    const angle     = (slotIndex / PLANE_SLOT_COUNT) * (Math.PI / 2);
     sessionStorage.setItem(SS_PLANE_KEY, JSON.stringify({ slotIndex, angle }));
 
     return { angle, slotIndex, color: PLANE_COLORS[slotIndex] };
