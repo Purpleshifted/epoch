@@ -561,7 +561,7 @@ export function StarFieldSystem({
   clusterThreshold?: number;
   starScale?: number;
   spawnJitter?: number;
-  botPositions?: Array<{ x: number; z: number }>; // 봇 위치 목록
+  botPositions?: Array<{ x: number; z: number; angle: number }>; // 봇 위치+각도
 }) {
   const { gl } = useThree();
   const LT = lifetime * LIFETIME_BASE;
@@ -941,7 +941,23 @@ export function StarFieldSystem({
                 x: comX, y: comY, z: comZ,
                 vx: initVx, vz: initVz, phaseAge: 0,
                 mass: gpuCount,
-                phase: "nebula", age: 0, radius: 0.3, isPermanent: false, creatorAngle: (typeof sessionStorage !== "undefined" ? (() => { try { const d = sessionStorage.getItem(SS_PLANE_KEY); return d ? JSON.parse(d).angle : 0; } catch { return 0; } })() : 0),
+                phase: "nebula", age: 0, radius: 0.3, isPermanent: false, creatorAngle: (() => {
+                  // 봇이 있으면 별 위치와 가장 가까운 봇의 angle 사용 (멀티유저 시뮬레이션)
+                  if (botPositions && botPositions.length > 0) {
+                    let minDist = Infinity, closestAngle = -1;
+                    for (const bot of botPositions) {
+                      const d = Math.sqrt((comX - bot.x)**2 + (comZ - bot.z)**2);
+                      if (d < minDist) { minDist = d; closestAngle = bot.angle; }
+                    }
+                    if (closestAngle >= 0 && minDist < 20) return closestAngle;
+                  }
+                  // 플레이어 세션 각도 (기본값)
+                  try {
+                    if (typeof sessionStorage === "undefined") return 0;
+                    const d = sessionStorage.getItem(SS_PLANE_KEY);
+                    return d ? JSON.parse(d).angle : 0;
+                  } catch { return 0; }
+                })(),
               });
 
               spawnCounts.current.set(key, 0);

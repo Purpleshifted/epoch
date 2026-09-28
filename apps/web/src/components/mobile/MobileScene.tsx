@@ -368,9 +368,10 @@ export default function MobileScene() {
           clusterThreshold={starClusterThreshold}
           starScale={starScale}
           botPositions={botEnabled ? Array.from({ length: botCount }, (_, i) => ({
-            // 봇들을 원 위에 균등 배치 (반지름 8)
+            // 봇들을 원 위에 균등 배치, 각자 12슬롯 중 다른 각도 배정
             x: Math.cos((i / botCount) * Math.PI * 2) * 8,
             z: Math.sin((i / botCount) * Math.PI * 2) * 8,
+            angle: (i / 12) * Math.PI * 2,   // 12슬롯 균등 분배 (봇 수에 무관)
           })) : undefined}
         />
 
