@@ -547,6 +547,7 @@ export function StarFieldSystem({
   clusterThreshold = 20,
   starScale = 1.2,
   spawnJitter = 1.0,   // 초기 파티클 속도 지터 배율 (0=정지, 1=기본, 2+=고에너지)
+  botPositions,        // 봇들의 위치 목록 (선택)
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   playerYRef: React.MutableRefObject<number>;
@@ -560,6 +561,7 @@ export function StarFieldSystem({
   clusterThreshold?: number;
   starScale?: number;
   spawnJitter?: number;
+  botPositions?: Array<{ x: number; z: number }>; // 봇 위치 목록
 }) {
   const { gl } = useThree();
   const LT = lifetime * LIFETIME_BASE;
@@ -823,6 +825,27 @@ export function StarFieldSystem({
       }
       // 타이머 폭발 방지 (속도 전환 시 burst 차단)
       if (timeSinceSpawn.current > interval * 3) timeSinceSpawn.current = interval * 3;
+    }
+
+    // ── 1-b. Bot spawn (botPositions 있을 때만) ──────────────────
+    if (botPositions && botPositions.length > 0 && spawnCount < MAX_SPAWN) {
+      const bot = botPositions[Math.floor(frameCount.current / 3) % botPositions.length];
+      const r = (0.05 + Math.random() * 0.25) * spread;
+      const a = Math.random() * Math.PI * 2;
+      const pd = spawnPD.current;
+      const vd = spawnVD.current;
+      const si = spawnCount;
+      pd[si*4]   = bot.x + Math.cos(a)*r;
+      pd[si*4+1] = py + (Math.random()-0.5)*0.08;
+      pd[si*4+2] = bot.z + Math.sin(a)*r;
+      pd[si*4+3] = (0.8 + Math.random()*0.4) * LT;
+      const dv = (Math.random()*0.5-0.25)*spread*0.04*spawnJitter;
+      const da = Math.random()*Math.PI*2;
+      vd[si*4]   = Math.cos(da)*dv;
+      vd[si*4+1] = 0;
+      vd[si*4+2] = Math.sin(da)*dv;
+      vd[si*4+3] = 1.0;
+      spawnCount++;
     }
 
     if (spawnCount > 0) {

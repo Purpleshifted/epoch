@@ -51,6 +51,15 @@ const StartScreen = () => {
         >
           Side View (Projector)
         </button>
+
+        <div className="border-t border-white/10 pt-4">
+          <button
+            className="rounded-lg border border-white/25 bg-transparent px-6 py-3 text-xs font-normal text-white/50 transition-all duration-300 hover:border-white/50 hover:bg-white/5 hover:text-white/70 active:scale-[0.98] font-mono w-full tracking-wider"
+            onClick={() => router.push("/timespace")}
+          >
+            ⬡ Spacetime Block (Live)
+          </button>
+        </div>
       </div>
     </div>
   );

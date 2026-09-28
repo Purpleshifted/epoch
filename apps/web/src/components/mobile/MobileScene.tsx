@@ -352,6 +352,11 @@ export default function MobileScene() {
           attractG={starAttractG}
           clusterThreshold={starClusterThreshold}
           starScale={starScale}
+          botPositions={botEnabled ? Array.from({ length: botCount }, (_, i) => ({
+            // 봇들을 원 위에 균등 배치 (반지름 8)
+            x: Math.cos((i / botCount) * Math.PI * 2) * 8,
+            z: Math.sin((i / botCount) * Math.PI * 2) * 8,
+          })) : undefined}
         />
 
         {/* ── 플레이어 + 카메라 ── */}
