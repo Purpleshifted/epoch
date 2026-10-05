@@ -33,7 +33,7 @@ function useKeys() {
 function SceneController({
   orbColor, solarWind, timeRef, playerPosRef, playerYRef,
   setLocked, speedRef,
-  camDist, camHeight, camLerp, viscosity,
+  camDist, camHeight, camWaveFollow, camLerp, viscosity,
   waveParams, orbProps,
 }: {
   orbColor: string;
@@ -43,7 +43,7 @@ function SceneController({
   playerYRef: React.MutableRefObject<number>;
   setLocked: (v: boolean) => void;
   speedRef: React.MutableRefObject<number>;
-  camDist: number; camHeight: number; camLerp: number; viscosity: number;
+  camDist: number; camHeight: number; camWaveFollow: number; camLerp: number; viscosity: number;
   waveParams: { octaves: number; amplitudeScale: number; freqScale: number };
   orbProps: {
     count: number; orbRadius: number; pointSize: number;
@@ -117,14 +117,17 @@ function SceneController({
       orbRef.current.position.set(p.x, orbY, p.z);
     }
 
+    // The orb rides the swell, but the camera follows only a fraction of it:
+    // following it fully made the whole view heave up and down while standing still.
+    const camY = orbY * camWaveFollow;
     const hd = camDist * Math.cos(pitch.current);
     const vd = camDist * Math.sin(pitch.current);
     const desiredCam = new THREE.Vector3(
-      p.x - Math.sin(y) * hd, orbY + vd + 0.4, p.z - Math.cos(y) * hd
+      p.x - Math.sin(y) * hd, camY + vd + 0.4, p.z - Math.cos(y) * hd
     );
     camPos.current.lerp(desiredCam, camLerp);
     camera.position.copy(camPos.current);
-    lookAt.current.lerp(new THREE.Vector3(p.x, orbY + 0.2, p.z), camLerp * 2);
+    lookAt.current.lerp(new THREE.Vector3(p.x, camY + 0.2, p.z), camLerp * 2);
     camera.lookAt(lookAt.current);
   });
 
@@ -178,7 +181,7 @@ export default function MobileScene() {
     // ── Deposits
     depositPointSize, depositPoolK, depositPoolRadius, naturalWear,
     // ── Camera
-    camDist, camHeight, camLerp, fov,
+    camDist, camHeight, camWaveFollow, camLerp, fov,
     // ── Feel
     viscosity,
     // ── Post-processing
@@ -217,6 +220,7 @@ export default function MobileScene() {
     "Camera": folder({
       camDist:   { value: 7,    min: 2, max: 20, step: 0.5   },
       camHeight: { value: 4.5,  min: 0.5, max: 12, step: 0.5 },
+      camWaveFollow: { value: 0.15, min: 0, max: 1, step: 0.05, label: "카메라가 파도 높이를 따라가는 비율 (0=고정)" },
       camLerp:   { value: 0.07, min: 0.01, max: 0.3, step: 0.01, label: "부드러움" },
       fov:       { value: 60,   min: 30, max: 110, step: 1   },
     }, { collapsed: true }),
@@ -315,6 +319,9 @@ export default function MobileScene() {
           poolK={depositPoolK}
           poolRadius={depositPoolRadius}
           naturalWear={naturalWear}
+          solarWind={solarWind}
+          timeRef={timeRef}
+          waveParams={waveParams}
           botCount={botEnabled ? botCount : 0}
         />
 
@@ -329,6 +336,7 @@ export default function MobileScene() {
           speedRef={speedRef}
           camDist={camDist}
           camHeight={camHeight}
+          camWaveFollow={camWaveFollow}
           camLerp={camLerp}
           viscosity={viscosity}
           waveParams={waveParams}
