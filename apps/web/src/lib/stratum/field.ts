@@ -8,9 +8,9 @@
  * when later visitors scatter things on the same cell. Nobody chooses what survives.
  */
 
-import { sampleEntry } from "./sample";
+import { hash01 } from "./rng";
+import { sampleItem, itemById, type ItemDef } from "./items";
 import { isLagerstatte, burialTime, fateOf, type Fate } from "./taphonomy";
-import { CATALOGUE, type CatalogueEntry } from "./catalogue";
 import type { GeoClockConfig } from "./geoClock";
 import type { MaterialId } from "./materials";
 
@@ -20,8 +20,10 @@ export const CELL_SIZE = 1.2;
 /** Persisted scatter record. Compact on purpose: it is kept in localStorage. */
 export interface DepositRecord {
   id: string;
-  /** JRC rank of the catalogue entry (1-based). */
-  rank: number;
+  /** Catalogue v2 item id (see items.ts). */
+  item: string;
+  /** Sprite variant of the item, 0-based. */
+  variant: number;
   material: MaterialId;
   x: number;
   y: number;
@@ -32,18 +34,15 @@ export interface DepositRecord {
   owner: string;
 }
 
-export const LS_DEPOSITS_KEY = "anthropocene:deposits:v1";
+/** v2: records carry `item` + `variant` (v1 stored a JRC `rank`; those records are ignored). */
+export const LS_DEPOSITS_KEY = "anthropocene:deposits:v2";
 export const LS_EPOCH_KEY = "anthropocene:epoch:v1";
 
 export function cellKey(x: number, z: number): string {
   return `${Math.floor(x / CELL_SIZE)},${Math.floor(z / CELL_SIZE)}`;
 }
 
-export function entryOf(rank: number): CatalogueEntry {
-  return CATALOGUE[rank - 1];
-}
-
-/** Make a new record. `u` picks the item from the catalogue prior unless `entry` is given. */
+/** Make a new record. `u` picks the item from the catalogue prior unless `item` is given. */
 export function makeDeposit(args: {
   id: string;
   u: number;
@@ -52,14 +51,20 @@ export function makeDeposit(args: {
   z: number;
   t: number;
   owner: string;
-  entry?: CatalogueEntry;
+  item?: ItemDef;
 }): DepositRecord {
-  const e = args.entry ?? sampleEntry(args.u);
-  return { id: args.id, rank: e.rank, material: e.material, x: args.x, y: args.y, z: args.z, t: args.t, owner: args.owner };
+  const it = args.item ?? sampleItem(args.u);
+  const variant = Math.min(it.variants - 1, Math.floor(hash01(args.id, "variant") * it.variants));
+  return { id: args.id, item: it.id, variant, material: it.material, x: args.x, y: args.y, z: args.z, t: args.t, owner: args.owner };
+}
+
+/** The catalogue item a record refers to. */
+export function itemOf(rec: Pick<DepositRecord, "item">): ItemDef {
+  return itemById(rec.item);
 }
 
 /**
- * What is still here around (x, z): number of non-vanished items per catalogue rank
+ * What is still here around (x, z): number of non-vanished items per catalogue item id
  * within `radius`. Buried and fossil items count: they are part of what the visitor
  * inherits. Vanished items do not: what decays is not inherited. This survivorship
  * bias is what lets the composition drift toward durable material.
@@ -69,17 +74,18 @@ export function localSurvivors(
   x: number,
   z: number,
   radius: number,
-): Map<number, number> {
+): Map<string, number> {
   const r2 = radius * radius;
-  const out = new Map<number, number>();
+  const out = new Map<string, number>();
   for (const { rec, fate } of resolved) {
     if (fate.stage === "vanished") continue;
     const dx = rec.x - x;
     const dz = rec.z - z;
-    if (dx * dx + dz * dz <= r2) out.set(rec.rank, (out.get(rec.rank) ?? 0) + 1);
+    if (dx * dx + dz * dz <= r2) out.set(rec.item, (out.get(rec.item) ?? 0) + 1);
   }
   return out;
 }
+
 
 
 export interface ResolvedDeposit {

@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
   CELL_SIZE,
-  CATALOGUE,
-  CATALOGUE_TOTAL_PERCENT,
+  ITEMS,
   MATERIALS,
   MATERIAL_PALETTE_INDEX,
   PALETTE_HEX,
   cellKey,
   dimIndex,
   fieldWeights,
+  itemById,
   localSurvivors,
   makeDeposit,
   mulberry32,
   resolveField,
-  sampleEntry,
   sampleFromField,
+  sampleItem,
   type DepositRecord,
 } from "./index";
 
 const rec = (id: string, t: number, x = 0, z = 0, material: DepositRecord["material"] = "glass"): DepositRecord =>
-  ({ id, rank: 1, material, x, y: 0, z, t, owner: "o" });
+  ({ id, item: "glass_bottle", variant: 0, material, x, y: 0, z, t, owner: "o" });
 
 describe("field", () => {
   it("cellKey groups points within one CELL_SIZE square", () => {
@@ -30,8 +30,20 @@ describe("field", () => {
 
   it("makeDeposit follows the catalogue and never lets the caller pick a material", () => {
     const d = makeDeposit({ id: "a", u: 0, x: 0, y: 0, z: 0, t: 0, owner: "o" });
-    expect(d.rank).toBe(1);
-    expect(d.material).toBe(CATALOGUE[0].material);
+    expect(d.item).toBe(ITEMS[0].id);
+    expect(d.material).toBe(ITEMS[0].material);
+    expect(d.variant).toBeGreaterThanOrEqual(0);
+    expect(d.variant).toBeLessThan(ITEMS[0].variants);
+  });
+
+  it("the sprite variant is deterministic per record id and stays inside the item's variant count", () => {
+    for (let i = 0; i < 200; i++) {
+      const u = i / 200;
+      const a = makeDeposit({ id: `v${i}`, u, x: 0, y: 0, z: 0, t: 0, owner: "o" });
+      const b = makeDeposit({ id: `v${i}`, u, x: 5, y: 0, z: 5, t: 9, owner: "p" });
+      expect(a.variant).toBe(b.variant);
+      expect(a.variant).toBeLessThan(itemById(a.item).variants);
+    }
   });
 
   it("records from the future are not resolved yet", () => {
@@ -94,61 +106,61 @@ describe("palette", () => {
 });
 
 describe("inheritance (Pólya urn with prior pseudo-count)", () => {
-  const prior = (rank: number) => CATALOGUE[rank - 1].percent / CATALOGUE_TOTAL_PERCENT;
-  const share = (w: number[], rank: number) => w[rank - 1] / w.reduce((a, b) => a + b, 0);
+  const idx = (id: string) => itemById(id).index;
+  const prior = (id: string) => itemById(id).prior;
+  const share = (w: number[], id: string) => w[idx(id)] / w.reduce((a, b) => a + b, 0);
 
   it("with nothing on the ground the weights are exactly the catalogue prior", () => {
     const w = fieldWeights(new Map(), 20);
-    for (const c of CATALOGUE) expect(share(w, c.rank)).toBeCloseTo(prior(c.rank), 12);
+    for (const it of ITEMS) expect(share(w, it.id)).toBeCloseTo(it.prior, 12);
   });
 
   it("the ground's weight is n / (n + k): n = k gives (prior + 1) / 2 for the only survivor type", () => {
     const k = 20;
-    const w = fieldWeights(new Map([[7, k]]), k);
-    expect(share(w, 7)).toBeCloseTo((prior(7) + 1) / 2, 12);
+    const w = fieldWeights(new Map([["cap_plastic", k]]), k);
+    expect(share(w, "cap_plastic")).toBeCloseTo((prior("cap_plastic") + 1) / 2, 12);
   });
 
   it("k = 0 draws only what is on the ground; large k hardly moves from the prior", () => {
-    const only = new Map([[5, 3]]);
-    for (let i = 0; i < 50; i++) expect(sampleFromField(i / 50, only, 0).rank).toBe(5);
+    const only = new Map([["chicken_bone", 3]]);
+    for (let i = 0; i < 50; i++) expect(sampleFromField(i / 50, only, 0).id).toBe("chicken_bone");
     const w = fieldWeights(only, 1e6);
-    expect(share(w, 5)).toBeCloseTo(prior(5), 4);
+    expect(share(w, "chicken_bone")).toBeCloseTo(prior("chicken_bone"), 4);
   });
 
-  it("an empty ground draws like the plain catalogue", () => {
+  it("an empty ground draws like the plain catalogue prior", () => {
     const rnd = mulberry32(42);
     let mismatches = 0;
     for (let i = 0; i < 500; i++) {
       const u = rnd();
-      if (sampleFromField(u, new Map(), 20).rank !== sampleEntry(u).rank) mismatches++;
+      if (sampleFromField(u, new Map(), 20).id !== sampleItem(u).id) mismatches++;
     }
     expect(mismatches).toBeLessThanOrEqual(1); // float rounding on a boundary only
   });
 
-  it("localSurvivors ignores vanished items and items outside the radius", () => {
-    // rank 23 is paper (gone after ~100 simulated years); rank 1 is a plastic fragment.
+  const ground = (): DepositRecord[] => {
     const rs: DepositRecord[] = [];
     for (let i = 0; i < 100; i++) {
-      rs.push({ id: `p${i}`, rank: 23, material: "paper", x: i * 2, y: 0, z: 0, t: 0, owner: "o" });
-      rs.push({ id: `f${i}`, rank: 1, material: "plastic_fragment", x: i * 2, y: 0, z: 5, t: 0, owner: "o" });
+      rs.push({ id: `p${i}`, item: "cardboard", variant: 0, material: "paper", x: i * 2, y: 0, z: 0, t: 0, owner: "o" });
+      rs.push({ id: `f${i}`, item: "frag_mid", variant: 0, material: "plastic_fragment", x: i * 2, y: 0, z: 5, t: 0, owner: "o" });
     }
-    const resolved = resolveField(rs, 30);
+    return rs;
+  };
+
+  it("localSurvivors ignores vanished items and items outside the radius", () => {
+    // paper is gone after ~100 simulated years; a plastic fragment is not.
+    const resolved = resolveField(ground(), 30);
     const all = localSurvivors(resolved, 100, 0, 1000);
-    expect(all.get(23) ?? 0).toBe(0);
-    expect(all.get(1) ?? 0).toBeGreaterThan(50);
+    expect(all.get("cardboard") ?? 0).toBe(0);
+    expect(all.get("frag_mid") ?? 0).toBeGreaterThan(50);
     const near = localSurvivors(resolved, 0, 5, 3);
-    expect(near.get(1) ?? 0).toBeLessThanOrEqual(2);
+    expect(near.get("frag_mid") ?? 0).toBeLessThanOrEqual(2);
   });
 
   it("survivorship drift: what decays is not inherited, so the next draw leans toward the durable", () => {
-    const rs: DepositRecord[] = [];
-    for (let i = 0; i < 100; i++) {
-      rs.push({ id: `p${i}`, rank: 23, material: "paper", x: i * 2, y: 0, z: 0, t: 0, owner: "o" });
-      rs.push({ id: `f${i}`, rank: 1, material: "plastic_fragment", x: i * 2, y: 0, z: 5, t: 0, owner: "o" });
-    }
-    const survivors = localSurvivors(resolveField(rs, 30), 100, 0, 1000);
+    const survivors = localSurvivors(resolveField(ground(), 30), 100, 0, 1000);
     const w = fieldWeights(survivors, 20);
-    expect(share(w, 23)).toBeLessThan(prior(23));
-    expect(share(w, 1)).toBeGreaterThan(prior(1));
+    expect(share(w, "cardboard")).toBeLessThan(prior("cardboard"));
+    expect(share(w, "frag_mid")).toBeGreaterThan(prior("frag_mid"));
   });
 });

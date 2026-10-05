@@ -36,6 +36,15 @@ export const MATERIAL_PALETTE_INDEX: Readonly<Record<MaterialId, number>> = {
   battery: 2,
   glass: 11,
   ceramic_construction: 4,
+  ewaste_device: 5,
+  ewaste_board: 2,
+  soft_organic: 10,
+  wood_natural: 6,
+  feather_hair: 7,
+  bone: 15,
+  tooth: 15,
+  shell: 14,
+  charcoal: 8,
 };
 
 /** How the stage darkens / marks an item. Palette indices only. */

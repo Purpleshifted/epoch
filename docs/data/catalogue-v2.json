@@ -1,8 +1,8 @@
 {
  "layers": {
-  "A": 0.75,
+  "A": 0.7,
   "B": 0.1,
-  "C": 0.15
+  "C": 0.2
  },
  "A": [
   {
@@ -1569,188 +1569,275 @@
  ],
  "C": [
   {
-   "id": "leaf",
-   "label": "leaf",
+   "id": "food_waste",
+   "label": "food waste",
    "material": "soft_organic",
-   "weight": 22,
-   "share": 21.359,
+   "weight": 20,
+   "share": 21.739,
+   "variants": 3,
+   "jrcCount": 220
+  },
+  {
+   "id": "fruit_scrap",
+   "label": "fruit peel, bread, kitchen scrap",
+   "material": "soft_organic",
+   "weight": 12,
+   "share": 13.043,
    "variants": 3
   },
   {
-   "id": "petal",
-   "label": "petal / flower",
+   "id": "faeces",
+   "label": "faeces",
    "material": "soft_organic",
    "weight": 6,
-   "share": 5.825,
-   "variants": 3
+   "share": 6.522,
+   "variants": 3,
+   "jrcCount": 85
   },
   {
-   "id": "fruit",
-   "label": "fruit, food scrap",
-   "material": "soft_organic",
-   "weight": 8,
-   "share": 7.767,
-   "variants": 3
-  },
-  {
-   "id": "mushroom",
-   "label": "mushroom",
-   "material": "soft_organic",
-   "weight": 2,
-   "share": 1.942,
-   "variants": 1
-  },
-  {
-   "id": "seed",
-   "label": "seed, nut",
-   "material": "soft_organic",
-   "weight": 6,
-   "share": 5.825,
-   "variants": 3
-  },
-  {
-   "id": "grass",
-   "label": "grass, straw",
-   "material": "soft_organic",
-   "weight": 5,
-   "share": 4.854,
-   "variants": 2
-  },
-  {
-   "id": "insect",
-   "label": "insect (beetle)",
+   "id": "snus",
+   "label": "snuff / snus",
    "material": "soft_organic",
    "weight": 4,
-   "share": 3.883,
-   "variants": 2
-  },
-  {
-   "id": "small_fish",
-   "label": "dead small fish",
-   "material": "soft_organic",
-   "weight": 2,
-   "share": 1.942,
-   "variants": 1
-  },
-  {
-   "id": "twig",
-   "label": "twig, branch",
-   "material": "wood_natural",
-   "weight": 10,
-   "share": 9.709,
-   "variants": 3
-  },
-  {
-   "id": "bark",
-   "label": "bark, pine cone",
-   "material": "wood_natural",
-   "weight": 3,
-   "share": 2.913,
-   "variants": 2
-  },
-  {
-   "id": "feather",
-   "label": "feather",
-   "material": "feather_hair",
-   "weight": 7,
-   "share": 6.796,
-   "variants": 3
-  },
-  {
-   "id": "fur",
-   "label": "fur tuft",
-   "material": "feather_hair",
-   "weight": 2,
-   "share": 1.942,
-   "variants": 1
-  },
-  {
-   "id": "fish_bone",
-   "label": "fish bone",
-   "material": "bone",
-   "weight": 3,
-   "share": 2.913,
-   "variants": 2
+   "share": 4.348,
+   "variants": 2,
+   "jrcCount": 44
   },
   {
    "id": "chicken_bone",
    "label": "chicken bone (broiler)",
    "material": "bone",
-   "weight": 4,
-   "share": 3.883,
-   "variants": 2
+   "weight": 14,
+   "share": 15.217,
+   "variants": 3
   },
   {
-   "id": "mammal_bone",
-   "label": "mammal bone",
+   "id": "livestock_bone",
+   "label": "beef / pork bone",
    "material": "bone",
-   "weight": 3,
-   "share": 2.913,
-   "variants": 2
+   "weight": 8,
+   "share": 8.696,
+   "variants": 3
   },
   {
-   "id": "bird_bone",
-   "label": "bird bone",
+   "id": "fish_bone",
+   "label": "fish bone",
    "material": "bone",
-   "weight": 1,
-   "share": 0.971,
-   "variants": 1
-  },
-  {
-   "id": "tooth",
-   "label": "tooth",
-   "material": "tooth",
-   "weight": 1,
-   "share": 0.971,
-   "variants": 1
-  },
-  {
-   "id": "snail",
-   "label": "snail shell",
-   "material": "shell",
-   "weight": 3,
-   "share": 2.913,
-   "variants": 2
-  },
-  {
-   "id": "bivalve",
-   "label": "mussel / oyster shell",
-   "material": "shell",
-   "weight": 5,
-   "share": 4.854,
-   "variants": 2
-  },
-  {
-   "id": "crab",
-   "label": "crab / crustacean shell",
-   "material": "shell",
-   "weight": 2,
-   "share": 1.942,
-   "variants": 1
-  },
-  {
-   "id": "urchin",
-   "label": "sea urchin, starfish",
-   "material": "shell",
-   "weight": 1,
-   "share": 0.971,
-   "variants": 1
-  },
-  {
-   "id": "coral",
-   "label": "coral fragment",
-   "material": "shell",
-   "weight": 1,
-   "share": 0.971,
-   "variants": 1
+   "weight": 6,
+   "share": 6.522,
+   "variants": 3
   },
   {
    "id": "eggshell",
    "label": "eggshell",
    "material": "shell",
+   "weight": 8,
+   "share": 8.696,
+   "variants": 3
+  },
+  {
+   "id": "shellfish",
+   "label": "oyster / mussel shell (eaten)",
+   "material": "shell",
+   "weight": 8,
+   "share": 8.696,
+   "variants": 3
+  },
+  {
+   "id": "charcoal",
+   "label": "charcoal / coal lump",
+   "material": "charcoal",
+   "weight": 6,
+   "share": 6.522,
+   "variants": 3
+  }
+ ],
+ "N": [
+  {
+   "id": "leaf",
+   "label": "leaf",
+   "group": "flora",
+   "material": "soft_organic",
+   "weight": 22,
+   "share": 25.0,
+   "resist": 0.8,
+   "variants": 3
+  },
+  {
+   "id": "petal",
+   "label": "petal / flower",
+   "group": "flora",
+   "material": "soft_organic",
+   "weight": 6,
+   "share": 6.818,
+   "resist": 0.4,
+   "variants": 2
+  },
+  {
+   "id": "mushroom",
+   "label": "mushroom",
+   "group": "flora",
+   "material": "soft_organic",
    "weight": 2,
-   "share": 1.942,
+   "share": 2.273,
+   "resist": 0.4,
+   "variants": 1
+  },
+  {
+   "id": "seed",
+   "label": "seed, nut",
+   "group": "flora",
+   "material": "soft_organic",
+   "weight": 6,
+   "share": 6.818,
+   "resist": 1.5,
+   "variants": 2
+  },
+  {
+   "id": "grass",
+   "label": "grass, straw",
+   "group": "flora",
+   "material": "soft_organic",
+   "weight": 12,
+   "share": 13.636,
+   "resist": 3.0,
+   "variants": 2
+  },
+  {
+   "id": "twig",
+   "label": "twig, branch",
+   "group": "flora",
+   "material": "wood_natural",
+   "weight": 10,
+   "share": 11.364,
+   "resist": 1.5,
+   "variants": 3
+  },
+  {
+   "id": "bark",
+   "label": "bark, pine cone",
+   "group": "flora",
+   "material": "wood_natural",
+   "weight": 4,
+   "share": 4.545,
+   "resist": 2.0,
+   "variants": 2
+  },
+  {
+   "id": "insect",
+   "label": "insect (beetle)",
+   "group": "fauna",
+   "material": "soft_organic",
+   "weight": 5,
+   "share": 5.682,
+   "resist": 0.5,
+   "variants": 2
+  },
+  {
+   "id": "small_fish",
+   "label": "dead small fish",
+   "group": "fauna",
+   "material": "soft_organic",
+   "weight": 1,
+   "share": 1.136,
+   "resist": 0.5,
+   "variants": 1
+  },
+  {
+   "id": "feather",
+   "label": "feather",
+   "group": "fauna",
+   "material": "feather_hair",
+   "weight": 7,
+   "share": 7.955,
+   "resist": 0.7,
+   "variants": 3
+  },
+  {
+   "id": "fur",
+   "label": "fur tuft",
+   "group": "fauna",
+   "material": "feather_hair",
+   "weight": 2,
+   "share": 2.273,
+   "resist": 0.7,
+   "variants": 1
+  },
+  {
+   "id": "bird_bone",
+   "label": "bird bone",
+   "group": "fauna",
+   "material": "bone",
+   "weight": 1,
+   "share": 1.136,
+   "resist": 1.5,
+   "variants": 1
+  },
+  {
+   "id": "wild_bone",
+   "label": "wild mammal bone",
+   "group": "fauna",
+   "material": "bone",
+   "weight": 2,
+   "share": 2.273,
+   "resist": 1.5,
+   "variants": 1
+  },
+  {
+   "id": "tooth",
+   "label": "tooth",
+   "group": "fauna",
+   "material": "tooth",
+   "weight": 1,
+   "share": 1.136,
+   "resist": 2.0,
+   "variants": 1
+  },
+  {
+   "id": "snail",
+   "label": "snail shell",
+   "group": "fauna",
+   "material": "shell",
+   "weight": 3,
+   "share": 3.409,
+   "resist": 1.5,
+   "variants": 2
+  },
+  {
+   "id": "crab",
+   "label": "crab / crustacean shell",
+   "group": "fauna",
+   "material": "shell",
+   "weight": 2,
+   "share": 2.273,
+   "resist": 1.5,
+   "variants": 1
+  },
+  {
+   "id": "urchin",
+   "label": "sea urchin, starfish",
+   "group": "fauna",
+   "material": "shell",
+   "weight": 1,
+   "share": 1.136,
+   "resist": 1.5,
+   "variants": 1
+  },
+  {
+   "id": "coral",
+   "label": "coral fragment",
+   "group": "fauna",
+   "material": "shell",
+   "weight": 1,
+   "share": 1.136,
+   "resist": 2.0,
    "variants": 1
   }
- ]
+ ],
+ "natural": {
+  "tauFlora": 72.13,
+  "tauFauna": 27.91,
+  "passesPerCrossing": 10,
+  "passesPerDeposit": 5
+ }
 }

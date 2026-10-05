@@ -32,7 +32,17 @@ export type MaterialId =
   | "metal_can"
   | "battery"
   | "glass"
-  | "ceramic_construction";
+  | "ceramic_construction"
+  // catalogue v2 (EST.): electronics and organic matter
+  | "ewaste_device"
+  | "ewaste_board"
+  | "soft_organic"
+  | "wood_natural"
+  | "feather_hair"
+  | "bone"
+  | "tooth"
+  | "shell"
+  | "charcoal";
 
 export interface MaterialParams {
   id: MaterialId;
@@ -66,6 +76,16 @@ export const MATERIALS: Readonly<Record<MaterialId, MaterialParams>> = {
   battery:              { id: "battery",              label: "battery",                   persistenceYears: [20, 300],    fossilPotential: 0.3,  origin: "synthetic" },
   glass:                { id: "glass",                label: "glass",                     persistenceYears: [1e3, 1e6],   fossilPotential: 0.85, origin: "synthetic" },
   ceramic_construction: { id: "ceramic_construction", label: "ceramic / brick / cement",  persistenceYears: [1e3, 1e6],   fossilPotential: 0.9,  origin: "synthetic" },
+  // catalogue v2 (all EST.; see docs/catalogue-v2.md §6)
+  ewaste_device:        { id: "ewaste_device",        label: "electronic device",         persistenceYears: [20, 500],    fossilPotential: 0.2,  origin: "synthetic" },
+  ewaste_board:         { id: "ewaste_board",         label: "circuit board / chip",      persistenceYears: [100, 5000],  fossilPotential: 0.6,  origin: "synthetic" },
+  soft_organic:         { id: "soft_organic",         label: "soft organic matter",       persistenceYears: [0.005, 1],   fossilPotential: 0.01, origin: "natural" },
+  wood_natural:         { id: "wood_natural",         label: "twig / bark",               persistenceYears: [1, 100],     fossilPotential: 0.08, origin: "natural" },
+  feather_hair:         { id: "feather_hair",         label: "feather / fur",             persistenceYears: [0.3, 10],    fossilPotential: 0.03, origin: "natural" },
+  bone:                 { id: "bone",                 label: "bone",                      persistenceYears: [20, 5000],   fossilPotential: 0.35, origin: "natural" },
+  tooth:                { id: "tooth",                label: "tooth",                     persistenceYears: [500, 1e6],   fossilPotential: 0.65, origin: "natural" },
+  shell:                { id: "shell",                label: "shell / coral",             persistenceYears: [100, 1e5],   fossilPotential: 0.6,  origin: "natural" },
+  charcoal:             { id: "charcoal",             label: "charcoal / coal",           persistenceYears: [100, 1e4],   fossilPotential: 0.4,  origin: "natural" },
 };
 
 /** Decay runs this much slower once an item is buried (low oxygen, no UV, no abrasion). EST. */
