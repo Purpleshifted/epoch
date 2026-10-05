@@ -8,12 +8,11 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useRadialBlurEffect, RadialBlurDriver } from "./scene/RadialBlurEffect";
 import { useSessionAngle } from "@/components/spacetime/legacy/useSessionAngle";
 
-import { getWaveHeight }   from "./scene/WaveTerrain";
 import { PlayerOrb }       from "./scene/PlayerOrb";
 import { DepositField } from "./scene/DepositField";
-import { useSolarWind }    from "@/lib/world/useSolarWind";
 
 const FOG_COLOR = "#01020a";
+const ORB_Y = 0.45; // flat ground: the orb hovers at a fixed height above y = 0 (where sprites rest)
 
 // ─── 키보드 ────────────────────────────────────────────
 function useKeys() {
@@ -31,20 +30,18 @@ function useKeys() {
 
 // ─── 씬 컨트롤러 ──────────────────────────────────────
 function SceneController({
-  orbColor, solarWind, timeRef, playerPosRef, playerYRef,
+  orbColor, timeRef, playerPosRef, playerYRef,
   setLocked, speedRef,
-  camDist, camHeight, camWaveFollow, camLerp, viscosity,
-  waveParams, orbProps,
+  camDist, camHeight, camLerp, viscosity,
+  orbProps,
 }: {
   orbColor: string;
-  solarWind: ReturnType<typeof useSolarWind>;
   timeRef: React.MutableRefObject<number>;
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   playerYRef: React.MutableRefObject<number>;
   setLocked: (v: boolean) => void;
   speedRef: React.MutableRefObject<number>;
-  camDist: number; camHeight: number; camWaveFollow: number; camLerp: number; viscosity: number;
-  waveParams: { octaves: number; amplitudeScale: number; freqScale: number };
+  camDist: number; camHeight: number; camLerp: number; viscosity: number;
   orbProps: {
     count: number; orbRadius: number; pointSize: number;
     baseAlpha: number; wobbleScale: number; glowAmount: number;
@@ -109,25 +106,21 @@ function SceneController({
     speedRef.current = speed; // RadialBlur가 읽음
     p.depth = Math.min(1, p.depth + dt * (speed > 1 ? 0.003 : 0.001));
 
-    const { octaves, amplitudeScale, freqScale } = waveParams;
-    const orbY = getWaveHeight(p.x, p.z, timeRef.current, solarWind, octaves, amplitudeScale, freqScale) + 0.45;
+    const orbY = ORB_Y;
     playerYRef.current = orbY;
 
     if (orbRef.current) {
       orbRef.current.position.set(p.x, orbY, p.z);
     }
 
-    // The orb rides the swell, but the camera follows only a fraction of it:
-    // following it fully made the whole view heave up and down while standing still.
-    const camY = orbY * camWaveFollow;
     const hd = camDist * Math.cos(pitch.current);
     const vd = camDist * Math.sin(pitch.current);
     const desiredCam = new THREE.Vector3(
-      p.x - Math.sin(y) * hd, camY + vd + 0.4, p.z - Math.cos(y) * hd
+      p.x - Math.sin(y) * hd, orbY + vd + 0.4, p.z - Math.cos(y) * hd
     );
     camPos.current.lerp(desiredCam, camLerp);
     camera.position.copy(camPos.current);
-    lookAt.current.lerp(new THREE.Vector3(p.x, camY + 0.2, p.z), camLerp * 2);
+    lookAt.current.lerp(new THREE.Vector3(p.x, orbY + 0.2, p.z), camLerp * 2);
     camera.lookAt(lookAt.current);
   });
 
@@ -145,7 +138,6 @@ function SceneController({
 
 // ─── 메인 씬 ──────────────────────────────────────────
 export default function MobileScene() {
-  const solarWind  = useSolarWind(60_000);
   const [locked, setLocked] = useState(false);
   const timeRef      = useRef(0);
   const playerPosRef = useRef({ x: 0, z: 0 });
@@ -181,7 +173,7 @@ export default function MobileScene() {
     // ── Deposits
     depositPointSize, depositPoolK, depositPoolRadius, naturalWear,
     // ── Camera
-    camDist, camHeight, camWaveFollow, camLerp, fov,
+    camDist, camHeight, camLerp, fov,
     // ── Feel
     viscosity,
     // ── Post-processing
@@ -190,9 +182,9 @@ export default function MobileScene() {
     radialStr, radialDecay, radialMaxSpeed,
     vignette,
     // ── Lighting
-    ambientInt, stormLightScale,
+    ambientInt,
     // ── World
-    octaves, amplitudeScale, freqScale, fogNear, fogFar,
+    fogNear, fogFar,
     // ── Debug
     botEnabled, botCount,
   } = useControls({
@@ -220,7 +212,6 @@ export default function MobileScene() {
     "Camera": folder({
       camDist:   { value: 7,    min: 2, max: 20, step: 0.5   },
       camHeight: { value: 4.5,  min: 0.5, max: 12, step: 0.5 },
-      camWaveFollow: { value: 0.15, min: 0, max: 1, step: 0.05, label: "카메라가 파도 높이를 따라가는 비율 (0=고정)" },
       camLerp:   { value: 0.07, min: 0.01, max: 0.3, step: 0.01, label: "부드러움" },
       fov:       { value: 60,   min: 30, max: 110, step: 1   },
     }, { collapsed: true }),
@@ -256,27 +247,19 @@ export default function MobileScene() {
 
     "Lighting": folder({
       ambientInt:      { value: 0.08, min: 0, max: 1, step: 0.01, label: "주변광" },
-      stormLightScale: { value: 1.2, min: 0, max: 3,  step: 0.1,  label: "폭풍 조명 배율" },
     }, { collapsed: true }),
 
     "World": folder({
-      octaves:        { value: 4,   min: 1, max: 7,   step: 1,    label: "파동 Octave" },
-      amplitudeScale: { value: 1.0, min: 0.05, max: 4, step: 0.05, label: "진폭" },
-      freqScale:      { value: 1.0, min: 0.1, max: 5,  step: 0.05, label: "주파수" },
       fogNear:        { value: 18,  min: 5, max: 80,  step: 1,    label: "안개 시작" },
       fogFar:         { value: 80,  min: 20, max: 200, step: 5,   label: "안개 끝" },
     }, { collapsed: true }),
+
 
     "Debug / 봇": folder({
       botEnabled: { value: false, label: "봇 활성화" },
       botCount:   { value: 5,   min: 1, max: 30, step: 1, label: "봇 수" },
     }, { collapsed: true }),
   });
-
-  const waveParams = useMemo(
-    () => ({ octaves, amplitudeScale, freqScale }),
-    [octaves, amplitudeScale, freqScale]
-  );
 
   const orbProps = useMemo(() => ({
     count:       orbCount,
@@ -306,29 +289,24 @@ export default function MobileScene() {
         <directionalLight position={[8, 15, 6]} intensity={0.4} color="#c8d8f0" />
         <pointLight
           position={[0, 6, 0]}
-          intensity={0.2 + solarWind.stormLevel * stormLightScale}
-          color={solarWind.stormLevel > 0.5 ? "#ff4422" : "#2255ee"}
+          intensity={0.2}
+          color="#2255ee"
           distance={60}
         />
 
         {/* ── 흔적: 방문자가 (고르지 않은) 물건을 뿌리고, 운명은 lib/stratum이 결정 ── */}
         <DepositField
           playerPosRef={playerPosRef}
-          playerYRef={playerYRef}
           pointSize={depositPointSize}
           poolK={depositPoolK}
           poolRadius={depositPoolRadius}
           naturalWear={naturalWear}
-          solarWind={solarWind}
-          timeRef={timeRef}
-          waveParams={waveParams}
           botCount={botEnabled ? botCount : 0}
         />
 
         {/* ── 플레이어 + 카메라 ── */}
         <SceneController
           orbColor={orbColor}
-          solarWind={solarWind}
           timeRef={timeRef}
           playerPosRef={playerPosRef}
           playerYRef={playerYRef}
@@ -336,10 +314,8 @@ export default function MobileScene() {
           speedRef={speedRef}
           camDist={camDist}
           camHeight={camHeight}
-          camWaveFollow={camWaveFollow}
           camLerp={camLerp}
           viscosity={viscosity}
-          waveParams={waveParams}
           orbProps={orbProps}
         />
 
@@ -377,11 +353,6 @@ export default function MobileScene() {
 
       <div className="absolute bottom-4 left-4 text-[9px] text-white/12 font-mono pointer-events-none select-none space-y-0.5">
         {locked && <div>WASD · mouse · ESC</div>}
-        <div>
-          {solarWind.isDataFresh ? "●" : "○"}{" "}
-          {solarWind.protonSpeed.toFixed(0)} km/s · Kp {solarWind.kpIndex}
-          {solarWind.stormLevel > 0.5 && " · STORM"}
-        </div>
         {botEnabled && (
           <div className="text-yellow-400/40">BOT ×{botCount}</div>
         )}

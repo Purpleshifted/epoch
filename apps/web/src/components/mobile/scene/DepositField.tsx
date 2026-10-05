@@ -69,43 +69,19 @@ const PALETTE_RGB: [number, number, number][] = PALETTE_HEX.map((hex) => {
   return [c.r, c.g, c.b];
 });
 
+const GROUND_Y = 0.02; // flat ground: every sprite rests here
+
 const VS = /* glsl */ `
   attribute vec3 aColor;
   attribute vec3 aFlags;       // x: dither, y: outline, z: size scale
   uniform float uCamConst;
   uniform float uSize;
-  uniform float uTime;
-  uniform float uBaseAmp;
-  uniform float uBaseFreq;
-  uniform float uTs;
-  uniform float uStorm;
-  uniform int uOct;
   varying vec3 vColor;
   varying vec2 vFlags;
-
-  // Same function as getWaveHeight() in WaveTerrain.tsx (keep the two in sync).
-  float waveH(vec2 p) {
-    float val = 0.0, amp = uBaseAmp, freq = uBaseFreq, maxAmp = 0.0;
-    for (int i = 0; i < 8; i++) {
-      if (i >= uOct) break;
-      float ph = uTime * uTs * (1.0 - float(i) * 0.15);
-      val += sin(p.x * freq + p.y * freq * 0.7 + ph) * amp
-           + cos(p.y * freq * 0.9 - p.x * freq * 0.5 + ph * 0.8) * amp * 0.6;
-      maxAmp += amp * 1.6;
-      amp *= 0.52;
-      freq *= 1.97;
-    }
-    float norm = val / maxAmp;
-    float storm = uStorm > 0.25 ? sin(p.x * 1.8 + p.y * 1.3 + uTime * 5.5) * uStorm * uBaseAmp * 0.6 : 0.0;
-    return norm * uBaseAmp * 2.2 + storm;
-  }
-
   void main() {
     vColor = aColor;
     vFlags = aFlags.xy;
-    // a sprite rests on the water at its own x,z; the stored y is ignored so it rises and falls with the swell
-    vec3 pos = vec3(position.x, waveH(position.xz) + 0.08, position.z);
-    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_PointSize = max(3.0, floor(uSize * aFlags.z * uCamConst / (-mv.z)));
     gl_Position = projectionMatrix * mv;
   }
@@ -168,18 +144,13 @@ function getVisitorId(): string {
 
 export function DepositField({
   playerPosRef,
-  playerYRef,
   pointSize = 0.32,
   botCount = 0,
   poolK = 20,
   poolRadius = 4,
   naturalWear = 3,
-  solarWind,
-  timeRef,
-  waveParams,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
-  playerYRef: React.MutableRefObject<number>;
   pointSize?: number;
   /** Debug visitors that wander on their own, each scattering from its own draw. */
   botCount?: number;
@@ -189,10 +160,6 @@ export function DepositField({
   poolRadius?: number;
   /** Multiplies the wear on the natural stock. 1 = calibrated reference (needs a crowd); higher = a small crowd wears the ground down visibly. */
   naturalWear?: number;
-  /** Sprites sit on the water surface; the vertex shader evaluates the same swell as the terrain. */
-  solarWind: { waveAmplitude: number; waveSpeed: number; stormLevel: number };
-  timeRef: React.MutableRefObject<number>;
-  waveParams: { octaves: number; amplitudeScale: number; freqScale: number };
 }) {
   const lastResolved = useRef<ResolvedDeposit[]>([]);
   const records = useRef<Map<string, DepositRecord>>(new Map());
@@ -227,12 +194,6 @@ export function DepositField({
     () => ({
       uCamConst: { value: 400 },
       uSize: { value: pointSize },
-      uTime: { value: 0 },
-      uBaseAmp: { value: 0.3 },
-      uBaseFreq: { value: 0.18 },
-      uTs: { value: 0.5 },
-      uStorm: { value: 0 },
-      uOct: { value: 4 },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -374,17 +335,8 @@ export function DepositField({
     clock.current += dt;
     const t = nowSec();
 
-    // wave state for the vertex shader: same function as WaveTerrain/getWaveHeight, evaluated per frame on the GPU
-    const wu = uniforms;
-    wu.uTime.value = timeRef.current;
-    wu.uBaseAmp.value = solarWind.waveAmplitude * waveParams.amplitudeScale;
-    wu.uBaseFreq.value = 0.18 * waveParams.freqScale;
-    wu.uTs.value = solarWind.waveSpeed * 1.2;
-    wu.uStorm.value = solarWind.stormLevel;
-    wu.uOct.value = waveParams.octaves;
-
     // ── 1. scatter and walk: the visitor, then any debug bots ─────
-    const py = playerYRef.current;
+    const py = GROUND_Y;
     const me = playerPosRef.current;
     trackStep("me", visitor.current, me.x, me.z, t);
     maybeDrop("me", visitor.current, me.x, me.z, py, t);
