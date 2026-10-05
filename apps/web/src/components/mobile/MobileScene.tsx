@@ -11,7 +11,7 @@ import { useSessionAngle } from "@/components/spacetime/legacy/useSessionAngle";
 import { CmbSkybox }      from "./scene/CmbSkybox";
 import { getWaveHeight }   from "./scene/WaveTerrain";
 import { PlayerOrb }       from "./scene/PlayerOrb";
-import { StarFieldSystem } from "./scene/StarFieldSystem";
+import { DepositField } from "./scene/DepositField";
 import { useSolarWind }    from "@/lib/world/useSolarWind";
 
 const FOG_COLOR = "#01020a";
@@ -180,10 +180,8 @@ export default function MobileScene() {
     cmbCount, cmbOpacity, cmbRadius, cmbRotSpeed,
     cmbBrightness, cmbContrast, cmbSizeMin, cmbSizeMax,
     cmbUsReal, cmbSaturation,
-    // ── Stars (통합: 파티클 궤적 + 별 생애주기)
-    starParticleOpacity, starSpawnRate, starLifetime,
-    starSpread, starPointSize, starSpawnJitter,
-    starAttractG, starClusterThreshold, starScale,
+    // ── Deposits
+    depositPointSize,
     // ── Camera
     camDist, camHeight, camLerp, fov,
     // ── Feel
@@ -213,24 +211,9 @@ export default function MobileScene() {
       orbNucleusAlpha:{ value: 0.9, min: 0, max: 1, step: 0.01,   label: "핵 투명도" },
     }),
 
-    // ── 통합 StarField ──────────────────────────────────────────────
-    // 파티클 궤적 → 군집 감지(GPU readback) → 별 형성 → MainSeq 영속화
-    "Stars (별 생애주기)": folder({
-      "── 파티클 궤적": folder({
-        starParticleOpacity: { value: 0.60, min: 0.01, max: 0.6,  step: 0.01, label: "밝기" },
-        starSpawnRate:       { value: 78,   min: 1,    max: 200,  step: 1,    label: "초당 생성 수" },
-        starLifetime:        { value: 0.85, min: 0.2,  max: 3,    step: 0.05, label: "수명 배율(×90s)" },
-        starSpread:          { value: 2.45, min: 0.05, max: 3,    step: 0.05, label: "퍼짐 반경" },
-        starPointSize:       { value: 0.3,  min: 0.1,  max: 5,    step: 0.1,  label: "점 크기 배율" },
-        starSpawnJitter:     { value: 1.0,  min: 0,    max: 3,    step: 0.1,  label: "초기 속도 지터 (0=정지, 2+=고에너지)" },
-      }),
-      "── 중력 & 별 형성": folder({
-        starAttractG:         { value: 0.80, min: 0,    max: 4,    step: 0.05, label: "중력 상수 G" },
-        starClusterThreshold: { value: 20,   min: 5,    max: 100,  step: 5,    label: "군집 임계값 (Nebula 생성)" },
-      }),
-      "── 별 시각": folder({
-        starScale: { value: 1.0, min: 0.1, max: 5, step: 0.1, label: "별 크기 배율" },
-      }),
+    // ── 흔적 (technofossil scatter) ─────────────────────────────────
+    "Deposits (흔적)": folder({
+      depositPointSize: { value: 0.32, min: 0.1, max: 1.5, step: 0.02, label: "픽셀 크기" },
     }),
 
     "CMB (배경별)": folder({
@@ -354,27 +337,12 @@ export default function MobileScene() {
           colorSaturation={cmbSaturation}
         />
 
-        {/* ── 이동 흔적 (감쇠 기억) ── */}
-        {/* ── 통합 별 생애주기 (파티클 궤적 + 별 형성) ── */}
-        <StarFieldSystem
+        {/* ── 흔적: 방문자가 (고르지 않은) 물건을 뿌리고, 운명은 lib/stratum이 결정 ── */}
+        <DepositField
           playerPosRef={playerPosRef}
           playerYRef={playerYRef}
-          particleOpacity={starParticleOpacity}
-          spawnRate={starSpawnRate}
-          lifetime={starLifetime}
-          spread={starSpread}
-          pointSize={starPointSize}
-          spawnJitter={starSpawnJitter}
-          attractG={starAttractG}
-          clusterThreshold={starClusterThreshold}
-          starScale={starScale}
-          botPositions={botEnabled ? Array.from({ length: botCount }, (_, i) => ({
-            x: Math.cos((i / botCount) * Math.PI * 2) * 8,
-            z: Math.sin((i / botCount) * Math.PI * 2) * 8,
-            // 각 봇: φ = 전방향 균등 분배, β = 속도 독립 배정 (0.15 ~ 0.85)
-            phi:  (i / botCount) * Math.PI * 2,
-            beta: 0.15 + (i / Math.max(botCount - 1, 1)) * 0.7,
-          })) : undefined}
+          pointSize={depositPointSize}
+          botCount={botEnabled ? botCount : 0}
         />
 
         {/* ── 플레이어 + 카메라 ── */}
