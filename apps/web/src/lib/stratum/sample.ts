@@ -24,3 +24,32 @@ export function sampleEntry(u: number): CatalogueEntry {
   }
   return CATALOGUE[lo];
 }
+
+/**
+ * Pólya-urn draw with a prior pseudo-count (Dirichlet-multinomial).
+ *
+ *   p(item) = ( k · prior(item) + survivors(item) ) / ( k + survivors_total )
+ *
+ * `survivors` maps catalogue rank -> number of items of that type that are still
+ * present near the visitor (not vanished). With no survivors the draw equals the
+ * catalogue prior; the more has accumulated, the more the local composition
+ * dominates (weight of the ground = n / (n + k)). `fieldWeights` returns the
+ * unnormalised weights so the rule is testable exactly.
+ */
+export function fieldWeights(survivors: ReadonlyMap<number, number>, k: number): number[] {
+  const kk = Math.max(0, k);
+  return CATALOGUE.map((c) => kk * (c.percent / CATALOGUE_TOTAL_PERCENT) + (survivors.get(c.rank) ?? 0));
+}
+
+export function sampleFromField(u: number, survivors: ReadonlyMap<number, number>, k: number): CatalogueEntry {
+  const w = fieldWeights(survivors, k);
+  let total = 0;
+  for (const x of w) total += x;
+  if (total <= 0) return sampleEntry(u);
+  let target = Math.min(Math.max(u, 0), 1 - Number.EPSILON) * total;
+  for (let i = 0; i < w.length; i++) {
+    target -= w[i];
+    if (target < 0) return CATALOGUE[i];
+  }
+  return CATALOGUE[CATALOGUE.length - 1];
+}

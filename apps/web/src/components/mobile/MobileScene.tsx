@@ -176,7 +176,7 @@ export default function MobileScene() {
     orbBaseAlpha, orbWobble, orbGlow,
     orbNucleusSize, orbNucleusAlpha,
     // ── Deposits
-    depositPointSize,
+    depositPointSize, depositPoolK, depositPoolRadius,
     // ── Camera
     camDist, camHeight, camLerp, fov,
     // ── Feel
@@ -209,6 +209,8 @@ export default function MobileScene() {
     // ── 흔적 (technofossil scatter) ─────────────────────────────────
     "Deposits (흔적)": folder({
       depositPointSize: { value: 0.32, min: 0.1, max: 1.5, step: 0.02, label: "픽셀 크기" },
+      depositPoolK:      { value: 20, min: 0, max: 200, step: 1,   label: "k: 사전 가중 (0=땅만 따름, 클수록 JRC 빈도 유지)" },
+      depositPoolRadius: { value: 4,  min: 1, max: 20,  step: 0.5, label: "R: 물려받는 땅 반경" },
     }),
 
     "Camera": folder({
@@ -309,6 +311,8 @@ export default function MobileScene() {
           playerPosRef={playerPosRef}
           playerYRef={playerYRef}
           pointSize={depositPointSize}
+          poolK={depositPoolK}
+          poolRadius={depositPoolRadius}
           botCount={botEnabled ? botCount : 0}
         />
 

@@ -2,13 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   CELL_SIZE,
   CATALOGUE,
+  CATALOGUE_TOTAL_PERCENT,
   MATERIALS,
   MATERIAL_PALETTE_INDEX,
   PALETTE_HEX,
   cellKey,
   dimIndex,
+  fieldWeights,
+  localSurvivors,
   makeDeposit,
+  mulberry32,
   resolveField,
+  sampleEntry,
+  sampleFromField,
   type DepositRecord,
 } from "./index";
 
@@ -84,5 +90,65 @@ describe("palette", () => {
     }
     expect(dimIndex(15)).toBe(7);
     expect(dimIndex(11)).toBe(3);
+  });
+});
+
+describe("inheritance (Pólya urn with prior pseudo-count)", () => {
+  const prior = (rank: number) => CATALOGUE[rank - 1].percent / CATALOGUE_TOTAL_PERCENT;
+  const share = (w: number[], rank: number) => w[rank - 1] / w.reduce((a, b) => a + b, 0);
+
+  it("with nothing on the ground the weights are exactly the catalogue prior", () => {
+    const w = fieldWeights(new Map(), 20);
+    for (const c of CATALOGUE) expect(share(w, c.rank)).toBeCloseTo(prior(c.rank), 12);
+  });
+
+  it("the ground's weight is n / (n + k): n = k gives (prior + 1) / 2 for the only survivor type", () => {
+    const k = 20;
+    const w = fieldWeights(new Map([[7, k]]), k);
+    expect(share(w, 7)).toBeCloseTo((prior(7) + 1) / 2, 12);
+  });
+
+  it("k = 0 draws only what is on the ground; large k hardly moves from the prior", () => {
+    const only = new Map([[5, 3]]);
+    for (let i = 0; i < 50; i++) expect(sampleFromField(i / 50, only, 0).rank).toBe(5);
+    const w = fieldWeights(only, 1e6);
+    expect(share(w, 5)).toBeCloseTo(prior(5), 4);
+  });
+
+  it("an empty ground draws like the plain catalogue", () => {
+    const rnd = mulberry32(42);
+    let mismatches = 0;
+    for (let i = 0; i < 500; i++) {
+      const u = rnd();
+      if (sampleFromField(u, new Map(), 20).rank !== sampleEntry(u).rank) mismatches++;
+    }
+    expect(mismatches).toBeLessThanOrEqual(1); // float rounding on a boundary only
+  });
+
+  it("localSurvivors ignores vanished items and items outside the radius", () => {
+    // rank 23 is paper (gone after ~100 simulated years); rank 1 is a plastic fragment.
+    const rs: DepositRecord[] = [];
+    for (let i = 0; i < 100; i++) {
+      rs.push({ id: `p${i}`, rank: 23, material: "paper", x: i * 2, y: 0, z: 0, t: 0, owner: "o" });
+      rs.push({ id: `f${i}`, rank: 1, material: "plastic_fragment", x: i * 2, y: 0, z: 5, t: 0, owner: "o" });
+    }
+    const resolved = resolveField(rs, 30);
+    const all = localSurvivors(resolved, 100, 0, 1000);
+    expect(all.get(23) ?? 0).toBe(0);
+    expect(all.get(1) ?? 0).toBeGreaterThan(50);
+    const near = localSurvivors(resolved, 0, 5, 3);
+    expect(near.get(1) ?? 0).toBeLessThanOrEqual(2);
+  });
+
+  it("survivorship drift: what decays is not inherited, so the next draw leans toward the durable", () => {
+    const rs: DepositRecord[] = [];
+    for (let i = 0; i < 100; i++) {
+      rs.push({ id: `p${i}`, rank: 23, material: "paper", x: i * 2, y: 0, z: 0, t: 0, owner: "o" });
+      rs.push({ id: `f${i}`, rank: 1, material: "plastic_fragment", x: i * 2, y: 0, z: 5, t: 0, owner: "o" });
+    }
+    const survivors = localSurvivors(resolveField(rs, 30), 100, 0, 1000);
+    const w = fieldWeights(survivors, 20);
+    expect(share(w, 23)).toBeLessThan(prior(23));
+    expect(share(w, 1)).toBeGreaterThan(prior(1));
   });
 });

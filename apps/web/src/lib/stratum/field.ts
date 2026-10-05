@@ -43,7 +43,7 @@ export function entryOf(rank: number): CatalogueEntry {
   return CATALOGUE[rank - 1];
 }
 
-/** Make a new record. `u` is a uniform random number that picks the item. */
+/** Make a new record. `u` picks the item from the catalogue prior unless `entry` is given. */
 export function makeDeposit(args: {
   id: string;
   u: number;
@@ -52,10 +52,35 @@ export function makeDeposit(args: {
   z: number;
   t: number;
   owner: string;
+  entry?: CatalogueEntry;
 }): DepositRecord {
-  const e = sampleEntry(args.u);
+  const e = args.entry ?? sampleEntry(args.u);
   return { id: args.id, rank: e.rank, material: e.material, x: args.x, y: args.y, z: args.z, t: args.t, owner: args.owner };
 }
+
+/**
+ * What is still here around (x, z): number of non-vanished items per catalogue rank
+ * within `radius`. Buried and fossil items count: they are part of what the visitor
+ * inherits. Vanished items do not: what decays is not inherited. This survivorship
+ * bias is what lets the composition drift toward durable material.
+ */
+export function localSurvivors(
+  resolved: readonly { rec: DepositRecord; fate: Fate }[],
+  x: number,
+  z: number,
+  radius: number,
+): Map<number, number> {
+  const r2 = radius * radius;
+  const out = new Map<number, number>();
+  for (const { rec, fate } of resolved) {
+    if (fate.stage === "vanished") continue;
+    const dx = rec.x - x;
+    const dz = rec.z - z;
+    if (dx * dx + dz * dz <= r2) out.set(rec.rank, (out.get(rec.rank) ?? 0) + 1);
+  }
+  return out;
+}
+
 
 export interface ResolvedDeposit {
   rec: DepositRecord;

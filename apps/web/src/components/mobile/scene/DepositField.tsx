@@ -22,8 +22,10 @@ import {
   MATERIAL_PALETTE_INDEX,
   PALETTE_HEX,
   dimIndex,
+  localSurvivors,
   makeDeposit,
   resolveField,
+  sampleFromField,
   stageTint,
   type DepositRecord,
 } from "@/lib/stratum";
@@ -115,13 +117,20 @@ export function DepositField({
   playerYRef,
   pointSize = 0.32,
   botCount = 0,
+  poolK = 20,
+  poolRadius = 4,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   playerYRef: React.MutableRefObject<number>;
   pointSize?: number;
   /** Debug visitors that wander on their own, each scattering from its own draw. */
   botCount?: number;
+  /** Prior pseudo-count: how many "imaginary" items of the catalogue prior the ground is weighed against. 0 = only the ground. */
+  poolK?: number;
+  /** Radius (world units) of the ground a visitor inherits from. */
+  poolRadius?: number;
 }) {
+  const lastResolved = useRef<ReturnType<typeof resolveField>>([]);
   const records = useRef<Map<string, DepositRecord>>(new Map());
   const dirty = useRef(false);
   const epochMs = useRef(0);
@@ -176,7 +185,10 @@ export function DepositField({
   /** Scatter one item from `src` at (x,z). The item is drawn, not chosen. */
   const scatter = (src: string, owner: string, x: number, y: number, z: number, t: number) => {
     const id = `${owner}_${Math.floor(t * 1000)}_${seq.current++}`;
-    const rec = makeDeposit({ id, u: Math.random(), x, y, z, t, owner });
+    // Inheritance: the draw leans toward what has survived around this spot.
+    const survivors = localSurvivors(lastResolved.current, x, z, poolRadius);
+    const entry = sampleFromField(Math.random(), survivors, poolK);
+    const rec = makeDeposit({ id, u: 0, entry, x, y, z, t, owner });
     records.current.set(id, rec);
     dirty.current = true;
     void src;
@@ -243,6 +255,7 @@ export function DepositField({
       window.innerHeight / (2 * Math.tan(((state.camera as THREE.PerspectiveCamera).fov * Math.PI) / 360));
 
     const resolved = resolveField([...records.current.values()], t);
+    lastResolved.current = resolved;
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     const col = geometry.getAttribute("aColor") as THREE.BufferAttribute;
     const flg = geometry.getAttribute("aFlags") as THREE.BufferAttribute;
