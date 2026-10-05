@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { useControls, folder } from "leva";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useRadialBlurEffect, RadialBlurDriver } from "./scene/RadialBlurEffect";
-import { useSessionAngle } from "@/components/spacetime/useSessionAngle";
+import { useSessionAngle } from "@/components/spacetime/legacy/useSessionAngle";
 
 import { CmbSkybox }      from "./scene/CmbSkybox";
 import { getWaveHeight }   from "./scene/WaveTerrain";

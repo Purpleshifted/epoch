@@ -20,6 +20,7 @@ import * as THREE from "three";
 import { useRouter } from "next/navigation";
 import { useSpacetimeStarsWithRef } from "@/components/spacetime/useSpacetimeStars";
 import { PLANE_COLORS, type StarBody } from "@/components/spacetime/types";
+import { starPhiBeta } from "@/components/spacetime/legacy/worldline";
 
 // ──────────────────────────────────────────────────────────────
 const AGE_SCALE   = 0.055;  // 1초 = 0.055 world units (Y)
@@ -129,8 +130,7 @@ function WorldlinePillars({
   // ── per-star 상수 (stars 변경 시만 재계산) ──
   const starData = useMemo(() => stars.map(s => {
     const [r,g,b] = starActualColor(s);
-    const phi  = s.creatorPhi  ?? s.creatorAngle ?? 0;
-    const beta = s.creatorBeta ?? 0.3;
+    const { phi, beta } = starPhiBeta(s);
     return { x: s.x, z: s.z, birthAge: s.age, r, g, b, phi, beta,
              cx: Math.cos(phi)*beta, cz: Math.sin(phi)*beta };
   }), [stars]);
@@ -346,10 +346,6 @@ function NowPlane({
         <planeGeometry args={[extent*2, extent*2]} />
         <meshBasicMaterial color="#2255ff" transparent opacity={0.07} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
-      {/* "지금" 테두리 */}
-      <lineSegments ref={planeRef as React.RefObject<THREE.LineSegments>}>
-        {/* handled above */}
-      </lineSegments>
 
       {/* 플레이어 마커 */}
       {player && (

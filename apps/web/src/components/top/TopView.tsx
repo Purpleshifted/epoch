@@ -12,27 +12,6 @@ import { useRouter } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface StarBody {
-  id: string;
-  x: number;
-  y: number;
-  z: number;
-  vx: number;
-  vz: number;
-  phaseAge: number;
-  mass: number;
-  phase:
-    | "nebula"
-    | "protostar"
-    | "mainSequence"
-    | "redGiant"
-    | "supernova"
-    | "remnant";
-  age: number;
-  radius: number;
-  isPermanent: boolean;
-}
-
 const LS_KEY = "anthropocene:stars:v1";
 
 function loadStars(): StarBody[] {

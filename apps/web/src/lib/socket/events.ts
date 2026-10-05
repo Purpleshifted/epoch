@@ -9,7 +9,7 @@ import type {
   ServerAudioCluster,
   ServerAudioGlobal,
 } from "@/types/server";
-import { mapServerPayloadToSnapshots } from "@/lib/game/mappers";
+import { mapServerPayloadToSnapshots } from "./mappers";
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 

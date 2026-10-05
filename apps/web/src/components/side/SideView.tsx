@@ -18,6 +18,7 @@ import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { useRouter } from "next/navigation";
 import { useSpacetimeStarsWithRef } from "@/components/spacetime/useSpacetimeStars";
+import { sideTilt } from "@/components/spacetime/legacy/worldline";
 import type { StarBody } from "@/components/spacetime/types";
 
 // ──────────────────────────────────────────────────────────────
@@ -115,7 +116,7 @@ function StratumLines({ halfW, maxAge }: { halfW: number; maxAge: number }) {
 function StarPillars({ stars }: { stars: StarBody[] }) {
   const pts: number[] = [], col: number[] = [];
   stars.forEach((s) => {
-    const tilt  = Math.sin(s.creatorAngle ?? 0) * TILT_SCALE;
+    const tilt  = sideTilt(s, TILT_SCALE);
     const yTop  = s.age * AGE_SCALE + s.x * tilt;
     let r=1,g=0.8,b=0.4;
     if(s.phase==="redGiant")  {r=1;g=0.4;b=0.1;}
@@ -152,7 +153,7 @@ function StarPoints({ stars, pollTimeRef }: { stars: StarBody[]; pollTimeRef: Re
     ma[i]     = s.mass;
     ag[i]     = s.age;
     off[i]    = ((s.x*13.7+s.z*7.3)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
-    tilts[i]  = Math.sin(s.creatorAngle ?? 0) * TILT_SCALE;
+    tilts[i]  = sideTilt(s, TILT_SCALE);
   });
 
   useFrame((_,dt) => {

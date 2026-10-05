@@ -19,7 +19,7 @@ import {
   PLANE_SLOT_COUNT,
   SS_PLANE_KEY,
   type SessionPlane,
-} from "./types";
+} from "../types";
 
 export function useSessionAngle(): SessionPlane {
   return useMemo(() => {
