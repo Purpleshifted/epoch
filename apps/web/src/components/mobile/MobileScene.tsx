@@ -176,7 +176,7 @@ export default function MobileScene() {
     orbBaseAlpha, orbWobble, orbGlow,
     orbNucleusSize, orbNucleusAlpha,
     // ── Deposits
-    depositPointSize, depositPoolK, depositPoolRadius,
+    depositPointSize, depositPoolK, depositPoolRadius, naturalWear,
     // ── Camera
     camDist, camHeight, camLerp, fov,
     // ── Feel
@@ -211,6 +211,7 @@ export default function MobileScene() {
       depositPointSize: { value: 0.32, min: 0.1, max: 1.5, step: 0.02, label: "픽셀 크기" },
       depositPoolK:      { value: 20, min: 0, max: 200, step: 1,   label: "k: 사전 가중 (0=땅만 따름, 클수록 JRC 빈도 유지)" },
       depositPoolRadius: { value: 4,  min: 1, max: 20,  step: 0.5, label: "R: 물려받는 땅 반경" },
+      naturalWear:       { value: 3,  min: 0, max: 20,  step: 0.5, label: "자연 마모 배율 (1=보정값)" },
     }),
 
     "Camera": folder({
@@ -313,6 +314,7 @@ export default function MobileScene() {
           pointSize={depositPointSize}
           poolK={depositPoolK}
           poolRadius={depositPoolRadius}
+          naturalWear={naturalWear}
           botCount={botEnabled ? botCount : 0}
         />
 

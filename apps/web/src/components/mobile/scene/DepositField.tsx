@@ -14,6 +14,12 @@
  * Rendering is a placeholder: flat 16-colour pixel squares, one per item. Real
  * sprites replace them in a later step.
  *
+ * Cost model (see docs/performance.md): records live in an incremental per-cell
+ * GroundStore; only the cells near the visitor are resolved, twice a second; a freshly
+ * scattered item is drawn immediately without waiting for the next resolve; the
+ * localStorage mirror (a stand-in for the server) is written every few seconds and
+ * only read when another tab says it changed.
+ *
  * Multi-user (for now): every browser tab is a visitor; records are shared through
  * localStorage and merged by id. A server replaces this later.
  */
@@ -22,21 +28,24 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import {
+  GroundStore,
   LS_DEPOSITS_KEY,
   LS_EPOCH_KEY,
   LS_STEPS_KEY,
   MATERIAL_PALETTE_INDEX,
   PALETTE_HEX,
+  aliveShare,
   cellKey,
   dimIndex,
   localSurvivors,
   makeDeposit,
   naturalItemsAround,
-  resolveField,
-  resolveNatural,
+  resolveNaturalIn,
   sampleFromField,
   stageTint,
   type DepositRecord,
+  type NaturalItem,
+  type ResolvedDeposit,
   type StepRecord,
 } from "@/lib/stratum";
 
@@ -44,11 +53,14 @@ const MAX_RECORDS = 3000;
 const MAX_STEPS = 20000;      // dropping old crossings would let the natural stock grow back, so keep many (~1 MB)
 const MAX_NATURAL = 1800;     // natural items drawn at once (around the visitor)
 const NATURAL_RADIUS = 16;    // world units around the visitor in which the natural stock is drawn
+const VIEW_RADIUS = 24;       // world units around the visitor in which scattered items are resolved and drawn
+const GHOST_SEC = 3;          // a displaced natural item stays visible (dithered) this long, whatever its material
+const NATURAL_SIZE = 0.72;    // natural items are drawn a little smaller than scattered ones
 const DROP_DIST = 1.0;        // scatter one item per this much distance walked...
 const DROP_IDLE = 1.5;        // ...or after this many seconds standing still
 const DROP_MIN_GAP = 0.2;     // never faster than this (s)
-const RESOLVE_EVERY = 0.25;   // s between fate recomputations
-const SYNC_EVERY = 1.0;       // s between localStorage merges
+const RESOLVE_EVERY = 0.5;    // s between fate recomputations
+const WRITE_EVERY = 3.0;      // s between localStorage writes (only when something changed)
 const VISITOR_KEY = "anthropocene:visitor:v1";
 
 // ── palette as linear colours (so the post chain's sRGB output matches the hex) ──
@@ -57,19 +69,18 @@ const PALETTE_RGB: [number, number, number][] = PALETTE_HEX.map((hex) => {
   return [c.r, c.g, c.b];
 });
 
-
 const VS = /* glsl */ `
   attribute vec3 aColor;
-  attribute vec2 aFlags;       // x: dither, y: outline
+  attribute vec3 aFlags;       // x: dither, y: outline, z: size scale
   uniform float uCamConst;
   uniform float uSize;
   varying vec3 vColor;
   varying vec2 vFlags;
   void main() {
     vColor = aColor;
-    vFlags = aFlags;
+    vFlags = aFlags.xy;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = max(4.0, floor(uSize * uCamConst / (-mv.z)));
+    gl_PointSize = max(3.0, floor(uSize * aFlags.z * uCamConst / (-mv.z)));
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -135,6 +146,7 @@ export function DepositField({
   botCount = 0,
   poolK = 20,
   poolRadius = 4,
+  naturalWear = 3,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   playerYRef: React.MutableRefObject<number>;
@@ -145,32 +157,37 @@ export function DepositField({
   poolK?: number;
   /** Radius (world units) of the ground a visitor inherits from. */
   poolRadius?: number;
+  /** Multiplies the wear on the natural stock. 1 = calibrated reference (needs a crowd); higher = a small crowd wears the ground down visibly. */
+  naturalWear?: number;
 }) {
-  const lastResolved = useRef<ReturnType<typeof resolveField>>([]);
+  const lastResolved = useRef<ResolvedDeposit[]>([]);
   const records = useRef<Map<string, DepositRecord>>(new Map());
   const steps = useRef<Map<string, StepRecord>>(new Map());
+  const store = useRef(new GroundStore());
   const lastCell = useRef(new Map<string, string>());
   const dirty = useRef(false);
   const stepsDirty = useRef(false);
   const epochMs = useRef(0);
   const visitor = useRef("v_anon");
   const seq = useRef(0);
+  const drawn = useRef(0);
+  const naturalWindow = useRef<{ cell: string; items: NaturalItem[] } | null>(null);
 
   // per-source drop state: key -> { x, z, t of last drop, last moved time }
   const drops = useRef(new Map<string, { x: number; z: number; last: number; moved: number }>());
   const resolveTimer = useRef(0);
-  const syncTimer = useRef(0);
+  const writeTimer = useRef(0);
   const clock = useRef(0);
 
+  const cap = MAX_RECORDS + MAX_NATURAL;
   const geometry = useMemo(() => {
-    const cap = MAX_RECORDS + MAX_NATURAL;
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
     g.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
-    g.setAttribute("aFlags", new THREE.BufferAttribute(new Float32Array(cap * 2), 2));
+    g.setAttribute("aFlags", new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
     g.setDrawRange(0, 0);
     return g;
-  }, []);
+  }, [cap]);
 
   const uniforms = useMemo(
     () => ({ uCamConst: { value: 400 }, uSize: { value: pointSize } }),
@@ -184,14 +201,28 @@ export function DepositField({
     [uniforms],
   );
 
+  const addRecord = (r: DepositRecord): boolean => {
+    if (records.current.has(r.id)) return false;
+    records.current.set(r.id, r);
+    store.current.addDeposit(r);
+    return true;
+  };
+  const addStepRecord = (s: StepRecord): boolean => {
+    if (steps.current.has(s.id)) return false;
+    steps.current.set(s.id, s);
+    store.current.addStep(s);
+    return true;
+  };
+
   useEffect(() => {
     epochMs.current = getEpochMs();
     visitor.current = getVisitorId();
-    for (const r of loadRecords()) records.current.set(r.id, r);
-    for (const s of loadSteps()) steps.current.set(s.id, s);
+    for (const r of loadRecords()) addRecord(r);
+    for (const s of loadSteps()) addStepRecord(s);
+    // other tabs announce their writes; we never poll localStorage
     const onStorage = (e: StorageEvent) => {
-      if (e.key === LS_DEPOSITS_KEY) for (const r of loadRecords()) records.current.set(r.id, r);
-      else if (e.key === LS_STEPS_KEY) for (const s of loadSteps()) steps.current.set(s.id, s);
+      if (e.key === LS_DEPOSITS_KEY) for (const r of loadRecords()) addRecord(r);
+      else if (e.key === LS_STEPS_KEY) for (const s of loadSteps()) addStepRecord(s);
     };
     window.addEventListener("storage", onStorage);
     return () => {
@@ -199,9 +230,33 @@ export function DepositField({
       geometry.dispose();
       material.dispose();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geometry, material]);
 
   const nowSec = () => (Date.now() - epochMs.current) / 1000;
+
+  /** Write one point into the buffer at index `n`. */
+  const writePoint = (
+    n: number,
+    x: number,
+    y: number,
+    z: number,
+    material: DepositRecord["material"],
+    stage: Parameters<typeof stageTint>[0],
+    size: number,
+  ) => {
+    const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const col = geometry.getAttribute("aColor") as THREE.BufferAttribute;
+    const flg = geometry.getAttribute("aFlags") as THREE.BufferAttribute;
+    const tint = stageTint(stage);
+    let pi = MATERIAL_PALETTE_INDEX[material];
+    if (tint.dim) pi = dimIndex(pi);
+    const c = PALETTE_RGB[pi];
+    pos.setXYZ(n, x, y, z);
+    col.setXYZ(n, c[0], c[1], c[2]);
+    flg.setXYZ(n, tint.dither ? 1 : 0, tint.outline ? 1 : 0, size);
+    pos.needsUpdate = col.needsUpdate = flg.needsUpdate = true;
+  };
 
   /** Scatter one item from `src` at (x,z). The item is drawn, not chosen. */
   const scatter = (src: string, owner: string, x: number, y: number, z: number, t: number) => {
@@ -210,8 +265,13 @@ export function DepositField({
     const survivors = localSurvivors(lastResolved.current, x, z, poolRadius);
     const item = sampleFromField(Math.random(), survivors, poolK);
     const rec = makeDeposit({ id, u: 0, item, x, y, z, t, owner });
-    records.current.set(id, rec);
+    addRecord(rec);
     dirty.current = true;
+    // draw it now; the next resolve rewrites the whole buffer anyway
+    if (drawn.current < cap) {
+      writePoint(drawn.current++, x, y, z, rec.material, "fresh", 1);
+      geometry.setDrawRange(0, drawn.current);
+    }
     void src;
   };
 
@@ -221,7 +281,7 @@ export function DepositField({
     if (lastCell.current.get(src) === c) return;
     lastCell.current.set(src, c);
     const id = `${owner}_${Math.floor(t * 1000)}_${c}`;
-    steps.current.set(id, { id, c, t, o: owner });
+    addStepRecord({ id, c, t, o: owner });
     stepsDirty.current = true;
   };
 
@@ -244,16 +304,37 @@ export function DepositField({
     }
   };
 
+  /** Keep memory and storage bounded: drop the oldest records and rebuild the store (rare). */
+  const trim = () => {
+    let rebuilt = false;
+    if (records.current.size > MAX_RECORDS * 1.15) {
+      const sorted = [...records.current.values()].sort((a, b) => a.t - b.t);
+      for (const r of sorted.slice(0, sorted.length - MAX_RECORDS)) records.current.delete(r.id);
+      rebuilt = true;
+    }
+    if (steps.current.size > MAX_STEPS * 1.15) {
+      const sorted = [...steps.current.values()].sort((a, b) => a.t - b.t);
+      for (const s of sorted.slice(0, sorted.length - MAX_STEPS)) steps.current.delete(s.id);
+      rebuilt = true;
+    }
+    if (rebuilt) {
+      const fresh = new GroundStore();
+      for (const r of records.current.values()) fresh.addDeposit(r);
+      for (const s of steps.current.values()) fresh.addStep(s);
+      store.current = fresh;
+    }
+  };
+
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.05);
     clock.current += dt;
     const t = nowSec();
 
-    // ── 1. scatter: the visitor, then any debug bots ─────────────
+    // ── 1. scatter and walk: the visitor, then any debug bots ─────
     const py = playerYRef.current;
-    const me0 = playerPosRef.current;
-    trackStep("me", visitor.current, me0.x, me0.z, t);
-    maybeDrop("me", visitor.current, me0.x, me0.z, py, t);
+    const me = playerPosRef.current;
+    trackStep("me", visitor.current, me.x, me.z, t);
+    maybeDrop("me", visitor.current, me.x, me.z, py, t);
     for (let i = 0; i < botCount; i++) {
       const R = 3 + (i % 5) * 2.4;
       const w = (0.18 + 0.05 * (i % 4)) * (i % 2 ? 1 : -1);
@@ -264,36 +345,22 @@ export function DepositField({
       maybeDrop(`bot${i}`, `bot${i}`, bx, bz, py, t);
     }
 
-    // ── 2. merge with other visitors (other tabs) via localStorage ──
-    syncTimer.current += dt;
-    if (syncTimer.current >= SYNC_EVERY) {
-      syncTimer.current = 0;
-      for (const r of loadRecords()) if (!records.current.has(r.id)) { records.current.set(r.id, r); dirty.current = true; }
-      for (const s of loadSteps()) if (!steps.current.has(s.id)) { steps.current.set(s.id, s); stepsDirty.current = true; }
+    // ── 2. mirror to localStorage (stand-in for the server), throttled ──
+    writeTimer.current += dt;
+    if (writeTimer.current >= WRITE_EVERY) {
+      writeTimer.current = 0;
+      if (dirty.current || stepsDirty.current) trim();
       if (dirty.current) {
         dirty.current = false;
-        // cap: oldest first
-        if (records.current.size > MAX_RECORDS) {
-          const sorted = [...records.current.values()].sort((a, b) => a.t - b.t);
-          for (const r of sorted.slice(0, sorted.length - MAX_RECORDS)) records.current.delete(r.id);
-        }
-        try {
-          localStorage.setItem(LS_DEPOSITS_KEY, JSON.stringify([...records.current.values()]));
-        } catch { /* quota: ignore, memory copy continues */ }
+        try { localStorage.setItem(LS_DEPOSITS_KEY, JSON.stringify([...records.current.values()])); } catch { /* quota */ }
       }
       if (stepsDirty.current) {
         stepsDirty.current = false;
-        if (steps.current.size > MAX_STEPS) {
-          const sorted = [...steps.current.values()].sort((a, b) => a.t - b.t);
-          for (const s of sorted.slice(0, sorted.length - MAX_STEPS)) steps.current.delete(s.id);
-        }
-        try {
-          localStorage.setItem(LS_STEPS_KEY, JSON.stringify([...steps.current.values()]));
-        } catch { /* quota: ignore */ }
+        try { localStorage.setItem(LS_STEPS_KEY, JSON.stringify([...steps.current.values()])); } catch { /* quota */ }
       }
     }
 
-    // ── 3. resolve fates, fill buffers ───────────────────────────
+    // ── 3. resolve the cells near the visitor, fill buffers ───────
     resolveTimer.current += dt;
     if (resolveTimer.current < RESOLVE_EVERY) return;
     resolveTimer.current = 0;
@@ -301,48 +368,44 @@ export function DepositField({
     uniforms.uCamConst.value =
       window.innerHeight / (2 * Math.tan(((state.camera as THREE.PerspectiveCamera).fov * Math.PI) / 360));
 
-    const recArr = [...records.current.values()];
-    const resolved = resolveField(recArr, t);
+    const resolved = store.current.resolveNear(me.x, me.z, VIEW_RADIUS, t);
     lastResolved.current = resolved;
-    const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
-    const col = geometry.getAttribute("aColor") as THREE.BufferAttribute;
-    const flg = geometry.getAttribute("aFlags") as THREE.BufferAttribute;
     let n = 0;
-    const put = (x: number, y: number, z: number, material: DepositRecord["material"], stage: Parameters<typeof stageTint>[0]) => {
-      const tint = stageTint(stage);
-      let pi = MATERIAL_PALETTE_INDEX[material];
-      if (tint.dim) pi = dimIndex(pi);
-      const c = PALETTE_RGB[pi];
-      pos.setXYZ(n, x, y, z);
-      col.setXYZ(n, c[0], c[1], c[2]);
-      flg.setXY(n, tint.dither ? 1 : 0, tint.outline ? 1 : 0);
-      n++;
-    };
-    let scattered = 0;
     for (const { rec, fate } of resolved) {
-      if (fate.stage === "vanished" || scattered >= MAX_RECORDS) continue;
-      put(rec.x, rec.y, rec.z, rec.material, fate.stage);
-      scattered++;
+      if (fate.stage === "vanished" || n >= MAX_RECORDS) continue;
+      writePoint(n++, rec.x, rec.y, rec.z, rec.material, fate.stage, 1);
     }
 
-    // natural stock around the visitor: alive items are fresh ground, displaced ones are dead matter
-    const me = playerPosRef.current;
-    const natural = resolveNatural(
-      naturalItemsAround(me.x, me.z, NATURAL_RADIUS),
-      recArr,
-      [...steps.current.values()],
-      t,
-    );
+    // natural stock around the visitor (the window is recomputed only when the visitor changes cell)
+    const mc = cellKey(me.x, me.z);
+    let win = naturalWindow.current;
+    if (!win || win.cell !== mc) {
+      win = { cell: mc, items: naturalItemsAround(me.x, me.z, NATURAL_RADIUS) };
+      naturalWindow.current = win;
+    }
+    const natural = resolveNaturalIn(win.items, store.current, t, undefined, naturalWear);
     let nat = 0;
     for (const r of natural) {
       if (nat >= MAX_NATURAL) break;
-      if (r.alive) put(r.item.x, py, r.item.z, r.item.def.material, "fresh");
-      else if (r.fate && r.fate.stage !== "vanished") put(r.item.x, py, r.item.z, r.item.def.material, r.fate.stage);
+      const it = r.item;
+      if (r.alive) writePoint(n++, it.x, py, it.z, it.def.material, "fresh", NATURAL_SIZE);
+      else if (r.fate && r.fate.stage !== "vanished") writePoint(n++, it.x, py, it.z, it.def.material, r.fate.stage, NATURAL_SIZE);
+      else if (r.displacedAt != null && t - r.displacedAt < GHOST_SEC) writePoint(n++, it.x, py, it.z, it.def.material, "fragmented", NATURAL_SIZE);
       else continue;
       nat++;
     }
-    pos.needsUpdate = col.needsUpdate = flg.needsUpdate = true;
+    drawn.current = n;
     geometry.setDrawRange(0, n);
+
+    if (process.env.NODE_ENV !== "production") {
+      (window as unknown as { __natural?: unknown }).__natural = {
+        flora: +aliveShare(natural, "flora").toFixed(3),
+        fauna: +aliveShare(natural, "fauna").toFixed(3),
+        items: natural.length,
+        deposits: store.current.depositCount,
+        steps: store.current.stepCount,
+      };
+    }
   });
 
   return <points geometry={geometry} material={material} frustumCulled={false} />;

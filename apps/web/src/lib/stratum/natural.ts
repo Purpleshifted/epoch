@@ -20,24 +20,11 @@
  * (plants ÷2, wild mammals ÷6 for the same load). Everything else is EST.
  */
 
-import { CELL_SIZE, cellKey, type DepositRecord } from "./field";
+import { CELL_SIZE, GroundStore, type DepositRecord, type StepRecord } from "./field";
 import { NATURALS, NATURAL_CAL, type NaturalDef } from "./items";
 import { hash01 } from "./rng";
-import { burialTime, fateOf, isLagerstatte, type Fate } from "./taphonomy";
+import { coverNeeded, fateOf, isLagerstatte, type Fate } from "./taphonomy";
 import type { GeoClockConfig } from "./geoClock";
-
-/** A visitor entered a ground cell. Persisted (compact) so every view can read it. */
-export interface StepRecord {
-  id: string;
-  /** Cell key (see cellKey). */
-  c: string;
-  /** Exhibition seconds. */
-  t: number;
-  /** Visitor id (or bot id). */
-  o: string;
-}
-
-export const LS_STEPS_KEY = "anthropocene:steps:v1";
 
 export const PASSES_PER_CROSSING = NATURAL_CAL.passesPerCrossing;
 export const PASSES_PER_DEPOSIT = NATURAL_CAL.passesPerDeposit;
@@ -123,65 +110,55 @@ export interface ResolvedNatural {
   fate: Fate | null;
 }
 
-interface CellEvent {
-  t: number;
-  w: number;
-}
-
 /**
- * Resolve the natural items at exhibition second `now`.
- * `deposits` and `steps` are the shared records (events after `now` are ignored).
+ * Resolve the natural items at exhibition second `now` against a GroundStore.
+ * Events after `now` are ignored. `wear` scales the load: 1 is the calibrated
+ * reference, larger values make a small crowd wear the ground down faster (a demo /
+ * tuning knob, since the real number of visitors is not known in advance).
  */
-export function resolveNatural(
+export function resolveNaturalIn(
   items: readonly NaturalItem[],
-  deposits: readonly DepositRecord[],
-  steps: readonly StepRecord[],
+  store: GroundStore,
   now: number,
   clock?: GeoClockConfig,
+  wear = 1,
 ): ResolvedNatural[] {
-  const wanted = new Set(items.map((i) => i.cell));
-  const events = new Map<string, CellEvent[]>();
-  const depTimes = new Map<string, number[]>();
-  for (const s of steps) {
-    if (s.t > now || !wanted.has(s.c)) continue;
-    let list = events.get(s.c);
-    if (!list) events.set(s.c, (list = []));
-    list.push({ t: s.t, w: PASSES_PER_CROSSING });
-  }
-  for (const d of deposits) {
-    if (d.t > now) continue;
-    const c = cellKey(d.x, d.z);
-    if (!wanted.has(c)) continue;
-    let list = events.get(c);
-    if (!list) events.set(c, (list = []));
-    list.push({ t: d.t, w: PASSES_PER_DEPOSIT });
-    let dt = depTimes.get(c);
-    if (!dt) depTimes.set(c, (dt = []));
-    dt.push(d.t);
-  }
-  for (const list of events.values()) list.sort((a, b) => a.t - b.t);
-  for (const list of depTimes.values()) list.sort((a, b) => a - b);
-
+  const wStep = PASSES_PER_CROSSING * wear;
+  const wDep = PASSES_PER_DEPOSIT * wear;
   const out: ResolvedNatural[] = [];
+  const cache = new Map<string, { steps: number[]; deps: number[] }>();
   for (const item of items) {
+    let cell = cache.get(item.cell);
+    if (!cell) {
+      cell = { steps: store.stepTimes(item.cell), deps: store.depositTimes(item.cell) };
+      cache.set(item.cell, cell);
+    }
+    const { steps, deps } = cell;
+    // walk both sorted lists in time order until the load reaches the threshold
     let h = 0;
     let displacedAt: number | null = null;
-    const list = events.get(item.cell);
-    if (list) {
-      for (const e of list) {
-        h += e.w;
-        if (h >= item.threshold) {
-          displacedAt = e.t;
-          break;
-        }
-      }
+    let i = 0;
+    let j = 0;
+    while (true) {
+      const ts = i < steps.length && steps[i] <= now ? steps[i] : Infinity;
+      const td = j < deps.length && deps[j] <= now ? deps[j] : Infinity;
+      if (ts === Infinity && td === Infinity) break;
+      let t: number;
+      if (ts <= td) { h += wStep; t = ts; i++; }
+      else { h += wDep; t = td; j++; }
+      if (h >= item.threshold) { displacedAt = t; break; }
     }
     if (displacedAt == null) {
       out.push({ item, alive: true, displacedAt: null, fate: null });
       continue;
     }
-    const later = (depTimes.get(item.cell) ?? []).filter((t) => t > (displacedAt as number));
-    const buriedAt = burialTime(item.id, later);
+    // deposits after the displacement bury the dead matter
+    const need = coverNeeded(item.id);
+    let seen = 0;
+    let buriedAt: number | null = null;
+    for (let k = 0; k < deps.length && deps[k] <= now; k++) {
+      if (deps[k] > displacedAt && ++seen === need) { buriedAt = deps[k]; break; }
+    }
     const lager = buriedAt != null && isLagerstatte(item.cell, buriedAt);
     const fate = fateOf(
       { id: item.id, material: item.def.material, depositedAt: displacedAt },
@@ -190,6 +167,21 @@ export function resolveNatural(
     out.push({ item, alive: false, displacedAt, fate });
   }
   return out;
+}
+
+/** Convenience for tests and one-off use: builds a store from plain record lists. */
+export function resolveNatural(
+  items: readonly NaturalItem[],
+  deposits: readonly DepositRecord[],
+  steps: readonly StepRecord[],
+  now: number,
+  clock?: GeoClockConfig,
+  wear = 1,
+): ResolvedNatural[] {
+  const store = new GroundStore();
+  for (const d of deposits) store.addDeposit(d);
+  for (const s of steps) store.addStep(s);
+  return resolveNaturalIn(items, store, now, clock, wear);
 }
 
 /** Share of natural items still alive, by group (for tests and for the debug HUD). */
