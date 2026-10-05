@@ -8,7 +8,6 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useRadialBlurEffect, RadialBlurDriver } from "./scene/RadialBlurEffect";
 import { useSessionAngle } from "@/components/spacetime/legacy/useSessionAngle";
 
-import { CmbSkybox }      from "./scene/CmbSkybox";
 import { getWaveHeight }   from "./scene/WaveTerrain";
 import { PlayerOrb }       from "./scene/PlayerOrb";
 import { DepositField } from "./scene/DepositField";
@@ -176,10 +175,6 @@ export default function MobileScene() {
     orbColor, orbCount, orbRadius, orbPointSize,
     orbBaseAlpha, orbWobble, orbGlow,
     orbNucleusSize, orbNucleusAlpha,
-    // ── CMB
-    cmbCount, cmbOpacity, cmbRadius, cmbRotSpeed,
-    cmbBrightness, cmbContrast, cmbSizeMin, cmbSizeMax,
-    cmbUsReal, cmbSaturation,
     // ── Deposits
     depositPointSize,
     // ── Camera
@@ -215,19 +210,6 @@ export default function MobileScene() {
     "Deposits (흔적)": folder({
       depositPointSize: { value: 0.32, min: 0.1, max: 1.5, step: 0.02, label: "픽셀 크기" },
     }),
-
-    "CMB (배경별)": folder({
-      cmbUsReal:    { value: true, label: "실제 CMB 데이터" },
-      cmbCount:     { value: 3500, min: 200, max: 10000, step: 100, label: "별 수" },
-      cmbOpacity:   { value: 0.8, min: 0, max: 1, step: 0.01, label: "전체 투명도" },
-      cmbRadius:    { value: 85, min: 40, max: 200, step: 5,   label: "반구 반경" },
-      cmbRotSpeed:  { value: 0.001, min: 0, max: 0.05, step: 0.0005, label: "회전 속도" },
-      cmbBrightness:{ value: 1.8, min: 0.1, max: 5, step: 0.05,  label: "밝기" },
-      cmbContrast:  { value: 0.65, min: 0.1, max: 3, step: 0.05, label: "대비" },
-      cmbSaturation:{ value: 0.9, min: 0, max: 3, step: 0.05,   label: "채도" },
-      cmbSizeMin:   { value: 0.4, min: 0.1, max: 2, step: 0.05,  label: "크기 최소" },
-      cmbSizeMax:   { value: 1.6, min: 0.2, max: 5, step: 0.05,  label: "크기 최대" },
-    }, { collapsed: true }),
 
     "Camera": folder({
       camDist:   { value: 7,    min: 2, max: 20, step: 0.5   },
@@ -320,21 +302,6 @@ export default function MobileScene() {
           intensity={0.2 + solarWind.stormLevel * stormLightScale}
           color={solarWind.stormLevel > 0.5 ? "#ff4422" : "#2255ee"}
           distance={60}
-        />
-
-        {/* ── 배경별 (CMB) ── */}
-        <CmbSkybox
-          particleCount={cmbCount}
-          opacity={cmbOpacity}
-          radius={cmbRadius}
-          rotationSpeed={cmbRotSpeed}
-          brightness={cmbBrightness}
-          contrast={cmbContrast}
-          sizeMin={cmbSizeMin}
-          sizeMax={cmbSizeMax}
-          useCmbData={cmbUsReal}
-          haloIntensity={0.4}
-          colorSaturation={cmbSaturation}
         />
 
         {/* ── 흔적: 방문자가 (고르지 않은) 물건을 뿌리고, 운명은 lib/stratum이 결정 ── */}
