@@ -1,0 +1,1906 @@
+[
+ {
+  "rank": 1,
+  "material": "Plastic",
+  "name": "Plastic/polystyrene pieces 2.5cm > < 50 cm",
+  "code": "G76+G79+G82",
+  "count": 52999,
+  "pct": 14.9
+ },
+ {
+  "rank": 2,
+  "material": "Plastic",
+  "name": "Plastic/polystyrene pieces 0-2.5cm",
+  "code": "G75+G78+G81",
+  "count": 49198,
+  "pct": 13.83
+ },
+ {
+  "rank": 3,
+  "material": "Plastic",
+  "name": "String and cord (diameter less than 1cm)",
+  "code": "G50",
+  "count": 48919,
+  "pct": 13.75
+ },
+ {
+  "rank": 4,
+  "material": "Plastic",
+  "name": "Cigarette butts and filters",
+  "code": "G27",
+  "count": 21854,
+  "pct": 6.14
+ },
+ {
+  "rank": 5,
+  "material": "Plastic",
+  "name": "Plastic caps and lids (drinks, chemicals, detergents (non-food), unidentified)/plastic rings from bottle caps/lids",
+  "code": "G20+G21+G22+G23+G24",
+  "count": 18732,
+  "pct": 5.27
+ },
+ {
+  "rank": 6,
+  "material": "Plastic",
+  "name": "Cotton bud sticks",
+  "code": "G95",
+  "count": 13579,
+  "pct": 3.82
+ },
+ {
+  "rank": 7,
+  "material": "Chemicals",
+  "name": "Paraffin/wax",
+  "code": "G213",
+  "count": 10305,
+  "pct": 2.9
+ },
+ {
+  "rank": 8,
+  "material": "Plastic",
+  "name": "Crisp packets/sweet wrappers",
+  "code": "G30",
+  "count": 10267,
+  "pct": 2.89
+ },
+ {
+  "rank": 9,
+  "material": "Plastic",
+  "name": "Other plastic/polystyrene items (identifiable)",
+  "code": "G124",
+  "count": 10142,
+  "pct": 2.85
+ },
+ {
+  "rank": 10,
+  "material": "Plastic",
+  "name": "Plastic bag (Shopping bags, small plastic bags, e.g. freezer bags, plastic bag collective role; what remains from rip-off plastic bags)",
+  "code": "G2+G3+G4+G5",
+  "count": 6197,
+  "pct": 1.74
+ },
+ {
+  "rank": 11,
+  "material": "unidentified",
+  "name": "Other medical items (swabs, bandaging, adhesive plaster etc.)",
+  "code": "G211",
+  "count": 5841,
+  "pct": 1.64
+ },
+ {
+  "rank": 12,
+  "material": "Plastic",
+  "name": "Other (eg diapers, toilet paper, tissue paper, shaving razors)",
+  "code": "x_a",
+  "count": 5077,
+  "pct": 1.43
+ },
+ {
+  "rank": 13,
+  "material": "Plastic",
+  "name": "Foam sponge",
+  "code": "G73",
+  "count": 4156,
+  "pct": 1.17
+ },
+ {
+  "rank": 14,
+  "material": "Plastic",
+  "name": "Plastic/polystyrene pieces > 50 cm",
+  "code": "G77+G80+G83",
+  "count": 4155,
+  "pct": 1.17
+ },
+ {
+  "rank": 15,
+  "material": "Glass/Ceramic",
+  "name": "Bottles incl. pieces",
+  "code": "G200",
+  "count": 3818,
+  "pct": 1.07
+ },
+ {
+  "rank": 16,
+  "material": "Plastic",
+  "name": "Beverage bottles plastic",
+  "code": "G6-G8",
+  "count": 3776,
+  "pct": 1.06
+ },
+ {
+  "rank": 17,
+  "material": "Plastic",
+  "name": "Knives, forks, spoons, straws, stirrers, (cutlery)",
+  "code": "G34-G35",
+  "count": 3666,
+  "pct": 1.03
+ },
+ {
+  "rank": 18,
+  "material": "Plastic",
+  "name": "Nets and pieces of net > 50 cm",
+  "code": "G54",
+  "count": 3499,
+  "pct": 0.98
+ },
+ {
+  "rank": 19,
+  "material": "Plastic",
+  "name": "Sanitary towels/panty liners/backing strips",
+  "code": "G96",
+  "count": 2877,
+  "pct": 0.81
+ },
+ {
+  "rank": 20,
+  "material": "Plastic",
+  "name": "Rope (diameter more than 1cm)",
+  "code": "G49",
+  "count": 2792,
+  "pct": 0.79
+ },
+ {
+  "rank": 21,
+  "material": "Rubber",
+  "name": "Balloons and balloon sticks",
+  "code": "G125",
+  "count": 2542,
+  "pct": 0.71
+ },
+ {
+  "rank": 22,
+  "material": "Processed/Worked Wood",
+  "name": "Other wood < 50 cm",
+  "code": "G171",
+  "count": 2468,
+  "pct": 0.69
+ },
+ {
+  "rank": 23,
+  "material": "Paper/Cardboard",
+  "name": "Other paper items",
+  "code": "G158",
+  "count": 2402,
+  "pct": 0.68
+ },
+ {
+  "rank": 24,
+  "material": "Rubber",
+  "name": "Other rubber pieces",
+  "code": "G134",
+  "count": 2385,
+  "pct": 0.67
+ },
+ {
+  "rank": 25,
+  "material": "Metal",
+  "name": "Cans (beverage)",
+  "code": "G175",
+  "count": 2373,
+  "pct": 0.67
+ },
+ {
+  "rank": 26,
+  "material": "Plastic",
+  "name": "Food containers incl. fast food containers",
+  "code": "G10",
+  "count": 2330,
+  "pct": 0.66
+ },
+ {
+  "rank": 27,
+  "material": "Plastic",
+  "name": "Shotgun cartridges",
+  "code": "G70",
+  "count": 2263,
+  "pct": 0.64
+ },
+ {
+  "rank": 28,
+  "material": "Plastic",
+  "name": "Strapping bands",
+  "code": "G66",
+  "count": 2239,
+  "pct": 0.63
+ },
+ {
+  "rank": 29,
+  "material": "Plastic",
+  "name": "Tangled nets/cord",
+  "code": "G56",
+  "count": 2108,
+  "pct": 0.59
+ },
+ {
+  "rank": 30,
+  "material": "Plastic",
+  "name": "Cups and cup lids",
+  "code": "G33",
+  "count": 1995,
+  "pct": 0.56
+ },
+ {
+  "rank": 31,
+  "material": "Metal",
+  "name": "Bottle caps, lids and pull tabs",
+  "code": "G178",
+  "count": 1982,
+  "pct": 0.56
+ },
+ {
+  "rank": 32,
+  "material": "Paper/Cardboard",
+  "name": "Cigarette packets",
+  "code": "G152",
+  "count": 1948,
+  "pct": 0.55
+ },
+ {
+  "rank": 33,
+  "material": "Plastic",
+  "name": "Nets and pieces of net < 50 cm",
+  "code": "G53",
+  "count": 1865,
+  "pct": 0.52
+ },
+ {
+  "rank": 34,
+  "material": "Glass/Ceramic",
+  "name": "Other glass items",
+  "code": "G210",
+  "count": 1710,
+  "pct": 0.48
+ },
+ {
+  "rank": 35,
+  "material": "Glass/Ceramic",
+  "name": "Construction material (brick, cement, pipes)",
+  "code": "G204",
+  "count": 1626,
+  "pct": 0.46
+ },
+ {
+  "rank": 36,
+  "material": "Plastic",
+  "name": "Sheets, industrial packaging, plastic sheeting",
+  "code": "G67",
+  "count": 1441,
+  "pct": 0.41
+ },
+ {
+  "rank": 37,
+  "material": "Metal",
+  "name": "Foil wrappers, aluminum foil",
+  "code": "G177",
+  "count": 1414,
+  "pct": 0.4
+ },
+ {
+  "rank": 38,
+  "material": "Plastic",
+  "name": "Fishing line/monofilament (angling)",
+  "code": "G59",
+  "count": 1351,
+  "pct": 0.38
+ },
+ {
+  "rank": 39,
+  "material": "Cloth/Textile",
+  "name": "Clothing/rags (clothing, hats, towels)",
+  "code": "G137",
+  "count": 1250,
+  "pct": 0.35
+ },
+ {
+  "rank": 40,
+  "material": "Plastic",
+  "name": "Toys & partypoppers",
+  "code": "G32",
+  "count": 1234,
+  "pct": 0.35
+ },
+ {
+  "rank": 41,
+  "material": "Plastic",
+  "name": "Drink bottles ≤0.5 l",
+  "code": "G7",
+  "count": 1188,
+  "pct": 0.33
+ },
+ {
+  "rank": 42,
+  "material": "Plastic",
+  "name": "Cleaner bottles & containers",
+  "code": "G9",
+  "count": 1148,
+  "pct": 0.32
+ },
+ {
+  "rank": 43,
+  "material": "Plastic",
+  "name": "Mussel nets, Oyster nets",
+  "code": "G45",
+  "count": 1142,
+  "pct": 0.32
+ },
+ {
+  "rank": 44,
+  "material": "Metal",
+  "name": "Household batteries",
+  "code": "G195",
+  "count": 1132,
+  "pct": 0.32
+ },
+ {
+  "rank": 45,
+  "material": "Plastic",
+  "name": "Drink bottles >0.5 l",
+  "code": "G8",
+  "count": 1131,
+  "pct": 0.32
+ },
+ {
+  "rank": 46,
+  "material": "Cloth/Textile",
+  "name": "Other textiles (incl. rags)",
+  "code": "G145",
+  "count": 1022,
+  "pct": 0.29
+ },
+ {
+  "rank": 47,
+  "material": "Paper/Cardboard",
+  "name": "Cups, food trays, food wrappers, drink containers",
+  "code": "G153",
+  "count": 956,
+  "pct": 0.27
+ },
+ {
+  "rank": 48,
+  "material": "Processed/Worked Wood",
+  "name": "Ice-cream sticks, chip forks, chopsticks, toothpicks",
+  "code": "G165",
+  "count": 850,
+  "pct": 0.24
+ },
+ {
+  "rank": 49,
+  "material": "Plastic",
+  "name": "Cigarette lighters",
+  "code": "G26",
+  "count": 795,
+  "pct": 0.22
+ },
+ {
+  "rank": 50,
+  "material": "Cloth/Textile",
+  "name": "Tampons and tampon applicators",
+  "code": "G144",
+  "count": 789,
+  "pct": 0.22
+ },
+ {
+  "rank": 51,
+  "material": "Plastic",
+  "name": "Foam packaging/ insulation/polyurethane",
+  "code": "G74",
+  "count": 752,
+  "pct": 0.21
+ },
+ {
+  "rank": 52,
+  "material": "Processed/Worked Wood",
+  "name": "Other wood > 50 cm",
+  "code": "G172",
+  "count": 717,
+  "pct": 0.2
+ },
+ {
+  "rank": 53,
+  "material": "Glass/Ceramic",
+  "name": "Glass or ceramic fragments > 2.5cm",
+  "code": "G208",
+  "count": 714,
+  "pct": 0.2
+ },
+ {
+  "rank": 54,
+  "material": "Paper/Cardboard",
+  "name": "Paper (including newspapers and magazines)",
+  "code": "G154-G157",
+  "count": 694,
+  "pct": 0.2
+ },
+ {
+  "rank": 55,
+  "material": "Plastic",
+  "name": "Pens and pen lids",
+  "code": "G28",
+  "count": 642,
+  "pct": 0.18
+ },
+ {
+  "rank": 56,
+  "material": "Plastic",
+  "name": "Rope, string, cord",
+  "code": "G49-G50",
+  "count": 629,
+  "pct": 0.18
+ },
+ {
+  "rank": 57,
+  "material": "Plastic",
+  "name": "Shoes/sandals",
+  "code": "G71",
+  "count": 623,
+  "pct": 0.18
+ },
+ {
+  "rank": 58,
+  "material": "Plastic",
+  "name": "Other bottles & containers (drums)",
+  "code": "G13",
+  "count": 617,
+  "pct": 0.17
+ },
+ {
+  "rank": 59,
+  "material": "Plastic",
+  "name": "Crisp/sweet packets and lolly sticks",
+  "code": "G30-G31",
+  "count": 593,
+  "pct": 0.17
+ },
+ {
+  "rank": 60,
+  "material": "Plastic",
+  "name": "Straws and stirrers",
+  "code": "G35",
+  "count": 566,
+  "pct": 0.16
+ },
+ {
+  "rank": 61,
+  "material": "Paper/Cardboard",
+  "name": "Cardboard (boxes and fragments)",
+  "code": "G148",
+  "count": 557,
+  "pct": 0.16
+ },
+ {
+  "rank": 62,
+  "material": "Plastic",
+  "name": "Plastic pieces",
+  "code": "G74-G83/G103-G106/G122",
+  "count": 545,
+  "pct": 0.15
+ },
+ {
+  "rank": 63,
+  "material": "Plastic",
+  "name": "Cutlery and trays",
+  "code": "G34",
+  "count": 537,
+  "pct": 0.15
+ },
+ {
+  "rank": 64,
+  "material": "Plastic",
+  "name": "Medical/pharmaceuticals containers/tubes",
+  "code": "G100",
+  "count": 495,
+  "pct": 0.14
+ },
+ {
+  "rank": 65,
+  "material": "Metal",
+  "name": "Other metal pieces > 50 cm",
+  "code": "G199",
+  "count": 482,
+  "pct": 0.14
+ },
+ {
+  "rank": 66,
+  "material": "Rubber",
+  "name": "Condoms (incl. packaging)",
+  "code": "G133",
+  "count": 480,
+  "pct": 0.14
+ },
+ {
+  "rank": 67,
+  "material": "Plastic",
+  "name": "Floats/buoys",
+  "code": "G62-G63",
+  "count": 478,
+  "pct": 0.13
+ },
+ {
+  "rank": 68,
+  "material": "Plastic",
+  "name": "Light sticks (tubes with fluid) incl. packaging",
+  "code": "G60",
+  "count": 458,
+  "pct": 0.13
+ },
+ {
+  "rank": 69,
+  "material": "Metal",
+  "name": "Wire, wire mesh, barbed wire",
+  "code": "G191",
+  "count": 455,
+  "pct": 0.13
+ },
+ {
+  "rank": 70,
+  "material": "Plastic",
+  "name": "Mesh vegetable bags",
+  "code": "G37",
+  "count": 452,
+  "pct": 0.13
+ },
+ {
+  "rank": 71,
+  "material": "Plastic",
+  "name": "Gloves (industrial/ professional rubber gloves)",
+  "code": "G41",
+  "count": 445,
+  "pct": 0.13
+ },
+ {
+  "rank": 72,
+  "material": "Paper/Cardboard",
+  "name": "Cartons/tetrapack (others)",
+  "code": "G151",
+  "count": 434,
+  "pct": 0.12
+ },
+ {
+  "rank": 73,
+  "material": "Plastic",
+  "name": "Beach use related cosmetic bottles and containers, e.g. sunblocks",
+  "code": "G11",
+  "count": 422,
+  "pct": 0.12
+ },
+ {
+  "rank": 74,
+  "material": "Plastic",
+  "name": "4/6-pack yokes, six-pack rings",
+  "code": "G1",
+  "count": 369,
+  "pct": 0.1
+ },
+ {
+  "rank": 75,
+  "material": "Metal",
+  "name": "Aerosol/spray cans (industry)",
+  "code": "G174",
+  "count": 369,
+  "pct": 0.1
+ },
+ {
+  "rank": 76,
+  "material": "Plastic",
+  "name": "Food containers, cups and cups lids",
+  "code": "G10/G33",
+  "count": 362,
+  "pct": 0.1
+ },
+ {
+  "rank": 77,
+  "material": "Processed/Worked Wood",
+  "name": "Corks",
+  "code": "G159",
+  "count": 348,
+  "pct": 0.1
+ },
+ {
+  "rank": 78,
+  "material": "Paper/Cardboard",
+  "name": "Newspapers and magazines",
+  "code": "G154",
+  "count": 337,
+  "pct": 0.09
+ },
+ {
+  "rank": 79,
+  "material": "Processed/Worked Wood",
+  "name": "Processed timber and pallet",
+  "code": "G160-G161",
+  "count": 327,
+  "pct": 0.09
+ },
+ {
+  "rank": 80,
+  "material": "Plastic",
+  "name": "Bottles & jars",
+  "code": "G6",
+  "count": 322,
+  "pct": 0.09
+ },
+ {
+  "rank": 81,
+  "material": "Metal",
+  "name": "Gas bottles, drums and buckets (> 4L)",
+  "code": "G189",
+  "count": 320,
+  "pct": 0.09
+ },
+ {
+  "rank": 82,
+  "material": "Glass/Ceramic",
+  "name": "Light bulbs",
+  "code": "G202",
+  "count": 294,
+  "pct": 0.08
+ },
+ {
+  "rank": 83,
+  "material": "Cloth/Textile",
+  "name": "Shoes and sandals (e.g. leather, cloth)",
+  "code": "G138",
+  "count": 275,
+  "pct": 0.08
+ },
+ {
+  "rank": 84,
+  "material": "Rubber",
+  "name": "Tyres and belts",
+  "code": "G128",
+  "count": 259,
+  "pct": 0.07
+ },
+ {
+  "rank": 85,
+  "material": "Cloth/Textile",
+  "name": "Rope, string and nets",
+  "code": "G142",
+  "count": 243,
+  "pct": 0.07
+ },
+ {
+  "rank": 86,
+  "material": "Processed/Worked Wood",
+  "name": "Paint brushes",
+  "code": "G166",
+  "count": 234,
+  "pct": 0.07
+ },
+ {
+  "rank": 87,
+  "material": "Cloth/Textile",
+  "name": "Carpet and furnishing",
+  "code": "G141",
+  "count": 232,
+  "pct": 0.07
+ },
+ {
+  "rank": 88,
+  "material": "Metal",
+  "name": "Industrial scrap",
+  "code": "G186",
+  "count": 232,
+  "pct": 0.07
+ },
+ {
+  "rank": 89,
+  "material": "Metal",
+  "name": "Cans (food)",
+  "code": "G176",
+  "count": 210,
+  "pct": 0.06
+ },
+ {
+  "rank": 90,
+  "material": "Metal",
+  "name": "Other metal pieces < 50 cm",
+  "code": "G198",
+  "count": 208,
+  "pct": 0.06
+ },
+ {
+  "rank": 91,
+  "material": "Plastic",
+  "name": "Lolly sticks",
+  "code": "G31",
+  "count": 204,
+  "pct": 0.06
+ },
+ {
+  "rank": 92,
+  "material": "Cloth/Textile",
+  "name": "Sacking (hessian)",
+  "code": "G140",
+  "count": 203,
+  "pct": 0.06
+ },
+ {
+  "rank": 93,
+  "material": "Plastic",
+  "name": "Crates and containers/baskets",
+  "code": "G18",
+  "count": 199,
+  "pct": 0.06
+ },
+ {
+  "rank": 94,
+  "material": "Plastic",
+  "name": "Other cosmetic bottles & containers",
+  "code": "G12",
+  "count": 190,
+  "pct": 0.05
+ },
+ {
+  "rank": 95,
+  "material": "Plastic",
+  "name": "Buckets",
+  "code": "G65",
+  "count": 179,
+  "pct": 0.05
+ },
+ {
+  "rank": 96,
+  "material": "Plastic",
+  "name": "Dog faeces bag",
+  "code": "G101",
+  "count": 178,
+  "pct": 0.05
+ },
+ {
+  "rank": 97,
+  "material": "Paper/Cardboard",
+  "name": "Paper bags",
+  "code": "G147",
+  "count": 178,
+  "pct": 0.05
+ },
+ {
+  "rank": 98,
+  "material": "Organic",
+  "name": "Fruit, food, pastry, candy and ice cream",
+  "code": "x_t",
+  "count": 176,
+  "pct": 0.05
+ },
+ {
+  "rank": 99,
+  "material": "Plastic",
+  "name": "Tags (fishing and industry)",
+  "code": "G43",
+  "count": 174,
+  "pct": 0.05
+ },
+ {
+  "rank": 100,
+  "material": "Plastic",
+  "name": "Jerry cans (square plastic containers with handle)",
+  "code": "G16",
+  "count": 170,
+  "pct": 0.05
+ },
+ {
+  "rank": 101,
+  "material": "Plastic",
+  "name": "Injection gun containers",
+  "code": "G17",
+  "count": 168,
+  "pct": 0.05
+ },
+ {
+  "rank": 102,
+  "material": "Rubber",
+  "name": "Balloons, balls and toys",
+  "code": "G125-G126",
+  "count": 164,
+  "pct": 0.05
+ },
+ {
+  "rank": 103,
+  "material": "Plastic",
+  "name": "Combs/hair brushes/sunglasses",
+  "code": "G29",
+  "count": 161,
+  "pct": 0.05
+ },
+ {
+  "rank": 104,
+  "material": "Plastic",
+  "name": "Syringes/needles",
+  "code": "G99",
+  "count": 160,
+  "pct": 0.05
+ },
+ {
+  "rank": 105,
+  "material": "Pollutants",
+  "name": "Wax_small",
+  "code": "x_b",
+  "count": 153,
+  "pct": 0.04
+ },
+ {
+  "rank": 106,
+  "material": "Plastic",
+  "name": "Tobacco pouches/plastic cigarette box packaging",
+  "code": "G25",
+  "count": 147,
+  "pct": 0.04
+ },
+ {
+  "rank": 107,
+  "material": "Plastic",
+  "name": "Food containers, candy wrappers, cups and cups lids",
+  "code": "G10/G30/G33",
+  "count": 147,
+  "pct": 0.04
+ },
+ {
+  "rank": 108,
+  "material": "Paper/Cardboard",
+  "name": "Cartons/tetrapack milk",
+  "code": "G150",
+  "count": 145,
+  "pct": 0.04
+ },
+ {
+  "rank": 109,
+  "material": "Plastic",
+  "name": "Engine oil bottles & containers < 50 cm",
+  "code": "G14",
+  "count": 140,
+  "pct": 0.04
+ },
+ {
+  "rank": 110,
+  "material": "Plastic",
+  "name": "Car parts",
+  "code": "G19",
+  "count": 135,
+  "pct": 0.04
+ },
+ {
+  "rank": 111,
+  "material": "Plastic",
+  "name": "Gloves (washing up)",
+  "code": "G40",
+  "count": 132,
+  "pct": 0.04
+ },
+ {
+  "rank": 112,
+  "material": "Plastic",
+  "name": "Crab/lobster pots and tops",
+  "code": "G42",
+  "count": 120,
+  "pct": 0.03
+ },
+ {
+  "rank": 113,
+  "material": "Plastic",
+  "name": "Plastic sheeting from mussel culture (Tahitians)",
+  "code": "G47",
+  "count": 119,
+  "pct": 0.03
+ },
+ {
+  "rank": 114,
+  "material": "Plastic",
+  "name": "Fibre glass/fragments",
+  "code": "G68",
+  "count": 113,
+  "pct": 0.03
+ },
+ {
+  "rank": 115,
+  "material": "Plastic",
+  "name": "Fish boxes- plastic/polystyrene",
+  "code": "G57-G58",
+  "count": 104,
+  "pct": 0.03
+ },
+ {
+  "rank": 116,
+  "material": "Plastic",
+  "name": "Toilet fresheners",
+  "code": "G97",
+  "count": 100,
+  "pct": 0.03
+ },
+ {
+  "rank": 117,
+  "material": "Plastic",
+  "name": "Bottles < 2L",
+  "code": "G6-G9/G11-G13",
+  "count": 99,
+  "pct": 0.03
+ },
+ {
+  "rank": 118,
+  "material": "Paper/Cardboard",
+  "name": "Paper fragments",
+  "code": "G156",
+  "count": 97,
+  "pct": 0.03
+ },
+ {
+  "rank": 119,
+  "material": "Rubber",
+  "name": "Rubber bands (small, for kitchen/household/post use)",
+  "code": "G131",
+  "count": 94,
+  "pct": 0.03
+ },
+ {
+  "rank": 120,
+  "material": "Foamed Plastic",
+  "name": "Other (specify)",
+  "code": "x_p",
+  "count": 93,
+  "pct": 0.03
+ },
+ {
+  "rank": 121,
+  "material": "Organic",
+  "name": "Feces (excrement)",
+  "code": "x_s",
+  "count": 85,
+  "pct": 0.02
+ },
+ {
+  "rank": 122,
+  "material": "Plastic",
+  "name": "Fertiliser/animal feed bags",
+  "code": "G36",
+  "count": 79,
+  "pct": 0.02
+ },
+ {
+  "rank": 123,
+  "material": "Plastic",
+  "name": "Plastic flower pots",
+  "code": "G90",
+  "count": 74,
+  "pct": 0.02
+ },
+ {
+  "rank": 124,
+  "material": "Processed/Worked Wood",
+  "name": "Matches and fireworks",
+  "code": "G167",
+  "count": 73,
+  "pct": 0.02
+ },
+ {
+  "rank": 125,
+  "material": "Plastic",
+  "name": "Cups plates plastic",
+  "code": "G33-34",
+  "count": 73,
+  "pct": 0.02
+ },
+ {
+  "rank": 126,
+  "material": "Plastic",
+  "name": "Hard hats/helmets",
+  "code": "G69",
+  "count": 71,
+  "pct": 0.02
+ },
+ {
+  "rank": 127,
+  "material": "Foamed Plastic",
+  "name": "Cups and food packs",
+  "code": "x_n",
+  "count": 70,
+  "pct": 0.02
+ },
+ {
+  "rank": 128,
+  "material": "Plastic",
+  "name": "Fish boxes - expanded polystyrene",
+  "code": "G58",
+  "count": 68,
+  "pct": 0.02
+ },
+ {
+  "rank": 129,
+  "material": "Rubber",
+  "name": "Rubber boots",
+  "code": "G127",
+  "count": 62,
+  "pct": 0.02
+ },
+ {
+  "rank": 130,
+  "material": "Glass/Ceramic",
+  "name": "Jars incl. pieces",
+  "code": "G201",
+  "count": 59,
+  "pct": 0.02
+ },
+ {
+  "rank": 131,
+  "material": "Processed/Worked Wood",
+  "name": "Processed timber and pallet, crates",
+  "code": "G160-G162",
+  "count": 58,
+  "pct": 0.02
+ },
+ {
+  "rank": 132,
+  "material": "Metal",
+  "name": "Fishing related (weights, sinkers, lures, hooks)",
+  "code": "G182",
+  "count": 58,
+  "pct": 0.02
+ },
+ {
+  "rank": 133,
+  "material": "Metal",
+  "name": "Metal - Other (specify)",
+  "code": "G186/G198-G199",
+  "count": 53,
+  "pct": 0.01
+ },
+ {
+  "rank": 134,
+  "material": "Plastic",
+  "name": "Masking tape",
+  "code": "G87",
+  "count": 53,
+  "pct": 0.01
+ },
+ {
+  "rank": 135,
+  "material": "Metal",
+  "name": "Wire, wire mesh, barbed wire, cables",
+  "code": "G191/G194",
+  "count": 53,
+  "pct": 0.01
+ },
+ {
+  "rank": 136,
+  "material": "Plastic",
+  "name": "Octopus pots",
+  "code": "G44",
+  "count": 53,
+  "pct": 0.01
+ },
+ {
+  "rank": 137,
+  "material": "Plastic",
+  "name": "Engine oil bottles & containers > 50 cm",
+  "code": "G15",
+  "count": 53,
+  "pct": 0.01
+ },
+ {
+  "rank": 138,
+  "material": "Plastic",
+  "name": "Plastic construction waste",
+  "code": "G89",
+  "count": 51,
+  "pct": 0.01
+ },
+ {
+  "rank": 139,
+  "material": "Glass/Ceramic",
+  "name": "Bottles and jars",
+  "code": "G200-G201",
+  "count": 51,
+  "pct": 0.01
+ },
+ {
+  "rank": 140,
+  "material": "Processed/Worked Wood",
+  "name": "Wood - Other < 50 cm, > 50 cm, (specify)",
+  "code": "G171-G173",
+  "count": 50,
+  "pct": 0.01
+ },
+ {
+  "rank": 141,
+  "material": "Plastic",
+  "name": "Fishing line (entangled)",
+  "code": "G55",
+  "count": 50,
+  "pct": 0.01
+ },
+ {
+  "rank": 142,
+  "material": "Sanitary waste",
+  "name": "Sanitary (nappies, cotton buds, tampon applicators, toothbrushes)",
+  "code": "G95-G98/G144",
+  "count": 47,
+  "pct": 0.01
+ },
+ {
+  "rank": 143,
+  "material": "Metal",
+  "name": "Disposable BBQ s",
+  "code": "G179",
+  "count": 46,
+  "pct": 0.01
+ },
+ {
+  "rank": 144,
+  "material": "Cloth/Textile",
+  "name": "Clothing, shoes, rags, sandals ,hats and towels",
+  "code": "G135-G138",
+  "count": 45,
+  "pct": 0.01
+ },
+ {
+  "rank": 145,
+  "material": "Organic",
+  "name": "Food waste (galley waste)",
+  "code": "G215",
+  "count": 44,
+  "pct": 0.01
+ },
+ {
+  "rank": 146,
+  "material": "Glass/Ceramic",
+  "name": "Bulbs",
+  "code": "G202/G205",
+  "count": 44,
+  "pct": 0.01
+ },
+ {
+  "rank": 147,
+  "material": "Organic",
+  "name": "Snuff, swedish snus",
+  "code": "x_r",
+  "count": 44,
+  "pct": 0.01
+ },
+ {
+  "rank": 148,
+  "material": "Metal",
+  "name": "Appliances (refrigerators, washers, etc.)",
+  "code": "G180",
+  "count": 43,
+  "pct": 0.01
+ },
+ {
+  "rank": 149,
+  "material": "Organic",
+  "name": "Other (specify)",
+  "code": "x_u",
+  "count": 43,
+  "pct": 0.01
+ },
+ {
+  "rank": 150,
+  "material": "Foamed Plastic",
+  "name": "Foam pieces",
+  "code": "G74-G83/G115/G121",
+  "count": 42,
+  "pct": 0.01
+ },
+ {
+  "rank": 151,
+  "material": "Processed/Worked Wood",
+  "name": "Crates",
+  "code": "G162",
+  "count": 41,
+  "pct": 0.01
+ },
+ {
+  "rank": 152,
+  "material": "Metal",
+  "name": "Fragments",
+  "code": "x_q",
+  "count": 38,
+  "pct": 0.01
+ },
+ {
+  "rank": 153,
+  "material": "Plastic",
+  "name": "4/6-pack yokes, six-pack rings/bags/shopping bags incl. pieces/small plastic bags, e.g. freezer bags incl. pieces",
+  "code": "G1/G3-G5",
+  "count": 37,
+  "pct": 0.01
+ },
+ {
+  "rank": 154,
+  "material": "Metal",
+  "name": "Pint tins",
+  "code": "G190",
+  "count": 34,
+  "pct": 0.01
+ },
+ {
+  "rank": 155,
+  "material": "Processed/Worked Wood",
+  "name": "Pallets",
+  "code": "G160",
+  "count": 33,
+  "pct": 0.01
+ },
+ {
+  "rank": 156,
+  "material": "Metal",
+  "name": "Drums, e.g. oil",
+  "code": "G187",
+  "count": 29,
+  "pct": 0.01
+ },
+ {
+  "rank": 157,
+  "material": "Plastic",
+  "name": "Oyster trays (round from oyster cultures)",
+  "code": "G46",
+  "count": 27,
+  "pct": 0.01
+ },
+ {
+  "rank": 158,
+  "material": "Plastic",
+  "name": "Floats for fishing nets",
+  "code": "G62",
+  "count": 26,
+  "pct": 0.01
+ },
+ {
+  "rank": 159,
+  "material": "Rubber",
+  "name": "Inner-tubes and rubber sheet",
+  "code": "G129",
+  "count": 26,
+  "pct": 0.01
+ },
+ {
+  "rank": 160,
+  "material": "Metal",
+  "name": "Other metal pieces < 50 cm (incl. batteries)",
+  "code": "G195/G198",
+  "count": 26,
+  "pct": 0.01
+ },
+ {
+  "rank": 161,
+  "material": "Plastic",
+  "name": "Cable ties",
+  "code": "G93",
+  "count": 26,
+  "pct": 0.01
+ },
+ {
+  "rank": 162,
+  "material": "Plastic",
+  "name": "Synthetic rope, Rope diameter more than 1 cm",
+  "code": "G48-G49",
+  "count": 22,
+  "pct": 0.01
+ },
+ {
+  "rank": 163,
+  "material": "Plastic",
+  "name": "Diapers/nappies",
+  "code": "G98",
+  "count": 21,
+  "pct": 0.01
+ },
+ {
+  "rank": 164,
+  "material": "Processed/Worked Wood",
+  "name": "Wood (processed)",
+  "code": "G170",
+  "count": 20,
+  "pct": 0.01
+ },
+ {
+  "rank": 165,
+  "material": "Plastic",
+  "name": "Other fishing related",
+  "code": "G61",
+  "count": 20,
+  "pct": 0.01
+ },
+ {
+  "rank": 166,
+  "material": "Processed/Worked Wood",
+  "name": "Wood boards",
+  "code": "G168",
+  "count": 19,
+  "pct": 0.01
+ },
+ {
+  "rank": 167,
+  "material": "Pollutants",
+  "name": "Other",
+  "code": "x_c",
+  "count": 19,
+  "pct": 0.01
+ },
+ {
+  "rank": 168,
+  "material": "Plastic",
+  "name": "Biomass holder from sewage treatment plants",
+  "code": "G91",
+  "count": 18,
+  "pct": 0.01
+ },
+ {
+  "rank": 169,
+  "material": "Plastic",
+  "name": "Monofilament line",
+  "code": "G55/G59",
+  "count": 18,
+  "pct": 0.0
+ },
+ {
+  "rank": 170,
+  "material": "Plastic",
+  "name": "Fish boxes - plastic",
+  "code": "G57",
+  "count": 17,
+  "pct": 0.0
+ },
+ {
+  "rank": 171,
+  "material": "Paper/Cardboard",
+  "name": "Tubes for fireworks",
+  "code": "G155",
+  "count": 16,
+  "pct": 0.0
+ },
+ {
+  "rank": 172,
+  "material": "Paper/Cardboard",
+  "name": "Cups, food trays, food wrappers, cigarette packs, drink containers",
+  "code": "G149-G153",
+  "count": 15,
+  "pct": 0.0
+ },
+ {
+  "rank": 173,
+  "material": "Metal",
+  "name": "Table ware (plates, cups and cutlery)",
+  "code": "G181",
+  "count": 15,
+  "pct": 0.0
+ },
+ {
+  "rank": 174,
+  "material": "Plastic/Paper",
+  "name": "Tobacco packaging wrap",
+  "code": "G25/G152",
+  "count": 15,
+  "pct": 0.0
+ },
+ {
+  "rank": 175,
+  "material": "Plastic",
+  "name": "Buoys",
+  "code": "G63",
+  "count": 15,
+  "pct": 0.0
+ },
+ {
+  "rank": 176,
+  "material": "Processed/Worked Wood",
+  "name": "Wood - Other (specify)",
+  "code": "G173",
+  "count": 15,
+  "pct": 0.0
+ },
+ {
+  "rank": 177,
+  "material": "Cloth/Textile",
+  "name": "Clothing, rags, sandals, hats and towels",
+  "code": "G136-G138",
+  "count": 14,
+  "pct": 0.0
+ },
+ {
+  "rank": 178,
+  "material": "Processed/Worked Wood",
+  "name": "Processed timber",
+  "code": "G161",
+  "count": 14,
+  "pct": 0.0
+ },
+ {
+  "rank": 179,
+  "material": "Plastic",
+  "name": "Bottles, drums, jerrycans and buckets > 2L",
+  "code": "G15-G16/G65",
+  "count": 14,
+  "pct": 0.0
+ },
+ {
+  "rank": 180,
+  "material": "Plastic",
+  "name": "Flip - flops",
+  "code": "G102",
+  "count": 13,
+  "pct": 0.0
+ },
+ {
+  "rank": 181,
+  "material": "Plastic",
+  "name": "Gloves/Gloves (industrial, washing up)",
+  "code": "G39-G41",
+  "count": 13,
+  "pct": 0.0
+ },
+ {
+  "rank": 182,
+  "material": "Cloth/Textile",
+  "name": "Clothing (clothes, shoes)",
+  "code": "G135",
+  "count": 12,
+  "pct": 0.0
+ },
+ {
+  "rank": 183,
+  "material": "Cloth/Textile",
+  "name": "Shoes",
+  "code": "G136",
+  "count": 11,
+  "pct": 0.0
+ },
+ {
+  "rank": 184,
+  "material": "Processed/Worked Wood",
+  "name": "Fish boxes",
+  "code": "G164",
+  "count": 11,
+  "pct": 0.0
+ },
+ {
+  "rank": 185,
+  "material": "Plastic",
+  "name": "Fishing net/net pieces, tangled nets/cord, lines",
+  "code": "G51-G54/G56",
+  "count": 11,
+  "pct": 0.0
+ },
+ {
+  "rank": 186,
+  "material": "Foamed Plastic",
+  "name": "Foam buoys",
+  "code": "x_o",
+  "count": 11,
+  "pct": 0.0
+ },
+ {
+  "rank": 187,
+  "material": "Metal",
+  "name": "Cables",
+  "code": "G194",
+  "count": 11,
+  "pct": 0.0
+ },
+ {
+  "rank": 188,
+  "material": "Plastic",
+  "name": "Fishing gear (lures, traps and pots)",
+  "code": "G42/G44/G57-G58/G60",
+  "count": 10,
+  "pct": 0.0
+ },
+ {
+  "rank": 189,
+  "material": "Cloth/Textile",
+  "name": "Backpack and bags",
+  "code": "G139",
+  "count": 9,
+  "pct": 0.0
+ },
+ {
+  "rank": 190,
+  "material": "Processed/Worked Wood",
+  "name": "Beams/dunnage",
+  "code": "G169",
+  "count": 9,
+  "pct": 0.0
+ },
+ {
+  "rank": 191,
+  "material": "Cloth/Textile",
+  "name": "Sails, canvas",
+  "code": "G143",
+  "count": 9,
+  "pct": 0.0
+ },
+ {
+  "rank": 192,
+  "material": "Foamed Plastic",
+  "name": "Other plastic foam packaging",
+  "code": "G38/G67/G74",
+  "count": 8,
+  "pct": 0.0
+ },
+ {
+  "rank": 193,
+  "material": "Plastic",
+  "name": "Beach use related cosmetic bottles and containers, e.g. sunblock/ other cosmetics bottles & containers",
+  "code": "G11-G12",
+  "count": 6,
+  "pct": 0.0
+ },
+ {
+  "rank": 194,
+  "material": "Paper/Cardboard",
+  "name": "Paper packaging",
+  "code": "G149",
+  "count": 6,
+  "pct": 0.0
+ },
+ {
+  "rank": 195,
+  "material": "Metal",
+  "name": "Lobster/crab pots",
+  "code": "G184",
+  "count": 6,
+  "pct": 0.0
+ },
+ {
+  "rank": 196,
+  "material": "Metal",
+  "name": "Other cans (< 4L)",
+  "code": "G188",
+  "count": 5,
+  "pct": 0.0
+ },
+ {
+  "rank": 197,
+  "material": "Plastic",
+  "name": "Telephone (incl. parts)",
+  "code": "G88",
+  "count": 5,
+  "pct": 0.0
+ },
+ {
+  "rank": 198,
+  "material": "Rubber",
+  "name": "Balls",
+  "code": "G126",
+  "count": 5,
+  "pct": 0.0
+ },
+ {
+  "rank": 199,
+  "material": "Plastic",
+  "name": "Mesh bags (vegetable, oyster nets and mussel bags)",
+  "code": "G37/G45",
+  "count": 5,
+  "pct": 0.0
+ },
+ {
+  "rank": 200,
+  "material": "Plastic",
+  "name": "Nets and pieces of net",
+  "code": "G52",
+  "count": 5,
+  "pct": 0.0
+ },
+ {
+  "rank": 201,
+  "material": "Glass/Ceramic",
+  "name": "Tableware (plates and cups)",
+  "code": "G203",
+  "count": 5,
+  "pct": 0.0
+ },
+ {
+  "rank": 202,
+  "material": "Plastic",
+  "name": "Traffic cones",
+  "code": "G72",
+  "count": 4,
+  "pct": 0.0
+ },
+ {
+  "rank": 203,
+  "material": "Metal",
+  "name": "Fishing related (sinkers, lures, hooks, traps and pots)",
+  "code": "G182-G184",
+  "count": 4,
+  "pct": 0.0
+ },
+ {
+  "rank": 204,
+  "material": "Chemicals",
+  "name": "Slack/coal",
+  "code": "G212",
+  "count": 4,
+  "pct": 0.0
+ },
+ {
+  "rank": 205,
+  "material": "Processed/Worked Wood",
+  "name": "Crab/lobster pots",
+  "code": "G163",
+  "count": 4,
+  "pct": 0.0
+ },
+ {
+  "rank": 206,
+  "material": "Plastic",
+  "name": "Fishing net pieces",
+  "code": "G51-G54",
+  "count": 3,
+  "pct": 0.0
+ },
+ {
+  "rank": 207,
+  "material": "Glass/Ceramic",
+  "name": "Glass buoys",
+  "code": "G206",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 208,
+  "material": "Cloth/Textile",
+  "name": "Canvas, sailcloth, and sacking (hessian)",
+  "code": "G140/G143",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 209,
+  "material": "Metal",
+  "name": "Fish hook remains",
+  "code": "G183",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 210,
+  "material": "Metal",
+  "name": "Middle size containers",
+  "code": "G185",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 211,
+  "material": "Glass/Ceramic",
+  "name": "Fluorescent light tubes",
+  "code": "G205",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 212,
+  "material": "Rubber",
+  "name": "Wheels",
+  "code": "G130",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 213,
+  "material": "Glass/Ceramic",
+  "name": "Octopus pots",
+  "code": "G207",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 214,
+  "material": "Plastic",
+  "name": "CD, CD box",
+  "code": "G84",
+  "count": 2,
+  "pct": 0.0
+ },
+ {
+  "rank": 215,
+  "material": "unidentified",
+  "name": "Various rubbish (worked wood, metal parts)",
+  "code": "G216",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 216,
+  "material": "Plastic",
+  "name": "Bait containers/packaging",
+  "code": "G92",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 217,
+  "material": "Rubber",
+  "name": "Bobbins (fishing)",
+  "code": "G132",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 218,
+  "material": "Metal",
+  "name": "Car parts/batteries",
+  "code": "G193",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 219,
+  "material": "Plastic",
+  "name": "Fishing buoys pots traps",
+  "code": "G63/G42/G44",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 220,
+  "material": "Metal",
+  "name": "Other (metal)",
+  "code": "G197",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 221,
+  "material": "Glass/Ceramic",
+  "name": "Large glass objects (specify)",
+  "code": "G209",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 222,
+  "material": "Plastic/Glass/Cerami c",
+  "name": "Construction materials",
+  "code": "G89/G204",
+  "count": 1,
+  "pct": 0.0
+ },
+ {
+  "rank": 223,
+  "material": "Plastic",
+  "name": "Fenders",
+  "code": "G64",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 224,
+  "material": "unidentified",
+  "name": "Other (glass, metal, tar) < 5 mm",
+  "code": "G217",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 225,
+  "material": "Plastic",
+  "name": "Industrial pellets",
+  "code": "G112",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 226,
+  "material": "Paper/Cardboard",
+  "name": "Paper/cardboard",
+  "code": "G146",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 227,
+  "material": "Plastic",
+  "name": "Salt packaging",
+  "code": "G85",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 228,
+  "material": "Plastic",
+  "name": "Fin trees (from fins for scuba diving)",
+  "code": "G86",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 229,
+  "material": "Metal",
+  "name": "Old oildrums old",
+  "code": "x_j",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 230,
+  "material": "Organic",
+  "name": "Old human faeces",
+  "code": "x_k",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 231,
+  "material": "Organic",
+  "name": "Old animal faeces",
+  "code": "x_l",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 232,
+  "material": "Cloth/Textile",
+  "name": "Old cloth rope",
+  "code": "x_m",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 233,
+  "material": "Plastic",
+  "name": "Old rope small",
+  "code": "x_d",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 234,
+  "material": "Plastic",
+  "name": "Old rope large",
+  "code": "x_e",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 235,
+  "material": "Plastic",
+  "name": "Old plastic pieces",
+  "code": "x_f",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 236,
+  "material": "Plastic/Rubber",
+  "name": "Old gloves",
+  "code": "x_g",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 237,
+  "material": "Paper/Cardboard",
+  "name": "Old cartons",
+  "code": "x_h",
+  "count": 0,
+  "pct": 0.0
+ },
+ {
+  "rank": 238,
+  "material": "Metal",
+  "name": "Old drums new",
+  "code": "x_i",
+  "count": 0,
+  "pct": 0.0
+ }
+]
