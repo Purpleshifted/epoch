@@ -160,5 +160,7 @@ export function RoleField({
     }
   });
 
-  return <StructureMesh getSnapshot={() => snap.current} heightUnit={heightUnit} />;
+  // Slabs (concrete) are trace fossils: they are not felt within one visitor's life, so the player
+  // view draws only the short-lived traces (filters). Slabs appear in the Top and Side views.
+  return <StructureMesh getSnapshot={() => (snap.current ? { slabs: [], filters: snap.current.filters } : null)} heightUnit={heightUnit} />;
 }
