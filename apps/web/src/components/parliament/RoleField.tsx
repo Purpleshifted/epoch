@@ -18,12 +18,15 @@ import {
   pickOffset,
   saveMerged,
   sessionSeconds,
+  stressMap,
   type FoldConfig,
+  type NatureConfig,
   type PEvent,
   type RoleId,
   type Snapshot,
 } from "@/lib/parliament";
-import { StructureMesh } from "./StructureMesh";
+import { FilterMesh } from "./FilterMesh";
+import { NatureCloud } from "./NatureCloud";
 import { useWorld } from "./useWorld";
 
 const VIEW_RADIUS = 24;
@@ -38,22 +41,25 @@ export interface ParliamentDebug {
   events: number;
   slabs: number;
   filters: number;
+  paths: number;
 }
 
 export function RoleField({
   playerPosRef,
   role,
   cfg,
+  natureCfg,
+  pointSize,
   offsetWindow,
-  heightUnit,
   botCount,
   botRole,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   role: RoleId;
   cfg: FoldConfig;
+  natureCfg: NatureConfig;
+  pointSize: number;
   offsetWindow: number;
-  heightUnit: number;
   botCount: number;
   botRole: RoleId;
 }) {
@@ -70,6 +76,7 @@ export function RoleField({
   const saveTimer = useRef(0);
   const sinceFilter = useRef(new Map<string, number>());
   const snap = useRef<Snapshot | null>(null);
+  const stress = useRef<Map<string, number> | null>(null);
 
   useEffect(() => {
     epochMs.current = getEpochMs();
@@ -148,7 +155,9 @@ export function RoleField({
     foldTimer.current += dt;
     if (foldTimer.current >= FOLD_EVERY) {
       foldTimer.current = 0;
-      snap.current = foldWorld(log.all(), sMe, cfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      const events = log.all();
+      snap.current = foldWorld(events, sMe, cfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      stress.current = stressMap(events, sMe, natureCfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
         role,
         s: +sMe.toFixed(1),
@@ -156,11 +165,24 @@ export function RoleField({
         events: log.size,
         slabs: snap.current.slabs.length,
         filters: snap.current.filters.length,
+        paths: snap.current.paths.length,
       };
     }
   });
 
-  // Slabs (concrete) are trace fossils: they are not felt within one visitor's life, so the player
-  // view draws only the short-lived traces (filters). Slabs appear in the Top and Side views.
-  return <StructureMesh getSnapshot={() => (snap.current ? { slabs: [], filters: snap.current.filters } : null)} heightUnit={heightUnit} />;
+  // Concrete (slabs) is a trace fossil: it is not felt within one visitor's life, so the player
+  // view draws only what one life can feel: the point-cloud ground (worn by workers, with dust
+  // where a path has formed) and the short-lived filters. Slabs appear in the Top and Side views.
+  return (
+    <>
+      <NatureCloud
+        playerPosRef={playerPosRef}
+        getStress={() => stress.current}
+        getSnapshot={() => snap.current}
+        cfg={natureCfg}
+        pointSize={pointSize}
+      />
+      <FilterMesh getSnapshot={() => snap.current} />
+    </>
+  );
 }

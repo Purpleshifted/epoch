@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo } from "react";
 import { useControls } from "leva";
-import { DEFAULT_FOLD, EventLog, LS_EVENTS_KEY, loadEvents, type FoldConfig } from "@/lib/parliament";
+import { DEFAULT_FOLD, DEFAULT_NATURE, EventLog, LS_EVENTS_KEY, loadEvents, type FoldConfig, type NatureConfig } from "@/lib/parliament";
+import type { ArchStyle } from "./Architecture";
 
 /** The shared event log of this tab, kept in sync with localStorage (poll + storage events). */
 export function useWorld(onCleared?: () => void): EventLog {
@@ -38,10 +39,41 @@ export function useFoldControls(): FoldConfig {
     tauSlabYears: { value: DEFAULT_FOLD.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
     tauFootprintYears: { value: DEFAULT_FOLD.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
     tauFilterYears: { value: DEFAULT_FOLD.tauFilterYears, min: 1, max: 1000, step: 1, label: "담배필터 마모 시간 (년)" },
+    pathVisits: { value: DEFAULT_FOLD.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)" },
+    tauPathYears: { value: DEFAULT_FOLD.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)" },
   });
-  const { radius, windowSec, threshold, pourUnit, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears } = c;
+  const { radius, windowSec, threshold, pourUnit, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears } = c;
   return useMemo(
-    () => ({ ...DEFAULT_FOLD, radius, windowSec, threshold, pourUnit, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears }),
-    [radius, windowSec, threshold, pourUnit, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears],
+    () => ({ ...DEFAULT_FOLD, radius, windowSec, threshold, pourUnit, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears }),
+    [radius, windowSec, threshold, pourUnit, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears],
   );
+}
+
+/** Leva knobs of the vegetation point cloud (placeholder formulas, see lib/parliament/nature.ts). */
+export function useNatureControls(): { cfg: NatureConfig; pointSize: number } {
+  const c = useControls("자연 (초목 point cloud)", {
+    lingerRadius: { value: DEFAULT_NATURE.lingerRadius, min: 1, max: 10, step: 0.25, label: "머문 회사원의 영향 반경" },
+    dose: { value: DEFAULT_NATURE.dose, min: 0.01, max: 1, step: 0.01, label: "초당 훼손량 (중심)" },
+    recoverSec: { value: DEFAULT_NATURE.recoverSec, min: 5, max: 600, step: 5, label: "떠난 뒤 회복 시간 (s)" },
+    pathBite: { value: DEFAULT_NATURE.pathBite, min: 0, max: 1, step: 0.05, label: "길이 초목을 지우는 정도" },
+    sealedLeft: { value: DEFAULT_NATURE.sealedLeft, min: 0, max: 1, step: 0.05, label: "콘크리트 아래 남는 초목" },
+    pointsPerCell: { value: DEFAULT_NATURE.pointsPerCell, min: 4, max: 80, step: 1, label: "셀당 최대 점 수" },
+    pointSize: { value: 0.11, min: 0.03, max: 0.4, step: 0.01, label: "점 크기" },
+  });
+  const { lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, pointSize } = c;
+  const cfg = useMemo(
+    () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell }),
+    [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell],
+  );
+  return { cfg, pointSize };
+}
+
+/** Leva knobs of how concrete is drawn in Top / Side. */
+export function useArchControls(defaultUnit: number): { style: ArchStyle; showPaths: boolean; heightUnit: number } {
+  const c = useControls("건축 재료 (콘크리트)", {
+    style: { value: "block" as ArchStyle, options: { "블록 (lit)": "block", "선화 (wireframe)": "lines", "점 껍질 (LiDAR)": "points" }, label: "재료" },
+    showPaths: { value: true, label: "길(콘크리트 판) 표시" },
+    heightUnit: { value: defaultUnit, min: 0.05, max: 3, step: 0.05, label: "한 단 높이 (월드 단위)" },
+  });
+  return { style: c.style as ArchStyle, showPaths: c.showPaths, heightUnit: c.heightUnit };
 }

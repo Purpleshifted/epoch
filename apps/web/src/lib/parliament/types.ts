@@ -58,6 +58,10 @@ export interface FoldConfig {
   tauFootprintYears: number;
   /** e-folding time (model years) of a cigarette filter. */
   tauFilterYears: number;
+  /** Worker visits (entries into a cell) after which a path is 63 % formed. */
+  pathVisits: number;
+  /** e-folding time (model years) of a path once nobody walks it. */
+  tauPathYears: number;
 }
 
 export const DEFAULT_FOLD: FoldConfig = {
@@ -70,6 +74,8 @@ export const DEFAULT_FOLD: FoldConfig = {
   tauSlabYears: 800,
   tauFootprintYears: 8000,
   tauFilterYears: 10,
+  pathVisits: 5,
+  tauPathYears: 3000,
 };
 
 export interface Slab {
@@ -95,7 +101,19 @@ export interface FilterTrace {
   s: number;
 }
 
+/** A desire path: a cell many workers have walked through. */
+export interface PathCell {
+  key: string;
+  x: number;
+  z: number;
+  /** 0..1 how formed (and not yet worn away) the path is. */
+  p: number;
+  /** Raw visit count. */
+  visits: number;
+}
+
 export interface Snapshot {
   slabs: Slab[];
   filters: FilterTrace[];
+  paths: PathCell[];
 }

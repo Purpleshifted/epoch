@@ -11,7 +11,7 @@ import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug } from "./RoleField";
-import { useFoldControls } from "./useWorld";
+import { useFoldControls, useNatureControls } from "./useWorld";
 import { seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
@@ -131,7 +131,7 @@ export default function ParliamentScene() {
   const playerPosRef = useRef({ x: 0, z: 0 });
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
 
-  const { role, offsetWindow, heightUnit, botEnabled, botCount, botRole, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { role, offsetWindow, botEnabled, botCount, botRole, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
         role: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "내 역할" },
@@ -143,8 +143,7 @@ export default function ParliamentScene() {
         botRole: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "봇 역할" },
       }),
       "화면": folder({
-        heightUnit: { value: 0.5, min: 0.1, max: 2, step: 0.05, label: "한 단 높이" },
-        pixelDpr: { value: 0.5, min: 0.15, max: 1, step: 0.05, label: "픽셀 해상도 (작을수록 거칠게)" },
+        pixelDpr: { value: 1, min: 0.15, max: 1, step: 0.05, label: "해상도 (1 = 픽셀 아님, 작을수록 거칠게)" },
         camDist: { value: 7, min: 2, max: 20, step: 0.5 },
         camLerp: { value: 0.07, min: 0.01, max: 0.3, step: 0.01, label: "카메라 부드러움" },
         viscosity: { value: 0.72, min: 0, max: 1, step: 0.01, label: "점성" },
@@ -153,6 +152,7 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const cfg = useFoldControls();
+  const { cfg: natureCfg, pointSize } = useNatureControls();
 
   useEffect(() => {
     if (hideChrome) return;
@@ -183,8 +183,9 @@ export default function ParliamentScene() {
           playerPosRef={playerPosRef}
           role={role}
           cfg={cfg}
+          natureCfg={natureCfg}
+          pointSize={pointSize}
           offsetWindow={offsetWindow}
-          heightUnit={heightUnit}
           botCount={botEnabled ? botCount : 0}
           botRole={botRole}
         />
@@ -202,7 +203,7 @@ export default function ParliamentScene() {
           {debug && (
             <div>
               {debug.role}
-              {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · filters {debug.filters}
+              {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths} · filters {debug.filters}
             </div>
           )}
         </div>

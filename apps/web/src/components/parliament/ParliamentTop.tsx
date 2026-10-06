@@ -1,10 +1,13 @@
 "use client";
 /**
- * ParliamentTop — the ground seen from straight above, in the FUTURE.
+ * ParliamentGlobal — the shared ground seen from outside a life: Top (from above, FUTURE) and
+ * Side (from the front, PRESENT by default).
  *
- * Shows the fold of the whole log at (latest event + horizonYears): exposed slabs have worn
- * away and what is left is the outline of where people crowded. With the horizon at 0 it is
- * the present surface. URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel.
+ * The fold of the whole log is taken at (latest event + horizonYears). Top defaults to a far
+ * future where exposed slabs have worn away and only outlines of where people crowded remain;
+ * Side defaults to horizon 0, i.e. what stood before the wear: the "skyline" of the architecture.
+ * Concrete (slabs and desire paths) is drawn in one of three materials, switchable in Leva.
+ * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel · ?at=<years> sets the horizon.
  */
 
 import { useMemo, useRef, useState } from "react";
@@ -22,10 +25,13 @@ import {
   type FoldConfig,
   type Snapshot,
 } from "@/lib/parliament";
-import { StructureMesh } from "./StructureMesh";
-import { useFoldControls, useWorld } from "./useWorld";
+import { ArchitectureLayer } from "./Architecture";
+import { FilterMesh } from "./FilterMesh";
+import { useArchControls, useFoldControls, useWorld } from "./useWorld";
 
 const BG = "#05060a";
+
+export type GlobalMode = "top" | "side";
 
 interface Bounds { minX: number; maxX: number; minZ: number; maxZ: number }
 
@@ -41,7 +47,21 @@ function boundsOf(log: EventLog): Bounds | null {
   return { minX: xs[lo] - pad, maxX: xs[hi] + pad, minZ: zs[lo] - pad, maxZ: zs[hi] + pad };
 }
 
-function Surface({ log, horizonYears, cfg, snapRef }: { log: EventLog; horizonYears: number; cfg: FoldConfig; snapRef: React.MutableRefObject<Snapshot | null> }) {
+function Surface({
+  log,
+  mode,
+  horizonYears,
+  cfg,
+  heightUnit,
+  snapRef,
+}: {
+  log: EventLog;
+  mode: GlobalMode;
+  horizonYears: number;
+  cfg: FoldConfig;
+  heightUnit: number;
+  snapRef: React.MutableRefObject<Snapshot | null>;
+}) {
   const { camera, size } = useThree();
   const timer = useRef(10);
   useFrame((_, dt) => {
@@ -54,32 +74,49 @@ function Surface({ log, horizonYears, cfg, snapRef }: { log: EventLog; horizonYe
       return;
     }
     const cam = camera as THREE.OrthographicCamera;
-    const spanX = Math.max(8, b.maxX - b.minX);
-    const spanZ = Math.max(8, b.maxZ - b.minZ);
-    const zoom = Math.min(size.width / spanX, size.height / spanZ) * 0.96;
-    const cx = (b.minX + b.maxX) / 2;
-    const cz = (b.minZ + b.maxZ) / 2;
-    cam.zoom = zoom;
-    cam.position.set(cx, 50, cz);
-    cam.up.set(0, 0, -1);
-    cam.lookAt(cx, 0, cz);
-    cam.updateProjectionMatrix();
     const events = log.all();
     snapRef.current = foldWorld(events, horizonSeconds(latestS(events), horizonYears), cfg);
+
+    const spanX = Math.max(8, b.maxX - b.minX);
+    const cx = (b.minX + b.maxX) / 2;
+    if (mode === "top") {
+      const spanZ = Math.max(8, b.maxZ - b.minZ);
+      const cz = (b.minZ + b.maxZ) / 2;
+      cam.zoom = Math.min(size.width / spanX, size.height / spanZ) * 0.96;
+      cam.position.set(cx, 50, cz);
+      cam.up.set(0, 0, -1);
+      cam.lookAt(cx, 0, cz);
+    } else {
+      // front view: x across, y up; frame the tallest thing that may exist
+      const spanY = Math.max(4, cfg.maxHeight * heightUnit + 2);
+      cam.zoom = Math.min(size.width / spanX, size.height / spanY) * 0.96;
+      const cy = spanY / 2 - 0.8;
+      cam.position.set(cx, cy, 80);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(cx, cy, 0);
+    }
+    cam.updateProjectionMatrix();
   });
   return null;
 }
 
-export default function ParliamentTop() {
+export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld();
   const cfg = useFoldControls();
+  const arch = useArchControls(mode === "top" ? 0.2 : 1.0);
   const snapRef = useRef<Snapshot | null>(null);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
 
-  const c = useControls("Top view (미래)", {
-    horizonYears: { value: Number(params.get("at") ?? 3000), min: 0, max: 100000, step: 10, label: "미래 (마지막 사건 이후 년)" },
+  const c = useControls(mode === "top" ? "Top view (미래)" : "Side view (단면)", {
+    horizonYears: {
+      value: Number(params.get("at") ?? (mode === "top" ? 3000 : 0)),
+      min: 0,
+      max: 100000,
+      step: 10,
+      label: "미래 (마지막 사건 이후 년)",
+    },
     reload: button(() => log.addMany(loadEvents())),
     "clear world": button(() => {
       if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
@@ -89,19 +126,41 @@ export default function ParliamentTop() {
     }),
   });
 
+  const lit = mode === "side" && arch.style === "block";
+
   return (
-    <div className="relative h-full w-full" style={{ background: BG, imageRendering: "pixelated" }}>
+    <div className="relative h-full w-full" style={{ background: BG }}>
       <Leva hidden={hideUi} />
       <Canvas
         orthographic
         dpr={1}
-        camera={{ position: [0, 50, 0], zoom: 20, near: 0.1, far: 200 }}
-        gl={{ antialias: false, preserveDrawingBuffer: true }}
-        style={{ imageRendering: "pixelated" }}
+        camera={{ position: [0, 50, 0], zoom: 20, near: 0.1, far: 300 }}
+        gl={{ antialias: mode === "side", preserveDrawingBuffer: true }}
       >
         <color attach="background" args={[BG]} />
-        <Surface log={log} horizonYears={c.horizonYears} cfg={cfg} snapRef={snapRef} />
-        <StructureMesh getSnapshot={() => snapRef.current} unlit every={0.5} heightUnit={0.2} />
+        {lit && (
+          <>
+            <ambientLight intensity={0.55} />
+            <directionalLight position={[10, 25, 30]} intensity={1.1} />
+          </>
+        )}
+        <Surface log={log} mode={mode} horizonYears={c.horizonYears} cfg={cfg} heightUnit={arch.heightUnit} snapRef={snapRef} />
+        <ArchitectureLayer
+          getSnapshot={() => snapRef.current}
+          heightUnit={arch.heightUnit}
+          style={arch.style}
+          showPaths={arch.showPaths}
+          every={0.5}
+          unlit={!lit}
+        />
+        <FilterMesh getSnapshot={() => snapRef.current} unlit every={0.5} />
+        {mode === "side" && (
+          // the ground line
+          <mesh position={[0, -0.03, 0]}>
+            <boxGeometry args={[400, 0.06, 0.2]} />
+            <meshBasicMaterial color="#555555" />
+          </mesh>
+        )}
       </Canvas>
     </div>
   );

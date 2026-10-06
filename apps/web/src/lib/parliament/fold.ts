@@ -17,7 +17,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { DEFAULT_FOLD, type FilterTrace, type FoldConfig, type PEvent, type Slab, type Snapshot } from "./types";
+import { DEFAULT_FOLD, type FilterTrace, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 
 const MIN_FOOT = 0.03;
 const MIN_ALPHA = 0.05;
@@ -55,6 +55,8 @@ export function foldWorld(
   const filters: FilterTrace[] = [];
   const cells = new Map<string, Acc>();
   const n = Math.ceil(cfg.radius / CELL_SIZE);
+  const lastCell = new Map<string, string>();
+  const visits = new Map<string, { n: number; lastS: number; x: number; z: number }>();
 
   for (const e of vis) {
     if (e.r !== "worker") continue;
@@ -62,6 +64,18 @@ export function foldWorld(
       const alpha = Math.exp(-Math.max(0, yView - geoYears(e.s)) / cfg.tauFilterYears);
       if (alpha >= MIN_ALPHA) filters.push({ id: e.id, x: e.x, z: e.z, alpha, s: e.s });
       continue;
+    }
+    // a visit = entering a cell (standing still in it is one visit, not many)
+    const vcx = Math.floor(e.x / CELL_SIZE);
+    const vcz = Math.floor(e.z / CELL_SIZE);
+    const vk = `${vcx},${vcz}`;
+    if (lastCell.get(e.o) !== vk) {
+      lastCell.set(e.o, vk);
+      const v = visits.get(vk);
+      if (v) {
+        v.n++;
+        v.lastS = e.s;
+      } else visits.set(vk, { n: 1, lastS: e.s, x: (vcx + 0.5) * CELL_SIZE, z: (vcz + 0.5) * CELL_SIZE });
     }
     // presence: splat onto the cells whose centre lies inside the spatial radius
     const cx0 = Math.floor(e.x / CELL_SIZE);
@@ -123,7 +137,17 @@ export function foldWorld(
     });
   }
   slabs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return { slabs, filters };
+
+  // desire paths: formed by repeated entries, worn away once nobody walks them
+  const paths: PathCell[] = [];
+  for (const [key, v] of visits) {
+    const age = Math.max(0, yView - geoYears(v.lastS));
+    const p = (1 - Math.exp(-v.n / cfg.pathVisits)) * Math.exp(-age / cfg.tauPathYears);
+    if (p < MIN_ALPHA) continue;
+    paths.push({ key, x: v.x, z: v.z, p, visits: v.n });
+  }
+  paths.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return { slabs, filters, paths };
 }
 
 /** Latest event time in the log (0 for an empty log). */

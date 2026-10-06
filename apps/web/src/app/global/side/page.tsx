@@ -1,11 +1,16 @@
-import Link from "next/link";
+"use client";
 
-/** Side view of the parliament build: not built yet (the legacy side view reads the old stratum data). */
+import dynamic from "next/dynamic";
+
+const ParliamentGlobal = dynamic(
+  () => import("@/components/parliament/ParliamentTop").then((m) => ({ default: () => <m.default mode="side" /> })),
+  { ssr: false, loading: () => <div className="h-screen w-full bg-[#05060a]" /> },
+);
+
 export default function SidePage() {
   return (
-    <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-[#05060a] font-mono text-[11px] tracking-wider text-white/30">
-      <p>side view — next</p>
-      <Link href="/" className="text-white/40 hover:text-white/70">← home</Link>
+    <div className="h-screen w-full bg-[#05060a]">
+      <ParliamentGlobal />
     </div>
   );
 }

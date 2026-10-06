@@ -21,10 +21,10 @@ export default function HomeScreen() {
           Top View
           <span className="block pt-1 font-mono text-[10px] tracking-wider text-white/40">the future</span>
         </Link>
-        <span className={`${btn} cursor-not-allowed border-white/15 text-white/25`}>
+        <Link href="/global/side" className={`${btn} border-white/50 text-white/80 hover:border-white`}>
           Side View
-          <span className="block pt-1 font-mono text-[10px] tracking-wider text-white/20">next</span>
-        </span>
+          <span className="block pt-1 font-mono text-[10px] tracking-wider text-white/40">the architecture</span>
+        </Link>
         <div className="border-t border-white/10 pt-4">
           <Link href="/legacy" className={`${btn} block border-white/25 py-3 text-xs text-white/60 hover:border-white/50`}>
             Legacy
