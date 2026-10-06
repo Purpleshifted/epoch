@@ -8,3 +8,4 @@ export * from "./field";
 export * from "./palette";
 export * from "./items";
 export * from "./natural";
+export * from "./demo";

@@ -3,12 +3,13 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useRef, useState, useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { useControls, folder } from "leva";
+import { useControls, folder, Leva } from "leva";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useRadialBlurEffect, RadialBlurDriver } from "./scene/RadialBlurEffect";
 import { useSessionAngle } from "@/components/spacetime/legacy/useSessionAngle";
+import { seedDemoIfRequested } from "@/lib/stratum";
 
-import { PlayerOrb }       from "./scene/PlayerOrb";
+import { PlayerCursor }    from "./scene/PlayerCursor";
 import { DepositField } from "./scene/DepositField";
 
 const FOG_COLOR = "#01020a";
@@ -126,12 +127,8 @@ function SceneController({
 
   return (
     <group ref={orbRef}>
-      <PlayerOrb
-        position={[0,0,0]}
-        color={orbColor}
-        depth={player.current.depth}
-        {...orbProps}
-      />
+      {/* "me": a blinking block (see PlayerCursor). The old PlayerOrb and its Leva controls are kept but unused. */}
+      <PlayerCursor position={[0, -0.25, 0]} />
     </group>
   );
 }
@@ -139,6 +136,9 @@ function SceneController({
 // ─── 메인 씬 ──────────────────────────────────────────
 export default function MobileScene() {
   const [locked, setLocked] = useState(false);
+  // ?demo=1 replays a seeded crowd into localStorage BEFORE DepositField mounts (see lib/stratum/demo.ts)
+  const [demo] = useState(() => seedDemoIfRequested());
+  const hideChrome = demo || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ui") === "0");
   const timeRef      = useRef(0);
   const playerPosRef = useRef({ x: 0, z: 0 });
   const playerYRef   = useRef(0.45);
@@ -171,7 +171,7 @@ export default function MobileScene() {
     orbBaseAlpha, orbWobble, orbGlow,
     orbNucleusSize, orbNucleusAlpha,
     // ── Deposits
-    depositPointSize, depositPoolK, depositPoolRadius, naturalWear,
+    depositPointSize, pixelDpr, depositPoolK, depositPoolRadius, naturalWear,
     // ── Camera
     camDist, camHeight, camLerp, fov,
     // ── Feel
@@ -203,7 +203,8 @@ export default function MobileScene() {
 
     // ── 흔적 (technofossil scatter) ─────────────────────────────────
     "Deposits (흔적)": folder({
-      depositPointSize: { value: 0.32, min: 0.1, max: 1.5, step: 0.02, label: "픽셀 크기" },
+      depositPointSize: { value: 0.5, min: 0.1, max: 1.5, step: 0.02, label: "스프라이트 크기" },
+      pixelDpr:          { value: 0.5, min: 0.15, max: 1, step: 0.05, label: "픽셀 해상도 (작을수록 거칠게)" },
       depositPoolK:      { value: 20, min: 0, max: 200, step: 1,   label: "k: 사전 가중 (0=땅만 따름, 클수록 JRC 빈도 유지)" },
       depositPoolRadius: { value: 4,  min: 1, max: 20,  step: 0.5, label: "R: 물려받는 땅 반경" },
       naturalWear:       { value: 3,  min: 0, max: 20,  step: 0.5, label: "자연 마모 배율 (1=보정값)" },
@@ -222,7 +223,7 @@ export default function MobileScene() {
 
     // ── Bloom: 나 + 흔적 + 화석 레이어 (SelectiveBloom)
     "Bloom: 나/흔적 레이어": folder({
-      fgBloomStr:   { value: 0.8,  min: 0, max: 4,  step: 0.05, label: "강도" },
+      fgBloomStr:   { value: 0,    min: 0, max: 4,  step: 0.05, label: "강도 (0=픽셀 룩 유지)" },
       fgBloomRadius:{ value: 0.6,  min: 0, max: 1,  step: 0.05, label: "반경" },
       fgBloomThr:   { value: 0.15, min: 0, max: 1,  step: 0.01, label: "임계값 (낮을수록 더 많이)" },
     }, { collapsed: false }),
@@ -235,7 +236,7 @@ export default function MobileScene() {
     }, { collapsed: false }),
 
     "Vignette": folder({
-      vignette:   { value: 0.5,  min: 0, max: 1,  step: 0.01, label: "비녜트" },
+      vignette:   { value: 0.25, min: 0, max: 1,  step: 0.01, label: "비녜트" },
     }, { collapsed: true }),
 
     // ── Radial Blur: 이동 속도 기반 방사형 블러 (warp drive 느낌)
@@ -274,14 +275,17 @@ export default function MobileScene() {
 
   return (
     <div className="w-full h-full" style={{ touchAction: "none" }}>
+      <Leva hidden={hideChrome} />
       <Canvas
         camera={{ position: [0, 4.5, 7], fov }}
+        dpr={pixelDpr}
         gl={{
-          antialias: true, alpha: false,
+          antialias: false, alpha: false,
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.1,
+          preserveDrawingBuffer: true,
         }}
-        style={{ background: FOG_COLOR }}
+        style={{ background: FOG_COLOR, imageRendering: "pixelated" }}
       >
         <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />
 
@@ -330,7 +334,7 @@ export default function MobileScene() {
         */}
 
         {/* ── Post-processing ── */}
-        <EffectComposer>
+        <EffectComposer multisampling={0}>
           <Bloom
             intensity={fgBloomStr}
             radius={fgBloomRadius}
@@ -345,18 +349,20 @@ export default function MobileScene() {
 
       </Canvas>
 
-      {!locked && (
+      {!locked && !hideChrome && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <p className="text-white/15 text-[11px] font-mono tracking-[0.35em]">click to enter</p>
         </div>
       )}
 
-      <div className="absolute bottom-4 left-4 text-[9px] text-white/12 font-mono pointer-events-none select-none space-y-0.5">
-        {locked && <div>WASD · mouse · ESC</div>}
-        {botEnabled && (
-          <div className="text-yellow-400/40">BOT ×{botCount}</div>
-        )}
-      </div>
+      {!hideChrome && (
+        <div className="absolute bottom-4 left-4 text-[9px] text-white/12 font-mono pointer-events-none select-none space-y-0.5">
+          {locked && <div>WASD · mouse · ESC</div>}
+          {botEnabled && (
+            <div className="text-yellow-400/40">BOT ×{botCount}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

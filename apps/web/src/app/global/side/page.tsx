@@ -2,21 +2,14 @@
 
 import dynamic from "next/dynamic";
 
-const SideView = dynamic(
-  () => import("@/components/side/SideView"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-screen items-center justify-center bg-black text-white/40 text-xs tracking-widest">
-        STRATIGRAPHY LOADING...
-      </div>
-    ),
-  }
-);
+const SideView = dynamic(() => import("@/components/side/SideView"), {
+  ssr: false,
+  loading: () => <div className="h-screen w-full bg-[#05060a]" />,
+});
 
 export default function SidePage() {
   return (
-    <div className="h-screen w-full bg-black">
+    <div className="h-screen w-full bg-[#05060a]">
       <SideView />
     </div>
   );

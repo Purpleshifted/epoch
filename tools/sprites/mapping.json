@@ -1,0 +1,1913 @@
+{
+ "frag_mid": [
+  {
+   "src": "twemoji/assets/svg/1f9e9.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9e9.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9e9.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9e9.svg"
+  },
+  {
+   "src": "fluent/assets/Puzzle piece/Color/puzzle_piece_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Puzzle%20piece"
+  },
+  {
+   "src": "game-icons/lorc/rock.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/rock.html",
+   "tint": "#55ffff"
+  }
+ ],
+ "frag_small": [
+  {
+   "src": "twemoji/assets/svg/1f539.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f539.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f538.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f538.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f53a.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f53a.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f4a0.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4a0.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f53b.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f53b.svg"
+  }
+ ],
+ "frag_large": [
+  {
+   "src": "twemoji/assets/svg/1f536.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f536.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f537.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f537.svg"
+  },
+  {
+   "src": "game-icons/lorc/broken-bone.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/broken-bone.html",
+   "tint": "#ff5555"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9e9.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9e9.svg"
+  }
+ ],
+ "string": [
+  {
+   "src": "twemoji/assets/svg/1f9f5.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9f5.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9f5.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9f5.svg"
+  },
+  {
+   "src": "fluent/assets/Thread/Color/thread_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Thread"
+  },
+  {
+   "src": "twemoji/assets/svg/1faa2.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1faa2.svg"
+  }
+ ],
+ "acetate_butt": [
+  {
+   "src": "twemoji/assets/svg/1f6ac.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f6ac.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f6ac.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f6ac.svg"
+  },
+  {
+   "src": "fluent/assets/Cigarette/Color/cigarette_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cigarette"
+  },
+  {
+   "src": "game-icons/delapouite/cigarette.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/cigarette.html",
+   "tint": "#ffff55"
+  }
+ ],
+ "cap_plastic": [
+  {
+   "src": "twemoji/assets/svg/1f518.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f518.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f534.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f534.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f535.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f535.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/26aa.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/26aa.svg"
+  }
+ ],
+ "cotton_bud": [
+  {
+   "src": "game-icons/delapouite/wood-stick.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/wood-stick.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "twemoji/assets/svg/1f962.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f962.svg"
+  },
+  {
+   "src": "game-icons/delapouite/wood-stick.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/wood-stick.html",
+   "tint": "#aaaaaa"
+  }
+ ],
+ "wrapper": [
+  {
+   "src": "game-icons/delapouite/chips-bag.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/chips-bag.html",
+   "tint": "#ffff55"
+  },
+  {
+   "src": "twemoji/assets/svg/1f36c.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f36c.svg"
+  },
+  {
+   "src": "fluent/assets/Candy/Color/candy_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Candy"
+  },
+  {
+   "src": "twemoji/assets/svg/1f36b.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f36b.svg"
+  }
+ ],
+ "wax": [
+  {
+   "src": "twemoji/assets/svg/1f56f.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f56f.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f56f.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f56f.svg"
+  },
+  {
+   "src": "fluent/assets/Candle/Color/candle_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Candle"
+  },
+  {
+   "src": "game-icons/lorc/candle-holder.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/candle-holder.html",
+   "tint": "#ffff55"
+  }
+ ],
+ "plastic_other": [
+  {
+   "src": "twemoji/assets/svg/1f9f4.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9f4.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f964.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f964.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1faa3.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1faa3.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9f4.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9f4.svg"
+  }
+ ],
+ "net_pieces": [
+  {
+   "src": "game-icons/lorc/fishing-net.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/fishing-net.html",
+   "tint": "#55ffff"
+  },
+  {
+   "src": "twemoji/assets/svg/1f945.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f945.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f945.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f945.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f578.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f578.svg"
+  }
+ ],
+ "bottle_drink": [
+  {
+   "src": "game-icons/caro-asercion/soda-bottle.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Caro Asercion",
+   "url": "https://game-icons.net/1x1/caro-asercion/soda-bottle.html",
+   "tint": "#55ffff"
+  },
+  {
+   "src": "twemoji/assets/svg/1f37c.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f37c.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f37c.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f37c.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f9c3.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9c3.svg"
+  }
+ ],
+ "bag": [
+  {
+   "src": "game-icons/delapouite/shopping-bag.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/shopping-bag.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "twemoji/assets/svg/1f6cd.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f6cd.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f6cd.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f6cd.svg"
+  },
+  {
+   "src": "fluent/assets/Shopping bags/Color/shopping_bags_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Shopping%20bags"
+  }
+ ],
+ "medical_other": [
+  {
+   "src": "twemoji/assets/svg/1fa79.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa79.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fa79.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fa79.svg"
+  },
+  {
+   "src": "fluent/assets/Adhesive bandage/Color/adhesive_bandage_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Adhesive%20bandage"
+  },
+  {
+   "src": "twemoji/assets/svg/1f48a.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f48a.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f489.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f489.svg"
+  }
+ ],
+ "hygiene_misc": [
+  {
+   "src": "twemoji/assets/svg/1f9fb.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9fb.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9fb.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9fb.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1fa92.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa92.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f9fc.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9fc.svg"
+  }
+ ],
+ "cutlery": [
+  {
+   "src": "twemoji/assets/svg/1f374.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f374.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f374.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f374.svg"
+  },
+  {
+   "src": "fluent/assets/Fork and knife/Color/fork_and_knife_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Fork%20and%20knife"
+  },
+  {
+   "src": "twemoji/assets/svg/1f944.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f944.svg"
+  }
+ ],
+ "foam_sponge": [
+  {
+   "src": "twemoji/assets/svg/1f9fd.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9fd.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9fd.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9fd.svg"
+  },
+  {
+   "src": "fluent/assets/Sponge/Color/sponge_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Sponge"
+  }
+ ],
+ "glass_bottle": [
+  {
+   "src": "twemoji/assets/svg/1f37e.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f37e.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f37e.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f37e.svg"
+  },
+  {
+   "src": "game-icons/lorc/broken-bottle.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/broken-bottle.html",
+   "tint": "#55ff55"
+  },
+  {
+   "src": "twemoji/assets/svg/1fad9.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fad9.svg"
+  }
+ ],
+ "rope": [
+  {
+   "src": "twemoji/assets/svg/1faa2.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1faa2.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f9f6.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9f6.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9f6.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9f6.svg"
+  }
+ ],
+ "wood_piece": [
+  {
+   "src": "twemoji/assets/svg/1fab5.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab5.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fab5.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab5.svg"
+  },
+  {
+   "src": "fluent/assets/Wood/Color/wood_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Wood"
+  },
+  {
+   "src": "game-icons/delapouite/wood-stick.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/wood-stick.html",
+   "tint": "#aa5500"
+  }
+ ],
+ "food_box": [
+  {
+   "src": "twemoji/assets/svg/1f961.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f961.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f961.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f961.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f354.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f354.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f35f.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f35f.svg"
+  }
+ ],
+ "balloon": [
+  {
+   "src": "twemoji/assets/svg/1f388.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f388.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f388.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f388.svg"
+  },
+  {
+   "src": "fluent/assets/Balloon/Color/balloon_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Balloon"
+  },
+  {
+   "src": "game-icons/delapouite/air-balloon.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/air-balloon.html",
+   "tint": "#ff5555"
+  }
+ ],
+ "can_drink": [
+  {
+   "src": "game-icons/guard13007/soda-can.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Guard13007",
+   "url": "https://game-icons.net/1x1/guard13007/soda-can.html",
+   "tint": "#ff5555"
+  },
+  {
+   "src": "game-icons/guard13007/soda-can.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Guard13007",
+   "url": "https://game-icons.net/1x1/guard13007/soda-can.html",
+   "tint": "#aaaaaa"
+  },
+  {
+   "src": "twemoji/assets/svg/1f96b.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f96b.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f96b.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f96b.svg"
+  }
+ ],
+ "clothing": [
+  {
+   "src": "twemoji/assets/svg/1f455.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f455.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f9e6.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9e6.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f9e2.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9e2.svg"
+  },
+  {
+   "src": "game-icons/delapouite/t-shirt.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/t-shirt.html",
+   "tint": "#5555ff"
+  }
+ ],
+ "cup": [
+  {
+   "src": "twemoji/assets/svg/2615.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/2615.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u2615.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u2615.svg"
+  },
+  {
+   "src": "game-icons/lorc/coffee-mug.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/coffee-mug.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "twemoji/assets/svg/1f964.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f964.svg"
+  }
+ ],
+ "cap_metal": [
+  {
+   "src": "twemoji/assets/svg/1fa99.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa99.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fa99.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fa99.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f4bf.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4bf.svg"
+  }
+ ],
+ "cig_pack": [
+  {
+   "src": "twemoji/assets/svg/1f6ac.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f6ac.svg"
+  },
+  {
+   "src": "game-icons/delapouite/cigarette.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/cigarette.html",
+   "tint": "#ffffff"
+  }
+ ],
+ "usb_cable": [
+  {
+   "src": "twemoji/assets/svg/1f50c.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f50c.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f50c.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f50c.svg"
+  },
+  {
+   "src": "fluent/assets/Electric plug/Color/electric_plug_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Electric%20plug"
+  },
+  {
+   "src": "game-icons/delapouite/jack-plug.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/jack-plug.html",
+   "tint": "#aaaaaa"
+  }
+ ],
+ "smartphone": [
+  {
+   "src": "twemoji/assets/svg/1f4f1.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4f1.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f4f1.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4f1.svg"
+  },
+  {
+   "src": "fluent/assets/Mobile phone/Color/mobile_phone_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Mobile%20phone"
+  }
+ ],
+ "earbuds": [
+  {
+   "src": "twemoji/assets/svg/1f3a7.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f3a7.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f3a7.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f3a7.svg"
+  },
+  {
+   "src": "fluent/assets/Headphone/Color/headphone_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Headphone"
+  }
+ ],
+ "vape": [
+  {
+   "src": "twemoji/assets/svg/1f58a.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f58a.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1fa88.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa88.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f58a.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f58a.svg"
+  }
+ ],
+ "charger": [
+  {
+   "src": "twemoji/assets/svg/1f50c.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f50c.svg"
+  },
+  {
+   "src": "game-icons/delapouite/plug.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/plug.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "game-icons/delapouite/spark-plug.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/spark-plug.html",
+   "tint": "#aaaaaa"
+  }
+ ],
+ "remote": [
+  {
+   "src": "game-icons/delapouite/tv-remote.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/tv-remote.html",
+   "tint": "#aaaaaa"
+  },
+  {
+   "src": "twemoji/assets/svg/1f3ae.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f3ae.svg"
+  },
+  {
+   "src": "game-icons/delapouite/tv-remote.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/tv-remote.html",
+   "tint": "#ff5555"
+  }
+ ],
+ "led_bulb": [
+  {
+   "src": "twemoji/assets/svg/1f4a1.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4a1.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f4a1.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4a1.svg"
+  },
+  {
+   "src": "fluent/assets/Light bulb/Color/light_bulb_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Light%20bulb"
+  },
+  {
+   "src": "game-icons/lorc/light-bulb.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/light-bulb.html",
+   "tint": "#ffff55"
+  }
+ ],
+ "battery_aa": [
+  {
+   "src": "twemoji/assets/svg/1f50b.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f50b.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f50b.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f50b.svg"
+  },
+  {
+   "src": "fluent/assets/Battery/Color/battery_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Battery"
+  },
+  {
+   "src": "game-icons/sbed/battery-pack.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "sbed",
+   "url": "https://game-icons.net/1x1/sbed/battery-pack.html",
+   "tint": "#55ff55"
+  }
+ ],
+ "feature_phone": [
+  {
+   "src": "twemoji/assets/svg/260e.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/260e.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u260e.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u260e.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f4de.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4de.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f4df.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4df.svg"
+  }
+ ],
+ "headphones": [
+  {
+   "src": "twemoji/assets/svg/1f3a7.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f3a7.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f3a7.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f3a7.svg"
+  },
+  {
+   "src": "fluent/assets/Headphone/Color/headphone_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Headphone"
+  }
+ ],
+ "usb_stick": [
+  {
+   "src": "game-icons/delapouite/usb-key.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/usb-key.html",
+   "tint": "#5555ff"
+  },
+  {
+   "src": "twemoji/assets/svg/1f4be.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4be.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f4be.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4be.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f4bf.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4bf.svg"
+  }
+ ],
+ "screen": [
+  {
+   "src": "twemoji/assets/svg/1f4fa.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4fa.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f4fa.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4fa.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f5a5.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f5a5.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f4bb.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4bb.svg"
+  }
+ ],
+ "food_waste": [
+  {
+   "src": "twemoji/assets/svg/1f356.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f356.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f356.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f356.svg"
+  },
+  {
+   "src": "dcss/releases/Nov-2015/item/food/chunk.png",
+   "source": "crawl/tiles (DCSS)",
+   "license": "CC0 1.0",
+   "author": "Dungeon Crawl Stone Soup tile artists (see ARTISTS.md)",
+   "url": "https://github.com/crawl/tiles/blob/master/releases/Nov-2015/item/food/chunk.png"
+  },
+  {
+   "src": "twemoji/assets/svg/1f96b.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f96b.svg"
+  },
+  {
+   "src": "dcss/releases/Nov-2015/item/food/meat_ration.png",
+   "source": "crawl/tiles (DCSS)",
+   "license": "CC0 1.0",
+   "author": "Dungeon Crawl Stone Soup tile artists (see ARTISTS.md)",
+   "url": "https://github.com/crawl/tiles/blob/master/releases/Nov-2015/item/food/meat_ration.png"
+  }
+ ],
+ "fruit_scrap": [
+  {
+   "src": "twemoji/assets/svg/1f34c.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f34c.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f34e.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f34e.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f35e.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f35e.svg"
+  },
+  {
+   "src": "dcss/releases/Nov-2015/item/food/apple.png",
+   "source": "crawl/tiles (DCSS)",
+   "license": "CC0 1.0",
+   "author": "Dungeon Crawl Stone Soup tile artists (see ARTISTS.md)",
+   "url": "https://github.com/crawl/tiles/blob/master/releases/Nov-2015/item/food/apple.png"
+  },
+  {
+   "src": "game-icons/delapouite/apple-core.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/apple-core.html",
+   "tint": "#55ff55"
+  }
+ ],
+ "faeces": [
+  {
+   "src": "twemoji/assets/svg/1f4a9.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4a9.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f4a9.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4a9.svg"
+  },
+  {
+   "src": "fluent/assets/Pile of poo/Color/pile_of_poo_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Pile%20of%20poo"
+  }
+ ],
+ "snus": [
+  {
+   "src": "twemoji/assets/svg/1fad9.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fad9.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fad9.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fad9.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f9c2.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9c2.svg"
+  }
+ ],
+ "chicken_bone": [
+  {
+   "src": "twemoji/assets/svg/1f357.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f357.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f357.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f357.svg"
+  },
+  {
+   "src": "game-icons/lorc/chicken-leg.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/chicken-leg.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "fluent/assets/Poultry leg/Color/poultry_leg_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Poultry%20leg"
+  }
+ ],
+ "livestock_bone": [
+  {
+   "src": "twemoji/assets/svg/1f9b4.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9b4.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9b4.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9b4.svg"
+  },
+  {
+   "src": "fluent/assets/Bone/Color/bone_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Bone"
+  },
+  {
+   "src": "game-icons/skoll/ham-shank.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Skoll",
+   "url": "https://game-icons.net/1x1/skoll/ham-shank.html",
+   "tint": "#ffffff"
+  }
+ ],
+ "fish_bone": [
+  {
+   "src": "game-icons/lorc/fishbone.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/fishbone.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "game-icons/lorc/fishbone.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/fishbone.html",
+   "tint": "#55ffff"
+  },
+  {
+   "src": "twemoji/assets/svg/1f41f.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f41f.svg"
+  }
+ ],
+ "eggshell": [
+  {
+   "src": "twemoji/assets/svg/1f95a.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f95a.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f95a.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f95a.svg"
+  },
+  {
+   "src": "fluent/assets/Egg/Color/egg_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Egg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f423.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f423.svg"
+  }
+ ],
+ "shellfish": [
+  {
+   "src": "twemoji/assets/svg/1f9aa.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9aa.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9aa.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9aa.svg"
+  },
+  {
+   "src": "fluent/assets/Oyster/Color/oyster_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Oyster"
+  },
+  {
+   "src": "game-icons/delapouite/mussel.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/mussel.html",
+   "tint": "#55ffff"
+  }
+ ],
+ "charcoal": [
+  {
+   "src": "twemoji/assets/svg/1faa8.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1faa8.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1faa8.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1faa8.svg"
+  },
+  {
+   "src": "game-icons/delapouite/coal-pile.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Delapouite",
+   "url": "https://game-icons.net/1x1/delapouite/coal-pile.html",
+   "tint": "#555555"
+  }
+ ],
+ "leaf": [
+  {
+   "src": "twemoji/assets/svg/1f343.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f343.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f342.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f342.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f341.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f341.svg"
+  },
+  {
+   "src": "fluent/assets/Fallen leaf/Color/fallen_leaf_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Fallen%20leaf"
+  },
+  {
+   "src": "game-icons/lorc/falling-leaf.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/falling-leaf.html",
+   "tint": "#55ff55"
+  }
+ ],
+ "petal": [
+  {
+   "src": "twemoji/assets/svg/1f338.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f338.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f33c.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f33c.svg"
+  },
+  {
+   "src": "fluent/assets/Cherry blossom/Color/cherry_blossom_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cherry%20blossom"
+  },
+  {
+   "src": "twemoji/assets/svg/1f940.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f940.svg"
+  }
+ ],
+ "mushroom": [
+  {
+   "src": "twemoji/assets/svg/1f344.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f344.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f344.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f344.svg"
+  },
+  {
+   "src": "game-icons/lorc/spotted-mushroom.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/spotted-mushroom.html",
+   "tint": "#ff5555"
+  }
+ ],
+ "seed": [
+  {
+   "src": "fluent/assets/Chestnut/Color/chestnut_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Chestnut"
+  },
+  {
+   "src": "twemoji/assets/svg/1f95c.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f95c.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f331.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f331.svg"
+  },
+  {
+   "src": "game-icons/lorc/apple-seeds.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/apple-seeds.html",
+   "tint": "#aa5500"
+  }
+ ],
+ "grass": [
+  {
+   "src": "twemoji/assets/svg/1f33e.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f33e.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f33f.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f33f.svg"
+  },
+  {
+   "src": "game-icons/lorc/wheat.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/wheat.html",
+   "tint": "#ffff55"
+  }
+ ],
+ "twig": [
+  {
+   "src": "game-icons/lorc/tree-branch.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/tree-branch.html",
+   "tint": "#aa5500"
+  },
+  {
+   "src": "twemoji/assets/svg/1fab5.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab5.svg"
+  },
+  {
+   "src": "game-icons/lorc/branch-arrow.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/branch-arrow.html",
+   "tint": "#aa5500"
+  }
+ ],
+ "bark": [
+  {
+   "src": "twemoji/assets/svg/1fab5.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab5.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fab5.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab5.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f332.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f332.svg"
+  }
+ ],
+ "insect": [
+  {
+   "src": "twemoji/assets/svg/1fab2.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab2.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1f41e.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f41e.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fab3.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab3.svg"
+  },
+  {
+   "src": "game-icons/lorc/scarab-beetle.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/scarab-beetle.html",
+   "tint": "#55ffff"
+  }
+ ],
+ "small_fish": [
+  {
+   "src": "twemoji/assets/svg/1f41f.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f41f.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f41f.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f41f.svg"
+  },
+  {
+   "src": "fluent/assets/Fish/Color/fish_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Fish"
+  },
+  {
+   "src": "twemoji/assets/svg/1f420.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f420.svg"
+  }
+ ],
+ "feather": [
+  {
+   "src": "twemoji/assets/svg/1fab6.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab6.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fab6.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab6.svg"
+  },
+  {
+   "src": "game-icons/lorc/feather.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/feather.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "fluent/assets/Feather/Color/feather_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Feather"
+  }
+ ],
+ "fur": [
+  {
+   "src": "twemoji/assets/svg/1f43e.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f43e.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9f6.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9f6.svg"
+  }
+ ],
+ "bird_bone": [
+  {
+   "src": "twemoji/assets/svg/1f9b4.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9b4.svg"
+  },
+  {
+   "src": "game-icons/lorc/broken-bone.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/broken-bone.html",
+   "tint": "#ffffff"
+  }
+ ],
+ "wild_bone": [
+  {
+   "src": "game-icons/lorc/crossed-bones.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/crossed-bones.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "game-icons/lorc/ribcage.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/ribcage.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9b4.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9b4.svg"
+  },
+  {
+   "src": "game-icons/lorc/jawbone.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/jawbone.html",
+   "tint": "#ffffff"
+  }
+ ],
+ "tooth": [
+  {
+   "src": "twemoji/assets/svg/1f9b7.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9b7.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f9b7.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9b7.svg"
+  },
+  {
+   "src": "game-icons/lorc/tooth.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/tooth.html",
+   "tint": "#ffffff"
+  },
+  {
+   "src": "fluent/assets/Tooth/Color/tooth_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Tooth"
+  }
+ ],
+ "snail": [
+  {
+   "src": "twemoji/assets/svg/1f40c.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f40c.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f40c.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f40c.svg"
+  },
+  {
+   "src": "game-icons/lorc/spiral-shell.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/spiral-shell.html",
+   "tint": "#ffff55"
+  },
+  {
+   "src": "fluent/assets/Snail/Color/snail_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Snail"
+  }
+ ],
+ "crab": [
+  {
+   "src": "twemoji/assets/svg/1f980.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f980.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1f980.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f980.svg"
+  },
+  {
+   "src": "fluent/assets/Crab/Color/crab_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Crab"
+  },
+  {
+   "src": "game-icons/lorc/crab.svg",
+   "source": "game-icons.net",
+   "license": "CC BY 3.0",
+   "author": "Lorc",
+   "url": "https://game-icons.net/1x1/lorc/crab.html",
+   "tint": "#ff5555"
+  }
+ ],
+ "urchin": [
+  {
+   "src": "twemoji/assets/svg/2b50.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/2b50.svg"
+  },
+  {
+   "src": "twemoji/assets/svg/1fab8.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab8.svg"
+  },
+  {
+   "src": "fluent/assets/Star/Color/star_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Star"
+  }
+ ],
+ "coral": [
+  {
+   "src": "twemoji/assets/svg/1fab8.svg",
+   "source": "jdecked/twemoji",
+   "license": "CC BY 4.0",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab8.svg"
+  },
+  {
+   "src": "noto-emoji/2D/svg/emoji_u1fab8.svg",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "license": "Apache-2.0",
+   "author": "Google (Noto Emoji)",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab8.svg"
+  },
+  {
+   "src": "fluent/assets/Coral/Color/coral_color.svg",
+   "source": "microsoft/fluentui-emoji",
+   "license": "MIT",
+   "author": "Microsoft",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Coral"
+  }
+ ]
+}

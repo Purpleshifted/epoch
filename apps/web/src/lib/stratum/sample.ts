@@ -58,3 +58,16 @@ export function sampleFromField(u: number, survivors: ReadonlyMap<string, number
   return ITEMS[ITEMS.length - 1];
 }
 
+/**
+ * Inheritance switch. OFF (decision 2026-10-05): the ground does not change what a visitor
+ * scatters (that would model littering behaviour, not geological chance). The draw is the
+ * catalogue prior only (JRC frequencies × layer share). The rule stays implemented and tested
+ * behind this flag; docs/inheritance-rationale.md describes it.
+ */
+export const INHERITANCE_ENABLED = false;
+
+/** The one place the scatter draw goes through. */
+export function drawItem(u: number, survivors: ReadonlyMap<string, number>, k: number): ItemDef {
+  return INHERITANCE_ENABLED ? sampleFromField(u, survivors, k) : sampleItem(u);
+}
+

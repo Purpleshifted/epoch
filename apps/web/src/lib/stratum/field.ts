@@ -155,6 +155,17 @@ export class GroundStore {
   hasDeposit(id: string): boolean { return this.depIds.has(id); }
   hasStep(id: string): boolean { return this.stpIds.has(id); }
 
+  /** Forget everything (a view's manual reset, or the storage was emptied elsewhere). */
+  clear(): void {
+    this.dep.clear();
+    this.stp.clear();
+    this.depIds.clear();
+    this.stpIds.clear();
+    this.unsortedDep.clear();
+    this.unsortedStp.clear();
+    this.version++;
+  }
+
   /** Returns false if the id is already known. */
   addDeposit(rec: DepositRecord): boolean {
     if (this.depIds.has(rec.id)) return false;

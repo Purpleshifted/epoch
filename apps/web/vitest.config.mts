@@ -7,6 +7,6 @@ export default defineConfig({
   },
   test: {
     // src/lib/audio/virtualSignals.test.ts is an example script, not a suite.
-    include: ["src/lib/stratum/**/*.test.ts"],
+    include: ["src/lib/stratum/**/*.test.ts", "src/lib/sprites/**/*.test.ts"],
   },
 });

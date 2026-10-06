@@ -1,0 +1,3128 @@
+{
+ "note": "Every sprite in apps/web/public/sprites/atlas.png was converted by tools/sprites/build_atlas.py into a 16-colour pixel sprite (trimmed, area-downscaled, palette-mapped). Converted derivative works.",
+ "sprites": [
+  {
+   "name": "emoji_u1f331",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f331.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f331.svg",
+   "items": [
+    "seed"
+   ],
+   "cells": [
+    187
+   ]
+  },
+  {
+   "name": "emoji_u1f33c",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f33c.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f33c.svg",
+   "items": [
+    "petal"
+   ],
+   "cells": [
+    179
+   ]
+  },
+  {
+   "name": "emoji_u1f33f",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f33f.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f33f.svg",
+   "items": [
+    "grass"
+   ],
+   "cells": [
+    190
+   ]
+  },
+  {
+   "name": "emoji_u1f341",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f341.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f341.svg",
+   "items": [
+    "leaf"
+   ],
+   "cells": [
+    175
+   ]
+  },
+  {
+   "name": "emoji_u1f344",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f344.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f344.svg",
+   "items": [
+    "mushroom"
+   ],
+   "cells": [
+    183
+   ]
+  },
+  {
+   "name": "emoji_u1f356",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f356.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f356.svg",
+   "items": [
+    "food_waste"
+   ],
+   "cells": [
+    138
+   ]
+  },
+  {
+   "name": "emoji_u1f357",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f357.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f357.svg",
+   "items": [
+    "chicken_bone"
+   ],
+   "cells": [
+    152
+   ]
+  },
+  {
+   "name": "emoji_u1f374",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f374.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f374.svg",
+   "items": [
+    "cutlery"
+   ],
+   "cells": [
+    61
+   ]
+  },
+  {
+   "name": "emoji_u1f37c",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f37c.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f37c.svg",
+   "items": [
+    "bottle_drink"
+   ],
+   "cells": [
+    45
+   ]
+  },
+  {
+   "name": "emoji_u1f37e",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f37e.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f37e.svg",
+   "items": [
+    "glass_bottle"
+   ],
+   "cells": [
+    68
+   ]
+  },
+  {
+   "name": "emoji_u1f388",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f388.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f388.svg",
+   "items": [
+    "balloon"
+   ],
+   "cells": [
+    82
+   ]
+  },
+  {
+   "name": "emoji_u1f3a7",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f3a7.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f3a7.svg",
+   "items": [
+    "earbuds",
+    "headphones"
+   ],
+   "cells": [
+    108
+   ]
+  },
+  {
+   "name": "emoji_u1f40c",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f40c.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f40c.svg",
+   "items": [
+    "snail"
+   ],
+   "cells": [
+    216
+   ]
+  },
+  {
+   "name": "emoji_u1f41f",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f41f.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f41f.svg",
+   "items": [
+    "small_fish"
+   ],
+   "cells": [
+    199
+   ]
+  },
+  {
+   "name": "emoji_u1f4a1",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4a1.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f4a1.svg",
+   "items": [
+    "led_bulb"
+   ],
+   "cells": [
+    119
+   ]
+  },
+  {
+   "name": "emoji_u1f4a9",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4a9.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f4a9.svg",
+   "items": [
+    "faeces"
+   ],
+   "cells": [
+    147
+   ]
+  },
+  {
+   "name": "emoji_u1f4be",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4be.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f4be.svg",
+   "items": [
+    "usb_stick"
+   ],
+   "cells": [
+    132
+   ]
+  },
+  {
+   "name": "emoji_u1f4f1",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4f1.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f4f1.svg",
+   "items": [
+    "smartphone"
+   ],
+   "cells": [
+    105
+   ]
+  },
+  {
+   "name": "emoji_u1f4fa",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f4fa.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f4fa.svg",
+   "items": [
+    "screen"
+   ],
+   "cells": [
+    134
+   ]
+  },
+  {
+   "name": "emoji_u1f50b",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f50b.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f50b.svg",
+   "items": [
+    "battery_aa"
+   ],
+   "cells": [
+    123
+   ]
+  },
+  {
+   "name": "emoji_u1f50c",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f50c.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f50c.svg",
+   "items": [
+    "usb_cable"
+   ],
+   "cells": [
+    101
+   ]
+  },
+  {
+   "name": "emoji_u1f56f",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f56f.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f56f.svg",
+   "items": [
+    "wax"
+   ],
+   "cells": [
+    32
+   ]
+  },
+  {
+   "name": "emoji_u1f58a",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f58a.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f58a.svg",
+   "items": [
+    "vape"
+   ],
+   "cells": [
+    112
+   ]
+  },
+  {
+   "name": "emoji_u1f6ac",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f6ac.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f6ac.svg",
+   "items": [
+    "acetate_butt"
+   ],
+   "cells": [
+    17
+   ]
+  },
+  {
+   "name": "emoji_u1f6cd",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f6cd.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f6cd.svg",
+   "items": [
+    "bag"
+   ],
+   "cells": [
+    49
+   ]
+  },
+  {
+   "name": "emoji_u1f945",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f945.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f945.svg",
+   "items": [
+    "net_pieces"
+   ],
+   "cells": [
+    41
+   ]
+  },
+  {
+   "name": "emoji_u1f95a",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f95a.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f95a.svg",
+   "items": [
+    "eggshell"
+   ],
+   "cells": [
+    163
+   ]
+  },
+  {
+   "name": "emoji_u1f961",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f961.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f961.svg",
+   "items": [
+    "food_box"
+   ],
+   "cells": [
+    78
+   ]
+  },
+  {
+   "name": "emoji_u1f96b",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f96b.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f96b.svg",
+   "items": [
+    "can_drink"
+   ],
+   "cells": [
+    88
+   ]
+  },
+  {
+   "name": "emoji_u1f980",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f980.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f980.svg",
+   "items": [
+    "crab"
+   ],
+   "cells": [
+    220
+   ]
+  },
+  {
+   "name": "emoji_u1f9aa",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9aa.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9aa.svg",
+   "items": [
+    "shellfish"
+   ],
+   "cells": [
+    167
+   ]
+  },
+  {
+   "name": "emoji_u1f9b4",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9b4.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9b4.svg",
+   "items": [
+    "livestock_bone",
+    "wild_bone"
+   ],
+   "cells": [
+    156
+   ]
+  },
+  {
+   "name": "emoji_u1f9b7",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9b7.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9b7.svg",
+   "items": [
+    "tooth"
+   ],
+   "cells": [
+    212
+   ]
+  },
+  {
+   "name": "emoji_u1f9e9",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9e9.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9e9.svg",
+   "items": [
+    "frag_mid",
+    "frag_large"
+   ],
+   "cells": [
+    1
+   ]
+  },
+  {
+   "name": "emoji_u1f9f4",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9f4.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9f4.svg",
+   "items": [
+    "plastic_other"
+   ],
+   "cells": [
+    38
+   ]
+  },
+  {
+   "name": "emoji_u1f9f5",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9f5.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9f5.svg",
+   "items": [
+    "string"
+   ],
+   "cells": [
+    13
+   ]
+  },
+  {
+   "name": "emoji_u1f9f6",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9f6.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9f6.svg",
+   "items": [
+    "rope",
+    "fur"
+   ],
+   "cells": [
+    72
+   ]
+  },
+  {
+   "name": "emoji_u1f9fb",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9fb.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9fb.svg",
+   "items": [
+    "hygiene_misc"
+   ],
+   "cells": [
+    57
+   ]
+  },
+  {
+   "name": "emoji_u1f9fd",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1f9fd.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1f9fd.svg",
+   "items": [
+    "foam_sponge"
+   ],
+   "cells": [
+    65
+   ]
+  },
+  {
+   "name": "emoji_u1fa79",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fa79.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1fa79.svg",
+   "items": [
+    "medical_other"
+   ],
+   "cells": [
+    52
+   ]
+  },
+  {
+   "name": "emoji_u1fa99",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fa99.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1fa99.svg",
+   "items": [
+    "cap_metal"
+   ],
+   "cells": [
+    97
+   ]
+  },
+  {
+   "name": "emoji_u1faa8",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1faa8.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1faa8.svg",
+   "items": [
+    "charcoal"
+   ],
+   "cells": [
+    171
+   ]
+  },
+  {
+   "name": "emoji_u1fab3",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab3.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1fab3.svg",
+   "items": [
+    "insect"
+   ],
+   "cells": [
+    197
+   ]
+  },
+  {
+   "name": "emoji_u1fab5",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab5.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1fab5.svg",
+   "items": [
+    "wood_piece",
+    "bark"
+   ],
+   "cells": [
+    74
+   ]
+  },
+  {
+   "name": "emoji_u1fab6",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab6.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1fab6.svg",
+   "items": [
+    "feather"
+   ],
+   "cells": [
+    203
+   ]
+  },
+  {
+   "name": "emoji_u1fab8",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fab8.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1fab8.svg",
+   "items": [
+    "coral"
+   ],
+   "cells": [
+    226
+   ]
+  },
+  {
+   "name": "emoji_u1fad9",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u1fad9.svg",
+   "src": "noto-emoji/2D/svg/emoji_u1fad9.svg",
+   "items": [
+    "snus"
+   ],
+   "cells": [
+    149
+   ]
+  },
+  {
+   "name": "emoji_u260e",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u260e.svg",
+   "src": "noto-emoji/2D/svg/emoji_u260e.svg",
+   "items": [
+    "feature_phone"
+   ],
+   "cells": [
+    127
+   ]
+  },
+  {
+   "name": "emoji_u2615",
+   "source": "googlefonts/noto-emoji (2D/svg)",
+   "author": "Google (Noto Emoji)",
+   "license": "Apache-2.0",
+   "url": "https://github.com/googlefonts/noto-emoji/blob/main/2D/svg/emoji_u2615.svg",
+   "src": "noto-emoji/2D/svg/emoji_u2615.svg",
+   "items": [
+    "cup"
+   ],
+   "cells": [
+    94
+   ]
+  },
+  {
+   "name": "soda-bottle",
+   "source": "game-icons.net",
+   "author": "Caro Asercion",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/caro-asercion/soda-bottle.html",
+   "src": "game-icons/caro-asercion/soda-bottle.svg",
+   "items": [
+    "bottle_drink"
+   ],
+   "cells": [
+    43
+   ]
+  },
+  {
+   "name": "air-balloon",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/air-balloon.html",
+   "src": "game-icons/delapouite/air-balloon.svg",
+   "items": [
+    "balloon"
+   ],
+   "cells": [
+    84
+   ]
+  },
+  {
+   "name": "apple-core",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/apple-core.html",
+   "src": "game-icons/delapouite/apple-core.svg",
+   "items": [
+    "fruit_scrap"
+   ],
+   "cells": [
+    145
+   ]
+  },
+  {
+   "name": "chips-bag",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/chips-bag.html",
+   "src": "game-icons/delapouite/chips-bag.svg",
+   "items": [
+    "wrapper"
+   ],
+   "cells": [
+    27
+   ]
+  },
+  {
+   "name": "cigarette",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/cigarette.html",
+   "src": "game-icons/delapouite/cigarette.svg",
+   "items": [
+    "acetate_butt",
+    "cig_pack"
+   ],
+   "cells": [
+    19,
+    99
+   ]
+  },
+  {
+   "name": "coal-pile",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/coal-pile.html",
+   "src": "game-icons/delapouite/coal-pile.svg",
+   "items": [
+    "charcoal"
+   ],
+   "cells": [
+    172
+   ]
+  },
+  {
+   "name": "jack-plug",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/jack-plug.html",
+   "src": "game-icons/delapouite/jack-plug.svg",
+   "items": [
+    "usb_cable"
+   ],
+   "cells": [
+    103
+   ]
+  },
+  {
+   "name": "mussel",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/mussel.html",
+   "src": "game-icons/delapouite/mussel.svg",
+   "items": [
+    "shellfish"
+   ],
+   "cells": [
+    169
+   ]
+  },
+  {
+   "name": "plug",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/plug.html",
+   "src": "game-icons/delapouite/plug.svg",
+   "items": [
+    "charger"
+   ],
+   "cells": [
+    113
+   ]
+  },
+  {
+   "name": "shopping-bag",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/shopping-bag.html",
+   "src": "game-icons/delapouite/shopping-bag.svg",
+   "items": [
+    "bag"
+   ],
+   "cells": [
+    47
+   ]
+  },
+  {
+   "name": "spark-plug",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/spark-plug.html",
+   "src": "game-icons/delapouite/spark-plug.svg",
+   "items": [
+    "charger"
+   ],
+   "cells": [
+    114
+   ]
+  },
+  {
+   "name": "t-shirt",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/t-shirt.html",
+   "src": "game-icons/delapouite/t-shirt.svg",
+   "items": [
+    "clothing"
+   ],
+   "cells": [
+    92
+   ]
+  },
+  {
+   "name": "tv-remote",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/tv-remote.html",
+   "src": "game-icons/delapouite/tv-remote.svg",
+   "items": [
+    "remote"
+   ],
+   "cells": [
+    115,
+    117
+   ]
+  },
+  {
+   "name": "usb-key",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/usb-key.html",
+   "src": "game-icons/delapouite/usb-key.svg",
+   "items": [
+    "usb_stick"
+   ],
+   "cells": [
+    130
+   ]
+  },
+  {
+   "name": "wood-stick",
+   "source": "game-icons.net",
+   "author": "Delapouite",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/delapouite/wood-stick.html",
+   "src": "game-icons/delapouite/wood-stick.svg",
+   "items": [
+    "cotton_bud",
+    "wood_piece"
+   ],
+   "cells": [
+    24,
+    26,
+    76
+   ]
+  },
+  {
+   "name": "soda-can",
+   "source": "game-icons.net",
+   "author": "Guard13007",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/guard13007/soda-can.html",
+   "src": "game-icons/guard13007/soda-can.svg",
+   "items": [
+    "can_drink"
+   ],
+   "cells": [
+    85,
+    86
+   ]
+  },
+  {
+   "name": "apple-seeds",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/apple-seeds.html",
+   "src": "game-icons/lorc/apple-seeds.svg",
+   "items": [
+    "seed"
+   ],
+   "cells": [
+    188
+   ]
+  },
+  {
+   "name": "branch-arrow",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/branch-arrow.html",
+   "src": "game-icons/lorc/branch-arrow.svg",
+   "items": [
+    "twig"
+   ],
+   "cells": [
+    193
+   ]
+  },
+  {
+   "name": "broken-bone",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/broken-bone.html",
+   "src": "game-icons/lorc/broken-bone.svg",
+   "items": [
+    "frag_large",
+    "bird_bone"
+   ],
+   "cells": [
+    11,
+    207
+   ]
+  },
+  {
+   "name": "broken-bottle",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/broken-bottle.html",
+   "src": "game-icons/lorc/broken-bottle.svg",
+   "items": [
+    "glass_bottle"
+   ],
+   "cells": [
+    69
+   ]
+  },
+  {
+   "name": "candle-holder",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/candle-holder.html",
+   "src": "game-icons/lorc/candle-holder.svg",
+   "items": [
+    "wax"
+   ],
+   "cells": [
+    34
+   ]
+  },
+  {
+   "name": "chicken-leg",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/chicken-leg.html",
+   "src": "game-icons/lorc/chicken-leg.svg",
+   "items": [
+    "chicken_bone"
+   ],
+   "cells": [
+    153
+   ]
+  },
+  {
+   "name": "coffee-mug",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/coffee-mug.html",
+   "src": "game-icons/lorc/coffee-mug.svg",
+   "items": [
+    "cup"
+   ],
+   "cells": [
+    95
+   ]
+  },
+  {
+   "name": "crab",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/crab.html",
+   "src": "game-icons/lorc/crab.svg",
+   "items": [
+    "crab"
+   ],
+   "cells": [
+    222
+   ]
+  },
+  {
+   "name": "crossed-bones",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/crossed-bones.html",
+   "src": "game-icons/lorc/crossed-bones.svg",
+   "items": [
+    "wild_bone"
+   ],
+   "cells": [
+    208
+   ]
+  },
+  {
+   "name": "falling-leaf",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/falling-leaf.html",
+   "src": "game-icons/lorc/falling-leaf.svg",
+   "items": [
+    "leaf"
+   ],
+   "cells": [
+    177
+   ]
+  },
+  {
+   "name": "feather",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/feather.html",
+   "src": "game-icons/lorc/feather.svg",
+   "items": [
+    "feather"
+   ],
+   "cells": [
+    204
+   ]
+  },
+  {
+   "name": "fishbone",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/fishbone.html",
+   "src": "game-icons/lorc/fishbone.svg",
+   "items": [
+    "fish_bone"
+   ],
+   "cells": [
+    159,
+    160
+   ]
+  },
+  {
+   "name": "fishing-net",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/fishing-net.html",
+   "src": "game-icons/lorc/fishing-net.svg",
+   "items": [
+    "net_pieces"
+   ],
+   "cells": [
+    39
+   ]
+  },
+  {
+   "name": "jawbone",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/jawbone.html",
+   "src": "game-icons/lorc/jawbone.svg",
+   "items": [
+    "wild_bone"
+   ],
+   "cells": [
+    210
+   ]
+  },
+  {
+   "name": "light-bulb",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/light-bulb.html",
+   "src": "game-icons/lorc/light-bulb.svg",
+   "items": [
+    "led_bulb"
+   ],
+   "cells": [
+    121
+   ]
+  },
+  {
+   "name": "ribcage",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/ribcage.html",
+   "src": "game-icons/lorc/ribcage.svg",
+   "items": [
+    "wild_bone"
+   ],
+   "cells": [
+    209
+   ]
+  },
+  {
+   "name": "rock",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/rock.html",
+   "src": "game-icons/lorc/rock.svg",
+   "items": [
+    "frag_mid"
+   ],
+   "cells": [
+    3
+   ]
+  },
+  {
+   "name": "scarab-beetle",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/scarab-beetle.html",
+   "src": "game-icons/lorc/scarab-beetle.svg",
+   "items": [
+    "insect"
+   ],
+   "cells": [
+    198
+   ]
+  },
+  {
+   "name": "spiral-shell",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/spiral-shell.html",
+   "src": "game-icons/lorc/spiral-shell.svg",
+   "items": [
+    "snail"
+   ],
+   "cells": [
+    217
+   ]
+  },
+  {
+   "name": "spotted-mushroom",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/spotted-mushroom.html",
+   "src": "game-icons/lorc/spotted-mushroom.svg",
+   "items": [
+    "mushroom"
+   ],
+   "cells": [
+    184
+   ]
+  },
+  {
+   "name": "tooth",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/tooth.html",
+   "src": "game-icons/lorc/tooth.svg",
+   "items": [
+    "tooth"
+   ],
+   "cells": [
+    213
+   ]
+  },
+  {
+   "name": "tree-branch",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/tree-branch.html",
+   "src": "game-icons/lorc/tree-branch.svg",
+   "items": [
+    "twig"
+   ],
+   "cells": [
+    192
+   ]
+  },
+  {
+   "name": "wheat",
+   "source": "game-icons.net",
+   "author": "Lorc",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/lorc/wheat.html",
+   "src": "game-icons/lorc/wheat.svg",
+   "items": [
+    "grass"
+   ],
+   "cells": [
+    191
+   ]
+  },
+  {
+   "name": "ham-shank",
+   "source": "game-icons.net",
+   "author": "Skoll",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/skoll/ham-shank.html",
+   "src": "game-icons/skoll/ham-shank.svg",
+   "items": [
+    "livestock_bone"
+   ],
+   "cells": [
+    158
+   ]
+  },
+  {
+   "name": "battery-pack",
+   "source": "game-icons.net",
+   "author": "sbed",
+   "license": "CC BY 3.0",
+   "url": "https://game-icons.net/1x1/sbed/battery-pack.html",
+   "src": "game-icons/sbed/battery-pack.svg",
+   "items": [
+    "battery_aa"
+   ],
+   "cells": [
+    125
+   ]
+  },
+  {
+   "name": "1f332",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f332.svg",
+   "src": "twemoji/assets/svg/1f332.svg",
+   "items": [
+    "bark"
+   ],
+   "cells": [
+    194
+   ]
+  },
+  {
+   "name": "1f338",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f338.svg",
+   "src": "twemoji/assets/svg/1f338.svg",
+   "items": [
+    "petal"
+   ],
+   "cells": [
+    178
+   ]
+  },
+  {
+   "name": "1f33e",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f33e.svg",
+   "src": "twemoji/assets/svg/1f33e.svg",
+   "items": [
+    "grass"
+   ],
+   "cells": [
+    189
+   ]
+  },
+  {
+   "name": "1f342",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f342.svg",
+   "src": "twemoji/assets/svg/1f342.svg",
+   "items": [
+    "leaf"
+   ],
+   "cells": [
+    174
+   ]
+  },
+  {
+   "name": "1f343",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f343.svg",
+   "src": "twemoji/assets/svg/1f343.svg",
+   "items": [
+    "leaf"
+   ],
+   "cells": [
+    173
+   ]
+  },
+  {
+   "name": "1f344",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f344.svg",
+   "src": "twemoji/assets/svg/1f344.svg",
+   "items": [
+    "mushroom"
+   ],
+   "cells": [
+    182
+   ]
+  },
+  {
+   "name": "1f34c",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f34c.svg",
+   "src": "twemoji/assets/svg/1f34c.svg",
+   "items": [
+    "fruit_scrap"
+   ],
+   "cells": [
+    141
+   ]
+  },
+  {
+   "name": "1f34e",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f34e.svg",
+   "src": "twemoji/assets/svg/1f34e.svg",
+   "items": [
+    "fruit_scrap"
+   ],
+   "cells": [
+    142
+   ]
+  },
+  {
+   "name": "1f354",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f354.svg",
+   "src": "twemoji/assets/svg/1f354.svg",
+   "items": [
+    "food_box"
+   ],
+   "cells": [
+    79
+   ]
+  },
+  {
+   "name": "1f356",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f356.svg",
+   "src": "twemoji/assets/svg/1f356.svg",
+   "items": [
+    "food_waste"
+   ],
+   "cells": [
+    137
+   ]
+  },
+  {
+   "name": "1f357",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f357.svg",
+   "src": "twemoji/assets/svg/1f357.svg",
+   "items": [
+    "chicken_bone"
+   ],
+   "cells": [
+    151
+   ]
+  },
+  {
+   "name": "1f35e",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f35e.svg",
+   "src": "twemoji/assets/svg/1f35e.svg",
+   "items": [
+    "fruit_scrap"
+   ],
+   "cells": [
+    143
+   ]
+  },
+  {
+   "name": "1f35f",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f35f.svg",
+   "src": "twemoji/assets/svg/1f35f.svg",
+   "items": [
+    "food_box"
+   ],
+   "cells": [
+    80
+   ]
+  },
+  {
+   "name": "1f36b",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f36b.svg",
+   "src": "twemoji/assets/svg/1f36b.svg",
+   "items": [
+    "wrapper"
+   ],
+   "cells": [
+    30
+   ]
+  },
+  {
+   "name": "1f36c",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f36c.svg",
+   "src": "twemoji/assets/svg/1f36c.svg",
+   "items": [
+    "wrapper"
+   ],
+   "cells": [
+    28
+   ]
+  },
+  {
+   "name": "1f374",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f374.svg",
+   "src": "twemoji/assets/svg/1f374.svg",
+   "items": [
+    "cutlery"
+   ],
+   "cells": [
+    60
+   ]
+  },
+  {
+   "name": "1f37c",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f37c.svg",
+   "src": "twemoji/assets/svg/1f37c.svg",
+   "items": [
+    "bottle_drink"
+   ],
+   "cells": [
+    44
+   ]
+  },
+  {
+   "name": "1f37e",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f37e.svg",
+   "src": "twemoji/assets/svg/1f37e.svg",
+   "items": [
+    "glass_bottle"
+   ],
+   "cells": [
+    67
+   ]
+  },
+  {
+   "name": "1f388",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f388.svg",
+   "src": "twemoji/assets/svg/1f388.svg",
+   "items": [
+    "balloon"
+   ],
+   "cells": [
+    81
+   ]
+  },
+  {
+   "name": "1f3a7",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f3a7.svg",
+   "src": "twemoji/assets/svg/1f3a7.svg",
+   "items": [
+    "earbuds",
+    "headphones"
+   ],
+   "cells": [
+    107
+   ]
+  },
+  {
+   "name": "1f3ae",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f3ae.svg",
+   "src": "twemoji/assets/svg/1f3ae.svg",
+   "items": [
+    "remote"
+   ],
+   "cells": [
+    116
+   ]
+  },
+  {
+   "name": "1f40c",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f40c.svg",
+   "src": "twemoji/assets/svg/1f40c.svg",
+   "items": [
+    "snail"
+   ],
+   "cells": [
+    215
+   ]
+  },
+  {
+   "name": "1f41e",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f41e.svg",
+   "src": "twemoji/assets/svg/1f41e.svg",
+   "items": [
+    "insect"
+   ],
+   "cells": [
+    196
+   ]
+  },
+  {
+   "name": "1f41f",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f41f.svg",
+   "src": "twemoji/assets/svg/1f41f.svg",
+   "items": [
+    "fish_bone",
+    "small_fish"
+   ],
+   "cells": [
+    161
+   ]
+  },
+  {
+   "name": "1f420",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f420.svg",
+   "src": "twemoji/assets/svg/1f420.svg",
+   "items": [
+    "small_fish"
+   ],
+   "cells": [
+    201
+   ]
+  },
+  {
+   "name": "1f423",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f423.svg",
+   "src": "twemoji/assets/svg/1f423.svg",
+   "items": [
+    "eggshell"
+   ],
+   "cells": [
+    165
+   ]
+  },
+  {
+   "name": "1f43e",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f43e.svg",
+   "src": "twemoji/assets/svg/1f43e.svg",
+   "items": [
+    "fur"
+   ],
+   "cells": [
+    206
+   ]
+  },
+  {
+   "name": "1f455",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f455.svg",
+   "src": "twemoji/assets/svg/1f455.svg",
+   "items": [
+    "clothing"
+   ],
+   "cells": [
+    89
+   ]
+  },
+  {
+   "name": "1f489",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f489.svg",
+   "src": "twemoji/assets/svg/1f489.svg",
+   "items": [
+    "medical_other"
+   ],
+   "cells": [
+    55
+   ]
+  },
+  {
+   "name": "1f48a",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f48a.svg",
+   "src": "twemoji/assets/svg/1f48a.svg",
+   "items": [
+    "medical_other"
+   ],
+   "cells": [
+    54
+   ]
+  },
+  {
+   "name": "1f4a0",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4a0.svg",
+   "src": "twemoji/assets/svg/1f4a0.svg",
+   "items": [
+    "frag_small"
+   ],
+   "cells": [
+    7
+   ]
+  },
+  {
+   "name": "1f4a1",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4a1.svg",
+   "src": "twemoji/assets/svg/1f4a1.svg",
+   "items": [
+    "led_bulb"
+   ],
+   "cells": [
+    118
+   ]
+  },
+  {
+   "name": "1f4a9",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4a9.svg",
+   "src": "twemoji/assets/svg/1f4a9.svg",
+   "items": [
+    "faeces"
+   ],
+   "cells": [
+    146
+   ]
+  },
+  {
+   "name": "1f4bb",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4bb.svg",
+   "src": "twemoji/assets/svg/1f4bb.svg",
+   "items": [
+    "screen"
+   ],
+   "cells": [
+    136
+   ]
+  },
+  {
+   "name": "1f4be",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4be.svg",
+   "src": "twemoji/assets/svg/1f4be.svg",
+   "items": [
+    "usb_stick"
+   ],
+   "cells": [
+    131
+   ]
+  },
+  {
+   "name": "1f4bf",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4bf.svg",
+   "src": "twemoji/assets/svg/1f4bf.svg",
+   "items": [
+    "cap_metal",
+    "usb_stick"
+   ],
+   "cells": [
+    98
+   ]
+  },
+  {
+   "name": "1f4de",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4de.svg",
+   "src": "twemoji/assets/svg/1f4de.svg",
+   "items": [
+    "feature_phone"
+   ],
+   "cells": [
+    128
+   ]
+  },
+  {
+   "name": "1f4df",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4df.svg",
+   "src": "twemoji/assets/svg/1f4df.svg",
+   "items": [
+    "feature_phone"
+   ],
+   "cells": [
+    129
+   ]
+  },
+  {
+   "name": "1f4f1",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4f1.svg",
+   "src": "twemoji/assets/svg/1f4f1.svg",
+   "items": [
+    "smartphone"
+   ],
+   "cells": [
+    104
+   ]
+  },
+  {
+   "name": "1f4fa",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f4fa.svg",
+   "src": "twemoji/assets/svg/1f4fa.svg",
+   "items": [
+    "screen"
+   ],
+   "cells": [
+    133
+   ]
+  },
+  {
+   "name": "1f50b",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f50b.svg",
+   "src": "twemoji/assets/svg/1f50b.svg",
+   "items": [
+    "battery_aa"
+   ],
+   "cells": [
+    122
+   ]
+  },
+  {
+   "name": "1f50c",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f50c.svg",
+   "src": "twemoji/assets/svg/1f50c.svg",
+   "items": [
+    "usb_cable",
+    "charger"
+   ],
+   "cells": [
+    100
+   ]
+  },
+  {
+   "name": "1f518",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f518.svg",
+   "src": "twemoji/assets/svg/1f518.svg",
+   "items": [
+    "cap_plastic"
+   ],
+   "cells": [
+    20
+   ]
+  },
+  {
+   "name": "1f534",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f534.svg",
+   "src": "twemoji/assets/svg/1f534.svg",
+   "items": [
+    "cap_plastic"
+   ],
+   "cells": [
+    21
+   ]
+  },
+  {
+   "name": "1f535",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f535.svg",
+   "src": "twemoji/assets/svg/1f535.svg",
+   "items": [
+    "cap_plastic"
+   ],
+   "cells": [
+    22
+   ]
+  },
+  {
+   "name": "1f536",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f536.svg",
+   "src": "twemoji/assets/svg/1f536.svg",
+   "items": [
+    "frag_large"
+   ],
+   "cells": [
+    9
+   ]
+  },
+  {
+   "name": "1f537",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f537.svg",
+   "src": "twemoji/assets/svg/1f537.svg",
+   "items": [
+    "frag_large"
+   ],
+   "cells": [
+    10
+   ]
+  },
+  {
+   "name": "1f538",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f538.svg",
+   "src": "twemoji/assets/svg/1f538.svg",
+   "items": [
+    "frag_small"
+   ],
+   "cells": [
+    5
+   ]
+  },
+  {
+   "name": "1f539",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f539.svg",
+   "src": "twemoji/assets/svg/1f539.svg",
+   "items": [
+    "frag_small"
+   ],
+   "cells": [
+    4
+   ]
+  },
+  {
+   "name": "1f53a",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f53a.svg",
+   "src": "twemoji/assets/svg/1f53a.svg",
+   "items": [
+    "frag_small"
+   ],
+   "cells": [
+    6
+   ]
+  },
+  {
+   "name": "1f53b",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f53b.svg",
+   "src": "twemoji/assets/svg/1f53b.svg",
+   "items": [
+    "frag_small"
+   ],
+   "cells": [
+    8
+   ]
+  },
+  {
+   "name": "1f56f",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f56f.svg",
+   "src": "twemoji/assets/svg/1f56f.svg",
+   "items": [
+    "wax"
+   ],
+   "cells": [
+    31
+   ]
+  },
+  {
+   "name": "1f578",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f578.svg",
+   "src": "twemoji/assets/svg/1f578.svg",
+   "items": [
+    "net_pieces"
+   ],
+   "cells": [
+    42
+   ]
+  },
+  {
+   "name": "1f58a",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f58a.svg",
+   "src": "twemoji/assets/svg/1f58a.svg",
+   "items": [
+    "vape"
+   ],
+   "cells": [
+    110
+   ]
+  },
+  {
+   "name": "1f5a5",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f5a5.svg",
+   "src": "twemoji/assets/svg/1f5a5.svg",
+   "items": [
+    "screen"
+   ],
+   "cells": [
+    135
+   ]
+  },
+  {
+   "name": "1f6ac",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f6ac.svg",
+   "src": "twemoji/assets/svg/1f6ac.svg",
+   "items": [
+    "acetate_butt",
+    "cig_pack"
+   ],
+   "cells": [
+    16
+   ]
+  },
+  {
+   "name": "1f6cd",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f6cd.svg",
+   "src": "twemoji/assets/svg/1f6cd.svg",
+   "items": [
+    "bag"
+   ],
+   "cells": [
+    48
+   ]
+  },
+  {
+   "name": "1f940",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f940.svg",
+   "src": "twemoji/assets/svg/1f940.svg",
+   "items": [
+    "petal"
+   ],
+   "cells": [
+    181
+   ]
+  },
+  {
+   "name": "1f944",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f944.svg",
+   "src": "twemoji/assets/svg/1f944.svg",
+   "items": [
+    "cutlery"
+   ],
+   "cells": [
+    63
+   ]
+  },
+  {
+   "name": "1f945",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f945.svg",
+   "src": "twemoji/assets/svg/1f945.svg",
+   "items": [
+    "net_pieces"
+   ],
+   "cells": [
+    40
+   ]
+  },
+  {
+   "name": "1f95a",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f95a.svg",
+   "src": "twemoji/assets/svg/1f95a.svg",
+   "items": [
+    "eggshell"
+   ],
+   "cells": [
+    162
+   ]
+  },
+  {
+   "name": "1f95c",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f95c.svg",
+   "src": "twemoji/assets/svg/1f95c.svg",
+   "items": [
+    "seed"
+   ],
+   "cells": [
+    186
+   ]
+  },
+  {
+   "name": "1f961",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f961.svg",
+   "src": "twemoji/assets/svg/1f961.svg",
+   "items": [
+    "food_box"
+   ],
+   "cells": [
+    77
+   ]
+  },
+  {
+   "name": "1f962",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f962.svg",
+   "src": "twemoji/assets/svg/1f962.svg",
+   "items": [
+    "cotton_bud"
+   ],
+   "cells": [
+    25
+   ]
+  },
+  {
+   "name": "1f964",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f964.svg",
+   "src": "twemoji/assets/svg/1f964.svg",
+   "items": [
+    "plastic_other",
+    "cup"
+   ],
+   "cells": [
+    36
+   ]
+  },
+  {
+   "name": "1f96b",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f96b.svg",
+   "src": "twemoji/assets/svg/1f96b.svg",
+   "items": [
+    "can_drink",
+    "food_waste"
+   ],
+   "cells": [
+    87
+   ]
+  },
+  {
+   "name": "1f980",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f980.svg",
+   "src": "twemoji/assets/svg/1f980.svg",
+   "items": [
+    "crab"
+   ],
+   "cells": [
+    219
+   ]
+  },
+  {
+   "name": "1f9aa",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9aa.svg",
+   "src": "twemoji/assets/svg/1f9aa.svg",
+   "items": [
+    "shellfish"
+   ],
+   "cells": [
+    166
+   ]
+  },
+  {
+   "name": "1f9b4",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9b4.svg",
+   "src": "twemoji/assets/svg/1f9b4.svg",
+   "items": [
+    "livestock_bone",
+    "bird_bone"
+   ],
+   "cells": [
+    155
+   ]
+  },
+  {
+   "name": "1f9b7",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9b7.svg",
+   "src": "twemoji/assets/svg/1f9b7.svg",
+   "items": [
+    "tooth"
+   ],
+   "cells": [
+    211
+   ]
+  },
+  {
+   "name": "1f9c2",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9c2.svg",
+   "src": "twemoji/assets/svg/1f9c2.svg",
+   "items": [
+    "snus"
+   ],
+   "cells": [
+    150
+   ]
+  },
+  {
+   "name": "1f9c3",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9c3.svg",
+   "src": "twemoji/assets/svg/1f9c3.svg",
+   "items": [
+    "bottle_drink"
+   ],
+   "cells": [
+    46
+   ]
+  },
+  {
+   "name": "1f9e2",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9e2.svg",
+   "src": "twemoji/assets/svg/1f9e2.svg",
+   "items": [
+    "clothing"
+   ],
+   "cells": [
+    91
+   ]
+  },
+  {
+   "name": "1f9e6",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9e6.svg",
+   "src": "twemoji/assets/svg/1f9e6.svg",
+   "items": [
+    "clothing"
+   ],
+   "cells": [
+    90
+   ]
+  },
+  {
+   "name": "1f9e9",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9e9.svg",
+   "src": "twemoji/assets/svg/1f9e9.svg",
+   "items": [
+    "frag_mid"
+   ],
+   "cells": [
+    0
+   ]
+  },
+  {
+   "name": "1f9f4",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9f4.svg",
+   "src": "twemoji/assets/svg/1f9f4.svg",
+   "items": [
+    "plastic_other"
+   ],
+   "cells": [
+    35
+   ]
+  },
+  {
+   "name": "1f9f5",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9f5.svg",
+   "src": "twemoji/assets/svg/1f9f5.svg",
+   "items": [
+    "string"
+   ],
+   "cells": [
+    12
+   ]
+  },
+  {
+   "name": "1f9f6",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9f6.svg",
+   "src": "twemoji/assets/svg/1f9f6.svg",
+   "items": [
+    "rope"
+   ],
+   "cells": [
+    71
+   ]
+  },
+  {
+   "name": "1f9fb",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9fb.svg",
+   "src": "twemoji/assets/svg/1f9fb.svg",
+   "items": [
+    "hygiene_misc"
+   ],
+   "cells": [
+    56
+   ]
+  },
+  {
+   "name": "1f9fc",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9fc.svg",
+   "src": "twemoji/assets/svg/1f9fc.svg",
+   "items": [
+    "hygiene_misc"
+   ],
+   "cells": [
+    59
+   ]
+  },
+  {
+   "name": "1f9fd",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1f9fd.svg",
+   "src": "twemoji/assets/svg/1f9fd.svg",
+   "items": [
+    "foam_sponge"
+   ],
+   "cells": [
+    64
+   ]
+  },
+  {
+   "name": "1fa79",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa79.svg",
+   "src": "twemoji/assets/svg/1fa79.svg",
+   "items": [
+    "medical_other"
+   ],
+   "cells": [
+    51
+   ]
+  },
+  {
+   "name": "1fa88",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa88.svg",
+   "src": "twemoji/assets/svg/1fa88.svg",
+   "items": [
+    "vape"
+   ],
+   "cells": [
+    111
+   ]
+  },
+  {
+   "name": "1fa92",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa92.svg",
+   "src": "twemoji/assets/svg/1fa92.svg",
+   "items": [
+    "hygiene_misc"
+   ],
+   "cells": [
+    58
+   ]
+  },
+  {
+   "name": "1fa99",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fa99.svg",
+   "src": "twemoji/assets/svg/1fa99.svg",
+   "items": [
+    "cap_metal"
+   ],
+   "cells": [
+    96
+   ]
+  },
+  {
+   "name": "1faa2",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1faa2.svg",
+   "src": "twemoji/assets/svg/1faa2.svg",
+   "items": [
+    "string",
+    "rope"
+   ],
+   "cells": [
+    15
+   ]
+  },
+  {
+   "name": "1faa3",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1faa3.svg",
+   "src": "twemoji/assets/svg/1faa3.svg",
+   "items": [
+    "plastic_other"
+   ],
+   "cells": [
+    37
+   ]
+  },
+  {
+   "name": "1faa8",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1faa8.svg",
+   "src": "twemoji/assets/svg/1faa8.svg",
+   "items": [
+    "charcoal"
+   ],
+   "cells": [
+    170
+   ]
+  },
+  {
+   "name": "1fab2",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab2.svg",
+   "src": "twemoji/assets/svg/1fab2.svg",
+   "items": [
+    "insect"
+   ],
+   "cells": [
+    195
+   ]
+  },
+  {
+   "name": "1fab5",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab5.svg",
+   "src": "twemoji/assets/svg/1fab5.svg",
+   "items": [
+    "wood_piece",
+    "twig",
+    "bark"
+   ],
+   "cells": [
+    73
+   ]
+  },
+  {
+   "name": "1fab6",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab6.svg",
+   "src": "twemoji/assets/svg/1fab6.svg",
+   "items": [
+    "feather"
+   ],
+   "cells": [
+    202
+   ]
+  },
+  {
+   "name": "1fab8",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fab8.svg",
+   "src": "twemoji/assets/svg/1fab8.svg",
+   "items": [
+    "urchin",
+    "coral"
+   ],
+   "cells": [
+    224
+   ]
+  },
+  {
+   "name": "1fad9",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/1fad9.svg",
+   "src": "twemoji/assets/svg/1fad9.svg",
+   "items": [
+    "glass_bottle",
+    "snus"
+   ],
+   "cells": [
+    70
+   ]
+  },
+  {
+   "name": "260e",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/260e.svg",
+   "src": "twemoji/assets/svg/260e.svg",
+   "items": [
+    "feature_phone"
+   ],
+   "cells": [
+    126
+   ]
+  },
+  {
+   "name": "2615",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/2615.svg",
+   "src": "twemoji/assets/svg/2615.svg",
+   "items": [
+    "cup"
+   ],
+   "cells": [
+    93
+   ]
+  },
+  {
+   "name": "26aa",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/26aa.svg",
+   "src": "twemoji/assets/svg/26aa.svg",
+   "items": [
+    "cap_plastic"
+   ],
+   "cells": [
+    23
+   ]
+  },
+  {
+   "name": "2b50",
+   "source": "jdecked/twemoji",
+   "author": "Twitter, Inc and other contributors (jdecked/twemoji)",
+   "license": "CC BY 4.0",
+   "url": "https://github.com/jdecked/twemoji/blob/main/assets/svg/2b50.svg",
+   "src": "twemoji/assets/svg/2b50.svg",
+   "items": [
+    "urchin"
+   ],
+   "cells": [
+    223
+   ]
+  },
+  {
+   "name": "apple",
+   "source": "crawl/tiles (DCSS)",
+   "author": "Dungeon Crawl Stone Soup tile artists (see ARTISTS.md)",
+   "license": "CC0 1.0",
+   "url": "https://github.com/crawl/tiles/blob/master/releases/Nov-2015/item/food/apple.png",
+   "src": "dcss/releases/Nov-2015/item/food/apple.png",
+   "items": [
+    "fruit_scrap"
+   ],
+   "cells": [
+    144
+   ]
+  },
+  {
+   "name": "chunk",
+   "source": "crawl/tiles (DCSS)",
+   "author": "Dungeon Crawl Stone Soup tile artists (see ARTISTS.md)",
+   "license": "CC0 1.0",
+   "url": "https://github.com/crawl/tiles/blob/master/releases/Nov-2015/item/food/chunk.png",
+   "src": "dcss/releases/Nov-2015/item/food/chunk.png",
+   "items": [
+    "food_waste"
+   ],
+   "cells": [
+    139
+   ]
+  },
+  {
+   "name": "meat_ration",
+   "source": "crawl/tiles (DCSS)",
+   "author": "Dungeon Crawl Stone Soup tile artists (see ARTISTS.md)",
+   "license": "CC0 1.0",
+   "url": "https://github.com/crawl/tiles/blob/master/releases/Nov-2015/item/food/meat_ration.png",
+   "src": "dcss/releases/Nov-2015/item/food/meat_ration.png",
+   "items": [
+    "food_waste"
+   ],
+   "cells": [
+    140
+   ]
+  },
+  {
+   "name": "adhesive_bandage_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Adhesive%20bandage",
+   "src": "fluent/assets/Adhesive bandage/Color/adhesive_bandage_color.svg",
+   "items": [
+    "medical_other"
+   ],
+   "cells": [
+    53
+   ]
+  },
+  {
+   "name": "balloon_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Balloon",
+   "src": "fluent/assets/Balloon/Color/balloon_color.svg",
+   "items": [
+    "balloon"
+   ],
+   "cells": [
+    83
+   ]
+  },
+  {
+   "name": "battery_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Battery",
+   "src": "fluent/assets/Battery/Color/battery_color.svg",
+   "items": [
+    "battery_aa"
+   ],
+   "cells": [
+    124
+   ]
+  },
+  {
+   "name": "bone_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Bone",
+   "src": "fluent/assets/Bone/Color/bone_color.svg",
+   "items": [
+    "livestock_bone"
+   ],
+   "cells": [
+    157
+   ]
+  },
+  {
+   "name": "candle_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Candle",
+   "src": "fluent/assets/Candle/Color/candle_color.svg",
+   "items": [
+    "wax"
+   ],
+   "cells": [
+    33
+   ]
+  },
+  {
+   "name": "candy_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Candy",
+   "src": "fluent/assets/Candy/Color/candy_color.svg",
+   "items": [
+    "wrapper"
+   ],
+   "cells": [
+    29
+   ]
+  },
+  {
+   "name": "cherry_blossom_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cherry%20blossom",
+   "src": "fluent/assets/Cherry blossom/Color/cherry_blossom_color.svg",
+   "items": [
+    "petal"
+   ],
+   "cells": [
+    180
+   ]
+  },
+  {
+   "name": "chestnut_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Chestnut",
+   "src": "fluent/assets/Chestnut/Color/chestnut_color.svg",
+   "items": [
+    "seed"
+   ],
+   "cells": [
+    185
+   ]
+  },
+  {
+   "name": "cigarette_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cigarette",
+   "src": "fluent/assets/Cigarette/Color/cigarette_color.svg",
+   "items": [
+    "acetate_butt"
+   ],
+   "cells": [
+    18
+   ]
+  },
+  {
+   "name": "coral_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Coral",
+   "src": "fluent/assets/Coral/Color/coral_color.svg",
+   "items": [
+    "coral"
+   ],
+   "cells": [
+    227
+   ]
+  },
+  {
+   "name": "crab_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Crab",
+   "src": "fluent/assets/Crab/Color/crab_color.svg",
+   "items": [
+    "crab"
+   ],
+   "cells": [
+    221
+   ]
+  },
+  {
+   "name": "egg_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Egg",
+   "src": "fluent/assets/Egg/Color/egg_color.svg",
+   "items": [
+    "eggshell"
+   ],
+   "cells": [
+    164
+   ]
+  },
+  {
+   "name": "electric_plug_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Electric%20plug",
+   "src": "fluent/assets/Electric plug/Color/electric_plug_color.svg",
+   "items": [
+    "usb_cable"
+   ],
+   "cells": [
+    102
+   ]
+  },
+  {
+   "name": "fallen_leaf_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Fallen%20leaf",
+   "src": "fluent/assets/Fallen leaf/Color/fallen_leaf_color.svg",
+   "items": [
+    "leaf"
+   ],
+   "cells": [
+    176
+   ]
+  },
+  {
+   "name": "feather_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Feather",
+   "src": "fluent/assets/Feather/Color/feather_color.svg",
+   "items": [
+    "feather"
+   ],
+   "cells": [
+    205
+   ]
+  },
+  {
+   "name": "fish_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Fish",
+   "src": "fluent/assets/Fish/Color/fish_color.svg",
+   "items": [
+    "small_fish"
+   ],
+   "cells": [
+    200
+   ]
+  },
+  {
+   "name": "fork_and_knife_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Fork%20and%20knife",
+   "src": "fluent/assets/Fork and knife/Color/fork_and_knife_color.svg",
+   "items": [
+    "cutlery"
+   ],
+   "cells": [
+    62
+   ]
+  },
+  {
+   "name": "headphone_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Headphone",
+   "src": "fluent/assets/Headphone/Color/headphone_color.svg",
+   "items": [
+    "earbuds",
+    "headphones"
+   ],
+   "cells": [
+    109
+   ]
+  },
+  {
+   "name": "light_bulb_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Light%20bulb",
+   "src": "fluent/assets/Light bulb/Color/light_bulb_color.svg",
+   "items": [
+    "led_bulb"
+   ],
+   "cells": [
+    120
+   ]
+  },
+  {
+   "name": "mobile_phone_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Mobile%20phone",
+   "src": "fluent/assets/Mobile phone/Color/mobile_phone_color.svg",
+   "items": [
+    "smartphone"
+   ],
+   "cells": [
+    106
+   ]
+  },
+  {
+   "name": "oyster_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Oyster",
+   "src": "fluent/assets/Oyster/Color/oyster_color.svg",
+   "items": [
+    "shellfish"
+   ],
+   "cells": [
+    168
+   ]
+  },
+  {
+   "name": "pile_of_poo_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Pile%20of%20poo",
+   "src": "fluent/assets/Pile of poo/Color/pile_of_poo_color.svg",
+   "items": [
+    "faeces"
+   ],
+   "cells": [
+    148
+   ]
+  },
+  {
+   "name": "poultry_leg_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Poultry%20leg",
+   "src": "fluent/assets/Poultry leg/Color/poultry_leg_color.svg",
+   "items": [
+    "chicken_bone"
+   ],
+   "cells": [
+    154
+   ]
+  },
+  {
+   "name": "puzzle_piece_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Puzzle%20piece",
+   "src": "fluent/assets/Puzzle piece/Color/puzzle_piece_color.svg",
+   "items": [
+    "frag_mid"
+   ],
+   "cells": [
+    2
+   ]
+  },
+  {
+   "name": "shopping_bags_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Shopping%20bags",
+   "src": "fluent/assets/Shopping bags/Color/shopping_bags_color.svg",
+   "items": [
+    "bag"
+   ],
+   "cells": [
+    50
+   ]
+  },
+  {
+   "name": "snail_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Snail",
+   "src": "fluent/assets/Snail/Color/snail_color.svg",
+   "items": [
+    "snail"
+   ],
+   "cells": [
+    218
+   ]
+  },
+  {
+   "name": "sponge_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Sponge",
+   "src": "fluent/assets/Sponge/Color/sponge_color.svg",
+   "items": [
+    "foam_sponge"
+   ],
+   "cells": [
+    66
+   ]
+  },
+  {
+   "name": "star_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Star",
+   "src": "fluent/assets/Star/Color/star_color.svg",
+   "items": [
+    "urchin"
+   ],
+   "cells": [
+    225
+   ]
+  },
+  {
+   "name": "thread_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Thread",
+   "src": "fluent/assets/Thread/Color/thread_color.svg",
+   "items": [
+    "string"
+   ],
+   "cells": [
+    14
+   ]
+  },
+  {
+   "name": "tooth_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Tooth",
+   "src": "fluent/assets/Tooth/Color/tooth_color.svg",
+   "items": [
+    "tooth"
+   ],
+   "cells": [
+    214
+   ]
+  },
+  {
+   "name": "wood_color",
+   "source": "microsoft/fluentui-emoji",
+   "author": "Microsoft",
+   "license": "MIT",
+   "url": "https://github.com/microsoft/fluentui-emoji/tree/main/assets/Wood",
+   "src": "fluent/assets/Wood/Color/wood_color.svg",
+   "items": [
+    "wood_piece"
+   ],
+   "cells": [
+    75
+   ]
+  }
+ ]
+}

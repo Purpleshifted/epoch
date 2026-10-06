@@ -32,3 +32,9 @@ export function geoYears(elapsedSeconds: number, cfg: GeoClockConfig = DEFAULT_C
 export function depthOfYears(years: number): number {
   return Math.log10(1 + Math.max(0, years));
 }
+
+/** Inverse of geoYears: wall-clock seconds after which an item is `years` simulated years old. */
+export function secondsForYears(years: number, cfg: GeoClockConfig = DEFAULT_CLOCK): number {
+  const a = Math.log10(1 + cfg.maxYears) / Math.log10(1 + cfg.exhibitionSeconds);
+  return Math.pow(10, Math.log10(1 + Math.max(0, years)) / a) - 1;
+}

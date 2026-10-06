@@ -11,8 +11,8 @@
  * The ground also holds a natural stock (leaves, feathers, shells …). Visitors do not
  * scatter it; walking and scattering wear it down (lib/stratum/natural.ts).
  *
- * Rendering is a placeholder: flat 16-colour pixel squares, one per item. Real
- * sprites replace them in a later step.
+ * Rendering: 16-colour pixel sprites from the shared atlas (components/ground); an item
+ * without a sprite falls back to a flat palette square.
  *
  * Cost model (see docs/performance.md): records live in an incremental per-cell
  * GroundStore; only the cells near the visitor are resolved, twice a second; a freshly
@@ -32,22 +32,22 @@ import {
   LS_DEPOSITS_KEY,
   LS_EPOCH_KEY,
   LS_STEPS_KEY,
-  MATERIAL_PALETTE_INDEX,
-  PALETTE_HEX,
   aliveShare,
   cellKey,
-  dimIndex,
   localSurvivors,
   makeDeposit,
   naturalItemsAround,
   resolveNaturalIn,
-  sampleFromField,
-  stageTint,
+  INHERITANCE_ENABLED,
+  drawItem,
   type DepositRecord,
   type NaturalItem,
   type ResolvedDeposit,
+  type Stage,
   type StepRecord,
 } from "@/lib/stratum";
+import { spriteCell } from "@/components/ground/atlas";
+import { PointBuffer, makePixelMaterial } from "@/components/ground/pixelPoints";
 
 const MAX_RECORDS = 3000;
 const MAX_STEPS = 20000;      // dropping old crossings would let the natural stock grow back, so keep many (~1 MB)
@@ -59,50 +59,11 @@ const NATURAL_SIZE = 0.72;    // natural items are drawn a little smaller than s
 const DROP_DIST = 1.0;        // scatter one item per this much distance walked...
 const DROP_IDLE = 1.5;        // ...or after this many seconds standing still
 const DROP_MIN_GAP = 0.2;     // never faster than this (s)
+const DWELL_SEC = 1.0;        // lingering in one cell: one more trampling pass per this many seconds
 const RESOLVE_EVERY = 0.5;    // s between fate recomputations
 const WRITE_EVERY = 3.0;      // s between localStorage writes (only when something changed)
-const VISITOR_KEY = "anthropocene:visitor:v1";
-
-// ── palette as linear colours (so the post chain's sRGB output matches the hex) ──
-const PALETTE_RGB: [number, number, number][] = PALETTE_HEX.map((hex) => {
-  const c = new THREE.Color(hex);
-  return [c.r, c.g, c.b];
-});
 
 const GROUND_Y = 0.02; // flat ground: every sprite rests here
-
-const VS = /* glsl */ `
-  attribute vec3 aColor;
-  attribute vec3 aFlags;       // x: dither, y: outline, z: size scale
-  uniform float uCamConst;
-  uniform float uSize;
-  varying vec3 vColor;
-  varying vec2 vFlags;
-  void main() {
-    vColor = aColor;
-    vFlags = aFlags.xy;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = max(3.0, floor(uSize * aFlags.z * uCamConst / (-mv.z)));
-    gl_Position = projectionMatrix * mv;
-  }
-`;
-
-
-const FS = /* glsl */ `
-  varying vec3 vColor;
-  varying vec2 vFlags;
-  void main() {
-    vec2 p = gl_PointCoord - 0.5;
-    if (vFlags.x > 0.5) {
-      // two-colour checkerboard, the only dither TempleOS has
-      float chk = mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0);
-      if (chk < 0.5) discard;
-    }
-    vec3 col = vColor;
-    if (vFlags.y > 0.5 && max(abs(p.x), abs(p.y)) > 0.34) col = vec3(1.0);
-    gl_FragColor = vec4(col, 1.0);
-  }
-`;
 
 function loadArray<T>(key: string): T[] {
   try {
@@ -129,17 +90,9 @@ function getEpochMs(): number {
   }
 }
 
+/** Every page load is a new visitor: a reload hands out a new life (sessionStorage would survive it). */
 function getVisitorId(): string {
-  try {
-    let id = sessionStorage.getItem(VISITOR_KEY);
-    if (!id) {
-      id = "v_" + Math.random().toString(36).slice(2, 8);
-      sessionStorage.setItem(VISITOR_KEY, id);
-    }
-    return id;
-  } catch {
-    return "v_anon";
-  }
+  return "v_" + Math.random().toString(36).slice(2, 8);
 }
 
 export function DepositField({
@@ -166,6 +119,7 @@ export function DepositField({
   const steps = useRef<Map<string, StepRecord>>(new Map());
   const store = useRef(new GroundStore());
   const lastCell = useRef(new Map<string, string>());
+  const lastStepT = useRef(new Map<string, number>());
   const dirty = useRef(false);
   const stepsDirty = useRef(false);
   const epochMs = useRef(0);
@@ -181,30 +135,12 @@ export function DepositField({
   const clock = useRef(0);
 
   const cap = MAX_RECORDS + MAX_NATURAL;
-  const geometry = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
-    g.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
-    g.setAttribute("aFlags", new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
-    g.setDrawRange(0, 0);
-    return g;
-  }, [cap]);
+  const buf = useMemo(() => new PointBuffer(cap), [cap]);
+  const geometry = buf.geometry;
 
-  const uniforms = useMemo(
-    () => ({
-      uCamConst: { value: 400 },
-      uSize: { value: pointSize },
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
+  const material = useMemo(() => makePixelMaterial({ size: pointSize, snap: 1 }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const uniforms = material.uniforms;
   uniforms.uSize.value = pointSize;
-
-  const material = useMemo(
-    () => new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: FS, uniforms, toneMapped: false }),
-    [uniforms],
-  );
 
   const addRecord = (r: DepositRecord): boolean => {
     if (records.current.has(r.id)) return false;
@@ -222,12 +158,25 @@ export function DepositField({
   useEffect(() => {
     epochMs.current = getEpochMs();
     visitor.current = getVisitorId();
-    for (const r of loadRecords()) addRecord(r);
-    for (const s of loadSteps()) addStepRecord(s);
+    // SESSION VIEW: every load starts on an empty ground (a new lifespan). Stored history is
+    // not read here (Top/Side show it); this tab only appends its own records to the storage.
     // other tabs announce their writes; we never poll localStorage
     const onStorage = (e: StorageEvent) => {
-      if (e.key === LS_DEPOSITS_KEY) for (const r of loadRecords()) addRecord(r);
-      else if (e.key === LS_STEPS_KEY) for (const s of loadSteps()) addStepRecord(s);
+      if ((e.key === LS_DEPOSITS_KEY || e.key === LS_STEPS_KEY) && e.newValue === null) {
+        // the shared ground was emptied from a Top/Side view: start over with it, otherwise this
+        // tab would write its old records straight back
+        records.current.clear();
+        steps.current.clear();
+        store.current.clear();
+        lastCell.current.clear();
+        lastStepT.current.clear();
+        drops.current.clear();
+        lastResolved.current = [];
+        naturalWindow.current = null;
+        dirty.current = false;
+        stepsDirty.current = false;
+        epochMs.current = getEpochMs();
+      }
     };
     window.addEventListener("storage", onStorage);
     return () => {
@@ -240,51 +189,54 @@ export function DepositField({
 
   const nowSec = () => (Date.now() - epochMs.current) / 1000;
 
-  /** Write one point into the buffer at index `n`. */
+  /** Write one point into the buffer at index `n`. `cell` < 0: flat placeholder square. */
   const writePoint = (
     n: number,
     x: number,
     y: number,
     z: number,
     material: DepositRecord["material"],
-    stage: Parameters<typeof stageTint>[0],
+    stage: Stage,
     size: number,
-  ) => {
-    const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
-    const col = geometry.getAttribute("aColor") as THREE.BufferAttribute;
-    const flg = geometry.getAttribute("aFlags") as THREE.BufferAttribute;
-    const tint = stageTint(stage);
-    let pi = MATERIAL_PALETTE_INDEX[material];
-    if (tint.dim) pi = dimIndex(pi);
-    const c = PALETTE_RGB[pi];
-    pos.setXYZ(n, x, y, z);
-    col.setXYZ(n, c[0], c[1], c[2]);
-    flg.setXYZ(n, tint.dither ? 1 : 0, tint.outline ? 1 : 0, size);
-    pos.needsUpdate = col.needsUpdate = flg.needsUpdate = true;
-  };
+    cell = -1,
+    natural = false,
+  ) => buf.set(n, x, y, z, cell, material, stage, size, natural);
 
   /** Scatter one item from `src` at (x,z). The item is drawn, not chosen. */
   const scatter = (src: string, owner: string, x: number, y: number, z: number, t: number) => {
     const id = `${owner}_${Math.floor(t * 1000)}_${seq.current++}`;
     // Inheritance: the draw leans toward what has survived around this spot.
-    const survivors = localSurvivors(lastResolved.current, x, z, poolRadius);
-    const item = sampleFromField(Math.random(), survivors, poolK);
+    // Inheritance is OFF (INHERITANCE_ENABLED in sample.ts): the draw is the catalogue prior.
+    const survivors = INHERITANCE_ENABLED
+      ? localSurvivors(lastResolved.current, x, z, poolRadius)
+      : new Map<string, number>();
+    const item = drawItem(Math.random(), survivors, poolK);
     const rec = makeDeposit({ id, u: 0, item, x, y, z, t, owner });
     addRecord(rec);
     dirty.current = true;
     // draw it now; the next resolve rewrites the whole buffer anyway
     if (drawn.current < cap) {
-      writePoint(drawn.current++, x, y, z, rec.material, "fresh", 1);
+      writePoint(drawn.current++, x, y, z, rec.material, "fresh", 1, spriteCell(rec.item, rec.variant));
       geometry.setDrawRange(0, drawn.current);
     }
     void src;
   };
 
-  /** A source entered a new ground cell: one "crossing", which wears the natural stock down. */
+  /**
+   * A source entered a new ground cell: one "crossing", which wears the natural stock down.
+   * Lingering in the same cell adds one more pass every DWELL_SEC, so staying longer wears the
+   * ground faster (modelling assumption: wear scales with passes, and standing still counts as
+   * repeated passes; Cole 1995 relates impact to the number of passes, the dwell rule is ours).
+   */
   const trackStep = (src: string, owner: string, x: number, z: number, t: number) => {
     const c = cellKey(x, z);
-    if (lastCell.current.get(src) === c) return;
-    lastCell.current.set(src, c);
+    if (lastCell.current.get(src) === c) {
+      const last = lastStepT.current.get(src) ?? t;
+      if (t - last < DWELL_SEC) return;
+    } else {
+      lastCell.current.set(src, c);
+    }
+    lastStepT.current.set(src, t);
     const id = `${owner}_${Math.floor(t * 1000)}_${c}`;
     addStepRecord({ id, c, t, o: owner });
     stepsDirty.current = true;
@@ -355,13 +307,27 @@ export function DepositField({
     if (writeTimer.current >= WRITE_EVERY) {
       writeTimer.current = 0;
       if (dirty.current || stepsDirty.current) trim();
+      // This tab only SHOWS its own session, but it appends to the shared storage (merge by id),
+      // so Top/Side keep the history of every earlier session.
       if (dirty.current) {
         dirty.current = false;
-        try { localStorage.setItem(LS_DEPOSITS_KEY, JSON.stringify([...records.current.values()])); } catch { /* quota */ }
+        try {
+          const merged = new Map<string, DepositRecord>();
+          for (const r of loadRecords()) merged.set(r.id, r);
+          for (const r of records.current.values()) merged.set(r.id, r);
+          const all = [...merged.values()].sort((a, b) => a.t - b.t);
+          localStorage.setItem(LS_DEPOSITS_KEY, JSON.stringify(all.slice(-MAX_RECORDS)));
+        } catch { /* quota */ }
       }
       if (stepsDirty.current) {
         stepsDirty.current = false;
-        try { localStorage.setItem(LS_STEPS_KEY, JSON.stringify([...steps.current.values()])); } catch { /* quota */ }
+        try {
+          const merged = new Map<string, StepRecord>();
+          for (const s of loadSteps()) merged.set(s.id, s);
+          for (const s of steps.current.values()) merged.set(s.id, s);
+          const all = [...merged.values()].sort((a, b) => a.t - b.t);
+          localStorage.setItem(LS_STEPS_KEY, JSON.stringify(all.slice(-MAX_STEPS)));
+        } catch { /* quota */ }
       }
     }
 
@@ -370,15 +336,16 @@ export function DepositField({
     if (resolveTimer.current < RESOLVE_EVERY) return;
     resolveTimer.current = 0;
 
+    // point sizes are in drawing-buffer pixels (the buffer may be much smaller than the screen)
     uniforms.uCamConst.value =
-      window.innerHeight / (2 * Math.tan(((state.camera as THREE.PerspectiveCamera).fov * Math.PI) / 360));
+      state.gl.domElement.height / (2 * Math.tan(((state.camera as THREE.PerspectiveCamera).fov * Math.PI) / 360));
 
     const resolved = store.current.resolveNear(me.x, me.z, VIEW_RADIUS, t);
     lastResolved.current = resolved;
     let n = 0;
     for (const { rec, fate } of resolved) {
       if (fate.stage === "vanished" || n >= MAX_RECORDS) continue;
-      writePoint(n++, rec.x, rec.y, rec.z, rec.material, fate.stage, 1);
+      writePoint(n++, rec.x, rec.y, rec.z, rec.material, fate.stage, 1, spriteCell(rec.item, rec.variant));
     }
 
     // natural stock around the visitor (the window is recomputed only when the visitor changes cell)
@@ -393,9 +360,10 @@ export function DepositField({
     for (const r of natural) {
       if (nat >= MAX_NATURAL) break;
       const it = r.item;
-      if (r.alive) writePoint(n++, it.x, py, it.z, it.def.material, "fresh", NATURAL_SIZE);
-      else if (r.fate && r.fate.stage !== "vanished") writePoint(n++, it.x, py, it.z, it.def.material, r.fate.stage, NATURAL_SIZE);
-      else if (r.displacedAt != null && t - r.displacedAt < GHOST_SEC) writePoint(n++, it.x, py, it.z, it.def.material, "fragmented", NATURAL_SIZE);
+      const cell = spriteCell(it.def.id, it.variant);
+      if (r.alive) writePoint(n++, it.x, py, it.z, it.def.material, "fresh", NATURAL_SIZE, cell, true);
+      else if (r.fate && r.fate.stage !== "vanished") writePoint(n++, it.x, py, it.z, it.def.material, r.fate.stage, NATURAL_SIZE, cell, true);
+      else if (r.displacedAt != null && t - r.displacedAt < GHOST_SEC) writePoint(n++, it.x, py, it.z, it.def.material, "fragmented", NATURAL_SIZE, cell, true);
       else continue;
       nat++;
     }

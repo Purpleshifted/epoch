@@ -59,6 +59,12 @@ const StartScreen = () => {
           >
             ⬡ Spacetime Block (Live)
           </button>
+          <button
+            className="mt-3 rounded-lg border border-white/25 bg-transparent px-6 py-3 text-xs font-normal text-white/50 transition-all duration-300 hover:border-white/50 hover:bg-white/5 hover:text-white/70 active:scale-[0.98] font-mono w-full tracking-wider"
+            onClick={() => router.push("/sprites")}
+          >
+            ▦ Sprite Lab (Live)
+          </button>
         </div>
       </div>
     </div>
