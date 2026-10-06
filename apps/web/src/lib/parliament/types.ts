@@ -1,0 +1,101 @@
+/**
+ * parliament/types.ts
+ *
+ * "Parliament of things": every visitor is given one ROLE; the role decides which trace the
+ * visitor's movement leaves in the shared ground. The world is an append-only log of
+ * spacetime events (x, z, s); everything that is drawn is a pure fold over that log.
+ *
+ * Time (s) is the visitor's ASSIGNED exhibition time, not the wall clock (see clock.ts):
+ * later arrivals tend to be assigned later times, and a visitor only sees events with
+ * s <= their own current time. That is what makes the ground a stratum.
+ */
+
+export type RoleId = "shepherd" | "wolf" | "worker" | "warrior" | "tree";
+
+export const ROLES: readonly RoleId[] = ["shepherd", "wolf", "worker", "warrior", "tree"];
+
+/** Which roles already have an effect in the fold (the rest only leave presence events). */
+export const ROLE_IMPLEMENTED: Record<RoleId, boolean> = {
+  shepherd: false,
+  wolf: false,
+  worker: true,
+  warrior: false,
+  tree: false,
+};
+
+/**
+ * One spacetime event. Compact on purpose: the log is mirrored into localStorage.
+ *   k = "p": presence sample (the visitor stood or walked here; stands for `sampleSec` seconds)
+ *   k = "f": a cigarette filter left by a worker (labour fossil, wears away fast)
+ */
+export interface PEvent {
+  id: string;
+  /** Visitor (or bot) id. */
+  o: string;
+  r: RoleId;
+  k: "p" | "f";
+  x: number;
+  z: number;
+  /** Assigned exhibition seconds of the actor when the event happened. */
+  s: number;
+}
+
+export interface FoldConfig {
+  /** Spatial radius (world units) of the spacetime ball in which worker presence is counted. */
+  radius: number;
+  /** Temporal radius (exhibition seconds): presence further back than this does not count towards nucleation. */
+  windowSec: number;
+  /** Worker-seconds (kernel-weighted) inside the ball that make a slab nucleate. */
+  threshold: number;
+  /** Extra worker-seconds that raise the slab by one more height unit after nucleation. */
+  pourUnit: number;
+  maxHeight: number;
+  /** Seconds one presence event stands for. */
+  sampleSec: number;
+  /** e-folding time (model years) of an exposed slab once nobody keeps using it. */
+  tauSlabYears: number;
+  /** e-folding time (model years) of the buried footprint (foundation outline). */
+  tauFootprintYears: number;
+  /** e-folding time (model years) of a cigarette filter. */
+  tauFilterYears: number;
+}
+
+export const DEFAULT_FOLD: FoldConfig = {
+  radius: 3,
+  windowSec: 600,
+  threshold: 12,
+  pourUnit: 12,
+  maxHeight: 6,
+  sampleSec: 1,
+  tauSlabYears: 800,
+  tauFootprintYears: 8000,
+  tauFilterYears: 10,
+};
+
+export interface Slab {
+  key: string;
+  x: number;
+  z: number;
+  /** Visible (worn) height in height units; 0 when only the footprint is left. */
+  h: number;
+  /** 0..1: how much of the buried foundation outline is left. */
+  foot: number;
+  /** Assigned time at which the slab nucleated. */
+  bornS: number;
+  /** Assigned time of the last presence that kept it in use. */
+  lastS: number;
+}
+
+export interface FilterTrace {
+  id: string;
+  x: number;
+  z: number;
+  /** 1 = fresh .. 0 = gone. */
+  alpha: number;
+  s: number;
+}
+
+export interface Snapshot {
+  slabs: Slab[];
+  filters: FilterTrace[];
+}

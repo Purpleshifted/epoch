@@ -10,13 +10,19 @@ export default function HomeScreen() {
         Stratum of the Anthropocene
       </h1>
       <div className="flex flex-col gap-4 w-[280px]">
-        <button
-          disabled
-          className="rounded-lg border border-white/20 bg-transparent px-6 py-4 text-sm font-normal text-white/30 vintage-serif w-full cursor-not-allowed"
+        <Link
+          href="/mobile"
+          className="rounded-lg border border-white bg-transparent px-6 py-4 text-sm font-normal text-white transition-all duration-300 hover:border-white/80 hover:bg-white/10 active:scale-[0.98] vintage-serif w-full"
         >
           Parliament of Things
-          <span className="block pt-1 font-mono text-[10px] tracking-wider text-white/25">in progress</span>
-        </button>
+          <span className="block pt-1 font-mono text-[10px] tracking-wider text-white/40">player · worker first</span>
+        </Link>
+        <Link
+          href="/global/top"
+          className="rounded-lg border border-white/50 bg-transparent px-6 py-3 text-xs font-normal text-white/80 transition-all duration-300 hover:border-white hover:bg-white/10 active:scale-[0.98] vintage-serif w-full"
+        >
+          Top view (future)
+        </Link>
         <Link
           href="/legacy"
           className="rounded-lg border border-white bg-transparent px-6 py-4 text-sm font-normal text-white transition-all duration-300 hover:border-white/80 hover:bg-white/10 active:scale-[0.98] vintage-serif w-full"

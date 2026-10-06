@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-const TopView = dynamic(() => import("@/components/top/TopView"), {
+const ParliamentTop = dynamic(() => import("@/components/parliament/ParliamentTop"), {
   ssr: false,
   loading: () => <div className="h-screen w-full bg-[#05060a]" />,
 });
@@ -10,7 +10,7 @@ const TopView = dynamic(() => import("@/components/top/TopView"), {
 export default function TopPage() {
   return (
     <div className="h-screen w-full bg-[#05060a]">
-      <TopView />
+      <ParliamentTop />
     </div>
   );
 }
