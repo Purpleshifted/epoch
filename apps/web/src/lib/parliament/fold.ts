@@ -49,7 +49,7 @@ export function foldWorld(
     if (region && Math.hypot(e.x - region.x, e.z - region.z) > reach) continue;
     vis.push(e);
   }
-  vis.sort((a, b) => a.s - b.s);
+  vis.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)); // ties by id: same float sums in every view
 
   const yView = geoYears(sView);
   const filters: FilterTrace[] = [];

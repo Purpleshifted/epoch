@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { geoYears } from "@/lib/stratum/geoClock";
 import {
   DEFAULT_FOLD,
+  DEMO_END_SEC,
   EventLog,
   buildParliamentDemo,
   foldWorld,
@@ -12,133 +14,150 @@ import {
   type RoleId,
 } from "./index";
 
-let uid = 0;
-/** `secs` presence samples (one per second) of one visitor standing at (x, z) from assigned time s0. */
-function stand(o: string, r: RoleId, x: number, z: number, s0: number, secs: number): PEvent[] {
-  const out: PEvent[] = [];
-  for (let i = 0; i < secs; i++) out.push({ id: `${o}:${uid++}`, o, r, k: "p", x, z, s: s0 + i });
-  return out;
+const C = 1.2; // cell size: (0.6, 0.6) is the centre of cell "0,0"
+
+function stand(o: string, r: RoleId, x: number, z: number, s0: number, n: number, k: "p" | "f" = "p"): PEvent[] {
+  return Array.from({ length: n }, (_, i) => ({ id: `${o}:${k}${s0}:${i}`, o, r, k, x, z, s: s0 + i }));
 }
-// the centre of ground cell (0,0): kernel weight 1 for that cell
-const C = 0.6;
+const at0 = (e: PEvent[], sView: number) => foldWorld(e, sView).slabs.find((s) => s.key === "0,0");
 
-describe("worker slab nucleation (spacetime density)", () => {
-  it("a short stay builds nothing, a long stay builds a slab on the visitor's cell", () => {
-    const short = stand("a", "worker", C, C, 100, 5);
-    expect(foldWorld(short, 200).slabs).toHaveLength(0);
-
-    const long = stand("a", "worker", C, C, 100, 20);
-    const snap = foldWorld(long, 119);
-    const slab = snap.slabs.find((s) => s.key === "0,0");
-    expect(slab).toBeDefined();
-    expect(slab!.h).toBeGreaterThan(1.5); // 1 + (20 - 12) / 12
-    expect(slab!.foot).toBeGreaterThan(0.99);
+describe("worker slab: spacetime density", () => {
+  it("does not nucleate below the threshold, does at it", () => {
+    const e = stand("a", "worker", C / 2, C / 2, 0, 12);
+    expect(at0(e.slice(0, 11), 100)).toBeUndefined();
+    expect(at0(e, 100)).toBeDefined();
   });
 
-  it("is causal: events after the viewer's time are invisible", () => {
-    const ev = stand("a", "worker", C, C, 100, 30);
-    expect(foldWorld(ev, 105).slabs).toHaveLength(0); // only 6 samples seen
-    expect(foldWorld(ev, 129).slabs.length).toBeGreaterThan(0);
+  it("is causal: nothing is counted after the viewing time", () => {
+    const e = stand("a", "worker", C / 2, C / 2, 0, 20);
+    expect(at0(e, 5)).toBeUndefined();
+    expect(at0(e, 11)).toBeDefined();
   });
 
-  it("a crowd counts: three visitors standing together for 5 s each build what one cannot", () => {
-    const one = stand("a", "worker", C, C, 100, 5);
-    expect(foldWorld(one, 200).slabs).toHaveLength(0);
-    const crowd = [...one, ...stand("b", "worker", C, C, 100, 5), ...stand("c", "worker", C, C, 100, 5)];
-    expect(foldWorld(crowd, 105).slabs.length).toBeGreaterThan(0);
+  it("grows with further presence and is capped", () => {
+    const short = at0(stand("a", "worker", C / 2, C / 2, 0, 12), 12)!;
+    const longer = at0(stand("a", "worker", C / 2, C / 2, 0, 60), 60)!;
+    const huge = at0(stand("a", "worker", C / 2, C / 2, 0, 500), 500)!;
+    expect(longer.h).toBeGreaterThan(short.h);
+    expect(huge.h).toBeLessThanOrEqual(DEFAULT_FOLD.maxHeight + 1e-9);
   });
 
-  it("counts presence across TIME inside the window, not only at the same moment", () => {
-    const a = stand("a", "worker", C, C, 0, 6);
-    expect(foldWorld([...a, ...stand("b", "worker", C, C, 300, 6)], 400).slabs.length).toBeGreaterThan(0);
-    // 700 s later the first visit is outside the 600 s window
-    expect(foldWorld([...a, ...stand("b", "worker", C, C, 700, 6)], 800).slabs).toHaveLength(0);
+  it("counts several visitors at different times (not only the same moment)", () => {
+    const e = [0, 1, 2, 3].flatMap((i) => stand(`w${i}`, "worker", C / 2, C / 2, i * 100, 4)); // 4 s each, 100 s apart
+    expect(at0(e, 400)).toBeDefined();
+    expect(at0(stand("w0", "worker", C / 2, C / 2, 0, 4), 400)).toBeUndefined();
   });
 
-  it("counts presence across SPACE inside the radius only", () => {
-    const far: PEvent[] = [];
-    for (let i = 0; i < 12; i++) far.push(...stand(`f${i}`, "worker", C + i * 10, C, 100, 1));
-    expect(foldWorld(far, 200).slabs).toHaveLength(0);
-    const near: PEvent[] = [];
-    // kernel weights at 0, 0.3 and 0.6 from the cell centre average 0.9, so 14 samples reach 12.6 >= 12
-    for (let i = 0; i < 14; i++) near.push(...stand(`n${i}`, "worker", C + (i % 3) * 0.3, C, 100, 1));
-    expect(foldWorld(near, 200).slabs.length).toBeGreaterThan(0);
+  it("forgets presence further apart in time than the window", () => {
+    const apart = [...stand("a", "worker", C / 2, C / 2, 0, 8), ...stand("b", "worker", C / 2, C / 2, 700, 8)];
+    const near = [...stand("a", "worker", C / 2, C / 2, 0, 8), ...stand("b", "worker", C / 2, C / 2, 100, 8)];
+    expect(at0(apart, 720)).toBeUndefined();
+    expect(at0(near, 120)).toBeDefined();
   });
 
-  it("other roles do not build slabs (yet)", () => {
-    for (const r of ["wolf", "shepherd", "warrior", "tree"] as RoleId[]) {
-      expect(foldWorld(stand("a", r, C, C, 100, 40), 200).slabs).toHaveLength(0);
+  it("does not gather presence that is spread out in space", () => {
+    const e = Array.from({ length: 30 }, (_, i) => stand(`a${i}`, "worker", i * 10 + C / 2, C / 2, i, 1)[0]);
+    expect(foldWorld(e, 100).slabs).toHaveLength(0);
+  });
+
+  it("other roles leave no slab (yet)", () => {
+    for (const r of ["shepherd", "wolf", "warrior", "tree"] as const) {
+      expect(foldWorld(stand("a", r, C / 2, C / 2, 0, 200), 200).slabs).toHaveLength(0);
     }
   });
 
-  it("more presence raises the slab, up to the maximum", () => {
-    const h = (secs: number) => foldWorld(stand("a", "worker", C, C, 100, secs), 100 + secs - 1).slabs.find((s) => s.key === "0,0")!.h;
-    expect(h(60)).toBeGreaterThan(h(20));
-    expect(h(2000)).toBeLessThanOrEqual(DEFAULT_FOLD.maxHeight + 1e-9);
+  it("is independent of the order of the log", () => {
+    const e = [...stand("a", "worker", 1, 1, 0, 30), ...stand("b", "worker", 2, 1.5, 10, 30)];
+    const a = foldWorld(e, 80);
+    const b = foldWorld([...e].reverse(), 80);
+    expect(b).toEqual(a);
   });
 });
 
-describe("wear: the slab goes first, the footprint stays longer", () => {
-  const ev = stand("a", "worker", C, C, 100, 20);
-  const lastS = 119;
-  const now = foldWorld(ev, lastS).slabs.find((s) => s.key === "0,0")!;
-
-  it("in a far future the exposed slab is gone but the outline remains", () => {
-    const far = foldWorld(ev, horizonSeconds(lastS, 3000)).slabs.find((s) => s.key === "0,0");
-    expect(far).toBeDefined();
-    expect(far!.h).toBeLessThan(now.h * 0.1);
-    expect(far!.foot).toBeGreaterThan(0.5);
+describe("wear: the exposed slab goes first, the footprint outlasts it", () => {
+  const e = stand("a", "worker", C / 2, C / 2, 0, 20);
+  it("slab shrinks with model years, footprint decays slower", () => {
+    const fresh = at0(e, 19)!;
+    const later = at0(e, 200)!;
+    expect(later.h).toBeLessThan(fresh.h);
+    expect(later.foot).toBeLessThan(fresh.foot);
+    expect(later.h / fresh.h).toBeLessThan(later.foot / fresh.foot);
   });
-
-  it("in a very far future nothing is left", () => {
-    expect(foldWorld(ev, horizonSeconds(lastS, 1e6)).slabs).toHaveLength(0);
+  it("in a far future only the outline is left, then nothing", () => {
+    const far = at0(e, 1000)!;
+    expect(far.h).toBeLessThan(0.01);
+    expect(far.foot).toBeGreaterThan(0.1);
+    expect(at0(e, 3000)).toBeUndefined();
   });
-
-  it("continued use keeps the slab fresh (wear counts from the last presence)", () => {
-    const more = [...ev, ...stand("a", "worker", C, C, 120, 200)];
-    const later = foldWorld(more, 319).slabs.find((s) => s.key === "0,0")!;
-    expect(later.lastS).toBe(319);
-    expect(later.h).toBeGreaterThan(now.h);
+  it("continued presence keeps the slab alive (wear counts from the last use)", () => {
+    const kept = [...e, ...stand("b", "worker", C / 2, C / 2, 900, 30)];
+    expect(at0(kept, 930)!.h).toBeGreaterThan(at0(e, 930)?.h ?? 0);
   });
 });
 
-describe("cigarette filters", () => {
-  const f: PEvent = { id: "x", o: "a", r: "worker", k: "f", x: 1, z: 1, s: 100 };
-  it("are fresh when dropped and gone within a few model decades", () => {
-    expect(foldWorld([f], 100).filters[0].alpha).toBeCloseTo(1, 5);
-    expect(foldWorld([f], horizonSeconds(100, 100)).filters).toHaveLength(0);
+describe("cigarette filter", () => {
+  it("is visible at once and gone within a few seconds of exhibition time", () => {
+    const f = stand("a", "worker", 3, 3, 0, 1, "f");
+    expect(foldWorld(f, 1).filters).toHaveLength(1);
+    expect(foldWorld(f, 20).filters).toHaveLength(0);
   });
-  it("only workers leave them", () => {
-    expect(foldWorld([{ ...f, r: "wolf" }], 100).filters).toHaveLength(0);
-  });
-});
-
-describe("assigned time", () => {
-  it("flows with the wall clock and later arrivals tend to be later", () => {
-    const epoch = 1_000_000;
-    expect(sessionSeconds(epoch + 10_000, epoch, 60)).toBeCloseTo(70);
-    expect(sessionSeconds(epoch + 20_000, epoch, 60)).toBeGreaterThan(sessionSeconds(epoch + 10_000, epoch, 60));
-    // a visitor arriving 200 s later with the worst-case offset is still later than one with the best
-    expect(sessionSeconds(epoch + 200_000, epoch, pickOffset(0))).toBeGreaterThan(sessionSeconds(epoch, epoch, pickOffset(0.999)));
+  it("is not drawn for other roles", () => {
+    expect(foldWorld(stand("a", "tree", 3, 3, 0, 1, "f"), 1).filters).toHaveLength(0);
   });
 });
 
-describe("event log and demo", () => {
-  it("ignores duplicate ids", () => {
+describe("clock", () => {
+  it("offset lies inside its window and the session clock runs forward", () => {
+    expect(pickOffset(0.5, 120)).toBe(60);
+    expect(pickOffset(0.999, 120)).toBeLessThan(120);
+    const a = sessionSeconds(10_000, 0, 30);
+    const b = sessionSeconds(15_000, 0, 30);
+    expect(b - a).toBeCloseTo(5, 6);
+    expect(a).toBeCloseTo(40, 6);
+  });
+  it("a later arrival tends to be later (offset window smaller than the gap)", () => {
+    const early = sessionSeconds(0, 0, pickOffset(0.9));
+    const late = sessionSeconds(300_000, 0, pickOffset(0.1));
+    expect(late).toBeGreaterThan(early);
+  });
+  it("the horizon lies the requested number of model years after the latest event", () => {
+    const s = 100;
+    expect(horizonSeconds(s, 0)).toBeCloseTo(s, 4);
+    const h = horizonSeconds(s, 3000);
+    expect(geoYears(h) - geoYears(s)).toBeCloseTo(3000, 2);
+  });
+});
+
+describe("event log", () => {
+  it("ignores duplicate ids and bumps its version", () => {
     const log = new EventLog();
-    const e: PEvent = { id: "1", o: "a", r: "worker", k: "p", x: 0, z: 0, s: 0 };
-    expect(log.add(e)).toBe(true);
-    expect(log.add({ ...e })).toBe(false);
-    expect(log.all()).toHaveLength(1);
+    const e = stand("a", "worker", 0, 0, 0, 3);
+    expect(log.addMany(e)).toBe(3);
+    const v = log.version;
+    expect(log.addMany(e)).toBe(0);
+    expect(log.version).toBe(v);
+    expect(log.all()).toHaveLength(3);
+    log.add({ ...e[0], id: "new" });
+    expect(log.all()).toHaveLength(4);
   });
+});
 
-  it("the demo crowd is deterministic and builds a slab district around each centre", () => {
-    const a = buildParliamentDemo(1);
-    const b = buildParliamentDemo(1);
-    expect(a).toEqual(b);
-    const snap = foldWorld(a, latestS(a));
-    for (const [x, z] of [[0, 0], [14, 6], [-10, -12]]) {
-      expect(snap.slabs.some((s) => Math.hypot(s.x - x, s.z - z) < 4)).toBe(true);
-    }
+describe("demo crowd", () => {
+  const demo = buildParliamentDemo();
+  it("is deterministic", () => {
+    expect(buildParliamentDemo()).toEqual(demo);
+  });
+  it("builds slabs now and leaves outlines in a far future", () => {
+    const end = latestS(demo);
+    expect(end).toBeLessThan(DEMO_END_SEC + 150);
+    const now = foldWorld(demo, end);
+    expect(now.slabs.length).toBeGreaterThan(5);
+    const far = foldWorld(demo, horizonSeconds(end, 3000));
+    expect(far.slabs.length).toBeGreaterThan(0);
+    expect(Math.max(...far.slabs.map((s) => s.h))).toBeLessThan(0.15);
+    expect(far.filters).toHaveLength(0);
+  });
+  it("a visitor who is earlier than the crowd sees none of it", () => {
+    expect(foldWorld(demo, 5).slabs).toHaveLength(0);
   });
 });

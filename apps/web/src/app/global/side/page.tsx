@@ -1,16 +1,11 @@
-"use client";
+import Link from "next/link";
 
-import dynamic from "next/dynamic";
-
-const SideView = dynamic(() => import("@/components/side/SideView"), {
-  ssr: false,
-  loading: () => <div className="h-screen w-full bg-[#05060a]" />,
-});
-
+/** Side view of the parliament build: not built yet (the legacy side view reads the old stratum data). */
 export default function SidePage() {
   return (
-    <div className="h-screen w-full bg-[#05060a]">
-      <SideView />
+    <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-[#05060a] font-mono text-[11px] tracking-wider text-white/30">
+      <p>side view — next</p>
+      <Link href="/" className="text-white/40 hover:text-white/70">← home</Link>
     </div>
   );
 }
