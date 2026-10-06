@@ -433,9 +433,9 @@ function HUD({ stars, player }: { stars: StarBody[]; player: PlayerInfo | null }
       <div className="absolute bottom-5 left-5 flex gap-2">
         <button
           className="text-white/20 text-xs border border-white/10 px-3 py-1.5 rounded hover:text-white/40 transition-colors"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/legacy")}
         >←</button>
-        <a href="/mobile" target="_blank" rel="noopener noreferrer"
+        <a href="/legacy/mobile" target="_blank" rel="noopener noreferrer"
           className="text-white/20 text-xs border border-white/10 px-3 py-1.5 rounded hover:text-white/40 transition-colors">
           mobile ↗
         </a>

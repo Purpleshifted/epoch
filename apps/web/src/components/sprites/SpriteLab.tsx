@@ -169,7 +169,7 @@ export default function SpriteLab() {
     <div className="min-h-screen bg-[#0a0a0a] px-6 py-8 font-mono text-[12px] text-white/80">
       <div className="mx-auto max-w-5xl space-y-8">
         <div className="flex flex-wrap items-center gap-3">
-          <Link href="/" className="text-white/40 hover:text-white/80">← back</Link>
+          <Link href="/legacy" className="text-white/40 hover:text-white/80">← back</Link>
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

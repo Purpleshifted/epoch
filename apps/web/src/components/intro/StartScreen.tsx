@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useGameContext } from "@/context/GameContext";
 import type { Mode } from "@/types/game";
 
-const StartScreen = () => {
+/** `base` prefixes every route: "" for the current build, "/legacy" for the version before the parliament build. */
+const StartScreen = ({ base = "" }: { base?: string }) => {
   const router = useRouter();
   const { setMode, setDisplayName } = useGameContext();
   const [name, setName] = useState("");
@@ -13,7 +14,7 @@ const StartScreen = () => {
   const handleEnter = (mode: Mode) => {
     setMode(mode);
     setDisplayName(name.trim());
-    router.push(mode === "personal" ? "/mobile" : "/global");
+    router.push(mode === "personal" ? `${base}/mobile` : `${base}/global`);
   };
 
   return (
@@ -36,7 +37,7 @@ const StartScreen = () => {
           className="rounded-lg border border-white/50 bg-transparent px-6 py-4 text-sm font-normal text-white/80 transition-all duration-300 hover:border-white hover:bg-white/10 active:scale-[0.98] vintage-serif w-full"
           onClick={() => {
             setMode("global");
-            router.push("/global/top");
+            router.push(`${base}/global/top`);
           }}
         >
           Top View (Projector)
@@ -46,7 +47,7 @@ const StartScreen = () => {
           className="rounded-lg border border-white/50 bg-transparent px-6 py-4 text-sm font-normal text-white/80 transition-all duration-300 hover:border-white hover:bg-white/10 active:scale-[0.98] vintage-serif w-full"
           onClick={() => {
             setMode("global");
-            router.push("/global/side");
+            router.push(`${base}/global/side`);
           }}
         >
           Side View (Projector)
@@ -55,13 +56,13 @@ const StartScreen = () => {
         <div className="border-t border-white/10 pt-4">
           <button
             className="rounded-lg border border-white/25 bg-transparent px-6 py-3 text-xs font-normal text-white/50 transition-all duration-300 hover:border-white/50 hover:bg-white/5 hover:text-white/70 active:scale-[0.98] font-mono w-full tracking-wider"
-            onClick={() => router.push("/timespace")}
+            onClick={() => router.push(`${base}/timespace`)}
           >
             ⬡ Spacetime Block (Live)
           </button>
           <button
             className="mt-3 rounded-lg border border-white/25 bg-transparent px-6 py-3 text-xs font-normal text-white/50 transition-all duration-300 hover:border-white/50 hover:bg-white/5 hover:text-white/70 active:scale-[0.98] font-mono w-full tracking-wider"
-            onClick={() => router.push("/sprites")}
+            onClick={() => router.push(`${base}/sprites`)}
           >
             ▦ Sprite Lab (Live)
           </button>
