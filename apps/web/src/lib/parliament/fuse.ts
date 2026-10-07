@@ -176,12 +176,9 @@ export interface FuseChunkInput {
 }
 
 /** Linear-RGB colours: fresh concrete, old stone; moss, humus, peat. */
-/** Concrete is a human trace: neutral grey (only the vegetation in the mass has colour). */
-const STONE_NEW = [0.6, 0.6, 0.6];
-const STONE_OLD = [0.34, 0.34, 0.34];
-const MOSS = [0.2, 0.27, 0.08];
-const HUMUS = [0.09, 0.055, 0.03];
-const PEAT = [0.025, 0.02, 0.016];
+/** The fused mass: the concrete's own grey, mixed in streaks with a low-saturation brown (ref 9570). */
+const CONCRETE = [0.42, 0.42, 0.42];
+const DULL_BROWN = [0.25, 0.205, 0.165];
 /** Accretions (ref 9578: pale ochre-green rock growths). */
 const GROWTH = [0.42, 0.38, 0.22];
 
@@ -342,18 +339,21 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         const gz = cornerF[4] + cornerF[5] + cornerF[6] + cornerF[7] - cornerF[0] - cornerF[1] - cornerF[2] - cornerF[3];
         const gl = Math.hypot(gx, gy, gz) || 1;
         nor.push(-gx / gl, -gy / gl, -gz / gl);
-        // colour: concrete ↔ vegetation sediment, both darkening with age
+        // colour: the living growths (pale ochre-green, ref 9578) where they dominate; where the mass is fused concrete
+        // or sediment, a dull mix of the concrete's grey and a low-saturation brown in streaks (ref 9570); all
+        // darkening with age. Nothing bright survives fusion.
         const p = idx(i, j, k);
         const tot = Cb[p] + A[p] + N[p] + 1e-6;
-        const veg = N[p] / tot;
         const grow = A[p] / tot;
         const q = rowQ[j];
-        const jit = 0.85 + 0.3 * hash2(I0 + i, (J0 + j) * 7919 + K0 + k, 13);
+        const jit = 0.88 + 0.24 * hash2(I0 + i, (J0 + j) * 7919 + K0 + k, 13);
+        const streak = noise3(vx * 1.7, vy * 0.35, vz * 1.7, 31); // vertical stains
+        const brown = Math.min(1, 0.25 + 0.55 * streak + 0.4 * (N[p] / tot));
+        const dark = 1 - 0.35 * q;
         for (let c = 0; c < 3; c++) {
-          const stone = STONE_NEW[c] + (STONE_OLD[c] - STONE_NEW[c]) * q;
-          const sedc = q < 0.8 ? MOSS[c] + (HUMUS[c] - MOSS[c]) * (q / 0.8) : HUMUS[c] + (PEAT[c] - HUMUS[c]) * ((q - 0.8) / 0.2);
-          const growc = GROWTH[c] + (MOSS[c] - GROWTH[c]) * Math.min(1, q * 1.5);
-          col.push((stone * (1 - veg - grow) + sedc * veg + growc * grow) * jit);
+          const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;
+          const growc = GROWTH[c] + (DULL_BROWN[c] - GROWTH[c]) * Math.min(1, q * 1.2);
+          col.push((fused * (1 - grow) + growc * grow) * dark * jit);
         }
       }
     }

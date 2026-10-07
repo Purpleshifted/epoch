@@ -55,8 +55,8 @@ export const DEFAULT_WATER: WaterConfig = {
   persistSec: 300,
   meander: 0.18,
   radius: 2.5,
-  vegBoost: 0.6,
-  wetShare: 0.9,
+  vegBoost: 1,
+  wetShare: 1,
   corrode: 1.5,
 };
 

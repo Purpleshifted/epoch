@@ -85,7 +85,8 @@ describe("SpaceModel: what the worker computes", () => {
     m.add(late);
     const off = m.computeParts({ ...parts(), fuse: { ...DEFAULT_FUSE, enabled: false } })!;
     const on = m.computeParts(parts())!;
-    expect(on.parts).toBe(off.parts); // fusion takes nothing away: wear does
+    expect(on.parts).toBeLessThan(off.parts); // fused parts are absorbed into the mass
+    expect(on.counts.column + on.counts.beam + on.counts.brace).toBe(off.counts.column + off.counts.beam + off.counts.brace); // steel stays
     const input = { box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, tauReclaimYears: 300 };
     // chunks are built a few per call: call until it settles (null = nothing left to build)
     let mesh = m.computeFuse(input)!;
@@ -140,6 +141,22 @@ describe("SpaceModel: what the worker computes", () => {
     expect((off as unknown as { links: unknown[] }).links).toHaveLength(0);
     expect(pts.position.length).toBeGreaterThan(0);
     expect(wet).toBeGreaterThanOrEqual(0);
+  }, 120_000);
+
+  it("vegetation lives only in the layers that have not begun to fuse: none below, most at the top", () => {
+    const long = runBots(8, 1500);
+    const m = new SpaceModel();
+    m.add(long);
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5 };
+    m.computeParts({ ...parts(), weather });
+    const top = Math.floor(Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit);
+    const pts = m.computeNature({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 60, focusK: top, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear })!;
+    const ys: number[] = [];
+    for (let i = 1; i < pts.position.length; i += 3) ys.push(pts.position[i] / DEFAULT_BOXES.unit);
+    expect(ys.length).toBeGreaterThan(0);
+    const low = ys.filter((y) => y < top - 30).length, high = ys.filter((y) => y >= top - 10).length;
+    expect(low).toBe(0);
+    expect(high).toBeGreaterThan(0);
   }, 120_000);
 
   it("reset forgets the world", () => {

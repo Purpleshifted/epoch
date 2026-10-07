@@ -135,6 +135,8 @@ interface Stats {
   focusIsMe: boolean;
   /** Seeds built without slats (level of detail). */
   farSeeds: number;
+  /** Waterways flowing now. */
+  links: number;
   /** How long the worker's last computation took. */
   workerMs: number;
   /** Where it ran. */
@@ -364,7 +366,7 @@ function SpaceWorld({
         ax.geometry.dispose();
         ax.geometry = g;
       }
-      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
     setPoints(reclaimPts.current, r.reclaim);
@@ -754,7 +756,7 @@ export default function ParliamentSpace() {
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, workerMs: 0, runner: "-" });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, links: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -1167,6 +1169,7 @@ export default function ParliamentSpace() {
         <div>
           LOD: {stats.farSeeds}/{stats.seeds} seeds far (no slats) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms
         </div>
+        <div>waterways now: {stats.links}{stats.links === 0 ? " (none: no two big buildings share a builder within reach)" : ""}</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {c.markers && (
           <div>

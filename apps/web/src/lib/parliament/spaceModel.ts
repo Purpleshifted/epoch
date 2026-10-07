@@ -13,10 +13,11 @@
 
 import { foldWorld, latestS, withoutWear } from "./fold";
 import { CELL_SIZE } from "@/lib/stratum/field";
+import { geoYears } from "@/lib/stratum/geoClock";
 import { accretionShare, fuseChunk, fusedShare, gatheringShare, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
-import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
+import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
 
@@ -44,7 +45,7 @@ export const NATURE_PALETTE: [string, string][] = [
   ["#4b3a28", "#6b5136"], // humus (aged vegetation)
   ["#26221f", "#3a332c"], // peat / compressed (old sediment)
   ["#4a4a4a", "#7a7a7a"], // trodden ground at a path's rim (a human trace: grey)
-  ["#1d4a3a", "#3f8a5a"], // wetland vegetation along waterways
+  ["#0b4f57", "#2a9c9a"], // wetland vegetation along waterways (blue-green: reads as water)
 ];
 
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -160,6 +161,8 @@ export interface PartsResult {
   parts: number;
   /** Seeds built without slats (far). */
   farSeeds: number;
+  /** Waterways flowing now. */
+  links: number;
   t: number;
   top: number;
   minX: number;
@@ -340,8 +343,16 @@ export class SpaceModel {
     this.wear = input.wear ? wearModel(seeds, t, wearCfg) : null;
     this.built = built;
     this.worn = worn;
-    const shown = worn;
     const survival = this.wear?.survival;
+    // a part being fused is absorbed into the mass, little by little (by a fixed hash): the mass takes its place.
+    // Steel stays (it sticks out of the mass).
+    const fu = input.fuse;
+    const absorbed = (b: Box) => {
+      if (!survival || !fu.enabled || !w.strata || STEEL_KINDS.has(b.kind)) return false;
+      const f = fusedShare(1 - survival(b), fu);
+      return f > 0 && partHash(b) < Math.min(1, f * 1.6);
+    };
+    const shown = worn.filter((b) => !absorbed(b));
 
     const counts = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
     for (const b of shown) counts[b.kind] = Math.min(PART_CAPACITY[b.kind], counts[b.kind] + 1);
@@ -390,6 +401,7 @@ export class SpaceModel {
       seeds: seeds.length,
       parts: shown.length,
       farSeeds: far.size,
+      links: this.links.length,
       t,
       top,
       minX,
@@ -421,6 +433,20 @@ export class SpaceModel {
       ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5 }
       : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
+    // LIVING vs FOSSIL: vegetation lives only in the layers whose concrete has not begun to fuse. A layer's typical
+    // corrosion (a mid-thick part, exposed) is taken from its age; the points thin out as it nears fuseOnset and
+    // there are none below. The most recent layers have the most.
+    const fz = input.fuse;
+    const living =
+      sediment && fz.enabled
+        ? (k: number) => {
+            const laid = Math.min(tQ, (k + 1) * spu);
+            const A = Math.max(0, geoYears(tQ) - geoYears(laid)) * input.weather.timeScale;
+            const d = 1 - Math.exp(-A / (input.fold.tauSlabYears * 0.75 * input.weather.concreteLife));
+            const t = Math.min(1, Math.max(0, (d - fz.fuseOnset * 0.4) / (fz.fuseOnset * 0.6)));
+            return 1 - t * t * (3 - 2 * t);
+          }
+        : undefined;
     // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
     const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}:${this.links.length}`;
     const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${fuseKey}:${k0}:${k1}:${levels.join(",")}`;
@@ -471,7 +497,7 @@ export class SpaceModel {
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, wet });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, wet, thin: living });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }
