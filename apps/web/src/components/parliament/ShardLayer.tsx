@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { buildShards, type ShardConfig, type Snapshot } from "@/lib/parliament";
+import { buildPlanShards, buildShards, type ShardConfig, type Snapshot } from "@/lib/parliament";
 
 const TEX_WORLD = 3; // world units per texture repeat
 
@@ -60,18 +60,23 @@ export function ShardLayer({
   heightUnit,
   cfg,
   every = 0.5,
+  view = "side",
+  showPaths = true,
 }: {
   getSnapshot: () => Snapshot | null;
   heightUnit: number;
   cfg: ShardConfig;
   every?: number;
+  /** side = standing fragments seen from the front; top = the same clusters read as a plan. */
+  view?: "side" | "top";
+  showPaths?: boolean;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const timer = useRef(10);
   const sig = useRef("");
   const tex = useMemo(() => concreteTexture(), []);
   useEffect(() => () => tex.dispose(), [tex]);
-  useEffect(() => { sig.current = ""; }, [heightUnit, cfg]); // force a rebuild when the knobs change
+  useEffect(() => { sig.current = ""; }, [heightUnit, cfg, view, showPaths]); // force a rebuild when the knobs change
 
   useFrame((_, dt) => {
     timer.current += dt;
@@ -83,17 +88,19 @@ export function ShardLayer({
     const slabs = snap?.slabs ?? [];
     let h = 0;
     for (const s of slabs) h += s.h * 100 + s.raw;
-    const next = `${slabs.length}:${Math.round(h)}`;
+    let ph = 0;
+    if (view === "top" && showPaths) for (const p of snap?.paths ?? []) ph += p.p * 10;
+    const next = `${slabs.length}:${Math.round(h)}:${Math.round(ph)}`;
     if (next === sig.current) return;
     sig.current = next;
 
-    const shards = buildShards(slabs, heightUnit, cfg);
+    const shards = view === "top" ? buildPlanShards(slabs, showPaths ? snap?.paths ?? [] : [], cfg) : buildShards(slabs, heightUnit, cfg);
     const pos = new Float32Array(shards.length * 18);
     const uv = new Float32Array(shards.length * 12);
     const col = new Float32Array(shards.length * 18);
     const tri = [0, 1, 2, 0, 2, 3];
     shards.forEach((s, i) => {
-      const bluish = s.kind === "panel" ? 1.07 : s.kind === "plate" ? 1.04 : 1;
+      const bluish = s.kind === "panel" || s.kind === "beam" ? 1.07 : s.kind === "plate" || s.kind === "setback" ? 1.04 : 1;
       for (let k = 0; k < 6; k++) {
         const v = tri[k];
         const o = i * 18 + k * 3;
@@ -102,7 +109,7 @@ export function ShardLayer({
         pos[o + 1] = y;
         pos[o + 2] = z;
         uv[i * 12 + k * 2] = (x + i * 0.37) / TEX_WORLD;
-        uv[i * 12 + k * 2 + 1] = y / TEX_WORLD;
+        uv[i * 12 + k * 2 + 1] = (view === "top" ? z : y) / TEX_WORLD;
         col[o] = Math.min(1, s.tone * 0.97);
         col[o + 1] = Math.min(1, s.tone);
         col[o + 2] = Math.min(1, s.tone * bluish);

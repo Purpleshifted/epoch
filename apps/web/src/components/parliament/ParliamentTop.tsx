@@ -105,7 +105,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld();
   const cfg = useFoldControls();
-  const arch = useArchControls(mode === "top" ? 0.2 : 1.0, mode === "side" ? "shards" : "block");
+  const arch = useArchControls(mode === "top" ? 0.2 : 1.0, "shards");
   const snapRef = useRef<Snapshot | null>(null);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
@@ -127,8 +127,8 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
     }),
   });
 
-  // The collage is a front-view material: from above it falls back to plain blocks.
-  const style: ArchStyle = mode === "top" && arch.style === "shards" ? "block" : arch.style;
+  // The collage reads as a front elevation on Side and as a plan (flat fragments + hard shadows) on Top.
+  const style: ArchStyle = arch.style;
   const paper = style === "shards";
   const bg = paper ? PAPER : BG;
   const lit = mode === "side" && style === "block";
@@ -158,6 +158,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
           every={0.5}
           unlit={!lit}
           shards={arch.shards}
+          view={mode}
         />
         <FilterMesh getSnapshot={() => snapRef.current} unlit every={0.5} />
         {mode === "side" && (

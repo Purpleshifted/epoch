@@ -34,7 +34,19 @@ export interface ShardConfig {
 
 export const DEFAULT_SHARDS: ShardConfig = { density: 1, panels: 1, struts: 1 };
 
-export type ShardKind = "fin" | "plate" | "panel" | "strut" | "ground";
+export type ShardKind =
+  | "fin"
+  | "plate"
+  | "panel"
+  | "strut"
+  | "ground"
+  // plan (Top) view: flat fragments lying in the ground plane, seen from above
+  | "roof"
+  | "setback"
+  | "shadow"
+  | "beam"
+  | "axis"
+  | "path";
 
 export interface Shard {
   kind: ShardKind;
@@ -201,6 +213,127 @@ export function buildShards(slabs: Slab[], heightUnit: number, cfg: ShardConfig 
       }
       const z = kz + (r() - 0.5) * (maxZ - minZ + C);
       if (life < intact) out.push({ kind: "strut", p: strut(x0, y0, x1, y1, z, t), tone: 0.04 });
+    }
+  }
+  return out;
+}
+
+/** A rotated rectangle lying in the ground plane at height y (corners bl, br, tr, tl; CCW in x/z). */
+function rect(cx: number, cz: number, w: number, d: number, ang: number, y: number): number[] {
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  const hw = w / 2;
+  const hd = d / 2;
+  const out: number[] = [];
+  for (const [x, z] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) out.push(cx + x * c - z * s, y, cz + x * s + z * c);
+  return out;
+}
+
+/** Hard cast shadow of a rectangle along v: one parallelogram per edge facing the light-away side. */
+function shadowOf(r: number[], vx: number, vz: number, y: number): number[][] {
+  const res: number[][] = [];
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    const ax = r[i * 3], az = r[i * 3 + 2], bx = r[j * 3], bz = r[j * 3 + 2];
+    const nx = bz - az; // outward normal of a CCW edge (ex, ez) is (ez, -ex)
+    const nz = -(bx - ax);
+    if (nx * vx + nz * vz > 0) res.push([ax, y, az, bx, y, bz, bx + vx, y, bz + vz, ax + vx, y, az + vz]);
+  }
+  return res;
+}
+
+/**
+ * The Top view's collage: the same slab clusters read as a PLAN (references: grey concrete plans with long
+ * hard shadows and thin black axis lines). Everything lies in the ground plane, ordered by y so taller
+ * parts paint over lower ones; wear removes fragments one by one exactly as in the side collage.
+ */
+export function buildPlanShards(
+  slabs: Slab[],
+  paths: { x: number; z: number; p: number }[],
+  cfg: ShardConfig = DEFAULT_SHARDS,
+): Shard[] {
+  const out: Shard[] = [];
+  const C = CELL_SIZE;
+  const SX = -0.8, SZ = 0.55; // shadow direction (towards the lower left of the sheet)
+
+  for (const p of paths) out.push({ kind: "path", p: rect(p.x, p.z, C * 0.55, C * 0.55, 0, 0.002), tone: 1 - 0.25 * Math.min(1, p.p) });
+  // footprint-only cells (worn to the ground): a pale, flat remnant
+  for (const s of slabs) if (s.h < SOLID) out.push({ kind: "ground", p: rect(s.x, s.z, C * 0.9, C * 0.9, 0, 0.004), tone: 0.98 });
+
+  for (const cl of clusters(slabs)) {
+    const cells = cl.cells;
+    const n = cells.length;
+    const [mcx, mcz] = cells[0].key.split(",").map(Number);
+    const r = rng(Math.floor(hash2(mcx, mcz, 9) * 1e9));
+    const intact = cells.reduce((a, s) => a + (s.raw > 0 ? s.h / s.raw : 0), 0) / n;
+
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const s of cells) {
+      minX = Math.min(minX, s.x);
+      maxX = Math.max(maxX, s.x);
+      minZ = Math.min(minZ, s.z);
+      maxZ = Math.max(maxZ, s.z);
+    }
+
+    for (const s of cells) {
+      const k = 1 + r() * 0.35; // shadow length jitter
+      const w = C * (0.8 + r() * 0.5);
+      const d = C * (0.8 + r() * 0.5);
+      const ox = (r() - 0.5) * C * 0.3;
+      const oz = (r() - 0.5) * C * 0.3;
+      const ang = r() < 0.2 ? (r() - 0.5) * 0.5 : 0;
+      const life = r();
+      const y = 0.01 + s.h * 0.05;
+      const base = rect(s.x + ox, s.z + oz, w, d, ang, y);
+      if (life < intact) {
+        const len = s.h * C * 0.5 * k;
+        for (const sh of shadowOf(base, SX * len, SZ * len, 0.006 + s.h * 0.002)) out.push({ kind: "shadow", p: sh, tone: 0.5 });
+        out.push({ kind: "roof", p: base, tone: clamp(0.62 + s.h * 0.06 + (r() - 0.5) * 0.2, 0.55, 0.98) });
+      } else {
+        r(); // keep the stream aligned whatever the wear
+      }
+      const levels = Math.ceil(s.h - 1e-6);
+      for (let l = 1; l < levels; l++) {
+        const sw = w * (0.35 + r() * 0.4);
+        const sd = d * (0.35 + r() * 0.4);
+        const dx = (r() - 0.5) * (w - sw);
+        const dz = (r() - 0.5) * (d - sd);
+        const lf = r();
+        const present = r() < 0.7;
+        if (present && lf < intact) out.push({ kind: "setback", p: rect(s.x + ox + dx, s.z + oz + dz, sw, sd, ang, y + l * 0.02), tone: clamp(0.8 + l * 0.04, 0.8, 1) });
+      }
+    }
+
+    if (n < 2) continue;
+
+    // long thin beams/fins crossing the cluster (axis-aligned, as in a plan)
+    const nBeam = Math.round(cfg.panels * clamp(n / 2, 1, 12));
+    for (let k = 0; k < nBeam; k++) {
+      const life = r();
+      const vertical = r() < 0.5;
+      const len = C * (2.5 + r() * 5);
+      const t = C * (0.06 + r() * 0.2);
+      const x = minX + r() * (maxX - minX + C) - C / 2;
+      const z = minZ + r() * (maxZ - minZ + C) - C / 2;
+      const tone = 0.85 + r() * 0.13;
+      if (life < intact) {
+        const b = rect(x, z, vertical ? t : len, vertical ? len : t, 0, 0.9);
+        for (const sh of shadowOf(b, SX * C * 0.4, SZ * C * 0.4, 0.4)) out.push({ kind: "shadow", p: sh, tone: 0.5 });
+        out.push({ kind: "beam", p: b, tone });
+      }
+    }
+
+    // thin black axis lines running out of the cluster
+    const nAxis = Math.round(cfg.struts * clamp(n / 3, 1, 10));
+    for (let k = 0; k < nAxis; k++) {
+      const life = r();
+      const vertical = r() < 0.5;
+      const len = C * (3 + r() * 12);
+      const t = 0.03 + r() * 0.05;
+      const x = minX + r() * (maxX - minX + C) - C / 2;
+      const z = minZ + r() * (maxZ - minZ + C) - C / 2;
+      const off = (r() - 0.3) * len * 0.5;
+      if (life < intact) out.push({ kind: "axis", p: vertical ? rect(x, z + off, t, len, 0, 1.2) : rect(x + off, z, len, t, 0, 1.2), tone: 0.04 });
     }
   }
   return out;

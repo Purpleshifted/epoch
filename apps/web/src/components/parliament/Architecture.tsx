@@ -241,6 +241,7 @@ export function ArchitectureLayer({
   every = 0.25,
   unlit = false,
   shards = DEFAULT_SHARDS,
+  view = "side",
 }: {
   getSnapshot: () => Snapshot | null;
   heightUnit: number;
@@ -249,7 +250,8 @@ export function ArchitectureLayer({
   every?: number;
   unlit?: boolean;
   shards?: ShardConfig;
+  view?: "side" | "top";
 }) {
-  if (style === "shards") return <ShardLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={shards} every={Math.max(every, 0.5)} />;
+  if (style === "shards") return <ShardLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={shards} every={Math.max(every, 0.5)} view={view} showPaths={showPaths} />;
   return <BoxArchitecture getSnapshot={getSnapshot} heightUnit={heightUnit} style={style} showPaths={showPaths} every={every} unlit={unlit} />;
 }

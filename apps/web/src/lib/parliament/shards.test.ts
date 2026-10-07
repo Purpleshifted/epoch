@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SHARDS, buildShards, type Slab } from "./index";
+import { DEFAULT_SHARDS, buildPlanShards, buildShards, type Slab } from "./index";
 
 const C = 1.2;
 const cell = (cx: number, cz: number, h: number, raw = h): Slab => ({
@@ -67,5 +67,39 @@ describe("shards", () => {
       for (let i = 0; i < 12; i++) expect(Number.isFinite(s.p[i])).toBe(true);
       for (let i = 1; i < 12; i += 3) expect(s.p[i]).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+describe("plan shards (top view)", () => {
+  const plan = (slabs: Slab[], cfg = DEFAULT_SHARDS) => buildPlanShards(slabs, [], cfg);
+
+  it("is deterministic and finite", () => {
+    expect(plan(row(6))).toEqual(plan(row(6)));
+    for (const s of plan(row(6, 5))) for (let i = 0; i < 12; i++) expect(Number.isFinite(s.p[i])).toBe(true);
+  });
+
+  it("lies in the ground plane (corners of a fragment share y)", () => {
+    for (const s of plan(row(6))) expect(new Set([s.p[1], s.p[4], s.p[7], s.p[10]]).size).toBe(1);
+  });
+
+  it("draws shadows and roofs for standing slabs, only a pale remnant for a footprint", () => {
+    const s = plan(row(4));
+    expect(s.some((x) => x.kind === "roof")).toBe(true);
+    expect(s.some((x) => x.kind === "shadow")).toBe(true);
+    const f = plan([cell(0, 0, 0.05, 3)]);
+    expect(f.every((x) => x.kind === "ground")).toBe(true);
+  });
+
+  it("wear removes fragments monotonically", () => {
+    const n = (k: number) => plan(row(8).map((s) => ({ ...s, h: s.raw * k }))).length;
+    expect(n(1)).toBeGreaterThanOrEqual(n(0.6));
+    expect(n(0.6)).toBeGreaterThanOrEqual(n(0.2));
+  });
+
+  it("paths become path fragments; config zero removes beams and axes", () => {
+    const withPath = buildPlanShards([], [{ x: 0, z: 0, p: 0.8 }]);
+    expect(withPath.map((x) => x.kind)).toEqual(["path"]);
+    const none = plan(row(8), { density: 1, panels: 0, struts: 0 });
+    expect(none.some((x) => x.kind === "beam" || x.kind === "axis")).toBe(false);
   });
 });
