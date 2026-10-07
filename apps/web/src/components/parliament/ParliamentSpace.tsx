@@ -18,7 +18,8 @@
 import { useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
-import { EffectComposer, N8AO } from "@react-three/postprocessing";
+import { EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
+import { BlendFunction } from "postprocessing";
 import { Leva, button, useControls } from "leva";
 import * as THREE from "three";
 import {
@@ -86,7 +87,7 @@ interface Stats {
 }
 
 interface Orbit {
-  target: { y: number };
+  target: { x: number; y: number; z: number };
   object: { position: { y: number } };
   update: () => void;
 }
@@ -256,6 +257,8 @@ function SpaceBoxes({
           }}
           args={[undefined, undefined, CAPACITY[kind]]}
           frustumCulled={false}
+          castShadow
+          receiveShadow
         >
           {kind === "pile" ? <cylinderGeometry args={[0.5, 0.5, 1, 10]} /> : <boxGeometry args={[1, 1, 1]} />}
           <meshStandardMaterial color={KIND_COLOR[kind]} roughness={kind === "pile" || STEEL.has(kind) ? 0.7 : 1} metalness={0} />
@@ -270,6 +273,58 @@ function SpaceBoxes({
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
     </>
+  );
+}
+
+/**
+ * The shadow-casting sun. The scene climbs the time axis, so the light (and its shadow camera) follows the orbit
+ * target every frame at a fixed direction; the shadow box covers ±`extent` around it.
+ */
+function Sun({
+  controls,
+  azimuth,
+  elevation,
+  intensity,
+  softness,
+  shadows,
+}: {
+  controls: React.MutableRefObject<Orbit | null>;
+  azimuth: number;
+  elevation: number;
+  intensity: number;
+  softness: number;
+  shadows: boolean;
+}) {
+  const light = useRef<THREE.DirectionalLight>(null);
+  const extent = 35;
+  useFrame(() => {
+    const l = light.current;
+    const t = controls.current?.target;
+    if (!l || !t) return;
+    const az = azimuth * DEG;
+    const el = elevation * DEG;
+    const d = 80;
+    l.position.set(t.x + Math.cos(el) * Math.cos(az) * d, t.y + Math.sin(el) * d, t.z + Math.cos(el) * Math.sin(az) * d);
+    l.target.position.set(t.x, t.y, t.z);
+    l.target.updateMatrixWorld();
+  });
+  return (
+    <directionalLight
+      ref={light}
+      intensity={intensity}
+      castShadow={shadows}
+      shadow-mapSize-width={2048}
+      shadow-mapSize-height={2048}
+      shadow-camera-left={-extent}
+      shadow-camera-right={extent}
+      shadow-camera-top={extent}
+      shadow-camera-bottom={-extent}
+      shadow-camera-near={1}
+      shadow-camera-far={200}
+      shadow-radius={softness}
+      shadow-bias={-0.0004}
+      shadow-normalBias={0.02}
+    />
   );
 }
 
@@ -443,6 +498,15 @@ export default function ParliamentSpace() {
     quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
     halfRes: { value: false, label: "절반 해상도" },
   });
+  const light = useControls("빛", {
+    shadows: { value: true, label: "그림자" },
+    azimuth: { value: 35, min: 0, max: 360, step: 1, label: "해 방위 (°)" },
+    elevation: { value: 55, min: 5, max: 89, step: 1, label: "해 고도 (°)" },
+    intensity: { value: 1.4, min: 0, max: 4, step: 0.05, label: "해 세기 (그림자 대비)" },
+    softness: { value: 3, min: 0, max: 12, step: 0.5, label: "그림자 부드러움" },
+    grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
+  });
+  const composerOn = ao.enabled || light.grain > 0;
   const steel = useControls("철골 (steel)", {
     beamChance: { value: RC.beam.chance, min: 0, max: 1, step: 0.01, label: "가로보: 슬롯당 확률" },
     beamLength: { value: RC.beam.length, min: 0.3, max: 12, step: 0.1, label: "가로보: 길이 (칸)" },
@@ -505,24 +569,25 @@ export default function ParliamentSpace() {
   return (
     <div className="relative h-full w-full" style={{ background: PAPER }}>
       <Leva hidden={hideUi} />
-      <Canvas dpr={[1, 2]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
+      <Canvas shadows="percentage" dpr={[1, 2]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
         <color attach="background" args={[PAPER]} />
         <ambientLight intensity={0.85} />
-        <directionalLight position={[14, 30, 10]} intensity={1.3} />
+        <Sun controls={controls} azimuth={light.azimuth} elevation={light.elevation} intensity={light.intensity} softness={light.softness} shadows={light.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <gridHelper args={[80, 80, "#9aa0a8", "#d3d6db"]} position={[0, -0.01, 0]} />
         <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} follow={c.follow} controls={controls} onStats={setStats} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />
-        {ao.enabled && (
-          <EffectComposer>
-            <N8AO aoRadius={ao.aoRadius} distanceFalloff={ao.distanceFalloff} intensity={ao.intensity} quality={ao.quality} halfRes={ao.halfRes} color="black" />
+        {composerOn && (
+          <EffectComposer key={`${ao.enabled}:${light.grain > 0}`}>
+            {ao.enabled && <N8AO aoRadius={ao.aoRadius} distanceFalloff={ao.distanceFalloff} intensity={ao.intensity} quality={ao.quality} halfRes={ao.halfRes} color="black" />}
+            {light.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={light.grain} />}
           </EffectComposer>
         )}
-        {/* markers are an overlay: their own scene, drawn after the parts (and after AO) on a cleared depth buffer, so
-            "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene (AO off);
-            with AO on, the composer (priority 1) does that and the overlay follows at 2. */}
+        {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
+            buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
+            (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
-          <Hud key={ao.enabled ? "after-ao" : "plain"} renderPriority={ao.enabled ? 2 : 1}>
+          <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
