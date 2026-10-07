@@ -44,26 +44,33 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
   return log;
 }
 
-/** Leva knobs of the worker rule (same defaults in the player and top views). */
-export function useFoldControls(): FoldConfig {
+/**
+ * Leva knobs of the worker rule. Defaults are DEFAULT_FOLD (the player and Top views), overridable per view — the 3D
+ * timespace has its own (SPACE_FOLD in ParliamentSpace).
+ */
+const NO_OVERRIDES: Partial<FoldConfig> = {};
+
+export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES): FoldConfig {
+  // pass a constant: a new object every render would rebuild the config every render
+  const D = useMemo(() => ({ ...DEFAULT_FOLD, ...defaults }), [defaults]);
   const c = useControls("회사원 규칙 (시공간 밀집)", {
-    radius: { value: DEFAULT_FOLD.radius, min: 1, max: 8, step: 0.25, label: "공간 반경 (월드 단위)" },
-    windowSec: { value: DEFAULT_FOLD.windowSec, min: 10, max: 3600, step: 10, label: "시간 반경 (s)" },
-    threshold: { value: DEFAULT_FOLD.threshold, min: 1, max: 400, step: 1, label: "생성 임계 (worker·s, 1인당 상한 적용)" },
-    pourUnit: { value: DEFAULT_FOLD.pourUnit, min: 1, max: 200, step: 1, label: "한 단 올리는 양 (worker·s)" },
-    minVisitors: { value: DEFAULT_FOLD.minVisitors, min: 1, max: 12, step: 1, label: "생성에 필요한 서로 다른 방문자 수" },
-    visitorCap: { value: DEFAULT_FOLD.visitorCap, min: 1, max: 120, step: 1, label: "방문자 1명이 한 칸에 낼 수 있는 최대 (worker·s)" },
-    maxHeight: { value: DEFAULT_FOLD.maxHeight, min: 1, max: 20, step: 1, label: "최대 높이 (단)" },
-    tauSlabYears: { value: DEFAULT_FOLD.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
-    tauFootprintYears: { value: DEFAULT_FOLD.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
-    tauFilterYears: { value: DEFAULT_FOLD.tauFilterYears, min: 1, max: 1000, step: 1, label: "담배필터 마모 시간 (년)" },
-    pathVisits: { value: DEFAULT_FOLD.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)" },
-    tauPathYears: { value: DEFAULT_FOLD.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)" },
+    radius: { value: D.radius, min: 1, max: 8, step: 0.25, label: "공간 반경 (월드 단위)" },
+    windowSec: { value: D.windowSec, min: 10, max: 3600, step: 10, label: "시간 반경 (s)" },
+    threshold: { value: D.threshold, min: 1, max: 400, step: 1, label: "생성 임계 (worker·s, 1인당 상한 적용)" },
+    pourUnit: { value: D.pourUnit, min: 1, max: 200, step: 1, label: "한 단 올리는 양 (worker·s)" },
+    minVisitors: { value: D.minVisitors, min: 1, max: 12, step: 1, label: "생성에 필요한 서로 다른 방문자 수" },
+    visitorCap: { value: D.visitorCap, min: 1, max: 120, step: 1, label: "방문자 1명이 한 칸에 낼 수 있는 최대 (worker·s)" },
+    maxHeight: { value: D.maxHeight, min: 1, max: 20, step: 1, label: "최대 높이 (단)" },
+    tauSlabYears: { value: D.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
+    tauFootprintYears: { value: D.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
+    tauFilterYears: { value: D.tauFilterYears, min: 1, max: 1000, step: 1, label: "담배필터 마모 시간 (년)" },
+    pathVisits: { value: D.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)" },
+    tauPathYears: { value: D.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)" },
   });
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears } = c;
   return useMemo(
-    () => ({ ...DEFAULT_FOLD, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears }),
-    [radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears],
+    () => ({ ...D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears }),
+    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears],
   );
 }
 

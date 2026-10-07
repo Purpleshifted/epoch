@@ -24,7 +24,6 @@ import { Leva, button, useControls } from "leva";
 import * as THREE from "three";
 import {
   DEFAULT_BOXES,
-  DEFAULT_FOLD,
   LS_PARLIAMENT_ME_KEY,
   PART_CAPACITY,
   PART_KINDS,
@@ -94,6 +93,11 @@ const KIND_COLOR: Record<PartKind, string> = {
   basement: "#9fa3a8",
   pile: "#7f848a",
 };
+/** The 3D view's own defaults for the worker rule (tuned on screen 2026-10-07); the player view keeps DEFAULT_FOLD. */
+const SPACE_FOLD = { radius: 2.75, threshold: 40, pourUnit: 111, minVisitors: 4, visitorCap: 20, maxHeight: 18, tauFootprintYears: 2000, emptyGapSec: 20 };
+/** …and for the parts. */
+const SPACE_BOXES = { ...DEFAULT_BOXES, secPerUnit: 20, width: 0.8, density: 1.4 };
+
 /** How often the view asks the worker (wall clock). */
 const TICK_MS = 500;
 /** Vegetation and plants are asked for every this-many ticks. */
@@ -650,7 +654,7 @@ function Markers({
 export default function ParliamentSpace() {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000);
-  const fold = useFoldControls();
+  const fold = useFoldControls(SPACE_FOLD);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
@@ -671,11 +675,11 @@ export default function ParliamentSpace() {
   };
 
   const c = useControls("3D 시공간 (박스 생성 확인)", {
-    secPerUnit: { value: DEFAULT_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초 (시간축)" },
+    secPerUnit: { value: SPACE_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초 (시간축)" },
     unit: { value: DEFAULT_BOXES.unit, min: 0.2, max: 4, step: 0.1, label: "한 단의 높이 (월드 단위)" },
-    width: { value: DEFAULT_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "부품 폭 배율" },
-    density: { value: DEFAULT_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
-    emptyGapSec: { value: DEFAULT_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
+    width: { value: SPACE_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "부품 폭 배율" },
+    density: { value: SPACE_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
+    emptyGapSec: { value: SPACE_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
     showEdges: { value: false, label: "모서리 선" },
     wear: { value: true, label: "마모 적용 (지금 시점까지 버려진 시간만큼)" },
     follow: { value: true, label: "플레이어 시간대 따라가기" },
@@ -709,11 +713,11 @@ export default function ParliamentSpace() {
     grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
   });
   const view = useControls("시야 / 초점 / 배경", {
-    theme: { options: { "종이 (밝음)": "paper", "검정": "black" }, value: "paper" as keyof typeof THEMES, label: "배경" },
-    nearFade: { value: [2, 8] as [number, number], min: 0, max: 60, step: 0.5, label: "가까운 식생 사라짐 (카메라 거리)" },
-    dof: { value: false, label: "초점 (피사계 심도)" },
-    dofRange: { value: 12, min: 1, max: 80, step: 1, label: "초점 범위 (월드)" },
-    dofBokeh: { value: 3, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
+    theme: { options: { "종이 (밝음)": "paper", "검정": "black" }, value: "black" as keyof typeof THEMES, label: "배경" },
+    nearFade: { value: [2, 24] as [number, number], min: 0, max: 60, step: 0.5, label: "가까운 식생 사라짐 (카메라 거리)" },
+    dof: { value: true, label: "초점 (피사계 심도)" },
+    dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점 범위 (월드)" },
+    dofBokeh: { value: 6.5, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
   });
   const weatherCtl = useControls("풍화 / 지층", {
     strata: { value: DEFAULT_WEATHER.strata, label: "지층: 층마다 자기 나이 (아래일수록 오래됨)" },
@@ -721,6 +725,9 @@ export default function ParliamentSpace() {
     steelLife: { value: DEFAULT_WEATHER.steelLife, min: 0.05, max: 5, step: 0.05, label: "철골 수명 (슬래브 대비)" },
     concreteLife: { value: DEFAULT_WEATHER.concreteLife, min: 0.05, max: 5, step: 0.05, label: "콘크리트 수명 배율" },
     tauSedimentYears: { value: DEFAULT_WEATHER.tauSedimentYears, min: 10, max: 20000, step: 10, label: "식생 → 부식토/이탄 (년)" },
+    coverSlots: { value: DEFAULT_WEATHER.coverSlots, min: 0, max: 20, step: 1, label: "덮였다고 볼 위층 수 (0 = 매몰 효과 끔)" },
+    buriedSlow: { value: DEFAULT_WEATHER.buriedSlow, min: 1, max: 500, step: 1, label: "덮인 뒤 풍화가 몇 배 느려지나" },
+    natureAccel: { value: DEFAULT_WEATHER.natureAccel, min: 0, max: 5, step: 0.1, label: "식생이 풍화를 빠르게 하는 정도" },
   });
   const weather = useMemo<WeatherConfig>(() => ({ ...weatherCtl }), [weatherCtl]);
   const fuseCtl = useControls("융합 (오래된 층 → 한 덩어리)", {
