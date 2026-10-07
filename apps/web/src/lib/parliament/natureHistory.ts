@@ -218,6 +218,10 @@ export interface NaturePointOptions {
   sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number; jitter?: number };
   /** Share of a slot's points that are drawn (0..1), e.g. 1 − fused weight: fused layers are drawn as one mass. */
   thin?: (k: number) => number;
+  /** Share of a cell's points in a slot that are drawn (0..1): where mass has formed, no vegetation points. */
+  thinCell?: (ix: number, iz: number, k: number) => number;
+  /** TIME ERROR (as BoxConfig.timeJitter): points spill up to ± this many slots beyond their slot (never below 0). */
+  timeJitter?: number;
 }
 
 /** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
@@ -266,7 +270,7 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
     for (let j = 0; j < h.nz; j++) {
       for (let i = 0; i < h.nx; i++) {
         const v = h.V[base + j * h.nx + i];
-        const want = v * opts.perSlot * keepShare;
+        const want = v * opts.perSlot * keepShare * (opts.thinCell ? opts.thinCell(h.x0 + i, h.z0 + j, k) : 1);
         const ix = h.x0 + i;
         const iz = h.z0 + j;
         const n = Math.floor(want) + (h3(ix, iz, k, 1) < want - Math.floor(want) ? 1 : 0);
@@ -277,13 +281,15 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           const rz = h3(ix, iz, k, s + 1);
           const ry = h3(ix, iz, k, s + 2);
           const rk = h3(ix, iz, k, s + 3);
-          const stem = h3(ix, iz, k, s + 4) < 0.08;
           // each point's own share: the same slot does not turn to sediment in lockstep
           const qp = opts.sediment?.jitter ? Math.min(1, Math.max(0, q + (h3(ix, iz, k, s + 9) - 0.5) * opts.sediment.jitter)) : q;
           const sed = !under && h3(ix, iz, k, s + 7) < qp;
-          // compaction: older slots press their matter down toward the slot's floor
-          const yy = (under ? 0.2 * ry : stem && !sed ? 0.2 + 0.75 * ry : 0.55 * Math.pow(ry, 2.2)) * (1 - 0.75 * q);
-          pos.push((ix + rx) * CELL_SIZE, (k + yy) * opts.unit, (iz + rz) * CELL_SIZE);
+          // spread through the whole slot (no band at the slot's floor) and spilling over it by the time error;
+          // only compaction presses old matter down, and buried matter lies flat
+          const J = opts.timeJitter ?? 0;
+          const spill = J > 0 ? (h3(ix, iz, k, s + 10) - 0.5) * 2 * J : 0;
+          const yy = under ? 0.2 * ry : (ry + spill) * (1 - 0.6 * q);
+          pos.push((ix + rx) * CELL_SIZE, Math.max(0, (k + yy) * opts.unit), (iz + rz) * CELL_SIZE);
           const soil = 0.15 + 0.6 * (1 - v);
           if (under) kind.push(NATURE_KIND.buried);
           else if (sed) kind.push(q > 0.6 && h3(ix, iz, k, s + 8) < q ? NATURE_KIND.peat : NATURE_KIND.humus);
@@ -328,6 +334,12 @@ export interface ReclaimConfig {
   secPerUnit?: number;
   /** Multiplies every age (as in wearParts). */
   timeScale?: number;
+  /**
+   * GATHERING (the 3D view): instead of growing with abandonment, points gather on each standing part by this share
+   * (0..1, from its corrosion — fuse.gatheringShare) and wrap it: top faces, sides, hanging beneath. Eroded gaps get
+   * none (the mass takes their place).
+   */
+  gathering?: (b: Box) => number;
   /** Points per cell² of upward face at full reclaim. */
   perArea: number;
   /** World size of a time slot (for plant heights). */
@@ -353,6 +365,7 @@ export function reclaimPoints(built: readonly Box[], worn: readonly Box[], seeds
   const kind: number[] = [];
   const shade: number[] = [];
   const cell2 = CELL_SIZE * CELL_SIZE;
+  if (cfg.gathering) return gatherPoints(worn, cfg.gathering, cfg);
   for (const b of built) {
     if (b.tilt || !(b.kind === "mass" || b.kind === "slab" || b.kind === "plinth")) continue;
     const r = reclaimShare(partAgeYears(b, age, tNow, cfg), cfg.tauReclaimYears);
@@ -379,6 +392,56 @@ export function reclaimPoints(built: readonly Box[], worn: readonly Box[], seeds
       pos.push(b.x + rx * b.sx, y0 + hgt * cfg.unit, b.z + rz * b.sz);
       kind.push(kd);
       shade.push(h3(bx, bz, by, s + 4));
+    }
+  }
+  return { count: kind.length, position: Float32Array.from(pos), kind: Uint8Array.from(kind), shade: Float32Array.from(shade) };
+}
+
+/** GATHERING points: on and around every standing part, ∝ its gathering share · its surface (see ReclaimConfig). */
+function gatherPoints(standing: readonly Box[], share: (b: Box) => number, cfg: ReclaimConfig): NaturePoints {
+  const pos: number[] = [];
+  const kind: number[] = [];
+  const shade: number[] = [];
+  const cell2 = CELL_SIZE * CELL_SIZE;
+  for (const b of standing) {
+    if (b.tilt || !(b.kind === "mass" || b.kind === "slab" || b.kind === "plinth")) continue;
+    const g = share(b);
+    if (g <= 0.005) continue;
+    const area = (b.sx * b.sz + (b.sx + b.sz) * b.sy) / cell2;
+    const want = g * cfg.perArea * area;
+    const bx = Math.round(b.x * 1009), bz = Math.round(b.z * 1013), by = Math.round(b.y * 1019) ^ b.seed;
+    const n = Math.floor(want) + (h3(bx, bz, by, 5) < want - Math.floor(want) ? 1 : 0);
+    for (let p = 0; p < n; p++) {
+      const s = p * 7 + 41;
+      const r0 = h3(bx, bz, by, s), r1 = h3(bx, bz, by, s + 1) - 0.5, r2 = h3(bx, bz, by, s + 2) - 0.5;
+      const rk = h3(bx, bz, by, s + 3), rh = h3(bx, bz, by, s + 4);
+      let x: number, y: number, z: number;
+      if (r0 < 0.6) {
+        // top: a little above the face (ground cover, a few stems)
+        x = b.x + r1 * b.sx;
+        z = b.z + r2 * b.sz;
+        y = b.y + b.sy / 2 + (rh < 0.1 ? 0.15 + 0.5 * rh : 0.08 * rh) * cfg.unit;
+      } else if (r0 < 0.9) {
+        // sides: creeping up the walls, just off the face
+        const side = Math.floor(h3(bx, bz, by, s + 5) * 4);
+        const out = 0.03 + 0.05 * rh;
+        y = b.y + r2 * b.sy;
+        if (side < 2) {
+          x = b.x + (side === 0 ? -1 : 1) * (b.sx / 2 + out);
+          z = b.z + r1 * b.sz;
+        } else {
+          x = b.x + r1 * b.sx;
+          z = b.z + (side === 2 ? -1 : 1) * (b.sz / 2 + out);
+        }
+      } else {
+        // hanging beneath
+        x = b.x + r1 * b.sx;
+        z = b.z + r2 * b.sz;
+        y = b.y - b.sy / 2 - 0.3 * rh * cfg.unit;
+      }
+      pos.push(x, y, z);
+      kind.push(rk < 0.45 ? NATURE_KIND.moss : rk < 0.8 ? NATURE_KIND.grass : NATURE_KIND.herb);
+      shade.push(h3(bx, bz, by, s + 6));
     }
   }
   return { count: kind.length, position: Float32Array.from(pos), kind: Uint8Array.from(kind), shade: Float32Array.from(shade) };

@@ -172,3 +172,15 @@ describe("sediment: old vegetation turns to humus and peat, and compacts", () =>
     expect(old.y).toBeLessThan(young.y);
   });
 });
+
+describe("vegetation points have no bands at the slot floors", () => {
+  it("points fill their slot evenly (no pile-up at the floor) and spill over it with the time error", () => {
+    const h = run(stand("a", 30, 30, 0, 5), 0, 20, 30); // a far visitor: these cells are untouched
+    const pts = naturePoints(h, 0, 20, { unit: 1, perSlot: 6, timeJitter: 0.35 });
+    const frac: number[] = [];
+    for (let i = 0; i < pts.count; i++) frac.push(pts.position[i * 3 + 1] % 1);
+    const low = frac.filter((f) => f < 0.25).length / frac.length;
+    expect(low).toBeLessThan(0.35); // was ~0.75 when points settled at the floor
+    expect(low).toBeGreaterThan(0.15);
+  });
+});

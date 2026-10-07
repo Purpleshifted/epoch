@@ -2,13 +2,16 @@
  * parliament/fuse.ts
  *
  * What a structure BECOMES with age, as one surface (naive surface nets: one vertex per surface cell, quads between).
- * Everything is driven by each part's own weathering, so it happens ON the structure, never as a separate slab:
+ * Everything runs on ONE clock, each part's own corrosion (decay = 1 − survival, seeds.wearModel), so it happens on
+ * the structure itself, never as a separate slab, and never on a part that has not begun to corrode:
  *
- *   1 ACCRETION   as a part is abandoned (reclaim R, natureHistory.reclaimShare), lumpy organic matter grows on its top
- *                 face and hangs from its underside (ref 9578: rock-like growths on floors and slabs)
- *   2 FUSION      as it decays (1 − survival, seeds.wearModel), the part itself becomes mass: max(decay, gain · blurred
- *                 decay) — parts keep their form and near ones cling together; a part that has fallen away leaves its
- *                 mass in its place. Vegetation sediment sticks to it (only near decaying concrete)
+ *   0 GATHERING   decay < accOnset: no mass here — vegetation POINTS gather on and around the part
+ *                 (natureHistory.reclaimPoints with a decay clock), densest just before accOnset
+ *   1 ACCRETION   accOnset → fuseOnset: lumpy organic matter grows on the part's top and hangs below it, starting as
+ *                 small sparse specks (noise-thresholded) and thickening (ref 9578); the points fade out meanwhile
+ *   2 FUSION      fuseOnset → 1: the part itself becomes mass, max(share, gain · blurred share) — parts keep their form
+ *                 and near ones cling together; a part that has fallen away leaves its mass in its place. Vegetation
+ *                 sediment sticks to it (only near decaying concrete)
  *   3 POROSITY    older layers are pitted (refs 9579/9580)
  *   4 RESIN       the oldest layers (sediment share ≥ `resinShare`) are a second face group (FuseMesh.resinStart …) for a
  *                 translucent material; their standing parts stay visible inside
@@ -25,8 +28,10 @@ import { halfHeight, type Box } from "./seeds";
 
 export interface FuseConfig {
   enabled: boolean;
-  /** Decay (1 − survival) below which a part does not turn into mass yet. */
-  onset: number;
+  /** Decay at which growths begin on a part (before it, vegetation points gather on it instead). */
+  accOnset: number;
+  /** Decay at which the part itself begins to turn into mass. */
+  fuseOnset: number;
   /** Voxel spacing (world). */
   voxel: number;
   /** Box-blur radius in voxels: how far apart decaying pieces still cling together. */
@@ -39,9 +44,9 @@ export interface FuseConfig {
   iso: number;
   /** Weight of the vegetation's sediment that sticks to decaying concrete. */
   natureWeight: number;
-  /** ACCRETION: weight of the growths (× reclaim share); 0 = none. */
+  /** ACCRETION: weight of the growths (× their progress between accOnset and fuseOnset); 0 = none. */
   accretion: number;
-  /** Most thickness of the growths on top / hanging below a part (world), × reclaim share. */
+  /** Most thickness of the growths on top / hanging below a part (world), × their progress. */
   accDepth: number;
   /** Size of the lumps (world): larger = fewer, bigger clumps. */
   lump: number;
@@ -51,7 +56,8 @@ export interface FuseConfig {
 
 export const DEFAULT_FUSE: FuseConfig = {
   enabled: true,
-  onset: 0.15,
+  accOnset: 0.08,
+  fuseOnset: 0.3,
   voxel: 0.4,
   blur: 2,
   gain: 2.5,
@@ -66,10 +72,32 @@ export const DEFAULT_FUSE: FuseConfig = {
 
 type Sediment = NonNullable<NaturePointOptions["sediment"]>;
 
-/** How much of a part has turned into mass, from its decay (1 − survival). */
+const ramp = (x: number, a: number, b: number) => Math.max(0, Math.min(1, (x - a) / Math.max(1e-6, b - a)));
+const smoothRamp = (x: number, a: number, b: number) => {
+  const t = ramp(x, a, b);
+  return t * t * (3 - 2 * t);
+};
+
+/** How much of a part has itself turned into mass, from its decay (1 − survival). */
 export function fusedShare(decay: number, cfg: FuseConfig): number {
   if (!cfg.enabled) return 0;
-  return Math.max(0, Math.min(1, (decay - cfg.onset) / Math.max(1e-6, 1 - cfg.onset)));
+  return ramp(decay, cfg.fuseOnset, 1);
+}
+
+/** How far the growths on a part have come (0 none … 1 full), from its decay. */
+export function accretionShare(decay: number, cfg: FuseConfig): number {
+  if (!cfg.enabled || cfg.accretion <= 0) return 0;
+  return smoothRamp(decay, cfg.accOnset, cfg.fuseOnset);
+}
+
+/**
+ * How many vegetation points gather on a part (0 … 1), from its decay: rising until accOnset, then fading as the
+ * growths take over (gone by halfway to fuseOnset). Without fusion: rising and staying.
+ */
+export function gatheringShare(decay: number, cfg: FuseConfig): number {
+  const up = smoothRamp(decay, 0, cfg.accOnset);
+  if (!cfg.enabled || cfg.accretion <= 0) return up;
+  return up * (1 - smoothRamp(decay, cfg.accOnset, (cfg.accOnset + cfg.fuseOnset) / 2));
 }
 
 export interface FuseMesh {
@@ -129,8 +157,7 @@ export interface FuseChunkInput {
   parts: readonly Box[];
   /** Per part: decay = 1 − survival (0 fresh … 1 gone). Absent = 1 (all fully decayed). */
   decay?: ArrayLike<number>;
-  /** Per part: reclaim share R (what grows on it), 0..1. Absent = 0 (no growths). */
-  reclaim?: ArrayLike<number>;
+
   /** Per part: still standing (accretion only grows on standing parts). Absent = all standing. */
   standing?: ArrayLike<boolean>;
   /** Vegetation history (may be null: concrete only). */
@@ -210,10 +237,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, f);
       any = true;
     }
-    // 1 ACCRETION: growths on top and hanging below a standing part, thicker the more it is reclaimed
-    const r = input.reclaim ? input.reclaim[pi] : 0;
+    // 1 ACCRETION: growths on top and hanging below a standing part, from the moment it begins to corrode
+    const r = accretionShare(input.decay ? input.decay[pi] : 1, cfg);
     const up = input.standing ? input.standing[pi] : true;
-    if (cfg.accretion > 0 && r > 0.02 && up) {
+    if (r > 0.01 && up) {
       const d = cfg.accDepth * r;
       fill(A, b.x - hx, b.x + hx, b.y + hy - vs, b.y + hy + d, b.z - hz, b.z + hz, r * cfg.accretion);
       fill(A, b.x - hx * 0.9, b.x + hx * 0.9, b.y - hy - d * 0.7, b.y - hy + vs, b.z - hz * 0.9, b.z + hz * 0.9, r * cfg.accretion * 0.8);
@@ -225,12 +252,16 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const tmp = new Float32Array(n);
   const Cb = C.slice();
   blur3(Cb, tmp, nx, ny, nz, Math.round(cfg.blur));
-  // growths are lumpy: modulated by low-frequency noise, then softened a little
+  // growths are lumpy and start as sparse specks: only where the noise exceeds (1 − progress) do they show, so a
+  // young growth is a few small lumps and a full one a continuous crust
   const lf = 1 / Math.max(0.1, cfg.lump);
   for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const p = idx(i, j, k);
-    if (A[p] <= 0) continue;
-    A[p] *= 0.35 + 1.3 * noise3((I0 + i) * vs * lf, (J0 + j) * vs * lf, (K0 + k) * vs * lf, 21);
+    const a = A[p];
+    if (a <= 0) continue;
+    const nz3 = noise3((I0 + i) * vs * lf, (J0 + j) * vs * lf, (K0 + k) * vs * lf, 21);
+    const prog = Math.min(1, a / Math.max(1e-6, cfg.accretion));
+    A[p] = nz3 > 1 - prog ? a * (0.6 + 1.4 * (nz3 - (1 - prog)) / Math.max(1e-6, prog)) : 0;
   }
   blur3(A, tmp, nx, ny, nz, 1);
 

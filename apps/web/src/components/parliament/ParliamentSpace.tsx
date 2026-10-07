@@ -408,7 +408,14 @@ function SpaceWorld({
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, lod };
       if (nat.reclaim) {
-        req.reclaim = { tauReclaimYears: nat.tauReclaimYears, perArea: nat.reclaimPerArea, unit: cfg.unit, secPerUnit: wx.strata ? cfg.secPerUnit : undefined, timeScale: wx.timeScale };
+        req.reclaim = {
+          tauReclaimYears: nat.tauReclaimYears,
+          perArea: nat.reclaimPerArea,
+          unit: cfg.unit,
+          secPerUnit: wx.strata ? cfg.secPerUnit : undefined,
+          timeScale: wx.timeScale,
+          fuse: fu.enabled ? fu : undefined,
+        };
       }
     }
     // the fused mass follows the vegetation's cadence (it is built from its history)
@@ -740,7 +747,8 @@ export default function ParliamentSpace() {
     accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "엉겨붙는 덩어리 세기 (0 = 끔)" },
     accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "덩어리 최대 두께 (월드)" },
     lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "덩어리 크기 (클수록 큰 뭉치)" },
-    onset: { value: DEFAULT_FUSE.onset, min: 0, max: 0.95, step: 0.01, label: "융합이 시작되는 부식 정도" },
+    accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작하는 부식 정도 (그 전엔 식생 점)" },
+    fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "건물과 하나가 되기 시작하는 부식 정도" },
     voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀 크기, 작을수록 무거움)" },
     blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "엉김 반경 (복셀)" },
     gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "엉김 세기" },
@@ -770,7 +778,7 @@ export default function ParliamentSpace() {
     margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
     budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
     burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "매몰층: 탄생 아래 몇 단" },
-    reclaim: { value: true, label: "재점유 (폐허 위 식생)" },
+    reclaim: { value: true, label: "건물에 모이는 식생 점 (부식 초기)" },
     tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년, 작을수록 빠름)" },
     reclaimPerArea: { value: 10, min: 0, max: 80, step: 1, label: "재점유: 칸²당 점 수" },
   });

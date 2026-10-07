@@ -13,8 +13,8 @@
 
 import { foldWorld, latestS, withoutWear } from "./fold";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { fuseChunk, fusedShare, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
-import { NATURE_KIND, burialOf, natureAt, natureHistory, reclaimShare, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
+import { accretionShare, fuseChunk, fusedShare, gatheringShare, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
@@ -183,6 +183,8 @@ export interface ReclaimInput {
   unit: number;
   secPerUnit?: number;
   timeScale?: number;
+  /** With wear and this, points GATHER on parts by their corrosion (fuse.gatheringShare) instead of abandonment. */
+  fuse?: FuseConfig;
 }
 
 export interface FuseInput {
@@ -401,7 +403,8 @@ export class SpaceModel {
       ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5 }
       : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
-    const fuseKey = JSON.stringify(input.fuse);
+    // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
+    const fuseKey = `${JSON.stringify(input.fuse)}:${this.partsSig}`;
     const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${fuseKey}:${k0}:${k1}:${levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
@@ -409,6 +412,22 @@ export class SpaceModel {
 
     const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold });
     this.history = h;
+    // where mass has formed (growths or fusion), the vegetation is part of it: no points there
+    const massed = new Set<string>();
+    const wm = this.wear;
+    if (wm && input.fuse.enabled) {
+      for (const b of this.built) {
+        if (b.slot < k0 - 1 || b.slot > k1 + 1 || accretionShare(1 - wm.survival(b), input.fuse) <= 0.05) continue;
+        for (let ix = Math.floor((b.x - b.sx / 2) / CELL); ix <= Math.floor((b.x + b.sx / 2) / CELL); ix++) {
+          for (let iz = Math.floor((b.z - b.sz / 2) / CELL); iz <= Math.floor((b.z + b.sz / 2) / CELL); iz++) {
+            for (let k = b.slot - 1; k <= b.slot + 1; k++) massed.add(`${ix},${iz},${k}`);
+          }
+        }
+      }
+    }
+    const thinCell = massed.size ? (ix: number, iz: number, k: number) => (massed.has(`${ix},${iz},${k}`) ? 0 : 1) : undefined;
+    let massSig = massed.size;
+    for (const key of massed) massSig = (massSig * 31 + key.length + key.charCodeAt(0)) % 1e9;
     const load = naturePointLoad(h, k0, k1, input.perSlot);
     const scale = load > input.budget ? input.budget / load : 1;
     const buried = input.burialSlots > 0 ? burialOf(seeds, spu, input.burialSlots) : undefined;
@@ -425,11 +444,11 @@ export class SpaceModel {
       const off = (a - h.k0) * h.nx * h.nz;
       let sum = 0;
       for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${box.unit}:${burySig}:${sedKey}:${fuseKey}`;
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }
@@ -479,14 +498,13 @@ export class SpaceModel {
     // every built part with its decay, its reclaim and whether it still stands (quantised: the cache keys follow)
     const standing = new Set(this.worn);
     const q20 = (v: number) => Math.round(v * 20) / 20;
-    type P = { b: Box; d: number; r: number; up: boolean };
+    type P = { b: Box; d: number; up: boolean };
     const bySlot = new Map<number, P[]>();
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       const d = q20(1 - wm.survival(b));
-      const r = q20(reclaimShare(wm.age(b), input.tauReclaimYears));
-      if (fusedShare(d, fuse) <= 0 && r <= 0.02) continue; // fresh: nothing grows on it yet
-      const e: P = { b, d, r, up: standing.has(b) };
+      if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01) continue; // not corroding yet: nothing grows on it
+      const e: P = { b, d, up: standing.has(b) };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
       else bySlot.set(b.slot, [e]);
@@ -504,7 +522,7 @@ export class SpaceModel {
       for (let k = c0 - padSlots - 3; k <= c1 + padSlots + 8; k++) {
         for (const e of bySlot.get(k) ?? []) {
           ps.push(e);
-          sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.d * 13 + e.r * 17 + (e.up ? 19 : 0);
+          sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.d * 13 + (e.up ? 19 : 0);
         }
       }
       if (!ps.length) continue;
@@ -525,7 +543,6 @@ export class SpaceModel {
       const mesh = fuseChunk({
         parts: w.ps.map((e) => e.b),
         decay: w.ps.map((e) => e.d),
-        reclaim: w.ps.map((e) => e.r),
         standing: w.ps.map((e) => e.up),
         history: h,
         k0: w.c0,
@@ -558,9 +575,15 @@ export class SpaceModel {
     const sig = `${this.partsSig}:${JSON.stringify(input)}`;
     if (sig === this.reclaimSig) return null;
     this.reclaimSig = sig;
-    const np = reclaimPoints(this.built, this.worn, this.seeds, this.t, input);
+    const wm = this.wear;
+    const fu = input.fuse;
+    const gathering = wm && fu ? (b: Box) => gatheringShare(1 - wm.survival(b), fu) : undefined;
+    const { fuse: _f, ...cfg } = input;
+    void _f;
+    const np = reclaimPoints(this.built, this.worn, this.seeds, this.t, { ...cfg, gathering });
     return { position: np.position, color: natureColors(np) };
   }
+
 }
 
 function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult {
