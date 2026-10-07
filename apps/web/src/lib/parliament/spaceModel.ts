@@ -14,7 +14,7 @@
 import { foldWorld, latestS, withoutWear } from "./fold";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { accretionShare, fuseChunk, fusedShare, gatheringShare, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
@@ -348,11 +348,13 @@ export class SpaceModel {
     this.worn = worn;
     const survival = this.wear?.survival;
     // a part being fused is absorbed into the mass, little by little (by a fixed hash): the mass takes its place.
-    // Steel stays (it sticks out of the mass).
+    // Steel stays (it sticks out of the mass), and so does the skeleton until late (its form kept inside the mass).
     const fu = input.fuse;
     const absorbed = (b: Box) => {
       if (!survival || !fu.enabled || !w.strata || STEEL_KINDS.has(b.kind)) return false;
-      const f = fusedShare(1 - survival(b), fu);
+      const d = 1 - survival(b);
+      if (isSkeleton(b, d, fu)) return false;
+      const f = fusedShare(d, fu);
       return f > 0 && partHash(b) < Math.min(1, f * 1.6);
     };
     const shown = worn.filter((b) => !absorbed(b));
@@ -554,18 +556,18 @@ export class SpaceModel {
     // every built part with its decay, its reclaim and whether it still stands (quantised: the cache keys follow)
     const standing = new Set(this.worn);
     const q20 = (v: number) => Math.round(v * 20) / 20;
-    type P = { b: Box; d: number; up: boolean };
+    type P = { b: Box; d: number; up: boolean; sk: boolean };
     const bySlot = new Map<number, P[]>();
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       const d = q20(1 - wm.survival(b));
       if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01) continue; // not corroding yet: nothing grows on it
-      const e: P = { b, d, up: standing.has(b) };
+      const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse) };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
       else bySlot.set(b.slot, [e]);
     }
-    const padSlots = Math.ceil(((fuse.blur * 2 + 2) * fuse.voxel + fuse.accDepth) / u) + 1;
+    const padSlots = Math.ceil((fusePad(fuse).above * fuse.voxel + fuse.accDepth) / u) + 1;
     // the age clock in the keys moves once per chunk of slots (it only tints and pits), not every slot
     const clockKey = Math.floor(sed.tNow / (box.secPerUnit * NATURE_CHUNK));
     type Want = { c0: number; c1: number; ps: P[]; key: string };
@@ -578,7 +580,7 @@ export class SpaceModel {
       for (let k = c0 - padSlots - 3; k <= c1 + padSlots + 8; k++) {
         for (const e of bySlot.get(k) ?? []) {
           ps.push(e);
-          sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.d * 13 + (e.up ? 19 : 0);
+          sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.d * 13 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
         }
       }
       if (!ps.length) continue;
@@ -600,6 +602,7 @@ export class SpaceModel {
         parts: w.ps.map((e) => e.b),
         decay: w.ps.map((e) => e.d),
         standing: w.ps.map((e) => e.up),
+        skeleton: w.ps.map((e) => e.sk),
         history: h,
         k0: w.c0,
         k1: w.c1,

@@ -12,7 +12,12 @@
  *   2 FUSION      fuseOnset → 1: the part itself becomes mass, max(share, gain · blurred share) — parts keep their form
  *                 and near ones cling together; a part that has fallen away leaves its mass in its place. Vegetation
  *                 sediment sticks to it (only near decaying concrete)
- *   3 POROSITY    older layers are pitted (refs 9579/9580)
+ *   3 POROSITY    older layers have round voids (refs 9579/9580)
+ *
+ *   The SKELETON: a share of the concrete parts (slabs, slat bundles) keep their sharp, orthogonal form inside the mass
+ *   (drawn as parts, wrapped only thinly) until late — a frame protected in exposed concrete; only the oldest layers
+ *   swallow it. The mass SAGS downwards (drips), is smoothed (Taubin), is dense and crisp in the old bottom layers and
+ *   breaks into scattered fragments at its edges in the young ones.
  *   4 RESIN       the oldest layers (sediment share ≥ `resinShare`) are a second face group (FuseMesh.resinStart …) for a
  *                 translucent material; their standing parts stay visible inside
  *
@@ -24,7 +29,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { hash2 } from "./nature";
 import { natureAt, sedimentShare, type NatureHistory, type NaturePointOptions } from "./natureHistory";
-import { halfHeight, type Box } from "./seeds";
+import { halfHeight, partHash, type Box } from "./seeds";
 
 export interface FuseConfig {
   enabled: boolean;
@@ -52,6 +57,20 @@ export interface FuseConfig {
   lump: number;
   /** Layers with a sediment share ≥ this become resin (translucent, parts inside); > 1 = never. */
   resinShare: number;
+  /** Downward sag of the mass per voxel (0 = none … 0.9 = long drips). */
+  sag: number;
+  /** Taubin smoothing passes of the surface (0 = raw voxel facets). */
+  smooth: number;
+  /** Size of the round voids (world). */
+  poreSize: number;
+  /** How much the young layers' mass breaks into fragments at its edges (0 = a closed surface everywhere). */
+  scatter: number;
+  /** Share of the concrete parts that are SKELETON: they keep their sharp form inside the mass. */
+  skeleton: number;
+  /** Decay up to which the skeleton stands out of the mass (after it, it is swallowed too). */
+  skeletonUntil: number;
+  /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
+  skeletonWrap: number;
 }
 
 export const DEFAULT_FUSE: FuseConfig = {
@@ -68,7 +87,31 @@ export const DEFAULT_FUSE: FuseConfig = {
   accDepth: 0.9,
   lump: 0.9,
   resinShare: 0.85,
+  sag: 0.7,
+  smooth: 2,
+  poreSize: 1.2,
+  scatter: 0.6,
+  skeleton: 0.3,
+  skeletonUntil: 0.9,
+  skeletonWrap: 0.35,
 };
+
+/** Concrete kinds that can be skeleton (the orthogonal frame: slabs, slat bundles and walls, plinths). */
+const SKELETON_KINDS = new Set<Box["kind"]>(["slab", "mass", "plinth", "basement"]);
+
+/** Whether a part is skeleton at this decay: it keeps its form (is drawn, not absorbed) and the mass only wraps it. */
+export function isSkeleton(b: Box, decay: number, cfg: FuseConfig): boolean {
+  if (!cfg.enabled || cfg.skeleton <= 0 || !SKELETON_KINDS.has(b.kind) || decay >= cfg.skeletonUntil) return false;
+  // its own hash, independent of the absorption order
+  return (partHash(b) * 7.31) % 1 < cfg.skeleton;
+}
+
+/** Sample rows of padding a chunk needs: below (blur, smoothing) and above (also the sag hanging down into it). */
+export function fusePad(cfg: FuseConfig): { below: number; above: number } {
+  const below = Math.max(2, Math.round(cfg.blur) * 2 + 2) + 2 * Math.max(0, Math.round(cfg.smooth));
+  const sagRows = cfg.sag > 0.01 ? Math.min(10, Math.ceil(Math.log(0.03) / Math.log(Math.min(0.95, cfg.sag)))) : 0;
+  return { below, above: below + sagRows };
+}
 
 type Sediment = NonNullable<NaturePointOptions["sediment"]>;
 
@@ -152,6 +195,112 @@ function blur3(f: Float32Array, tmp: Float32Array, nx: number, ny: number, nz: n
   f.set(tmp);
 }
 
+/**
+ * Round voids: one sphere (or none) per cell of size `size`, at a hashed place with a hashed radius. Returns how deep
+ * (x, y, z) lies inside the nearest one (0 outside … 1 at its centre).
+ */
+function voids(x: number, y: number, z: number, size: number): number {
+  const s = Math.max(0.2, size);
+  const cx = Math.floor(x / s), cy = Math.floor(y / s), cz = Math.floor(z / s);
+  let best = 0;
+  for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const X = cx + dx, Y = cy + dy, Z = cz + dz;
+    if (lat(X, Y, Z, 71) > 0.55) continue; // about half the cells have a void
+    const px = (X + 0.2 + 0.6 * lat(X, Y, Z, 72)) * s;
+    const py = (Y + 0.2 + 0.6 * lat(X, Y, Z, 73)) * s;
+    const pz = (Z + 0.2 + 0.6 * lat(X, Y, Z, 74)) * s;
+    const r = s * (0.22 + 0.33 * lat(X, Y, Z, 75));
+    const d = Math.hypot(x - px, y - py, z - pz);
+    if (d < r) best = Math.max(best, 1 - d / r);
+  }
+  return best;
+}
+
+/** Vertex neighbours from quads (a b c d flip owned), as CSR. */
+function neighbours(quads: readonly number[], nv: number): { start: Int32Array; list: Int32Array } {
+  const deg = new Int32Array(nv + 1);
+  for (let t = 0; t < quads.length; t += 6) for (let e = 0; e < 4; e++) {
+    deg[quads[t + e]]++;
+    deg[quads[t + ((e + 1) & 3)]]++;
+  }
+  const start = new Int32Array(nv + 1);
+  for (let v = 0; v < nv; v++) start[v + 1] = start[v] + deg[v];
+  const at = start.slice(0, nv);
+  const list = new Int32Array(start[nv]);
+  for (let t = 0; t < quads.length; t += 6) for (let e = 0; e < 4; e++) {
+    const a = quads[t + e], b = quads[t + ((e + 1) & 3)];
+    list[at[a]++] = b;
+    list[at[b]++] = a;
+  }
+  return { start, list };
+}
+
+/** Taubin smoothing (λ|μ): rounds the voxel facets without shrinking the mass. In place. */
+function taubin(P: Float32Array, quads: readonly number[], nv: number, passes: number): void {
+  const { start, list } = neighbours(quads, nv);
+  const tmp = new Float32Array(P.length);
+  const step = (w: number) => {
+    for (let v = 0; v < nv; v++) {
+      const a = start[v], b = start[v + 1];
+      if (b === a) {
+        tmp[v * 3] = P[v * 3];
+        tmp[v * 3 + 1] = P[v * 3 + 1];
+        tmp[v * 3 + 2] = P[v * 3 + 2];
+        continue;
+      }
+      let sx = 0, sy = 0, sz = 0;
+      for (let e = a; e < b; e++) {
+        const u = list[e] * 3;
+        sx += P[u];
+        sy += P[u + 1];
+        sz += P[u + 2];
+      }
+      const inv = 1 / (b - a);
+      for (let c = 0; c < 3; c++) tmp[v * 3 + c] = P[v * 3 + c] + w * ((c === 0 ? sx : c === 1 ? sy : sz) * inv - P[v * 3 + c]);
+    }
+    P.set(tmp);
+  };
+  for (let i = 0; i < passes; i++) {
+    step(0.5);
+    step(-0.53);
+  }
+}
+
+/** Area-weighted normals from the faces (after smoothing), on the gradient's side; vertices without faces keep theirs. In place. */
+function faceNormals(P: Float32Array, quads: readonly number[], N: Float32Array): void {
+  const acc = new Float32Array(N.length);
+  const tri = (a: number, b: number, c: number) => {
+    const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
+    const ux = P[b * 3] - ax, uy = P[b * 3 + 1] - ay, uz = P[b * 3 + 2] - az;
+    const wx = P[c * 3] - ax, wy = P[c * 3 + 1] - ay, wz = P[c * 3 + 2] - az;
+    const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    for (const v of [a, b, c]) {
+      acc[v * 3] += nx;
+      acc[v * 3 + 1] += ny;
+      acc[v * 3 + 2] += nz;
+    }
+  };
+  for (let t = 0; t < quads.length; t += 6) {
+    const a = quads[t], b = quads[t + 1], c = quads[t + 2], d = quads[t + 3];
+    if (quads[t + 4]) {
+      tri(a, c, b);
+      tri(a, d, c);
+    } else {
+      tri(a, b, c);
+      tri(a, c, d);
+    }
+  }
+  for (let v = 0; v < N.length; v += 3) {
+    // the winding is not tied to the outside: keep the side the field's gradient (the old normal) says is out
+    const l = Math.hypot(acc[v], acc[v + 1], acc[v + 2]);
+    if (l <= 1e-12) continue;
+    const sgn = acc[v] * N[v] + acc[v + 1] * N[v + 1] + acc[v + 2] * N[v + 2] < 0 ? -1 : 1;
+    N[v] = (sgn * acc[v]) / l;
+    N[v + 1] = (sgn * acc[v + 1]) / l;
+    N[v + 2] = (sgn * acc[v + 2]) / l;
+  }
+}
+
 export interface FuseChunkInput {
   /** Every part as BUILT (also those that have fallen away), at least those overlapping the chunk's slots ± padding. */
   parts: readonly Box[];
@@ -160,6 +309,8 @@ export interface FuseChunkInput {
 
   /** Per part: still standing (accretion only grows on standing parts). Absent = all standing. */
   standing?: ArrayLike<boolean>;
+  /** Per part: skeleton (isSkeleton): wrapped only thinly. Absent = none. */
+  skeleton?: ArrayLike<boolean>;
   /** Vegetation history (may be null: concrete only). */
   history: NatureHistory | null;
   /** Slots [k0, k1] of this chunk. */
@@ -187,7 +338,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const { cfg, unit, sediment: sed, history: h } = input;
   if (!cfg.enabled || input.nx <= 0 || input.nz <= 0) return EMPTY;
   const vs = cfg.voxel;
-  const pad = Math.max(2, cfg.blur * 2 + 2);
+  const { below: pad, above: padTop } = fusePad(cfg);
   // global sample indices: X = round(x / vs) etc.
   const I0 = Math.floor((input.x0 * CELL_SIZE) / vs) - pad;
   const I1 = Math.ceil(((input.x0 + input.nx) * CELL_SIZE) / vs) + pad;
@@ -196,7 +347,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const Jlo = Math.floor((input.k0 * unit) / vs); // first owned sample row
   const Jhi = Math.floor(((input.k1 + 1) * unit) / vs); // first row of the next chunk
   const J0 = Jlo - pad;
-  const J1 = Jhi + pad;
+  const J1 = Jhi + padTop;
   const nx = I1 - I0 + 1, ny = J1 - J0 + 1, nz = K1 - K0 + 1;
   const n = nx * ny * nz;
   if (n > 6e6) return EMPTY; // safety: refuse absurd grids
@@ -232,7 +383,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     // 2 FUSION: the part becomes mass as it decays (also once it has fallen away: its mass stays in its place)
     const f = fusedShare(input.decay ? input.decay[pi] : 1, cfg);
     if (f > 0) {
-      fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, f);
+      fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, input.skeleton?.[pi] ? f * cfg.skeletonWrap : f);
       any = true;
     }
     // 1 ACCRETION: growths on top and hanging below a standing part, from the moment it begins to corrode
@@ -250,6 +401,17 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const tmp = new Float32Array(n);
   const Cb = C.slice();
   blur3(Cb, tmp, nx, ny, nz, Math.round(cfg.blur));
+  // SAG: the mass hangs down — each row keeps a share of the row above it, more in some columns than others (drips)
+  if (cfg.sag > 0.01) {
+    const sag = Math.min(0.95, cfg.sag);
+    for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
+      const s = sag * (0.55 + 0.45 * noise3((I0 + i) * vs * 0.8, 0, (K0 + k) * vs * 0.8, 51));
+      for (let j = ny - 2; j >= 0; j--) {
+        const p = idx(i, j, k), up = Cb[p + nx] * s;
+        if (up > Cb[p]) Cb[p] = up;
+      }
+    }
+  }
   // growths are lumpy and start as sparse specks: only where the noise exceeds (1 − progress) do they show, so a
   // young growth is a few small lumps and a full one a continuous crust
   const lf = 1 / Math.max(0.1, cfg.lump);
@@ -280,23 +442,31 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
-  // the field: concrete mass (form kept, gaps filled) + growths + sediment − porosity
+  // the field: concrete mass (form kept, gaps filled) + growths + sediment, denser in the old layers;
+  // minus round voids (old layers) and minus fragmenting at the edges (young layers)
   const iso = cfg.iso;
   const F = new Float32Array(n);
   for (let k = 0; k < nz; k++) {
     for (let j = 0; j < ny; j++) {
-      const por = cfg.porosity * rowQ[j];
+      const q = rowQ[j];
+      const por = cfg.porosity * q;
+      const gain = cfg.gain * (0.55 + 0.9 * q); // bottom-heavy
+      const scat = cfg.scatter * (1 - q);
       for (let i = 0; i < nx; i++) {
         const p = idx(i, j, k);
-        const base = Math.max(C[p], cfg.gain * Cb[p]) + A[p] + N[p];
-        // holes only matter where there is something to carve
-        if (por <= 0 || base <= iso) {
-          F[p] = base;
+        let f = Math.max(C[p], gain * Cb[p]) + A[p] + N[p];
+        if (f <= iso * 0.5 || (por <= 0 && scat <= 0)) {
+          F[p] = f;
           continue;
         }
         const x = (I0 + i) * vs, y = (J0 + j) * vs, z = (K0 + k) * vs;
-        const holes = por * Math.max(0, noise3(x * 0.9, y * 0.9, z * 0.9, 5) * 0.65 + noise3(x * 2.1, y * 2.1, z * 2.1, 9) * 0.35 - 0.45) * 2;
-        F[p] = base - holes;
+        if (scat > 0) {
+          // near the surface (thin mass) the young mass breaks up: only where the noise is high do pieces remain
+          const edge = 1 - ramp(f, iso, iso + 0.6);
+          if (edge > 0) f -= scat * edge * Math.max(0, 0.7 - noise3(x * 1.6, y * 1.6, z * 1.6, 61)) * 1.6;
+        }
+        if (por > 0 && f > iso) f -= por * 1.6 * smoothRamp(voids(x, y, z, cfg.poreSize), 0, 0.35);
+        F[p] = f;
       }
     }
   }
@@ -359,42 +529,55 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
-  // faces: one quad per sign-changing sample edge, owned by the chunk whose rows contain the edge's start
-  const ind: number[] = [];
-  const resinInd: number[] = [];
-  const quad = (a: number, b: number, c: number, d: number, flip: boolean) => {
+  // faces: one quad per sign-changing sample edge. All are collected (padding too) so that smoothing and normals see
+  // the same neighbourhood in neighbouring chunks; each is kept by the chunk whose rows contain the edge's start.
+  const quads: number[] = []; // a b c d flip owned
+  const quad = (a: number, b: number, c: number, d: number, flip: boolean, own: boolean) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return;
-    // the face goes to the resin group if its first vertex lies in a resin layer
-    // a noisy boundary: the resin layer does not start at one exact height
-    const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-    const qa = sedimentShare(Math.floor(ay / unit), sed) + (noise3(ax * 0.5, ay * 0.5, az * 0.5, 41) - 0.5) * 0.3;
-    const to = cfg.enabled && cfg.resinShare <= 1 && qa >= cfg.resinShare ? resinInd : ind;
-    if (flip) to.push(a, c, b, a, d, c);
-    else to.push(a, b, c, a, c, d);
+    quads.push(a, b, c, d, flip ? 1 : 0, own ? 1 : 0);
   };
   const owned = (j: number) => J0 + j >= Jlo && J0 + j < Jhi;
   for (let k = 1; k < nz - 1; k++) {
     for (let j = 1; j < ny - 1; j++) {
+      const own = owned(j);
       for (let i = 1; i < nx - 1; i++) {
-        if (!owned(j)) continue;
         const f0 = F[idx(i, j, k)] > iso;
         // edge along x: (i,j,k)→(i+1,j,k), cubes around it in (j,k)
-        if (i < nx - 1 && f0 !== F[idx(i + 1, j, k)] > iso) {
-          quad(cubeVert[cidx(i, j - 1, k - 1)], cubeVert[cidx(i, j, k - 1)], cubeVert[cidx(i, j, k)], cubeVert[cidx(i, j - 1, k)], !f0);
+        if (f0 !== F[idx(i + 1, j, k)] > iso) {
+          quad(cubeVert[cidx(i, j - 1, k - 1)], cubeVert[cidx(i, j, k - 1)], cubeVert[cidx(i, j, k)], cubeVert[cidx(i, j - 1, k)], !f0, own);
         }
-        if (j < ny - 1 && f0 !== F[idx(i, j + 1, k)] > iso) {
-          quad(cubeVert[cidx(i - 1, j, k - 1)], cubeVert[cidx(i - 1, j, k)], cubeVert[cidx(i, j, k)], cubeVert[cidx(i, j, k - 1)], !f0);
+        if (f0 !== F[idx(i, j + 1, k)] > iso) {
+          quad(cubeVert[cidx(i - 1, j, k - 1)], cubeVert[cidx(i - 1, j, k)], cubeVert[cidx(i, j, k)], cubeVert[cidx(i, j, k - 1)], !f0, own);
         }
-        if (k < nz - 1 && f0 !== F[idx(i, j, k + 1)] > iso) {
-          quad(cubeVert[cidx(i - 1, j - 1, k)], cubeVert[cidx(i, j - 1, k)], cubeVert[cidx(i, j, k)], cubeVert[cidx(i - 1, j, k)], !f0);
+        if (f0 !== F[idx(i, j, k + 1)] > iso) {
+          quad(cubeVert[cidx(i - 1, j - 1, k)], cubeVert[cidx(i, j - 1, k)], cubeVert[cidx(i, j, k)], cubeVert[cidx(i - 1, j, k)], !f0, own);
         }
       }
     }
   }
+  const P = Float32Array.from(pos);
+  const NV = P.length / 3;
+  const Nn = Float32Array.from(nor);
+  if (cfg.smooth > 0 && NV > 0) taubin(P, quads, NV, Math.round(cfg.smooth));
+  if (cfg.smooth > 0 && NV > 0) faceNormals(P, quads, Nn);
+
+  const ind: number[] = [];
+  const resinInd: number[] = [];
+  for (let t = 0; t < quads.length; t += 6) {
+    if (!quads[t + 5]) continue;
+    const a = quads[t], b = quads[t + 1], c = quads[t + 2], d = quads[t + 3];
+    // the face goes to the resin group if its first vertex lies in a resin layer (a noisy boundary: the resin layer
+    // does not start at one exact height)
+    const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
+    const qa = sedimentShare(Math.floor(ay / unit), sed) + (noise3(ax * 0.5, ay * 0.5, az * 0.5, 41) - 0.5) * 0.3;
+    const to = cfg.resinShare <= 1 && qa >= cfg.resinShare ? resinInd : ind;
+    if (quads[t + 4]) to.push(a, c, b, a, d, c);
+    else to.push(a, b, c, a, c, d);
+  }
   const index = new Uint32Array(ind.length + resinInd.length);
   index.set(ind);
   index.set(resinInd, ind.length);
-  return { position: Float32Array.from(pos), normal: Float32Array.from(nor), color: Float32Array.from(col), index, resinStart: ind.length };
+  return { position: P, normal: Nn, color: Float32Array.from(col), index, resinStart: ind.length };
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, accretionShare, fuseChunk, fusedShare, gatheringShare, isResin, mergeMeshes, natureHistory, type Box, type FuseMesh, type PEvent } from "./index";
+import { DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, accretionShare, fuseChunk, fusedShare, gatheringShare, isResin, isSkeleton, mergeMeshes, natureHistory, type Box, type FuseMesh, type PEvent } from "./index";
 
 const SPU = 30;
 const sed = { tNow: 3000, secPerUnit: SPU, timeScale: 0.02, tauYears: 600 };
@@ -94,6 +94,41 @@ describe("fuse: what a structure becomes, on the structure itself", () => {
     expect(fuseChunk({ ...decayed, k0: 0, k1: 9 })).toEqual(whole);
     const split = mergeMeshes([fuseChunk({ ...decayed, k0: 0, k1: 4 }), fuseChunk({ ...decayed, k0: 5, k1: 9 })]);
     expect(split.index.length).toBe(whole.index.length);
+  });
+
+  it("smoothed surfaces agree across chunk seams (the same vertices where two chunks meet)", () => {
+    const used = (m: FuseMesh) => new Set(Array.from(m.index, (i) => `${m.position[i * 3].toFixed(4)},${m.position[i * 3 + 1].toFixed(4)},${m.position[i * 3 + 2].toFixed(4)}`));
+    const whole = fuseChunk({ ...decayed, k0: 0, k1: 9 });
+    const split = mergeMeshes([fuseChunk({ ...decayed, k0: 0, k1: 4 }), fuseChunk({ ...decayed, k0: 5, k1: 9 })]);
+    expect([...used(split)].sort()).toEqual([...used(whole)].sort());
+    // and smoothing does move them (off the voxel facets)
+    const raw = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, smooth: 0 } });
+    expect(raw.position).not.toEqual(whole.position);
+  });
+
+  it("SAG: the mass hangs further down than without", () => {
+    const low = (m: FuseMesh) => Math.min(...verts(m).map(([, y]) => y));
+    const flat = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, sag: 0 } });
+    const hung = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, sag: 0.85 } });
+    expect(low(hung)).toBeLessThan(low(flat));
+  });
+
+  it("SKELETON: a share of the concrete keeps its form until late, wrapped only thinly", () => {
+    const F = DEFAULT_FUSE;
+    const sk = parts.filter((b) => isSkeleton(b, 0.5, { ...F, skeleton: 0.5 }));
+    expect(sk.length).toBeGreaterThan(0);
+    expect(sk.length).toBeLessThan(parts.length);
+    expect(parts.some((b) => isSkeleton(b, F.skeletonUntil, { ...F, skeleton: 1 }))).toBe(false); // swallowed at last
+    expect(isSkeleton(part({ kind: "column" }), 0.5, { ...F, skeleton: 1 })).toBe(false); // steel is not skeleton
+    const plain = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...F, sag: 0, blur: 0, scatter: 0, porosity: 0 } });
+    const bones = fuseChunk({ ...decayed, k0: 0, k1: 9, skeleton: parts.map(() => true), cfg: { ...F, sag: 0, blur: 0, scatter: 0, porosity: 0, skeletonWrap: 0 } });
+    expect(bones.index.length).toBeLessThan(plain.index.length);
+  });
+
+  it("SCATTER: the young mass breaks up at its edges, the old one does not", () => {
+    const closed = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, scatter: 0 } });
+    const broken = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, scatter: 1.5 } });
+    expect(broken.index.length).not.toBe(closed.index.length);
   });
 
   it("porosity carves holes", () => {

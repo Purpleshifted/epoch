@@ -148,9 +148,12 @@ interface NatureParams {
   perSlot: number;
   /** Point size of the vegetation volume (sediment). */
   size: number;
-  /** Point size of the vegetation gathering on buildings (drawn as little spheres), and its random spread (±). */
+  /** Vegetation gathering on buildings, drawn as point clouds: the cloud's diameter, its random spread (±), the
+   * number of points in one cloud and their size. */
   gatherSize: number;
   gatherJitter: number;
+  gatherPoints: number;
+  gatherDot: number;
   paths: { hole: number; berm: number } | null;
   window: number;
   margin: number;
@@ -176,6 +179,11 @@ function applyPointLook(m: THREE.PointsMaterial, size: number, fade: [number, nu
   m.userData.fade.uJitter.value = jitter;
   m.userData.fade.uFade0.value = fade[0];
   m.userData.fade.uFade1.value = fade[1];
+}
+
+function applyCloudLook(m: THREE.PointsMaterial, dot: number, radius: number, jitter: number, fade: [number, number]): void {
+  applyPointLook(m, dot, fade, jitter);
+  m.userData.cloud.uRadius.value = radius;
 }
 
 function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
@@ -216,31 +224,100 @@ function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined)
 
 const GATHER_CAPACITY = 60000;
 
-/** Gathering vegetation as little lit spheres: one instance per point, the size jittered by a hash of where it sits. */
-function setSpheres(mesh: THREE.InstancedMesh | null, r: PointsResult, size: number, jitter: number): void {
-  if (!mesh) return;
-  if (!mesh.instanceColor) mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GATHER_CAPACITY * 3), 3);
-  const n = Math.min(r.position.length / 3, GATHER_CAPACITY);
-  const m = mesh.instanceMatrix.array as Float32Array;
-  const p = r.position;
-  for (let i = 0; i < n; i++) {
-    const x = p[i * 3], y = p[i * 3 + 1], z = p[i * 3 + 2];
-    const h = Math.abs(Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) % 1;
-    const sc = (size / 2) * Math.max(0.05, 1 + jitter * (h - 0.5) * 2);
-    const o = i * 16;
-    m[o] = sc; m[o + 1] = 0; m[o + 2] = 0; m[o + 3] = 0;
-    m[o + 4] = 0; m[o + 5] = sc; m[o + 6] = 0; m[o + 7] = 0;
-    m[o + 8] = 0; m[o + 9] = 0; m[o + 10] = sc; m[o + 11] = 0;
-    m[o + 12] = x; m[o + 13] = y; m[o + 14] = z; m[o + 15] = 1;
+/**
+ * The cloud of one gathering: `count` points inside a unit ball, dense at the centre and thinning out to its edge (a
+ * Gaussian falloff), so from afar it reads as a soft lump and up close as an electron cloud. Deterministic.
+ */
+function cloudOffsets(count: number): Float32Array {
+  let st = 0x9e3779b9;
+  const rnd = () => {
+    st = (st + 0x6d2b79f5) | 0;
+    let t = Math.imul(st ^ (st >>> 15), 1 | st);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+  const out = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const x = gauss() * 0.42, y = gauss() * 0.42, z = gauss() * 0.42;
+    const l = Math.hypot(x, y, z);
+    const k = l > 1 ? 1 / l : 1; // the few beyond the ball sit on its rim
+    out[i * 3] = x * k;
+    out[i * 3 + 1] = y * k;
+    out[i * 3 + 2] = z * k;
   }
-  (mesh.instanceColor.array as Float32Array).set(r.color.subarray(0, n * 3));
-  mesh.count = n;
-  mesh.instanceMatrix.clearUpdateRanges();
-  mesh.instanceMatrix.addUpdateRange(0, n * 16);
-  mesh.instanceMatrix.needsUpdate = true;
-  mesh.instanceColor.clearUpdateRanges();
-  mesh.instanceColor.addUpdateRange(0, n * 3);
-  mesh.instanceColor.needsUpdate = true;
+  return out;
+}
+
+/** Per-gathering data shared by every cloud geometry (centre and colour, instanced). */
+function gatherAttributes(): { center: THREE.InstancedBufferAttribute; color: THREE.InstancedBufferAttribute } {
+  return {
+    center: new THREE.InstancedBufferAttribute(new Float32Array(GATHER_CAPACITY * 3), 3),
+    color: new THREE.InstancedBufferAttribute(new Float32Array(GATHER_CAPACITY * 3), 3),
+  };
+}
+
+/** One cloud of `count` points, drawn once per gathering (instanced). */
+function cloudGeometry(count: number, at: ReturnType<typeof gatherAttributes>): THREE.InstancedBufferGeometry {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(cloudOffsets(count), 3));
+  g.setAttribute("iCenter", at.center);
+  g.setAttribute("color", at.color);
+  g.instanceCount = 0;
+  return g;
+}
+
+/**
+ * The material of the gathering clouds: the fading points' material, each point placed at its gathering's centre +
+ * its offset × the cloud's radius (jittered per gathering by a hash of the centre, and turned by it, so no two clouds
+ * repeat), a little lighter on top.
+ */
+function cloudPointsMaterial(): THREE.PointsMaterial {
+  const m = fadingPointsMaterial();
+  const cloud = { uRadius: { value: 0.15 } };
+  m.userData.cloud = cloud;
+  const fade = m.onBeforeCompile;
+  m.onBeforeCompile = (shader, renderer) => {
+    fade(shader, renderer);
+    Object.assign(shader.uniforms, cloud);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute vec3 iCenter;\nuniform float uRadius;")
+      .replace(
+        "#include <begin_vertex>",
+        [
+          "float hA = fract(sin(dot(iCenter, vec3(12.9898, 78.233, 37.719))) * 43758.5453);",
+          "float hB = fract(sin(dot(iCenter, vec3(39.346, 11.135, 83.155))) * 24634.6345);",
+          "float rad = uRadius * max(0.05, 1.0 + uJitter * (hA * 2.0 - 1.0));",
+          "float ca = cos(hB * 6.2832), sa = sin(hB * 6.2832);",
+          "vec3 off = vec3(ca * position.x - sa * position.z, position.y, sa * position.x + ca * position.z);",
+          "vec3 transformed = iCenter + off * rad;",
+        ].join("\n"),
+      )
+      .replace("#include <color_vertex>", "#include <color_vertex>\nvColor.rgb *= 0.82 + 0.22 * position.y;")
+      // the per-point size jitter of the fading material does not apply here (the cloud's radius is jittered)
+      .replace(/gl_PointSize \*= max\(0\.05, 1\.0 \+ uJitter[^;]*;/, "");
+  };
+  m.customProgramCacheKey = () => "gather-cloud";
+  return m;
+}
+
+function setInstanceCount(g: THREE.InstancedBufferGeometry, n: number): void {
+  g.instanceCount = n;
+}
+
+/** Writes the gatherings (centres, colours) into the instanced attributes (shared by every cloud geometry). */
+function setGatherings(g: THREE.InstancedBufferGeometry | null, r: PointsResult): void {
+  if (!g) return;
+  const at = { center: g.getAttribute("iCenter") as THREE.InstancedBufferAttribute, color: g.getAttribute("color") as THREE.InstancedBufferAttribute };
+  const n = Math.min(r.position.length / 3, GATHER_CAPACITY);
+  (at.center.array as Float32Array).set(r.position.subarray(0, n * 3));
+  (at.color.array as Float32Array).set(r.color.subarray(0, n * 3));
+  for (const a of [at.center, at.color]) {
+    a.clearUpdateRanges();
+    a.addUpdateRange(0, n * 3);
+    a.needsUpdate = true;
+  }
+  g.instanceCount = n;
 }
 
 /** Where the space computation runs: a Web Worker, or (if the worker cannot start) the main thread. */
@@ -317,12 +394,19 @@ function SpaceWorld({
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
   const naturePts = useRef<THREE.Points>(null);
-  const gatherMesh = useRef<THREE.InstancedMesh>(null);
-  const lastGather = useRef<PointsResult | null>(null);
-  // re-place the spheres when their size or jitter changes (the positions stay)
+  // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
+  // count changes, the gatherings stay in the shared attributes
+  const gatherAt = useMemo(() => gatherAttributes(), []);
+  const gatherCount = useRef(0);
+  const cloudPts = nature?.gatherPoints ?? 24;
+  const gatherGeom = useMemo(() => cloudGeometry(cloudPts, gatherAt), [cloudPts, gatherAt]);
+  const gatherGeomRef = useRef<THREE.InstancedBufferGeometry | null>(null);
   useEffect(() => {
-    if (lastGather.current) setSpheres(gatherMesh.current, lastGather.current, nature?.gatherSize ?? 0.09, nature?.gatherJitter ?? 0);
-  }, [nature?.gatherSize, nature?.gatherJitter]);
+    setInstanceCount(gatherGeom, gatherCount.current);
+    gatherGeomRef.current = gatherGeom;
+    return () => gatherGeom.dispose();
+  }, [gatherGeom]);
+  const gatherMat = useMemo(() => cloudPointsMaterial(), []);
   const focusY = useRef<number | null>(null);
   const snapped = useRef(false);
   const worker = useRef<SpaceRunner | null>(null);
@@ -344,7 +428,8 @@ function SpaceWorld({
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
-  }, [natureMat, nature?.size, nearFade]);
+    applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
+  }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -395,8 +480,8 @@ function SpaceWorld({
     }
     setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
-      lastGather.current = r.reclaim;
-      setSpheres(gatherMesh.current, r.reclaim, live.current.nature?.gatherSize ?? 0.09, live.current.nature?.gatherJitter ?? 0);
+      gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
+      setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
     if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
@@ -532,18 +617,7 @@ function SpaceWorld({
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>
-      <instancedMesh
-        ref={gatherMesh}
-        args={[undefined, undefined, GATHER_CAPACITY]}
-        count={0}
-        frustumCulled={false}
-        visible={!!nature && nature.reclaim}
-        castShadow
-        receiveShadow
-      >
-        <icosahedronGeometry args={[1, 1]} />
-        <meshStandardMaterial roughness={0.85} metalness={0} />
-      </instancedMesh>
+      <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} />
     </>
   );
 }
@@ -961,8 +1035,10 @@ export default function ParliamentSpace() {
       "건물에 모이는 식생": folder({
         gatherOn: { value: true, label: "켜기 (부식 초기, 덩어리 전)" },
         gatherPerArea: { value: 40, min: 0, max: 300, step: 1, label: "칸²당 점 수" },
-        gatherSize: { value: 0.09, min: 0.01, max: 0.6, step: 0.005, label: "구 크기" },
+        gatherSize: { value: 0.3, min: 0.02, max: 1.5, step: 0.01, label: "구 지름 (월드)" },
         gatherJitter: { value: 0.5, min: 0, max: 0.95, step: 0.05, label: "구 크기 지터 (±)" },
+        gatherPoints: { value: 24, min: 4, max: 96, step: 1, label: "구 하나의 점 수 (많을수록 무거움)" },
+        gatherDot: { value: 0.025, min: 0.005, max: 0.15, step: 0.001, label: "구 속 점 크기" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
       "길 (식생에 난 구멍)": folder({
@@ -1028,6 +1104,15 @@ export default function ParliamentSpace() {
       lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "덩어리 크기 (클수록 큰 뭉치)" },
       porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "다공성 (구멍)" },
       resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 퇴적 비율 (>1 = 끔)" },
+      "형태 (뼈대 · 처짐 · 흩어짐)": folder({
+        skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 콘크리트 비율" },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대가 삼켜지는 부식 정도 (>1 = 끝까지)" },
+        skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대를 감싸는 두께 (1 = 다른 부재와 같게)" },
+        sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 처짐 (흘러내림)" },
+        scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 흩어짐" },
+        poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "구멍(구형 공극) 크기 (월드)" },
+        smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 (횟수, 0 = 각진 복셀)" },
+      }),
       "표면 계산": folder(
         {
           voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀, 작을수록 무거움)" },
@@ -1040,11 +1125,11 @@ export default function ParliamentSpace() {
       ),
       "레진 재질": folder(
         {
-          resinColor: { value: "#e8d9b8", label: "색" },
+          resinColor: { value: KIND_COLOR.slab, label: "색 (슬래브와 같은 회색)" },
           transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "투과" },
           resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (서리 낀 정도)" },
           thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "두께감" },
-          attenuationColor: { value: "#6b3f17", label: "깊을수록 물드는 색" },
+          attenuationColor: { value: "#8a8b8c", label: "깊을수록 물드는 색 (무채색)" },
           attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (짧을수록 무거움)" },
         },
         { collapsed: true },
@@ -1067,8 +1152,15 @@ export default function ParliamentSpace() {
       accDepth: fu.accDepth,
       lump: fu.lump,
       resinShare: fu.resinShare,
+      sag: fu.sag,
+      smooth: fu.smooth,
+      poreSize: fu.poreSize,
+      scatter: fu.scatter,
+      skeleton: fu.skeleton,
+      skeletonUntil: fu.skeletonUntil,
+      skeletonWrap: fu.skeletonWrap,
     }),
-    [fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare],
+    [fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -1120,6 +1212,8 @@ export default function ParliamentSpace() {
             size: veg.volumeSize,
             gatherSize: veg.gatherSize,
             gatherJitter: veg.gatherJitter,
+            gatherPoints: veg.gatherPoints,
+            gatherDot: veg.gatherDot,
             window: veg.window,
             margin: veg.margin,
             budget: veg.budget,
@@ -1130,7 +1224,7 @@ export default function ParliamentSpace() {
             paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm } : null,
           }
         : null,
-    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
+    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
   );
   const recipe = useMemo<Recipe>(
     () => ({
