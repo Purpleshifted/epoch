@@ -43,6 +43,7 @@ const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
 const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
 const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
+const KEEP_EVERY_MS = 30_000; // how often the history window moves on (older events are dropped everywhere)
 
 export interface ParliamentDebug {
   role: RoleId;
@@ -86,6 +87,7 @@ export function RoleField({
   const lastSampleMs = useRef(0);
   const botStartMs = useRef(0);
   const lastSaveMs = useRef(0);
+  const lastKeepMs = useRef(0);
   const foldTimer = useRef(10);
   // the ticker reads the latest Leva values through this ref
   const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec });
@@ -151,6 +153,11 @@ export function RoleField({
       for (const a of actors) emit(a.o, a.r, "p", a.x, a.z, a.s);
     }
 
+    // the history window rolls on: only the last KEEP_WINDOW_SEC before now are kept (performance, for now)
+    if (now - lastKeepMs.current >= KEEP_EVERY_MS) {
+      lastKeepMs.current = now;
+      setKeepFrom(sessionSeconds(now, epochMs.current, me.current.offset));
+    }
     if (now - lastSaveMs.current >= SAVE_EVERY_MS) {
       lastSaveMs.current = now;
       if (pending.current.length) {

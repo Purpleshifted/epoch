@@ -99,9 +99,10 @@ export function currentEpochKey(): string | null {
 
 /** The stored events of the CURRENT epoch ([] if the stored events belong to another one, or to none). */
 /**
- * HISTORY WINDOW (for performance, for now): only the last KEEP_WINDOW_SEC before the start of the latest player
- * session are kept. A player tab writes its cutoff (its assigned time when it loaded − KEEP_WINDOW_SEC); loading and
- * saving drop older events, and open views forget them (useWorld). Raise it (or remove the key) to keep more.
+ * HISTORY WINDOW (for performance, for now): only the last KEEP_WINDOW_SEC before the player's present are kept.
+ * A player tab writes the cutoff (its assigned time − KEEP_WINDOW_SEC) when it loads and every 30 s after, so the
+ * window rolls on; loading and saving drop older events, and open views forget them (useWorld). Raise it (or remove
+ * the key) to keep more.
  */
 export const KEEP_WINDOW_SEC = 20 * 60;
 export const LS_KEEP_FROM_KEY = "anthropocene:parliament:keep-from:v1";

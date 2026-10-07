@@ -68,18 +68,30 @@ const THEMES = {
  * Points that dissolve near the camera (a dithered fade between `near0` and `near1`, view distance), so close
  * vegetation never blocks the view. No transparency sorting: fragments are discarded against screen-space noise.
  */
-function fadingPointsMaterial(): THREE.PointsMaterial {
+function fadingPointsMaterial(opts: { round?: boolean } = {}): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
-  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 } };
+  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 } };
   m.userData.fade = uniforms;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nvarying float vFade;")
-      .replace("#include <project_vertex>", "#include <project_vertex>\nvFade = smoothstep(uFade0, max(uFade0 + 1e-3, uFade1), -mvPosition.z);");
-    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nuniform float uJitter;\nvarying float vFade;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvFade = smoothstep(uFade0, max(uFade0 + 1e-3, uFade1), -mvPosition.z);")
+      // size jitter: a fixed factor per point, hashed from its position
+      .replace(
+        "#include <fog_vertex>",
+        "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));",
+      );
+    let frag = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nvarying float vFade;")
       .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif (vFade < fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;");
+    if (opts.round) {
+      // a little sphere: round, and shaded darker towards its rim
+      frag = frag
+        .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nvec2 pc = gl_PointCoord - 0.5;\nfloat rr = dot(pc, pc) * 4.0;\nif (rr > 1.0) discard;")
+        .replace("#include <opaque_fragment>", "outgoingLight *= 0.5 + 0.5 * sqrt(max(0.0, 1.0 - rr));\n#include <opaque_fragment>");
+    }
+    shader.fragmentShader = frag;
   };
   return m;
 }
@@ -141,8 +153,9 @@ interface NatureParams {
   perSlot: number;
   /** Point size of the vegetation volume (sediment). */
   size: number;
-  /** Point size of the vegetation gathering on buildings. */
+  /** Point size of the vegetation gathering on buildings (drawn as little spheres), and its random spread (±). */
   gatherSize: number;
+  gatherJitter: number;
   paths: { hole: number; berm: number } | null;
   window: number;
   margin: number;
@@ -163,8 +176,9 @@ interface ResinLook {
   attenuationDistance: number;
 }
 
-function applyPointLook(m: THREE.PointsMaterial, size: number, fade: [number, number]): void {
+function applyPointLook(m: THREE.PointsMaterial, size: number, fade: [number, number], jitter = 0): void {
   m.size = size;
+  m.userData.fade.uJitter.value = jitter;
   m.userData.fade.uFade0.value = fade[0];
   m.userData.fade.uFade1.value = fade[1];
 }
@@ -299,11 +313,11 @@ function SpaceWorld({
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
-  const reclaimMat = useMemo(() => fadingPointsMaterial(), []);
+  const reclaimMat = useMemo(() => fadingPointsMaterial({ round: true }), []);
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
-    applyPointLook(reclaimMat, nature?.gatherSize ?? 0.07, nearFade);
-  }, [natureMat, reclaimMat, nature?.size, nature?.gatherSize, nearFade]);
+    applyPointLook(reclaimMat, nature?.gatherSize ?? 0.07, nearFade, nature?.gatherJitter ?? 0);
+  }, [natureMat, reclaimMat, nature?.size, nature?.gatherSize, nature?.gatherJitter, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -906,7 +920,8 @@ export default function ParliamentSpace() {
       "건물에 모이는 식생": folder({
         gatherOn: { value: true, label: "켜기 (부식 초기, 덩어리 전)" },
         gatherPerArea: { value: 40, min: 0, max: 300, step: 1, label: "칸²당 점 수" },
-        gatherSize: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
+        gatherSize: { value: 0.09, min: 0.01, max: 0.6, step: 0.005, label: "구 크기" },
+        gatherJitter: { value: 0.5, min: 0, max: 0.95, step: 0.05, label: "구 크기 지터 (±)" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
       "길 (식생에 난 구멍)": folder({
@@ -1061,6 +1076,7 @@ export default function ParliamentSpace() {
             perSlot: veg.perSlot,
             size: veg.volumeSize,
             gatherSize: veg.gatherSize,
+            gatherJitter: veg.gatherJitter,
             window: veg.window,
             margin: veg.margin,
             budget: veg.budget,
@@ -1071,7 +1087,7 @@ export default function ParliamentSpace() {
             paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm } : null,
           }
         : null,
-    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
+    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
   );
   const recipe = useMemo<Recipe>(
     () => ({
