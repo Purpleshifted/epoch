@@ -112,7 +112,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
 
   const c = useControls(mode === "top" ? "Top view (미래)" : "Side view (단면)", {
     horizonYears: {
-      value: Number(params.get("at") ?? (mode === "top" ? 3000 : 0)),
+      value: Number(params.get("at") ?? (mode === "top" ? 300 : 0)),
       min: 0,
       max: 100000,
       step: 10,
