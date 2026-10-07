@@ -46,6 +46,7 @@ interface Stats {
 
 interface Orbit {
   target: { y: number };
+  object: { position: { y: number } };
   update: () => void;
 }
 
@@ -293,6 +294,17 @@ export default function ParliamentSpace() {
   const controls = useRef<Orbit | null>(null);
   const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, t: 0, top: 0 });
   const [active, setActive] = useState(0);
+  const topRef = useRef(0);
+
+  /** move orbit target and camera together along y (the time axis), keeping the viewer's own angle/distance */
+  const jump = (y: number) => {
+    const o = controls.current;
+    if (!o) return;
+    const d = y - o.target.y;
+    o.target.y += d;
+    o.object.position.y += d;
+    o.update();
+  };
 
   const c = useControls("3D 시공간 (박스 생성 확인)", {
     secPerUnit: { value: DEFAULT_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초 (시간축)" },
@@ -300,7 +312,9 @@ export default function ParliamentSpace() {
     width: { value: DEFAULT_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "박스 폭 배율" },
     density: { value: DEFAULT_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 박스 수 배율" },
     showEdges: { value: true, label: "모서리 선" },
-    follow: { value: true, label: "시간축 따라가기 (최신으로)" },
+    follow: { value: false, label: "시간축 따라가기 (카메라가 계속 올라감)" },
+    toGround: button(() => jump(0)),
+    toLatest: button(() => jump(Math.max(0, topRef.current - 6))),
     markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
     markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
     reload: button(() => log.addMany(loadEvents())),
@@ -315,6 +329,8 @@ export default function ParliamentSpace() {
     () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density }),
     [c.secPerUnit, c.unit, c.width, c.density],
   );
+  // height of the present on the time axis, read by the "toLatest" button
+  topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
 
   return (
     <div className="relative h-full w-full" style={{ background: PAPER }}>
