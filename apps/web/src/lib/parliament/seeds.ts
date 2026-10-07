@@ -121,9 +121,15 @@ export interface BoxConfig {
   maxSlots: number;
   /** Replaces the material's recipe (the 3D view's Leva knobs); absent = RECIPES[seed.material]. */
   recipe?: Recipe;
+  /**
+   * TIME ERROR: every part (but the foundation) is moved along the time axis by up to ± this many slots (fixed per
+   * part) — the layers are not cut to the second. It never leaves its run (not below the run's start, not above its
+   * own slot's top: so nothing moves when the run grows, and nothing enters empty time).
+   */
+  timeJitter?: number;
 }
 
-export const DEFAULT_BOXES: BoxConfig = { secPerUnit: 30, unit: 1, width: 1, density: 1, maxSlots: 200 };
+export const DEFAULT_BOXES: BoxConfig = { secPerUnit: 30, unit: 1, width: 1, density: 1, maxSlots: 200, timeJitter: 0.35 };
 
 /**
  * Per-material numbers. Footprints and widths are in cells (CELL_SIZE); heights, thicknesses, depths and spans
@@ -483,6 +489,24 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       }
     }
   }
+
+  // ── time error: each part moves along the time axis by a fixed random amount, between its run's start and its own
+  //    slot's top (bounds that never change as the seed grows) ──
+  const J = cfg.timeJitter ?? 0;
+  if (J > 0) {
+    const runOf = new Map<number, [number, number]>();
+    for (const r of runs) for (let k = r[0]; k <= r[1]; k++) runOf.set(k, r);
+    for (const b of out) {
+      if (FOUNDATION.has(b.kind) || b.kind === "plinth") continue;
+      const run = runOf.get(b.slot);
+      if (!run) continue;
+      const hh = halfHeight(b);
+      const lo = run[0] * u + hh, hi = (b.slot + 1) * u - hh;
+      if (hi <= lo) continue;
+      const dy = (hash2(Math.round(b.x * 1009) ^ b.seed, Math.round(b.z * 1013), b.slot * 17 + PART_KINDS.indexOf(b.kind) + 3) - 0.5) * 2 * J * u;
+      b.y = Math.min(hi, Math.max(lo, b.y + dy));
+    }
+  }
   return out;
 }
 
@@ -533,6 +557,8 @@ export interface WearConfig {
   steelLife?: number;
   /** Life of concrete slats and masses relative to tauSlabYears, × their thinness factor (default 1). */
   concreteLife?: number;
+  /** AGE ERROR: every part's age is × (1 ± this) (fixed per part) — the same layer does not weather in lockstep. */
+  ageJitter?: number;
   /**
    * BURIAL (strata only): a part is covered once its seed has built `coverSlots` more slots above it; from then on it
    * ages `buriedSlow` times slower (out of air and light). 0 / absent = never covered.
@@ -614,7 +640,10 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
   const slow = Math.max(1, cfg.buriedSlow ?? 1);
   const accel = cfg.natureAccel ?? 0;
   const yNow = geoYears(tNow);
-  const age = (b: Box) => {
+  const jit = cfg.ageJitter ?? 0;
+  const spread = (b: Box) => (jit > 0 ? Math.max(0, 1 + jit * (hash2(Math.round(b.x * 733) ^ b.seed, Math.round(b.y * 739) ^ Math.round(b.z * 743), 29) - 0.5) * 2) : 1);
+  const age = (b: Box) => spread(b) * baseAge(b);
+  const baseAge = (b: Box) => {
     if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg))) return partAgeYears(b, ages, tNow, cfg);
     // strata with burial / vegetation: exposed from the end of its slot until covered, then slowed
     const laid = Math.min(tNow, (b.slot + 1) * spu);

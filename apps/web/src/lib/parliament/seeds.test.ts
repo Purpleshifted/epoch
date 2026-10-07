@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, wearParts, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, wearModel, wearParts, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
 
 const C = 1.2;
 const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[] =>
@@ -7,7 +7,9 @@ const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[]
 const crowd = (n: number, s0: number, secs: number, gap = 0): PEvent[] => Array.from({ length: n }, (_, i) => stand(`w${i}`, C / 2, C / 2, s0 + i * gap, secs)).flat();
 
 /** Masses as single boxes (slat bundles off): for tests about the masses themselves. */
-const SOLID = { ...DEFAULT_BOXES, recipe: { ...RECIPES.concrete, slat: { ...RECIPES.concrete.slat, enabled: false } } };
+const SOLID = { ...DEFAULT_BOXES, timeJitter: 0, recipe: { ...RECIPES.concrete, slat: { ...RECIPES.concrete.slat, enabled: false } } };
+/** Default parts without the time error: for tests comparing two generations geometrically. */
+const NOJIT = { ...DEFAULT_BOXES, timeJitter: 0 };
 
 const seed = (over: Partial<Seed> = {}): Seed => ({ id: 12345, material: "concrete", role: "worker", x: 0.6, z: 0.6, t0: 0, t1: 0, mass: 1, ...over });
 
@@ -124,7 +126,7 @@ describe("seeds: slat bundles and drips", () => {
 
   it("big masses become bundles of slats, each inside the mass it replaces, at most maxPerMass per mass", () => {
     const solid = boxesOfSeed(s, SOLID).filter((b) => b.kind === "mass");
-    const slats = boxesOfSeed(s).filter((b) => b.kind === "mass");
+    const slats = boxesOfSeed(s, NOJIT).filter((b) => b.kind === "mass");
     expect(slats.length).toBeGreaterThan(solid.length * 3);
     for (const b of slats) expect(solid.some((o) => contains(o, b))).toBe(true);
     expect(slats.length).toBeLessThanOrEqual(solid.length * RECIPES.concrete.slat.maxPerMass);
@@ -374,5 +376,26 @@ describe("burial and vegetation change how fast a layer weathers", () => {
     const green = wearParts(parts, [tall], 3000, { ...base, natureAccel: 2, veg: () => 1 });
     expect(count(green)).toBeLessThan(count(bare));
     expect(bare).toEqual(wearParts(parts, [tall], 3000, base));
+  });
+});
+
+describe("error margins: layers are not cut to the second, nor weathered in lockstep", () => {
+  const s = seed({ id: 31, t0: 0, t1: 900, mass: 4 });
+  it("parts are spread along the time axis, still inside their run and never above their own slot", () => {
+    const parts = boxesOfSeed(s);
+    const flat = boxesOfSeed(s, NOJIT);
+    const moved = parts.filter((b, i) => Math.abs(b.y - flat[i].y) > 1e-6);
+    expect(moved.length).toBeGreaterThan(parts.length / 3);
+    for (const b of parts.filter((b) => !FOUNDATION.has(b.kind))) expect(b.y + halfHeight(b)).toBeLessThanOrEqual((b.slot + 1) * DEFAULT_BOXES.unit + 1e-9);
+  });
+
+  it("parts of the same layer age differently", () => {
+    const parts = boxesOfSeed(s, NOJIT).filter((b) => b.kind === "mass" && b.slot === 10);
+    const W = { tauSlabYears: DEFAULT_FOLD.tauSlabYears, tauFootprintYears: DEFAULT_FOLD.tauFootprintYears, secPerUnit: DEFAULT_BOXES.secPerUnit, timeScale: 0.05 };
+    const even = wearModel([s], 3000, W);
+    const jit = wearModel([s], 3000, { ...W, ageJitter: 0.5 });
+    expect(new Set(parts.map((b) => even.age(b).toFixed(6))).size).toBe(1);
+    expect(new Set(parts.map((b) => jit.age(b).toFixed(6))).size).toBeGreaterThan(1);
+    for (const b of parts) expect(Math.abs(jit.age(b) / even.age(b) - 1)).toBeLessThanOrEqual(0.5 + 1e-9);
   });
 });

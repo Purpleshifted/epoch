@@ -333,7 +333,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const quad = (a: number, b: number, c: number, d: number, flip: boolean) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return;
     // the face goes to the resin group if its first vertex lies in a resin layer
-    const to = isResin(Math.floor(pos[a * 3 + 1] / unit), sed, cfg) ? resinInd : ind;
+    // a noisy boundary: the resin layer does not start at one exact height
+    const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
+    const qa = sedimentShare(Math.floor(ay / unit), sed) + (noise3(ax * 0.5, ay * 0.5, az * 0.5, 41) - 0.5) * 0.3;
+    const to = cfg.enabled && cfg.resinShare <= 1 && qa >= cfg.resinShare ? resinInd : ind;
     if (flip) to.push(a, c, b, a, d, c);
     else to.push(a, b, c, a, c, d);
   };

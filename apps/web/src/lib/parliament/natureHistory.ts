@@ -215,7 +215,7 @@ export interface NaturePointOptions {
    * SEDIMENT: a slot's vegetation turns into humus, then peat, and compacts toward the slot's floor as it ages:
    * share q = 1 − e^(−A/tauYears), A = model years since the slot's end (× timeScale) at tNow.
    */
-  sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number };
+  sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number; jitter?: number };
   /** Share of a slot's points that are drawn (0..1), e.g. 1 − fused weight: fused layers are drawn as one mass. */
   thin?: (k: number) => number;
 }
@@ -278,7 +278,9 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           const ry = h3(ix, iz, k, s + 2);
           const rk = h3(ix, iz, k, s + 3);
           const stem = h3(ix, iz, k, s + 4) < 0.08;
-          const sed = !under && h3(ix, iz, k, s + 7) < q;
+          // each point's own share: the same slot does not turn to sediment in lockstep
+          const qp = opts.sediment?.jitter ? Math.min(1, Math.max(0, q + (h3(ix, iz, k, s + 9) - 0.5) * opts.sediment.jitter)) : q;
+          const sed = !under && h3(ix, iz, k, s + 7) < qp;
           // compaction: older slots press their matter down toward the slot's floor
           const yy = (under ? 0.2 * ry : stem && !sed ? 0.2 + 0.75 * ry : 0.55 * Math.pow(ry, 2.2)) * (1 - 0.75 * q);
           pos.push((ix + rx) * CELL_SIZE, (k + yy) * opts.unit, (iz + rz) * CELL_SIZE);

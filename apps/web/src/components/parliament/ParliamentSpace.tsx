@@ -682,6 +682,7 @@ export default function ParliamentSpace() {
     unit: { value: DEFAULT_BOXES.unit, min: 0.2, max: 4, step: 0.1, label: "한 단의 높이 (월드 단위)" },
     width: { value: SPACE_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "부품 폭 배율" },
     density: { value: SPACE_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
+    timeJitter: { value: SPACE_BOXES.timeJitter ?? 0, min: 0, max: 1, step: 0.05, label: "시간 오차 (부품 위치 ±단)" },
     emptyGapSec: { value: SPACE_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
     showEdges: { value: false, label: "모서리 선" },
     wear: { value: true, label: "마모 적용 (지금 시점까지 버려진 시간만큼)" },
@@ -731,6 +732,7 @@ export default function ParliamentSpace() {
     coverSlots: { value: DEFAULT_WEATHER.coverSlots, min: 0, max: 20, step: 1, label: "덮였다고 볼 위층 수 (0 = 매몰 효과 끔)" },
     buriedSlow: { value: DEFAULT_WEATHER.buriedSlow, min: 1, max: 500, step: 1, label: "덮인 뒤 풍화가 몇 배 느려지나" },
     natureAccel: { value: DEFAULT_WEATHER.natureAccel, min: 0, max: 5, step: 0.1, label: "식생이 풍화를 빠르게 하는 정도" },
+    ageJitter: { value: DEFAULT_WEATHER.ageJitter, min: 0, max: 1, step: 0.05, label: "풍화 오차 (부품마다 나이 ±)" },
   });
   const weather = useMemo<WeatherConfig>(() => ({ ...weatherCtl }), [weatherCtl]);
   const fuseCtl = useControls("엉김 · 융합 (건물이 덩어리가 되어감)", {
@@ -846,8 +848,8 @@ export default function ParliamentSpace() {
     [steel, slat, found],
   );
   const boxCfg = useMemo<BoxConfig>(
-    () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density, recipe }),
-    [c.secPerUnit, c.unit, c.width, c.density, recipe],
+    () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density, timeJitter: c.timeJitter, recipe }),
+    [c.secPerUnit, c.unit, c.width, c.density, c.timeJitter, recipe],
   );
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);

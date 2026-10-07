@@ -120,9 +120,11 @@ export interface WeatherConfig {
   buriedSlow: number;
   /** Exposed parts wear × (1 + natureAccel · vegetation density) (0 = off). */
   natureAccel: number;
+  /** Every part's age × (1 ± this), fixed per part; vegetation sediment shares vary by half of it. */
+  ageJitter: number;
 }
 
-export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1 };
+export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1, ageJitter: 0.5 };
 
 /** The sediment clock of the view at its present (per slot, so it moves once a slot); null without strata. */
 function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
@@ -310,6 +312,7 @@ export class SpaceModel {
       coverSlots: w.coverSlots,
       buriedSlow: w.buriedSlow,
       natureAccel: w.natureAccel,
+      ageJitter: w.ageJitter,
       veg,
     };
     const worn = input.wear ? wearParts(built, seeds, t, wearCfg) : built;
@@ -394,7 +397,9 @@ export class SpaceModel {
     }
     // sediment changes with time: rebuilt once per slot of the present
     const tQ = Math.floor(this.t / spu) * spu;
-    const sediment = input.weather.strata ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears } : undefined;
+    const sediment = input.weather.strata
+      ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5 }
+      : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
     const fuseKey = JSON.stringify(input.fuse);
     const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${fuseKey}:${k0}:${k1}:${levels.join(",")}`;
