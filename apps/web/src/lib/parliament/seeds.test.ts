@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, wearParts, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
 
 const C = 1.2;
 const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[] =>
@@ -263,5 +263,67 @@ describe("seeds: the 3D history view folds without wear", () => {
     expect(kept.h).toBeCloseTo(kept.raw, 9);
     expect(kept.foot).toBe(1);
     expect(seedsFromSnapshot(foldWorld(e, late, withoutWear(DEFAULT_FOLD))).length).toBe(seedsFromSnapshot(foldWorld(e, 40)).length);
+  });
+});
+
+describe("wear: the fold's slab wear carried onto the parts", () => {
+  const W = { tauSlabYears: DEFAULT_FOLD.tauSlabYears, tauFootprintYears: DEFAULT_FOLD.tauFootprintYears };
+  const seeds = Array.from({ length: 12 }, (_, i) => seed({ id: 1000 + i, x: 0.6 + i * 6, t0: 0, t1: 300, mass: 3 }));
+  const parts = generateBoxes(seeds);
+  const at = (tNow: number) => wearParts(parts, seeds, tNow, W);
+  const key = (b: Box) => `${b.kind}:${b.seed}:${b.x.toFixed(4)}:${(b.y + b.sy / 2).toFixed(4)}:${b.z.toFixed(4)}`;
+  const share = (list: Box[], pred: (b: Box) => boolean) => list.filter(pred).length / parts.filter(pred).length;
+
+  it("at the last presence nothing is worn", () => {
+    expect(at(300)).toEqual(parts);
+  });
+
+  it("monotone: what has gone stays gone", () => {
+    const t1 = new Set(at(320).map(key));
+    for (const b of at(340)) if (b.kind !== "drip") expect(t1.has(key(b))).toBe(true);
+  });
+
+  it("thin and exposed goes first: steel before masses, masses before slabs", () => {
+    const w = at(320);
+    const steel = share(w, (b) => STEEL.has(b.kind));
+    const mass = share(w, (b) => b.kind === "mass");
+    const slab = share(w, (b) => b.kind === "slab");
+    expect(steel).toBeLessThan(mass);
+    expect(mass).toBeLessThan(slab);
+  });
+
+  it("foundations outlast the rest", () => {
+    const w = at(600);
+    expect(share(w, (b) => b.kind === "plinth")).toBeGreaterThan(share(w, (b) => b.kind === "mass") + 0.3);
+  });
+
+  it("columns fall with their slab", () => {
+    const w = at(330);
+    const slabs = new Set(w.filter((b) => b.kind === "slab").map((b) => `${b.seed}:${b.along}`));
+    for (const c of w.filter((b) => b.kind === "column")) expect(slabs.has(`${c.seed}:${c.along}`)).toBe(true);
+  });
+
+  it("drips grow with age but never below their run", () => {
+    const young = parts.filter((b) => b.kind === "drip");
+    const old = at(310).filter((b) => b.kind === "drip");
+    expect(old.length).toBeGreaterThan(0);
+    for (const d of old) {
+      expect(d.y - d.sy / 2).toBeGreaterThanOrEqual((d.floorY ?? 0) - 1e-9);
+      const was = young.find((y) => y.seed === d.seed && Math.abs(y.x - d.x) < 1e-9 && Math.abs(y.z - d.z) < 1e-9)!;
+      expect(d.sy).toBeGreaterThanOrEqual(was.sy - 1e-9);
+    }
+    expect(old.some((d) => d.sy > (young.find((y) => y.seed === d.seed && Math.abs(y.x - d.x) < 1e-9 && Math.abs(y.z - d.z) < 1e-9)!.sy) + 1e-6)).toBe(true);
+  });
+
+  it("once the footprint is worn only plinth and basement remain", () => {
+    const kinds = new Set(at(3000).map((b) => b.kind));
+    expect(kinds.has("plinth")).toBe(true);
+    for (const k of kinds) expect(["plinth", "basement"]).toContain(k); // born at t = 0: no room for a basement here
+  });
+
+  it("does not change its (cached) input", () => {
+    const copy = JSON.stringify(parts);
+    at(400);
+    expect(JSON.stringify(parts)).toBe(copy);
   });
 });

@@ -42,6 +42,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
+import { geoYears } from "@/lib/stratum/geoClock";
 import { hash2 } from "./nature";
 import type { RoleId, Slab, Snapshot } from "./types";
 
@@ -95,6 +96,8 @@ export interface Box {
   along: number;
   yaw?: number;
   tilt?: number;
+  /** Drips only: the floor of their run (wear may lengthen them, never below this). */
+  floorY?: number;
 }
 
 /** Half of a part's vertical extent (accounts for tilt). */
@@ -283,7 +286,10 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       const [d0, d1, d2, d3] = [r(), r(), r(), r()];
       const len = Math.min(paretoIn(d2, rc.drip.length, rc.drip.alpha) * u, room);
       const w = logIn(d3, rc.drip.width) * W;
-      if (len > 0.03 * u) push("drip", x + (d0 - 0.5) * 0.95 * sx, yBottom - len / 2, z + (d1 - 0.5) * 0.95 * sz, w, len, w, tone, k);
+      if (len > 0.03 * u) {
+        push("drip", x + (d0 - 0.5) * 0.95 * sx, yBottom - len / 2, z + (d1 - 0.5) * 0.95 * sz, w, len, w, tone, k);
+        out[out.length - 1].floorY = floor;
+      }
     }
   };
 
@@ -506,5 +512,91 @@ export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_B
     for (const b of parts) out.push(b);
   }
   if (cache) for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
+  return out;
+}
+
+/** The fold's wear times (model years), as used by wearParts. */
+export interface WearConfig {
+  tauSlabYears: number;
+  tauFootprintYears: number;
+}
+
+/** The fold's footprint threshold. */
+const MIN_FOOT = 0.03;
+
+export function partHash(b: Box): number {
+  return hash2(Math.round(b.x * 997) ^ b.seed, Math.round(b.z * 991) ^ Math.round(b.y * 983), PART_KINDS.indexOf(b.kind) + 17);
+}
+
+/** How much longer than tau a part lasts (thin and exposed < 1). */
+export function wearFactor(b: Box): number {
+  if (STEEL.has(b.kind) || b.kind === "drip") return 0.3;
+  if (b.kind === "slab") return 1.2;
+  const thin = Math.min(b.sx, b.sy, b.sz) / CELL_SIZE;
+  return 0.3 + 0.9 * Math.min(1, thin);
+}
+
+export function seedAgeYears(seed: Seed, tNow: number): number {
+  return Math.max(0, geoYears(Math.max(tNow, seed.t1)) - geoYears(seed.t1));
+}
+
+/**
+ * WEAR of the parts at the view's present `tNow` — the fold's slab wear, carried onto the procedural parts.
+ *
+ * A seed's age is in MODEL years since its last presence (geoYears(tNow) − geoYears(t1)), exactly the fold's `age`,
+ * with the same taus. Like real weathering:
+ *   thin and exposed goes first   survival P = e^(−A / (tau · f)); f = 0.3 for steel (rust), for slats and masses
+ *                                 0.3 … 1.2 by their thinnest side, 1.2 for slabs; foundations use tauFootprintYears
+ *   what is held goes with it     columns fall with the slab of their slot; beams and braces go once fewer than
+ *                                 30 % of the seed's masses stand
+ *   leaching                      drips grow (calcite under concrete): × (1 + A / tauSlabYears), never below their run
+ *   outline only                  once the footprint is worn (foot < MIN_FOOT, as in the fold) only plinth and
+ *                                 basement remain
+ * Removal is a fixed per-part hash against P, so as A grows the same parts go first (nothing flickers). Returns a new
+ * array; the input (possibly cached) is not changed.
+ */
+export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig): Box[] {
+  const age = new Map<number, number>();
+  for (const s of seeds) age.set(s.id, seedAgeYears(s, tNow));
+  const survives = (b: Box, A: number) => {
+    const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b);
+    return partHash(b) < Math.exp(-A / tau);
+  };
+
+  // pass 1: what stands on its own; slabs that stand (by seed and slot); share of standing masses per seed
+  const slabUp = new Set<string>();
+  const massAll = new Map<number, number>();
+  const massUp = new Map<number, number>();
+  for (const b of parts) {
+    const A = age.get(b.seed) ?? 0;
+    if (b.kind === "slab" && survives(b, A)) slabUp.add(`${b.seed}:${b.along}`);
+    if (b.kind === "mass") {
+      massAll.set(b.seed, (massAll.get(b.seed) ?? 0) + 1);
+      if (survives(b, A)) massUp.set(b.seed, (massUp.get(b.seed) ?? 0) + 1);
+    }
+  }
+
+  const out: Box[] = [];
+  for (const b of parts) {
+    const A = age.get(b.seed) ?? 0;
+    if (A <= 0) {
+      out.push(b);
+      continue;
+    }
+    if (Math.exp(-A / cfg.tauFootprintYears) < MIN_FOOT) {
+      if (b.kind === "plinth" || b.kind === "basement") out.push(b);
+      continue;
+    }
+    if (!survives(b, A)) continue;
+    if (b.kind === "column" && !slabUp.has(`${b.seed}:${b.along}`)) continue;
+    if ((b.kind === "beam" || b.kind === "brace") && (massUp.get(b.seed) ?? 0) < 0.3 * (massAll.get(b.seed) ?? 0)) continue;
+    if (b.kind === "drip") {
+      const top = b.y + b.sy / 2;
+      const len = Math.min(b.sy * (1 + A / cfg.tauSlabYears), top - (b.floorY ?? top - b.sy));
+      out.push({ ...b, y: top - len / 2, sy: len });
+      continue;
+    }
+    out.push(b);
+  }
   return out;
 }

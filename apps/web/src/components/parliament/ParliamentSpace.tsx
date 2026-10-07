@@ -35,6 +35,7 @@ import {
   halfHeight,
   NATURE_KIND,
   latestOf,
+  wearParts,
   natureHistory,
   naturePointLoad,
   naturePoints,
@@ -110,6 +111,7 @@ function SpaceBoxes({
   fold,
   boxCfg,
   showEdges,
+  wear,
   follow,
   controls,
   onStats,
@@ -119,6 +121,8 @@ function SpaceBoxes({
   fold: FoldConfig;
   boxCfg: BoxConfig;
   showEdges: boolean;
+  /** Wear the parts to the present (the fold's slab wear); off = everything as built. */
+  wear: boolean;
   follow: boolean;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
@@ -177,19 +181,22 @@ function SpaceBoxes({
     const meS = latestOf(events, typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY));
     const focusS = meS ?? t;
     focusY.current = events.length ? (focusS / boxCfg.secPerUnit) * boxCfg.unit : null;
-    // history view: fold without wear, or slabs whose footprint had decayed by `t` would drop out
+    // the seeds: fold without wear, or slabs whose footprint had decayed by `t` would drop out (wear is applied to
+    // the parts below instead)
     const seeds = seedsFromSnapshot(foldWorld(events, t, withoutWear(fold)));
     seedsOutRef.current = seeds;
     let acc = 0;
     for (const s of seeds) acc += s.t1 + s.mass * 100 + s.id % 97;
-    const next = `${seeds.length}:${Math.round(acc)}:${key}`;
+    // with wear on, the parts change as the present moves on (abandoned seeds keep ageing)
+    const next = `${seeds.length}:${Math.round(acc)}:${key}:${wear ? Math.floor(t) : "-"}`;
     if (next === sig.current) {
       report({ seeds: seeds.length, boxes: boxCount.current, kinds: kindCount.current, t, top: topOf.current, focusS, focusIsMe: meS !== null });
       return;
     }
     sig.current = next;
 
-    const list = generateBoxes(seeds, boxCfg, partsCache);
+    const built = generateBoxes(seeds, boxCfg, partsCache);
+    const list = wear ? wearParts(built, seeds, t, fold) : built;
     let minX = Infinity, minZ = Infinity, top = 0;
     const counts = { ...NO_COUNTS };
     // edges for the box-shaped kinds (piles are cylinders and get none)
@@ -623,6 +630,7 @@ export default function ParliamentSpace() {
     density: { value: DEFAULT_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
     emptyGapSec: { value: DEFAULT_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
     showEdges: { value: false, label: "모서리 선" },
+    wear: { value: true, label: "마모 적용 (지금 시점까지 버려진 시간만큼)" },
     follow: { value: true, label: "플레이어 시간대 따라가기" },
     toMe: button(() => jump(focusRef.current)),
     toGround: button(() => jump(0)),
@@ -732,7 +740,7 @@ export default function ParliamentSpace() {
         <Sun controls={controls} azimuth={light.azimuth} elevation={light.elevation} intensity={light.intensity} softness={light.softness} shadows={light.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <gridHelper args={[80, 80, "#9aa0a8", "#d3d6db"]} position={[0, -0.01, 0]} />
-        <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} follow={c.follow} controls={controls} onStats={setStats} seedsOutRef={seedsRef} />
+        <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} wear={c.wear} follow={c.follow} controls={controls} onStats={setStats} seedsOutRef={seedsRef} />
         {natureView.enabled && (
           <NatureVolume
             log={log}
