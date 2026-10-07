@@ -2,21 +2,37 @@
 
 import { useEffect, useMemo } from "react";
 import { useControls } from "leva";
-import { DEFAULT_COLLAGE, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
+import { DEFAULT_COLLAGE, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, currentEpochKey, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
 import type { ArchStyle } from "./Architecture";
 
-/** The shared event log of this tab, kept in sync with localStorage (poll + storage events). */
+/**
+ * The shared event log of this tab, kept in sync with localStorage (poll + storage events).
+ * When the epoch changes (clear world here or in another tab, or older code resetting the shared epoch key), the
+ * world this tab holds has ended: the log is emptied and `onCleared` lets a player tab join the new epoch.
+ */
 export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
   const log = useMemo(() => new EventLog(), []);
   useEffect(() => {
-    log.addMany(loadEvents());
-    const poll = setInterval(() => log.addMany(loadEvents()), pollMs);
+    let epoch = currentEpochKey();
+    const sync = () => {
+      const now = currentEpochKey();
+      // null → an epoch is only the first player tab creating one: there was no world to end
+      if (now !== epoch && epoch !== null) {
+        log.clear();
+        onCleared?.();
+      }
+      epoch = now;
+      log.addMany(loadEvents());
+    };
+    sync();
+    const poll = setInterval(sync, pollMs);
     const onStorage = (e: StorageEvent) => {
       if (e.key !== LS_EVENTS_KEY) return;
       if (e.newValue === null) {
         log.clear();
         onCleared?.();
-      } else log.addMany(loadEvents());
+        epoch = currentEpochKey();
+      } else sync();
     };
     window.addEventListener("storage", onStorage);
     return () => {

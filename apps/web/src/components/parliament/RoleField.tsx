@@ -109,7 +109,7 @@ export function RoleField({
     }
     const flush = () => {
       if (pending.current.length) {
-        saveMerged(pending.current);
+        saveMerged(pending.current, epochMs.current);
         pending.current = [];
       }
     };
@@ -161,7 +161,8 @@ export function RoleField({
     if (now - lastSaveMs.current >= SAVE_EVERY_MS) {
       lastSaveMs.current = now;
       if (pending.current.length) {
-        saveMerged(pending.current);
+        // false = this tab's epoch has ended; useWorld's poll makes it join the new one
+        saveMerged(pending.current, epochMs.current);
         pending.current = [];
       }
     }

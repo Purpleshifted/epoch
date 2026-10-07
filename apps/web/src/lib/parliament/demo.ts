@@ -7,7 +7,7 @@
  */
 
 import type { PEvent } from "./types";
-import { LS_EVENTS_KEY, LS_PARLIAMENT_EPOCH_KEY } from "./log";
+import { LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_PARLIAMENT_EPOCH_KEY } from "./log";
 
 function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -65,8 +65,10 @@ export function seedParliamentDemoIfRequested(): boolean {
   if (typeof window === "undefined") return false;
   if (new URLSearchParams(window.location.search).get("demo") !== "1") return false;
   try {
+    const epoch = String(Date.now() - DEMO_END_SEC * 1000);
     localStorage.setItem(LS_EVENTS_KEY, JSON.stringify(buildParliamentDemo()));
-    localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(Date.now() - DEMO_END_SEC * 1000));
+    localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, epoch);
+    localStorage.setItem(LS_EVENTS_EPOCH_KEY, epoch);
     return true;
   } catch {
     return false;
