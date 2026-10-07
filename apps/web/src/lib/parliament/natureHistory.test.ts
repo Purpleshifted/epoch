@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FOLD, DEFAULT_NATURE, baseGrass, foldWorld, grassDensity, natureAt, natureHistory, naturePointLoad, naturePoints, seedsFromSnapshot, stressMap, withoutWear, type PEvent } from "./index";
+import { DEFAULT_FOLD, DEFAULT_NATURE, NATURE_KIND, baseGrass, burialOf, generateBoxes, reclaimPoints, reclaimShare, wearParts, foldWorld, grassDensity, natureAt, natureHistory, naturePointLoad, naturePoints, seedsFromSnapshot, stressMap, withoutWear, type PEvent } from "./index";
 
 const SPU = 30;
 /** Visitor `o` standing at (x, z) from s0 for `secs` seconds (one sample per second, a little off the slot grid). */
@@ -88,5 +88,57 @@ describe("naturePoints: the point cloud of a slot range", () => {
   it("chunks add up to the whole", () => {
     const whole = naturePoints(h, 0, 12, opts).count;
     expect(naturePoints(h, 0, 5, opts).count + naturePoints(h, 6, 12, opts).count).toBe(whole);
+  });
+});
+
+describe("reclaim and burial", () => {
+  const W = { tauSlabYears: DEFAULT_FOLD.tauSlabYears, tauFootprintYears: DEFAULT_FOLD.tauFootprintYears };
+  const seeds = Array.from({ length: 6 }, (_, i) => ({ id: 500 + i, material: "concrete" as const, role: "worker" as const, x: 0.6 + i * 6, z: 0.6, t0: 300, t1: 600, mass: 3 }));
+  const built = generateBoxes(seeds);
+  const cfg = { tauReclaimYears: 300, perArea: 10, unit: 1 };
+
+  it("nothing grows on a ruin that was just left", () => {
+    expect(reclaimPoints(built, built, seeds, 600, cfg).count).toBe(0);
+  });
+
+  it("the longer abandoned, the more overgrown (standing parts only)", () => {
+    const a = reclaimPoints(built, built, seeds, 605, cfg).count;
+    const b = reclaimPoints(built, built, seeds, 640, cfg).count;
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(a);
+  });
+
+  it("plants sit on top faces, and succession moves from moss to woody growth", () => {
+    const young = reclaimPoints(built, built, seeds, 603, cfg);
+    const old = reclaimPoints(built, built, seeds, 900, cfg);
+    const share = (p: ReturnType<typeof reclaimPoints>, k: number) => p.kind.filter((x) => x === k).length / Math.max(1, p.count);
+    expect(share(young, NATURE_KIND.moss)).toBeGreaterThan(0.9);
+    expect(share(old, NATURE_KIND.woody)).toBeGreaterThan(0.2);
+    expect(reclaimShare(1e9, 300)).toBeCloseTo(1, 9);
+  });
+
+  it("eroded parts leave gaps where things grow", () => {
+    const worn = wearParts(built, seeds, 640, W);
+    const withGaps = reclaimPoints(built, worn, seeds, 640, cfg);
+    expect(withGaps.count).toBeGreaterThan(0);
+  });
+
+  it("burial marks only the slots just below a birth, under its footprint", () => {
+    const buried = burialOf(seeds, SPU, 3);
+    const b = Math.floor(300 / SPU); // birth slot 10
+    expect(buried(0, 0, b - 1)).toBe(true);
+    expect(buried(0, 0, b - 3)).toBe(true);
+    expect(buried(0, 0, b - 4)).toBe(false);
+    expect(buried(0, 0, b)).toBe(false);
+    expect(buried(3, 0, b - 1)).toBe(false); // between seeds (cells 0 and 5)
+    const h = run(stand("a", 0.6, 0.6, 200, 20), 0, 12);
+    const pts = naturePoints(h, 0, 12, { unit: 1, perSlot: 6, buried });
+    for (let i = 0; i < pts.count; i++) {
+      if (pts.kind[i] !== NATURE_KIND.buried) continue;
+      const k = Math.floor(pts.position[i * 3 + 1]);
+      expect(k).toBeGreaterThanOrEqual(b - 3);
+      expect(k).toBeLessThan(b);
+    }
+    expect(pts.kind.some((k) => k === NATURE_KIND.buried)).toBe(true);
   });
 });

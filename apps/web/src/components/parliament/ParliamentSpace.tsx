@@ -39,11 +39,14 @@ import {
   natureHistory,
   naturePointLoad,
   naturePoints,
+  burialOf,
+  reclaimPoints,
   latestS,
   loadEvents,
   seedParliamentDemoIfRequested,
   seedsFromSnapshot,
   withoutWear,
+  type Box,
   type BoxConfig,
   type Recipe,
   type Seed,
@@ -116,6 +119,7 @@ function SpaceBoxes({
   controls,
   onStats,
   seedsOutRef,
+  partsOutRef,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -128,6 +132,8 @@ function SpaceBoxes({
   onStats: (s: Stats) => void;
   /** The latest seeds, for the nature volume. */
   seedsOutRef: React.MutableRefObject<Seed[]>;
+  /** The latest built and worn parts, for the reclaim layer. */
+  partsOutRef: React.MutableRefObject<PartsState | null>;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -197,6 +203,7 @@ function SpaceBoxes({
 
     const built = generateBoxes(seeds, boxCfg, partsCache);
     const list = wear ? wearParts(built, seeds, t, fold) : built;
+    partsOutRef.current = { built, worn: list, seeds, t };
     let minX = Infinity, minZ = Infinity, top = 0;
     const counts = { ...NO_COUNTS };
     // edges for the box-shaped kinds (piles are cylinders and get none)
@@ -300,7 +307,31 @@ const NATURE_PALETTE: [string, string][] = [
   ["#5f8a3c", "#9cbf5a"], // grass
   ["#2f5a2c", "#4f7d3a"], // herb
   ["#b59a52", "#d4bd78"], // dry leaves
+  ["#8a9a3a", "#b8bb52"], // moss / lichen (reclaim)
+  ["#24402a", "#3b5d34"], // woody growth (reclaim)
+  ["#3e3630", "#5a4e44"], // buried under concrete
 ];
+
+/** Colours a NaturePoints buffer with NATURE_PALETTE. */
+function natureColors(np: { count: number; kind: Uint8Array; shade: Float32Array }, palette: (readonly [THREE.Color, THREE.Color])[], tmp: THREE.Color): Float32Array {
+  const col = new Float32Array(np.count * 3);
+  for (let i = 0; i < np.count; i++) {
+    const [lo, hi] = palette[np.kind[i]] ?? palette[NATURE_KIND.grass];
+    tmp.copy(lo).lerp(hi, np.shade[i]);
+    col[i * 3] = tmp.r;
+    col[i * 3 + 1] = tmp.g;
+    col[i * 3 + 2] = tmp.b;
+  }
+  return col;
+}
+
+/** What SpaceBoxes hands the reclaim layer after every rebuild. */
+interface PartsState {
+  built: Box[];
+  worn: Box[];
+  seeds: Seed[];
+  t: number;
+}
 
 /** Slots per cached chunk of nature points. */
 const NATURE_CHUNK = 10;
@@ -323,6 +354,7 @@ function NatureVolume({
   window: win,
   margin,
   budget,
+  burialSlots,
 }: {
   log: EventLog;
   seedsInRef: React.MutableRefObject<Seed[]>;
@@ -336,6 +368,8 @@ function NatureVolume({
   window: number;
   margin: number;
   budget: number;
+  /** Slots below each seed's birth drawn as the buried layer (0 = off). */
+  burialSlots: number;
 }) {
   const points = useRef<THREE.Points>(null);
   const timer = useRef(10);
@@ -343,7 +377,7 @@ function NatureVolume({
   const chunks = useRef(new Map<number, { key: string; pos: Float32Array; col: Float32Array }>());
   const palette = useMemo(() => NATURE_PALETTE.map(([a, b]) => [new THREE.Color(a), new THREE.Color(b)] as const), []);
   const tmp = useMemo(() => new THREE.Color(), []);
-  const params = JSON.stringify([secPerUnit, unit, fold, nature, perSlot, win, margin, budget]);
+  const params = JSON.stringify([secPerUnit, unit, fold, nature, perSlot, win, margin, budget, burialSlots]);
 
   useFrame((_, dt) => {
     timer.current += dt;
@@ -376,6 +410,9 @@ function NatureVolume({
     const load = naturePointLoad(h, k0, k1, perSlot);
     const scale = load > budget ? budget / load : 1;
     const per = perSlot * scale;
+    const buried = burialSlots > 0 ? burialOf(seeds, secPerUnit, burialSlots) : undefined;
+    let burySig = burialSlots;
+    for (const sd of seeds) burySig += sd.t0 + (sd.id % 89);
 
     const parts: { pos: Float32Array; col: Float32Array }[] = [];
     const keep = new Set<number>();
@@ -386,20 +423,12 @@ function NatureVolume({
       const off = (a - h.k0) * h.nx * h.nz;
       let sum = 0;
       for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${unit}`;
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${unit}:${burySig}`;
       keep.add(c0);
       let ch = chunks.current.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit, perSlot: per });
-        const col = new Float32Array(np.count * 3);
-        for (let i = 0; i < np.count; i++) {
-          const [lo, hi] = palette[np.kind[i]] ?? palette[NATURE_KIND.grass];
-          tmp.copy(lo).lerp(hi, np.shade[i]);
-          col[i * 3] = tmp.r;
-          col[i * 3 + 1] = tmp.g;
-          col[i * 3 + 2] = tmp.b;
-        }
-        ch = { key, pos: np.position, col };
+        const np = naturePoints(h, a, b, { unit, perSlot: per, buried });
+        ch = { key, pos: np.position, col: natureColors(np, palette, tmp) };
         chunks.current.set(c0, ch);
       }
       parts.push(ch);
@@ -422,6 +451,39 @@ function NatureVolume({
     pts.geometry = geo;
   });
 
+  return (
+    <points ref={points} frustumCulled={false}>
+      <bufferGeometry />
+      <pointsMaterial size={size} vertexColors sizeAttenuation />
+    </points>
+  );
+}
+
+/** Plants on the ruins (reclaimPoints), rebuilt at most every 2 s from what SpaceBoxes last built and wore. */
+function ReclaimLayer({ partsInRef, tauReclaimYears, perArea, unit, size }: { partsInRef: React.MutableRefObject<PartsState | null>; tauReclaimYears: number; perArea: number; unit: number; size: number }) {
+  const points = useRef<THREE.Points>(null);
+  const timer = useRef(10);
+  const last = useRef<PartsState | null>(null);
+  const params = useRef("");
+  const palette = useMemo(() => NATURE_PALETTE.map(([a, b]) => [new THREE.Color(a), new THREE.Color(b)] as const), []);
+  const tmp = useMemo(() => new THREE.Color(), []);
+  useFrame((_, dt) => {
+    timer.current += dt;
+    if (timer.current < 2) return;
+    timer.current = 0;
+    const st = partsInRef.current;
+    const pts = points.current;
+    const p = `${tauReclaimYears}:${perArea}:${unit}`;
+    if (!st || !pts || (st === last.current && p === params.current)) return;
+    last.current = st;
+    params.current = p;
+    const np = reclaimPoints(st.built, st.worn, st.seeds, st.t, { tauReclaimYears, perArea, unit });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(np.position, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(natureColors(np, palette, tmp), 3));
+    pts.geometry.dispose();
+    pts.geometry = geo;
+  });
   return (
     <points ref={points} frustumCulled={false}>
       <bufferGeometry />
@@ -669,9 +731,14 @@ export default function ParliamentSpace() {
     window: { value: 120, min: 10, max: 600, step: 10, label: "보이는 시간 범위 (±단)" },
     margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
     budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
+    burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "매몰층: 탄생 아래 몇 단" },
+    reclaim: { value: true, label: "재점유 (폐허 위 식생)" },
+    tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년, 작을수록 빠름)" },
+    reclaimPerArea: { value: 10, min: 0, max: 80, step: 1, label: "재점유: 칸²당 점 수" },
   });
   const { cfg: natureCfg } = useNatureControls();
   const seedsRef = useRef<Seed[]>([]);
+  const partsRef = useRef<PartsState | null>(null);
   const steel = useControls("철골 (steel)", {
     beamChance: { value: RC.beam.chance, min: 0, max: 1, step: 0.01, label: "가로보: 슬롯당 확률" },
     beamLength: { value: RC.beam.length, min: 0.3, max: 12, step: 0.1, label: "가로보: 길이 (칸)" },
@@ -740,7 +807,10 @@ export default function ParliamentSpace() {
         <Sun controls={controls} azimuth={light.azimuth} elevation={light.elevation} intensity={light.intensity} softness={light.softness} shadows={light.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <gridHelper args={[80, 80, "#9aa0a8", "#d3d6db"]} position={[0, -0.01, 0]} />
-        <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} wear={c.wear} follow={c.follow} controls={controls} onStats={setStats} seedsOutRef={seedsRef} />
+        <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} wear={c.wear} follow={c.follow} controls={controls} onStats={setStats} seedsOutRef={seedsRef} partsOutRef={partsRef} />
+        {natureView.enabled && natureView.reclaim && (
+          <ReclaimLayer partsInRef={partsRef} tauReclaimYears={natureView.tauReclaimYears} perArea={natureView.reclaimPerArea} unit={boxCfg.unit} size={natureView.size} />
+        )}
         {natureView.enabled && (
           <NatureVolume
             log={log}
@@ -755,6 +825,7 @@ export default function ParliamentSpace() {
             window={natureView.window}
             margin={natureView.margin}
             budget={natureView.budget}
+            burialSlots={natureView.burialSlots}
           />
         )}
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />

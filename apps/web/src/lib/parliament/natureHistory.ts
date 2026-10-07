@@ -20,7 +20,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { grassDensity, hash2, type NatureConfig } from "./nature";
-import type { Seed } from "./seeds";
+import { seedAgeYears, type Box, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 
 /** A slab at least this high seals its cell (same as the player view). */
@@ -202,13 +202,15 @@ export function natureAt(h: NatureHistory, ix: number, iz: number, k: number): n
 }
 
 /** What a nature point is (the renderer picks the colour). */
-export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3 } as const;
+export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6 } as const;
 
 export interface NaturePointOptions {
   /** World size of a time slot (y). */
   unit: number;
   /** Points per (cell, slot) at density 1. */
   perSlot: number;
+  /** BURIAL: (cell, slot) lies under concrete laid later — its points become a dark, compressed layer. */
+  buried?: (ix: number, iz: number, k: number) => boolean;
 }
 
 export interface NaturePoints {
@@ -251,6 +253,7 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
         const ix = h.x0 + i;
         const iz = h.z0 + j;
         const n = Math.floor(want) + (h3(ix, iz, k, 1) < want - Math.floor(want) ? 1 : 0);
+        const under = !!opts.buried && n > 0 && opts.buried(ix, iz, k);
         for (let p = 0; p < n; p++) {
           const s = p * 7 + 11;
           const rx = h3(ix, iz, k, s);
@@ -258,13 +261,98 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           const ry = h3(ix, iz, k, s + 2);
           const rk = h3(ix, iz, k, s + 3);
           const stem = h3(ix, iz, k, s + 4) < 0.08;
-          const yy = stem ? 0.2 + 0.75 * ry : 0.55 * Math.pow(ry, 2.2);
+          const yy = under ? 0.2 * ry : stem ? 0.2 + 0.75 * ry : 0.55 * Math.pow(ry, 2.2);
           pos.push((ix + rx) * CELL_SIZE, (k + yy) * opts.unit, (iz + rz) * CELL_SIZE);
           const soil = 0.15 + 0.6 * (1 - v);
-          kind.push(rk < soil ? NATURE_KIND.soil : rk < soil + 0.12 ? NATURE_KIND.dry : h3(ix, iz, k, s + 5) < 0.6 ? NATURE_KIND.grass : NATURE_KIND.herb);
+          if (under) kind.push(NATURE_KIND.buried);
+          else kind.push(rk < soil ? NATURE_KIND.soil : rk < soil + 0.12 ? NATURE_KIND.dry : h3(ix, iz, k, s + 5) < 0.6 ? NATURE_KIND.grass : NATURE_KIND.herb);
           shade.push(h3(ix, iz, k, s + 6));
         }
       }
+    }
+  }
+  return { count: kind.length, position: Float32Array.from(pos), kind: Uint8Array.from(kind), shade: Float32Array.from(shade) };
+}
+
+/**
+ * BURIAL: the slots just below each seed's birth, under its footprint (its cell ± `radius`), hold the vegetation the
+ * concrete was laid on — drawn as a dark, compressed layer.
+ */
+export function burialOf(seeds: readonly Seed[], secPerUnit: number, slots: number, radius = 1): (ix: number, iz: number, k: number) => boolean {
+  const births = new Map<string, number[]>();
+  for (const sd of seeds) {
+    const cx = Math.floor(sd.x / CELL_SIZE);
+    const cz = Math.floor(sd.z / CELL_SIZE);
+    const b = Math.floor(sd.t0 / secPerUnit);
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dz = -radius; dz <= radius; dz++) {
+        const key = `${cx + dx},${cz + dz}`;
+        const list = births.get(key);
+        if (list) list.push(b);
+        else births.set(key, [b]);
+      }
+    }
+  }
+  return (ix, iz, k) => {
+    const list = births.get(`${ix},${iz}`);
+    return !!list && list.some((b) => k < b && k >= b - slots);
+  };
+}
+
+export interface ReclaimConfig {
+  /** Model years after which (1 − 1/e of) a ruin is overgrown. */
+  tauReclaimYears: number;
+  /** Points per cell² of upward face at full reclaim. */
+  perArea: number;
+  /** World size of a time slot (for plant heights). */
+  unit: number;
+}
+
+/** How overgrown a seed is, 0..1, from its age in model years. */
+export function reclaimShare(ageYears: number, tauReclaimYears: number): number {
+  return 1 - Math.exp(-Math.max(0, ageYears) / tauReclaimYears);
+}
+
+/**
+ * RECLAIM: plants on the ruins. For every seed abandoned for A model years (R = reclaimShare), points on the upward
+ * faces of its standing masses, slabs and plinth, ∝ R · face area — and in the gaps left by eroded parts (on the
+ * floor of where they were). Succession as on real ruins: moss and lichen first, grasses from R > 0.4, woody growth
+ * from R > 0.75. `worn` is wearParts(built, …); parts of `built` missing from it have eroded.
+ */
+export function reclaimPoints(built: readonly Box[], worn: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: ReclaimConfig): NaturePoints {
+  const R = new Map<number, number>();
+  for (const sd of seeds) R.set(sd.id, reclaimShare(seedAgeYears(sd, tNow), cfg.tauReclaimYears));
+  const standing = new Set(worn);
+  const pos: number[] = [];
+  const kind: number[] = [];
+  const shade: number[] = [];
+  const cell2 = CELL_SIZE * CELL_SIZE;
+  for (const b of built) {
+    if (b.tilt || !(b.kind === "mass" || b.kind === "slab" || b.kind === "plinth")) continue;
+    const r = R.get(b.seed) ?? 0;
+    if (r <= 0) continue;
+    const up = standing.has(b);
+    // standing: on its top face; eroded: on the floor it left behind (fewer)
+    const y0 = up ? b.y + b.sy / 2 : b.y - b.sy / 2;
+    const want = r * cfg.perArea * ((b.sx * b.sz) / cell2) * (up ? 1 : 0.6);
+    const bx = Math.round(b.x * 1009);
+    const bz = Math.round(b.z * 1013);
+    const by = Math.round(b.y * 1019) ^ b.seed;
+    const n = Math.floor(want) + (h3(bx, bz, by, 3) < want - Math.floor(want) ? 1 : 0);
+    for (let p = 0; p < n; p++) {
+      const s = p * 5 + 31;
+      const rx = h3(bx, bz, by, s) - 0.5;
+      const rz = h3(bx, bz, by, s + 1) - 0.5;
+      const rk = h3(bx, bz, by, s + 2);
+      const rh = h3(bx, bz, by, s + 3);
+      let kd: number;
+      if (r > 0.75 && rk < 0.35) kd = NATURE_KIND.woody;
+      else if (r > 0.4 && rk < 0.75) kd = NATURE_KIND.grass;
+      else kd = NATURE_KIND.moss;
+      const hgt = kd === NATURE_KIND.woody ? 0.3 + 0.6 * rh : kd === NATURE_KIND.grass ? 0.25 * rh : 0.02 * rh;
+      pos.push(b.x + rx * b.sx, y0 + hgt * cfg.unit, b.z + rz * b.sz);
+      kind.push(kd);
+      shade.push(h3(bx, bz, by, s + 4));
     }
   }
   return { count: kind.length, position: Float32Array.from(pos), kind: Uint8Array.from(kind), shade: Float32Array.from(shade) };
