@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FOLD, MAX_CATCH_UP, botActor, dueSamples, foldWorld, latestS, seedsFromSnapshot, type Flock, type PEvent } from "./index";
+import { DEFAULT_FOLD, MAX_CATCH_UP, botActor, dueSamples, flockCentre, foldWorld, latestS, seedsFromSnapshot, type Flock, type PEvent } from "./index";
 
 describe("dueSamples: the wall-clock sampler", () => {
   it("nothing is due before one period has passed", () => {
@@ -107,5 +107,54 @@ describe("bot time: random within a window around the player", () => {
 
   it("spread 0 puts every bot exactly at the player's time", () => {
     for (const v of offsets(0)) expect(v).toBeCloseTo(300, 9);
+  });
+});
+
+describe("bot motion: walk and stand, wander, move between flocks", () => {
+  const start = 1_800_000_000_000;
+  const flock = { groups: 4, spread: 20, timeSpread: 60 };
+  const at = (i: number, sec: number) => botActor(i, "worker", start + sec * 1000, start, start, 60, flock);
+
+  it("bots stand still now and then (not one constant circling)", () => {
+    let still = 0;
+    for (let i = 0; i < 10; i++) {
+      for (let t = 1; t < 300; t++) {
+        const a = at(i, t), b = at(i, t + 1);
+        const [ca, cb] = [flockCentre(i % 4, 4, 20, t), flockCentre(i % 4, 4, 20, t + 1)];
+        // standing = moving only as much as the flock's centre drifts
+        if (Math.hypot(b.x - cb[0] - (a.x - ca[0]), b.z - cb[1] - (a.z - ca[1])) < 1e-9) still++;
+      }
+    }
+    expect(still).toBeGreaterThan(300);
+  });
+
+  it("each bot has its own range: some keep close, some roam", () => {
+    const range = (i: number) => {
+      let m = 0;
+      for (let t = 0; t < 600; t += 5) {
+        const a = at(i, t);
+        const c = flockCentre(i % 4, 4, 20, t);
+        m = Math.max(m, Math.hypot(a.x - c[0], a.z - c[1]));
+      }
+      return m;
+    };
+    const r = Array.from({ length: 12 }, (_, i) => range(i));
+    expect(Math.max(...r) - Math.min(...r)).toBeGreaterThan(1.5);
+  });
+
+  it("over a few minutes some bots move on to another flock", () => {
+    let moved = 0;
+    for (let i = 0; i < 16; i++) {
+      const home = flockCentre(i % 4, 4, 20, 0);
+      for (let t = 0; t < 900; t += 10) {
+        const a = at(i, t);
+        const c = flockCentre(i % 4, 4, 20, t);
+        if (Math.hypot(a.x - c[0], a.z - c[1]) > 10 && home) {
+          moved++;
+          break;
+        }
+      }
+    }
+    expect(moved).toBeGreaterThan(2);
   });
 });

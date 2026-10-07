@@ -71,20 +71,51 @@ export function botTimeOffset(i: number, startMs: number, timeSpread: number): n
   return (hash2(i, Math.floor(startMs / 1000) % 1_000_003, 61) - 0.5) * timeSpread;
 }
 
+/** Smooth 1D value noise, 0..1. */
+function noise1(t: number, seed: number): number {
+  const i = Math.floor(t);
+  const f = t - i;
+  const u = f * f * (3 - 2 * f);
+  const a = hash2(i, seed, 71), b = hash2(i + 1, seed, 71);
+  return a + (b - a) * u;
+}
+
+/** Seconds of the walking segments of bot i before `sec` (bots alternate walking and standing still). */
+function walkedSeconds(i: number, sec: number, segLen: number, walkShare: number): number {
+  const s = Math.floor(sec / segLen);
+  let walked = 0;
+  for (let k = 0; k < s; k++) if (hash2(i, k, 83) < walkShare) walked += segLen;
+  if (hash2(i, s, 83) < walkShare) walked += sec - s * segLen;
+  return walked;
+}
+
 /**
- * Bot i at wall time `wallMs`: circles its flock's centre on one of four radii, and lives around the player's time
- * slot (a random time within ±timeSpread/2 of it; some a little ahead, so they are invisible to the player at first).
- * `startMs` is when the bots were switched on; their motion depends only on (wallMs - startMs).
+ * Bot i at wall time `wallMs`, a pure function of (wallMs − startMs) so a throttled tab emits the same samples:
+ *   WALK / STAND   it alternates walking and standing still (segments of 6–24 s, 45–80 % walking: its character)
+ *   WANDER         while walking it follows its own noise path around its flock's centre (radius 1.5–4)
+ *   MIGRATE        every 1–3 min it may move on to another flock, walking over in ~12 s
+ * It lives around the player's time slot (see Flock.timeSpread; some a little ahead, invisible to the player at first).
  */
 export function botActor(i: number, role: RoleId, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): Actor {
   const groups = Math.max(1, Math.round(flock.groups));
-  const g = i % groups;
-  const j = Math.floor(i / groups); // place within the flock
-  const sec = (wallMs - startMs) / 1000;
-  const [cx, cz] = flockCentre(g, groups, flock.spread, sec);
-  const R = 1 + (j % 4) * 1.1;
-  const w = (0.18 + 0.05 * (j % 4)) * (j % 2 ? 1 : -1);
-  const a = sec * w + i * 2.399963;
+  const sec = Math.max(0, (wallMs - startMs) / 1000);
+  // character
+  const wanderR = 1.5 + 2.5 * hash2(i, 1, 91);
+  const walkShare = 0.45 + 0.35 * hash2(i, 2, 91);
+  const segLen = 6 + 18 * hash2(i, 3, 91);
+  const period = 60 + 120 * hash2(i, 4, 91);
+  // flock of an epoch: mostly its own, sometimes another
+  const flockOf = (ep: number) => (ep < 0 || hash2(i, ep, 97) < 0.65 ? i % groups : Math.floor(hash2(i, ep, 101) * groups) % groups);
+  const ep = Math.floor(sec / period);
+  const [ax, az] = flockCentre(flockOf(ep - 1), groups, flock.spread, sec);
+  const [bx, bz] = flockCentre(flockOf(ep), groups, flock.spread, sec);
+  const tr = Math.min(1, (sec - ep * period) / 12);
+  const m = ep === 0 ? 1 : tr * tr * (3 - 2 * tr);
+  const cx = ax + (bx - ax) * m, cz = az + (bz - az) * m;
+  // its own path, advanced only while walking
+  const p = walkedSeconds(i, sec, segLen, walkShare) * 0.07;
+  const ox = (noise1(p, i * 2 + 1) * 2 - 1) * wanderR + (noise1(p * 2.7, i * 2 + 5) * 2 - 1) * 0.6;
+  const oz = (noise1(p, i * 2 + 2) * 2 - 1) * wanderR + (noise1(p * 2.7, i * 2 + 6) * 2 - 1) * 0.6;
   const off = Math.max(0, flock.timeSpread !== undefined ? playerOffset + botTimeOffset(i, startMs, flock.timeSpread) : playerOffset - 20 + ((i * 7) % 25));
-  return { o: `bot${i}`, r: role, x: cx + Math.cos(a) * R, z: cz + Math.sin(a) * R, s: sessionSeconds(wallMs, epochMs, off) };
+  return { o: `bot${i}`, r: role, x: cx + ox, z: cz + oz, s: sessionSeconds(wallMs, epochMs, off) };
 }
