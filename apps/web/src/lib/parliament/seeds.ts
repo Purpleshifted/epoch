@@ -18,8 +18,8 @@
  * A RECIPE turns a seed into PARTS — a small grammar, not a pile of equal boxes:
  *   plinth     the foundation slab laid at the seed's birth
  *   basement   a block hanging under the plinth, dug into earlier time
- *   pile       thin piles under the plinth: they reach the structure (or ground) below if it is close enough,
- *              otherwise they dangle
+ *   pile       thin piles hanging under the plinth (drawn lengths: nothing below — ground or older structure — is
+ *              treated as a support)
  *   mass       the bulk, one or more per slot. Sizes are TRUNCATED PARETO: few huge, many small (scale hierarchy);
  *              some are long bars. Each hangs from its slot's ceiling down into its run (never below the run start).
  *              A big mass is not one box but a BUNDLE OF SLATS inside its bounds: hanging vertical sticks of ragged
@@ -69,8 +69,6 @@ export interface Seed {
 export type PartKind = "mass" | "slab" | "drip" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
 export const PART_KINDS: readonly PartKind[] = ["mass", "slab", "drip", "column", "beam", "brace", "plinth", "basement", "pile"];
 export const STEEL: ReadonlySet<PartKind> = new Set(["column", "beam", "brace"]);
-/** Parts that carry what is built on top of them later (piles of later seeds land on these). */
-const BEARING: ReadonlySet<PartKind> = new Set(["mass", "slab", "plinth", "basement"]);
 /** Foundation parts: the only ones that reach below the seed's birth. */
 export const FOUNDATION: ReadonlySet<PartKind> = new Set(["basement", "pile"]);
 
@@ -163,7 +161,7 @@ export interface Recipe {
   plinth: { footprint: [number, number]; thick: [number, number] };
   /** footprint: fraction of the plinth's. */
   basement: { footprint: [number, number]; depth: [number, number] };
-  /** depth: a pile that cannot reach anything within depth[1] dangles with a depth drawn from this range. */
+  /** Piles hang under the plinth: count (rounded), width in cells, depth in slots. */
   pile: { count: [number, number]; width: [number, number]; depth: [number, number] };
 }
 
@@ -178,13 +176,9 @@ export const RECIPES: Record<MaterialId, Recipe> = {
     drip: { perArea: 1.2, max: 14, length: [0.15, 2.5], alpha: 1.3, width: [0.04, 0.1] },
     plinth: { footprint: [1.8, 3.2], thick: [0.22, 0.4] },
     basement: { footprint: [0.45, 0.85], depth: [0.8, 2.6] },
-    pile: { count: [3, 7], width: [0.06, 0.12], depth: [1.5, 7] },
+    pile: { count: [2, 5], width: [0.06, 0.12], depth: [0.4, 2.5] },
   },
 };
-
-/** Highest top of a bearing part under (x, z) that is not above y; 0 (the ground) if there is none. */
-export type Support = (x: number, z: number, y: number) => number;
-const GROUND: Support = () => 0;
 
 function mix(h: number): number {
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
@@ -258,9 +252,9 @@ function runsOf(slots: readonly number[]): [number, number][] {
 
 /**
  * The parts of one seed. Each slot draws from its own random streams (one per part family), so the column only grows
- * upwards. `support` tells the foundation what lies below its birth (default: only the ground at y = 0).
+ * upwards. Nothing reaches below y = 0 (before the epoch).
  */
-export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support: Support = GROUND): Box[] {
+export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
   const rc = cfg.recipe ?? RECIPES[seed.material];
   const u = cfg.unit;
   const W = CELL_SIZE * cfg.width;
@@ -365,28 +359,26 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
   if (slots[0] === birth) {
     const r = stream(seed.id, birth, SALT.found);
     const [a0, a1, a2, a3, a4, a5, a6, a7] = [r(), r(), r(), r(), r(), r(), r(), r()];
+    const pileCount: [number, number] = [Math.round(rc.pile.count[0]), Math.round(rc.pile.count[1])];
     const piles: number[][] = [];
-    for (let i = 0; i < rc.pile.count[1]; i++) piles.push([r(), r(), r(), r()]);
+    for (let i = 0; i < pileCount[1]; i++) piles.push([r(), r(), r(), r()]);
     const px = logIn(a0, rc.plinth.footprint) * W * grow;
     const pz = logIn(a1, rc.plinth.footprint) * W * grow;
     const th = logIn(a2, rc.plinth.thick) * u;
     const y0 = birth * u;
     push("plinth", seed.x, y0 + th / 2, seed.z, px, th, pz, a7, birth);
 
-    const bWant = logIn(a4, rc.basement.depth) * u;
-    const bDepth = Math.min(bWant, y0 - support(seed.x, seed.z, y0));
+    const bDepth = Math.min(logIn(a4, rc.basement.depth) * u, y0);
     if (bDepth > 0.1 * u) {
       push("basement", seed.x, y0 - bDepth / 2, seed.z, px * logIn(a3, rc.basement.footprint), bDepth, pz * logIn(a5, rc.basement.footprint), a6, birth);
     }
 
-    const n = intIn(a6, rc.pile.count);
+    const n = intIn(a6, pileCount);
     for (let i = 0; i < n; i++) {
       const [p0, p1, p2, p3] = piles[i];
       const x = seed.x + (p0 - 0.5) * 0.88 * px;
       const z = seed.z + (p1 - 0.5) * 0.88 * pz;
-      const reach = y0 - support(x, z, y0);
-      // lands on what is below if it can reach it, otherwise dangles
-      const d = reach <= rc.pile.depth[1] * u ? reach : logIn(p2, rc.pile.depth) * u;
+      const d = Math.min(logIn(p2, rc.pile.depth) * u, y0);
       const w = logIn(p3, rc.pile.width) * W;
       if (d > 0.05 * u) push("pile", x, y0 - d / 2, z, w, d, w, p3, birth);
     }
@@ -490,52 +482,28 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
 export type PartsCache = Map<number, { key: string; parts: Box[] }>;
 
 /**
- * All parts. Seeds are built in order of birth, and every foundation is handed what the EARLIER seeds have built
- * below it (bearing parts only, tops not above its birth), so piles land on older structure.
- * With a `cache`, a seed whose slots, mass, config and number of earlier-born seeds are unchanged reuses its parts
- * (slat bundles make the part count large, and the view regenerates twice a second).
+ * All parts, seed by seed (in order of birth). With a `cache`, a seed whose slots, mass and config are unchanged
+ * reuses its parts (slat bundles make the part count large, and the view regenerates twice a second).
  */
 export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_BOXES, cache?: PartsCache): Box[] {
   const order = [...seeds].sort((a, b) => a.t0 - b.t0 || a.id - b.id);
   const cfgKey = cache ? JSON.stringify(cfg) : "";
   const live = new Set<number>();
-  const grid = new Map<string, Box[]>();
-  const cell = (v: number) => Math.floor(v / CELL_SIZE);
-  const support: Support = (x, z, y) => {
-    let best = 0;
-    for (const b of grid.get(`${cell(x)},${cell(z)}`) ?? []) {
-      const top = b.y + b.sy / 2;
-      if (top > best && top <= y + 1e-6 && Math.abs(x - b.x) <= b.sx / 2 && Math.abs(z - b.z) <= b.sz / 2) best = top;
-    }
-    return best;
-  };
   const out: Box[] = [];
-  for (let si = 0; si < order.length; si++) {
-    const s = order[si];
+  for (const s of order) {
     let parts: Box[];
     if (cache) {
       const slots = occupiedSlots(s, cfg);
-      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${si}:${cfgKey}`;
+      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${cfgKey}`;
       const hit = cache.get(s.id);
       if (hit && hit.key === key) parts = hit.parts;
       else {
-        parts = boxesOfSeed(s, cfg, support);
+        parts = boxesOfSeed(s, cfg);
         cache.set(s.id, { key, parts });
       }
       live.add(s.id);
-    } else parts = boxesOfSeed(s, cfg, support);
-    for (const b of parts) {
-      out.push(b);
-      if (!BEARING.has(b.kind)) continue;
-      for (let i = cell(b.x - b.sx / 2); i <= cell(b.x + b.sx / 2); i++) {
-        for (let j = cell(b.z - b.sz / 2); j <= cell(b.z + b.sz / 2); j++) {
-          const key = `${i},${j}`;
-          const list = grid.get(key);
-          if (list) list.push(b);
-          else grid.set(key, [b]);
-        }
-      }
-    }
+    } else parts = boxesOfSeed(s, cfg);
+    for (const b of parts) out.push(b);
   }
   if (cache) for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
   return out;

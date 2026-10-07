@@ -191,47 +191,33 @@ describe("seeds: recipe override (the 3D view's Leva knobs)", () => {
 describe("seeds: foundations", () => {
   const birthY = (t0: number) => Math.floor(t0 / DEFAULT_BOXES.secPerUnit) * DEFAULT_BOXES.unit;
 
-  it("piles land on what is below when they can reach it", () => {
+  const rc = RECIPES.concrete;
+  const piles = (s: Seed, cfg = DEFAULT_BOXES) => boxesOfSeed(s, cfg).filter((b) => b.kind === "pile");
+
+  it("piles hang from the plinth with drawn lengths — nothing below is a support", () => {
     const s = seed({ t0: 900, t1: 960 });
-    const floor = birthY(900) - 2;
-    const piles = boxesOfSeed(s, DEFAULT_BOXES, () => floor).filter((b) => b.kind === "pile");
-    expect(piles.length).toBeGreaterThanOrEqual(RECIPES.concrete.pile.count[0]);
-    for (const p of piles) expect(p.y - p.sy / 2).toBeCloseTo(floor, 9);
-  });
-
-  it("piles dangle when there is nothing within reach", () => {
-    const s = seed({ t0: 9000, t1: 9060 });
-    const y0 = birthY(9000);
-    const piles = boxesOfSeed(s).filter((b) => b.kind === "pile");
-    expect(piles.length).toBeGreaterThan(0);
-    for (const p of piles) {
+    const y0 = birthY(900);
+    const ps = piles(s);
+    expect(ps.length).toBeGreaterThanOrEqual(rc.pile.count[0]);
+    expect(ps.length).toBeLessThanOrEqual(rc.pile.count[1]);
+    for (const p of ps) {
       expect(p.y + p.sy / 2).toBeCloseTo(y0, 9);
-      expect(p.sy).toBeLessThanOrEqual(RECIPES.concrete.pile.depth[1] * DEFAULT_BOXES.unit + 1e-9);
+      expect(p.sy).toBeLessThanOrEqual(rc.pile.depth[1] * DEFAULT_BOXES.unit + 1e-9);
+    }
+    // an older seed right below changes nothing
+    const alone = generateBoxes([s]).filter((b) => b.kind === "pile");
+    const onTop = generateBoxes([s, seed({ id: 1, t0: 600, t1: 870, mass: 4 })]).filter((b) => b.kind === "pile" && b.seed === s.id);
+    expect(onTop).toEqual(alone);
+  });
+
+  it("nothing reaches below y = 0 (before the epoch)", () => {
+    for (const t0 of [0, 10, 31, 45, 70]) {
+      for (const b of boxesOfSeed(seed({ id: 7 + t0, t0, t1: t0 + 60 }))) expect(b.y - halfHeight(b)).toBeGreaterThanOrEqual(-1e-9);
     }
   });
 
-  it("a seed born on top of an older one rests its piles on the older parts (generateBoxes)", () => {
-    const old = seed({ id: 1, t0: 0, t1: 300, mass: 4 });
-    const young = seed({ id: 2, t0: 420, t1: 480 });
-    const all = generateBoxes([young, old]);
-    const y0 = birthY(420);
-    const bearing = all.filter((b) => b.seed === old.id && (b.kind === "mass" || b.kind === "slab" || b.kind === "plinth" || b.kind === "basement"));
-    const piles = all.filter((b) => b.seed === young.id && b.kind === "pile");
-    expect(piles.length).toBeGreaterThan(0);
-    let landed = 0;
-    for (const p of piles) {
-      let below = 0;
-      for (const b of bearing) {
-        const top = b.y + b.sy / 2;
-        if (top <= y0 + 1e-6 && Math.abs(p.x - b.x) <= b.sx / 2 && Math.abs(p.z - b.z) <= b.sz / 2) below = Math.max(below, top);
-      }
-      const bottom = p.y - p.sy / 2;
-      if (y0 - below <= RECIPES.concrete.pile.depth[1] * DEFAULT_BOXES.unit) {
-        expect(bottom).toBeCloseTo(below, 6);
-        landed++;
-      } else expect(bottom).toBeGreaterThan(below);
-    }
-    expect(landed).toBeGreaterThan(0);
+  it("pile count 0 → no piles", () => {
+    expect(piles(seed({ t0: 900, t1: 960 }), { ...DEFAULT_BOXES, recipe: { ...rc, pile: { ...rc.pile, count: [0, 0] } } })).toHaveLength(0);
   });
 });
 

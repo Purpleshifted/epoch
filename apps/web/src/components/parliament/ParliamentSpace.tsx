@@ -470,16 +470,28 @@ export default function ParliamentSpace() {
     dripAlpha: { value: RC.drip.alpha, min: 0.3, max: 4, step: 0.05, label: "드립: 길이 분포 (작을수록 긴 것 많음)" },
     dripWidth: { value: RC.drip.width, min: 0.01, max: 0.4, step: 0.01, label: "드립: 굵기 (칸)" },
   });
+  const found = useControls("기초", {
+    plinthFootprint: { value: RC.plinth.footprint, min: 0.3, max: 8, step: 0.1, label: "기단: 크기 (칸)" },
+    plinthThick: { value: RC.plinth.thick, min: 0.02, max: 2, step: 0.01, label: "기단: 두께 (단)" },
+    basementDepth: { value: RC.basement.depth, min: 0.01, max: 6, step: 0.05, label: "베이스먼트: 깊이 (단)" },
+    basementFootprint: { value: RC.basement.footprint, min: 0.1, max: 1, step: 0.05, label: "베이스먼트: 크기 (기단 대비)" },
+    pileCount: { value: RC.pile.count, min: 0, max: 10, step: 1, label: "말뚝: 개수" },
+    pileDepth: { value: RC.pile.depth, min: 0.05, max: 8, step: 0.05, label: "말뚝: 길이 (단)" },
+    pileWidth: { value: RC.pile.width, min: 0.01, max: 0.4, step: 0.01, label: "말뚝: 굵기 (칸)" },
+  });
   const recipe = useMemo<Recipe>(
     () => ({
       ...RC,
+      plinth: { footprint: found.plinthFootprint, thick: found.plinthThick },
+      basement: { depth: found.basementDepth, footprint: found.basementFootprint },
+      pile: { count: found.pileCount, depth: found.pileDepth, width: found.pileWidth },
       slat: { enabled: slat.enabled, minFootprint: slat.minFootprint, width: slat.width, density: slat.density, maxPerMass: slat.maxPerMass, vertical: slat.vertical, shortest: slat.shortest },
       drip: { perArea: slat.dripPerArea, max: slat.dripMax, length: slat.dripLength, alpha: slat.dripAlpha, width: slat.dripWidth },
       beam: { ...RC.beam, chance: steel.beamChance, length: steel.beamLength, width: steel.beamWidth, onGrid: steel.beamOnGrid, skew: steel.beamSkew * DEG },
       brace: { ...RC.brace, chance: steel.braceChance, length: steel.braceLength, tilt: pair(steel.braceTilt, DEG), width: steel.braceWidth },
       column: { ...RC.column, count: steel.columnCount, width: steel.columnWidth },
     }),
-    [steel, slat],
+    [steel, slat, found],
   );
   const boxCfg = useMemo<BoxConfig>(
     () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density, recipe }),
