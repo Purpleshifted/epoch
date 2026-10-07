@@ -13,8 +13,9 @@
  *   COURSE     a meandering line between the two nearest seeds; the bends drift slowly through time, so stacked
  *              slots read as a twisting sheet in the timespace
  *
- * Effects (through waterField): vegetation is denser along the water, and parts near it corrode faster
- * (WearConfig.water). Pure and deterministic.
+ * The water itself is not drawn: it shows as WETLAND vegetation along its course — denser and wetland-coloured
+ * (waterField → natureHistory.waterBoost, naturePoints.wet) — and parts near it corrode faster (WearConfig.water).
+ * Pure and deterministic.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
@@ -33,14 +34,14 @@ export interface WaterConfig {
   minShare: number;
   /** Seconds the water keeps flowing after both buildings were last used. */
   persistSec: number;
-  /** Width of the stream (world). */
-  width: number;
   /** How far the course bends sideways (× its length). */
   meander: number;
   /** Reach of the water's influence on vegetation and parts (world). */
   radius: number;
   /** Vegetation density added right at the water (fades to 0 at `radius`). */
   vegBoost: number;
+  /** Share of the vegetation at the water that is wetland (coloured as such), fading to 0 at `radius`. */
+  wetShare: number;
   /** Parts at the water age × (1 + corrode) while exposed (fades with distance). */
   corrode: number;
 }
@@ -52,10 +53,10 @@ export const DEFAULT_WATER: WaterConfig = {
   reach: 40,
   minShare: 1,
   persistSec: 300,
-  width: 0.45,
   meander: 0.18,
   radius: 2.5,
   vegBoost: 0.6,
+  wetShare: 0.9,
   corrode: 1.5,
 };
 
@@ -245,37 +246,4 @@ export function waterField(links: readonly WaterLink[], k0: number, k1: number, 
     }
   }
   return (ix, iz, k) => m.get(`${ix},${iz},${k}`) ?? 0;
-}
-
-export interface WaterMesh {
-  position: Float32Array;
-  index: Uint32Array;
-}
-
-/** Flat ribbons along the courses, one per flowing slot within [kFrom, kTo], at the slot's floor. */
-export function waterRibbons(links: readonly WaterLink[], kFrom: number, kTo: number, secPerUnit: number, unit: number, cfg: WaterConfig): WaterMesh {
-  const pos: number[] = [];
-  const ind: number[] = [];
-  const hw = cfg.width / 2;
-  for (const l of links) {
-    const [a, b] = linkSlots(l, secPerUnit);
-    for (let k = Math.max(kFrom, a); k <= Math.min(kTo, b); k++) {
-      const c = waterCourse(l, k, cfg);
-      const y = (k + 0.05) * unit;
-      const base = pos.length / 3;
-      const n = c.length / 2;
-      for (let i = 0; i < n; i++) {
-        const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
-        const tx = c[i1 * 2] - c[i0 * 2], tz = c[i1 * 2 + 1] - c[i0 * 2 + 1];
-        const tl = Math.hypot(tx, tz) || 1;
-        const ox = (-tz / tl) * hw, oz = (tx / tl) * hw;
-        pos.push(c[i * 2] + ox, y, c[i * 2 + 1] + oz, c[i * 2] - ox, y, c[i * 2 + 1] - oz);
-        if (i < n - 1) {
-          const v = base + i * 2;
-          ind.push(v, v + 1, v + 2, v + 1, v + 3, v + 2);
-        }
-      }
-    }
-  }
-  return { position: Float32Array.from(pos), index: Uint32Array.from(ind) };
 }

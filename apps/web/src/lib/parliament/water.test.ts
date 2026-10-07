@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_WATER, buildingsOf, waterCourse, waterField, waterLinks, waterRibbons, type Seed } from "./index";
+import { DEFAULT_WATER, buildingsOf, waterCourse, waterField, waterLinks, type Seed } from "./index";
 
 const SPU = 30;
 /** A seed at cell (cx, cz), alive t0…t1, big from `bigAt` (raw 1 before, 2 after), built by `who`. */
@@ -60,12 +60,4 @@ describe("waterways: between big buildings that the same people built", () => {
     expect(f(Math.floor(mid[0] / CELL_SIZE), Math.floor(mid[1] / CELL_SIZE), 2)).toBe(0); // before it flows
   });
 
-  it("ribbons: one strip per flowing slot", () => {
-    const [l] = waterLinks([...A, ...B], DEFAULT_WATER, 1000);
-    const m = waterRibbons([l], 0, 100, SPU, 1, DEFAULT_WATER);
-    expect(m.index.length % 3).toBe(0);
-    const ys = new Set<number>();
-    for (let i = 1; i < m.position.length; i += 3) ys.add(Math.floor(m.position[i]));
-    expect(ys.size).toBe(Math.floor(l.t1 / SPU) - Math.floor(l.t0 / SPU) + 1);
-  });
 });

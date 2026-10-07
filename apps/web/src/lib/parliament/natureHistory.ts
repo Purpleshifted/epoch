@@ -222,7 +222,7 @@ export function natureAt(h: NatureHistory, ix: number, iz: number, k: number): n
 }
 
 /** What a nature point is (the renderer picks the colour). */
-export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6, humus: 7, peat: 8, trodden: 9 } as const;
+export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6, humus: 7, peat: 8, trodden: 9, wet: 10 } as const;
 
 export interface NaturePointOptions {
   /** World size of a time slot (y). */
@@ -248,6 +248,8 @@ export interface NaturePointOptions {
    * extra ones heaped up.
    */
   paths?: { hole: number; berm: number };
+  /** WETLAND: share (0..1) of a cell's points in a slot that are wetland vegetation (near water). */
+  wet?: (ix: number, iz: number, k: number) => number;
 }
 
 /** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
@@ -301,6 +303,7 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
         const iz = h.z0 + j;
         const n = Math.floor(want) + (h3(ix, iz, k, 1) < want - Math.floor(want) ? 1 : 0);
         const under = !!opts.buried && n > 0 && opts.buried(ix, iz, k);
+        const wetShare = opts.wet && n > 0 && !under ? opts.wet(ix, iz, k) : 0;
         for (let p = 0; p < n; p++) {
           const s = p * 7 + 11;
           const rx = h3(ix, iz, k, s);
@@ -337,6 +340,7 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           const soil = 0.15 + 0.6 * (1 - v);
           if (under) kind.push(NATURE_KIND.buried);
           else if (sed) kind.push(q > 0.6 && h3(ix, iz, k, s + 8) < q ? NATURE_KIND.peat : NATURE_KIND.humus);
+          else if (wetShare > 0 && h3(ix, iz, k, s + 13) < wetShare) kind.push(NATURE_KIND.wet);
           else kind.push(rk < soil ? NATURE_KIND.soil : rk < soil + 0.12 ? NATURE_KIND.dry : h3(ix, iz, k, s + 5) < 0.6 ? NATURE_KIND.grass : NATURE_KIND.herb);
           shade.push(h3(ix, iz, k, s + 6));
         }

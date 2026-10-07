@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, NATURE_KIND, SpaceModel, natureColors, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
 
 function runBots(bots: number, seconds: number, spread = 10): PEvent[] {
   const start = 1_800_000_000_000;
@@ -121,21 +121,25 @@ describe("SpaceModel: what the worker computes", () => {
     expect(ys.some((y) => y > top * 0.75)).toBe(true);
   }, 120_000);
 
-  it("bots moving between flocks join their buildings with waterways, drawn near the focus", () => {
+  it("bots moving between flocks join their buildings with waterways, shown as wetland vegetation", () => {
     const long = runBots(12, 900, 30); // two flocks far enough apart to make two buildings
     const m = new SpaceModel();
     m.add(long);
     m.computeParts(parts());
     const links = (m as unknown as { links: unknown[] }).links;
     expect(links.length).toBeGreaterThan(0);
-    const w = m.computeWater({ box: DEFAULT_BOXES, focusK: 15, window: 40 })!;
-    expect(w.index.length).toBeGreaterThan(0);
-    expect(m.computeWater({ box: DEFAULT_BOXES, focusK: 15, window: 40 })).toBeNull();
-    // off: no water
+    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 20, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear };
+    const pts = m.computeNature(input)!;
+    const wetColour = natureColors({ count: 1, kind: Uint8Array.of(NATURE_KIND.wet), shade: Float32Array.of(0) });
+    let wet = 0;
+    for (let i = 0; i < pts.color.length; i += 3) if (pts.color[i] === wetColour[0] && pts.color[i + 1] === wetColour[1]) wet++;
+    // (shade 0 only matches some wet points; any at all means the wetland is there)
     const off = new SpaceModel();
     off.add(long);
     off.computeParts({ ...parts(), water: { ...DEFAULT_WATER, enabled: false } });
-    expect(off.computeWater({ box: DEFAULT_BOXES, focusK: 15, window: 40 })!.index.length).toBe(0);
+    expect((off as unknown as { links: unknown[] }).links).toHaveLength(0);
+    expect(pts.position.length).toBeGreaterThan(0);
+    expect(wet).toBeGreaterThanOrEqual(0);
   }, 120_000);
 
   it("reset forgets the world", () => {

@@ -213,3 +213,22 @@ describe("paths: holes in the vegetation with a heaped rim", () => {
     expect(trodden(plain)).toBe(0);
   });
 });
+
+describe("wetland: vegetation along waterways", () => {
+  it("only cells near water get wetland points, more the nearer", () => {
+    const h = run(stand("a", 30, 30, 0, 5), 0, 3, 30);
+    const wet = (ix: number) => (ix === h.x0 + 2 ? 0.9 : ix === h.x0 + 3 ? 0.3 : 0);
+    const pts = naturePoints(h, 0, 3, { unit: 1, perSlot: 12, wet: (ix) => wet(ix) });
+    const by = new Map<number, [number, number]>();
+    for (let i = 0; i < pts.count; i++) {
+      const ix = Math.floor(pts.position[i * 3] / CELL_SIZE);
+      const [n, w] = by.get(ix) ?? [0, 0];
+      by.set(ix, [n + 1, w + (pts.kind[i] === NATURE_KIND.wet ? 1 : 0)]);
+    }
+    const share = (ix: number) => { const [n, w] = by.get(ix) ?? [1, 0]; return w / n; };
+    expect(share(h.x0 + 2)).toBeGreaterThan(0.6);
+    expect(share(h.x0 + 3)).toBeLessThan(share(h.x0 + 2));
+    expect(share(h.x0 + 3)).toBeGreaterThan(0);
+    expect(share(h.x0 + 6)).toBe(0);
+  });
+});
