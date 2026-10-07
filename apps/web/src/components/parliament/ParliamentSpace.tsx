@@ -68,7 +68,7 @@ const THEMES = {
  * Points that dissolve near the camera (a dithered fade between `near0` and `near1`, view distance), so close
  * vegetation never blocks the view. No transparency sorting: fragments are discarded against screen-space noise.
  */
-function fadingPointsMaterial(opts: { round?: boolean } = {}): THREE.PointsMaterial {
+function fadingPointsMaterial(): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
   const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 } };
   m.userData.fade = uniforms;
@@ -82,16 +82,9 @@ function fadingPointsMaterial(opts: { round?: boolean } = {}): THREE.PointsMater
         "#include <fog_vertex>",
         "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));",
       );
-    let frag = shader.fragmentShader
+    shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nvarying float vFade;")
       .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif (vFade < fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;");
-    if (opts.round) {
-      // a little sphere: round, and shaded darker towards its rim
-      frag = frag
-        .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nvec2 pc = gl_PointCoord - 0.5;\nfloat rr = dot(pc, pc) * 4.0;\nif (rr > 1.0) discard;")
-        .replace("#include <opaque_fragment>", "outgoingLight *= 0.5 + 0.5 * sqrt(max(0.0, 1.0 - rr));\n#include <opaque_fragment>");
-    }
-    shader.fragmentShader = frag;
   };
   return m;
 }
@@ -221,6 +214,35 @@ function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined)
   pts.geometry = g;
 }
 
+const GATHER_CAPACITY = 60000;
+
+/** Gathering vegetation as little lit spheres: one instance per point, the size jittered by a hash of where it sits. */
+function setSpheres(mesh: THREE.InstancedMesh | null, r: PointsResult, size: number, jitter: number): void {
+  if (!mesh) return;
+  if (!mesh.instanceColor) mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GATHER_CAPACITY * 3), 3);
+  const n = Math.min(r.position.length / 3, GATHER_CAPACITY);
+  const m = mesh.instanceMatrix.array as Float32Array;
+  const p = r.position;
+  for (let i = 0; i < n; i++) {
+    const x = p[i * 3], y = p[i * 3 + 1], z = p[i * 3 + 2];
+    const h = Math.abs(Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) % 1;
+    const sc = (size / 2) * Math.max(0.05, 1 + jitter * (h - 0.5) * 2);
+    const o = i * 16;
+    m[o] = sc; m[o + 1] = 0; m[o + 2] = 0; m[o + 3] = 0;
+    m[o + 4] = 0; m[o + 5] = sc; m[o + 6] = 0; m[o + 7] = 0;
+    m[o + 8] = 0; m[o + 9] = 0; m[o + 10] = sc; m[o + 11] = 0;
+    m[o + 12] = x; m[o + 13] = y; m[o + 14] = z; m[o + 15] = 1;
+  }
+  (mesh.instanceColor.array as Float32Array).set(r.color.subarray(0, n * 3));
+  mesh.count = n;
+  mesh.instanceMatrix.clearUpdateRanges();
+  mesh.instanceMatrix.addUpdateRange(0, n * 16);
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.instanceColor.clearUpdateRanges();
+  mesh.instanceColor.addUpdateRange(0, n * 3);
+  mesh.instanceColor.needsUpdate = true;
+}
+
 /** Where the space computation runs: a Web Worker, or (if the worker cannot start) the main thread. */
 interface SpaceRunner {
   post: (m: SpaceRequest) => void;
@@ -295,7 +317,12 @@ function SpaceWorld({
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
   const naturePts = useRef<THREE.Points>(null);
-  const reclaimPts = useRef<THREE.Points>(null);
+  const gatherMesh = useRef<THREE.InstancedMesh>(null);
+  const lastGather = useRef<PointsResult | null>(null);
+  // re-place the spheres when their size or jitter changes (the positions stay)
+  useEffect(() => {
+    if (lastGather.current) setSpheres(gatherMesh.current, lastGather.current, nature?.gatherSize ?? 0.09, nature?.gatherJitter ?? 0);
+  }, [nature?.gatherSize, nature?.gatherJitter]);
   const focusY = useRef<number | null>(null);
   const snapped = useRef(false);
   const worker = useRef<SpaceRunner | null>(null);
@@ -315,11 +342,9 @@ function SpaceWorld({
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
-  const reclaimMat = useMemo(() => fadingPointsMaterial({ round: true }), []);
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
-    applyPointLook(reclaimMat, nature?.gatherSize ?? 0.07, nearFade, nature?.gatherJitter ?? 0);
-  }, [natureMat, reclaimMat, nature?.size, nature?.gatherSize, nature?.gatherJitter, nearFade]);
+  }, [natureMat, nature?.size, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -369,7 +394,10 @@ function SpaceWorld({
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
-    setPoints(reclaimPts.current, r.reclaim);
+    if (r.reclaim) {
+      lastGather.current = r.reclaim;
+      setSpheres(gatherMesh.current, r.reclaim, live.current.nature?.gatherSize ?? 0.09, live.current.nature?.gatherJitter ?? 0);
+    }
     setFused(fused.current, r.fuse);
     if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
   };
@@ -504,9 +532,18 @@ function SpaceWorld({
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>
-      <points ref={reclaimPts} frustumCulled={false} visible={!!nature && nature.reclaim} material={reclaimMat}>
-        <bufferGeometry />
-      </points>
+      <instancedMesh
+        ref={gatherMesh}
+        args={[undefined, undefined, GATHER_CAPACITY]}
+        count={0}
+        frustumCulled={false}
+        visible={!!nature && nature.reclaim}
+        castShadow
+        receiveShadow
+      >
+        <icosahedronGeometry args={[1, 1]} />
+        <meshStandardMaterial roughness={0.85} metalness={0} />
+      </instancedMesh>
     </>
   );
 }
