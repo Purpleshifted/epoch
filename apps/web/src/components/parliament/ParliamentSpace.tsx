@@ -48,6 +48,9 @@ import {
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
+  DEFAULT_FUSE,
+  type FuseConfig,
+  type FuseMesh,
   SpaceModel,
   handleSpaceRequest,
 } from "@/lib/parliament";
@@ -140,6 +143,18 @@ interface NatureParams {
   reclaimPerArea: number;
 }
 
+/** Replaces the fused mesh's geometry (the old one is disposed). */
+function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void {
+  if (!mesh || !r) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(r.normal, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
+  g.setIndex(new THREE.BufferAttribute(r.index, 1));
+  mesh.geometry.dispose();
+  mesh.geometry = g;
+}
+
 /** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
 function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined): void {
   if (!pts || !r) return;
@@ -193,6 +208,7 @@ function SpaceWorld({
   lodNear,
   farFactor,
   weather,
+  fuse,
   nearFade,
 }: {
   log: EventLog;
@@ -208,6 +224,8 @@ function SpaceWorld({
   lodNear: number;
   farFactor: number;
   weather: WeatherConfig;
+  /** Old layers fused into one mass. */
+  fuse: FuseConfig;
   /** Vegetation within this view distance [start, end] dissolves (keeps the view clear). */
   nearFade: [number, number];
 }) {
@@ -225,10 +243,11 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, onStats });
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, onStats };
   });
+  const fused = useRef<THREE.Mesh>(null);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
   const reclaimMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
@@ -288,6 +307,7 @@ function SpaceWorld({
     }
     setPoints(naturePts.current, r.nature);
     setPoints(reclaimPts.current, r.reclaim);
+    setFused(fused.current, r.fuse);
     if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
   };
 
@@ -329,7 +349,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu } = live.current;
     const events = log.all();
     if (events.length < sent.current) {
       w.post({ type: "events", add: events, reset: true });
@@ -348,14 +368,16 @@ function SpaceWorld({
     const lod = { camera: cam, near, farFactor: ff };
     const id = ++seq.current;
     const withNature = !!nat && id % NATURE_EVERY === 1;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, edges: e, lod } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
-      req.nature = { fold: f, box: cfg, weather: wx, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, lod };
+      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, lod };
       if (nat.reclaim) {
         req.reclaim = { tauReclaimYears: nat.tauReclaimYears, perArea: nat.reclaimPerArea, unit: cfg.unit, secPerUnit: wx.strata ? cfg.secPerUnit : undefined, timeScale: wx.timeScale };
       }
     }
+    // the fused mass follows the vegetation's cadence (it is built from its history)
+    if (id % NATURE_EVERY === 1) req.fuse = { box: cfg, weather: wx, fuse: fu };
     inFlight.current = { id, at: now };
     w.post(req);
   });
@@ -402,6 +424,10 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
+      <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled}>
+        <bufferGeometry />
+        <meshStandardMaterial vertexColors roughness={0.95} metalness={0} side={THREE.DoubleSide} />
+      </mesh>
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>
@@ -667,6 +693,18 @@ export default function ParliamentSpace() {
     tauSedimentYears: { value: DEFAULT_WEATHER.tauSedimentYears, min: 10, max: 20000, step: 10, label: "식생 → 부식토/이탄 (년)" },
   });
   const weather = useMemo<WeatherConfig>(() => ({ ...weatherCtl }), [weatherCtl]);
+  const fuseCtl = useControls("융합 (오래된 층 → 한 덩어리)", {
+    enabled: { value: DEFAULT_FUSE.enabled, label: "켜기 (지층이 켜져 있어야 함)" },
+    share: { value: DEFAULT_FUSE.share, min: 0.05, max: 1, step: 0.01, label: "융합 시작 (퇴적 비율)" },
+    band: { value: DEFAULT_FUSE.band, min: 0.01, max: 0.6, step: 0.01, label: "전이 구간 폭" },
+    voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀 크기, 작을수록 무거움)" },
+    blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "엉김 반경 (복셀)" },
+    gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "엉김 세기" },
+    porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "다공성 (구멍)" },
+    iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "표면 문턱" },
+    natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물 비중" },
+  });
+  const fuseCfg = useMemo<FuseConfig>(() => ({ ...fuseCtl }), [fuseCtl]);
   const theme = THEMES[view.theme as keyof typeof THEMES] ?? THEMES.paper;
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   const composerOn = ao.enabled || light.grain > 0 || view.dof;
@@ -786,6 +824,7 @@ export default function ParliamentSpace() {
           lodNear={lod.near}
           farFactor={lod.farFactor}
           weather={weather}
+          fuse={fuseCfg}
           nearFade={view.nearFade}
         />
         <FocusFollow controls={controls} target={focusTarget} />

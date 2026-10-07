@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
 
 function runBots(bots: number, seconds: number): PEvent[] {
   const start = 1_800_000_000_000;
@@ -42,7 +42,7 @@ describe("SpaceModel: what the worker computes", () => {
   const events = runBots(8, 240);
   const lodNear = { camera: [0, 0, 0] as [number, number, number], near: 1e9, farFactor: 0.25 };
   const lodFar = { ...lodNear, near: 0 };
-  const parts = (lod = lodNear) => ({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, wear: true, weather: DEFAULT_WEATHER, edges: false, lod });
+  const parts = (lod = lodNear) => ({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, wear: true, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, edges: false, lod });
 
   it("builds parts, and returns null when nothing changed", () => {
     const m = new SpaceModel();
@@ -69,7 +69,7 @@ describe("SpaceModel: what the worker computes", () => {
     const m = new SpaceModel();
     m.add(events);
     m.computeParts(parts());
-    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 8, margin: 4, budget: 1e7, burialSlots: 3 };
+    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 8, margin: 4, budget: 1e7, burialSlots: 3 };
     const near = m.computeNature({ ...input, lod: lodNear })!;
     expect(near.position.length).toBeGreaterThan(0);
     expect(near.color.length).toBe(near.position.length);
@@ -77,6 +77,27 @@ describe("SpaceModel: what the worker computes", () => {
     const far = m.computeNature({ ...input, lod: { camera: [0, 1e4, 0], near: 10, farFactor: 0.25 } })!;
     expect(far.position.length).toBeLessThan(near.position.length);
   });
+
+  it("old layers are fused into one mesh and their parts leave the instances", () => {
+    // an old world: the same bots, an hour before the present
+    const late: PEvent[] = [...events, { id: "late", o: "late", r: "worker", k: "p", x: 40, z: 40, s: 4000 }];
+    const m = new SpaceModel();
+    m.add(late);
+    const off = m.computeParts({ ...parts(), fuse: { ...DEFAULT_FUSE, enabled: false } })!;
+    const on = m.computeParts(parts())!;
+    expect(on.parts).toBeLessThan(off.parts);
+    const input = { box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE };
+    // chunks are built a few per call: call until it settles (null = nothing left to build)
+    let mesh = m.computeFuse(input)!;
+    for (let i = 0; i < 60; i++) {
+      const next = m.computeFuse(input);
+      if (!next) break;
+      mesh = next;
+    }
+    expect(m.computeFuse(input)).toBeNull();
+    expect(mesh.index.length).toBeGreaterThan(0);
+    expect(mesh.index.length % 3).toBe(0);
+  }, 120_000);
 
   it("reset forgets the world", () => {
     const m = new SpaceModel();

@@ -216,6 +216,8 @@ export interface NaturePointOptions {
    * share q = 1 − e^(−A/tauYears), A = model years since the slot's end (× timeScale) at tNow.
    */
   sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number };
+  /** Share of a slot's points that are drawn (0..1), e.g. 1 − fused weight: fused layers are drawn as one mass. */
+  thin?: (k: number) => number;
 }
 
 /** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
@@ -259,10 +261,12 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
   for (let k = a; k <= b; k++) {
     const base = (k - h.k0) * h.nx * h.nz;
     const q = opts.sediment ? sedimentShare(k, opts.sediment) : 0;
+    const keepShare = opts.thin ? Math.max(0, Math.min(1, opts.thin(k))) : 1;
+    if (keepShare <= 0) continue;
     for (let j = 0; j < h.nz; j++) {
       for (let i = 0; i < h.nx; i++) {
         const v = h.V[base + j * h.nx + i];
-        const want = v * opts.perSlot;
+        const want = v * opts.perSlot * keepShare;
         const ix = h.x0 + i;
         const iz = h.z0 + j;
         const n = Math.floor(want) + (h3(ix, iz, k, 1) < want - Math.floor(want) ? 1 : 0);

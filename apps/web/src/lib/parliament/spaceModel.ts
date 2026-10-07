@@ -12,17 +12,23 @@
  */
 
 import { foldWorld, latestS, withoutWear } from "./fold";
-import { NATURE_KIND, burialOf, natureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
+import { CELL_SIZE } from "@/lib/stratum/field";
+import { fuseChunk, fusedWeight, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { NATURE_KIND, burialOf, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
-import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, seedsFromSnapshot, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
+import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, partHash, seedsFromSnapshot, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
+
+const CELL = CELL_SIZE;
 
 /** Instance capacity per part kind (what the view allocates). */
 export const PART_CAPACITY: Record<PartKind, number> = { mass: 400000, slab: 12000, drip: 60000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
 /** Boxes that get edge lines at most. */
 export const EDGE_CAP = 40000;
-/** Slots per cached chunk of vegetation points. */
+/** Slots per cached chunk of vegetation points and of the fused mesh. */
 export const NATURE_CHUNK = 10;
+/** Fused chunks (re)built per request at most; the rest follow on the next requests. */
+export const FUSE_NEW_PER_CALL = 1;
 
 /** sRGB hex pairs (low, high shade) per NATURE_KIND. */
 export const NATURE_PALETTE: [string, string][] = [
@@ -112,11 +118,20 @@ export interface WeatherConfig {
 
 export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.02, steelLife: 2, concreteLife: 1, tauSedimentYears: 600 };
 
+/** The sediment clock of the view at its present (per slot, so it moves once a slot); null without strata. */
+function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
+  if (!w.strata) return null;
+  const tQ = Math.floor(t / box.secPerUnit) * box.secPerUnit;
+  return { tNow: tQ, secPerUnit: box.secPerUnit, timeScale: w.timeScale, tauYears: w.tauSedimentYears };
+}
+
 export interface PartsInput {
   fold: FoldConfig;
   box: BoxConfig;
   wear: boolean;
   weather: WeatherConfig;
+  /** Layers old enough are fused into one mesh (computeFuse); their parts dissolve here. */
+  fuse: FuseConfig;
   edges: boolean;
   lod: LodConfig;
 }
@@ -142,6 +157,7 @@ export interface NatureInput {
   fold: FoldConfig;
   box: BoxConfig;
   weather: WeatherConfig;
+  fuse: FuseConfig;
   nature: NatureConfig;
   perSlot: number;
   /** Slots around `focusK` that are built. */
@@ -159,6 +175,12 @@ export interface ReclaimInput {
   unit: number;
   secPerUnit?: number;
   timeScale?: number;
+}
+
+export interface FuseInput {
+  box: BoxConfig;
+  weather: WeatherConfig;
+  fuse: FuseConfig;
 }
 
 export interface PointsResult {
@@ -179,6 +201,11 @@ export class SpaceModel {
   private partsSig = "";
   private built: Box[] = [];
   private worn: Box[] = [];
+  /** Worn parts before the fused layers were taken out (what fusion is made of). */
+  private wornAll: Box[] = [];
+  private history: NatureHistory | null = null;
+  private fuseSig = "";
+  private fuseChunks = new Map<number, { key: string; mesh: FuseMesh }>();
   private natureSig = "";
   private chunks = new Map<number, { key: string; pos: Float32Array; col: Float32Array }>();
   private reclaimSig = "";
@@ -240,7 +267,7 @@ export class SpaceModel {
         lodSig = (lodSig * 31 + s.id) % 1e9;
       }
     }
-    const sig = `${this.seedsKey}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${far.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${far.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
 
@@ -264,20 +291,30 @@ export class SpaceModel {
     const worn = input.wear
       ? wearParts(built, seeds, t, { ...input.fold, secPerUnit: w.strata ? box.secPerUnit : undefined, timeScale: w.timeScale, steelLife: w.steelLife, concreteLife: w.concreteLife })
       : built;
-    this.built = built;
-    this.worn = worn;
+    // fused layers are drawn as one mass: their parts dissolve (all at full fusion, by a fixed hash in the band)
+    const sed = sedimentOf(t, box, w);
+    const fu = input.fuse;
+    const visible = (b: Box) => {
+      if (!sed || !fu.enabled) return true;
+      const f = fusedWeight(b.slot, sed, fu);
+      return f <= 0 || (f < 1 && partHash(b) >= f);
+    };
+    this.wornAll = worn;
+    this.built = built.filter(visible);
+    this.worn = worn.filter(visible);
+    const shown = this.worn;
 
     const counts = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
-    for (const b of worn) counts[b.kind] = Math.min(PART_CAPACITY[b.kind], counts[b.kind] + 1);
+    for (const b of shown) counts[b.kind] = Math.min(PART_CAPACITY[b.kind], counts[b.kind] + 1);
     const matrices = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 16)])) as Record<PartKind, Float32Array>;
     const colors = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 3)])) as Record<PartKind, Float32Array>;
     const fill = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
-    const edgeCount = input.edges ? Math.min(EDGE_CAP, worn.length) : 0;
+    const edgeCount = input.edges ? Math.min(EDGE_CAP, shown.length) : 0;
     const edges = input.edges ? new Float32Array(edgeCount * 72) : null;
     let ei = 0;
     const m = new Float32Array(16);
     let minX = Infinity, minZ = Infinity, top = 0;
-    for (const b of worn) {
+    for (const b of shown) {
       const k = b.kind;
       const i = fill[k];
       if (i >= counts[k]) continue;
@@ -310,7 +347,7 @@ export class SpaceModel {
       colors,
       edges: edges ? edges.subarray(0, ei * 72) : null,
       seeds: seeds.length,
-      parts: worn.length,
+      parts: shown.length,
       farSeeds: far.size,
       t,
       top,
@@ -341,12 +378,15 @@ export class SpaceModel {
     const tQ = Math.floor(this.t / spu) * spu;
     const sediment = input.weather.strata ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears } : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
-    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${k0}:${k1}:${levels.join(",")}`;
+    const fuseKey = JSON.stringify(input.fuse);
+    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${fuseKey}:${k0}:${k1}:${levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
     if (k1 < k0 || !this.events.length) return { position: new Float32Array(0), color: new Float32Array(0) };
 
     const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold });
+    this.history = h;
+    const thin = sediment && input.fuse.enabled ? (k: number) => 1 - fusedWeight(k, sediment, input.fuse) : undefined;
     const load = naturePointLoad(h, k0, k1, input.perSlot);
     const scale = load > input.budget ? input.budget / load : 1;
     const buried = input.burialSlots > 0 ? burialOf(seeds, spu, input.burialSlots) : undefined;
@@ -363,11 +403,11 @@ export class SpaceModel {
       const off = (a - h.k0) * h.nx * h.nz;
       let sum = 0;
       for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${box.unit}:${burySig}:${sedKey}`;
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${box.unit}:${burySig}:${sedKey}:${fuseKey}`;
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thin });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }
@@ -375,6 +415,90 @@ export class SpaceModel {
     }
     for (const c of this.chunks.keys()) if (!keep.has(c)) this.chunks.delete(c);
     return concat(parts);
+  }
+
+  /**
+   * The fused mass of the old layers (fuse.ts), built in chunks of NATURE_CHUNK slots within the vegetation window
+   * (or all slots without vegetation), at most FUSE_NEW_PER_CALL new chunks per call; null when nothing changed.
+   */
+  computeFuse(input: FuseInput): FuseMesh | null {
+    const { box, fuse } = input;
+    const sed = sedimentOf(this.t, box, input.weather);
+    const h = this.history;
+    const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(input)}`;
+    if (sig === this.fuseSig) return null;
+    if (!sed || !fuse.enabled || !this.wornAll.length) {
+      this.fuseSig = sig;
+      this.fuseChunks.clear();
+      return mergeMeshes([]);
+    }
+    const u = box.unit;
+    const kNow = Math.floor(this.t / box.secPerUnit);
+    const kA = h ? h.k0 : 0;
+    const kB = h ? h.k0 + h.nk - 1 : kNow;
+    // extent: the vegetation's, or the parts' (cells)
+    let x0: number, z0: number, nx: number, nz: number;
+    if (h && h.nx > 0) {
+      ({ x0, z0, nx, nz } = h);
+    } else {
+      let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+      for (const p of this.wornAll) {
+        a = Math.min(a, p.x - p.sx / 2);
+        b = Math.max(b, p.x + p.sx / 2);
+        c = Math.min(c, p.z - p.sz / 2);
+        d = Math.max(d, p.z + p.sz / 2);
+      }
+      x0 = Math.floor(a / CELL) - 2;
+      z0 = Math.floor(c / CELL) - 2;
+      nx = Math.ceil(b / CELL) + 2 - x0;
+      nz = Math.ceil(d / CELL) + 2 - z0;
+    }
+    const bySlot = new Map<number, Box[]>();
+    for (const p of this.wornAll) {
+      const l = bySlot.get(p.slot);
+      if (l) l.push(p);
+      else bySlot.set(p.slot, [p]);
+    }
+    const padSlots = Math.ceil(((fuse.blur * 2 + 2) * fuse.voxel) / u) + 1;
+    const out: FuseMesh[] = [];
+    const keep = new Set<number>();
+    let built = 0;
+    let pending = false;
+    for (let c0 = Math.floor(kA / NATURE_CHUNK) * NATURE_CHUNK; c0 <= kB; c0 += NATURE_CHUNK) {
+      if (fusedWeight(Math.max(c0, 0), sed, fuse) <= 0) continue; // the oldest slot of the chunk is not fused: none is
+      const c1 = c0 + NATURE_CHUNK - 1;
+      const parts: Box[] = [];
+      let ps = 0;
+      // parts reaching into the chunk ± padding (masses hang ≤ 3 slots, foundations ≤ 8 below their slot)
+      for (let k = c0 - padSlots - 3; k <= c1 + padSlots + 8; k++) {
+        for (const p of bySlot.get(k) ?? []) {
+          parts.push(p);
+          ps += p.x * 3 + p.y * 7 + p.z * 11 + p.sy;
+        }
+      }
+      let vs = 0;
+      if (h) for (let k = Math.max(c0 - padSlots, h.k0); k <= Math.min(c1 + padSlots, h.k0 + h.nk - 1); k++) {
+        const off = (k - h.k0) * h.nx * h.nz;
+        for (let i = 0; i < h.nx * h.nz; i++) vs += h.V[off + i] * ((i % 13) + 1);
+      }
+      const key = `${parts.length}:${ps.toFixed(3)}:${vs.toFixed(3)}:${sed.tNow}:${JSON.stringify(input)}:${x0},${z0},${nx},${nz}`;
+      keep.add(c0);
+      let ch = this.fuseChunks.get(c0);
+      if (!ch || ch.key !== key) {
+        if (built >= FUSE_NEW_PER_CALL) {
+          pending = true;
+          if (ch) out.push(ch.mesh); // the stale one until its turn comes
+          continue;
+        }
+        ch = { key, mesh: fuseChunk({ parts, history: h, k0: c0, k1: c1, x0, z0, nx, nz, unit: u, sediment: sed, cfg: fuse }) };
+        this.fuseChunks.set(c0, ch);
+        built++;
+      }
+      out.push(ch.mesh);
+    }
+    for (const c of this.fuseChunks.keys()) if (!keep.has(c)) this.fuseChunks.delete(c);
+    if (!pending) this.fuseSig = sig;
+    return mergeMeshes(out);
   }
 
   /** Plants on the ruins of the last computed parts; null when nothing changed. */
@@ -404,7 +528,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 /** What the view posts to the space worker. */
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean }
-  | { type: "compute"; id: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput };
+  | { type: "compute"; id: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
 
 /** What the space worker posts back for a compute request. */
 export interface SpaceResponse {
@@ -414,6 +538,7 @@ export interface SpaceResponse {
   parts?: PartsResult | null;
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
+  fuse?: FuseMesh | null;
   ms: number;
 }
 
@@ -445,6 +570,10 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   if (m.reclaim) {
     out.reclaim = model.computeReclaim(m.reclaim);
     if (out.reclaim) transfer.add(out.reclaim.position.buffer as ArrayBuffer).add(out.reclaim.color.buffer as ArrayBuffer);
+  }
+  if (m.fuse) {
+    out.fuse = model.computeFuse(m.fuse);
+    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   return { out, transfer: [...transfer] };
