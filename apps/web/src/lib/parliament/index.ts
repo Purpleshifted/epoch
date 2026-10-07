@@ -10,3 +10,4 @@ export * from "./fragments.data";
 export * from "./seeds";
 export * from "./bots";
 export * from "./natureHistory";
+export * from "./spaceModel";

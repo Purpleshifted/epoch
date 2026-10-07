@@ -15,7 +15,7 @@
  * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
@@ -26,44 +26,33 @@ import {
   DEFAULT_BOXES,
   DEFAULT_FOLD,
   LS_PARLIAMENT_ME_KEY,
+  PART_CAPACITY,
   PART_KINDS,
   RECIPES,
   STEEL,
   clearWorld,
-  foldWorld,
-  generateBoxes,
-  halfHeight,
-  NATURE_KIND,
   latestOf,
-  wearParts,
-  natureHistory,
-  naturePointLoad,
-  naturePoints,
-  burialOf,
-  reclaimPoints,
   latestS,
   loadEvents,
   seedParliamentDemoIfRequested,
-  seedsFromSnapshot,
-  withoutWear,
-  type Box,
   type BoxConfig,
-  type Recipe,
-  type Seed,
   type EventLog,
   type FoldConfig,
-  type PEvent,
   type NatureConfig,
-  type NatureHistory,
+  type PEvent,
   type PartKind,
-  type PartsCache,
+  type PointsResult,
+  type Recipe,
   type RoleId,
+  type SpaceRequest,
+  type SpaceResponse,
+  SpaceModel,
+  handleSpaceRequest,
 } from "@/lib/parliament";
+import { useTicker } from "./useTicker";
 import { useFoldControls, useNatureControls, useWorld } from "./useWorld";
 
 const PAPER = "#e9ebee";
-/** Instance capacity per part kind. */
-const CAPACITY: Record<PartKind, number> = { mass: 400000, slab: 12000, drip: 60000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
 /** Base colour per part kind (instance tone multiplies it). */
 const KIND_COLOR: Record<PartKind, string> = {
   mass: "#f4f4f2",
@@ -76,8 +65,10 @@ const KIND_COLOR: Record<PartKind, string> = {
   basement: "#9fa3a8",
   pile: "#7f848a",
 };
-/** Boxes that get edge lines at most (slat bundles make the part count large). */
-const EDGE_CAP = 40000;
+/** How often the view asks the worker (wall clock). */
+const TICK_MS = 500;
+/** Vegetation and plants are asked for every this-many ticks. */
+const NATURE_EVERY = 4;
 const DEG = Math.PI / 180;
 const RC = RECIPES.concrete;
 const pair = (v: [number, number], f = 1): [number, number] => [v[0] * f, v[1] * f];
@@ -95,21 +86,75 @@ interface Stats {
   /** Time the camera is focused on: the player's present (or the latest event when there is no player). */
   focusS: number;
   focusIsMe: boolean;
+  /** Seeds built without slats (level of detail). */
+  farSeeds: number;
+  /** How long the worker's last computation took. */
+  workerMs: number;
+  /** Where it ran. */
+  runner: string;
 }
 
 interface Orbit {
   target: { x: number; y: number; z: number };
-  object: { position: { y: number } };
+  object: { position: { x: number; y: number; z: number } };
   update: () => void;
 }
 
-const EDGE: [number, number][] = [
-  [0, 1], [1, 3], [3, 2], [2, 0],
-  [4, 5], [5, 7], [7, 6], [6, 4],
-  [0, 4], [1, 5], [2, 6], [3, 7],
-];
+/** What the view asks the worker for vegetation (null = vegetation off). */
+interface NatureParams {
+  cfg: NatureConfig;
+  perSlot: number;
+  size: number;
+  window: number;
+  margin: number;
+  budget: number;
+  burialSlots: number;
+  reclaim: boolean;
+  tauReclaimYears: number;
+  reclaimPerArea: number;
+}
 
-function SpaceBoxes({
+/** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
+function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined): void {
+  if (!pts || !r) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
+  pts.geometry.dispose();
+  pts.geometry = g;
+}
+
+/** Where the space computation runs: a Web Worker, or (if the worker cannot start) the main thread. */
+interface SpaceRunner {
+  post: (m: SpaceRequest) => void;
+  stop: () => void;
+  mode: "worker" | "main thread";
+}
+
+/** The same protocol on the main thread (fallback): results come back on the next task, like a worker's. */
+function mainThreadRunner(onResult: (r: SpaceResponse) => void): SpaceRunner {
+  const model = new SpaceModel();
+  let alive = true;
+  return {
+    mode: "main thread",
+    post: (m) => {
+      const r = handleSpaceRequest(model, m);
+      if (r) setTimeout(() => alive && onResult(r.out), 0);
+    },
+    stop: () => {
+      alive = false;
+    },
+  };
+}
+
+/**
+ * The world of the timespace: parts (one InstancedMesh per kind), vegetation and plants on ruins. Everything is
+ * computed in a Web Worker (space.worker.ts → lib/parliament/spaceModel.ts); this component only sends the new events
+ * and a compute request every TICK_MS (wall clock, also in a hidden tab), and copies each result into its meshes.
+ * Level of detail: seeds further than `lodNear` from the camera are built without slats; vegetation thins out with
+ * distance down to `farFactor`.
+ */
+function SpaceWorld({
   log,
   fold,
   boxCfg,
@@ -118,8 +163,9 @@ function SpaceBoxes({
   follow,
   controls,
   onStats,
-  seedsOutRef,
-  partsOutRef,
+  nature,
+  lodNear,
+  farFactor,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -130,146 +176,162 @@ function SpaceBoxes({
   follow: boolean;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
-  /** The latest seeds, for the nature volume. */
-  seedsOutRef: React.MutableRefObject<Seed[]>;
-  /** The latest built and worn parts, for the reclaim layer. */
-  partsOutRef: React.MutableRefObject<PartsState | null>;
+  nature: NatureParams | null;
+  lodNear: number;
+  farFactor: number;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
-  const timer = useRef(10);
-  const sig = useRef("");
+  const naturePts = useRef<THREE.Points>(null);
+  const reclaimPts = useRef<THREE.Points>(null);
   const focusY = useRef<number | null>(null);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const col = useMemo(() => new THREE.Color(), []);
-  const corner = useMemo(() => new THREE.Vector3(), []);
-  // a seed's parts are reused while it has not changed (see generateBoxes)
-  const partsCache = useMemo<PartsCache>(() => new Map(), []);
-  const key = useMemo(() => JSON.stringify([fold, boxCfg]), [fold, boxCfg]);
-
   const snapped = useRef(false);
-  const topOf = useRef(0);
-  const boxCount = useRef(0);
-  const kindCount = useRef(NO_COUNTS);
-  const statSig = useRef("");
-  /** hand the overlay new numbers only when they changed (whole seconds), not on every 0.5 s pass */
-  const report = (st: Stats) => {
-    const k = `${st.seeds}:${st.boxes}:${Math.round(st.t)}:${st.top.toFixed(1)}:${Math.round(st.focusS)}:${st.focusIsMe}`;
-    if (k === statSig.current) return;
-    statSig.current = k;
-    onStats(st);
+  const worker = useRef<SpaceRunner | null>(null);
+  const sent = useRef(0);
+  const inFlight = useRef<{ id: number; at: number } | null>(null);
+  const seq = useRef(0);
+  const focus = useRef({ focusS: 0, focusIsMe: false });
+  const last = useRef<Stats | null>(null);
+  // the ticker reads the latest props through this ref
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, onStats });
+  useEffect(() => {
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, onStats };
+  });
+
+  // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
+  const apply = (r: SpaceResponse) => {
+    const { boxCfg: cfg, onStats: report } = live.current;
+    const p = r.parts;
+    if (p) {
+      for (const kind of PART_KINDS) {
+        const mesh = meshes.current[kind];
+        if (!mesh) continue;
+        const n = p.counts[kind];
+        (mesh.instanceMatrix.array as Float32Array).set(p.matrices[kind]);
+        mesh.instanceMatrix.clearUpdateRanges();
+        mesh.instanceMatrix.addUpdateRange(0, n * 16);
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) {
+          (mesh.instanceColor.array as Float32Array).set(p.colors[kind]);
+          mesh.instanceColor.clearUpdateRanges();
+          mesh.instanceColor.addUpdateRange(0, n * 3);
+          mesh.instanceColor.needsUpdate = true;
+        }
+        mesh.count = n;
+      }
+      const eg = edges.current;
+      if (eg) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.BufferAttribute(p.edges ?? new Float32Array(0), 3));
+        eg.geometry.dispose();
+        eg.geometry = g;
+      }
+      // the time axis: a vertical line beside the parts, a tick per slot, a long tick per 10 slots (latest 2000)
+      const ax = axis.current;
+      if (ax) {
+        const x0 = Number.isFinite(p.minX) ? p.minX - 2 : -3;
+        const z0 = Number.isFinite(p.minZ) ? p.minZ - 2 : -3;
+        const yTop = Math.max(p.top, (p.t / cfg.secPerUnit) * cfg.unit) + cfg.unit;
+        const slots = Math.ceil(yTop / cfg.unit);
+        const pts: number[] = [x0, 0, z0, x0, yTop, z0];
+        for (let k = Math.max(0, slots - 2000); k <= slots; k++) {
+          const len = k % 10 === 0 ? 1.4 : 0.5;
+          pts.push(x0, k * cfg.unit, z0, x0 + len, k * cfg.unit, z0);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pts), 3));
+        ax.geometry.dispose();
+        ax.geometry = g;
+      }
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
+    }
+    setPoints(naturePts.current, r.nature);
+    setPoints(reclaimPts.current, r.reclaim);
+    if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
   };
 
-  useFrame((state, dt) => {
-    // follow the player's present: the view moves along the time axis, keeping the viewer's own orbit.
-    // The first focus (and any jump further than FOLLOW_SNAP) is immediate, so an old epoch is never out of view.
-    const c = controls.current;
-    if (c && focusY.current !== null && (follow || !snapped.current)) {
-      const want = Math.max(0, focusY.current);
-      const far = Math.abs(want - c.target.y) > FOLLOW_SNAP;
-      const d = !snapped.current || far ? want - c.target.y : (want - c.target.y) * Math.min(1, dt * 1.5);
-      snapped.current = true;
-      if (Math.abs(d) > 1e-5) {
-        c.target.y += d;
-        state.camera.position.y += d;
-        c.update();
-      }
+  useEffect(() => {
+    const onResult = (r: SpaceResponse) => {
+      if (inFlight.current?.id === r.id) inFlight.current = null;
+      apply(r);
+    };
+    // if the worker cannot start (or fails to load), the same computation runs here; everything is resent
+    const fallback = () => {
+      worker.current?.stop();
+      worker.current = mainThreadRunner(onResult);
+      sent.current = 0;
+      inFlight.current = null;
+    };
+    try {
+      const w = new Worker(new URL("./space.worker.ts", import.meta.url), { type: "module" });
+      w.onmessage = (ev: MessageEvent<SpaceResponse>) => onResult(ev.data);
+      w.onerror = (e) => {
+        console.warn("[parliament] space worker failed, computing on the main thread:", e.message);
+        fallback();
+      };
+      worker.current = { mode: "worker", post: (m) => w.postMessage(m), stop: () => w.terminate() };
+    } catch (e) {
+      console.warn("[parliament] no space worker, computing on the main thread:", e);
+      fallback();
     }
+    sent.current = 0;
+    return () => {
+      worker.current?.stop();
+      worker.current = null;
+    };
+    // apply and the runner read everything through refs
+  }, []);
 
-    timer.current += dt;
-    if (timer.current < 0.5) return;
-    timer.current = 0;
-    if (PART_KINDS.some((k) => !meshes.current[k])) return;
-
+  // ── every TICK_MS: new events → worker, then one compute request (only one in flight) ──
+  useTicker(TICK_MS, () => {
+    const w = worker.current;
+    if (!w) return;
+    const now = performance.now();
+    if (inFlight.current && now - inFlight.current.at < 15000) return;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff } = live.current;
     const events = log.all();
-    const t = latestS(events);
+    if (events.length < sent.current) {
+      w.post({ type: "events", add: events, reset: true });
+    } else if (events.length > sent.current) {
+      w.post({ type: "events", add: events.slice(sent.current) });
+    }
+    sent.current = events.length;
+
     const meS = latestOf(events, typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY));
-    const focusS = meS ?? t;
-    focusY.current = events.length ? (focusS / boxCfg.secPerUnit) * boxCfg.unit : null;
-    // the seeds: fold without wear, or slabs whose footprint had decayed by `t` would drop out (wear is applied to
-    // the parts below instead)
-    const seeds = seedsFromSnapshot(foldWorld(events, t, withoutWear(fold)));
-    seedsOutRef.current = seeds;
-    let acc = 0;
-    for (const s of seeds) acc += s.t1 + s.mass * 100 + s.id % 97;
-    // with wear on, the parts change as the present moves on (abandoned seeds keep ageing)
-    const next = `${seeds.length}:${Math.round(acc)}:${key}:${wear ? Math.floor(t) : "-"}`;
-    if (next === sig.current) {
-      report({ seeds: seeds.length, boxes: boxCount.current, kinds: kindCount.current, t, top: topOf.current, focusS, focusIsMe: meS !== null });
-      return;
-    }
-    sig.current = next;
+    const t = latestS(events);
+    focus.current = { focusS: meS ?? t, focusIsMe: meS !== null };
+    focusY.current = events.length ? ((meS ?? t) / cfg.secPerUnit) * cfg.unit : null;
 
-    const built = generateBoxes(seeds, boxCfg, partsCache);
-    const list = wear ? wearParts(built, seeds, t, fold) : built;
-    partsOutRef.current = { built, worn: list, seeds, t };
-    let minX = Infinity, minZ = Infinity, top = 0;
-    const counts = { ...NO_COUNTS };
-    // edges for the box-shaped kinds (piles are cylinders and get none)
-    const lines: number[] = [];
-    for (const b of list) {
-      const kind = b.kind;
-      if (counts[kind] >= CAPACITY[kind]) continue;
-      const mesh = meshes.current[kind]!;
-      const i = counts[kind]++;
-      dummy.position.set(b.x, b.y, b.z);
-      dummy.rotation.set(0, b.yaw ?? 0, b.tilt ?? 0, "YZX");
-      dummy.scale.set(b.sx, b.sy, b.sz);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      col.setScalar(0.86 + 0.14 * b.tone);
-      mesh.setColorAt(i, col);
-      minX = Math.min(minX, b.x - b.sx / 2);
-      minZ = Math.min(minZ, b.z - b.sz / 2);
-      top = Math.max(top, b.y + halfHeight(b));
-      if (kind === "pile" || lines.length >= EDGE_CAP * 72) continue;
-      for (let e = 0; e < 12; e++) {
-        for (let k = 0; k < 2; k++) {
-          const v = EDGE[e][k];
-          corner.set((v & 1) - 0.5, ((v >> 2) & 1) - 0.5, ((v >> 1) & 1) - 0.5).applyMatrix4(dummy.matrix);
-          lines.push(corner.x, corner.y, corner.z);
-        }
-      }
+    const o = controls.current;
+    const cam: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
+    const lod = { camera: cam, near, farFactor: ff };
+    const id = ++seq.current;
+    const withNature = !!nat && id % NATURE_EVERY === 1;
+    const req: SpaceRequest = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, edges: e, lod } };
+    if (withNature && nat) {
+      const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
+      req.nature = { fold: f, box: cfg, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, lod };
+      if (nat.reclaim) req.reclaim = { tauReclaimYears: nat.tauReclaimYears, perArea: nat.reclaimPerArea, unit: cfg.unit };
     }
-    for (const kind of PART_KINDS) {
-      const mesh = meshes.current[kind]!;
-      mesh.count = counts[kind];
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    }
+    inFlight.current = { id, at: now };
+    w.post(req);
+  });
 
-    const eg = edges.current;
-    if (eg) {
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(lines), 3));
-      eg.geometry.dispose();
-      eg.geometry = g;
+  // follow the player's present: the view moves along the time axis, keeping the viewer's own orbit.
+  // The first focus (and any jump further than FOLLOW_SNAP) is immediate, so an old epoch is never out of view.
+  useFrame((state, dt) => {
+    const c = controls.current;
+    if (!c || focusY.current === null || !(follow || !snapped.current)) return;
+    const want = Math.max(0, focusY.current);
+    const far = Math.abs(want - c.target.y) > FOLLOW_SNAP;
+    const d = !snapped.current || far ? want - c.target.y : (want - c.target.y) * Math.min(1, dt * 1.5);
+    snapped.current = true;
+    if (Math.abs(d) > 1e-5) {
+      c.target.y += d;
+      state.camera.position.y += d;
+      c.update();
     }
-
-    // the time axis: a vertical line beside the boxes, a tick per slot, a long tick per 10 slots
-    // (at most the latest 2000 slots get ticks: with an old epoch the present is thousands of slots up)
-    const ax = axis.current;
-    if (ax) {
-      const x0 = Number.isFinite(minX) ? minX - 2 : -3;
-      const z0 = Number.isFinite(minZ) ? minZ - 2 : -3;
-      const yTop = Math.max(top, (t / boxCfg.secPerUnit) * boxCfg.unit) + boxCfg.unit;
-      const slots = Math.ceil(yTop / boxCfg.unit);
-      const p: number[] = [x0, 0, z0, x0, yTop, z0];
-      for (let k = Math.max(0, slots - 2000); k <= slots; k++) {
-        const len = k % 10 === 0 ? 1.4 : 0.5;
-        p.push(x0, k * boxCfg.unit, z0, x0 + len, k * boxCfg.unit, z0);
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(p), 3));
-      ax.geometry.dispose();
-      ax.geometry = g;
-    }
-
-    topOf.current = top;
-    boxCount.current = list.length;
-    kindCount.current = counts;
-    report({ seeds: seeds.length, boxes: list.length, kinds: counts, t, top, focusS, focusIsMe: meS !== null });
   });
 
   return (
@@ -279,8 +341,9 @@ function SpaceBoxes({
           key={kind}
           ref={(m) => {
             meshes.current[kind] = m;
+            if (m && !m.instanceColor) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PART_CAPACITY[kind] * 3), 3);
           }}
-          args={[undefined, undefined, CAPACITY[kind]]}
+          args={[undefined, undefined, PART_CAPACITY[kind]]}
           frustumCulled={false}
           castShadow
           receiveShadow
@@ -297,198 +360,15 @@ function SpaceBoxes({
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
+      <points ref={naturePts} frustumCulled={false} visible={!!nature}>
+        <bufferGeometry />
+        <pointsMaterial size={nature?.size ?? 0.07} vertexColors sizeAttenuation />
+      </points>
+      <points ref={reclaimPts} frustumCulled={false} visible={!!nature && nature.reclaim}>
+        <bufferGeometry />
+        <pointsMaterial size={nature?.size ?? 0.07} vertexColors sizeAttenuation />
+      </points>
     </>
-  );
-}
-
-/** Colours of the nature points by NATURE_KIND (two shades each). */
-const NATURE_PALETTE: [string, string][] = [
-  ["#7a6248", "#a38a6a"], // soil
-  ["#5f8a3c", "#9cbf5a"], // grass
-  ["#2f5a2c", "#4f7d3a"], // herb
-  ["#b59a52", "#d4bd78"], // dry leaves
-  ["#8a9a3a", "#b8bb52"], // moss / lichen (reclaim)
-  ["#24402a", "#3b5d34"], // woody growth (reclaim)
-  ["#3e3630", "#5a4e44"], // buried under concrete
-];
-
-/** Colours a NaturePoints buffer with NATURE_PALETTE. */
-function natureColors(np: { count: number; kind: Uint8Array; shade: Float32Array }, palette: (readonly [THREE.Color, THREE.Color])[], tmp: THREE.Color): Float32Array {
-  const col = new Float32Array(np.count * 3);
-  for (let i = 0; i < np.count; i++) {
-    const [lo, hi] = palette[np.kind[i]] ?? palette[NATURE_KIND.grass];
-    tmp.copy(lo).lerp(hi, np.shade[i]);
-    col[i * 3] = tmp.r;
-    col[i * 3 + 1] = tmp.g;
-    col[i * 3 + 2] = tmp.b;
-  }
-  return col;
-}
-
-/** What SpaceBoxes hands the reclaim layer after every rebuild. */
-interface PartsState {
-  built: Box[];
-  worn: Box[];
-  seeds: Seed[];
-  t: number;
-}
-
-/** Slots per cached chunk of nature points. */
-const NATURE_CHUNK = 10;
-
-/**
- * Vegetation accumulated per slot (natureHistory), drawn as a point volume around the camera's time: only slots
- * within ±`window` of the orbit target are built, in chunks of NATURE_CHUNK slots that are reused while unchanged,
- * and the density is scaled down so the whole stays under `budget` points.
- */
-function NatureVolume({
-  log,
-  seedsInRef,
-  controls,
-  secPerUnit,
-  unit,
-  fold,
-  nature,
-  perSlot,
-  size,
-  window: win,
-  margin,
-  budget,
-  burialSlots,
-}: {
-  log: EventLog;
-  seedsInRef: React.MutableRefObject<Seed[]>;
-  controls: React.MutableRefObject<Orbit | null>;
-  secPerUnit: number;
-  unit: number;
-  fold: FoldConfig;
-  nature: NatureConfig;
-  perSlot: number;
-  size: number;
-  window: number;
-  margin: number;
-  budget: number;
-  /** Slots below each seed's birth drawn as the buried layer (0 = off). */
-  burialSlots: number;
-}) {
-  const points = useRef<THREE.Points>(null);
-  const timer = useRef(10);
-  const sig = useRef("");
-  const chunks = useRef(new Map<number, { key: string; pos: Float32Array; col: Float32Array }>());
-  const palette = useMemo(() => NATURE_PALETTE.map(([a, b]) => [new THREE.Color(a), new THREE.Color(b)] as const), []);
-  const tmp = useMemo(() => new THREE.Color(), []);
-  const params = JSON.stringify([secPerUnit, unit, fold, nature, perSlot, win, margin, budget, burialSlots]);
-
-  useFrame((_, dt) => {
-    timer.current += dt;
-    if (timer.current < 2) return;
-    timer.current = 0;
-    const pts = points.current;
-    const target = controls.current?.target;
-    if (!pts || !target) return;
-    const events = log.all();
-    const seeds = seedsInRef.current;
-    const latest = latestS(events);
-    const kNow = Math.floor(latest / secPerUnit);
-    // window around the camera's time, moved in whole chunks (so it is rebuilt only when it shifts by a chunk)
-    const kFocus = Math.floor(Math.max(0, target.y) / unit / NATURE_CHUNK) * NATURE_CHUNK;
-    const k0 = Math.max(0, kFocus - win);
-    const k1 = Math.min(kNow, kFocus + win);
-    let seedSig = 0;
-    for (const sd of seeds) seedSig += sd.t1 + sd.mass * 7 + (sd.id % 101);
-    const next = `${events.length}:${Math.round(latest)}:${Math.round(seedSig)}:${k0}:${k1}:${params}`;
-    if (next === sig.current) return;
-    sig.current = next;
-
-    const geo = new THREE.BufferGeometry();
-    if (k1 < k0) {
-      pts.geometry.dispose();
-      pts.geometry = geo;
-      return;
-    }
-    const h: NatureHistory = natureHistory({ events, seeds, secPerUnit, k0, k1, margin, nature, fold });
-    const load = naturePointLoad(h, k0, k1, perSlot);
-    const scale = load > budget ? budget / load : 1;
-    const per = perSlot * scale;
-    const buried = burialSlots > 0 ? burialOf(seeds, secPerUnit, burialSlots) : undefined;
-    let burySig = burialSlots;
-    for (const sd of seeds) burySig += sd.t0 + (sd.id % 89);
-
-    const parts: { pos: Float32Array; col: Float32Array }[] = [];
-    const keep = new Set<number>();
-    for (let c0 = Math.floor(k0 / NATURE_CHUNK) * NATURE_CHUNK; c0 <= k1; c0 += NATURE_CHUNK) {
-      const a = Math.max(c0, k0);
-      const b = Math.min(c0 + NATURE_CHUNK - 1, k1);
-      // a chunk is reused while its densities (and the point rate) are unchanged
-      const off = (a - h.k0) * h.nx * h.nz;
-      let sum = 0;
-      for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${unit}:${burySig}`;
-      keep.add(c0);
-      let ch = chunks.current.get(c0);
-      if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit, perSlot: per, buried });
-        ch = { key, pos: np.position, col: natureColors(np, palette, tmp) };
-        chunks.current.set(c0, ch);
-      }
-      parts.push(ch);
-    }
-    for (const c of chunks.current.keys()) if (!keep.has(c)) chunks.current.delete(c);
-
-    let n = 0;
-    for (const p of parts) n += p.pos.length;
-    const pos = new Float32Array(n);
-    const col = new Float32Array(n);
-    let o = 0;
-    for (const p of parts) {
-      pos.set(p.pos, o);
-      col.set(p.col, o);
-      o += p.pos.length;
-    }
-    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
-    pts.geometry.dispose();
-    pts.geometry = geo;
-  });
-
-  return (
-    <points ref={points} frustumCulled={false}>
-      <bufferGeometry />
-      <pointsMaterial size={size} vertexColors sizeAttenuation />
-    </points>
-  );
-}
-
-/** Plants on the ruins (reclaimPoints), rebuilt at most every 2 s from what SpaceBoxes last built and wore. */
-function ReclaimLayer({ partsInRef, tauReclaimYears, perArea, unit, size }: { partsInRef: React.MutableRefObject<PartsState | null>; tauReclaimYears: number; perArea: number; unit: number; size: number }) {
-  const points = useRef<THREE.Points>(null);
-  const timer = useRef(10);
-  const last = useRef<PartsState | null>(null);
-  const params = useRef("");
-  const palette = useMemo(() => NATURE_PALETTE.map(([a, b]) => [new THREE.Color(a), new THREE.Color(b)] as const), []);
-  const tmp = useMemo(() => new THREE.Color(), []);
-  useFrame((_, dt) => {
-    timer.current += dt;
-    if (timer.current < 2) return;
-    timer.current = 0;
-    const st = partsInRef.current;
-    const pts = points.current;
-    const p = `${tauReclaimYears}:${perArea}:${unit}`;
-    if (!st || !pts || (st === last.current && p === params.current)) return;
-    last.current = st;
-    params.current = p;
-    const np = reclaimPoints(st.built, st.worn, st.seeds, st.t, { tauReclaimYears, perArea, unit });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(np.position, 3));
-    geo.setAttribute("color", new THREE.BufferAttribute(natureColors(np, palette, tmp), 3));
-    pts.geometry.dispose();
-    pts.geometry = geo;
-  });
-  return (
-    <points ref={points} frustumCulled={false}>
-      <bufferGeometry />
-      <pointsMaterial size={size} vertexColors sizeAttenuation />
-    </points>
   );
 }
 
@@ -669,7 +549,7 @@ export default function ParliamentSpace() {
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -737,8 +617,28 @@ export default function ParliamentSpace() {
     reclaimPerArea: { value: 10, min: 0, max: 80, step: 1, label: "재점유: 칸²당 점 수" },
   });
   const { cfg: natureCfg } = useNatureControls();
-  const seedsRef = useRef<Seed[]>([]);
-  const partsRef = useRef<PartsState | null>(null);
+  const lod = useControls("LOD (성능)", {
+    near: { value: 60, min: 5, max: 400, step: 5, label: "이 거리 안쪽만 막대 묶음 (월드)" },
+    farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율" },
+  });
+  const natureParams = useMemo<NatureParams | null>(
+    () =>
+      natureView.enabled
+        ? {
+            cfg: natureCfg,
+            perSlot: natureView.perSlot,
+            size: natureView.size,
+            window: natureView.window,
+            margin: natureView.margin,
+            budget: natureView.budget,
+            burialSlots: natureView.burialSlots,
+            reclaim: natureView.reclaim,
+            tauReclaimYears: natureView.tauReclaimYears,
+            reclaimPerArea: natureView.reclaimPerArea,
+          }
+        : null,
+    [natureView, natureCfg],
+  );
   const steel = useControls("철골 (steel)", {
     beamChance: { value: RC.beam.chance, min: 0, max: 1, step: 0.01, label: "가로보: 슬롯당 확률" },
     beamLength: { value: RC.beam.length, min: 0.3, max: 12, step: 0.1, label: "가로보: 길이 (칸)" },
@@ -807,27 +707,19 @@ export default function ParliamentSpace() {
         <Sun controls={controls} azimuth={light.azimuth} elevation={light.elevation} intensity={light.intensity} softness={light.softness} shadows={light.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <gridHelper args={[80, 80, "#9aa0a8", "#d3d6db"]} position={[0, -0.01, 0]} />
-        <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} wear={c.wear} follow={c.follow} controls={controls} onStats={setStats} seedsOutRef={seedsRef} partsOutRef={partsRef} />
-        {natureView.enabled && natureView.reclaim && (
-          <ReclaimLayer partsInRef={partsRef} tauReclaimYears={natureView.tauReclaimYears} perArea={natureView.reclaimPerArea} unit={boxCfg.unit} size={natureView.size} />
-        )}
-        {natureView.enabled && (
-          <NatureVolume
-            log={log}
-            seedsInRef={seedsRef}
-            controls={controls}
-            secPerUnit={boxCfg.secPerUnit}
-            unit={boxCfg.unit}
-            fold={spaceFold}
-            nature={natureCfg}
-            perSlot={natureView.perSlot}
-            size={natureView.size}
-            window={natureView.window}
-            margin={natureView.margin}
-            budget={natureView.budget}
-            burialSlots={natureView.burialSlots}
-          />
-        )}
+        <SpaceWorld
+          log={log}
+          fold={spaceFold}
+          boxCfg={boxCfg}
+          showEdges={c.showEdges}
+          wear={c.wear}
+          follow={c.follow}
+          controls={controls}
+          onStats={setStats}
+          nature={natureParams}
+          lodNear={lod.near}
+          farFactor={lod.farFactor}
+        />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />
         {composerOn && (
           <EffectComposer key={`${ao.enabled}:${light.grain > 0}`}>
@@ -850,6 +742,9 @@ export default function ParliamentSpace() {
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
         </div>
         <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
+        <div>
+          LOD: {stats.farSeeds}/{stats.seeds} seeds far (no slats) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms
+        </div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {c.markers && (
           <div>
