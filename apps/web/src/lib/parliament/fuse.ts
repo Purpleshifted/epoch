@@ -9,6 +9,10 @@
  * Old enough = the slot's sediment share q (natureHistory.sedimentShare: the same clock that turns vegetation into
  * humus and peat) has reached `share`; within `band` below it the layer fades in (and the separate parts dissolve).
  *
+ * RESIN: the oldest layers (sediment share ≥ `resinShare`) are not opaque stone but a heavy translucent body: their
+ * faces are put in a second group (FuseMesh.resinStart …) for a transmissive material, and their concrete parts are
+ * kept (spaceModel), so what was built stays visible inside the compressed layer.
+ *
  * The field is sampled on a GLOBAL voxel grid (spacing `voxel`), and meshed in chunks of whole slots. Every chunk
  * computes its field with padding, so neighbouring chunks agree on their shared vertices; each face belongs to the one
  * chunk that owns its edge, so nothing is drawn twice. Pure and deterministic.
@@ -40,9 +44,11 @@ export interface FuseConfig {
   iso: number;
   /** Weight of the vegetation's sediment in the field (concrete = 1). */
   natureWeight: number;
+  /** Layers with a sediment share ≥ this become resin (translucent, parts inside); > 1 = never. */
+  resinShare: number;
 }
 
-export const DEFAULT_FUSE: FuseConfig = { enabled: true, share: 0.6, band: 0.15, voxel: 0.4, blur: 2, gain: 2.5, porosity: 0.6, iso: 0.3, natureWeight: 0.7 };
+export const DEFAULT_FUSE: FuseConfig = { enabled: true, share: 0.6, band: 0.15, voxel: 0.4, blur: 2, gain: 2.5, porosity: 0.6, iso: 0.3, natureWeight: 0.7, resinShare: 0.85 };
 
 type Sediment = NonNullable<NaturePointOptions["sediment"]>;
 
@@ -59,10 +65,17 @@ export interface FuseMesh {
   position: Float32Array;
   normal: Float32Array;
   color: Float32Array;
+  /** Opaque faces first, then the resin faces from `resinStart` on. */
   index: Uint32Array;
+  resinStart: number;
 }
 
-const EMPTY: FuseMesh = { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0), index: new Uint32Array(0) };
+const EMPTY: FuseMesh = { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0), index: new Uint32Array(0), resinStart: 0 };
+
+/** Whether slot k has become resin. */
+export function isResin(k: number, sed: Sediment, cfg: FuseConfig): boolean {
+  return cfg.enabled && cfg.resinShare <= 1 && sedimentShare(k, sed) >= cfg.resinShare;
+}
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const lat = (x: number, y: number, z: number, salt: number) => hash2((x * 73856093) ^ z, (y * 19349663) ^ (z * 83492791), salt);
@@ -272,10 +285,13 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
 
   // faces: one quad per sign-changing sample edge, owned by the chunk whose rows contain the edge's start
   const ind: number[] = [];
+  const resinInd: number[] = [];
   const quad = (a: number, b: number, c: number, d: number, flip: boolean) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return;
-    if (flip) ind.push(a, c, b, a, d, c);
-    else ind.push(a, b, c, a, c, d);
+    // the face goes to the resin group if its first vertex lies in a resin layer
+    const to = isResin(Math.floor(pos[a * 3 + 1] / unit), sed, cfg) ? resinInd : ind;
+    if (flip) to.push(a, c, b, a, d, c);
+    else to.push(a, b, c, a, c, d);
   };
   const owned = (j: number) => J0 + j >= Jlo && J0 + j < Jhi;
   for (let k = 1; k < nz - 1; k++) {
@@ -296,26 +312,32 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       }
     }
   }
-  return { position: Float32Array.from(pos), normal: Float32Array.from(nor), color: Float32Array.from(col), index: Uint32Array.from(ind) };
+  const index = new Uint32Array(ind.length + resinInd.length);
+  index.set(ind);
+  index.set(resinInd, ind.length);
+  return { position: Float32Array.from(pos), normal: Float32Array.from(nor), color: Float32Array.from(col), index, resinStart: ind.length };
 }
 
-/** Concatenates chunk meshes into one. */
+/** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
 export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
-  let nv = 0, ni = 0;
+  let nv = 0, ni = 0, nr = 0;
   for (const p of parts) {
     nv += p.position.length;
     ni += p.index.length;
+    nr += p.index.length - p.resinStart;
   }
-  const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), index: new Uint32Array(ni) };
-  let ov = 0, oi = 0;
+  const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), index: new Uint32Array(ni), resinStart: ni - nr };
+  let ov = 0, oo = 0, or = ni - nr;
   for (const p of parts) {
     out.position.set(p.position, ov);
     out.normal.set(p.normal, ov);
     out.color.set(p.color, ov);
     const base = ov / 3;
-    for (let i = 0; i < p.index.length; i++) out.index[oi + i] = p.index[i] + base;
+    for (let i = 0; i < p.index.length; i++) {
+      if (i < p.resinStart) out.index[oo++] = p.index[i] + base;
+      else out.index[or++] = p.index[i] + base;
+    }
     ov += p.position.length;
-    oi += p.index.length;
   }
   return out;
 }

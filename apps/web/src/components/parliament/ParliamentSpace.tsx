@@ -143,6 +143,27 @@ interface NatureParams {
   reclaimPerArea: number;
 }
 
+/** The resin body of the oldest layers: transmissive, darkening with thickness (Beer–Lambert attenuation). */
+interface ResinLook {
+  color: string;
+  transmission: number;
+  roughness: number;
+  thickness: number;
+  attenuationColor: string;
+  attenuationDistance: number;
+}
+
+function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
+  m.color.set(r.color);
+  m.transmission = r.transmission;
+  m.roughness = r.roughness;
+  m.thickness = r.thickness;
+  m.ior = 1.5;
+  m.attenuationColor.set(r.attenuationColor);
+  m.attenuationDistance = r.attenuationDistance;
+  m.needsUpdate = true;
+}
+
 /** Replaces the fused mesh's geometry (the old one is disposed). */
 function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void {
   if (!mesh || !r) return;
@@ -151,6 +172,9 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
   g.setAttribute("normal", new THREE.BufferAttribute(r.normal, 3));
   g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
   g.setIndex(new THREE.BufferAttribute(r.index, 1));
+  // group 0: opaque fused stone; group 1: resin (the oldest layers)
+  g.addGroup(0, r.resinStart, 0);
+  g.addGroup(r.resinStart, r.index.length - r.resinStart, 1);
   mesh.geometry.dispose();
   mesh.geometry = g;
 }
@@ -209,6 +233,7 @@ function SpaceWorld({
   farFactor,
   weather,
   fuse,
+  resin,
   nearFade,
 }: {
   log: EventLog;
@@ -226,6 +251,8 @@ function SpaceWorld({
   weather: WeatherConfig;
   /** Old layers fused into one mass. */
   fuse: FuseConfig;
+  /** Look of the resin (oldest) layers. */
+  resin: ResinLook;
   /** Vegetation within this view distance [start, end] dissolves (keeps the view clear). */
   nearFade: [number, number];
 }) {
@@ -248,6 +275,10 @@ function SpaceWorld({
     live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
+  const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
+  const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
+  useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
+  const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
   const reclaimMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
@@ -424,9 +455,8 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
-      <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled}>
+      <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
-        <meshStandardMaterial vertexColors roughness={0.95} metalness={0} side={THREE.DoubleSide} />
       </mesh>
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
@@ -703,7 +733,17 @@ export default function ParliamentSpace() {
     porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "다공성 (구멍)" },
     iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "표면 문턱" },
     natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물 비중" },
+    resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 퇴적 비율 (>1 = 끔)" },
   });
+  const resinCtl = useControls("레진 (가장 오래된 층)", {
+    color: { value: "#e8d9b8", label: "색" },
+    transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "투과" },
+    roughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (서리 낀 정도)" },
+    thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "두께감" },
+    attenuationColor: { value: "#6b3f17", label: "깊을수록 물드는 색" },
+    attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (짧을수록 무거움)" },
+  });
+  const resinLook = useMemo<ResinLook>(() => ({ ...resinCtl }), [resinCtl]);
   const fuseCfg = useMemo<FuseConfig>(() => ({ ...fuseCtl }), [fuseCtl]);
   const theme = THEMES[view.theme as keyof typeof THEMES] ?? THEMES.paper;
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
@@ -825,6 +865,7 @@ export default function ParliamentSpace() {
           farFactor={lod.farFactor}
           weather={weather}
           fuse={fuseCfg}
+          resin={resinLook}
           nearFade={view.nearFade}
         />
         <FocusFollow controls={controls} target={focusTarget} />

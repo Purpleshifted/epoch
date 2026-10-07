@@ -13,13 +13,14 @@
 
 import { foldWorld, latestS, withoutWear } from "./fold";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { fuseChunk, fusedWeight, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { fuseChunk, fusedWeight, isResin, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, partHash, seedsFromSnapshot, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 
 const CELL = CELL_SIZE;
+const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
 
 /** Instance capacity per part kind (what the view allocates). */
 export const PART_CAPACITY: Record<PartKind, number> = { mass: 400000, slab: 12000, drip: 60000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
@@ -296,6 +297,8 @@ export class SpaceModel {
     const fu = input.fuse;
     const visible = (b: Box) => {
       if (!sed || !fu.enabled) return true;
+      // resin layers keep their concrete: it shows through the translucent body
+      if (isResin(b.slot, sed, fu)) return true;
       const f = fusedWeight(b.slot, sed, fu);
       return f <= 0 || (f < 1 && partHash(b) >= f);
     };
@@ -455,6 +458,7 @@ export class SpaceModel {
     }
     const bySlot = new Map<number, Box[]>();
     for (const p of this.wornAll) {
+      if (STEEL_KINDS.has(p.kind)) continue; // steel is too thin to carry the mass
       const l = bySlot.get(p.slot);
       if (l) l.push(p);
       else bySlot.set(p.slot, [p]);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FUSE, fuseChunk, fusedWeight, mergeMeshes, sedimentShare, type Box } from "./index";
+import { DEFAULT_FUSE, fuseChunk, fusedWeight, isResin, mergeMeshes, sedimentShare, type Box } from "./index";
 
 const SPU = 30;
 const sed = { tNow: 3000, secPerUnit: SPU, timeScale: 0.02, tauYears: 600 };
@@ -44,5 +44,22 @@ describe("fusion: old layers become one mass", () => {
     const solid = fuseChunk({ ...base, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, porosity: 0 } });
     const porous = fuseChunk({ ...base, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, porosity: 1.5 } });
     expect(porous.index.length).not.toBe(solid.index.length);
+  });
+});
+
+describe("resin: the oldest layers become a translucent body", () => {
+  const later = { ...sed, tNow: 9000 }; // the same parts, much later: their layers are old enough for resin
+  const old = { ...base, sediment: later };
+  it("faces of resin layers come after the opaque ones (resinStart), merged per kind across chunks", () => {
+    expect(isResin(3, later, DEFAULT_FUSE)).toBe(true);
+    expect(isResin(3, sed, DEFAULT_FUSE)).toBe(false);
+    const m = fuseChunk({ ...old, k0: 0, k1: 9 });
+    expect(m.resinStart).toBeLessThan(m.index.length);
+    const none = fuseChunk({ ...old, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, resinShare: 2 } });
+    expect(none.resinStart).toBe(none.index.length);
+    const a = fuseChunk({ ...old, k0: 0, k1: 4 }), b = fuseChunk({ ...old, k0: 5, k1: 9 });
+    const merged = mergeMeshes([a, b]);
+    expect(merged.resinStart).toBe(a.resinStart + b.resinStart);
+    expect(merged.index.length).toBe(a.index.length + b.index.length);
   });
 });

@@ -84,8 +84,10 @@ describe("SpaceModel: what the worker computes", () => {
     const m = new SpaceModel();
     m.add(late);
     const off = m.computeParts({ ...parts(), fuse: { ...DEFAULT_FUSE, enabled: false } })!;
-    const on = m.computeParts(parts())!;
-    expect(on.parts).toBeLessThan(off.parts);
+    const opaque = m.computeParts({ ...parts(), fuse: { ...DEFAULT_FUSE, resinShare: 2 } })!;
+    const withResin = m.computeParts(parts())!;
+    expect(opaque.parts).toBeLessThan(off.parts); // fused layers dissolve their parts
+    expect(withResin.parts).toBeGreaterThanOrEqual(opaque.parts); // resin layers keep theirs inside
     const input = { box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE };
     // chunks are built a few per call: call until it settles (null = nothing left to build)
     let mesh = m.computeFuse(input)!;
