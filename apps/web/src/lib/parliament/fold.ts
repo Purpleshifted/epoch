@@ -131,6 +131,7 @@ export function foldWorld(
       x: (acc.cx + 0.5) * CELL_SIZE,
       z: (acc.cz + 0.5) * CELL_SIZE,
       h,
+      raw,
       foot,
       bornS: s[nuc],
       lastS,

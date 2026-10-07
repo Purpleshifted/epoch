@@ -14,9 +14,10 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { hash2, type Snapshot } from "@/lib/parliament";
+import { hash2, DEFAULT_SHARDS, type ShardConfig, type Snapshot } from "@/lib/parliament";
+import { ShardLayer } from "./ShardLayer";
 
-export type ArchStyle = "block" | "lines" | "points";
+export type ArchStyle = "block" | "lines" | "points" | "shards";
 
 interface Box {
   x: number;
@@ -82,7 +83,7 @@ const EDGES: [number, number][] = [
   [0, 4], [1, 5], [2, 6], [3, 7],
 ];
 
-export function ArchitectureLayer({
+function BoxArchitecture({
   getSnapshot,
   heightUnit,
   style,
@@ -92,7 +93,7 @@ export function ArchitectureLayer({
 }: {
   getSnapshot: () => Snapshot | null;
   heightUnit: number;
-  style: ArchStyle;
+  style: Exclude<ArchStyle, "shards">;
   showPaths?: boolean;
   every?: number;
   /** Top view: flat colours, no lighting. */
@@ -229,4 +230,26 @@ export function ArchitectureLayer({
       )}
     </>
   );
+}
+
+/** Concrete in Top/Side: the shard collage, or one of the box-based materials. */
+export function ArchitectureLayer({
+  getSnapshot,
+  heightUnit,
+  style,
+  showPaths = true,
+  every = 0.25,
+  unlit = false,
+  shards = DEFAULT_SHARDS,
+}: {
+  getSnapshot: () => Snapshot | null;
+  heightUnit: number;
+  style: ArchStyle;
+  showPaths?: boolean;
+  every?: number;
+  unlit?: boolean;
+  shards?: ShardConfig;
+}) {
+  if (style === "shards") return <ShardLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={shards} every={Math.max(every, 0.5)} />;
+  return <BoxArchitecture getSnapshot={getSnapshot} heightUnit={heightUnit} style={style} showPaths={showPaths} every={every} unlit={unlit} />;
 }

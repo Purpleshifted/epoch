@@ -84,6 +84,8 @@ export interface Slab {
   z: number;
   /** Visible (worn) height in height units; 0 when only the footprint is left. */
   h: number;
+  /** Height before any wear (h / raw = how intact the slab still is, 0..1). */
+  raw: number;
   /** 0..1: how much of the buried foundation outline is left. */
   foot: number;
   /** Assigned time at which the slab nucleated. */

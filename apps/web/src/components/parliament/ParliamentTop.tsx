@@ -25,11 +25,12 @@ import {
   type FoldConfig,
   type Snapshot,
 } from "@/lib/parliament";
-import { ArchitectureLayer } from "./Architecture";
+import { ArchitectureLayer, type ArchStyle } from "./Architecture";
 import { FilterMesh } from "./FilterMesh";
 import { useArchControls, useFoldControls, useWorld } from "./useWorld";
 
 const BG = "#05060a";
+const PAPER = "#e9ebee";
 
 export type GlobalMode = "top" | "side";
 
@@ -104,7 +105,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld();
   const cfg = useFoldControls();
-  const arch = useArchControls(mode === "top" ? 0.2 : 1.0);
+  const arch = useArchControls(mode === "top" ? 0.2 : 1.0, mode === "side" ? "shards" : "block");
   const snapRef = useRef<Snapshot | null>(null);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
@@ -126,10 +127,14 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
     }),
   });
 
-  const lit = mode === "side" && arch.style === "block";
+  // The collage is a front-view material: from above it falls back to plain blocks.
+  const style: ArchStyle = mode === "top" && arch.style === "shards" ? "block" : arch.style;
+  const paper = style === "shards";
+  const bg = paper ? PAPER : BG;
+  const lit = mode === "side" && style === "block";
 
   return (
-    <div className="relative h-full w-full" style={{ background: BG }}>
+    <div className="relative h-full w-full" style={{ background: bg }}>
       <Leva hidden={hideUi} />
       <Canvas
         orthographic
@@ -137,7 +142,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
         camera={{ position: [0, 50, 0], zoom: 20, near: 0.1, far: 300 }}
         gl={{ antialias: mode === "side", preserveDrawingBuffer: true }}
       >
-        <color attach="background" args={[BG]} />
+        <color attach="background" args={[bg]} />
         {lit && (
           <>
             <ambientLight intensity={0.55} />
@@ -148,17 +153,18 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
         <ArchitectureLayer
           getSnapshot={() => snapRef.current}
           heightUnit={arch.heightUnit}
-          style={arch.style}
+          style={style}
           showPaths={arch.showPaths}
           every={0.5}
           unlit={!lit}
+          shards={arch.shards}
         />
         <FilterMesh getSnapshot={() => snapRef.current} unlit every={0.5} />
         {mode === "side" && (
           // the ground line
           <mesh position={[0, -0.03, 0]}>
             <boxGeometry args={[400, 0.06, 0.2]} />
-            <meshBasicMaterial color="#555555" />
+            <meshBasicMaterial color={paper ? "#15181c" : "#555555"} />
           </mesh>
         )}
       </Canvas>
