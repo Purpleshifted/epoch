@@ -26,6 +26,7 @@ import {
   DEFAULT_FOLD,
   LS_PARLIAMENT_ME_KEY,
   PART_KINDS,
+  RECIPES,
   STEEL,
   clearWorld,
   foldWorld,
@@ -38,6 +39,7 @@ import {
   seedsFromSnapshot,
   withoutWear,
   type BoxConfig,
+  type Recipe,
   type EventLog,
   type FoldConfig,
   type PEvent,
@@ -60,6 +62,10 @@ const KIND_COLOR: Record<PartKind, string> = {
   basement: "#9fa3a8",
   pile: "#7f848a",
 };
+const DEG = Math.PI / 180;
+const RC = RECIPES.concrete;
+const pair = (v: [number, number], f = 1): [number, number] => [v[0] * f, v[1] * f];
+
 const NO_COUNTS = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
 /** A focus change larger than this (world units on the time axis) is a jump, not a drift. */
 const FOLLOW_SNAP = 40;
@@ -431,9 +437,31 @@ export default function ParliamentSpace() {
     quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
     halfRes: { value: false, label: "절반 해상도" },
   });
+  const steel = useControls("철골 (steel)", {
+    beamChance: { value: RC.beam.chance, min: 0, max: 1, step: 0.01, label: "가로보: 슬롯당 확률" },
+    beamLength: { value: RC.beam.length, min: 0.3, max: 12, step: 0.1, label: "가로보: 길이 (칸)" },
+    beamWidth: { value: RC.beam.width, min: 0.01, max: 0.5, step: 0.01, label: "가로보: 굵기 (칸)" },
+    beamOnGrid: { value: RC.beam.onGrid, min: 0, max: 1, step: 0.05, label: "가로보: 격자 정렬 비율" },
+    beamSkew: { value: Math.round(RC.beam.skew / DEG), min: 0, max: 45, step: 1, label: "가로보: 최대 기울기 (°)" },
+    braceChance: { value: RC.brace.chance, min: 0, max: 1, step: 0.01, label: "사선: 슬롯당 확률" },
+    braceLength: { value: RC.brace.length, min: 0.2, max: 8, step: 0.1, label: "사선: 길이 (단)" },
+    braceTilt: { value: pair(RC.brace.tilt, 1 / DEG).map(Math.round) as [number, number], min: 0, max: 89, step: 1, label: "사선: 수직에서 기울기 (°)" },
+    braceWidth: { value: RC.brace.width, min: 0.01, max: 0.5, step: 0.01, label: "사선: 굵기 (칸)" },
+    columnCount: { value: RC.column.count, min: 0, max: 8, step: 1, label: "기둥: 슬래브당 개수" },
+    columnWidth: { value: RC.column.width, min: 0.01, max: 0.5, step: 0.01, label: "기둥: 굵기 (칸)" },
+  });
+  const recipe = useMemo<Recipe>(
+    () => ({
+      ...RC,
+      beam: { ...RC.beam, chance: steel.beamChance, length: steel.beamLength, width: steel.beamWidth, onGrid: steel.beamOnGrid, skew: steel.beamSkew * DEG },
+      brace: { ...RC.brace, chance: steel.braceChance, length: steel.braceLength, tilt: pair(steel.braceTilt, DEG), width: steel.braceWidth },
+      column: { ...RC.column, count: steel.columnCount, width: steel.columnWidth },
+    }),
+    [steel],
+  );
   const boxCfg = useMemo<BoxConfig>(
-    () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density }),
-    [c.secPerUnit, c.unit, c.width, c.density],
+    () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density, recipe }),
+    [c.secPerUnit, c.unit, c.width, c.density, recipe],
   );
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);

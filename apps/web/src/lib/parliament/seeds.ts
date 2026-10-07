@@ -113,6 +113,8 @@ export interface BoxConfig {
   density: number;
   /** Safety cap: only the latest this-many slots of a seed are generated. */
   maxSlots: number;
+  /** Replaces the material's recipe (the 3D view's Leva knobs); absent = RECIPES[seed.material]. */
+  recipe?: Recipe;
 }
 
 export const DEFAULT_BOXES: BoxConfig = { secPerUnit: 30, unit: 1, width: 1, density: 1, maxSlots: 200 };
@@ -244,7 +246,7 @@ function runsOf(slots: readonly number[]): [number, number][] {
  * upwards. `support` tells the foundation what lies below its birth (default: only the ground at y = 0).
  */
 export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support: Support = GROUND): Box[] {
-  const rc = RECIPES[seed.material];
+  const rc = cfg.recipe ?? RECIPES[seed.material];
   const u = cfg.unit;
   const W = CELL_SIZE * cfg.width;
   const birth = Math.floor(seed.t0 / cfg.secPerUnit);
@@ -359,8 +361,9 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
       if (k === birth || (k - runStart) % rc.slab.every !== 0) continue;
       const s = stream(seed.id, k, SALT.slab);
       const [s0, s1, s2, s3, s4, s5, s6] = [s(), s(), s(), s(), s(), s(), s()];
+      const colCount: [number, number] = [Math.round(rc.column.count[0]), Math.round(rc.column.count[1])];
       const cols: number[][] = [];
-      for (let i = 0; i < rc.column.count[1]; i++) cols.push([s(), s()]);
+      for (let i = 0; i < colCount[1]; i++) cols.push([s(), s()]);
       const th = logIn(s0, rc.slab.thick) * u;
       const sx = logIn(s1, rc.slab.footprint) * W;
       const sz = logIn(s2, rc.slab.footprint) * W;
@@ -373,7 +376,7 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
       if (k === runStart) continue;
       const len = y0 - Math.max(runStart, k - rc.slab.every) * u;
       if (!(len > 0.05 * u)) continue;
-      const nc = intIn(s6, rc.column.count);
+      const nc = intIn(s6, colCount);
       for (let i = 0; i < nc; i++) {
         const [c0, c1] = cols[i];
         const corner = (i + Math.floor(s6 * 4)) % 4;

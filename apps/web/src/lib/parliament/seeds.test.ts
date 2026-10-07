@@ -112,6 +112,22 @@ describe("seeds: boxes", () => {
   });
 });
 
+describe("seeds: recipe override (the 3D view's Leva knobs)", () => {
+  const rc = RECIPES.concrete;
+  const s = seed({ t0: 0, t1: 600, mass: 3 });
+  const beams = (chance: number) => boxesOfSeed(s, { ...DEFAULT_BOXES, recipe: { ...rc, beam: { ...rc.beam, chance } } }).filter((b) => b.kind === "beam");
+
+  it("beam chance 0 → no beams; 1 → a beam in every occupied slot", () => {
+    expect(beams(0)).toHaveLength(0);
+    expect(beams(1)).toHaveLength(occupiedSlots(s).length);
+  });
+
+  it("column count range is honoured (fractional Leva values are rounded)", () => {
+    const cols = boxesOfSeed(s, { ...DEFAULT_BOXES, recipe: { ...rc, column: { ...rc.column, count: [0, 0.2] } } }).filter((b) => b.kind === "column");
+    expect(cols).toHaveLength(0);
+  });
+});
+
 describe("seeds: foundations", () => {
   const birthY = (t0: number) => Math.floor(t0 / DEFAULT_BOXES.secPerUnit) * DEFAULT_BOXES.unit;
 
