@@ -26,8 +26,7 @@ import {
   type Snapshot,
 } from "@/lib/parliament";
 import { ArchitectureLayer, type ArchStyle } from "./Architecture";
-import { FilterMesh } from "./FilterMesh";
-import { useArchControls, useFoldControls, useWorld } from "./useWorld";
+import { LEVA_THEME, useArchControls, useFoldControls, useWorld } from "./useWorld";
 
 const BG = "#05060a";
 const PAPER = "#e9ebee";
@@ -125,7 +124,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
 
   return (
     <div className="relative h-full w-full" style={{ background: bg }}>
-      <Leva hidden={hideUi} />
+      <Leva hidden={hideUi} theme={LEVA_THEME} />
       <Canvas
         orthographic
         dpr={1}
@@ -151,7 +150,6 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
           collage={arch.collage}
           view={mode}
         />
-        <FilterMesh getSnapshot={() => snapRef.current} unlit every={0.5} />
         {mode === "side" && (
           // the ground line
           <mesh position={[0, -0.03, 0]}>

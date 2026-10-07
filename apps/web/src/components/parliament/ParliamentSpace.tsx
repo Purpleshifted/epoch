@@ -54,7 +54,7 @@ import {
   handleSpaceRequest,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
-import { useFoldControls, useNatureControls, useWorld } from "./useWorld";
+import { LEVA_THEME, useFoldControls, useNatureControls, useWorld } from "./useWorld";
 
 /** Background and ground grid per theme. */
 const THEMES = {
@@ -898,7 +898,7 @@ export default function ParliamentSpace() {
       }),
       "건물에 모이는 식생": folder({
         gatherOn: { value: true, label: "켜기 (부식 초기, 덩어리 전)" },
-        gatherPerArea: { value: 10, min: 0, max: 80, step: 1, label: "칸²당 점 수" },
+        gatherPerArea: { value: 40, min: 0, max: 300, step: 1, label: "칸²당 점 수" },
         gatherSize: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
@@ -996,7 +996,7 @@ export default function ParliamentSpace() {
     },
     { order: 8, collapsed: true },
   );
-  const fold = useFoldControls(SPACE_FOLD, { folder: "생성 규칙 (회사원 시공간 밀집)", collapsed: true, order: 2, withFilters: false });
+  const fold = useFoldControls(SPACE_FOLD, { folder: "생성 규칙 (회사원 시공간 밀집)", collapsed: true, order: 2 });
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
@@ -1045,7 +1045,7 @@ export default function ParliamentSpace() {
 
   return (
     <div className="relative h-full w-full" style={{ background: theme.bg }}>
-      <Leva hidden={hideUi} />
+      <Leva hidden={hideUi} theme={LEVA_THEME} />
       <Canvas shadows="percentage" dpr={[1, 2]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />

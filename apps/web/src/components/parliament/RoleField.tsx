@@ -2,8 +2,7 @@
 /**
  * RoleField — what the player's role leaves behind, seen from the player's own time.
  *
- * - Emits spacetime events: a presence sample every `sampleSec` seconds (all roles) and, for
- *   the worker, a cigarette filter every FILTER_EVERY seconds.
+ * - Emits spacetime events: a presence sample every `sampleSec` seconds (all roles).
  * - The visitor has an assigned time s(t) = wall seconds since the epoch + a personal offset;
  *   it flows while they are here. Only events with s <= s(now) are folded and drawn, so a
  *   visitor never sees what later visitors leave.
@@ -25,6 +24,7 @@ import {
   foldWorld,
   pickOffset,
   saveMerged,
+  setKeepFrom,
   sessionSeconds,
   stressMap,
   type Actor,
@@ -35,7 +35,6 @@ import {
   type RoleId,
   type Snapshot,
 } from "@/lib/parliament";
-import { FilterMesh } from "./FilterMesh";
 import { NatureCloud } from "./NatureCloud";
 import { useTicker } from "./useTicker";
 import { useWorld } from "./useWorld";
@@ -44,7 +43,6 @@ const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
 const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
 const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
-const FILTER_EVERY = 15; // a worker's smoking break, in assigned seconds
 
 export interface ParliamentDebug {
   role: RoleId;
@@ -52,7 +50,6 @@ export interface ParliamentDebug {
   offset: number;
   events: number;
   slabs: number;
-  filters: number;
   paths: number;
 }
 
@@ -81,8 +78,7 @@ export function RoleField({
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
     pending.current = [];
-    sinceFilter.current.clear();
-    epochMs.current = getEpochMs(); // the world was cleared: join the NEW epoch
+    epochMs.current = getEpochMs(); // the world was cleared: join the NEW epoch (and its history window is unset)
   });
   const epochMs = useRef(0);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
@@ -91,7 +87,6 @@ export function RoleField({
   const botStartMs = useRef(0);
   const lastSaveMs = useRef(0);
   const foldTimer = useRef(10);
-  const sinceFilter = useRef(new Map<string, number>());
   // the ticker reads the latest Leva values through this ref
   const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec });
   useEffect(() => {
@@ -112,6 +107,8 @@ export function RoleField({
     } catch {
       /* ignore */
     }
+    // only the last KEEP_WINDOW_SEC before this session are kept (performance, for now)
+    setKeepFrom(sessionSeconds(Date.now(), epochMs.current, me.current.offset));
     const flush = () => {
       if (pending.current.length) {
         saveMerged(pending.current, epochMs.current);
@@ -133,7 +130,7 @@ export function RoleField({
     pending.current.push(e);
   };
 
-  // ── emit presence (and the worker's filter) and mirror to localStorage: wall clock, also while hidden ──
+  // ── emit presence and mirror to localStorage: wall clock, also while hidden ──
   useTicker(TICK_MS, () => {
     if (epochMs.current === 0) return;
     const now = Date.now();
@@ -151,16 +148,7 @@ export function RoleField({
       // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled
       if (now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
       for (let i = 0; i < nBots; i++) actors.push(botActor(i, theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock));
-      for (const a of actors) {
-        emit(a.o, a.r, "p", a.x, a.z, a.s);
-        if (a.r === "worker") {
-          const t = (sinceFilter.current.get(a.o) ?? 0) + sampleSec;
-          if (t >= FILTER_EVERY) {
-            emit(a.o, a.r, "f", a.x, a.z, a.s);
-            sinceFilter.current.set(a.o, 0);
-          } else sinceFilter.current.set(a.o, t);
-        }
-      }
+      for (const a of actors) emit(a.o, a.r, "p", a.x, a.z, a.s);
     }
 
     if (now - lastSaveMs.current >= SAVE_EVERY_MS) {
@@ -192,7 +180,6 @@ export function RoleField({
         offset: +me.current.offset.toFixed(1),
         events: log.size,
         slabs: snap.current.slabs.length,
-        filters: snap.current.filters.length,
         paths: snap.current.paths.length,
       };
     }
@@ -200,7 +187,7 @@ export function RoleField({
 
   // Concrete (slabs) is a trace fossil: it is not felt within one visitor's life, so the player
   // view draws only what one life can feel: the point-cloud ground (worn by workers, with dust
-  // where a path has formed) and the short-lived filters. Slabs appear in the Top and Side views.
+  // where a path has formed). Slabs appear in the Top and Side views.
   return (
     <>
       <NatureCloud
@@ -210,7 +197,6 @@ export function RoleField({
         cfg={natureCfg}
         pointSize={pointSize}
       />
-      <FilterMesh getSnapshot={() => snap.current} />
     </>
   );
 }

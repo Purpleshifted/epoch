@@ -26,14 +26,13 @@ export const ROLE_IMPLEMENTED: Record<RoleId, boolean> = {
 /**
  * One spacetime event. Compact on purpose: the log is mirrored into localStorage.
  *   k = "p": presence sample (the visitor stood or walked here; stands for `sampleSec` seconds)
- *   k = "f": a cigarette filter left by a worker (labour fossil, wears away fast)
  */
 export interface PEvent {
   id: string;
   /** Visitor (or bot) id. */
   o: string;
   r: RoleId;
-  k: "p" | "f";
+  k: "p";
   x: number;
   z: number;
   /** Assigned exhibition seconds of the actor when the event happened. */
@@ -60,8 +59,6 @@ export interface FoldConfig {
   tauSlabYears: number;
   /** e-folding time (model years) of the buried footprint (foundation outline). */
   tauFootprintYears: number;
-  /** e-folding time (model years) of a cigarette filter. */
-  tauFilterYears: number;
   /** Worker visits (entries into a cell) after which a path is 63 % formed. */
   pathVisits: number;
   /** e-folding time (model years) of a path once nobody walks it. */
@@ -84,7 +81,6 @@ export const DEFAULT_FOLD: FoldConfig = {
   sampleSec: 1,
   tauSlabYears: 800,
   tauFootprintYears: 8000,
-  tauFilterYears: 10,
   pathVisits: 5,
   tauPathYears: 3000,
   emptyGapSec: 30,
@@ -112,15 +108,6 @@ export interface Slab {
   spans?: [number, number][];
 }
 
-export interface FilterTrace {
-  id: string;
-  x: number;
-  z: number;
-  /** 1 = fresh .. 0 = gone. */
-  alpha: number;
-  s: number;
-}
-
 /** A desire path: a cell many workers have walked through. */
 export interface PathCell {
   key: string;
@@ -134,6 +121,5 @@ export interface PathCell {
 
 export interface Snapshot {
   slabs: Slab[];
-  filters: FilterTrace[];
   paths: PathCell[];
 }

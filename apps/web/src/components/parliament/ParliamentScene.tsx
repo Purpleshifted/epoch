@@ -11,7 +11,7 @@ import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug } from "./RoleField";
-import { useFoldControls, useNatureControls } from "./useWorld";
+import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
@@ -171,7 +171,7 @@ export default function ParliamentScene() {
 
   return (
     <div className="h-full w-full" style={{ touchAction: "none" }}>
-      <Leva hidden={hideChrome} />
+      <Leva hidden={hideChrome} theme={LEVA_THEME} />
       <Canvas
         camera={{ position: [0, 4.5, 7], fov: 60 }}
         dpr={pixelDpr}
@@ -208,7 +208,7 @@ export default function ParliamentScene() {
           {debug && (
             <div>
               {debug.role}
-              {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths} · filters {debug.filters}
+              {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths}
             </div>
           )}
         </div>

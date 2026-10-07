@@ -16,8 +16,8 @@ import {
 
 const C = 1.2; // cell size: (0.6, 0.6) is the centre of cell "0,0"
 
-function stand(o: string, r: RoleId, x: number, z: number, s0: number, n: number, k: "p" | "f" = "p"): PEvent[] {
-  return Array.from({ length: n }, (_, i) => ({ id: `${o}:${k}${s0}:${i}`, o, r, k, x, z, s: s0 + i }));
+function stand(o: string, r: RoleId, x: number, z: number, s0: number, n: number): PEvent[] {
+  return Array.from({ length: n }, (_, i) => ({ id: `${o}:p${s0}:${i}`, o, r, k: "p" as const, x, z, s: s0 + i }));
 }
 const at0 = (e: PEvent[], sView: number) => foldWorld(e, sView).slabs.find((s) => s.key === "0,0");
 
@@ -106,17 +106,6 @@ describe("wear: the exposed slab goes first, the footprint outlasts it", () => {
   });
 });
 
-describe("cigarette filter", () => {
-  it("is visible at once and gone within a few seconds of exhibition time", () => {
-    const f = stand("a", "worker", 3, 3, 0, 1, "f");
-    expect(foldWorld(f, 1).filters).toHaveLength(1);
-    expect(foldWorld(f, 20).filters).toHaveLength(0);
-  });
-  it("is not drawn for other roles", () => {
-    expect(foldWorld(stand("a", "tree", 3, 3, 0, 1, "f"), 1).filters).toHaveLength(0);
-  });
-});
-
 describe("clock", () => {
   it("offset lies inside its window and the session clock runs forward", () => {
     expect(pickOffset(0.5, 120)).toBe(60);
@@ -166,7 +155,6 @@ describe("demo crowd", () => {
     const far = foldWorld(demo, horizonSeconds(end, 3000));
     expect(far.slabs.length).toBeGreaterThan(0);
     expect(Math.max(...far.slabs.map((s) => s.h))).toBeLessThan(0.15);
-    expect(far.filters).toHaveLength(0);
   });
   it("a visitor who is earlier than the crowd sees none of it", () => {
     expect(foldWorld(demo, 5).slabs).toHaveLength(0);

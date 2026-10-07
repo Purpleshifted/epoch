@@ -40,7 +40,6 @@ export function buildParliamentDemo(seed = 1): PEvent[] {
       let x = d.x + (rand() - 0.5) * 3;
       let z = d.z + (rand() - 0.5) * 3;
       let a = rand() * Math.PI * 2;
-      let lastF = start;
       let n = 0;
       for (let s = start; s < start + stay; s += 1) {
         a += (rand() - 0.5) * 0.9;
@@ -50,10 +49,6 @@ export function buildParliamentDemo(seed = 1): PEvent[] {
         x += (d.x - x) * 0.08;
         z += (d.z - z) * 0.08;
         out.push({ id: `${o}:p${n++}`, o, r: "worker", k: "p", x, z, s });
-        if (s - lastF >= 15) {
-          out.push({ id: `${o}:f${n++}`, o, r: "worker", k: "f", x, z, s });
-          lastF = s;
-        }
       }
     }
   }

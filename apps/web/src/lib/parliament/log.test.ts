@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, getEpochMs, loadEvents, saveMerged, type PEvent } from "./index";
+import { EventLog, KEEP_WINDOW_SEC, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, getEpochMs, keepFromS, loadEvents, saveMerged, setKeepFrom, type PEvent } from "./index";
 
 class MemoryStorage {
   private m = new Map<string, string>();
@@ -52,5 +52,27 @@ describe("log: the stored world belongs to one epoch (regression: an old epoch's
     localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(next));
     expect(saveMerged([ev("ghost", 900)], epoch)).toBe(false);
     expect(loadEvents()).toEqual([]);
+  });
+});
+
+describe("history window: only the last KEEP_WINDOW_SEC before the player's session", () => {
+  it("loading and saving drop what is older than the cutoff; an open log forgets it", () => {
+    const epoch = getEpochMs();
+    saveMerged([ev("old", 100), ev("recent", 1500)], epoch);
+    expect(loadEvents()).toHaveLength(2);
+    setKeepFrom(100 + KEEP_WINDOW_SEC + 50); // a session that started 50 s after the window has passed "old"
+    expect(loadEvents().map((e) => e.o)).toEqual(["recent"]);
+    saveMerged([ev("older", 120)], epoch);
+    expect(loadEvents().map((e) => e.o)).toEqual(["recent"]);
+    const log = new EventLog();
+    log.addMany([ev("old", 100), ev("recent", 1500)]);
+    expect(log.dropBefore(keepFromS())).toBe(1);
+    expect(log.all().map((e) => e.o)).toEqual(["recent"]);
+  });
+
+  it("clear world forgets the cutoff too", () => {
+    setKeepFrom(5000);
+    clearWorld();
+    expect(keepFromS()).toBe(-Infinity);
   });
 });

@@ -45,6 +45,22 @@ export class EventLog {
     return n;
   }
 
+  /** Forgets the events before assigned time `s` (see keepFromS). Returns how many went. */
+  dropBefore(s: number): number {
+    let n = 0;
+    for (const [id, e] of this.m) {
+      if (e.s < s) {
+        this.m.delete(id);
+        n++;
+      }
+    }
+    if (n) {
+      this.cache = null;
+      this.version++;
+    }
+    return n;
+  }
+
   clear(): void {
     this.m.clear();
     this.cache = null;
@@ -66,7 +82,7 @@ function isEvent(e: unknown): e is PEvent {
     typeof o.x === "number" &&
     typeof o.z === "number" &&
     typeof o.s === "number" &&
-    (o.k === "p" || o.k === "f") &&
+    o.k === "p" &&
     typeof o.r === "string" &&
     (ROLES as readonly string[]).includes(o.r as RoleId)
   );
@@ -82,6 +98,34 @@ export function currentEpochKey(): string | null {
 }
 
 /** The stored events of the CURRENT epoch ([] if the stored events belong to another one, or to none). */
+/**
+ * HISTORY WINDOW (for performance, for now): only the last KEEP_WINDOW_SEC before the start of the latest player
+ * session are kept. A player tab writes its cutoff (its assigned time when it loaded − KEEP_WINDOW_SEC); loading and
+ * saving drop older events, and open views forget them (useWorld). Raise it (or remove the key) to keep more.
+ */
+export const KEEP_WINDOW_SEC = 20 * 60;
+export const LS_KEEP_FROM_KEY = "anthropocene:parliament:keep-from:v1";
+
+/** Assigned time before which events are dropped (−Infinity: keep everything). */
+export function keepFromS(): number {
+  try {
+    const raw = localStorage.getItem(LS_KEEP_FROM_KEY);
+    const v = raw === null ? NaN : Number(raw);
+    return Number.isFinite(v) ? v : -Infinity;
+  } catch {
+    return -Infinity;
+  }
+}
+
+/** A player session that starts at assigned time `sessionStartS` keeps the KEEP_WINDOW_SEC before it. */
+export function setKeepFrom(sessionStartS: number): void {
+  try {
+    localStorage.setItem(LS_KEEP_FROM_KEY, String(sessionStartS - KEEP_WINDOW_SEC));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function loadEvents(): PEvent[] {
   try {
     const epoch = localStorage.getItem(LS_PARLIAMENT_EPOCH_KEY);
@@ -89,7 +133,8 @@ export function loadEvents(): PEvent[] {
     const raw = localStorage.getItem(LS_EVENTS_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw) as unknown;
-    return Array.isArray(arr) ? arr.filter(isEvent) : [];
+    const from = keepFromS();
+    return Array.isArray(arr) ? arr.filter((e): e is PEvent => isEvent(e) && e.s >= from) : [];
   } catch {
     return [];
   }
@@ -113,7 +158,8 @@ export function saveMerged(local: Iterable<PEvent>, epochMs: number): boolean {
     if (localStorage.getItem(LS_PARLIAMENT_EPOCH_KEY) !== String(epochMs)) return false;
     const merged = new Map<string, PEvent>();
     for (const e of loadEvents()) merged.set(e.id, e);
-    for (const e of local) merged.set(e.id, { ...e, x: r2(e.x), z: r2(e.z), s: r2(e.s) });
+    const from = keepFromS();
+    for (const e of local) if (e.s >= from) merged.set(e.id, { ...e, x: r2(e.x), z: r2(e.z), s: r2(e.s) });
     all = [...merged.values()].sort((a, b) => a.s - b.s).slice(-MAX_EVENTS);
   } catch {
     return false;
@@ -151,6 +197,7 @@ export function getEpochMs(): number {
 export function clearWorld(): void {
   try {
     localStorage.removeItem(LS_EVENTS_KEY);
+    localStorage.removeItem(LS_KEEP_FROM_KEY);
     localStorage.removeItem(LS_EVENTS_EPOCH_KEY);
     localStorage.removeItem(LS_PARLIAMENT_EPOCH_KEY);
   } catch {

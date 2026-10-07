@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo } from "react";
 import { useControls } from "leva";
-import { DEFAULT_COLLAGE, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, currentEpochKey, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
+import { DEFAULT_COLLAGE, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, currentEpochKey, keepFromS, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
 import type { ArchStyle } from "./Architecture";
+
+/** A wider Leva panel for every parliament view: the Korean labels are long. */
+export const LEVA_THEME = { sizes: { rootWidth: "460px", controlWidth: "150px" } };
 
 /**
  * The shared event log of this tab, kept in sync with localStorage (poll + storage events).
@@ -22,6 +25,8 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
         onCleared?.();
       }
       epoch = now;
+      // the history window moved on (a new player session): forget what is now too old
+      log.dropBefore(keepFromS());
       log.addMany(loadEvents());
     };
     sync();
@@ -59,10 +64,9 @@ export interface ControlPlacement {
   order?: number;
 }
 
-export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, place: ControlPlacement & { withFilters?: boolean } = {}): FoldConfig {
+export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, place: ControlPlacement = {}): FoldConfig {
   // pass a constant: a new object every render would rebuild the config every render
   const D = useMemo(() => ({ ...DEFAULT_FOLD, ...defaults }), [defaults]);
-  const withFilters = place.withFilters ?? true;
   const schema = {
     radius: { value: D.radius, min: 1, max: 8, step: 0.25, label: "공간 반경 (월드 단위)" },
     windowSec: { value: D.windowSec, min: 10, max: 3600, step: 10, label: "시간 반경 (s)" },
@@ -73,17 +77,14 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     maxHeight: { value: D.maxHeight, min: 1, max: 20, step: 1, label: "최대 높이 (단)" },
     tauSlabYears: { value: D.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
     tauFootprintYears: { value: D.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
-    // filters are only drawn in the player view
-    ...(withFilters ? { tauFilterYears: { value: D.tauFilterYears, min: 1, max: 1000, step: 1, label: "담배필터 마모 시간 (년)" } } : {}),
     pathVisits: { value: D.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)" },
     tauPathYears: { value: D.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)" },
   };
   const c = useControls(place.folder ?? "회사원 규칙 (시공간 밀집)", schema, { collapsed: place.collapsed, order: place.order }) as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
-  const tauFilterYears = c.tauFilterYears ?? D.tauFilterYears;
   return useMemo(
-    () => ({ ...D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears }),
-    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears],
+    () => ({ ...D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears }),
+    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears],
   );
 }
 

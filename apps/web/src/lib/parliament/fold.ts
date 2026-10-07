@@ -18,7 +18,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { DEFAULT_FOLD, type FilterTrace, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
+import { DEFAULT_FOLD, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 
 const MIN_FOOT = 0.03;
 const MIN_ALPHA = 0.05;
@@ -54,7 +54,6 @@ export function foldWorld(
   vis.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)); // ties by id: same float sums in every view
 
   const yView = geoYears(sView);
-  const filters: FilterTrace[] = [];
   const cells = new Map<string, Acc>();
   const n = Math.ceil(cfg.radius / CELL_SIZE);
   const lastCell = new Map<string, string>();
@@ -62,11 +61,6 @@ export function foldWorld(
 
   for (const e of vis) {
     if (e.r !== "worker") continue;
-    if (e.k === "f") {
-      const alpha = Math.exp(-Math.max(0, yView - geoYears(e.s)) / cfg.tauFilterYears);
-      if (alpha >= MIN_ALPHA) filters.push({ id: e.id, x: e.x, z: e.z, alpha, s: e.s });
-      continue;
-    }
     // a visit = entering a cell (standing still in it is one visit, not many)
     const vcx = Math.floor(e.x / CELL_SIZE);
     const vcz = Math.floor(e.z / CELL_SIZE);
@@ -177,7 +171,7 @@ export function foldWorld(
     paths.push({ key, x: v.x, z: v.z, p, visits: v.n });
   }
   paths.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return { slabs, filters, paths };
+  return { slabs, paths };
 }
 
 /**
