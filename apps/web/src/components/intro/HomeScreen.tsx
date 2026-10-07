@@ -25,6 +25,10 @@ export default function HomeScreen() {
           Side View
           <span className="block pt-1 font-mono text-[10px] tracking-wider text-white/40">the architecture</span>
         </Link>
+        <Link href="/global/space" className={`${btn} border-white/50 text-white/80 hover:border-white`}>
+          3D Timespace
+          <span className="block pt-1 font-mono text-[10px] tracking-wider text-white/40">seeds → boxes · y = time</span>
+        </Link>
         <div className="border-t border-white/10 pt-4">
           <Link href="/legacy" className={`${btn} block border-white/25 py-3 text-xs text-white/60 hover:border-white/50`}>
             Legacy
