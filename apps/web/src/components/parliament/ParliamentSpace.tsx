@@ -16,11 +16,11 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
-import { Leva, button, useControls } from "leva";
+import { Leva, button, folder, useControls } from "leva";
 import * as THREE from "three";
 import {
   DEFAULT_BOXES,
@@ -137,7 +137,10 @@ interface Orbit {
 interface NatureParams {
   cfg: NatureConfig;
   perSlot: number;
+  /** Point size of the vegetation volume (sediment). */
   size: number;
+  /** Point size of the vegetation gathering on buildings. */
+  gatherSize: number;
   window: number;
   margin: number;
   budget: number;
@@ -155,6 +158,12 @@ interface ResinLook {
   thickness: number;
   attenuationColor: string;
   attenuationDistance: number;
+}
+
+function applyPointLook(m: THREE.PointsMaterial, size: number, fade: [number, number]): void {
+  m.size = size;
+  m.userData.fade.uFade0.value = fade[0];
+  m.userData.fade.uFade1.value = fade[1];
 }
 
 function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
@@ -286,12 +295,9 @@ function SpaceWorld({
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
   const reclaimMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
-    for (const m of [natureMat, reclaimMat]) {
-      m.size = nature?.size ?? 0.07;
-      m.userData.fade.uFade0.value = nearFade[0];
-      m.userData.fade.uFade1.value = nearFade[1];
-    }
-  }, [natureMat, reclaimMat, nature?.size, nearFade]);
+    applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
+    applyPointLook(reclaimMat, nature?.gatherSize ?? 0.07, nearFade);
+  }, [natureMat, reclaimMat, nature?.size, nature?.gatherSize, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -482,11 +488,71 @@ function SpaceWorld({
   );
 }
 
-/** Keeps `target` (the depth-of-field focus) on the orbit target. */
-function FocusFollow({ controls, target }: { controls: React.MutableRefObject<Orbit | null>; target: THREE.Vector3 }) {
-  useFrame(() => {
+/**
+ * The depth-of-field focus. With `clickFocus`, a click (not a drag) on the scene puts the focus on what was hit — a part,
+ * the fused mass, a point — or, if nothing was hit, on the depth of the orbit target along that ray; the focus glides
+ * there (`speed`). Without it, or after "resetFocus", it follows the orbit target (the centre of the view).
+ */
+function FocusFollow({
+  controls,
+  target,
+  clickFocus,
+  speed,
+  resetTick,
+}: {
+  controls: React.MutableRefObject<Orbit | null>;
+  target: THREE.Vector3;
+  clickFocus: boolean;
+  speed: number;
+  /** Changes when the focus should go back to the centre of the view. */
+  resetTick: number;
+}) {
+  const { gl, camera, scene } = useThree();
+  const want = useRef<THREE.Vector3 | null>(null);
+  useEffect(() => {
+    want.current = null;
+  }, [resetTick]);
+  useEffect(() => {
+    if (!clickFocus) {
+      want.current = null;
+      return;
+    }
+    const el = gl.domElement;
+    let down: [number, number] | null = null;
+    const ray = new THREE.Raycaster();
+    ray.params.Points = { threshold: 0.15 };
+    ray.params.Line = { threshold: 0 };
+    const onDown = (e: PointerEvent) => {
+      down = e.button === 0 ? [e.clientX, e.clientY] : null;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return; // a drag orbits, it does not focus
+      const r = el.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+      const hit = ray.intersectObjects(scene.children, true).find((h) => h.object.visible && !(h.object instanceof THREE.LineSegments) && !(h.object instanceof THREE.GridHelper));
+      if (hit) {
+        want.current = hit.point.clone();
+        return;
+      }
+      // nothing there: the point on the ray at the orbit target's depth
+      const t = controls.current?.target;
+      if (!t) return;
+      const c = new THREE.Vector3(t.x, t.y, t.z);
+      const depth = c.clone().sub(ray.ray.origin).dot(ray.ray.direction);
+      want.current = ray.ray.at(Math.max(0.1, depth), new THREE.Vector3());
+    };
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointerup", onUp);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointerup", onUp);
+    };
+  }, [clickFocus, gl, camera, scene, controls]);
+  useFrame((_, dt) => {
     const t = controls.current?.target;
-    if (t) target.set(t.x, t.y, t.z);
+    const goal = want.current ?? (t ? new THREE.Vector3(t.x, t.y, t.z) : null);
+    if (!goal) return;
+    target.lerp(goal, 1 - Math.exp(-dt * speed));
   });
   return null;
 }
@@ -664,7 +730,6 @@ function Markers({
 export default function ParliamentSpace() {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000);
-  const fold = useFoldControls(SPACE_FOLD);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
@@ -684,181 +749,295 @@ export default function ParliamentSpace() {
     o.update();
   };
 
-  const c = useControls("3D 시공간 (박스 생성 확인)", {
-    secPerUnit: { value: SPACE_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초 (시간축)" },
-    unit: { value: DEFAULT_BOXES.unit, min: 0.2, max: 4, step: 0.1, label: "한 단의 높이 (월드 단위)" },
-    width: { value: SPACE_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "부품 폭 배율" },
-    density: { value: SPACE_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
-    timeJitter: { value: SPACE_BOXES.timeJitter ?? 0, min: 0, max: 1, step: 0.05, label: "시간 오차 (부품 위치 ±단)" },
-    emptyGapSec: { value: SPACE_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
-    showEdges: { value: false, label: "모서리 선" },
-    wear: { value: true, label: "마모 적용 (지금 시점까지 버려진 시간만큼)" },
-    follow: { value: true, label: "플레이어 시간대 따라가기" },
-    toMe: button(() => jump(focusRef.current)),
-    toGround: button(() => jump(0)),
-    toLatest: button(() => jump(Math.max(0, topRef.current - 6))),
-    markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
-    markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
-    reload: button(() => log.addMany(loadEvents())),
-    "clear world": button(() => {
-      if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
-        clearWorld();
-        log.clear();
-      }
+  // ── Leva, grouped: 보기 · 시간축 · 생성 규칙 · 건물 · 풍화/지층 · 식생 · 엉김/융합/레진 · 렌더/성능 ──
+  const [focusResets, setFocusResets] = useState(0);
+  const v = useControls(
+    "보기",
+    {
+      theme: { options: { "종이 (밝음)": "paper", "검정": "black" }, value: "black" as keyof typeof THEMES, label: "배경" },
+      follow: { value: true, label: "플레이어 시간대 따라가기" },
+      toMe: button(() => jump(focusRef.current)),
+      toGround: button(() => jump(0)),
+      toLatest: button(() => jump(Math.max(0, topRef.current - 6))),
+      markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
+      markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
+      showEdges: { value: false, label: "모서리 선" },
+      "초점 · 시야": folder({
+        dof: { value: true, label: "초점 흐림 (피사계 심도)" },
+        clickFocus: { value: true, label: "클릭한 곳에 초점 (끄면 화면 중앙)" },
+        dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점이 맞는 깊이 (월드)" },
+        dofBokeh: { value: 4, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
+        focusSpeed: { value: 4, min: 0.5, max: 20, step: 0.5, label: "초점 옮겨가는 속도" },
+        resetFocus: button(() => setFocusResets((n) => n + 1)),
+        nearFade: { value: [2, 24] as [number, number], min: 0, max: 60, step: 0.5, label: "카메라 가까운 식생 사라짐 (거리)" },
+      }),
+      "데이터": folder(
+        {
+          reload: button(() => log.addMany(loadEvents())),
+          "clear world": button(() => {
+            if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
+              clearWorld();
+              log.clear();
+            }
+          }),
+        },
+        { collapsed: true },
+      ),
+    },
+    { order: 0 },
+  );
+  const tAxis = useControls(
+    "시간축",
+    {
+      secPerUnit: { value: SPACE_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초" },
+      unit: { value: DEFAULT_BOXES.unit, min: 0.2, max: 4, step: 0.1, label: "한 단의 높이 (월드)" },
+      timeJitter: { value: SPACE_BOXES.timeJitter ?? 0, min: 0, max: 1, step: 0.05, label: "시간 오차 (부품·식생 위치 ±단)" },
+      emptyGapSec: { value: SPACE_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
+    },
+    { order: 1 },
+  );
+  const bld = useControls(
+    "건물",
+    {
+      partWidth: { value: SPACE_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "부품 폭 배율" },
+      partDensity: { value: SPACE_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
+      "막대 묶음 · 드립": folder(
+        {
+          slatOn: { value: RC.slat.enabled, label: "큰 매스를 막대 묶음으로" },
+          slatMinFootprint: { value: RC.slat.minFootprint, min: 0.2, max: 4, step: 0.05, label: "묶음이 되는 최소 크기 (칸)" },
+          slatWidth: { value: RC.slat.width, min: 0.03, max: 1, step: 0.01, label: "막대 굵기 (칸)" },
+          slatDensity: { value: RC.slat.density, min: 0.1, max: 1, step: 0.05, label: "막대 채움 비율" },
+          slatMax: { value: RC.slat.maxPerMass, min: 4, max: 200, step: 1, label: "매스당 최대 막대 수" },
+          slatVertical: { value: RC.slat.vertical, min: 0, max: 1, step: 0.05, label: "세로(매달린) 묶음 비율" },
+          slatShortest: { value: RC.slat.shortest, min: 0.05, max: 1, step: 0.05, label: "매달린 막대 최소 길이 (매스 대비)" },
+          dripPerArea: { value: RC.drip.perArea, min: 0, max: 6, step: 0.1, label: "드립: 칸²당 개수" },
+          dripMax: { value: RC.drip.max, min: 0, max: 60, step: 1, label: "드립: 부품당 최대" },
+          dripLength: { value: RC.drip.length, min: 0.02, max: 6, step: 0.01, label: "드립: 길이 (단)" },
+          dripAlpha: { value: RC.drip.alpha, min: 0.3, max: 4, step: 0.05, label: "드립: 길이 분포 (작을수록 긴 것 많음)" },
+          dripWidth: { value: RC.drip.width, min: 0.01, max: 0.4, step: 0.01, label: "드립: 굵기 (칸)" },
+        },
+        { collapsed: true },
+      ),
+      "철골": folder(
+        {
+          beamChance: { value: RC.beam.chance, min: 0, max: 1, step: 0.01, label: "가로보: 슬롯당 확률" },
+          beamLength: { value: RC.beam.length, min: 0.3, max: 12, step: 0.1, label: "가로보: 길이 (칸)" },
+          beamWidth: { value: RC.beam.width, min: 0.01, max: 0.5, step: 0.01, label: "가로보: 굵기 (칸)" },
+          beamOnGrid: { value: RC.beam.onGrid, min: 0, max: 1, step: 0.05, label: "가로보: 격자 정렬 비율" },
+          beamSkew: { value: Math.round(RC.beam.skew / DEG), min: 0, max: 45, step: 1, label: "가로보: 최대 기울기 (°)" },
+          braceChance: { value: RC.brace.chance, min: 0, max: 1, step: 0.01, label: "사선: 슬롯당 확률" },
+          braceLength: { value: RC.brace.length, min: 0.2, max: 8, step: 0.1, label: "사선: 길이 (단)" },
+          braceTilt: { value: pair(RC.brace.tilt, 1 / DEG).map(Math.round) as [number, number], min: 0, max: 89, step: 1, label: "사선: 수직에서 기울기 (°)" },
+          braceWidth: { value: RC.brace.width, min: 0.01, max: 0.5, step: 0.01, label: "사선: 굵기 (칸)" },
+          columnCount: { value: RC.column.count, min: 0, max: 8, step: 1, label: "기둥: 슬래브당 개수" },
+          columnWidth: { value: RC.column.width, min: 0.01, max: 0.5, step: 0.01, label: "기둥: 굵기 (칸)" },
+        },
+        { collapsed: true },
+      ),
+      "기초": folder(
+        {
+          plinthFootprint: { value: RC.plinth.footprint, min: 0.3, max: 8, step: 0.1, label: "기단: 크기 (칸)" },
+          plinthThick: { value: RC.plinth.thick, min: 0.02, max: 2, step: 0.01, label: "기단: 두께 (단)" },
+          basementDepth: { value: RC.basement.depth, min: 0.01, max: 6, step: 0.05, label: "베이스먼트: 깊이 (단)" },
+          basementFootprint: { value: RC.basement.footprint, min: 0.1, max: 1, step: 0.05, label: "베이스먼트: 크기 (기단 대비)" },
+          pileCount: { value: RC.pile.count, min: 0, max: 10, step: 1, label: "말뚝: 개수" },
+          pileDepth: { value: RC.pile.depth, min: 0.05, max: 8, step: 0.05, label: "말뚝: 길이 (단)" },
+          pileWidth: { value: RC.pile.width, min: 0.01, max: 0.4, step: 0.01, label: "말뚝: 굵기 (칸)" },
+        },
+        { collapsed: true },
+      ),
+    },
+    { order: 3 },
+  );
+  const wx = useControls(
+    "풍화 · 지층",
+    {
+      wear: { value: true, label: "마모 (끄면 지은 그대로; 엉김·융합도 꺼짐)" },
+      strata: { value: DEFAULT_WEATHER.strata, label: "지층: 층마다 자기 나이 (끄면 엉김·융합 꺼짐)" },
+      timeScale: { value: DEFAULT_WEATHER.timeScale, min: 0.001, max: 1, step: 0.001, label: "풍화 속도" },
+      ageJitter: { value: DEFAULT_WEATHER.ageJitter, min: 0, max: 1, step: 0.05, label: "풍화 오차 (부품마다 나이 ±)" },
+      concreteLife: { value: DEFAULT_WEATHER.concreteLife, min: 0.05, max: 5, step: 0.05, label: "콘크리트 수명 배율" },
+      steelLife: { value: DEFAULT_WEATHER.steelLife, min: 0.05, max: 5, step: 0.05, label: "철골 수명 (슬래브 대비)" },
+      tauSedimentYears: { value: DEFAULT_WEATHER.tauSedimentYears, min: 10, max: 20000, step: 10, label: "식생 → 부식토/이탄 (년)" },
+      "매몰 · 식생 영향": folder(
+        {
+          coverSlots: { value: DEFAULT_WEATHER.coverSlots, min: 0, max: 20, step: 1, label: "덮였다고 볼 위층 수 (0 = 끔)" },
+          buriedSlow: { value: DEFAULT_WEATHER.buriedSlow, min: 1, max: 500, step: 1, label: "덮인 뒤 몇 배 느려지나" },
+          natureAccel: { value: DEFAULT_WEATHER.natureAccel, min: 0, max: 5, step: 0.1, label: "식생이 부식을 빠르게 하는 정도" },
+        },
+        { collapsed: true },
+      ),
+    },
+    { order: 4 },
+  );
+  const weather = useMemo<WeatherConfig>(
+    () => ({
+      strata: wx.strata,
+      timeScale: wx.timeScale,
+      steelLife: wx.steelLife,
+      concreteLife: wx.concreteLife,
+      tauSedimentYears: wx.tauSedimentYears,
+      coverSlots: wx.coverSlots,
+      buriedSlow: wx.buriedSlow,
+      natureAccel: wx.natureAccel,
+      ageJitter: wx.ageJitter,
     }),
-  });
-  const ao = useControls("AO (N8AO)", {
-    enabled: { value: true, label: "켜기" },
-    aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
-    distanceFalloff: { value: 1, min: 0.05, max: 4, step: 0.05, label: "거리 감쇠" },
-    intensity: { value: 3, min: 0, max: 12, step: 0.1, label: "세기" },
-    quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
-    halfRes: { value: false, label: "절반 해상도" },
-  });
-  const light = useControls("빛", {
-    shadows: { value: true, label: "그림자" },
-    azimuth: { value: 35, min: 0, max: 360, step: 1, label: "해 방위 (°)" },
-    elevation: { value: 55, min: 5, max: 89, step: 1, label: "해 고도 (°)" },
-    intensity: { value: 1.4, min: 0, max: 4, step: 0.05, label: "해 세기 (그림자 대비)" },
-    softness: { value: 3, min: 0, max: 12, step: 0.5, label: "그림자 부드러움" },
-    grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
-  });
-  const view = useControls("시야 / 초점 / 배경", {
-    theme: { options: { "종이 (밝음)": "paper", "검정": "black" }, value: "black" as keyof typeof THEMES, label: "배경" },
-    nearFade: { value: [2, 24] as [number, number], min: 0, max: 60, step: 0.5, label: "가까운 식생 사라짐 (카메라 거리)" },
-    dof: { value: true, label: "초점 (피사계 심도)" },
-    dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점 범위 (월드)" },
-    dofBokeh: { value: 6.5, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
-  });
-  const weatherCtl = useControls("풍화 / 지층", {
-    strata: { value: DEFAULT_WEATHER.strata, label: "지층: 층마다 자기 나이 (아래일수록 오래됨)" },
-    timeScale: { value: DEFAULT_WEATHER.timeScale, min: 0.001, max: 1, step: 0.001, label: "풍화 속도 (모델 연수 배율)" },
-    steelLife: { value: DEFAULT_WEATHER.steelLife, min: 0.05, max: 5, step: 0.05, label: "철골 수명 (슬래브 대비)" },
-    concreteLife: { value: DEFAULT_WEATHER.concreteLife, min: 0.05, max: 5, step: 0.05, label: "콘크리트 수명 배율" },
-    tauSedimentYears: { value: DEFAULT_WEATHER.tauSedimentYears, min: 10, max: 20000, step: 10, label: "식생 → 부식토/이탄 (년)" },
-    coverSlots: { value: DEFAULT_WEATHER.coverSlots, min: 0, max: 20, step: 1, label: "덮였다고 볼 위층 수 (0 = 매몰 효과 끔)" },
-    buriedSlow: { value: DEFAULT_WEATHER.buriedSlow, min: 1, max: 500, step: 1, label: "덮인 뒤 풍화가 몇 배 느려지나" },
-    natureAccel: { value: DEFAULT_WEATHER.natureAccel, min: 0, max: 5, step: 0.1, label: "식생이 풍화를 빠르게 하는 정도" },
-    ageJitter: { value: DEFAULT_WEATHER.ageJitter, min: 0, max: 1, step: 0.05, label: "풍화 오차 (부품마다 나이 ±)" },
-  });
-  const weather = useMemo<WeatherConfig>(() => ({ ...weatherCtl }), [weatherCtl]);
-  const fuseCtl = useControls("엉김 · 융합 (건물이 덩어리가 되어감)", {
-    enabled: { value: DEFAULT_FUSE.enabled, label: "켜기 (지층 + 마모가 켜져 있어야 함)" },
-    accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "엉겨붙는 덩어리 세기 (0 = 끔)" },
-    accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "덩어리 최대 두께 (월드)" },
-    lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "덩어리 크기 (클수록 큰 뭉치)" },
-    accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작하는 부식 정도 (그 전엔 식생 점)" },
-    fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "건물과 하나가 되기 시작하는 부식 정도" },
-    voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀 크기, 작을수록 무거움)" },
-    blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "엉김 반경 (복셀)" },
-    gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "엉김 세기" },
-    porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "다공성 (구멍)" },
-    iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "표면 문턱" },
-    natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물 비중" },
-    resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 퇴적 비율 (>1 = 끔)" },
-  });
-  const resinCtl = useControls("레진 (가장 오래된 층)", {
-    color: { value: "#e8d9b8", label: "색" },
-    transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "투과" },
-    roughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (서리 낀 정도)" },
-    thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "두께감" },
-    attenuationColor: { value: "#6b3f17", label: "깊을수록 물드는 색" },
-    attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (짧을수록 무거움)" },
-  });
-  const resinLook = useMemo<ResinLook>(() => ({ ...resinCtl }), [resinCtl]);
-  const fuseCfg = useMemo<FuseConfig>(() => ({ ...fuseCtl }), [fuseCtl]);
-  const theme = THEMES[view.theme as keyof typeof THEMES] ?? THEMES.paper;
+    [wx.strata, wx.timeScale, wx.steelLife, wx.concreteLife, wx.tauSedimentYears, wx.coverSlots, wx.buriedSlow, wx.natureAccel, wx.ageJitter],
+  );
+  const veg = useControls(
+    "식생",
+    {
+      natureOn: { value: true, label: "켜기" },
+      "퇴적 식생 (시간 속 볼륨)": folder({
+        perSlot: { value: 6, min: 0.5, max: 40, step: 0.5, label: "칸·단당 점 수 (밀도 1일 때)" },
+        volumeSize: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
+        window: { value: 120, min: 10, max: 600, step: 10, label: "보이는 시간 범위 (±단)" },
+        margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
+        budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
+        burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "매몰층: 탄생 아래 몇 단" },
+      }),
+      "건물에 모이는 식생": folder({
+        gatherOn: { value: true, label: "켜기 (부식 초기, 덩어리 전)" },
+        gatherPerArea: { value: 10, min: 0, max: 80, step: 1, label: "칸²당 점 수" },
+        gatherSize: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
+        tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
+      }),
+    },
+    { order: 5 },
+  );
+  const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
+  const fu = useControls(
+    "엉김 · 융합 · 레진",
+    {
+      fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (마모 + 지층이 켜져 있어야 함)" },
+      accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작하는 부식 정도" },
+      fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "건물과 하나가 되기 시작하는 부식 정도" },
+      accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "덩어리 세기 (0 = 끔)" },
+      accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "덩어리 최대 두께 (월드)" },
+      lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "덩어리 크기 (클수록 큰 뭉치)" },
+      porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "다공성 (구멍)" },
+      resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 퇴적 비율 (>1 = 끔)" },
+      "표면 계산": folder(
+        {
+          voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀, 작을수록 무거움)" },
+          blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "엉김 반경 (복셀)" },
+          gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "엉김 세기" },
+          iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "표면 문턱" },
+          natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물 비중" },
+        },
+        { collapsed: true },
+      ),
+      "레진 재질": folder(
+        {
+          resinColor: { value: "#e8d9b8", label: "색" },
+          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "투과" },
+          resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (서리 낀 정도)" },
+          thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "두께감" },
+          attenuationColor: { value: "#6b3f17", label: "깊을수록 물드는 색" },
+          attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (짧을수록 무거움)" },
+        },
+        { collapsed: true },
+      ),
+    },
+    { order: 7 },
+  );
+  const fuseCfg = useMemo<FuseConfig>(
+    () => ({
+      enabled: fu.fuseOn,
+      accOnset: fu.accOnset,
+      fuseOnset: fu.fuseOnset,
+      voxel: fu.voxel,
+      blur: fu.blur,
+      gain: fu.gain,
+      porosity: fu.porosity,
+      iso: fu.iso,
+      natureWeight: fu.natureWeight,
+      accretion: fu.accretion,
+      accDepth: fu.accDepth,
+      lump: fu.lump,
+      resinShare: fu.resinShare,
+    }),
+    [fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare],
+  );
+  const resinLook = useMemo<ResinLook>(
+    () => ({
+      color: fu.resinColor,
+      transmission: fu.transmission,
+      roughness: fu.resinRoughness,
+      thickness: fu.thickness,
+      attenuationColor: fu.attenuationColor,
+      attenuationDistance: fu.attenuationDistance,
+    }),
+    [fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+  );
+  const rnd = useControls(
+    "렌더 · 성능",
+    {
+      AO: folder({
+        aoOn: { value: true, label: "켜기" },
+        aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
+        distanceFalloff: { value: 1, min: 0.05, max: 4, step: 0.05, label: "거리 감쇠" },
+        aoIntensity: { value: 3, min: 0, max: 12, step: 0.1, label: "세기" },
+        quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
+        halfRes: { value: false, label: "절반 해상도" },
+      }),
+      "빛": folder({
+        shadows: { value: true, label: "그림자" },
+        azimuth: { value: 35, min: 0, max: 360, step: 1, label: "해 방위 (°)" },
+        elevation: { value: 55, min: 5, max: 89, step: 1, label: "해 고도 (°)" },
+        sunIntensity: { value: 1.4, min: 0, max: 4, step: 0.05, label: "해 세기 (그림자 대비)" },
+        softness: { value: 3, min: 0, max: 12, step: 0.5, label: "그림자 부드러움" },
+        grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
+      }),
+      LOD: folder({
+        near: { value: 60, min: 5, max: 400, step: 5, label: "이 거리 안쪽만 막대 묶음 (월드)" },
+        farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율" },
+      }),
+    },
+    { order: 8, collapsed: true },
+  );
+  const fold = useFoldControls(SPACE_FOLD, { folder: "생성 규칙 (회사원 시공간 밀집)", collapsed: true, order: 2, withFilters: false });
+  const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
-  const composerOn = ao.enabled || light.grain > 0 || view.dof;
-  const natureView = useControls("자연 (시공간)", {
-    enabled: { value: true, label: "켜기" },
-    perSlot: { value: 6, min: 0.5, max: 40, step: 0.5, label: "칸·단당 점 수 (밀도 1일 때)" },
-    size: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
-    window: { value: 120, min: 10, max: 600, step: 10, label: "보이는 시간 범위 (±단)" },
-    margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
-    budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
-    burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "매몰층: 탄생 아래 몇 단" },
-    reclaim: { value: true, label: "건물에 모이는 식생 점 (부식 초기)" },
-    tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년, 작을수록 빠름)" },
-    reclaimPerArea: { value: 10, min: 0, max: 80, step: 1, label: "재점유: 칸²당 점 수" },
-  });
-  const { cfg: natureCfg } = useNatureControls();
-  const lod = useControls("LOD (성능)", {
-    near: { value: 60, min: 5, max: 400, step: 5, label: "이 거리 안쪽만 막대 묶음 (월드)" },
-    farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율" },
-  });
+  const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
   const natureParams = useMemo<NatureParams | null>(
     () =>
-      natureView.enabled
+      veg.natureOn
         ? {
             cfg: natureCfg,
-            perSlot: natureView.perSlot,
-            size: natureView.size,
-            window: natureView.window,
-            margin: natureView.margin,
-            budget: natureView.budget,
-            burialSlots: natureView.burialSlots,
-            reclaim: natureView.reclaim,
-            tauReclaimYears: natureView.tauReclaimYears,
-            reclaimPerArea: natureView.reclaimPerArea,
+            perSlot: veg.perSlot,
+            size: veg.volumeSize,
+            gatherSize: veg.gatherSize,
+            window: veg.window,
+            margin: veg.margin,
+            budget: veg.budget,
+            burialSlots: veg.burialSlots,
+            reclaim: veg.gatherOn,
+            tauReclaimYears: veg.tauReclaimYears,
+            reclaimPerArea: veg.gatherPerArea,
           }
         : null,
-    [natureView, natureCfg],
+    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea],
   );
-  const steel = useControls("철골 (steel)", {
-    beamChance: { value: RC.beam.chance, min: 0, max: 1, step: 0.01, label: "가로보: 슬롯당 확률" },
-    beamLength: { value: RC.beam.length, min: 0.3, max: 12, step: 0.1, label: "가로보: 길이 (칸)" },
-    beamWidth: { value: RC.beam.width, min: 0.01, max: 0.5, step: 0.01, label: "가로보: 굵기 (칸)" },
-    beamOnGrid: { value: RC.beam.onGrid, min: 0, max: 1, step: 0.05, label: "가로보: 격자 정렬 비율" },
-    beamSkew: { value: Math.round(RC.beam.skew / DEG), min: 0, max: 45, step: 1, label: "가로보: 최대 기울기 (°)" },
-    braceChance: { value: RC.brace.chance, min: 0, max: 1, step: 0.01, label: "사선: 슬롯당 확률" },
-    braceLength: { value: RC.brace.length, min: 0.2, max: 8, step: 0.1, label: "사선: 길이 (단)" },
-    braceTilt: { value: pair(RC.brace.tilt, 1 / DEG).map(Math.round) as [number, number], min: 0, max: 89, step: 1, label: "사선: 수직에서 기울기 (°)" },
-    braceWidth: { value: RC.brace.width, min: 0.01, max: 0.5, step: 0.01, label: "사선: 굵기 (칸)" },
-    columnCount: { value: RC.column.count, min: 0, max: 8, step: 1, label: "기둥: 슬래브당 개수" },
-    columnWidth: { value: RC.column.width, min: 0.01, max: 0.5, step: 0.01, label: "기둥: 굵기 (칸)" },
-  });
-  const slat = useControls("막대 묶음 / 드립", {
-    enabled: { value: RC.slat.enabled, label: "큰 매스를 막대 묶음으로" },
-    minFootprint: { value: RC.slat.minFootprint, min: 0.2, max: 4, step: 0.05, label: "묶음이 되는 최소 크기 (칸)" },
-    width: { value: RC.slat.width, min: 0.03, max: 1, step: 0.01, label: "막대 굵기 (칸)" },
-    density: { value: RC.slat.density, min: 0.1, max: 1, step: 0.05, label: "막대 채움 비율" },
-    maxPerMass: { value: RC.slat.maxPerMass, min: 4, max: 200, step: 1, label: "매스당 최대 막대 수" },
-    vertical: { value: RC.slat.vertical, min: 0, max: 1, step: 0.05, label: "세로(매달린) 묶음 비율" },
-    shortest: { value: RC.slat.shortest, min: 0.05, max: 1, step: 0.05, label: "매달린 막대 최소 길이 (매스 높이 대비)" },
-    dripPerArea: { value: RC.drip.perArea, min: 0, max: 6, step: 0.1, label: "드립: 칸²당 개수" },
-    dripMax: { value: RC.drip.max, min: 0, max: 60, step: 1, label: "드립: 부품당 최대" },
-    dripLength: { value: RC.drip.length, min: 0.02, max: 6, step: 0.01, label: "드립: 길이 (단)" },
-    dripAlpha: { value: RC.drip.alpha, min: 0.3, max: 4, step: 0.05, label: "드립: 길이 분포 (작을수록 긴 것 많음)" },
-    dripWidth: { value: RC.drip.width, min: 0.01, max: 0.4, step: 0.01, label: "드립: 굵기 (칸)" },
-  });
-  const found = useControls("기초", {
-    plinthFootprint: { value: RC.plinth.footprint, min: 0.3, max: 8, step: 0.1, label: "기단: 크기 (칸)" },
-    plinthThick: { value: RC.plinth.thick, min: 0.02, max: 2, step: 0.01, label: "기단: 두께 (단)" },
-    basementDepth: { value: RC.basement.depth, min: 0.01, max: 6, step: 0.05, label: "베이스먼트: 깊이 (단)" },
-    basementFootprint: { value: RC.basement.footprint, min: 0.1, max: 1, step: 0.05, label: "베이스먼트: 크기 (기단 대비)" },
-    pileCount: { value: RC.pile.count, min: 0, max: 10, step: 1, label: "말뚝: 개수" },
-    pileDepth: { value: RC.pile.depth, min: 0.05, max: 8, step: 0.05, label: "말뚝: 길이 (단)" },
-    pileWidth: { value: RC.pile.width, min: 0.01, max: 0.4, step: 0.01, label: "말뚝: 굵기 (칸)" },
-  });
   const recipe = useMemo<Recipe>(
     () => ({
       ...RC,
-      plinth: { footprint: found.plinthFootprint, thick: found.plinthThick },
-      basement: { depth: found.basementDepth, footprint: found.basementFootprint },
-      pile: { count: found.pileCount, depth: found.pileDepth, width: found.pileWidth },
-      slat: { enabled: slat.enabled, minFootprint: slat.minFootprint, width: slat.width, density: slat.density, maxPerMass: slat.maxPerMass, vertical: slat.vertical, shortest: slat.shortest },
-      drip: { perArea: slat.dripPerArea, max: slat.dripMax, length: slat.dripLength, alpha: slat.dripAlpha, width: slat.dripWidth },
-      beam: { ...RC.beam, chance: steel.beamChance, length: steel.beamLength, width: steel.beamWidth, onGrid: steel.beamOnGrid, skew: steel.beamSkew * DEG },
-      brace: { ...RC.brace, chance: steel.braceChance, length: steel.braceLength, tilt: pair(steel.braceTilt, DEG), width: steel.braceWidth },
-      column: { ...RC.column, count: steel.columnCount, width: steel.columnWidth },
+      plinth: { footprint: bld.plinthFootprint, thick: bld.plinthThick },
+      basement: { depth: bld.basementDepth, footprint: bld.basementFootprint },
+      pile: { count: bld.pileCount, depth: bld.pileDepth, width: bld.pileWidth },
+      slat: { enabled: bld.slatOn, minFootprint: bld.slatMinFootprint, width: bld.slatWidth, density: bld.slatDensity, maxPerMass: bld.slatMax, vertical: bld.slatVertical, shortest: bld.slatShortest },
+      drip: { perArea: bld.dripPerArea, max: bld.dripMax, length: bld.dripLength, alpha: bld.dripAlpha, width: bld.dripWidth },
+      beam: { ...RC.beam, chance: bld.beamChance, length: bld.beamLength, width: bld.beamWidth, onGrid: bld.beamOnGrid, skew: bld.beamSkew * DEG },
+      brace: { ...RC.brace, chance: bld.braceChance, length: bld.braceLength, tilt: pair(bld.braceTilt, DEG), width: bld.braceWidth },
+      column: { ...RC.column, count: bld.columnCount, width: bld.columnWidth },
     }),
-    [steel, slat, found],
+    [bld],
   );
   const boxCfg = useMemo<BoxConfig>(
-    () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density, timeJitter: c.timeJitter, recipe }),
-    [c.secPerUnit, c.unit, c.width, c.density, c.timeJitter, recipe],
+    () => ({ ...DEFAULT_BOXES, secPerUnit: tAxis.secPerUnit, unit: tAxis.unit, width: bld.partWidth, density: bld.partDensity, timeJitter: tAxis.timeJitter, recipe }),
+    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe],
   );
+  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear, follow: v.follow, markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -870,9 +1049,9 @@ export default function ParliamentSpace() {
       <Canvas shadows="percentage" dpr={[1, 2]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={light.azimuth} elevation={light.elevation} intensity={light.intensity} softness={light.softness} shadows={light.shadows} />
+        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={rnd.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
-        <gridHelper key={view.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />
+        <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />
         <SpaceWorld
           log={log}
           fold={spaceFold}
@@ -883,20 +1062,20 @@ export default function ParliamentSpace() {
           controls={controls}
           onStats={setStats}
           nature={natureParams}
-          lodNear={lod.near}
-          farFactor={lod.farFactor}
+          lodNear={rnd.near}
+          farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
           resin={resinLook}
-          nearFade={view.nearFade}
+          nearFade={v.nearFade}
         />
-        <FocusFollow controls={controls} target={focusTarget} />
+        <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />
         {composerOn && (
-          <EffectComposer key={`${ao.enabled}:${light.grain > 0}:${view.dof}`}>
-            {ao.enabled && <N8AO aoRadius={ao.aoRadius} distanceFalloff={ao.distanceFalloff} intensity={ao.intensity} quality={ao.quality} halfRes={ao.halfRes} color="black" />}
-            {view.dof && <DepthOfField target={focusTarget} worldFocusRange={view.dofRange} bokehScale={view.dofBokeh} />}
-            {light.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={light.grain} />}
+          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
+            {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={rnd.quality} halfRes={rnd.halfRes} color="black" />}
+            {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
+            {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
           </EffectComposer>
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth

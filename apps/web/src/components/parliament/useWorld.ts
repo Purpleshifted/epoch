@@ -50,10 +50,20 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
  */
 const NO_OVERRIDES: Partial<FoldConfig> = {};
 
-export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES): FoldConfig {
+/** Where and how a view shows a shared Leva group. */
+export interface ControlPlacement {
+  /** Folder name (default: the group's own). */
+  folder?: string;
+  collapsed?: boolean;
+  /** Order among the top-level folders (lower first). */
+  order?: number;
+}
+
+export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, place: ControlPlacement & { withFilters?: boolean } = {}): FoldConfig {
   // pass a constant: a new object every render would rebuild the config every render
   const D = useMemo(() => ({ ...DEFAULT_FOLD, ...defaults }), [defaults]);
-  const c = useControls("회사원 규칙 (시공간 밀집)", {
+  const withFilters = place.withFilters ?? true;
+  const schema = {
     radius: { value: D.radius, min: 1, max: 8, step: 0.25, label: "공간 반경 (월드 단위)" },
     windowSec: { value: D.windowSec, min: 10, max: 3600, step: 10, label: "시간 반경 (s)" },
     threshold: { value: D.threshold, min: 1, max: 400, step: 1, label: "생성 임계 (worker·s, 1인당 상한 적용)" },
@@ -63,11 +73,14 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES): F
     maxHeight: { value: D.maxHeight, min: 1, max: 20, step: 1, label: "최대 높이 (단)" },
     tauSlabYears: { value: D.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
     tauFootprintYears: { value: D.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
-    tauFilterYears: { value: D.tauFilterYears, min: 1, max: 1000, step: 1, label: "담배필터 마모 시간 (년)" },
+    // filters are only drawn in the player view
+    ...(withFilters ? { tauFilterYears: { value: D.tauFilterYears, min: 1, max: 1000, step: 1, label: "담배필터 마모 시간 (년)" } } : {}),
     pathVisits: { value: D.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)" },
     tauPathYears: { value: D.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)" },
-  });
-  const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears } = c;
+  };
+  const c = useControls(place.folder ?? "회사원 규칙 (시공간 밀집)", schema, { collapsed: place.collapsed, order: place.order }) as Record<string, number>;
+  const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
+  const tauFilterYears = c.tauFilterYears ?? D.tauFilterYears;
   return useMemo(
     () => ({ ...D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears }),
     [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, tauFilterYears, pathVisits, tauPathYears],
@@ -75,17 +88,26 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES): F
 }
 
 /** Leva knobs of the vegetation point cloud (placeholder formulas, see lib/parliament/nature.ts). */
-export function useNatureControls(): { cfg: NatureConfig; pointSize: number } {
-  const c = useControls("자연 (초목 point cloud)", {
+export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolean } = {}): { cfg: NatureConfig; pointSize: number } {
+  const rules = {
     lingerRadius: { value: DEFAULT_NATURE.lingerRadius, min: 1, max: 10, step: 0.25, label: "머문 회사원의 영향 반경" },
     dose: { value: DEFAULT_NATURE.dose, min: 0.01, max: 1, step: 0.01, label: "초당 훼손량 (중심)" },
     recoverSec: { value: DEFAULT_NATURE.recoverSec, min: 5, max: 600, step: 5, label: "떠난 뒤 회복 시간 (s)" },
     pathBite: { value: DEFAULT_NATURE.pathBite, min: 0, max: 1, step: 0.05, label: "길이 초목을 지우는 정도" },
     sealedLeft: { value: DEFAULT_NATURE.sealedLeft, min: 0, max: 1, step: 0.05, label: "콘크리트 아래 남는 초목" },
+  };
+  // how the player view draws its point cloud (meaningless elsewhere)
+  const drawing = {
     pointsPerCell: { value: DEFAULT_NATURE.pointsPerCell, min: 4, max: 80, step: 1, label: "셀당 최대 점 수" },
     pointSize: { value: 0.11, min: 0.03, max: 0.4, step: 0.01, label: "점 크기" },
-  });
-  const { lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, pointSize } = c;
+  };
+  const c = useControls(place.folder ?? "자연 (초목 point cloud)", place.rulesOnly ? rules : { ...rules, ...drawing }, {
+    collapsed: place.collapsed,
+    order: place.order,
+  }) as Record<string, number>;
+  const { lingerRadius, dose, recoverSec, pathBite, sealedLeft } = c;
+  const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;
+  const pointSize = c.pointSize ?? 0.11;
   const cfg = useMemo(
     () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell }),
     [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell],
