@@ -1,19 +1,19 @@
 /**
  * parliament/fuse.ts
  *
- * FUSION: once a layer of the timespace is old enough, its separate parts and plants stop being separate. What is
- * left of the concrete and the sediment of the vegetation is turned into one density field, blurred so the pieces
- * cling together, pitted by porosity (older = more porous, refs 9579/9580), and meshed as ONE surface (naive surface
- * nets: one vertex per surface cell, quads between them — soft, organic, no tables).
+ * What a structure BECOMES with age, as one surface (naive surface nets: one vertex per surface cell, quads between).
+ * Everything is driven by each part's own weathering, so it happens ON the structure, never as a separate slab:
  *
- * Old enough = the slot's sediment share q (natureHistory.sedimentShare: the same clock that turns vegetation into
- * humus and peat) has reached `share`; within `band` below it the layer fades in (and the separate parts dissolve).
+ *   1 ACCRETION   as a part is abandoned (reclaim R, natureHistory.reclaimShare), lumpy organic matter grows on its top
+ *                 face and hangs from its underside (ref 9578: rock-like growths on floors and slabs)
+ *   2 FUSION      as it decays (1 − survival, seeds.wearModel), the part itself becomes mass: max(decay, gain · blurred
+ *                 decay) — parts keep their form and near ones cling together; a part that has fallen away leaves its
+ *                 mass in its place. Vegetation sediment sticks to it (only near decaying concrete)
+ *   3 POROSITY    older layers are pitted (refs 9579/9580)
+ *   4 RESIN       the oldest layers (sediment share ≥ `resinShare`) are a second face group (FuseMesh.resinStart …) for a
+ *                 translucent material; their standing parts stay visible inside
  *
- * RESIN: the oldest layers (sediment share ≥ `resinShare`) are not opaque stone but a heavy translucent body: their
- * faces are put in a second group (FuseMesh.resinStart …) for a transmissive material, and their concrete parts are
- * kept (spaceModel), so what was built stays visible inside the compressed layer.
- *
- * The field is sampled on a GLOBAL voxel grid (spacing `voxel`), and meshed in chunks of whole slots. Every chunk
+ * The field is sampled on a GLOBAL voxel grid (spacing `voxel`) and meshed in chunks of whole slots. Every chunk
  * computes its field with padding, so neighbouring chunks agree on their shared vertices; each face belongs to the one
  * chunk that owns its edge, so nothing is drawn twice. Pure and deterministic.
  */
@@ -25,40 +25,51 @@ import { halfHeight, type Box } from "./seeds";
 
 export interface FuseConfig {
   enabled: boolean;
-  /** Sediment share at which a layer is fully fused. */
-  share: number;
-  /** Width (in share) of the fade-in below `share`. */
-  band: number;
+  /** Decay (1 − survival) below which a part does not turn into mass yet. */
+  onset: number;
   /** Voxel spacing (world). */
   voxel: number;
-  /** Box-blur radius in voxels: how far apart pieces still cling together. */
+  /** Box-blur radius in voxels: how far apart decaying pieces still cling together. */
   blur: number;
-  /**
-   * The field is max(concrete, gain · blurred concrete): parts keep their own form, and where several are near each
-   * other the blurred sum rises above the surface and fills the gaps between them.
-   */
+  /** The concrete field is max(decay, gain · blurred decay). */
   gain: number;
   /** How strongly holes are carved (× the layer's sediment share). */
   porosity: number;
   /** Iso level of the surface. */
   iso: number;
-  /** Weight of the vegetation's sediment in the field (concrete = 1). */
+  /** Weight of the vegetation's sediment that sticks to decaying concrete. */
   natureWeight: number;
+  /** ACCRETION: weight of the growths (× reclaim share); 0 = none. */
+  accretion: number;
+  /** Most thickness of the growths on top / hanging below a part (world), × reclaim share. */
+  accDepth: number;
+  /** Size of the lumps (world): larger = fewer, bigger clumps. */
+  lump: number;
   /** Layers with a sediment share ≥ this become resin (translucent, parts inside); > 1 = never. */
   resinShare: number;
 }
 
-export const DEFAULT_FUSE: FuseConfig = { enabled: true, share: 0.6, band: 0.15, voxel: 0.4, blur: 2, gain: 2.5, porosity: 0.6, iso: 0.3, natureWeight: 0.7, resinShare: 0.85 };
+export const DEFAULT_FUSE: FuseConfig = {
+  enabled: true,
+  onset: 0.15,
+  voxel: 0.4,
+  blur: 2,
+  gain: 2.5,
+  porosity: 0.6,
+  iso: 0.3,
+  natureWeight: 0.7,
+  accretion: 1.6,
+  accDepth: 0.9,
+  lump: 0.9,
+  resinShare: 0.85,
+};
 
 type Sediment = NonNullable<NaturePointOptions["sediment"]>;
 
-/** How fused slot k is: 0 separate … 1 one mass. */
-export function fusedWeight(k: number, sed: Sediment, cfg: FuseConfig): number {
+/** How much of a part has turned into mass, from its decay (1 − survival). */
+export function fusedShare(decay: number, cfg: FuseConfig): number {
   if (!cfg.enabled) return 0;
-  const q = sedimentShare(k, sed);
-  if (q >= cfg.share) return 1;
-  const lo = cfg.share - cfg.band;
-  return q <= lo ? 0 : (q - lo) / Math.max(1e-6, cfg.band);
+  return Math.max(0, Math.min(1, (decay - cfg.onset) / Math.max(1e-6, 1 - cfg.onset)));
 }
 
 export interface FuseMesh {
@@ -114,8 +125,14 @@ function blur3(f: Float32Array, tmp: Float32Array, nx: number, ny: number, nz: n
 }
 
 export interface FuseChunkInput {
-  /** Parts as they stand (worn), at least those overlapping the chunk's slots ± padding. */
+  /** Every part as BUILT (also those that have fallen away), at least those overlapping the chunk's slots ± padding. */
   parts: readonly Box[];
+  /** Per part: decay = 1 − survival (0 fresh … 1 gone). Absent = 1 (all fully decayed). */
+  decay?: ArrayLike<number>;
+  /** Per part: reclaim share R (what grows on it), 0..1. Absent = 0 (no growths). */
+  reclaim?: ArrayLike<number>;
+  /** Per part: still standing (accretion only grows on standing parts). Absent = all standing. */
+  standing?: ArrayLike<boolean>;
   /** Vegetation history (may be null: concrete only). */
   history: NatureHistory | null;
   /** Slots [k0, k1] of this chunk. */
@@ -137,6 +154,8 @@ const STONE_OLD = [0.36, 0.34, 0.31];
 const MOSS = [0.2, 0.27, 0.08];
 const HUMUS = [0.09, 0.055, 0.03];
 const PEAT = [0.025, 0.02, 0.016];
+/** Accretions (ref 9578: pale ochre-green rock growths). */
+const GROWTH = [0.42, 0.38, 0.22];
 
 /** The fused surface of slots [k0, k1]. */
 export function fuseChunk(input: FuseChunkInput): FuseMesh {
@@ -158,67 +177,89 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   if (n > 6e6) return EMPTY; // safety: refuse absurd grids
   const idx = (i: number, j: number, k: number) => (k * ny + j) * nx + i;
 
-  // weight of fusion per sample row (by slot)
-  const rowW = new Float32Array(ny);
+  // age of each sample row (sediment share): porosity and colour
   const rowQ = new Float32Array(ny);
-  let any = false;
   for (let j = 0; j < ny; j++) {
-    const y = (J0 + j) * vs;
-    const k = Math.floor(y / unit);
-    rowW[j] = k < 0 ? 0 : fusedWeight(k, sed, cfg);
+    const k = Math.floor(((J0 + j) * vs) / unit);
     rowQ[j] = k < 0 ? 0 : sedimentShare(k, sed);
-    if (rowW[j] > 0) any = true;
+  }
+
+  const C = new Float32Array(n); // concrete turned to mass (its fused share)
+  const A = new Float32Array(n); // accretion: growths on standing parts
+  const N = new Float32Array(n); // vegetation sediment
+  const yLo = J0 * vs, yHi = J1 * vs;
+  const fill = (arr: Float32Array, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, v: number) => {
+    const ia = Math.max(0, Math.ceil(x0 / vs) - I0), ib = Math.min(nx - 1, Math.floor(x1 / vs) - I0);
+    const ja = Math.max(0, Math.ceil(y0 / vs) - J0), jb = Math.min(ny - 1, Math.floor(y1 / vs) - J0);
+    const ka = Math.max(0, Math.ceil(z0 / vs) - K0), kb = Math.min(nz - 1, Math.floor(z1 / vs) - K0);
+    for (let k = ka; k <= kb; k++) for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) {
+      const p = idx(i, j, k);
+      if (arr[p] < v) arr[p] = v;
+    }
+  };
+  let any = false;
+  for (let pi = 0; pi < input.parts.length; pi++) {
+    const b = input.parts[pi];
+    if (b.tilt) continue;
+    const hh = halfHeight(b);
+    if (b.y + hh + cfg.accDepth < yLo || b.y - hh - cfg.accDepth > yHi) continue;
+    const hx = Math.max(b.sx, vs) / 2, hz = Math.max(b.sz, vs) / 2, hy = Math.max(2 * hh, vs) / 2;
+    // 2 FUSION: the part becomes mass as it decays (also once it has fallen away: its mass stays in its place)
+    const f = fusedShare(input.decay ? input.decay[pi] : 1, cfg);
+    if (f > 0) {
+      fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, f);
+      any = true;
+    }
+    // 1 ACCRETION: growths on top and hanging below a standing part, thicker the more it is reclaimed
+    const r = input.reclaim ? input.reclaim[pi] : 0;
+    const up = input.standing ? input.standing[pi] : true;
+    if (cfg.accretion > 0 && r > 0.02 && up) {
+      const d = cfg.accDepth * r;
+      fill(A, b.x - hx, b.x + hx, b.y + hy - vs, b.y + hy + d, b.z - hz, b.z + hz, r * cfg.accretion);
+      fill(A, b.x - hx * 0.9, b.x + hx * 0.9, b.y - hy - d * 0.7, b.y - hy + vs, b.z - hz * 0.9, b.z + hz * 0.9, r * cfg.accretion * 0.8);
+      any = true;
+    }
   }
   if (!any) return EMPTY;
 
-  const C = new Float32Array(n); // concrete
-  const N = new Float32Array(n); // vegetation sediment
-  // concrete: what still stands, rasterised (at least one voxel thick so thin slats do not vanish)
-  const yLo = J0 * vs, yHi = J1 * vs;
-  for (const b of input.parts) {
-    if (b.tilt) continue;
-    const hh = halfHeight(b);
-    if (b.y + hh < yLo || b.y - hh > yHi) continue;
-    const hx = Math.max(b.sx, vs) / 2, hz = Math.max(b.sz, vs) / 2, hy = Math.max(2 * hh, vs) / 2;
-    const ia = Math.max(0, Math.ceil((b.x - hx) / vs) - I0), ib = Math.min(nx - 1, Math.floor((b.x + hx) / vs) - I0);
-    const ja = Math.max(0, Math.ceil((b.y - hy) / vs) - J0), jb = Math.min(ny - 1, Math.floor((b.y + hy) / vs) - J0);
-    const ka = Math.max(0, Math.ceil((b.z - hz) / vs) - K0), kb = Math.min(nz - 1, Math.floor((b.z + hz) / vs) - K0);
-    for (let k = ka; k <= kb; k++) for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) C[idx(i, j, k)] = 1;
+  const tmp = new Float32Array(n);
+  const Cb = C.slice();
+  blur3(Cb, tmp, nx, ny, nz, Math.round(cfg.blur));
+  // growths are lumpy: modulated by low-frequency noise, then softened a little
+  const lf = 1 / Math.max(0.1, cfg.lump);
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const p = idx(i, j, k);
+    if (A[p] <= 0) continue;
+    A[p] *= 0.35 + 1.3 * noise3((I0 + i) * vs * lf, (J0 + j) * vs * lf, (K0 + k) * vs * lf, 21);
   }
-  // vegetation: its density, pressed into the lower part of each slot (compaction grows with q)
+  blur3(A, tmp, nx, ny, nz, 1);
+
+  // vegetation sediment sticks to decaying concrete (never a slab of its own)
   if (h && cfg.natureWeight > 0) {
     for (let k = 0; k < nz; k++) {
       const cz = Math.floor(((K0 + k) * vs) / CELL_SIZE);
       for (let i = 0; i < nx; i++) {
         const cx = Math.floor(((I0 + i) * vs) / CELL_SIZE);
         for (let j = 0; j < ny; j++) {
-          if (rowW[j] <= 0) continue;
-          const y = (J0 + j) * vs;
-          const slot = Math.floor(y / unit);
-          const v = natureAt(h, cx, cz, slot);
-          if (!v) continue;
-          const frac = y / unit - slot;
-          if (frac < 0.6 * (1 - 0.75 * rowQ[j]) + 0.1) N[idx(i, j, k)] = v * cfg.natureWeight;
+          const p = idx(i, j, k);
+          const near = Math.min(1, Cb[p] * 3);
+          if (near <= 0.02) continue;
+          const v = natureAt(h, cx, cz, Math.floor(((J0 + j) * vs) / unit));
+          if (v) N[p] = v * cfg.natureWeight * near;
         }
       }
     }
   }
-  const tmp = new Float32Array(n);
-  const Cb = C.slice();
-  blur3(Cb, tmp, nx, ny, nz, Math.round(cfg.blur));
-  blur3(N, tmp, nx, ny, nz, Math.round(cfg.blur));
 
-  // the field: fused share × (max(concrete, gain · blurred concrete) + sediment) − porosity
+  // the field: concrete mass (form kept, gaps filled) + growths + sediment − porosity
   const iso = cfg.iso;
   const F = new Float32Array(n);
   for (let k = 0; k < nz; k++) {
     for (let j = 0; j < ny; j++) {
-      const w = rowW[j];
-      if (w <= 0) continue;
       const por = cfg.porosity * rowQ[j];
       for (let i = 0; i < nx; i++) {
         const p = idx(i, j, k);
-        const base = w * (Math.max(C[p], cfg.gain * Cb[p]) + N[p]);
+        const base = Math.max(C[p], cfg.gain * Cb[p]) + A[p] + N[p];
         // holes only matter where there is something to carve
         if (por <= 0 || base <= iso) {
           F[p] = base;
@@ -271,13 +312,16 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         nor.push(-gx / gl, -gy / gl, -gz / gl);
         // colour: concrete ↔ vegetation sediment, both darkening with age
         const p = idx(i, j, k);
-        const veg = N[p] / (Cb[p] + N[p] + 1e-6);
+        const tot = Cb[p] + A[p] + N[p] + 1e-6;
+        const veg = N[p] / tot;
+        const grow = A[p] / tot;
         const q = rowQ[j];
         const jit = 0.85 + 0.3 * hash2(I0 + i, (J0 + j) * 7919 + K0 + k, 13);
         for (let c = 0; c < 3; c++) {
           const stone = STONE_NEW[c] + (STONE_OLD[c] - STONE_NEW[c]) * q;
           const sedc = q < 0.8 ? MOSS[c] + (HUMUS[c] - MOSS[c]) * (q / 0.8) : HUMUS[c] + (PEAT[c] - HUMUS[c]) * ((q - 0.8) / 0.2);
-          col.push((stone + (sedc - stone) * veg) * jit);
+          const growc = GROWTH[c] + (MOSS[c] - GROWTH[c]) * Math.min(1, q * 1.5);
+          col.push((stone * (1 - veg - grow) + sedc * veg + growc * grow) * jit);
         }
       }
     }

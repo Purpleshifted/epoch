@@ -78,17 +78,15 @@ describe("SpaceModel: what the worker computes", () => {
     expect(far.position.length).toBeLessThan(near.position.length);
   });
 
-  it("old layers are fused into one mesh and their parts leave the instances", () => {
+  it("weathered structures turn into mass on themselves, and their parts stay drawn", () => {
     // an old world: the same bots, an hour before the present
     const late: PEvent[] = [...events, { id: "late", o: "late", r: "worker", k: "p", x: 40, z: 40, s: 4000 }];
     const m = new SpaceModel();
     m.add(late);
     const off = m.computeParts({ ...parts(), fuse: { ...DEFAULT_FUSE, enabled: false } })!;
-    const opaque = m.computeParts({ ...parts(), fuse: { ...DEFAULT_FUSE, resinShare: 2 } })!;
-    const withResin = m.computeParts(parts())!;
-    expect(opaque.parts).toBeLessThan(off.parts); // fused layers dissolve their parts
-    expect(withResin.parts).toBeGreaterThanOrEqual(opaque.parts); // resin layers keep theirs inside
-    const input = { box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE };
+    const on = m.computeParts(parts())!;
+    expect(on.parts).toBe(off.parts); // fusion takes nothing away: wear does
+    const input = { box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, tauReclaimYears: 300 };
     // chunks are built a few per call: call until it settles (null = nothing left to build)
     let mesh = m.computeFuse(input)!;
     for (let i = 0; i < 60; i++) {

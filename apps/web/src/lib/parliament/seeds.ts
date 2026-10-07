@@ -597,11 +597,16 @@ export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow:
  * Removal is a fixed per-part hash against P, so as A grows the same parts go first (nothing flickers). Returns a new
  * array; the input (possibly cached) is not changed.
  */
-export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig): Box[] {
-  const age = new Map<number, number>();
+/**
+ * The weathering of single parts at tNow: age (model years, with strata / burial / vegetation as configured) and
+ * survival probability P = e^(−A / (tau · f)). wearParts decides removal with it; decay = 1 − P drives what grows on
+ * and what becomes of a part (fuse.ts).
+ */
+export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig): { age: (b: Box) => number; survival: (b: Box) => number } {
+  const ages = new Map<number, number>();
   const topSlot = new Map<number, number>();
   for (const s of seeds) {
-    age.set(s.id, seedAgeYears(s, tNow));
+    ages.set(s.id, seedAgeYears(s, tNow));
     if (cfg.secPerUnit) topSlot.set(s.id, Math.floor(s.t1 / cfg.secPerUnit));
   }
   const spu = cfg.secPerUnit ?? 0;
@@ -609,8 +614,8 @@ export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: n
   const slow = Math.max(1, cfg.buriedSlow ?? 1);
   const accel = cfg.natureAccel ?? 0;
   const yNow = geoYears(tNow);
-  const ageOf = (b: Box) => {
-    if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg))) return partAgeYears(b, age, tNow, cfg);
+  const age = (b: Box) => {
+    if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg))) return partAgeYears(b, ages, tNow, cfg);
     // strata with burial / vegetation: exposed from the end of its slot until covered, then slowed
     const laid = Math.min(tNow, (b.slot + 1) * spu);
     const top = topSlot.get(b.seed) ?? b.slot;
@@ -619,6 +624,18 @@ export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: n
     const buried = Math.max(0, yNow - geoYears(tCover)) / slow;
     return (exposed + buried) * (cfg.timeScale ?? 1);
   };
+  const survival = (b: Box) => {
+    const A = age(b);
+    if (A <= 0) return 1;
+    const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b, cfg);
+    return Math.exp(-A / tau);
+  };
+  return { age, survival };
+}
+
+export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig): Box[] {
+  const wm = wearModel(seeds, tNow, cfg);
+  const ageOf = wm.age;
   const survives = (b: Box, A: number) => {
     const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b, cfg);
     return partHash(b) < Math.exp(-A / tau);

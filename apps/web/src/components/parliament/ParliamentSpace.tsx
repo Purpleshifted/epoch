@@ -412,7 +412,7 @@ function SpaceWorld({
       }
     }
     // the fused mass follows the vegetation's cadence (it is built from its history)
-    if (id % NATURE_EVERY === 1) req.fuse = { box: cfg, weather: wx, fuse: fu };
+    if (id % NATURE_EVERY === 1) req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300 };
     inFlight.current = { id, at: now };
     w.post(req);
   });
@@ -730,10 +730,12 @@ export default function ParliamentSpace() {
     natureAccel: { value: DEFAULT_WEATHER.natureAccel, min: 0, max: 5, step: 0.1, label: "식생이 풍화를 빠르게 하는 정도" },
   });
   const weather = useMemo<WeatherConfig>(() => ({ ...weatherCtl }), [weatherCtl]);
-  const fuseCtl = useControls("융합 (오래된 층 → 한 덩어리)", {
-    enabled: { value: DEFAULT_FUSE.enabled, label: "켜기 (지층이 켜져 있어야 함)" },
-    share: { value: DEFAULT_FUSE.share, min: 0.05, max: 1, step: 0.01, label: "융합 시작 (퇴적 비율)" },
-    band: { value: DEFAULT_FUSE.band, min: 0.01, max: 0.6, step: 0.01, label: "전이 구간 폭" },
+  const fuseCtl = useControls("엉김 · 융합 (건물이 덩어리가 되어감)", {
+    enabled: { value: DEFAULT_FUSE.enabled, label: "켜기 (지층 + 마모가 켜져 있어야 함)" },
+    accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "엉겨붙는 덩어리 세기 (0 = 끔)" },
+    accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "덩어리 최대 두께 (월드)" },
+    lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "덩어리 크기 (클수록 큰 뭉치)" },
+    onset: { value: DEFAULT_FUSE.onset, min: 0, max: 0.95, step: 0.01, label: "융합이 시작되는 부식 정도" },
     voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀 크기, 작을수록 무거움)" },
     blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "엉김 반경 (복셀)" },
     gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "엉김 세기" },
