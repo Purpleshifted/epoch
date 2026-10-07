@@ -7,3 +7,4 @@ export * from "./nature";
 export * from "./shards";
 export * from "./collage";
 export * from "./fragments.data";
+export * from "./seeds";

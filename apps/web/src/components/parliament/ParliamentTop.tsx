@@ -34,18 +34,11 @@ const PAPER = "#e9ebee";
 
 export type GlobalMode = "top" | "side";
 
-interface Bounds { minX: number; maxX: number; minZ: number; maxZ: number }
-
-/** Frame the bulk of the events (2nd..98th percentile) so a few far wanderers do not shrink everything. */
-function boundsOf(log: EventLog): Bounds | null {
-  const ev = log.all();
-  if (ev.length === 0) return null;
-  const xs = ev.map((e) => e.x).sort((a, b) => a - b);
-  const zs = ev.map((e) => e.z).sort((a, b) => a - b);
-  const lo = Math.floor(ev.length * 0.02);
-  const hi = Math.min(ev.length - 1, Math.ceil(ev.length * 0.98));
-  const pad = 4;
-  return { minX: xs[lo] - pad, maxX: xs[hi] + pad, minZ: zs[lo] - pad, maxZ: zs[hi] + pad };
+/** Fixed window onto the ground (centre + width in world units); set by hand in Leva, never from the data. */
+interface ViewWindow {
+  cx: number;
+  cz: number;
+  span: number;
 }
 
 function Surface({
@@ -54,6 +47,7 @@ function Surface({
   horizonYears,
   cfg,
   heightUnit,
+  view,
   snapRef,
 }: {
   log: EventLog;
@@ -61,6 +55,7 @@ function Surface({
   horizonYears: number;
   cfg: FoldConfig;
   heightUnit: number;
+  view: ViewWindow;
   snapRef: React.MutableRefObject<Snapshot | null>;
 }) {
   const { camera, size } = useThree();
@@ -69,40 +64,20 @@ function Surface({
     timer.current += dt;
     if (timer.current < 0.5) return;
     timer.current = 0;
-    const b = boundsOf(log);
-    if (!b) {
-      snapRef.current = null;
-      return;
-    }
     const cam = camera as THREE.OrthographicCamera;
     const events = log.all();
     snapRef.current = foldWorld(events, horizonSeconds(latestS(events), horizonYears), cfg);
 
-    // frame the slabs that are drawn (with room for the pictures), else the bulk of the events
-    const sl = snapRef.current.slabs.filter((s) => s.h >= 0.15);
-    let bb = b;
-    if (sl.length > 0) {
-      const pad = 3;
-      bb = {
-        minX: Math.min(...sl.map((s) => s.x)) - pad,
-        maxX: Math.max(...sl.map((s) => s.x)) + pad,
-        minZ: Math.min(...sl.map((s) => s.z)) - pad,
-        maxZ: Math.max(...sl.map((s) => s.z)) + pad,
-      };
-    }
-    const spanX = Math.max(8, bb.maxX - bb.minX);
-    const cx = (bb.minX + bb.maxX) / 2;
+    const { cx, cz, span } = view;
     if (mode === "top") {
-      const spanZ = Math.max(8, bb.maxZ - bb.minZ);
-      const cz = (bb.minZ + bb.maxZ) / 2;
-      cam.zoom = Math.min(size.width / spanX, size.height / spanZ) * 0.96;
+      cam.zoom = Math.min(size.width, size.height) / span;
       cam.position.set(cx, 50, cz);
       cam.up.set(0, 0, -1);
       cam.lookAt(cx, 0, cz);
     } else {
-      // front view: x across, y up; frame the tallest thing that may exist
+      // front view: x across, y up; the vertical window is set by the height settings, not by the data
       const spanY = Math.max(4, cfg.maxHeight * heightUnit + 2);
-      cam.zoom = Math.min(size.width / spanX, size.height / spanY) * 0.96;
+      cam.zoom = Math.min(size.width / span, size.height / spanY);
       const cy = spanY / 2 - 0.8;
       cam.position.set(cx, cy, 80);
       cam.up.set(0, 1, 0);
@@ -130,6 +105,9 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
       step: 10,
       label: "미래 (마지막 사건 이후 년)",
     },
+    viewCx: { value: 0, min: -60, max: 60, step: 0.5, label: "화면 중심 x (고정, 자동 맞춤 없음)" },
+    viewCz: { value: 0, min: -60, max: 60, step: 0.5, label: "화면 중심 z (Top)" },
+    viewSpan: { value: 30, min: 6, max: 120, step: 1, label: "화면 폭 (월드 단위)" },
     reload: button(() => log.addMany(loadEvents())),
     "clear world": button(() => {
       if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
@@ -161,7 +139,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
             <directionalLight position={[10, 25, 30]} intensity={1.1} />
           </>
         )}
-        <Surface log={log} mode={mode} horizonYears={c.horizonYears} cfg={cfg} heightUnit={arch.heightUnit} snapRef={snapRef} />
+        <Surface log={log} mode={mode} horizonYears={c.horizonYears} cfg={cfg} heightUnit={arch.heightUnit} view={{ cx: c.viewCx, cz: c.viewCz, span: c.viewSpan }} snapRef={snapRef} />
         <ArchitectureLayer
           getSnapshot={() => snapRef.current}
           heightUnit={arch.heightUnit}

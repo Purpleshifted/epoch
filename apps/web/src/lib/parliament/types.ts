@@ -45,10 +45,14 @@ export interface FoldConfig {
   radius: number;
   /** Temporal radius (exhibition seconds): presence further back than this does not count towards nucleation. */
   windowSec: number;
-  /** Worker-seconds (kernel-weighted) inside the ball that make a slab nucleate. */
+  /** Worker-seconds (kernel-weighted, each visitor capped at `visitorCap`) inside the ball that make a slab nucleate. */
   threshold: number;
-  /** Extra worker-seconds that raise the slab by one more height unit after nucleation. */
+  /** Extra worker-seconds (each visitor capped) that raise the slab by one more height unit after nucleation. */
   pourUnit: number;
+  /** Most that ONE visitor can contribute to ONE cell (worker-seconds): a lone visitor cannot build alone. */
+  visitorCap: number;
+  /** Distinct visitors that must have been in the ball (inside the time window) before a slab can nucleate. */
+  minVisitors: number;
   maxHeight: number;
   /** Seconds one presence event stands for. */
   sampleSec: number;
@@ -67,8 +71,10 @@ export interface FoldConfig {
 export const DEFAULT_FOLD: FoldConfig = {
   radius: 3,
   windowSec: 600,
-  threshold: 12,
-  pourUnit: 12,
+  threshold: 36,
+  pourUnit: 15,
+  visitorCap: 15,
+  minVisitors: 3,
   maxHeight: 6,
   sampleSec: 1,
   tauSlabYears: 800,
@@ -77,6 +83,7 @@ export const DEFAULT_FOLD: FoldConfig = {
   pathVisits: 5,
   tauPathYears: 3000,
 };
+
 
 export interface Slab {
   key: string;

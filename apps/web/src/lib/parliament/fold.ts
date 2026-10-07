@@ -34,6 +34,7 @@ interface Acc {
   cz: number;
   s: number[];
   w: number[];
+  o: string[];
 }
 
 export function foldWorld(
@@ -89,36 +90,55 @@ export function foldWorld(
         const key = `${cx},${cz}`;
         let acc = cells.get(key);
         if (!acc) {
-          acc = { cx, cz, s: [], w: [] };
+          acc = { cx, cz, s: [], w: [], o: [] };
           cells.set(key, acc);
         }
         acc.s.push(e.s);
         acc.w.push(1 - d / cfg.radius);
+        acc.o.push(e.o);
       }
     }
   }
 
+  const cap = cfg.visitorCap;
   const slabs: Slab[] = [];
   for (const [key, acc] of cells) {
-    const { s, w } = acc;
+    const { s, w, o } = acc;
+    const dt = cfg.sampleSec;
+    // sliding window with one running sum PER VISITOR; a visitor counts at most `cap`
+    const own = new Map<string, number>();
     let lo = 0;
-    let sum = 0;
+    let capped = 0;
     let nuc = -1;
     for (let j = 0; j < s.length; j++) {
-      sum += w[j] * cfg.sampleSec;
+      const prev = own.get(o[j]) ?? 0;
+      const next = prev + w[j] * dt;
+      own.set(o[j], next);
+      capped += Math.min(cap, next) - Math.min(cap, prev);
       while (s[j] - s[lo] >= cfg.windowSec) {
-        sum -= w[lo] * cfg.sampleSec;
+        const p = own.get(o[lo]) ?? 0;
+        const q = p - w[lo] * dt;
+        if (q <= EPS) {
+          own.delete(o[lo]);
+          capped -= Math.min(cap, p);
+        } else {
+          own.set(o[lo], q);
+          capped += Math.min(cap, q) - Math.min(cap, p);
+        }
         lo++;
       }
-      if (sum >= cfg.threshold - EPS) {
+      if (capped >= cfg.threshold - EPS && own.size >= cfg.minVisitors) {
         nuc = j;
         break;
       }
     }
     if (nuc < 0) continue;
 
-    let mass = sum;
-    for (let k = nuc + 1; k < s.length; k++) mass += w[k] * cfg.sampleSec;
+    // growth: everything every visitor ever put in this cell, each visitor capped
+    const total = new Map<string, number>();
+    for (let k = 0; k < s.length; k++) total.set(o[k], (total.get(o[k]) ?? 0) + w[k] * dt);
+    let mass = 0;
+    for (const v of total.values()) mass += Math.min(cap, v);
     const raw = Math.min(cfg.maxHeight, 1 + Math.max(0, mass - cfg.threshold) / cfg.pourUnit);
 
     const lastS = s[s.length - 1];
