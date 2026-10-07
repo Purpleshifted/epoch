@@ -66,6 +66,11 @@ export interface FoldConfig {
   pathVisits: number;
   /** e-folding time (model years) of a path once nobody walks it. */
   tauPathYears: number;
+  /**
+   * A pause longer than this (exhibition seconds) in the presence around a slab splits its life into separate
+   * spans: the time in between is EMPTY TIME, and the 3D timespace view leaves it empty (no boxes).
+   */
+  emptyGapSec: number;
 }
 
 export const DEFAULT_FOLD: FoldConfig = {
@@ -82,6 +87,7 @@ export const DEFAULT_FOLD: FoldConfig = {
   tauFilterYears: 10,
   pathVisits: 5,
   tauPathYears: 3000,
+  emptyGapSec: 30,
 };
 
 
@@ -99,6 +105,11 @@ export interface Slab {
   bornS: number;
   /** Assigned time of the last presence that kept it in use. */
   lastS: number;
+  /**
+   * When somebody was actually around it, from its birth on: [from, to] in assigned seconds, sorted, separated by
+   * pauses longer than `emptyGapSec`. Absent (hand-built slabs) = one span bornS … lastS.
+   */
+  spans?: [number, number][];
 }
 
 export interface FilterTrace {

@@ -79,17 +79,37 @@ export function loadEvents(): PEvent[] {
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
-/** Merge `local` into the stored log (by id), keep the latest MAX_EVENTS by assigned time. */
-export function saveMerged(local: Iterable<PEvent>): void {
+let warnedQuota = false;
+
+/**
+ * Merge `local` into the stored log (by id), keep the latest MAX_EVENTS by assigned time.
+ * When the browser's storage quota is hit (a long run with many bots), the oldest events are dropped until it
+ * fits, instead of failing silently: a failed write used to freeze the shared world for every other tab.
+ * Returns false only when nothing could be written.
+ */
+export function saveMerged(local: Iterable<PEvent>): boolean {
+  let all: PEvent[];
   try {
     const merged = new Map<string, PEvent>();
     for (const e of loadEvents()) merged.set(e.id, e);
     for (const e of local) merged.set(e.id, { ...e, x: r2(e.x), z: r2(e.z), s: r2(e.s) });
-    const all = [...merged.values()].sort((a, b) => a.s - b.s);
-    localStorage.setItem(LS_EVENTS_KEY, JSON.stringify(all.slice(-MAX_EVENTS)));
+    all = [...merged.values()].sort((a, b) => a.s - b.s).slice(-MAX_EVENTS);
   } catch {
-    /* quota */
+    return false;
   }
+  for (let keep = all.length; keep > 0; keep = Math.floor(keep * 0.75)) {
+    try {
+      localStorage.setItem(LS_EVENTS_KEY, JSON.stringify(keep === all.length ? all : all.slice(-keep)));
+      if (keep < all.length && !warnedQuota) {
+        warnedQuota = true;
+        console.warn(`[parliament] storage quota: kept the latest ${keep} of ${all.length} events (older history dropped)`);
+      }
+      return true;
+    } catch {
+      /* quota: try with fewer */
+    }
+  }
+  return false;
 }
 
 /** Wall-clock ms at which the exhibition epoch began (created on first use). */

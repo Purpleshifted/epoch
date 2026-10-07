@@ -12,7 +12,8 @@
  *
  * Wear is measured in MODEL years (geoClock, log-compressed wall time) since the last presence
  * that kept the slab in use. The exposed slab wears faster than the buried footprint, so in a far
- * future only the outline of where people crowded is left.
+ * future only the outline of where people crowded is left. Views that show the whole history (the 3D
+ * timespace) fold with `withoutWear(cfg)`, so nothing that was ever built drops out of them.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
@@ -142,6 +143,13 @@ export function foldWorld(
     const raw = Math.min(cfg.maxHeight, 1 + Math.max(0, mass - cfg.threshold) / cfg.pourUnit);
 
     const lastS = s[s.length - 1];
+    // when somebody was around, from the birth on; a pause longer than emptyGapSec is empty time
+    const spans: [number, number][] = [[s[nuc], s[nuc]]];
+    for (let k = nuc + 1; k < s.length; k++) {
+      const cur = spans[spans.length - 1];
+      if (s[k] - cur[1] > cfg.emptyGapSec) spans.push([s[k], s[k]]);
+      else cur[1] = s[k];
+    }
     const age = Math.max(0, yView - geoYears(lastS));
     const foot = Math.exp(-age / cfg.tauFootprintYears);
     if (foot < MIN_FOOT) continue;
@@ -155,6 +163,7 @@ export function foldWorld(
       foot,
       bornS: s[nuc],
       lastS,
+      spans,
     });
   }
   slabs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
@@ -171,9 +180,27 @@ export function foldWorld(
   return { slabs, filters, paths };
 }
 
+/**
+ * The same rule without wear: every slab that ever nucleated stays, at its full (raw) height. For views that
+ * show history rather than one moment (the 3D timespace): with wear, a slab whose footprint had decayed by the
+ * latest time simply vanished from them — after only a few minutes once the epoch is hours old, because model
+ * years run faster and faster (geoClock).
+ */
+export function withoutWear(cfg: FoldConfig): FoldConfig {
+  return { ...cfg, tauSlabYears: Infinity, tauFootprintYears: Infinity };
+}
+
 /** Latest event time in the log (0 for an empty log). */
 export function latestS(events: readonly PEvent[]): number {
   let m = 0;
   for (const e of events) if (e.s > m) m = e.s;
+  return m;
+}
+
+/** Latest presence time of one owner (visitor or bot), or null if they left nothing. */
+export function latestOf(events: readonly PEvent[], owner: string | null | undefined): number | null {
+  if (!owner) return null;
+  let m: number | null = null;
+  for (const e of events) if (e.o === owner && e.k === "p" && (m === null || e.s > m)) m = e.s;
   return m;
 }

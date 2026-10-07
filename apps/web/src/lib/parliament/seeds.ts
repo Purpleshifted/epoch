@@ -10,6 +10,7 @@
  * distinct visitors, per-visitor capped). It carries:
  *   x, z          where (cell centre)
  *   t0 … t1       when it exists (bornS … lastS, exhibition seconds; the time axis is Y)
+ *   spans         when somebody was actually around inside t0 … t1; the EMPTY TIME between spans stays empty
  *   mass          how much was put in (≥ 1: 1 + extra per visitor beyond the threshold)
  *   id            hash of (cell, birth): the seed number for every random choice below
  *   material      what it is made of; chosen by the ROLE that produced it
@@ -18,8 +19,9 @@
  * recipe (or only new numbers for an existing one); nothing else in the pipeline changes.
  *
  * Boxes live in a 3D world: x, z = the ground, y = TIME (y = t / secPerUnit · unit). A seed that existed from
- * t0 to t1 is a column of boxes of different sizes spread over that range of y. Boxes never wear away here:
- * wear belongs to the Top (future) view.
+ * t0 to t1 is a column of boxes of different sizes spread over that range of y. Only the time slots in which
+ * somebody was around get boxes (empty time stays empty, for natural matter to fill later). Boxes never wear
+ * away here: wear belongs to the Top (future) view (fold with `withoutWear` for this one).
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
@@ -42,6 +44,8 @@ export interface Seed {
   /** Exhibition seconds. */
   t0: number;
   t1: number;
+  /** [from, to] exhibition seconds in which somebody was around; absent = one span t0 … t1. */
+  spans?: [number, number][];
   mass: number;
 }
 
@@ -121,8 +125,27 @@ export function seedsFromSnapshot(snap: Pick<Snapshot, "slabs">, role: RoleId = 
   if (!material) return [];
   return snap.slabs.map((s: Slab) => {
     const [cx, cz] = s.key.split(",").map(Number);
-    return { id: seedId(cx, cz, s.bornS), material, role, x: s.x, z: s.z, t0: s.bornS, t1: s.lastS, mass: s.raw };
+    const seed: Seed = { id: seedId(cx, cz, s.bornS), material, role, x: s.x, z: s.z, t0: s.bornS, t1: s.lastS, mass: s.raw };
+    if (s.spans) seed.spans = s.spans;
+    return seed;
   });
+}
+
+/**
+ * The time slots of a seed that get boxes: every slot that one of its spans touches (ascending), at most the latest
+ * `maxSlots`. A slot in which nobody was around is EMPTY TIME and gets nothing.
+ */
+export function occupiedSlots(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): number[] {
+  const spans = seed.spans && seed.spans.length ? seed.spans : [[seed.t0, seed.t1] as [number, number]];
+  const slots: number[] = [];
+  let prev = -Infinity;
+  for (const [a, b] of spans) {
+    const lo = Math.max(Math.floor(Math.max(a, seed.t0) / cfg.secPerUnit), prev + 1);
+    const hi = Math.floor(Math.min(b, seed.t1) / cfg.secPerUnit);
+    for (let k = lo; k <= hi; k++) slots.push(k);
+    if (hi >= lo) prev = hi;
+  }
+  return slots.length > cfg.maxSlots ? slots.slice(slots.length - cfg.maxSlots) : slots;
 }
 
 /** The boxes of one seed. Each time slot is generated from its own random stream, so the column only grows upwards. */
@@ -130,10 +153,9 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
   const rc = RECIPES[seed.material];
   const first = Math.floor(seed.t0 / cfg.secPerUnit);
   const last = Math.floor(seed.t1 / cfg.secPerUnit);
-  const from = Math.max(first, last - cfg.maxSlots + 1);
   const out: Box[] = [];
   const span = Math.max(1, last - first);
-  for (let k = from; k <= last; k++) {
+  for (const k of occupiedSlots(seed, cfg)) {
     const r = stream(seed.id, k);
     // all draws are made for the maximum, so the number of boxes never shifts the others' values
     const extraDraw = r();

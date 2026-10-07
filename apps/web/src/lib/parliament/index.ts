@@ -8,3 +8,4 @@ export * from "./shards";
 export * from "./collage";
 export * from "./fragments.data";
 export * from "./seeds";
+export * from "./bots";

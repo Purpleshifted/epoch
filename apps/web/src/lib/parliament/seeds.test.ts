@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOXES, MATERIAL_OF_ROLE, boxesOfSeed, foldWorld, generateBoxes, seedsFromSnapshot, type PEvent, type Seed } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, MATERIAL_OF_ROLE, boxesOfSeed, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type PEvent, type Seed } from "./index";
 
 const C = 1.2;
 const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[] =>
@@ -66,5 +66,50 @@ describe("seeds: boxes", () => {
   it("maxSlots bounds the work for very long lives", () => {
     const bs = generateBoxes([seed({ t0: 0, t1: 1e6, mass: 6 })], { ...DEFAULT_BOXES, maxSlots: 50 });
     expect(bs.length).toBeLessThanOrEqual(50 * 4);
+  });
+});
+
+describe("seeds: empty time stays empty", () => {
+  it("a slab's life is split into spans where nobody was around", () => {
+    const e = [...crowd(3, 0, 40), ...crowd(3, 1000, 40).map((x) => ({ ...x, id: "b" + x.id }))];
+    const slab = foldWorld(e, 2000).slabs.find((s) => s.key === "0,0")!;
+    expect(slab.spans).toHaveLength(2);
+    expect(slab.spans![0][1]).toBeLessThan(100);
+    expect(slab.spans![1][0]).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("continuous presence is one span from the birth on", () => {
+    const slab = foldWorld(crowd(3, 0, 120), 200).slabs.find((s) => s.key === "0,0")!;
+    expect(slab.spans).toEqual([[slab.bornS, slab.lastS]]);
+  });
+
+  it("no boxes in the slots between two gatherings", () => {
+    const e = [...crowd(3, 0, 40), ...crowd(3, 1000, 40).map((x) => ({ ...x, id: "b" + x.id }))];
+    const seeds = seedsFromSnapshot(foldWorld(e, 2000)).filter((s) => s.x === C / 2 && s.z === C / 2);
+    const bs = generateBoxes(seeds);
+    const spu = DEFAULT_BOXES.secPerUnit;
+    const emptyFloor = (100 / spu + 1) * DEFAULT_BOXES.unit; // a slot after the first gathering, plus box overhang
+    const emptyCeil = (1000 / spu) * DEFAULT_BOXES.unit;
+    expect(bs.length).toBeGreaterThan(0);
+    expect(bs.filter((b) => b.y > emptyFloor && b.y < emptyCeil)).toHaveLength(0);
+    expect(bs.some((b) => b.y >= emptyCeil)).toBe(true);
+  });
+
+  it("a seed without spans (hand-built) still fills t0 … t1", () => {
+    expect(occupiedSlots(seed({ t0: 0, t1: 90 }))).toEqual([0, 1, 2, 3]);
+    expect(occupiedSlots(seed({ t0: 0, t1: 300, spans: [[0, 10], [250, 300]] }))).toEqual([0, 8, 9, 10]);
+  });
+});
+
+describe("seeds: the 3D history view folds without wear", () => {
+  it("a slab whose footprint has worn away by the latest time still makes its seed", () => {
+    const e = crowd(3, 0, 40);
+    const late = 100_000;
+    expect(foldWorld(e, late).slabs).toHaveLength(0); // the Top (future) view: gone
+    const kept = foldWorld(e, late, withoutWear(DEFAULT_FOLD)).slabs.find((s) => s.key === "0,0")!;
+    expect(kept).toBeDefined();
+    expect(kept.h).toBeCloseTo(kept.raw, 9);
+    expect(kept.foot).toBe(1);
+    expect(seedsFromSnapshot(foldWorld(e, late, withoutWear(DEFAULT_FOLD))).length).toBe(seedsFromSnapshot(foldWorld(e, 40)).length);
   });
 });

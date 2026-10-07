@@ -7,19 +7,26 @@
  * - The visitor has an assigned time s(t) = wall seconds since the epoch + a personal offset;
  *   it flows while they are here. Only events with s <= s(now) are folded and drawn, so a
  *   visitor never sees what later visitors leave.
- * - Events are mirrored into localStorage (stand-in for the shared server) every 3 s.
+ * - Events are mirrored into localStorage (stand-in for the shared server) every second.
+ *
+ * Emitting and mirroring run on a wall-clock ticker (useTicker), NOT in useFrame: rAF stops in a hidden
+ * tab, and the player tab is hidden exactly when you look at /global/space in another tab — the bots used
+ * to freeze then, and no concrete was ever generated. Only the fold and drawing stay in useFrame.
  */
 
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
   LS_PARLIAMENT_ME_KEY,
+  botActor,
+  dueSamples,
   getEpochMs,
   foldWorld,
   pickOffset,
   saveMerged,
   sessionSeconds,
   stressMap,
+  type Actor,
   type FoldConfig,
   type NatureConfig,
   type PEvent,
@@ -28,11 +35,13 @@ import {
 } from "@/lib/parliament";
 import { FilterMesh } from "./FilterMesh";
 import { NatureCloud } from "./NatureCloud";
+import { useTicker } from "./useTicker";
 import { useWorld } from "./useWorld";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
-const SAVE_EVERY = 1; // seconds between mirrors to localStorage (the 3D view shows live markers from it)
+const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
+const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
 const FILTER_EVERY = 15; // a worker's smoking break, in assigned seconds
 
 export interface ParliamentDebug {
@@ -73,11 +82,16 @@ export function RoleField({
   const epochMs = useRef(0);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
   const seq = useRef(0);
-  const clock = useRef(0);
-  const sampleTimer = useRef(0);
+  const lastSampleMs = useRef(0);
+  const botStartMs = useRef(0);
+  const lastSaveMs = useRef(0);
   const foldTimer = useRef(10);
-  const saveTimer = useRef(0);
   const sinceFilter = useRef(new Map<string, number>());
+  // the ticker reads the latest Leva values through this ref
+  const live = useRef({ role, botCount, botRole, sampleSec: cfg.sampleSec });
+  useEffect(() => {
+    live.current = { role, botCount, botRole, sampleSec: cfg.sampleSec };
+  }, [role, botCount, botRole, cfg.sampleSec]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
 
@@ -114,33 +128,28 @@ export function RoleField({
     pending.current.push(e);
   };
 
-  useFrame((_, delta) => {
+  // ── emit presence (and the worker's filter) and mirror to localStorage: wall clock, also while hidden ──
+  useTicker(TICK_MS, () => {
     if (epochMs.current === 0) return;
-    const dt = Math.min(delta, 0.05);
-    clock.current += dt;
-    const wall = Date.now();
-    const sMe = sessionSeconds(wall, epochMs.current, me.current.offset);
+    const now = Date.now();
+    const { role: myRole, botCount: nBots, botRole: theirRole, sampleSec } = live.current;
+    const period = Math.max(50, sampleSec * 1000);
+    if (lastSampleMs.current === 0) lastSampleMs.current = now - period;
+    const due = dueSamples(lastSampleMs.current, now, period);
+    if (due.length) lastSampleMs.current = due[due.length - 1];
+    if (nBots <= 0) botStartMs.current = 0;
+    else if (botStartMs.current === 0) botStartMs.current = now;
     const p = playerPosRef.current;
 
-    // ── emit presence (and the worker's filter) ──
-    sampleTimer.current += dt;
-    while (sampleTimer.current >= cfg.sampleSec) {
-      sampleTimer.current -= cfg.sampleSec;
-      const actors: { o: string; r: RoleId; x: number; z: number; s: number }[] = [
-        { o: me.current.id, r: role, x: p.x, z: p.z, s: sMe },
-      ];
-      for (let i = 0; i < botCount; i++) {
-        const R = 1 + (i % 4) * 1.1;
-        const w = (0.18 + 0.05 * (i % 4)) * (i % 2 ? 1 : -1);
-        const a = clock.current * w + i * 2.399963;
-        // bots live in nearly the same time slot as the player (some a little ahead: invisible at first)
-        const off = Math.max(0, me.current.offset - 20 + ((i * 7) % 25));
-        actors.push({ o: `bot${i}`, r: botRole, x: Math.cos(a) * R, z: Math.sin(a) * R, s: sessionSeconds(wall, epochMs.current, off) });
-      }
+    for (const w of due) {
+      const actors: Actor[] = [];
+      // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled
+      if (now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
+      for (let i = 0; i < nBots; i++) actors.push(botActor(i, theirRole, w, botStartMs.current, epochMs.current, me.current.offset));
       for (const a of actors) {
         emit(a.o, a.r, "p", a.x, a.z, a.s);
         if (a.r === "worker") {
-          const t = (sinceFilter.current.get(a.o) ?? 0) + cfg.sampleSec;
+          const t = (sinceFilter.current.get(a.o) ?? 0) + sampleSec;
           if (t >= FILTER_EVERY) {
             emit(a.o, a.r, "f", a.x, a.z, a.s);
             sinceFilter.current.set(a.o, 0);
@@ -149,15 +158,20 @@ export function RoleField({
       }
     }
 
-    // ── mirror to localStorage ──
-    saveTimer.current += dt;
-    if (saveTimer.current >= SAVE_EVERY) {
-      saveTimer.current = 0;
+    if (now - lastSaveMs.current >= SAVE_EVERY_MS) {
+      lastSaveMs.current = now;
       if (pending.current.length) {
         saveMerged(pending.current);
         pending.current = [];
       }
     }
+  });
+
+  useFrame((_, delta) => {
+    if (epochMs.current === 0) return;
+    const dt = Math.min(delta, 0.05);
+    const sMe = sessionSeconds(Date.now(), epochMs.current, me.current.offset);
+    const p = playerPosRef.current;
 
     // ── fold what this visitor can see at their own time ──
     foldTimer.current += dt;
