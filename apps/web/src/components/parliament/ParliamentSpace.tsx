@@ -877,6 +877,7 @@ export default function ParliamentSpace() {
     {
       wear: { value: true, label: "마모 (끄면 지은 그대로; 엉김·융합도 꺼짐)" },
       strata: { value: DEFAULT_WEATHER.strata, label: "지층: 층마다 자기 나이 (끄면 엉김·융합 꺼짐)" },
+      graceSlots: { value: DEFAULT_WEATHER.graceSlots, min: 0, max: 120, step: 1, label: "이만큼(단) 쌓여야 풍화·융합 시작 (위쪽 '현재' 두께)" },
       timeScale: { value: DEFAULT_WEATHER.timeScale, min: 0.001, max: 1, step: 0.001, label: "풍화 속도" },
       ageJitter: { value: DEFAULT_WEATHER.ageJitter, min: 0, max: 1, step: 0.05, label: "풍화 오차 (부품마다 나이 ±)" },
       concreteLife: { value: DEFAULT_WEATHER.concreteLife, min: 0.05, max: 5, step: 0.05, label: "콘크리트 수명 배율" },
@@ -904,8 +905,9 @@ export default function ParliamentSpace() {
       buriedSlow: wx.buriedSlow,
       natureAccel: wx.natureAccel,
       ageJitter: wx.ageJitter,
+      graceSlots: wx.graceSlots,
     }),
-    [wx.strata, wx.timeScale, wx.steelLife, wx.concreteLife, wx.tauSedimentYears, wx.coverSlots, wx.buriedSlow, wx.natureAccel, wx.ageJitter],
+    [wx.strata, wx.timeScale, wx.steelLife, wx.concreteLife, wx.tauSedimentYears, wx.coverSlots, wx.buriedSlow, wx.natureAccel, wx.ageJitter, wx.graceSlots],
   );
   const veg = useControls(
     "식생",
@@ -943,6 +945,7 @@ export default function ParliamentSpace() {
       minShare: { value: DEFAULT_WATER.minShare, min: 0.1, max: 20, step: 0.1, label: "기여자로 볼 최소 기여량" },
       persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤 흐르는 시간 (s)" },
       vegBoost: { value: DEFAULT_WATER.vegBoost, min: 0, max: 2, step: 0.05, label: "물가 식생 밀도 (짙어지는 정도)" },
+      channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
       wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
       corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
       "물길 경로": folder(
@@ -971,9 +974,10 @@ export default function ParliamentSpace() {
             vegBoost: wtr.vegBoost,
             corrode: wtr.corrode,
             wetShare: wtr.wetShare,
+            channel: wtr.channel,
           }
         : null,
-    [wtr.waterOn, wtr.minRaw, wtr.join, wtr.reach, wtr.minShare, wtr.persistSec, wtr.meander, wtr.radius, wtr.vegBoost, wtr.corrode, wtr.wetShare],
+    [wtr.waterOn, wtr.minRaw, wtr.join, wtr.reach, wtr.minShare, wtr.persistSec, wtr.meander, wtr.radius, wtr.vegBoost, wtr.corrode, wtr.wetShare, wtr.channel],
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(

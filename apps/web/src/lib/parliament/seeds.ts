@@ -565,6 +565,11 @@ export interface WearConfig {
   /** AGE ERROR: every part's age is × (1 ± this) (fixed per part) — the same layer does not weather in lockstep. */
   ageJitter?: number;
   /**
+   * GRACE (strata only): a layer starts to weather only once this many slots have piled up above it — the top of the
+   * timespace stays "the present" (buildings and living vegetation, nothing worn yet).
+   */
+  graceSlots?: number;
+  /**
    * BURIAL (strata only): a part is covered once its seed has built `coverSlots` more slots above it; from then on it
    * ages `buriedSlow` times slower (out of air and light). 0 / absent = never covered.
    */
@@ -605,10 +610,10 @@ export function seedAgeYears(seed: Seed, tNow: number): number {
  * The age of a part in model years at tNow (× timeScale): since the end of its slot (STRATA, with secPerUnit), or
  * since its seed's last presence.
  */
-export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow: number, cfg: Pick<WearConfig, "secPerUnit" | "timeScale">): number {
+export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow: number, cfg: Pick<WearConfig, "secPerUnit" | "timeScale" | "graceSlots">): number {
   const scale = cfg.timeScale ?? 1;
   if (cfg.secPerUnit && cfg.secPerUnit > 0) {
-    const laid = Math.min(tNow, (b.slot + 1) * cfg.secPerUnit);
+    const laid = Math.min(tNow, (b.slot + 1 + (cfg.graceSlots ?? 0)) * cfg.secPerUnit);
     return Math.max(0, geoYears(tNow) - geoYears(laid)) * scale;
   }
   return (seedAge.get(b.seed) ?? 0) * scale;
@@ -653,9 +658,10 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
   const baseAge = (b: Box) => {
     if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg) && !cfg.water)) return partAgeYears(b, ages, tNow, cfg);
     // strata with burial / vegetation: exposed from the end of its slot until covered, then slowed
-    const laid = Math.min(tNow, (b.slot + 1) * spu);
+    // weathering starts once `graceSlots` more slots have piled up above the part
+    const laid = Math.min(tNow, (b.slot + 1 + (cfg.graceSlots ?? 0)) * spu);
     const top = topSlot.get(b.seed) ?? b.slot;
-    const tCover = cover > 0 && top >= b.slot + cover ? Math.min(tNow, (b.slot + cover + 1) * spu) : tNow;
+    const tCover = cover > 0 && top >= b.slot + cover ? Math.min(tNow, Math.max(laid, (b.slot + cover + 1) * spu)) : tNow;
     const exposed = Math.max(0, geoYears(tCover) - geoYears(laid)) * (1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0) + (cfg.water ? cfg.water(b) : 0));
     const buried = Math.max(0, yNow - geoYears(tCover)) / slow;
     return (exposed + buried) * (cfg.timeScale ?? 1);

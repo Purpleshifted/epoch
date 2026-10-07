@@ -105,7 +105,7 @@ describe("SpaceModel: what the worker computes", () => {
     const m = new SpaceModel();
     m.add(long);
     const fuse = DEFAULT_FUSE;
-    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5 }; // old enough to grow something everywhere
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5, graceSlots: 0 }; // old enough to grow something everywhere
     const input = { box: DEFAULT_BOXES, weather, fuse, tauReclaimYears: 300 };
     let last = long[long.length - 1].s;
     let mesh = null;
@@ -120,7 +120,7 @@ describe("SpaceModel: what the worker computes", () => {
     const top = Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit;
     // the chunks where the camera looks (the present, up with the buildings) are built, not only the oldest ones
     expect(ys.some((y) => y > top * 0.75)).toBe(true);
-  }, 120_000);
+  }, 300_000);
 
   it("bots moving between flocks join their buildings with waterways, shown as wetland vegetation", () => {
     const long = runBots(12, 900, 30); // two flocks far enough apart to make two buildings

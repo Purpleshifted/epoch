@@ -235,7 +235,7 @@ export interface NaturePointOptions {
    * SEDIMENT: a slot's vegetation turns into humus, then peat, and compacts toward the slot's floor as it ages:
    * share q = 1 − e^(−A/tauYears), A = model years since the slot's end (× timeScale) at tNow.
    */
-  sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number; jitter?: number };
+  sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number; jitter?: number; graceSlots?: number };
   /** Share of a slot's points that are drawn (0..1), e.g. 1 − fused weight: fused layers are drawn as one mass. */
   thin?: (k: number) => number;
   /** Share of a cell's points in a slot that are drawn (0..1): where mass has formed, no vegetation points. */
@@ -248,13 +248,16 @@ export interface NaturePointOptions {
    * extra ones heaped up.
    */
   paths?: { hole: number; berm: number };
-  /** WETLAND: share (0..1) of a cell's points in a slot that are wetland vegetation (near water). */
-  wet?: (ix: number, iz: number, k: number) => number;
+  /**
+   * WATER: no points within `half` of a course (the channel stays clear); beyond it, wetland vegetation — a share
+   * `share` at the bank, fading to 0 at `radius`.
+   */
+  water?: { dist: (x: number, z: number, k: number) => number; half: number; radius: number; share: number };
 }
 
 /** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
 export function sedimentShare(k: number, sed: NonNullable<NaturePointOptions["sediment"]>): number {
-  const laid = Math.min(sed.tNow, (k + 1) * sed.secPerUnit);
+  const laid = Math.min(sed.tNow, (k + 1 + (sed.graceSlots ?? 0)) * sed.secPerUnit);
   const A = Math.max(0, geoYears(sed.tNow) - geoYears(laid)) * sed.timeScale;
   return 1 - Math.exp(-A / sed.tauYears);
 }
@@ -303,7 +306,6 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
         const iz = h.z0 + j;
         const n = Math.floor(want) + (h3(ix, iz, k, 1) < want - Math.floor(want) ? 1 : 0);
         const under = !!opts.buried && n > 0 && opts.buried(ix, iz, k);
-        const wetShare = opts.wet && n > 0 && !under ? opts.wet(ix, iz, k) : 0;
         for (let p = 0; p < n; p++) {
           const s = p * 7 + 11;
           const rx = h3(ix, iz, k, s);
@@ -319,6 +321,12 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           const spill = J > 0 ? (h3(ix, iz, k, s + 10) - 0.5) * 2 * J : 0;
           const yy = under ? 0.2 * ry : (ry + spill) * (1 - 0.6 * q);
           const px = (ix + rx) * CELL_SIZE, pz = (iz + rz) * CELL_SIZE;
+          let wetShare = 0;
+          if (opts.water && !under) {
+            const d = opts.water.dist(px, pz, k);
+            if (d < opts.water.half) continue; // the channel: clear
+            wetShare = d < opts.water.radius ? opts.water.share * (1 - (d - opts.water.half) / Math.max(1e-6, opts.water.radius - opts.water.half)) : 0;
+          }
           if (opts.paths && !under) {
             const pf = pathAt(h, px, pz, k);
             if (pf >= opts.paths.hole) continue; // the path itself: bare

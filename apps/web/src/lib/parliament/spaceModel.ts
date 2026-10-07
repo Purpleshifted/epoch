@@ -19,7 +19,7 @@ import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, nat
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
-import { waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
+import { waterDistance, waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -126,15 +126,17 @@ export interface WeatherConfig {
   natureAccel: number;
   /** Every part's age × (1 ± this), fixed per part; vegetation sediment shares vary by half of it. */
   ageJitter: number;
+  /** Slots that must pile up above a layer before anything weathers, buries, fuses or turns to sediment there. */
+  graceSlots: number;
 }
 
-export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1, ageJitter: 0.5 };
+export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1, ageJitter: 0.5, graceSlots: 20 };
 
 /** The sediment clock of the view at its present (per slot, so it moves once a slot); null without strata. */
 function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
   if (!w.strata) return null;
   const tQ = Math.floor(t / box.secPerUnit) * box.secPerUnit;
-  return { tNow: tQ, secPerUnit: box.secPerUnit, timeScale: w.timeScale, tauYears: w.tauSedimentYears };
+  return { tNow: tQ, secPerUnit: box.secPerUnit, timeScale: w.timeScale, tauYears: w.tauSedimentYears, graceSlots: w.graceSlots };
 }
 
 export interface PartsInput {
@@ -335,6 +337,7 @@ export class SpaceModel {
       buriedSlow: w.buriedSlow,
       natureAccel: w.natureAccel,
       ageJitter: w.ageJitter,
+      graceSlots: w.strata ? w.graceSlots : 0,
       veg,
       water,
     };
@@ -430,7 +433,7 @@ export class SpaceModel {
     // sediment changes with time: rebuilt once per slot of the present
     const tQ = Math.floor(this.t / spu) * spu;
     const sediment = input.weather.strata
-      ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5 }
+      ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5, graceSlots: input.weather.graceSlots }
       : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
     // LIVING vs FOSSIL: vegetation lives only in the layers whose concrete has not begun to fuse. A layer's typical
@@ -440,7 +443,7 @@ export class SpaceModel {
     const living =
       sediment && fz.enabled
         ? (k: number) => {
-            const laid = Math.min(tQ, (k + 1) * spu);
+            const laid = Math.min(tQ, (k + 1 + input.weather.graceSlots) * spu);
             const A = Math.max(0, geoYears(tQ) - geoYears(laid)) * input.weather.timeScale;
             const d = 1 - Math.exp(-A / (input.fold.tauSlabYears * 0.75 * input.weather.concreteLife));
             const t = Math.min(1, Math.max(0, (d - fz.fuseOnset * 0.4) / (fz.fuseOnset * 0.6)));
@@ -458,7 +461,11 @@ export class SpaceModel {
     const wc = this.waterCfg;
     const waterBoost = near && wc && wc.vegBoost > 0 ? (ix: number, iz: number, k: number) => near(ix, iz, k) * wc.vegBoost : undefined;
     // the water is not drawn: the vegetation along it is wetland (its colour) and denser (waterBoost)
-    const wet = near && wc && wc.wetShare > 0 ? (ix: number, iz: number, k: number) => Math.min(1, near(ix, iz, k) * 1.4) * wc.wetShare : undefined;
+    // the channel itself stays clear; its banks are wetland (per point, from the exact distance to the course)
+    const water =
+      wc && this.links.length
+        ? { dist: waterDistance(this.links, k0, k1, spu, wc), half: wc.channel / 2, radius: wc.radius, share: wc.wetShare }
+        : undefined;
     const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold, waterBoost });
     this.history = h;
     // where mass has formed (growths or fusion), the vegetation is part of it: no points there
@@ -497,7 +504,7 @@ export class SpaceModel {
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, wet, thin: living });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: living });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }

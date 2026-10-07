@@ -13,8 +13,9 @@
  *   COURSE     a meandering line between the two nearest seeds; the bends drift slowly through time, so stacked
  *              slots read as a twisting sheet in the timespace
  *
- * The water itself is not drawn: it shows as WETLAND vegetation along its course — denser and wetland-coloured
- * (waterField → natureHistory.waterBoost, naturePoints.wet) — and parts near it corrode faster (WearConfig.water).
+ * The water itself is not drawn: its course is a clear CHANNEL in the vegetation (no points within `channel`/2),
+ * lined with WETLAND vegetation — denser and wetland-coloured (waterField → natureHistory.waterBoost, waterDistance
+ * → naturePoints.water) — and parts near it corrode faster (WearConfig.water).
  * Pure and deterministic.
  */
 
@@ -36,6 +37,8 @@ export interface WaterConfig {
   persistSec: number;
   /** How far the course bends sideways (× its length). */
   meander: number;
+  /** Width of the clear channel the water keeps in the vegetation (world). */
+  channel: number;
   /** Reach of the water's influence on vegetation and parts (world). */
   radius: number;
   /** Vegetation density added right at the water (fades to 0 at `radius`). */
@@ -54,6 +57,7 @@ export const DEFAULT_WATER: WaterConfig = {
   minShare: 1,
   persistSec: 300,
   meander: 0.18,
+  channel: 0.9,
   radius: 2.5,
   vegBoost: 1,
   wetShare: 1,
@@ -246,4 +250,45 @@ export function waterField(links: readonly WaterLink[], k0: number, k1: number, 
     }
   }
   return (ix, iz, k) => m.get(`${ix},${iz},${k}`) ?? 0;
+}
+
+/**
+ * Distance (world) from (x, z) to the nearest water course in slot k, within [k0, k1]; Infinity where none is near
+ * (further than `radius`). Courses are sampled every ~0.25 and bucketed, so a lookup checks only nearby samples.
+ */
+export function waterDistance(links: readonly WaterLink[], k0: number, k1: number, secPerUnit: number, cfg: WaterConfig): (x: number, z: number, k: number) => number {
+  const B = Math.max(CELL_SIZE, cfg.radius);
+  const buckets = new Map<string, number[]>();
+  for (const l of links) {
+    const [a, b] = linkSlots(l, secPerUnit);
+    for (let k = Math.max(k0, a); k <= Math.min(k1, b); k++) {
+      const c = waterCourse(l, k, cfg);
+      for (let p = 0; p + 2 < c.length; p += 2) {
+        const x0 = c[p], z0 = c[p + 1], x1 = c[p + 2], z1 = c[p + 3];
+        const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.25));
+        for (let s = 0; s <= steps; s++) {
+          const x = x0 + ((x1 - x0) * s) / steps, z = z0 + ((z1 - z0) * s) / steps;
+          const key = `${Math.floor(x / B)},${Math.floor(z / B)},${k}`;
+          const list = buckets.get(key);
+          if (list) list.push(x, z);
+          else buckets.set(key, [x, z]);
+        }
+      }
+    }
+  }
+  return (x, z, k) => {
+    const bx = Math.floor(x / B), bz = Math.floor(z / B);
+    let best = Infinity;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const list = buckets.get(`${bx + dx},${bz + dz},${k}`);
+        if (!list) continue;
+        for (let i = 0; i < list.length; i += 2) {
+          const d = Math.hypot(list[i] - x, list[i + 1] - z);
+          if (d < best) best = d;
+        }
+      }
+    }
+    return best;
+  };
 }

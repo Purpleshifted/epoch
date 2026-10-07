@@ -214,21 +214,23 @@ describe("paths: holes in the vegetation with a heaped rim", () => {
   });
 });
 
-describe("wetland: vegetation along waterways", () => {
-  it("only cells near water get wetland points, more the nearer", () => {
+describe("water in the vegetation: a clear channel lined with wetland", () => {
+  it("no points in the channel, wetland on the banks fading with distance, none far away", () => {
     const h = run(stand("a", 30, 30, 0, 5), 0, 3, 30);
-    const wet = (ix: number) => (ix === h.x0 + 2 ? 0.9 : ix === h.x0 + 3 ? 0.3 : 0);
-    const pts = naturePoints(h, 0, 3, { unit: 1, perSlot: 12, wet: (ix) => wet(ix) });
-    const by = new Map<number, [number, number]>();
+    const zc = (h.z0 + 10) * CELL_SIZE; // a straight course along x at z = zc
+    const water = { dist: (_x: number, z: number) => Math.abs(z - zc), half: 0.4, radius: 2.5, share: 1 };
+    const pts = naturePoints(h, 0, 3, { unit: 1, perSlot: 12, water });
+    let inChannel = 0, bank = 0, bankWet = 0, far = 0, farWet = 0;
     for (let i = 0; i < pts.count; i++) {
-      const ix = Math.floor(pts.position[i * 3] / CELL_SIZE);
-      const [n, w] = by.get(ix) ?? [0, 0];
-      by.set(ix, [n + 1, w + (pts.kind[i] === NATURE_KIND.wet ? 1 : 0)]);
+      const d = Math.abs(pts.position[i * 3 + 2] - zc);
+      const w = pts.kind[i] === NATURE_KIND.wet;
+      if (d < 0.4) inChannel++;
+      else if (d < 1.2) { bank++; if (w) bankWet++; }
+      else if (d > 3) { far++; if (w) farWet++; }
     }
-    const share = (ix: number) => { const [n, w] = by.get(ix) ?? [1, 0]; return w / n; };
-    expect(share(h.x0 + 2)).toBeGreaterThan(0.6);
-    expect(share(h.x0 + 3)).toBeLessThan(share(h.x0 + 2));
-    expect(share(h.x0 + 3)).toBeGreaterThan(0);
-    expect(share(h.x0 + 6)).toBe(0);
+    expect(inChannel).toBe(0);
+    expect(bankWet / bank).toBeGreaterThan(0.5);
+    expect(far).toBeGreaterThan(0);
+    expect(farWet).toBe(0);
   });
 });
