@@ -17,7 +17,7 @@ import { geoYears } from "@/lib/stratum/geoClock";
 import { accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
-import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
+import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { waterDistance, waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
 
@@ -127,16 +127,20 @@ export interface WeatherConfig {
   /** Every part's age × (1 ± this), fixed per part; vegetation sediment shares vary by half of it. */
   ageJitter: number;
   /** Slots that must pile up above a layer before anything weathers, buries, fuses or turns to sediment there. */
-  graceSlots: number;
+  /** Vegetation gathers from this many slots below the present, thickening over `gatherRise` slots… */
+  gatherStart: number;
+  gatherRise: number;
+  /** …and a part rots once it has collected this much (gathered density × slots buried together). */
+  rotDose: number;
 }
 
-export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1, ageJitter: 0.5, graceSlots: 20 };
+export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1, ageJitter: 0.5, gatherStart: 2, gatherRise: 8, rotDose: 12 };
 
 /** The sediment clock of the view at its present (per slot, so it moves once a slot); null without strata. */
 function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
   if (!w.strata) return null;
   const tQ = Math.floor(t / box.secPerUnit) * box.secPerUnit;
-  return { tNow: tQ, secPerUnit: box.secPerUnit, timeScale: w.timeScale, tauYears: w.tauSedimentYears, graceSlots: w.graceSlots };
+  return { tNow: tQ, secPerUnit: box.secPerUnit, timeScale: w.timeScale, tauYears: w.tauSedimentYears, graceSlots: rotOnsetSlots(w) };
 }
 
 export interface PartsInput {
@@ -229,6 +233,8 @@ export class SpaceModel {
   private worn: Box[] = [];
   /** The weathering of the last computed parts (null without wear). */
   private wear: { age: (b: Box) => number; survival: (b: Box) => number } | null = null;
+  /** How much vegetation has gathered on a part (strata only): it gathers before (and so causes) its rot. */
+  private gatherOf: ((b: Box) => number) | null = null;
   private history: NatureHistory | null = null;
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
   private links: WaterLink[] = [];
@@ -337,13 +343,16 @@ export class SpaceModel {
       buriedSlow: w.buriedSlow,
       natureAccel: w.natureAccel,
       ageJitter: w.ageJitter,
-      graceSlots: w.strata ? w.graceSlots : 0,
+      ...(w.strata ? { gatherStart: w.gatherStart, gatherRise: w.gatherRise, rotDose: w.rotDose } : {}),
       veg,
       water,
     };
     const worn = input.wear ? wearParts(built, seeds, t, wearCfg) : built;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
     this.wear = input.wear ? wearModel(seeds, t, wearCfg) : null;
+    // vegetation gathering on a part (0 … 1), by its depth below the present and the density around it
+    const kNow = t / box.secPerUnit;
+    this.gatherOf = w.strata ? (b: Box) => gatherAmount(kNow - (b.slot + 1), wearCfg) * gatherDensity(b, wearCfg) : null;
     this.built = built;
     this.worn = worn;
     const survival = this.wear?.survival;
@@ -435,7 +444,7 @@ export class SpaceModel {
     // sediment changes with time: rebuilt once per slot of the present
     const tQ = Math.floor(this.t / spu) * spu;
     const sediment = input.weather.strata
-      ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5, graceSlots: input.weather.graceSlots }
+      ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5, graceSlots: rotOnsetSlots(input.weather) }
       : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
     // LIVING vs FOSSIL: vegetation lives only in the layers whose concrete has not begun to fuse. A layer's typical
@@ -445,7 +454,7 @@ export class SpaceModel {
     const living =
       sediment && fz.enabled
         ? (k: number) => {
-            const laid = Math.min(tQ, (k + 1 + input.weather.graceSlots) * spu);
+            const laid = Math.min(tQ, (k + 1 + rotOnsetSlots(input.weather)) * spu);
             const A = Math.max(0, geoYears(tQ) - geoYears(laid)) * input.weather.timeScale;
             const d = 1 - Math.exp(-A / (input.fold.tauSlabYears * 0.75 * input.weather.concreteLife));
             const t = Math.min(1, Math.max(0, (d - fz.fuseOnset * 0.4) / (fz.fuseOnset * 0.6)));
@@ -636,7 +645,9 @@ export class SpaceModel {
     this.reclaimSig = sig;
     const wm = this.wear;
     const fu = input.fuse;
-    const gathering = wm && fu ? (b: Box) => gatheringShare(1 - wm.survival(b), fu) : undefined;
+    // plants gather first (their own process, from gatherStart below the present), and the part rots under them
+    const pre = this.gatherOf;
+    const gathering = wm && fu ? (b: Box) => gatheringShare(1 - wm.survival(b), fu, pre ? pre(b) : 0) : undefined;
     const { fuse: _f, ...cfg } = input;
     void _f;
     const np = reclaimPoints(this.built, this.worn, this.seeds, this.t, { ...cfg, gathering });

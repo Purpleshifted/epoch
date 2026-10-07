@@ -235,7 +235,7 @@ export interface NaturePointOptions {
    * SEDIMENT: a slot's vegetation turns into humus, then peat, and compacts toward the slot's floor as it ages:
    * share q = 1 − e^(−A/tauYears), A = model years since the slot's end (× timeScale) at tNow.
    */
-  sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number; jitter?: number; graceSlots?: number };
+  sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number; jitter?: number; /** Typical depth (slots) at which a layer begins to rot (seeds.rotOnsetSlots). */ graceSlots?: number };
   /** Share of a slot's points that are drawn (0..1), e.g. 1 − fused weight: fused layers are drawn as one mass. */
   thin?: (k: number) => number;
   /** Share of a cell's points in a slot that are drawn (0..1): where mass has formed, no vegetation points. */

@@ -105,7 +105,7 @@ describe("SpaceModel: what the worker computes", () => {
     const m = new SpaceModel();
     m.add(long);
     const fuse = DEFAULT_FUSE;
-    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5, graceSlots: 0 }; // old enough to grow something everywhere
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5, gatherStart: 0, rotDose: 0 }; // old enough to grow something everywhere
     const input = { box: DEFAULT_BOXES, weather, fuse, tauReclaimYears: 300 };
     let last = long[long.length - 1].s;
     let mesh = null;
@@ -158,6 +158,14 @@ describe("SpaceModel: what the worker computes", () => {
     expect(low).toBe(0);
     expect(high).toBeGreaterThan(0);
   }, 120_000);
+
+  it("vegetation gathers on buildings already in the present, before they rot", () => {
+    const m = new SpaceModel();
+    m.add(events); // 240 s: above the rot onset, nothing corrodes yet
+    m.computeParts(parts());
+    const input = { tauReclaimYears: 300, perArea: 40, unit: DEFAULT_BOXES.unit, secPerUnit: DEFAULT_BOXES.secPerUnit, timeScale: DEFAULT_WEATHER.timeScale, fuse: DEFAULT_FUSE };
+    expect(m.computeReclaim(input)!.position.length).toBeGreaterThan(0);
+  });
 
   it("reset forgets the world", () => {
     const m = new SpaceModel();

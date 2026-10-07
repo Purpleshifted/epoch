@@ -40,6 +40,10 @@ describe("fuse: what a structure becomes, on the structure itself", () => {
     expect(gatheringShare(mid, F)).toBeGreaterThan(0.2);
     expect(accretionShare(mid, F)).toBeGreaterThan(0);
     expect(fusedShare(1, { ...F, enabled: false })).toBe(0);
+    // points gather before any corrosion (their own process, `pre`), and go on into it
+    expect(gatheringShare(0, F, 0.5)).toBeCloseTo(0.5, 9);
+    expect(gatheringShare(F.accOnset, F, 1)).toBeCloseTo(1, 9); // continuous where weathering begins
+    expect(gatheringShare((F.accOnset + F.fuseOnset) / 2, F, 1)).toBeCloseTo(0, 9); // and still gone under the growths
   });
 
   it("fresh parts (no decay, nothing grown) make no mass", () => {

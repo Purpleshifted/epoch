@@ -5,7 +5,8 @@
  * Everything runs on ONE clock, each part's own corrosion (decay = 1 − survival, seeds.wearModel), so it happens on
  * the structure itself, never as a separate slab, and never on a part that has not begun to corrode:
  *
- *   0 GATHERING   decay < accOnset: no mass here — vegetation POINTS gather on and around the part
+ *   0 GATHERING   already in the present (within the grace depth, before any corrosion) and on until accOnset: no
+ *                 mass here — vegetation POINTS gather on and around the part
  *                 (natureHistory.reclaimPoints with a decay clock), densest just before accOnset
  *   1 ACCRETION   accOnset → fuseOnset: lumpy organic matter grows on the part's top and hangs below it, starting as
  *                 small sparse specks (noise-thresholded) and thickening (ref 9578); the points fade out meanwhile
@@ -134,11 +135,13 @@ export function accretionShare(decay: number, cfg: FuseConfig): number {
 }
 
 /**
- * How many vegetation points gather on a part (0 … 1), from its decay: rising until accOnset, then fading as the
- * growths take over (gone by halfway to fuseOnset). Without fusion: rising and staying.
+ * How many vegetation points gather on a part (0 … 1). They already gather in the PRESENT, before any corrosion:
+ * `pre` (0 … 1) is how deep the part lies in the grace depth (0 at the present, 1 where weathering begins). Then they
+ * rise with its decay until accOnset, and fade as the growths take over (gone by halfway to fuseOnset). Without
+ * fusion: rising and staying.
  */
-export function gatheringShare(decay: number, cfg: FuseConfig): number {
-  const up = smoothRamp(decay, 0, cfg.accOnset);
+export function gatheringShare(decay: number, cfg: FuseConfig, pre = 0): number {
+  const up = Math.max(pre, smoothRamp(decay, 0, cfg.accOnset));
   if (!cfg.enabled || cfg.accretion <= 0) return up;
   return up * (1 - smoothRamp(decay, cfg.accOnset, (cfg.accOnset + cfg.fuseOnset) / 2));
 }

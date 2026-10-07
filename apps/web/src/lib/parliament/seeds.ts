@@ -565,10 +565,15 @@ export interface WearConfig {
   /** AGE ERROR: every part's age is × (1 ± this) (fixed per part) — the same layer does not weather in lockstep. */
   ageJitter?: number;
   /**
-   * GRACE (strata only): a layer starts to weather only once this many slots have piled up above it — the top of the
-   * timespace stays "the present" (buildings and living vegetation, nothing worn yet).
+   * GATHERING, then ROT (strata only) — two processes, one after the other:
+   *   vegetation begins to gather on a part `gatherStart` slots below the present and thickens over `gatherRise`
+   *   slots (× the vegetation density around it); the part begins to weather (rot) only once it has collected
+   *   `rotDose` of it (gathered density × slots buried together). Dense places rot sooner, bare ones later; above,
+   *   the timespace stays "the present" (buildings with vegetation gathering on them, nothing worn yet).
    */
-  graceSlots?: number;
+  gatherStart?: number;
+  gatherRise?: number;
+  rotDose?: number;
   /**
    * BURIAL (strata only): a part is covered once its seed has built `coverSlots` more slots above it; from then on it
    * ages `buriedSlow` times slower (out of air and light). 0 / absent = never covered.
@@ -583,6 +588,32 @@ export interface WearConfig {
   veg?: (b: Box) => number;
   /** WATER: while exposed, a part ages × (1 + water(part)) more (waterField × corrode at its cell and slot). */
   water?: (b: Box) => number;
+}
+
+type GatherRot = Pick<WearConfig, "gatherStart" | "gatherRise" | "rotDose">;
+
+/** How much vegetation has gathered on a part `depth` slots below the present (0 … 1, before × density). */
+export function gatherAmount(depth: number, cfg: GatherRot): number {
+  const a = cfg.gatherStart ?? 0, r = cfg.gatherRise ?? 0;
+  if (depth <= a) return 0;
+  return r > 0 ? Math.min(1, (depth - a) / r) : 1;
+}
+
+/** The vegetation density that gathers on a part (0.25 … 1; 1 without a vegetation history). */
+export function gatherDensity(b: Box, cfg: Pick<WearConfig, "veg">): number {
+  return cfg.veg ? 0.25 + 0.75 * Math.max(0, Math.min(1, cfg.veg(b))) : 1;
+}
+
+/**
+ * Depth below the present (slots) at which a part with this gathered density begins to rot: where
+ * ∫ gatherAmount · density d(depth) reaches rotDose. 0 when nothing is configured (weathering at once).
+ */
+export function rotOnsetSlots(cfg: GatherRot, density = 1): number {
+  const a = cfg.gatherStart ?? 0, r = cfg.gatherRise ?? 0, dose = cfg.rotDose ?? 0;
+  if (dose <= 0) return a;
+  const D = dose / Math.max(0.05, density); // in full-density slots
+  if (r <= 0) return a + D;
+  return D <= r / 2 ? a + Math.sqrt(2 * r * D) : a + r + (D - r / 2);
 }
 
 /** The fold's footprint threshold. */
@@ -610,10 +641,10 @@ export function seedAgeYears(seed: Seed, tNow: number): number {
  * The age of a part in model years at tNow (× timeScale): since the end of its slot (STRATA, with secPerUnit), or
  * since its seed's last presence.
  */
-export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow: number, cfg: Pick<WearConfig, "secPerUnit" | "timeScale" | "graceSlots">): number {
+export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow: number, cfg: Pick<WearConfig, "secPerUnit" | "timeScale" | "veg"> & GatherRot): number {
   const scale = cfg.timeScale ?? 1;
   if (cfg.secPerUnit && cfg.secPerUnit > 0) {
-    const laid = Math.min(tNow, (b.slot + 1 + (cfg.graceSlots ?? 0)) * cfg.secPerUnit);
+    const laid = Math.min(tNow, (b.slot + 1 + rotOnsetSlots(cfg, gatherDensity(b, cfg))) * cfg.secPerUnit);
     return Math.max(0, geoYears(tNow) - geoYears(laid)) * scale;
   }
   return (seedAge.get(b.seed) ?? 0) * scale;
@@ -658,8 +689,8 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
   const baseAge = (b: Box) => {
     if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg) && !cfg.water)) return partAgeYears(b, ages, tNow, cfg);
     // strata with burial / vegetation: exposed from the end of its slot until covered, then slowed
-    // weathering starts once `graceSlots` more slots have piled up above the part
-    const laid = Math.min(tNow, (b.slot + 1 + (cfg.graceSlots ?? 0)) * spu);
+    // weathering (rot) starts once the part has collected enough gathered vegetation (rotOnsetSlots)
+    const laid = Math.min(tNow, (b.slot + 1 + rotOnsetSlots(cfg, gatherDensity(b, cfg))) * spu);
     const top = topSlot.get(b.seed) ?? b.slot;
     const tCover = cover > 0 && top >= b.slot + cover ? Math.min(tNow, Math.max(laid, (b.slot + cover + 1) * spu)) : tNow;
     const exposed = Math.max(0, geoYears(tCover) - geoYears(laid)) * (1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0) + (cfg.water ? cfg.water(b) : 0));

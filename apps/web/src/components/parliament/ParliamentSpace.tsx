@@ -988,7 +988,9 @@ export default function ParliamentSpace() {
     {
       wear: { value: true, label: "마모 (끄면 지은 그대로; 엉김·융합도 꺼짐)" },
       strata: { value: DEFAULT_WEATHER.strata, label: "지층: 층마다 자기 나이 (끄면 엉김·융합 꺼짐)" },
-      graceSlots: { value: DEFAULT_WEATHER.graceSlots, min: 0, max: 120, step: 1, label: "이만큼(단) 쌓여야 풍화·융합 시작 (위쪽 '현재' 두께)" },
+      gatherStart: { value: DEFAULT_WEATHER.gatherStart, min: 0, max: 60, step: 1, label: "식생이 모이기 시작하는 깊이 (현재에서 몇 단 아래)" },
+      gatherRise: { value: DEFAULT_WEATHER.gatherRise, min: 0, max: 60, step: 1, label: "식생이 다 모이기까지 (단)" },
+      rotDose: { value: DEFAULT_WEATHER.rotDose, min: 0, max: 80, step: 0.5, label: "부패가 시작되는 모인 양 (밀도 × 함께 묻힌 단)" },
       timeScale: { value: DEFAULT_WEATHER.timeScale, min: 0.001, max: 1, step: 0.001, label: "풍화 속도" },
       ageJitter: { value: DEFAULT_WEATHER.ageJitter, min: 0, max: 1, step: 0.05, label: "풍화 오차 (부품마다 나이 ±)" },
       concreteLife: { value: DEFAULT_WEATHER.concreteLife, min: 0.05, max: 5, step: 0.05, label: "콘크리트 수명 배율" },
@@ -1016,9 +1018,11 @@ export default function ParliamentSpace() {
       buriedSlow: wx.buriedSlow,
       natureAccel: wx.natureAccel,
       ageJitter: wx.ageJitter,
-      graceSlots: wx.graceSlots,
+      gatherStart: wx.gatherStart,
+      gatherRise: wx.gatherRise,
+      rotDose: wx.rotDose,
     }),
-    [wx.strata, wx.timeScale, wx.steelLife, wx.concreteLife, wx.tauSedimentYears, wx.coverSlots, wx.buriedSlow, wx.natureAccel, wx.ageJitter, wx.graceSlots],
+    [wx.strata, wx.timeScale, wx.steelLife, wx.concreteLife, wx.tauSedimentYears, wx.coverSlots, wx.buriedSlow, wx.natureAccel, wx.ageJitter, wx.gatherStart, wx.gatherRise, wx.rotDose],
   );
   const veg = useControls(
     "식생",

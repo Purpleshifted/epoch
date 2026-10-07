@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, wearModel, wearParts, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, gatherAmount, rotOnsetSlots, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, wearModel, wearParts, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
 
 const C = 1.2;
 const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[] =>
@@ -397,5 +397,33 @@ describe("error margins: layers are not cut to the second, nor weathered in lock
     expect(new Set(parts.map((b) => even.age(b).toFixed(6))).size).toBe(1);
     expect(new Set(parts.map((b) => jit.age(b).toFixed(6))).size).toBeGreaterThan(1);
     for (const b of parts) expect(Math.abs(jit.age(b) / even.age(b) - 1)).toBeLessThanOrEqual(0.5 + 1e-9);
+  });
+});
+
+describe("seeds: vegetation gathers first, then the part rots under it", () => {
+  const cfg = { gatherStart: 2, gatherRise: 8, rotDose: 12 };
+  it("gathering begins below the present and thickens", () => {
+    expect(gatherAmount(1, cfg)).toBe(0);
+    expect(gatherAmount(6, cfg)).toBeCloseTo(0.5, 9);
+    expect(gatherAmount(30, cfg)).toBe(1);
+  });
+  it("rot begins once enough has gathered: deeper than gathering, sooner where it is dense", () => {
+    const full = rotOnsetSlots(cfg, 1);
+    expect(full).toBeCloseTo(2 + 8 + (12 - 4), 9); // ramp collects 4, the rest at full density
+    expect(rotOnsetSlots(cfg, 0.3)).toBeGreaterThan(full);
+    expect(rotOnsetSlots({ ...cfg, rotDose: 2 }, 1)).toBeCloseTo(2 + Math.sqrt(2 * 8 * 2), 9); // within the ramp
+    expect(rotOnsetSlots({})).toBe(0);
+  });
+  it("a part above its rot onset does not weather; below it, it does — earlier among dense vegetation", () => {
+    const seed: Seed = { id: 1, x: 0, z: 0, t0: 0, t1: 2000, raw: 3, material: "concrete", role: "worker", who: [] } as unknown as Seed;
+    const b = (slot: number): Box => ({ kind: "mass", seed: 1, material: "concrete", x: 0, y: slot + 0.5, z: 0, sx: 1, sy: 1, sz: 1, tone: 0.5, along: 0, slot });
+    const base = { ...DEFAULT_FOLD, secPerUnit: 20, timeScale: 1, natureAccel: 0, ...cfg };
+    const tNow = 100 * 20;
+    const wm = wearModel([seed], tNow, base);
+    expect(wm.survival(b(100 - 10))).toBe(1); // 10 slots deep: vegetation gathering, nothing rots yet
+    expect(wm.survival(b(100 - 40))).toBeLessThan(1);
+    const sparse = wearModel([seed], tNow, { ...base, veg: () => 0 });
+    const dense = wearModel([seed], tNow, { ...base, veg: () => 1 });
+    expect(dense.survival(b(100 - 40))).toBeLessThan(sparse.survival(b(100 - 40)));
   });
 });
