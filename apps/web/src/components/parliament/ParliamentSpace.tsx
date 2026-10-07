@@ -33,7 +33,11 @@ import {
   foldWorld,
   generateBoxes,
   halfHeight,
+  NATURE_KIND,
   latestOf,
+  natureHistory,
+  naturePointLoad,
+  naturePoints,
   latestS,
   loadEvents,
   seedParliamentDemoIfRequested,
@@ -41,18 +45,21 @@ import {
   withoutWear,
   type BoxConfig,
   type Recipe,
+  type Seed,
   type EventLog,
   type FoldConfig,
   type PEvent,
+  type NatureConfig,
+  type NatureHistory,
   type PartKind,
   type PartsCache,
   type RoleId,
 } from "@/lib/parliament";
-import { useFoldControls, useWorld } from "./useWorld";
+import { useFoldControls, useNatureControls, useWorld } from "./useWorld";
 
 const PAPER = "#e9ebee";
 /** Instance capacity per part kind. */
-const CAPACITY: Record<PartKind, number> = { mass: 200000, slab: 6000, drip: 60000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
+const CAPACITY: Record<PartKind, number> = { mass: 400000, slab: 12000, drip: 60000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
 /** Base colour per part kind (instance tone multiplies it). */
 const KIND_COLOR: Record<PartKind, string> = {
   mass: "#f4f4f2",
@@ -106,6 +113,7 @@ function SpaceBoxes({
   follow,
   controls,
   onStats,
+  seedsOutRef,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -114,6 +122,8 @@ function SpaceBoxes({
   follow: boolean;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
+  /** The latest seeds, for the nature volume. */
+  seedsOutRef: React.MutableRefObject<Seed[]>;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -169,6 +179,7 @@ function SpaceBoxes({
     focusY.current = events.length ? (focusS / boxCfg.secPerUnit) * boxCfg.unit : null;
     // history view: fold without wear, or slabs whose footprint had decayed by `t` would drop out
     const seeds = seedsFromSnapshot(foldWorld(events, t, withoutWear(fold)));
+    seedsOutRef.current = seeds;
     let acc = 0;
     for (const s of seeds) acc += s.t1 + s.mass * 100 + s.id % 97;
     const next = `${seeds.length}:${Math.round(acc)}:${key}`;
@@ -273,6 +284,142 @@ function SpaceBoxes({
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
     </>
+  );
+}
+
+/** Colours of the nature points by NATURE_KIND (two shades each). */
+const NATURE_PALETTE: [string, string][] = [
+  ["#7a6248", "#a38a6a"], // soil
+  ["#5f8a3c", "#9cbf5a"], // grass
+  ["#2f5a2c", "#4f7d3a"], // herb
+  ["#b59a52", "#d4bd78"], // dry leaves
+];
+
+/** Slots per cached chunk of nature points. */
+const NATURE_CHUNK = 10;
+
+/**
+ * Vegetation accumulated per slot (natureHistory), drawn as a point volume around the camera's time: only slots
+ * within ±`window` of the orbit target are built, in chunks of NATURE_CHUNK slots that are reused while unchanged,
+ * and the density is scaled down so the whole stays under `budget` points.
+ */
+function NatureVolume({
+  log,
+  seedsInRef,
+  controls,
+  secPerUnit,
+  unit,
+  fold,
+  nature,
+  perSlot,
+  size,
+  window: win,
+  margin,
+  budget,
+}: {
+  log: EventLog;
+  seedsInRef: React.MutableRefObject<Seed[]>;
+  controls: React.MutableRefObject<Orbit | null>;
+  secPerUnit: number;
+  unit: number;
+  fold: FoldConfig;
+  nature: NatureConfig;
+  perSlot: number;
+  size: number;
+  window: number;
+  margin: number;
+  budget: number;
+}) {
+  const points = useRef<THREE.Points>(null);
+  const timer = useRef(10);
+  const sig = useRef("");
+  const chunks = useRef(new Map<number, { key: string; pos: Float32Array; col: Float32Array }>());
+  const palette = useMemo(() => NATURE_PALETTE.map(([a, b]) => [new THREE.Color(a), new THREE.Color(b)] as const), []);
+  const tmp = useMemo(() => new THREE.Color(), []);
+  const params = JSON.stringify([secPerUnit, unit, fold, nature, perSlot, win, margin, budget]);
+
+  useFrame((_, dt) => {
+    timer.current += dt;
+    if (timer.current < 2) return;
+    timer.current = 0;
+    const pts = points.current;
+    const target = controls.current?.target;
+    if (!pts || !target) return;
+    const events = log.all();
+    const seeds = seedsInRef.current;
+    const latest = latestS(events);
+    const kNow = Math.floor(latest / secPerUnit);
+    // window around the camera's time, moved in whole chunks (so it is rebuilt only when it shifts by a chunk)
+    const kFocus = Math.floor(Math.max(0, target.y) / unit / NATURE_CHUNK) * NATURE_CHUNK;
+    const k0 = Math.max(0, kFocus - win);
+    const k1 = Math.min(kNow, kFocus + win);
+    let seedSig = 0;
+    for (const sd of seeds) seedSig += sd.t1 + sd.mass * 7 + (sd.id % 101);
+    const next = `${events.length}:${Math.round(latest)}:${Math.round(seedSig)}:${k0}:${k1}:${params}`;
+    if (next === sig.current) return;
+    sig.current = next;
+
+    const geo = new THREE.BufferGeometry();
+    if (k1 < k0) {
+      pts.geometry.dispose();
+      pts.geometry = geo;
+      return;
+    }
+    const h: NatureHistory = natureHistory({ events, seeds, secPerUnit, k0, k1, margin, nature, fold });
+    const load = naturePointLoad(h, k0, k1, perSlot);
+    const scale = load > budget ? budget / load : 1;
+    const per = perSlot * scale;
+
+    const parts: { pos: Float32Array; col: Float32Array }[] = [];
+    const keep = new Set<number>();
+    for (let c0 = Math.floor(k0 / NATURE_CHUNK) * NATURE_CHUNK; c0 <= k1; c0 += NATURE_CHUNK) {
+      const a = Math.max(c0, k0);
+      const b = Math.min(c0 + NATURE_CHUNK - 1, k1);
+      // a chunk is reused while its densities (and the point rate) are unchanged
+      const off = (a - h.k0) * h.nx * h.nz;
+      let sum = 0;
+      for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${unit}`;
+      keep.add(c0);
+      let ch = chunks.current.get(c0);
+      if (!ch || ch.key !== key) {
+        const np = naturePoints(h, a, b, { unit, perSlot: per });
+        const col = new Float32Array(np.count * 3);
+        for (let i = 0; i < np.count; i++) {
+          const [lo, hi] = palette[np.kind[i]] ?? palette[NATURE_KIND.grass];
+          tmp.copy(lo).lerp(hi, np.shade[i]);
+          col[i * 3] = tmp.r;
+          col[i * 3 + 1] = tmp.g;
+          col[i * 3 + 2] = tmp.b;
+        }
+        ch = { key, pos: np.position, col };
+        chunks.current.set(c0, ch);
+      }
+      parts.push(ch);
+    }
+    for (const c of chunks.current.keys()) if (!keep.has(c)) chunks.current.delete(c);
+
+    let n = 0;
+    for (const p of parts) n += p.pos.length;
+    const pos = new Float32Array(n);
+    const col = new Float32Array(n);
+    let o = 0;
+    for (const p of parts) {
+      pos.set(p.pos, o);
+      col.set(p.col, o);
+      o += p.pos.length;
+    }
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    pts.geometry.dispose();
+    pts.geometry = geo;
+  });
+
+  return (
+    <points ref={points} frustumCulled={false}>
+      <bufferGeometry />
+      <pointsMaterial size={size} vertexColors sizeAttenuation />
+    </points>
   );
 }
 
@@ -507,6 +654,16 @@ export default function ParliamentSpace() {
     grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
   });
   const composerOn = ao.enabled || light.grain > 0;
+  const natureView = useControls("자연 (시공간)", {
+    enabled: { value: true, label: "켜기" },
+    perSlot: { value: 6, min: 0.5, max: 40, step: 0.5, label: "칸·단당 점 수 (밀도 1일 때)" },
+    size: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
+    window: { value: 120, min: 10, max: 600, step: 10, label: "보이는 시간 범위 (±단)" },
+    margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
+    budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
+  });
+  const { cfg: natureCfg } = useNatureControls();
+  const seedsRef = useRef<Seed[]>([]);
   const steel = useControls("철골 (steel)", {
     beamChance: { value: RC.beam.chance, min: 0, max: 1, step: 0.01, label: "가로보: 슬롯당 확률" },
     beamLength: { value: RC.beam.length, min: 0.3, max: 12, step: 0.1, label: "가로보: 길이 (칸)" },
@@ -575,7 +732,23 @@ export default function ParliamentSpace() {
         <Sun controls={controls} azimuth={light.azimuth} elevation={light.elevation} intensity={light.intensity} softness={light.softness} shadows={light.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <gridHelper args={[80, 80, "#9aa0a8", "#d3d6db"]} position={[0, -0.01, 0]} />
-        <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} follow={c.follow} controls={controls} onStats={setStats} />
+        <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} follow={c.follow} controls={controls} onStats={setStats} seedsOutRef={seedsRef} />
+        {natureView.enabled && (
+          <NatureVolume
+            log={log}
+            seedsInRef={seedsRef}
+            controls={controls}
+            secPerUnit={boxCfg.secPerUnit}
+            unit={boxCfg.unit}
+            fold={spaceFold}
+            nature={natureCfg}
+            perSlot={natureView.perSlot}
+            size={natureView.size}
+            window={natureView.window}
+            margin={natureView.margin}
+            budget={natureView.budget}
+          />
+        )}
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />
         {composerOn && (
           <EffectComposer key={`${ao.enabled}:${light.grain > 0}`}>

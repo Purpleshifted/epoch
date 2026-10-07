@@ -1,0 +1,92 @@
+import { describe, expect, it } from "vitest";
+import { CELL_SIZE } from "@/lib/stratum/field";
+import { DEFAULT_FOLD, DEFAULT_NATURE, baseGrass, foldWorld, grassDensity, natureAt, natureHistory, naturePointLoad, naturePoints, seedsFromSnapshot, stressMap, withoutWear, type PEvent } from "./index";
+
+const SPU = 30;
+/** Visitor `o` standing at (x, z) from s0 for `secs` seconds (one sample per second, a little off the slot grid). */
+const stand = (o: string, x: number, z: number, s0: number, secs: number): PEvent[] =>
+  Array.from({ length: secs }, (_, i) => ({ id: `${o}:${s0}:${i}`, o, r: "worker" as const, k: "p" as const, x, z, s: s0 + i + 0.37 }));
+
+const run = (events: PEvent[], k0: number, k1: number, margin = 6, seeds = seedsFromSnapshot(foldWorld(events, 1e9, withoutWear(DEFAULT_FOLD)))) =>
+  natureHistory({ events, seeds, secPerUnit: SPU, k0, k1, margin, nature: DEFAULT_NATURE, fold: DEFAULT_FOLD });
+
+const cellOf = (v: number) => Math.floor(v / CELL_SIZE);
+
+describe("natureHistory: vegetation per cell and time slot", () => {
+  const lone = stand("a", 0.6, 0.6, 60, 60); // slots 2–4
+
+  it("is deterministic", () => {
+    expect(run(lone, 0, 20)).toEqual(run(lone, 0, 20));
+  });
+
+  it("cells nobody came near keep their base density", () => {
+    const h = run(lone, 0, 10, 8);
+    const far = [h.x0, h.z0]; // a corner of the extent, 8 cells away
+    for (let k = 0; k <= 10; k++) expect(natureAt(h, far[0], far[1], k)).toBeCloseTo(baseGrass(far[0], far[1]), 6); // Float32
+  });
+
+  it("lingering wears it down in those slots, and it recovers afterwards", () => {
+    const h = run(lone, 0, 30);
+    const c = [cellOf(0.6), cellOf(0.6)] as const;
+    const before = natureAt(h, c[0], c[1], 1)!;
+    const during = natureAt(h, c[0], c[1], 4)!;
+    const later = natureAt(h, c[0], c[1], 30)!;
+    expect(during).toBeLessThan(before * 0.6);
+    expect(later).toBeGreaterThan(during);
+  });
+
+  it("the carried stress equals stressMap at the slot's start and end", () => {
+    const k = 3;
+    const h = run(lone, k, k);
+    const c = [cellOf(0.6), cellOf(0.6)] as const;
+    const key = `${c[0]},${c[1]}`;
+    const path = foldWorld(lone, (k + 1) * SPU, DEFAULT_FOLD).paths.find((p) => p.key === key)?.p ?? 0;
+    const g = (t: number) => grassDensity(c[0], c[1], stressMap(lone, t, DEFAULT_NATURE).get(key) ?? 0, path, false, DEFAULT_NATURE);
+    expect(natureAt(h, c[0], c[1], k)).toBeCloseTo((g(k * SPU) + g((k + 1) * SPU)) / 2, 6);
+  });
+
+  it("a slab seals its cell (≤ sealedLeft · base) while it stands — also after the crowd has gone", () => {
+    const crowd = [...stand("a", 0.6, 0.6, 0, 90), ...stand("b", 0.6, 0.6, 0, 90), ...stand("c", 0.6, 0.6, 0, 90)];
+    const seeds = seedsFromSnapshot(foldWorld(crowd, 1e9, withoutWear(DEFAULT_FOLD)));
+    const slab = seeds.find((s) => cellOf(s.x) === 0 && cellOf(s.z) === 0)!;
+    expect(slab).toBeDefined();
+    // slot 7 (210–240 s): the crowd left at 90 s, the stress has mostly faded, the slab (worn ~e^-1) still stands
+    const k = 7;
+    const sealedV = natureAt(run(crowd, 0, 8, 6, seeds), 0, 0, k)!;
+    const openV = natureAt(run(crowd, 0, 8, 6, []), 0, 0, k)!;
+    expect(sealedV).toBeLessThanOrEqual(DEFAULT_NATURE.sealedLeft * baseGrass(0, 0) + 1e-6);
+    expect(openV).toBeGreaterThan(DEFAULT_NATURE.sealedLeft * baseGrass(0, 0) * 2);
+  });
+
+  it("an empty log or an empty slot range gives nothing", () => {
+    expect(run([], 0, 10).V.length).toBe(0);
+    expect(run(lone, 5, 4).V.length).toBe(0);
+  });
+});
+
+describe("naturePoints: the point cloud of a slot range", () => {
+  const h = run(stand("a", 0.6, 0.6, 60, 60), 0, 12);
+  const opts = { unit: 1, perSlot: 6 };
+
+  it("is deterministic, and every point lies in its cell × slot box", () => {
+    const pts = naturePoints(h, 0, 12, opts);
+    expect(naturePoints(h, 0, 12, opts)).toEqual(pts);
+    expect(pts.count).toBeGreaterThan(0);
+    for (let i = 0; i < pts.count; i++) {
+      const y = pts.position[i * 3 + 1];
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThan(13 * opts.unit);
+    }
+  });
+
+  it("the count follows V · perSlot (the budget estimate is close)", () => {
+    const pts = naturePoints(h, 0, 12, opts);
+    const load = naturePointLoad(h, 0, 12, opts.perSlot);
+    expect(Math.abs(pts.count - load) / load).toBeLessThan(0.05);
+  });
+
+  it("chunks add up to the whole", () => {
+    const whole = naturePoints(h, 0, 12, opts).count;
+    expect(naturePoints(h, 0, 5, opts).count + naturePoints(h, 6, 12, opts).count).toBe(whole);
+  });
+});
