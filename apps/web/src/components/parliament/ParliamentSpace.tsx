@@ -6,26 +6,31 @@
  *
  * What is drawn is exactly the output of the seed pipeline (lib/parliament/seeds.ts):
  *   folded world (without wear: this view is history) → seeds (where/when ≥ minVisitors gathered)
- *   → recipe → boxes of different sizes, only in the time slots in which somebody was around.
+ *   → recipe → parts (plinth, basement, piles, masses, slabs, columns), only in the time slots in which somebody
+ *   was around (columns may cross empty time).
+ * One InstancedMesh per part kind (a material each); screen-space AO (N8AO) does most of the reading of the masses.
  * Time is linear (y = t / secPerUnit · unit). The camera is focused on the PLAYER's present time (the latest
  * presence of the most recently opened /mobile tab), so the boxes are in view however old the epoch is.
- * Plain grey boxes with edges on purpose: this view exists to check that generation is right. Textures,
- * natural matter and other roles come later, through the same seeds.
+ * Untextured on purpose, for now: textures, natural matter and other roles come later, through the same seeds.
  * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel.
  */
 
 import { useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Html, OrbitControls } from "@react-three/drei";
+import { Html, Hud, OrbitControls } from "@react-three/drei";
+import { EffectComposer, N8AO } from "@react-three/postprocessing";
 import { Leva, button, useControls } from "leva";
 import * as THREE from "three";
 import {
   DEFAULT_BOXES,
   DEFAULT_FOLD,
   LS_PARLIAMENT_ME_KEY,
+  PART_KINDS,
+  STEEL,
   clearWorld,
   foldWorld,
   generateBoxes,
+  halfHeight,
   latestOf,
   latestS,
   loadEvents,
@@ -36,18 +41,33 @@ import {
   type EventLog,
   type FoldConfig,
   type PEvent,
+  type PartKind,
   type RoleId,
 } from "@/lib/parliament";
 import { useFoldControls, useWorld } from "./useWorld";
 
 const PAPER = "#e9ebee";
-const MAX_BOXES = 30000;
+/** Instance capacity per part kind. */
+const CAPACITY: Record<PartKind, number> = { mass: 30000, slab: 6000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
+/** Base colour per part kind (instance tone multiplies it). */
+const KIND_COLOR: Record<PartKind, string> = {
+  mass: "#f4f4f2",
+  slab: "#fbfbfa",
+  column: "#6f747b",
+  beam: "#6f747b",
+  brace: "#6f747b",
+  plinth: "#b8bbbf",
+  basement: "#9fa3a8",
+  pile: "#7f848a",
+};
+const NO_COUNTS = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
 /** A focus change larger than this (world units on the time axis) is a jump, not a drift. */
 const FOLLOW_SNAP = 40;
 
 interface Stats {
   seeds: number;
   boxes: number;
+  kinds: Record<PartKind, number>;
   t: number;
   top: number;
   /** Time the camera is focused on: the player's present (or the latest event when there is no player). */
@@ -84,7 +104,7 @@ function SpaceBoxes({
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
 }) {
-  const boxes = useRef<THREE.InstancedMesh>(null);
+  const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
   const timer = useRef(10);
@@ -92,11 +112,13 @@ function SpaceBoxes({
   const focusY = useRef<number | null>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const col = useMemo(() => new THREE.Color(), []);
+  const corner = useMemo(() => new THREE.Vector3(), []);
   const key = useMemo(() => JSON.stringify([fold, boxCfg]), [fold, boxCfg]);
 
   const snapped = useRef(false);
   const topOf = useRef(0);
   const boxCount = useRef(0);
+  const kindCount = useRef(NO_COUNTS);
   const statSig = useRef("");
   /** hand the overlay new numbers only when they changed (whole seconds), not on every 0.5 s pass */
   const report = (st: Stats) => {
@@ -125,8 +147,7 @@ function SpaceBoxes({
     timer.current += dt;
     if (timer.current < 0.5) return;
     timer.current = 0;
-    const mesh = boxes.current;
-    if (!mesh) return;
+    if (PART_KINDS.some((k) => !meshes.current[k])) return;
 
     const events = log.all();
     const t = latestS(events);
@@ -139,44 +160,51 @@ function SpaceBoxes({
     for (const s of seeds) acc += s.t1 + s.mass * 100 + s.id % 97;
     const next = `${seeds.length}:${Math.round(acc)}:${key}`;
     if (next === sig.current) {
-      report({ seeds: seeds.length, boxes: boxCount.current, t, top: topOf.current, focusS, focusIsMe: meS !== null });
+      report({ seeds: seeds.length, boxes: boxCount.current, kinds: kindCount.current, t, top: topOf.current, focusS, focusIsMe: meS !== null });
       return;
     }
     sig.current = next;
 
     const list = generateBoxes(seeds, boxCfg);
-    const n = Math.min(list.length, MAX_BOXES);
     let minX = Infinity, minZ = Infinity, top = 0;
-    const lines = new Float32Array(n * 24 * 3);
-    for (let i = 0; i < n; i++) {
-      const b = list[i];
+    const counts = { ...NO_COUNTS };
+    // edges for the box-shaped kinds (piles are cylinders and get none)
+    const lines: number[] = [];
+    for (const b of list) {
+      const kind = b.kind;
+      if (counts[kind] >= CAPACITY[kind]) continue;
+      const mesh = meshes.current[kind]!;
+      const i = counts[kind]++;
       dummy.position.set(b.x, b.y, b.z);
+      dummy.rotation.set(0, b.yaw ?? 0, b.tilt ?? 0, "YZX");
       dummy.scale.set(b.sx, b.sy, b.sz);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-      col.setScalar(0.66 + 0.22 * b.tone);
+      col.setScalar(0.86 + 0.14 * b.tone);
       mesh.setColorAt(i, col);
       minX = Math.min(minX, b.x - b.sx / 2);
       minZ = Math.min(minZ, b.z - b.sz / 2);
-      top = Math.max(top, b.y + b.sy / 2);
+      top = Math.max(top, b.y + halfHeight(b));
+      if (kind === "pile") continue;
       for (let e = 0; e < 12; e++) {
         for (let k = 0; k < 2; k++) {
           const v = EDGE[e][k];
-          const o = i * 72 + e * 6 + k * 3;
-          lines[o] = b.x + ((v & 1) - 0.5) * b.sx;
-          lines[o + 1] = b.y + (((v >> 2) & 1) - 0.5) * b.sy;
-          lines[o + 2] = b.z + (((v >> 1) & 1) - 0.5) * b.sz;
+          corner.set((v & 1) - 0.5, ((v >> 2) & 1) - 0.5, ((v >> 1) & 1) - 0.5).applyMatrix4(dummy.matrix);
+          lines.push(corner.x, corner.y, corner.z);
         }
       }
     }
-    mesh.count = n;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    for (const kind of PART_KINDS) {
+      const mesh = meshes.current[kind]!;
+      mesh.count = counts[kind];
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
 
     const eg = edges.current;
     if (eg) {
       const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(lines, 3));
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(lines), 3));
       eg.geometry.dispose();
       eg.geometry = g;
     }
@@ -202,15 +230,25 @@ function SpaceBoxes({
 
     topOf.current = top;
     boxCount.current = list.length;
-    report({ seeds: seeds.length, boxes: list.length, t, top, focusS, focusIsMe: meS !== null });
+    kindCount.current = counts;
+    report({ seeds: seeds.length, boxes: list.length, kinds: counts, t, top, focusS, focusIsMe: meS !== null });
   });
 
   return (
     <>
-      <instancedMesh ref={boxes} args={[undefined, undefined, MAX_BOXES]} frustumCulled={false}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial roughness={1} metalness={0} />
-      </instancedMesh>
+      {PART_KINDS.map((kind) => (
+        <instancedMesh
+          key={kind}
+          ref={(m) => {
+            meshes.current[kind] = m;
+          }}
+          args={[undefined, undefined, CAPACITY[kind]]}
+          frustumCulled={false}
+        >
+          {kind === "pile" ? <cylinderGeometry args={[0.5, 0.5, 1, 10]} /> : <boxGeometry args={[1, 1, 1]} />}
+          <meshStandardMaterial color={KIND_COLOR[kind]} roughness={kind === "pile" || STEEL.has(kind) ? 0.7 : 1} metalness={0} />
+        </instancedMesh>
+      ))}
       <lineSegments ref={edges} frustumCulled={false} visible={showEdges}>
         <bufferGeometry />
         <lineBasicMaterial color="#15181c" />
@@ -230,6 +268,15 @@ interface Mark {
   x: number;
   z: number;
   s: number;
+  /** No newer sample for `holdSec` (only "me" is still drawn then, dimmed). */
+  stale: boolean;
+}
+
+/** What the overlay says about "me": the id this browser's player tab wrote, and how long it has been silent. */
+interface MeStatus {
+  id: string | null;
+  /** Seconds since its newest sample arrived; null = it has left no presence yet. */
+  silentSec: number | null;
 }
 
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
@@ -237,7 +284,8 @@ const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as cons
 /**
  * Live markers: the latest presence sample of each owner, as a sphere at (x, time, z) with a thin line down to
  * the ground. "me" is the player tab on this browser (id written to localStorage by RoleField). An owner stays
- * visible while its newest sample keeps advancing; `holdSec` of silence hides it.
+ * visible while its newest sample keeps advancing; `holdSec` of silence hides it — except "me", which is always
+ * drawn at its latest presence (dimmed while silent), so the player can always be found.
  */
 function Markers({
   log,
@@ -245,17 +293,20 @@ function Markers({
   unit,
   holdSec,
   onActive,
+  onMe,
 }: {
   log: EventLog;
   secPerUnit: number;
   unit: number;
   holdSec: number;
   onActive: (n: number) => void;
+  onMe: (m: MeStatus) => void;
 }) {
   const [marks, setMarks] = useState<Mark[]>([]);
   const seen = useRef(new Map<string, { s: number; at: number }>());
   const timer = useRef(10);
   const sig = useRef("");
+  const meSig = useRef("");
 
   useFrame((_, dt) => {
     timer.current += dt;
@@ -277,15 +328,23 @@ function Markers({
       // owners that were already stored when this view opened count as stale until they send a newer sample
       if (!prev || e.s > prev.s) seen.current.set(id, { s: e.s, at: firstScan && !prev ? -1e12 : now });
       const at = seen.current.get(id)!.at;
-      if (now - at > holdSec * 1000) continue;
-      out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", role: e.r, x: e.x, z: e.z, s: e.s });
+      const stale = now - at > holdSec * 1000;
+      if (stale && id !== me) continue;
+      out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", role: e.r, x: e.x, z: e.z, s: e.s, stale });
+    }
+    const meAt = me ? seen.current.get(me)?.at : undefined;
+    const meStatus: MeStatus = { id: me, silentSec: meAt === undefined ? null : meAt < 0 ? Infinity : Math.floor((now - meAt) / 1000) };
+    const ms = `${meStatus.id}:${meStatus.silentSec}`;
+    if (ms !== meSig.current) {
+      meSig.current = ms;
+      onMe(meStatus);
     }
     out.sort((a, b) => (a.id < b.id ? -1 : 1));
-    const next = out.map((m) => `${m.id}:${m.s}:${m.x.toFixed(2)}:${m.z.toFixed(2)}`).join("|");
+    const next = out.map((m) => `${m.id}:${m.s}:${m.x.toFixed(2)}:${m.z.toFixed(2)}:${m.stale}`).join("|");
     if (next === sig.current) return;
     sig.current = next;
     setMarks(out);
-    onActive(new Set(out.map((m) => m.id)).size);
+    onActive(out.filter((m) => !m.stale).length);
   });
 
   return (
@@ -298,7 +357,7 @@ function Markers({
           <group key={m.id}>
             <mesh position={[m.x, y, m.z]}>
               <sphereGeometry args={[big, 16, 12]} />
-              <meshBasicMaterial color={color} depthTest={false} transparent opacity={0.95} />
+              <meshBasicMaterial color={color} depthTest={false} transparent opacity={m.stale ? 0.4 : 0.95} />
             </mesh>
             <mesh position={[m.x, y / 2, m.z]}>
               <cylinderGeometry args={[0.03, 0.03, Math.max(y, 0.001), 6]} />
@@ -310,7 +369,7 @@ function Markers({
             </mesh>
             <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
               <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
-                {m.kind === "me" ? "me" : m.kind === "bot" ? m.id : "visitor"} · {m.role}
+                {m.kind === "me" ? (m.stale ? "me (silent)" : "me") : m.kind === "bot" ? m.id : "visitor"} · {m.role}
               </div>
             </Html>
           </group>
@@ -327,8 +386,9 @@ export default function ParliamentSpace() {
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, t: 0, top: 0, focusS: 0, focusIsMe: false });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false });
   const [active, setActive] = useState(0);
+  const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
   const focusRef = useRef(0);
 
@@ -345,10 +405,10 @@ export default function ParliamentSpace() {
   const c = useControls("3D 시공간 (박스 생성 확인)", {
     secPerUnit: { value: DEFAULT_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초 (시간축)" },
     unit: { value: DEFAULT_BOXES.unit, min: 0.2, max: 4, step: 0.1, label: "한 단의 높이 (월드 단위)" },
-    width: { value: DEFAULT_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "박스 폭 배율" },
-    density: { value: DEFAULT_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 박스 수 배율" },
+    width: { value: DEFAULT_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "부품 폭 배율" },
+    density: { value: DEFAULT_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
     emptyGapSec: { value: DEFAULT_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
-    showEdges: { value: true, label: "모서리 선" },
+    showEdges: { value: false, label: "모서리 선" },
     follow: { value: true, label: "플레이어 시간대 따라가기" },
     toMe: button(() => jump(focusRef.current)),
     toGround: button(() => jump(0)),
@@ -362,6 +422,14 @@ export default function ParliamentSpace() {
         log.clear();
       }
     }),
+  });
+  const ao = useControls("AO (N8AO)", {
+    enabled: { value: true, label: "켜기" },
+    aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
+    distanceFalloff: { value: 1, min: 0.05, max: 4, step: 0.05, label: "거리 감쇠" },
+    intensity: { value: 3, min: 0, max: 12, step: 0.1, label: "세기" },
+    quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
+    halfRes: { value: false, label: "절반 해상도" },
   });
   const boxCfg = useMemo<BoxConfig>(
     () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density }),
@@ -382,19 +450,43 @@ export default function ParliamentSpace() {
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <gridHelper args={[80, 80, "#9aa0a8", "#d3d6db"]} position={[0, -0.01, 0]} />
         <SpaceBoxes log={log} fold={spaceFold} boxCfg={boxCfg} showEdges={c.showEdges} follow={c.follow} controls={controls} onStats={setStats} />
-        {c.markers && <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} onActive={setActive} />}
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />
+        {ao.enabled && (
+          <EffectComposer>
+            <N8AO aoRadius={ao.aoRadius} distanceFalloff={ao.distanceFalloff} intensity={ao.intensity} quality={ao.quality} halfRes={ao.halfRes} color="black" />
+          </EffectComposer>
+        )}
+        {/* markers are an overlay: their own scene, drawn after the parts (and after AO) on a cleared depth buffer, so
+            "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene (AO off);
+            with AO on, the composer (priority 1) does that and the overlay follows at 2. */}
+        {c.markers && (
+          <Hud key={ao.enabled ? "after-ao" : "plain"} renderPriority={ao.enabled ? 2 : 1}>
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} onActive={setActive} onMe={setMeStatus} />
+          </Hud>
+        )}
       </Canvas>
       <div className="pointer-events-none absolute bottom-3 left-3 select-none font-mono text-[10px] leading-4 text-black/45">
         <div>
-          seeds {stats.seeds} · boxes {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
+          seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
         </div>
+        <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}
             <span style={{ color: MARK_COLOR.visitor }}>visitor</span>)
+          </div>
+        )}
+        {c.markers && (
+          <div style={{ color: MARK_COLOR.me }}>
+            {meStatus.id === null
+              ? "me: none in this browser (open /mobile in this browser)"
+              : meStatus.silentSec === null
+                ? `me ${meStatus.id}: no presence yet`
+                : meStatus.silentSec === Infinity
+                  ? `me ${meStatus.id}: silent since this view opened (is its /mobile tab still open?)`
+                  : `me ${meStatus.id}: last sample ${meStatus.silentSec} s ago`}
           </div>
         )}
       </div>

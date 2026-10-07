@@ -1,10 +1,10 @@
 /**
  * parliament/seeds.ts
  *
- * The bridge between WHAT VISITORS DID (the folded world) and WHAT GETS GENERATED (boxes, later textures,
- * later plants). Pure and seeded: the same log gives the same boxes in every view.
+ * The bridge between WHAT VISITORS DID (the folded world) and WHAT GETS GENERATED (parts, later textures,
+ * later plants). Pure and seeded: the same log gives the same parts in every view.
  *
- *   events ──foldWorld──▶ Snapshot.slabs ──seedsFromSnapshot──▶ Seed ──recipe[material]──▶ Box[]
+ *   events ──foldWorld──▶ Snapshot.slabs ──seedsFromSnapshot──▶ Seed ──recipe[material]──▶ Box[] (parts)
  *
  * A SEED is a place in spacetime where enough visitors gathered (fold.ts decides that: ≥ minVisitors
  * distinct visitors, per-visitor capped). It carries:
@@ -15,13 +15,27 @@
  *   id            hash of (cell, birth): the seed number for every random choice below
  *   material      what it is made of; chosen by the ROLE that produced it
  *
- * A RECIPE turns a seed into boxes. Adding another role later = one entry in MATERIAL_OF_ROLE and one
- * recipe (or only new numbers for an existing one); nothing else in the pipeline changes.
+ * A RECIPE turns a seed into PARTS — a small grammar, not a pile of equal boxes:
+ *   plinth     the foundation slab laid at the seed's birth
+ *   basement   a block hanging under the plinth, dug into earlier time
+ *   pile       thin piles under the plinth: they reach the structure (or ground) below if it is close enough,
+ *              otherwise they dangle
+ *   mass       the bulk, one or more per slot. Sizes are TRUNCATED PARETO: few huge, many small (scale hierarchy);
+ *              some are long bars. Each hangs from its slot's ceiling down into its run (never below the run start)
+ *   slab       thin wide floor plates, cantilevered past the masses: at the start of every run of presence and
+ *              every `slab.every` slots inside it — time reads as strata
+ *   STEEL (never in empty time):
+ *   column     thin vertical members under each slab inside a run, down to the previous slab of that run
+ *   beam       long horizontal members, now and then, on the grid or at any angle, slightly askew
+ *   brace      diagonal members, leaning 20–65° from the vertical, kept inside their run
+ * Adding another role later = one entry in MATERIAL_OF_ROLE and one recipe (or only new numbers for an existing one).
  *
- * Boxes live in a 3D world: x, z = the ground, y = TIME (y = t / secPerUnit · unit). A seed that existed from
- * t0 to t1 is a column of boxes of different sizes spread over that range of y. Only the time slots in which
- * somebody was around get boxes (empty time stays empty, for natural matter to fill later). Boxes never wear
- * away here: wear belongs to the Top (future) view (fold with `withoutWear` for this one).
+ * Parts live in a 3D world: x, z = the ground, y = TIME (y = t / secPerUnit · unit). Only the time slots in which
+ * somebody was around get parts: empty time is left empty, for natural matter (only a foundation reaches below its
+ * own birth).
+ * Every part depends only on its own slot and on what lies BEFORE it in time, so what has been built never moves
+ * as the seed keeps growing. Parts never wear away here: wear belongs to the Top (future) view (fold with
+ * `withoutWear` for this one).
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
@@ -49,7 +63,21 @@ export interface Seed {
   mass: number;
 }
 
+export type PartKind = "mass" | "slab" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
+export const PART_KINDS: readonly PartKind[] = ["mass", "slab", "column", "beam", "brace", "plinth", "basement", "pile"];
+export const STEEL: ReadonlySet<PartKind> = new Set(["column", "beam", "brace"]);
+/** Parts that carry what is built on top of them later (piles of later seeds land on these). */
+const BEARING: ReadonlySet<PartKind> = new Set(["mass", "slab", "plinth", "basement"]);
+/** Foundation parts: the only ones that reach below the seed's birth. */
+export const FOUNDATION: ReadonlySet<PartKind> = new Set(["basement", "pile"]);
+
+/**
+ * One part: a box (a pile is drawn as a cylinder in the same bounds). Most are axis-aligned; a steel member may be
+ * rotated: first `tilt` about Z (0 = upright, π/2 = lying along x), then `yaw` about Y (three.js Euler order "YZX").
+ * Its length is then sy.
+ */
 export interface Box {
+  kind: PartKind;
   seed: number;
   material: MaterialId;
   /** Centre; y is the time axis. */
@@ -64,6 +92,14 @@ export interface Box {
   tone: number;
   /** 0 at the first storey of its seed, 1 at the last. */
   along: number;
+  yaw?: number;
+  tilt?: number;
+}
+
+/** Half of a part's vertical extent (accounts for tilt). */
+export function halfHeight(b: Box): number {
+  if (!b.tilt) return b.sy / 2;
+  return (Math.abs(Math.cos(b.tilt)) * b.sy + Math.abs(Math.sin(b.tilt)) * Math.max(b.sx, b.sz)) / 2;
 }
 
 export interface BoxConfig {
@@ -71,9 +107,9 @@ export interface BoxConfig {
   secPerUnit: number;
   /** World height of one slot. */
   unit: number;
-  /** Multiplies the footprint of the boxes. */
+  /** Multiplies every footprint. */
   width: number;
-  /** Multiplies how many boxes each slot gets. */
+  /** Multiplies how many masses each slot gets. */
   density: number;
   /** Safety cap: only the latest this-many slots of a seed are generated. */
   maxSlots: number;
@@ -81,23 +117,59 @@ export interface BoxConfig {
 
 export const DEFAULT_BOXES: BoxConfig = { secPerUnit: 30, unit: 1, width: 1, density: 1, maxSlots: 200 };
 
-/** Per-material numbers. Footprints are in cells (CELL_SIZE). */
+/**
+ * Per-material numbers. Footprints and widths are in cells (CELL_SIZE); heights, thicknesses, depths and spans
+ * are in slots (× unit). [a, b] ranges are drawn log-uniformly unless said otherwise.
+ */
 export interface Recipe {
-  /** Footprint of a box in cells, [min, max]. */
-  footprint: [number, number];
-  /** Height of a box in slots, [min, max]; may overlap the neighbouring slots. */
-  height: [number, number];
-  /** How far a box may sit from the seed centre, in cells. */
-  scatter: number;
-  /** Extra boxes per slot per unit of (mass - 1). */
-  perMass: number;
-  /** Most boxes in a slot. */
-  maxPerSlot: number;
+  mass: {
+    /** Footprint (√(sx·sz)) range, drawn from a Pareto truncated to [min, max]. */
+    footprint: [number, number];
+    /** Pareto exponent: smaller = more huge masses. */
+    alpha: number;
+    height: [number, number];
+    /** Plan proportions sx:sz up to aspect:1 either way. */
+    aspect: number;
+    /** Chance that a mass is a long bar, `bar` times longer along one side. */
+    barChance: number;
+    bar: number;
+    /** How far a mass may sit from the seed centre. */
+    scatter: number;
+    /** Extra masses per slot per unit of (mass - 1). */
+    perMass: number;
+    maxPerSlot: number;
+    /** Footprint grows by this fraction per unit of (mass - 1). */
+    growth: number;
+  };
+  slab: { every: number; thick: [number, number]; footprint: [number, number]; cantilever: number };
+  column: { width: [number, number]; count: [number, number] };
+  /** Horizontal steel: `chance` per slot; length in cells; `onGrid` = share aligned to x or z; `skew` = most tilt off level (rad). */
+  beam: { chance: number; length: [number, number]; width: [number, number]; onGrid: number; skew: number; scatter: number };
+  /** Diagonal steel: `chance` per slot; length in slots; tilt from the vertical (rad, uniform). */
+  brace: { chance: number; length: [number, number]; width: [number, number]; tilt: [number, number]; scatter: number };
+  plinth: { footprint: [number, number]; thick: [number, number] };
+  /** footprint: fraction of the plinth's. */
+  basement: { footprint: [number, number]; depth: [number, number] };
+  /** depth: a pile that cannot reach anything within depth[1] dangles with a depth drawn from this range. */
+  pile: { count: [number, number]; width: [number, number]; depth: [number, number] };
 }
 
 export const RECIPES: Record<MaterialId, Recipe> = {
-  concrete: { footprint: [0.6, 2.0], height: [0.5, 1.6], scatter: 0.9, perMass: 0.55, maxPerSlot: 4 },
+  concrete: {
+    mass: { footprint: [0.3, 4], alpha: 1.15, height: [0.25, 2.6], aspect: 2.2, barChance: 0.15, bar: 3, scatter: 0.7, perMass: 0.6, maxPerSlot: 6, growth: 0.12 },
+    slab: { every: 4, thick: [0.07, 0.14], footprint: [1.4, 4.2], cantilever: 1.1 },
+    column: { width: [0.07, 0.13], count: [2, 4] },
+    beam: { chance: 0.4, length: [1.2, 6], width: [0.05, 0.11], onGrid: 0.5, skew: 0.12, scatter: 1.2 },
+    brace: { chance: 0.3, length: [0.8, 3.2], width: [0.05, 0.1], tilt: [0.35, 1.13], scatter: 1.1 },
+    plinth: { footprint: [1.8, 3.2], thick: [0.22, 0.4] },
+    basement: { footprint: [0.45, 0.85], depth: [0.8, 2.6] },
+    pile: { count: [3, 7], width: [0.06, 0.12], depth: [1.5, 7] },
+  },
 };
+
+/** Highest top of a bearing part under (x, z) that is not above y; 0 (the ground) if there is none. */
+export type Support = (x: number, z: number, y: number) => number;
+const GROUND: Support = () => 0;
 
 function mix(h: number): number {
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
@@ -113,11 +185,19 @@ export function seedId(cx: number, cz: number, t0: number): number {
   return h >>> 1;
 }
 
-function stream(seed: number, slot: number): () => number {
+/** Each part family has its own salt, so adding draws to one never shifts another. */
+const SALT = { mass: 77, slab: 78, found: 79, steel: 80 } as const;
+
+function stream(seed: number, slot: number, salt: number): () => number {
   let i = 0;
-  const base = Math.floor(hash2(seed | 0, slot | 0, 77) * 1e9);
+  const base = Math.floor(hash2(seed | 0, slot | 0, salt) * 1e9);
   return () => hash2(base, i++, 131);
 }
+
+const logIn = (u: number, [a, b]: [number, number]) => a * Math.pow(b / a, u);
+/** Pareto(alpha) truncated to [a, b], by inverse CDF. */
+const paretoIn = (u: number, [a, b]: [number, number], alpha: number) => a / Math.pow(1 - u * (1 - Math.pow(a / b, alpha)), 1 / alpha);
+const intIn = (u: number, [a, b]: [number, number]) => a + Math.min(b - a, Math.floor(u * (b - a + 1)));
 
 /** Every slab is a seed of its role's material; slabs only exist for roles that have one (worker → concrete). */
 export function seedsFromSnapshot(snap: Pick<Snapshot, "slabs">, role: RoleId = "worker"): Seed[] {
@@ -132,7 +212,7 @@ export function seedsFromSnapshot(snap: Pick<Snapshot, "slabs">, role: RoleId = 
 }
 
 /**
- * The time slots of a seed that get boxes: every slot that one of its spans touches (ascending), at most the latest
+ * The time slots of a seed that get parts: every slot that one of its spans touches (ascending), at most the latest
  * `maxSlots`. A slot in which nobody was around is EMPTY TIME and gets nothing.
  */
 export function occupiedSlots(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): number[] {
@@ -148,38 +228,197 @@ export function occupiedSlots(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): numbe
   return slots.length > cfg.maxSlots ? slots.slice(slots.length - cfg.maxSlots) : slots;
 }
 
-/** The boxes of one seed. Each time slot is generated from its own random stream, so the column only grows upwards. */
-export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
+/** Consecutive occupied slots grouped into runs of presence: [first, last] slot. */
+function runsOf(slots: readonly number[]): [number, number][] {
+  const runs: [number, number][] = [];
+  for (const k of slots) {
+    const r = runs[runs.length - 1];
+    if (r && k === r[1] + 1) r[1] = k;
+    else runs.push([k, k]);
+  }
+  return runs;
+}
+
+/**
+ * The parts of one seed. Each slot draws from its own random streams (one per part family), so the column only grows
+ * upwards. `support` tells the foundation what lies below its birth (default: only the ground at y = 0).
+ */
+export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support: Support = GROUND): Box[] {
   const rc = RECIPES[seed.material];
-  const first = Math.floor(seed.t0 / cfg.secPerUnit);
+  const u = cfg.unit;
+  const W = CELL_SIZE * cfg.width;
+  const birth = Math.floor(seed.t0 / cfg.secPerUnit);
+  const first = birth;
   const last = Math.floor(seed.t1 / cfg.secPerUnit);
-  const out: Box[] = [];
   const span = Math.max(1, last - first);
-  for (const k of occupiedSlots(seed, cfg)) {
-    const r = stream(seed.id, k);
-    // all draws are made for the maximum, so the number of boxes never shifts the others' values
-    const extraDraw = r();
-    const per: number[][] = [];
-    for (let i = 0; i < rc.maxPerSlot; i++) per.push([r(), r(), r(), r(), r(), r()]);
-    const want = 1 + (seed.mass - 1) * rc.perMass * cfg.density + extraDraw * 0.5 * cfg.density;
-    const n = Math.max(1, Math.min(rc.maxPerSlot, Math.floor(want)));
+  const grow = 1 + rc.mass.growth * Math.max(0, seed.mass - 1);
+  const out: Box[] = [];
+  const push = (kind: PartKind, x: number, y: number, z: number, sx: number, sy: number, sz: number, tone: number, k: number, yaw?: number, tilt?: number) => {
+    const b: Box = { kind, seed: seed.id, material: seed.material, x, y, z, sx, sy, sz, tone, along: Math.max(0, (k - first) / span) };
+    if (tilt) {
+      b.yaw = yaw ?? 0;
+      b.tilt = tilt;
+    }
+    out.push(b);
+  };
+
+  const slots = occupiedSlots(seed, cfg);
+  const runs = runsOf(slots);
+
+  // ── foundation: plinth at birth, basement and piles below it ──
+  if (slots[0] === birth) {
+    const r = stream(seed.id, birth, SALT.found);
+    const [a0, a1, a2, a3, a4, a5, a6, a7] = [r(), r(), r(), r(), r(), r(), r(), r()];
+    const piles: number[][] = [];
+    for (let i = 0; i < rc.pile.count[1]; i++) piles.push([r(), r(), r(), r()]);
+    const px = logIn(a0, rc.plinth.footprint) * W * grow;
+    const pz = logIn(a1, rc.plinth.footprint) * W * grow;
+    const th = logIn(a2, rc.plinth.thick) * u;
+    const y0 = birth * u;
+    push("plinth", seed.x, y0 + th / 2, seed.z, px, th, pz, a7, birth);
+
+    const bWant = logIn(a4, rc.basement.depth) * u;
+    const bDepth = Math.min(bWant, y0 - support(seed.x, seed.z, y0));
+    if (bDepth > 0.1 * u) {
+      push("basement", seed.x, y0 - bDepth / 2, seed.z, px * logIn(a3, rc.basement.footprint), bDepth, pz * logIn(a5, rc.basement.footprint), a6, birth);
+    }
+
+    const n = intIn(a6, rc.pile.count);
     for (let i = 0; i < n; i++) {
-      const [u0, u1, u2, u3, u4, u5] = per[i];
-      const fx = (rc.footprint[0] + u0 * (rc.footprint[1] - rc.footprint[0])) * CELL_SIZE * cfg.width;
-      const fz = (rc.footprint[0] + u1 * (rc.footprint[1] - rc.footprint[0])) * CELL_SIZE * cfg.width;
-      const hh = (rc.height[0] + u2 * (rc.height[1] - rc.height[0])) * cfg.unit;
-      const jx = (u3 - 0.5) * 2 * rc.scatter * CELL_SIZE;
-      const jz = (u4 - 0.5) * 2 * rc.scatter * CELL_SIZE;
-      // the first box of a slot stands on the slot's floor; others float a little (they are stacked fragments)
-      const y0 = k * cfg.unit + (i === 0 ? 0 : u5 * 0.5 * cfg.unit);
-      out.push({ seed: seed.id, material: seed.material, x: seed.x + jx, y: y0 + hh / 2, z: seed.z + jz, sx: fx, sy: hh, sz: fz, tone: u5, along: (k - first) / span });
+      const [p0, p1, p2, p3] = piles[i];
+      const x = seed.x + (p0 - 0.5) * 0.88 * px;
+      const z = seed.z + (p1 - 0.5) * 0.88 * pz;
+      const reach = y0 - support(x, z, y0);
+      // lands on what is below if it can reach it, otherwise dangles
+      const d = reach <= rc.pile.depth[1] * u ? reach : logIn(p2, rc.pile.depth) * u;
+      const w = logIn(p3, rc.pile.width) * W;
+      if (d > 0.05 * u) push("pile", x, y0 - d / 2, z, w, d, w, p3, birth);
+    }
+  }
+
+  for (const [runStart, runEnd] of runs) {
+    for (let k = runStart; k <= runEnd; k++) {
+      // ── masses: Pareto-sized, hanging from the slot's ceiling, never below the run start ──
+      const r = stream(seed.id, k, SALT.mass);
+      // all draws are made for the maximum, so the number of masses never shifts the others' values
+      const extraDraw = r();
+      const per: number[][] = [];
+      for (let i = 0; i < rc.mass.maxPerSlot; i++) per.push([r(), r(), r(), r(), r(), r(), r(), r()]);
+      const want = 1 + (seed.mass - 1) * rc.mass.perMass * cfg.density + extraDraw * 0.8 * cfg.density;
+      const n = Math.max(1, Math.min(rc.mass.maxPerSlot, Math.floor(want)));
+      const top = (k + 1) * u;
+      const floor = runStart * u;
+      for (let i = 0; i < n; i++) {
+        const [u0, u1, u2, u3, u4, u5, u6] = per[i];
+        const f = paretoIn(u0, rc.mass.footprint, rc.mass.alpha) * W * grow;
+        const asp = Math.sqrt(Math.pow(rc.mass.aspect, 2 * u1 - 1));
+        let sx = f * asp;
+        let sz = f / asp;
+        if (u6 < rc.mass.barChance) {
+          if (u1 < 0.5) sx *= rc.mass.bar;
+          else sz *= rc.mass.bar;
+        }
+        const h = Math.min(logIn(u2, rc.mass.height) * u, top - floor);
+        const jx = (u3 - 0.5) * 2 * rc.mass.scatter * CELL_SIZE;
+        const jz = (u4 - 0.5) * 2 * rc.mass.scatter * CELL_SIZE;
+        push("mass", seed.x + jx, top - h / 2, seed.z + jz, sx, h, sz, u5, k);
+      }
+
+      // ── steel beam and brace: now and then, inside the run (between its start and this slot's ceiling) ──
+      const st = stream(seed.id, k, SALT.steel);
+      const bm = [st(), st(), st(), st(), st(), st(), st(), st(), st()];
+      const br = [st(), st(), st(), st(), st(), st(), st(), st()];
+      if (bm[0] < rc.beam.chance) {
+        const len = logIn(bm[1], rc.beam.length) * W;
+        const w = logIn(bm[2], rc.beam.width) * W;
+        const yaw = bm[3] < rc.beam.onGrid ? (bm[4] < 0.5 ? 0 : Math.PI / 2) : bm[4] * Math.PI;
+        let tilt = Math.PI / 2 + (bm[5] - 0.5) * 2 * rc.beam.skew;
+        // too askew for the room it has: lay it level
+        if (Math.abs(Math.cos(tilt)) * len + w > top - floor) tilt = Math.PI / 2;
+        const hh = (Math.abs(Math.cos(tilt)) * len + w) / 2;
+        const y = Math.min(top - hh, Math.max(floor + hh, k * u + (0.15 + 0.8 * bm[6]) * u));
+        const x = seed.x + (bm[7] - 0.5) * 2 * rc.beam.scatter * CELL_SIZE;
+        const z = seed.z + (bm[8] - 0.5) * 2 * rc.beam.scatter * CELL_SIZE;
+        push("beam", x, y, z, w, len, w, bm[6], k, yaw, tilt);
+      }
+      if (br[0] < rc.brace.chance) {
+        const tilt = rc.brace.tilt[0] + br[1] * (rc.brace.tilt[1] - rc.brace.tilt[0]);
+        const w = logIn(br[2], rc.brace.width) * W;
+        // shortened if its vertical extent would not fit between the run start and this slot's ceiling
+        const len = Math.min(logIn(br[3], rc.brace.length) * u, (top - floor - Math.sin(tilt) * w) / Math.cos(tilt));
+        const hh = (Math.cos(tilt) * len + Math.sin(tilt) * w) / 2;
+        if (len > 0.1 * u) {
+          const y = Math.max(floor + hh, top - hh - br[4] * 0.3 * u);
+          const x = seed.x + (br[5] - 0.5) * 2 * rc.brace.scatter * CELL_SIZE;
+          const z = seed.z + (br[6] - 0.5) * 2 * rc.brace.scatter * CELL_SIZE;
+          push("brace", x, y, z, w, len, w, br[4], k, br[7] * Math.PI * 2, tilt);
+        }
+      }
+
+      // ── slab (+ columns under it): at the start of every run but the birth one, and every `every` slots ──
+      if (k === birth || (k - runStart) % rc.slab.every !== 0) continue;
+      const s = stream(seed.id, k, SALT.slab);
+      const [s0, s1, s2, s3, s4, s5, s6] = [s(), s(), s(), s(), s(), s(), s()];
+      const cols: number[][] = [];
+      for (let i = 0; i < rc.column.count[1]; i++) cols.push([s(), s()]);
+      const th = logIn(s0, rc.slab.thick) * u;
+      const sx = logIn(s1, rc.slab.footprint) * W;
+      const sz = logIn(s2, rc.slab.footprint) * W;
+      const cx = seed.x + (s3 - 0.5) * 2 * rc.slab.cantilever * CELL_SIZE;
+      const cz = seed.z + (s4 - 0.5) * 2 * rc.slab.cantilever * CELL_SIZE;
+      const y0 = k * u;
+      push("slab", cx, y0 + th / 2, cz, sx, th, sz, s5, k);
+
+      // down to the previous slab of the run; a slab at the start of a run has none (no steel in empty time)
+      if (k === runStart) continue;
+      const len = y0 - Math.max(runStart, k - rc.slab.every) * u;
+      if (!(len > 0.05 * u)) continue;
+      const nc = intIn(s6, rc.column.count);
+      for (let i = 0; i < nc; i++) {
+        const [c0, c1] = cols[i];
+        const corner = (i + Math.floor(s6 * 4)) % 4;
+        const inset = 0.08 + 0.17 * c0;
+        const x = cx + (corner & 1 ? 1 : -1) * (0.5 - inset) * sx;
+        const z = cz + (corner & 2 ? 1 : -1) * (0.5 - inset) * sz;
+        const w = logIn(c1, rc.column.width) * W;
+        push("column", x, y0 - len / 2, z, w, len, w, c1, k);
+      }
     }
   }
   return out;
 }
 
+/**
+ * All parts. Seeds are built in order of birth, and every foundation is handed what the EARLIER seeds have built
+ * below it (bearing parts only, tops not above its birth), so piles land on older structure.
+ */
 export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_BOXES): Box[] {
+  const order = [...seeds].sort((a, b) => a.t0 - b.t0 || a.id - b.id);
+  const grid = new Map<string, Box[]>();
+  const cell = (v: number) => Math.floor(v / CELL_SIZE);
+  const support: Support = (x, z, y) => {
+    let best = 0;
+    for (const b of grid.get(`${cell(x)},${cell(z)}`) ?? []) {
+      const top = b.y + b.sy / 2;
+      if (top > best && top <= y + 1e-6 && Math.abs(x - b.x) <= b.sx / 2 && Math.abs(z - b.z) <= b.sz / 2) best = top;
+    }
+    return best;
+  };
   const out: Box[] = [];
-  for (const s of seeds) out.push(...boxesOfSeed(s, cfg));
+  for (const s of order) {
+    const parts = boxesOfSeed(s, cfg, support);
+    for (const b of parts) {
+      out.push(b);
+      if (!BEARING.has(b.kind)) continue;
+      for (let i = cell(b.x - b.sx / 2); i <= cell(b.x + b.sx / 2); i++) {
+        for (let j = cell(b.z - b.sz / 2); j <= cell(b.z + b.sz / 2); j++) {
+          const key = `${i},${j}`;
+          const list = grid.get(key);
+          if (list) list.push(b);
+          else grid.set(key, [b]);
+        }
+      }
+    }
+  }
   return out;
 }

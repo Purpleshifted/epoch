@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOXES, DEFAULT_FOLD, MATERIAL_OF_ROLE, boxesOfSeed, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type PEvent, type Seed } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
 
 const C = 1.2;
 const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[] =>
@@ -51,21 +51,111 @@ describe("seeds: boxes", () => {
     for (const b of short) expect(long.some((q) => Math.abs(q.x - b.x) < 1e-9 && Math.abs(q.y - b.y) < 1e-9 && Math.abs(q.sx - b.sx) < 1e-9)).toBe(true);
   });
 
-  it("a seed does not appear before it was born", () => {
+  it("a seed does not appear before it was born; only its foundation reaches below, and not further than a pile", () => {
     const bs = boxesOfSeed(seed({ t0: 300, t1: 400 }));
-    expect(Math.min(...bs.map((b) => b.y - b.sy / 2))).toBeGreaterThanOrEqual((300 / DEFAULT_BOXES.secPerUnit - 1) * DEFAULT_BOXES.unit);
+    const birthY = (300 / DEFAULT_BOXES.secPerUnit) * DEFAULT_BOXES.unit;
+    const bottom = (b: Box) => b.y - halfHeight(b);
+    expect(Math.min(...bs.filter((b) => !FOUNDATION.has(b.kind)).map(bottom))).toBeGreaterThanOrEqual(birthY - 1e-9);
+    expect(Math.min(...bs.map(bottom))).toBeGreaterThanOrEqual(birthY - RECIPES.concrete.pile.depth[1] * DEFAULT_BOXES.unit - 1e-9);
   });
 
-  it("more mass → more boxes; sizes vary", () => {
-    const thin = boxesOfSeed(seed({ t0: 0, t1: 600, mass: 1 }));
-    const thick = boxesOfSeed(seed({ t0: 0, t1: 600, mass: 6 }));
-    expect(thick.length).toBeGreaterThan(thin.length);
-    expect(new Set(thick.map((b) => b.sx.toFixed(3))).size).toBeGreaterThan(5);
+  it("more mass → more masses; sizes vary", () => {
+    const masses = (m: number) => boxesOfSeed(seed({ t0: 0, t1: 600, mass: m })).filter((b) => b.kind === "mass");
+    expect(masses(6).length).toBeGreaterThan(masses(1).length);
+    expect(new Set(masses(6).map((b) => b.sx.toFixed(3))).size).toBeGreaterThan(5);
+  });
+
+  it("scale hierarchy: masses span an order of magnitude, few are huge and most are small", () => {
+    const ms = boxesOfSeed(seed({ t0: 0, t1: 3000, mass: 4 })).filter((b) => b.kind === "mass");
+    const f = ms.map((b) => Math.sqrt(b.sx * b.sz)).sort((a, b) => a - b);
+    expect(f[f.length - 1] / f[0]).toBeGreaterThan(8);
+    const median = f[Math.floor(f.length / 2)];
+    expect(median).toBeLessThan((f[0] + f[f.length - 1]) / 4);
+  });
+
+  it("steel runs every way: upright columns, (nearly) level beams, leaning braces", () => {
+    const steel = boxesOfSeed(seed({ t0: 0, t1: 3000, mass: 3 })).filter((b) => STEEL.has(b.kind));
+    const lean = (b: Box) => Math.abs(b.tilt ?? 0); // 0 = upright, π/2 = level
+    expect(steel.filter((b) => b.kind === "column").every((b) => lean(b) === 0)).toBe(true);
+    const beams = steel.filter((b) => b.kind === "beam");
+    expect(beams.length).toBeGreaterThan(5);
+    for (const b of beams) expect(Math.abs(lean(b) - Math.PI / 2)).toBeLessThanOrEqual(RECIPES.concrete.beam.skew + 1e-9);
+    expect(beams.some((b) => Math.abs(lean(b) - Math.PI / 2) > 0.02)).toBe(true); // some askew
+    expect(new Set(beams.map((b) => (b.yaw ?? 0).toFixed(3))).size).toBeGreaterThan(2); // not only on the grid
+    const braces = steel.filter((b) => b.kind === "brace");
+    expect(braces.length).toBeGreaterThan(5);
+    for (const b of braces) expect(lean(b)).toBeGreaterThan(0.3);
+  });
+
+  it("every part stays inside its run: between the run start and its slot's ceiling", () => {
+    const s = seed({ t0: 0, t1: 600, spans: [[0, 200], [400, 600]], mass: 3 });
+    const u = DEFAULT_BOXES.unit;
+    const spu = DEFAULT_BOXES.secPerUnit;
+    const runs = [[0, Math.floor(200 / spu)], [Math.floor(400 / spu), Math.floor(600 / spu)]];
+    for (const b of boxesOfSeed(s).filter((b) => !FOUNDATION.has(b.kind))) {
+      const lo = b.y - halfHeight(b);
+      const hi = b.y + halfHeight(b);
+      expect(runs.some(([a, z]) => lo >= a * u - 1e-6 && hi <= (z + 1) * u + 1e-6)).toBe(true);
+    }
+  });
+
+  it("a long life has every kind of part: foundation, masses, slabs, steel", () => {
+    const kinds = new Set(boxesOfSeed(seed({ t0: 600, t1: 1200, mass: 3 })).map((b) => b.kind));
+    for (const k of PART_KINDS) expect(kinds.has(k)).toBe(true);
   });
 
   it("maxSlots bounds the work for very long lives", () => {
     const bs = generateBoxes([seed({ t0: 0, t1: 1e6, mass: 6 })], { ...DEFAULT_BOXES, maxSlots: 50 });
-    expect(bs.length).toBeLessThanOrEqual(50 * 4);
+    const rc = RECIPES.concrete;
+    expect(bs.filter((b) => b.kind === "mass").length).toBeLessThanOrEqual(50 * rc.mass.maxPerSlot);
+    expect(bs.length).toBeLessThanOrEqual(50 * (rc.mass.maxPerSlot + 1 + rc.column.count[1] + 2));
+  });
+});
+
+describe("seeds: foundations", () => {
+  const birthY = (t0: number) => Math.floor(t0 / DEFAULT_BOXES.secPerUnit) * DEFAULT_BOXES.unit;
+
+  it("piles land on what is below when they can reach it", () => {
+    const s = seed({ t0: 900, t1: 960 });
+    const floor = birthY(900) - 2;
+    const piles = boxesOfSeed(s, DEFAULT_BOXES, () => floor).filter((b) => b.kind === "pile");
+    expect(piles.length).toBeGreaterThanOrEqual(RECIPES.concrete.pile.count[0]);
+    for (const p of piles) expect(p.y - p.sy / 2).toBeCloseTo(floor, 9);
+  });
+
+  it("piles dangle when there is nothing within reach", () => {
+    const s = seed({ t0: 9000, t1: 9060 });
+    const y0 = birthY(9000);
+    const piles = boxesOfSeed(s).filter((b) => b.kind === "pile");
+    expect(piles.length).toBeGreaterThan(0);
+    for (const p of piles) {
+      expect(p.y + p.sy / 2).toBeCloseTo(y0, 9);
+      expect(p.sy).toBeLessThanOrEqual(RECIPES.concrete.pile.depth[1] * DEFAULT_BOXES.unit + 1e-9);
+    }
+  });
+
+  it("a seed born on top of an older one rests its piles on the older parts (generateBoxes)", () => {
+    const old = seed({ id: 1, t0: 0, t1: 300, mass: 4 });
+    const young = seed({ id: 2, t0: 420, t1: 480 });
+    const all = generateBoxes([young, old]);
+    const y0 = birthY(420);
+    const bearing = all.filter((b) => b.seed === old.id && (b.kind === "mass" || b.kind === "slab" || b.kind === "plinth" || b.kind === "basement"));
+    const piles = all.filter((b) => b.seed === young.id && b.kind === "pile");
+    expect(piles.length).toBeGreaterThan(0);
+    let landed = 0;
+    for (const p of piles) {
+      let below = 0;
+      for (const b of bearing) {
+        const top = b.y + b.sy / 2;
+        if (top <= y0 + 1e-6 && Math.abs(p.x - b.x) <= b.sx / 2 && Math.abs(p.z - b.z) <= b.sz / 2) below = Math.max(below, top);
+      }
+      const bottom = p.y - p.sy / 2;
+      if (y0 - below <= RECIPES.concrete.pile.depth[1] * DEFAULT_BOXES.unit) {
+        expect(bottom).toBeCloseTo(below, 6);
+        landed++;
+      } else expect(bottom).toBeGreaterThan(below);
+    }
+    expect(landed).toBeGreaterThan(0);
   });
 });
 
@@ -83,15 +173,15 @@ describe("seeds: empty time stays empty", () => {
     expect(slab.spans).toEqual([[slab.bornS, slab.lastS]]);
   });
 
-  it("no boxes in the slots between two gatherings", () => {
+  it("nothing at all — not even steel — in the slots between two gatherings", () => {
     const e = [...crowd(3, 0, 40), ...crowd(3, 1000, 40).map((x) => ({ ...x, id: "b" + x.id }))];
     const seeds = seedsFromSnapshot(foldWorld(e, 2000)).filter((s) => s.x === C / 2 && s.z === C / 2);
     const bs = generateBoxes(seeds);
     const spu = DEFAULT_BOXES.secPerUnit;
-    const emptyFloor = (100 / spu + 1) * DEFAULT_BOXES.unit; // a slot after the first gathering, plus box overhang
-    const emptyCeil = (1000 / spu) * DEFAULT_BOXES.unit;
+    const emptyFloor = (100 / spu + 1) * DEFAULT_BOXES.unit; // a slot after the first gathering, plus overhang
+    const emptyCeil = Math.floor(1000 / spu) * DEFAULT_BOXES.unit; // floor of the slot the second gathering starts in
     expect(bs.length).toBeGreaterThan(0);
-    expect(bs.filter((b) => b.y > emptyFloor && b.y < emptyCeil)).toHaveLength(0);
+    expect(bs.filter((b) => b.y + halfHeight(b) > emptyFloor && b.y - halfHeight(b) < emptyCeil - 1e-6)).toHaveLength(0);
     expect(bs.some((b) => b.y >= emptyCeil)).toBe(true);
   });
 
