@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FOLD, MAX_CATCH_UP, botActor, dueSamples, foldWorld, latestS, seedsFromSnapshot, type PEvent } from "./index";
+import { DEFAULT_FOLD, MAX_CATCH_UP, botActor, dueSamples, foldWorld, latestS, seedsFromSnapshot, type Flock, type PEvent } from "./index";
 
 describe("dueSamples: the wall-clock sampler", () => {
   it("nothing is due before one period has passed", () => {
@@ -21,7 +21,7 @@ describe("dueSamples: the wall-clock sampler", () => {
 });
 
 /** Run the RoleField emitter (bots only) with ticks every `tickMs` of wall time; return the emitted events. */
-function runBots(bots: number, seconds: number, tickMs: number, epochAgeSec = 0): PEvent[] {
+function runBots(bots: number, seconds: number, tickMs: number, epochAgeSec = 0, flock?: Flock): PEvent[] {
   const start = 1_800_000_000_000;
   const epochMs = start - epochAgeSec * 1000;
   const offset = 60;
@@ -32,7 +32,7 @@ function runBots(bots: number, seconds: number, tickMs: number, epochAgeSec = 0)
     if (due.length) last = due[due.length - 1];
     for (const w of due) {
       for (let i = 0; i < bots; i++) {
-        const a = botActor(i, "worker", w, start, epochMs, offset);
+        const a = botActor(i, "worker", w, start, epochMs, offset, flock);
         out.push({ id: `${a.o}:${w}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s });
       }
     }
@@ -61,5 +61,28 @@ describe("bots build concrete on their own (regression: bots froze in a hidden p
   it("two bots alone are not enough (minVisitors = 3)", () => {
     const ev = runBots(2, 120, 1000);
     expect(foldWorld(ev, latestS(ev), DEFAULT_FOLD).slabs).toHaveLength(0);
+  });
+});
+
+describe("bot flocks: concrete in several places", () => {
+  it("one flock with no spread is the old behaviour (everybody around the origin)", () => {
+    const a = botActor(3, "worker", 5000, 0, 0, 60);
+    const b = botActor(3, "worker", 5000, 0, 0, 60, { groups: 1, spread: 0 });
+    expect(b).toEqual(a);
+    expect(Math.hypot(a.x, a.z)).toBeLessThan(5);
+  });
+
+  /** Seed positions clustered into places more than 6 units apart. */
+  const places = (ev: PEvent[]) => {
+    const out: [number, number][] = [];
+    for (const s of seedsFromSnapshot(foldWorld(ev, latestS(ev), DEFAULT_FOLD))) {
+      if (!out.some(([x, z]) => Math.hypot(s.x - x, s.z - z) < 6)) out.push([s.x, s.z]);
+    }
+    return out.length;
+  };
+
+  it("12 bots in 4 flocks build in several separate places; one flock stays in one area", () => {
+    expect(places(runBots(12, 120, 1000, 0, { groups: 4, spread: 14 }))).toBeGreaterThanOrEqual(4);
+    expect(places(runBots(12, 120, 1000))).toBeLessThanOrEqual(2); // one flock: one ring (up to ~9 units across)
   });
 });

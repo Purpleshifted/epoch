@@ -18,6 +18,7 @@ import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
   LS_PARLIAMENT_ME_KEY,
+  ONE_FLOCK,
   botActor,
   dueSamples,
   getEpochMs,
@@ -27,6 +28,7 @@ import {
   sessionSeconds,
   stressMap,
   type Actor,
+  type Flock,
   type FoldConfig,
   type NatureConfig,
   type PEvent,
@@ -63,6 +65,7 @@ export function RoleField({
   offsetWindow,
   botCount,
   botRole,
+  botFlock = ONE_FLOCK,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   role: RoleId;
@@ -72,6 +75,8 @@ export function RoleField({
   offsetWindow: number;
   botCount: number;
   botRole: RoleId;
+  /** How the bots spread over the ground (flocks). */
+  botFlock?: Flock;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -88,10 +93,10 @@ export function RoleField({
   const foldTimer = useRef(10);
   const sinceFilter = useRef(new Map<string, number>());
   // the ticker reads the latest Leva values through this ref
-  const live = useRef({ role, botCount, botRole, sampleSec: cfg.sampleSec });
+  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec });
   useEffect(() => {
-    live.current = { role, botCount, botRole, sampleSec: cfg.sampleSec };
-  }, [role, botCount, botRole, cfg.sampleSec]);
+    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec };
+  }, [role, botCount, botRole, botFlock, cfg.sampleSec]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
 
@@ -132,7 +137,7 @@ export function RoleField({
   useTicker(TICK_MS, () => {
     if (epochMs.current === 0) return;
     const now = Date.now();
-    const { role: myRole, botCount: nBots, botRole: theirRole, sampleSec } = live.current;
+    const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec } = live.current;
     const period = Math.max(50, sampleSec * 1000);
     if (lastSampleMs.current === 0) lastSampleMs.current = now - period;
     const due = dueSamples(lastSampleMs.current, now, period);
@@ -145,7 +150,7 @@ export function RoleField({
       const actors: Actor[] = [];
       // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled
       if (now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
-      for (let i = 0; i < nBots; i++) actors.push(botActor(i, theirRole, w, botStartMs.current, epochMs.current, me.current.offset));
+      for (let i = 0; i < nBots; i++) actors.push(botActor(i, theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock));
       for (const a of actors) {
         emit(a.o, a.r, "p", a.x, a.z, a.s);
         if (a.r === "worker") {

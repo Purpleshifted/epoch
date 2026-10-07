@@ -38,14 +38,42 @@ export interface Actor {
 }
 
 /**
- * Bot i at wall time `wallMs`: circles the origin on one of four radii, and lives in nearly the same time slot
- * as the player (some a little ahead, so they are invisible to the player at first).
+ * How the bots spread over the ground: `groups` flocks (bot i belongs to flock i % groups), whose centres sit
+ * `spread` world units apart (sunflower layout around the origin) and wander slowly (about spread/4, a few minutes
+ * per loop), so concrete appears in several places and moves on. groups 1, spread 0 = everybody around the origin.
+ */
+export interface Flock {
+  groups: number;
+  spread: number;
+}
+
+export const ONE_FLOCK: Flock = { groups: 1, spread: 0 };
+
+/** Centre of flock g at `sec` seconds after the bots were switched on. */
+export function flockCentre(g: number, groups: number, spread: number, sec: number): [number, number] {
+  if (!(spread > 0)) return [0, 0];
+  const a = g * 2.399963 + 0.7;
+  const r = spread * Math.sqrt((g + 0.5) / Math.max(1, groups));
+  const d = spread * 0.25;
+  const w1 = (2 * Math.PI) / (180 + 37 * g);
+  const w2 = (2 * Math.PI) / (240 + 23 * g);
+  return [Math.cos(a) * r + Math.sin(sec * w1 + g) * d, Math.sin(a) * r + Math.cos(sec * w2 + 2 * g) * d];
+}
+
+/**
+ * Bot i at wall time `wallMs`: circles its flock's centre on one of four radii, and lives in nearly the same time
+ * slot as the player (some a little ahead, so they are invisible to the player at first).
  * `startMs` is when the bots were switched on; their motion depends only on (wallMs - startMs).
  */
-export function botActor(i: number, role: RoleId, wallMs: number, startMs: number, epochMs: number, playerOffset: number): Actor {
-  const R = 1 + (i % 4) * 1.1;
-  const w = (0.18 + 0.05 * (i % 4)) * (i % 2 ? 1 : -1);
-  const a = ((wallMs - startMs) / 1000) * w + i * 2.399963;
+export function botActor(i: number, role: RoleId, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): Actor {
+  const groups = Math.max(1, Math.round(flock.groups));
+  const g = i % groups;
+  const j = Math.floor(i / groups); // place within the flock
+  const sec = (wallMs - startMs) / 1000;
+  const [cx, cz] = flockCentre(g, groups, flock.spread, sec);
+  const R = 1 + (j % 4) * 1.1;
+  const w = (0.18 + 0.05 * (j % 4)) * (j % 2 ? 1 : -1);
+  const a = sec * w + i * 2.399963;
   const off = Math.max(0, playerOffset - 20 + ((i * 7) % 25));
-  return { o: `bot${i}`, r: role, x: Math.cos(a) * R, z: Math.sin(a) * R, s: sessionSeconds(wallMs, epochMs, off) };
+  return { o: `bot${i}`, r: role, x: cx + Math.cos(a) * R, z: cz + Math.sin(a) * R, s: sessionSeconds(wallMs, epochMs, off) };
 }

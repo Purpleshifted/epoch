@@ -131,7 +131,7 @@ export default function ParliamentScene() {
   const playerPosRef = useRef({ x: 0, z: 0 });
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
 
-  const { role, offsetWindow, botEnabled, botCount, botRole, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { role, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
         role: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "내 역할" },
@@ -139,8 +139,10 @@ export default function ParliamentScene() {
       }),
       "Debug / 봇": folder({
         botEnabled: { value: false, label: "봇 활성화" },
-        botCount: { value: 5, min: 1, max: 30, step: 1, label: "봇 수" },
+        botCount: { value: 12, min: 1, max: 30, step: 1, label: "봇 수" },
         botRole: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "봇 역할" },
+        botGroups: { value: 4, min: 1, max: 10, step: 1, label: "봇 무리 수 (무리당 3명 이상이어야 콘크리트)" },
+        botSpread: { value: 14, min: 0, max: 60, step: 1, label: "무리 간 거리 (월드)" },
       }),
       "화면": folder({
         pixelDpr: { value: 1, min: 0.15, max: 1, step: 0.05, label: "해상도 (1 = 픽셀 아님, 작을수록 거칠게)" },
@@ -151,6 +153,7 @@ export default function ParliamentScene() {
         fogFar: { value: 80, min: 20, max: 200, step: 5 },
       }, { collapsed: true }),
     });
+  const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread }), [botGroups, botSpread]);
   const cfg = useFoldControls();
   const { cfg: natureCfg, pointSize } = useNatureControls();
 
@@ -188,6 +191,7 @@ export default function ParliamentScene() {
           offsetWindow={offsetWindow}
           botCount={botEnabled ? botCount : 0}
           botRole={botRole}
+          botFlock={botFlock}
         />
         <Controller playerPosRef={playerPosRef} setLocked={setLocked} camDist={camDist} camLerp={camLerp} viscosity={viscosity} />
       </Canvas>
