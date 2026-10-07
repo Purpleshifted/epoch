@@ -533,6 +533,18 @@ export interface WearConfig {
   steelLife?: number;
   /** Life of concrete slats and masses relative to tauSlabYears, × their thinness factor (default 1). */
   concreteLife?: number;
+  /**
+   * BURIAL (strata only): a part is covered once its seed has built `coverSlots` more slots above it; from then on it
+   * ages `buriedSlow` times slower (out of air and light). 0 / absent = never covered.
+   */
+  coverSlots?: number;
+  buriedSlow?: number;
+  /**
+   * VEGETATION: while exposed, a part ages × (1 + natureAccel · veg(part)) — acids from decay, kept-in moisture, roots.
+   * `veg` gives the vegetation density (0..1) around the part.
+   */
+  natureAccel?: number;
+  veg?: (b: Box) => number;
 }
 
 /** The fold's footprint threshold. */
@@ -587,8 +599,26 @@ export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow:
  */
 export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig): Box[] {
   const age = new Map<number, number>();
-  for (const s of seeds) age.set(s.id, seedAgeYears(s, tNow));
-  const ageOf = (b: Box) => partAgeYears(b, age, tNow, cfg);
+  const topSlot = new Map<number, number>();
+  for (const s of seeds) {
+    age.set(s.id, seedAgeYears(s, tNow));
+    if (cfg.secPerUnit) topSlot.set(s.id, Math.floor(s.t1 / cfg.secPerUnit));
+  }
+  const spu = cfg.secPerUnit ?? 0;
+  const cover = cfg.coverSlots ?? 0;
+  const slow = Math.max(1, cfg.buriedSlow ?? 1);
+  const accel = cfg.natureAccel ?? 0;
+  const yNow = geoYears(tNow);
+  const ageOf = (b: Box) => {
+    if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg))) return partAgeYears(b, age, tNow, cfg);
+    // strata with burial / vegetation: exposed from the end of its slot until covered, then slowed
+    const laid = Math.min(tNow, (b.slot + 1) * spu);
+    const top = topSlot.get(b.seed) ?? b.slot;
+    const tCover = cover > 0 && top >= b.slot + cover ? Math.min(tNow, (b.slot + cover + 1) * spu) : tNow;
+    const exposed = Math.max(0, geoYears(tCover) - geoYears(laid)) * (1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0));
+    const buried = Math.max(0, yNow - geoYears(tCover)) / slow;
+    return (exposed + buried) * (cfg.timeScale ?? 1);
+  };
   const survives = (b: Box, A: number) => {
     const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b, cfg);
     return partHash(b) < Math.exp(-A / tau);

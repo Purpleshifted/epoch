@@ -354,3 +354,25 @@ describe("strata: every layer ages from its own slot", () => {
     expect(share(steelGoes, isSteel)).toBeLessThan(share(steelGoes, isMass));
   });
 });
+
+describe("burial and vegetation change how fast a layer weathers", () => {
+  const spu = DEFAULT_BOXES.secPerUnit;
+  const tall = seed({ id: 777, t0: 0, t1: 3000, mass: 4 }); // built on for 100 slots: its low layers are covered
+  const parts = boxesOfSeed(tall);
+  const base = { tauSlabYears: DEFAULT_FOLD.tauSlabYears, tauFootprintYears: DEFAULT_FOLD.tauFootprintYears, secPerUnit: spu, timeScale: 0.02 };
+  const lowMass = (b: Box) => b.kind === "mass" && b.slot < 40;
+  const count = (list: Box[]) => list.filter(lowMass).length;
+
+  it("covered layers wear much more slowly", () => {
+    const open = wearParts(parts, [tall], 3000, base);
+    const covered = wearParts(parts, [tall], 3000, { ...base, coverSlots: 2, buriedSlow: 50 });
+    expect(count(covered)).toBeGreaterThan(count(open));
+  });
+
+  it("vegetation around a part makes it wear faster while exposed", () => {
+    const bare = wearParts(parts, [tall], 3000, { ...base, natureAccel: 2, veg: () => 0 });
+    const green = wearParts(parts, [tall], 3000, { ...base, natureAccel: 2, veg: () => 1 });
+    expect(count(green)).toBeLessThan(count(bare));
+    expect(bare).toEqual(wearParts(parts, [tall], 3000, base));
+  });
+});

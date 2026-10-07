@@ -14,7 +14,7 @@
 import { foldWorld, latestS, withoutWear } from "./fold";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { fuseChunk, fusedWeight, isResin, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
-import { NATURE_KIND, burialOf, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
+import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, partHash, seedsFromSnapshot, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
@@ -115,9 +115,14 @@ export interface WeatherConfig {
   concreteLife: number;
   /** Model years after which (1 − 1/e of) a vegetation slot has turned to humus / peat. */
   tauSedimentYears: number;
+  /** A part covered by this many more slots of its structure wears `buriedSlow` × slower (0 = off). */
+  coverSlots: number;
+  buriedSlow: number;
+  /** Exposed parts wear × (1 + natureAccel · vegetation density) (0 = off). */
+  natureAccel: number;
 }
 
-export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.02, steelLife: 2, concreteLife: 1, tauSedimentYears: 600 };
+export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.02, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 2, buriedSlow: 50, natureAccel: 1 };
 
 /** The sediment clock of the view at its present (per slot, so it moves once a slot); null without strata. */
 function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
@@ -289,8 +294,21 @@ export class SpaceModel {
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
     const w = input.weather;
+    // vegetation around a part: the last vegetation history (if the view draws vegetation), at the part's cell and slot
+    const h = this.history;
+    const veg = h ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
     const worn = input.wear
-      ? wearParts(built, seeds, t, { ...input.fold, secPerUnit: w.strata ? box.secPerUnit : undefined, timeScale: w.timeScale, steelLife: w.steelLife, concreteLife: w.concreteLife })
+      ? wearParts(built, seeds, t, {
+          ...input.fold,
+          secPerUnit: w.strata ? box.secPerUnit : undefined,
+          timeScale: w.timeScale,
+          steelLife: w.steelLife,
+          concreteLife: w.concreteLife,
+          coverSlots: w.coverSlots,
+          buriedSlow: w.buriedSlow,
+          natureAccel: w.natureAccel,
+          veg,
+        })
       : built;
     // fused layers are drawn as one mass: their parts dissolve (all at full fusion, by a fixed hash in the band)
     const sed = sedimentOf(t, box, w);
