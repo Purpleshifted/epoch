@@ -78,11 +78,23 @@ function Surface({
     const events = log.all();
     snapRef.current = foldWorld(events, horizonSeconds(latestS(events), horizonYears), cfg);
 
-    const spanX = Math.max(8, b.maxX - b.minX);
-    const cx = (b.minX + b.maxX) / 2;
+    // frame the slabs that are drawn (with room for the pictures), else the bulk of the events
+    const sl = snapRef.current.slabs.filter((s) => s.h >= 0.15);
+    let bb = b;
+    if (sl.length > 0) {
+      const pad = 3;
+      bb = {
+        minX: Math.min(...sl.map((s) => s.x)) - pad,
+        maxX: Math.max(...sl.map((s) => s.x)) + pad,
+        minZ: Math.min(...sl.map((s) => s.z)) - pad,
+        maxZ: Math.max(...sl.map((s) => s.z)) + pad,
+      };
+    }
+    const spanX = Math.max(8, bb.maxX - bb.minX);
+    const cx = (bb.minX + bb.maxX) / 2;
     if (mode === "top") {
-      const spanZ = Math.max(8, b.maxZ - b.minZ);
-      const cz = (b.minZ + b.maxZ) / 2;
+      const spanZ = Math.max(8, bb.maxZ - bb.minZ);
+      const cz = (bb.minZ + bb.maxZ) / 2;
       cam.zoom = Math.min(size.width / spanX, size.height / spanZ) * 0.96;
       cam.position.set(cx, 50, cz);
       cam.up.set(0, 0, -1);

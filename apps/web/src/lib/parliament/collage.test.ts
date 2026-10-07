@@ -34,11 +34,19 @@ describe("collage (photo fragments)", () => {
     expect(buildCollage([cell(0, 0, 0.05, 3)], 1, "side", ASP)).toEqual([]);
   });
 
-  it("side pictures follow the unworn height; wear removes pictures but never resizes the survivors", () => {
+  it("side: wear only removes pictures; the survivors keep size and place", () => {
     const full = buildCollage(row(8), 1, "side", ASP);
     const worn = buildCollage(row(8).map((s) => ({ ...s, h: s.raw * 0.5 })), 1, "side", ASP);
-    expect(worn.length).toBeLessThanOrEqual(full.length);
-    for (const p of worn) expect(full.some((q) => q.frag === p.frag && Math.abs(q.h - p.h) < 1e-9)).toBe(true);
+    expect(worn.length).toBeLessThan(full.length);
+    for (const p of worn) expect(full.some((q) => q.frag === p.frag && Math.abs(q.h - p.h) < 1e-9 && Math.abs(q.x - p.x) < 1e-9 && Math.abs(q.y - p.y) < 1e-9)).toBe(true);
+  });
+
+  it("side: a taller slab is a taller column, growth keeps the lower storeys", () => {
+    const top = (list: ReturnType<typeof buildCollage>) => Math.max(...list.map((p) => p.y + p.h / 2));
+    const low = buildCollage([cell(0, 0, 1)], 1, "side", ASP);
+    const high = buildCollage([cell(0, 0, 5)], 1, "side", ASP);
+    expect(top(high)).toBeGreaterThan(top(low) + 2);
+    for (const p of low) expect(high.some((q) => q.frag === p.frag && Math.abs(q.y - p.y) < 1e-9 && Math.abs(q.x - p.x) < 1e-9)).toBe(true);
   });
 
   it("wear is monotone", () => {
