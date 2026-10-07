@@ -176,8 +176,9 @@ export interface FuseChunkInput {
 }
 
 /** Linear-RGB colours: fresh concrete, old stone; moss, humus, peat. */
-const STONE_NEW = [0.62, 0.61, 0.58];
-const STONE_OLD = [0.36, 0.34, 0.31];
+/** Concrete is a human trace: neutral grey (only the vegetation in the mass has colour). */
+const STONE_NEW = [0.6, 0.6, 0.6];
+const STONE_OLD = [0.34, 0.34, 0.34];
 const MOSS = [0.2, 0.27, 0.08];
 const HUMUS = [0.09, 0.055, 0.03];
 const PEAT = [0.025, 0.02, 0.016];

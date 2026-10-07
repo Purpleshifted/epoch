@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
 
-function runBots(bots: number, seconds: number): PEvent[] {
+function runBots(bots: number, seconds: number, spread = 10): PEvent[] {
   const start = 1_800_000_000_000;
   const out: PEvent[] = [];
   let last = start - 1000;
@@ -11,7 +11,7 @@ function runBots(bots: number, seconds: number): PEvent[] {
     if (due.length) last = due[due.length - 1];
     for (const w of due) {
       for (let i = 0; i < bots; i++) {
-        const a = botActor(i, "worker", w, start, start, 60, { groups: 2, spread: 10 });
+        const a = botActor(i, "worker", w, start, start, 60, { groups: 2, spread });
         out.push({ id: `${a.o}:${w}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s });
       }
     }
@@ -42,7 +42,7 @@ describe("SpaceModel: what the worker computes", () => {
   const events = runBots(8, 240);
   const lodNear = { camera: [0, 0, 0] as [number, number, number], near: 1e9, farFactor: 0.25 };
   const lodFar = { ...lodNear, near: 0 };
-  const parts = (lod = lodNear) => ({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, wear: true, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, edges: false, lod });
+  const parts = (lod = lodNear) => ({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, wear: true, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, water: DEFAULT_WATER, edges: false, lod });
 
   it("builds parts, and returns null when nothing changed", () => {
     const m = new SpaceModel();
@@ -119,6 +119,23 @@ describe("SpaceModel: what the worker computes", () => {
     const top = Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit;
     // the chunks where the camera looks (the present, up with the buildings) are built, not only the oldest ones
     expect(ys.some((y) => y > top * 0.75)).toBe(true);
+  }, 120_000);
+
+  it("bots moving between flocks join their buildings with waterways, drawn near the focus", () => {
+    const long = runBots(12, 900, 30); // two flocks far enough apart to make two buildings
+    const m = new SpaceModel();
+    m.add(long);
+    m.computeParts(parts());
+    const links = (m as unknown as { links: unknown[] }).links;
+    expect(links.length).toBeGreaterThan(0);
+    const w = m.computeWater({ box: DEFAULT_BOXES, focusK: 15, window: 40 })!;
+    expect(w.index.length).toBeGreaterThan(0);
+    expect(m.computeWater({ box: DEFAULT_BOXES, focusK: 15, window: 40 })).toBeNull();
+    // off: no water
+    const off = new SpaceModel();
+    off.add(long);
+    off.computeParts({ ...parts(), water: { ...DEFAULT_WATER, enabled: false } });
+    expect(off.computeWater({ box: DEFAULT_BOXES, focusK: 15, window: 40 })!.index.length).toBe(0);
   }, 120_000);
 
   it("reset forgets the world", () => {

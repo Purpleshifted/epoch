@@ -47,6 +47,8 @@ import {
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
+  DEFAULT_WATER,
+  type WaterConfig,
   DEFAULT_FUSE,
   type FuseConfig,
   type FuseMesh,
@@ -248,6 +250,7 @@ function SpaceWorld({
   weather,
   fuse,
   resin,
+  water,
   nearFade,
 }: {
   log: EventLog;
@@ -267,6 +270,8 @@ function SpaceWorld({
   fuse: FuseConfig;
   /** Look of the resin (oldest) layers. */
   resin: ResinLook;
+  /** Waterways between buildings the same people built (null = off). */
+  water: (WaterConfig & { opacity: number }) | null;
   /** Vegetation within this view distance [start, end] dissolves (keeps the view clear). */
   nearFade: [number, number];
 }) {
@@ -284,10 +289,11 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, onStats });
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, onStats };
   });
+  const waterMesh = useRef<THREE.Mesh>(null);
   const fused = useRef<THREE.Mesh>(null);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
   const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
@@ -350,6 +356,14 @@ function SpaceWorld({
     setPoints(naturePts.current, r.nature);
     setPoints(reclaimPts.current, r.reclaim);
     setFused(fused.current, r.fuse);
+    if (waterMesh.current && r.water) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(r.water.position, 3));
+      g.setIndex(new THREE.BufferAttribute(r.water.index, 1));
+      g.computeVertexNormals();
+      waterMesh.current.geometry.dispose();
+      waterMesh.current.geometry = g;
+    }
     if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
   };
 
@@ -391,7 +405,8 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu, water: wa } = live.current;
+    const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     if (events.length < sent.current) {
       w.post({ type: "events", add: events, reset: true });
@@ -410,7 +425,7 @@ function SpaceWorld({
     const lod = { camera: cam, near, farFactor: ff };
     const id = ++seq.current;
     const withNature = !!nat && id % NATURE_EVERY === 1;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, edges: e, lod } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod };
@@ -429,6 +444,7 @@ function SpaceWorld({
     if (id % NATURE_EVERY === 1) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK };
+      req.water = { box: cfg, focusK, window: nat?.window ?? 120 };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -476,6 +492,11 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
+      {/* waterways: a human trace, so grey — translucent, a little glossy */}
+      <mesh ref={waterMesh} frustumCulled={false} receiveShadow visible={!!water}>
+        <bufferGeometry />
+        <meshStandardMaterial color="#9a9a9a" roughness={0.15} metalness={0.15} transparent opacity={water?.opacity ?? 0.6} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
@@ -911,6 +932,49 @@ export default function ParliamentSpace() {
     },
     { order: 5 },
   );
+  const wtr = useControls(
+    "수로",
+    {
+      waterOn: { value: DEFAULT_WATER.enabled, label: "켜기" },
+      minRaw: { value: DEFAULT_WATER.minRaw, min: 1, max: 10, step: 0.05, label: "건물이 '커졌다'고 볼 단 수" },
+      reach: { value: DEFAULT_WATER.reach, min: 1, max: 60, step: 0.5, label: "이을 수 있는 건물 간 거리 (월드)" },
+      minShare: { value: DEFAULT_WATER.minShare, min: 0.1, max: 20, step: 0.1, label: "기여자로 볼 최소 기여량" },
+      persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤 흐르는 시간 (s)" },
+      vegBoost: { value: DEFAULT_WATER.vegBoost, min: 0, max: 2, step: 0.05, label: "물가 식생이 짙어지는 정도" },
+      corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
+      "물길 모양": folder(
+        {
+          waterWidth: { value: DEFAULT_WATER.width, min: 0.05, max: 3, step: 0.05, label: "폭 (월드)" },
+          meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이 (길이 대비)" },
+          radius: { value: DEFAULT_WATER.radius, min: 0.5, max: 8, step: 0.1, label: "영향 범위 (월드)" },
+          join: { value: DEFAULT_WATER.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
+          waterOpacity: { value: 0.6, min: 0.05, max: 1, step: 0.05, label: "불투명도" },
+        },
+        { collapsed: true },
+      ),
+    },
+    { order: 5.5 },
+  );
+  const waterView = useMemo(
+    () =>
+      wtr.waterOn
+        ? {
+            enabled: true,
+            minRaw: wtr.minRaw,
+            join: wtr.join,
+            reach: wtr.reach,
+            minShare: wtr.minShare,
+            persistSec: wtr.persistSec,
+            width: wtr.waterWidth,
+            meander: wtr.meander,
+            radius: wtr.radius,
+            vegBoost: wtr.vegBoost,
+            corrode: wtr.corrode,
+            opacity: wtr.waterOpacity,
+          }
+        : null,
+    [wtr.waterOn, wtr.minRaw, wtr.join, wtr.reach, wtr.minShare, wtr.persistSec, wtr.waterWidth, wtr.meander, wtr.radius, wtr.vegBoost, wtr.corrode, wtr.waterOpacity],
+  );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(
     "엉김 · 융합 · 레진",
@@ -1074,6 +1138,7 @@ export default function ParliamentSpace() {
           weather={weather}
           fuse={fuseCfg}
           resin={resinLook}
+          water={waterView}
           nearFade={v.nearFade}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />

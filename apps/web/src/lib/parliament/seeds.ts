@@ -44,7 +44,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { hash2 } from "./nature";
-import type { RoleId, Slab, Snapshot } from "./types";
+import type { Contributor, RoleId, Slab, Snapshot } from "./types";
 
 export type MaterialId = "concrete";
 
@@ -65,6 +65,9 @@ export interface Seed {
   /** [from, to] exhibition seconds in which somebody was around; absent = one span t0 … t1. */
   spans?: [number, number][];
   mass: number;
+  /** Who built it (Slab.who) and how it grew (Slab.growth): what waterways are made of. */
+  who?: Contributor[];
+  growth?: [number, number][];
 }
 
 export type PartKind = "mass" | "slab" | "drip" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
@@ -229,6 +232,8 @@ export function seedsFromSnapshot(snap: Pick<Snapshot, "slabs">, role: RoleId = 
     const [cx, cz] = s.key.split(",").map(Number);
     const seed: Seed = { id: seedId(cx, cz, s.bornS), material, role, x: s.x, z: s.z, t0: s.bornS, t1: s.lastS, mass: s.raw };
     if (s.spans) seed.spans = s.spans;
+    if (s.who) seed.who = s.who;
+    if (s.growth) seed.growth = s.growth;
     return seed;
   });
 }
@@ -571,6 +576,8 @@ export interface WearConfig {
    */
   natureAccel?: number;
   veg?: (b: Box) => number;
+  /** WATER: while exposed, a part ages × (1 + water(part)) more (waterField × corrode at its cell and slot). */
+  water?: (b: Box) => number;
 }
 
 /** The fold's footprint threshold. */
@@ -644,12 +651,12 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
   const spread = (b: Box) => (jit > 0 ? Math.max(0, 1 + jit * (hash2(Math.round(b.x * 733) ^ b.seed, Math.round(b.y * 739) ^ Math.round(b.z * 743), 29) - 0.5) * 2) : 1);
   const age = (b: Box) => spread(b) * baseAge(b);
   const baseAge = (b: Box) => {
-    if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg))) return partAgeYears(b, ages, tNow, cfg);
+    if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg) && !cfg.water)) return partAgeYears(b, ages, tNow, cfg);
     // strata with burial / vegetation: exposed from the end of its slot until covered, then slowed
     const laid = Math.min(tNow, (b.slot + 1) * spu);
     const top = topSlot.get(b.seed) ?? b.slot;
     const tCover = cover > 0 && top >= b.slot + cover ? Math.min(tNow, (b.slot + cover + 1) * spu) : tNow;
-    const exposed = Math.max(0, geoYears(tCover) - geoYears(laid)) * (1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0));
+    const exposed = Math.max(0, geoYears(tCover) - geoYears(laid)) * (1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0) + (cfg.water ? cfg.water(b) : 0));
     const buried = Math.max(0, yNow - geoYears(tCover)) / slow;
     return (exposed + buried) * (cfg.timeScale ?? 1);
   };

@@ -57,6 +57,8 @@ export interface NatureHistoryInput {
   margin: number;
   nature: NatureConfig;
   fold: FoldConfig;
+  /** Vegetation added near water (waterField × vegBoost) per (cell, slot); not on sealed cells. */
+  waterBoost?: (ix: number, iz: number, k: number) => number;
 }
 
 const EMPTY: NatureHistory = { x0: 0, z0: 0, nx: 0, nz: 0, k0: 0, nk: 0, V: new Float32Array(0), P: new Float32Array(0) };
@@ -188,7 +190,7 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
         const iz = z0 + j;
         const a = grassDensity(ix, iz, Sstart[c], p, sealed, nc);
         const b = grassDensity(ix, iz, S[c], p, sealed, nc);
-        out[base + c] = (a + b) / 2;
+        out[base + c] = Math.min(1, (a + b) / 2 + (!sealed && input.waterBoost ? input.waterBoost(ix, iz, k) : 0));
         pathOut[base + c] = p;
       }
     }
@@ -220,7 +222,7 @@ export function natureAt(h: NatureHistory, ix: number, iz: number, k: number): n
 }
 
 /** What a nature point is (the renderer picks the colour). */
-export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6, humus: 7, peat: 8 } as const;
+export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6, humus: 7, peat: 8, trodden: 9 } as const;
 
 export interface NaturePointOptions {
   /** World size of a time slot (y). */
@@ -242,7 +244,8 @@ export interface NaturePointOptions {
   timeJitter?: number;
   /**
    * PATHS as holes: where the path strength (interpolated between cell centres) reaches `hole`, no vegetation point;
-   * on the rim (from 0.3 · hole) the points are trodden-aside soil lying low, with `berm` extra ones heaped up.
+   * on the rim (from 0.3 · hole) the points are trodden-aside ground lying low (grey: a human trace), with `berm`
+   * extra ones heaped up.
    */
   paths?: { hole: number; berm: number };
 }
@@ -324,7 +327,7 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
                 const jx = e ? (h3(ix, iz, k, s + 12 + e) - 0.5) * 0.3 : 0;
                 const jz = e ? (h3(ix, iz, k, s + 20 + e) - 0.5) * 0.3 : 0;
                 pos.push(px + jx, Math.max(0, (k + (ry + spill) * 0.35) * opts.unit), pz + jz);
-                kind.push(h3(ix, iz, k, s + 28 + e) < 0.7 ? NATURE_KIND.soil : NATURE_KIND.dry);
+                kind.push(NATURE_KIND.trodden);
                 shade.push(h3(ix, iz, k, s + 36 + e));
               }
               continue;

@@ -18,6 +18,7 @@ import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, nat
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, occupiedSlots, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
+import { waterField, waterLinks, waterRibbons, type WaterConfig, type WaterLink, type WaterMesh } from "./water";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -42,6 +43,7 @@ export const NATURE_PALETTE: [string, string][] = [
   ["#3e3630", "#5a4e44"], // buried under concrete
   ["#4b3a28", "#6b5136"], // humus (aged vegetation)
   ["#26221f", "#3a332c"], // peat / compressed (old sediment)
+  ["#4a4a4a", "#7a7a7a"], // trodden ground at a path's rim (a human trace: grey)
 ];
 
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -140,6 +142,8 @@ export interface PartsInput {
   weather: WeatherConfig;
   /** Layers old enough are fused into one mesh (computeFuse); their parts dissolve here. */
   fuse: FuseConfig;
+  /** Waterways between buildings the same people built (water.ts); they hasten the corrosion near them. */
+  water: WaterConfig;
   edges: boolean;
   lod: LodConfig;
 }
@@ -189,6 +193,13 @@ export interface ReclaimInput {
   fuse?: FuseConfig;
 }
 
+export interface WaterInput {
+  box: BoxConfig;
+  /** Slots within ±window of focusK are drawn. */
+  focusK: number;
+  window: number;
+}
+
 export interface FuseInput {
   box: BoxConfig;
   weather: WeatherConfig;
@@ -220,6 +231,11 @@ export class SpaceModel {
   /** The weathering of the last computed parts (null without wear). */
   private wear: { age: (b: Box) => number; survival: (b: Box) => number } | null = null;
   private history: NatureHistory | null = null;
+  /** The waterways of the last computed parts, and their nearness per (cell, slot). */
+  private links: WaterLink[] = [];
+  private nearWater: ((ix: number, iz: number, k: number) => number) | null = null;
+  private waterCfg: WaterConfig | null = null;
+  private waterSig = "";
   private fuseSig = "";
   private fuseChunks = new Map<number, { key: string; mesh: FuseMesh }>();
   private natureSig = "";
@@ -283,7 +299,7 @@ export class SpaceModel {
         lodSig = (lodSig * 31 + s.id) % 1e9;
       }
     }
-    const sig = `${this.seedsKey}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${far.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${far.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
 
@@ -307,6 +323,12 @@ export class SpaceModel {
     // vegetation around a part: the last vegetation history (if the view draws vegetation), at the part's cell and slot
     const h = this.history;
     const veg = h ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
+    // waterways between buildings the same people built: nearness per (cell, slot) over the whole history
+    this.waterCfg = input.water;
+    this.links = waterLinks(seeds, input.water, t);
+    this.nearWater = this.links.length ? waterField(this.links, 0, Math.floor(t / box.secPerUnit), box.secPerUnit, input.water) : null;
+    const near = this.nearWater;
+    const water = near && input.water.corrode > 0 ? (b: Box) => near(Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) * input.water.corrode : undefined;
     const wearCfg = {
       ...input.fold,
       secPerUnit: w.strata ? box.secPerUnit : undefined,
@@ -318,6 +340,7 @@ export class SpaceModel {
       natureAccel: w.natureAccel,
       ageJitter: w.ageJitter,
       veg,
+      water,
     };
     const worn = input.wear ? wearParts(built, seeds, t, wearCfg) : built;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
@@ -343,12 +366,12 @@ export class SpaceModel {
       if (i >= counts[k]) continue;
       fill[k]++;
       writeMatrix(matrices[k], i * 16, b);
-      // weathering shows on the part itself: darker and warmer (stained, mossy) as it decays
-      const g = 0.86 + 0.14 * b.tone;
+      // weathering shows on the part itself: darker as it decays — grey only (human traces carry no colour)
       const d = survival ? 1 - survival(b) : 0;
-      colors[k][i * 3] = g * (1 - 0.3 * d);
-      colors[k][i * 3 + 1] = g * (1 - 0.22 * d);
-      colors[k][i * 3 + 2] = g * (1 - 0.45 * d);
+      const g = (0.86 + 0.14 * b.tone) * (1 - 0.4 * d);
+      colors[k][i * 3] = g;
+      colors[k][i * 3 + 1] = g;
+      colors[k][i * 3 + 2] = g;
       minX = Math.min(minX, b.x - b.sx / 2);
       minZ = Math.min(minZ, b.z - b.sz / 2);
       top = Math.max(top, b.y + halfHeight(b));
@@ -406,13 +429,16 @@ export class SpaceModel {
       : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
     // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
-    const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}`;
+    const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}:${this.links.length}`;
     const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${fuseKey}:${k0}:${k1}:${levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
     if (k1 < k0 || !this.events.length) return { position: new Float32Array(0), color: new Float32Array(0) };
 
-    const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold });
+    const near = this.nearWater;
+    const wc = this.waterCfg;
+    const waterBoost = near && wc && wc.vegBoost > 0 ? (ix: number, iz: number, k: number) => near(ix, iz, k) * wc.vegBoost : undefined;
+    const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold, waterBoost });
     this.history = h;
     // where mass has formed (growths or fusion), the vegetation is part of it: no points there
     const massed = new Set<string>();
@@ -572,6 +598,17 @@ export class SpaceModel {
     return mergeMeshes(out);
   }
 
+  /** The waterways as flat ribbons, one per flowing slot near the focus; null when nothing changed. */
+  computeWater(input: WaterInput): WaterMesh | null {
+    const k0 = Math.max(0, Math.floor(input.focusK) - input.window);
+    const k1 = Math.floor(input.focusK) + input.window;
+    const sig = `${this.partsSig}:${JSON.stringify(input)}:${this.links.map((l) => `${l.id}:${l.t0}:${l.t1}`).join(",")}`;
+    if (sig === this.waterSig) return null;
+    this.waterSig = sig;
+    if (!this.waterCfg || !this.links.length) return { position: new Float32Array(0), index: new Uint32Array(0) };
+    return waterRibbons(this.links, k0, k1, input.box.secPerUnit, input.box.unit, this.waterCfg);
+  }
+
   /** Plants on the ruins of the last computed parts; null when nothing changed. */
   computeReclaim(input: ReclaimInput): PointsResult | null {
     const sig = `${this.partsSig}:${JSON.stringify(input)}`;
@@ -605,7 +642,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 /** What the view posts to the space worker. */
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean }
-  | { type: "compute"; id: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
+  | { type: "compute"; id: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; water?: WaterInput };
 
 /** What the space worker posts back for a compute request. */
 export interface SpaceResponse {
@@ -616,6 +653,7 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
+  water?: WaterMesh | null;
   ms: number;
 }
 
@@ -651,6 +689,10 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   if (m.fuse) {
     out.fuse = model.computeFuse(m.fuse);
     if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
+  }
+  if (m.water) {
+    out.water = model.computeWater(m.water);
+    if (out.water) transfer.add(out.water.position.buffer as ArrayBuffer).add(out.water.index.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   return { out, transfer: [...transfer] };

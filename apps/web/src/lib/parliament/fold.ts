@@ -129,12 +129,28 @@ export function foldWorld(
     }
     if (nuc < 0) continue;
 
-    // growth: everything every visitor ever put in this cell, each visitor capped
+    // growth: everything every visitor ever put in this cell, each visitor capped — followed through time, so the
+    // slab knows when it grew (growth) and who built it (who)
     const total = new Map<string, number>();
-    for (let k = 0; k < s.length; k++) total.set(o[k], (total.get(o[k]) ?? 0) + w[k] * dt);
+    const firstOf = new Map<string, number>();
+    const lastOf = new Map<string, number>();
+    const growth: [number, number][] = [];
     let mass = 0;
-    for (const v of total.values()) mass += Math.min(cap, v);
-    const raw = Math.min(cfg.maxHeight, 1 + Math.max(0, mass - cfg.threshold) / cfg.pourUnit);
+    const rawOf = (m: number) => Math.min(cfg.maxHeight, 1 + Math.max(0, m - cfg.threshold) / cfg.pourUnit);
+    for (let k = 0; k < s.length; k++) {
+      const prev = total.get(o[k]) ?? 0;
+      const next = prev + w[k] * dt;
+      total.set(o[k], next);
+      mass += Math.min(cap, next) - Math.min(cap, prev);
+      if (!firstOf.has(o[k])) firstOf.set(o[k], s[k]);
+      lastOf.set(o[k], s[k]);
+      if (k >= nuc) {
+        const r = rawOf(mass);
+        if (!growth.length || r >= growth[growth.length - 1][1] + 0.05) growth.push([s[k], r]);
+      }
+    }
+    const raw = rawOf(mass);
+    const who = [...total].map(([id, v]) => ({ o: id, first: firstOf.get(id)!, last: lastOf.get(id)!, amount: Math.min(cap, v) }));
 
     const lastS = s[s.length - 1];
     // when somebody was around, from the birth on; a pause longer than emptyGapSec is empty time
@@ -158,6 +174,8 @@ export function foldWorld(
       bornS: s[nuc],
       lastS,
       spans,
+      who,
+      growth,
     });
   }
   slabs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));

@@ -208,7 +208,8 @@ describe("paths: holes in the vegetation with a heaped rim", () => {
       expect(pathAt(h, x, z, Math.floor(y))).toBeLessThan(0.3 + 0.15); // (jittered rim points may lean in a little)
     }
     const plain = naturePoints(h, 3, 4, { unit: 1, perSlot: 12 });
-    const soil = (p: typeof pts) => p.kind.filter((k) => k === NATURE_KIND.soil || k === NATURE_KIND.dry).length;
-    expect(soil(pts)).toBeGreaterThan(soil(plain));
+    const trodden = (p: typeof pts) => p.kind.filter((k) => k === NATURE_KIND.trodden).length;
+    expect(trodden(pts)).toBeGreaterThan(0);
+    expect(trodden(plain)).toBe(0);
   });
 });

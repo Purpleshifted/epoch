@@ -106,6 +106,18 @@ export interface Slab {
    * pauses longer than `emptyGapSec`. Absent (hand-built slabs) = one span bornS … lastS.
    */
   spans?: [number, number][];
+  /** Who built it: every visitor (or bot) who put weight into the cell — first / last time and how much (capped). */
+  who?: Contributor[];
+  /** How it grew: [assigned time, raw height] each time the raw height rose by ≥ 0.05 (from the birth on). */
+  growth?: [number, number][];
+}
+
+export interface Contributor {
+  o: string;
+  first: number;
+  last: number;
+  /** Weight put in (worker·s), capped at visitorCap like the growth. */
+  amount: number;
 }
 
 /** A desire path: a cell many workers have walked through. */
