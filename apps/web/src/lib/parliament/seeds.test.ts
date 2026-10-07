@@ -327,3 +327,30 @@ describe("wear: the fold's slab wear carried onto the parts", () => {
     expect(JSON.stringify(parts)).toBe(copy);
   });
 });
+
+describe("strata: every layer ages from its own slot", () => {
+  const spu = DEFAULT_BOXES.secPerUnit;
+  const live = seed({ id: 4242, t0: 0, t1: 3000, mass: 4 }); // still in use at tNow = 3000
+  const parts = boxesOfSeed(live);
+  const W = { tauSlabYears: DEFAULT_FOLD.tauSlabYears, tauFootprintYears: DEFAULT_FOLD.tauFootprintYears, secPerUnit: spu, timeScale: 0.02 };
+  const share = (list: Box[], pred: (b: Box) => boolean) => list.filter(pred).length / Math.max(1, parts.filter(pred).length);
+
+  it("a seed still in use is worn at its bottom and fresh at its top", () => {
+    const w = wearParts(parts, [live], 3000, W);
+    const low = (b: Box) => b.kind === "mass" && b.slot < 30;
+    const high = (b: Box) => b.kind === "mass" && b.slot >= 90;
+    expect(share(w, low)).toBeLessThan(share(w, high));
+    expect(share(w, high)).toBeGreaterThan(0.75); // thin slats near the top are already a little worn
+    // without strata the whole seed is as new as its last presence
+    expect(wearParts(parts, [live], 3000, { ...W, secPerUnit: undefined })).toEqual(parts);
+  });
+
+  it("the steel / concrete lives decide which goes first", () => {
+    const steelLasts = wearParts(parts, [live], 3000, { ...W, steelLife: 3, concreteLife: 0.5 });
+    const isSteel = (b: Box) => STEEL.has(b.kind) && b.slot < 60;
+    const isMass = (b: Box) => b.kind === "mass" && b.slot < 60;
+    expect(share(steelLasts, isSteel)).toBeGreaterThan(share(steelLasts, isMass));
+    const steelGoes = wearParts(parts, [live], 3000, { ...W, steelLife: 0.1, concreteLife: 2 });
+    expect(share(steelGoes, isSteel)).toBeLessThan(share(steelGoes, isMass));
+  });
+});

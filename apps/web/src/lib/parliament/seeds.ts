@@ -94,6 +94,8 @@ export interface Box {
   tone: number;
   /** 0 at the first storey of its seed, 1 at the last. */
   along: number;
+  /** The time slot the part was built in (the foundation: the birth slot). */
+  slot: number;
   yaw?: number;
   tilt?: number;
   /** Drips only: the floor of their run (wear may lengthen them, never below this). */
@@ -268,7 +270,7 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
   const grow = 1 + rc.mass.growth * Math.max(0, seed.mass - 1);
   const out: Box[] = [];
   const push = (kind: PartKind, x: number, y: number, z: number, sx: number, sy: number, sz: number, tone: number, k: number, yaw?: number, tilt?: number) => {
-    const b: Box = { kind, seed: seed.id, material: seed.material, x, y, z, sx, sy, sz, tone, along: Math.max(0, (k - first) / span) };
+    const b: Box = { kind, seed: seed.id, material: seed.material, x, y, z, sx, sy, sz, tone, along: Math.max(0, (k - first) / span), slot: k };
     if (tilt) {
       b.yaw = yaw ?? 0;
       b.tilt = tilt;
@@ -515,10 +517,22 @@ export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_B
   return out;
 }
 
-/** The fold's wear times (model years), as used by wearParts. */
+/** The fold's wear times (model years), as used by wearParts, and how the 3D view applies them. */
 export interface WearConfig {
   tauSlabYears: number;
   tauFootprintYears: number;
+  /**
+   * STRATA: with secPerUnit given, every part ages from the end of the slot it was built in (deposition), so lower
+   * layers are older than the ones above — a seed still in use already weathers at its bottom. Without it, a whole
+   * seed ages from its last presence (the fold's slab age).
+   */
+  secPerUnit?: number;
+  /** Multiplies every age (the 3D view's weathering speed; 1 = the Top view's). */
+  timeScale?: number;
+  /** Life of steel relative to tauSlabYears (default 0.3: bare steel rusts first). */
+  steelLife?: number;
+  /** Life of concrete slats and masses relative to tauSlabYears, × their thinness factor (default 1). */
+  concreteLife?: number;
 }
 
 /** The fold's footprint threshold. */
@@ -529,11 +543,13 @@ export function partHash(b: Box): number {
 }
 
 /** How much longer than tau a part lasts (thin and exposed < 1). */
-export function wearFactor(b: Box): number {
-  if (STEEL.has(b.kind) || b.kind === "drip") return 0.3;
-  if (b.kind === "slab") return 1.2;
+export function wearFactor(b: Box, cfg: Pick<WearConfig, "steelLife" | "concreteLife"> = {}): number {
+  if (STEEL.has(b.kind)) return cfg.steelLife ?? 0.3;
+  const life = cfg.concreteLife ?? 1;
+  if (b.kind === "drip") return 0.3 * life;
+  if (b.kind === "slab") return 1.2 * life;
   const thin = Math.min(b.sx, b.sy, b.sz) / CELL_SIZE;
-  return 0.3 + 0.9 * Math.min(1, thin);
+  return (0.3 + 0.9 * Math.min(1, thin)) * life;
 }
 
 export function seedAgeYears(seed: Seed, tNow: number): number {
@@ -541,12 +557,26 @@ export function seedAgeYears(seed: Seed, tNow: number): number {
 }
 
 /**
+ * The age of a part in model years at tNow (× timeScale): since the end of its slot (STRATA, with secPerUnit), or
+ * since its seed's last presence.
+ */
+export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow: number, cfg: Pick<WearConfig, "secPerUnit" | "timeScale">): number {
+  const scale = cfg.timeScale ?? 1;
+  if (cfg.secPerUnit && cfg.secPerUnit > 0) {
+    const laid = Math.min(tNow, (b.slot + 1) * cfg.secPerUnit);
+    return Math.max(0, geoYears(tNow) - geoYears(laid)) * scale;
+  }
+  return (seedAge.get(b.seed) ?? 0) * scale;
+}
+
+/**
  * WEAR of the parts at the view's present `tNow` — the fold's slab wear, carried onto the procedural parts.
  *
- * A seed's age is in MODEL years since its last presence (geoYears(tNow) − geoYears(t1)), exactly the fold's `age`,
- * with the same taus. Like real weathering:
- *   thin and exposed goes first   survival P = e^(−A / (tau · f)); f = 0.3 for steel (rust), for slats and masses
- *                                 0.3 … 1.2 by their thinnest side, 1.2 for slabs; foundations use tauFootprintYears
+ * Ages are in MODEL years (partAgeYears): by default a seed's age since its last presence (the fold's `age`, same
+ * taus); with cfg.secPerUnit, each part's age since its own slot (STRATA: lower = older). Like real weathering:
+ *   thin and exposed goes first   survival P = e^(−A / (tau · f)); f = steelLife for steel, for slats and masses
+ *                                 0.3 … 1.2 by their thinnest side (× concreteLife), 1.2 for slabs; foundations use
+ *                                 tauFootprintYears
  *   what is held goes with it     columns fall with the slab of their slot; beams and braces go once fewer than
  *                                 30 % of the seed's masses stand
  *   leaching                      drips grow (calcite under concrete): × (1 + A / tauSlabYears), never below their run
@@ -558,8 +588,9 @@ export function seedAgeYears(seed: Seed, tNow: number): number {
 export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig): Box[] {
   const age = new Map<number, number>();
   for (const s of seeds) age.set(s.id, seedAgeYears(s, tNow));
+  const ageOf = (b: Box) => partAgeYears(b, age, tNow, cfg);
   const survives = (b: Box, A: number) => {
-    const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b);
+    const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b, cfg);
     return partHash(b) < Math.exp(-A / tau);
   };
 
@@ -568,7 +599,7 @@ export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: n
   const massAll = new Map<number, number>();
   const massUp = new Map<number, number>();
   for (const b of parts) {
-    const A = age.get(b.seed) ?? 0;
+    const A = ageOf(b);
     if (b.kind === "slab" && survives(b, A)) slabUp.add(`${b.seed}:${b.along}`);
     if (b.kind === "mass") {
       massAll.set(b.seed, (massAll.get(b.seed) ?? 0) + 1);
@@ -578,7 +609,7 @@ export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: n
 
   const out: Box[] = [];
   for (const b of parts) {
-    const A = age.get(b.seed) ?? 0;
+    const A = ageOf(b);
     if (A <= 0) {
       out.push(b);
       continue;

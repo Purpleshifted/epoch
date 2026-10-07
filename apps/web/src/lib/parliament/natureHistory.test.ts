@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FOLD, DEFAULT_NATURE, NATURE_KIND, baseGrass, burialOf, generateBoxes, reclaimPoints, reclaimShare, wearParts, foldWorld, grassDensity, natureAt, natureHistory, naturePointLoad, naturePoints, seedsFromSnapshot, stressMap, withoutWear, type PEvent } from "./index";
+import { DEFAULT_FOLD, DEFAULT_NATURE, NATURE_KIND, baseGrass, burialOf, generateBoxes, reclaimPoints, reclaimShare, sedimentShare, wearParts, foldWorld, grassDensity, natureAt, natureHistory, naturePointLoad, naturePoints, seedsFromSnapshot, stressMap, withoutWear, type PEvent } from "./index";
 
 const SPU = 30;
 /** Visitor `o` standing at (x, z) from s0 for `secs` seconds (one sample per second, a little off the slot grid). */
@@ -140,5 +140,35 @@ describe("reclaim and burial", () => {
       expect(k).toBeLessThan(b);
     }
     expect(pts.kind.some((k) => k === NATURE_KIND.buried)).toBe(true);
+  });
+});
+
+describe("sediment: old vegetation turns to humus and peat, and compacts", () => {
+  const sed = { tNow: 3000, secPerUnit: SPU, timeScale: 0.02, tauYears: 600 };
+  it("older slots are more sediment than recent ones", () => {
+    expect(sedimentShare(5, sed)).toBeGreaterThan(sedimentShare(90, sed));
+    expect(sedimentShare(99, sed)).toBeLessThan(0.05);
+  });
+  it("points of old slots are mostly humus/peat and sit lower in their slot", () => {
+    const events = stand("a", 30, 30, 2950, 40); // far from the cells we look at: no stress there
+    const h = natureHistory({ events, seeds: [], secPerUnit: SPU, k0: 0, k1: 99, margin: 30, nature: DEFAULT_NATURE, fold: DEFAULT_FOLD });
+    const pts = naturePoints(h, 0, 99, { unit: 1, perSlot: 4, sediment: sed });
+    const stats = (lo: number, hi: number) => {
+      let n = 0, sedN = 0, y = 0;
+      for (let i = 0; i < pts.count; i++) {
+        const py = pts.position[i * 3 + 1];
+        const k = Math.floor(py);
+        if (k < lo || k > hi) continue;
+        n++;
+        y += py - k;
+        if (pts.kind[i] === NATURE_KIND.humus || pts.kind[i] === NATURE_KIND.peat) sedN++;
+      }
+      return { sed: sedN / n, y: y / n };
+    };
+    const old = stats(0, 10);
+    const young = stats(90, 99);
+    expect(old.sed).toBeGreaterThan(0.5);
+    expect(young.sed).toBeLessThan(0.1);
+    expect(old.y).toBeLessThan(young.y);
   });
 });

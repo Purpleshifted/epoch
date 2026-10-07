@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_NATURE, SpaceModel, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
 
 function runBots(bots: number, seconds: number): PEvent[] {
   const start = 1_800_000_000_000;
@@ -19,7 +19,7 @@ function runBots(bots: number, seconds: number): PEvent[] {
   return out;
 }
 
-const box = (over: Partial<Box>): Box => ({ kind: "beam", seed: 1, material: "concrete", x: 1, y: 2, z: 3, sx: 0.1, sy: 4, sz: 0.2, tone: 0.5, along: 0, ...over });
+const box = (over: Partial<Box>): Box => ({ kind: "beam", seed: 1, material: "concrete", x: 1, y: 2, z: 3, sx: 0.1, sy: 4, sz: 0.2, tone: 0.5, along: 0, slot: 0, ...over });
 
 describe("writeMatrix equals three.js Object3D.updateMatrix (Euler YZX)", () => {
   it.each([
@@ -42,7 +42,7 @@ describe("SpaceModel: what the worker computes", () => {
   const events = runBots(8, 240);
   const lodNear = { camera: [0, 0, 0] as [number, number, number], near: 1e9, farFactor: 0.25 };
   const lodFar = { ...lodNear, near: 0 };
-  const parts = (lod = lodNear) => ({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, wear: true, edges: false, lod });
+  const parts = (lod = lodNear) => ({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, wear: true, weather: DEFAULT_WEATHER, edges: false, lod });
 
   it("builds parts, and returns null when nothing changed", () => {
     const m = new SpaceModel();
@@ -69,7 +69,7 @@ describe("SpaceModel: what the worker computes", () => {
     const m = new SpaceModel();
     m.add(events);
     m.computeParts(parts());
-    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 8, margin: 4, budget: 1e7, burialSlots: 3 };
+    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 8, margin: 4, budget: 1e7, burialSlots: 3 };
     const near = m.computeNature({ ...input, lod: lodNear })!;
     expect(near.position.length).toBeGreaterThan(0);
     expect(near.color.length).toBe(near.position.length);

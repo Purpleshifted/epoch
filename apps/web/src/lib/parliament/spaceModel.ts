@@ -33,6 +33,8 @@ export const NATURE_PALETTE: [string, string][] = [
   ["#8a9a3a", "#b8bb52"], // moss / lichen (reclaim)
   ["#24402a", "#3b5d34"], // woody growth (reclaim)
   ["#3e3630", "#5a4e44"], // buried under concrete
+  ["#4b3a28", "#6b5136"], // humus (aged vegetation)
+  ["#26221f", "#3a332c"], // peat / compressed (old sediment)
 ];
 
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -96,10 +98,25 @@ export interface LodConfig {
   farFactor: number;
 }
 
+/** How the view weathers things (see WearConfig): per-slot ages, speed, relative lives of steel and concrete. */
+export interface WeatherConfig {
+  /** Each part (and vegetation slot) ages from its own slot — lower layers are older. */
+  strata: boolean;
+  /** Multiplies every model-years age. */
+  timeScale: number;
+  steelLife: number;
+  concreteLife: number;
+  /** Model years after which (1 − 1/e of) a vegetation slot has turned to humus / peat. */
+  tauSedimentYears: number;
+}
+
+export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.02, steelLife: 2, concreteLife: 1, tauSedimentYears: 600 };
+
 export interface PartsInput {
   fold: FoldConfig;
   box: BoxConfig;
   wear: boolean;
+  weather: WeatherConfig;
   edges: boolean;
   lod: LodConfig;
 }
@@ -124,6 +141,7 @@ export interface PartsResult {
 export interface NatureInput {
   fold: FoldConfig;
   box: BoxConfig;
+  weather: WeatherConfig;
   nature: NatureConfig;
   perSlot: number;
   /** Slots around `focusK` that are built. */
@@ -139,6 +157,8 @@ export interface ReclaimInput {
   tauReclaimYears: number;
   perArea: number;
   unit: number;
+  secPerUnit?: number;
+  timeScale?: number;
 }
 
 export interface PointsResult {
@@ -220,7 +240,7 @@ export class SpaceModel {
         lodSig = (lodSig * 31 + s.id) % 1e9;
       }
     }
-    const sig = `${this.seedsKey}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${far.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${far.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
 
@@ -240,7 +260,10 @@ export class SpaceModel {
       for (const b of hit.parts) built.push(b);
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
-    const worn = input.wear ? wearParts(built, seeds, t, input.fold) : built;
+    const w = input.weather;
+    const worn = input.wear
+      ? wearParts(built, seeds, t, { ...input.fold, secPerUnit: w.strata ? box.secPerUnit : undefined, timeScale: w.timeScale, steelLife: w.steelLife, concreteLife: w.concreteLife })
+      : built;
     this.built = built;
     this.worn = worn;
 
@@ -314,7 +337,11 @@ export class SpaceModel {
       const f = d <= lod.near ? 1 : Math.max(lod.farFactor, lod.near / d);
       levels.push(Math.round(f * 4) / 4);
     }
-    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${k0}:${k1}:${levels.join(",")}`;
+    // sediment changes with time: rebuilt once per slot of the present
+    const tQ = Math.floor(this.t / spu) * spu;
+    const sediment = input.weather.strata ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears } : undefined;
+    const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
+    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${k0}:${k1}:${levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
     if (k1 < k0 || !this.events.length) return { position: new Float32Array(0), color: new Float32Array(0) };
@@ -336,11 +363,11 @@ export class SpaceModel {
       const off = (a - h.k0) * h.nx * h.nz;
       let sum = 0;
       for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${box.unit}:${burySig}`;
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${box.unit}:${burySig}:${sedKey}`;
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }
@@ -352,7 +379,7 @@ export class SpaceModel {
 
   /** Plants on the ruins of the last computed parts; null when nothing changed. */
   computeReclaim(input: ReclaimInput): PointsResult | null {
-    const sig = `${this.partsSig}:${input.tauReclaimYears}:${input.perArea}:${input.unit}`;
+    const sig = `${this.partsSig}:${JSON.stringify(input)}`;
     if (sig === this.reclaimSig) return null;
     this.reclaimSig = sig;
     const np = reclaimPoints(this.built, this.worn, this.seeds, this.t, input);

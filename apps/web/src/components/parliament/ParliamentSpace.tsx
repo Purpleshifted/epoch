@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
-import { EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
+import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, useControls } from "leva";
 import * as THREE from "three";
@@ -46,13 +46,39 @@ import {
   type RoleId,
   type SpaceRequest,
   type SpaceResponse,
+  type WeatherConfig,
+  DEFAULT_WEATHER,
   SpaceModel,
   handleSpaceRequest,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
 import { useFoldControls, useNatureControls, useWorld } from "./useWorld";
 
-const PAPER = "#e9ebee";
+/** Background and ground grid per theme. */
+const THEMES = {
+  paper: { bg: "#e9ebee", grid: ["#9aa0a8", "#d3d6db"], text: "text-black/45" },
+  black: { bg: "#0a0b0d", grid: ["#3a3f47", "#1a1d22"], text: "text-white/50" },
+} as const;
+
+/**
+ * Points that dissolve near the camera (a dithered fade between `near0` and `near1`, view distance), so close
+ * vegetation never blocks the view. No transparency sorting: fragments are discarded against screen-space noise.
+ */
+function fadingPointsMaterial(): THREE.PointsMaterial {
+  const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
+  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 } };
+  m.userData.fade = uniforms;
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nvarying float vFade;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvFade = smoothstep(uFade0, max(uFade0 + 1e-3, uFade1), -mvPosition.z);");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vFade;")
+      .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif (vFade < fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;");
+  };
+  return m;
+}
 /** Base colour per part kind (instance tone multiplies it). */
 const KIND_COLOR: Record<PartKind, string> = {
   mass: "#f4f4f2",
@@ -166,6 +192,8 @@ function SpaceWorld({
   nature,
   lodNear,
   farFactor,
+  weather,
+  nearFade,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -179,6 +207,9 @@ function SpaceWorld({
   nature: NatureParams | null;
   lodNear: number;
   farFactor: number;
+  weather: WeatherConfig;
+  /** Vegetation within this view distance [start, end] dissolves (keeps the view clear). */
+  nearFade: [number, number];
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -194,10 +225,19 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, onStats });
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, onStats };
   });
+  const natureMat = useMemo(() => fadingPointsMaterial(), []);
+  const reclaimMat = useMemo(() => fadingPointsMaterial(), []);
+  useEffect(() => {
+    for (const m of [natureMat, reclaimMat]) {
+      m.size = nature?.size ?? 0.07;
+      m.userData.fade.uFade0.value = nearFade[0];
+      m.userData.fade.uFade1.value = nearFade[1];
+    }
+  }, [natureMat, reclaimMat, nature?.size, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -289,7 +329,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx } = live.current;
     const events = log.all();
     if (events.length < sent.current) {
       w.post({ type: "events", add: events, reset: true });
@@ -308,11 +348,13 @@ function SpaceWorld({
     const lod = { camera: cam, near, farFactor: ff };
     const id = ++seq.current;
     const withNature = !!nat && id % NATURE_EVERY === 1;
-    const req: SpaceRequest = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, edges: e, lod } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
-      req.nature = { fold: f, box: cfg, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, lod };
-      if (nat.reclaim) req.reclaim = { tauReclaimYears: nat.tauReclaimYears, perArea: nat.reclaimPerArea, unit: cfg.unit };
+      req.nature = { fold: f, box: cfg, weather: wx, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, lod };
+      if (nat.reclaim) {
+        req.reclaim = { tauReclaimYears: nat.tauReclaimYears, perArea: nat.reclaimPerArea, unit: cfg.unit, secPerUnit: wx.strata ? cfg.secPerUnit : undefined, timeScale: wx.timeScale };
+      }
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -360,16 +402,23 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
-      <points ref={naturePts} frustumCulled={false} visible={!!nature}>
+      <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
-        <pointsMaterial size={nature?.size ?? 0.07} vertexColors sizeAttenuation />
       </points>
-      <points ref={reclaimPts} frustumCulled={false} visible={!!nature && nature.reclaim}>
+      <points ref={reclaimPts} frustumCulled={false} visible={!!nature && nature.reclaim} material={reclaimMat}>
         <bufferGeometry />
-        <pointsMaterial size={nature?.size ?? 0.07} vertexColors sizeAttenuation />
       </points>
     </>
   );
+}
+
+/** Keeps `target` (the depth-of-field focus) on the orbit target. */
+function FocusFollow({ controls, target }: { controls: React.MutableRefObject<Orbit | null>; target: THREE.Vector3 }) {
+  useFrame(() => {
+    const t = controls.current?.target;
+    if (t) target.set(t.x, t.y, t.z);
+  });
+  return null;
 }
 
 /**
@@ -603,7 +652,24 @@ export default function ParliamentSpace() {
     softness: { value: 3, min: 0, max: 12, step: 0.5, label: "그림자 부드러움" },
     grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
   });
-  const composerOn = ao.enabled || light.grain > 0;
+  const view = useControls("시야 / 초점 / 배경", {
+    theme: { options: { "종이 (밝음)": "paper", "검정": "black" }, value: "paper" as keyof typeof THEMES, label: "배경" },
+    nearFade: { value: [2, 8] as [number, number], min: 0, max: 60, step: 0.5, label: "가까운 식생 사라짐 (카메라 거리)" },
+    dof: { value: false, label: "초점 (피사계 심도)" },
+    dofRange: { value: 12, min: 1, max: 80, step: 1, label: "초점 범위 (월드)" },
+    dofBokeh: { value: 3, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
+  });
+  const weatherCtl = useControls("풍화 / 지층", {
+    strata: { value: DEFAULT_WEATHER.strata, label: "지층: 층마다 자기 나이 (아래일수록 오래됨)" },
+    timeScale: { value: DEFAULT_WEATHER.timeScale, min: 0.001, max: 1, step: 0.001, label: "풍화 속도 (모델 연수 배율)" },
+    steelLife: { value: DEFAULT_WEATHER.steelLife, min: 0.05, max: 5, step: 0.05, label: "철골 수명 (슬래브 대비)" },
+    concreteLife: { value: DEFAULT_WEATHER.concreteLife, min: 0.05, max: 5, step: 0.05, label: "콘크리트 수명 배율" },
+    tauSedimentYears: { value: DEFAULT_WEATHER.tauSedimentYears, min: 10, max: 20000, step: 10, label: "식생 → 부식토/이탄 (년)" },
+  });
+  const weather = useMemo<WeatherConfig>(() => ({ ...weatherCtl }), [weatherCtl]);
+  const theme = THEMES[view.theme as keyof typeof THEMES] ?? THEMES.paper;
+  const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
+  const composerOn = ao.enabled || light.grain > 0 || view.dof;
   const natureView = useControls("자연 (시공간)", {
     enabled: { value: true, label: "켜기" },
     perSlot: { value: 6, min: 0.5, max: 40, step: 0.5, label: "칸·단당 점 수 (밀도 1일 때)" },
@@ -699,14 +765,14 @@ export default function ParliamentSpace() {
   const spaceFold = useMemo(() => ({ ...fold, emptyGapSec: c.emptyGapSec }), [fold, c.emptyGapSec]);
 
   return (
-    <div className="relative h-full w-full" style={{ background: PAPER }}>
+    <div className="relative h-full w-full" style={{ background: theme.bg }}>
       <Leva hidden={hideUi} />
       <Canvas shadows="percentage" dpr={[1, 2]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
-        <color attach="background" args={[PAPER]} />
+        <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={light.azimuth} elevation={light.elevation} intensity={light.intensity} softness={light.softness} shadows={light.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
-        <gridHelper args={[80, 80, "#9aa0a8", "#d3d6db"]} position={[0, -0.01, 0]} />
+        <gridHelper key={view.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />
         <SpaceWorld
           log={log}
           fold={spaceFold}
@@ -719,11 +785,15 @@ export default function ParliamentSpace() {
           nature={natureParams}
           lodNear={lod.near}
           farFactor={lod.farFactor}
+          weather={weather}
+          nearFade={view.nearFade}
         />
+        <FocusFollow controls={controls} target={focusTarget} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />
         {composerOn && (
-          <EffectComposer key={`${ao.enabled}:${light.grain > 0}`}>
+          <EffectComposer key={`${ao.enabled}:${light.grain > 0}:${view.dof}`}>
             {ao.enabled && <N8AO aoRadius={ao.aoRadius} distanceFalloff={ao.distanceFalloff} intensity={ao.intensity} quality={ao.quality} halfRes={ao.halfRes} color="black" />}
+            {view.dof && <DepthOfField target={focusTarget} worldFocusRange={view.dofRange} bokehScale={view.dofBokeh} />}
             {light.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={light.grain} />}
           </EffectComposer>
         )}
@@ -736,7 +806,7 @@ export default function ParliamentSpace() {
           </Hud>
         )}
       </Canvas>
-      <div className="pointer-events-none absolute bottom-3 left-3 select-none font-mono text-[10px] leading-4 text-black/45">
+      <div className={`pointer-events-none absolute bottom-3 left-3 select-none font-mono text-[10px] leading-4 ${theme.text}`}>
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s

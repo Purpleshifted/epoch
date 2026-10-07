@@ -20,7 +20,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { grassDensity, hash2, type NatureConfig } from "./nature";
-import { seedAgeYears, type Box, type Seed } from "./seeds";
+import { partAgeYears, seedAgeYears, type Box, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 
 /** A slab at least this high seals its cell (same as the player view). */
@@ -202,7 +202,7 @@ export function natureAt(h: NatureHistory, ix: number, iz: number, k: number): n
 }
 
 /** What a nature point is (the renderer picks the colour). */
-export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6 } as const;
+export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6, humus: 7, peat: 8 } as const;
 
 export interface NaturePointOptions {
   /** World size of a time slot (y). */
@@ -211,6 +211,18 @@ export interface NaturePointOptions {
   perSlot: number;
   /** BURIAL: (cell, slot) lies under concrete laid later — its points become a dark, compressed layer. */
   buried?: (ix: number, iz: number, k: number) => boolean;
+  /**
+   * SEDIMENT: a slot's vegetation turns into humus, then peat, and compacts toward the slot's floor as it ages:
+   * share q = 1 − e^(−A/tauYears), A = model years since the slot's end (× timeScale) at tNow.
+   */
+  sediment?: { tNow: number; secPerUnit: number; timeScale: number; tauYears: number };
+}
+
+/** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
+export function sedimentShare(k: number, sed: NonNullable<NaturePointOptions["sediment"]>): number {
+  const laid = Math.min(sed.tNow, (k + 1) * sed.secPerUnit);
+  const A = Math.max(0, geoYears(sed.tNow) - geoYears(laid)) * sed.timeScale;
+  return 1 - Math.exp(-A / sed.tauYears);
 }
 
 export interface NaturePoints {
@@ -246,6 +258,7 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
   const shade: number[] = [];
   for (let k = a; k <= b; k++) {
     const base = (k - h.k0) * h.nx * h.nz;
+    const q = opts.sediment ? sedimentShare(k, opts.sediment) : 0;
     for (let j = 0; j < h.nz; j++) {
       for (let i = 0; i < h.nx; i++) {
         const v = h.V[base + j * h.nx + i];
@@ -261,10 +274,13 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           const ry = h3(ix, iz, k, s + 2);
           const rk = h3(ix, iz, k, s + 3);
           const stem = h3(ix, iz, k, s + 4) < 0.08;
-          const yy = under ? 0.2 * ry : stem ? 0.2 + 0.75 * ry : 0.55 * Math.pow(ry, 2.2);
+          const sed = !under && h3(ix, iz, k, s + 7) < q;
+          // compaction: older slots press their matter down toward the slot's floor
+          const yy = (under ? 0.2 * ry : stem && !sed ? 0.2 + 0.75 * ry : 0.55 * Math.pow(ry, 2.2)) * (1 - 0.75 * q);
           pos.push((ix + rx) * CELL_SIZE, (k + yy) * opts.unit, (iz + rz) * CELL_SIZE);
           const soil = 0.15 + 0.6 * (1 - v);
           if (under) kind.push(NATURE_KIND.buried);
+          else if (sed) kind.push(q > 0.6 && h3(ix, iz, k, s + 8) < q ? NATURE_KIND.peat : NATURE_KIND.humus);
           else kind.push(rk < soil ? NATURE_KIND.soil : rk < soil + 0.12 ? NATURE_KIND.dry : h3(ix, iz, k, s + 5) < 0.6 ? NATURE_KIND.grass : NATURE_KIND.herb);
           shade.push(h3(ix, iz, k, s + 6));
         }
@@ -302,6 +318,10 @@ export function burialOf(seeds: readonly Seed[], secPerUnit: number, slots: numb
 export interface ReclaimConfig {
   /** Model years after which (1 − 1/e of) a ruin is overgrown. */
   tauReclaimYears: number;
+  /** STRATA (see WearConfig): parts age from their own slot; absent = from their seed's last presence. */
+  secPerUnit?: number;
+  /** Multiplies every age (as in wearParts). */
+  timeScale?: number;
   /** Points per cell² of upward face at full reclaim. */
   perArea: number;
   /** World size of a time slot (for plant heights). */
@@ -320,8 +340,8 @@ export function reclaimShare(ageYears: number, tauReclaimYears: number): number 
  * from R > 0.75. `worn` is wearParts(built, …); parts of `built` missing from it have eroded.
  */
 export function reclaimPoints(built: readonly Box[], worn: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: ReclaimConfig): NaturePoints {
-  const R = new Map<number, number>();
-  for (const sd of seeds) R.set(sd.id, reclaimShare(seedAgeYears(sd, tNow), cfg.tauReclaimYears));
+  const age = new Map<number, number>();
+  for (const sd of seeds) age.set(sd.id, seedAgeYears(sd, tNow));
   const standing = new Set(worn);
   const pos: number[] = [];
   const kind: number[] = [];
@@ -329,7 +349,7 @@ export function reclaimPoints(built: readonly Box[], worn: readonly Box[], seeds
   const cell2 = CELL_SIZE * CELL_SIZE;
   for (const b of built) {
     if (b.tilt || !(b.kind === "mass" || b.kind === "slab" || b.kind === "plinth")) continue;
-    const r = R.get(b.seed) ?? 0;
+    const r = reclaimShare(partAgeYears(b, age, tNow, cfg), cfg.tauReclaimYears);
     if (r <= 0) continue;
     const up = standing.has(b);
     // standing: on its top face; eroded: on the floor it left behind (fewer)
