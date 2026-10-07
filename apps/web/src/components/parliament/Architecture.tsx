@@ -14,10 +14,14 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { hash2, DEFAULT_SHARDS, type ShardConfig, type Snapshot } from "@/lib/parliament";
+import { hash2, DEFAULT_COLLAGE, DEFAULT_SHARDS, type CollageConfig, type ShardConfig, type ShardKind, type Snapshot } from "@/lib/parliament";
+import { PhotoLayer } from "./PhotoLayer";
 import { ShardLayer } from "./ShardLayer";
 
-export type ArchStyle = "block" | "lines" | "points" | "shards";
+export type ArchStyle = "block" | "lines" | "points" | "shards" | "photo";
+
+/** Thin lines the photo collage keeps from the procedural one: black struts / axis lines, ground strokes, paths. */
+const PHOTO_EXTRAS: readonly ShardKind[] = ["strut", "axis", "ground", "path"];
 
 interface Box {
   x: number;
@@ -93,7 +97,7 @@ function BoxArchitecture({
 }: {
   getSnapshot: () => Snapshot | null;
   heightUnit: number;
-  style: Exclude<ArchStyle, "shards">;
+  style: Exclude<ArchStyle, "shards" | "photo">;
   showPaths?: boolean;
   every?: number;
   /** Top view: flat colours, no lighting. */
@@ -241,6 +245,7 @@ export function ArchitectureLayer({
   every = 0.25,
   unlit = false,
   shards = DEFAULT_SHARDS,
+  collage = DEFAULT_COLLAGE,
   view = "side",
 }: {
   getSnapshot: () => Snapshot | null;
@@ -250,8 +255,18 @@ export function ArchitectureLayer({
   every?: number;
   unlit?: boolean;
   shards?: ShardConfig;
+  collage?: CollageConfig;
   view?: "side" | "top";
 }) {
-  if (style === "shards") return <ShardLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={shards} every={Math.max(every, 0.5)} view={view} showPaths={showPaths} />;
+  const slow = Math.max(every, 0.5);
+  if (style === "photo") {
+    return (
+      <>
+        <PhotoLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={collage} view={view} every={slow} />
+        <ShardLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={shards} every={slow} view={view} showPaths={showPaths} only={PHOTO_EXTRAS} />
+      </>
+    );
+  }
+  if (style === "shards") return <ShardLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={shards} every={slow} view={view} showPaths={showPaths} />;
   return <BoxArchitecture getSnapshot={getSnapshot} heightUnit={heightUnit} style={style} showPaths={showPaths} every={every} unlit={unlit} />;
 }

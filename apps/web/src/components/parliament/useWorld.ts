@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { useControls } from "leva";
-import { DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, loadEvents, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
+import { DEFAULT_COLLAGE, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
 import type { ArchStyle } from "./Architecture";
 
 /** The shared event log of this tab, kept in sync with localStorage (poll + storage events). */
@@ -72,20 +72,29 @@ export function useNatureControls(): { cfg: NatureConfig; pointSize: number } {
 export function useArchControls(
   defaultUnit: number,
   defaultStyle: ArchStyle = "block",
-): { style: ArchStyle; showPaths: boolean; heightUnit: number; shards: ShardConfig } {
+): { style: ArchStyle; showPaths: boolean; heightUnit: number; shards: ShardConfig; collage: CollageConfig } {
   const c = useControls("건축 재료 (콘크리트)", {
     style: {
       value: defaultStyle,
-      options: { "파편 콜라주 (FELD)": "shards", "블록 (lit)": "block", "선화 (wireframe)": "lines", "점 껍질 (LiDAR)": "points" },
+      options: {
+        "사진 파편 (생성 이미지)": "photo",
+        "파편 콜라주 (절차 생성)": "shards",
+        "블록 (lit)": "block",
+        "선화 (wireframe)": "lines",
+        "점 껍질 (LiDAR)": "points",
+      },
       label: "재료",
     },
     showPaths: { value: true, label: "길(콘크리트 판) 표시" },
     heightUnit: { value: defaultUnit, min: 0.05, max: 3, step: 0.05, label: "한 단 높이 (월드 단위)" },
+    photoDensity: { value: DEFAULT_COLLAGE.density, min: 0.2, max: 3, step: 0.1, label: "사진: 셀당 장수" },
+    photoScale: { value: DEFAULT_COLLAGE.scale, min: 0.3, max: 2.5, step: 0.05, label: "사진: 크기" },
     shardDensity: { value: DEFAULT_SHARDS.density, min: 0.2, max: 3, step: 0.1, label: "파편: 셀당 밀도" },
     shardPanels: { value: DEFAULT_SHARDS.panels, min: 0, max: 3, step: 0.1, label: "파편: 기울어진 패널" },
     shardStruts: { value: DEFAULT_SHARDS.struts, min: 0, max: 3, step: 0.1, label: "파편: 검은 스트럿" },
   });
-  const { shardDensity, shardPanels, shardStruts } = c;
+  const { shardDensity, shardPanels, shardStruts, photoDensity, photoScale } = c;
   const shards = useMemo(() => ({ density: shardDensity, panels: shardPanels, struts: shardStruts }), [shardDensity, shardPanels, shardStruts]);
-  return { style: c.style as ArchStyle, showPaths: c.showPaths, heightUnit: c.heightUnit, shards };
+  const collage = useMemo(() => ({ density: photoDensity, scale: photoScale }), [photoDensity, photoScale]);
+  return { style: c.style as ArchStyle, showPaths: c.showPaths, heightUnit: c.heightUnit, shards, collage };
 }

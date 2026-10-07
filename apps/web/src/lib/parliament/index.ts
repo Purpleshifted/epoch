@@ -5,3 +5,5 @@ export * from "./log";
 export * from "./demo";
 export * from "./nature";
 export * from "./shards";
+export * from "./collage";
+export * from "./fragments.data";

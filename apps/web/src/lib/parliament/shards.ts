@@ -91,11 +91,11 @@ function strut(x0: number, y0: number, x1: number, y1: number, z: number, t: num
   return [x0 + nx, y(y0 + ny), z, x0 - nx, y(y0 - ny), z, x1 - nx, y(y1 - ny), z, x1 + nx, y(y1 + ny), z];
 }
 
-interface Cluster {
+export interface Cluster {
   cells: Slab[];
 }
 
-function clusters(slabs: Slab[]): Cluster[] {
+export function clusters(slabs: Slab[]): Cluster[] {
   const solid = slabs.filter((s) => s.h >= SOLID).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const idx = new Map<string, number>();
   solid.forEach((s, i) => idx.set(s.key, i));

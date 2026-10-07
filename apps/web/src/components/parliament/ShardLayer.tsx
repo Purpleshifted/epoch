@@ -5,10 +5,10 @@
  * (planar world-space UVs, so the texture runs on across neighbouring fragments), flat-lit.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { buildPlanShards, buildShards, type ShardConfig, type Snapshot } from "@/lib/parliament";
+import { buildPlanShards, buildShards, type ShardConfig, type ShardKind, type Snapshot } from "@/lib/parliament";
 
 const TEX_WORLD = 3; // world units per texture repeat
 
@@ -62,6 +62,7 @@ export function ShardLayer({
   every = 0.5,
   view = "side",
   showPaths = true,
+  only,
 }: {
   getSnapshot: () => Snapshot | null;
   heightUnit: number;
@@ -70,13 +71,27 @@ export function ShardLayer({
   /** side = standing fragments seen from the front; top = the same clusters read as a plan. */
   view?: "side" | "top";
   showPaths?: boolean;
+  /** Draw only these fragment kinds (pass a stable array). */
+  only?: readonly ShardKind[];
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const timer = useRef(10);
   const sig = useRef("");
-  const tex = useMemo(() => concreteTexture(), []);
-  useEffect(() => () => tex.dispose(), [tex]);
-  useEffect(() => { sig.current = ""; }, [heightUnit, cfg, view, showPaths]); // force a rebuild when the knobs change
+  const [tex, setTex] = useState<THREE.Texture>(() => concreteTexture()); // procedural stand-in until the photographic board-formed concrete has loaded
+  useEffect(() => {
+    let alive = true;
+    let loaded: THREE.Texture | null = null;
+    new THREE.TextureLoader().load("/textures/concrete_board.jpg", (t) => {
+      if (!alive) { t.dispose(); return; }
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      loaded = t;
+      setTex((old) => { old.dispose(); return t; });
+    });
+    return () => { alive = false; loaded?.dispose(); };
+  }, []);
+  useEffect(() => { sig.current = ""; }, [heightUnit, cfg, view, showPaths, only]); // force a rebuild when the knobs change
 
   useFrame((_, dt) => {
     timer.current += dt;
@@ -94,7 +109,8 @@ export function ShardLayer({
     if (next === sig.current) return;
     sig.current = next;
 
-    const shards = view === "top" ? buildPlanShards(slabs, showPaths ? snap?.paths ?? [] : [], cfg) : buildShards(slabs, heightUnit, cfg);
+    const built = view === "top" ? buildPlanShards(slabs, showPaths ? snap?.paths ?? [] : [], cfg) : buildShards(slabs, heightUnit, cfg);
+    const shards = only ? built.filter((s) => only.includes(s.kind)) : built;
     const pos = new Float32Array(shards.length * 18);
     const uv = new Float32Array(shards.length * 12);
     const col = new Float32Array(shards.length * 18);
