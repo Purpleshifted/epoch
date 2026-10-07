@@ -412,7 +412,10 @@ function SpaceWorld({
       }
     }
     // the fused mass follows the vegetation's cadence (it is built from its history)
-    if (id % NATURE_EVERY === 1) req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300 };
+    if (id % NATURE_EVERY === 1) {
+      const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK };
+    }
     inFlight.current = { id, at: now };
     w.post(req);
   });

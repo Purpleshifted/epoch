@@ -99,6 +99,28 @@ describe("SpaceModel: what the worker computes", () => {
     expect(mesh.index.length % 3).toBe(0);
   }, 120_000);
 
+  it("under a moving present every chunk with something on it gets its mesh (no starvation)", () => {
+    const long = runBots(8, 1500); // 75 slots: several chunks
+    const m = new SpaceModel();
+    m.add(long);
+    const fuse = DEFAULT_FUSE;
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5 }; // old enough to grow something everywhere
+    const input = { box: DEFAULT_BOXES, weather, fuse, tauReclaimYears: 300 };
+    let last = long[long.length - 1].s;
+    let mesh = null;
+    // the present moves on by a slot between requests, so stale chunks keep appearing
+    for (let i = 0; i < 40; i++) {
+      last += DEFAULT_BOXES.secPerUnit;
+      m.add([{ id: `tick${i}`, o: "tick", r: "worker", k: "p", x: 99, z: 99, s: last }]);
+      m.computeParts({ ...parts(), weather });
+      mesh = m.computeFuse({ ...input, focusK: Math.round(last / DEFAULT_BOXES.secPerUnit) - 5 }) ?? mesh;
+    }
+    const ys = Array.from({ length: mesh!.position.length / 3 }, (_, i) => mesh!.position[i * 3 + 1]);
+    const top = Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit;
+    // the chunks where the camera looks (the present, up with the buildings) are built, not only the oldest ones
+    expect(ys.some((y) => y > top * 0.75)).toBe(true);
+  }, 120_000);
+
   it("reset forgets the world", () => {
     const m = new SpaceModel();
     m.add(events);

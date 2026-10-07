@@ -29,7 +29,7 @@ export const EDGE_CAP = 40000;
 /** Slots per cached chunk of vegetation points and of the fused mesh. */
 export const NATURE_CHUNK = 10;
 /** Fused chunks (re)built per request at most; the rest follow on the next requests. */
-export const FUSE_NEW_PER_CALL = 1;
+export const FUSE_NEW_PER_CALL = 2;
 
 /** sRGB hex pairs (low, high shade) per NATURE_KIND. */
 export const NATURE_PALETTE: [string, string][] = [
@@ -122,7 +122,7 @@ export interface WeatherConfig {
   natureAccel: number;
 }
 
-export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.02, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 5, natureAccel: 1 };
+export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1 };
 
 /** The sediment clock of the view at its present (per slot, so it moves once a slot); null without strata. */
 function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
@@ -189,6 +189,8 @@ export interface FuseInput {
   fuse: FuseConfig;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
+  /** The slot the camera looks at: chunks near it are built first (default: the present). */
+  focusK?: number;
 }
 
 export interface PointsResult {
@@ -485,10 +487,10 @@ export class SpaceModel {
       else bySlot.set(b.slot, [e]);
     }
     const padSlots = Math.ceil(((fuse.blur * 2 + 2) * fuse.voxel + fuse.accDepth) / u) + 1;
-    const out: FuseMesh[] = [];
-    const keep = new Set<number>();
-    let made = 0;
-    let pending = false;
+    // the age clock in the keys moves once per chunk of slots (it only tints and pits), not every slot
+    const clockKey = Math.floor(sed.tNow / (box.secPerUnit * NATURE_CHUNK));
+    type Want = { c0: number; c1: number; ps: P[]; key: string };
+    const wants: Want[] = [];
     for (let c0 = Math.floor(kA / NATURE_CHUNK) * NATURE_CHUNK; c0 <= kB; c0 += NATURE_CHUNK) {
       const c1 = c0 + NATURE_CHUNK - 1;
       const ps: P[] = [];
@@ -506,36 +508,40 @@ export class SpaceModel {
         const off = (k - h.k0) * h.nx * h.nz;
         for (let i = 0; i < h.nx * h.nz; i++) vs += h.V[off + i] * ((i % 13) + 1);
       }
-      const key = `${ps.length}:${sum.toFixed(3)}:${vs.toFixed(3)}:${sed.tNow}:${JSON.stringify(input)}:${x0},${z0},${nx},${nz}`;
-      keep.add(c0);
-      let ch = this.fuseChunks.get(c0);
-      if (!ch || ch.key !== key) {
-        if (made >= FUSE_NEW_PER_CALL) {
-          pending = true;
-          if (ch) out.push(ch.mesh); // the stale one until its turn comes
-          continue;
-        }
-        const mesh = fuseChunk({
-          parts: ps.map((e) => e.b),
-          decay: ps.map((e) => e.d),
-          reclaim: ps.map((e) => e.r),
-          standing: ps.map((e) => e.up),
-          history: h,
-          k0: c0,
-          k1: c1,
-          x0,
-          z0,
-          nx,
-          nz,
-          unit: u,
-          sediment: sed,
-          cfg: fuse,
-        });
-        ch = { key, mesh };
-        this.fuseChunks.set(c0, ch);
-        made++;
-      }
-      out.push(ch.mesh);
+      wants.push({ c0, c1, ps, key: `${ps.length}:${sum.toFixed(3)}:${vs.toFixed(3)}:${clockKey}:${JSON.stringify(fuse)}:${input.tauReclaimYears}:${x0},${z0},${nx},${nz}` });
+    }
+    // build order: chunks with no mesh yet first, then stale ones; each nearest to where the camera looks first
+    // (oldest-first starved the upper chunks — where the buildings are — while the lower ones kept changing)
+    const focus = input.focusK ?? kNow;
+    const dist = (w: Want) => Math.abs((w.c0 + w.c1) / 2 - focus);
+    const todo = wants.filter((w) => this.fuseChunks.get(w.c0)?.key !== w.key);
+    todo.sort((a, b) => Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || dist(a) - dist(b));
+    for (const w of todo.slice(0, FUSE_NEW_PER_CALL)) {
+      const mesh = fuseChunk({
+        parts: w.ps.map((e) => e.b),
+        decay: w.ps.map((e) => e.d),
+        reclaim: w.ps.map((e) => e.r),
+        standing: w.ps.map((e) => e.up),
+        history: h,
+        k0: w.c0,
+        k1: w.c1,
+        x0,
+        z0,
+        nx,
+        nz,
+        unit: u,
+        sediment: sed,
+        cfg: fuse,
+      });
+      this.fuseChunks.set(w.c0, { key: w.key, mesh });
+    }
+    const pending = todo.length > FUSE_NEW_PER_CALL;
+    const out: FuseMesh[] = [];
+    const keep = new Set<number>();
+    for (const w of wants) {
+      keep.add(w.c0);
+      const ch = this.fuseChunks.get(w.c0); // fresh, or the stale one until its turn comes
+      if (ch) out.push(ch.mesh);
     }
     for (const c of this.fuseChunks.keys()) if (!keep.has(c)) this.fuseChunks.delete(c);
     if (!pending) this.fuseSig = sig;
