@@ -44,17 +44,19 @@ import {
   type FoldConfig,
   type PEvent,
   type PartKind,
+  type PartsCache,
   type RoleId,
 } from "@/lib/parliament";
 import { useFoldControls, useWorld } from "./useWorld";
 
 const PAPER = "#e9ebee";
 /** Instance capacity per part kind. */
-const CAPACITY: Record<PartKind, number> = { mass: 30000, slab: 6000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
+const CAPACITY: Record<PartKind, number> = { mass: 200000, slab: 6000, drip: 60000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
 /** Base colour per part kind (instance tone multiplies it). */
 const KIND_COLOR: Record<PartKind, string> = {
   mass: "#f4f4f2",
   slab: "#fbfbfa",
+  drip: "#ecece9",
   column: "#6f747b",
   beam: "#6f747b",
   brace: "#6f747b",
@@ -62,6 +64,8 @@ const KIND_COLOR: Record<PartKind, string> = {
   basement: "#9fa3a8",
   pile: "#7f848a",
 };
+/** Boxes that get edge lines at most (slat bundles make the part count large). */
+const EDGE_CAP = 40000;
 const DEG = Math.PI / 180;
 const RC = RECIPES.concrete;
 const pair = (v: [number, number], f = 1): [number, number] => [v[0] * f, v[1] * f];
@@ -119,6 +123,8 @@ function SpaceBoxes({
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const col = useMemo(() => new THREE.Color(), []);
   const corner = useMemo(() => new THREE.Vector3(), []);
+  // a seed's parts are reused while it has not changed (see generateBoxes)
+  const partsCache = useMemo<PartsCache>(() => new Map(), []);
   const key = useMemo(() => JSON.stringify([fold, boxCfg]), [fold, boxCfg]);
 
   const snapped = useRef(false);
@@ -171,7 +177,7 @@ function SpaceBoxes({
     }
     sig.current = next;
 
-    const list = generateBoxes(seeds, boxCfg);
+    const list = generateBoxes(seeds, boxCfg, partsCache);
     let minX = Infinity, minZ = Infinity, top = 0;
     const counts = { ...NO_COUNTS };
     // edges for the box-shaped kinds (piles are cylinders and get none)
@@ -191,7 +197,7 @@ function SpaceBoxes({
       minX = Math.min(minX, b.x - b.sx / 2);
       minZ = Math.min(minZ, b.z - b.sz / 2);
       top = Math.max(top, b.y + halfHeight(b));
-      if (kind === "pile") continue;
+      if (kind === "pile" || lines.length >= EDGE_CAP * 72) continue;
       for (let e = 0; e < 12; e++) {
         for (let k = 0; k < 2; k++) {
           const v = EDGE[e][k];
@@ -450,14 +456,30 @@ export default function ParliamentSpace() {
     columnCount: { value: RC.column.count, min: 0, max: 8, step: 1, label: "기둥: 슬래브당 개수" },
     columnWidth: { value: RC.column.width, min: 0.01, max: 0.5, step: 0.01, label: "기둥: 굵기 (칸)" },
   });
+  const slat = useControls("막대 묶음 / 드립", {
+    enabled: { value: RC.slat.enabled, label: "큰 매스를 막대 묶음으로" },
+    minFootprint: { value: RC.slat.minFootprint, min: 0.2, max: 4, step: 0.05, label: "묶음이 되는 최소 크기 (칸)" },
+    width: { value: RC.slat.width, min: 0.03, max: 1, step: 0.01, label: "막대 굵기 (칸)" },
+    density: { value: RC.slat.density, min: 0.1, max: 1, step: 0.05, label: "막대 채움 비율" },
+    maxPerMass: { value: RC.slat.maxPerMass, min: 4, max: 200, step: 1, label: "매스당 최대 막대 수" },
+    vertical: { value: RC.slat.vertical, min: 0, max: 1, step: 0.05, label: "세로(매달린) 묶음 비율" },
+    shortest: { value: RC.slat.shortest, min: 0.05, max: 1, step: 0.05, label: "매달린 막대 최소 길이 (매스 높이 대비)" },
+    dripPerArea: { value: RC.drip.perArea, min: 0, max: 6, step: 0.1, label: "드립: 칸²당 개수" },
+    dripMax: { value: RC.drip.max, min: 0, max: 60, step: 1, label: "드립: 부품당 최대" },
+    dripLength: { value: RC.drip.length, min: 0.02, max: 6, step: 0.01, label: "드립: 길이 (단)" },
+    dripAlpha: { value: RC.drip.alpha, min: 0.3, max: 4, step: 0.05, label: "드립: 길이 분포 (작을수록 긴 것 많음)" },
+    dripWidth: { value: RC.drip.width, min: 0.01, max: 0.4, step: 0.01, label: "드립: 굵기 (칸)" },
+  });
   const recipe = useMemo<Recipe>(
     () => ({
       ...RC,
+      slat: { enabled: slat.enabled, minFootprint: slat.minFootprint, width: slat.width, density: slat.density, maxPerMass: slat.maxPerMass, vertical: slat.vertical, shortest: slat.shortest },
+      drip: { perArea: slat.dripPerArea, max: slat.dripMax, length: slat.dripLength, alpha: slat.dripAlpha, width: slat.dripWidth },
       beam: { ...RC.beam, chance: steel.beamChance, length: steel.beamLength, width: steel.beamWidth, onGrid: steel.beamOnGrid, skew: steel.beamSkew * DEG },
       brace: { ...RC.brace, chance: steel.braceChance, length: steel.braceLength, tilt: pair(steel.braceTilt, DEG), width: steel.braceWidth },
       column: { ...RC.column, count: steel.columnCount, width: steel.columnWidth },
     }),
-    [steel],
+    [steel, slat],
   );
   const boxCfg = useMemo<BoxConfig>(
     () => ({ ...DEFAULT_BOXES, secPerUnit: c.secPerUnit, unit: c.unit, width: c.width, density: c.density, recipe }),

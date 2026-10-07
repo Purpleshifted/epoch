@@ -21,7 +21,10 @@
  *   pile       thin piles under the plinth: they reach the structure (or ground) below if it is close enough,
  *              otherwise they dangle
  *   mass       the bulk, one or more per slot. Sizes are TRUNCATED PARETO: few huge, many small (scale hierarchy);
- *              some are long bars. Each hangs from its slot's ceiling down into its run (never below the run start)
+ *              some are long bars. Each hangs from its slot's ceiling down into its run (never below the run start).
+ *              A big mass is not one box but a BUNDLE OF SLATS inside its bounds: hanging vertical sticks of ragged
+ *              length, or stacked horizontal rows with stepped ends
+ *   drip       thin sticks hanging under slabs and horizontal-slat masses, never below the run start
  *   slab       thin wide floor plates, cantilevered past the masses: at the start of every run of presence and
  *              every `slab.every` slots inside it — time reads as strata
  *   STEEL (never in empty time):
@@ -63,8 +66,8 @@ export interface Seed {
   mass: number;
 }
 
-export type PartKind = "mass" | "slab" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
-export const PART_KINDS: readonly PartKind[] = ["mass", "slab", "column", "beam", "brace", "plinth", "basement", "pile"];
+export type PartKind = "mass" | "slab" | "drip" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
+export const PART_KINDS: readonly PartKind[] = ["mass", "slab", "drip", "column", "beam", "brace", "plinth", "basement", "pile"];
 export const STEEL: ReadonlySet<PartKind> = new Set(["column", "beam", "brace"]);
 /** Parts that carry what is built on top of them later (piles of later seeds land on these). */
 const BEARING: ReadonlySet<PartKind> = new Set(["mass", "slab", "plinth", "basement"]);
@@ -149,6 +152,14 @@ export interface Recipe {
   beam: { chance: number; length: [number, number]; width: [number, number]; onGrid: number; skew: number; scatter: number };
   /** Diagonal steel: `chance` per slot; length in slots; tilt from the vertical (rad, uniform). */
   brace: { chance: number; length: [number, number]; width: [number, number]; tilt: [number, number]; scatter: number };
+  /**
+   * Masses with √(sx·sz) ≥ minFootprint (cells) become slat bundles. Slat width in cells, widened so a mass never
+   * has more than maxPerMass slats; each slat is kept with `density`. `vertical` = share of hanging-stick bundles
+   * (the rest are horizontal rows); a hanging stick is at least `shortest` of the mass height.
+   */
+  slat: { enabled: boolean; minFootprint: number; width: [number, number]; density: number; maxPerMass: number; vertical: number; shortest: number };
+  /** Under slabs and horizontal-slat masses: perArea drips per cell² (at most max); length in slots, Pareto(alpha). */
+  drip: { perArea: number; max: number; length: [number, number]; alpha: number; width: [number, number] };
   plinth: { footprint: [number, number]; thick: [number, number] };
   /** footprint: fraction of the plinth's. */
   basement: { footprint: [number, number]; depth: [number, number] };
@@ -163,6 +174,8 @@ export const RECIPES: Record<MaterialId, Recipe> = {
     column: { width: [0.07, 0.13], count: [2, 4] },
     beam: { chance: 0.4, length: [1.2, 6], width: [0.05, 0.11], onGrid: 0.5, skew: 0.12, scatter: 1.2 },
     brace: { chance: 0.3, length: [0.8, 3.2], width: [0.05, 0.1], tilt: [0.35, 1.13], scatter: 1.1 },
+    slat: { enabled: true, minFootprint: 0.8, width: [0.12, 0.3], density: 0.8, maxPerMass: 48, vertical: 0.45, shortest: 0.35 },
+    drip: { perArea: 1.2, max: 14, length: [0.15, 2.5], alpha: 1.3, width: [0.04, 0.1] },
     plinth: { footprint: [1.8, 3.2], thick: [0.22, 0.4] },
     basement: { footprint: [0.45, 0.85], depth: [0.8, 2.6] },
     pile: { count: [3, 7], width: [0.06, 0.12], depth: [1.5, 7] },
@@ -188,7 +201,9 @@ export function seedId(cx: number, cz: number, t0: number): number {
 }
 
 /** Each part family has its own salt, so adding draws to one never shifts another. */
-const SALT = { mass: 77, slab: 78, found: 79, steel: 80 } as const;
+const SALT = { mass: 77, slab: 78, found: 79, steel: 80, slat: 81, drip: 82 } as const;
+/** Sub-stream index of a slot's slab (masses use 0 … maxPerSlot-1). */
+const SLAB_SUB = 15;
 
 function stream(seed: number, slot: number, salt: number): () => number {
   let i = 0;
@@ -264,6 +279,85 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
     out.push(b);
   };
 
+  /** Thin sticks hanging under a part whose underside is at yBottom, never below `floor` (the run start). */
+  const drips = (x: number, z: number, sx: number, sz: number, yBottom: number, floor: number, k: number, sub: number, tone: number) => {
+    const room = yBottom - floor;
+    if (room < 0.03 * u) return;
+    const r = stream(seed.id, k * 16 + sub, SALT.drip);
+    const n = Math.min(rc.drip.max, Math.round((rc.drip.perArea * sx * sz) / (W * W)));
+    for (let i = 0; i < n; i++) {
+      const [d0, d1, d2, d3] = [r(), r(), r(), r()];
+      const len = Math.min(paretoIn(d2, rc.drip.length, rc.drip.alpha) * u, room);
+      const w = logIn(d3, rc.drip.width) * W;
+      if (len > 0.03 * u) push("drip", x + (d0 - 0.5) * 0.95 * sx, yBottom - len / 2, z + (d1 - 0.5) * 0.95 * sz, w, len, w, tone, k);
+    }
+  };
+
+  /**
+   * One mass: a single box, or (big enough) a bundle of slats inside the same bounds. Returns true for a
+   * horizontal bundle (those get drips underneath).
+   */
+  const massOrSlats = (x: number, yTop: number, z: number, sx: number, h: number, sz: number, tone: number, k: number, sub: number): boolean => {
+    const sl = rc.slat;
+    if (!sl.enabled || Math.sqrt(sx * sz) < sl.minFootprint * W) {
+      push("mass", x, yTop - h / 2, z, sx, h, sz, tone, k);
+      return false;
+    }
+    const r = stream(seed.id, k * 16 + sub, SALT.slat);
+    const orient = r();
+    const max = Math.max(1, Math.round(sl.maxPerMass));
+    const c = Math.max(logIn(r(), sl.width) * W, Math.sqrt((sx * sz) / max));
+    const before = out.length;
+    if (orient < sl.vertical) {
+      // hanging sticks on a grid over the footprint, ragged bottoms
+      let nx = Math.max(1, Math.round(sx / c));
+      let nz = Math.max(1, Math.round(sz / c));
+      while (nx * nz > max) {
+        if (nx >= nz) nx--;
+        else nz--;
+      }
+      const cx = sx / nx;
+      const cz = sz / nz;
+      for (let a = 0; a < nx; a++) {
+        for (let b = 0; b < nz; b++) {
+          const [keep, l, j] = [r(), r(), r()];
+          if (keep >= sl.density) continue;
+          const jit = j * Math.min(0.06 * u, h * 0.1);
+          const len = (h - jit) * (sl.shortest + (1 - sl.shortest) * Math.pow(l, 0.4));
+          push("mass", x - sx / 2 + (a + 0.5) * cx, yTop - jit - len / 2, z - sz / 2 + (b + 0.5) * cz, cx * 0.92, len, cz * 0.92, tone, k);
+        }
+      }
+      if (out.length === before) push("mass", x, yTop - h / 2, z, cx * 0.92, h, cz * 0.92, tone, k);
+      return false;
+    }
+    // stacked horizontal rows along the longer-drawn axis A, stepped ends
+    const alongX = orient < sl.vertical + (1 - sl.vertical) / 2;
+    const sA = alongX ? sx : sz;
+    const sB = alongX ? sz : sx;
+    let ny = Math.max(1, Math.round(h / c));
+    let nb = Math.max(1, Math.round(sB / c));
+    while (ny * nb > max) {
+      if (ny >= nb) ny--;
+      else nb--;
+    }
+    const ty = h / ny;
+    const wb = sB / nb;
+    for (let j = 0; j < ny; j++) {
+      for (let m = 0; m < nb; m++) {
+        const [keep, lf, off] = [r(), r(), r()];
+        if (keep >= sl.density) continue;
+        const frac = 0.55 + 0.45 * lf;
+        const a = (off - 0.5) * (1 - frac) * sA;
+        const b = -sB / 2 + (m + 0.5) * wb;
+        const y = yTop - (j + 0.5) * ty;
+        if (alongX) push("mass", x + a, y, z + b, frac * sA, ty * 0.9, wb * 0.92, tone, k);
+        else push("mass", x + b, y, z + a, wb * 0.92, ty * 0.9, frac * sA, tone, k);
+      }
+    }
+    if (out.length === before) push("mass", x, yTop - h / 2, z, sx, ty * 0.9, sz, tone, k);
+    return true;
+  };
+
   const slots = occupiedSlots(seed, cfg);
   const runs = runsOf(slots);
 
@@ -323,7 +417,7 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
         const h = Math.min(logIn(u2, rc.mass.height) * u, top - floor);
         const jx = (u3 - 0.5) * 2 * rc.mass.scatter * CELL_SIZE;
         const jz = (u4 - 0.5) * 2 * rc.mass.scatter * CELL_SIZE;
-        push("mass", seed.x + jx, top - h / 2, seed.z + jz, sx, h, sz, u5, k);
+        if (massOrSlats(seed.x + jx, top, seed.z + jz, sx, h, sz, u5, k, i)) drips(seed.x + jx, seed.z + jz, sx, sz, top - h, floor, k, i, u5);
       }
 
       // ── steel beam and brace: now and then, inside the run (between its start and this slot's ceiling) ──
@@ -371,6 +465,7 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
       const cz = seed.z + (s4 - 0.5) * 2 * rc.slab.cantilever * CELL_SIZE;
       const y0 = k * u;
       push("slab", cx, y0 + th / 2, cz, sx, th, sz, s5, k);
+      drips(cx, cz, sx, sz, y0, runStart * u, k, SLAB_SUB, s5);
 
       // down to the previous slab of the run; a slab at the start of a run has none (no steel in empty time)
       if (k === runStart) continue;
@@ -391,12 +486,19 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES, support:
   return out;
 }
 
+/** Parts of a seed kept between calls of generateBoxes (by seed id), valid while their key is unchanged. */
+export type PartsCache = Map<number, { key: string; parts: Box[] }>;
+
 /**
  * All parts. Seeds are built in order of birth, and every foundation is handed what the EARLIER seeds have built
  * below it (bearing parts only, tops not above its birth), so piles land on older structure.
+ * With a `cache`, a seed whose slots, mass, config and number of earlier-born seeds are unchanged reuses its parts
+ * (slat bundles make the part count large, and the view regenerates twice a second).
  */
-export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_BOXES): Box[] {
+export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_BOXES, cache?: PartsCache): Box[] {
   const order = [...seeds].sort((a, b) => a.t0 - b.t0 || a.id - b.id);
+  const cfgKey = cache ? JSON.stringify(cfg) : "";
+  const live = new Set<number>();
   const grid = new Map<string, Box[]>();
   const cell = (v: number) => Math.floor(v / CELL_SIZE);
   const support: Support = (x, z, y) => {
@@ -408,8 +510,20 @@ export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_B
     return best;
   };
   const out: Box[] = [];
-  for (const s of order) {
-    const parts = boxesOfSeed(s, cfg, support);
+  for (let si = 0; si < order.length; si++) {
+    const s = order[si];
+    let parts: Box[];
+    if (cache) {
+      const slots = occupiedSlots(s, cfg);
+      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${si}:${cfgKey}`;
+      const hit = cache.get(s.id);
+      if (hit && hit.key === key) parts = hit.parts;
+      else {
+        parts = boxesOfSeed(s, cfg, support);
+        cache.set(s.id, { key, parts });
+      }
+      live.add(s.id);
+    } else parts = boxesOfSeed(s, cfg, support);
     for (const b of parts) {
       out.push(b);
       if (!BEARING.has(b.kind)) continue;
@@ -423,5 +537,6 @@ export function generateBoxes(seeds: readonly Seed[], cfg: BoxConfig = DEFAULT_B
       }
     }
   }
+  if (cache) for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
   return out;
 }

@@ -6,6 +6,9 @@ const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[]
   Array.from({ length: n }, (_, i) => ({ id: `${o}:${s0}:${i}`, o, r: "worker" as const, k: "p" as const, x, z, s: s0 + i }));
 const crowd = (n: number, s0: number, secs: number, gap = 0): PEvent[] => Array.from({ length: n }, (_, i) => stand(`w${i}`, C / 2, C / 2, s0 + i * gap, secs)).flat();
 
+/** Masses as single boxes (slat bundles off): for tests about the masses themselves. */
+const SOLID = { ...DEFAULT_BOXES, recipe: { ...RECIPES.concrete, slat: { ...RECIPES.concrete.slat, enabled: false } } };
+
 const seed = (over: Partial<Seed> = {}): Seed => ({ id: 12345, material: "concrete", role: "worker", x: 0.6, z: 0.6, t0: 0, t1: 0, mass: 1, ...over });
 
 describe("seeds: from the folded world", () => {
@@ -60,13 +63,13 @@ describe("seeds: boxes", () => {
   });
 
   it("more mass → more masses; sizes vary", () => {
-    const masses = (m: number) => boxesOfSeed(seed({ t0: 0, t1: 600, mass: m })).filter((b) => b.kind === "mass");
+    const masses = (m: number) => boxesOfSeed(seed({ t0: 0, t1: 600, mass: m }), SOLID).filter((b) => b.kind === "mass");
     expect(masses(6).length).toBeGreaterThan(masses(1).length);
     expect(new Set(masses(6).map((b) => b.sx.toFixed(3))).size).toBeGreaterThan(5);
   });
 
   it("scale hierarchy: masses span an order of magnitude, few are huge and most are small", () => {
-    const ms = boxesOfSeed(seed({ t0: 0, t1: 3000, mass: 4 })).filter((b) => b.kind === "mass");
+    const ms = boxesOfSeed(seed({ t0: 0, t1: 3000, mass: 4 }), SOLID).filter((b) => b.kind === "mass");
     const f = ms.map((b) => Math.sqrt(b.sx * b.sz)).sort((a, b) => a - b);
     expect(f[f.length - 1] / f[0]).toBeGreaterThan(8);
     const median = f[Math.floor(f.length / 2)];
@@ -107,8 +110,65 @@ describe("seeds: boxes", () => {
   it("maxSlots bounds the work for very long lives", () => {
     const bs = generateBoxes([seed({ t0: 0, t1: 1e6, mass: 6 })], { ...DEFAULT_BOXES, maxSlots: 50 });
     const rc = RECIPES.concrete;
-    expect(bs.filter((b) => b.kind === "mass").length).toBeLessThanOrEqual(50 * rc.mass.maxPerSlot);
-    expect(bs.length).toBeLessThanOrEqual(50 * (rc.mass.maxPerSlot + 1 + rc.column.count[1] + 2));
+    expect(bs.filter((b) => b.kind === "mass").length).toBeLessThanOrEqual(50 * rc.mass.maxPerSlot * rc.slat.maxPerMass);
+    expect(bs.length).toBeLessThanOrEqual(50 * (rc.mass.maxPerSlot * (rc.slat.maxPerMass + rc.drip.max) + 1 + rc.drip.max + rc.column.count[1] + 2));
+  });
+});
+
+describe("seeds: slat bundles and drips", () => {
+  const s = seed({ t0: 0, t1: 1500, mass: 4 });
+  const contains = (o: Box, b: Box) =>
+    b.x - b.sx / 2 >= o.x - o.sx / 2 - 1e-9 && b.x + b.sx / 2 <= o.x + o.sx / 2 + 1e-9 &&
+    b.y - b.sy / 2 >= o.y - o.sy / 2 - 1e-9 && b.y + b.sy / 2 <= o.y + o.sy / 2 + 1e-9 &&
+    b.z - b.sz / 2 >= o.z - o.sz / 2 - 1e-9 && b.z + b.sz / 2 <= o.z + o.sz / 2 + 1e-9;
+
+  it("big masses become bundles of slats, each inside the mass it replaces, at most maxPerMass per mass", () => {
+    const solid = boxesOfSeed(s, SOLID).filter((b) => b.kind === "mass");
+    const slats = boxesOfSeed(s).filter((b) => b.kind === "mass");
+    expect(slats.length).toBeGreaterThan(solid.length * 3);
+    for (const b of slats) expect(solid.some((o) => contains(o, b))).toBe(true);
+    expect(slats.length).toBeLessThanOrEqual(solid.length * RECIPES.concrete.slat.maxPerMass);
+  });
+
+  it("both bundle kinds occur: hanging sticks (tall, thin) and horizontal rows (long, flat)", () => {
+    const slats = boxesOfSeed(s).filter((b) => b.kind === "mass");
+    expect(slats.some((b) => b.sy > 3 * Math.max(b.sx, b.sz))).toBe(true);
+    expect(slats.some((b) => Math.max(b.sx, b.sz) > 3 * b.sy)).toBe(true);
+  });
+
+  it("is deterministic", () => {
+    expect(boxesOfSeed(s)).toEqual(boxesOfSeed(s));
+  });
+
+  it("drips hang under slabs and rows, and stay inside the run", () => {
+    const drips = boxesOfSeed(s).filter((b) => b.kind === "drip");
+    expect(drips.length).toBeGreaterThan(0);
+    for (const d of drips) {
+      expect(d.y - d.sy / 2).toBeGreaterThanOrEqual(-1e-9);
+      expect(d.sy).toBeLessThanOrEqual(RECIPES.concrete.drip.length[1] * DEFAULT_BOXES.unit + 1e-9);
+    }
+  });
+});
+
+describe("seeds: generation cache", () => {
+  const seeds = [seed({ id: 1, t0: 0, t1: 300, mass: 3 }), seed({ id: 2, t0: 420, t1: 600, x: 1.8 })];
+
+  it("a warm cache gives exactly what a fresh generation gives", () => {
+    const cache = new Map();
+    const cold = generateBoxes(seeds, DEFAULT_BOXES, cache);
+    expect(cold).toEqual(generateBoxes(seeds));
+    expect(generateBoxes(seeds, DEFAULT_BOXES, cache)).toEqual(cold);
+  });
+
+  it("a grown seed, a changed config or a vanished seed is not served stale", () => {
+    const cache = new Map();
+    generateBoxes(seeds, DEFAULT_BOXES, cache);
+    const grown = [seeds[0], { ...seeds[1], t1: 900 }];
+    expect(generateBoxes(grown, DEFAULT_BOXES, cache)).toEqual(generateBoxes(grown));
+    const wide = { ...DEFAULT_BOXES, width: 1.5 };
+    expect(generateBoxes(grown, wide, cache)).toEqual(generateBoxes(grown, wide));
+    generateBoxes([seeds[0]], wide, cache);
+    expect([...cache.keys()]).toEqual([1]);
   });
 });
 
