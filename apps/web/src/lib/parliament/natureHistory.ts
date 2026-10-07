@@ -41,6 +41,8 @@ export interface NatureHistory {
   nk: number;
   /** V[(k − k0)·nx·nz + j·nx + i] for cell (x0 + i, z0 + j). */
   V: Float32Array;
+  /** Desire-path strength p (0..1) at the end of each slot, same layout as V. */
+  P: Float32Array;
 }
 
 export interface NatureHistoryInput {
@@ -57,7 +59,7 @@ export interface NatureHistoryInput {
   fold: FoldConfig;
 }
 
-const EMPTY: NatureHistory = { x0: 0, z0: 0, nx: 0, nz: 0, k0: 0, nk: 0, V: new Float32Array(0) };
+const EMPTY: NatureHistory = { x0: 0, z0: 0, nx: 0, nz: 0, k0: 0, nk: 0, V: new Float32Array(0), P: new Float32Array(0) };
 
 /** Whether a seed's slab still seals its cell at exhibition time t (the fold's wear). */
 function sealsAt(seed: Seed, t: number, tauSlabYears: number): boolean {
@@ -129,6 +131,7 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
   const n = Math.ceil(nc.lingerRadius / CELL_SIZE);
   const fall = Math.exp(-spu / nc.recoverSec);
   const out = new Float32Array((k1 - k0 + 1) * nc2);
+  const pathOut = new Float32Array((k1 - k0 + 1) * nc2);
   const Sstart = new Float64Array(nc2);
 
   const kFirst = Math.min(k0, Math.floor(pres[0].s / spu));
@@ -186,10 +189,25 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
         const a = grassDensity(ix, iz, Sstart[c], p, sealed, nc);
         const b = grassDensity(ix, iz, S[c], p, sealed, nc);
         out[base + c] = (a + b) / 2;
+        pathOut[base + c] = p;
       }
     }
   }
-  return { x0, z0, nx, nz, k0, nk: k1 - k0 + 1, V: out };
+  return { x0, z0, nx, nz, k0, nk: k1 - k0 + 1, V: out, P: pathOut };
+}
+
+/** Path strength at world (x, z) in slot k, interpolated between cell centres (0 outside the history). */
+export function pathAt(h: NatureHistory, x: number, z: number, k: number): number {
+  const kk = k - h.k0;
+  if (kk < 0 || kk >= h.nk || !h.P.length) return 0;
+  const fx = x / CELL_SIZE - 0.5 - h.x0, fz = z / CELL_SIZE - 0.5 - h.z0;
+  const i0 = Math.floor(fx), j0 = Math.floor(fz);
+  const tx = fx - i0, tz = fz - j0;
+  const base = kk * h.nx * h.nz;
+  const at = (i: number, j: number) => (i < 0 || j < 0 || i >= h.nx || j >= h.nz ? 0 : h.P[base + j * h.nx + i]);
+  const a = at(i0, j0) + (at(i0 + 1, j0) - at(i0, j0)) * tx;
+  const b = at(i0, j0 + 1) + (at(i0 + 1, j0 + 1) - at(i0, j0 + 1)) * tx;
+  return a + (b - a) * tz;
 }
 
 /** V of cell (ix, iz) in slot k, or null outside the history. */
@@ -222,6 +240,11 @@ export interface NaturePointOptions {
   thinCell?: (ix: number, iz: number, k: number) => number;
   /** TIME ERROR (as BoxConfig.timeJitter): points spill up to ± this many slots beyond their slot (never below 0). */
   timeJitter?: number;
+  /**
+   * PATHS as holes: where the path strength (interpolated between cell centres) reaches `hole`, no vegetation point;
+   * on the rim (from 0.3 · hole) the points are trodden-aside soil lying low, with `berm` extra ones heaped up.
+   */
+  paths?: { hole: number; berm: number };
 }
 
 /** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
@@ -289,7 +312,25 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           const J = opts.timeJitter ?? 0;
           const spill = J > 0 ? (h3(ix, iz, k, s + 10) - 0.5) * 2 * J : 0;
           const yy = under ? 0.2 * ry : (ry + spill) * (1 - 0.6 * q);
-          pos.push((ix + rx) * CELL_SIZE, Math.max(0, (k + yy) * opts.unit), (iz + rz) * CELL_SIZE);
+          const px = (ix + rx) * CELL_SIZE, pz = (iz + rz) * CELL_SIZE;
+          if (opts.paths && !under) {
+            const pf = pathAt(h, px, pz, k);
+            if (pf >= opts.paths.hole) continue; // the path itself: bare
+            if (pf >= opts.paths.hole * 0.3) {
+              // the rim: soil pushed aside by feet, lying low, heaped a little more the closer to the path
+              const rim = pf / opts.paths.hole;
+              const extra = Math.floor(opts.paths.berm * rim + h3(ix, iz, k, s + 11));
+              for (let e = 0; e <= extra; e++) {
+                const jx = e ? (h3(ix, iz, k, s + 12 + e) - 0.5) * 0.3 : 0;
+                const jz = e ? (h3(ix, iz, k, s + 20 + e) - 0.5) * 0.3 : 0;
+                pos.push(px + jx, Math.max(0, (k + (ry + spill) * 0.35) * opts.unit), pz + jz);
+                kind.push(h3(ix, iz, k, s + 28 + e) < 0.7 ? NATURE_KIND.soil : NATURE_KIND.dry);
+                shade.push(h3(ix, iz, k, s + 36 + e));
+              }
+              continue;
+            }
+          }
+          pos.push(px, Math.max(0, (k + yy) * opts.unit), pz);
           const soil = 0.15 + 0.6 * (1 - v);
           if (under) kind.push(NATURE_KIND.buried);
           else if (sed) kind.push(q > 0.6 && h3(ix, iz, k, s + 8) < q ? NATURE_KIND.peat : NATURE_KIND.humus);

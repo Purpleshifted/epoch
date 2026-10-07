@@ -166,6 +166,8 @@ export interface NatureInput {
   box: BoxConfig;
   weather: WeatherConfig;
   fuse: FuseConfig;
+  /** Desire paths drawn as holes in the vegetation with a heaped rim (null = off). */
+  paths?: { hole: number; berm: number } | null;
   nature: NatureConfig;
   perSlot: number;
   /** Slots around `focusK` that are built. */
@@ -404,7 +406,7 @@ export class SpaceModel {
       : undefined;
     const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
     // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
-    const fuseKey = `${JSON.stringify(input.fuse)}:${this.partsSig}`;
+    const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}`;
     const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${fuseKey}:${k0}:${k1}:${levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
@@ -448,7 +450,7 @@ export class SpaceModel {
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }

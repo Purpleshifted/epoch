@@ -141,6 +141,7 @@ interface NatureParams {
   size: number;
   /** Point size of the vegetation gathering on buildings. */
   gatherSize: number;
+  paths: { hole: number; berm: number } | null;
   window: number;
   margin: number;
   budget: number;
@@ -412,7 +413,7 @@ function SpaceWorld({
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
-      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, lod };
+      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod };
       if (nat.reclaim) {
         req.reclaim = {
           tauReclaimYears: nat.tauReclaimYears,
@@ -902,6 +903,11 @@ export default function ParliamentSpace() {
         gatherSize: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
+      "길 (식생에 난 구멍)": folder({
+        pathsOn: { value: true, label: "켜기" },
+        pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
+        pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
+      }),
     },
     { order: 5 },
   );
@@ -1015,9 +1021,10 @@ export default function ParliamentSpace() {
             reclaim: veg.gatherOn,
             tauReclaimYears: veg.tauReclaimYears,
             reclaimPerArea: veg.gatherPerArea,
+            paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm } : null,
           }
         : null,
-    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea],
+    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
   );
   const recipe = useMemo<Recipe>(
     () => ({

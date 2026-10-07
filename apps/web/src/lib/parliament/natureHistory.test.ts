@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FOLD, DEFAULT_NATURE, NATURE_KIND, baseGrass, burialOf, generateBoxes, reclaimPoints, reclaimShare, sedimentShare, wearParts, foldWorld, grassDensity, natureAt, natureHistory, naturePointLoad, naturePoints, seedsFromSnapshot, stressMap, withoutWear, type PEvent } from "./index";
+import { DEFAULT_FOLD, DEFAULT_NATURE, NATURE_KIND, baseGrass, burialOf, generateBoxes, reclaimPoints, reclaimShare, sedimentShare, wearParts, foldWorld, grassDensity, natureAt, natureHistory, naturePointLoad, naturePoints, pathAt, seedsFromSnapshot, stressMap, withoutWear, type PEvent } from "./index";
 
 const SPU = 30;
 /** Visitor `o` standing at (x, z) from s0 for `secs` seconds (one sample per second, a little off the slot grid). */
@@ -182,5 +182,33 @@ describe("vegetation points have no bands at the slot floors", () => {
     const low = frac.filter((f) => f < 0.25).length / frac.length;
     expect(low).toBeLessThan(0.35); // was ~0.75 when points settled at the floor
     expect(low).toBeGreaterThan(0.15);
+  });
+});
+
+describe("paths: holes in the vegetation with a heaped rim", () => {
+  // three walkers crossing x = 0.6 … 4.2 along z = 0.6, back and forth: the row of cells z = 0 becomes a path
+  const walk: PEvent[] = [];
+  for (const o of ["a", "b", "c"]) {
+    for (let i = 0; i < 120; i++) {
+      const t = i % 8 < 4 ? i % 8 : 8 - (i % 8);
+      walk.push({ id: `${o}:w${i}`, o, r: "worker", k: "p", x: 0.6 + t * 1.2, z: 0.6, s: i + 0.37 + (o === "b" ? 0.1 : o === "c" ? 0.2 : 0) });
+    }
+  }
+  const h = run(walk, 0, 5, 6, []);
+
+  it("the path field is strongest on the walked row", () => {
+    expect(pathAt(h, 2.4, 0.6, 3)).toBeGreaterThan(pathAt(h, 2.4, 4.2, 3) + 0.2);
+  });
+
+  it("no vegetation on the path, low soil heaped beside it", () => {
+    const opts = { unit: 1, perSlot: 12, paths: { hole: 0.3, berm: 2 } };
+    const pts = naturePoints(h, 3, 4, opts);
+    for (let i = 0; i < pts.count; i++) {
+      const [x, y, z] = [pts.position[i * 3], pts.position[i * 3 + 1], pts.position[i * 3 + 2]];
+      expect(pathAt(h, x, z, Math.floor(y))).toBeLessThan(0.3 + 0.15); // (jittered rim points may lean in a little)
+    }
+    const plain = naturePoints(h, 3, 4, { unit: 1, perSlot: 12 });
+    const soil = (p: typeof pts) => p.kind.filter((k) => k === NATURE_KIND.soil || k === NATURE_KIND.dry).length;
+    expect(soil(pts)).toBeGreaterThan(soil(plain));
   });
 });
