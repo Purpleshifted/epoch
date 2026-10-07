@@ -6,11 +6,11 @@ import { DEFAULT_COLLAGE, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog
 import type { ArchStyle } from "./Architecture";
 
 /** The shared event log of this tab, kept in sync with localStorage (poll + storage events). */
-export function useWorld(onCleared?: () => void): EventLog {
+export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
   const log = useMemo(() => new EventLog(), []);
   useEffect(() => {
     log.addMany(loadEvents());
-    const poll = setInterval(() => log.addMany(loadEvents()), 3000);
+    const poll = setInterval(() => log.addMany(loadEvents()), pollMs);
     const onStorage = (e: StorageEvent) => {
       if (e.key !== LS_EVENTS_KEY) return;
       if (e.newValue === null) {

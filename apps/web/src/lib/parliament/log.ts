@@ -11,6 +11,8 @@ import { ROLES } from "./types";
 export const LS_EVENTS_KEY = "anthropocene:parliament:v1";
 /** Shared with the older stratum code: the wall-clock moment the exhibition epoch began. */
 export const LS_PARLIAMENT_EPOCH_KEY = "anthropocene:epoch:v1";
+/** The visitor id of the most recently opened player tab (so the 3D view can mark "me"). */
+export const LS_PARLIAMENT_ME_KEY = "anthropocene:parliament:me";
 export const MAX_EVENTS = 30000;
 
 export class EventLog {

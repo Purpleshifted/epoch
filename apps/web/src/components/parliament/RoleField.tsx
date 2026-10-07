@@ -13,6 +13,7 @@
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
+  LS_PARLIAMENT_ME_KEY,
   getEpochMs,
   foldWorld,
   pickOffset,
@@ -31,7 +32,7 @@ import { useWorld } from "./useWorld";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
-const SAVE_EVERY = 3;
+const SAVE_EVERY = 1; // seconds between mirrors to localStorage (the 3D view shows live markers from it)
 const FILTER_EVERY = 15; // a worker's smoking break, in assigned seconds
 
 export interface ParliamentDebug {
@@ -66,6 +67,8 @@ export function RoleField({
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
     pending.current = [];
+    sinceFilter.current.clear();
+    epochMs.current = getEpochMs(); // the world was cleared: join the NEW epoch
   });
   const epochMs = useRef(0);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
@@ -85,6 +88,11 @@ export function RoleField({
       offset: pickOffset(Math.random(), offsetWindow),
       tag: Math.random().toString(36).slice(2, 6),
     };
+    try {
+      localStorage.setItem(LS_PARLIAMENT_ME_KEY, me.current.id);
+    } catch {
+      /* ignore */
+    }
     const flush = () => {
       if (pending.current.length) {
         saveMerged(pending.current);
