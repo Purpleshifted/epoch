@@ -131,7 +131,7 @@ export default function ParliamentScene() {
   const playerPosRef = useRef({ x: 0, z: 0 });
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
 
-  const { role, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { role, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
         role: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "내 역할" },
@@ -143,6 +143,7 @@ export default function ParliamentScene() {
         botRole: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "봇 역할" },
         botGroups: { value: 4, min: 1, max: 10, step: 1, label: "봇 무리 수 (무리당 3명 이상이어야 콘크리트)" },
         botSpread: { value: 14, min: 0, max: 60, step: 1, label: "무리 간 거리 (월드)" },
+        botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s, 나 기준 ±절반에서 랜덤)" },
       }),
       "화면": folder({
         pixelDpr: { value: 1, min: 0.15, max: 1, step: 0.05, label: "해상도 (1 = 픽셀 아님, 작을수록 거칠게)" },
@@ -153,7 +154,7 @@ export default function ParliamentScene() {
         fogFar: { value: 80, min: 20, max: 200, step: 5 },
       }, { collapsed: true }),
     });
-  const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread }), [botGroups, botSpread]);
+  const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
   const cfg = useFoldControls();
   const { cfg: natureCfg, pointSize } = useNatureControls();
 

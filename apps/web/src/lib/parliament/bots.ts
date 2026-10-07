@@ -11,6 +11,7 @@
  */
 
 import { sessionSeconds } from "./clock";
+import { hash2 } from "./nature";
 import type { RoleId } from "./types";
 
 /** Most samples one tick may backfill (a tab frozen for longer than this skips the older part). */
@@ -45,6 +46,11 @@ export interface Actor {
 export interface Flock {
   groups: number;
   spread: number;
+  /**
+   * TIME: each bot's assigned time is the player's ± a random share of this width (seconds), drawn once per bot when
+   * the bots are switched on — the same rule for all of them. Absent = the old fixed −20 … +4 s pattern.
+   */
+  timeSpread?: number;
 }
 
 export const ONE_FLOCK: Flock = { groups: 1, spread: 0 };
@@ -60,9 +66,14 @@ export function flockCentre(g: number, groups: number, spread: number, sec: numb
   return [Math.cos(a) * r + Math.sin(sec * w1 + g) * d, Math.sin(a) * r + Math.cos(sec * w2 + 2 * g) * d];
 }
 
+/** Bot i's time offset relative to the player (seconds): uniform in ±timeSpread/2, fixed while the bots are on. */
+export function botTimeOffset(i: number, startMs: number, timeSpread: number): number {
+  return (hash2(i, Math.floor(startMs / 1000) % 1_000_003, 61) - 0.5) * timeSpread;
+}
+
 /**
- * Bot i at wall time `wallMs`: circles its flock's centre on one of four radii, and lives in nearly the same time
- * slot as the player (some a little ahead, so they are invisible to the player at first).
+ * Bot i at wall time `wallMs`: circles its flock's centre on one of four radii, and lives around the player's time
+ * slot (a random time within ±timeSpread/2 of it; some a little ahead, so they are invisible to the player at first).
  * `startMs` is when the bots were switched on; their motion depends only on (wallMs - startMs).
  */
 export function botActor(i: number, role: RoleId, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): Actor {
@@ -74,6 +85,6 @@ export function botActor(i: number, role: RoleId, wallMs: number, startMs: numbe
   const R = 1 + (j % 4) * 1.1;
   const w = (0.18 + 0.05 * (j % 4)) * (j % 2 ? 1 : -1);
   const a = sec * w + i * 2.399963;
-  const off = Math.max(0, playerOffset - 20 + ((i * 7) % 25));
+  const off = Math.max(0, flock.timeSpread !== undefined ? playerOffset + botTimeOffset(i, startMs, flock.timeSpread) : playerOffset - 20 + ((i * 7) % 25));
   return { o: `bot${i}`, r: role, x: cx + Math.cos(a) * R, z: cz + Math.sin(a) * R, s: sessionSeconds(wallMs, epochMs, off) };
 }

@@ -86,3 +86,26 @@ describe("bot flocks: concrete in several places", () => {
     expect(places(runBots(12, 120, 1000))).toBeLessThanOrEqual(2); // one flock: one ring (up to ~9 units across)
   });
 });
+
+describe("bot time: random within a window around the player", () => {
+  const start = 1_800_000_000_000;
+  const offsets = (spread: number) => Array.from({ length: 40 }, (_, i) => botActor(i, "worker", start + 5000, start, start, 300, { groups: 4, spread: 10, timeSpread: spread }).s - 5);
+
+  it("every bot lies within ±spread/2 of the player, both ahead and behind", () => {
+    const o = offsets(60);
+    for (const v of o) expect(Math.abs(v - 300)).toBeLessThanOrEqual(30 + 1e-9);
+    expect(o.some((v) => v > 300 + 5)).toBe(true);
+    expect(o.some((v) => v < 300 - 5)).toBe(true);
+    expect(new Set(o.map((v) => v.toFixed(2))).size).toBeGreaterThan(30); // not a fixed pattern
+  });
+
+  it("a bot keeps its time slot while the bots are on (no jumping between samples)", () => {
+    const a = botActor(7, "worker", start + 5000, start, start, 300, { groups: 4, spread: 10, timeSpread: 60 });
+    const b = botActor(7, "worker", start + 65000, start, start, 300, { groups: 4, spread: 10, timeSpread: 60 });
+    expect(b.s - a.s).toBeCloseTo(60, 9);
+  });
+
+  it("spread 0 puts every bot exactly at the player's time", () => {
+    for (const v of offsets(0)) expect(v).toBeCloseTo(300, 9);
+  });
+});
