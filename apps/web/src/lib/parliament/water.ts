@@ -12,13 +12,17 @@
  *                `imperviousRadius` cells
  *   SOURCES      every building in use at t (used within `persistSec`) sheds its runoff (its area), from the edge of
  *                its block
- *   ROUTE        each source drains to the nearest OPEN ground (sealed share < `openShare`, not sealed): the cheapest
+ *   NETWORK      dense buildings within `quarterGap` of each other form a QUARTER with one sewer network: a TRUNK
+ *                from the quarter's nearest building to the outfall, then LATERALS from every other building to the
+ *                network (nearest to the outfall first) — so the pipes join the buildings into one tree
+ *   ROUTE        a route drains to the nearest OPEN ground (trunk) or to the network (laterals) (sealed share < `openShare`, not sealed): the cheapest
  *                way over the grid — along the paths (sewers run under streets), joining the pipes already laid,
  *                never through a building that stands (past buildings are gone round). Right angles only, or 45°
  *                too (`diagonal`); straight runs, bends at the cells where the direction changes
  *   PIPE / OPEN  a building in a sealed quarter (the mean sealed share over its cells ≥ `burial`) drains through a
  *                PIPE all the way to the outlet (a storm sewer and its outfall): buried, drawn as straight grey
- *                conduits at the slot it was laid, left in its layer — a technofossil. From the outfall — or right
+ *                conduits — the whole network of an epoch at the epoch's slot, so every layer of the timespace
+ *                shows the sewers of its time beside its buildings, and keeps them (a technofossil). From the outfall — or right
  *                from its edge, for a building in open land — the water runs as an OPEN stream (a clear channel in
  *                the vegetation, lined with wetland) for `streamLength` before it soaks away
  *   SIZE         a pipe's or stream's flow is the runoff of everything upstream: trunks thicker than branches
@@ -68,6 +72,8 @@ export interface WaterConfig {
   corrode: number;
   /** Radius (world) of a pipe carrying one building's runoff; × √(flow / that). */
   pipeRadius: number;
+  /** Dense buildings within this distance (world) share one sewer network and outfall (a quarter). */
+  quarterGap: number;
 }
 
 export const DEFAULT_WATER: WaterConfig = {
@@ -88,6 +94,7 @@ export const DEFAULT_WATER: WaterConfig = {
   wetShare: 1,
   corrode: 1.5,
   pipeRadius: 0.06,
+  quarterGap: 10,
 };
 
 export interface Building {
@@ -203,7 +210,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
 
   const buildings = buildingsOf(seeds, cfg);
   const piped = new Uint8Array(n); // cells a pipe has been laid through (persist)
-  const pipeEdges = new Set<string>(); // laid runs "a>b" (cell indices), so a run is laid once
+
   const streams = new Map<number, Float32Array[]>();
   const pipes: PipeRun[] = [];
 
@@ -242,36 +249,67 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       const sum = sat[(d + 1) * (nx + 1) + b + 1] - sat[c * (nx + 1) + b + 1] - sat[(d + 1) * (nx + 1) + a] + sat[c * (nx + 1) + a];
       share[j * nx + i] = sum / ((b - a + 1) * (d - c + 1));
     }
-    // sources: buildings in use, largest first (trunks are laid first, the rest join them)
+    // sources: buildings in use
     const live = buildings.filter((b) => b.t0 <= t && b.lastS + cfg.persistSec >= t).sort((p, q) => q.seeds.length - p.seeds.length || p.id - q.id);
     if (!live.length) continue;
-    const flowAt = new Float32Array(n);
+    const isOpen = (c: number) => !sealed[c] && share[c] < cfg.openShare;
+    const meanShare = (b: Building) => b.seeds.reduce((a, s) => a + share[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))], 0) / b.seeds.length;
+    const dense = live.filter((b) => meanShare(b) >= cfg.burial);
+    const sparse = live.filter((b) => meanShare(b) < cfg.burial);
     const courses: Float32Array[] = [];
-    for (const b of live) {
-      const route = routeOut(b, block, path, piped, share, sealed, nx, nz, idx, cfg);
-      if (!route) continue;
-      for (const c of route) flowAt[c] += b.seeds.length;
-      // a building in a sealed quarter: piped all the way to the outfall; otherwise open from its edge
-      let bs = 0;
-      for (const s of b.seeds) bs += share[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))];
-      const piping = bs / b.seeds.length >= cfg.burial;
-      const firstOpen = piping ? route.length - 1 : 0;
-      const pipePart = piping ? route : [];
-      for (const c of pipePart) piped[c] = 1;
-      for (const [a, z] of straightRuns(pipePart, nx)) {
-        const key = `${a}>${z}`;
-        if (pipeEdges.has(key) || pipeEdges.has(`${z}>${a}`)) continue;
-        pipeEdges.add(key);
-        const [ax, az] = centre(a), [bx, bz] = centre(z);
-        pipes.push({ ax, az, bx, bz, k: e, flow: b.seeds.length });
+    const pipeEdges = new Set<string>(); // this epoch's runs "a>b" (cell indices), each drawn once
+
+    // QUARTERS: dense buildings near each other share one sewer network and one outfall
+    for (const quarter of quartersOf(dense, cfg.quarterGap)) {
+      const down = new Int32Array(n).fill(-2); // network: the next cell towards the outfall (−1 = the outfall)
+      const inNet = (c: number) => down[c] !== -2;
+      const routes: number[][] = [];
+      const entry = new Map<number, number>(); // building → the cell its water enters the network at
+      // the trunk: from the quarter's nearest building edge to open ground
+      const trunk = routeOut(quarter, block, path, piped, nx, nz, idx, cfg, isOpen);
+      if (!trunk) continue;
+      for (let i = 0; i < trunk.cells.length; i++) down[trunk.cells[i]] = i + 1 < trunk.cells.length ? trunk.cells[i + 1] : -1;
+      routes.push(trunk.cells);
+      entry.set(trunk.from, trunk.cells[0]);
+      // laterals: every other building to the network, nearest to the outfall first
+      const [ox, oz] = centre(trunk.cells[trunk.cells.length - 1]);
+      const rest = quarter
+        .filter((b) => b.id !== trunk.from)
+        .map((b) => ({ b, d: Math.min(...b.seeds.map((s) => Math.hypot(s.x - ox, s.z - oz))) }))
+        .sort((p, q) => p.d - q.d || p.b.id - q.b.id);
+      for (const { b } of rest) {
+        const lat = routeOut([b], block, path, piped, nx, nz, idx, cfg, inNet);
+        if (!lat) continue;
+        for (let i = 0; i + 1 < lat.cells.length; i++) down[lat.cells[i]] = lat.cells[i + 1];
+        routes.push(lat.cells);
+        entry.set(b.id, lat.cells[0]);
       }
-      if (firstOpen < route.length) courses.push(openCourse(route.slice(firstOpen), share, nx, nz, centre, cfg, b.id, e));
+      // flow: every building's runoff, down the network to the outfall
+      const flowAt = new Float32Array(n);
+      for (const b of quarter) {
+        let c = entry.get(b.id) ?? -1;
+        for (let guard = 0; c >= 0 && guard < n; guard++) {
+          flowAt[c] += b.seeds.length;
+          c = down[c];
+        }
+      }
+      for (const r of routes) {
+        for (const c of r) piped[c] = 1;
+        for (const [a2, z2] of straightRuns(r, nx)) {
+          const key = `${a2}>${z2}`;
+          if (pipeEdges.has(key) || pipeEdges.has(`${z2}>${a2}`)) continue;
+          pipeEdges.add(key);
+          const [ax, az] = centre(a2), [bx, bz] = centre(z2);
+          pipes.push({ ax, az, bx, bz, k: e, flow: Math.max(flowAt[a2], flowAt[z2], 1) });
+        }
+      }
+      // the outfall: the water comes out into the open and runs on
+      courses.push(openCourse([trunk.cells[trunk.cells.length - 1]], share, nx, nz, centre, cfg, quarter[0].id, e));
     }
-    // the pipes' flow: the most that ran through their cells in the epoch they were laid
-    for (const p of pipes) {
-      if (p.k !== e) continue;
-      const a = idx(Math.floor(p.ax / CELL_SIZE), Math.floor(p.az / CELL_SIZE));
-      p.flow = Math.max(p.flow, flowAt[a]);
+    // buildings in open land: an open stream from their edge
+    for (const b of sparse) {
+      const r = routeOut([b], block, path, piped, nx, nz, idx, cfg, isOpen);
+      if (r) courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
     }
     for (let k = e; k < e + every; k++) if (courses.length) streams.set(k, courses);
   }
@@ -284,17 +322,16 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
  * a standing building; right angles, or also 45° (`diagonal` > 0). Cell indices from the building's edge outwards.
  */
 function routeOut(
-  b: Building,
+  from: readonly Building[],
   block: Int32Array,
   path: Uint8Array,
   piped: Uint8Array,
-  share: Float32Array,
-  sealed: Uint8Array,
   nx: number,
   nz: number,
   idx: (cx: number, cz: number) => number,
   cfg: WaterConfig,
-): number[] | null {
+  isGoal: (c: number) => boolean,
+): { cells: number[]; from: number } | null {
   const n = nx * nz;
   const dist = new Float64Array(n).fill(Infinity);
   const prev = new Int32Array(n).fill(-1);
@@ -331,12 +368,16 @@ function routeOut(
   // the block's edge: free cells next to it — those on a path (or touching one) if any: a building drains into the
   // sewer under its street, not out of its back
   const edge = new Set<number>();
-  for (const s of b.seeds) {
-    const cx = Math.floor(s.x / CELL_SIZE), cz = Math.floor(s.z / CELL_SIZE);
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const c = idx(cx + dx, cz + dz);
-      if (c < 0 || c >= n || block[c] >= 0) continue;
-      edge.add(c);
+  const owner = new Map<number, number>(); // edge cell → its building
+  for (const b of from) {
+    for (const s of b.seeds) {
+      const cx = Math.floor(s.x / CELL_SIZE), cz = Math.floor(s.z / CELL_SIZE);
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const c = idx(cx + dx, cz + dz);
+        if (c < 0 || c >= n || block[c] >= 0) continue;
+        edge.add(c);
+        if (!owner.has(c)) owner.set(c, b.id);
+      }
     }
   }
   const onStreet = [...edge].filter((c) => {
@@ -361,7 +402,7 @@ function routeOut(
     const u = pop();
     if (done[u]) continue;
     done[u] = 1;
-    if (!sealed[u] && share[u] < cfg.openShare) {
+    if (isGoal(u)) {
       goal = u;
       break;
     }
@@ -385,7 +426,38 @@ function routeOut(
   if (goal < 0) return null;
   const out: number[] = [];
   for (let v = goal; v >= 0; v = prev[v]) out.push(v);
-  return out.reverse();
+  out.reverse();
+  return { cells: out, from: owner.get(out[0]) ?? from[0].id };
+}
+
+/** Dense buildings grouped into QUARTERS: those whose seeds come within `gap` (world) of each other. */
+function quartersOf(bs: readonly Building[], gap: number): Building[][] {
+  const parent = bs.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < bs.length; i++) {
+    for (let j = i + 1; j < bs.length; j++) {
+      let near = false;
+      for (const p of bs[i].seeds) {
+        for (const q of bs[j].seeds) if (Math.hypot(p.x - q.x, p.z - q.z) <= gap) {
+          near = true;
+          break;
+        }
+        if (near) break;
+      }
+      if (near) {
+        const a = find(i), b = find(j);
+        if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
+      }
+    }
+  }
+  const groups = new Map<number, Building[]>();
+  bs.forEach((b, i) => {
+    const r = find(i);
+    const l = groups.get(r);
+    if (l) l.push(b);
+    else groups.set(r, [b]);
+  });
+  return [...groups.values()];
 }
 
 /** A cell route as straight runs: [first cell, last cell] of every stretch in one direction. */

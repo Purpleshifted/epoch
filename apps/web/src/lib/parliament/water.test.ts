@@ -41,6 +41,41 @@ describe("water from sealed ground: open streams, buried pipes", () => {
     expect(segs.length).toBe(d.pipes.length * 7);
   });
 
+  it("the pipes join a quarter's buildings into ONE network that reaches every building and ends at one outfall", () => {
+    const seeds = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
+    const d = drainage([], seeds, DEFAULT_WATER, opts);
+    const first = Math.min(...d.pipes.map((p) => p.k));
+    const runs = d.pipes.filter((p) => p.k === first);
+    // the runs of one epoch form one connected graph (ends meet ends or lie on other runs)
+    const key = (x: number, z: number) => `${cellOf(x)},${cellOf(z)}`;
+    const cells = (p: (typeof runs)[number]) => {
+      const out: string[] = [];
+      const n = Math.max(1, Math.round(Math.hypot(p.bx - p.ax, p.bz - p.az) / CELL_SIZE));
+      for (let i = 0; i <= n; i++) out.push(key(p.ax + ((p.bx - p.ax) * i) / n, p.az + ((p.bz - p.az) * i) / n));
+      return out;
+    };
+    const parent = runs.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const at = new Map<string, number>();
+    runs.forEach((p, i) => {
+      for (const c of cells(p)) {
+        const j = at.get(c);
+        if (j !== undefined) parent[find(i)] = find(j);
+        else at.set(c, i);
+      }
+    });
+    expect(new Set(runs.map((_, i) => find(i))).size).toBe(1);
+    // every building touches the network (a pipe cell next to one of its cells)
+    const net = new Set(at.keys());
+    for (const [id0] of [[1], [100], [200]]) {
+      const bs = seeds.filter((s) => s.id >= id0 && s.id < id0 + 99);
+      const touches = bs.some((s) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => net.has(`${cellOf(s.x) + dx},${cellOf(s.z) + dz}`)));
+      expect(touches).toBe(true);
+    }
+    // the trunk carries more than a lateral
+    expect(Math.max(...runs.map((p) => p.flow))).toBeGreaterThan(Math.min(...runs.map((p) => p.flow)));
+  });
+
   it("a lone small building in open land sheds an open stream, no pipe", () => {
     const d = drainage([], [seed(1, 0, 0)], DEFAULT_WATER, opts);
     expect(d.pipes).toHaveLength(0);
