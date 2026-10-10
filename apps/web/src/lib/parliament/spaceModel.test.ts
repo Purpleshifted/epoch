@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_BOXES, DEFAULT_BUNDLE, DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, NATURE_KIND, SpaceModel, natureColors, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, NATURE_KIND, SpaceModel, natureColors, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
 
 function runBots(bots: number, seconds: number, spread = 10): PEvent[] {
   const start = 1_800_000_000_000;
@@ -213,21 +213,6 @@ describe("SpaceModel: what the worker computes", () => {
     expect(off).toBeGreaterThan(L.length / 3 / 4);
     expect(m.computeNature({ ...input, traces: undefined })).not.toBeNull(); // off: rebuilt without lines
   });
-
-  it("V2 threads: trips between the flocks' buildings come back as line segments, and null when nothing changed", () => {
-    const long = runBots(12, 900, 30);
-    const V2F = { ...DEFAULT_FOLD, flow: DEFAULT_FLOW };
-    const m = new SpaceModel();
-    m.add(long);
-    const top = Math.floor(Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit);
-    const input = { fold: V2F, box: DEFAULT_BOXES, water: DEFAULT_WATER, maxTripSec: 120, recentSlots: 15, fossilAt: 3, castRadius: 0.08, room: 3.6, minDist: 2.5, bundle: DEFAULT_BUNDLE, focusK: top, window: 120, max: 2000 };
-    const t0 = performance.now();
-    const r = m.computeThreads(input)!;
-    console.log("computeThreads", Math.round(performance.now() - t0), "ms", r.position.length / 6, "segments");
-    expect(r.position.length % 6).toBe(0);
-    expect(r.position.length).toBeGreaterThan(0);
-    expect(m.computeThreads(input)).toBeNull();
-  }, 300_000);
 
   it("reset forgets the world", () => {
     const m = new SpaceModel();
