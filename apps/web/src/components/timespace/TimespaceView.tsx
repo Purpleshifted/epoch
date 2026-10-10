@@ -255,7 +255,7 @@ function WorldlinePillars({
       {/* B. 수직 참조선 (β=0 기준 — 기울기 비교용) */}
       <lineSegments ref={refLineRef}>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position" array={refStaticData.pos} itemSize={3} count={refStaticData.n*2} />
+          <bufferAttribute attach="attributes-position" args={[refStaticData.pos, 3]} />
         </bufferGeometry>
         <lineBasicMaterial color="#1a2a44" transparent opacity={0.35} depthWrite={false} />
       </lineSegments>
@@ -263,8 +263,8 @@ function WorldlinePillars({
       {/* C. Worldline pillar (실시간 성장, 색상 그라디언트) */}
       <lineSegments ref={pillarLineRef}>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position" array={pillarStaticData.pos} itemSize={3} count={pillarStaticData.n*2} />
-          <bufferAttribute attach="attributes-color"    array={pillarStaticData.col} itemSize={3} count={pillarStaticData.n*2} />
+          <bufferAttribute attach="attributes-position" args={[pillarStaticData.pos, 3]} />
+          <bufferAttribute attach="attributes-color"    args={[pillarStaticData.col, 3]} />
         </bufferGeometry>
         <lineBasicMaterial vertexColors transparent opacity={0.95} depthWrite={false} />
       </lineSegments>
@@ -272,8 +272,8 @@ function WorldlinePillars({
       {/* D. Star tip point (worldline의 현재 끝, 빛남) */}
       <points ref={tipRef}>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position" array={tipStaticData.pos} itemSize={3} count={tipStaticData.n} />
-          <bufferAttribute attach="attributes-color"    array={tipStaticData.col} itemSize={3} count={tipStaticData.n} />
+          <bufferAttribute attach="attributes-position" args={[tipStaticData.pos, 3]} />
+          <bufferAttribute attach="attributes-color"    args={[tipStaticData.col, 3]} />
         </bufferGeometry>
         <shaderMaterial
           ref={tipMatRef}
