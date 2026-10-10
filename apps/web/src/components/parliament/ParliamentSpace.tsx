@@ -48,7 +48,6 @@ import {
   type WeatherConfig,
   DEFAULT_WEATHER,
   DEFAULT_WATER,
-  V2_WATER_MIN_APART,
   type WaterConfig,
   DEFAULT_FUSE,
   type FuseConfig,
@@ -164,7 +163,7 @@ interface NatureParams {
   burialSlots: number;
   /** Density floor of the vegetation volume, and how much it rises far away (V2; 0 = V1's even thinning). */
   /** V2: present-slot lines and fossil traces of paths and waterways; null = V1 / off. */
-  traces: { lineAt: number; fossilFrom: number; fossilPer: number; every: number } | null;
+  traces: { lineAt: number; fossilFrom: number; fossilPer: number } | null;
   /** V2: absolute density floor, and over how many slots it rises towards the dead layers; null = V1. */
   density: { cut: number; fade: number } | null;
   reclaim: boolean;
@@ -1081,8 +1080,7 @@ export default function ParliamentSpace() {
         pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
         traceLinesOn: { value: true, label: "현재 단: 길 · 수로 선화", render: () => isV2 },
         lineAt: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "선이 되는 길 세기", render: () => isV2 },
-        lineEvery: { value: 10, min: 0, max: 60, step: 1, label: "지난 시간의 선화 간격 (단, 0 = 현재만)", render: () => isV2 },
-        fossilOn: { value: true, label: "길 바닥(다져진 층)이 시간 내내 남음 + 화석: 수로(옛 물길 모래)", render: () => isV2 },
+        fossilOn: { value: true, label: "화석: 식생이 사라진 층에 길(다져진 층) · 수로(옛 물길 모래)", render: () => isV2 },
         fossilFrom: { value: 0.85, min: 0.3, max: 1, step: 0.01, label: "화석이 보이기 시작하는 층 (식생 최소 밀도가 이만큼)", render: () => isV2 },
         fossilPer: { value: 6, min: 1, max: 30, step: 1, label: "화석 점 수 (칸당)", render: () => isV2 },
       }),
@@ -1101,7 +1099,6 @@ export default function ParliamentSpace() {
       channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
       wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
       corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
-      minApart: { value: V2_WATER_MIN_APART, min: 0, max: 15, step: 0.1, label: "이보다 가까운 건물끼리는 안 이음 (월드; 길에 갈라진 건물)", render: () => isV2 },
       "물길 경로": folder(
         {
           meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이 (길이 대비)" },
@@ -1129,10 +1126,9 @@ export default function ParliamentSpace() {
             corrode: wtr.corrode,
             wetShare: wtr.wetShare,
             channel: wtr.channel,
-            minApart: isV2 ? wtr.minApart : 0,
           }
         : null,
-    [isV2, wtr.minApart, wtr.waterOn, wtr.minRaw, wtr.join, wtr.reach, wtr.minShare, wtr.persistSec, wtr.meander, wtr.radius, wtr.vegBoost, wtr.corrode, wtr.wetShare, wtr.channel],
+    [wtr.waterOn, wtr.minRaw, wtr.join, wtr.reach, wtr.minShare, wtr.persistSec, wtr.meander, wtr.radius, wtr.vegBoost, wtr.corrode, wtr.wetShare, wtr.channel],
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(
@@ -1268,11 +1264,11 @@ export default function ParliamentSpace() {
             density: isV2 ? { cut: veg.densityCut, fade: veg.densityFade } : null,
             traces:
               isV2 && (veg.traceLinesOn || veg.fossilOn)
-                ? { lineAt: veg.traceLinesOn ? veg.lineAt : 2, fossilFrom: veg.fossilOn ? veg.fossilFrom : 2, fossilPer: veg.fossilPer, every: veg.lineEvery }
+                ? { lineAt: veg.traceLinesOn ? veg.lineAt : 2, fossilFrom: veg.fossilOn ? veg.fossilFrom : 2, fossilPer: veg.fossilPer }
                 : null,
           }
         : null,
-    [isV2, veg.densityCut, veg.densityFade, veg.traceLinesOn, veg.lineAt, veg.lineEvery, veg.fossilOn, veg.fossilFrom, veg.fossilPer, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
+    [isV2, veg.densityCut, veg.densityFade, veg.traceLinesOn, veg.lineAt, veg.fossilOn, veg.fossilFrom, veg.fossilPer, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
   );
   const recipe = useMemo<Recipe>(
     () => ({

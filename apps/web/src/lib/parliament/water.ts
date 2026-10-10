@@ -47,15 +47,7 @@ export interface WaterConfig {
   wetShare: number;
   /** Parts at the water age × (1 + corrode) while exposed (fades with distance). */
   corrode: number;
-  /**
-   * V2: buildings nearer than this (world) are not joined by water — a path through a crowd splits its building in
-   * two, and the halves (built by the same people) should not get a waterway along the path. Absent / 0 = V1.
-   */
-  minApart?: number;
 }
-
-/** V2's least distance between buildings joined by water (world, ≈ 3 cells). */
-export const V2_WATER_MIN_APART = 3.6;
 
 export const DEFAULT_WATER: WaterConfig = {
   enabled: true,
@@ -178,7 +170,7 @@ export function waterLinks(seeds: readonly Seed[], cfg: WaterConfig, tNow: numbe
           }
         }
       }
-      if (!sa || !sb || best > cfg.reach || best < (cfg.minApart ?? 0)) continue;
+      if (!sa || !sb || best > cfg.reach) continue;
       // a shared builder still at it once both were big
       let t = Infinity, via = "";
       for (const [o, [fa, la]] of A.builders) {

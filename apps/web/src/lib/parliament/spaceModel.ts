@@ -15,7 +15,7 @@ import { foldWorld, latestS, withoutWear } from "./fold";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
-import { NATURE_KIND, PD_STRIDE, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
+import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
@@ -204,7 +204,7 @@ export interface NatureInput {
    * now), and in the layers whose vegetation is gone (density floor ≥ fossilFrom) their fossils (naturePoints.fossil,
    * fossilPer points per cell). Absent = V1.
    */
-  traces?: { lineAt: number; fossilFrom: number; fossilPer: number; every: number };
+  traces?: { lineAt: number; fossilFrom: number; fossilPer: number };
 }
 
 export interface ReclaimInput {
@@ -533,7 +533,7 @@ export class SpaceModel {
       : undefined;
     const load = naturePointLoad(h, k0, k1, input.perSlot, cutOf);
     const tr = input.traces;
-    const fossil = tr && dens && tr.fossilFrom <= 1 ? { from: tr.fossilFrom, per: tr.fossilPer, hole: input.paths?.hole ?? 0.35 } : undefined;
+    const fossil = tr && dens ? { from: tr.fossilFrom, per: tr.fossilPer, hole: input.paths?.hole ?? 0.35 } : undefined;
     const scale = load > input.budget ? input.budget / load : 1;
     const buried = input.burialSlots > 0 ? burialOf(seeds, spu, input.burialSlots) : undefined;
     let burySig = input.burialSlots;
@@ -562,16 +562,7 @@ export class SpaceModel {
     }
     for (const c of this.chunks.keys()) if (!keep.has(c)) this.chunks.delete(c);
     const result = concat(parts);
-    if (tr && tr.lineAt <= 1) {
-      // the present slot, and every `every` slots below it within the window, older ones dimmer: how the paths changed
-      const ks: number[] = [], fade: number[] = [];
-      const top = Math.min(kNow, k1);
-      for (let k = top, n = 0; k >= k0 && (n === 0 || tr.every > 0); k -= Math.max(1, tr.every), n++) {
-        ks.push(k);
-        fade.push(k === kNow ? 1 : 0.35 + 0.5 * Math.max(0, 1 - (kNow - k) / Math.max(1, input.window)));
-      }
-      result.lines = traceLines(h, ks, fade, box.unit, tr.lineAt, wc && this.links.length ? this.links : [], spu, wc);
-    }
+    if (tr && kNow >= k0 && kNow <= k1) result.lines = presentLines(h, kNow, box.unit, tr.lineAt, wc && this.links.length ? this.links : [], spu, wc);
     return result;
   }
 
@@ -706,89 +697,46 @@ export class SpaceModel {
 
 }
 
-/** Linear grey of the trace lines: strong paths bright, weak ones dim (reads on both themes); waterways pale. */
-const PATH_LINE = [0.55, 0.55, 0.55];
-const PATH_LINE_WEAK = [0.2, 0.2, 0.2];
-const WATER_LINE = [0.75, 0.75, 0.72];
+/** Linear grey of the present-slot lines: paths mid grey (darker the stronger), waterways pale. */
+const PATH_LINE = [0.16, 0.16, 0.16];
+const PATH_LINE_WEAK = [0.42, 0.42, 0.42];
+const WATER_LINE = [0.62, 0.62, 0.6];
 
 /**
- * V2: the paths and waterways of the slots `ks` as line segments on each slot's top (ks[0] = the present, the others
- * older and dimmer by `fade[i]`). A path is drawn WHERE IT WAS WALKED: through the mean position of each path cell's
- * treads and along their direction (NatureHistory.PD), joined to neighbouring path cells that lie along that
- * direction, the joints smoothed once — so it follows the walkers, not the grid. Waterways: their meandering course.
+ * V2: the living paths and waterways of slot k as line segments on its top — a road map of now. Paths: between
+ * neighbouring cells whose strength both reach `lineAt` (8 neighbours, each pair once), darker the stronger;
+ * waterways: their meandering course.
  */
-function traceLines(h: NatureHistory, ks: readonly number[], fade: readonly number[], unit: number, lineAt: number, links: readonly WaterLink[], spu: number, wc: WaterConfig | null): { position: Float32Array; color: Float32Array } {
+function presentLines(h: NatureHistory, k: number, unit: number, lineAt: number, links: readonly WaterLink[], spu: number, wc: WaterConfig | null): { position: Float32Array; color: Float32Array } {
   const pos: number[] = [];
   const col: number[] = [];
-  for (let n = 0; n < ks.length; n++) {
-    const k = ks[n];
-    const f = fade[n];
-    const y = (k + 1) * unit + 0.02;
-    const pd = h.PD?.get(k);
-    if (pd) {
-      // cells of this slot's path: index → (x, z, dx, dz, p), positions smoothed once towards joined neighbours
-      const at = new Map<number, number>();
-      for (let r = 0; r < pd.length; r += PD_STRIDE) if (pd[r + 5] >= lineAt) at.set(pd[r], r);
-      const joins: [number, number][] = [];
-      const deg = new Map<number, number>();
-      for (const [c, r] of at) {
-        const i = c % h.nx, j = (c - i) / h.nx;
-        for (const [di, dj] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
-          const ii = i + di, jj = j + dj;
-          if (ii < 0 || jj < 0 || ii >= h.nx || jj >= h.nz) continue;
-          const r2 = at.get(jj * h.nx + ii);
-          if (r2 === undefined) continue;
-          const ux = pd[r2 + 1] - pd[r + 1], uz = pd[r2 + 2] - pd[r + 2];
-          const ul = Math.hypot(ux, uz) || 1;
-          // along both cells' walking direction (the axis has no sign)
-          if (Math.abs((ux * pd[r + 3] + uz * pd[r + 4]) / ul) < 0.55 || Math.abs((ux * pd[r2 + 3] + uz * pd[r2 + 4]) / ul) < 0.55) continue;
-          joins.push([r, r2]);
-          deg.set(r, (deg.get(r) ?? 0) + 1);
-          deg.set(r2, (deg.get(r2) ?? 0) + 1);
-        }
-      }
-      const sm = new Map<number, [number, number]>();
-      const acc = new Map<number, [number, number, number]>();
-      for (const [r, r2] of joins) {
-        for (const [u, v] of [[r, r2], [r2, r]]) {
-          const e = acc.get(u) ?? [0, 0, 0];
-          e[0] += pd[v + 1];
-          e[1] += pd[v + 2];
-          e[2]++;
-          acc.set(u, e);
-        }
-      }
-      for (const r of at.values()) {
-        const e = acc.get(r);
-        sm.set(r, e ? [0.5 * pd[r + 1] + (0.5 * e[0]) / e[2], 0.5 * pd[r + 2] + (0.5 * e[1]) / e[2]] : [pd[r + 1], pd[r + 2]]);
-      }
-      const shade = (p: number) => {
-        const t = Math.min(1, (p - lineAt) / Math.max(1e-6, 1 - lineAt));
-        return [0, 1, 2].map((c) => (PATH_LINE_WEAK[c] + (PATH_LINE[c] - PATH_LINE_WEAK[c]) * t) * f);
-      };
-      for (const [r, r2] of joins) {
-        const [ax, az] = sm.get(r)!, [bx, bz] = sm.get(r2)!;
-        pos.push(ax, y, az, bx, y, bz);
-        col.push(...shade(pd[r + 5]), ...shade(pd[r2 + 5]));
-      }
-      // a path cell joined to nothing: a short stroke along its direction
-      for (const r of at.values()) {
-        if (deg.has(r)) continue;
-        const half = CELL * 0.45;
-        pos.push(pd[r + 1] - pd[r + 3] * half, y, pd[r + 2] - pd[r + 4] * half, pd[r + 1] + pd[r + 3] * half, y, pd[r + 2] + pd[r + 4] * half);
-        const c = shade(pd[r + 5]);
-        col.push(...c, ...c);
+  const y = (k + 1) * unit + 0.02;
+  const base = (k - h.k0) * h.nx * h.nz;
+  const P = (i: number, j: number) => (i < 0 || j < 0 || i >= h.nx || j >= h.nz ? 0 : h.P[base + j * h.nx + i]);
+  const DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  for (let j = 0; j < h.nz; j++) {
+    for (let i = 0; i < h.nx; i++) {
+      const a = P(i, j);
+      if (a < lineAt) continue;
+      for (const [di, dj] of DIRS) {
+        const b = P(i + di, j + dj);
+        if (b < lineAt) continue;
+        // a diagonal only where the two orthogonal cells between are not both path (no doubled triangles)
+        if (di && dj && (P(i + di, j) >= lineAt || P(i, j + dj) >= lineAt)) continue;
+        pos.push((h.x0 + i + 0.5) * CELL, y, (h.z0 + j + 0.5) * CELL, (h.x0 + i + di + 0.5) * CELL, y, (h.z0 + j + dj + 0.5) * CELL);
+        const t = Math.min(1, (Math.min(a, b) - lineAt) / Math.max(1e-6, 1 - lineAt));
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) col.push(PATH_LINE_WEAK[c] + (PATH_LINE[c] - PATH_LINE_WEAK[c]) * t);
       }
     }
-    if (wc) {
-      for (const l of links) {
-        const [a, b] = linkSlots(l, spu);
-        if (k < a || k > b) continue;
-        const c = waterCourse(l, k, wc);
-        for (let p = 0; p + 3 < c.length; p += 2) {
-          pos.push(c[p], y, c[p + 1], c[p + 2], y, c[p + 3]);
-          for (let r = 0; r < 2; r++) col.push(WATER_LINE[0] * f, WATER_LINE[1] * f, WATER_LINE[2] * f);
-        }
+  }
+  if (wc) {
+    for (const l of links) {
+      const [a, b] = linkSlots(l, spu);
+      if (k < a || k > b) continue;
+      const c = waterCourse(l, k, wc);
+      for (let p = 0; p + 3 < c.length; p += 2) {
+        pos.push(c[p], y, c[p + 1], c[p + 2], y, c[p + 3]);
+        for (let r = 0; r < 2; r++) col.push(...WATER_LINE);
       }
     }
   }

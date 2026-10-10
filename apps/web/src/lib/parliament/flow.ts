@@ -101,14 +101,12 @@ export function stayShares(pres: readonly PEvent[], cfg: FlowConfig): Float32Arr
   return out;
 }
 
-/** The treads of one cell, in time order: when, how much, along which axis (cos 2θ, sin 2θ), and where (x, z). */
+/** The treads of one cell, in time order: when, how much, and along which axis (cos 2θ, sin 2θ). */
 export interface Track {
   s: number[];
   a: number[];
   c: number[];
   q: number[];
-  x: number[];
-  z: number[];
 }
 
 /**
@@ -140,31 +138,25 @@ export function flowTracks(
     const c2 = Math.cos(2 * th), s2 = Math.sin(2 * th);
     seen.clear();
     const touched: string[] = [];
-    const where: number[] = [];
     for (let t = 0; t <= steps; t++) {
       const x = p.x + ((e.x - p.x) * t) / steps, z = p.z + ((e.z - p.z) * t) / steps;
       const key = cellKey(Math.floor(x / CELL_SIZE), Math.floor(z / CELL_SIZE));
       if (seen.has(key)) continue;
       seen.add(key);
       touched.push(key);
-      where.push(x, z);
     }
     // the walked distance, shared by the cells it crossed (in cell widths: crossing one cell ≈ 1)
     const amount = (m * len) / CELL_SIZE / touched.length;
-    for (let n = 0; n < touched.length; n++) {
-      const key = touched[n];
+    for (const key of touched) {
       const born = sealedFrom?.(key);
       if (born !== undefined && born <= e.s) continue; // concrete: not trodden
       const tr = tracks.get(key);
-      const x = where[n * 2], z = where[n * 2 + 1];
       if (tr) {
         tr.s.push(e.s);
         tr.a.push(amount);
         tr.c.push(c2);
         tr.q.push(s2);
-        tr.x.push(x);
-        tr.z.push(z);
-      } else tracks.set(key, { s: [e.s], a: [amount], c: [c2], q: [s2], x: [x], z: [z] });
+      } else tracks.set(key, { s: [e.s], a: [amount], c: [c2], q: [s2] });
     }
   }
   return tracks;
@@ -190,35 +182,6 @@ export function flowLevel(tr: Track | undefined, t: number, tauSec: number): num
     gq += w * tr.q[i];
   }
   return Math.hypot(gc, gq);
-}
-
-/**
- * The SHAPE of a cell's path at time t: where in the cell people actually walked (the decayed mean position of the
- * treads) and along which direction (the mean axis, θ in −π/2 … π/2) — so a path is drawn where it was walked, not
- * through cell centres. g as flowLevel.
- */
-export function flowShape(tr: Track | undefined, t: number, tauSec: number): { g: number; x: number; z: number; dx: number; dz: number } | null {
-  if (!tr || !tr.s.length || tr.s[0] > t) return null;
-  let lo = 0, hi = tr.s.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (tr.s[mid] <= t) lo = mid;
-    else hi = mid - 1;
-  }
-  let gc = 0, gq = 0, w = 0, sx = 0, sz = 0;
-  for (let i = lo; i >= 0; i--) {
-    const age = t - tr.s[i];
-    if (age > tauSec * 8) break;
-    const wi = tr.a[i] * Math.exp(-age / tauSec);
-    gc += wi * tr.c[i];
-    gq += wi * tr.q[i];
-    w += wi;
-    sx += wi * tr.x[i];
-    sz += wi * tr.z[i];
-  }
-  if (w <= 0) return null;
-  const th = Math.atan2(gq, gc) / 2;
-  return { g: Math.hypot(gc, gq), x: sx / w, z: sz / w, dx: Math.cos(th), dz: Math.sin(th) };
 }
 
 /** Path strength (0..1) from trodden-ness. */
@@ -276,12 +239,10 @@ export function flowSteer(
   return [nx, nz];
 }
 
-/** What bots walk on: trodden-ness G per cell key, the cells buildings stand on, and (optionally) water. */
+/** What bots walk on: trodden-ness G per cell key, and the cells buildings stand on. */
 export interface FlowGround {
   level: (key: string) => number;
   built: (key: string) => boolean;
-  /** Cells a waterway runs through: hard to cross, except where it has been trodden (a ford). */
-  wet?: (key: string) => boolean;
 }
 
 /** Cells of room around a migration's bounding box in which its route may wander. */
@@ -290,8 +251,6 @@ const ROUTE_MARGIN = 6;
 const BUILT_COST = 25;
 /** On a full path walking costs 1 / (1 + TRAIL_EASE) (trodden ground is easier). */
 const TRAIL_EASE = 2;
-/** Wading through a waterway costs this many times more; trodden (a ford) it is eased like any path. */
-const WATER_COST = 6;
 
 /**
  * The route a migration takes from (ax, az) to (bx, bz): the cheapest way over the grid (8 neighbours), where trodden
@@ -309,7 +268,7 @@ export function flowRoute(ax: number, az: number, bx: number, bz: number, ground
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
     const key = cellKey(x0 + i, z0 + j);
     const p = flowP(ground.level(key), cfg);
-    cost[j * nx + i] = (1 / (1 + TRAIL_EASE * p)) * (ground.built(key) ? BUILT_COST : ground.wet?.(key) ? WATER_COST * (1 - 0.8 * p) : 1);
+    cost[j * nx + i] = (1 / (1 + TRAIL_EASE * p)) * (ground.built(key) ? BUILT_COST : 1);
   }
   const dist = new Float64Array(n).fill(Infinity);
   const prev = new Int32Array(n).fill(-1);
@@ -379,22 +338,7 @@ export function flowRoute(ax: number, az: number, bx: number, bz: number, ground
     out.push((x0 + i + 0.5) * C, (z0 + j + 0.5) * C);
   }
   out.push(bx, bz);
-  return smoothRoute(out, 2);
-}
-
-/** Chaikin corner cutting (ends kept): a route over cell centres becomes a curve, not 45° steps. */
-function smoothRoute(r: number[], passes: number): number[] {
-  let p = r;
-  for (let n = 0; n < passes && p.length >= 6; n++) {
-    const q: number[] = [p[0], p[1]];
-    for (let k = 0; k + 3 < p.length; k += 2) {
-      const ax = p[k], az = p[k + 1], bx = p[k + 2], bz = p[k + 3];
-      q.push(0.75 * ax + 0.25 * bx, 0.75 * az + 0.25 * bz, 0.25 * ax + 0.75 * bx, 0.25 * az + 0.75 * bz);
-    }
-    q.push(p[p.length - 2], p[p.length - 1]);
-    p = q;
-  }
-  return p;
+  return out;
 }
 
 /** The point at share m (0 … 1) of a polyline's length. */

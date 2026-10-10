@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_WATER, flowLevel, flowP, flowRoute, flowShape, flowSteer, flowTracks, foldWorld, natureHistory, seedsFromSnapshot, stayShares, waterLinks, withoutWear, type PEvent, type Seed } from "./index";
+import { DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, flowLevel, flowP, flowSteer, flowTracks, foldWorld, natureHistory, seedsFromSnapshot, stayShares, withoutWear, type PEvent } from "./index";
 
 const ev = (o: string, x: number, z: number, s: number): PEvent => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x, z, s });
 const sorted = (e: PEvent[]) => [...e].sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : 1));
@@ -144,28 +144,4 @@ describe("flow with bots: migrations bundle into a path between flocks, building
     const built = new Set(b.slabs.map((s) => s.key));
     expect(b.paths.filter((p) => p.p > 0.35 && !built.has(p.key)).length).toBeGreaterThan(8); // a path off the buildings
   }, 300_000);
-});
-
-describe("flow shapes: paths where they were walked, not on the grid", () => {
-  it("a cell's shape is the mean position and direction of its treads", () => {
-    const evs = sorted(["a", "b", "c"].flatMap((o, i) => shuttle(o, 0, 20, 5.3, i * 7, 300)));
-    const tr = flowTracks(evs, stayShares(evs, DEFAULT_FLOW)).get(key(10, 5.3))!;
-    const sh = flowShape(tr, 300, DEFAULT_FLOW.tauSec)!;
-    expect(sh.z).toBeCloseTo(5.3, 1); // on the walked line, not the cell centre (5.4)
-    expect(Math.abs(sh.dx)).toBeGreaterThan(0.99); // along x
-  });
-  it("bot routes are curves, not 45° steps", () => {
-    const g = { level: () => 0, built: (k: string) => k === "3,1" || k === "3,2" || k === "3,0" };
-    const r = flowRoute(0, 0, 10, 4, g, DEFAULT_FLOW);
-    const angles = new Set<number>();
-    for (let i = 2; i + 1 < r.length; i += 2) angles.add(Math.round((Math.atan2(r[i + 1] - r[i - 1], r[i] - r[i - 2]) * 180) / Math.PI));
-    expect([...angles].some((a) => a % 45 !== 0)).toBe(true);
-  });
-  it("water links skip buildings nearer than minApart (a path splitting one building)", () => {
-    const who = [{ o: "a", first: 0, last: 900, amount: 20 }];
-    const seed = (id: number, x: number): Seed => ({ id, material: "concrete", role: "worker", x, z: 0, t0: 0, t1: 900, mass: 5, who, growth: [[10, 5]] }) as Seed;
-    const seeds = [seed(1, 0), seed(2, 3.6 * 0.7)];
-    expect(waterLinks(seeds, DEFAULT_WATER, 900).length).toBe(1);
-    expect(waterLinks(seeds, { ...DEFAULT_WATER, minApart: 3.6 }, 900).length).toBe(0);
-  });
 });

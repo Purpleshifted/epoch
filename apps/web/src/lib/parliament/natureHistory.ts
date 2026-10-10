@@ -20,7 +20,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { cellKey, flowP, flowShape, flowTracks, stayShares } from "./flow";
+import { cellKey, flowLevel, flowP, flowTracks, stayShares } from "./flow";
 import { grassDensity, hash2, type NatureConfig } from "./nature";
 import { partAgeYears, seedAgeYears, type Box, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
@@ -45,15 +45,7 @@ export interface NatureHistory {
   V: Float32Array;
   /** Desire-path strength p (0..1) at the end of each slot, same layout as V. */
   P: Float32Array;
-  /**
-   * V2: the SHAPE of every path cell per slot (sparse): slot → packed [cell index, x, z, dx, dz, p] × n — where in
-   * the cell people walked and in which direction (flow.flowShape). Absent in V1.
-   */
-  PD?: Map<number, Float32Array>;
 }
-
-/** Floats per path cell in NatureHistory.PD. */
-export const PD_STRIDE = 6;
 
 export interface NatureHistoryInput {
   events: readonly PEvent[];
@@ -156,7 +148,6 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
   const fall = Math.exp(-spu / nc.recoverSec);
   const out = new Float32Array((k1 - k0 + 1) * nc2);
   const pathOut = new Float32Array((k1 - k0 + 1) * nc2);
-  const PD = flow ? new Map<number, Float32Array>() : undefined;
   const Sstart = new Float64Array(nc2);
 
   const kFirst = Math.min(k0, Math.floor(pres[0].s / spu));
@@ -199,16 +190,13 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
 
     const yEnd = geoYears(tEnd);
     const base = (k - k0) * nc2;
-    const shapes: number[] = [];
     for (let j = 0; j < nz; j++) {
       for (let i = 0; i < nx; i++) {
         const c = j * nx + i;
         let p = 0;
         if (flow && tread) {
-          const sh = flowShape(tread.get(cellKey(x0 + i, z0 + j)), tEnd, flow.tauSec);
-          p = sh ? flowP(sh.g, flow) : 0;
+          p = flowP(flowLevel(tread.get(cellKey(x0 + i, z0 + j)), tEnd, flow.tauSec), flow);
           if (p < MIN_PATH) p = 0;
-          else if (sh) shapes.push(c, sh.x, sh.z, sh.dx, sh.dz, p);
         } else if (visitsN[c] > 0) {
           p = (1 - Math.exp(-visitsN[c] / fold.pathVisits)) * Math.exp(-Math.max(0, yEnd - geoYears(visitsLast[c])) / fold.tauPathYears);
           if (p < MIN_PATH) p = 0;
@@ -223,9 +211,8 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
         pathOut[base + c] = p;
       }
     }
-    if (PD && shapes.length) PD.set(k, Float32Array.from(shapes));
   }
-  return { x0, z0, nx, nz, k0, nk: k1 - k0 + 1, V: out, P: pathOut, PD };
+  return { x0, z0, nx, nz, k0, nk: k1 - k0 + 1, V: out, P: pathOut };
 }
 
 /** Path strength at world (x, z) in slot k, interpolated between cell centres (0 outside the history). */
@@ -358,8 +345,6 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
     if (keepShare <= 0) continue;
     const cutK = typeof opts.cut === "function" ? opts.cut(k) : (opts.cut ?? 0);
     const fossilSlot = !!opts.fossil && cutK >= opts.fossil.from;
-    // a path's floor through all of its life (where it was walked, along its direction), into the fossil layers
-    if (opts.fossil && h.PD?.has(k)) pathLamina(h, k, opts, pos, kind, shade);
     if (fossilSlot) fossilTraces(h, k, base, opts, pos, kind, shade);
     if (cutK >= 1) continue;
     for (let j = 0; j < h.nz; j++) {
@@ -423,33 +408,6 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
   return { count: kind.length, position: Float32Array.from(pos), kind: Uint8Array.from(kind), shade: Float32Array.from(shade) };
 }
 
-/**
- * The FLOOR of slot k's paths (V2, NatureHistory.PD): trodden ground pressed flat at the slot's floor, strewn along
- * each path cell's walking direction through where it was walked — narrow, `fossil.per` points at full strength.
- * Drawn in every slot of a path's life, so its course through time (opening, merging, closing) stays visible, and
- * on into the layers whose vegetation is gone (its fossil).
- */
-function pathLamina(h: NatureHistory, k: number, opts: NaturePointOptions, pos: number[], kind: number[], shade: number[]): void {
-  const f = opts.fossil!;
-  const pd = h.PD!.get(k)!;
-  for (let r = 0; r < pd.length; r += PD_STRIDE) {
-    const p = pd[r + 5];
-    if (p < f.hole) continue;
-    const c = pd[r], ix = h.x0 + (c % h.nx), iz = h.z0 + Math.floor(c / h.nx);
-    const want = p * f.per;
-    const n = Math.floor(want) + (h3(ix, iz, k, 51) < want - Math.floor(want) ? 1 : 0);
-    const x = pd[r + 1], z = pd[r + 2], dx = pd[r + 3], dz = pd[r + 4];
-    for (let e = 0; e < n; e++) {
-      const s = 60 + e * 5;
-      const along = (h3(ix, iz, k, s) - 0.5) * CELL_SIZE * 1.1;
-      const across = (h3(ix, iz, k, s + 2) - 0.5) * CELL_SIZE * 0.25;
-      pos.push(x + dx * along - dz * across, (k + 0.08 * h3(ix, iz, k, s + 1)) * opts.unit, z + dz * along + dx * across);
-      kind.push(NATURE_KIND.trodden);
-      shade.push(0.3 + 0.7 * h3(ix, iz, k, s + 3));
-    }
-  }
-}
-
 /** FOSSIL TRACES of slot k (see NaturePointOptions.fossil): appended to pos / kind / shade. */
 function fossilTraces(h: NatureHistory, k: number, base: number, opts: NaturePointOptions, pos: number[], kind: number[], shade: number[]): void {
   const f = opts.fossil!;
@@ -457,8 +415,8 @@ function fossilTraces(h: NatureHistory, k: number, base: number, opts: NaturePoi
   for (let j = 0; j < h.nz; j++) {
     for (let i = 0; i < h.nx; i++) {
       const ix = h.x0 + i, iz = h.z0 + j;
-      // the path's lamina: trodden ground pressed flat at the slot's floor (on the grid only without path shapes)
-      const p = h.PD ? 0 : h.P[base + j * h.nx + i];
+      // the path's lamina: trodden ground pressed flat at the slot's floor
+      const p = h.P[base + j * h.nx + i];
       if (p >= f.hole) {
         const want = p * f.per;
         const n = Math.floor(want) + (h3(ix, iz, k, 51) < want - Math.floor(want) ? 1 : 0);
