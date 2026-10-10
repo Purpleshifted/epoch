@@ -19,6 +19,8 @@ import { NATURE_KIND, PD_STRIDE, burialOf, natureAt, natureHistory, type NatureH
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
+import { DEFAULT_FLOW } from "./flow";
+import { bundleDensity, bundleTrips, fossilCasts, threadLines, tripsOf, type BundleOptions } from "./threads";
 import { linkSlots, waterCourse, waterDistance, waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
 
 const CELL = CELL_SIZE;
@@ -26,6 +28,9 @@ const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
 
 /** Instance capacity per part kind (what the view allocates). */
 export const PART_CAPACITY: Record<PartKind, number> = { mass: 400000, slab: 12000, drip: 60000, column: 16000, beam: 12000, brace: 12000, plinth: 2000, basement: 2000, pile: 10000 };
+/** V2: threads are rebuilt at most this often (world seconds). */
+const THREADS_EVERY_SEC = 5;
+
 /** Boxes that get edge lines at most. */
 export const EDGE_CAP = 40000;
 /** Slots per cached chunk of vegetation points and of the fused mesh. */
@@ -217,6 +222,36 @@ export interface ReclaimInput {
   fuse?: FuseConfig;
 }
 
+/** V2: the threads (recent, as line segments with brightness) and the fossil casts of the older dense bundles. */
+export interface ThreadsResult {
+  position: Float32Array;
+  color: Float32Array;
+  /** [ax, ay, az, bx, by, bz, radius] per cast segment. */
+  casts: Float32Array;
+}
+
+/** V2: threads between buildings (threads.ts) around the camera's time. */
+export interface ThreadsInput {
+  fold: FoldConfig;
+  box: BoxConfig;
+  /** How seeds group into buildings (water.buildingsOf `join`); the water rule itself is not needed. */
+  water: WaterConfig;
+  maxTripSec: number;
+  /** Threads are drawn for this many slots up to the present (older ones fade, then only their fossils stay). */
+  recentSlots: number;
+  /** A bundle of at least this many threads becomes a fossil cast (of radius `castRadius` × √(density / fossilAt)). */
+  fossilAt: number;
+  castRadius: number;
+  /** Places a building is divided into (world), and the least length of a trip. */
+  room: number;
+  minDist: number;
+  bundle: BundleOptions;
+  /** Slots around `focusK` whose trips are drawn, at most `max` of them. */
+  focusK: number;
+  window: number;
+  max: number;
+}
+
 export interface FuseInput {
   box: BoxConfig;
   weather: WeatherConfig;
@@ -243,6 +278,7 @@ export class SpaceModel {
   private version = 0;
   private seeds: Seed[] = [];
   private seedsKey = "";
+  private threadsSig = "";
   private partCache = new Map<number, { key: string; parts: Box[] }>();
   private partsSig = "";
   private built: Box[] = [];
@@ -689,6 +725,29 @@ export class SpaceModel {
   }
 
   /** Plants on the ruins of the last computed parts; null when nothing changed. */
+  /** V2: the bundled threads of the trips between buildings near the camera's time; null when nothing changed. */
+  computeThreads(input: ThreadsInput): ThreadsResult | null {
+    const spu = input.box.secPerUnit;
+    const seeds = this.ensureSeeds(input.fold);
+    const kF = Math.floor(Math.max(0, input.focusK) / NATURE_CHUNK) * NATURE_CHUNK;
+    const k0 = Math.max(0, kF - input.window), k1 = kF + input.window;
+    // the newest trips change every few seconds: rebuilt at most every THREADS_EVERY_SEC of the world's time
+    const sig = `${this.seedsKey}:${Math.floor(this.t / THREADS_EVERY_SEC)}:${k0}:${k1}:${JSON.stringify([input.box.unit, spu, input.water.join, input.maxTripSec, input.room, input.minDist, input.bundle, input.max, input.recentSlots, input.fossilAt, input.castRadius])}`;
+    if (sig === this.threadsSig) return null;
+    this.threadsSig = sig;
+    const trips = tripsOf(this.events, seeds, { secPerUnit: spu, unit: input.box.unit, flow: input.fold.flow ?? DEFAULT_FLOW, water: input.water, maxTripSec: input.maxTripSec, room: input.room, minDist: input.minDist, k0, k1, max: input.max });
+    const bundled = bundleTrips(trips, input.bundle);
+    // the recent ones as threads (fading with age); the dense bundles of the older ones as fossil casts
+    const kNow = Math.floor(this.t / spu);
+    const recent: number[] = [], old: number[] = [];
+    trips.forEach((t, i) => (t.k >= kNow - input.recentSlots ? recent : old).push(i));
+    const fade = recent.map((i) => 1 - 0.75 * Math.min(1, (kNow - trips[i].k) / Math.max(1, input.recentSlots)));
+    const lines = threadLines(recent.map((i) => bundled[i]), fade);
+    const density = bundleDensity(bundled, Math.max(0.3, input.castRadius * 6));
+    const casts = fossilCasts(old.map((i) => bundled[i]), old.map((i) => density[i]), input.fossilAt, input.castRadius);
+    return { position: lines.position, color: lines.color, casts };
+  }
+
   computeReclaim(input: ReclaimInput): PointsResult | null {
     const sig = `${this.partsSig}:${JSON.stringify(input)}`;
     if (sig === this.reclaimSig) return null;
@@ -812,7 +871,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 /** What the view posts to the space worker. */
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean }
-  | { type: "compute"; id: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
+  | { type: "compute"; id: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; threads?: ThreadsInput };
 
 /** What the space worker posts back for a compute request. */
 export interface SpaceResponse {
@@ -823,6 +882,7 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
+  threads?: ThreadsResult | null;
   ms: number;
 }
 
@@ -851,6 +911,10 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     out.nature = model.computeNature(m.nature);
     if (out.nature) transfer.add(out.nature.position.buffer as ArrayBuffer).add(out.nature.color.buffer as ArrayBuffer);
     if (out.nature?.lines) transfer.add(out.nature.lines.position.buffer as ArrayBuffer).add(out.nature.lines.color.buffer as ArrayBuffer);
+  }
+  if (m.threads) {
+    out.threads = model.computeThreads(m.threads);
+    if (out.threads) transfer.add(out.threads.position.buffer as ArrayBuffer).add(out.threads.color.buffer as ArrayBuffer).add(out.threads.casts.buffer as ArrayBuffer);
   }
   if (m.reclaim) {
     out.reclaim = model.computeReclaim(m.reclaim);

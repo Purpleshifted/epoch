@@ -47,6 +47,7 @@ import {
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
+  DEFAULT_BUNDLE,
   DEFAULT_WATER,
   V2_WATER_MIN_APART,
   type WaterConfig,
@@ -146,6 +147,20 @@ interface Orbit {
 }
 
 /** What the view asks the worker for vegetation (null = vegetation off). */
+/** V2: how the threads between buildings are asked for and drawn. */
+interface ThreadsParams {
+  maxTripSec: number;
+  cycles: number;
+  recentSlots: number;
+  fossilAt: number;
+  castRadius: number;
+  room: number;
+  opacity: number;
+  /** Line colour, and additive blending (on dark backgrounds overlapping threads brighten). */
+  color: string;
+  additive: boolean;
+}
+
 interface NatureParams {
   cfg: NatureConfig;
   perSlot: number;
@@ -221,6 +236,29 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
 }
 
 /** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
+const CAST_CAPACITY = 20000;
+const CAST_UP = new THREE.Vector3(0, 1, 0);
+
+/** V2: fossil casts of dense thread bundles, as cylinders along their segments ([a, b, radius] × n). */
+function setCasts(mesh: THREE.InstancedMesh | null, casts: Float32Array): void {
+  if (!mesh) return;
+  const n = Math.min(casts.length / 7, CAST_CAPACITY);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), dir = new THREE.Vector3(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const o = i * 7;
+    dir.set(casts[o + 3] - casts[o], casts[o + 4] - casts[o + 1], casts[o + 5] - casts[o + 2]);
+    const len = dir.length();
+    pos.set((casts[o] + casts[o + 3]) / 2, (casts[o + 1] + casts[o + 4]) / 2, (casts[o + 2] + casts[o + 5]) / 2);
+    q.setFromUnitVectors(CAST_UP, len > 1e-6 ? dir.normalize() : CAST_UP);
+    // a little longer than the segment, so the joints close
+    sc.set(casts[o + 6], len + casts[o + 6], casts[o + 6]);
+    m.compose(pos, q, sc);
+    mesh.setMatrixAt(i, m);
+  }
+  mesh.count = n;
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
 /** Replaces a line set's geometry (pairs of points with colours); none = empty. */
 function setLines(ls: THREE.LineSegments | null, r: PointsResult["lines"]): void {
   if (!ls) return;
@@ -386,6 +424,7 @@ function SpaceWorld({
   water,
   nearFade,
   noAxis,
+  threads,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -410,6 +449,8 @@ function SpaceWorld({
   nearFade: [number, number];
   /** V2: no time axis drawn (the timespace floats, without ground or axis). */
   noAxis: boolean;
+  /** V2: threads between buildings (threads.ts); null = off / V1. */
+  threads: ThreadsParams | null;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -438,9 +479,11 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, threads, noAxis, onStats });
+  const threadSegs = useRef<THREE.LineSegments>(null);
+  const castMesh = useRef<THREE.InstancedMesh>(null);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, threads, noAxis, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
@@ -483,7 +526,7 @@ function SpaceWorld({
       }
       // the time axis: a vertical line beside the parts, a tick per slot, a long tick per 10 slots (latest 2000)
       const ax = axis.current;
-      if (ax && !noAxis) {
+      if (ax && !live.current.noAxis) {
         const x0 = Number.isFinite(p.minX) ? p.minX - 2 : -3;
         const z0 = Number.isFinite(p.minZ) ? p.minZ - 2 : -3;
         const yTop = Math.max(p.top, (p.t / cfg.secPerUnit) * cfg.unit) + cfg.unit;
@@ -502,6 +545,10 @@ function SpaceWorld({
     }
     setPoints(naturePts.current, r.nature);
     if (r.nature) setLines(traceLines.current, r.nature.lines);
+    if (r.threads) {
+      setLines(threadSegs.current, r.threads);
+      setCasts(castMesh.current, r.threads.casts);
+    }
     if (r.reclaim) {
       gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
       setGatherings(gatherGeomRef.current, r.reclaim);
@@ -548,7 +595,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu, water: wa } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu, water: wa, threads: th } = live.current;
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     if (events.length < sent.current) {
@@ -569,6 +616,23 @@ function SpaceWorld({
     const id = ++seq.current;
     const withNature = !!nat && id % NATURE_EVERY === 1;
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, edges: e, lod } };
+    if (th && id % NATURE_EVERY === 1) {
+      req.threads = {
+        fold: f,
+        box: cfg,
+        water: waterCfg,
+        maxTripSec: th.maxTripSec,
+        recentSlots: th.recentSlots,
+        fossilAt: th.fossilAt,
+        castRadius: th.castRadius,
+        room: th.room,
+        minDist: th.room * 0.7,
+        bundle: { ...DEFAULT_BUNDLE, cycles: th.cycles },
+        focusK: (o ? Math.max(0, o.target.y) : 0) / cfg.unit,
+        window: nat?.window ?? 120,
+        max: 2000,
+      };
+    }
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined, traces: nat.traces ?? undefined };
@@ -637,6 +701,21 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
+      <instancedMesh ref={castMesh} args={[undefined, undefined, CAST_CAPACITY]} count={0} frustumCulled={false} visible={!!threads} castShadow receiveShadow>
+        <cylinderGeometry args={[1, 1, 1, 7]} />
+        <meshStandardMaterial color="#6d6f72" roughness={1} metalness={0} />
+      </instancedMesh>
+      <lineSegments ref={threadSegs} frustumCulled={false} visible={!!threads}>
+        <bufferGeometry />
+        <lineBasicMaterial
+          vertexColors
+          color={threads?.color ?? "#ffffff"}
+          transparent
+          opacity={threads?.opacity ?? 0.35}
+          depthWrite={false}
+          blending={threads?.additive ? THREE.AdditiveBlending : THREE.NormalBlending}
+        />
+      </lineSegments>
       <lineSegments ref={traceLines} frustumCulled={false} visible={!!nature?.traces}>
         <bufferGeometry />
         <lineBasicMaterial vertexColors />
@@ -1134,6 +1213,20 @@ export default function ParliamentSpace() {
         : null,
     [isV2, wtr.minApart, wtr.waterOn, wtr.minRaw, wtr.join, wtr.reach, wtr.minShare, wtr.persistSec, wtr.meander, wtr.radius, wtr.vegBoost, wtr.corrode, wtr.wetShare, wtr.channel],
   );
+  const thr = useControls(
+    "실 다발 (건물 사이 이동)",
+    savable("실 다발 (건물 사이 이동)", {
+      threadsOn: { value: true, label: "켜기 (V2)", render: () => isV2 },
+      maxTripSec: { value: 120, min: 10, max: 600, step: 5, label: "이동으로 볼 최대 시간 (s)", render: () => isV2 },
+      cycles: { value: 4, min: 0, max: 6, step: 1, label: "묶는 세기 (0 = 걸은 그대로)", render: () => isV2 },
+      recentSlots: { value: 15, min: 1, max: 120, step: 1, label: "실로 보이는 최근 (단; 그 아래는 화석만)", render: () => isV2 },
+      room: { value: 3.6, min: 1.2, max: 12, step: 0.1, label: "한 장소의 크기 (월드; 건물 안을 나눔)", render: () => isV2 },
+      fossilAt: { value: 3, min: 1, max: 20, step: 1, label: "화석이 되는 다발 (함께 지난 실 수)", render: () => isV2 },
+      castRadius: { value: 0.08, min: 0.01, max: 0.5, step: 0.01, label: "화석 굵기 (월드)", render: () => isV2 },
+      threadOpacity: { value: 0.35, min: 0.02, max: 1, step: 0.01, label: "선 투명도 (겹칠수록 진해짐)", render: () => isV2 },
+    }),
+    { order: 5.6, collapsed: true, render: () => isV2 },
+  );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(
     "엉김 · 융합 · 레진",
@@ -1243,6 +1336,23 @@ export default function ParliamentSpace() {
   );
   const fold = useFoldControls(SPACE_FOLD, { folder: "생성 규칙 (회사원 시공간 밀집)", collapsed: true, order: 2 });
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
+  const threadsParams = useMemo<ThreadsParams | null>(
+    () =>
+      isV2 && thr.threadsOn
+        ? {
+            maxTripSec: thr.maxTripSec,
+            cycles: thr.cycles,
+            recentSlots: thr.recentSlots,
+            fossilAt: thr.fossilAt,
+            castRadius: thr.castRadius,
+            room: thr.room,
+            opacity: thr.threadOpacity,
+            color: v.theme === "black" ? "#d8d8d8" : "#2a2a2a",
+            additive: v.theme === "black",
+          }
+        : null,
+    [isV2, thr.threadsOn, thr.maxTripSec, thr.cycles, thr.recentSlots, thr.fossilAt, thr.castRadius, thr.room, thr.threadOpacity, v.theme],
+  );
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
   const natureParams = useMemo<NatureParams | null>(
@@ -1326,6 +1436,7 @@ export default function ParliamentSpace() {
           water={waterView}
           nearFade={v.nearFade}
           noAxis={isV2}
+          threads={threadsParams}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
