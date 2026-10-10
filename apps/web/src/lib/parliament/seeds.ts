@@ -685,7 +685,16 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
   const yNow = geoYears(tNow);
   const jit = cfg.ageJitter ?? 0;
   const spread = (b: Box) => (jit > 0 ? Math.max(0, 1 + jit * (hash2(Math.round(b.x * 733) ^ b.seed, Math.round(b.y * 739) ^ Math.round(b.z * 743), 29) - 0.5) * 2) : 1);
-  const age = (b: Box) => spread(b) * baseAge(b);
+  // a part's age is asked for many times per compute (wear, survival, absorption, fusion, gathering): once each
+  const ageCache = new Map<Box, number>();
+  const age = (b: Box) => {
+    let a = ageCache.get(b);
+    if (a === undefined) {
+      a = spread(b) * baseAge(b);
+      ageCache.set(b, a);
+    }
+    return a;
+  };
   const baseAge = (b: Box) => {
     if (!(spu > 0) || (cover <= 0 && !(accel > 0 && cfg.veg) && !cfg.water)) return partAgeYears(b, ages, tNow, cfg);
     // strata with burial / vegetation: exposed from the end of its slot until covered, then slowed
@@ -706,8 +715,8 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
   return { age, survival };
 }
 
-export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig): Box[] {
-  const wm = wearModel(seeds, tNow, cfg);
+export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig, model?: ReturnType<typeof wearModel>): Box[] {
+  const wm = model ?? wearModel(seeds, tNow, cfg);
   const ageOf = wm.age;
   const survives = (b: Box, A: number) => {
     const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b, cfg);

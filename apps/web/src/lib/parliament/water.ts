@@ -226,7 +226,9 @@ export function linkSlots(l: WaterLink, secPerUnit: number): [number, number] {
  * (ix, iz, k) → 0..1.
  */
 export function waterField(links: readonly WaterLink[], k0: number, k1: number, secPerUnit: number, cfg: WaterConfig): (ix: number, iz: number, k: number) => number {
-  const m = new Map<string, number>();
+  // numeric keys: asked for every part (corrosion) and every (cell, slot) of the vegetation
+  const key3 = (ix: number, iz: number, k: number) => (k * 4096 + (ix + 2048)) * 4096 + (iz + 2048);
+  const m = new Map<number, number>();
   const R = Math.max(0.1, cfg.radius);
   const n = Math.ceil(R / CELL_SIZE);
   for (const l of links) {
@@ -241,7 +243,7 @@ export function waterField(links: readonly WaterLink[], k0: number, k1: number, 
             const ix = cx0 + dx, iz = cz0 + dz;
             const d = Math.hypot((ix + 0.5) * CELL_SIZE - x, (iz + 0.5) * CELL_SIZE - z);
             if (d >= R) continue;
-            const key = `${ix},${iz},${k}`;
+            const key = key3(ix, iz, k);
             const w = 1 - d / R;
             if (w > (m.get(key) ?? 0)) m.set(key, w);
           }
@@ -249,7 +251,7 @@ export function waterField(links: readonly WaterLink[], k0: number, k1: number, 
       }
     }
   }
-  return (ix, iz, k) => m.get(`${ix},${iz},${k}`) ?? 0;
+  return (ix, iz, k) => m.get(key3(ix, iz, k)) ?? 0;
 }
 
 /**
@@ -258,7 +260,8 @@ export function waterField(links: readonly WaterLink[], k0: number, k1: number, 
  */
 export function waterDistance(links: readonly WaterLink[], k0: number, k1: number, secPerUnit: number, cfg: WaterConfig): (x: number, z: number, k: number) => number {
   const B = Math.max(CELL_SIZE, cfg.radius);
-  const buckets = new Map<string, number[]>();
+  const key3 = (bx: number, bz: number, k: number) => (k * 4096 + (bx + 2048)) * 4096 + (bz + 2048);
+  const buckets = new Map<number, number[]>();
   for (const l of links) {
     const [a, b] = linkSlots(l, secPerUnit);
     for (let k = Math.max(k0, a); k <= Math.min(k1, b); k++) {
@@ -268,7 +271,7 @@ export function waterDistance(links: readonly WaterLink[], k0: number, k1: numbe
         const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.25));
         for (let s = 0; s <= steps; s++) {
           const x = x0 + ((x1 - x0) * s) / steps, z = z0 + ((z1 - z0) * s) / steps;
-          const key = `${Math.floor(x / B)},${Math.floor(z / B)},${k}`;
+          const key = key3(Math.floor(x / B), Math.floor(z / B), k);
           const list = buckets.get(key);
           if (list) list.push(x, z);
           else buckets.set(key, [x, z]);
@@ -281,7 +284,7 @@ export function waterDistance(links: readonly WaterLink[], k0: number, k1: numbe
     let best = Infinity;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
-        const list = buckets.get(`${bx + dx},${bz + dz},${k}`);
+        const list = buckets.get(key3(bx + dx, bz + dz, k));
         if (!list) continue;
         for (let i = 0; i < list.length; i += 2) {
           const d = Math.hypot(list[i] - x, list[i + 1] - z);

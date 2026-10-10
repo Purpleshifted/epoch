@@ -55,7 +55,8 @@ export function foldWorld(
   vis.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)); // ties by id: same float sums in every view
 
   const yView = geoYears(sView);
-  const cells = new Map<string, Acc>();
+  // numeric cell keys while splatting (every event touches ~(2·radius/cell)² cells); the "cx,cz" string only per slab
+  const cells = new Map<number, Acc>();
   const n = Math.ceil(cfg.radius / CELL_SIZE);
   const lastCell = new Map<string, string>();
   const visits = new Map<string, { n: number; lastS: number; x: number; z: number }>();
@@ -91,11 +92,11 @@ export function foldWorld(
         const cz = cz0 + dz;
         const d = Math.hypot((cx + 0.5) * CELL_SIZE - e.x, (cz + 0.5) * CELL_SIZE - e.z);
         if (d >= cfg.radius) continue;
-        const key = `${cx},${cz}`;
-        let acc = cells.get(key);
+        const nk = (cx + 32768) * 65536 + (cz + 32768);
+        let acc = cells.get(nk);
         if (!acc) {
           acc = { cx, cz, s: [], w: [], o: [] };
-          cells.set(key, acc);
+          cells.set(nk, acc);
         }
         acc.s.push(e.s);
         acc.w.push((1 - d / cfg.radius) * builds);
@@ -110,7 +111,8 @@ export function foldWorld(
 
   const cap = cfg.visitorCap;
   const slabs: Slab[] = [];
-  for (const [key, acc] of cells) {
+  for (const acc of cells.values()) {
+    const key = `${acc.cx},${acc.cz}`;
     const { s, w, o } = acc;
     const dt = cfg.sampleSec;
     // sliding window with one running sum PER VISITOR; a visitor counts at most `cap`

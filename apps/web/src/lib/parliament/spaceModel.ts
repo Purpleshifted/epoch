@@ -354,9 +354,11 @@ export class SpaceModel {
       veg,
       water,
     };
-    const worn = input.wear ? wearParts(built, seeds, t, wearCfg) : built;
+    // one wear model for wearing and for what the parts become (its ages are cached per part)
+    const wm = input.wear ? wearModel(seeds, t, wearCfg) : null;
+    const worn = wm ? wearParts(built, seeds, t, wearCfg, wm) : built;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
-    this.wear = input.wear ? wearModel(seeds, t, wearCfg) : null;
+    this.wear = wm;
     // vegetation gathering on a part (0 … 1), by its depth below the present and the density around it
     const kNow = t / box.secPerUnit;
     this.gatherOf = w.strata ? (b: Box) => gatherAmount(kNow - (b.slot + 1), wearCfg) * gatherDensity(b, wearCfg) : null;
@@ -487,21 +489,23 @@ export class SpaceModel {
     const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold, waterBoost });
     this.history = h;
     // where mass has formed (growths or fusion), the vegetation is part of it: no points there
-    const massed = new Set<string>();
+    // numeric keys: thinCell is asked for every (cell, slot) of the window (millions of lookups)
+    const mkey = (ix: number, iz: number, k: number) => (k * 4096 + (ix + 2048)) * 4096 + (iz + 2048);
+    const massed = new Set<number>();
     const wm = this.wear;
     if (wm && input.fuse.enabled) {
       for (const b of this.built) {
         if (b.slot < k0 - 1 || b.slot > k1 + 1 || accretionShare(1 - wm.survival(b), input.fuse) <= 0.05) continue;
         for (let ix = Math.floor((b.x - b.sx / 2) / CELL); ix <= Math.floor((b.x + b.sx / 2) / CELL); ix++) {
           for (let iz = Math.floor((b.z - b.sz / 2) / CELL); iz <= Math.floor((b.z + b.sz / 2) / CELL); iz++) {
-            for (let k = b.slot - 1; k <= b.slot + 1; k++) massed.add(`${ix},${iz},${k}`);
+            for (let k = b.slot - 1; k <= b.slot + 1; k++) massed.add(mkey(ix, iz, k));
           }
         }
       }
     }
-    const thinCell = massed.size ? (ix: number, iz: number, k: number) => (massed.has(`${ix},${iz},${k}`) ? 0 : 1) : undefined;
+    const thinCell = massed.size ? (ix: number, iz: number, k: number) => (massed.has(mkey(ix, iz, k)) ? 0 : 1) : undefined;
     let massSig = massed.size;
-    for (const key of massed) massSig = (massSig * 31 + key.length + key.charCodeAt(0)) % 1e9;
+    for (const key of massed) massSig = (massSig * 31 + (key % 1000003)) % 1e9;
     // V2: the floor of each slot (absolute, rising as the layer's vegetation dies)
     const dens = input.density;
     // the deepest layer whose vegetation is gone; above it the floor falls back to `cut` over `fade` slots
