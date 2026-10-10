@@ -239,7 +239,7 @@ export function natureAt(h: NatureHistory, ix: number, iz: number, k: number): n
 }
 
 /** What a nature point is (the renderer picks the colour). */
-export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6, humus: 7, peat: 8, trodden: 9, wet: 10, channel: 11 } as const;
+export const NATURE_KIND = { soil: 0, grass: 1, herb: 2, dry: 3, moss: 4, woody: 5, buried: 6, humus: 7, peat: 8, trodden: 9, wet: 10 } as const;
 
 export interface NaturePointOptions {
   /** World size of a time slot (y). */
@@ -275,15 +275,7 @@ export interface NaturePointOptions {
    * WATER: no points within `half` of a course (the channel stays clear); beyond it, wetland vegetation — a share
    * `share` at the bank, fading to 0 at `radius`.
    */
-  water?: { dist: (x: number, z: number, k: number) => number; half: number; radius: number; share: number; near?: (ix: number, iz: number, k: number) => number };
-  /**
-   * FOSSIL TRACES (V2): in slots whose density floor has reached `from` (their vegetation is gone or going), what
-   * paths and waterways left stays in the stratum — a path as a thin compacted lamina of trodden ground (grey,
-   * flat, `per` points per cell at full strength, where the path strength reaches `hole`), a waterway as a
-   * paleochannel: a pale lens of sand along its course, thickest in the middle (needs `water`). Human traces:
-   * achromatic.
-   */
-  fossil?: { from: number; per: number; hole: number };
+  water?: { dist: (x: number, z: number, k: number) => number; half: number; radius: number; share: number };
 }
 
 /** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
@@ -344,8 +336,6 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
     const keepShare = opts.thin ? Math.max(0, Math.min(1, opts.thin(k))) : 1;
     if (keepShare <= 0) continue;
     const cutK = typeof opts.cut === "function" ? opts.cut(k) : (opts.cut ?? 0);
-    const fossilSlot = !!opts.fossil && cutK >= opts.fossil.from;
-    if (fossilSlot) fossilTraces(h, k, base, opts, pos, kind, shade);
     if (cutK >= 1) continue;
     for (let j = 0; j < h.nz; j++) {
       for (let i = 0; i < h.nx; i++) {
@@ -406,42 +396,6 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
     }
   }
   return { count: kind.length, position: Float32Array.from(pos), kind: Uint8Array.from(kind), shade: Float32Array.from(shade) };
-}
-
-/** FOSSIL TRACES of slot k (see NaturePointOptions.fossil): appended to pos / kind / shade. */
-function fossilTraces(h: NatureHistory, k: number, base: number, opts: NaturePointOptions, pos: number[], kind: number[], shade: number[]): void {
-  const f = opts.fossil!;
-  const w = opts.water;
-  for (let j = 0; j < h.nz; j++) {
-    for (let i = 0; i < h.nx; i++) {
-      const ix = h.x0 + i, iz = h.z0 + j;
-      // the path's lamina: trodden ground pressed flat at the slot's floor
-      const p = h.P[base + j * h.nx + i];
-      if (p >= f.hole) {
-        const want = p * f.per;
-        const n = Math.floor(want) + (h3(ix, iz, k, 51) < want - Math.floor(want) ? 1 : 0);
-        for (let e = 0; e < n; e++) {
-          const s = 60 + e * 5;
-          pos.push((ix + h3(ix, iz, k, s)) * CELL_SIZE, (k + 0.08 * h3(ix, iz, k, s + 1)) * opts.unit, (iz + h3(ix, iz, k, s + 2)) * CELL_SIZE);
-          kind.push(NATURE_KIND.trodden);
-          shade.push(0.3 + 0.7 * h3(ix, iz, k, s + 3));
-        }
-      }
-      // the paleochannel: a lens of pale sand along the course
-      if (w && w.near && w.near(ix, iz, k) > 0.4) {
-        for (let e = 0; e < f.per; e++) {
-          const s = 90 + e * 5;
-          const px = (ix + h3(ix, iz, k, s)) * CELL_SIZE, pz = (iz + h3(ix, iz, k, s + 1)) * CELL_SIZE;
-          const d = w.dist(px, pz, k);
-          if (d >= w.half) continue;
-          const depth = 1 - d / Math.max(1e-6, w.half);
-          pos.push(px, (k + 0.35 * depth * h3(ix, iz, k, s + 2)) * opts.unit, pz);
-          kind.push(NATURE_KIND.channel);
-          shade.push(0.4 + 0.6 * depth * h3(ix, iz, k, s + 3));
-        }
-      }
-    }
-  }
 }
 
 /**

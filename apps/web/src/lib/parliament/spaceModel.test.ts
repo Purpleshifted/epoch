@@ -189,21 +189,6 @@ describe("SpaceModel: what the worker computes", () => {
     expect(between).toBeGreaterThanOrEqual(3);
   }, 120_000);
 
-  it("V2 traces: the present slot gets a line map of the living paths", () => {
-    const m = new SpaceModel();
-    m.add(events);
-    m.computeParts(parts());
-    const top = Math.floor(Math.max(...events.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit);
-    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: top, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear, paths: { hole: 0.35, berm: 2 }, density: { cut: 0.25, fade: 15 }, traces: { lineAt: 0.2, fossilFrom: 0.85, fossilPer: 6 } };
-    const r = m.computeNature(input)!;
-    expect(r.lines).toBeDefined();
-    expect(r.lines!.position.length % 6).toBe(0);
-    expect(r.lines!.position.length).toBeGreaterThan(0);
-    const y = r.lines!.position[1];
-    for (let i = 1; i < r.lines!.position.length; i += 3) expect(r.lines!.position[i]).toBeCloseTo(y, 6); // all on one slot
-    expect(m.computeNature({ ...input, traces: undefined })).not.toBeNull(); // V1 / off: no lines
-  });
-
   it("reset forgets the world", () => {
     const m = new SpaceModel();
     m.add(events);
