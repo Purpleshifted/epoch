@@ -162,6 +162,8 @@ interface NatureParams {
   budget: number;
   burialSlots: number;
   /** Density floor of the vegetation volume, and how much it rises far away (V2; 0 = V1's even thinning). */
+  /** V2: present-slot lines and fossil traces of paths and waterways; null = V1 / off. */
+  traces: { lineAt: number; fossilFrom: number; fossilPer: number } | null;
   /** V2: absolute density floor, and over how many slots it rises towards the dead layers; null = V1. */
   density: { cut: number; fade: number } | null;
   reclaim: boolean;
@@ -218,6 +220,16 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
 }
 
 /** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
+/** Replaces a line set's geometry (pairs of points with colours); none = empty. */
+function setLines(ls: THREE.LineSegments | null, r: PointsResult["lines"]): void {
+  if (!ls) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(r?.position ?? new Float32Array(0), 3));
+  g.setAttribute("color", new THREE.BufferAttribute(r?.color ?? new Float32Array(0), 3));
+  ls.geometry.dispose();
+  ls.geometry = g;
+}
+
 function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined): void {
   if (!pts || !r) return;
   const g = new THREE.BufferGeometry();
@@ -399,6 +411,7 @@ function SpaceWorld({
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
   const naturePts = useRef<THREE.Points>(null);
+  const traceLines = useRef<THREE.LineSegments>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
   // count changes, the gatherings stay in the shared attributes
   const gatherAt = useMemo(() => gatherAttributes(), []);
@@ -484,6 +497,7 @@ function SpaceWorld({
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
+    if (r.nature) setLines(traceLines.current, r.nature.lines);
     if (r.reclaim) {
       gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
       setGatherings(gatherGeomRef.current, r.reclaim);
@@ -553,7 +567,7 @@ function SpaceWorld({
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
-      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
+      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined, traces: nat.traces ?? undefined };
       if (nat.reclaim) {
         req.reclaim = {
           tauReclaimYears: nat.tauReclaimYears,
@@ -619,6 +633,10 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
+      <lineSegments ref={traceLines} frustumCulled={false} visible={!!nature?.traces}>
+        <bufferGeometry />
+        <lineBasicMaterial vertexColors />
+      </lineSegments>
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>
@@ -1057,6 +1075,11 @@ export default function ParliamentSpace() {
         pathsOn: { value: true, label: "켜기" },
         pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
         pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
+        traceLinesOn: { value: true, label: "현재 단: 길 · 수로 선화", render: () => isV2 },
+        lineAt: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "선이 되는 길 세기", render: () => isV2 },
+        fossilOn: { value: true, label: "화석: 식생이 사라진 층에 길(다져진 층) · 수로(옛 물길 모래)", render: () => isV2 },
+        fossilFrom: { value: 0.85, min: 0.3, max: 1, step: 0.01, label: "화석이 보이기 시작하는 층 (식생 최소 밀도가 이만큼)", render: () => isV2 },
+        fossilPer: { value: 6, min: 1, max: 30, step: 1, label: "화석 점 수 (칸당)", render: () => isV2 },
       }),
     }),
     { order: 5 },
@@ -1236,9 +1259,13 @@ export default function ParliamentSpace() {
             paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm } : null,
             // V1 keeps every cell by its density and the even far thinning
             density: isV2 ? { cut: veg.densityCut, fade: veg.densityFade } : null,
+            traces:
+              isV2 && (veg.traceLinesOn || veg.fossilOn)
+                ? { lineAt: veg.traceLinesOn ? veg.lineAt : 2, fossilFrom: veg.fossilOn ? veg.fossilFrom : 2, fossilPer: veg.fossilPer }
+                : null,
           }
         : null,
-    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
+    [isV2, veg.densityCut, veg.densityFade, veg.traceLinesOn, veg.lineAt, veg.fossilOn, veg.fossilFrom, veg.fossilPer, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
   );
   const recipe = useMemo<Recipe>(
     () => ({

@@ -247,3 +247,30 @@ describe("water in the vegetation: a clear channel lined with wetland", () => {
     expect(farWet).toBe(0);
   });
 });
+
+describe("fossil traces (V2): paths and waterways stay in the layers whose vegetation is gone", () => {
+  // a walker crossing back and forth along z = 3: a path in V1's rule (entries)
+  const walk: PEvent[] = [];
+  for (let t = 0; t < 400; t++) {
+    const d = t % 40;
+    walk.push({ id: `w:${t}`, o: `w${Math.floor(t / 40)}`, r: "worker", k: "p", x: d < 20 ? d : 40 - d, z: 3, s: t + 0.37 });
+  }
+  const h = run(walk, 0, 12);
+  it("a dead slot shows only the path's lamina: trodden ground, flat at the slot floor", () => {
+    const pts = naturePoints(h, 0, 12, { unit: 1, perSlot: 6, cut: () => 1, fossil: { from: 0.85, per: 6, hole: 0.35 } });
+    expect(pts.count).toBeGreaterThan(0);
+    for (let i = 0; i < pts.count; i++) {
+      expect(pts.kind[i]).toBe(NATURE_KIND.trodden);
+      const y = pts.position[i * 3 + 1];
+      expect(y - Math.floor(y)).toBeLessThan(0.1); // pressed flat
+    }
+    // without the fossil option a dead slot is empty (V1)
+    expect(naturePoints(h, 0, 12, { unit: 1, perSlot: 6, cut: () => 1 }).count).toBe(0);
+  });
+  it("a waterway leaves a paleochannel (pale sand) in the dead layers", () => {
+    const water = { dist: (x: number, z: number) => Math.abs(z - 9), half: 0.6, radius: 2, share: 1, near: (_ix: number, iz: number) => (Math.abs((iz + 0.5) * CELL_SIZE - 9) < 1.2 ? 1 : 0) };
+    const pts = naturePoints(h, 0, 12, { unit: 1, perSlot: 6, cut: () => 1, water, fossil: { from: 0.85, per: 6, hole: 0.35 } });
+    const ch = Array.from(pts.kind).filter((k) => k === NATURE_KIND.channel).length;
+    expect(ch).toBeGreaterThan(0);
+  });
+});

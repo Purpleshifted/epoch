@@ -19,7 +19,7 @@ import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, nat
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
-import { waterDistance, waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
+import { linkSlots, waterCourse, waterDistance, waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -46,6 +46,7 @@ export const NATURE_PALETTE: [string, string][] = [
   ["#26221f", "#3a332c"], // peat / compressed (old sediment)
   ["#4a4a4a", "#7a7a7a"], // trodden ground at a path's rim (a human trace: grey)
   ["#0b4f57", "#2a9c9a"], // wetland vegetation along waterways (blue-green: reads as water)
+  ["#8f8f8a", "#c9c9c2"], // paleochannel: pale sand where a waterway ran, in the fossil layers (a human trace: grey)
 ];
 
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -198,6 +199,12 @@ export interface NatureInput {
    * fades out along the time axis. Absent = V1 (even thinning, by distance and by the living cut).
    */
   density?: { cut: number; fade: number };
+  /**
+   * V2 TRACES: the living paths (strength ≥ lineAt) and waterways drawn as lines on the present slot (a road map of
+   * now), and in the layers whose vegetation is gone (density floor ≥ fossilFrom) their fossils (naturePoints.fossil,
+   * fossilPer points per cell). Absent = V1.
+   */
+  traces?: { lineAt: number; fossilFrom: number; fossilPer: number };
 }
 
 export interface ReclaimInput {
@@ -223,6 +230,8 @@ export interface FuseInput {
 export interface PointsResult {
   position: Float32Array;
   color: Float32Array;
+  /** V2: line segments (pairs of points) of the living paths and waterways on the present slot, with colours. */
+  lines?: { position: Float32Array; color: Float32Array };
 }
 
 const dist3 = (a: [number, number, number], x: number, y: number, z: number) => Math.hypot(a[0] - x, a[1] - y, a[2] - z);
@@ -472,7 +481,7 @@ export class SpaceModel {
         : undefined;
     // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
     const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}:${this.links.length}`;
-    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots, input.density ?? null])}:${sedKey}:${fuseKey}:${k0}:${k1}:${input.density ? "abs" : levels.join(",")}`;
+    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots, input.density ?? null, input.traces ?? null])}:${sedKey}:${fuseKey}:${k0}:${k1}:${input.density ? "abs" : levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
     if (k1 < k0 || !this.events.length) return { position: new Float32Array(0), color: new Float32Array(0) };
@@ -484,7 +493,7 @@ export class SpaceModel {
     // the channel itself stays clear; its banks are wetland (per point, from the exact distance to the course)
     const water =
       wc && this.links.length
-        ? { dist: waterDistance(this.links, k0, k1, spu, wc), half: wc.channel / 2, radius: wc.radius, share: wc.wetShare }
+        ? { dist: waterDistance(this.links, k0, k1, spu, wc), half: wc.channel / 2, radius: wc.radius, share: wc.wetShare, near: near ?? undefined }
         : undefined;
     const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold, waterBoost });
     this.history = h;
@@ -523,6 +532,8 @@ export class SpaceModel {
         }
       : undefined;
     const load = naturePointLoad(h, k0, k1, input.perSlot, cutOf);
+    const tr = input.traces;
+    const fossil = tr && dens ? { from: tr.fossilFrom, per: tr.fossilPer, hole: input.paths?.hole ?? 0.35 } : undefined;
     const scale = load > input.budget ? input.budget / load : 1;
     const buried = input.burialSlots > 0 ? burialOf(seeds, spu, input.burialSlots) : undefined;
     let burySig = input.burialSlots;
@@ -539,18 +550,20 @@ export class SpaceModel {
       const off = (a - h.k0) * h.nx * h.nz;
       let sum = 0;
       for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${dens ? `${dens.cut}:${dens.fade}` : "-"}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${dens ? `${dens.cut}:${dens.fade}` : "-"}:${input.traces ? JSON.stringify(input.traces) : "-"}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, cut: cutOf, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: dens ? undefined : living });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, cut: cutOf, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: dens ? undefined : living, fossil });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }
       parts.push(ch);
     }
     for (const c of this.chunks.keys()) if (!keep.has(c)) this.chunks.delete(c);
-    return concat(parts);
+    const result = concat(parts);
+    if (tr && kNow >= k0 && kNow <= k1) result.lines = presentLines(h, kNow, box.unit, tr.lineAt, wc && this.links.length ? this.links : [], spu, wc);
+    return result;
   }
 
   /**
@@ -684,6 +697,52 @@ export class SpaceModel {
 
 }
 
+/** Linear grey of the present-slot lines: paths mid grey (darker the stronger), waterways pale. */
+const PATH_LINE = [0.16, 0.16, 0.16];
+const PATH_LINE_WEAK = [0.42, 0.42, 0.42];
+const WATER_LINE = [0.62, 0.62, 0.6];
+
+/**
+ * V2: the living paths and waterways of slot k as line segments on its top — a road map of now. Paths: between
+ * neighbouring cells whose strength both reach `lineAt` (8 neighbours, each pair once), darker the stronger;
+ * waterways: their meandering course.
+ */
+function presentLines(h: NatureHistory, k: number, unit: number, lineAt: number, links: readonly WaterLink[], spu: number, wc: WaterConfig | null): { position: Float32Array; color: Float32Array } {
+  const pos: number[] = [];
+  const col: number[] = [];
+  const y = (k + 1) * unit + 0.02;
+  const base = (k - h.k0) * h.nx * h.nz;
+  const P = (i: number, j: number) => (i < 0 || j < 0 || i >= h.nx || j >= h.nz ? 0 : h.P[base + j * h.nx + i]);
+  const DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  for (let j = 0; j < h.nz; j++) {
+    for (let i = 0; i < h.nx; i++) {
+      const a = P(i, j);
+      if (a < lineAt) continue;
+      for (const [di, dj] of DIRS) {
+        const b = P(i + di, j + dj);
+        if (b < lineAt) continue;
+        // a diagonal only where the two orthogonal cells between are not both path (no doubled triangles)
+        if (di && dj && (P(i + di, j) >= lineAt || P(i, j + dj) >= lineAt)) continue;
+        pos.push((h.x0 + i + 0.5) * CELL, y, (h.z0 + j + 0.5) * CELL, (h.x0 + i + di + 0.5) * CELL, y, (h.z0 + j + dj + 0.5) * CELL);
+        const t = Math.min(1, (Math.min(a, b) - lineAt) / Math.max(1e-6, 1 - lineAt));
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) col.push(PATH_LINE_WEAK[c] + (PATH_LINE[c] - PATH_LINE_WEAK[c]) * t);
+      }
+    }
+  }
+  if (wc) {
+    for (const l of links) {
+      const [a, b] = linkSlots(l, spu);
+      if (k < a || k > b) continue;
+      const c = waterCourse(l, k, wc);
+      for (let p = 0; p + 3 < c.length; p += 2) {
+        pos.push(c[p], y, c[p + 1], c[p + 2], y, c[p + 3]);
+        for (let r = 0; r < 2; r++) col.push(...WATER_LINE);
+      }
+    }
+  }
+  return { position: Float32Array.from(pos), color: Float32Array.from(col) };
+}
+
 function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult {
   let n = 0;
   for (const p of parts) n += p.pos.length;
@@ -739,6 +798,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   if (m.nature) {
     out.nature = model.computeNature(m.nature);
     if (out.nature) transfer.add(out.nature.position.buffer as ArrayBuffer).add(out.nature.color.buffer as ArrayBuffer);
+    if (out.nature?.lines) transfer.add(out.nature.lines.position.buffer as ArrayBuffer).add(out.nature.lines.color.buffer as ArrayBuffer);
   }
   if (m.reclaim) {
     out.reclaim = model.computeReclaim(m.reclaim);
