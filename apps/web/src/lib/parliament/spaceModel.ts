@@ -19,7 +19,8 @@ import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, nat
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
-import { waterDistance, waterField, waterLinks, type WaterConfig, type WaterLink } from "./water";
+import { DEFAULT_FLOW } from "./flow";
+import { NO_DRAINAGE, drainage, pipeSegments, waterDistance, waterField, type Drainage, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -168,7 +169,11 @@ export interface PartsResult {
   /** Seeds built without slats (far). */
   farSeeds: number;
   /** Waterways flowing now. */
+  /** Open streams now / pipe runs laid in all. */
   links: number;
+  pipeRuns: number;
+  /** Pipe cylinders [ax, ay, az, bx, by, bz, radius] × n (water.pipeSegments). */
+  pipes: Float32Array;
   t: number;
   top: number;
   minX: number;
@@ -244,7 +249,8 @@ export class SpaceModel {
   private gatherOf: ((b: Box) => number) | null = null;
   private history: NatureHistory | null = null;
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
-  private links: WaterLink[] = [];
+  private drain: Drainage = NO_DRAINAGE;
+  private drainKey = "";
   private nearWater: ((ix: number, iz: number, k: number) => number) | null = null;
   private waterCfg: WaterConfig | null = null;
   private fuseSig = "";
@@ -336,8 +342,15 @@ export class SpaceModel {
     const veg = h ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
     // waterways between buildings the same people built: nearness per (cell, slot) over the whole history
     this.waterCfg = input.water;
-    this.links = waterLinks(seeds, input.water, t);
-    this.nearWater = this.links.length ? waterField(this.links, 0, Math.floor(t / box.secPerUnit), box.secPerUnit, input.water) : null;
+    // water from the sealed ground: open streams and buried pipes, laid out per epoch (rebuilt when an epoch begins,
+    // the buildings or the rule change)
+    const every = Math.max(1, Math.round(input.water.everySlots));
+    const dKey = `${Math.floor(t / (box.secPerUnit * every))}:${box.secPerUnit}:${seeds.length}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
+    if (dKey !== this.drainKey) {
+      this.drainKey = dKey;
+      this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t });
+    }
+    this.nearWater = this.drain.streams.size ? waterField(this.drain, 0, Math.floor(t / box.secPerUnit), input.water) : null;
     const near = this.nearWater;
     const water = near && input.water.corrode > 0 ? (b: Box) => near(Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) * input.water.corrode : undefined;
     const wearCfg = {
@@ -424,7 +437,9 @@ export class SpaceModel {
       seeds: seeds.length,
       parts: shown.length,
       farSeeds: far.size,
-      links: this.links.length,
+      links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
+      pipeRuns: this.drain.pipes.length,
+      pipes: pipeSegments(this.drain.pipes, box.unit, input.water),
       t,
       top,
       minX,
@@ -471,7 +486,7 @@ export class SpaceModel {
           }
         : undefined;
     // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
-    const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}:${this.links.length}`;
+    const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}:${this.drainKey}`;
     const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots, input.density ?? null])}:${sedKey}:${fuseKey}:${k0}:${k1}:${input.density ? "abs" : levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
@@ -483,8 +498,8 @@ export class SpaceModel {
     // the water is not drawn: the vegetation along it is wetland (its colour) and denser (waterBoost)
     // the channel itself stays clear; its banks are wetland (per point, from the exact distance to the course)
     const water =
-      wc && this.links.length
-        ? { dist: waterDistance(this.links, k0, k1, spu, wc), half: wc.channel / 2, radius: wc.radius, share: wc.wetShare }
+      wc && this.drain.streams.size
+        ? { dist: waterDistance(this.drain, k0, k1, wc), half: wc.channel / 2, radius: wc.radius, share: wc.wetShare }
         : undefined;
     const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold, waterBoost });
     this.history = h;
@@ -734,6 +749,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.matrices)) transfer.add(a.buffer as ArrayBuffer);
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
+      transfer.add(out.parts.pipes.buffer as ArrayBuffer);
     }
   }
   if (m.nature) {

@@ -122,25 +122,19 @@ describe("SpaceModel: what the worker computes", () => {
     expect(ys.some((y) => y > top * 0.75)).toBe(true);
   }, 300_000);
 
-  it("bots moving between flocks join their buildings with waterways, shown as wetland vegetation", () => {
-    const long = runBots(12, 900, 30); // two flocks far enough apart to make two buildings
+  it("bots' buildings seal the ground: their water drains away (streams and/or pipes), drawn as wetland", () => {
+    const long = runBots(12, 900, 30);
     const m = new SpaceModel();
     m.add(long);
-    m.computeParts(parts());
-    const links = (m as unknown as { links: unknown[] }).links;
-    expect(links.length).toBeGreaterThan(0);
+    const r = m.computeParts(parts())!;
+    const drain = (m as unknown as { drain: { streams: Map<number, unknown[]>; pipes: unknown[] } }).drain;
+    expect(drain.streams.size + drain.pipes.length).toBeGreaterThan(0);
+    expect(r.pipes.length).toBe(r.pipeRuns * 7);
     const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 20, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear };
-    const pts = m.computeNature(input)!;
-    const wetColour = natureColors({ count: 1, kind: Uint8Array.of(NATURE_KIND.wet), shade: Float32Array.of(0) });
-    let wet = 0;
-    for (let i = 0; i < pts.color.length; i += 3) if (pts.color[i] === wetColour[0] && pts.color[i + 1] === wetColour[1]) wet++;
-    // (shade 0 only matches some wet points; any at all means the wetland is there)
+    expect(m.computeNature(input)!.position.length).toBeGreaterThan(0);
     const off = new SpaceModel();
     off.add(long);
-    off.computeParts({ ...parts(), water: { ...DEFAULT_WATER, enabled: false } });
-    expect((off as unknown as { links: unknown[] }).links).toHaveLength(0);
-    expect(pts.position.length).toBeGreaterThan(0);
-    expect(wet).toBeGreaterThanOrEqual(0);
+    expect(off.computeParts({ ...parts(), water: { ...DEFAULT_WATER, enabled: false } })!.pipeRuns).toBe(0);
   }, 120_000);
 
   it("vegetation lives only in the layers that have not begun to fuse: none below, most at the top", () => {

@@ -132,6 +132,7 @@ interface Stats {
   farSeeds: number;
   /** Waterways flowing now. */
   links: number;
+  pipeRuns: number;
   /** How long the worker's last computation took. */
   workerMs: number;
   /** Where it ran. */
@@ -218,6 +219,28 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
 }
 
 /** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
+const PIPE_CAPACITY = 20000;
+const PIPE_UP = new THREE.Vector3(0, 1, 0);
+
+/** Buried pipes (water.pipeSegments): one cylinder per straight run, [a, b, radius] × n; the joints close up. */
+function setPipes(mesh: THREE.InstancedMesh | null, pipes: Float32Array): void {
+  if (!mesh) return;
+  const n = Math.min(pipes.length / 7, PIPE_CAPACITY);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), dir = new THREE.Vector3(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const o = i * 7;
+    dir.set(pipes[o + 3] - pipes[o], pipes[o + 4] - pipes[o + 1], pipes[o + 5] - pipes[o + 2]);
+    const len = dir.length();
+    pos.set((pipes[o] + pipes[o + 3]) / 2, (pipes[o + 1] + pipes[o + 4]) / 2, (pipes[o + 2] + pipes[o + 5]) / 2);
+    q.setFromUnitVectors(PIPE_UP, len > 1e-6 ? dir.normalize() : PIPE_UP);
+    sc.set(pipes[o + 6], len + pipes[o + 6] * 2, pipes[o + 6]);
+    m.compose(pos, q, sc);
+    mesh.setMatrixAt(i, m);
+  }
+  mesh.count = n;
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
 function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined): void {
   if (!pts || !r) return;
   const g = new THREE.BufferGeometry();
@@ -401,6 +424,7 @@ function SpaceWorld({
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
+  const pipeMesh = useRef<THREE.InstancedMesh>(null);
   const naturePts = useRef<THREE.Points>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
   // count changes, the gatherings stay in the shared attributes
@@ -484,7 +508,8 @@ function SpaceWorld({
         ax.geometry.dispose();
         ax.geometry = g;
       }
-      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
+      setPipes(pipeMesh.current, p.pipes);
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
@@ -615,6 +640,10 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#15181c" />
       </lineSegments>
+      <instancedMesh ref={pipeMesh} args={[undefined, undefined, PIPE_CAPACITY]} count={0} frustumCulled={false} visible={!!water} castShadow receiveShadow>
+        <cylinderGeometry args={[1, 1, 1, 10]} />
+        <meshStandardMaterial color="#7c7f84" roughness={0.55} metalness={0.25} />
+      </instancedMesh>
       <lineSegments ref={axis} frustumCulled={false} visible={!noAxis}>
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
@@ -876,7 +905,7 @@ export default function ParliamentSpace() {
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, links: 0, workerMs: 0, runner: "-" });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -1066,21 +1095,26 @@ export default function ParliamentSpace() {
     { order: 5 },
   );
   const wtr = useControls(
-    "수로",
-    savable("수로", {
+    "수로 (덮인 땅의 물)",
+    savable("수로 (덮인 땅의 물)", {
       waterOn: { value: DEFAULT_WATER.enabled, label: "켜기" },
-      minRaw: { value: DEFAULT_WATER.minRaw, min: 1, max: 10, step: 0.05, label: "건물이 '커졌다'고 볼 단 수" },
-      reach: { value: DEFAULT_WATER.reach, min: 1, max: 60, step: 0.5, label: "이을 수 있는 건물 간 거리 (월드)" },
-      minShare: { value: DEFAULT_WATER.minShare, min: 0.1, max: 20, step: 0.1, label: "기여자로 볼 최소 기여량" },
-      persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤 흐르는 시간 (s)" },
-      vegBoost: { value: DEFAULT_WATER.vegBoost, min: 0, max: 2, step: 0.05, label: "물가 식생 밀도 (짙어지는 정도)" },
-      channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
-      wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
-      corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
-      "물길 경로": folder(
+      burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "관으로 묻히는 덮인 비율 (주변이 이만큼 덮이면)" },
+      openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "물이 다시 스미는 덮인 비율 (배출구)" },
+      imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
+      pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "포장된 길로 볼 길 세기" },
+      diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "관의 45° 꺾임 (0 = 직각만)" },
+      everySlots: { value: DEFAULT_WATER.everySlots, min: 1, max: 60, step: 1, label: "배수망을 다시 까는 간격 (단)" },
+      persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤에도 물이 나오는 시간 (s)" },
+      pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 모일수록 굵어짐)" },
+      "열린 물길": folder(
         {
-          meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이 (길이 대비)" },
+          streamLength: { value: DEFAULT_WATER.streamLength, min: 0, max: 40, step: 0.5, label: "배출구 너머로 흐르는 거리 (월드)" },
+          channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
+          meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이" },
           radius: { value: DEFAULT_WATER.radius, min: 0.5, max: 8, step: 0.1, label: "습지 폭 (물길에서 영향 범위, 월드)" },
+          vegBoost: { value: DEFAULT_WATER.vegBoost, min: 0, max: 2, step: 0.05, label: "물가 식생 밀도 (짙어지는 정도)" },
+          wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
+          corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
           join: { value: DEFAULT_WATER.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
         },
         { collapsed: true },
@@ -1088,25 +1122,30 @@ export default function ParliamentSpace() {
     }),
     { order: 5.5 },
   );
-  const waterView = useMemo(
+  const waterView = useMemo<WaterConfig | null>(
     () =>
       wtr.waterOn
         ? {
             enabled: true,
-            minRaw: wtr.minRaw,
             join: wtr.join,
-            reach: wtr.reach,
-            minShare: wtr.minShare,
+            everySlots: wtr.everySlots,
+            imperviousRadius: wtr.imperviousRadius,
+            burial: wtr.burial,
+            openShare: wtr.openShare,
+            pathAt: wtr.pathAt,
+            diagonal: wtr.diagonal,
+            streamLength: wtr.streamLength,
             persistSec: wtr.persistSec,
             meander: wtr.meander,
+            channel: wtr.channel,
             radius: wtr.radius,
             vegBoost: wtr.vegBoost,
-            corrode: wtr.corrode,
             wetShare: wtr.wetShare,
-            channel: wtr.channel,
+            corrode: wtr.corrode,
+            pipeRadius: wtr.pipeRadius,
           }
         : null,
-    [wtr.waterOn, wtr.minRaw, wtr.join, wtr.reach, wtr.minShare, wtr.persistSec, wtr.meander, wtr.radius, wtr.vegBoost, wtr.corrode, wtr.wetShare, wtr.channel],
+    [wtr.waterOn, wtr.join, wtr.everySlots, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius],
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(
@@ -1324,7 +1363,7 @@ export default function ParliamentSpace() {
         <div>
           LOD: {stats.farSeeds}/{stats.seeds} seeds far (no slats) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms
         </div>
-        <div>waterways now: {stats.links}{stats.links === 0 ? " (none: no two big buildings share a builder within reach)" : ""}</div>
+        <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {c.markers && (
           <div>
