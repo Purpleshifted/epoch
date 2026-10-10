@@ -30,3 +30,5 @@ yarn-error.log*
 
 # third-party reference images (not ours to redistribute)
 /visual_reference_images/
+.vercel
+.env*
