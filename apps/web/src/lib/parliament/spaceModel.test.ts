@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, NATURE_KIND, SpaceModel, natureColors, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
+import { CELL_SIZE } from "@/lib/stratum/field";
+import { DEFAULT_BOXES, DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, NATURE_KIND, SpaceModel, natureColors, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
 
 function runBots(bots: number, seconds: number, spread = 10): PEvent[] {
   const start = 1_800_000_000_000;
@@ -189,19 +190,28 @@ describe("SpaceModel: what the worker computes", () => {
     expect(between).toBeGreaterThanOrEqual(3);
   }, 120_000);
 
-  it("V2 traces: the present slot gets a line map of the living paths", () => {
+  it("V2 traces: line maps of the living paths through where they were walked, on the present and older slots", () => {
+    const V2F = { ...DEFAULT_FOLD, flow: DEFAULT_FLOW };
     const m = new SpaceModel();
     m.add(events);
-    m.computeParts(parts());
+    m.computeParts({ ...parts(), fold: V2F });
     const top = Math.floor(Math.max(...events.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit);
-    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: top, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear, paths: { hole: 0.35, berm: 2 }, density: { cut: 0.25, fade: 15 }, traces: { lineAt: 0.2, fossilFrom: 0.85, fossilPer: 6 } };
+    const input = { fold: V2F, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: top, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear, paths: { hole: 0.2, berm: 2 }, density: { cut: 0.25, fade: 15 }, traces: { lineAt: 0.1, fossilFrom: 0.85, fossilPer: 6, every: 3 } };
     const r = m.computeNature(input)!;
-    expect(r.lines).toBeDefined();
-    expect(r.lines!.position.length % 6).toBe(0);
-    expect(r.lines!.position.length).toBeGreaterThan(0);
-    const y = r.lines!.position[1];
-    for (let i = 1; i < r.lines!.position.length; i += 3) expect(r.lines!.position[i]).toBeCloseTo(y, 6); // all on one slot
-    expect(m.computeNature({ ...input, traces: undefined })).not.toBeNull(); // V1 / off: no lines
+    const L = r.lines!.position;
+    expect(L.length % 6).toBe(0);
+    expect(L.length).toBeGreaterThan(0);
+    const ys = new Set<number>();
+    for (let i = 1; i < L.length; i += 3) ys.add(+L[i].toFixed(3));
+    expect(ys.size).toBeGreaterThan(1); // older slots too: the change through time
+    // not through cell centres: the line ends lie where people walked
+    let off = 0;
+    for (let i = 0; i < L.length; i += 3) {
+      const fx = L[i] / CELL_SIZE - Math.floor(L[i] / CELL_SIZE);
+      if (Math.abs(fx - 0.5) > 0.05) off++;
+    }
+    expect(off).toBeGreaterThan(L.length / 3 / 4);
+    expect(m.computeNature({ ...input, traces: undefined })).not.toBeNull(); // off: rebuilt without lines
   });
 
   it("reset forgets the world", () => {

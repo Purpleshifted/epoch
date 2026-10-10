@@ -19,10 +19,15 @@ import {
   LS_PARLIAMENT_ME_KEY,
   ONE_FLOCK,
   SEAL_H,
+  DEFAULT_WATER,
+  V2_WATER_MIN_APART,
   botActor,
   botPlan,
   dueSamples,
+  seedsFromSnapshot,
   steerBot,
+  waterField,
+  waterLinks,
   getEpochMs,
   foldWorld,
   pickOffset,
@@ -59,6 +64,8 @@ export interface ParliamentDebug {
 
 /** V2: how often the ground the bots walk on (trodden paths, buildings) is refolded. */
 const BOT_GROUND_EVERY_MS = 5000;
+/** Slot length the bots read the waterways in (the 3D view's default secPerUnit). */
+const WATER_SLOT_SEC = 20;
 
 export function RoleField({
   playerPosRef,
@@ -98,7 +105,7 @@ export function RoleField({
   // the ticker reads the latest Leva values through this ref
   const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg });
   // V2: what bots walk on — trodden ground (G per cell) and the cells buildings stand on; refreshed every few seconds
-  const botGround = useRef<{ at: number; level: Map<string, number>; built: Set<string> } | null>(null);
+  const botGround = useRef<{ at: number; level: Map<string, number>; built: Set<string>; near: ((ix: number, iz: number, k: number) => number) | null; kNow: number } | null>(null);
   // V2: each migration's route, chosen once (on the ground as it was) and kept until it is over
   const botRoutes = useRef(new Map<string, number[]>());
   useEffect(() => {
@@ -155,14 +162,29 @@ export function RoleField({
       for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
       const built = new Set<string>();
       for (const sl of snapAll.slabs) if (sl.h >= SEAL_H) built.add(sl.key);
-      botGround.current = { at: now, level, built };
+      // water (the 3D view's default rule, its 20 s slots): hard to wade, eased where trodden — fords
+      const sNow = sessionSeconds(now, epochMs.current, me.current.offset);
+      const wcfg = { ...DEFAULT_WATER, minApart: V2_WATER_MIN_APART };
+      const links = waterLinks(seedsFromSnapshot(snapAll), wcfg, sNow);
+      const kNow = Math.floor(sNow / WATER_SLOT_SEC);
+      const near = links.length ? waterField(links, kNow, kNow, WATER_SLOT_SEC, wcfg) : null;
+      botGround.current = { at: now, level, built, near, kNow };
       if (botRoutes.current.size > nBots * 4) botRoutes.current.clear(); // old migrations
     }
     const ground = flow ? botGround.current : null;
     const steer = (a: Actor, i: number, w: number): Actor => {
       if (!flow || !ground) return a;
       const plan = botPlan(i, w, botStartMs.current, epochMs.current, me.current.offset, flock);
-      const [x, z] = steerBot(a.o, plan, { level: (k) => ground.level.get(k) ?? 0, built: (k) => ground.built.has(k) }, flow, botRoutes.current);
+      const [x, z] = steerBot(a.o, plan, {
+          level: (k) => ground.level.get(k) ?? 0,
+          built: (k) => ground.built.has(k),
+          wet: ground.near
+            ? (k) => {
+                const [cx, cz] = k.split(",").map(Number);
+                return ground.near!(cx, cz, ground.kNow) >= 0.6;
+              }
+            : undefined,
+        }, flow, botRoutes.current);
       return { ...a, x, z };
     };
     const period = Math.max(50, sampleSec * 1000);
