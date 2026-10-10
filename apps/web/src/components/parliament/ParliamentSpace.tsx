@@ -424,9 +424,9 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, onStats });
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
@@ -469,7 +469,7 @@ function SpaceWorld({
       }
       // the time axis: a vertical line beside the parts, a tick per slot, a long tick per 10 slots (latest 2000)
       const ax = axis.current;
-      if (ax && !noAxis) {
+      if (ax && !live.current.noAxis) {
         const x0 = Number.isFinite(p.minX) ? p.minX - 2 : -3;
         const z0 = Number.isFinite(p.minZ) ? p.minZ - 2 : -3;
         const yTop = Math.max(p.top, (p.t / cfg.secPerUnit) * cfg.unit) + cfg.unit;
