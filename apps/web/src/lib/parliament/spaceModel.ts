@@ -191,6 +191,13 @@ export interface NatureInput {
   budget: number;
   burialSlots: number;
   lod: LodConfig;
+  /** Vegetation volume: density below which a cell shows no points (naturePoints.cut); 0 / absent = all. */
+  densityCut?: number;
+  /**
+   * …raised far away by this × (1 − the chunk's LOD level), instead of thinning every cell evenly: from afar only
+   * the dense vegetation remains. 0 / absent = the even thinning (LodConfig.farFactor).
+   */
+  farCut?: number;
 }
 
 export interface ReclaimInput {
@@ -507,15 +514,19 @@ export class SpaceModel {
     for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK, li++) {
       const a = Math.max(c0, k0);
       const b = Math.min(c0 + NATURE_CHUNK - 1, k1);
-      const per = input.perSlot * scale * levels[li];
+      const farCut = input.farCut ?? 0;
+      const level = levels[li];
+      // far away: a higher density floor (only the dense remains) instead of fewer points everywhere
+      const per = input.perSlot * scale * (farCut > 0 ? 0.5 + 0.5 * level : level);
+      const cut = Math.min(0.95, (input.densityCut ?? 0) + farCut * (1 - level));
       const off = (a - h.k0) * h.nx * h.nz;
       let sum = 0;
       for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${cut.toFixed(3)}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: living });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, cut, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: living });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }

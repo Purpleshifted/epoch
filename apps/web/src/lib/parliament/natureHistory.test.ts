@@ -68,6 +68,19 @@ describe("naturePoints: the point cloud of a slot range", () => {
   const h = run(stand("a", 0.6, 0.6, 60, 60), 0, 12);
   const opts = { unit: 1, perSlot: 6 };
 
+  it("DENSITY FLOOR: thin cells lose their points, dense ones keep them", () => {
+    const all = naturePoints(h, 0, 12, opts);
+    const floored = naturePoints(h, 0, 12, { ...opts, cut: 0.5 });
+    expect(floored.count).toBeLessThan(all.count);
+    // every point that remains stands on a cell at least as dense as the floor
+    for (let i = 0; i < floored.count; i++) {
+      const ix = Math.floor(floored.position[i * 3] / CELL_SIZE), iz = Math.floor(floored.position[i * 3 + 2] / CELL_SIZE);
+      const k = Math.max(0, Math.min(12, Math.floor(floored.position[i * 3 + 1])));
+      expect(natureAt(h, ix, iz, k)).toBeGreaterThanOrEqual(0.5 - 1e-6);
+    }
+    expect(naturePoints(h, 0, 12, { ...opts, cut: 0 })).toEqual(all); // 0 = as before (V1)
+  });
+
   it("is deterministic, and every point lies in its cell × slot box", () => {
     const pts = naturePoints(h, 0, 12, opts);
     expect(naturePoints(h, 0, 12, opts)).toEqual(pts);

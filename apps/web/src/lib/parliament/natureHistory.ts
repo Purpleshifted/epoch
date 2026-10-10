@@ -229,6 +229,11 @@ export interface NaturePointOptions {
   unit: number;
   /** Points per (cell, slot) at density 1. */
   perSlot: number;
+  /**
+   * DENSITY FLOOR: cells thinner than this have no points (fading in over DENSITY_BAND above it), so only the dense
+   * vegetation shows and the buildings' structure reads through. 0 / absent = every cell by its density.
+   */
+  cut?: number;
   /** BURIAL: (cell, slot) lies under concrete laid later — its points become a dark, compressed layer. */
   buried?: (ix: number, iz: number, k: number) => boolean;
   /**
@@ -287,6 +292,15 @@ export function naturePointLoad(h: NatureHistory, kFrom: number, kTo: number, pe
  * The points of slots [kFrom, kTo]: round(V · perSlot) per (cell, slot), hashed (deterministic) inside the cell and
  * low in the slot — ground cover, with a few taller stems. Where V is low (worn, sealed) more of them are bare soil.
  */
+/** Width of the fade-in above the density floor. */
+export const DENSITY_BAND = 0.15;
+
+/** 0 below `cut`, rising smoothly to 1 at cut + DENSITY_BAND. */
+export function densityFloor(v: number, cut: number): number {
+  const t = Math.max(0, Math.min(1, (v - cut) / DENSITY_BAND));
+  return t * t * (3 - 2 * t);
+}
+
 export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts: NaturePointOptions): NaturePoints {
   const a = Math.max(kFrom, h.k0);
   const b = Math.min(kTo, h.k0 + h.nk - 1);
@@ -300,7 +314,8 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
     if (keepShare <= 0) continue;
     for (let j = 0; j < h.nz; j++) {
       for (let i = 0; i < h.nx; i++) {
-        const v = h.V[base + j * h.nx + i];
+        const v0 = h.V[base + j * h.nx + i];
+        const v = opts.cut ? v0 * densityFloor(v0, opts.cut) : v0;
         const want = v * opts.perSlot * keepShare * (opts.thinCell ? opts.thinCell(h.x0 + i, h.z0 + j, k) : 1);
         const ix = h.x0 + i;
         const iz = h.z0 + j;

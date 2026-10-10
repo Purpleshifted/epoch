@@ -57,6 +57,7 @@ import {
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld } from "./useWorld";
+import { useParliamentVersion } from "./version";
 
 /** Background and ground grid per theme. */
 const THEMES = {
@@ -159,6 +160,9 @@ interface NatureParams {
   margin: number;
   budget: number;
   burialSlots: number;
+  /** Density floor of the vegetation volume, and how much it rises far away (V2; 0 = V1's even thinning). */
+  densityCut: number;
+  farCut: number;
   reclaim: boolean;
   tauReclaimYears: number;
   reclaimPerArea: number;
@@ -548,7 +552,7 @@ function SpaceWorld({
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
-      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod };
+      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, densityCut: nat.densityCut, farCut: nat.farCut };
       if (nat.reclaim) {
         req.reclaim = {
           tauReclaimYears: nat.tauReclaimYears,
@@ -862,6 +866,7 @@ function Markers({
 }
 
 export default function ParliamentSpace() {
+  const isV2 = useParliamentVersion() === "v2";
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
@@ -897,7 +902,7 @@ export default function ParliamentSpace() {
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
       showEdges: { value: false, label: "모서리 선" },
       "초점 · 시야": folder({
-        dof: { value: true, label: "초점 흐림 (피사계 심도)" },
+        dof: { value: false, label: "초점 흐림 (피사계 심도)" },
         clickFocus: { value: true, label: "클릭한 곳에 초점 (끄면 화면 중앙)" },
         dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점이 맞는 깊이 (월드)" },
         dofBokeh: { value: 4, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
@@ -1035,6 +1040,8 @@ export default function ParliamentSpace() {
         margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
         budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
         burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "매몰층: 탄생 아래 몇 단" },
+        densityCut: { value: 0.25, min: 0, max: 0.9, step: 0.01, label: "보이는 최소 밀도 (이보다 옅은 곳은 점 없음)", render: () => isV2 },
+        farCut: { value: 0.45, min: 0, max: 0.9, step: 0.01, label: "멀수록 더 높이는 최소 밀도 (0 = 고르게 줄임)", render: () => isV2 },
       }),
       "건물에 모이는 식생": folder({
         gatherOn: { value: true, label: "켜기 (부식 초기, 덩어리 전)" },
@@ -1226,9 +1233,12 @@ export default function ParliamentSpace() {
             tauReclaimYears: veg.tauReclaimYears,
             reclaimPerArea: veg.gatherPerArea,
             paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm } : null,
+            // V1 keeps every cell by its density and the even far thinning
+            densityCut: isV2 ? veg.densityCut : 0,
+            farCut: isV2 ? veg.farCut : 0,
           }
         : null,
-    [veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
+    [isV2, veg.densityCut, veg.farCut, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
   );
   const recipe = useMemo<Recipe>(
     () => ({
