@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { useControls } from "leva";
-import { DEFAULT_COLLAGE, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, currentEpochKey, keepFromS, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
+import { folder, useControls } from "leva";
+import { useParliamentVersion } from "./version";
+import { DEFAULT_COLLAGE, DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, currentEpochKey, keepFromS, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
 import type { ArchStyle } from "./Architecture";
 
 /** A wider Leva panel for every parliament view: the Korean labels are long. */
@@ -65,6 +66,9 @@ export interface ControlPlacement {
 }
 
 export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, place: ControlPlacement = {}): FoldConfig {
+  // V2 only: paths as sustained flow (flow.ts); V1 neither shows nor uses it
+  const isV2 = useParliamentVersion() === "v2";
+  const v2 = () => isV2;
   // pass a constant: a new object every render would rebuild the config every render
   const D = useMemo(() => ({ ...DEFAULT_FOLD, ...defaults }), [defaults]);
   const schema = {
@@ -78,13 +82,41 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     tauSlabYears: { value: D.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
     tauFootprintYears: { value: D.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
     pathVisits: { value: D.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)" },
-    tauPathYears: { value: D.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)" },
+    tauPathYears: { value: D.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)", render: () => !isV2 },
+    "길 (V2 · 유지되는 유통량)": folder(
+      {
+        flowOn: { value: DEFAULT_FLOW.enabled, label: "켜기 (끄면 V1과 같음)", render: v2 },
+        stayRadius: { value: DEFAULT_FLOW.stayRadius, min: 0.1, max: 3, step: 0.05, label: "머묾: 이 반경 안에 있으면 (월드)", render: v2 },
+        staySec: { value: DEFAULT_FLOW.staySec, min: 1, max: 20, step: 0.5, label: "머묾: 앞뒤 이만큼 동안 (s)", render: v2 },
+        moveShare: { value: DEFAULT_FLOW.moveShare, min: 0, max: 1, step: 0.05, label: "이동이 건물에 남기는 비율", render: v2 },
+        tauSec: { value: DEFAULT_FLOW.tauSec, min: 10, max: 1800, step: 10, label: "안 다니면 식생이 덮는 시간 (s)", render: v2 },
+        flowUnit: { value: DEFAULT_FLOW.unit, min: 0.2, max: 30, step: 0.1, label: "길이 되는 밟힘 (63 %)", render: v2 },
+        blockAt: { value: DEFAULT_FLOW.blockAt, min: 0.05, max: 1.01, step: 0.01, label: "이만큼 길이면 건물이 피함 (>1 = 안 피함)", render: v2 },
+        pull: { value: DEFAULT_FLOW.pull, min: 0, max: 3, step: 0.05, label: "봇이 길에 끌리는 정도 (월드)", render: v2 },
+      },
+      { collapsed: true, render: v2 },
+    ),
   };
-  const c = useControls(place.folder ?? "회사원 규칙 (시공간 밀집)", schema, { collapsed: place.collapsed, order: place.order }) as Record<string, number>;
+  const c = useControls(place.folder ?? "회사원 규칙 (시공간 밀집)", schema, { collapsed: place.collapsed, order: place.order }) as unknown as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
+  const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull } = c as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(
-    () => ({ ...D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears }),
-    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears],
+    () => ({
+      ...D,
+      radius,
+      windowSec,
+      threshold,
+      pourUnit,
+      minVisitors,
+      visitorCap,
+      maxHeight,
+      tauSlabYears,
+      tauFootprintYears,
+      pathVisits,
+      tauPathYears,
+      flow: isV2 && flowOn ? { enabled: true, stayRadius, staySec, moveShare, tauSec, unit: flowUnit, blockAt, pull } : undefined,
+    }),
+    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears, isV2, flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull],
   );
 }
 

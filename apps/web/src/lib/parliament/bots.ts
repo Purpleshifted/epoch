@@ -89,14 +89,22 @@ function walkedSeconds(i: number, sec: number, segLen: number, walkShare: number
   return walked;
 }
 
-/**
- * Bot i at wall time `wallMs`, a pure function of (wallMs − startMs) so a throttled tab emits the same samples:
- *   WALK / STAND   it alternates walking and standing still (segments of 6–24 s, 45–80 % walking: its character)
- *   WANDER         while walking it follows its own noise path around its flock's centre (radius 1.5–4)
- *   MIGRATE        every 1–3 min it may move on to another flock, walking over in ~12 s
- * It lives around the player's time slot (see Flock.timeSpread; some a little ahead, invisible to the player at first).
- */
-export function botActor(i: number, role: RoleId, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): Actor {
+/** Where bot i is heading at wall time `wallMs` (botActor's parts): from flock centre A to B (m = 0 … 1), plus its own
+ * wandering offset. Away from a migration A = B and m = 1. */
+export interface BotPlan {
+  /** The migration this belongs to (its epoch index), for caching a route per migration. */
+  ep: number;
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  m: number;
+  ox: number;
+  oz: number;
+  s: number;
+}
+
+export function botPlan(i: number, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): BotPlan {
   const groups = Math.max(1, Math.round(flock.groups));
   const sec = Math.max(0, (wallMs - startMs) / 1000);
   // character
@@ -111,11 +119,23 @@ export function botActor(i: number, role: RoleId, wallMs: number, startMs: numbe
   const [bx, bz] = flockCentre(flockOf(ep), groups, flock.spread, sec);
   const tr = Math.min(1, (sec - ep * period) / 12);
   const m = ep === 0 ? 1 : tr * tr * (3 - 2 * tr);
-  const cx = ax + (bx - ax) * m, cz = az + (bz - az) * m;
   // its own path, advanced only while walking
   const p = walkedSeconds(i, sec, segLen, walkShare) * 0.07;
   const ox = (noise1(p, i * 2 + 1) * 2 - 1) * wanderR + (noise1(p * 2.7, i * 2 + 5) * 2 - 1) * 0.6;
   const oz = (noise1(p, i * 2 + 2) * 2 - 1) * wanderR + (noise1(p * 2.7, i * 2 + 6) * 2 - 1) * 0.6;
   const off = Math.max(0, flock.timeSpread !== undefined ? playerOffset + botTimeOffset(i, startMs, flock.timeSpread) : playerOffset - 20 + ((i * 7) % 25));
-  return { o: `bot${i}`, r: role, x: cx + ox, z: cz + oz, s: sessionSeconds(wallMs, epochMs, off) };
+  return { ep, ax, az, bx, bz, m, ox, oz, s: sessionSeconds(wallMs, epochMs, off) };
+}
+
+/**
+ * Bot i at wall time `wallMs`, a pure function of (wallMs − startMs) so a throttled tab emits the same samples:
+ *   WALK / STAND   it alternates walking and standing still (segments of 6–24 s, 45–80 % walking: its character)
+ *   WANDER         while walking it follows its own noise path around its flock's centre (radius 1.5–4)
+ *   MIGRATE        every 1–3 min it may move on to another flock, walking over in ~12 s
+ * It lives around the player's time slot (see Flock.timeSpread; some a little ahead, invisible to the player at first).
+ */
+export function botActor(i: number, role: RoleId, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): Actor {
+  const b = botPlan(i, wallMs, startMs, epochMs, playerOffset, flock);
+  const cx = b.ax + (b.bx - b.ax) * b.m, cz = b.az + (b.bz - b.az) * b.m;
+  return { o: `bot${i}`, r: role, x: cx + b.ox, z: cz + b.oz, s: b.s };
 }

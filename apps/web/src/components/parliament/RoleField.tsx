@@ -18,8 +18,11 @@ import { useFrame } from "@react-three/fiber";
 import {
   LS_PARLIAMENT_ME_KEY,
   ONE_FLOCK,
+  SEAL_H,
   botActor,
+  botPlan,
   dueSamples,
+  steerBot,
   getEpochMs,
   foldWorld,
   pickOffset,
@@ -53,6 +56,9 @@ export interface ParliamentDebug {
   slabs: number;
   paths: number;
 }
+
+/** V2: how often the ground the bots walk on (trodden paths, buildings) is refolded. */
+const BOT_GROUND_EVERY_MS = 5000;
 
 export function RoleField({
   playerPosRef,
@@ -90,10 +96,14 @@ export function RoleField({
   const lastKeepMs = useRef(0);
   const foldTimer = useRef(10);
   // the ticker reads the latest Leva values through this ref
-  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec });
+  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg });
+  // V2: what bots walk on — trodden ground (G per cell) and the cells buildings stand on; refreshed every few seconds
+  const botGround = useRef<{ at: number; level: Map<string, number>; built: Set<string> } | null>(null);
+  // V2: each migration's route, chosen once (on the ground as it was) and kept until it is over
+  const botRoutes = useRef(new Map<string, number[]>());
   useEffect(() => {
-    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec };
-  }, [role, botCount, botRole, botFlock, cfg.sampleSec]);
+    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg };
+  }, [role, botCount, botRole, botFlock, cfg]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
 
@@ -136,7 +146,25 @@ export function RoleField({
   useTicker(TICK_MS, () => {
     if (epochMs.current === 0) return;
     const now = Date.now();
-    const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec } = live.current;
+    const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg } = live.current;
+    // V2: bots walk where others walked (bundling) and around buildings (detour)
+    const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
+    if (flow && nBots > 0 && (!botGround.current || now - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
+      const snapAll = foldWorld(log.all(), sessionSeconds(now, epochMs.current, me.current.offset), foldCfg);
+      const level = new Map<string, number>();
+      for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
+      const built = new Set<string>();
+      for (const sl of snapAll.slabs) if (sl.h >= SEAL_H) built.add(sl.key);
+      botGround.current = { at: now, level, built };
+      if (botRoutes.current.size > nBots * 4) botRoutes.current.clear(); // old migrations
+    }
+    const ground = flow ? botGround.current : null;
+    const steer = (a: Actor, i: number, w: number): Actor => {
+      if (!flow || !ground) return a;
+      const plan = botPlan(i, w, botStartMs.current, epochMs.current, me.current.offset, flock);
+      const [x, z] = steerBot(a.o, plan, { level: (k) => ground.level.get(k) ?? 0, built: (k) => ground.built.has(k) }, flow, botRoutes.current);
+      return { ...a, x, z };
+    };
     const period = Math.max(50, sampleSec * 1000);
     if (lastSampleMs.current === 0) lastSampleMs.current = now - period;
     const due = dueSamples(lastSampleMs.current, now, period);
@@ -149,7 +177,7 @@ export function RoleField({
       const actors: Actor[] = [];
       // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled
       if (now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
-      for (let i = 0; i < nBots; i++) actors.push(botActor(i, theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock));
+      for (let i = 0; i < nBots; i++) actors.push(steer(botActor(i, theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock), i, w));
       for (const a of actors) emit(a.o, a.r, "p", a.x, a.z, a.s);
     }
 

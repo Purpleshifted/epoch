@@ -18,6 +18,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
+import { flowLevel, flowP, flowTracks, stayShares, type Track } from "./flow";
 import { DEFAULT_FOLD, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 
 const MIN_FOOT = 0.03;
@@ -59,8 +60,16 @@ export function foldWorld(
   const lastCell = new Map<string, string>();
   const visits = new Map<string, { n: number; lastS: number; x: number; z: number }>();
 
+  // V2: stays build, moves tread (flow.ts); a move still builds by moveShare
+  const flow = cfg.flow?.enabled ? cfg.flow : null;
+  const workers = flow ? vis.filter((e) => e.r === "worker") : [];
+  const stay = flow ? stayShares(workers, flow) : null;
+  let wi = -1;
+
   for (const e of vis) {
     if (e.r !== "worker") continue;
+    wi++;
+    const builds = flow && stay ? stay[wi] + (1 - stay[wi]) * flow.moveShare : 1;
     // a visit = entering a cell (standing still in it is one visit, not many)
     const vcx = Math.floor(e.x / CELL_SIZE);
     const vcz = Math.floor(e.z / CELL_SIZE);
@@ -89,11 +98,15 @@ export function foldWorld(
           cells.set(key, acc);
         }
         acc.s.push(e.s);
-        acc.w.push(1 - d / cfg.radius);
+        acc.w.push((1 - d / cfg.radius) * builds);
         acc.o.push(e.o);
       }
     }
   }
+
+  // V2, the path came first: a cell already trodden to blockAt when it would nucleate gets no slab
+  const treadA = flow && stay ? flowTracks(workers, stay) : null;
+  const blocked = (key: string, s: number) => !!flow && !!treadA && flowP(flowLevel(treadA.get(key), s, flow.tauSec), flow) >= flow.blockAt;
 
   const cap = cfg.visitorCap;
   const slabs: Slab[] = [];
@@ -122,7 +135,7 @@ export function foldWorld(
         }
         lo++;
       }
-      if (capped >= cfg.threshold - EPS && own.size >= cfg.minVisitors) {
+      if (capped >= cfg.threshold - EPS && own.size >= cfg.minVisitors && !blocked(key, s[j])) {
         nuc = j;
         break;
       }
@@ -180,8 +193,23 @@ export function foldWorld(
   }
   slabs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
-  // desire paths: formed by repeated entries, worn away once nobody walks them
   const paths: PathCell[] = [];
+  if (flow && stay) {
+    // V2: paths are the ground trodden by sustained flow; on a cell whose slab already stands nobody treads
+    const born = new Map<string, number>();
+    for (const sl of slabs) born.set(sl.key, sl.bornS);
+    const tread: Map<string, Track> = flowTracks(workers, stay, (k) => born.get(k));
+    for (const [key, tr] of tread) {
+      const p = flowP(flowLevel(tr, sView, flow.tauSec), flow);
+      if (p < MIN_ALPHA) continue;
+      const [cx, cz] = key.split(",").map(Number);
+      paths.push({ key, x: (cx + 0.5) * CELL_SIZE, z: (cz + 0.5) * CELL_SIZE, p, visits: tr.s.length });
+    }
+    paths.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    return { slabs, paths };
+  }
+
+  // desire paths: formed by repeated entries, worn away once nobody walks them
   for (const [key, v] of visits) {
     const age = Math.max(0, yView - geoYears(v.lastS));
     const p = (1 - Math.exp(-v.n / cfg.pathVisits)) * Math.exp(-age / cfg.tauPathYears);

@@ -10,6 +10,8 @@
  * s <= their own current time. That is what makes the ground a stratum.
  */
 
+import type { FlowConfig } from "./flow";
+
 export type RoleId = "shepherd" | "wolf" | "worker" | "warrior" | "tree";
 
 export const ROLES: readonly RoleId[] = ["shepherd", "wolf", "worker", "warrior", "tree"];
@@ -68,6 +70,8 @@ export interface FoldConfig {
    * spans: the time in between is EMPTY TIME, and the 3D timespace view leaves it empty (no boxes).
    */
   emptyGapSec: number;
+  /** V2 — PATHS AS SUSTAINED FLOW (flow.ts): stays build, moves tread paths. Absent / disabled = V1. */
+  flow?: FlowConfig;
 }
 
 export const DEFAULT_FOLD: FoldConfig = {

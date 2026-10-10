@@ -10,7 +10,8 @@
  *
  *   S      worker stress, carried slot to slot: S_end(k) = S_end(k−1)·exp(−slot/recoverSec) + this slot's doses
  *          (same kernel and decay as stressMap, so S_end(k) equals stressMap at the slot's end)
- *   p      desire paths, the fold's rule: entries counted per cell, (1 − e^(−n/pathVisits)) · e^(−age/tauPathYears)
+ *   p      desire paths, the fold's rule: entries counted per cell, (1 − e^(−n/pathVisits)) · e^(−age/tauPathYears);
+ *          V2 (fold.flow): the ground trodden by sustained flow (flow.ts), not trodden where a slab already stands
  *   sealed a slab stands on the cell: from the seed's birth for as long as its height (the fold's wear,
  *          raw · e^(−age/tauSlabYears), age in model years since the last presence) stays ≥ SEAL_H
  *
@@ -19,6 +20,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
+import { cellKey, flowLevel, flowP, flowTracks, stayShares } from "./flow";
 import { grassDensity, hash2, type NatureConfig } from "./nature";
 import { partAgeYears, seedAgeYears, type Box, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
@@ -126,6 +128,18 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
     else sealers.set(i, [sd]);
   }
 
+  // V2: paths from sustained flow; a seed's cell is not trodden from its birth on
+  const flow = fold.flow?.enabled ? fold.flow : null;
+  let tread: ReturnType<typeof flowTracks> | null = null;
+  if (flow) {
+    const born = new Map<string, number>();
+    for (const sd of seeds) {
+      const key = cellKey(Math.floor(sd.x / CELL_SIZE), Math.floor(sd.z / CELL_SIZE));
+      born.set(key, Math.min(born.get(key) ?? Infinity, sd.t0));
+    }
+    tread = flowTracks(pres, stayShares(pres, flow), (k) => born.get(k));
+  }
+
   const S = new Float64Array(nc2);
   const visitsN = new Float64Array(nc2);
   const visitsLast = new Float64Array(nc2).fill(-1);
@@ -180,7 +194,10 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
       for (let i = 0; i < nx; i++) {
         const c = j * nx + i;
         let p = 0;
-        if (visitsN[c] > 0) {
+        if (flow && tread) {
+          p = flowP(flowLevel(tread.get(cellKey(x0 + i, z0 + j)), tEnd, flow.tauSec), flow);
+          if (p < MIN_PATH) p = 0;
+        } else if (visitsN[c] > 0) {
           p = (1 - Math.exp(-visitsN[c] / fold.pathVisits)) * Math.exp(-Math.max(0, yEnd - geoYears(visitsLast[c])) / fold.tauPathYears);
           if (p < MIN_PATH) p = 0;
         }
