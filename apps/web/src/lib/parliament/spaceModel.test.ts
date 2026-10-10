@@ -167,6 +167,28 @@ describe("SpaceModel: what the worker computes", () => {
     expect(m.computeReclaim(input)!.position.length).toBeGreaterThan(0);
   });
 
+  it("V2 density: absolute (the camera's distance changes nothing) and fading out along the time axis, not cut off", () => {
+    const long = runBots(8, 1500);
+    const m = new SpaceModel();
+    m.add(long);
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5 };
+    m.computeParts({ ...parts(), weather });
+    const top = Math.floor(Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit);
+    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 80, focusK: top, margin: 4, budget: 1e7, burialSlots: 0, density: { cut: 0.1, fade: 12 } };
+    const near = m.computeNature({ ...input, lod: lodNear })!;
+    expect(m.computeNature({ ...input, lod: { camera: [0, 1e4, 0], near: 10, farFactor: 0.25 } })).toBeNull(); // nothing to rebuild
+    // points per slot, from the top down: a run of slots with fewer and fewer, not full → none
+    const per = new Map<number, number>();
+    for (let i = 1; i < near.position.length; i += 3) {
+      const k = Math.floor(near.position[i] / DEFAULT_BOXES.unit);
+      per.set(k, (per.get(k) ?? 0) + 1);
+    }
+    const ks = [...per.keys()].sort((a, b) => b - a);
+    const most = Math.max(...per.values());
+    const between = ks.filter((k) => per.get(k)! > 0 && per.get(k)! < most * 0.5).length;
+    expect(between).toBeGreaterThanOrEqual(3);
+  }, 120_000);
+
   it("reset forgets the world", () => {
     const m = new SpaceModel();
     m.add(events);

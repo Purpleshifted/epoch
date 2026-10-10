@@ -248,9 +248,10 @@ export interface NaturePointOptions {
   perSlot: number;
   /**
    * DENSITY FLOOR: cells thinner than this have no points (fading in over DENSITY_BAND above it), so only the dense
-   * vegetation shows and the buildings' structure reads through. 0 / absent = every cell by its density.
+   * vegetation shows and the buildings' structure reads through; per slot when a function (it may rise with age).
+   * 0 / absent = every cell by its density.
    */
-  cut?: number;
+  cut?: number | ((k: number) => number);
   /** BURIAL: (cell, slot) lies under concrete laid later — its points become a dark, compressed layer. */
   buried?: (ix: number, iz: number, k: number) => boolean;
   /**
@@ -297,11 +298,16 @@ export interface NaturePoints {
 const h3 = (a: number, b: number, c: number, salt: number) => hash2((a * 73856093) ^ (c * 19349663), (b * 83492791) ^ (c * 2654435761), salt);
 
 /** Expected number of points of slots [kFrom, kTo] (for budgeting). */
-export function naturePointLoad(h: NatureHistory, kFrom: number, kTo: number, perSlot: number): number {
+export function naturePointLoad(h: NatureHistory, kFrom: number, kTo: number, perSlot: number, cut?: (k: number) => number): number {
   const a = Math.max(kFrom, h.k0) - h.k0;
   const b = Math.min(kTo, h.k0 + h.nk - 1) - h.k0;
+  const n2 = h.nx * h.nz;
   let sum = 0;
-  for (let i = a * h.nx * h.nz; i < (b + 1) * h.nx * h.nz; i++) sum += h.V[i];
+  for (let k = a; k <= b; k++) {
+    const c = cut ? cut(k + h.k0) : 0;
+    if (c >= 1) continue;
+    for (let i = k * n2; i < (k + 1) * n2; i++) sum += c > 0 ? h.V[i] * densityFloor(h.V[i], c) : h.V[i];
+  }
   return sum * perSlot;
 }
 
@@ -329,10 +335,12 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
     const q = opts.sediment ? sedimentShare(k, opts.sediment) : 0;
     const keepShare = opts.thin ? Math.max(0, Math.min(1, opts.thin(k))) : 1;
     if (keepShare <= 0) continue;
+    const cutK = typeof opts.cut === "function" ? opts.cut(k) : (opts.cut ?? 0);
+    if (cutK >= 1) continue;
     for (let j = 0; j < h.nz; j++) {
       for (let i = 0; i < h.nx; i++) {
         const v0 = h.V[base + j * h.nx + i];
-        const v = opts.cut ? v0 * densityFloor(v0, opts.cut) : v0;
+        const v = cutK > 0 ? v0 * densityFloor(v0, cutK) : v0;
         const want = v * opts.perSlot * keepShare * (opts.thinCell ? opts.thinCell(h.x0 + i, h.z0 + j, k) : 1);
         const ix = h.x0 + i;
         const iz = h.z0 + j;

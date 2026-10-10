@@ -191,13 +191,13 @@ export interface NatureInput {
   budget: number;
   burialSlots: number;
   lod: LodConfig;
-  /** Vegetation volume: density below which a cell shows no points (naturePoints.cut); 0 / absent = all. */
-  densityCut?: number;
   /**
-   * …raised far away by this × (1 − the chunk's LOD level), instead of thinning every cell evenly: from afar only
-   * the dense vegetation remains. 0 / absent = the even thinning (LodConfig.farFactor).
+   * V2 DENSITY: an ABSOLUTE density floor `cut` (naturePoints.cut), the same however far the camera is (no LOD
+   * thinning: nothing is rebuilt as the camera moves), rising through the `fade` slots above the deepest living layer
+   * (and with the layers' dying) instead of thinning them evenly: the dense patches last longest and the vegetation
+   * fades out along the time axis. Absent = V1 (even thinning, by distance and by the living cut).
    */
-  farCut?: number;
+  density?: { cut: number; fade: number };
 }
 
 export interface ReclaimInput {
@@ -470,7 +470,7 @@ export class SpaceModel {
         : undefined;
     // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
     const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}:${this.links.length}`;
-    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots])}:${sedKey}:${fuseKey}:${k0}:${k1}:${levels.join(",")}`;
+    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots, input.density ?? null])}:${sedKey}:${fuseKey}:${k0}:${k1}:${input.density ? "abs" : levels.join(",")}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
     if (k1 < k0 || !this.events.length) return { position: new Float32Array(0), color: new Float32Array(0) };
@@ -502,7 +502,23 @@ export class SpaceModel {
     const thinCell = massed.size ? (ix: number, iz: number, k: number) => (massed.has(`${ix},${iz},${k}`) ? 0 : 1) : undefined;
     let massSig = massed.size;
     for (const key of massed) massSig = (massSig * 31 + key.length + key.charCodeAt(0)) % 1e9;
-    const load = naturePointLoad(h, k0, k1, input.perSlot);
+    // V2: the floor of each slot (absolute, rising as the layer's vegetation dies)
+    const dens = input.density;
+    // the deepest layer whose vegetation is gone; above it the floor falls back to `cut` over `fade` slots
+    let kDead = -Infinity;
+    if (dens && living) for (let k = k1; k >= k0; k--) if (living(k) <= 0.01) {
+      kDead = k;
+      break;
+    }
+    const cutOf = dens
+      ? (k: number) => {
+          const dying = 1 - (living ? Math.max(0, Math.min(1, living(k))) : 1);
+          const t = dens.fade > 0 ? Math.max(0, Math.min(1, (k - kDead) / dens.fade)) : k > kDead ? 1 : 0;
+          const ramp = 1 - t * t * (3 - 2 * t);
+          return dens.cut + (1 - dens.cut) * Math.max(dying, ramp);
+        }
+      : undefined;
+    const load = naturePointLoad(h, k0, k1, input.perSlot, cutOf);
     const scale = load > input.budget ? input.budget / load : 1;
     const buried = input.burialSlots > 0 ? burialOf(seeds, spu, input.burialSlots) : undefined;
     let burySig = input.burialSlots;
@@ -514,19 +530,16 @@ export class SpaceModel {
     for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK, li++) {
       const a = Math.max(c0, k0);
       const b = Math.min(c0 + NATURE_CHUNK - 1, k1);
-      const farCut = input.farCut ?? 0;
-      const level = levels[li];
-      // far away: a higher density floor (only the dense remains) instead of fewer points everywhere
-      const per = input.perSlot * scale * (farCut > 0 ? 0.5 + 0.5 * level : level);
-      const cut = Math.min(0.95, (input.densityCut ?? 0) + farCut * (1 - level));
+      // V2: the same everywhere (absolute floor per slot); V1: fewer points far away
+      const per = input.perSlot * scale * (dens ? 1 : levels[li]);
       const off = (a - h.k0) * h.nx * h.nz;
       let sum = 0;
       for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${cut.toFixed(3)}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
+      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${dens ? `${dens.cut}:${dens.fade}` : "-"}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
       keep.add(c0);
       let ch = this.chunks.get(c0);
       if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, cut, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: living });
+        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, cut: cutOf, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: dens ? undefined : living });
         ch = { key, pos: np.position, col: natureColors(np) };
         this.chunks.set(c0, ch);
       }

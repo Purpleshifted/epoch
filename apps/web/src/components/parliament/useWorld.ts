@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { folder, useControls } from "leva";
+import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 import { DEFAULT_COLLAGE, DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, currentEpochKey, keepFromS, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
 import type { ArchStyle } from "./Architecture";
@@ -97,7 +98,8 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
       { collapsed: true, render: v2 },
     ),
   };
-  const c = useControls(place.folder ?? "회사원 규칙 (시공간 밀집)", schema, { collapsed: place.collapsed, order: place.order }) as unknown as Record<string, number>;
+  const root = place.folder ?? "회사원 규칙 (시공간 밀집)";
+  const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order }) as unknown as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
   const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull } = c as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(
@@ -134,7 +136,8 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
     pointsPerCell: { value: DEFAULT_NATURE.pointsPerCell, min: 4, max: 80, step: 1, label: "셀당 최대 점 수" },
     pointSize: { value: 0.11, min: 0.03, max: 0.4, step: 0.01, label: "점 크기" },
   };
-  const c = useControls(place.folder ?? "자연 (초목 point cloud)", place.rulesOnly ? rules : { ...rules, ...drawing }, {
+  const natureRoot = place.folder ?? "자연 (초목 point cloud)";
+  const c = useControls(natureRoot, savable(natureRoot, place.rulesOnly ? rules : { ...rules, ...drawing }), {
     collapsed: place.collapsed,
     order: place.order,
   }) as Record<string, number>;

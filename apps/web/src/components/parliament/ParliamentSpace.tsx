@@ -57,6 +57,7 @@ import {
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld } from "./useWorld";
+import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 
 /** Background and ground grid per theme. */
@@ -161,8 +162,8 @@ interface NatureParams {
   budget: number;
   burialSlots: number;
   /** Density floor of the vegetation volume, and how much it rises far away (V2; 0 = V1's even thinning). */
-  densityCut: number;
-  farCut: number;
+  /** V2: absolute density floor, and over how many slots it rises towards the dead layers; null = V1. */
+  density: { cut: number; fade: number } | null;
   reclaim: boolean;
   tauReclaimYears: number;
   reclaimPerArea: number;
@@ -552,7 +553,7 @@ function SpaceWorld({
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
-      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, densityCut: nat.densityCut, farCut: nat.farCut };
+      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
       if (nat.reclaim) {
         req.reclaim = {
           tauReclaimYears: nat.tauReclaimYears,
@@ -892,7 +893,7 @@ export default function ParliamentSpace() {
   const [focusResets, setFocusResets] = useState(0);
   const v = useControls(
     "보기",
-    {
+    savable("보기", {
       theme: { options: { "종이 (밝음)": "paper", "검정": "black" }, value: "black" as keyof typeof THEMES, label: "배경" },
       follow: { value: true, label: "플레이어 시간대 따라가기" },
       toMe: button(() => jump(focusRef.current)),
@@ -922,22 +923,22 @@ export default function ParliamentSpace() {
         },
         { collapsed: true },
       ),
-    },
+    }),
     { order: 0 },
   );
   const tAxis = useControls(
     "시간축",
-    {
+    savable("시간축", {
       secPerUnit: { value: SPACE_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초" },
       unit: { value: DEFAULT_BOXES.unit, min: 0.2, max: 4, step: 0.1, label: "한 단의 높이 (월드)" },
       timeJitter: { value: SPACE_BOXES.timeJitter ?? 0, min: 0, max: 1, step: 0.05, label: "시간 오차 (부품·식생 위치 ±단)" },
       emptyGapSec: { value: SPACE_FOLD.emptyGapSec, min: 1, max: 600, step: 1, label: "빈 시간으로 볼 공백 (s)" },
-    },
+    }),
     { order: 1 },
   );
   const bld = useControls(
     "건물",
-    {
+    savable("건물", {
       partWidth: { value: SPACE_BOXES.width, min: 0.3, max: 3, step: 0.05, label: "부품 폭 배율" },
       partDensity: { value: SPACE_BOXES.density, min: 0.2, max: 4, step: 0.1, label: "단당 매스 수 배율" },
       "막대 묶음 · 드립": folder(
@@ -985,12 +986,12 @@ export default function ParliamentSpace() {
         },
         { collapsed: true },
       ),
-    },
+    }),
     { order: 3 },
   );
   const wx = useControls(
     "풍화 · 지층",
-    {
+    savable("풍화 · 지층", {
       wear: { value: true, label: "마모 (끄면 지은 그대로; 엉김·융합도 꺼짐)" },
       strata: { value: DEFAULT_WEATHER.strata, label: "지층: 층마다 자기 나이 (끄면 엉김·융합 꺼짐)" },
       gatherStart: { value: DEFAULT_WEATHER.gatherStart, min: 0, max: 60, step: 1, label: "식생이 모이기 시작하는 깊이 (현재에서 몇 단 아래)" },
@@ -1009,7 +1010,7 @@ export default function ParliamentSpace() {
         },
         { collapsed: true },
       ),
-    },
+    }),
     { order: 4 },
   );
   const weather = useMemo<WeatherConfig>(
@@ -1031,7 +1032,7 @@ export default function ParliamentSpace() {
   );
   const veg = useControls(
     "식생",
-    {
+    savable("식생", {
       natureOn: { value: true, label: "켜기" },
       "퇴적 식생 (시간 속 볼륨)": folder({
         perSlot: { value: 6, min: 0.5, max: 40, step: 0.5, label: "칸·단당 점 수 (밀도 1일 때)" },
@@ -1040,8 +1041,8 @@ export default function ParliamentSpace() {
         margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
         budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
         burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "매몰층: 탄생 아래 몇 단" },
-        densityCut: { value: 0.25, min: 0, max: 0.9, step: 0.01, label: "보이는 최소 밀도 (이보다 옅은 곳은 점 없음)", render: () => isV2 },
-        farCut: { value: 0.45, min: 0, max: 0.9, step: 0.01, label: "멀수록 더 높이는 최소 밀도 (0 = 고르게 줄임)", render: () => isV2 },
+        densityCut: { value: 0.25, min: 0, max: 0.9, step: 0.01, label: "보이는 최소 밀도 (어디서 보든 같음)", render: () => isV2 },
+        densityFade: { value: 15, min: 0, max: 80, step: 1, label: "시간 방향: 옅은 곳부터 사라지는 구간 (단)", render: () => isV2 },
       }),
       "건물에 모이는 식생": folder({
         gatherOn: { value: true, label: "켜기 (부식 초기, 덩어리 전)" },
@@ -1057,12 +1058,12 @@ export default function ParliamentSpace() {
         pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
         pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
       }),
-    },
+    }),
     { order: 5 },
   );
   const wtr = useControls(
     "수로",
-    {
+    savable("수로", {
       waterOn: { value: DEFAULT_WATER.enabled, label: "켜기" },
       minRaw: { value: DEFAULT_WATER.minRaw, min: 1, max: 10, step: 0.05, label: "건물이 '커졌다'고 볼 단 수" },
       reach: { value: DEFAULT_WATER.reach, min: 1, max: 60, step: 0.5, label: "이을 수 있는 건물 간 거리 (월드)" },
@@ -1080,7 +1081,7 @@ export default function ParliamentSpace() {
         },
         { collapsed: true },
       ),
-    },
+    }),
     { order: 5.5 },
   );
   const waterView = useMemo(
@@ -1106,7 +1107,7 @@ export default function ParliamentSpace() {
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(
     "엉김 · 융합 · 레진",
-    {
+    savable("엉김 · 융합 · 레진", {
       fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (마모 + 지층이 켜져 있어야 함)" },
       accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작하는 부식 정도" },
       fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "건물과 하나가 되기 시작하는 부식 정도" },
@@ -1145,7 +1146,7 @@ export default function ParliamentSpace() {
         },
         { collapsed: true },
       ),
-    },
+    }),
     { order: 7 },
   );
   const fuseCfg = useMemo<FuseConfig>(
@@ -1186,7 +1187,7 @@ export default function ParliamentSpace() {
   );
   const rnd = useControls(
     "렌더 · 성능",
-    {
+    savable("렌더 · 성능", {
       AO: folder({
         aoOn: { value: true, label: "켜기" },
         aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
@@ -1205,9 +1206,9 @@ export default function ParliamentSpace() {
       }),
       LOD: folder({
         near: { value: 60, min: 5, max: 400, step: 5, label: "이 거리 안쪽만 막대 묶음 (월드)" },
-        farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율" },
+        farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율", render: () => !isV2 },
       }),
-    },
+    }),
     { order: 8, collapsed: true },
   );
   const fold = useFoldControls(SPACE_FOLD, { folder: "생성 규칙 (회사원 시공간 밀집)", collapsed: true, order: 2 });
@@ -1234,11 +1235,10 @@ export default function ParliamentSpace() {
             reclaimPerArea: veg.gatherPerArea,
             paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm } : null,
             // V1 keeps every cell by its density and the even far thinning
-            densityCut: isV2 ? veg.densityCut : 0,
-            farCut: isV2 ? veg.farCut : 0,
+            density: isV2 ? { cut: veg.densityCut, fade: veg.densityFade } : null,
           }
         : null,
-    [isV2, veg.densityCut, veg.farCut, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
+    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
   );
   const recipe = useMemo<Recipe>(
     () => ({
