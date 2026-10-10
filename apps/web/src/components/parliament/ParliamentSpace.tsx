@@ -117,9 +117,6 @@ const RC = RECIPES.concrete;
 const pair = (v: [number, number], f = 1): [number, number] => [v[0] * f, v[1] * f];
 
 const NO_COUNTS = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
-/** V2: slots the time axis reaches above and below the present of the page's load. */
-const AXIS_SPAN = 300;
-
 /** A focus change larger than this (world units on the time axis) is a jump, not a drift. */
 const FOLLOW_SNAP = 40;
 
@@ -388,7 +385,7 @@ function SpaceWorld({
   resin,
   water,
   nearFade,
-  anchoredAxis,
+  noAxis,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -411,14 +408,12 @@ function SpaceWorld({
   water: WaterConfig | null;
   /** Vegetation within this view distance [start, end] dissolves (keeps the view clear). */
   nearFade: [number, number];
-  /** V2: the time axis reaches AXIS_SPAN slots above and below the present as it was when the page was loaded. */
-  anchoredAxis: boolean;
+  /** V2: no time axis drawn (the timespace floats, without ground or axis). */
+  noAxis: boolean;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
-  // V2: the present when the page was (re)loaded — the time axis is laid out around it once
-  const axisAnchorT = useRef<number | null>(null);
   const naturePts = useRef<THREE.Points>(null);
   const traceLines = useRef<THREE.LineSegments>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
@@ -488,27 +483,15 @@ function SpaceWorld({
       }
       // the time axis: a vertical line beside the parts, a tick per slot, a long tick per 10 slots (latest 2000)
       const ax = axis.current;
-      if (ax) {
+      if (ax && !noAxis) {
         const x0 = Number.isFinite(p.minX) ? p.minX - 2 : -3;
         const z0 = Number.isFinite(p.minZ) ? p.minZ - 2 : -3;
-        const pts: number[] = [];
-        if (anchoredAxis) {
-          // long, up and down, around the present of the page's load: it does not grow with every tick
-          if (axisAnchorT.current === null && p.t > 0) axisAnchorT.current = p.t;
-          const kA = Math.floor((axisAnchorT.current ?? p.t) / cfg.secPerUnit);
-          pts.push(x0, (kA - AXIS_SPAN) * cfg.unit, z0, x0, (kA + AXIS_SPAN) * cfg.unit, z0);
-          for (let k = kA - AXIS_SPAN; k <= kA + AXIS_SPAN; k++) {
-            const len = k % 10 === 0 ? 1.4 : 0.5;
-            pts.push(x0, k * cfg.unit, z0, x0 + len, k * cfg.unit, z0);
-          }
-        } else {
-          const yTop = Math.max(p.top, (p.t / cfg.secPerUnit) * cfg.unit) + cfg.unit;
-          const slots = Math.ceil(yTop / cfg.unit);
-          pts.push(x0, 0, z0, x0, yTop, z0);
-          for (let k = Math.max(0, slots - 2000); k <= slots; k++) {
-            const len = k % 10 === 0 ? 1.4 : 0.5;
-            pts.push(x0, k * cfg.unit, z0, x0 + len, k * cfg.unit, z0);
-          }
+        const yTop = Math.max(p.top, (p.t / cfg.secPerUnit) * cfg.unit) + cfg.unit;
+        const slots = Math.ceil(yTop / cfg.unit);
+        const pts: number[] = [x0, 0, z0, x0, yTop, z0];
+        for (let k = Math.max(0, slots - 2000); k <= slots; k++) {
+          const len = k % 10 === 0 ? 1.4 : 0.5;
+          pts.push(x0, k * cfg.unit, z0, x0 + len, k * cfg.unit, z0);
         }
         const g = new THREE.BufferGeometry();
         g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pts), 3));
@@ -647,7 +630,7 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#15181c" />
       </lineSegments>
-      <lineSegments ref={axis} frustumCulled={false}>
+      <lineSegments ref={axis} frustumCulled={false} visible={!noAxis}>
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
@@ -1323,7 +1306,7 @@ export default function ParliamentSpace() {
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={rnd.shadows} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
-        {/* V2: no ground plane — the timespace floats; the time axis carries the orientation */}
+        {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
         <SpaceWorld
           log={log}
@@ -1342,10 +1325,10 @@ export default function ParliamentSpace() {
           resin={resinLook}
           water={waterView}
           nearFade={v.nearFade}
-          anchoredAxis={isV2}
+          noAxis={isV2}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
-        <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={Math.PI * 0.499} />
+        <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={rnd.quality} halfRes={rnd.halfRes} color="black" />}
