@@ -247,3 +247,26 @@ describe("water in the vegetation: a clear channel lined with wetland", () => {
     expect(farWet).toBe(0);
   });
 });
+
+describe("path rim (V2): a border of stones just outside the hole, not a heap over the path", () => {
+  const walk: PEvent[] = [];
+  for (let t = 0; t < 400; t++) {
+    const d = t % 40;
+    walk.push({ id: `w:${t}`, o: `w${Math.floor(t / 40)}`, r: "worker", k: "p", x: d < 20 ? d : 40 - d, z: 3, s: t + 0.37 });
+  }
+  const h = run(walk, 0, 12);
+  it("the V2 rim is narrower than V1's, and its stones lie outside the path's strongest part", () => {
+    const stones = (edge?: number) => {
+      const pts = naturePoints(h, 0, 12, { unit: 1, perSlot: 12, paths: { hole: 0.35, berm: 1, edge } });
+      const out: number[] = [];
+      for (let i = 0; i < pts.count; i++) if (pts.kind[i] === NATURE_KIND.trodden) out.push(i);
+      return { pts, out };
+    };
+    const v1 = stones(), v2 = stones(0.75);
+    expect(v2.out.length).toBeLessThan(v1.out.length);
+    for (const i of v2.out) {
+      const x = v2.pts.position[i * 3], y = v2.pts.position[i * 3 + 1], z = v2.pts.position[i * 3 + 2];
+      expect(pathAt(h, x, z, Math.floor(y))).toBeLessThan(0.35); // never inside the hole
+    }
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, flowLevel, flowP, flowSteer, flowTracks, foldWorld, natureHistory, seedsFromSnapshot, stayShares, withoutWear, type PEvent } from "./index";
+import { DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, flowLevel, flowP, flowRoute, flowSteer, flowTracks, foldWorld, natureHistory, seedsFromSnapshot, stayShares, withoutWear, type PEvent } from "./index";
 
 const ev = (o: string, x: number, z: number, s: number): PEvent => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x, z, s });
 const sorted = (e: PEvent[]) => [...e].sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : 1));
@@ -144,4 +144,19 @@ describe("flow with bots: migrations bundle into a path between flocks, building
     const built = new Set(b.slabs.map((s) => s.key));
     expect(b.paths.filter((p) => p.p > 0.35 && !built.has(p.key)).length).toBeGreaterThan(8); // a path off the buildings
   }, 300_000);
+});
+
+describe("route grid share (V2 Leva): 1 = surveyed grid steps, 0 = a curve", () => {
+  const g = { level: () => 0, built: (k: string) => k === "3,1" || k === "3,2" || k === "3,0" };
+  const angles = (r: number[]) => {
+    const a = new Set<number>();
+    for (let i = 2; i + 1 < r.length; i += 2) if (Math.hypot(r[i] - r[i - 2], r[i + 1] - r[i - 1]) > 1e-6) a.add(Math.round((Math.atan2(r[i + 1] - r[i - 1], r[i] - r[i - 2]) * 180) / Math.PI));
+    return [...a];
+  };
+  it("grid: only 0°/45°/90° steps between the cell centres; curve: other directions too", () => {
+    const grid = flowRoute(0.6, 0.6, 10.2, 4.2, g, { ...DEFAULT_FLOW, gridShare: 1 });
+    const curve = flowRoute(0.6, 0.6, 10.2, 4.2, g, { ...DEFAULT_FLOW, gridShare: 0 });
+    expect(angles(grid.slice(2, -2)).every((a) => a % 45 === 0)).toBe(true);
+    expect(angles(curve).some((a) => a % 45 !== 0)).toBe(true);
+  });
 });

@@ -94,6 +94,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
         flowUnit: { value: DEFAULT_FLOW.unit, min: 0.2, max: 30, step: 0.1, label: "길이 되는 밟힘 (63 %)", render: v2 },
         blockAt: { value: DEFAULT_FLOW.blockAt, min: 0.05, max: 1.01, step: 0.01, label: "이만큼 길이면 건물이 피함 (>1 = 안 피함)", render: v2 },
         pull: { value: DEFAULT_FLOW.pull, min: 0, max: 3, step: 0.05, label: "봇이 길에 끌리는 정도 (월드)", render: v2 },
+        gridShare: { value: DEFAULT_FLOW.gridShare ?? 0.3, min: 0, max: 1, step: 0.05, label: "길의 격자 비율 (0 = 곡선, 1 = 격자 0°/45°/90°)", render: v2 },
       },
       { collapsed: true, render: v2 },
     ),
@@ -101,7 +102,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
   const root = place.folder ?? "회사원 규칙 (시공간 밀집)";
   const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order }) as unknown as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
-  const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull } = c as unknown as Record<string, number> & { flowOn: boolean };
+  const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare } = c as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(
     () => ({
       ...D,
@@ -116,9 +117,9 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
       tauFootprintYears,
       pathVisits,
       tauPathYears,
-      flow: isV2 && flowOn ? { enabled: true, stayRadius, staySec, moveShare, tauSec, unit: flowUnit, blockAt, pull } : undefined,
+      flow: isV2 && flowOn ? { enabled: true, stayRadius, staySec, moveShare, tauSec, unit: flowUnit, blockAt, pull, gridShare } : undefined,
     }),
-    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears, isV2, flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull],
+    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears, isV2, flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare],
   );
 }
 

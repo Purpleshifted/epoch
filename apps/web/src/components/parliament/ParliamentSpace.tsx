@@ -156,7 +156,7 @@ interface NatureParams {
   gatherJitter: number;
   gatherPoints: number;
   gatherDot: number;
-  paths: { hole: number; berm: number } | null;
+  paths: { hole: number; berm: number; edge?: number } | null;
   window: number;
   margin: number;
   budget: number;
@@ -1060,6 +1060,7 @@ export default function ParliamentSpace() {
         pathsOn: { value: true, label: "켜기" },
         pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
         pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
+        pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 (구멍 바로 바깥만; 클수록 좁음)", render: () => isV2 },
       }),
     }),
     { order: 5 },
@@ -1236,12 +1237,12 @@ export default function ParliamentSpace() {
             reclaim: veg.gatherOn,
             tauReclaimYears: veg.tauReclaimYears,
             reclaimPerArea: veg.gatherPerArea,
-            paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm } : null,
+            paths: veg.pathsOn ? { hole: veg.pathHole, berm: veg.pathBerm, edge: isV2 ? veg.pathEdge : undefined } : null,
             // V1 keeps every cell by its density and the even far thinning
             density: isV2 ? { cut: veg.densityCut, fade: veg.densityFade } : null,
           }
         : null,
-    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm],
+    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, veg.pathsOn, veg.pathHole, veg.pathBerm, veg.pathEdge],
   );
   const recipe = useMemo<Recipe>(
     () => ({

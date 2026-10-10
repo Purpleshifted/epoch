@@ -270,7 +270,15 @@ export interface NaturePointOptions {
    * on the rim (from 0.3 · hole) the points are trodden-aside ground lying low (grey: a human trace), with `berm`
    * extra ones heaped up.
    */
-  paths?: { hole: number; berm: number };
+  paths?: {
+    hole: number;
+    berm: number;
+    /**
+     * V2: the rim is only the band just outside the hole (from `edge` × hole), its stones pushed out a little,
+     * away from the path, lying flat — a border, not a heap on the path. Absent = V1 (rim from 0.3 × hole).
+     */
+    edge?: number;
+  };
   /**
    * WATER: no points within `half` of a course (the channel stays clear); beyond it, wetland vegetation — a share
    * `share` at the bank, fading to 0 at `radius`.
@@ -370,14 +378,27 @@ export function naturePoints(h: NatureHistory, kFrom: number, kTo: number, opts:
           if (opts.paths && !under) {
             const pf = pathAt(h, px, pz, k);
             if (pf >= opts.paths.hole) continue; // the path itself: bare
-            if (pf >= opts.paths.hole * 0.3) {
+            const edge = opts.paths.edge;
+            if (pf >= opts.paths.hole * (edge ?? 0.3)) {
               // the rim: soil pushed aside by feet, lying low, heaped a little more the closer to the path
               const rim = pf / opts.paths.hole;
               const extra = Math.floor(opts.paths.berm * rim + h3(ix, iz, k, s + 11));
+              // V2: pushed out of the path (down the path's slope), flat on the ground
+              let ox = 0, oz = 0;
+              if (edge !== undefined) {
+                const e2 = CELL_SIZE * 0.25;
+                const gx = pathAt(h, px + e2, pz, k) - pathAt(h, px - e2, pz, k), gz = pathAt(h, px, pz + e2, k) - pathAt(h, px, pz - e2, k);
+                const gl = Math.hypot(gx, gz);
+                if (gl > 1e-6) {
+                  ox = (-gx / gl) * 0.2;
+                  oz = (-gz / gl) * 0.2;
+                }
+              }
+              const lift = edge !== undefined ? 0.15 : 0.35;
               for (let e = 0; e <= extra; e++) {
                 const jx = e ? (h3(ix, iz, k, s + 12 + e) - 0.5) * 0.3 : 0;
                 const jz = e ? (h3(ix, iz, k, s + 20 + e) - 0.5) * 0.3 : 0;
-                pos.push(px + jx, Math.max(0, (k + (ry + spill) * 0.35) * opts.unit), pz + jz);
+                pos.push(px + jx + ox, Math.max(0, (k + (ry + spill) * lift) * opts.unit), pz + jz + oz);
                 kind.push(NATURE_KIND.trodden);
                 shade.push(h3(ix, iz, k, s + 36 + e));
               }

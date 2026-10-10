@@ -40,6 +40,11 @@ export interface FlowConfig {
   blockAt: number;
   /** BOTS: how far (world) a bot is drawn towards trodden ground at most. 0 = not at all. */
   pull: number;
+  /**
+   * BOTS: how much a migration route keeps to the grid (0 = a smooth curve, 1 = cell to cell in 0°/45°/90° steps,
+   * like a surveyed line). Absent = 1.
+   */
+  gridShare?: number;
 }
 
 export const DEFAULT_FLOW: FlowConfig = {
@@ -51,6 +56,7 @@ export const DEFAULT_FLOW: FlowConfig = {
   unit: 3,
   blockAt: 0.5,
   pull: 1.6,
+  gridShare: 0.3,
 };
 
 /** BOTS sense trodden ground this many cells around them. */
@@ -338,7 +344,27 @@ export function flowRoute(ax: number, az: number, bx: number, bz: number, ground
     out.push((x0 + i + 0.5) * C, (z0 + j + 0.5) * C);
   }
   out.push(bx, bz);
-  return out;
+  return smoothRoute(out, 1 - Math.max(0, Math.min(1, cfg.gridShare ?? 1)));
+}
+
+/**
+ * Corner cutting (Chaikin, ends kept) by `amount` (0 = the grid route as it is, 1 = the full quarter cut, twice):
+ * a route over cell centres becomes a curve.
+ */
+function smoothRoute(r: number[], amount: number): number[] {
+  const t = 0.25 * amount;
+  if (t <= 0 || r.length < 6) return r;
+  let p = r;
+  for (let n = 0; n < 2; n++) {
+    const q: number[] = [p[0], p[1]];
+    for (let k = 0; k + 3 < p.length; k += 2) {
+      const ax = p[k], az = p[k + 1], bx = p[k + 2], bz = p[k + 3];
+      q.push((1 - t) * ax + t * bx, (1 - t) * az + t * bz, t * ax + (1 - t) * bx, t * az + (1 - t) * bz);
+    }
+    q.push(p[p.length - 2], p[p.length - 1]);
+    p = q;
+  }
+  return p;
 }
 
 /** The point at share m (0 … 1) of a polyline's length. */

@@ -181,7 +181,7 @@ export interface NatureInput {
   weather: WeatherConfig;
   fuse: FuseConfig;
   /** Desire paths drawn as holes in the vegetation with a heaped rim (null = off). */
-  paths?: { hole: number; berm: number } | null;
+  paths?: { hole: number; berm: number; edge?: number } | null;
   nature: NatureConfig;
   perSlot: number;
   /** Slots around `focusK` that are built. */
