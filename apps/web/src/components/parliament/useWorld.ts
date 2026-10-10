@@ -82,7 +82,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     maxHeight: { value: D.maxHeight, min: 1, max: 20, step: 1, label: "최대 높이 (단)" },
     tauSlabYears: { value: D.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
     tauFootprintYears: { value: D.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
-    pathVisits: { value: D.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)" },
+    pathVisits: { value: D.pathVisits, min: 1, max: 50, step: 1, label: "길이 되는 통과 횟수 (63 %)", render: () => !isV2 },
     tauPathYears: { value: D.tauPathYears, min: 100, max: 100000, step: 100, label: "길 마모 시간 (년)", render: () => !isV2 },
     "길 (V2 · 유지되는 유통량)": folder(
       {

@@ -896,9 +896,9 @@ export default function ParliamentSpace() {
     savable("보기", {
       theme: { options: { "종이 (밝음)": "paper", "검정": "black" }, value: "black" as keyof typeof THEMES, label: "배경" },
       follow: { value: true, label: "플레이어 시간대 따라가기" },
-      toMe: button(() => jump(focusRef.current)),
-      toGround: button(() => jump(0)),
-      toLatest: button(() => jump(Math.max(0, topRef.current - 6))),
+      "나에게": button(() => jump(focusRef.current)),
+      "바닥으로": button(() => jump(0)),
+      "가장 최근으로": button(() => jump(Math.max(0, topRef.current - 6))),
       markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
       showEdges: { value: false, label: "모서리 선" },
@@ -908,13 +908,13 @@ export default function ParliamentSpace() {
         dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점이 맞는 깊이 (월드)" },
         dofBokeh: { value: 4, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
         focusSpeed: { value: 4, min: 0.5, max: 20, step: 0.5, label: "초점 옮겨가는 속도" },
-        resetFocus: button(() => setFocusResets((n) => n + 1)),
+        "초점 초기화": button(() => setFocusResets((n) => n + 1)),
         nearFade: { value: [2, 24] as [number, number], min: 0, max: 60, step: 0.5, label: "카메라 가까운 식생 사라짐 (거리)" },
       }),
       "데이터": folder(
         {
-          reload: button(() => log.addMany(loadEvents())),
-          "clear world": button(() => {
+          "기록 다시 읽기": button(() => log.addMany(loadEvents())),
+          "세계 지우기": button(() => {
             if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
               clearWorld();
               log.clear();
@@ -1004,8 +1004,8 @@ export default function ParliamentSpace() {
       tauSedimentYears: { value: DEFAULT_WEATHER.tauSedimentYears, min: 10, max: 20000, step: 10, label: "식생 → 부식토/이탄 (년)" },
       "매몰 · 식생 영향": folder(
         {
-          coverSlots: { value: DEFAULT_WEATHER.coverSlots, min: 0, max: 20, step: 1, label: "덮였다고 볼 위층 수 (0 = 끔)" },
-          buriedSlow: { value: DEFAULT_WEATHER.buriedSlow, min: 1, max: 500, step: 1, label: "덮인 뒤 몇 배 느려지나" },
+          coverSlots: { value: DEFAULT_WEATHER.coverSlots, min: 0, max: 20, step: 1, label: "부재가 덮였다고 볼 위층 수 (0 = 끔)" },
+          buriedSlow: { value: DEFAULT_WEATHER.buriedSlow, min: 1, max: 500, step: 1, label: "덮인 부재는 몇 배 느리게 부식" },
           natureAccel: { value: DEFAULT_WEATHER.natureAccel, min: 0, max: 5, step: 0.1, label: "식생이 부식을 빠르게 하는 정도" },
         },
         { collapsed: true },
@@ -1040,7 +1040,7 @@ export default function ParliamentSpace() {
         window: { value: 120, min: 10, max: 600, step: 10, label: "보이는 시간 범위 (±단)" },
         margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
         budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
-        burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "매몰층: 탄생 아래 몇 단" },
+        burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "식생 매몰층: 콘크리트가 생긴 시각 아래 몇 단" },
         densityCut: { value: 0.25, min: 0, max: 0.9, step: 0.01, label: "보이는 최소 밀도 (어디서 보든 같음)", render: () => isV2 },
         densityFade: { value: 15, min: 0, max: 80, step: 1, label: "시간 방향: 옅은 곳부터 사라지는 구간 (단)", render: () => isV2 },
       }),
@@ -1053,7 +1053,7 @@ export default function ParliamentSpace() {
         gatherDot: { value: 0.025, min: 0.005, max: 0.15, step: 0.001, label: "구 속 점 크기" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
-      "길 (식생에 난 구멍)": folder({
+      "길 표시 (식생 구멍 · 둔덕)": folder({
         pathsOn: { value: true, label: "켜기" },
         pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
         pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
