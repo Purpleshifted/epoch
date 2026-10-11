@@ -97,6 +97,13 @@ const RAMP_REACH = CELL_SIZE * 4;
 /** A stretch of a new link within this (world) of a living line runs along it: already there, not drawn. */
 const COVER = CELL_SIZE * 1.5;
 
+/** Whether a seed has parts in slot k: one of its spans (somebody around) touches the slot. */
+function occupies(s: Seed, k: number, spu: number): boolean {
+  const spans = s.spans && s.spans.length ? s.spans : [[s.t0, s.t1] as [number, number]];
+  for (const [a, b] of spans) if (Math.floor(Math.max(a, s.t0) / spu) <= k && k <= Math.floor(Math.min(b, s.t1) / spu)) return true;
+  return false;
+}
+
 /** Cells of room around the buildings in which routes may run. */
 const MARGIN = 8;
 
@@ -183,7 +190,8 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       }
     }
     // the buildings standing at t: the places
-    const up = seeds.filter((s) => s.t0 <= t);
+    // only seeds with parts in this slot (not in empty time): a walkway arrives where there is something to arrive at
+    const up = seeds.filter((s) => occupies(s, k, spu));
     // the routes only change when the buildings, the obstacles or the trodden ground (coarsely) do
     let sig = `${up.length}:${nb}:`;
     for (let c = 0; c < n; c++) if (P[c] > 0.05 || blocked[c]) sig += `${c}.${Math.round(P[c] * 8)}${blocked[c] ? "b" : ""},`;

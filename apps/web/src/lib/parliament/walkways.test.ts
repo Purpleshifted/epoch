@@ -129,3 +129,12 @@ function commuteZ(o: string, x: number, za: number, zb: number, t0: number, secs
   }
   return out;
 }
+
+describe("walkways arrive where there are parts", () => {
+  it("no line in a slot where one of its buildings is in empty time", () => {
+    // B is used only until t = 300 and again from 600: slots 15–29 are empty time for it
+    const Bgap = block(100, 14, 0, 4, 4).map((s) => ({ ...s, spans: [[0, 300], [600, 2000]] as [number, number][] }));
+    const w = walkways(walkers, [...A, ...Bgap], DEFAULT_WALK, opts);
+    for (const l of w.layers) if (l.drawn.length) expect(l.k < 16 || l.k >= 30).toBe(true);
+  });
+});

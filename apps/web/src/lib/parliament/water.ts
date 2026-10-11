@@ -104,7 +104,7 @@ export const DEFAULT_WATER: WaterConfig = {
   wetShare: 1,
   corrode: 1.5,
   pipeRadius: 0.06,
-  quarterGap: 10,
+  quarterGap: 40,
 };
 
 export interface Building {
