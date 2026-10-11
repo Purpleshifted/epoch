@@ -221,63 +221,17 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
 }
 
 /** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
-const PIPE_CAPACITY = 20000;
-const PIPE_UP = new THREE.Vector3(0, 1, 0);
-
-/** Buried pipes (water.pipeSegments): one cylinder per straight run, [a, b, radius] × n; the joints close up. */
-function setPipes(mesh: THREE.InstancedMesh | null, pipes: Float32Array): void {
-  if (!mesh) return;
-  const n = Math.min(pipes.length / 7, PIPE_CAPACITY);
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), dir = new THREE.Vector3(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
-  for (let i = 0; i < n; i++) {
-    const o = i * 7;
-    dir.set(pipes[o + 3] - pipes[o], pipes[o + 4] - pipes[o + 1], pipes[o + 5] - pipes[o + 2]);
-    const len = dir.length();
-    pos.set((pipes[o] + pipes[o + 3]) / 2, (pipes[o + 1] + pipes[o + 4]) / 2, (pipes[o + 2] + pipes[o + 5]) / 2);
-    q.setFromUnitVectors(PIPE_UP, len > 1e-6 ? dir.normalize() : PIPE_UP);
-    sc.set(pipes[o + 6], len + pipes[o + 6] * 2, pipes[o + 6]);
-    m.compose(pos, q, sc);
-    mesh.setMatrixAt(i, m);
-  }
-  mesh.count = n;
-  mesh.instanceMatrix.needsUpdate = true;
-}
-
-const WALK_CAPACITY = 40000;
-
-/** V2 walkways: look of the deck (asphalt), the frame (fence, piers, masts) and the wires. */
+/** Pre-layer look: line colours of walkways and pipes. */
 interface WalkLook {
-  deckColor: string;
-  deckRough: number;
-  frameColor: string;
-  frameRough: number;
-  frameMetal: number;
-  wireColor: string;
-  wireOpacity: number;
+  walkColor: string;
+  pipeColor: string;
 }
 
-/** Boxes [x, y, z, sx, sy, sz, yaw] × n into an instanced mesh. */
-function setBoxes(mesh: THREE.InstancedMesh | null, boxes: Float32Array): void {
-  if (!mesh) return;
-  const n = Math.min(boxes.length / 7, WALK_CAPACITY);
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
-  for (let i = 0; i < n; i++) {
-    const o = i * 7;
-    pos.set(boxes[o], boxes[o + 1], boxes[o + 2]);
-    sc.set(boxes[o + 3], boxes[o + 4], boxes[o + 5]);
-    q.setFromEuler(e.set(0, boxes[o + 6], 0));
-    m.compose(pos, q, sc);
-    mesh.setMatrixAt(i, m);
-  }
-  mesh.count = n;
-  mesh.instanceMatrix.needsUpdate = true;
-}
-
-/** Wire segments [a, b] × n into a line set. */
-function setWires(lines: THREE.LineSegments | null, wires: Float32Array): void {
+/** Line segments [a, b] × n into a line set. */
+function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void {
   if (!lines) return;
   const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(wires, 3));
+  g.setAttribute("position", new THREE.BufferAttribute(segs, 3));
   lines.geometry.dispose();
   lines.geometry = g;
 }
@@ -470,7 +424,8 @@ function SpaceWorld({
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
-  const pipeMesh = useRef<THREE.InstancedMesh>(null);
+  const pipeLive = useRef<THREE.LineSegments>(null);
+  const pipeKept = useRef<THREE.LineSegments>(null);
   const naturePts = useRef<THREE.Points>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
   // count changes, the gatherings stay in the shared attributes
@@ -495,9 +450,8 @@ function SpaceWorld({
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats });
-  const walkMesh = useRef<THREE.InstancedMesh>(null);
-  const frameMesh = useRef<THREE.InstancedMesh>(null);
-  const wireLines = useRef<THREE.LineSegments>(null);
+  const walkLive = useRef<THREE.LineSegments>(null);
+  const walkKept = useRef<THREE.LineSegments>(null);
   useEffect(() => {
     live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
@@ -557,10 +511,10 @@ function SpaceWorld({
         ax.geometry.dispose();
         ax.geometry = g;
       }
-      setPipes(pipeMesh.current, p.pipes);
-      setBoxes(walkMesh.current, p.walk.deck);
-      setBoxes(frameMesh.current, p.walk.frame);
-      setWires(wireLines.current, p.walk.wires);
+      setSegments(walkLive.current, p.walk.live);
+      setSegments(walkKept.current, p.walk.kept);
+      setSegments(pipeLive.current, p.pipes.live);
+      setSegments(pipeKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
@@ -692,21 +646,23 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#15181c" />
       </lineSegments>
-      <instancedMesh ref={pipeMesh} args={[undefined, undefined, PIPE_CAPACITY]} count={0} frustumCulled={false} visible={!!water} castShadow receiveShadow>
-        <cylinderGeometry args={[1, 1, 1, 10]} />
-        <meshStandardMaterial color="#7c7f84" roughness={0.55} metalness={0.25} />
-      </instancedMesh>
-      <instancedMesh ref={walkMesh} args={[undefined, undefined, WALK_CAPACITY]} count={0} frustumCulled={false} visible={!!walk} castShadow receiveShadow>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={walkLook.deckColor} roughness={walkLook.deckRough} metalness={0} />
-      </instancedMesh>
-      <instancedMesh ref={frameMesh} args={[undefined, undefined, WALK_CAPACITY]} count={0} frustumCulled={false} visible={!!walk} castShadow receiveShadow>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={walkLook.frameColor} roughness={walkLook.frameRough} metalness={walkLook.frameMetal} />
-      </instancedMesh>
-      <lineSegments ref={wireLines} frustumCulled={false} visible={!!walk}>
+      {/* PRE-LAYER lines (the visual wrapper comes later): walkways light grey, pipes dark grey; within the present
+          (still changing) brighter, below it (kept) dimmer */}
+      <lineSegments ref={walkLive} frustumCulled={false} visible={!!walk}>
         <bufferGeometry />
-        <lineBasicMaterial color={walkLook.wireColor} transparent opacity={walkLook.wireOpacity} depthWrite={false} />
+        <lineBasicMaterial color={walkLook.walkColor} />
+      </lineSegments>
+      <lineSegments ref={walkKept} frustumCulled={false} visible={!!walk}>
+        <bufferGeometry />
+        <lineBasicMaterial color={walkLook.walkColor} transparent opacity={0.4} depthWrite={false} />
+      </lineSegments>
+      <lineSegments ref={pipeLive} frustumCulled={false} visible={!!water}>
+        <bufferGeometry />
+        <lineBasicMaterial color={walkLook.pipeColor} />
+      </lineSegments>
+      <lineSegments ref={pipeKept} frustumCulled={false} visible={!!water}>
+        <bufferGeometry />
+        <lineBasicMaterial color={walkLook.pipeColor} transparent opacity={0.4} depthWrite={false} />
       </lineSegments>
       <lineSegments ref={axis} frustumCulled={false} visible={!noAxis}>
         <bufferGeometry />
@@ -1220,65 +1176,21 @@ export default function ParliamentSpace() {
         pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
         pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 (구멍 바로 바깥만; 클수록 좁음)", render: () => isV2 },
       }),
-      "다리 규칙 (V2 · 건물 사이)": folder(
+      "다리 (V2 · 건물 사이, 프리레이어 선)": folder(
         {
           walkOn: { value: DEFAULT_WALK.enabled, label: "켜기", render: () => isV2 },
           buildAt: { value: DEFAULT_WALK.buildAt, min: 0.05, max: 0.99, step: 0.01, label: "다리가 되는 밟힘 (경로를 따라 평균 길 세기)", render: () => isV2 },
           maxSpan: { value: DEFAULT_WALK.maxSpan, min: 2, max: 120, step: 1, label: "가장 긴 다리 (월드)", render: () => isV2 },
           walkJoin: { value: DEFAULT_WALK.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)", render: () => isV2 },
-          walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "다시 놓는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
-          walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "다시 놓는 최소 간격 (단)", render: () => isV2 },
-          straighten: { value: DEFAULT_WALK.straighten, min: 0.1, max: 5, step: 0.05, label: "곧게 펴기 (클수록 긴 직선 구간)", render: () => isV2 },
-          joinSlots: { value: DEFAULT_WALK.joinSlots, min: 0, max: 80, step: 1, label: "아래 다리와 잇는 범위 (단; 같은 다리가 아직 쓰이면 수직으로 연결)", render: () => isV2 },
+          walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층을 놓는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
+          walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)", render: () => isV2 },
+          joinSlots: { value: DEFAULT_WALK.joinSlots, min: 0, max: 80, step: 1, label: "아래 다리와 잇는 범위 (단; 이 안에서 아직 쓰이는 다리는 다시 안 그리고, 새 가지가 경사로로 이어짐)", render: () => isV2 },
+          rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 최소 길이 (월드)", render: () => isV2 },
+          smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선 부드럽게 (횟수, 0 = 칸에서 칸으로)", render: () => isV2 },
+          walkColor: { value: "#d8d8d8", label: "다리 선 색", render: () => isV2 },
+          pipeColor: { value: "#7c7f84", label: "관 선 색" },
         },
         { render: () => isV2 },
-      ),
-      "상판": folder(
-        {
-          deckThick: { value: DEFAULT_WALK.deckThick, min: 0.02, max: 0.8, step: 0.01, label: "두께 (월드)", render: () => isV2 },
-          grain: { value: DEFAULT_WALK.grain, min: 0.1, max: 1.2, step: 0.05, label: "블록 결 (작을수록 외곽선이 매끈, 블록이 많아짐)", render: () => isV2 },
-          deckWidth: { value: DEFAULT_WALK.deckWidth, min: 0.1, max: 3, step: 0.05, label: "최소 폭 (월드)", render: () => isV2 },
-          widthByFlow: { value: DEFAULT_WALK.widthByFlow, min: 0, max: 3, step: 0.05, label: "많이 다닐수록 넓어지는 정도", render: () => isV2 },
-          deckColor: { value: "#2a2b2d", label: "색 (아스팔트)", render: () => isV2 },
-          deckRough: { value: 0.95, min: 0, max: 1, step: 0.01, label: "거칠기", render: () => isV2 },
-        },
-        { collapsed: true, render: () => isV2 },
-      ),
-      "펜스": folder(
-        {
-          fenceHeight: { value: DEFAULT_WALK.fenceHeight, min: 0, max: 2, step: 0.05, label: "높이 (월드; 0 = 없음)", render: () => isV2 },
-          postSpacing: { value: DEFAULT_WALK.postSpacing, min: 0.1, max: 5, step: 0.05, label: "기둥 간격 (월드)", render: () => isV2 },
-          postThick: { value: DEFAULT_WALK.postThick, min: 0.005, max: 0.2, step: 0.005, label: "기둥 굵기 (월드)", render: () => isV2 },
-          railThick: { value: DEFAULT_WALK.railThick, min: 0.005, max: 0.2, step: 0.005, label: "난간 굵기 (월드)", render: () => isV2 },
-        },
-        { collapsed: true, render: () => isV2 },
-      ),
-      "받침": folder(
-        {
-          pierSpacing: { value: DEFAULT_WALK.pierSpacing, min: 0, max: 20, step: 0.5, label: "간격 (월드; 꺾이는 곳에도, 0 = 없음)", render: () => isV2 },
-          pierDepth: { value: DEFAULT_WALK.pierDepth, min: 0.2, max: 20, step: 0.1, label: "길이 (아래로 몇 단)", render: () => isV2 },
-          pierThick: { value: DEFAULT_WALK.pierThick, min: 0.01, max: 0.6, step: 0.01, label: "굵기 (월드)", render: () => isV2 },
-        },
-        { collapsed: true, render: () => isV2 },
-      ),
-      "마스트 · 와이어": folder(
-        {
-          mastSpacing: { value: DEFAULT_WALK.mastSpacing, min: 0, max: 40, step: 0.5, label: "간격 (월드; 0 = 없음)", render: () => isV2 },
-          mastHeight: { value: DEFAULT_WALK.mastHeight, min: 0.2, max: 20, step: 0.1, label: "높이 (위로 몇 단)", render: () => isV2 },
-          mastThick: { value: DEFAULT_WALK.mastThick, min: 0.01, max: 0.4, step: 0.01, label: "굵기 (월드)", render: () => isV2 },
-          wiresPerSide: { value: DEFAULT_WALK.wiresPerSide, min: 0, max: 8, step: 1, label: "와이어 수 (한쪽)", render: () => isV2 },
-          wireColor: { value: "#6e7176", label: "와이어 색", render: () => isV2 },
-          wireOpacity: { value: 0.85, min: 0.05, max: 1, step: 0.01, label: "와이어 불투명도", render: () => isV2 },
-        },
-        { collapsed: true, render: () => isV2 },
-      ),
-      "구조 재질 (펜스 · 받침 · 마스트)": folder(
-        {
-          frameColor: { value: "#8e9196", label: "색", render: () => isV2 },
-          frameRough: { value: 0.6, min: 0, max: 1, step: 0.01, label: "거칠기", render: () => isV2 },
-          frameMetal: { value: 0.35, min: 0, max: 1, step: 0.01, label: "금속성", render: () => isV2 },
-        },
-        { collapsed: true, render: () => isV2 },
       ),
     }),
     { order: 4, collapsed: true },
@@ -1293,31 +1205,14 @@ export default function ParliamentSpace() {
             join: wlk.walkJoin,
             change: wlk.walkChange,
             minGapSlots: wlk.walkGap,
-            straighten: wlk.straighten,
             joinSlots: wlk.joinSlots,
-            grain: wlk.grain,
-            deckThick: wlk.deckThick,
-            deckWidth: wlk.deckWidth,
-            widthByFlow: wlk.widthByFlow,
-            fenceHeight: wlk.fenceHeight,
-            postSpacing: wlk.postSpacing,
-            railThick: wlk.railThick,
-            postThick: wlk.postThick,
-            pierSpacing: wlk.pierSpacing,
-            pierDepth: wlk.pierDepth,
-            pierThick: wlk.pierThick,
-            mastSpacing: wlk.mastSpacing,
-            mastHeight: wlk.mastHeight,
-            mastThick: wlk.mastThick,
-            wiresPerSide: wlk.wiresPerSide,
+            rampLength: wlk.rampLength,
+            smooth: wlk.smooth,
           }
         : null,
-    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.straighten, wlk.joinSlots, wlk.grain, wlk.deckThick, wlk.deckWidth, wlk.widthByFlow, wlk.fenceHeight, wlk.postSpacing, wlk.railThick, wlk.postThick, wlk.pierSpacing, wlk.pierDepth, wlk.pierThick, wlk.mastSpacing, wlk.mastHeight, wlk.mastThick, wlk.wiresPerSide],
+    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.joinSlots, wlk.rampLength, wlk.smooth],
   );
-  const walkLook = useMemo<WalkLook>(
-    () => ({ deckColor: wlk.deckColor, deckRough: wlk.deckRough, frameColor: wlk.frameColor, frameRough: wlk.frameRough, frameMetal: wlk.frameMetal, wireColor: wlk.wireColor, wireOpacity: wlk.wireOpacity }),
-    [wlk.deckColor, wlk.deckRough, wlk.frameColor, wlk.frameRough, wlk.frameMetal, wlk.wireColor, wlk.wireOpacity],
-  );
+  const walkLook = useMemo<WalkLook>(() => ({ walkColor: wlk.walkColor, pipeColor: wlk.pipeColor }), [wlk.walkColor, wlk.pipeColor]);
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
   const fu = useControls(
     "엉김 · 융합 · 레진",

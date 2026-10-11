@@ -20,8 +20,8 @@ import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
-import { NO_WALKWAYS, walkArrays, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
-import { NO_DRAINAGE, drainage, pipeSegments, waterDistance, waterField, type Drainage, type PipeRun, type WaterConfig } from "./water";
+import { NO_WALKWAYS, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
+import { NO_DRAINAGE, drainage, pipeLines, waterDistance, waterField, type Drainage, type PipeRun, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -175,10 +175,10 @@ export interface PartsResult {
   /** Open streams now / pipe runs laid in all. */
   links: number;
   pipeRuns: number;
-  /** Pipe cylinders [ax, ay, az, bx, by, bz, radius] × n (water.pipeSegments). */
-  pipes: Float32Array;
+  /** The pipes' pre-layer as line segments (water.pipeLines): `live` within the present (still changing), `kept` below. */
+  pipes: { live: Float32Array; kept: Float32Array };
   /** V2 walkways: deck and frame boxes [x, y, z, sx, sy, sz, yaw] × n, and wire segments [a, b] × n. */
-  walk: { deck: Float32Array; frame: Float32Array; wires: Float32Array };
+  walk: { live: Float32Array; kept: Float32Array };
   t: number;
   top: number;
   minX: number;
@@ -355,6 +355,8 @@ export class SpaceModel {
     const veg = h ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
     // waterways between buildings the same people built: nearness per (cell, slot) over the whole history
     this.waterCfg = input.water;
+    // the PRESENT thickness (the slots above the rot onset): water and walkways laid there still change
+    const presentSlots = Math.max(1, Math.round(rotOnsetSlots(input.weather)));
     // water from the sealed ground: open streams and buried pipes, laid anew where the quarter changed (rebuilt once
     // per slot, or when the buildings or the rule change)
     const dKey = `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${seeds.length}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
@@ -364,7 +366,8 @@ export class SpaceModel {
       const kept = this.drainKept && this.drainKept.rule === rule ? this.drainKept : undefined;
       this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t, frozen: kept });
       // the slots before the present are done: what was laid there stays
-      const upToK = Math.floor(t / box.secPerUnit) - 1;
+      // only what lies below the present thickness is done; the present keeps changing
+      const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
       const streams = new Map<number, Float32Array[]>();
       for (const [k, c] of this.drain.streams) if (k <= upToK) streams.set(k, c);
       this.drainKept = { rule, pipes: this.drain.pipes.filter((p) => p.k <= upToK), streams, upToK };
@@ -372,13 +375,15 @@ export class SpaceModel {
     this.nearWater = this.drain.streams.size ? waterField(this.drain, 0, Math.floor(t / box.secPerUnit), input.water) : null;
     // V2: walkways where the flow is sustained (laid where the walked network changed; rebuilt once per slot)
     const wk = input.walk && input.fold.flow?.enabled ? input.walk : null;
-    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}` : "-";
+    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}:${this.drainKey}` : "-";
     if (wKey !== this.walkKey) {
       this.walkKey = wKey;
-      const rule = `${box.secPerUnit}:${box.unit}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}`;
+      const rule = `${box.secPerUnit}:${box.unit}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}:${JSON.stringify(input.water)}`;
       const kept = this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
-      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept }) : NO_WALKWAYS;
-      const upToK = Math.floor(t / box.secPerUnit) - 1;
+      // the pipes as obstacles of the walkways' pre-layer
+      const pipes = input.water.enabled ? { runs: this.drain.pipes, depth: input.water.pipeDepth } : undefined;
+      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, pipes }) : NO_WALKWAYS;
+      const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
       this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;
     }
     const near = this.nearWater;
@@ -469,8 +474,8 @@ export class SpaceModel {
       farSeeds: far.size,
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
-      pipes: pipeSegments(this.drain.pipes, box.unit, input.water),
-      walk: walkArrays(this.walks),
+      pipes: pipeLines(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1),
+      walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1),
       t,
       top,
       minX,
@@ -780,8 +785,8 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.matrices)) transfer.add(a.buffer as ArrayBuffer);
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
-      transfer.add(out.parts.pipes.buffer as ArrayBuffer);
-      transfer.add(out.parts.walk.deck.buffer as ArrayBuffer).add(out.parts.walk.frame.buffer as ArrayBuffer).add(out.parts.walk.wires.buffer as ArrayBuffer);
+      transfer.add(out.parts.pipes.live.buffer as ArrayBuffer).add(out.parts.pipes.kept.buffer as ArrayBuffer);
+      transfer.add(out.parts.walk.live.buffer as ArrayBuffer).add(out.parts.walk.kept.buffer as ArrayBuffer);
     }
   }
   if (m.nature) {

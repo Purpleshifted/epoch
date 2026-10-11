@@ -1,31 +1,31 @@
 /**
  * parliament/walkways.ts
  *
- * WALKWAYS (V2): BUILDINGS are the places; a walkway is a LINK between two of them, built where people keep walking
- * from one to the other. So a walkway never comes before its buildings — it needs both to stand.
+ * WALKWAYS (V2) — the PRE-LAYER as lines. BUILDINGS are the places; a walkway is a LINK between two of them, laid
+ * where people keep walking from one to the other, so it never comes before its buildings.
  *
- *   TRODDEN      the ground keeps how trodden it is (flow.ts: treads along each move, fading with regrowth `tauSec`,
- *                counting only movement along one axis); its path strength p = 1 − e^(−G/unit) is read per cell
- *   ROUTE        from each building, the cheapest way over the grid to the buildings it can reach directly (a route
- *                stops at the first building it meets, so links join neighbours, not across others): cheap on
- *                trodden ground (cost 0.15 + 2·(1 − p)²), never through a building
- *   LINK         a route is built when the ground along it is trodden on average to `buildAt` (the flow between
- *                the two is sustained) and it is no longer than `maxSpan`
- *   SHAPE        a link's route is straightened into a few stretches (Douglas–Peucker, `straighten` world); along
- *                each a SLAB with thickness, wider where more people walk; a FENCE along its edges (rails, posts);
- *                PIERS at its joints and every `pierSpacing`, reaching down into the earlier ground; MASTS every
- *                `mastSpacing` with WIRES down to the deck
- *   LAYERS       laid anew only when the links CHANGE (a link appears or goes, by `change` of them), at most every
- *                `minGapSlots`; each layer stays where it was laid. Human traces: achromatic (colours in the view).
+ *   TRODDEN      the ground keeps how trodden it is (flow.ts: treads along each move, fading with regrowth, counting
+ *                only movement along one axis); path strength p = 1 − e^(−G/unit) per cell
+ *   ROUTE        from each building, the cheapest way over the grid to the buildings it reaches directly (a route stops
+ *                at the first building it meets): cheap on trodden ground, never through a standing building nor a
+ *                pipe running at the walkway's height
+ *   LINK         built when the ground along the route is trodden to `buildAt` on average (sustained flow), at most
+ *                `maxSpan` long
+ *   LINE         the route as a smooth line (Chaikin, `smooth` passes) at its layer's height
+ *   LAYERS       a layer is laid when the links change (by `change` of them, at most every `minGapSlots`); it draws only
+ *                its NEW links — a link drawn below within `joinSlots` and still walked stands as it is, and a new link
+ *                starting at one of its buildings RAMPS up from its end (the line's height rising over `rampLength`).
+ *                Layers within the present thickness are drawn anew with every call (they follow the trodden ground as
+ *                it is now); only those below it are kept (WalkOptions.frozen).
  *
- * Pure and deterministic.
+ * Pure and deterministic. The visual wrapper (a deck around the lines) comes later.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { cellKey, flowP, flowTracks, stayShares, type FlowConfig } from "./flow";
 import type { Seed } from "./seeds";
 import type { PEvent } from "./types";
-import { buildingsOf } from "./water";
+import { buildingsOf, type PipeRun } from "./water";
 
 export interface WalkConfig {
   enabled: boolean;
@@ -39,30 +39,12 @@ export interface WalkConfig {
   change: number;
   /** …but not more often than every this many slots. */
   minGapSlots: number;
-  /** How far (world) a route may stray from a straight stretch before it bends (larger = fewer, longer slabs). */
-  straighten: number;
-  /** Deck thickness and least width (world); `widthByFlow` × p more where more people walk. */
-  deckThick: number;
-  deckWidth: number;
-  widthByFlow: number;
-  /** Fence: height, post spacing, rail and post thickness (world); 0 height = none. */
-  fenceHeight: number;
-  postSpacing: number;
-  railThick: number;
-  postThick: number;
-  /** Piers: spacing (world, 0 = none), depth (slots), thickness (world). */
-  pierSpacing: number;
-  pierDepth: number;
-  pierThick: number;
-  /** A later layer joins the layers below it (still walked: same link) laid within this many slots, by shafts. */
+  /** A link drawn within this many slots below and still walked is not drawn again; new links ramp up from it. */
   joinSlots: number;
-  /** Fine grid (world) of the walkway's footprint, covered by blocks: smaller = finer outline, more blocks. */
-  grain: number;
-  /** Masts: spacing (world, 0 = none), height (slots), thickness (world), wires each side. */
-  mastSpacing: number;
-  mastHeight: number;
-  mastThick: number;
-  wiresPerSide: number;
+  /** Least run (world) of a ramp. */
+  rampLength: number;
+  /** Smoothing passes of the route (Chaikin; 0 = cell to cell). */
+  smooth: number;
 }
 
 export const DEFAULT_WALK: WalkConfig = {
@@ -72,35 +54,22 @@ export const DEFAULT_WALK: WalkConfig = {
   join: 1,
   change: 0.2,
   minGapSlots: 3,
-  straighten: 0.9,
-  deckThick: 0.14,
-  deckWidth: 0.7,
-  widthByFlow: 0.6,
-  fenceHeight: 0.35,
-  postSpacing: 0.8,
-  railThick: 0.025,
-  postThick: 0.025,
-  pierSpacing: 3,
-  pierDepth: 3,
-  pierThick: 0.1,
-  mastSpacing: 8,
-  mastHeight: 2.5,
-  mastThick: 0.06,
-  wiresPerSide: 2,
   joinSlots: 20,
-  grain: 0.3,
+  rampLength: 3,
+  smooth: 2,
 };
 
-/** One layer of walkways. Boxes [x, y, z, sx, sy, sz, yaw] × n — DECK slabs and FRAME (rails, posts, piers, masts) apart, for their materials — and wires [a, b] × n. */
+/** One layer of walkways: the lines of its new links. */
 export interface WalkLayer {
   k: number;
-  deck: number[];
-  frame: number[];
-  wires: number[];
-  /** Links in this layer ("a-b" building ids). */
+  /** Links in use at this moment ("a-b" building ids) — drawn here or still standing below. */
   links: string[];
-  /** Where each link meets its buildings (both ends): later layers rise from here to join it. */
-  anchors: { key: string; x: number; z: number }[];
+  /** Links drawn in this layer (the new ones). */
+  drawn: string[];
+  /** Where each drawn link meets its buildings: later new links ramp up from here. */
+  anchors: { key: string; building: number; x: number; z: number }[];
+  /** One polyline [x, y, z, …] per drawn link (ramps included). */
+  lines: Float32Array[];
 }
 
 export interface Walkways {
@@ -114,7 +83,9 @@ export interface WalkOptions {
   unit: number;
   flow: FlowConfig;
   tNow: number;
-  /** Layers laid up to slot `upToK` stay as they were (only later ones are laid by this call). */
+  /** Pipes (water.ts): a walkway does not run where a pipe lies at its height. */
+  pipes?: { runs: readonly PipeRun[]; depth: number };
+  /** Layers laid up to slot `upToK` (below the present) stay as they were; later ones are drawn by this call. */
   frozen?: { layers: readonly WalkLayer[]; upToK: number };
 }
 
@@ -123,9 +94,10 @@ const MARGIN = 8;
 
 /** The walkways of the history. */
 export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg: WalkConfig, opts: WalkOptions): Walkways {
-  if (!cfg.enabled || !seeds.length) return opts.frozen ? { layers: [...opts.frozen.layers] } : NO_WALKWAYS;
+  const kept = opts.frozen ? opts.frozen.layers.filter((l) => l.k <= opts.frozen!.upToK) : [];
+  if (!cfg.enabled || !seeds.length) return { layers: kept };
   const pres = events.filter((e) => e.r === "worker" && e.k === "p");
-  if (!pres.length) return NO_WALKWAYS;
+  if (!pres.length) return { layers: kept };
   pres.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // a cell is not trodden once a building stands on it (first comes first)
   const born = new Map<string, number>();
@@ -146,6 +118,7 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const n = nx * nz;
   const idx = (cx: number, cz: number) => (cz - z0) * nx + (cx - x0);
   const inGrid = (cx: number, cz: number) => cx >= x0 && cz >= z0 && cx < x0 + nx && cz < z0 + nz;
+  const centre = (c: number): [number, number] => [(x0 + (c % nx) + 0.5) * CELL_SIZE, (z0 + Math.floor(c / nx) + 0.5) * CELL_SIZE];
 
   const tracks = [...flowTracks(pres, stayShares(pres, opts.flow), (k) => born.get(k))].filter(([key]) => {
     const [cx, cz] = key.split(",").map(Number);
@@ -168,6 +141,7 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   let links = new Map<string, { cells: number[]; p: number }>();
   for (let k = kFirst; k <= kLast; k++) {
     const t = k * spu;
+    const y = k * opts.unit;
     // trodden ground at t (each track's decayed sum carried forward)
     P.fill(0);
     for (let i = 0; i < tracks.length; i++) {
@@ -184,15 +158,31 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       }
       P[tCell[i]] = flowP(Math.hypot(gc[i], gq[i]), opts.flow);
     }
+    // obstacles at this height: the pipes lying within half a slot of it
+    const blocked = new Uint8Array(n);
+    let nb = 0;
+    for (const r of opts.pipes?.runs ?? []) {
+      const ry = (r.k - (opts.pipes?.depth ?? 0)) * opts.unit;
+      const near = r.k0 !== undefined ? (r.k0 - (opts.pipes?.depth ?? 0)) * opts.unit - opts.unit / 2 <= y && y <= ry + opts.unit / 2 : Math.abs(ry - y) <= opts.unit / 2;
+      if (!near) continue;
+      const steps = Math.max(1, Math.round(Math.hypot(r.bx - r.ax, r.bz - r.az) / CELL_SIZE));
+      for (let q = 0; q <= steps; q++) {
+        const cx = Math.floor((r.ax + ((r.bx - r.ax) * q) / steps) / CELL_SIZE), cz = Math.floor((r.az + ((r.bz - r.az) * q) / steps) / CELL_SIZE);
+        if (inGrid(cx, cz) && !blocked[idx(cx, cz)]) {
+          blocked[idx(cx, cz)] = 1;
+          nb++;
+        }
+      }
+    }
     // the buildings standing at t: the places
     const up = seeds.filter((s) => s.t0 <= t);
-    // the routes only change when the buildings or the trodden ground (coarsely) do: reuse them otherwise
-    let sig = `${up.length}:`;
-    for (let c = 0; c < n; c++) if (P[c] > 0.05) sig += `${c}.${Math.round(P[c] * 8)},`;
+    // the routes only change when the buildings, the obstacles or the trodden ground (coarsely) do
+    let sig = `${up.length}:${nb}:`;
+    for (let c = 0; c < n; c++) if (P[c] > 0.05 || blocked[c]) sig += `${c}.${Math.round(P[c] * 8)}${blocked[c] ? "b" : ""},`;
     if (sig !== lastSig) {
       lastSig = sig;
       const standing = buildingsOf(up, cfg);
-      links = standing.length >= 2 ? linksAt(standing, P, nx, nz, idx, cfg) : new Map();
+      links = standing.length >= 2 ? linksAt(standing, P, blocked, nx, nz, idx, cfg) : new Map();
     }
     if (!links.size) continue;
     // CHANGE: laid anew only when the links changed enough, and not too often
@@ -204,12 +194,14 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     if (laid && (diff === 0 || diff / Math.max(1, links.size) < cfg.change || k - laidK < cfg.minGapSlots)) continue;
     laid = new Set(links.keys());
     laidK = k;
-    if (opts.frozen && k <= opts.frozen.upToK) continue; // kept as it was
-    const centre = (c: number): [number, number] => [(x0 + (c % nx) + 0.5) * CELL_SIZE, (z0 + Math.floor(c / nx) + 0.5) * CELL_SIZE];
-    const below = [...(opts.frozen?.layers ?? []), ...layers].filter((l) => l.k < k && k - l.k <= cfg.joinSlots);
-    layers.push(layLayer([...links.entries()].map(([key, l]) => ({ key, route: l.cells.map(centre), p: l.p })), k, cfg, opts.unit, below));
+    if (opts.frozen && k <= opts.frozen.upToK) continue; // below the present: kept as it was
+    const below = [...kept, ...layers].filter((l) => l.k < k && k - l.k <= cfg.joinSlots);
+    // links drawn below within the present and still walked stand as they are: only the new ones are drawn here
+    const standingBelow = new Set(below.flatMap((l) => l.drawn));
+    const fresh = [...links.entries()].filter(([key]) => !standingBelow.has(key));
+    layers.push(layLines(fresh.map(([key, l]) => ({ key, route: l.cells.map(centre) })), [...links.keys()], k, cfg, opts.unit, below));
   }
-  return { layers: opts.frozen ? [...opts.frozen.layers, ...layers] : layers };
+  return { layers: [...kept, ...layers] };
 }
 
 /**
@@ -217,7 +209,7 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
  * ground, never through a building) that stops at the first building it meets in every direction; a route is a
  * link if the ground along it is trodden to `buildAt` on average and it is at most `maxSpan` long. Keyed "a-b".
  */
-function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P: Float32Array, nx: number, nz: number, idx: (cx: number, cz: number) => number, cfg: WalkConfig): Map<string, { cells: number[]; p: number }> {
+function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P: Float32Array, blocked: Uint8Array, nx: number, nz: number, idx: (cx: number, cz: number) => number, cfg: WalkConfig): Map<string, { cells: number[]; p: number }> {
   const n = nx * nz;
   const owner = new Int32Array(n).fill(-1); // building on the cell
   const edgeOf = new Int32Array(n).fill(-1); // building whose edge the cell is (first)
@@ -307,7 +299,7 @@ function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P
         const vi = ui + di, vj = uj + dj;
         if (vi < 0 || vj < 0 || vi >= nx || vj >= nz) continue;
         const v = vj * nx + vi;
-        if (done[v] || owner[v] >= 0) continue;
+        if (done[v] || owner[v] >= 0 || blocked[v]) continue;
         if (di && dj && (owner[uj * nx + vi] >= 0 || owner[vj * nx + ui] >= 0)) continue;
         const d = dist[u] + len * (cost(u) + cost(v)) * 0.5;
         if (d < dist[v]) {
@@ -322,178 +314,75 @@ function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P
   return out;
 }
 
-/** Douglas–Peucker on [x, z] points, ends kept. */
-function simplify(pts: [number, number][], eps: number): [number, number][] {
-  if (pts.length <= 2) return pts;
-  const [ax, az] = pts[0], [bx, bz] = pts[pts.length - 1];
-  const L = Math.hypot(bx - ax, bz - az) || 1e-9;
-  let best = -1, bd = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const d = Math.abs((bx - ax) * (az - pts[i][1]) - (ax - pts[i][0]) * (bz - az)) / L;
-    if (d > bd) {
-      bd = d;
-      best = i;
+/** Chaikin corner cutting, `passes` times, ends kept. */
+function chaikin(pts: [number, number][], passes: number): [number, number][] {
+  let p = pts;
+  for (let n = 0; n < passes && p.length >= 3; n++) {
+    const q: [number, number][] = [p[0]];
+    for (let i = 0; i + 1 < p.length; i++) {
+      const [ax, az] = p[i], [bx, bz] = p[i + 1];
+      q.push([0.75 * ax + 0.25 * bx, 0.75 * az + 0.25 * bz], [0.25 * ax + 0.75 * bx, 0.25 * az + 0.75 * bz]);
     }
+    q.push(p[p.length - 1]);
+    p = q;
   }
-  if (bd <= eps) return [pts[0], pts[pts.length - 1]];
-  return [...simplify(pts.slice(0, best + 1), eps).slice(0, -1), ...simplify(pts.slice(best), eps)];
+  return p;
 }
 
 /**
- * One layer of walkways (slot k). First a PRE-LAYER: the walkway's footprint on a fine grid (`grain`) — every link's
- * straightened route with its width (wider where more people walk), all links in one mask, so where they meet they
- * are one floor. Then the VISUAL WRAPPER: the mask covered by blocks (greedy: each block the largest rectangle of
- * the mask left), a FENCE only along the mask's outline (so a junction stays open), PIERS along the routes, MASTS
- * and WIRES. Layers below laid within `joinSlots` whose link is still walked are joined by SHAFTS at its ends.
+ * One layer's lines (slot k), for its NEW links: each route smoothed, at the layer's height. Where a link starts (or
+ * ends) at a building that a link drawn below (within `joinSlots`, still walked) also reaches, its line begins at
+ * that link's end, at that link's height, and RAMPS up to the layer's height over `rampLength`.
  */
-function layLayer(links: { key: string; route: [number, number][]; p: number }[], k: number, cfg: WalkConfig, unit: number, below: readonly WalkLayer[]): WalkLayer {
-  const out: WalkLayer = { k, deck: [], frame: [], wires: [], links: links.map((l) => l.key), anchors: [] };
-  const y = k * unit + cfg.deckThick / 2;
-  const top = y + cfg.deckThick / 2;
-  const g = Math.max(0.05, cfg.grain);
-  const lines = links.map((l) => ({ ...l, line: simplify(l.route, cfg.straighten), w: cfg.deckWidth + cfg.widthByFlow * l.p }));
-  // PRE-LAYER: the footprint
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (const { line, w } of lines) for (const [x, z] of line) {
-    minX = Math.min(minX, x - w);
-    maxX = Math.max(maxX, x + w);
-    minZ = Math.min(minZ, z - w);
-    maxZ = Math.max(maxZ, z + w);
-  }
-  if (!Number.isFinite(minX)) return out;
-  const gx0 = Math.floor(minX / g), gz0 = Math.floor(minZ / g);
-  const gw = Math.ceil(maxX / g) - gx0 + 1, gd = Math.ceil(maxZ / g) - gz0 + 1;
-  const mask = new Uint8Array(gw * gd);
-  for (const { line, w } of lines) {
-    for (let q = 0; q + 1 < line.length; q++) {
-      const [ax, az] = line[q], [bx, bz] = line[q + 1];
-      const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1e-9;
-      const i0 = Math.floor((Math.min(ax, bx) - w) / g) - gx0, i1 = Math.ceil((Math.max(ax, bx) + w) / g) - gx0;
-      const j0 = Math.floor((Math.min(az, bz) - w) / g) - gz0, j1 = Math.ceil((Math.max(az, bz) + w) / g) - gz0;
-      for (let j = Math.max(0, j0); j <= Math.min(gd - 1, j1); j++) {
-        for (let i = Math.max(0, i0); i <= Math.min(gw - 1, i1); i++) {
-          const px = (gx0 + i + 0.5) * g, pz = (gz0 + j + 0.5) * g;
-          const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / L2));
-          if (Math.hypot(px - ax - dx * t, pz - az - dz * t) <= w / 2) mask[j * gw + i] = 1;
-        }
-      }
-    }
-  }
-  // WRAPPER: blocks, greedy (largest rectangles first along the rows)
-  const used = new Uint8Array(gw * gd);
-  for (let j = 0; j < gd; j++) {
-    for (let i = 0; i < gw; i++) {
-      if (!mask[j * gw + i] || used[j * gw + i]) continue;
-      let w = 1;
-      while (i + w < gw && mask[j * gw + i + w] && !used[j * gw + i + w]) w++;
-      let d = 1;
-      grow: while (j + d < gd) {
-        for (let q = 0; q < w; q++) if (!mask[(j + d) * gw + i + q] || used[(j + d) * gw + i + q]) break grow;
-        d++;
-      }
-      for (let jj = 0; jj < d; jj++) for (let q = 0; q < w; q++) used[(j + jj) * gw + i + q] = 1;
-      out.deck.push((gx0 + i + w / 2) * g, y, (gz0 + j + d / 2) * g, w * g, cfg.deckThick, d * g, 0);
-    }
-  }
-  // FENCE along the outline only: runs of boundary edges, rails and posts
-  if (cfg.fenceHeight > 0) {
-    const m = (i: number, j: number) => i >= 0 && j >= 0 && i < gw && j < gd && mask[j * gw + i] === 1;
-    const rail = (x: number, z: number, len: number, yaw: number) => out.frame.push(x, top + cfg.fenceHeight, z, len, cfg.railThick, cfg.railThick, yaw);
-    const posts = (ax: number, az: number, bx: number, bz: number) => {
-      const len = Math.hypot(bx - ax, bz - az);
-      const n = Math.max(1, Math.round(len / Math.max(0.1, cfg.postSpacing)));
-      for (let q = 0; q <= n; q++) out.frame.push(ax + ((bx - ax) * q) / n, top + cfg.fenceHeight / 2, az + ((bz - az) * q) / n, cfg.postThick, cfg.fenceHeight, cfg.postThick, 0);
-    };
-    // edges along x (between rows j−1 and j), then along z (between columns i−1 and i)
-    for (let j = 0; j <= gd; j++) {
-      let run = -1;
-      for (let i = 0; i <= gw; i++) {
-        const edge = i < gw && m(i, j) !== m(i, j - 1);
-        if (edge && run < 0) run = i;
-        if (!edge && run >= 0) {
-          const ax = (gx0 + run) * g, bx = (gx0 + i) * g, z = (gz0 + j) * g;
-          rail((ax + bx) / 2, z, bx - ax, 0);
-          posts(ax, z, bx, z);
-          run = -1;
-        }
-      }
-    }
-    for (let i = 0; i <= gw; i++) {
-      let run = -1;
-      for (let j = 0; j <= gd; j++) {
-        const edge = j < gd && m(i, j) !== m(i - 1, j);
-        if (edge && run < 0) run = j;
-        if (!edge && run >= 0) {
-          const az = (gz0 + run) * g, bz = (gz0 + j) * g, x = (gx0 + i) * g;
-          rail(x, (az + bz) / 2, bz - az, Math.PI / 2);
-          posts(x, az, x, bz);
-          run = -1;
-        }
-      }
-    }
-  }
-  for (const { key, line } of lines) {
-    // piers along the route (at its joints and every `pierSpacing`), masts and wires
-    for (let q = 0; q + 1 < line.length; q++) {
-      const [ax, az] = line[q], [bx, bz] = line[q + 1];
-      const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz);
-      if (len < 1e-6) continue;
-      const ux = dx / len, uz = dz / len;
-      if (cfg.pierSpacing > 0) {
-        const d = cfg.pierDepth * unit;
-        const n = Math.max(1, Math.round(len / cfg.pierSpacing));
-        for (let i = q === 0 ? 0 : 1; i <= n; i++) out.frame.push(ax + (dx * i) / n, y - d / 2, az + (dz * i) / n, cfg.pierThick, d, cfg.pierThick, 0);
-      }
-      if (cfg.mastSpacing > 0 && len >= cfg.mastSpacing * 0.5) {
-        const mh = cfg.mastHeight * unit;
-        const n = Math.max(1, Math.floor(len / cfg.mastSpacing));
-        for (let i = 0; i < n; i++) {
-          const t = (i + 0.5) / n;
-          const mx = ax + dx * t, mz = az + dz * t;
-          out.frame.push(mx, top + mh / 2, mz, cfg.mastThick, mh, cfg.mastThick, 0);
-          for (let s = 1; s <= cfg.wiresPerSide; s++) {
-            for (const dir of [-1, 1]) {
-              const r = (dir * s * cfg.mastSpacing) / (2 * cfg.wiresPerSide);
-              const along = t * len + r;
-              if (along < 0 || along > len) continue;
-              out.wires.push(mx, top + mh, mz, mx + ux * r, top, mz + uz * r);
-            }
+function layLines(links: { key: string; route: [number, number][] }[], inUse: string[], k: number, cfg: WalkConfig, unit: number, below: readonly WalkLayer[]): WalkLayer {
+  const out: WalkLayer = { k, links: inUse, drawn: links.map((l) => l.key), anchors: [], lines: [] };
+  const y = k * unit;
+  for (const { key, route } of links) {
+    const flat = chaikin(route, Math.max(0, Math.round(cfg.smooth)));
+    if (flat.length < 2) continue;
+    const [ia, ib] = key.split("-").map(Number);
+    out.anchors.push({ key, building: ia, x: flat[0][0], z: flat[0][1] }, { key, building: ib, x: flat[flat.length - 1][0], z: flat[flat.length - 1][1] });
+    // the link drawn below nearest to an end at this building, still walked
+    const from = (building: number, x: number, z: number) => {
+      let best: { x: number; z: number; y: number } | null = null, bd = Infinity;
+      for (const l of below) {
+        for (const an of l.anchors) {
+          if (an.building !== building || !inUse.includes(an.key)) continue;
+          const d = Math.hypot(an.x - x, an.z - z);
+          if (d < bd) {
+            bd = d;
+            best = { x: an.x, z: an.z, y: l.k * unit };
           }
         }
       }
-    }
-    // the ends (at the buildings): anchors for later layers; shafts down to the layers below still walking this link
-    for (const [x, z] of [line[0], line[line.length - 1]]) {
-      out.anchors.push({ key, x, z });
-      const old = below.filter((l) => l.links.includes(key));
-      if (!old.length) continue;
-      const lowest = Math.min(...old.map((l) => l.k));
-      const yb = lowest * unit + cfg.deckThick;
-      const h = y - yb;
-      if (h > 1e-3) out.frame.push(x, yb + h / 2, z, cfg.pierThick * 2.5, h, cfg.pierThick * 2.5, 0);
-    }
+      return best;
+    };
+    const a = from(ia, flat[0][0], flat[0][1]);
+    const b = from(ib, flat[flat.length - 1][0], flat[flat.length - 1][1]);
+    const pts: [number, number][] = [...(a ? [[a.x, a.z] as [number, number]] : []), ...flat, ...(b ? [[b.x, b.z] as [number, number]] : [])];
+    // horizontal distance along the line from each end
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const L = cum[cum.length - 1];
+    const ramp = Math.max(1e-3, cfg.rampLength);
+    const line = new Float32Array(pts.length * 3);
+    pts.forEach(([x, z], i) => {
+      let yy = y;
+      if (a) yy = Math.min(yy, a.y + (y - a.y) * Math.min(1, cum[i] / ramp));
+      if (b) yy = Math.min(yy, b.y + (y - b.y) * Math.min(1, (L - cum[i]) / ramp));
+      line.set([x, yy, z], i * 3);
+    });
+    out.lines.push(line);
   }
   return out;
 }
 
-/** All layers as flat arrays for drawing. */
-export function walkArrays(w: Walkways): { deck: Float32Array; frame: Float32Array; wires: Float32Array } {
-  let nd = 0, nf = 0, nw = 0;
+/** All layers' lines as segments (pairs of points) for drawing; `live` = laid within the present (from slot `fromK`). */
+export function walkSegments(w: Walkways, fromK: number): { live: Float32Array; kept: Float32Array } {
+  const live: number[] = [], kept: number[] = [];
   for (const l of w.layers) {
-    nd += l.deck.length;
-    nf += l.frame.length;
-    nw += l.wires.length;
+    const to = l.k >= fromK ? live : kept;
+    for (const line of l.lines) for (let i = 0; i + 5 < line.length; i += 3) for (let c = 0; c < 6; c++) to.push(line[i + c]);
   }
-  const deck = new Float32Array(nd), frame = new Float32Array(nf), wires = new Float32Array(nw);
-  let a = 0, b = 0, c = 0;
-  for (const l of w.layers) {
-    deck.set(l.deck, a);
-    frame.set(l.frame, b);
-    wires.set(l.wires, c);
-    a += l.deck.length;
-    b += l.frame.length;
-    c += l.wires.length;
-  }
-  return { deck, frame, wires };
+  return { live: Float32Array.from(live), kept: Float32Array.from(kept) };
 }

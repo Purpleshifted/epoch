@@ -164,6 +164,9 @@ export interface PipeRun {
   flow: number;
   /** A RISER (a manhole shaft): vertical at (ax, az) from the network laid in slot k0 up to the one laid in k. */
   k0?: number;
+  /** The route (trunk or lateral) this run belongs to, and its place along it: runs of one route join end to end. */
+  route?: number;
+  seq?: number;
 }
 
 /** The water of the whole history. */
@@ -237,6 +240,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   }
   // the network laid last (cell → its slot): where a new network meets it, a manhole shaft joins the two
   let lastNet = new Map<number, number>();
+  let routeSeq = (opts.frozen?.pipes ?? []).reduce((m, p) => Math.max(m, (p.route ?? -1) + 1), 0);
 
   const streams = new Map<number, Float32Array[]>();
   const pipes: PipeRun[] = [];
@@ -372,12 +376,14 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
           piped[c] = 1;
           net.set(c, e);
         }
+        const routeId = routeSeq++;
+        let seq = 0;
         for (const [a2, z2] of straightRuns(r, nx)) {
           const key = `${a2}>${z2}`;
           if (pipeEdges.has(key) || pipeEdges.has(`${z2}>${a2}`)) continue;
           pipeEdges.add(key);
           const [ax, az] = centre(a2), [bx, bz] = centre(z2);
-          pipes.push({ ax, az, bx, bz, k: e, flow: Math.max(flowAt[a2], flowAt[z2], 1) });
+          pipes.push({ ax, az, bx, bz, k: e, flow: Math.max(flowAt[a2], flowAt[z2], 1), route: routeId, seq: seq++ });
           // MANHOLES: at the joints (ends, bends, junctions) where the new network runs through the cells of the one
           // still in use below it, a vertical shaft joins them (sewers at different levels meet in drop manholes)
           for (const c of [a2, z2]) {
@@ -692,6 +698,18 @@ export function waterDistance(d: Drainage, k0: number, k1: number, cfg: WaterCon
     }
     return best;
   };
+}
+
+/** The pipes' PRE-LAYER as line segments [ax, ay, az, bx, by, bz] × n — each run, and each manhole shaft upright —
+ * buried `pipeDepth` slots below the slot they were laid in. `live` = laid from slot `fromK` (within the present). */
+export function pipeLines(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number): { live: Float32Array; kept: Float32Array } {
+  const live: number[] = [], kept: number[] = [];
+  for (const p of pipes) {
+    const to = p.k >= fromK ? live : kept;
+    const y = (p.k - cfg.pipeDepth) * unit;
+    to.push(p.ax, p.k0 !== undefined ? (p.k0 - cfg.pipeDepth) * unit : y, p.az, p.bx, y, p.bz);
+  }
+  return { live: Float32Array.from(live), kept: Float32Array.from(kept) };
 }
 
 /** Pipe runs as cylinders: [ax, ay, az, bx, by, bz, radius] × n, buried `pipeDepth` slots below the slot they were
