@@ -20,7 +20,7 @@ import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
-import { NO_WALKWAYS, walkways, type WalkConfig, type Walkways } from "./walkways";
+import { NO_WALKWAYS, walkArrays, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
 import { NO_DRAINAGE, drainage, pipeSegments, waterDistance, waterField, type Drainage, type PipeRun, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
@@ -177,8 +177,8 @@ export interface PartsResult {
   pipeRuns: number;
   /** Pipe cylinders [ax, ay, az, bx, by, bz, radius] × n (water.pipeSegments). */
   pipes: Float32Array;
-  /** V2 walkways: boxes [x, y, z, sx, sy, sz, yaw] × n and wire segments [a, b] × n. */
-  walk: { boxes: Float32Array; wires: Float32Array };
+  /** V2 walkways: deck and frame boxes [x, y, z, sx, sy, sz, yaw] × n, and wire segments [a, b] × n. */
+  walk: { deck: Float32Array; frame: Float32Array; wires: Float32Array };
   t: number;
   top: number;
   minX: number;
@@ -260,6 +260,8 @@ export class SpaceModel {
   private drainKept: { rule: string; pipes: PipeRun[]; streams: Map<number, Float32Array[]>; upToK: number } | null = null;
   private walks: Walkways = NO_WALKWAYS;
   private walkKey = "";
+  /** Walkway layers laid in the slots already past: kept as they are (same rule). */
+  private walkKept: { rule: string; layers: WalkLayer[]; upToK: number } | null = null;
   private nearWater: ((ix: number, iz: number, k: number) => number) | null = null;
   private waterCfg: WaterConfig | null = null;
   private fuseSig = "";
@@ -288,6 +290,7 @@ export class SpaceModel {
     this.partCache.clear();
     this.chunks.clear();
     this.drainKept = null;
+    this.walkKept = null;
   }
 
   get latest(): number {
@@ -372,7 +375,11 @@ export class SpaceModel {
     const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}` : "-";
     if (wKey !== this.walkKey) {
       this.walkKey = wKey;
-      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t }) : NO_WALKWAYS;
+      const rule = `${box.secPerUnit}:${box.unit}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}`;
+      const kept = this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
+      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept }) : NO_WALKWAYS;
+      const upToK = Math.floor(t / box.secPerUnit) - 1;
+      this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;
     }
     const near = this.nearWater;
     const water = near && input.water.corrode > 0 ? (b: Box) => near(Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) * input.water.corrode : undefined;
@@ -463,7 +470,7 @@ export class SpaceModel {
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
       pipes: pipeSegments(this.drain.pipes, box.unit, input.water),
-      walk: { boxes: this.walks.boxes.slice(), wires: this.walks.wires.slice() },
+      walk: walkArrays(this.walks),
       t,
       top,
       minX,
@@ -774,7 +781,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
       transfer.add(out.parts.pipes.buffer as ArrayBuffer);
-      transfer.add(out.parts.walk.boxes.buffer as ArrayBuffer).add(out.parts.walk.wires.buffer as ArrayBuffer);
+      transfer.add(out.parts.walk.deck.buffer as ArrayBuffer).add(out.parts.walk.frame.buffer as ArrayBuffer).add(out.parts.walk.wires.buffer as ArrayBuffer);
     }
   }
   if (m.nature) {

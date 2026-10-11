@@ -1,11 +1,11 @@
 /**
- * Saving Leva settings per top-level folder ("단"), by hand only: every top-level Leva group gets a row
- * "이 단: 저장 · 저장 지우기". 저장 writes the group's current values to localStorage; on the next load they replace the
- * group's defaults. 저장 지우기 forgets them (the defaults come back with the next reload). Nothing is saved on its
- * own. Stored per page (path, so V1 and V2 are apart) and per group.
+ * Saving Leva settings per top-level group, by hand only: every top-level Leva group gets a row of two buttons,
+ * "save" (its current values to localStorage) and "reload" (back to the values last saved, at once). Saved values
+ * also replace the group's defaults on the next page load. Nothing is saved on its own. Stored per page (path, so
+ * V1 and V2 are apart) and per group.
  */
 
-import { buttonGroup } from "leva";
+import { buttonGroup, levaStore } from "leva";
 
 const PREFIX = "parliament.leva";
 /** Read once per page load and storage key (the schema is rebuilt every render; Leva only reads it at mount). */
@@ -64,7 +64,7 @@ function inject(schema: Item, prefix: string, saved: Record<string, unknown> | n
 }
 
 /**
- * The schema of a top-level Leva group `root` with its saved values (if any) and a "이 단" row to save / forget them.
+ * The schema of a top-level Leva group `root` with its saved values (if any) and a save / reload row.
  * The type is the schema's own, so useControls infers its values as before.
  */
 export function savable<S extends object>(root: string, schema: S): S {
@@ -72,10 +72,10 @@ export function savable<S extends object>(root: string, schema: S): S {
   const key = storageKey(root);
   const paths = new Map<string, string>();
   const out = inject(schema as Item, root, load(key), paths);
-  out["이 단"] = buttonGroup({
-    label: "이 단",
+  out["__save"] = buttonGroup({
+    label: null,
     opts: {
-      저장: (get) => {
+      save: (get) => {
         const values: Record<string, unknown> = {};
         for (const [k, path] of paths) {
           try {
@@ -92,13 +92,23 @@ export function savable<S extends object>(root: string, schema: S): S {
           /* storage full or blocked */
         }
       },
-      "저장 지우기": () => {
+      reload: () => {
+        let saved: Record<string, unknown> | null = null;
         try {
-          window.localStorage.removeItem(key);
+          const raw = window.localStorage.getItem(key);
+          saved = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
         } catch {
-          /* blocked */
+          saved = null;
         }
-        cache.set(key, null);
+        if (!saved) return;
+        for (const [k, path] of paths) {
+          if (!(k in saved)) continue;
+          try {
+            levaStore.setValueAtPath(path, saved[k], true);
+          } catch {
+            /* an input that is not rendered */
+          }
+        }
       },
     },
   });

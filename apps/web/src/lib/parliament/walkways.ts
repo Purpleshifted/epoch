@@ -1,78 +1,129 @@
 /**
  * parliament/walkways.ts
  *
- * WALKWAYS (V2): where the flow of people is sustained (path strength ≥ `buildAt`, flow.ts), the path is BUILT — a
- * walkway like a light bridge. The strong path cells are read as LINES (their centre lines, pathLines), and along
- * every straight stretch of a line goes a SLAB with thickness, as wide as the path there; a FENCE (posts and a rail)
- * along its edges; PIERS at its joints and every `pierSpacing`, reaching down into the earlier ground; MASTS every
- * `mastSpacing` with WIRES down to the deck (a cable-stayed look).
+ * WALKWAYS (V2): BUILDINGS are the places; a walkway is a LINK between two of them, built where people keep walking
+ * from one to the other. So a walkway never comes before its buildings — it needs both to stand.
  *
- * Like the pipes (water.ts) a walkway is laid only when the walked network CHANGES (strong path cells appear or go by
- * `change` of themselves), at most every `minGapSlots`, and stays in its layer — so the layers show the built paths
- * of their time. Cells on which a building already stands are not trodden (flow: the building came first), so no
- * deck runs through a building. Human traces: achromatic. Pure and deterministic.
+ *   TRODDEN      the ground keeps how trodden it is (flow.ts: treads along each move, fading with regrowth `tauSec`,
+ *                counting only movement along one axis); its path strength p = 1 − e^(−G/unit) is read per cell
+ *   ROUTE        from each building, the cheapest way over the grid to the buildings it can reach directly (a route
+ *                stops at the first building it meets, so links join neighbours, not across others): cheap on
+ *                trodden ground (cost 0.15 + 2·(1 − p)²), never through a building
+ *   LINK         a route is built when the ground along it is trodden on average to `buildAt` (the flow between
+ *                the two is sustained) and it is no longer than `maxSpan`
+ *   SHAPE        a link's route is straightened into a few stretches (Douglas–Peucker, `straighten` world); along
+ *                each a SLAB with thickness, wider where more people walk; a FENCE along its edges (rails, posts);
+ *                PIERS at its joints and every `pierSpacing`, reaching down into the earlier ground; MASTS every
+ *                `mastSpacing` with WIRES down to the deck
+ *   LAYERS       laid anew only when the links CHANGE (a link appears or goes, by `change` of them), at most every
+ *                `minGapSlots`; each layer stays where it was laid. Human traces: achromatic (colours in the view).
+ *
+ * Pure and deterministic.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { cellKey, flowP, flowTracks, stayShares, type FlowConfig } from "./flow";
 import type { Seed } from "./seeds";
 import type { PEvent } from "./types";
+import { buildingsOf } from "./water";
 
 export interface WalkConfig {
   enabled: boolean;
-  /** Path strength from which a path is built. */
+  /** Mean path strength along a route from which the link is built (sustained flow). */
   buildAt: number;
-  /** A walkway is laid anew when the strong path cells changed by this share of themselves… */
+  /** Longest link (world). */
+  maxSpan: number;
+  /** Seeds within this many cells are one building. */
+  join: number;
+  /** Laid anew when this share of the links changed… */
   change: number;
   /** …but not more often than every this many slots. */
   minGapSlots: number;
-  /** Deck width (world) and thickness (world). */
-  deckWidth: number;
+  /** How far (world) a route may stray from a straight stretch before it bends (larger = fewer, longer slabs). */
+  straighten: number;
+  /** Deck thickness and least width (world); `widthByFlow` × p more where more people walk. */
   deckThick: number;
-  /** Fence height (world). */
+  deckWidth: number;
+  widthByFlow: number;
+  /** Fence: height, post spacing, rail and post thickness (world); 0 height = none. */
   fenceHeight: number;
-  /** Piers every this far (world) and at the joints, reaching this many slots down. */
+  postSpacing: number;
+  railThick: number;
+  postThick: number;
+  /** Piers: spacing (world, 0 = none), depth (slots), thickness (world). */
   pierSpacing: number;
   pierDepth: number;
-  /** Masts every this far (world), this many slots high, with wires down to the deck. 0 = none. */
+  pierThick: number;
+  /** A later layer joins the layers below it (still walked: same link) laid within this many slots, by shafts. */
+  joinSlots: number;
+  /** Fine grid (world) of the walkway's footprint, covered by blocks: smaller = finer outline, more blocks. */
+  grain: number;
+  /** Masts: spacing (world, 0 = none), height (slots), thickness (world), wires each side. */
   mastSpacing: number;
   mastHeight: number;
+  mastThick: number;
+  wiresPerSide: number;
 }
 
 export const DEFAULT_WALK: WalkConfig = {
   enabled: true,
-  buildAt: 0.6,
+  buildAt: 0.45,
+  maxSpan: 40,
+  join: 1,
   change: 0.2,
   minGapSlots: 3,
-  deckWidth: 0.8,
+  straighten: 0.9,
   deckThick: 0.14,
+  deckWidth: 0.7,
+  widthByFlow: 0.6,
   fenceHeight: 0.35,
+  postSpacing: 0.8,
+  railThick: 0.025,
+  postThick: 0.025,
   pierSpacing: 3,
   pierDepth: 3,
+  pierThick: 0.1,
   mastSpacing: 8,
   mastHeight: 2.5,
+  mastThick: 0.06,
+  wiresPerSide: 2,
+  joinSlots: 20,
+  grain: 0.3,
 };
 
-/** Built walkways: boxes [x, y, z, sx, sy, sz, yaw] × n (deck, fence, piers, masts) and wires [ax, ay, az, bx, by, bz] × n. */
-export interface Walkways {
-  boxes: Float32Array;
-  wires: Float32Array;
-  /** Slots in which walkways were laid. */
-  layers: number[];
+/** One layer of walkways. Boxes [x, y, z, sx, sy, sz, yaw] × n — DECK slabs and FRAME (rails, posts, piers, masts) apart, for their materials — and wires [a, b] × n. */
+export interface WalkLayer {
+  k: number;
+  deck: number[];
+  frame: number[];
+  wires: number[];
+  /** Links in this layer ("a-b" building ids). */
+  links: string[];
+  /** Where each link meets its buildings (both ends): later layers rise from here to join it. */
+  anchors: { key: string; x: number; z: number }[];
 }
 
-export const NO_WALKWAYS: Walkways = { boxes: new Float32Array(0), wires: new Float32Array(0), layers: [] };
+export interface Walkways {
+  layers: WalkLayer[];
+}
+
+export const NO_WALKWAYS: Walkways = { layers: [] };
 
 export interface WalkOptions {
   secPerUnit: number;
   unit: number;
   flow: FlowConfig;
   tNow: number;
+  /** Layers laid up to slot `upToK` stay as they were (only later ones are laid by this call). */
+  frozen?: { layers: readonly WalkLayer[]; upToK: number };
 }
+
+/** Cells of room around the buildings in which routes may run. */
+const MARGIN = 8;
 
 /** The walkways of the history. */
 export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg: WalkConfig, opts: WalkOptions): Walkways {
-  if (!cfg.enabled) return NO_WALKWAYS;
+  if (!cfg.enabled || !seeds.length) return opts.frozen ? { layers: [...opts.frozen.layers] } : NO_WALKWAYS;
   const pres = events.filter((e) => e.r === "worker" && e.k === "p");
   if (!pres.length) return NO_WALKWAYS;
   pres.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -82,22 +133,43 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     const k = cellKey(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE));
     born.set(k, Math.min(born.get(k) ?? Infinity, s.t0));
   }
-  const tracks = [...flowTracks(pres, stayShares(pres, opts.flow), (k) => born.get(k))];
-  const cells = tracks.map(([key]) => key.split(",").map(Number) as [number, number]);
+  // the grid
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const s of seeds) {
+    const cx = Math.floor(s.x / CELL_SIZE), cz = Math.floor(s.z / CELL_SIZE);
+    minX = Math.min(minX, cx);
+    maxX = Math.max(maxX, cx);
+    minZ = Math.min(minZ, cz);
+    maxZ = Math.max(maxZ, cz);
+  }
+  const x0 = minX - MARGIN, z0 = minZ - MARGIN, nx = maxX - minX + 1 + 2 * MARGIN, nz = maxZ - minZ + 1 + 2 * MARGIN;
+  const n = nx * nz;
+  const idx = (cx: number, cz: number) => (cz - z0) * nx + (cx - x0);
+  const inGrid = (cx: number, cz: number) => cx >= x0 && cz >= z0 && cx < x0 + nx && cz < z0 + nz;
+
+  const tracks = [...flowTracks(pres, stayShares(pres, opts.flow), (k) => born.get(k))].filter(([key]) => {
+    const [cx, cz] = key.split(",").map(Number);
+    return inGrid(cx, cz);
+  });
+  const tCell = tracks.map(([key]) => {
+    const [cx, cz] = key.split(",").map(Number);
+    return idx(cx, cz);
+  });
   const tau = opts.flow.tauSec;
   const spu = opts.secPerUnit;
   const gc = new Float64Array(tracks.length), gq = new Float64Array(tracks.length), at = new Float64Array(tracks.length), next = new Int32Array(tracks.length);
 
-  const boxes: number[] = [];
-  const wires: number[] = [];
-  const layers: number[] = [];
+  const layers: WalkLayer[] = [];
   let laid: Set<string> | null = null;
   let laidK = -Infinity;
-  const kFirst = Math.floor(pres[0].s / spu), kLast = Math.floor(opts.tNow / spu);
+  const kFirst = Math.floor(Math.min(...seeds.map((s) => s.t0)) / spu), kLast = Math.floor(opts.tNow / spu);
+  const P = new Float32Array(n);
+  let lastSig = "";
+  let links = new Map<string, { cells: number[]; p: number }>();
   for (let k = kFirst; k <= kLast; k++) {
     const t = k * spu;
-    // strong path cells at t, with their walking direction (the decayed mean axis)
-    const strong = new Map<string, { cx: number; cz: number; dx: number; dz: number }>();
+    // trodden ground at t (each track's decayed sum carried forward)
+    P.fill(0);
     for (let i = 0; i < tracks.length; i++) {
       const tr = tracks[i][1];
       const dec = Math.exp(-(t - at[i]) / tau);
@@ -110,128 +182,148 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
         gc[i] += w * tr.c[j];
         gq[i] += w * tr.q[j];
       }
-      if (flowP(Math.hypot(gc[i], gq[i]), opts.flow) < cfg.buildAt) continue;
-      const th = Math.atan2(gq[i], gc[i]) / 2;
-      strong.set(tracks[i][0], { cx: cells[i][0], cz: cells[i][1], dx: Math.cos(th), dz: Math.sin(th) });
+      P[tCell[i]] = flowP(Math.hypot(gc[i], gq[i]), opts.flow);
     }
-    if (!strong.size) continue;
-    // CHANGE: laid anew only when the strong cells changed enough, and not too often
+    // the buildings standing at t: the places
+    const up = seeds.filter((s) => s.t0 <= t);
+    // the routes only change when the buildings or the trodden ground (coarsely) do: reuse them otherwise
+    let sig = `${up.length}:`;
+    for (let c = 0; c < n; c++) if (P[c] > 0.05) sig += `${c}.${Math.round(P[c] * 8)},`;
+    if (sig !== lastSig) {
+      lastSig = sig;
+      const standing = buildingsOf(up, cfg);
+      links = standing.length >= 2 ? linksAt(standing, P, nx, nz, idx, cfg) : new Map();
+    }
+    if (!links.size) continue;
+    // CHANGE: laid anew only when the links changed enough, and not too often
     let diff = 0;
     if (laid) {
-      for (const key of strong.keys()) if (!laid.has(key)) diff++;
-      for (const key of laid) if (!strong.has(key)) diff++;
+      for (const key of links.keys()) if (!laid.has(key)) diff++;
+      for (const key of laid) if (!links.has(key)) diff++;
     }
-    if (laid && (diff / Math.max(1, strong.size) < cfg.change || k - laidK < cfg.minGapSlots)) continue;
-    laid = new Set(strong.keys());
+    if (laid && (diff === 0 || diff / Math.max(1, links.size) < cfg.change || k - laidK < cfg.minGapSlots)) continue;
+    laid = new Set(links.keys());
     laidK = k;
-    layers.push(k);
-    layWalkway(strong, k, cfg, opts.unit, boxes, wires);
+    if (opts.frozen && k <= opts.frozen.upToK) continue; // kept as it was
+    const centre = (c: number): [number, number] => [(x0 + (c % nx) + 0.5) * CELL_SIZE, (z0 + Math.floor(c / nx) + 0.5) * CELL_SIZE];
+    const below = [...(opts.frozen?.layers ?? []), ...layers].filter((l) => l.k < k && k - l.k <= cfg.joinSlots);
+    layers.push(layLayer([...links.entries()].map(([key, l]) => ({ key, route: l.cells.map(centre), p: l.p })), k, cfg, opts.unit, below));
   }
-  return { boxes: Float32Array.from(boxes), wires: Float32Array.from(wires), layers };
+  return { layers: opts.frozen ? [...opts.frozen.layers, ...layers] : layers };
 }
-
-type Strong = Map<string, { cx: number; cz: number; dx: number; dz: number }>;
 
 /**
- * The CENTRE LINES of the strong path cells: the cells thinned to a one-cell skeleton (Zhang–Suen), traced into
- * chains between junctions and ends, simplified (Douglas–Peucker, `eps` world) — polylines [x, z, half-width] × n in
- * world, the half-width from the distance to the path's edge.
+ * The LINKS between standing buildings at one moment: from each building, a Dijkstra over the grid (cheap on trodden
+ * ground, never through a building) that stops at the first building it meets in every direction; a route is a
+ * link if the ground along it is trodden to `buildAt` on average and it is at most `maxSpan` long. Keyed "a-b".
  */
-export function pathLines(cells: Iterable<[number, number]>, eps = CELL_SIZE * 0.7): Float32Array[] {
-  const list = [...cells];
-  if (!list.length) return [];
-  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
-  for (const [x, z] of list) {
-    minX = Math.min(minX, x);
-    minZ = Math.min(minZ, z);
-    maxX = Math.max(maxX, x);
-    maxZ = Math.max(maxZ, z);
-  }
-  const x0 = minX - 1, z0 = minZ - 1, nx = maxX - minX + 3, nz = maxZ - minZ + 3;
-  const img = new Uint8Array(nx * nz);
-  for (const [x, z] of list) img[(z - z0) * nx + (x - x0)] = 1;
-  // distance to the edge (chessboard), for the deck's width
-  const dt = new Float32Array(nx * nz);
-  for (let i = 0; i < img.length; i++) dt[i] = img[i] ? 1e9 : 0;
-  for (let j = 1; j < nz - 1; j++) for (let i = 1; i < nx - 1; i++) {
-    const c = j * nx + i;
-    if (dt[c]) dt[c] = Math.min(dt[c], dt[c - 1] + 1, dt[c - nx] + 1, dt[c - nx - 1] + 1, dt[c - nx + 1] + 1);
-  }
-  for (let j = nz - 2; j >= 1; j--) for (let i = nx - 2; i >= 1; i--) {
-    const c = j * nx + i;
-    if (dt[c]) dt[c] = Math.min(dt[c], dt[c + 1] + 1, dt[c + nx] + 1, dt[c + nx + 1] + 1, dt[c + nx - 1] + 1);
-  }
-  // Zhang–Suen thinning
-  const P = (i: number, j: number) => img[j * nx + i];
-  for (let changed = true; changed; ) {
-    changed = false;
-    for (const step of [0, 1]) {
-      const del: number[] = [];
-      for (let j = 1; j < nz - 1; j++) for (let i = 1; i < nx - 1; i++) {
-        if (!P(i, j)) continue;
-        const nb = [P(i, j - 1), P(i + 1, j - 1), P(i + 1, j), P(i + 1, j + 1), P(i, j + 1), P(i - 1, j + 1), P(i - 1, j), P(i - 1, j - 1)];
-        const B = nb.reduce((a, b) => a + b, 0);
-        if (B < 2 || B > 6) continue;
-        let A = 0;
-        for (let q = 0; q < 8; q++) if (!nb[q] && nb[(q + 1) % 8]) A++;
-        if (A !== 1) continue;
-        if (step === 0 ? nb[0] * nb[2] * nb[4] || nb[2] * nb[4] * nb[6] : nb[0] * nb[2] * nb[6] || nb[0] * nb[4] * nb[6]) continue;
-        del.push(j * nx + i);
+function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P: Float32Array, nx: number, nz: number, idx: (cx: number, cz: number) => number, cfg: WalkConfig): Map<string, { cells: number[]; p: number }> {
+  const n = nx * nz;
+  const owner = new Int32Array(n).fill(-1); // building on the cell
+  const edgeOf = new Int32Array(n).fill(-1); // building whose edge the cell is (first)
+  for (const b of buildings) for (const s of b.seeds) owner[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))] = b.id;
+  const edges = new Map<number, number[]>();
+  for (const b of buildings) {
+    const list: number[] = [];
+    for (const s of b.seeds) {
+      const cx = Math.floor(s.x / CELL_SIZE), cz = Math.floor(s.z / CELL_SIZE);
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const c = idx(cx + dx, cz + dz);
+        if (c < 0 || c >= n || owner[c] >= 0) continue;
+        list.push(c);
+        if (edgeOf[c] < 0) edgeOf[c] = b.id;
       }
-      for (const c of del) img[c] = 0;
-      if (del.length) changed = true;
+    }
+    edges.set(b.id, list);
+  }
+  const cost = (c: number) => 0.15 + 2 * (1 - P[c]) ** 2;
+  const out = new Map<string, { cells: number[]; p: number }>();
+  const dist = new Float64Array(n);
+  const prev = new Int32Array(n);
+  const done = new Uint8Array(n);
+  const maxCells = cfg.maxSpan / CELL_SIZE;
+  for (const a of buildings) {
+    dist.fill(Infinity);
+    prev.fill(-1);
+    done.fill(0);
+    const steps = new Uint16Array(n);
+    const heap: number[] = [];
+    const push = (v: number) => {
+      heap.push(v);
+      let c = heap.length - 1;
+      while (c > 0) {
+        const p = (c - 1) >> 1;
+        if (dist[heap[p]] <= dist[heap[c]]) break;
+        [heap[p], heap[c]] = [heap[c], heap[p]];
+        c = p;
+      }
+    };
+    const pop = () => {
+      const top = heap[0];
+      const last = heap.pop()!;
+      if (heap.length) {
+        heap[0] = last;
+        let c = 0;
+        for (;;) {
+          const l = 2 * c + 1, r = l + 1;
+          let m = c;
+          if (l < heap.length && dist[heap[l]] < dist[heap[m]]) m = l;
+          if (r < heap.length && dist[heap[r]] < dist[heap[m]]) m = r;
+          if (m === c) break;
+          [heap[m], heap[c]] = [heap[c], heap[m]];
+          c = m;
+        }
+      }
+      return top;
+    };
+    for (const c of edges.get(a.id) ?? []) {
+      if (dist[c] === 0) continue;
+      dist[c] = 0;
+      push(c);
+    }
+    const reached = new Set<number>();
+    while (heap.length) {
+      const u = pop();
+      if (done[u]) continue;
+      done[u] = 1;
+      const b = edgeOf[u];
+      if (b >= 0 && b !== a.id) {
+        // the first building met this way: a candidate link; do not go on through it
+        if (!reached.has(b)) {
+          reached.add(b);
+          if (a.id < b) {
+            const cells: number[] = [];
+            for (let v = u; v >= 0; v = prev[v]) cells.push(v);
+            cells.reverse();
+            const p = cells.reduce((s, c) => s + P[c], 0) / cells.length;
+            if (p >= cfg.buildAt && cells.length <= maxCells) out.set(`${a.id}-${b}`, { cells, p });
+          }
+        }
+        continue;
+      }
+      if (steps[u] > maxCells) continue;
+      const ui = u % nx, uj = (u - ui) / nx;
+      for (const [di, dj, len] of [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]]) {
+        const vi = ui + di, vj = uj + dj;
+        if (vi < 0 || vj < 0 || vi >= nx || vj >= nz) continue;
+        const v = vj * nx + vi;
+        if (done[v] || owner[v] >= 0) continue;
+        if (di && dj && (owner[uj * nx + vi] >= 0 || owner[vj * nx + ui] >= 0)) continue;
+        const d = dist[u] + len * (cost(u) + cost(v)) * 0.5;
+        if (d < dist[v]) {
+          dist[v] = d;
+          prev[v] = u;
+          steps[v] = steps[u] + 1;
+          push(v);
+        }
+      }
     }
   }
-  // trace chains between nodes (ends / junctions) over the skeleton's 8-neighbourhood
-  // neighbours on the skeleton: the four sides, and a diagonal only where neither side between is set (so a corner
-  // is a bend, not a junction)
-  const nbrs = (c: number) => {
-    const out: number[] = [];
-    for (const d of [-nx, nx, -1, 1]) if (img[c + d]) out.push(c + d);
-    for (const [dz, dx] of [[-nx, -1], [-nx, 1], [nx, -1], [nx, 1]]) if (img[c + dz + dx] && !img[c + dz] && !img[c + dx]) out.push(c + dz + dx);
-    return out;
-  };
-  const seen = new Set<string>();
-  const edgeKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
-  const chains: number[][] = [];
-  const walk = (start: number, first: number) => {
-    const chain = [start, first];
-    seen.add(edgeKey(start, first));
-    let cur = first;
-    for (;;) {
-      const nb = nbrs(cur);
-      if (nb.length !== 2) break;
-      const nxt = nb.find((v) => !seen.has(edgeKey(cur, v)));
-      if (nxt === undefined) break;
-      seen.add(edgeKey(cur, nxt));
-      chain.push(nxt);
-      cur = nxt;
-    }
-    chains.push(chain);
-  };
-  for (let c = 0; c < img.length; c++) {
-    if (!img[c]) continue;
-    const nb = nbrs(c);
-    if (nb.length === 2) continue;
-    if (nb.length === 0) {
-      chains.push([c]);
-      continue;
-    }
-    for (const v of nb) if (!seen.has(edgeKey(c, v))) walk(c, v);
-  }
-  for (let c = 0; c < img.length; c++) {
-    if (!img[c]) continue;
-    for (const v of nbrs(c)) if (!seen.has(edgeKey(c, v))) walk(c, v); // loops
-  }
-  const toWorld = (c: number) => {
-    const i = c % nx, j = (c - i) / nx;
-    return [(x0 + i + 0.5) * CELL_SIZE, (z0 + j + 0.5) * CELL_SIZE, Math.max(0.5, dt[c] - 0.5) * CELL_SIZE] as [number, number, number];
-  };
-  return chains.map((ch) => Float32Array.from(simplify(ch.map(toWorld), eps).flat()));
+  return out;
 }
 
-/** Douglas–Peucker on [x, z, w] points (x, z only), ends kept. */
-function simplify(pts: [number, number, number][], eps: number): [number, number, number][] {
+/** Douglas–Peucker on [x, z] points, ends kept. */
+function simplify(pts: [number, number][], eps: number): [number, number][] {
   if (pts.length <= 2) return pts;
   const [ax, az] = pts[0], [bx, bz] = pts[pts.length - 1];
   const L = Math.hypot(bx - ax, bz - az) || 1e-9;
@@ -248,64 +340,160 @@ function simplify(pts: [number, number, number][], eps: number): [number, number
 }
 
 /**
- * One layer of walkways (slot k): along every centre line of the strong paths, a SLAB with thickness per straight
- * stretch (as wide as the path there), a FENCE along both its edges, PIERS at its joints and every `pierSpacing`
- * reaching down `pierDepth` slots, MASTS every `mastSpacing` with WIRES down to the deck on both sides.
+ * One layer of walkways (slot k). First a PRE-LAYER: the walkway's footprint on a fine grid (`grain`) — every link's
+ * straightened route with its width (wider where more people walk), all links in one mask, so where they meet they
+ * are one floor. Then the VISUAL WRAPPER: the mask covered by blocks (greedy: each block the largest rectangle of
+ * the mask left), a FENCE only along the mask's outline (so a junction stays open), PIERS along the routes, MASTS
+ * and WIRES. Layers below laid within `joinSlots` whose link is still walked are joined by SHAFTS at its ends.
  */
-function layWalkway(strong: Strong, k: number, cfg: WalkConfig, unit: number, boxes: number[], wires: number[]): void {
+function layLayer(links: { key: string; route: [number, number][]; p: number }[], k: number, cfg: WalkConfig, unit: number, below: readonly WalkLayer[]): WalkLayer {
+  const out: WalkLayer = { k, deck: [], frame: [], wires: [], links: links.map((l) => l.key), anchors: [] };
   const y = k * unit + cfg.deckThick / 2;
   const top = y + cfg.deckThick / 2;
-  for (const line of pathLines([...strong.values()].map((c) => [c.cx, c.cz] as [number, number]))) {
-    const m = line.length / 3;
-    if (m < 2) continue;
-    for (let p = 0; p + 1 < m; p++) {
-      const ax = line[p * 3], az = line[p * 3 + 1], bx = line[p * 3 + 3], bz = line[p * 3 + 4];
-      const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz);
-      if (len < 1e-6) continue;
-      const ux = dx / len, uz = dz / len;
-      const yaw = -Math.atan2(uz, ux);
-      const w = Math.min(cfg.deckWidth * 2, Math.max(cfg.deckWidth, line[p * 3 + 2] + line[p * 3 + 5]));
-      // the slab, a little longer so the joints close
-      boxes.push((ax + bx) / 2, y, (az + bz) / 2, len + w * 0.5, cfg.deckThick, w, yaw);
-      // the fence on both edges: a rail and posts
-      for (const side of [-1, 1]) {
-        const ox = -uz * side * w * 0.5, oz = ux * side * w * 0.5;
-        if (cfg.fenceHeight > 0) {
-          boxes.push((ax + bx) / 2 + ox, top + cfg.fenceHeight, (az + bz) / 2 + oz, len, 0.025, 0.025, yaw);
-          const posts = Math.max(1, Math.round(len / 0.8));
-          for (let q = 0; q <= posts; q++) {
-            const t = q / posts;
-            boxes.push(ax + dx * t + ox, top + cfg.fenceHeight / 2, az + dz * t + oz, 0.025, cfg.fenceHeight, 0.025, 0);
-          }
-        }
-      }
-      // piers: at the joint, and along long stretches
-      if (cfg.pierSpacing > 0) {
-        const d = cfg.pierDepth * unit;
-        const n = Math.max(1, Math.round(len / cfg.pierSpacing));
-        for (let q = p === 0 ? 0 : 1; q <= n; q++) {
-          const t = q / n;
-          boxes.push(ax + dx * t, y - d / 2, az + dz * t, 0.1, d, 0.1, yaw);
-        }
-      }
-      // masts along the stretch, wires to the deck on both sides
-      if (cfg.mastSpacing > 0 && len >= cfg.mastSpacing * 0.5) {
-        const mh = cfg.mastHeight * unit;
-        const n = Math.max(1, Math.floor(len / cfg.mastSpacing));
-        for (let q = 0; q < n; q++) {
-          const t = (q + 0.5) / n;
-          const mx = ax + dx * t, mz = az + dz * t;
-          boxes.push(mx, top + mh / 2, mz, 0.06, mh, 0.06, 0);
-          for (const s of [-1, -0.5, 0.5, 1]) {
-            const r = (s * cfg.mastSpacing) / 2;
-            const ex = mx + ux * r, ez = mz + uz * r;
-            const along = (ex - ax) * ux + (ez - az) * uz;
-            if (along < 0 || along > len) continue;
-            wires.push(mx, top + mh, mz, ex, top, ez);
-          }
+  const g = Math.max(0.05, cfg.grain);
+  const lines = links.map((l) => ({ ...l, line: simplify(l.route, cfg.straighten), w: cfg.deckWidth + cfg.widthByFlow * l.p }));
+  // PRE-LAYER: the footprint
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const { line, w } of lines) for (const [x, z] of line) {
+    minX = Math.min(minX, x - w);
+    maxX = Math.max(maxX, x + w);
+    minZ = Math.min(minZ, z - w);
+    maxZ = Math.max(maxZ, z + w);
+  }
+  if (!Number.isFinite(minX)) return out;
+  const gx0 = Math.floor(minX / g), gz0 = Math.floor(minZ / g);
+  const gw = Math.ceil(maxX / g) - gx0 + 1, gd = Math.ceil(maxZ / g) - gz0 + 1;
+  const mask = new Uint8Array(gw * gd);
+  for (const { line, w } of lines) {
+    for (let q = 0; q + 1 < line.length; q++) {
+      const [ax, az] = line[q], [bx, bz] = line[q + 1];
+      const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1e-9;
+      const i0 = Math.floor((Math.min(ax, bx) - w) / g) - gx0, i1 = Math.ceil((Math.max(ax, bx) + w) / g) - gx0;
+      const j0 = Math.floor((Math.min(az, bz) - w) / g) - gz0, j1 = Math.ceil((Math.max(az, bz) + w) / g) - gz0;
+      for (let j = Math.max(0, j0); j <= Math.min(gd - 1, j1); j++) {
+        for (let i = Math.max(0, i0); i <= Math.min(gw - 1, i1); i++) {
+          const px = (gx0 + i + 0.5) * g, pz = (gz0 + j + 0.5) * g;
+          const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / L2));
+          if (Math.hypot(px - ax - dx * t, pz - az - dz * t) <= w / 2) mask[j * gw + i] = 1;
         }
       }
     }
   }
+  // WRAPPER: blocks, greedy (largest rectangles first along the rows)
+  const used = new Uint8Array(gw * gd);
+  for (let j = 0; j < gd; j++) {
+    for (let i = 0; i < gw; i++) {
+      if (!mask[j * gw + i] || used[j * gw + i]) continue;
+      let w = 1;
+      while (i + w < gw && mask[j * gw + i + w] && !used[j * gw + i + w]) w++;
+      let d = 1;
+      grow: while (j + d < gd) {
+        for (let q = 0; q < w; q++) if (!mask[(j + d) * gw + i + q] || used[(j + d) * gw + i + q]) break grow;
+        d++;
+      }
+      for (let jj = 0; jj < d; jj++) for (let q = 0; q < w; q++) used[(j + jj) * gw + i + q] = 1;
+      out.deck.push((gx0 + i + w / 2) * g, y, (gz0 + j + d / 2) * g, w * g, cfg.deckThick, d * g, 0);
+    }
+  }
+  // FENCE along the outline only: runs of boundary edges, rails and posts
+  if (cfg.fenceHeight > 0) {
+    const m = (i: number, j: number) => i >= 0 && j >= 0 && i < gw && j < gd && mask[j * gw + i] === 1;
+    const rail = (x: number, z: number, len: number, yaw: number) => out.frame.push(x, top + cfg.fenceHeight, z, len, cfg.railThick, cfg.railThick, yaw);
+    const posts = (ax: number, az: number, bx: number, bz: number) => {
+      const len = Math.hypot(bx - ax, bz - az);
+      const n = Math.max(1, Math.round(len / Math.max(0.1, cfg.postSpacing)));
+      for (let q = 0; q <= n; q++) out.frame.push(ax + ((bx - ax) * q) / n, top + cfg.fenceHeight / 2, az + ((bz - az) * q) / n, cfg.postThick, cfg.fenceHeight, cfg.postThick, 0);
+    };
+    // edges along x (between rows j−1 and j), then along z (between columns i−1 and i)
+    for (let j = 0; j <= gd; j++) {
+      let run = -1;
+      for (let i = 0; i <= gw; i++) {
+        const edge = i < gw && m(i, j) !== m(i, j - 1);
+        if (edge && run < 0) run = i;
+        if (!edge && run >= 0) {
+          const ax = (gx0 + run) * g, bx = (gx0 + i) * g, z = (gz0 + j) * g;
+          rail((ax + bx) / 2, z, bx - ax, 0);
+          posts(ax, z, bx, z);
+          run = -1;
+        }
+      }
+    }
+    for (let i = 0; i <= gw; i++) {
+      let run = -1;
+      for (let j = 0; j <= gd; j++) {
+        const edge = j < gd && m(i, j) !== m(i - 1, j);
+        if (edge && run < 0) run = j;
+        if (!edge && run >= 0) {
+          const az = (gz0 + run) * g, bz = (gz0 + j) * g, x = (gx0 + i) * g;
+          rail(x, (az + bz) / 2, bz - az, Math.PI / 2);
+          posts(x, az, x, bz);
+          run = -1;
+        }
+      }
+    }
+  }
+  for (const { key, line } of lines) {
+    // piers along the route (at its joints and every `pierSpacing`), masts and wires
+    for (let q = 0; q + 1 < line.length; q++) {
+      const [ax, az] = line[q], [bx, bz] = line[q + 1];
+      const dx = bx - ax, dz = bz - az;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const ux = dx / len, uz = dz / len;
+      if (cfg.pierSpacing > 0) {
+        const d = cfg.pierDepth * unit;
+        const n = Math.max(1, Math.round(len / cfg.pierSpacing));
+        for (let i = q === 0 ? 0 : 1; i <= n; i++) out.frame.push(ax + (dx * i) / n, y - d / 2, az + (dz * i) / n, cfg.pierThick, d, cfg.pierThick, 0);
+      }
+      if (cfg.mastSpacing > 0 && len >= cfg.mastSpacing * 0.5) {
+        const mh = cfg.mastHeight * unit;
+        const n = Math.max(1, Math.floor(len / cfg.mastSpacing));
+        for (let i = 0; i < n; i++) {
+          const t = (i + 0.5) / n;
+          const mx = ax + dx * t, mz = az + dz * t;
+          out.frame.push(mx, top + mh / 2, mz, cfg.mastThick, mh, cfg.mastThick, 0);
+          for (let s = 1; s <= cfg.wiresPerSide; s++) {
+            for (const dir of [-1, 1]) {
+              const r = (dir * s * cfg.mastSpacing) / (2 * cfg.wiresPerSide);
+              const along = t * len + r;
+              if (along < 0 || along > len) continue;
+              out.wires.push(mx, top + mh, mz, mx + ux * r, top, mz + uz * r);
+            }
+          }
+        }
+      }
+    }
+    // the ends (at the buildings): anchors for later layers; shafts down to the layers below still walking this link
+    for (const [x, z] of [line[0], line[line.length - 1]]) {
+      out.anchors.push({ key, x, z });
+      const old = below.filter((l) => l.links.includes(key));
+      if (!old.length) continue;
+      const lowest = Math.min(...old.map((l) => l.k));
+      const yb = lowest * unit + cfg.deckThick;
+      const h = y - yb;
+      if (h > 1e-3) out.frame.push(x, yb + h / 2, z, cfg.pierThick * 2.5, h, cfg.pierThick * 2.5, 0);
+    }
+  }
+  return out;
+}
+
+/** All layers as flat arrays for drawing. */
+export function walkArrays(w: Walkways): { deck: Float32Array; frame: Float32Array; wires: Float32Array } {
+  let nd = 0, nf = 0, nw = 0;
+  for (const l of w.layers) {
+    nd += l.deck.length;
+    nf += l.frame.length;
+    nw += l.wires.length;
+  }
+  const deck = new Float32Array(nd), frame = new Float32Array(nf), wires = new Float32Array(nw);
+  let a = 0, b = 0, c = 0;
+  for (const l of w.layers) {
+    deck.set(l.deck, a);
+    frame.set(l.frame, b);
+    wires.set(l.wires, c);
+    a += l.deck.length;
+    b += l.frame.length;
+    c += l.wires.length;
+  }
+  return { deck, frame, wires };
 }

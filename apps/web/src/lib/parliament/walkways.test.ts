@@ -1,73 +1,102 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FLOW, DEFAULT_WALK, pathLines, walkways, type PEvent, type Seed } from "./index";
+import { DEFAULT_FLOW, DEFAULT_WALK, walkArrays, walkways, type PEvent, type Seed } from "./index";
 
-const ev = (o: string, x: number, z: number, s: number): PEvent => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x, z, s });
-/** People walking back and forth along x ∈ [0, 20] at z = 5.3, from t0, for `secs` s. */
-function shuttle(o: string, t0: number, secs: number): PEvent[] {
+const SPU = 20;
+const seed = (id: number, cx: number, cz: number, t0 = 0): Seed => ({ id, material: "concrete", role: "worker", x: (cx + 0.5) * CELL_SIZE, z: (cz + 0.5) * CELL_SIZE, t0, t1: 2000, mass: 2 }) as Seed;
+const block = (id0: number, cx: number, cz: number, w: number, d: number, t0 = 0): Seed[] => {
+  const out: Seed[] = [];
+  for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) out.push(seed(id0 + i * d + j, cx + i, cz + j, t0));
+  return out;
+};
+/** People going back and forth between x = xa and x = xb at z, from t0 for `secs` s (1 world/s). */
+function commute(o: string, xa: number, xb: number, z: number, t0: number, secs: number): PEvent[] {
   const out: PEvent[] = [];
+  const L = xb - xa;
   for (let t = 0; t < secs; t++) {
-    const d = t % 40;
-    out.push(ev(o, d < 20 ? d : 40 - d, 5.3, t0 + t));
+    const d = t % (2 * L);
+    out.push({ id: `${o}:${t0 + t}`, o, r: "worker", k: "p", x: d < L ? xa + d : xb - (d - L), z: z + Math.sin(t * 0.3) * 0.2, s: t0 + t });
   }
   return out;
 }
-const opts = { secPerUnit: 20, unit: 1, flow: DEFAULT_FLOW, tNow: 900 };
-const route = ["a", "b", "c", "d"].flatMap((o, i) => shuttle(o, i * 7, 900));
-const isDeck = (b: Float32Array, i: number) => Math.abs(b[i + 4] - DEFAULT_WALK.deckThick) < 1e-6 && b[i + 5] > 0.1;
+const opts = { secPerUnit: SPU, unit: 1, flow: DEFAULT_FLOW, tNow: 900 };
+// building A at cells x 0–3, building B at cells x 14–17 (z 0–3); people walk between them along z ≈ 2.4
+const A = block(1, 0, 0, 4, 4), B = block(100, 14, 0, 4, 4);
+const walkers = ["a", "b", "c", "d"].flatMap((o, i) => commute(o, 4.9, 16.6, 2.4, i * 5, 900));
 
-describe("path centre lines", () => {
-  it("a band of cells three wide becomes one straight line along its middle", () => {
-    const cells: [number, number][] = [];
-    for (let x = 0; x < 15; x++) for (let z = 4; z <= 6; z++) cells.push([x, z]);
-    const lines = pathLines(cells);
-    expect(lines).toHaveLength(1);
-    const l = lines[0];
-    expect(l.length / 3).toBe(2); // simplified to its two ends
-    expect(l[1]).toBeCloseTo(5.5 * CELL_SIZE, 6);
-    expect(l[4]).toBeCloseTo(5.5 * CELL_SIZE, 6);
-    expect(l[2]).toBeGreaterThan(CELL_SIZE * 0.4); // half-width from the band
-  });
-  it("an L becomes two stretches meeting at the corner", () => {
-    const cells: [number, number][] = [];
-    for (let x = 0; x < 10; x++) cells.push([x, 0]);
-    for (let z = 1; z < 10; z++) cells.push([9, z]);
-    const pts = pathLines(cells).reduce((a, l) => a + l.length / 3, 0);
-    expect(pts).toBeLessThanOrEqual(4);
-  });
-});
-
-describe("walkways: sustained paths built as light bridges along their centre lines (V2)", () => {
-  it("a kept-up route gets long slabs with thickness along its line (not a tile per cell), laid once while it stays", () => {
-    const w = walkways(route, [], DEFAULT_WALK, opts);
-    expect(w.layers.length).toBeGreaterThanOrEqual(1);
-    expect(w.layers.length).toBeLessThanOrEqual(3);
-    const decks: number[] = [];
-    for (let i = 0; i < w.boxes.length; i += 7) if (isDeck(w.boxes, i)) decks.push(i);
-    expect(decks.length).toBeGreaterThan(0);
-    const perLayer = decks.length / w.layers.length;
-    expect(perLayer).toBeLessThan(5); // a few long stretches, not ~17 tiles
-    for (const i of decks) {
-      expect(Math.abs(Math.sin(w.boxes[i + 6]))).toBeLessThan(0.2); // along x
-      expect(w.boxes[i + 3]).toBeGreaterThan(CELL_SIZE * 3); // long
+describe("walkways: links between buildings where people keep walking (V2)", () => {
+  it("two buildings with sustained walking between them get a walkway from one to the other", () => {
+    const w = walkways(walkers, [...A, ...B], DEFAULT_WALK, opts);
+    expect(w.layers.length).toBeGreaterThan(0);
+    const last = w.layers[w.layers.length - 1];
+    expect(last.links).toEqual(["1-100"]);
+    const { deck } = walkArrays({ layers: [last] });
+    // the deck spans the gap between the buildings (from A's edge to B's edge)
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < deck.length; i += 7) {
+      lo = Math.min(lo, deck[i] - deck[i + 3] / 2);
+      hi = Math.max(hi, deck[i] + deck[i + 3] / 2);
     }
+    expect(lo).toBeLessThan(5 * CELL_SIZE);
+    expect(hi).toBeGreaterThan(13 * CELL_SIZE);
   });
 
-  it("piers reach down, masts up, wires come down from the masts to the deck", () => {
-    const w = walkways(route, [], { ...DEFAULT_WALK, pierSpacing: 2, mastSpacing: 6 }, opts);
-    const k = w.layers[w.layers.length - 1]; // the latest layer (the first may have had too little to draw)
-    const tall: number[] = [];
-    for (let i = 0; i < w.boxes.length; i += 7) if (w.boxes[i + 4] > 1) tall.push(w.boxes[i + 1]);
-    expect(tall.some((y) => y < k && y > k - DEFAULT_WALK.pierDepth)).toBe(true); // a pier hangs below that deck
-    expect(tall.some((y) => y > k + 0.5)).toBe(true); // a mast stands above it
-    expect(w.wires.length).toBeGreaterThan(0);
-    for (let i = 0; i < w.wires.length; i += 6) expect(w.wires[i + 1]).toBeGreaterThan(w.wires[i + 4]);
+  it("no walkway before both buildings stand", () => {
+    const lateB = block(100, 14, 0, 4, 4, 600); // B only from t = 600 (slot 30)
+    const w = walkways(walkers, [...A, ...lateB], DEFAULT_WALK, opts);
+    for (const l of w.layers) expect(l.k).toBeGreaterThanOrEqual(30);
   });
 
-  it("nothing without sustained flow; off = nothing", () => {
-    expect(walkways(shuttle("x", 0, 30), [], DEFAULT_WALK, opts).boxes.length).toBe(0);
-    expect(walkways(route, [], { ...DEFAULT_WALK, enabled: false }, opts).boxes.length).toBe(0);
-    const seeds = [{ id: 1, material: "concrete", role: "worker", x: 10.2, z: 5.3, t0: 0, t1: 900, mass: 2 } as Seed];
-    expect(walkways(route, seeds, DEFAULT_WALK, opts).boxes.length).toBeGreaterThanOrEqual(0);
+  it("no walkway without sustained walking; a link stops at the first building on its way", () => {
+    expect(walkways(commute("x", 4.9, 16.6, 2.4, 0, 40), [...A, ...B], { ...DEFAULT_WALK, buildAt: 0.6 }, opts).layers).toHaveLength(0);
+    // a third building C in the middle: A–C and C–B, never A–B over C
+    const C = block(200, 8, 0, 3, 4);
+    const w = walkways(walkers, [...A, ...B, ...C], DEFAULT_WALK, opts);
+    for (const l of w.layers) expect(l.links).not.toContain("1-100");
+  });
+
+  it("deck, frame (fence, piers, masts) and wires; deck thickness as set; kept layers stay", () => {
+    const cfg = { ...DEFAULT_WALK, pierSpacing: 2, mastSpacing: 6, deckThick: 0.3 };
+    const w = walkways(walkers, [...A, ...B], cfg, opts);
+    const { deck, frame, wires } = walkArrays(w);
+    for (let i = 0; i < deck.length; i += 7) expect(deck[i + 4]).toBeCloseTo(0.3, 6);
+    expect(frame.length).toBeGreaterThan(0);
+    expect(wires.length).toBeGreaterThan(0);
+    const kept = { layers: w.layers.slice(0, 1), upToK: w.layers[0].k };
+    const again = walkways(walkers, [...A, ...B], cfg, { ...opts, frozen: kept });
+    expect(again.layers[0]).toBe(kept.layers[0]);
+  });
+
+  it("WRAPPER: the footprint is covered by a few blocks (not a tile per cell), a junction is one floor, fences only on its outline", () => {
+    const C = block(200, 8, 8, 3, 3); // a third building off the line: A–B and a branch to C
+    const more = [...walkers, ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, i * 5, 900))];
+    const w = walkways(more, [...A, ...B, ...C], DEFAULT_WALK, opts);
+    const last = w.layers[w.layers.length - 1];
+    expect(last.deck.length / 7).toBeLessThan(60);
+    // every block lies on the footprint grid and has thickness
+    for (let i = 0; i < last.deck.length; i += 7) expect(last.deck[i + 4]).toBeCloseTo(DEFAULT_WALK.deckThick, 6);
+  });
+
+  it("SHAFTS: a later layer joins the layer below where the same link is still walked", () => {
+    const C = block(200, 8, 8, 3, 3, 400); // C comes at t = 400: a new layer above, A–B still walked
+    const more = [...walkers, ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, 400 + i * 5, 500))];
+    const w = walkways(more, [...A, ...B, ...C], DEFAULT_WALK, opts);
+    expect(w.layers.length).toBeGreaterThanOrEqual(2);
+    const upper = w.layers[w.layers.length - 1];
+    const shafts: number[] = [];
+    for (let i = 0; i < upper.frame.length; i += 7) if (Math.abs(upper.frame[i + 3] - DEFAULT_WALK.pierThick * 2.5) < 1e-6) shafts.push(upper.frame[i + 4]);
+    expect(shafts.length).toBeGreaterThan(0);
+    expect(Math.max(...shafts)).toBeGreaterThan(1); // spans down to the lower layer
   });
 });
+
+/** People going back and forth along z between za and zb at x. */
+function commuteZ(o: string, x: number, za: number, zb: number, t0: number, secs: number): PEvent[] {
+  const out: PEvent[] = [];
+  const L = zb - za;
+  for (let t = 0; t < secs; t++) {
+    const d = t % (2 * L);
+    out.push({ id: `${o}:${t0 + t}`, o, r: "worker", k: "p", x: x + Math.sin(t * 0.3) * 0.2, z: d < L ? za + d : zb - (d - L), s: t0 + t });
+  }
+  return out;
+}
