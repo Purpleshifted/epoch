@@ -14,8 +14,10 @@
  *                 G(cell, t) = | Σ amount · e^(−(t − s)/tauSec) · (cos 2θ, sin 2θ) |, so treads along one line add
  *                 up and milling around in a place cancels out. Path strength p = 1 − e^(−G/unit).
  *   FIRST COMES   a cell that is already a path (p ≥ blockAt) when a slab would nucleate there gets no slab — the
- *   FIRST         building moves aside; a cell on which a slab already stands is not trodden (concrete is not a path)
- *                 and bots walk around it — the path detours.
+ *   FIRST         building moves aside; a cell on which a building is IN USE (inside one of its spans) is not
+ *                 trodden (concrete is not a path) and bots walk around it — the path detours. In its EMPTY time
+ *                 (people left; a ruin) the cell can be trodden again: paths cross ruins. When people come back the
+ *                 building is there first again.
  *   BUNDLING      bots are drawn towards trodden ground (flowSteer): walking where others walked, their straight
  *                 crossings merge into a few trunks (Frei Otto's wool threads). Players see the paths in their grass.
  *
@@ -116,13 +118,39 @@ export interface Track {
 }
 
 /**
+ * The cells' building time, from spans: (key, s) → whether a building is in use on the cell at s — inside one of its
+ * spans, or within `tail` after it (it may yet go on). Before its birth, in its empty time and as a ruin: false.
+ */
+export function inUseAt(items: Iterable<{ key: string; spans: readonly (readonly [number, number])[] }>, tail: number): (key: string, s: number) => boolean {
+  const byKey = new Map<string, [number, number][]>();
+  for (const it of items) {
+    const list = byKey.get(it.key) ?? [];
+    for (const [a, b] of it.spans) list.push([a, b + tail]);
+    byKey.set(it.key, list);
+  }
+  return (key, s) => {
+    const list = byKey.get(key);
+    if (!list) return false;
+    for (const [a, b] of list) if (a <= s && s <= b) return true;
+    return false;
+  };
+}
+
+/** `inUseAt` for seeds (their spans, or t0 … t1). */
+export function seedsInUse(seeds: Iterable<{ x: number; z: number; t0: number; t1: number; spans?: [number, number][] }>, tail: number): (key: string, s: number) => boolean {
+  const items: { key: string; spans: [number, number][] }[] = [];
+  for (const sd of seeds) items.push({ key: cellKey(Math.floor(sd.x / CELL_SIZE), Math.floor(sd.z / CELL_SIZE)), spans: sd.spans && sd.spans.length ? sd.spans : [[sd.t0, sd.t1]] });
+  return inUseAt(items, tail);
+}
+
+/**
  * Every MOVE treads the cells along its segment (from the same person's previous sample), by its move share. A cell
- * whose slab already stands at that moment (`sealedFrom` ≤ s) is not trodden.
+ * on which a building is in use at that moment (`inUse`) is not trodden.
  */
 export function flowTracks(
   pres: readonly PEvent[],
   stay: Float32Array,
-  sealedFrom?: (key: string) => number | undefined,
+  inUse?: (key: string, s: number) => boolean,
 ): Map<string, Track> {
   const tracks = new Map<string, Track>();
   const last = new Map<string, number>();
@@ -154,8 +182,7 @@ export function flowTracks(
     // the walked distance, shared by the cells it crossed (in cell widths: crossing one cell ≈ 1)
     const amount = (m * len) / CELL_SIZE / touched.length;
     for (const key of touched) {
-      const born = sealedFrom?.(key);
-      if (born !== undefined && born <= e.s) continue; // concrete: not trodden
+      if (inUse?.(key, e.s)) continue; // a building in use: not trodden
       const tr = tracks.get(key);
       if (tr) {
         tr.s.push(e.s);

@@ -150,11 +150,13 @@ export function RoleField({
     // V2: bots walk where others walked (bundling) and around buildings (detour)
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && nBots > 0 && (!botGround.current || now - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
-      const snapAll = foldWorld(log.all(), sessionSeconds(now, epochMs.current, me.current.offset), foldCfg);
+      const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
+      const snapAll = foldWorld(log.all(), tSess, foldCfg);
       const level = new Map<string, number>();
       for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
       const built = new Set<string>();
-      for (const sl of snapAll.slabs) if (sl.h >= SEAL_H) built.add(sl.key);
+      // buildings in use now (a ruin — nobody around for longer than emptyGapSec — can be crossed)
+      for (const sl of snapAll.slabs) if (sl.h >= SEAL_H && tSess - sl.lastS <= foldCfg.emptyGapSec) built.add(sl.key);
       botGround.current = { at: now, level, built };
       if (botRoutes.current.size > nBots * 4) botRoutes.current.clear(); // old migrations
     }

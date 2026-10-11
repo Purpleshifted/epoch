@@ -113,16 +113,6 @@ describe("walkways: the pre-layer as lines between buildings where people keep w
     const seg = walkSegments(again, w.layers[0].k + 1);
     expect(seg.kept.length + seg.live.length).toBeGreaterThan(0);
   });
-
-  it("a line does not run where a pipe lies at its height", () => {
-    const base = walkways(walkers, [...A, ...B], DEFAULT_WALK, opts);
-    const k = base.layers[0].k;
-    const runs = [{ ax: 12, az: -8, bx: 12, bz: 10, k, flow: 4 }];
-    const w = walkways(walkers, [...A, ...B], DEFAULT_WALK, { ...opts, pipes: { runs, depth: 0 } });
-    for (const l of w.layers.filter((x) => x.k === k)) {
-      for (const line of l.lines) for (let i = 0; i < line.length; i += 3) expect(Math.floor(line[i] / CELL_SIZE)).not.toBe(Math.floor(12 / CELL_SIZE));
-    }
-  });
 });
 
 /** People going back and forth along z between za and zb at x. */

@@ -18,7 +18,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { flowLevel, flowP, flowTracks, stayShares, type Track } from "./flow";
+import { flowLevel, flowP, flowTracks, inUseAt, stayShares, type Track } from "./flow";
 import { DEFAULT_FOLD, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 
 const MIN_FOOT = 0.03;
@@ -197,10 +197,10 @@ export function foldWorld(
 
   const paths: PathCell[] = [];
   if (flow && stay) {
-    // V2: paths are the ground trodden by sustained flow; on a cell whose slab already stands nobody treads
-    const born = new Map<string, number>();
-    for (const sl of slabs) born.set(sl.key, sl.bornS);
-    const tread: Map<string, Track> = flowTracks(workers, stay, (k) => born.get(k));
+    // V2: paths are the ground trodden by sustained flow; on a cell whose building is in use nobody treads (in its
+    // empty time — a ruin — they do)
+    const inUse = inUseAt(slabs.map((sl) => ({ key: sl.key, spans: sl.spans ?? [[sl.bornS, sl.lastS]] })), cfg.emptyGapSec);
+    const tread: Map<string, Track> = flowTracks(workers, stay, inUse);
     for (const [key, tr] of tread) {
       const p = flowP(flowLevel(tr, sView, flow.tauSec), flow);
       if (p < MIN_ALPHA) continue;

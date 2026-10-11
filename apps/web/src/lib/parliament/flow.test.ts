@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, flowLevel, flowP, flowRoute, flowSteer, flowTracks, foldWorld, natureHistory, seedsFromSnapshot, stayShares, withoutWear, type PEvent } from "./index";
+import { DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, flowLevel, flowP, flowRoute, flowSteer, flowTracks, foldWorld, inUseAt, natureHistory, seedsFromSnapshot, stayShares, withoutWear, type PEvent } from "./index";
 
 const ev = (o: string, x: number, z: number, s: number): PEvent => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x, z, s });
 const sorted = (e: PEvent[]) => [...e].sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : 1));
@@ -158,5 +158,22 @@ describe("route grid share (V2 Leva): 1 = surveyed grid steps, 0 = a curve", () 
     const curve = flowRoute(0.6, 0.6, 10.2, 4.2, g, { ...DEFAULT_FLOW, gridShare: 0 });
     expect(angles(grid.slice(2, -2)).every((a) => a % 45 === 0)).toBe(true);
     expect(angles(curve).some((a) => a % 45 !== 0)).toBe(true);
+  });
+});
+
+describe("flow: a building in use is not trodden; a ruin is (V2)", () => {
+  it("a cell is trodden only outside its building's spans (and their tail)", () => {
+    const at = key(10, 5);
+    const inUse = inUseAt([{ key: at, spans: [[0, 100]] }], 30);
+    // walking across the cell while the building is in use, then again long after it was left
+    const during = sorted(shuttle("a", 0, 20, 5, 20, 60));
+    const after = sorted(shuttle("a", 0, 20, 5, 300, 60));
+    expect(flowTracks(during, stayShares(during, DEFAULT_FLOW), inUse).get(at)).toBeUndefined();
+    expect(flowTracks(after, stayShares(after, DEFAULT_FLOW), inUse).get(at)?.s.length ?? 0).toBeGreaterThan(0);
+    // its empty time between two spans is trodden too; within the tail after a span it is not yet
+    const gap = inUseAt([{ key: at, spans: [[0, 100], [600, 700]] }], 30);
+    expect(gap(at, 120)).toBe(true);
+    expect(gap(at, 300)).toBe(false);
+    expect(gap(at, 650)).toBe(true);
   });
 });

@@ -29,6 +29,11 @@
  *                from its edge, for a building in open land — the water runs as an OPEN stream (a clear channel in
  *                the vegetation, lined with wetland) for `streamLength` before it soaks away
  *   SIZE         a pipe's or stream's flow is the runoff of everything upstream: trunks thicker than branches
+ *   IN USE       a new network reuses the pipes of the one in use (their cells keep their pipe and height; only the
+ *                stretches that leave them are drawn, joined by MANHOLE shafts) — but only pipes laid within `reach`
+ *                slots (older ones are past: nothing joins them, a network there is laid anew) and out of use for at
+ *                most `grace`. RE-LAYING: a network in use older than `relay` is laid again (as the walkways are
+ *                re-surfaced, walkways.ts), so a long-used sewer stays in time as networks stacked at that interval.
  *
  * The open water is not drawn itself: its course is a channel in the vegetation (no points within `channel`/2),
  * lined with WETLAND vegetation (waterField → natureHistory.waterBoost, waterDistance → naturePoints.water), and
@@ -82,6 +87,13 @@ export interface WaterConfig {
   pipeRadius: number;
   /** Dense buildings within this distance (world) share one sewer network and outfall (a quarter). */
   quarterGap: number;
+  /** How far back (slots) a new network may reuse the pipes below (and join them by manholes); 0 = the present
+   *  thickness (DrainageOptions.present). Older pipes are past: a network there is laid anew. */
+  reach: number;
+  /** A pipe out of the network for at most this many slots is still in use; longer, it is gone for good. */
+  grace: number;
+  /** RE-LAYING: a network in use whose pipes are older than this (slots; 0 = `reach`) is laid again; off when < 0. */
+  relay: number;
 }
 
 export const DEFAULT_WATER: WaterConfig = {
@@ -105,6 +117,9 @@ export const DEFAULT_WATER: WaterConfig = {
   corrode: 1.5,
   pipeRadius: 0.06,
   quarterGap: 40,
+  reach: 0,
+  grace: 3,
+  relay: 0,
 };
 
 export interface Building {
@@ -190,6 +205,8 @@ export interface DrainageOptions {
    * later layers are laid by this call, joining the kept pipes).
    */
   frozen?: { pipes: readonly PipeRun[]; streams: ReadonlyMap<number, Float32Array[]>; upToK: number };
+  /** The present thickness (slots): `reach` = 0 means this (default 18). */
+  present?: number;
 }
 
 /** Cells of room around everything (sources, buildings) in which routes may run. */
@@ -238,8 +255,14 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       if (inGrid(cx, cz)) piped[idx(cx, cz)] = 1;
     }
   }
-  // the network laid last (cell → its slot): where a new network meets it, a manhole shaft joins the two
-  let lastNet = new Map<number, number>();
+  // the pipes in use (cell → the slot its pipe was laid in, the last slot it was in use): a new network reuses them
+  // and joins them by manhole shafts — only those laid within `reach` and out of use for at most `grace`
+  let lastNet = new Map<number, { k: number; seen: number }>();
+  let usedK = -Infinity; // the last slot the network laid last was in use (some building shed water)
+  let netK = -Infinity; // the slot the network in use was laid (its cells are seen then; kept ones earlier)
+  const reach = cfg.reach > 0 ? cfg.reach : (opts.present ?? 18);
+  const grace = Math.max(0, cfg.grace);
+  const relayEvery = cfg.relay < 0 ? 0 : cfg.relay > 0 ? cfg.relay : reach;
   let routeSeq = (opts.frozen?.pipes ?? []).reduce((m, p) => Math.max(m, (p.route ?? -1) + 1), 0);
 
   const streams = new Map<number, Float32Array[]>();
@@ -310,6 +333,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       courses = [];
       continue;
     }
+    usedK = k;
     const isOpen = (c: number) => !sealed[c] && share[c] < cfg.openShare;
     const meanShare = (b: Building) => b.seeds.reduce((a, s) => a + share[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))], 0) / b.seeds.length;
     const dense = live.filter((b) => meanShare(b) >= cfg.burial);
@@ -323,7 +347,10 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       tot += sealed[c];
       if (laidSealed && laidSealed[c] !== sealed[c]) diff++;
     }
-    const changed = !laidSealed || denseKey !== laidDense || diff / Math.max(1, tot) >= cfg.change;
+    // RE-LAYING: the network in use has grown older than `relay` (a sewer relaid in its time)
+    let stale = false;
+    if (relayEvery > 0) for (const v of lastNet.values()) if (v.seen === netK && k - v.k >= relayEvery) stale = true;
+    const changed = !laidSealed || denseKey !== laidDense || diff / Math.max(1, tot) >= cfg.change || stale;
     if (!changed || k - laidK < cfg.minGapSlots) {
       if (courses.length) streams.set(k, courses);
       continue;
@@ -334,7 +361,12 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     const e = k;
     courses = [];
     const pipeEdges = new Set<string>(); // this epoch's runs "a>b" (cell indices), each drawn once
-    const net = new Map<number, number>();
+    // the old network still reusable: in use until lately (the last one until `usedK`), laid within `reach`, and
+    // younger than `relay`
+    for (const v of lastNet.values()) if (v.seen === netK) v.seen = Math.max(v.seen, Math.min(usedK, e));
+    const oldK = new Map<number, number>();
+    for (const [c, v] of lastNet) if (e - v.seen <= grace && e - v.k <= reach && (relayEvery <= 0 || e - v.k < relayEvery)) oldK.set(c, v.k);
+    const net = new Map<number, { k: number; seen: number }>();
     const risen = new Set<number>();
 
     // QUARTERS: dense buildings near each other share one sewer network and one outfall
@@ -376,9 +408,9 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
         // that leave it are new — each with the old cell it branches from, joined there by a manhole shaft
         for (const c of r) {
           piped[c] = 1;
-          net.set(c, lastNet.get(c) ?? e);
+          net.set(c, { k: oldK.get(c) ?? e, seen: e });
         }
-        const isOld = (c: number) => lastNet.has(c);
+        const isOld = (c: number) => oldK.has(c);
         for (let i = 0; i < r.length; ) {
           if (isOld(r[i])) {
             i++;
@@ -400,7 +432,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
           }
           // MANHOLES: where the new stretch meets the old network (at its ends), a shaft from the old pipe up to it
           for (const c of [stretch[0], stretch[stretch.length - 1]]) {
-            const old = lastNet.get(c);
+            const old = oldK.get(c);
             if (old === undefined || old >= e || risen.has(c)) continue;
             risen.add(c);
             const [cx, cz] = centre(c);
@@ -416,8 +448,12 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       const r = routeOut([b], block, path, piped, nx, nz, idx, cfg, isOpen);
       if (r) courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
     }
-    // the network in use now (cells → the slot their pipe was laid in); cells it no longer uses drop out
-    if (net.size) lastNet = net;
+    // the network in use now; cells it no longer uses stay known for `grace` (a pipe briefly out of use is still there)
+    if (net.size) {
+      for (const [c, v] of lastNet) if (!net.has(c) && e - v.seen <= grace) net.set(c, { ...v });
+      lastNet = net;
+      netK = e;
+    }
     if (courses.length) streams.set(k, courses);
   }
   // what was laid before stays as it was: only the later layers are new

@@ -7,8 +7,8 @@
  *   TRODDEN      the ground keeps how trodden it is (flow.ts: treads along each move, fading with regrowth, counting
  *                only movement along one axis); path strength p = 1 − e^(−G/unit) per cell
  *   ROUTE        from each building, the cheapest way over the grid to the buildings it reaches directly (a route stops
- *                at the first building it meets): cheap on trodden ground, never through a standing building nor a
- *                pipe running at the walkway's height
+ *                at the first building it meets): cheap on trodden ground, never through a building in use (pipes
+ *                lie below, water.ts: the two do not meet)
  *   LINK         built when the ground along the route is trodden to `buildAt` on average (sustained flow), at most
  *                `maxSpan` long
  *   LINE         the route as a smooth line (Chaikin, `smooth` passes) at its layer's height
@@ -31,10 +31,11 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { cellKey, flowP, flowTracks, stayShares, type FlowConfig } from "./flow";
+import { flowP, flowTracks, seedsInUse, stayShares, type FlowConfig } from "./flow";
 import type { Seed } from "./seeds";
 import type { PEvent } from "./types";
-import { buildingsOf, type PipeRun } from "./water";
+import { DEFAULT_FOLD } from "./types";
+import { buildingsOf } from "./water";
 
 export interface WalkConfig {
   enabled: boolean;
@@ -107,8 +108,6 @@ export interface WalkOptions {
   unit: number;
   flow: FlowConfig;
   tNow: number;
-  /** Pipes (water.ts): a walkway does not run where a pipe lies at its height. */
-  pipes?: { runs: readonly PipeRun[]; depth: number };
   /** Layers laid up to slot `upToK` (below the present) stay as they were; later ones are drawn by this call. */
   frozen?: { layers: readonly WalkLayer[]; upToK: number };
   /** The present thickness (slots): `reach` = 0 means this (default 18). */
@@ -143,12 +142,6 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const pres = events.filter((e) => e.r === "worker" && e.k === "p");
   if (!pres.length) return { layers: kept };
   pres.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  // a cell is not trodden once a building stands on it (first comes first)
-  const born = new Map<string, number>();
-  for (const s of seeds) {
-    const k = cellKey(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE));
-    born.set(k, Math.min(born.get(k) ?? Infinity, s.t0));
-  }
   // the grid
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const s of seeds) {
@@ -164,7 +157,8 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const inGrid = (cx: number, cz: number) => cx >= x0 && cz >= z0 && cx < x0 + nx && cz < z0 + nz;
   const centre = (c: number): [number, number] => [(x0 + (c % nx) + 0.5) * CELL_SIZE, (z0 + Math.floor(c / nx) + 0.5) * CELL_SIZE];
 
-  const tracks = [...flowTracks(pres, stayShares(pres, opts.flow), (k) => born.get(k))].filter(([key]) => {
+  // a cell is not trodden while its building is in use (first comes first; its empty time is trodden)
+  const tracks = [...flowTracks(pres, stayShares(pres, opts.flow), seedsInUse(seeds, DEFAULT_FOLD.emptyGapSec))].filter(([key]) => {
     const [cx, cz] = key.split(",").map(Number);
     return inGrid(cx, cz);
   });
@@ -206,32 +200,16 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       }
       P[tCell[i]] = flowP(Math.hypot(gc[i], gq[i]), opts.flow);
     }
-    // obstacles at this height: the pipes lying within half a slot of it
-    const blocked = new Uint8Array(n);
-    let nb = 0;
-    for (const r of opts.pipes?.runs ?? []) {
-      const ry = (r.k - (opts.pipes?.depth ?? 0)) * opts.unit;
-      const near = r.k0 !== undefined ? (r.k0 - (opts.pipes?.depth ?? 0)) * opts.unit - opts.unit / 2 <= y && y <= ry + opts.unit / 2 : Math.abs(ry - y) <= opts.unit / 2;
-      if (!near) continue;
-      const steps = Math.max(1, Math.round(Math.hypot(r.bx - r.ax, r.bz - r.az) / CELL_SIZE));
-      for (let q = 0; q <= steps; q++) {
-        const cx = Math.floor((r.ax + ((r.bx - r.ax) * q) / steps) / CELL_SIZE), cz = Math.floor((r.az + ((r.bz - r.az) * q) / steps) / CELL_SIZE);
-        if (inGrid(cx, cz) && !blocked[idx(cx, cz)]) {
-          blocked[idx(cx, cz)] = 1;
-          nb++;
-        }
-      }
-    }
     // the buildings standing at t: the places
     // only seeds with parts in this slot (not in empty time): a walkway arrives where there is something to arrive at
     const up = seeds.filter((s) => occupies(s, k, spu));
     // the routes only change when the buildings, the obstacles or the trodden ground (coarsely) do
-    let sig = `${up.length}:${nb}:`;
-    for (let c = 0; c < n; c++) if (P[c] > 0.05 || blocked[c]) sig += `${c}.${Math.round(P[c] * 8)}${blocked[c] ? "b" : ""},`;
+    let sig = `${up.length}:`;
+    for (let c = 0; c < n; c++) if (P[c] > 0.05) sig += `${c}.${Math.round(P[c] * 8)},`;
     if (sig !== lastSig) {
       lastSig = sig;
       const standing = buildingsOf(up, cfg);
-      const links = standing.length >= 2 ? linksAt(standing, P, blocked, nx, nz, idx, cfg) : new Map<string, { cells: number[]; p: number }>();
+      const links = standing.length >= 2 ? linksAt(standing, P, nx, nz, idx, cfg) : new Map<string, { cells: number[]; p: number }>();
       // links as they lie: smooth lines with their two ends
       now = [...links.entries()].map(([key, l]) => {
         const flat = chaikin(l.cells.map(centre), Math.max(0, Math.round(cfg.smooth)));
@@ -292,7 +270,7 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
  * ground, never through a building) that stops at the first building it meets in every direction; a route is a
  * link if the ground along it is trodden to `buildAt` on average and it is at most `maxSpan` long. Keyed "a-b".
  */
-function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P: Float32Array, blocked: Uint8Array, nx: number, nz: number, idx: (cx: number, cz: number) => number, cfg: WalkConfig): Map<string, { cells: number[]; p: number }> {
+function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P: Float32Array, nx: number, nz: number, idx: (cx: number, cz: number) => number, cfg: WalkConfig): Map<string, { cells: number[]; p: number }> {
   const n = nx * nz;
   const owner = new Int32Array(n).fill(-1); // building on the cell
   const edgeOf = new Int32Array(n).fill(-1); // building whose edge the cell is (first)
@@ -382,7 +360,7 @@ function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P
         const vi = ui + di, vj = uj + dj;
         if (vi < 0 || vj < 0 || vi >= nx || vj >= nz) continue;
         const v = vj * nx + vi;
-        if (done[v] || owner[v] >= 0 || blocked[v]) continue;
+        if (done[v] || owner[v] >= 0) continue;
         if (di && dj && (owner[uj * nx + vi] >= 0 || owner[vj * nx + ui] >= 0)) continue;
         const d = dist[u] + len * (cost(u) + cost(v)) * 0.5;
         if (d < dist[v]) {

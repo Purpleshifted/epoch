@@ -20,7 +20,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { cellKey, flowLevel, flowP, flowTracks, stayShares } from "./flow";
+import { cellKey, flowLevel, flowP, flowTracks, seedsInUse, stayShares } from "./flow";
 import { grassDensity, hash2, type NatureConfig } from "./nature";
 import { partAgeYears, seedAgeYears, type Box, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
@@ -128,16 +128,11 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
     else sealers.set(i, [sd]);
   }
 
-  // V2: paths from sustained flow; a seed's cell is not trodden from its birth on
+  // V2: paths from sustained flow; a seed's cell is not trodden while its building is in use (its empty time is)
   const flow = fold.flow?.enabled ? fold.flow : null;
   let tread: ReturnType<typeof flowTracks> | null = null;
   if (flow) {
-    const born = new Map<string, number>();
-    for (const sd of seeds) {
-      const key = cellKey(Math.floor(sd.x / CELL_SIZE), Math.floor(sd.z / CELL_SIZE));
-      born.set(key, Math.min(born.get(key) ?? Infinity, sd.t0));
-    }
-    tread = flowTracks(pres, stayShares(pres, flow), (k) => born.get(k));
+    tread = flowTracks(pres, stayShares(pres, flow), seedsInUse(seeds, fold.emptyGapSec));
   }
 
   const S = new Float64Array(nc2);

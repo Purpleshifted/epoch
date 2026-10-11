@@ -78,7 +78,7 @@ describe("water from sealed ground: open streams, buried pipes", () => {
 
   it("laid anew only when something changes: a still quarter keeps one layer, a new building adds one at its time", () => {
     const still = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
-    const layers = (seeds: Seed[]) => new Set(drainage([], seeds, DEFAULT_WATER, opts).pipes.filter((p) => p.k0 === undefined).map((p) => p.k));
+    const layers = (seeds: Seed[]) => new Set(drainage([], seeds, { ...DEFAULT_WATER, relay: -1 }, opts).pipes.filter((p) => p.k0 === undefined).map((p) => p.k));
     expect(layers(still).size).toBe(1);
     const later = [...still, ...block(300, 8, 8, 5, 5, 300)]; // a fourth block from t = 300 (slot 15)
     const ks = layers(later);
@@ -174,5 +174,28 @@ describe("water from sealed ground: open streams, buried pipes", () => {
 
   it("off: no water", () => {
     expect(drainage([], block(1, 0, 0, 6, 6), { ...DEFAULT_WATER, enabled: false }, opts).pipes).toHaveLength(0);
+  });
+});
+
+describe("pipes join only what is still in use (reach, re-laying)", () => {
+  const quarter = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
+  const later = [...quarter, ...block(300, 8, 8, 5, 5, 300)]; // a fourth block from slot 15
+  const laid = (pipes: { k: number; k0?: number }[]) => [...new Set(pipes.filter((p) => p.k0 === undefined).map((p) => p.k))].sort((a, b) => a - b);
+
+  it("a network in use is laid again every `relay` slots", () => {
+    const ks = laid(drainage([], quarter, { ...DEFAULT_WATER, relay: 8 }, opts).pipes);
+    expect(ks.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < ks.length; i++) expect(ks[i] - ks[i - 1]).toBeGreaterThanOrEqual(8);
+  });
+
+  it("a manhole joins only pipes laid within `reach`; older ones are past and the network there is laid anew", () => {
+    const near = drainage([], later, { ...DEFAULT_WATER, relay: -1, reach: 40 }, opts);
+    const risers = near.pipes.filter((p) => p.k0 !== undefined);
+    for (const r of risers) expect(r.k - r.k0!).toBeLessThanOrEqual(40);
+    const far = drainage([], later, { ...DEFAULT_WATER, relay: -1, reach: 3 }, opts);
+    for (const r of far.pipes.filter((p) => p.k0 !== undefined)) expect(r.k - r.k0!).toBeLessThanOrEqual(3);
+    // with nothing to join, the later network is laid whole: more pipe at its slot than when it joins the old one
+    const at15 = (d: typeof near) => d.pipes.filter((p) => p.k === 15 && p.k0 === undefined).length;
+    expect(at15(far)).toBeGreaterThan(at15(near));
   });
 });

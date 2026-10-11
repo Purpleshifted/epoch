@@ -20,7 +20,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
-import { Leva, button, folder, useControls } from "leva";
+import { Leva, button, folder, monitor, useControls } from "leva";
 import * as THREE from "three";
 import {
   DEFAULT_BOXES,
@@ -47,11 +47,13 @@ import {
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
+  rotOnsetSlots,
   DEFAULT_WALK,
   DEFAULT_WATER,
   type WalkConfig,
   type WaterConfig,
   DEFAULT_FUSE,
+  DEFAULT_STUDY,
   type FuseConfig,
   type FuseMesh,
   SpaceModel,
@@ -393,6 +395,7 @@ function SpaceWorld({
   noAxis,
   walk,
   walkLook,
+  fibreColor,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -420,6 +423,8 @@ function SpaceWorld({
   /** V2: walkways between buildings (walkways.ts); null = none. */
   walk: WalkConfig | null;
   walkLook: WalkLook;
+  /** D FIBRE (form study): colour of the fibres and spines under the fused mass. */
+  fibreColor: string;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -456,6 +461,7 @@ function SpaceWorld({
     live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
+  const fibres = useRef<THREE.LineSegments>(null);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
   const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
@@ -523,6 +529,7 @@ function SpaceWorld({
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
+    if (r.fuse) setSegments(fibres.current, r.fuse.lines);
     if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
   };
 
@@ -671,6 +678,10 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
+      <lineSegments ref={fibres} frustumCulled={false} visible={fuse.enabled}>
+        <bufferGeometry />
+        <lineBasicMaterial color={fibreColor} />
+      </lineSegments>
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>
@@ -1108,55 +1119,65 @@ export default function ParliamentSpace() {
     }),
     { order: 6 },
   );
-  // ── 길 → 다리 (V2): trodden ground → paths (holes in the vegetation) → walkways between buildings ──
+  // the PRESENT thickness (풍화 · 지층: the rot onset): layers within it still change, those below are kept
+  const presentSlots = Math.max(1, Math.round(rotOnsetSlots(weather)));
+  const presentRef = useRef(presentSlots);
+  presentRef.current = presentSlots;
+  const presentMonitor = monitor(() => presentRef.current, { graph: false });
+  const PRESENT = "지금 '현재' 두께 (단 · 풍화 · 지층에서 정함)";
+  // ── 길 → 다리 (V2): the ground (buildings and trodden paths, first comes first) → walkways between buildings ──
   const WALK_GROUP = "길 → 다리";
-  const WALK_LEGACY = ["길 · 다리"];
   const fold = useFoldControls(SPACE_FOLD, {
     folder: "생성 규칙 (회사원 시공간 밀집)",
     collapsed: true,
     order: 2,
-    flow: { path: `${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, order: 0, legacy: ["생성 규칙 (회사원 시공간 밀집)"] },
+    flow: {
+      path: `${WALK_GROUP}.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)`,
+      order: 1,
+      legacy: [`${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, "생성 규칙 (회사원 시공간 밀집)"],
+    },
   });
   const wlk = useControls(
     WALK_GROUP,
     savable(
       WALK_GROUP,
       {
-        "② 길 표시 (식생 구멍 · 둔덕)": folder(
+        "② 길 흔적: 식생 속 빈 통로 (남음)": folder(
           {
             pathsOn: { value: true, label: "켜기" },
-            pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
-            pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
-            pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 (구멍 바로 바깥만; 클수록 좁음)", render: () => isV2 },
+            pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "빈 통로가 되는 길 세기 (작을수록 넓음)" },
+            pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리로 밀려난 흙 양" },
+            pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 너비 (클수록 좁음)", render: () => isV2 },
           },
-          { order: 1 },
+          { order: 2 },
         ),
-        "③ 다리: 건물 사이 (V2 · 프리레이어 선)": folder(
+        "③ 다리: 어디에 놓이나 (V2)": folder(
           {
             walkOn: { value: DEFAULT_WALK.enabled, label: "켜기", render: () => isV2 },
-            buildAt: { value: DEFAULT_WALK.buildAt, min: 0.05, max: 0.99, step: 0.01, label: "다리가 되는 밟힘 (경로를 따라 평균 길 세기)", render: () => isV2 },
+            buildAt: { value: DEFAULT_WALK.buildAt, min: 0.05, max: 0.99, step: 0.01, label: "다리가 되는 길 세기 (건물 사이 경로의 평균)", render: () => isV2 },
             maxSpan: { value: DEFAULT_WALK.maxSpan, min: 2, max: 120, step: 1, label: "가장 긴 다리 (월드)", render: () => isV2 },
             walkJoin: { value: DEFAULT_WALK.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)", render: () => isV2 },
-            smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선 부드럽게 (횟수, 0 = 칸에서 칸으로)", render: () => isV2 },
+            smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선의 부드러움 (0 = 칸에서 칸으로)", render: () => isV2 },
             walkColor: { value: "#d8d8d8", label: "다리 선 색", render: () => isV2 },
-          },
-          { order: 2, render: () => isV2 },
-        ),
-        "④ 다리: 층 · 이어짐 (V2)": folder(
-          {
-            walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층을 놓는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
-            walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)", render: () => isV2 },
-            reach: { value: DEFAULT_WALK.reach, min: 0, max: 120, step: 1, label: "이어질 수 있는 과거 (단; 0 = '현재' 두께, 더 오래된 다리는 과거)", render: () => isV2 },
-            grace: { value: DEFAULT_WALK.grace, min: 0, max: 60, step: 1, label: "여전히 쓰는 길로 볼 끊김 (단; 더 길게 안 쓰면 다시 생겨도 새 다리)", render: () => isV2 },
-            minorShare: { value: DEFAULT_WALK.minorShare, min: 0, max: 1.01, step: 0.01, label: "변경으로 볼 겹침 (새 다리 중 기존 다리를 따라가는 비율; 미만 = 따로 새 다리)", render: () => isV2 },
-            resurfaceOn: { value: DEFAULT_WALK.resurface >= 0, label: "재포장 (오래 쓰는 다리를 다시 깔기)", render: () => isV2 },
-            resurface: { value: DEFAULT_WALK.resurface, min: 0, max: 120, step: 1, label: "재포장 간격 (단; 0 = 이어질 수 있는 과거와 같게)", render: () => isV2 },
-            rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 최소 길이 (월드)", render: () => isV2 },
           },
           { order: 3, render: () => isV2 },
         ),
+        "④ 다리: 층 · 이어짐 · 남음 (V2)": folder(
+          {
+            [PRESENT]: presentMonitor,
+            walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
+            walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)", render: () => isV2 },
+            reach: { value: DEFAULT_WALK.reach, min: 0, max: 120, step: 1, label: "이보다 오래된 다리는 과거: 잇지 않음 (단, 0 = '현재' 두께)", render: () => isV2 },
+            grace: { value: DEFAULT_WALK.grace, min: 0, max: 60, step: 1, label: "이만큼 안 쓰여도 같은 다리 (단, 넘으면 다시 생겨도 새 다리)", render: () => isV2 },
+            minorShare: { value: DEFAULT_WALK.minorShare, min: 0, max: 1.01, step: 0.01, label: "기존 다리의 변경으로 볼 겹침 (미만 = 따로 새 다리, 경사로 없음)", render: () => isV2 },
+            rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 길이 (월드)", render: () => isV2 },
+            resurfaceOn: { value: DEFAULT_WALK.resurface >= 0, label: "재포장: 오래 쓰는 다리를 다시 깖", render: () => isV2 },
+            resurface: { value: DEFAULT_WALK.resurface, min: 0, max: 120, step: 1, label: "재포장 간격 (단, 0 = 과거가 되는 나이와 같게)", render: () => isV2 },
+          },
+          { order: 4, render: () => isV2 },
+        ),
       },
-      WALK_LEGACY,
+      ["길 · 다리"],
     ),
     { order: 4, collapsed: true },
   );
@@ -1180,7 +1201,7 @@ export default function ParliamentSpace() {
         : null,
     [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLength, wlk.smooth, wlk.reach, wlk.grace, wlk.minorShare, wlk.resurfaceOn, wlk.resurface],
   );
-  // ── 물 → 배관 (V1 + V2): sealed ground → its rain piped below (dense) / open streams (sparse, past outfalls) ──
+  // ── 물 → 배관 (V1 + V2): the sealed ground → its rain piped below (dense) / open streams (sparse, past outfalls) ──
   const WATER_GROUP = "물 → 배관";
   const wtr = useControls(
     WATER_GROUP,
@@ -1188,23 +1209,39 @@ export default function ParliamentSpace() {
       WATER_GROUP,
       {
         waterOn: { value: DEFAULT_WATER.enabled, label: "켜기" },
-        "① 덮인 땅 (빗물이 스미지 못하는 곳)": folder({
-          imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
-          pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "덮인 땅으로 볼 길 세기 (포장된 길)" },
-          join: { value: DEFAULT_WATER.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
-          persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤에도 물이 나오는 시간 (s)" },
-        }),
-        "② 배관 (덮인 곳 아래로 묻힌 물)": folder({
-          burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "관으로 묻히는 덮인 비율 (주변이 이만큼 덮이면)" },
-          quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
-          diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "관의 45° 꺾임 (0 = 직각만)" },
-          pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "관이 묻히는 깊이 (현재보다 몇 단 아래, 다리보다 아래)" },
-          change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "배관을 다시 까는 변화 (덮인 땅이 이만큼 바뀌면; 건물이 생기거나 떠나도)" },
-          minGapSlots: { value: DEFAULT_WATER.minGapSlots, min: 1, max: 30, step: 1, label: "다시 까는 최소 간격 (단)" },
-          pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 모일수록 굵어짐 — 감싸기 단계에서)" },
-          pipeColor: { value: "#7c7f84", label: "관 선 색" },
-        }),
-        "③ 열린 물길 (배출구 너머 · 성긴 곳: 식생 · 부식에 영향)": folder(
+        "① 땅: 덮인 땅 (빗물이 못 스밈)": folder(
+          {
+            imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
+            pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "덮인 땅이 되는 길 세기 (포장된 길)" },
+            join: { value: DEFAULT_WATER.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
+            persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 비어도 물이 나오는 시간 (s)" },
+          },
+          { order: 1 },
+        ),
+        "② 배관: 어디에 깔리나": folder(
+          {
+            burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "배관이 되는 덮인 비율 (건물 주변)" },
+            quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
+            diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "45° 꺾임 (0 = 직각만)" },
+            pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "묻히는 깊이 (깔린 층보다 몇 단 아래 — 늘 다리 아래)" },
+            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 감싸기 단계에서)" },
+            pipeColor: { value: "#7c7f84", label: "관 선 색" },
+          },
+          { order: 2 },
+        ),
+        "③ 배관: 층 · 이어짐 · 남음": folder(
+          {
+            [PRESENT]: presentMonitor,
+            change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (덮인 땅이 이만큼 바뀌면; 건물이 오고 가도)" },
+            minGapSlots: { value: DEFAULT_WATER.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)" },
+            pipeReach: { value: DEFAULT_WATER.reach, min: 0, max: 120, step: 1, label: "이보다 오래된 관은 과거: 잇지 않음 (단, 0 = '현재' 두께)" },
+            pipeGrace: { value: DEFAULT_WATER.grace, min: 0, max: 60, step: 1, label: "이만큼 안 쓰여도 같은 관 (단)" },
+            relayOn: { value: DEFAULT_WATER.relay >= 0, label: "재부설: 오래 쓰는 관망을 다시 깖" },
+            relay: { value: DEFAULT_WATER.relay, min: 0, max: 120, step: 1, label: "재부설 간격 (단, 0 = 과거가 되는 나이와 같게)" },
+          },
+          { order: 3 },
+        ),
+        "④ 열린 물길: 식생 · 부식 (남음: 식생 속 물길)": folder(
           {
             openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "물이 다시 스미는 덮인 비율 (배출구)" },
             streamLength: { value: DEFAULT_WATER.streamLength, min: 0, max: 40, step: 0.5, label: "배출구 너머로 흐르는 거리 (월드)" },
@@ -1215,10 +1252,10 @@ export default function ParliamentSpace() {
             wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
             corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
           },
-          { collapsed: true },
+          { order: 4, collapsed: true },
         ),
       },
-      ["수로 (덮인 땅의 물)", ...WALK_LEGACY],
+      ["수로 (덮인 땅의 물)", "길 · 다리"],
     ),
     { order: 5, collapsed: true },
   );
@@ -1246,9 +1283,12 @@ export default function ParliamentSpace() {
             corrode: wtr.corrode,
             pipeRadius: wtr.pipeRadius,
             quarterGap: wtr.quarterGap,
+            reach: wtr.pipeReach,
+            grace: wtr.pipeGrace,
+            relay: wtr.relayOn ? wtr.relay : -1,
           }
         : null,
-    [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap],
+    [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay],
   );
   const walkLook = useMemo<WalkLook>(() => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor }), [wlk.walkColor, wtr.pipeColor]);
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
@@ -1256,28 +1296,59 @@ export default function ParliamentSpace() {
     "엉김 · 융합 · 레진",
     savable("엉김 · 융합 · 레진", {
       fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (마모 + 지층이 켜져 있어야 함)" },
-      accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작하는 부식 정도" },
-      fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "건물과 하나가 되기 시작하는 부식 정도" },
-      accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "덩어리 세기 (0 = 끔)" },
-      accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "덩어리 최대 두께 (월드)" },
-      lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "덩어리 크기 (클수록 큰 뭉치)" },
-      porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "다공성 (구멍)" },
-      resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 퇴적 비율 (>1 = 끔)" },
-      "형태 (뼈대 · 처짐 · 흩어짐)": folder({
+      "시기 (부재의 부식 정도: 0 새것 … 1 사라짐)": folder({
+        accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작 (그 전: 식생 점이 모임)" },
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "부재 자체가 덩어리가 되기 시작" },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대(B: 판)까지 삼켜짐 (>1 = 끝까지)" },
+        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율, >1 = 끔)" },
+      }),
+      "형태 스터디 (V2: 켜서 비교, 섞어도 됨)": folder(
+        {
+          "B 빈 곳 채우기": folder({
+            fill: { value: DEFAULT_STUDY.fill, label: "켜기: 판 사이 방을 위에서부터 채움, 판은 날카롭게" },
+            fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)" },
+            fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)" },
+          }),
+          "C 껍질 · 리브": folder({
+            shell: { value: DEFAULT_STUDY.shell, label: "켜기: 속이 빈 껍질 + 맞닿은 구멍 (구형 공극 대신)" },
+            shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "껍질 두께 (복셀)" },
+            ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (셀, 월드)" },
+            ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (월드)" },
+            ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 셀 비율 (오래된 층일수록 많이)" },
+            pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "표면 곰보 (색만)" },
+          }),
+          "D 섬유 · 원반": folder({
+            fibre: { value: DEFAULT_STUDY.fibre, label: "켜기: 판은 원반, 아래로 섬유, 젊은 가장자리는 가시 (처짐·흩어짐 대신)" },
+            fibreGap: { value: DEFAULT_STUDY.fibreGap, min: 0.15, max: 2, step: 0.05, label: "섬유 간격 (월드)" },
+            fibreLen: { value: DEFAULT_STUDY.fibreLen, min: 0.3, max: 6, step: 0.1, label: "가장 긴 섬유 (월드)" },
+            disc: { value: DEFAULT_STUDY.disc, min: 0, max: 1.5, step: 0.05, label: "원반이 판 밖으로 뻗는 정도 (0 = 원반 없음)" },
+            discThick: { value: DEFAULT_STUDY.discThick, min: 0, max: 1, step: 0.05, label: "원반 가운데 두께 (월드)" },
+            spineLen: { value: DEFAULT_STUDY.spineLen, min: 0, max: 3, step: 0.05, label: "가시 길이 (월드, 0 = 없음)" },
+            fibreColor: { value: "#a8a8a8", label: "섬유 · 가시 색 (무채색)" },
+          }),
+        },
+        { render: () => isV2 },
+      ),
+      "엉김 (부재에 붙는 덩어리)": folder({
+        accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "세기 (0 = 끔)" },
+        accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "최대 두께 (월드)" },
+        lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (클수록 큰 뭉치; B 방의 울퉁불퉁함도)" },
+      }),
+      "융합 덩어리 (기본 방식)": folder({
+        gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "부풀림 (가까운 부재끼리 붙는 세기; B: 방 밖에선 약하게)" },
+        blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "붙는 거리 (복셀)" },
         skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 콘크리트 비율" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대가 삼켜지는 부식 정도 (>1 = 끝까지)" },
         skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대를 감싸는 두께 (1 = 다른 부재와 같게)" },
-        sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 처짐 (흘러내림)" },
-        scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 흩어짐" },
-        poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "구멍(구형 공극) 크기 (월드)" },
-        smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 (횟수, 0 = 각진 복셀)" },
+        sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 처짐 (D 켜면 꺼짐)" },
+        scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 흩어짐 (D 켜면 꺼짐)" },
+        porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "구형 공극 양 (C 켜면 꺼짐)" },
+        poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "구형 공극 크기 (월드)" },
       }),
       "표면 계산": folder(
         {
           voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀, 작을수록 무거움)" },
-          blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "엉김 반경 (복셀)" },
-          gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "엉김 세기" },
           iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "표면 문턱" },
+          smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 (횟수, 0 = 각진 복셀)" },
           natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물 비중" },
         },
         { collapsed: true },
@@ -1318,8 +1389,27 @@ export default function ParliamentSpace() {
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
       skeletonWrap: fu.skeletonWrap,
+      study: isV2
+        ? {
+            fill: fu.fill,
+            fillAmount: fu.fillAmount,
+            fillInset: fu.fillInset,
+            shell: fu.shell,
+            shellThick: fu.shellThick,
+            ribCell: fu.ribCell,
+            ribWidth: fu.ribWidth,
+            ribOpen: fu.ribOpen,
+            pits: fu.pits,
+            fibre: fu.fibre,
+            fibreGap: fu.fibreGap,
+            fibreLen: fu.fibreLen,
+            disc: fu.disc,
+            discThick: fu.discThick,
+            spineLen: fu.spineLen,
+          }
+        : undefined,
     }),
-    [fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.fibre, fu.fibreGap, fu.fibreLen, fu.disc, fu.discThick, fu.spineLen, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -1440,6 +1530,7 @@ export default function ParliamentSpace() {
           noAxis={isV2}
           walk={walkView}
           walkLook={walkLook}
+          fibreColor={fu.fibreColor}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />

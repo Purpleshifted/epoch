@@ -14,7 +14,7 @@
 import { foldWorld, latestS, withoutWear } from "./fold";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
@@ -359,12 +359,12 @@ export class SpaceModel {
     const presentSlots = Math.max(1, Math.round(rotOnsetSlots(input.weather)));
     // water from the sealed ground: open streams and buried pipes, laid anew where the quarter changed (rebuilt once
     // per slot, or when the buildings or the rule change)
-    const dKey = `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${seeds.length}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
+    const dKey = `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${seeds.length}:${presentSlots}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
     if (dKey !== this.drainKey) {
       this.drainKey = dKey;
-      const rule = `${box.secPerUnit}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
+      const rule = `${box.secPerUnit}:${presentSlots}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
       const kept = this.drainKept && this.drainKept.rule === rule ? this.drainKept : undefined;
-      this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t, frozen: kept });
+      this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t, frozen: kept, present: presentSlots });
       // the slots before the present are done: what was laid there stays
       // only what lies below the present thickness is done; the present keeps changing
       const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
@@ -375,14 +375,12 @@ export class SpaceModel {
     this.nearWater = this.drain.streams.size ? waterField(this.drain, 0, Math.floor(t / box.secPerUnit), input.water) : null;
     // V2: walkways where the flow is sustained (laid where the walked network changed; rebuilt once per slot)
     const wk = input.walk && input.fold.flow?.enabled ? input.walk : null;
-    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}:${presentSlots}:${this.drainKey}` : "-";
+    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}:${presentSlots}` : "-";
     if (wKey !== this.walkKey) {
       this.walkKey = wKey;
-      const rule = `${box.secPerUnit}:${box.unit}:${presentSlots}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}:${JSON.stringify(input.water)}`;
+      const rule = `${box.secPerUnit}:${box.unit}:${presentSlots}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}`;
       const kept = this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
-      // the pipes as obstacles of the walkways' pre-layer
-      const pipes = input.water.enabled ? { runs: this.drain.pipes, depth: input.water.pipeDepth } : undefined;
-      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, pipes, present: presentSlots }) : NO_WALKWAYS;
+      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, present: presentSlots }) : NO_WALKWAYS;
       const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
       this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;
     }
@@ -649,13 +647,15 @@ export class SpaceModel {
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       const d = q20(1 - wm.survival(b));
-      if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01) continue; // not corroding yet: nothing grows on it
+      // not corroding yet: nothing grows on it (B FILL: the plates are kept, they bound the rooms of the parts below)
+      if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
       const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse) };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
       else bySlot.set(b.slot, [e]);
     }
-    const padSlots = Math.ceil((fusePad(fuse).above * fuse.voxel + fuse.accDepth) / u) + 1;
+    const pad = fusePad(fuse);
+    const padSlots = Math.ceil((Math.max(pad.above, pad.below) * fuse.voxel + fuse.accDepth) / u) + 1 + (fuse.study?.fill ? FILL_MAX_GAP : 0);
     // the age clock in the keys moves once per chunk of slots (it only tints and pits), not every slot
     const clockKey = Math.floor(sed.tNow / (box.secPerUnit * NATURE_CHUNK));
     type Want = { c0: number; c1: number; ps: P[]; key: string };
@@ -799,7 +799,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   }
   if (m.fuse) {
     out.fuse = model.computeFuse(m.fuse);
-    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.index, out.fuse.lines]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   return { out, transfer: [...transfer] };
