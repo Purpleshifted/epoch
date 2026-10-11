@@ -75,14 +75,37 @@ function inject(schema: Item, prefix: string, saved: Record<string, unknown> | n
   return out;
 }
 
+/** A one-time change to a group's SAVED values (on this page): `set` replaces those keys, once per `tag`. */
+export interface SavedMigration {
+  tag: string;
+  set: Record<string, unknown>;
+}
+
+/** Applies a migration to the values saved under `key` (if any), once: a marker remembers it was done. */
+function migrateSaved(key: string, m: SavedMigration): void {
+  const marker = `${key}:migrated:${m.tag}`;
+  try {
+    if (window.localStorage.getItem(marker) !== null) return;
+    window.localStorage.setItem(marker, String(Date.now()));
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return; // nothing saved: the defaults apply anyway
+    const v = { ...(JSON.parse(raw) as Record<string, unknown>), ...m.set };
+    window.localStorage.setItem(key, JSON.stringify(v));
+    cache.delete(key);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 /**
  * The schema of a top-level Leva group `root` (or a folder path "group.folder" with its own row) with its saved values
  * (if any) and a save / reload row. `legacy`: the names the group had before (their saved values are taken as long as
  * nothing is saved under the new name). The type is the schema's own, so useControls infers its values as before.
  */
-export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = []): S {
+export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = [], migrations: readonly SavedMigration[] = []): S {
   if (typeof window === "undefined") return schema;
   const key = storageKey(root);
+  for (const m of migrations) migrateSaved(key, m);
   const paths = new Map<string, string>();
   const out = inject(schema as Item, root, loadWithLegacy(root, legacy), paths);
   out["__save"] = buttonGroup({

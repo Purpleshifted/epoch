@@ -113,7 +113,7 @@ const KIND_COLOR: Record<PartKind, string> = {
 const SPACE_FOLD = { radius: 2.75, threshold: 40, pourUnit: 111, minVisitors: 4, visitorCap: 20, maxHeight: 18, tauFootprintYears: 2000, emptyGapSec: 20 };
 /** V2 weathering defaults: the whole life of a part fits in the kept history window (see the 풍화 · 지층 Leva). */
 const V2_ROT_DOSE = 3;
-const V2_TIME_SCALE = 0.3;
+const V2_TIME_SCALE = 0.4;
 /** …and for the parts. */
 const SPACE_BOXES = { ...DEFAULT_BOXES, secPerUnit: 20, width: 0.8, density: 1.4 };
 
@@ -1083,7 +1083,7 @@ export default function ParliamentSpace() {
       gatherStart: { value: DEFAULT_WEATHER.gatherStart, min: 0, max: 60, step: 1, label: "식생이 모이기 시작하는 깊이 (현재에서 몇 단 아래)" },
       gatherRise: { value: DEFAULT_WEATHER.gatherRise, min: 0, max: 60, step: 1, label: "식생이 다 모이기까지 (단)" },
       // V2: the whole life (gathering → growths → fusion) fits in the kept history (log.ts KEEP_WINDOW_SEC, 60 slots of
-      // 20 s): rot from 9–18 slots down, growths by 20–30, fused by ~45 (the old values only began growing at the cut)
+      // 20 s): rot from 12–21 slots down, growths by 20–30, fused by ~40 (the old values only began growing at the cut)
       rotDose: { value: isV2 ? V2_ROT_DOSE : DEFAULT_WEATHER.rotDose, min: 0, max: 80, step: 0.5, label: "부패가 시작되는 모인 양 (밀도 × 함께 묻힌 단)" },
       timeScale: { value: isV2 ? V2_TIME_SCALE : DEFAULT_WEATHER.timeScale, min: 0.001, max: 1, step: 0.001, label: "풍화 속도" },
       ageJitter: { value: DEFAULT_WEATHER.ageJitter, min: 0, max: 1, step: 0.05, label: "풍화 오차 (부품마다 나이 ±)" },
@@ -1098,7 +1098,10 @@ export default function ParliamentSpace() {
         },
         { collapsed: true },
       ),
-    }),
+    },
+    [],
+    // V2: once, the saved values follow the defaults that fit the kept history (2026-10-11)
+    isV2 ? [{ tag: "fit-history-2026-10-11", set: { rotDose: V2_ROT_DOSE, timeScale: V2_TIME_SCALE } }] : []),
     { order: 7 },
   );
   const weather = useMemo<WeatherConfig>(
