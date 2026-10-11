@@ -7,6 +7,7 @@
 
 import type { PEvent, RoleId } from "./types";
 import { ROLES } from "./types";
+import { worldNow } from "./worldClock";
 
 export const LS_EVENTS_KEY = "anthropocene:parliament:v1";
 /** Shared with the older stratum code: the wall-clock moment the exhibition epoch began. */
@@ -181,16 +182,16 @@ export function saveMerged(local: Iterable<PEvent>, epochMs: number): boolean {
   return false;
 }
 
-/** Wall-clock ms at which the exhibition epoch began (created on first use). */
+/** World-clock ms (worldClock.ts) at which the exhibition epoch began (created on first use). */
 export function getEpochMs(): number {
   try {
     const raw = localStorage.getItem(LS_PARLIAMENT_EPOCH_KEY);
     if (raw) return Number(raw);
-    const now = Date.now();
+    const now = worldNow();
     localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(now));
     return now;
   } catch {
-    return Date.now();
+    return worldNow();
   }
 }
 

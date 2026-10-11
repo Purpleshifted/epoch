@@ -37,6 +37,7 @@ import {
   type PEvent,
   type RoleId,
   type Snapshot,
+  worldNow,
 } from "@/lib/parliament";
 import { NatureCloud } from "./NatureCloud";
 import { useTicker } from "./useTicker";
@@ -46,7 +47,8 @@ const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
 const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
 const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
-const KEEP_EVERY_MS = 30_000; // how often the history window moves on (older events are dropped everywhere)
+const KEEP_EVERY_MS = 30_000; // how often (world time) the history window moves on (older events are dropped everywhere)
+const KEEP_MIN_WALL_MS = 3000; // … but not more often than this in wall time (a fast world clock)
 
 export interface ParliamentDebug {
   role: RoleId;
@@ -94,6 +96,7 @@ export function RoleField({
   const botStartMs = useRef(0);
   const lastSaveMs = useRef(0);
   const lastKeepMs = useRef(0);
+  const lastKeepWall = useRef(0);
   const foldTimer = useRef(10);
   // the ticker reads the latest Leva values through this ref
   const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg });
@@ -120,7 +123,7 @@ export function RoleField({
       /* ignore */
     }
     // only the last KEEP_WINDOW_SEC before this session are kept (performance, for now)
-    setKeepFrom(sessionSeconds(Date.now(), epochMs.current, me.current.offset));
+    setKeepFrom(sessionSeconds(worldNow(), epochMs.current, me.current.offset));
     const flush = () => {
       if (pending.current.length) {
         saveMerged(pending.current, epochMs.current);
@@ -142,14 +145,16 @@ export function RoleField({
     pending.current.push(e);
   };
 
-  // ── emit presence and mirror to localStorage: wall clock, also while hidden ──
+  // ── emit presence and mirror to localStorage: world clock (worldClock.ts, may run faster than the wall clock) for
+  //    the samples and the bots, wall clock for the work done between them; also while hidden ──
   useTicker(TICK_MS, () => {
     if (epochMs.current === 0) return;
-    const now = Date.now();
+    const now = worldNow();
+    const wall = Date.now();
     const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg } = live.current;
     // V2: bots walk where others walked (bundling) and around buildings (detour)
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
-    if (flow && nBots > 0 && (!botGround.current || now - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
+    if (flow && nBots > 0 && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
       const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
       const snapAll = foldWorld(log.all(), tSess, foldCfg);
       const level = new Map<string, number>();
@@ -157,7 +162,7 @@ export function RoleField({
       const built = new Set<string>();
       // buildings in use now (a ruin — nobody around for longer than emptyGapSec — can be crossed)
       for (const sl of snapAll.slabs) if (sl.h >= SEAL_H && tSess - sl.lastS <= foldCfg.emptyGapSec) built.add(sl.key);
-      botGround.current = { at: now, level, built };
+      botGround.current = { at: wall, level, built };
       if (botRoutes.current.size > nBots * 4) botRoutes.current.clear(); // old migrations
     }
     const ground = flow ? botGround.current : null;
@@ -184,12 +189,14 @@ export function RoleField({
     }
 
     // the history window rolls on: only the last KEEP_WINDOW_SEC before now are kept (performance, for now)
-    if (now - lastKeepMs.current >= KEEP_EVERY_MS) {
+    // (in world time, but at most every KEEP_MIN_WALL_MS of wall time when the clock runs fast)
+    if (now - lastKeepMs.current >= KEEP_EVERY_MS && wall - lastKeepWall.current >= KEEP_MIN_WALL_MS) {
       lastKeepMs.current = now;
+      lastKeepWall.current = wall;
       setKeepFrom(sessionSeconds(now, epochMs.current, me.current.offset));
     }
-    if (now - lastSaveMs.current >= SAVE_EVERY_MS) {
-      lastSaveMs.current = now;
+    if (wall - lastSaveMs.current >= SAVE_EVERY_MS) {
+      lastSaveMs.current = wall;
       if (pending.current.length) {
         // false = this tab's epoch has ended; useWorld's poll makes it join the new one
         saveMerged(pending.current, epochMs.current);
@@ -201,7 +208,7 @@ export function RoleField({
   useFrame((_, delta) => {
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
-    const sMe = sessionSeconds(Date.now(), epochMs.current, me.current.offset);
+    const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
     const p = playerPosRef.current;
 
     // ── fold what this visitor can see at their own time ──

@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./clock";
+export * from "./worldClock";
 export * from "./fold";
 export * from "./log";
 export * from "./demo";

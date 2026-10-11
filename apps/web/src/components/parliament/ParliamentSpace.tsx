@@ -30,6 +30,9 @@ import {
   RECIPES,
   STEEL,
   clearWorld,
+  MAX_TIME_RATE,
+  setTimeRate,
+  timeRate,
   latestOf,
   latestS,
   loadEvents,
@@ -999,6 +1002,23 @@ export default function ParliamentSpace() {
     }),
     { order: 1 },
   );
+  // the world clock's rate (worldClock.ts): shared by every tab, so the player tabs and their bots run faster too;
+  // not saved with the group (it is the world's state, not a look)
+  const clock = useControls(
+    "시간축",
+    {
+      timeRate: {
+        value: timeRate(),
+        min: 1,
+        max: MAX_TIME_RATE,
+        step: 1,
+        label: "시간 배율 (모든 탭 공유, 1 = 실제 속도)",
+        onChange: (r: number) => setTimeRate(r),
+        transient: false, // also returned, for the readout
+      },
+    },
+    { order: 1 },
+  );
   const bld = useControls(
     "건물",
     savable("건물", {
@@ -1561,6 +1581,7 @@ export default function ParliamentSpace() {
         </div>
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
+        {clock.timeRate !== 1 && <div>time × {clock.timeRate} (1 step every {(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)</div>}
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}
