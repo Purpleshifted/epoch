@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, gatherAmount, rotOnsetSlots, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, halfHeight, wearModel, wearParts, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, FOUNDATION, gatherAmount, rotOnsetSlots, MATERIAL_OF_ROLE, PART_KINDS, RECIPES, STEEL, boxesOfSeed, carrySeeds, halfHeight, wearModel, wearParts, foldWorld, generateBoxes, occupiedSlots, seedsFromSnapshot, withoutWear, type Box, type PEvent, type Seed } from "./index";
 
 const C = 1.2;
 const stand = (o: string, x: number, z: number, s0: number, n: number): PEvent[] =>
@@ -425,5 +425,22 @@ describe("seeds: vegetation gathers first, then the part rots under it", () => {
     const sparse = wearModel([seed], tNow, { ...base, veg: () => 0 });
     const dense = wearModel([seed], tNow, { ...base, veg: () => 1 });
     expect(dense.survival(b(100 - 40))).toBeLessThan(sparse.survival(b(100 - 40)));
+  });
+});
+
+describe("carrySeeds: a moved history window does not make buildings new", () => {
+  const seed = (over: Partial<Seed>): Seed => ({ id: 1, material: "concrete", role: "worker", x: 1.8, z: 1.8, t0: 100, t1: 900, mass: 2, ...over });
+  it("a building whose birth moved later keeps its id, birth and lower spans; a new one after a death does not", () => {
+    const memo = new Map<string, Seed>();
+    carrySeeds([seed({ spans: [[100, 300], [400, 900]] })], memo, 20);
+    // after the cut the fold finds it again later, with a new id and less mass
+    const [c] = carrySeeds([seed({ id: 2, t0: 450, t1: 960, mass: 1.5, spans: [[450, 960]] })], memo, 20);
+    expect(c.id).toBe(1);
+    expect(c.t0).toBe(100);
+    expect(c.mass).toBe(2);
+    expect(c.spans).toEqual([[100, 300], [400, 960]]);
+    // a building in the same cell long after the old one died is new
+    const [d] = carrySeeds([seed({ id: 3, t0: 2000, t1: 2100, spans: [[2000, 2100]] })], memo, 20);
+    expect(d.id).toBe(3);
   });
 });

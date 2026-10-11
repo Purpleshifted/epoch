@@ -239,6 +239,35 @@ export function seedsFromSnapshot(snap: Pick<Snapshot, "slabs">, role: RoleId = 
 }
 
 /**
+ * HISTORY WINDOW: when the oldest events are dropped (log.ts keeps only a window), the fold runs again without them,
+ * and its accumulation does not come out the same: a building's birth moves later (by minutes, also for buildings born
+ * after the cut), so it would get a new id — new parts, a different shape — every time the window moves. `carrySeeds`
+ * gives such a seed back what it had: the id, the birth and the spans below its new birth (and the larger mass), so
+ * its parts stay what they were. A fresh seed is carried when its cell had a seed born earlier that lived on to within
+ * `gapSec` of the fresh one's birth (the same building; one that died before is a new one). `memo` (by cell) is
+ * updated with what is returned.
+ */
+export function carrySeeds(fresh: readonly Seed[], memo: Map<string, Seed>, gapSec: number): Seed[] {
+  return fresh.map((s) => {
+    const key = `${s.x},${s.z}`;
+    const old = memo.get(key);
+    let out = s;
+    if (old && old.t0 < s.t0 && old.t1 >= s.t0 - gapSec) {
+      const oldSpans = old.spans && old.spans.length ? old.spans : [[old.t0, old.t1] as [number, number]];
+      const newSpans = s.spans && s.spans.length ? s.spans : [[s.t0, s.t1] as [number, number]];
+      const below = oldSpans.filter(([a]) => a < s.t0).map(([a, b]) => [a, Math.min(b, s.t0)] as [number, number]);
+      const spans = [...below, ...newSpans.map(([a, b]) => [a, b] as [number, number])];
+      // the span cut at the window and its continuation are one
+      const i = below.length;
+      if (i > 0 && spans[i][0] - spans[i - 1][1] <= gapSec) spans.splice(i - 1, 2, [spans[i - 1][0], spans[i][1]]);
+      out = { ...s, id: old.id, t0: old.t0, spans, mass: Math.max(old.mass, s.mass) };
+    }
+    memo.set(key, out);
+    return out;
+  });
+}
+
+/**
  * The time slots of a seed that get parts: every slot that one of its spans touches (ascending), at most the latest
  * `maxSlots`. A slot in which nobody was around is EMPTY TIME and gets nothing.
  */

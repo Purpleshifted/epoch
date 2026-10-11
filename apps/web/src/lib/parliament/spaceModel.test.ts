@@ -84,9 +84,9 @@ describe("SpaceModel: what the worker computes", () => {
     const m = new SpaceModel();
     m.add(late);
     const off = m.computeParts({ ...parts(), fuse: { ...DEFAULT_FUSE, enabled: false } })!;
-    const on = m.computeParts(parts())!;
-    expect(on.parts).toBeLessThan(off.parts); // fused parts are absorbed into the mass
-    expect(on.counts.column + on.counts.beam + on.counts.brace).toBe(off.counts.column + off.counts.beam + off.counts.brace); // steel stays
+    // before the mass is drawn, nothing is absorbed: no part disappears ahead of the mass that takes its place
+    const early = m.computeParts(parts())!;
+    expect(early.parts).toBe(off.parts);
     const input = { box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, tauReclaimYears: 300 };
     // chunks are built a few per call: call until it settles (null = nothing left to build)
     let mesh = m.computeFuse(input)!;
@@ -98,6 +98,9 @@ describe("SpaceModel: what the worker computes", () => {
     expect(m.computeFuse(input)).toBeNull();
     expect(mesh.index.length).toBeGreaterThan(0);
     expect(mesh.index.length % 3).toBe(0);
+    const on = m.computeParts(parts())!;
+    expect(on.parts).toBeLessThan(off.parts); // fused parts are absorbed into the (drawn) mass
+    expect(on.counts.column + on.counts.beam + on.counts.brace).toBe(off.counts.column + off.counts.beam + off.counts.brace); // steel stays
   }, 120_000);
 
   it("under a moving present every chunk with something on it gets its mesh (no starvation)", () => {

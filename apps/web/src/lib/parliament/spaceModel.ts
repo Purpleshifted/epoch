@@ -17,7 +17,7 @@ import { geoYears } from "@/lib/stratum/geoClock";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
-import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
+import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
 import { NO_WALKWAYS, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
@@ -246,6 +246,16 @@ export class SpaceModel {
   private seedsKey = "";
   private partCache = new Map<number, { key: string; parts: Box[] }>();
   private partsSig = "";
+  /** Seeds by cell as last folded: kept through reset (a moved history window), see carrySeeds. */
+  private seedMemo = new Map<string, Seed>();
+  /** The latest time before the last reset: a world that starts again far earlier is a new world (memo cleared). */
+  private tBeforeReset = 0;
+  /** The decay each part had in the fused mass as last drawn (computeFuse): it is absorbed only as far as that. */
+  private fusedAt = new WeakMap<Box, number>();
+  /** Counts mass chunks built, so the parts follow what the mass has taken. */
+  private fuseBuilt = 0;
+  /** The earliest event's time (the history window's cut); parts below it are not drawn. */
+  private cutS = Infinity;
   private built: Box[] = [];
   private worn: Box[] = [];
   /** The weathering of the last computed parts (null without wear). */
@@ -279,10 +289,15 @@ export class SpaceModel {
       if (e.s > this.t) this.t = e.s;
       this.version++;
     }
+    if (this.tBeforeReset > 0 && this.t > 0) {
+      if (this.t < this.tBeforeReset - 120) this.seedMemo.clear(); // a new world, not a moved window
+      this.tBeforeReset = 0;
+    }
   }
 
   /** Forgets every event (the world was cleared). */
   reset(): void {
+    this.tBeforeReset = Math.max(this.tBeforeReset, this.t);
     this.events = [];
     this.ids.clear();
     this.t = 0;
@@ -302,7 +317,12 @@ export class SpaceModel {
     if (key !== this.seedsKey) {
       this.seedsKey = key;
       // fold without wear (this view is history); wear is applied to the parts instead
-      this.seeds = this.events.length ? seedsFromSnapshot(foldWorld(this.events, latestS(this.events), withoutWear(fold))) : [];
+      const fresh = this.events.length ? seedsFromSnapshot(foldWorld(this.events, latestS(this.events), withoutWear(fold))) : [];
+      let cut = Infinity;
+      for (const e of this.events) if (e.s < cut) cut = e.s;
+      this.cutS = cut;
+      // a building that began before the history window keeps its id, birth and shape (seeds.carrySeeds)
+      this.seeds = carrySeeds(fresh, this.seedMemo, fold.emptyGapSec);
     }
     return this.seeds;
   }
@@ -329,13 +349,14 @@ export class SpaceModel {
         lodSig = (lodSig * 31 + s.id) % 1e9;
       }
     }
-    const sig = `${this.seedsKey}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${far.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${far.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
 
     const order = [...seeds].sort((a, b) => a.t0 - b.t0 || a.id - b.id);
     const built: Box[] = [];
     const live = new Set<number>();
+    const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
     for (const s of order) {
       const isFar = far.has(s.id);
       const slots = occupiedSlots(s, box);
@@ -346,7 +367,8 @@ export class SpaceModel {
         this.partCache.set(s.id, hit);
       }
       live.add(s.id);
-      for (const b of hit.parts) built.push(b);
+      // nothing below the history window (a carried seed still has its slots below it)
+      for (const b of hit.parts) if (b.slot >= floorK) built.push(b);
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
     const w = input.weather;
@@ -418,7 +440,8 @@ export class SpaceModel {
       if (!survival || !fu.enabled || !w.strata || STEEL_KINDS.has(b.kind)) return false;
       const d = 1 - survival(b);
       if (isSkeleton(b, d, fu)) return false;
-      const f = fusedShare(d, fu);
+      // only as far as the mass that takes its place is already drawn (it is built a few chunks at a time)
+      const f = fusedShare(Math.min(d, this.fusedAt.get(b) ?? 0), fu);
       return f > 0 && partHash(b) < Math.min(1, f * 1.6);
     };
     const shown = worn.filter((b) => !absorbed(b));
@@ -703,6 +726,8 @@ export class SpaceModel {
         cfg: fuse,
       });
       this.fuseChunks.set(w.c0, { key: w.key, mesh });
+      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
+      this.fuseBuilt++;
     }
     const pending = todo.length > FUSE_NEW_PER_CALL;
     const out: FuseMesh[] = [];
