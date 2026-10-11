@@ -45,7 +45,7 @@ describe("water from sealed ground: open streams, buried pipes", () => {
     const seeds = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
     const d = drainage([], seeds, DEFAULT_WATER, opts);
     const first = Math.min(...d.pipes.map((p) => p.k));
-    const runs = d.pipes.filter((p) => p.k === first);
+    const runs = d.pipes.filter((p) => p.k === first && p.k0 === undefined);
     // the runs of one epoch form one connected graph (ends meet ends or lie on other runs)
     const key = (x: number, z: number) => `${cellOf(x)},${cellOf(z)}`;
     const cells = (p: (typeof runs)[number]) => {
@@ -78,7 +78,7 @@ describe("water from sealed ground: open streams, buried pipes", () => {
 
   it("laid anew only when something changes: a still quarter keeps one layer, a new building adds one at its time", () => {
     const still = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
-    const layers = (seeds: Seed[]) => new Set(drainage([], seeds, DEFAULT_WATER, opts).pipes.map((p) => p.k));
+    const layers = (seeds: Seed[]) => new Set(drainage([], seeds, DEFAULT_WATER, opts).pipes.filter((p) => p.k0 === undefined).map((p) => p.k));
     expect(layers(still).size).toBe(1);
     const later = [...still, ...block(300, 8, 8, 5, 5, 300)]; // a fourth block from t = 300 (slot 15)
     const ks = layers(later);
@@ -90,6 +90,31 @@ describe("water from sealed ground: open streams, buried pipes", () => {
     const d = drainage([], [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)], DEFAULT_WATER, opts);
     const segs = pipeSegments(d.pipes, 1, { ...DEFAULT_WATER, pipeDepth: 2 });
     for (let i = 0; i < d.pipes.length; i++) expect(segs[i * 7 + 1]).toBeCloseTo(d.pipes[i].k - 2, 6);
+  });
+
+  it("what was laid stays: later changes lay new layers on top, the kept pipes are not redrawn", () => {
+    const first = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
+    const a = drainage([], first, DEFAULT_WATER, opts);
+    const kept = { pipes: a.pipes, streams: a.streams, upToK: 20 };
+    // a new block next to the others (from t = 300 = slot 15, before upToK): it would change the old routes
+    const more = [...first, ...block(300, 8, 8, 5, 5, 300)];
+    const b = drainage([], more, DEFAULT_WATER, { ...opts, frozen: kept });
+    for (const p of a.pipes) expect(b.pipes).toContainEqual(p);
+    expect(b.pipes.filter((p) => p.k <= 20)).toHaveLength(a.pipes.length);
+  });
+
+  it("MANHOLES: where a new network runs through the old one still in use, a vertical shaft joins them", () => {
+    const later = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5), ...block(300, 8, 8, 5, 5, 300)];
+    const d = drainage([], later, DEFAULT_WATER, opts);
+    const risers = d.pipes.filter((p) => p.k0 !== undefined);
+    expect(risers.length).toBeGreaterThan(0);
+    for (const r of risers) {
+      expect(r.k0!).toBeLessThan(r.k);
+      expect(r.ax).toBe(r.bx);
+      expect(r.az).toBe(r.bz);
+    }
+    const segs = pipeSegments(risers, 1, DEFAULT_WATER);
+    expect(segs[4]).toBeGreaterThan(segs[1]); // runs up from the older network
   });
 
   it("a lone small building in open land sheds an open stream, no pipe", () => {

@@ -36,7 +36,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { cellKey, flowLevel, flowP, flowTracks, stayShares, type FlowConfig, type Track } from "./flow";
+import { cellKey, flowP, flowTracks, stayShares, type FlowConfig, type Track } from "./flow";
 import { hash2 } from "./nature";
 import type { Seed } from "./seeds";
 import type { PEvent } from "./types";
@@ -162,6 +162,8 @@ export interface PipeRun {
   bz: number;
   k: number;
   flow: number;
+  /** A RISER (a manhole shaft): vertical at (ax, az) from the network laid in slot k0 up to the one laid in k. */
+  k0?: number;
 }
 
 /** The water of the whole history. */
@@ -180,6 +182,11 @@ export interface DrainageOptions {
   flow: FlowConfig;
   /** Present (exhibition seconds): the last epoch ends here. */
   tNow: number;
+  /**
+   * What was laid before and must not change: its pipes and streams up to slot `upToK` are kept as they are (only
+   * later layers are laid by this call, joining the kept pipes).
+   */
+  frozen?: { pipes: readonly PipeRun[]; streams: ReadonlyMap<number, Float32Array[]>; upToK: number };
 }
 
 /** Cells of room around everything (sources, buildings) in which routes may run. */
@@ -219,6 +226,17 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
 
   const buildings = buildingsOf(seeds, cfg);
   const piped = new Uint8Array(n); // cells a pipe has been laid through (persist)
+  const inGrid = (cx: number, cz: number) => cx >= x0 && cz >= z0 && cx < x0 + nx && cz < z0 + nz;
+  // the kept pipes are there already: new routes join them
+  for (const p of opts.frozen?.pipes ?? []) {
+    const steps = Math.max(1, Math.round(Math.hypot(p.bx - p.ax, p.bz - p.az) / CELL_SIZE));
+    for (let i = 0; i <= steps; i++) {
+      const cx = Math.floor((p.ax + ((p.bx - p.ax) * i) / steps) / CELL_SIZE), cz = Math.floor((p.az + ((p.bz - p.az) * i) / steps) / CELL_SIZE);
+      if (inGrid(cx, cz)) piped[idx(cx, cz)] = 1;
+    }
+  }
+  // the network laid last (cell → its slot): where a new network meets it, a manhole shaft joins the two
+  let lastNet = new Map<number, number>();
 
   const streams = new Map<number, Float32Array[]>();
   const pipes: PipeRun[] = [];
@@ -312,6 +330,8 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     const e = k;
     courses = [];
     const pipeEdges = new Set<string>(); // this epoch's runs "a>b" (cell indices), each drawn once
+    const net = new Map<number, number>();
+    const risen = new Set<number>();
 
     // QUARTERS: dense buildings near each other share one sewer network and one outfall
     for (const quarter of quartersOf(dense, cfg.quarterGap)) {
@@ -348,13 +368,25 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
         }
       }
       for (const r of routes) {
-        for (const c of r) piped[c] = 1;
+        for (const c of r) {
+          piped[c] = 1;
+          net.set(c, e);
+        }
         for (const [a2, z2] of straightRuns(r, nx)) {
           const key = `${a2}>${z2}`;
           if (pipeEdges.has(key) || pipeEdges.has(`${z2}>${a2}`)) continue;
           pipeEdges.add(key);
           const [ax, az] = centre(a2), [bx, bz] = centre(z2);
           pipes.push({ ax, az, bx, bz, k: e, flow: Math.max(flowAt[a2], flowAt[z2], 1) });
+          // MANHOLES: at the joints (ends, bends, junctions) where the new network runs through the cells of the one
+          // still in use below it, a vertical shaft joins them (sewers at different levels meet in drop manholes)
+          for (const c of [a2, z2]) {
+            const below = lastNet.get(c);
+            if (below === undefined || below >= e || risen.has(c)) continue;
+            risen.add(c);
+            const [cx, cz] = centre(c);
+            pipes.push({ ax: cx, az: cz, bx: cx, bz: cz, k: e, k0: below, flow: Math.max(flowAt[c], 1) });
+          }
         }
       }
       // the outfall: the water comes out into the open and runs on
@@ -365,9 +397,15 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       const r = routeOut([b], block, path, piped, nx, nz, idx, cfg, isOpen);
       if (r) courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
     }
+    if (net.size) lastNet = net;
     if (courses.length) streams.set(k, courses);
   }
-  return { streams, pipes };
+  // what was laid before stays as it was: only the later layers are new
+  const fz = opts.frozen;
+  if (!fz) return { streams, pipes };
+  const kept = new Map(fz.streams);
+  for (const [k, c] of streams) if (k > fz.upToK) kept.set(k, c);
+  return { streams: kept, pipes: [...fz.pipes, ...pipes.filter((p) => p.k > fz.upToK)] };
 }
 
 /**
@@ -662,6 +700,11 @@ export function pipeSegments(pipes: readonly PipeRun[], unit: number, cfg: Water
   const out = new Float32Array(pipes.length * 7);
   pipes.forEach((p, i) => {
     const y = (p.k - cfg.pipeDepth) * unit;
+    if (p.k0 !== undefined) {
+      // a manhole shaft: from the older network up to this one
+      out.set([p.ax, (p.k0 - cfg.pipeDepth) * unit, p.az, p.bx, y, p.bz, cfg.pipeRadius * 1.6], i * 7);
+      return;
+    }
     out.set([p.ax, y, p.az, p.bx, y, p.bz, cfg.pipeRadius * Math.sqrt(Math.max(1, p.flow))], i * 7);
   });
   return out;

@@ -47,7 +47,9 @@ import {
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
+  DEFAULT_WALK,
   DEFAULT_WATER,
+  type WalkConfig,
   type WaterConfig,
   DEFAULT_FUSE,
   type FuseConfig,
@@ -241,6 +243,32 @@ function setPipes(mesh: THREE.InstancedMesh | null, pipes: Float32Array): void {
   mesh.instanceMatrix.needsUpdate = true;
 }
 
+const WALK_CAPACITY = 40000;
+
+/** V2 walkways: boxes [x, y, z, sx, sy, sz, yaw] × n into the instanced mesh, wires into the line set. */
+function setWalk(mesh: THREE.InstancedMesh | null, lines: THREE.LineSegments | null, w: { boxes: Float32Array; wires: Float32Array }): void {
+  if (mesh) {
+    const n = Math.min(w.boxes.length / 7, WALK_CAPACITY);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      const o = i * 7;
+      pos.set(w.boxes[o], w.boxes[o + 1], w.boxes[o + 2]);
+      sc.set(w.boxes[o + 3], w.boxes[o + 4], w.boxes[o + 5]);
+      q.setFromEuler(e.set(0, w.boxes[o + 6], 0));
+      m.compose(pos, q, sc);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+  if (lines) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(w.wires, 3));
+    lines.geometry.dispose();
+    lines.geometry = g;
+  }
+}
+
 function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined): void {
   if (!pts || !r) return;
   const g = new THREE.BufferGeometry();
@@ -396,6 +424,7 @@ function SpaceWorld({
   water,
   nearFade,
   noAxis,
+  walk,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -420,6 +449,8 @@ function SpaceWorld({
   nearFade: [number, number];
   /** V2: no time axis drawn (the timespace floats, without ground or axis). */
   noAxis: boolean;
+  /** V2: walkways on the sustained paths (walkways.ts); null = none. */
+  walk: WalkConfig | null;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -448,9 +479,11 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats });
+  const walkMesh = useRef<THREE.InstancedMesh>(null);
+  const wireLines = useRef<THREE.LineSegments>(null);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
@@ -509,6 +542,7 @@ function SpaceWorld({
         ax.geometry = g;
       }
       setPipes(pipeMesh.current, p.pipes);
+      setWalk(walkMesh.current, wireLines.current, p.walk);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
@@ -558,7 +592,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu, water: wa } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk } = live.current;
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     if (events.length < sent.current) {
@@ -578,7 +612,7 @@ function SpaceWorld({
     const lod = { camera: cam, near, farFactor: ff };
     const id = ++seq.current;
     const withNature = !!nat && id % NATURE_EVERY === 1;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, edges: e, lod } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
     if (withNature && nat) {
       const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
@@ -644,6 +678,14 @@ function SpaceWorld({
         <cylinderGeometry args={[1, 1, 1, 10]} />
         <meshStandardMaterial color="#7c7f84" roughness={0.55} metalness={0.25} />
       </instancedMesh>
+      <instancedMesh ref={walkMesh} args={[undefined, undefined, WALK_CAPACITY]} count={0} frustumCulled={false} visible={!!walk} castShadow receiveShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#d6d7d9" roughness={0.9} metalness={0.05} />
+      </instancedMesh>
+      <lineSegments ref={wireLines} frustumCulled={false} visible={!!walk}>
+        <bufferGeometry />
+        <lineBasicMaterial color="#8a8d92" />
+      </lineSegments>
       <lineSegments ref={axis} frustumCulled={false} visible={!noAxis}>
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
@@ -1153,6 +1195,42 @@ export default function ParliamentSpace() {
         : null,
     [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap],
   );
+  const wlk = useControls(
+    "다리 길 (유지되는 유통량)",
+    savable("다리 길 (유지되는 유통량)", {
+      walkOn: { value: DEFAULT_WALK.enabled, label: "켜기 (V2)", render: () => isV2 },
+      buildAt: { value: DEFAULT_WALK.buildAt, min: 0.1, max: 0.99, step: 0.01, label: "다리가 되는 길 세기 (유지된 유통량)", render: () => isV2 },
+      walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "다시 놓는 변화 (강한 길 칸이 이만큼 바뀌면)", render: () => isV2 },
+      walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "다시 놓는 최소 간격 (단)", render: () => isV2 },
+      deckWidth: { value: DEFAULT_WALK.deckWidth, min: 0.2, max: 2, step: 0.05, label: "상판 최소 폭 (월드; 넓은 길은 더 넓게)", render: () => isV2 },
+      fenceHeight: { value: DEFAULT_WALK.fenceHeight, min: 0, max: 1.5, step: 0.05, label: "펜스 높이 (월드)", render: () => isV2 },
+      deckThick: { value: DEFAULT_WALK.deckThick, min: 0.02, max: 0.6, step: 0.01, label: "상판 두께 (월드)", render: () => isV2 },
+      pierSpacing: { value: DEFAULT_WALK.pierSpacing, min: 0, max: 12, step: 0.5, label: "받침 간격 (월드; 꺾이는 곳에도, 0 = 없음)", render: () => isV2 },
+      pierDepth: { value: DEFAULT_WALK.pierDepth, min: 0.5, max: 12, step: 0.5, label: "받침 길이 (아래로 몇 단)", render: () => isV2 },
+      mastSpacing: { value: DEFAULT_WALK.mastSpacing, min: 0, max: 30, step: 0.5, label: "마스트·와이어 간격 (월드; 0 = 없음)", render: () => isV2 },
+      mastHeight: { value: DEFAULT_WALK.mastHeight, min: 0.5, max: 10, step: 0.5, label: "마스트 높이 (위로 몇 단)", render: () => isV2 },
+    }),
+    { order: 5.6, collapsed: true, render: () => isV2 },
+  );
+  const walkView = useMemo<WalkConfig | null>(
+    () =>
+      isV2 && wlk.walkOn
+        ? {
+            enabled: true,
+            buildAt: wlk.buildAt,
+            change: wlk.walkChange,
+            minGapSlots: wlk.walkGap,
+            deckWidth: wlk.deckWidth,
+            deckThick: wlk.deckThick,
+            fenceHeight: wlk.fenceHeight,
+            pierSpacing: wlk.pierSpacing,
+            pierDepth: wlk.pierDepth,
+            mastSpacing: wlk.mastSpacing,
+            mastHeight: wlk.mastHeight,
+          }
+        : null,
+    [isV2, wlk.walkOn, wlk.buildAt, wlk.walkChange, wlk.walkGap, wlk.deckWidth, wlk.deckThick, wlk.fenceHeight, wlk.pierSpacing, wlk.pierDepth, wlk.mastSpacing, wlk.mastHeight],
+  );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(
     "엉김 · 융합 · 레진",
@@ -1341,6 +1419,7 @@ export default function ParliamentSpace() {
           water={waterView}
           nearFade={v.nearFade}
           noAxis={isV2}
+          walk={walkView}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />

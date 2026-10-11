@@ -20,7 +20,8 @@ import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
-import { NO_DRAINAGE, drainage, pipeSegments, waterDistance, waterField, type Drainage, type WaterConfig } from "./water";
+import { NO_WALKWAYS, walkways, type WalkConfig, type Walkways } from "./walkways";
+import { NO_DRAINAGE, drainage, pipeSegments, waterDistance, waterField, type Drainage, type PipeRun, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -151,8 +152,10 @@ export interface PartsInput {
   weather: WeatherConfig;
   /** Layers old enough are fused into one mesh (computeFuse); their parts dissolve here. */
   fuse: FuseConfig;
-  /** Waterways between buildings the same people built (water.ts); they hasten the corrosion near them. */
+  /** Water from the sealed ground (water.ts): open streams hasten the corrosion near them; pipes are drawn. */
   water: WaterConfig;
+  /** V2: walkways where the flow of people is sustained (walkways.ts); absent / null = none. */
+  walk?: WalkConfig | null;
   edges: boolean;
   lod: LodConfig;
 }
@@ -174,6 +177,8 @@ export interface PartsResult {
   pipeRuns: number;
   /** Pipe cylinders [ax, ay, az, bx, by, bz, radius] × n (water.pipeSegments). */
   pipes: Float32Array;
+  /** V2 walkways: boxes [x, y, z, sx, sy, sz, yaw] × n and wire segments [a, b] × n. */
+  walk: { boxes: Float32Array; wires: Float32Array };
   t: number;
   top: number;
   minX: number;
@@ -251,6 +256,10 @@ export class SpaceModel {
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
   private drain: Drainage = NO_DRAINAGE;
   private drainKey = "";
+  /** What water has laid in the slots already past: kept as it is (same rule); reset when the rule changes. */
+  private drainKept: { rule: string; pipes: PipeRun[]; streams: Map<number, Float32Array[]>; upToK: number } | null = null;
+  private walks: Walkways = NO_WALKWAYS;
+  private walkKey = "";
   private nearWater: ((ix: number, iz: number, k: number) => number) | null = null;
   private waterCfg: WaterConfig | null = null;
   private fuseSig = "";
@@ -278,6 +287,7 @@ export class SpaceModel {
     this.version++;
     this.partCache.clear();
     this.chunks.clear();
+    this.drainKept = null;
   }
 
   get latest(): number {
@@ -347,9 +357,23 @@ export class SpaceModel {
     const dKey = `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${seeds.length}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
     if (dKey !== this.drainKey) {
       this.drainKey = dKey;
-      this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t });
+      const rule = `${box.secPerUnit}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
+      const kept = this.drainKept && this.drainKept.rule === rule ? this.drainKept : undefined;
+      this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t, frozen: kept });
+      // the slots before the present are done: what was laid there stays
+      const upToK = Math.floor(t / box.secPerUnit) - 1;
+      const streams = new Map<number, Float32Array[]>();
+      for (const [k, c] of this.drain.streams) if (k <= upToK) streams.set(k, c);
+      this.drainKept = { rule, pipes: this.drain.pipes.filter((p) => p.k <= upToK), streams, upToK };
     }
     this.nearWater = this.drain.streams.size ? waterField(this.drain, 0, Math.floor(t / box.secPerUnit), input.water) : null;
+    // V2: walkways where the flow is sustained (laid where the walked network changed; rebuilt once per slot)
+    const wk = input.walk && input.fold.flow?.enabled ? input.walk : null;
+    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}` : "-";
+    if (wKey !== this.walkKey) {
+      this.walkKey = wKey;
+      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t }) : NO_WALKWAYS;
+    }
     const near = this.nearWater;
     const water = near && input.water.corrode > 0 ? (b: Box) => near(Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) * input.water.corrode : undefined;
     const wearCfg = {
@@ -439,6 +463,7 @@ export class SpaceModel {
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
       pipes: pipeSegments(this.drain.pipes, box.unit, input.water),
+      walk: { boxes: this.walks.boxes.slice(), wires: this.walks.wires.slice() },
       t,
       top,
       minX,
@@ -749,6 +774,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
       transfer.add(out.parts.pipes.buffer as ArrayBuffer);
+      transfer.add(out.parts.walk.boxes.buffer as ArrayBuffer).add(out.parts.walk.wires.buffer as ArrayBuffer);
     }
   }
   if (m.nature) {
