@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, accretionShare, fuseChunk, fusedShare, gatheringShare, isResin, isSkeleton, mergeMeshes, natureHistory, type Box, type FuseMesh, type PEvent } from "./index";
+import { DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_STUDY, accretionShare, fuseChunk, fusedShare, gatheringShare, isResin, isSkeleton, mergeMeshes, natureHistory, type Box, type FuseMesh, type PEvent } from "./index";
 
 const SPU = 30;
 const sed = { tNow: 3000, secPerUnit: SPU, timeScale: 0.02, tauYears: 600 };
@@ -156,5 +156,71 @@ describe("resin: the oldest layers become a translucent body", () => {
     const merged = mergeMeshes([a, b]);
     expect(merged.resinStart).toBe(a.resinStart + b.resinStart);
     expect(merged.index.length).toBe(a.index.length + b.index.length);
+  });
+});
+
+describe("form study (V2): fill, shell, fibre", () => {
+  // one building: a plinth, masses in slots 3–6 and a slab over them (a room of 4 slots)
+  const bld: Box[] = [
+    part({ kind: "plinth", x: 2, y: 2.85, z: 2, sx: 3.2, sy: 0.3, sz: 3.2, slot: 2 }),
+    part({ kind: "slab", x: 2, y: 7.05, z: 2, sx: 3.6, sy: 0.1, sz: 3.6, slot: 7 }),
+  ];
+  for (let k = 3; k <= 6; k++) bld.push(part({ x: 1.6 + (k % 2) * 0.8, y: k + 0.5, z: 2, sx: 0.8, sy: 0.9, sz: 0.8, slot: k }));
+  const decay = bld.map((b) => (b.kind === "mass" ? 0.9 : 0.2));
+  const cfgOf = (over: Partial<typeof DEFAULT_STUDY>) => ({ ...DEFAULT_FUSE, study: { ...DEFAULT_STUDY, ...over } });
+  const room = { ...base, parts: bld, decay, standing: bld.map(() => true), x0: -1, z0: -1, nx: 6, nz: 6, k0: 0, k1: 9 };
+
+  it("all switches off = the mass as before (V1 stays the same)", () => {
+    expect(fuseChunk({ ...room, cfg: cfgOf({}) })).toEqual(fuseChunk({ ...room, cfg: DEFAULT_FUSE }));
+  });
+
+  it("B FILL: the plates are the frame; the mass fills the room below the slab, inside its footprint", () => {
+    const cfg = cfgOf({ fill: true });
+    expect(isSkeleton(bld[1], 0.5, cfg)).toBe(true);
+    expect(isSkeleton(bld[1], 0.5, { ...cfg, skeleton: 0 })).toBe(true);
+    expect(isSkeleton(bld[1], 0.5, { ...DEFAULT_FUSE, skeleton: 0 })).toBe(false);
+    const m = fuseChunk({ ...room, cfg });
+    const vs = verts(m);
+    // the room is filled up to the ceiling (just under the slab), between the masses too
+    expect(vs.some(([x, y]) => y > 6.3 && y < 7 && Math.abs(x - 2) > 1)).toBe(true);
+    expect(fuseChunk({ ...room, cfg: DEFAULT_FUSE }).position.length).toBeLessThan(m.position.length);
+    // and it hardly swells past the building (the slab's footprint + a little)
+    const swell = (mm: FuseMesh) => Math.max(...verts(mm).map(([x, , z]) => Math.max(Math.abs(x - 2), Math.abs(z - 2))));
+    expect(swell(m)).toBeLessThan(swell(fuseChunk({ ...room, cfg: DEFAULT_FUSE })) + 0.5);
+    // no room without a building between the plates
+    const plates = { ...room, parts: bld.slice(0, 2), decay: decay.slice(0, 2) };
+    expect(fuseChunk({ ...plates, cfg }).index.length).toBe(fuseChunk({ ...plates, cfg: DEFAULT_FUSE }).index.length);
+  });
+
+  it("C SHELL: the mass is hollow (an inner surface) and opened by cells", () => {
+    const big: Box[] = [];
+    for (let k = 3; k <= 8; k++) big.push(part({ x: 2, y: k + 0.5, z: 2, sx: 3.2, sy: 1, sz: 3.2, slot: k }));
+    const block = { ...base, parts: big, decay: big.map(() => 1), standing: big.map(() => false), k0: 0, k1: 9 };
+    const flat = { sag: 0, scatter: 0, porosity: 0 };
+    const solid = fuseChunk({ ...block, cfg: { ...DEFAULT_FUSE, ...flat } });
+    const closed = fuseChunk({ ...block, cfg: { ...cfgOf({ shell: true, ribOpen: 0 }), ...flat } });
+    const open = fuseChunk({ ...block, cfg: { ...cfgOf({ shell: true, ribOpen: 1 }), ...flat } });
+    // a vertex well inside the outer surface (|x − 2| ≈ 2.6) exists only once it is hollow
+    const inner = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.abs(x - 2) < 2 && Math.abs(z - 2) < 2 && y > 4.5 && y < 7.5);
+    expect(inner(solid)).toBe(false);
+    expect(inner(closed)).toBe(true);
+    expect(open.index.length).not.toBe(closed.index.length);
+  });
+
+  it("D FIBRE: vertical lines hang below the mass; discs round the plates; nothing without the switch", () => {
+    expect(fuseChunk({ ...room, cfg: DEFAULT_FUSE }).lines.length).toBe(0);
+    const m = fuseChunk({ ...room, cfg: cfgOf({ fibre: true }) });
+    expect(m.lines.length).toBeGreaterThan(0);
+    expect(m.lines.length % 6).toBe(0);
+    let down = 0;
+    for (let i = 0; i < m.lines.length; i += 6) if (m.lines[i + 4] < m.lines[i + 1]) down++;
+    expect(down).toBeGreaterThan(m.lines.length / 6 / 2); // mostly hanging
+    // the disc reaches past the slab's edge
+    const past = (mm: FuseMesh) => verts(mm).some(([x, y]) => Math.abs(y - 7.05) < 0.5 && Math.abs(x - 2) > 1.8 + 0.3);
+    expect(past(m)).toBe(true);
+    expect(past(fuseChunk({ ...room, cfg: cfgOf({ fibre: true, disc: 0 }) }))).toBe(false);
+    // merged across chunks
+    const a = fuseChunk({ ...room, k1: 4, cfg: cfgOf({ fibre: true }) }), b = fuseChunk({ ...room, k0: 5, cfg: cfgOf({ fibre: true }) });
+    expect(mergeMeshes([a, b]).lines.length).toBe(a.lines.length + b.lines.length);
   });
 });

@@ -22,6 +22,16 @@
  *   4 RESIN       the oldest layers (sediment share ≥ `resinShare`) are a second face group (FuseMesh.resinStart …) for a
  *                 translucent material; their standing parts stay visible inside
  *
+ * FORM STUDY (V2, `cfg.study`; all off = the mass wraps the parts as above). Three ways for the same mass, to compare:
+ *   B FILL     the mass FILLS the room between a building's plates (refs 9645, 9659): it hangs from the plate above and
+ *              grows down to the one below as the parts in the room fuse; the plates stay sharp (a frame, like the
+ *              skeleton) and the mass hardly swells past the building
+ *   C SHELL    the mass is a SHELL, hollow inside (9649, 9662), opened by cells that touch each other so only RIBS remain
+ *              between them (Voronoi, refs 9664–9668, 9648); dark pits on its surface (colour only). Replaces the round voids
+ *   D FIBRE    plates round into DISCS (shelf fungi), and below every underside of the mass hang thin vertical FIBRES
+ *              (lines) down to the next mass or their length (9666, 9714); the young layers' edges end in horizontal
+ *              SPINES from the discs' rims (9648). Replaces the sag and the scattered fragments
+ *
  * The field is sampled on a GLOBAL voxel grid (spacing `voxel`) and meshed in chunks of whole slots. Every chunk
  * computes its field with padding, so neighbouring chunks agree on their shared vertices; each face belongs to the one
  * chunk that owns its edge, so nothing is drawn twice. Pure and deterministic.
@@ -72,7 +82,68 @@ export interface FuseConfig {
   skeletonUntil: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
+  /** FORM STUDY (V2): other ways for the mass; absent = none (the mass wraps the parts). */
+  study?: FuseStudy;
 }
+
+/** The form study's switches and numbers (see the file header: B FILL, C SHELL, D FIBRE). Any can be combined. */
+export interface FuseStudy {
+  /** B: the mass fills the rooms between a building's plates; the plates stay sharp. */
+  fill: boolean;
+  /** B: how full a room gets once its parts have fused (1 = to the plate below). */
+  fillAmount: number;
+  /** B: how far the fill keeps back from the plate's edges (world). */
+  fillInset: number;
+  /** C: the mass is a hollow shell with rib-edged openings. */
+  shell: boolean;
+  /** C: shell thickness (voxels). */
+  shellThick: number;
+  /** C: size of the opening cells (world). */
+  ribCell: number;
+  /** C: width of the ribs between open cells (world). */
+  ribWidth: number;
+  /** C: share of the cells that open (× layer age: the old layers are most open). */
+  ribOpen: number;
+  /** C: dark pits on the surface (0 = none). */
+  pits: number;
+  /** D: fibres under the mass, discs at the plates, spines at young edges. */
+  fibre: boolean;
+  /** D: spacing of the fibres (world). */
+  fibreGap: number;
+  /** D: longest fibre (world). */
+  fibreLen: number;
+  /** D: how far a disc reaches past its plate (× the plate's half size, at full decay); 0 = no discs. */
+  disc: number;
+  /** D: extra thickness of a disc at its centre (world, at full decay). */
+  discThick: number;
+  /** D: longest spine from a young disc's rim (world); 0 = none. */
+  spineLen: number;
+}
+
+export const DEFAULT_STUDY: FuseStudy = {
+  fill: false,
+  fillAmount: 1,
+  fillInset: 0.25,
+  shell: false,
+  shellThick: 2,
+  ribCell: 1.6,
+  ribWidth: 0.3,
+  ribOpen: 0.6,
+  pits: 0.5,
+  fibre: false,
+  fibreGap: 0.45,
+  fibreLen: 2.5,
+  disc: 0.6,
+  discThick: 0.25,
+  spineLen: 0.9,
+};
+
+/** B FILL: the plates that bound a room (they stay sharp as frame). */
+export const FRAME_KINDS: ReadonlySet<Box["kind"]> = new Set<Box["kind"]>(["slab", "plinth"]);
+/** B FILL: the tallest room between two plates (slots); taller = not one room (empty time lies between). */
+export const FILL_MAX_GAP = 6;
+/** B FILL: how much the blurred mass may still swell outside the rooms (× gain). */
+const FILL_OUTSIDE = 0.35;
 
 export const DEFAULT_FUSE: FuseConfig = {
   enabled: true,
@@ -102,16 +173,21 @@ const SKELETON_KINDS = new Set<Box["kind"]>(["slab", "mass", "plinth", "basement
 
 /** Whether a part is skeleton at this decay: it keeps its form (is drawn, not absorbed) and the mass only wraps it. */
 export function isSkeleton(b: Box, decay: number, cfg: FuseConfig): boolean {
-  if (!cfg.enabled || cfg.skeleton <= 0 || !SKELETON_KINDS.has(b.kind) || decay >= cfg.skeletonUntil) return false;
+  if (!cfg.enabled || !SKELETON_KINDS.has(b.kind) || decay >= cfg.skeletonUntil) return false;
+  if (cfg.study?.fill && FRAME_KINDS.has(b.kind)) return true; // B FILL: the plates are the frame
+  if (cfg.skeleton <= 0) return false;
   // its own hash, independent of the absorption order
   return (partHash(b) * 7.31) % 1 < cfg.skeleton;
 }
 
 /** Sample rows of padding a chunk needs: below (blur, smoothing) and above (also the sag hanging down into it). */
 export function fusePad(cfg: FuseConfig): { below: number; above: number } {
-  const below = Math.max(2, Math.round(cfg.blur) * 2 + 2) + 2 * Math.max(0, Math.round(cfg.smooth));
-  const sagRows = cfg.sag > 0.01 ? Math.min(10, Math.ceil(Math.log(0.03) / Math.log(Math.min(0.95, cfg.sag)))) : 0;
-  return { below, above: below + sagRows };
+  const st = cfg.study;
+  // C: the shell's interior is found by a blur of its own; D: fibres hang down into the rows below
+  const base = Math.max(2, Math.round(cfg.blur) * 2 + 2) + 2 * Math.max(0, Math.round(cfg.smooth)) + (st?.shell ? Math.round(st.shellThick) : 0);
+  const fibreRows = st?.fibre ? Math.ceil(st.fibreLen / cfg.voxel) + 1 : 0;
+  const sagRows = !st?.fibre && cfg.sag > 0.01 ? Math.min(10, Math.ceil(Math.log(0.03) / Math.log(Math.min(0.95, cfg.sag)))) : 0;
+  return { below: base + fibreRows, above: base + sagRows };
 }
 
 type Sediment = NonNullable<NaturePointOptions["sediment"]>;
@@ -153,9 +229,11 @@ export interface FuseMesh {
   /** Opaque faces first, then the resin faces from `resinStart` on. */
   index: Uint32Array;
   resinStart: number;
+  /** D FIBRE: line segments [a, b] × n (fibres and spines); empty otherwise. */
+  lines: Float32Array;
 }
 
-const EMPTY: FuseMesh = { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0), index: new Uint32Array(0), resinStart: 0 };
+const EMPTY: FuseMesh = { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0), index: new Uint32Array(0), resinStart: 0, lines: new Float32Array(0) };
 
 /** Whether slot k has become resin. */
 export function isResin(k: number, sed: Sediment, cfg: FuseConfig): boolean {
@@ -217,6 +295,31 @@ function voids(x: number, y: number, z: number, size: number): number {
     if (d < r) best = Math.max(best, 1 - d / r);
   }
   return best;
+}
+
+/**
+ * Voronoi of one jittered point per cell of size `s` (y stretched by `ys`, so the cells are upright ovals): writes the
+ * distances to the nearest and second-nearest point and the nearest point's hash (0..1) into `out`.
+ */
+function voronoi(x: number, y: number, z: number, s: number, ys: number, out: Float64Array): void {
+  const sx = Math.max(0.2, s), sy = sx * ys;
+  const cx = Math.floor(x / sx), cy = Math.floor(y / sy), cz = Math.floor(z / sx);
+  let d1 = Infinity, d2 = Infinity, id = 0;
+  for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const X = cx + dx, Y = cy + dy, Z = cz + dz;
+    const px = (X + 0.1 + 0.8 * lat(X, Y, Z, 101)) * sx;
+    const py = (Y + 0.1 + 0.8 * lat(X, Y, Z, 102)) * sy;
+    const pz = (Z + 0.1 + 0.8 * lat(X, Y, Z, 103)) * sx;
+    const d = Math.hypot(x - px, y - py, z - pz);
+    if (d < d1) {
+      d2 = d1;
+      d1 = d;
+      id = lat(X, Y, Z, 104);
+    } else if (d < d2) d2 = d;
+  }
+  out[0] = d1;
+  out[1] = d2;
+  out[2] = id;
 }
 
 /** Vertex neighbours from quads (a b c d flip owned), as CSR. */
@@ -341,6 +444,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const { cfg, unit, sediment: sed, history: h } = input;
   if (!cfg.enabled || input.nx <= 0 || input.nz <= 0) return EMPTY;
   const vs = cfg.voxel;
+  const iso0 = cfg.iso;
   const { below: pad, above: padTop } = fusePad(cfg);
   // global sample indices: X = round(x / vs) etc.
   const I0 = Math.floor((input.x0 * CELL_SIZE) / vs) - pad;
@@ -376,6 +480,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       if (arr[p] < v) arr[p] = v;
     }
   };
+  const st = cfg.study;
+  // D: plates round into discs (a field of their own, not blurred); their rims carry the spines
+  const Dd = st?.fibre && st.disc > 0 ? new Float32Array(n) : null;
+  const discs: { x: number; y: number; z: number; rx: number; rz: number }[] = [];
   let any = false;
   for (let pi = 0; pi < input.parts.length; pi++) {
     const b = input.parts[pi];
@@ -398,14 +506,90 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       fill(A, b.x - hx * 0.9, b.x + hx * 0.9, b.y - hy - d * 0.7, b.y - hy + vs, b.z - hz * 0.9, b.z + hz * 0.9, r * cfg.accretion * 0.8);
       any = true;
     }
+    // D DISC: a plate rounds into a disc, thickest at its centre, reaching past its edges as it decays
+    const g = Math.max(f, r);
+    if (Dd && st && FRAME_KINDS.has(b.kind) && g > 0.01) {
+      const rx = hx * (1 + st.disc * g), rz = hz * (1 + st.disc * g), hc = hy + st.discThick * g;
+      const ia = Math.max(0, Math.ceil((b.x - rx) / vs) - I0), ib = Math.min(nx - 1, Math.floor((b.x + rx) / vs) - I0);
+      const ja = Math.max(0, Math.ceil((b.y - hc - vs) / vs) - J0), jb = Math.min(ny - 1, Math.floor((b.y + hc + vs) / vs) - J0);
+      const ka = Math.max(0, Math.ceil((b.z - rz) / vs) - K0), kb = Math.min(nz - 1, Math.floor((b.z + rz) / vs) - K0);
+      for (let k = ka; k <= kb; k++) for (let i = ia; i <= ib; i++) {
+        const ux = ((I0 + i) * vs - b.x) / rx, uz = ((K0 + k) * vs - b.z) / rz;
+        const r2 = ux * ux + uz * uz;
+        if (r2 >= 1) continue;
+        const h = vs * 0.55 + hc * Math.pow(1 - r2, 0.6); // never thinner than the grid can hold
+        for (let j = ja; j <= jb; j++) {
+          const v = (iso0 + 0.6) * Math.max(0, Math.min(1, 0.5 + (h - Math.abs((J0 + j) * vs - b.y)) / vs));
+          const p = idx(i, j, k);
+          if (v > Dd[p]) Dd[p] = v;
+        }
+      }
+      if (b.y >= Jlo * vs && b.y < Jhi * vs) discs.push({ x: b.x, y: b.y, z: b.z, rx, rz });
+      any = true;
+    }
   }
   if (!any) return EMPTY;
+
+  // B FILL: the rooms between a building's plates. A room spans from the top of one plate to the underside of the next
+  // one up (the same seed, at most FILL_MAX_GAP slots: never across empty time), under the upper plate's footprint, and
+  // only where the building's masses stood. As those masses fuse, the mass hangs from the ceiling and grows down to the
+  // floor, its sides lumpy and kept back from the plate's edges; drips differ from column to column.
+  const Fl = st?.fill ? new Float32Array(n) : null;
+  const room = st?.fill ? new Uint8Array(n) : null;
+  if (st && Fl && room) {
+    const bySeed = new Map<number, number[]>();
+    for (let pi = 0; pi < input.parts.length; pi++) {
+      const b = input.parts[pi];
+      if (b.tilt || (b.kind !== "mass" && !FRAME_KINDS.has(b.kind))) continue;
+      const l = bySeed.get(b.seed);
+      if (l) l.push(pi);
+      else bySeed.set(b.seed, [pi]);
+    }
+    const lf = 1 / Math.max(0.1, cfg.lump);
+    for (const list of bySeed.values()) {
+      const plates = list.filter((pi) => FRAME_KINDS.has(input.parts[pi].kind)).sort((a, b) => input.parts[a].y - input.parts[b].y);
+      for (let t = 0; t + 1 < plates.length; t++) {
+        const lo = input.parts[plates[t]], hi = input.parts[plates[t + 1]];
+        const yb = lo.y + halfHeight(lo), yt = hi.y - halfHeight(hi);
+        if (yt - yb < 2 * vs || yt - yb > FILL_MAX_GAP * unit || yt < yLo || yb > yHi) continue;
+        const ax0 = hi.x - hi.sx / 2, ax1 = hi.x + hi.sx / 2, az0 = hi.z - hi.sz / 2, az1 = hi.z + hi.sz / 2;
+        // how far the room's parts have fused (their mean); none = no building here
+        let sum = 0, cnt = 0;
+        for (const pi of list) {
+          const m = input.parts[pi];
+          if (m.kind !== "mass" || m.y <= yb || m.y >= yt) continue;
+          if (m.x + m.sx / 2 < ax0 || m.x - m.sx / 2 > ax1 || m.z + m.sz / 2 < az0 || m.z - m.sz / 2 > az1) continue;
+          sum += fusedShare(input.decay ? input.decay[pi] : 1, cfg);
+          cnt++;
+        }
+        const a = cnt ? sum / cnt : 0;
+        if (a <= 0) continue;
+        const ia = Math.max(0, Math.ceil(ax0 / vs) - I0), ib = Math.min(nx - 1, Math.floor(ax1 / vs) - I0);
+        const ja = Math.max(0, Math.ceil(yb / vs) - J0), jb = Math.min(ny - 1, Math.floor(yt / vs) - J0);
+        const ka = Math.max(0, Math.ceil(az0 / vs) - K0), kb = Math.min(nz - 1, Math.floor(az1 / vs) - K0);
+        for (let k = ka; k <= kb; k++) for (let i = ia; i <= ib; i++) {
+          const x = (I0 + i) * vs, z = (K0 + k) * vs;
+          const reach = a * st.fillAmount * (0.55 + 0.9 * noise3(x * 0.9, 0, z * 0.9, 111)); // per column: drips
+          for (let j = ja; j <= jb; j++) {
+            const p = idx(i, j, k);
+            room[p] = 1;
+            const y = (J0 + j) * vs;
+            const edge = Math.min(x - ax0, ax1 - x, z - az0, az1 - z);
+            const side = smoothRamp(edge - st.fillInset + (noise3(x * lf, y * lf, z * lf, 112) - 0.5) * 0.9, 0, 0.6);
+            const down = smoothRamp(reach - (yt - y) / (yt - yb), 0, 0.15);
+            const v = (iso0 + 0.8) * side * down;
+            if (v > Fl[p]) Fl[p] = v;
+          }
+        }
+      }
+    }
+  }
 
   const tmp = new Float32Array(n);
   const Cb = C.slice();
   blur3(Cb, tmp, nx, ny, nz, Math.round(cfg.blur));
   // SAG: the mass hangs down — each row keeps a share of the row above it, more in some columns than others (drips)
-  if (cfg.sag > 0.01) {
+  if (cfg.sag > 0.01 && !st?.fibre) {
     const sag = Math.min(0.95, cfg.sag);
     for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
       const s = sag * (0.55 + 0.45 * noise3((I0 + i) * vs * 0.8, 0, (K0 + k) * vs * 0.8, 51));
@@ -452,12 +636,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   for (let k = 0; k < nz; k++) {
     for (let j = 0; j < ny; j++) {
       const q = rowQ[j];
-      const por = cfg.porosity * q;
+      const por = st?.shell ? 0 : cfg.porosity * q; // C: the openings replace the round voids
       const gain = cfg.gain * (0.55 + 0.9 * q); // bottom-heavy
-      const scat = cfg.scatter * (1 - q);
+      const scat = st?.fibre ? 0 : cfg.scatter * (1 - q); // D: the spines replace the fragments
       for (let i = 0; i < nx; i++) {
         const p = idx(i, j, k);
-        let f = Math.max(C[p], gain * Cb[p]) + A[p] + N[p];
+        // B: outside the rooms the mass hardly swells past its parts
+        let f = Math.max(C[p], gain * Cb[p] * (room && !room[p] ? FILL_OUTSIDE : 1)) + A[p] + N[p];
+        if (Fl && Fl[p] > f) f = Fl[p];
+        if (Dd && Dd[p] > f) f = Dd[p];
         if (f <= iso * 0.5 || (por <= 0 && scat <= 0)) {
           F[p] = f;
           continue;
@@ -470,6 +657,33 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         }
         if (por > 0 && f > iso) f -= por * 1.6 * smoothRamp(voids(x, y, z, cfg.poreSize), 0, 0.35);
         F[p] = f;
+      }
+    }
+  }
+
+  // C SHELL: hollow the mass (whatever lies deeper than the shell's thickness), then open some of the cells that touch
+  // each other so only ribs remain between them; old layers are opened most
+  if (st?.shell) {
+    const r = Math.max(1, Math.round(st.shellThick));
+    const S = new Float32Array(n);
+    for (let p = 0; p < n; p++) S[p] = F[p] > iso ? 1 : 0;
+    blur3(S, tmp, nx, ny, nz, r);
+    for (let p = 0; p < n; p++) {
+      const w = F[p] > iso ? smoothRamp(S[p], 0.86, 0.985) : 0;
+      if (w > 0) F[p] -= (F[p] - iso + 0.25) * w;
+    }
+    const vo = new Float64Array(3);
+    const half = st.ribWidth / 2;
+    for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) {
+      const open = st.ribOpen * (0.35 + 0.65 * rowQ[j]);
+      if (open <= 0) continue;
+      for (let i = 0; i < nx; i++) {
+        const p = idx(i, j, k);
+        if (F[p] <= iso - 0.25) continue;
+        voronoi((I0 + i) * vs, (J0 + j) * vs, (K0 + k) * vs, st.ribCell, 1.35, vo);
+        if (vo[2] >= open) continue;
+        const carve = smoothRamp((vo[1] - vo[0]) / 2, half, half + vs);
+        if (carve > 0) F[p] -= (F[p] - iso + 0.25) * carve;
       }
     }
   }
@@ -522,7 +736,9 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         const jit = 0.88 + 0.24 * hash2(I0 + i, (J0 + j) * 7919 + K0 + k, 13);
         const streak = noise3(vx * 1.7, vy * 0.35, vz * 1.7, 31); // vertical stains
         const brown = Math.min(1, 0.25 + 0.55 * streak + 0.4 * (N[p] / tot));
-        const dark = 1 - 0.35 * q;
+        let dark = 1 - 0.35 * q;
+        // C: dark pits on the shell (colour only)
+        if (st?.shell && st.pits > 0) dark *= 1 - 0.7 * st.pits * smoothRamp(noise3(vx * 3.2, vy * 3.2, vz * 3.2, 83), 0.7, 0.78);
         for (let c = 0; c < 3; c++) {
           const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;
           const growc = GROWTH[c] + (DULL_BROWN[c] - GROWTH[c]) * Math.min(1, q * 1.2);
@@ -580,20 +796,96 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const index = new Uint32Array(ind.length + resinInd.length);
   index.set(ind);
   index.set(resinInd, ind.length);
-  return { position: P, normal: Nn, color: Float32Array.from(col), index, resinStart: ind.length };
+  return { position: P, normal: Nn, color: Float32Array.from(col), index, resinStart: ind.length, lines: st?.fibre ? fibreLines(F, input, { I0, J0, K0, nx, ny, nz, Jlo, Jhi }, discs) : EMPTY.lines };
+}
+
+/**
+ * D FIBRE: thin vertical lines under every underside of the mass (on a jittered lattice of the world, the same in
+ * every chunk), down to the next mass below or their length, swaying a little; and horizontal spines from the rims of
+ * the young discs. Each line belongs to the chunk whose rows hold its start.
+ */
+function fibreLines(
+  F: Float32Array,
+  input: FuseChunkInput,
+  g: { I0: number; J0: number; K0: number; nx: number; ny: number; nz: number; Jlo: number; Jhi: number },
+  discs: readonly { x: number; y: number; z: number; rx: number; rz: number }[],
+): Float32Array {
+  const { cfg, unit, sediment: sed } = input;
+  const st = cfg.study!;
+  const vs = cfg.voxel, iso = cfg.iso;
+  const { I0, J0, K0, nx, ny, nz, Jlo, Jhi } = g;
+  const idx = (i: number, j: number, k: number) => (k * ny + j) * nx + i;
+  const out: number[] = [];
+  const sway = (x: number, y: number, z: number, salt: number) => (noise3(x * 1.3, y * 0.6, z * 1.3, salt) - 0.5) * 0.18;
+  const gap = Math.max(0.15, st.fibreGap);
+  const A0 = Math.ceil(((I0 + 1) * vs) / gap), A1 = Math.floor(((I0 + nx - 2) * vs) / gap);
+  const B0 = Math.ceil(((K0 + 1) * vs) / gap), B1 = Math.floor(((K0 + nz - 2) * vs) / gap);
+  for (let B = B0; B <= B1; B++) for (let A = A0; A <= A1; A++) {
+    if (lat(A, 0, B, 90) > 0.75) continue;
+    const px = (A + 0.15 + 0.7 * lat(A, 0, B, 91)) * gap, pz = (B + 0.15 + 0.7 * lat(A, 0, B, 92)) * gap;
+    const i = Math.round(px / vs) - I0, k = Math.round(pz / vs) - K0;
+    if (i < 0 || i >= nx || k < 0 || k >= nz) continue;
+    for (let j = Math.min(ny - 2, Jhi - J0 - 1); j >= Math.max(0, Jlo - J0); j--) {
+      const fa = F[idx(i, j, k)], fb = F[idx(i, j + 1, k)];
+      if (!(fb > iso && fa <= iso)) continue; // an underside: mass above, air below
+      const ys = (J0 + j + (iso - fa) / (fb - fa)) * vs;
+      const len = st.fibreLen * (0.25 + 0.75 * lat(A, J0 + j, B, 93));
+      let ye = Math.max(J0 * vs, ys - len);
+      for (let jj = j - 1; jj >= 0 && (J0 + jj + 1) * vs > ye; jj--) {
+        const f0 = F[idx(i, jj, k)], f1 = F[idx(i, jj + 1, k)];
+        if (f0 > iso) {
+          ye = Math.max(ye, (J0 + jj + (iso - f0) / (f1 - f0)) * vs); // reached the mass below: a strand between them
+          break;
+        }
+      }
+      if (ys - ye < vs * 0.5) continue;
+      const m = Math.max(1, Math.ceil((ys - ye) / 0.6));
+      let lx = px, ly = ys, lz = pz;
+      for (let s = 1; s <= m; s++) {
+        const y = ys + ((ye - ys) * s) / m;
+        const x = px + sway(px, y, pz, 94), z = pz + sway(px, y, pz, 95);
+        out.push(lx, ly, lz, x, y, z);
+        lx = x;
+        ly = y;
+        lz = z;
+      }
+    }
+  }
+  // spines: from the rims of the discs in the young layers, outwards and a little down
+  if (st.spineLen > 0) {
+    for (const d of discs) {
+      const q = sedimentShare(Math.floor(d.y / unit), sed);
+      const reach = st.spineLen * (1 - q);
+      if (reach < 0.05) continue;
+      const cnt = Math.max(6, Math.min(64, Math.round((2 * Math.PI * Math.sqrt((d.rx * d.rx + d.rz * d.rz) / 2)) / gap)));
+      for (let s = 0; s < cnt; s++) {
+        const h = hash2(Math.round(d.x * 97) + s, Math.round(d.z * 89) + Math.round(d.y * 13), 96);
+        if (h > 0.8) continue;
+        const a = ((s + 0.5 * h) / cnt) * Math.PI * 2;
+        const cx = Math.cos(a), cz = Math.sin(a);
+        const L = reach * (0.3 + 0.7 * hash2(s, Math.round(d.y * 31), 97));
+        const x0 = d.x + cx * d.rx * 0.97, z0 = d.z + cz * d.rz * 0.97;
+        out.push(x0, d.y, z0, x0 + cx * L, d.y - 0.08 * L, z0 + cz * L);
+      }
+    }
+  }
+  return Float32Array.from(out);
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
 export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
-  let nv = 0, ni = 0, nr = 0;
+  let nv = 0, ni = 0, nr = 0, nl = 0;
   for (const p of parts) {
     nv += p.position.length;
     ni += p.index.length;
     nr += p.index.length - p.resinStart;
+    nl += p.lines.length;
   }
-  const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), index: new Uint32Array(ni), resinStart: ni - nr };
-  let ov = 0, oo = 0, or = ni - nr;
+  const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), index: new Uint32Array(ni), resinStart: ni - nr, lines: new Float32Array(nl) };
+  let ov = 0, oo = 0, or = ni - nr, ol = 0;
   for (const p of parts) {
+    out.lines.set(p.lines, ol);
+    ol += p.lines.length;
     out.position.set(p.position, ov);
     out.normal.set(p.normal, ov);
     out.color.set(p.color, ov);
