@@ -76,6 +76,22 @@ describe("water from sealed ground: open streams, buried pipes", () => {
     expect(Math.max(...runs.map((p) => p.flow))).toBeGreaterThan(Math.min(...runs.map((p) => p.flow)));
   });
 
+  it("laid anew only when something changes: a still quarter keeps one layer, a new building adds one at its time", () => {
+    const still = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
+    const layers = (seeds: Seed[]) => new Set(drainage([], seeds, DEFAULT_WATER, opts).pipes.map((p) => p.k));
+    expect(layers(still).size).toBe(1);
+    const later = [...still, ...block(300, 8, 8, 5, 5, 300)]; // a fourth block from t = 300 (slot 15)
+    const ks = layers(later);
+    expect(ks.size).toBe(2);
+    expect(ks.has(15)).toBe(true);
+  });
+
+  it("pipes lie buried: pipeDepth slots below the slot they were laid in", () => {
+    const d = drainage([], [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)], DEFAULT_WATER, opts);
+    const segs = pipeSegments(d.pipes, 1, { ...DEFAULT_WATER, pipeDepth: 2 });
+    for (let i = 0; i < d.pipes.length; i++) expect(segs[i * 7 + 1]).toBeCloseTo(d.pipes[i].k - 2, 6);
+  });
+
   it("a lone small building in open land sheds an open stream, no pipe", () => {
     const d = drainage([], [seed(1, 0, 0)], DEFAULT_WATER, opts);
     expect(d.pipes).toHaveLength(0);

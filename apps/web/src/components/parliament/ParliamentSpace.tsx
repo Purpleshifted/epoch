@@ -1103,7 +1103,9 @@ export default function ParliamentSpace() {
       imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
       pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "포장된 길로 볼 길 세기" },
       diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "관의 45° 꺾임 (0 = 직각만)" },
-      everySlots: { value: DEFAULT_WATER.everySlots, min: 1, max: 60, step: 1, label: "배수망을 다시 까는 간격 (단)" },
+      change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "배수망을 다시 까는 변화 (덮인 땅이 이만큼 바뀌면; 건물이 생기거나 떠나도)" },
+      minGapSlots: { value: DEFAULT_WATER.minGapSlots, min: 1, max: 30, step: 1, label: "다시 까는 최소 간격 (단)" },
+      pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "관이 묻히는 깊이 (현재보다 몇 단 아래)" },
       persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤에도 물이 나오는 시간 (s)" },
       pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 모일수록 굵어짐)" },
       quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
@@ -1129,7 +1131,9 @@ export default function ParliamentSpace() {
         ? {
             enabled: true,
             join: wtr.join,
-            everySlots: wtr.everySlots,
+            change: wtr.change,
+            minGapSlots: wtr.minGapSlots,
+            pipeDepth: wtr.pipeDepth,
             imperviousRadius: wtr.imperviousRadius,
             burial: wtr.burial,
             openShare: wtr.openShare,
@@ -1147,7 +1151,7 @@ export default function ParliamentSpace() {
             quarterGap: wtr.quarterGap,
           }
         : null,
-    [wtr.waterOn, wtr.join, wtr.everySlots, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap],
+    [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap],
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6 });
   const fu = useControls(

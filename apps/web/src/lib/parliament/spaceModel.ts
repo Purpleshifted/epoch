@@ -342,10 +342,9 @@ export class SpaceModel {
     const veg = h ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
     // waterways between buildings the same people built: nearness per (cell, slot) over the whole history
     this.waterCfg = input.water;
-    // water from the sealed ground: open streams and buried pipes, laid out per epoch (rebuilt when an epoch begins,
-    // the buildings or the rule change)
-    const every = Math.max(1, Math.round(input.water.everySlots));
-    const dKey = `${Math.floor(t / (box.secPerUnit * every))}:${box.secPerUnit}:${seeds.length}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
+    // water from the sealed ground: open streams and buried pipes, laid anew where the quarter changed (rebuilt once
+    // per slot, or when the buildings or the rule change)
+    const dKey = `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${seeds.length}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
     if (dKey !== this.drainKey) {
       this.drainKey = dKey;
       this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t });

@@ -6,7 +6,9 @@
  * streams respond to the SEALED SHARE of their surroundings (the Impervious Cover Model: impacted from ~10 %, past
  * ~25 % buried in pipes; "urban stream burial").
  *
- *   EPOCHS       the drainage is laid out anew every `everySlots` slots, at the epoch's start time t
+ *   CHANGES      the drainage is laid anew when the quarter CHANGES (a building comes into use or leaves, a quarter
+ *                gets dense enough to pipe, or the sealed ground changes by `change`), at most every `minGapSlots` —
+ *                so the layers of pipes differ where something happened, not at a fixed beat
  *   SEALED       a cell is sealed at t when a building stands on it (its seed was born by t) or a path is paved on
  *                it (path strength ≥ `pathAt`, flow.ts); its SEALED SHARE is the sealed fraction within
  *                `imperviousRadius` cells
@@ -21,8 +23,9 @@
  *                too (`diagonal`); straight runs, bends at the cells where the direction changes
  *   PIPE / OPEN  a building in a sealed quarter (the mean sealed share over its cells ≥ `burial`) drains through a
  *                PIPE all the way to the outlet (a storm sewer and its outfall): buried, drawn as straight grey
- *                conduits — the whole network of an epoch at the epoch's slot, so every layer of the timespace
- *                shows the sewers of its time beside its buildings, and keeps them (a technofossil). From the outfall — or right
+ *                conduits — the whole network each time it is laid, a little below that slot (`pipeDepth`: buried
+ *                under the ground of its present), so the layers show the sewers of their time beside their
+ *                buildings and keep them (a technofossil). From the outfall — or right
  *                from its edge, for a building in open land — the water runs as an OPEN stream (a clear channel in
  *                the vegetation, lined with wetland) for `streamLength` before it soaks away
  *   SIZE         a pipe's or stream's flow is the runoff of everything upstream: trunks thicker than branches
@@ -42,8 +45,13 @@ export interface WaterConfig {
   enabled: boolean;
   /** Seeds within this many cells belong to the same building. */
   join: number;
-  /** The drainage is laid out anew every this many slots. */
-  everySlots: number;
+  /** The drainage is laid anew when the sealed ground changed by this share of itself (or a building came or went,
+   * or a quarter got dense enough to pipe or no longer is). */
+  change: number;
+  /** …but not more often than every this many slots. */
+  minGapSlots: number;
+  /** Pipes are buried: they lie this many slots below the slot they were laid in (deeper = older ground). */
+  pipeDepth: number;
   /** Cells around a cell over which its sealed share is taken. */
   imperviousRadius: number;
   /** Sealed share from which water runs in a pipe. */
@@ -79,7 +87,9 @@ export interface WaterConfig {
 export const DEFAULT_WATER: WaterConfig = {
   enabled: true,
   join: 1,
-  everySlots: 10,
+  change: 0.15,
+  minGapSlots: 2,
+  pipeDepth: 1.5,
   imperviousRadius: 3,
   burial: 0.25,
   openShare: 0.1,
@@ -187,7 +197,6 @@ const COST_GROUND = 1;
 export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg: WaterConfig, opts: DrainageOptions): Drainage {
   if (!cfg.enabled || !seeds.length) return NO_DRAINAGE;
   const spu = opts.secPerUnit;
-  const every = Math.max(1, Math.round(cfg.everySlots));
   // paths from the movement (the same rule for V1 and V2: water reads paths, it does not make them)
   const pres = events.filter((e) => e.r === "worker" && e.k === "p");
   pres.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -216,8 +225,24 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
 
   const kLast = Math.floor(opts.tNow / spu);
   const kFirst = Math.floor(Math.min(...buildings.map((b) => b.t0)) / spu);
-  for (let e = Math.floor(kFirst / every) * every; e <= kLast; e += every) {
-    const t = e * spu;
+  // paths, read slot by slot: each track's decayed sum carried forward (one pass over its treads)
+  const trackList = [...tracks].filter(([key]) => {
+    const [cx, cz] = key.split(",").map(Number);
+    return cx >= x0 && cz >= z0 && cx < x0 + nx && cz < z0 + nz;
+  });
+  const trackCell = trackList.map(([key]) => {
+    const [cx, cz] = key.split(",").map(Number);
+    return idx(cx, cz);
+  });
+  const tGc = new Float64Array(trackList.length), tGq = new Float64Array(trackList.length), tAt = new Float64Array(trackList.length), tNext = new Int32Array(trackList.length);
+  const tau = opts.flow.tauSec;
+  // the state the network was last laid for (laid anew only when it changes enough)
+  let laidSealed: Uint8Array | null = null;
+  let laidDense = "";
+  let laidK = -Infinity;
+  let courses: Float32Array[] = [];
+  for (let k = kFirst; k <= kLast; k++) {
+    const t = k * spu;
     // sealed ground at t: standing buildings and paved paths
     const sealed = new Uint8Array(n);
     const block = new Int32Array(n).fill(-1); // building on the cell (impassable)
@@ -230,13 +255,21 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       }
     }
     const path = new Uint8Array(n);
-    for (const [key, tr] of tracks) {
-      const [cx, cz] = key.split(",").map(Number);
-      if (cx < x0 || cz < z0 || cx >= x0 + nx || cz >= z0 + nz) continue;
-      if (flowP(flowLevel(tr, t, opts.flow.tauSec), opts.flow) >= cfg.pathAt) {
-        const c = idx(cx, cz);
-        path[c] = 1;
-        sealed[c] = 1;
+    for (let i = 0; i < trackList.length; i++) {
+      const tr = trackList[i][1];
+      const dec = Math.exp(-(t - tAt[i]) / tau);
+      tGc[i] *= dec;
+      tGq[i] *= dec;
+      tAt[i] = t;
+      while (tNext[i] < tr.s.length && tr.s[tNext[i]] <= t) {
+        const j = tNext[i]++;
+        const w = tr.a[j] * Math.exp(-(t - tr.s[j]) / tau);
+        tGc[i] += w * tr.c[j];
+        tGq[i] += w * tr.q[j];
+      }
+      if (flowP(Math.hypot(tGc[i], tGq[i]), opts.flow) >= cfg.pathAt) {
+        path[trackCell[i]] = 1;
+        sealed[trackCell[i]] = 1;
       }
     }
     // sealed share (box sum over the radius, via a summed-area table)
@@ -251,12 +284,33 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     }
     // sources: buildings in use
     const live = buildings.filter((b) => b.t0 <= t && b.lastS + cfg.persistSec >= t).sort((p, q) => q.seeds.length - p.seeds.length || p.id - q.id);
-    if (!live.length) continue;
+    if (!live.length) {
+      courses = [];
+      continue;
+    }
     const isOpen = (c: number) => !sealed[c] && share[c] < cfg.openShare;
     const meanShare = (b: Building) => b.seeds.reduce((a, s) => a + share[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))], 0) / b.seeds.length;
     const dense = live.filter((b) => meanShare(b) >= cfg.burial);
     const sparse = live.filter((b) => meanShare(b) < cfg.burial);
-    const courses: Float32Array[] = [];
+    // CHANGE: laid anew only when the quarter changed — a building came into use or left, a quarter got dense
+    // enough to pipe (or no longer is), or the sealed ground changed by `change` of itself — and not more often
+    // than every `minGapSlots`; between changes the last network stands and its streams keep running
+    const denseKey = dense.map((b) => b.id).join(",") + "|" + sparse.map((b) => b.id).join(",");
+    let diff = 0, tot = 0;
+    for (let c = 0; c < n; c++) {
+      tot += sealed[c];
+      if (laidSealed && laidSealed[c] !== sealed[c]) diff++;
+    }
+    const changed = !laidSealed || denseKey !== laidDense || diff / Math.max(1, tot) >= cfg.change;
+    if (!changed || k - laidK < cfg.minGapSlots) {
+      if (courses.length) streams.set(k, courses);
+      continue;
+    }
+    laidSealed = sealed;
+    laidDense = denseKey;
+    laidK = k;
+    const e = k;
+    courses = [];
     const pipeEdges = new Set<string>(); // this epoch's runs "a>b" (cell indices), each drawn once
 
     // QUARTERS: dense buildings near each other share one sewer network and one outfall
@@ -311,7 +365,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       const r = routeOut([b], block, path, piped, nx, nz, idx, cfg, isOpen);
       if (r) courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
     }
-    for (let k = e; k < e + every; k++) if (courses.length) streams.set(k, courses);
+    if (courses.length) streams.set(k, courses);
   }
   return { streams, pipes };
 }
@@ -602,11 +656,12 @@ export function waterDistance(d: Drainage, k0: number, k1: number, cfg: WaterCon
   };
 }
 
-/** Pipe runs as cylinders: [ax, ay, az, bx, by, bz, radius] × n, at their slot's floor. */
+/** Pipe runs as cylinders: [ax, ay, az, bx, by, bz, radius] × n, buried `pipeDepth` slots below the slot they were
+ * laid in (under the ground of their present). */
 export function pipeSegments(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig): Float32Array {
   const out = new Float32Array(pipes.length * 7);
   pipes.forEach((p, i) => {
-    const y = p.k * unit + 0.05;
+    const y = (p.k - cfg.pipeDepth) * unit;
     out.set([p.ax, y, p.az, p.bx, y, p.bz, cfg.pipeRadius * Math.sqrt(Math.max(1, p.flow))], i * 7);
   });
   return out;
