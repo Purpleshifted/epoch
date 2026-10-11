@@ -372,26 +372,39 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
         }
       }
       for (const r of routes) {
+        // cells of the network laid before and still in it keep their pipe (and its height): only the stretches
+        // that leave it are new — each with the old cell it branches from, joined there by a manhole shaft
         for (const c of r) {
           piped[c] = 1;
-          net.set(c, e);
+          net.set(c, lastNet.get(c) ?? e);
         }
-        const routeId = routeSeq++;
-        let seq = 0;
-        for (const [a2, z2] of straightRuns(r, nx)) {
-          const key = `${a2}>${z2}`;
-          if (pipeEdges.has(key) || pipeEdges.has(`${z2}>${a2}`)) continue;
-          pipeEdges.add(key);
-          const [ax, az] = centre(a2), [bx, bz] = centre(z2);
-          pipes.push({ ax, az, bx, bz, k: e, flow: Math.max(flowAt[a2], flowAt[z2], 1), route: routeId, seq: seq++ });
-          // MANHOLES: at the joints (ends, bends, junctions) where the new network runs through the cells of the one
-          // still in use below it, a vertical shaft joins them (sewers at different levels meet in drop manholes)
-          for (const c of [a2, z2]) {
-            const below = lastNet.get(c);
-            if (below === undefined || below >= e || risen.has(c)) continue;
+        const isOld = (c: number) => lastNet.has(c);
+        for (let i = 0; i < r.length; ) {
+          if (isOld(r[i])) {
+            i++;
+            continue;
+          }
+          let j = i;
+          while (j + 1 < r.length && !isOld(r[j + 1])) j++;
+          const stretch = r.slice(Math.max(0, i - 1), Math.min(r.length, j + 2));
+          i = j + 1;
+          if (stretch.length < 2) continue;
+          const routeId = routeSeq++;
+          let seq = 0;
+          for (const [a2, z2] of straightRuns(stretch, nx)) {
+            const key = `${a2}>${z2}`;
+            if (pipeEdges.has(key) || pipeEdges.has(`${z2}>${a2}`)) continue;
+            pipeEdges.add(key);
+            const [ax, az] = centre(a2), [bx, bz] = centre(z2);
+            pipes.push({ ax, az, bx, bz, k: e, flow: Math.max(flowAt[a2], flowAt[z2], 1), route: routeId, seq: seq++ });
+          }
+          // MANHOLES: where the new stretch meets the old network (at its ends), a shaft from the old pipe up to it
+          for (const c of [stretch[0], stretch[stretch.length - 1]]) {
+            const old = lastNet.get(c);
+            if (old === undefined || old >= e || risen.has(c)) continue;
             risen.add(c);
             const [cx, cz] = centre(c);
-            pipes.push({ ax: cx, az: cz, bx: cx, bz: cz, k: e, k0: below, flow: Math.max(flowAt[c], 1) });
+            pipes.push({ ax: cx, az: cz, bx: cx, bz: cz, k: e, k0: old, flow: Math.max(flowAt[c], 1) });
           }
         }
       }
@@ -403,6 +416,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       const r = routeOut([b], block, path, piped, nx, nz, idx, cfg, isOpen);
       if (r) courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
     }
+    // the network in use now (cells → the slot their pipe was laid in); cells it no longer uses drop out
     if (net.size) lastNet = net;
     if (courses.length) streams.set(k, courses);
   }

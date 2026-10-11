@@ -72,12 +72,31 @@ describe("walkways: the pre-layer as lines between buildings where people keep w
     const more = [...walkers, ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, 400 + i * 5, 500))];
     const w = walkways(more, [...A, ...B, ...C], DEFAULT_WALK, opts);
     const first = w.layers.find((l) => l.drawn.includes("1-100"))!;
-    const later = w.layers.filter((l) => l.k > first.k && l.k - first.k <= DEFAULT_WALK.joinSlots && l.drawn.length);
+    const later = w.layers.filter((l) => l.k > first.k && l.drawn.length);
     expect(later.length).toBeGreaterThan(0);
     for (const l of later) expect(l.drawn).not.toContain("1-100");
     // a line of a later layer starts (or ends) lower than its layer: the ramp from the link below
     const ramped = later.some((l) => l.lines.some((line) => line[1] < l.k - 1e-3 || line[line.length - 2] < l.k - 1e-3));
     expect(ramped).toBe(true);
+  });
+
+  it("a link walked all along is drawn once, however many later changes add layers", () => {
+    const C = block(200, 8, 8, 3, 3, 300), D = block(300, 14, 8, 3, 3, 650);
+    const more = [
+      ...walkers,
+      ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, 300 + i * 5, 600)),
+      ...["h", "i", "j"].flatMap((o, i) => commuteZ(o, 18.6, 4.9, 9.4, 650 + i * 5, 250)),
+    ];
+    const w = walkways(more, [...A, ...B, ...C, ...D], DEFAULT_WALK, opts);
+    const firstDraws = w.layers.filter((l) => l.drawn.length).length;
+    expect(firstDraws).toBeGreaterThanOrEqual(2);
+    // the A–B line (y ≈ 2.4) is drawn in one layer only
+    const abLayers = w.layers.filter((l) => l.lines.some((line) => {
+      let n = 0;
+      for (let i = 0; i < line.length; i += 3) if (Math.abs(line[i + 2] - 2.4) < 1.5 && line[i] > 6 && line[i] < 16) n++;
+      return n > line.length / 3 / 2;
+    }));
+    expect(abLayers).toHaveLength(1);
   });
 
   it("kept layers (below the present) stay; the ones above are drawn anew", () => {

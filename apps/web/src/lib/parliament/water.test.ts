@@ -117,6 +117,23 @@ describe("water from sealed ground: open streams, buried pipes", () => {
     expect(segs[4]).toBeGreaterThan(segs[1]); // runs up from the older network
   });
 
+  it("a later network draws only what is new: pipes already there (still in use) are not drawn again", () => {
+    const later = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5), ...block(300, 8, 8, 5, 5, 300)];
+    const d = drainage([], later, DEFAULT_WATER, opts);
+    const runs = d.pipes.filter((p) => p.k0 === undefined);
+    const ks = [...new Set(runs.map((p) => p.k))].sort((a, b) => a - b);
+    expect(ks.length).toBeGreaterThanOrEqual(2);
+    const cellsOf = (p: (typeof runs)[number]) => {
+      const out: string[] = [];
+      const n = Math.max(1, Math.round(Math.hypot(p.bx - p.ax, p.bz - p.az) / CELL_SIZE));
+      for (let i = 0; i <= n; i++) out.push(`${cellOf(p.ax + ((p.bx - p.ax) * i) / n)},${cellOf(p.az + ((p.bz - p.az) * i) / n)}`);
+      return out;
+    };
+    const first = new Set(runs.filter((p) => p.k === ks[0]).flatMap(cellsOf));
+    // a later run shares with the first network at most the cell it branches from (each end)
+    for (const p of runs.filter((r) => r.k === ks[1])) expect(cellsOf(p).filter((c) => first.has(c)).length).toBeLessThanOrEqual(2);
+  });
+
   it("a lone small building in open land sheds an open stream, no pipe", () => {
     const d = drainage([], [seed(1, 0, 0)], DEFAULT_WATER, opts);
     expect(d.pipes).toHaveLength(0);

@@ -1184,7 +1184,6 @@ export default function ParliamentSpace() {
           walkJoin: { value: DEFAULT_WALK.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)", render: () => isV2 },
           walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층을 놓는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
           walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)", render: () => isV2 },
-          joinSlots: { value: DEFAULT_WALK.joinSlots, min: 0, max: 80, step: 1, label: "아래 다리와 잇는 범위 (단; 이 안에서 아직 쓰이는 다리는 다시 안 그리고, 새 가지가 경사로로 이어짐)", render: () => isV2 },
           rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 최소 길이 (월드)", render: () => isV2 },
           smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선 부드럽게 (횟수, 0 = 칸에서 칸으로)", render: () => isV2 },
           walkColor: { value: "#d8d8d8", label: "다리 선 색", render: () => isV2 },
@@ -1205,12 +1204,11 @@ export default function ParliamentSpace() {
             join: wlk.walkJoin,
             change: wlk.walkChange,
             minGapSlots: wlk.walkGap,
-            joinSlots: wlk.joinSlots,
             rampLength: wlk.rampLength,
             smooth: wlk.smooth,
           }
         : null,
-    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.joinSlots, wlk.rampLength, wlk.smooth],
+    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLength, wlk.smooth],
   );
   const walkLook = useMemo<WalkLook>(() => ({ walkColor: wlk.walkColor, pipeColor: wlk.pipeColor }), [wlk.walkColor, wlk.pipeColor]);
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });

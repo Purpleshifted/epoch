@@ -13,8 +13,9 @@
  *                `maxSpan` long
  *   LINE         the route as a smooth line (Chaikin, `smooth` passes) at its layer's height
  *   LAYERS       a layer is laid when the links change (by `change` of them, at most every `minGapSlots`); it draws only
- *                its NEW links — a link drawn below within `joinSlots` and still walked stands as it is, and a new link
- *                starting at one of its buildings RAMPS up from its end (the line's height rising over `rampLength`).
+ *                its NEW links — a link already drawn and still walked (same place: both ends where its ends are) is
+ *                never drawn again, however long ago it was laid; a new link starting near one of its ends RAMPS up
+ *                from that end (the line's height rising over `rampLength`).
  *                Layers within the present thickness are drawn anew with every call (they follow the trodden ground as
  *                it is now); only those below it are kept (WalkOptions.frozen).
  *
@@ -39,8 +40,6 @@ export interface WalkConfig {
   change: number;
   /** …but not more often than every this many slots. */
   minGapSlots: number;
-  /** A link drawn within this many slots below and still walked is not drawn again; new links ramp up from it. */
-  joinSlots: number;
   /** Least run (world) of a ramp. */
   rampLength: number;
   /** Smoothing passes of the route (Chaikin; 0 = cell to cell). */
@@ -54,7 +53,6 @@ export const DEFAULT_WALK: WalkConfig = {
   join: 1,
   change: 0.2,
   minGapSlots: 3,
-  joinSlots: 20,
   rampLength: 3,
   smooth: 2,
 };
@@ -88,6 +86,16 @@ export interface WalkOptions {
   /** Layers laid up to slot `upToK` (below the present) stay as they were; later ones are drawn by this call. */
   frozen?: { layers: readonly WalkLayer[]; upToK: number };
 }
+
+/** A drawn link still in use: its layer and its two ends. */
+type Alive = { k: number; a: [number, number]; b: [number, number]; flat: [number, number][] };
+
+/** Two links are the same when both ends lie within this (world). */
+const MATCH = CELL_SIZE * 2.5;
+/** A new link ramps up from a living link's end within this (world). */
+const RAMP_REACH = CELL_SIZE * 4;
+/** A stretch of a new link within this (world) of a living line runs along it: already there, not drawn. */
+const COVER = CELL_SIZE * 1.5;
 
 /** Cells of room around the buildings in which routes may run. */
 const MARGIN = 8;
@@ -133,8 +141,8 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const gc = new Float64Array(tracks.length), gq = new Float64Array(tracks.length), at = new Float64Array(tracks.length), next = new Int32Array(tracks.length);
 
   const layers: WalkLayer[] = [];
-  let laid: Set<string> | null = null;
   let laidK = -Infinity;
+  let alive: Alive[] = [];
   const kFirst = Math.floor(Math.min(...seeds.map((s) => s.t0)) / spu), kLast = Math.floor(opts.tNow / spu);
   const P = new Float32Array(n);
   let lastSig = "";
@@ -185,21 +193,33 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       links = standing.length >= 2 ? linksAt(standing, P, blocked, nx, nz, idx, cfg) : new Map();
     }
     if (!links.size) continue;
-    // CHANGE: laid anew only when the links changed enough, and not too often
-    let diff = 0;
-    if (laid) {
-      for (const key of links.keys()) if (!laid.has(key)) diff++;
-      for (const key of laid) if (!links.has(key)) diff++;
-    }
-    if (laid && (diff === 0 || diff / Math.max(1, links.size) < cfg.change || k - laidK < cfg.minGapSlots)) continue;
-    laid = new Set(links.keys());
+    // links as they lie: smooth lines with their two ends
+    const now = [...links.entries()].map(([key, l]) => {
+      const flat = chaikin(l.cells.map(centre), Math.max(0, Math.round(cfg.smooth)));
+      return { key, flat, a: flat[0], b: flat[flat.length - 1] };
+    });
+    // a link is the SAME as one already drawn when its two ends lie where that one's do (by place, not by building
+    // id — ids change as buildings grow); a drawn link stays alive as long as it is matched
+    const same = (x: { a: [number, number]; b: [number, number] }, y: { a: [number, number]; b: [number, number] }) => {
+      const d = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+      return (d(x.a, y.a) <= MATCH && d(x.b, y.b) <= MATCH) || (d(x.a, y.b) <= MATCH && d(x.b, y.a) <= MATCH);
+    };
+    const matched = new Set<Alive>();
+    const fresh = now.filter((l) => {
+      const m = alive.find((al) => same(l, al));
+      if (m) matched.add(m);
+      return !m;
+    });
+    const dying = alive.filter((al) => !matched.has(al)).length;
+    // CHANGE: laid only when links appeared or went (by `change` of them), and not too often
+    const diff = fresh.length + dying;
+    if (diff === 0 || (laidK > -Infinity && (diff / Math.max(1, now.length) < cfg.change || k - laidK < cfg.minGapSlots))) continue;
     laidK = k;
+    alive = alive.filter((al) => matched.has(al));
+    const layer = layLines(fresh, [...links.keys()], k, cfg, opts.unit, alive);
+    for (const l of fresh) alive.push({ k, a: l.a, b: l.b, flat: l.flat });
     if (opts.frozen && k <= opts.frozen.upToK) continue; // below the present: kept as it was
-    const below = [...kept, ...layers].filter((l) => l.k < k && k - l.k <= cfg.joinSlots);
-    // links drawn below within the present and still walked stand as they are: only the new ones are drawn here
-    const standingBelow = new Set(below.flatMap((l) => l.drawn));
-    const fresh = [...links.entries()].filter(([key]) => !standingBelow.has(key));
-    layers.push(layLines(fresh.map(([key, l]) => ({ key, route: l.cells.map(centre) })), [...links.keys()], k, cfg, opts.unit, below));
+    layers.push(layer);
   }
   return { layers: [...kept, ...layers] };
 }
@@ -330,49 +350,66 @@ function chaikin(pts: [number, number][], passes: number): [number, number][] {
 }
 
 /**
- * One layer's lines (slot k), for its NEW links: each route smoothed, at the layer's height. Where a link starts (or
- * ends) at a building that a link drawn below (within `joinSlots`, still walked) also reaches, its line begins at
- * that link's end, at that link's height, and RAMPS up to the layer's height over `rampLength`.
+ * One layer's lines (slot k), for its NEW links only (smoothed, at the layer's height). Where a new link starts (or
+ * ends) near the end of a link drawn below that is still in use, its line begins at that end, at that link's height,
+ * and RAMPS up to the layer's height over `rampLength` — the change joins what is still there instead of redrawing it.
  */
-function layLines(links: { key: string; route: [number, number][] }[], inUse: string[], k: number, cfg: WalkConfig, unit: number, below: readonly WalkLayer[]): WalkLayer {
+function layLines(links: { key: string; flat: [number, number][] }[], inUse: string[], k: number, cfg: WalkConfig, unit: number, alive: readonly Alive[]): WalkLayer {
   const out: WalkLayer = { k, links: inUse, drawn: links.map((l) => l.key), anchors: [], lines: [] };
   const y = k * unit;
-  for (const { key, route } of links) {
-    const flat = chaikin(route, Math.max(0, Math.round(cfg.smooth)));
+  const below = alive.filter((al) => al.k < k);
+  // the nearest point on a living line below (and its height)
+  const onBelow = (x: number, z: number, reach: number) => {
+    let best: { x: number; z: number; y: number } | null = null, bd = reach;
+    for (const al of below) {
+      for (let i = 0; i + 1 < al.flat.length; i++) {
+        const [ax, az] = al.flat[i], [bx, bz] = al.flat[i + 1];
+        const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1e-9;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
+        const px = ax + dx * t, pz = az + dz * t, d = Math.hypot(px - x, pz - z);
+        if (d < bd) {
+          bd = d;
+          best = { x: px, z: pz, y: al.k * unit };
+        }
+      }
+    }
+    return best;
+  };
+  const ramp = Math.max(1e-3, cfg.rampLength);
+  for (const { key, flat } of links) {
     if (flat.length < 2) continue;
     const [ia, ib] = key.split("-").map(Number);
     out.anchors.push({ key, building: ia, x: flat[0][0], z: flat[0][1] }, { key, building: ib, x: flat[flat.length - 1][0], z: flat[flat.length - 1][1] });
-    // the link drawn below nearest to an end at this building, still walked
-    const from = (building: number, x: number, z: number) => {
-      let best: { x: number; z: number; y: number } | null = null, bd = Infinity;
-      for (const l of below) {
-        for (const an of l.anchors) {
-          if (an.building !== building || !inUse.includes(an.key)) continue;
-          const d = Math.hypot(an.x - x, an.z - z);
-          if (d < bd) {
-            bd = d;
-            best = { x: an.x, z: an.z, y: l.k * unit };
-          }
-        }
+    // only what departs from the living lines is new: the stretches not running along one
+    const covered = flat.map(([x, z]) => onBelow(x, z, COVER) !== null);
+    for (let i = 0; i < flat.length; ) {
+      if (covered[i]) {
+        i++;
+        continue;
       }
-      return best;
-    };
-    const a = from(ia, flat[0][0], flat[0][1]);
-    const b = from(ib, flat[flat.length - 1][0], flat[flat.length - 1][1]);
-    const pts: [number, number][] = [...(a ? [[a.x, a.z] as [number, number]] : []), ...flat, ...(b ? [[b.x, b.z] as [number, number]] : [])];
-    // horizontal distance along the line from each end
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-    const L = cum[cum.length - 1];
-    const ramp = Math.max(1e-3, cfg.rampLength);
-    const line = new Float32Array(pts.length * 3);
-    pts.forEach(([x, z], i) => {
-      let yy = y;
-      if (a) yy = Math.min(yy, a.y + (y - a.y) * Math.min(1, cum[i] / ramp));
-      if (b) yy = Math.min(yy, b.y + (y - b.y) * Math.min(1, (L - cum[i]) / ramp));
-      line.set([x, yy, z], i * 3);
-    });
-    out.lines.push(line);
+      let j = i;
+      while (j + 1 < flat.length && !covered[j + 1]) j++;
+      // the stretch with one point of the shared corridor on each side (where it branches off)
+      const s0 = Math.max(0, i - 1), s1 = Math.min(flat.length - 1, j + 1);
+      const run = flat.slice(s0, s1 + 1);
+      i = j + 1;
+      if (run.length < 2) continue;
+      // each end joins a living line below: where it branches off it, or near a building end
+      const a = onBelow(run[0][0], run[0][1], RAMP_REACH);
+      const b = onBelow(run[run.length - 1][0], run[run.length - 1][1], RAMP_REACH);
+      const pts: [number, number][] = [...(a ? [[a.x, a.z] as [number, number]] : []), ...run, ...(b ? [[b.x, b.z] as [number, number]] : [])];
+      const cum = [0];
+      for (let q = 1; q < pts.length; q++) cum.push(cum[q - 1] + Math.hypot(pts[q][0] - pts[q - 1][0], pts[q][1] - pts[q - 1][1]));
+      const L = cum[cum.length - 1];
+      const line = new Float32Array(pts.length * 3);
+      pts.forEach(([x, z], q) => {
+        let yy = y;
+        if (a) yy = Math.min(yy, a.y + (y - a.y) * Math.min(1, cum[q] / ramp));
+        if (b) yy = Math.min(yy, b.y + (y - b.y) * Math.min(1, (L - cum[q]) / ramp));
+        line.set([x, yy, z], q * 3);
+      });
+      out.lines.push(line);
+    }
   }
   return out;
 }
