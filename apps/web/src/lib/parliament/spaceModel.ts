@@ -177,7 +177,7 @@ export interface PartsResult {
   pipeRuns: number;
   /** The pipes' pre-layer as line segments (water.pipeLines): `live` within the present (still changing), `kept` below. */
   pipes: { live: Float32Array; kept: Float32Array };
-  /** V2 walkways: deck and frame boxes [x, y, z, sx, sy, sz, yaw] × n, and wire segments [a, b] × n. */
+  /** V2 walkways' pre-layer as line segments (walkways.walkSegments): `live` within the present, `kept` below. */
   walk: { live: Float32Array; kept: Float32Array };
   t: number;
   top: number;
@@ -375,14 +375,14 @@ export class SpaceModel {
     this.nearWater = this.drain.streams.size ? waterField(this.drain, 0, Math.floor(t / box.secPerUnit), input.water) : null;
     // V2: walkways where the flow is sustained (laid where the walked network changed; rebuilt once per slot)
     const wk = input.walk && input.fold.flow?.enabled ? input.walk : null;
-    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}:${this.drainKey}` : "-";
+    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}:${presentSlots}:${this.drainKey}` : "-";
     if (wKey !== this.walkKey) {
       this.walkKey = wKey;
-      const rule = `${box.secPerUnit}:${box.unit}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}:${JSON.stringify(input.water)}`;
+      const rule = `${box.secPerUnit}:${box.unit}:${presentSlots}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}:${JSON.stringify(input.water)}`;
       const kept = this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
       // the pipes as obstacles of the walkways' pre-layer
       const pipes = input.water.enabled ? { runs: this.drain.pipes, depth: input.water.pipeDepth } : undefined;
-      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, pipes }) : NO_WALKWAYS;
+      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, pipes, present: presentSlots }) : NO_WALKWAYS;
       const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
       this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;
     }

@@ -23,6 +23,18 @@ const opts = { secPerUnit: SPU, unit: 1, flow: DEFAULT_FLOW, tNow: 900 };
 // building A at cells x 0–3, building B at cells x 14–17 (z 0–3); people walk between them along z ≈ 2.4
 const A = block(1, 0, 0, 4, 4), B = block(100, 14, 0, 4, 4);
 const walkers = ["a", "b", "c", "d"].flatMap((o, i) => commute(o, 4.9, 16.6, 2.4, i * 5, 900));
+const NO_RESURFACE = { ...DEFAULT_WALK, resurface: -1 };
+/** Whether a layer's line starts or ends below the layer (a ramp from a line below). */
+const rampsIn = (l: { k: number; lines: Float32Array[] }) => l.lines.some((line) => line[1] < l.k - 1e-3 || line[line.length - 2] < l.k - 1e-3);
+/** The layers drawing the A–B line (z ≈ 2.4 between the buildings). */
+const abLayersOf = (layers: { lines: Float32Array[] }[]) =>
+  layers.filter((l) =>
+    l.lines.some((line) => {
+      let n = 0;
+      for (let i = 0; i < line.length; i += 3) if (Math.abs(line[i + 2] - 2.4) < 1.5 && line[i] > 6 && line[i] < 16) n++;
+      return n > line.length / 3 / 2;
+    }),
+  );
 
 describe("walkways: the pre-layer as lines between buildings where people keep walking (V2)", () => {
   const allPts = (lines: Float32Array[]) => lines.flatMap((l) => Array.from({ length: l.length / 3 }, (_, i) => [l[i * 3], l[i * 3 + 1], l[i * 3 + 2]]));
@@ -70,14 +82,13 @@ describe("walkways: the pre-layer as lines between buildings where people keep w
   it("a later layer does not redraw a link still walked below; its new link RAMPS up from it", () => {
     const C = block(200, 8, 8, 3, 3, 400); // C comes at t = 400: a new link above, A–B still walked below
     const more = [...walkers, ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, 400 + i * 5, 500))];
-    const w = walkways(more, [...A, ...B, ...C], DEFAULT_WALK, opts);
+    const w = walkways(more, [...A, ...B, ...C], NO_RESURFACE, opts);
     const first = w.layers.find((l) => l.drawn.includes("1-100"))!;
     const later = w.layers.filter((l) => l.k > first.k && l.drawn.length);
     expect(later.length).toBeGreaterThan(0);
     for (const l of later) expect(l.drawn).not.toContain("1-100");
     // a line of a later layer starts (or ends) lower than its layer: the ramp from the link below
-    const ramped = later.some((l) => l.lines.some((line) => line[1] < l.k - 1e-3 || line[line.length - 2] < l.k - 1e-3));
-    expect(ramped).toBe(true);
+    expect(later.some(rampsIn)).toBe(true);
   });
 
   it("a link walked all along is drawn once, however many later changes add layers", () => {
@@ -87,16 +98,11 @@ describe("walkways: the pre-layer as lines between buildings where people keep w
       ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, 300 + i * 5, 600)),
       ...["h", "i", "j"].flatMap((o, i) => commuteZ(o, 18.6, 4.9, 9.4, 650 + i * 5, 250)),
     ];
-    const w = walkways(more, [...A, ...B, ...C, ...D], DEFAULT_WALK, opts);
+    const w = walkways(more, [...A, ...B, ...C, ...D], NO_RESURFACE, opts);
     const firstDraws = w.layers.filter((l) => l.drawn.length).length;
     expect(firstDraws).toBeGreaterThanOrEqual(2);
     // the A–B line (y ≈ 2.4) is drawn in one layer only
-    const abLayers = w.layers.filter((l) => l.lines.some((line) => {
-      let n = 0;
-      for (let i = 0; i < line.length; i += 3) if (Math.abs(line[i + 2] - 2.4) < 1.5 && line[i] > 6 && line[i] < 16) n++;
-      return n > line.length / 3 / 2;
-    }));
-    expect(abLayers).toHaveLength(1);
+    expect(abLayersOf(w.layers)).toHaveLength(1);
   });
 
   it("kept layers (below the present) stay; the ones above are drawn anew", () => {
@@ -136,5 +142,45 @@ describe("walkways arrive where there are parts", () => {
     const Bgap = block(100, 14, 0, 4, 4).map((s) => ({ ...s, spans: [[0, 300], [600, 2000]] as [number, number][] }));
     const w = walkways(walkers, [...A, ...Bgap], DEFAULT_WALK, opts);
     for (const l of w.layers) if (l.drawn.length) expect(l.k < 16 || l.k >= 30).toBe(true);
+  });
+});
+
+describe("walkways: what joins what (in use, change, reach, re-surfacing)", () => {
+  const C = block(200, 8, 8, 3, 3, 400);
+  const branch = [...walkers, ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, 400 + i * 5, 500))];
+
+  it("a long-used walkway is laid again every `resurface` slots (whole, flat), not only once", () => {
+    const w = walkways(walkers, [...A, ...B], { ...DEFAULT_WALK, resurface: 10 }, opts);
+    const ab = w.layers.filter((l) => l.drawn.includes("1-100"));
+    expect(ab.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < ab.length; i++) expect(ab[i].k - ab[i - 1].k).toBeGreaterThanOrEqual(10);
+    for (const l of ab.slice(1)) {
+      expect(l.resurfaced).toContain("1-100");
+      expect(rampsIn(l)).toBe(false);
+    }
+  });
+
+  it("a change joins only lines within `reach`: older ones are past, the new link is drawn whole", () => {
+    const near = walkways(branch, [...A, ...B, ...C], { ...NO_RESURFACE, reach: 40, minorShare: 0 }, opts);
+    expect(near.layers.some((l) => l.drawn.length && rampsIn(l))).toBe(true);
+    const far = walkways(branch, [...A, ...B, ...C], { ...NO_RESURFACE, reach: 2, minorShare: 0 }, opts);
+    expect(far.layers.some((l) => l.drawn.length)).toBe(true);
+    for (const l of far.layers) expect(rampsIn(l)).toBe(false);
+  });
+
+  it("a new link mostly elsewhere (below `minorShare`) is a walkway of its own: no ramp", () => {
+    const w = walkways(branch, [...A, ...B, ...C], { ...NO_RESURFACE, reach: 40, minorShare: 1.01 }, opts);
+    expect(w.layers.filter((l) => l.k > 20).some((l) => l.drawn.length)).toBe(true);
+    for (const l of w.layers) expect(rampsIn(l)).toBe(false);
+  });
+
+  it("a walkway left unused longer than `grace` is gone: taken again, it is drawn anew; within grace it is the same", () => {
+    // A–B walked until t = 300, nobody from 300 to 700 (regrowth: tauSec), walked again from 700
+    const gap = ["a", "b", "c", "d"].flatMap((o, i) => [...commute(o, 4.9, 16.6, 2.4, i * 5, 300), ...commute(o, 4.9, 16.6, 2.4, 700 + i * 5, 200)]);
+    const o2 = { ...opts, flow: { ...DEFAULT_FLOW, tauSec: 60 } };
+    const short = walkways(gap, [...A, ...B], { ...NO_RESURFACE, grace: 2 }, o2);
+    expect(abLayersOf(short.layers).length).toBe(2);
+    const long = walkways(gap, [...A, ...B], { ...NO_RESURFACE, grace: 40 }, o2);
+    expect(abLayersOf(long.layers).length).toBe(1);
   });
 });

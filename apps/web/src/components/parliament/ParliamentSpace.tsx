@@ -941,7 +941,7 @@ export default function ParliamentSpace() {
     o.update();
   };
 
-  // ── Leva, grouped: 보기 · 시간축 · 생성 규칙 · 건물 · 풍화/지층 · 식생 · 엉김/융합/레진 · 렌더/성능 ──
+  // ── Leva, grouped: 보기 · 시간축 · 생성 규칙 · 건물 · 길 → 다리 · 물 → 배관 · 식생 · 풍화/지층 · 엉김/융합/레진 · 렌더/성능 ──
   const [focusResets, setFocusResets] = useState(0);
   const v = useControls(
     "보기",
@@ -1108,36 +1108,119 @@ export default function ParliamentSpace() {
     }),
     { order: 6 },
   );
+  // ── 길 → 다리 (V2): trodden ground → paths (holes in the vegetation) → walkways between buildings ──
+  const WALK_GROUP = "길 → 다리";
+  const WALK_LEGACY = ["길 · 다리"];
+  const fold = useFoldControls(SPACE_FOLD, {
+    folder: "생성 규칙 (회사원 시공간 밀집)",
+    collapsed: true,
+    order: 2,
+    flow: { path: `${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, order: 0, legacy: ["생성 규칙 (회사원 시공간 밀집)"] },
+  });
+  const wlk = useControls(
+    WALK_GROUP,
+    savable(
+      WALK_GROUP,
+      {
+        "② 길 표시 (식생 구멍 · 둔덕)": folder(
+          {
+            pathsOn: { value: true, label: "켜기" },
+            pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
+            pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
+            pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 (구멍 바로 바깥만; 클수록 좁음)", render: () => isV2 },
+          },
+          { order: 1 },
+        ),
+        "③ 다리: 건물 사이 (V2 · 프리레이어 선)": folder(
+          {
+            walkOn: { value: DEFAULT_WALK.enabled, label: "켜기", render: () => isV2 },
+            buildAt: { value: DEFAULT_WALK.buildAt, min: 0.05, max: 0.99, step: 0.01, label: "다리가 되는 밟힘 (경로를 따라 평균 길 세기)", render: () => isV2 },
+            maxSpan: { value: DEFAULT_WALK.maxSpan, min: 2, max: 120, step: 1, label: "가장 긴 다리 (월드)", render: () => isV2 },
+            walkJoin: { value: DEFAULT_WALK.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)", render: () => isV2 },
+            smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선 부드럽게 (횟수, 0 = 칸에서 칸으로)", render: () => isV2 },
+            walkColor: { value: "#d8d8d8", label: "다리 선 색", render: () => isV2 },
+          },
+          { order: 2, render: () => isV2 },
+        ),
+        "④ 다리: 층 · 이어짐 (V2)": folder(
+          {
+            walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층을 놓는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
+            walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)", render: () => isV2 },
+            reach: { value: DEFAULT_WALK.reach, min: 0, max: 120, step: 1, label: "이어질 수 있는 과거 (단; 0 = '현재' 두께, 더 오래된 다리는 과거)", render: () => isV2 },
+            grace: { value: DEFAULT_WALK.grace, min: 0, max: 60, step: 1, label: "여전히 쓰는 길로 볼 끊김 (단; 더 길게 안 쓰면 다시 생겨도 새 다리)", render: () => isV2 },
+            minorShare: { value: DEFAULT_WALK.minorShare, min: 0, max: 1.01, step: 0.01, label: "변경으로 볼 겹침 (새 다리 중 기존 다리를 따라가는 비율; 미만 = 따로 새 다리)", render: () => isV2 },
+            resurfaceOn: { value: DEFAULT_WALK.resurface >= 0, label: "재포장 (오래 쓰는 다리를 다시 깔기)", render: () => isV2 },
+            resurface: { value: DEFAULT_WALK.resurface, min: 0, max: 120, step: 1, label: "재포장 간격 (단; 0 = 이어질 수 있는 과거와 같게)", render: () => isV2 },
+            rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 최소 길이 (월드)", render: () => isV2 },
+          },
+          { order: 3, render: () => isV2 },
+        ),
+      },
+      WALK_LEGACY,
+    ),
+    { order: 4, collapsed: true },
+  );
+  const walkView = useMemo<WalkConfig | null>(
+    () =>
+      isV2 && wlk.walkOn
+        ? {
+            enabled: true,
+            buildAt: wlk.buildAt,
+            maxSpan: wlk.maxSpan,
+            join: wlk.walkJoin,
+            change: wlk.walkChange,
+            minGapSlots: wlk.walkGap,
+            rampLength: wlk.rampLength,
+            smooth: wlk.smooth,
+            reach: wlk.reach,
+            grace: wlk.grace,
+            minorShare: wlk.minorShare,
+            resurface: wlk.resurfaceOn ? wlk.resurface : -1,
+          }
+        : null,
+    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLength, wlk.smooth, wlk.reach, wlk.grace, wlk.minorShare, wlk.resurfaceOn, wlk.resurface],
+  );
+  // ── 물 → 배관 (V1 + V2): sealed ground → its rain piped below (dense) / open streams (sparse, past outfalls) ──
+  const WATER_GROUP = "물 → 배관";
   const wtr = useControls(
-    "수로 (덮인 땅의 물)",
-    savable("수로 (덮인 땅의 물)", {
-      waterOn: { value: DEFAULT_WATER.enabled, label: "켜기" },
-      burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "관으로 묻히는 덮인 비율 (주변이 이만큼 덮이면)" },
-      openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "물이 다시 스미는 덮인 비율 (배출구)" },
-      imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
-      pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "포장된 길로 볼 길 세기" },
-      diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "관의 45° 꺾임 (0 = 직각만)" },
-      change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "배수망을 다시 까는 변화 (덮인 땅이 이만큼 바뀌면; 건물이 생기거나 떠나도)" },
-      minGapSlots: { value: DEFAULT_WATER.minGapSlots, min: 1, max: 30, step: 1, label: "다시 까는 최소 간격 (단)" },
-      pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "관이 묻히는 깊이 (현재보다 몇 단 아래)" },
-      persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤에도 물이 나오는 시간 (s)" },
-      pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 모일수록 굵어짐)" },
-      quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
-      "열린 물길": folder(
-        {
-          streamLength: { value: DEFAULT_WATER.streamLength, min: 0, max: 40, step: 0.5, label: "배출구 너머로 흐르는 거리 (월드)" },
-          channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
-          meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이" },
-          radius: { value: DEFAULT_WATER.radius, min: 0.5, max: 8, step: 0.1, label: "습지 폭 (물길에서 영향 범위, 월드)" },
-          vegBoost: { value: DEFAULT_WATER.vegBoost, min: 0, max: 2, step: 0.05, label: "물가 식생 밀도 (짙어지는 정도)" },
-          wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
-          corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
+    WATER_GROUP,
+    savable(
+      WATER_GROUP,
+      {
+        waterOn: { value: DEFAULT_WATER.enabled, label: "켜기" },
+        "① 덮인 땅 (빗물이 스미지 못하는 곳)": folder({
+          imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
+          pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "덮인 땅으로 볼 길 세기 (포장된 길)" },
           join: { value: DEFAULT_WATER.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
-        },
-        { collapsed: true },
-      ),
-    }),
-    { order: 5 },
+          persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 버려진 뒤에도 물이 나오는 시간 (s)" },
+        }),
+        "② 배관 (덮인 곳 아래로 묻힌 물)": folder({
+          burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "관으로 묻히는 덮인 비율 (주변이 이만큼 덮이면)" },
+          quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
+          diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "관의 45° 꺾임 (0 = 직각만)" },
+          pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "관이 묻히는 깊이 (현재보다 몇 단 아래, 다리보다 아래)" },
+          change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "배관을 다시 까는 변화 (덮인 땅이 이만큼 바뀌면; 건물이 생기거나 떠나도)" },
+          minGapSlots: { value: DEFAULT_WATER.minGapSlots, min: 1, max: 30, step: 1, label: "다시 까는 최소 간격 (단)" },
+          pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 모일수록 굵어짐 — 감싸기 단계에서)" },
+          pipeColor: { value: "#7c7f84", label: "관 선 색" },
+        }),
+        "③ 열린 물길 (배출구 너머 · 성긴 곳: 식생 · 부식에 영향)": folder(
+          {
+            openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "물이 다시 스미는 덮인 비율 (배출구)" },
+            streamLength: { value: DEFAULT_WATER.streamLength, min: 0, max: 40, step: 0.5, label: "배출구 너머로 흐르는 거리 (월드)" },
+            channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
+            meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이" },
+            radius: { value: DEFAULT_WATER.radius, min: 0.5, max: 8, step: 0.1, label: "습지 폭 (물길에서 영향 범위, 월드)" },
+            vegBoost: { value: DEFAULT_WATER.vegBoost, min: 0, max: 2, step: 0.05, label: "물가 식생 밀도 (짙어지는 정도)" },
+            wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
+            corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
+          },
+          { collapsed: true },
+        ),
+      },
+      ["수로 (덮인 땅의 물)", ...WALK_LEGACY],
+    ),
+    { order: 5, collapsed: true },
   );
   const waterView = useMemo<WaterConfig | null>(
     () =>
@@ -1167,50 +1250,7 @@ export default function ParliamentSpace() {
         : null,
     [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap],
   );
-  const wlk = useControls(
-    "길 · 다리",
-    savable("길 · 다리", {
-      "길 표시 (식생 구멍 · 둔덕)": folder({
-        pathsOn: { value: true, label: "켜기" },
-        pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "구멍이 되는 길 세기 (작을수록 넓은 구멍)" },
-        pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리 둔덕 (쌓이는 흙 양)" },
-        pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 (구멍 바로 바깥만; 클수록 좁음)", render: () => isV2 },
-      }),
-      "다리 (V2 · 건물 사이, 프리레이어 선)": folder(
-        {
-          walkOn: { value: DEFAULT_WALK.enabled, label: "켜기", render: () => isV2 },
-          buildAt: { value: DEFAULT_WALK.buildAt, min: 0.05, max: 0.99, step: 0.01, label: "다리가 되는 밟힘 (경로를 따라 평균 길 세기)", render: () => isV2 },
-          maxSpan: { value: DEFAULT_WALK.maxSpan, min: 2, max: 120, step: 1, label: "가장 긴 다리 (월드)", render: () => isV2 },
-          walkJoin: { value: DEFAULT_WALK.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)", render: () => isV2 },
-          walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층을 놓는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
-          walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)", render: () => isV2 },
-          rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 최소 길이 (월드)", render: () => isV2 },
-          smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선 부드럽게 (횟수, 0 = 칸에서 칸으로)", render: () => isV2 },
-          walkColor: { value: "#d8d8d8", label: "다리 선 색", render: () => isV2 },
-          pipeColor: { value: "#7c7f84", label: "관 선 색" },
-        },
-        { render: () => isV2 },
-      ),
-    }),
-    { order: 4, collapsed: true },
-  );
-  const walkView = useMemo<WalkConfig | null>(
-    () =>
-      isV2 && wlk.walkOn
-        ? {
-            enabled: true,
-            buildAt: wlk.buildAt,
-            maxSpan: wlk.maxSpan,
-            join: wlk.walkJoin,
-            change: wlk.walkChange,
-            minGapSlots: wlk.walkGap,
-            rampLength: wlk.rampLength,
-            smooth: wlk.smooth,
-          }
-        : null,
-    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLength, wlk.smooth],
-  );
-  const walkLook = useMemo<WalkLook>(() => ({ walkColor: wlk.walkColor, pipeColor: wlk.pipeColor }), [wlk.walkColor, wlk.pipeColor]);
+  const walkLook = useMemo<WalkLook>(() => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor }), [wlk.walkColor, wtr.pipeColor]);
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
   const fu = useControls(
     "엉김 · 융합 · 레진",
@@ -1318,7 +1358,6 @@ export default function ParliamentSpace() {
     }),
     { order: 9, collapsed: true },
   );
-  const fold = useFoldControls(SPACE_FOLD, { folder: "생성 규칙 (회사원 시공간 밀집)", collapsed: true, order: 2 });
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;

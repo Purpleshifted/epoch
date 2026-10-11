@@ -16,6 +16,18 @@ function storageKey(root: string): string {
   return `${PREFIX}:${page}:${root}`;
 }
 
+/** Saved values of `root`, or (none saved under it yet) those of groups it was renamed from, merged. */
+function loadWithLegacy(root: string, legacy: readonly string[]): Record<string, unknown> | null {
+  const own = load(storageKey(root));
+  if (own || !legacy.length) return own;
+  let merged: Record<string, unknown> | null = null;
+  for (const old of legacy) {
+    const v = load(storageKey(old));
+    if (v) merged = { ...v, ...(merged ?? {}) };
+  }
+  return merged;
+}
+
 function load(key: string): Record<string, unknown> | null {
   if (cache.has(key)) return cache.get(key)!;
   let v: Record<string, unknown> | null = null;
@@ -64,14 +76,15 @@ function inject(schema: Item, prefix: string, saved: Record<string, unknown> | n
 }
 
 /**
- * The schema of a top-level Leva group `root` with its saved values (if any) and a save / reload row.
- * The type is the schema's own, so useControls infers its values as before.
+ * The schema of a top-level Leva group `root` (or a folder path "group.folder" with its own row) with its saved values
+ * (if any) and a save / reload row. `legacy`: the names the group had before (their saved values are taken as long as
+ * nothing is saved under the new name). The type is the schema's own, so useControls infers its values as before.
  */
-export function savable<S extends object>(root: string, schema: S): S {
+export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = []): S {
   if (typeof window === "undefined") return schema;
   const key = storageKey(root);
   const paths = new Map<string, string>();
-  const out = inject(schema as Item, root, load(key), paths);
+  const out = inject(schema as Item, root, loadWithLegacy(root, legacy), paths);
   out["__save"] = buttonGroup({
     label: null,
     opts: {
