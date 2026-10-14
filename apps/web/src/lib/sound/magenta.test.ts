@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { phraseToSequence, sequenceToPhrase } from "./magenta";
+import { phraseNotes, phraseToSequence, sequenceToPhrase } from "./magenta";
 
 describe("magenta: phrases ↔ note sequences", () => {
   it("round-trips a phrase, holding each note to the next onset, pitches into 48…83", () => {
@@ -23,6 +23,17 @@ describe("magenta: phrases ↔ note sequences", () => {
     const phrase = sequenceToPhrase(seq, 32);
     expect(phrase[0]).toBe(60);
     expect(phrase[8]).toBe(62);
-    expect(phrase.filter((p) => p > 0).length).toBe(2);
+    expect(phraseNotes(phrase)).toBe(2);
+  });
+
+  it("'auto' reads a continuation from its first note on — an RNN result starting after the seed is not silent", () => {
+    const seq = { notes: [{ pitch: 60, quantizedStartStep: 32 }, { pitch: 62, quantizedStartStep: 40 }, { pitch: 64, quantizedStartStep: 63 }] };
+    expect(phraseNotes(sequenceToPhrase(seq, 0))).toBe(0); // the old reading: everything dropped
+    const auto = sequenceToPhrase(seq, "auto");
+    expect(auto[0]).toBe(60);
+    expect(auto[8]).toBe(62);
+    expect(auto[31]).toBe(64);
+    expect(phraseNotes(auto)).toBe(3);
+    expect(phraseNotes(sequenceToPhrase({ notes: [] }, "auto"))).toBe(0);
   });
 });

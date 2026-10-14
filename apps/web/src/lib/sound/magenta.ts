@@ -39,17 +39,31 @@ export function phraseToSequence(phrase: Phrase): INoteSequence {
   };
 }
 
-/** A (quantized or not) sequence back to a phrase; `offsetSteps` drops the seed part of an RNN continuation. */
-export function sequenceToPhrase(seq: INoteSequence, offsetSteps = 0): Phrase {
+/**
+ * A (quantized or not) sequence back to a phrase. `offsetSteps` drops the seed part of an RNN continuation;
+ * "auto" = from the first note on (a MusicRNN continuation's notes start right after the seed, umwelt found the
+ * same — reading them from step 0 dropped every note and left a SILENT phrase).
+ */
+export function sequenceToPhrase(seq: INoteSequence, offsetSteps: number | "auto" = 0): Phrase {
   const out: Phrase = new Array(PHRASE_STEPS).fill(0);
-  for (const n of seq.notes ?? []) {
-    const start = n.quantizedStartStep != null ? n.quantizedStartStep : Math.round((n.startTime ?? 0) / STEP_SEC);
-    const s = start - offsetSteps;
+  const notes = seq.notes ?? [];
+  const startOf = (n: NonNullable<INoteSequence["notes"]>[number]) => (n.quantizedStartStep != null ? n.quantizedStartStep : Math.round((n.startTime ?? 0) / STEP_SEC));
+  let off = 0;
+  if (offsetSteps === "auto") {
+    off = Infinity;
+    for (const n of notes) off = Math.min(off, startOf(n));
+    if (!Number.isFinite(off)) off = 0;
+  } else off = offsetSteps;
+  for (const n of notes) {
+    const s = startOf(n) - off;
     if (s < 0 || s >= PHRASE_STEPS || n.pitch == null) continue;
     out[s] = n.pitch;
   }
   return out;
 }
+
+/** How many notes a phrase holds. */
+export const phraseNotes = (p: Phrase): number => p.filter((x) => x > 0).length;
 
 export class Magenta {
   private vae: VAE | null = null;
@@ -127,7 +141,7 @@ export class Magenta {
     const q = this.seq;
     this.rnn
       .continueSequence(q.quantizeNoteSequence(phraseToSequence(seed), 4), PHRASE_STEPS, temperature, chords)
-      .then((seq) => this.cache.set(key, sequenceToPhrase(seq)))
+      .then((seq) => this.cache.set(key, sequenceToPhrase(seq, "auto")))
       .catch((e) => console.warn("[sound] RNN improvise failed:", e))
       .finally(() => this.inFlight.delete(key));
     return null;

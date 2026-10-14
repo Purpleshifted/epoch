@@ -231,6 +231,12 @@ export default function ParliamentScene() {
           {debug?.sound && <div>♪ {debug.sound}</div>}
         </div>
       )}
+      {/* sound wiring: a visible notice while this window's sound is muted or off (ESC is also the pointer-lock key) */}
+      {!hideChrome && debug?.sound && /음소거|꺼짐|클릭하면/.test(debug.sound.split(" · ")[1] ?? "") && (
+        <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 select-none rounded bg-black/60 px-3 py-1 font-mono text-[11px] tracking-wider text-amber-200/90">
+          {debug.sound.split(" · ").slice(0, 2).join(" · ")}
+        </div>
+      )}
     </div>
   );
 }

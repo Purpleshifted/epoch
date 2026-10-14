@@ -19,7 +19,7 @@
  */
 
 import { buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, type Key } from "./harmony";
-import { Magenta } from "./magenta";
+import { Magenta, phraseNotes } from "./magenta";
 import { applySink } from "./output";
 import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
 import { barClock, conformity, lockOf, planBar, type BarPlan } from "./sequencer";
@@ -619,16 +619,17 @@ export class SoundEngine {
     if (this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE + 2) return; // one phrase, then a breath
     const nearest = sig.neighbours[0];
     const amount = nearest ? this.closeness.get(nearest.o) ?? 0 : 0;
+    // a phrase with fewer than 3 notes would be silence in my voice's place: keep the motif instead
+    const take = (res: Phrase | null, kind: string) => {
+      if (res && phraseNotes(res) >= 3) this.phrase = { phrase: res, from: bar, kind: `${kind} (${phraseNotes(res)}n)` };
+    };
     if (nearest && amount >= 0.5) {
-      const res = this.magenta.interpolate(this.myPhrase(bar, lock), this.theirPhrase(nearest.o, bar, lock), amount);
-      if (res) this.phrase = { phrase: res, from: bar, kind: `vae×${nearest.o}` };
+      take(this.magenta.interpolate(this.myPhrase(bar, lock), this.theirPhrase(nearest.o, bar, lock), amount), `vae×${nearest.o}`);
       return;
     }
     if (stable >= 0.6 && this.lockedBars >= 2 && this.lastPlan) {
       const name = chordName(this.lastPlan.chord);
-      const safe = magentaChordName(name);
-      const res = this.magenta.improvise(this.myPhrase(bar, lock), [safe, safe]);
-      if (res) this.phrase = { phrase: res, from: bar, kind: `rnn ${name}` };
+      take(this.magenta.improvise(this.myPhrase(bar, lock), [magentaChordName(name), magentaChordName(name)]), `rnn ${name}`);
     }
   }
 
