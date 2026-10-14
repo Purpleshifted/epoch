@@ -716,8 +716,8 @@ function SpaceWorld({
       {(["live", "kept"] as const).map((w) => (
         <group key={w} visible={!!water}>
           <instancedMesh ref={w === "live" ? pipeLive : pipeKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow>
-            <cylinderGeometry args={[1, 1, 1, 14]} />
-            <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
+            <cylinderGeometry args={[1, 1, 1, 14, 1, true]} />
+            <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} side={THREE.DoubleSide} />
           </instancedMesh>
           <instancedMesh ref={w === "live" ? fitLive : fitKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow visible={walkLook.pipeFittings}>
             <sphereGeometry args={[1, 12, 8]} />

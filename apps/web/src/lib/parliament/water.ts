@@ -378,6 +378,11 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       // the trunk: from the quarter's nearest building edge to open ground
       const trunk = routeOut(quarter, block, path, piped, nx, nz, idx, cfg, isOpen);
       if (!trunk) continue;
+      // the sewer ends at the edge of the sealed quarter (its OUTFALL: the last cell still sealed to `burial`, one
+      // past it); from there the water runs on in the open — a pipe does not run out across open ground
+      let cut = 0;
+      for (let i = 0; i < trunk.cells.length; i++) if (share[trunk.cells[i]] >= cfg.burial) cut = i;
+      trunk.cells = trunk.cells.slice(0, Math.min(trunk.cells.length, cut + 2));
       for (let i = 0; i < trunk.cells.length; i++) down[trunk.cells[i]] = i + 1 < trunk.cells.length ? trunk.cells[i + 1] : -1;
       routes.push(trunk.cells);
       entry.set(trunk.from, trunk.cells[0]);
@@ -785,46 +790,45 @@ export interface PipeParts {
 }
 
 /**
- * The pipes as PLUMBING: every run a straight cylinder along its axis (right angles kept), extended by its radius at
- * both ends so two runs meet in a closed corner, with a round FITTING (a slightly wider ball) at every bend of a
- * route; every manhole an upright cylinder (wider) with a flat COVER on top. Radius `pipeRadius` × √flow.
+ * The pipes as PLUMBING: every run a straight OPEN cylinder along its axis (right angles kept); wherever two or more
+ * ends meet (a bend, a junction of lateral and trunk, a manhole's foot and head) a round FITTING (a slightly wider
+ * ball) joins them; a free end (a building's entry, the outfall) stays open. Every manhole an upright cylinder
+ * (wider) with a flat COVER on top. Radius `pipeRadius` × √flow.
  * `live` = laid within the present (from slot `fromK`), `kept` = below it.
  */
 export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number): { live: PipeParts; kept: PipeParts } {
   const out = { live: { cyl: [] as number[], fit: [] as number[] }, kept: { cyl: [] as number[], fit: [] as number[] } };
   const y = (k: number) => (k - cfg.pipeDepth) * unit;
   const rad = (flow: number) => cfg.pipeRadius * Math.sqrt(Math.max(1, flow));
-  const routes = new Map<number, PipeRun[]>();
+  // the ends of every cylinder, per point: a FITTING where two or more meet (a bend, a junction, a manhole's foot);
+  // a free end stays open
+  const ends = new Map<string, { x: number; y: number; z: number; r: number; n: number; live: boolean }>();
+  const end = (x: number, yy: number, z: number, r: number, live: boolean) => {
+    const key = `${Math.round(x / CELL_SIZE * 2)},${Math.round(yy / unit * 4)},${Math.round(z / CELL_SIZE * 2)}`;
+    const e = ends.get(key);
+    if (e) {
+      e.n++;
+      e.r = Math.max(e.r, r);
+      e.live = e.live || live;
+    } else ends.set(key, { x, y: yy, z, r, n: 1, live });
+  };
   for (const p of pipes) {
-    const b = p.k >= fromK ? out.live : out.kept;
+    const live = p.k >= fromK;
+    const b = live ? out.live : out.kept;
     if (p.k0 !== undefined) {
       const r = cfg.pipeRadius * 1.3;
-      b.cyl.push(p.ax, y(p.k0), p.az, p.ax, y(p.k) + r, p.az, r); // the shaft (upright: the only other axis a pipe takes)
-      b.cyl.push(p.ax, y(p.k) + r, p.az, p.ax, y(p.k) + r * 1.4, p.az, r * 1.6); // the cover
+      b.cyl.push(p.ax, y(p.k0), p.az, p.ax, y(p.k), p.az, r); // the shaft, from the old pipe up to the new
+      b.cyl.push(p.ax, y(p.k) + r * 0.8, p.az, p.ax, y(p.k) + r * 1.2, p.az, r * 1.6); // the cover
+      end(p.ax, y(p.k0), p.az, r, live);
+      end(p.ax, y(p.k), p.az, r, live);
       continue;
     }
     const r = rad(p.flow);
-    const dx = p.bx - p.ax, dz = p.bz - p.az, L = Math.hypot(dx, dz) || 1;
-    const ex = (dx / L) * r, ez = (dz / L) * r;
-    b.cyl.push(p.ax - ex, y(p.k), p.az - ez, p.bx + ex, y(p.k), p.bz + ez, r);
-    if (p.route !== undefined) {
-      const list = routes.get(p.route) ?? [];
-      list.push(p);
-      routes.set(p.route, list);
-    }
+    b.cyl.push(p.ax, y(p.k), p.az, p.bx, y(p.k), p.bz, r);
+    end(p.ax, y(p.k), p.az, r, live);
+    end(p.bx, y(p.k), p.bz, r, live);
   }
-  // fittings where a route bends
-  for (const list of routes.values()) {
-    list.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-    for (let i = 0; i + 1 < list.length; i++) {
-      const p = list[i], q = list[i + 1];
-      if (Math.hypot(q.ax - p.bx, q.az - p.bz) > CELL_SIZE * 0.51) continue; // not joined
-      const d1 = Math.atan2(p.bz - p.az, p.bx - p.ax), d2 = Math.atan2(q.bz - q.az, q.bx - q.ax);
-      if (Math.abs(Math.sin(d1 - d2)) < 0.05) continue; // straight on
-      const b = p.k >= fromK ? out.live : out.kept;
-      b.fit.push(p.bx, y(p.k), p.bz, rad(Math.max(p.flow, q.flow)) * 1.15);
-    }
-  }
+  for (const e of ends.values()) if (e.n >= 2) (e.live ? out.live : out.kept).fit.push(e.x, e.y, e.z, e.r * 1.15);
   const pack = (x: { cyl: number[]; fit: number[] }): PipeParts => ({ cylinders: Float32Array.from(x.cyl), fittings: Float32Array.from(x.fit) });
   return { live: pack(out.live), kept: pack(out.kept) };
 }
