@@ -178,7 +178,7 @@ export interface PartsResult {
   /** The pipes as plumbing to instance (water.pipeParts): `live` within the present (still changing), `kept` below. */
   pipes: { live: PipeParts; kept: PipeParts };
   /** V2 walkways' pre-layer as line segments with a weight per vertex (walkways.walkSegments): `live` within the present, `kept` below. */
-  walk: { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array };
+  walk: { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array };
   t: number;
   top: number;
   minX: number;
@@ -533,7 +533,7 @@ export class SpaceModel {
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
       pipes: pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, pipeDecay),
-      walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1, input.walk ?? undefined, walkWeigh),
+      walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1, walkWeigh),
       t,
       top,
       minX,
@@ -848,7 +848,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
       for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.elbows.buffer as ArrayBuffer);
-      for (const a of [out.parts.walk.live, out.parts.walk.kept, out.parts.walk.liveW, out.parts.walk.keptW]) transfer.add(a.buffer as ArrayBuffer);
+      for (const a of [out.parts.walk.live, out.parts.walk.kept, out.parts.walk.liveW, out.parts.walk.keptW, out.parts.walk.liveEnds, out.parts.walk.keptEnds]) transfer.add(a.buffer as ArrayBuffer);
     }
   }
   if (m.nature) {
