@@ -11,6 +11,9 @@
  * Emitting and mirroring run on a wall-clock ticker (useTicker), NOT in useFrame: rAF stops in a hidden
  * tab, and the player tab is hidden exactly when you look at /global/space in another tab — the bots used
  * to freeze then, and no concrete was ever generated. Only the fold and drawing stay in useFrame.
+ *
+ * V2 session (useLifeSession): the visitor only leaves presence while their session is LIVE; near the end the
+ * headset goes dull (muffleSound); after every fold a dry reading of who is near is put in `witnessRef` (HUD).
  */
 
 import { useEffect, useRef } from "react";
@@ -20,6 +23,7 @@ import {
   ONE_FLOCK,
   SEAL_H,
   botActor,
+  DEFAULT_WITNESS,
   botPlan,
   dueSamples,
   steerBot,
@@ -28,12 +32,15 @@ import {
   pickOffset,
   saveMerged,
   setKeepFrom,
+  observe,
   sessionSeconds,
+  SESSION_ROLES,
   stressMap,
   type Actor,
   type Flock,
   type FoldConfig,
   type NatureConfig,
+  type Observation,
   type PEvent,
   type RoleId,
   type Snapshot,
@@ -44,6 +51,7 @@ import { NatureCloud } from "./NatureCloud";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useWorld } from "./useWorld";
+import { muffleSound, type LifeSignal } from "./useLifeSession";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
@@ -78,6 +86,8 @@ export function RoleField({
   botFlock = ONE_FLOCK,
   sound = null,
   playerYawRef,
+  lifeRef,
+  witnessRef,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -86,13 +96,18 @@ export function RoleField({
   pointSize: number;
   offsetWindow: number;
   botCount: number;
-  botRole: RoleId;
+  /** "mixed" (V2): the bots take the session roles in turn. */
+  botRole: RoleId | "mixed";
   /** How the bots spread over the ground (flocks). */
   botFlock?: Flock;
   /** V2: the headset sound — fed the player's signals (lib/sound/signals.ts) after every fold. */
   sound?: SoundSetup | null;
   /** Where the camera looks (radians), for panning the others' voices. */
   playerYawRef?: React.MutableRefObject<number>;
+  /** V2: the visitor's session; absent = always present (V1). */
+  lifeRef?: { readonly current: LifeSignal };
+  /** V2: a dry reading of the visitor's situation, renewed after every fold (lib/parliament/witness.ts). */
+  witnessRef?: React.MutableRefObject<Observation | null>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -194,9 +209,11 @@ export function RoleField({
 
     for (const w of due) {
       const actors: Actor[] = [];
-      // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled
-      if (now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
-      for (let i = 0; i < nBots; i++) actors.push(steer(botActor(i, theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock), i, w));
+      // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled;
+      // V2: and only while their session is live (before the role is drawn, and after the end, they leave nothing)
+      const present = !lifeRef || lifeRef.current.phase === "live";
+      if (present && now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
+      for (let i = 0; i < nBots; i++) actors.push(steer(botActor(i, theirRole === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock), i, w));
       for (const a of actors) emit(a.o, a.r, "p", a.x, a.z, a.s);
     }
 
@@ -230,6 +247,16 @@ export function RoleField({
       const events = log.all();
       snap.current = foldWorld(events, sMe, cfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
       stress.current = stressMap(events, sMe, natureCfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      if (witnessRef) {
+        witnessRef.current = observe({
+          me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
+          events,
+          sNow: sMe,
+          snap: snap.current,
+          t: lifeRef?.current.t ?? 0,
+          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius },
+        });
+      }
       // the headset: what I hear, folded from the same events
       let soundLine: string | undefined;
       if (sound) {
@@ -243,7 +270,7 @@ export function RoleField({
           natureCfg,
           cfg: sound.sigCfg,
         });
-        sound.engine.update(me.current.id, sig, sound.params, playerYawRef?.current ?? 0, epochMs.current, tonal.current.key);
+        sound.engine.update(me.current.id, sig, muffleSound(sound.params, lifeRef?.current), playerYawRef?.current ?? 0, epochMs.current, tonal.current.key);
         const d = sound.engine.debug;
         const k = tonal.current.key;
         soundLine = `${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
