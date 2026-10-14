@@ -810,7 +810,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.matrices)) transfer.add(a.buffer as ArrayBuffer);
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
-      for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.elbows.buffer as ArrayBuffer).add(m.fittings.buffer as ArrayBuffer);
+      for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.elbows.buffer as ArrayBuffer);
       transfer.add(out.parts.walk.live.buffer as ArrayBuffer).add(out.parts.walk.kept.buffer as ArrayBuffer);
     }
   }

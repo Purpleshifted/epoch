@@ -222,9 +222,9 @@ describe("pipes as plumbing (the wrapper)", () => {
       expect(Math.abs(ax * bx + az * bz)).toBeLessThan(0.05);
       expect(r).toBeGreaterThan(0);
     }
-    // one shaft and one cover per manhole
+    // at least one shaft and one cover per manhole (collars come on top)
     const risers = d.pipes.filter((p) => p.k0 !== undefined).length;
     const upright = cyl.length / 7 - d.pipes.filter((p) => p.k0 === undefined).length;
-    expect(upright).toBe(risers * 2);
+    expect(upright).toBeGreaterThanOrEqual(risers * 2);
   });
 });

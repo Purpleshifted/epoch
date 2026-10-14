@@ -94,6 +94,8 @@ export interface WaterConfig {
   grace: number;
   /** RE-LAYING: a network in use whose pipes are older than this (slots; 0 = `reach`) is laid again; off when < 0. */
   relay: number;
+  /** An elbow's centreline radius, × the pipe radius (1 = as tight as the pipe allows; bigger = a softer bend). */
+  elbow: number;
 }
 
 export const DEFAULT_WATER: WaterConfig = {
@@ -120,6 +122,7 @@ export const DEFAULT_WATER: WaterConfig = {
   reach: 0,
   grace: 3,
   relay: 0,
+  elbow: 1,
 };
 
 export interface Building {
@@ -784,34 +787,31 @@ export function pipeSegments(pipes: readonly PipeRun[], unit: number, cfg: Water
 }
 
 /**
- * The pipes as PARTS to instance: straight cylinders [ax, ay, az, bx, by, bz, r] × n, ELBOWS (a quarter torus joining
- * two horizontal runs at a right angle) [cx, cy, cz, ax, ay, az, bx, by, bz, r] × m — centre of the bend, the unit
- * directions of its two arms seen from the centre, the pipe radius (the bend's radius is ELBOW × r) — and round
- * FITTINGS [x, y, z, r] × j where three or more ends meet, or a shaft meets a pipe.
+ * The pipes as PARTS to instance: straight cylinders [ax, ay, az, bx, by, bz, r] × n (runs, manhole shafts and covers,
+ * and the COLLARS of the joints) and ELBOWS (a quarter torus joining two horizontal runs at a right angle)
+ * [cx, cy, cz, ax, ay, az, bx, by, bz, r] × m — centre of the bend, the unit directions of its two arms seen from the
+ * centre, the pipe radius (the bend's radius is `elbow` × r).
  */
 export interface PipeParts {
   cylinders: Float32Array;
   elbows: Float32Array;
-  fittings: Float32Array;
 }
-
-/** An elbow's centreline radius, × the pipe radius. */
-export const ELBOW = 1.6;
 
 /**
  * The pipes as PLUMBING: every run a straight OPEN cylinder along its axis (right angles kept). Where exactly two
  * horizontal runs meet at a right angle, both are cut short by the bend's radius and a quarter-torus ELBOW joins them
- * (a pipe fitting); where three or more ends meet (a junction of lateral and trunk), or a manhole's shaft meets a
- * pipe, a round FITTING; a free end (a building's entry, the outfall) stays open. Every manhole an upright cylinder
- * (wider) with a flat COVER on top. Radius `pipeRadius` × √flow.
+ * (a pipe fitting). Where a run or a manhole shaft ends ON another pipe (a lateral joining the trunk, a manhole's
+ * foot or head), a short wider COLLAR around that pipe marks the tee; a free end (a building's entry, the outfall)
+ * stays open. Every manhole an upright cylinder (wider) with a flat COVER on top. Radius `pipeRadius` × √flow.
  */
 export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number): { live: PipeParts; kept: PipeParts } {
   const y = (k: number) => (k - cfg.pipeDepth) * unit;
   const rad = (flow: number) => cfg.pipeRadius * Math.sqrt(Math.max(1, flow));
-  type Cyl = { a: [number, number, number]; b: [number, number, number]; r: number; live: boolean; shaft: boolean };
+  type V = [number, number, number];
+  type Cyl = { a: V; b: V; r: number; live: boolean; shaft: boolean };
   const cyls: Cyl[] = [];
   // the ends of every run, per point
-  const ends = new Map<string, { at: [number, number, number]; of: { c: number; end: 0 | 1 }[] }>();
+  const ends = new Map<string, { at: V; of: { c: number; end: 0 | 1 }[] }>();
   const end = (c: number, which: 0 | 1) => {
     const p = which ? cyls[c].b : cyls[c].a;
     const key = `${Math.round((p[0] / CELL_SIZE) * 2)},${Math.round((p[1] / unit) * 4)},${Math.round((p[2] / CELL_SIZE) * 2)}`;
@@ -819,7 +819,6 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
     if (e) e.of.push({ c, end: which });
     else ends.set(key, { at: p, of: [{ c, end: which }] });
   };
-  const fit: { live: number[]; kept: number[] } = { live: [], kept: [] };
   const elb: { live: number[]; kept: number[] } = { live: [], kept: [] };
   for (const p of pipes) {
     const live = p.k >= fromK;
@@ -835,17 +834,40 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
     end(cyls.length - 1, 0);
     end(cyls.length - 1, 1);
   }
-  const dirFrom = (c: Cyl, which: 0 | 1): [number, number, number] => {
+  const runs = cyls.length; // the collars come after
+  const dirFrom = (c: Cyl, which: 0 | 1): V => {
     // the unit direction from this end into the run
     const from = which ? c.b : c.a, to = which ? c.a : c.b;
-    const d: [number, number, number] = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    const d: V = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
     const L = Math.hypot(d[0], d[1], d[2]) || 1;
     return [d[0] / L, d[1] / L, d[2] / L];
   };
+  /** The run (not a shaft) on whose body — not its ends — the point lies, if any. */
+  const onBody = (p: V): Cyl | null => {
+    for (let i = 0; i < runs; i++) {
+      const c = cyls[i];
+      if (c.shaft || Math.abs(c.a[1] - p[1]) > 1e-3) continue;
+      const dx = c.b[0] - c.a[0], dz = c.b[2] - c.a[2], L2 = dx * dx + dz * dz || 1e-9;
+      const t = ((p[0] - c.a[0]) * dx + (p[2] - c.a[2]) * dz) / L2;
+      if (t <= 0.05 || t >= 0.95) continue;
+      const px = c.a[0] + dx * t, pz = c.a[2] + dz * t;
+      if (Math.hypot(px - p[0], pz - p[2]) < CELL_SIZE * 0.3) return c;
+    }
+    return null;
+  };
+  const collar = (at: V, along: V, r: number, live: boolean) => {
+    const h = r * 1.1;
+    cyls.push({ a: [at[0] - along[0] * h, at[1] - along[1] * h, at[2] - along[2] * h], b: [at[0] + along[0] * h, at[1] + along[1] * h, at[2] + along[2] * h], r: r * 1.35, live, shaft: true });
+  };
   for (const e of ends.values()) {
-    if (e.of.length < 2) continue; // a free end: open
     const live = e.of.some((o) => cyls[o.c].live);
     const r = Math.max(...e.of.map((o) => cyls[o.c].r));
+    if (e.of.length === 1) {
+      // a lone end: on another pipe's body it is a TEE (a collar around that pipe); otherwise open
+      const host = onBody(e.at);
+      if (host) collar(e.at, dirFrom(host, 0), Math.max(r, host.r), live || host.live);
+      continue;
+    }
     const two = e.of.length === 2 && e.of.every((o) => !cyls[o.c].shaft);
     if (two) {
       const [o1, o2] = e.of;
@@ -853,13 +875,13 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
       const cosang = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
       if (Math.abs(cosang) < 0.05) {
         // a right-angle bend: cut both arms by the bend radius, put the elbow between
-        const R = ELBOW * r;
+        const R = Math.max(0.5, cfg.elbow) * r;
         for (const [o, d] of [[o1, u], [o2, v]] as const) {
           const c = cyls[o.c];
           const p = o.end ? c.b : c.a;
           const len = Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1], c.b[2] - c.a[2]);
           const cut = Math.min(R, len * 0.45);
-          const q: [number, number, number] = [p[0] + d[0] * cut, p[1] + d[1] * cut, p[2] + d[2] * cut];
+          const q: V = [p[0] + d[0] * cut, p[1] + d[1] * cut, p[2] + d[2] * cut];
           if (o.end) c.b = q;
           else c.a = q;
         }
@@ -869,10 +891,12 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
       }
       if (Math.abs(cosang) > 0.95) continue; // straight on: nothing to join
     }
-    (live ? fit.live : fit.kept).push(e.at[0], e.at[1], e.at[2], r * 1.15);
+    // several ends, or a shaft meeting a pipe's end: a collar along the pipe that runs through (the first non-shaft)
+    const through = e.of.find((o) => !cyls[o.c].shaft);
+    collar(e.at, through ? dirFrom(cyls[through.c], through.end) : [0, 1, 0], r, live);
   }
   const cyl: { live: number[]; kept: number[] } = { live: [], kept: [] };
   for (const c of cyls) (c.live ? cyl.live : cyl.kept).push(...c.a, ...c.b, c.r);
-  const pack = (w: "live" | "kept"): PipeParts => ({ cylinders: Float32Array.from(cyl[w]), elbows: Float32Array.from(elb[w]), fittings: Float32Array.from(fit[w]) });
+  const pack = (w: "live" | "kept"): PipeParts => ({ cylinders: Float32Array.from(cyl[w]), elbows: Float32Array.from(elb[w]) });
   return { live: pack("live"), kept: pack("kept") };
 }
