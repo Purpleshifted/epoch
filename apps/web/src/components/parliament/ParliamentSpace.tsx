@@ -238,6 +238,11 @@ interface WalkLook {
   pipeMetalness: number;
   /** Brightness of the kept pipes (below the present) against the live ones. */
   pipeKeptDim: number;
+  /** Corrosion look: share of the wall eaten at full decay, decay at which holes begin, darkening, noise grain. */
+  pipeHoles: number;
+  pipeHoleOnset: number;
+  pipeDarken: number;
+  pipeGrain: number;
 }
 
 /** Line segments [a, b] × n into a line set. */
@@ -250,6 +255,42 @@ function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void
 }
 
 const PIPE_CAPACITY = 12000;
+
+/**
+ * The pipes' material: a standard material that CORRODES per instance — `aDecay` (0 fresh … 1 gone) eats holes into
+ * the wall (a hash noise on the surface, discarded below the decay, the holes' edges ragged) and darkens what is
+ * left towards rust-grey (achromatic). Old pipes are perforated, the oldest nearly gone: the same clock as the parts.
+ */
+function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: number, metalness: number): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, roughness, metalness, side: THREE.DoubleSide });
+  const u = { uHoles: { value: 0.95 }, uOnset: { value: 0.2 }, uDark: { value: 0.55 }, uGrain: { value: 23 } };
+  m.userData.u = u;
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float aDecay;\nvarying float vDecay;\nvarying vec3 vWorldP;")
+      .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvDecay = aDecay;\nvWorldP = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }")
+      .replace(
+        "#include <clipping_planes_fragment>",
+        "#include <clipping_planes_fragment>\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nif (pn < eat * uHoles) discard;",
+      )
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay;");
+  };
+  return m;
+}
+
+function setDecay(mesh: THREE.InstancedMesh | null, src: Float32Array, stride: number, count: number): void {
+  if (!mesh) return;
+  let attr = mesh.geometry.getAttribute("aDecay") as THREE.InstancedBufferAttribute | undefined;
+  if (!attr || attr.count < PIPE_CAPACITY) {
+    attr = new THREE.InstancedBufferAttribute(new Float32Array(PIPE_CAPACITY), 1);
+    mesh.geometry.setAttribute("aDecay", attr);
+  }
+  for (let i = 0; i < count; i++) attr.array[i] = src[i * stride + stride - 1];
+  attr.needsUpdate = true;
+}
 const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3(), _q = new THREE.Quaternion(), _sc = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3();
 /**
@@ -259,9 +300,9 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3
  */
 function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMesh | null, p: PipeParts): void {
   if (elbow) {
-    const n = Math.min(PIPE_CAPACITY, p.elbows.length / 10);
+    const n = Math.min(PIPE_CAPACITY, p.elbows.length / 11);
     for (let i = 0; i < n; i++) {
-      const o = i * 10;
+      const o = i * 11;
       _mid.set(p.elbows[o], p.elbows[o + 1], p.elbows[o + 2]);
       _a.set(p.elbows[o + 3], p.elbows[o + 4], p.elbows[o + 5]);
       _b.set(p.elbows[o + 6], p.elbows[o + 7], p.elbows[o + 8]);
@@ -272,11 +313,12 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
     }
     elbow.count = n;
     elbow.instanceMatrix.needsUpdate = true;
+    setDecay(elbow, p.elbows, 11, n);
   }
   if (cyl) {
-    const n = Math.min(PIPE_CAPACITY, p.cylinders.length / 7);
+    const n = Math.min(PIPE_CAPACITY, p.cylinders.length / 8);
     for (let i = 0; i < n; i++) {
-      const o = i * 7;
+      const o = i * 8;
       _dir.set(p.cylinders[o + 3] - p.cylinders[o], p.cylinders[o + 4] - p.cylinders[o + 1], p.cylinders[o + 5] - p.cylinders[o + 2]);
       const L = _dir.length() || 1e-6;
       _mid.set((p.cylinders[o] + p.cylinders[o + 3]) / 2, (p.cylinders[o + 1] + p.cylinders[o + 4]) / 2, (p.cylinders[o + 2] + p.cylinders[o + 5]) / 2);
@@ -287,6 +329,7 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
     }
     cyl.count = n;
     cyl.instanceMatrix.needsUpdate = true;
+    setDecay(cyl, p.cylinders, 8, n);
   }
 }
 
@@ -517,6 +560,20 @@ function SpaceWorld({
   const fused = useRef<THREE.Mesh>(null);
   const fibres = useRef<THREE.LineSegments>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
+  const pipeMats = useMemo(
+    () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness) }),
+    [walkLook.pipeColor, keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness],
+  );
+  useEffect(() => () => { pipeMats.live.dispose(); pipeMats.kept.dispose(); }, [pipeMats]);
+  useEffect(() => {
+    for (const m of [pipeMats.live, pipeMats.kept]) {
+      const u = m.userData.u as { uHoles: { value: number }; uOnset: { value: number }; uDark: { value: number }; uGrain: { value: number } };
+      u.uHoles.value = walkLook.pipeHoles;
+      u.uOnset.value = walkLook.pipeHoleOnset;
+      u.uDark.value = walkLook.pipeDarken;
+      u.uGrain.value = walkLook.pipeGrain;
+    }
+  }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
   const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
@@ -722,13 +779,11 @@ function SpaceWorld({
           bends, upright manholes with covers — grey, a human trace; the kept ones (below the present) dimmer */}
       {(["live", "kept"] as const).map((w) => (
         <group key={w} visible={!!water}>
-          <instancedMesh ref={w === "live" ? pipeLive : pipeKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow>
+          <instancedMesh ref={w === "live" ? pipeLive : pipeKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow material={pipeMats[w]}>
             <cylinderGeometry args={[1, 1, 1, 14, 1, true]} />
-            <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} side={THREE.DoubleSide} />
           </instancedMesh>
-          <instancedMesh ref={w === "live" ? elbowLive : elbowKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow>
+          <instancedMesh ref={w === "live" ? elbowLive : elbowKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow material={pipeMats[w]}>
             <torusGeometry args={[Math.max(0.5, water?.elbow ?? 1), 1, 10, 10, Math.PI / 2]} />
-            <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
           </instancedMesh>
         </group>
       ))}
@@ -1307,12 +1362,6 @@ export default function ParliamentSpace() {
             quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
             diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "45° 꺾임 (0 = 직각만)" },
             pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "묻히는 깊이 (깔린 층보다 몇 단 아래 — 늘 다리 아래)" },
-            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.2, step: 0.005, label: "관 굵기 (건물 하나 몫; 모일수록 √배)" },
-            pipeColor: { value: "#7c7f84", label: "관 색 (무채색)" },
-            pipeRoughness: { value: 0.55, min: 0, max: 1, step: 0.01, label: "관 거칠기" },
-            pipeMetalness: { value: 0.35, min: 0, max: 1, step: 0.01, label: "관 금속성" },
-            pipeKeptDim: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "굳은 관의 밝기 (현재 대비)" },
-            elbow: { value: DEFAULT_WATER.elbow, min: 0.5, max: 3, step: 0.05, label: "엘보 반지름 (관 굵기 배; 작을수록 급한 직각)" },
           },
           { order: 2 },
         ),
@@ -1328,6 +1377,31 @@ export default function ParliamentSpace() {
           },
           { order: 3 },
         ),
+        "⑤ 배관 모양 · 재질 · 부식": folder(
+          {
+            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.2, step: 0.005, label: "관 굵기 (건물 하나 몫, 반지름)" },
+            flowGain: { value: DEFAULT_WATER.flowGain, min: 0, max: 1, step: 0.05, label: "모일수록 굵어짐 (0 = 다 같게, 0.5 = √)" },
+            elbow: { value: DEFAULT_WATER.elbow, min: 0.5, max: 3, step: 0.05, label: "엘보 반지름 (관 굵기 배; 작을수록 급한 직각)" },
+            shaftRadius: { value: DEFAULT_WATER.shaftRadius, min: 0.5, max: 4, step: 0.05, label: "맨홀 세로관 굵기 (관 굵기 배)" },
+            coverRadius: { value: DEFAULT_WATER.coverRadius, min: 1, max: 4, step: 0.05, label: "맨홀 뚜껑 너비 (세로관 배)" },
+            coverHeight: { value: DEFAULT_WATER.coverHeight, min: 0, max: 2, step: 0.05, label: "맨홀 뚜껑 두께 (세로관 반지름 배)" },
+            collarRadius: { value: DEFAULT_WATER.collarRadius, min: 1, max: 2.5, step: 0.05, label: "칼라(T 이음쇠) 굵기 (관 배)" },
+            collarLength: { value: DEFAULT_WATER.collarLength, min: 0.2, max: 4, step: 0.1, label: "칼라 길이 (관 반지름 배, 반쪽)" },
+            pipeColor: { value: "#7c7f84", label: "관 색 (무채색)" },
+            pipeRoughness: { value: 0.55, min: 0, max: 1, step: 0.01, label: "관 거칠기" },
+            pipeMetalness: { value: 0.35, min: 0, max: 1, step: 0.01, label: "관 금속성" },
+            pipeKeptDim: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "굳은 관의 밝기 (현재 대비)" },
+            "부식 (오래된 관부터, 부재와 같은 시계)": folder({
+              pipeLife: { value: DEFAULT_WATER.pipeLife, min: 0, max: 5, step: 0.05, label: "관 수명 (철골 대비; 0 = 부식 없음)" },
+              thin: { value: DEFAULT_WATER.thin, min: 0, max: 0.9, step: 0.05, label: "다 부식하면 얇아지는 비율" },
+              pipeHoleOnset: { value: 0.2, min: 0, max: 0.95, step: 0.05, label: "구멍이 나기 시작하는 부식 정도" },
+              pipeHoles: { value: 0.95, min: 0, max: 1, step: 0.05, label: "다 부식하면 먹히는 벽 비율" },
+              pipeGrain: { value: 23, min: 3, max: 80, step: 1, label: "구멍 결 (클수록 잘고 많음)" },
+              pipeDarken: { value: 0.55, min: 0, max: 1, step: 0.05, label: "부식할수록 어두워짐" },
+            }),
+          },
+          { order: 4, collapsed: true },
+        ),
         "④ 열린 물길: 식생 · 부식 (남음: 식생 속 물길)": folder(
           {
             openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "물이 다시 스미는 덮인 비율 (배출구)" },
@@ -1339,7 +1413,7 @@ export default function ParliamentSpace() {
             wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
             corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
           },
-          { order: 4, collapsed: true },
+          { order: 5, collapsed: true },
         ),
       },
       ["수로 (덮인 땅의 물)", "길 · 다리"],
@@ -1374,13 +1448,21 @@ export default function ParliamentSpace() {
             grace: wtr.pipeGrace,
             relay: wtr.relayOn ? wtr.relay : -1,
             elbow: wtr.elbow,
+            flowGain: wtr.flowGain,
+            shaftRadius: wtr.shaftRadius,
+            coverRadius: wtr.coverRadius,
+            coverHeight: wtr.coverHeight,
+            collarRadius: wtr.collarRadius,
+            collarLength: wtr.collarLength,
+            pipeLife: wtr.pipeLife,
+            thin: wtr.thin,
           }
         : null,
-    [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow],
+    [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const walkLook = useMemo<WalkLook>(
-    () => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim }),
-    [wlk.walkColor, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim],
+    () => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
+    [wlk.walkColor, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
   const fu = useControls(

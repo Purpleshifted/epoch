@@ -133,7 +133,7 @@ describe("SpaceModel: what the worker computes", () => {
     const drain = (m as unknown as { drain: { streams: Map<number, unknown[]>; pipes: unknown[] } }).drain;
     expect(drain.streams.size + drain.pipes.length).toBeGreaterThan(0);
     // the pipes as tubes: a mesh with triangles when any run was laid
-    expect((r.pipes.live.cylinders.length + r.pipes.kept.cylinders.length) / 7).toBeGreaterThanOrEqual(r.pipeRuns);
+    expect((r.pipes.live.cylinders.length + r.pipes.kept.cylinders.length) / 8).toBeGreaterThanOrEqual(r.pipeRuns);
     const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 20, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear };
     expect(m.computeNature(input)!.position.length).toBeGreaterThan(0);
     const off = new SpaceModel();

@@ -424,6 +424,14 @@ export class SpaceModel {
     };
     // one wear model for wearing and for what the parts become (its ages are cached per part)
     const wm = input.wear ? wearModel(seeds, t, wearCfg) : null;
+    // the pipes' CORROSION on the same clock as the parts: a layer's pipes age from the end of their slot (plus the
+    // rot onset, as the parts do), survival e^(−A / (tauSlab · steelLife · pipeLife)); decay = 1 − survival
+    const pipeDecay = (k: number): number => {
+      if (!input.wear || !w.strata || input.water.pipeLife <= 0) return 0;
+      const laid = Math.min(t, (k + 1 + presentSlots) * box.secPerUnit);
+      const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
+      return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.steelLife * input.water.pipeLife));
+    };
     const worn = wm ? wearParts(built, seeds, t, wearCfg, wm) : built;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
     this.wear = wm;
@@ -495,7 +503,7 @@ export class SpaceModel {
       farSeeds: far.size,
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
-      pipes: pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1),
+      pipes: pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, pipeDecay),
       walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1),
       t,
       top,

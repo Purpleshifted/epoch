@@ -175,6 +175,17 @@ describe("water from sealed ground: open streams, buried pipes", () => {
   it("off: no water", () => {
     expect(drainage([], block(1, 0, 0, 6, 6), { ...DEFAULT_WATER, enabled: false }, opts).pipes).toHaveLength(0);
   });
+
+  it("old pipes corrode: their decay comes from the layer's age and thins the wall", () => {
+    const seeds = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5)];
+    const d = drainage([], seeds, DEFAULT_WATER, opts);
+    const fresh = pipeParts(d.pipes, 1, DEFAULT_WATER, 0);
+    const old = pipeParts(d.pipes, 1, DEFAULT_WATER, 0, () => 0.8);
+    const r = (c: Float32Array) => c[6], dec = (c: Float32Array) => c[7];
+    expect(dec(fresh.live.cylinders)).toBe(0);
+    expect(dec(old.live.cylinders)).toBeCloseTo(0.8, 6);
+    expect(r(old.live.cylinders)).toBeLessThan(r(fresh.live.cylinders));
+  });
 });
 
 describe("pipes join only what is still in use (reach, re-laying)", () => {
@@ -206,9 +217,9 @@ describe("pipes as plumbing (the wrapper)", () => {
     const d = drainage([], seeds, DEFAULT_WATER, opts);
     const m = pipeParts(d.pipes, 1, DEFAULT_WATER, 20);
     const cyl = [...m.live.cylinders, ...m.kept.cylinders];
-    expect(cyl.length / 7).toBeGreaterThanOrEqual(d.pipes.length);
-    for (let i = 0; i < cyl.length; i += 7) {
-      const [ax, ay, az, bx, by, bz, r] = cyl.slice(i, i + 7);
+    expect(cyl.length / 8).toBeGreaterThanOrEqual(d.pipes.length);
+    for (let i = 0; i < cyl.length; i += 8) {
+      const [ax, ay, az, bx, by, bz, r] = cyl.slice(i, i + 8);
       // along one axis only: x, z or y (a shaft / cover)
       expect([ax !== bx, az !== bz, ay !== by].filter(Boolean)).toHaveLength(1);
       expect(r).toBeGreaterThan(0);
@@ -216,15 +227,15 @@ describe("pipes as plumbing (the wrapper)", () => {
     // right-angle bends are elbows (quarter tori) with both arms horizontal and orthogonal
     const elb = [...m.live.elbows, ...m.kept.elbows];
     expect(elb.length).toBeGreaterThan(0);
-    for (let i = 0; i < elb.length; i += 10) {
-      const [, , , ax, ay, az, bx, by, bz, r] = elb.slice(i, i + 10);
+    for (let i = 0; i < elb.length; i += 11) {
+      const [, , , ax, ay, az, bx, by, bz, r] = elb.slice(i, i + 11);
       expect(Math.abs(ay) + Math.abs(by)).toBeLessThan(1e-6);
       expect(Math.abs(ax * bx + az * bz)).toBeLessThan(0.05);
       expect(r).toBeGreaterThan(0);
     }
     // at least one shaft and one cover per manhole (collars come on top)
     const risers = d.pipes.filter((p) => p.k0 !== undefined).length;
-    const upright = cyl.length / 7 - d.pipes.filter((p) => p.k0 === undefined).length;
+    const upright = cyl.length / 8 - d.pipes.filter((p) => p.k0 === undefined).length;
     expect(upright).toBeGreaterThanOrEqual(risers * 2);
   });
 });

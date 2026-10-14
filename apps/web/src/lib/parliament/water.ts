@@ -96,6 +96,19 @@ export interface WaterConfig {
   relay: number;
   /** An elbow's centreline radius, × the pipe radius (1 = as tight as the pipe allows; bigger = a softer bend). */
   elbow: number;
+  /** How much a pipe thickens as water collects: radius × flow^flowGain (0 = all the same, 0.5 = √). */
+  flowGain: number;
+  /** A manhole shaft's radius, × pipeRadius; its cover's radius × the shaft's and height × the shaft's radius. */
+  shaftRadius: number;
+  coverRadius: number;
+  coverHeight: number;
+  /** A collar's (tee fitting's) radius × the pipe's, and its half-length × the pipe's radius. */
+  collarRadius: number;
+  collarLength: number;
+  /** CORROSION: the pipes' life × the steel life of the parts (1 = as bare steel); ≤ 0 = pipes do not corrode. */
+  pipeLife: number;
+  /** How much of its radius a pipe loses as it decays fully (the wall thins before the holes take it). */
+  thin: number;
 }
 
 export const DEFAULT_WATER: WaterConfig = {
@@ -123,6 +136,14 @@ export const DEFAULT_WATER: WaterConfig = {
   grace: 3,
   relay: 0,
   elbow: 1,
+  flowGain: 0.5,
+  shaftRadius: 1.6,
+  coverRadius: 1.6,
+  coverHeight: 0.4,
+  collarRadius: 1.35,
+  collarLength: 1.1,
+  pipeLife: 1,
+  thin: 0.35,
 };
 
 export interface Building {
@@ -793,7 +814,9 @@ export function pipeSegments(pipes: readonly PipeRun[], unit: number, cfg: Water
  * centre, the pipe radius (the bend's radius is `elbow` × r).
  */
 export interface PipeParts {
+  /** [ax, ay, az, bx, by, bz, r, decay] × n */
   cylinders: Float32Array;
+  /** [cx, cy, cz, ax, ay, az, bx, by, bz, r, decay] × m */
   elbows: Float32Array;
 }
 
@@ -802,13 +825,17 @@ export interface PipeParts {
  * horizontal runs meet at a right angle, both are cut short by the bend's radius and a quarter-torus ELBOW joins them
  * (a pipe fitting). Where a run or a manhole shaft ends ON another pipe (a lateral joining the trunk, a manhole's
  * foot or head), a short wider COLLAR around that pipe marks the tee; a free end (a building's entry, the outfall)
- * stays open. Every manhole an upright cylinder (wider) with a flat COVER on top. Radius `pipeRadius` × √flow.
+ * stays open. Every manhole an upright cylinder (wider) with a flat COVER on top. Radius `pipeRadius` × flow^flowGain.
+ * CORROSION: `decayOf(k)` (0 fresh … 1 gone, from the parts' weathering clock) is carried on every part of a layer;
+ * the wall thins by `thin` × decay, and the material eats holes with it.
  */
-export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number): { live: PipeParts; kept: PipeParts } {
+export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number, decayOf: (k: number) => number = () => 0): { live: PipeParts; kept: PipeParts } {
   const y = (k: number) => (k - cfg.pipeDepth) * unit;
-  const rad = (flow: number) => cfg.pipeRadius * Math.sqrt(Math.max(1, flow));
+  const dec = (k: number) => Math.max(0, Math.min(1, decayOf(k)));
+  const thin = (k: number) => 1 - Math.max(0, Math.min(0.9, cfg.thin)) * dec(k);
+  const rad = (flow: number, k: number) => cfg.pipeRadius * Math.pow(Math.max(1, flow), cfg.flowGain) * thin(k);
   type V = [number, number, number];
-  type Cyl = { a: V; b: V; r: number; live: boolean; shaft: boolean };
+  type Cyl = { a: V; b: V; r: number; live: boolean; shaft: boolean; decay: number };
   const cyls: Cyl[] = [];
   // the ends of every run, per point
   const ends = new Map<string, { at: V; of: { c: number; end: 0 | 1 }[] }>();
@@ -823,14 +850,14 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
   for (const p of pipes) {
     const live = p.k >= fromK;
     if (p.k0 !== undefined) {
-      const r = cfg.pipeRadius * 1.6;
-      cyls.push({ a: [p.ax, y(p.k0), p.az], b: [p.ax, y(p.k), p.az], r, live, shaft: true }); // the shaft, old pipe to new
-      cyls.push({ a: [p.ax, y(p.k) + r * 0.8, p.az], b: [p.ax, y(p.k) + r * 1.2, p.az], r: r * 1.6, live, shaft: true }); // the cover
+      const r = cfg.pipeRadius * cfg.shaftRadius * thin(p.k), d = dec(p.k);
+      cyls.push({ a: [p.ax, y(p.k0), p.az], b: [p.ax, y(p.k), p.az], r, live, shaft: true, decay: d }); // the shaft, old pipe to new
+      cyls.push({ a: [p.ax, y(p.k) + r * 0.8, p.az], b: [p.ax, y(p.k) + r * (0.8 + cfg.coverHeight), p.az], r: r * cfg.coverRadius, live, shaft: true, decay: d }); // the cover
       end(cyls.length - 2, 0);
       end(cyls.length - 2, 1);
       continue;
     }
-    cyls.push({ a: [p.ax, y(p.k), p.az], b: [p.bx, y(p.k), p.bz], r: rad(p.flow), live, shaft: false });
+    cyls.push({ a: [p.ax, y(p.k), p.az], b: [p.bx, y(p.k), p.bz], r: rad(p.flow, p.k), live, shaft: false, decay: dec(p.k) });
     end(cyls.length - 1, 0);
     end(cyls.length - 1, 1);
   }
@@ -855,17 +882,18 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
     }
     return null;
   };
-  const collar = (at: V, along: V, r: number, live: boolean) => {
-    const h = r * 1.1;
-    cyls.push({ a: [at[0] - along[0] * h, at[1] - along[1] * h, at[2] - along[2] * h], b: [at[0] + along[0] * h, at[1] + along[1] * h, at[2] + along[2] * h], r: r * 1.35, live, shaft: true });
+  const collar = (at: V, along: V, r: number, live: boolean, decay: number) => {
+    const h = r * cfg.collarLength;
+    cyls.push({ a: [at[0] - along[0] * h, at[1] - along[1] * h, at[2] - along[2] * h], b: [at[0] + along[0] * h, at[1] + along[1] * h, at[2] + along[2] * h], r: r * cfg.collarRadius, live, shaft: true, decay });
   };
   for (const e of ends.values()) {
     const live = e.of.some((o) => cyls[o.c].live);
     const r = Math.max(...e.of.map((o) => cyls[o.c].r));
+    const decay = Math.min(...e.of.map((o) => cyls[o.c].decay));
     if (e.of.length === 1) {
       // a lone end: on another pipe's body it is a TEE (a collar around that pipe); otherwise open
       const host = onBody(e.at);
-      if (host) collar(e.at, dirFrom(host, 0), Math.max(r, host.r), live || host.live);
+      if (host) collar(e.at, dirFrom(host, 0), Math.max(r, host.r), live || host.live, Math.min(decay, host.decay));
       continue;
     }
     const two = e.of.length === 2 && e.of.every((o) => !cyls[o.c].shaft);
@@ -886,17 +914,17 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
           else c.a = q;
         }
         const centre = [e.at[0] + (u[0] + v[0]) * R, e.at[1] + (u[1] + v[1]) * R, e.at[2] + (u[2] + v[2]) * R];
-        (live ? elb.live : elb.kept).push(...centre, -u[0], -u[1], -u[2], -v[0], -v[1], -v[2], r);
+        (live ? elb.live : elb.kept).push(...centre, -u[0], -u[1], -u[2], -v[0], -v[1], -v[2], r, decay);
         continue;
       }
       if (Math.abs(cosang) > 0.95) continue; // straight on: nothing to join
     }
     // several ends, or a shaft meeting a pipe's end: a collar along the pipe that runs through (the first non-shaft)
     const through = e.of.find((o) => !cyls[o.c].shaft);
-    collar(e.at, through ? dirFrom(cyls[through.c], through.end) : [0, 1, 0], r, live);
+    collar(e.at, through ? dirFrom(cyls[through.c], through.end) : [0, 1, 0], r, live, decay);
   }
   const cyl: { live: number[]; kept: number[] } = { live: [], kept: [] };
-  for (const c of cyls) (c.live ? cyl.live : cyl.kept).push(...c.a, ...c.b, c.r);
+  for (const c of cyls) (c.live ? cyl.live : cyl.kept).push(...c.a, ...c.b, c.r, c.decay);
   const pack = (w: "live" | "kept"): PipeParts => ({ cylinders: Float32Array.from(cyl[w]), elbows: Float32Array.from(elb[w]) });
   return { live: pack("live"), kept: pack("kept") };
 }
