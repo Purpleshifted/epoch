@@ -20,6 +20,7 @@
 
 import { buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, type Key } from "./harmony";
 import { Magenta } from "./magenta";
+import { applySink } from "./output";
 import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
 import { barClock, conformity, lockOf, planBar, type BarPlan } from "./sequencer";
 import type { PersonalSignals } from "./signals";
@@ -184,9 +185,10 @@ export class SoundEngine {
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
+  private sinkId = "default";
 
   get running(): boolean {
-    return !!this.ctx && this.ctx.state === "running";
+    return !!this.ctx && this.ctx.state === "running" && this.timer !== null;
   }
 
   get debug(): SoundDebug {
@@ -290,12 +292,19 @@ export class SoundEngine {
       this.lastUpdate = ctx.currentTime;
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
+    if (this.sinkId !== "default") await applySink(this.ctx, this.sinkId);
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
     this.master.gain.setTargetAtTime(this.params.master, this.ctx.currentTime, 0.3);
     if (this.params.magenta && this.magentaState === "off") {
       this.magentaState = "loading";
       setTimeout(() => this.magenta.load().then((ok) => (this.magentaState = ok ? "ready" : "failed")), MAGENTA_AFTER_MS);
     }
+  }
+
+  /** Send this window's sound to an output device (headset / speakers); no-op where the browser cannot. */
+  async setSink(id: string): Promise<boolean> {
+    this.sinkId = id;
+    return this.ctx ? applySink(this.ctx, id) : false;
   }
 
   /** Silence and stop scheduling (the context stays, so a later start() is instant). */

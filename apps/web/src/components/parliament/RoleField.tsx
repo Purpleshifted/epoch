@@ -242,7 +242,7 @@ export function RoleField({
         });
         sound.engine.update(me.current.id, sig, sound.params, playerYawRef?.current ?? 0, epochMs.current);
         const d = sound.engine.debug;
-        soundLine = `${d.key}${d.building ? " (building " + d.building + ")" : " (home)"} · bar ${d.bar} ${d.chord} (deg ${d.degree}) · bass ${d.bass} pad ${d.pad.toFixed(2)} others ${d.othersPlaying}${d.nearest ? " · " + d.nearest + " closeness " + d.closeness.toFixed(2) : ""} · stable ${d.stable.toFixed(2)} rough ${d.rough.toFixed(2)} lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
+        soundLine = `${sound.status} · ${d.key}${d.building ? " (building " + d.building + ")" : " (home)"} · bar ${d.bar} ${d.chord} (deg ${d.degree}) · bass ${d.bass} pad ${d.pad.toFixed(2)} others ${d.othersPlaying}${d.nearest ? " · " + d.nearest + " closeness " + d.closeness.toFixed(2) : ""} · stable ${d.stable.toFixed(2)} rough ${d.rough.toFixed(2)} lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
       }
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
         role,

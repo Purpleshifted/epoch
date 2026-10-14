@@ -5,23 +5,32 @@
  * views themselves stay untouched. Starts on the first gesture on the page (autoplay rules).
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 import { useWorld } from "./useWorld";
 import { DEFAULT_FOLD, currentEpochKey, foldWorld, latestS, withoutWear, type Slab } from "@/lib/parliament";
 import { DEFAULT_GLOBAL, GlobalEngine, presences, type GlobalParams } from "@/lib/sound/global";
+import { canPickOutput, listOutputs, mutedBySolo, readSolo, setSolo, type OutputDevice } from "@/lib/sound/output";
 
 const ROOT = "소리 (V2 · 스피커)";
 
 export default function GlobalSound() {
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
+  const [devices, setDevices] = useState<OutputDevice[]>([]);
+  const outputOptions = useMemo(() => {
+    const o: Record<string, string> = { "기본 출력": "default" };
+    for (const d of devices) if (d.id !== "default") o[d.label] = d.id;
+    return o;
+  }, [devices]);
   const c = useControls(
     ROOT,
     savable(ROOT, {
       on: { value: true, label: "켜기 (첫 클릭 뒤 시작 · ESC = 이 창 음소거/해제)", render: v2 },
+      solo: { value: false, label: "이 창만 듣기 (다른 창은 음소거 — 창 사이에 공유됨)", render: v2 },
+      output: { options: outputOptions, value: "default", label: canPickOutput() ? "출력 장치 (헤드셋 / 스피커)" : "출력 장치 — 이 브라우저는 선택 불가", render: v2 },
       master: { value: DEFAULT_GLOBAL.master, min: 0, max: 1, step: 0.01, label: "음량", render: v2 },
       octavesDown: { value: DEFAULT_GLOBAL.octavesDown, min: 0, max: 4, step: 1, label: "모티프를 내리는 옥타브", render: v2 },
       cutoff: { value: DEFAULT_GLOBAL.cutoff, min: 80, max: 4000, step: 10, label: "전체 저역통과 (Hz)", render: v2 },
@@ -33,7 +42,8 @@ export default function GlobalSound() {
       windowSec: { value: DEFAULT_GLOBAL.windowSec, min: 30, max: 1200, step: 30, label: "존재로 세는 창 (s)", render: v2 },
     }),
     { collapsed: true, order: -1, render: v2 },
-  ) as unknown as GlobalParams & { on: boolean };
+    [outputOptions],
+  ) as unknown as GlobalParams & { on: boolean; solo: boolean; output: string };
   const log = useWorld(undefined, 1000);
   const engine = useMemo(() => (isV2 && typeof window !== "undefined" ? new GlobalEngine() : null), [isV2]);
   const onRef = useRef(c.on);
@@ -41,12 +51,14 @@ export default function GlobalSound() {
     onRef.current = c.on;
   }, [c.on]);
 
-  // ESC mutes this window's sound (and un-mutes on the next ESC)
+  // ESC mutes this window's sound (and un-mutes on the next ESC); another window's SOLO (output.ts) too
   const muted = useRef(false);
+  const soloed = useRef(false);
+  const [status, setStatus] = useState("♪ 스피커");
   useEffect(() => {
     if (!engine) return;
     const start = () => {
-      if (onRef.current && !muted.current) engine.start().catch(() => {});
+      if (onRef.current && !muted.current && !soloed.current) engine.start().catch(() => {});
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -68,9 +80,27 @@ export default function GlobalSound() {
 
   useEffect(() => {
     if (!engine) return;
-    if (c.on && !muted.current) engine.start().catch(() => {});
+    if (c.on && !muted.current && !soloed.current) engine.start().catch(() => {});
     else engine.stop();
   }, [engine, c.on]);
+
+  useEffect(() => {
+    if (!engine) return;
+    if (c.solo) setSolo("global");
+    else if (readSolo() === "global") setSolo(null);
+  }, [engine, c.solo]);
+
+  useEffect(() => {
+    if (!engine || !canPickOutput()) return;
+    listOutputs().then(setDevices);
+    const onChange = () => listOutputs().then(setDevices);
+    navigator.mediaDevices?.addEventListener?.("devicechange", onChange);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", onChange);
+  }, [engine]);
+  useEffect(() => {
+    if (!engine) return;
+    engine.setSink(c.output ?? "default").catch(() => {});
+  }, [engine, c.output]);
 
   const { master, barSec, octavesDown, cutoff, hall, perVoice, tickLevel, spread, drive, windowSec } = { ...DEFAULT_GLOBAL, ...c };
   const params = useMemo<GlobalParams>(
@@ -91,10 +121,25 @@ export default function GlobalSound() {
         slabs.current = { at: now, version: log.version, slabs: foldWorld(events, latestS(events), withoutWear(DEFAULT_FOLD)).slabs };
       }
       engine.update(presences(events, params.windowSec, slabs.current.slabs), epoch, params);
-      (window as unknown as { __globalSound?: unknown }).__globalSound = { ...engine.debug, running: engine.running };
+      // obey another window's solo
+      const other = mutedBySolo("global");
+      if (other !== soloed.current) {
+        soloed.current = other;
+        if (other) engine.stop();
+        else if (onRef.current && !muted.current) engine.start().catch(() => {});
+      }
+      const d = engine.debug;
+      const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : other ? `음소거 (${readSolo() === "mobile" ? "모바일" : "다른"} 창이 솔로)` : engine.running ? "재생 중" : "클릭하면 시작";
+      setStatus(`♪ 스피커 (글로벌 뷰) · ${why}${c.solo ? " · 솔로" : ""} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · bar ${d.bar}`);
+      (window as unknown as { __globalSound?: unknown }).__globalSound = { ...d, running: engine.running };
     }, 1000);
     return () => clearInterval(id);
-  }, [engine, log, params]);
+  }, [engine, log, params, c.solo]);
 
-  return null;
+  if (!engine) return null;
+  return (
+    <div className="pointer-events-none fixed bottom-4 right-4 z-50 select-none font-mono text-[10px] text-black/45">
+      {status}
+    </div>
+  );
 }

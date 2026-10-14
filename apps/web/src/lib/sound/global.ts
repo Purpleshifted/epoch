@@ -21,6 +21,7 @@
 import { buildingKey, homeKey, type Key } from "./harmony";
 import { makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { barClock } from "./sequencer";
+import { applySink } from "./output";
 import type { PEvent, Slab } from "@/lib/parliament";
 
 export interface GlobalParams {
@@ -166,9 +167,15 @@ export class GlobalEngine {
   private params: GlobalParams = DEFAULT_GLOBAL;
   private timer: ReturnType<typeof setInterval> | null = null;
   private planned = -1;
+  private sinkId = "default";
 
   get running(): boolean {
-    return !!this.ctx && this.ctx.state === "running";
+    return !!this.ctx && this.ctx.state === "running" && this.timer !== null;
+  }
+
+  async setSink(id: string): Promise<boolean> {
+    this.sinkId = id;
+    return this.ctx ? applySink(this.ctx, id) : false;
   }
 
   get debug(): { bar: number; voices: number; atBuildings: number; moving: number } {
@@ -226,6 +233,7 @@ export class GlobalEngine {
       src.start();
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
+    if (this.sinkId !== "default") await applySink(this.ctx, this.sinkId);
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
     this.master.gain.setTargetAtTime(this.params.master, this.ctx.currentTime, 1.5);
   }
