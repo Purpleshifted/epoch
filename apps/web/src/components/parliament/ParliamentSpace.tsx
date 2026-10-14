@@ -22,8 +22,6 @@ import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postproc
 import { BlendFunction } from "postprocessing";
 import { Leva, button, folder, monitor, useControls } from "leva";
 import * as THREE from "three";
-// fat lines from three-stdlib: it resolves the same three as the renderer (the app's own copy is older)
-import { LineMaterial, LineSegments2, LineSegmentsGeometry } from "three-stdlib";
 import {
   DEFAULT_BOXES,
   LS_PARLIAMENT_ME_KEY,
@@ -235,11 +233,9 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
 /** Pre-layer look: line colour of walkways; the pipes' material (round tubes). */
 interface WalkLook {
   walkColor: string;
-  /** Walkway line width (px); a free end's dot (× the width); brightness of the kept lines; what a line fades into. */
-  walkWidth: number;
+  /** A free end's dot (px); opacity of the kept lines (below the present). */
   walkDot: number;
-  walkKeptDim: number;
-  walkBg: string;
+  walkKeptOpacity: number;
   pipeColor: string;
   pipeRoughness: number;
   pipeMetalness: number;
@@ -261,40 +257,14 @@ function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void
   lines.geometry = g;
 }
 
-/**
- * Walkway segments [a, b] × n with a weight per vertex into a FAT LINE (screen pixels); the colour is the walkway's,
- * towards the background by the weight (an old layer's weathering). Free ends [x, y, z, weight] × n into round dots.
- */
-const _c0 = new THREE.Color(), _c1 = new THREE.Color(), _cm = new THREE.Color();
-function weighColours(weights: Float32Array, stride: number, color: THREE.ColorRepresentation, bg: THREE.ColorRepresentation): Float32Array {
-  _c1.set(color);
-  _c0.set(bg);
-  const n = Math.floor(weights.length / stride);
-  const out = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    _cm.copy(_c0).lerp(_c1, Math.max(0, Math.min(1, weights[i * stride + stride - 1])));
-    out.set([_cm.r, _cm.g, _cm.b], i * 3);
-  }
-  return out;
-}
-function setWalkLines(line: LineSegments2 | null, segs: Float32Array, weights: Float32Array, color: THREE.ColorRepresentation, bg: THREE.ColorRepresentation): void {
-  if (!line) return;
-  const g = new LineSegmentsGeometry();
-  if (segs.length >= 6) {
-    g.setPositions(segs);
-    g.setColors(weighColours(weights, 1, color, bg));
-  }
-  line.geometry.dispose();
-  line.geometry = g;
-}
-function setWalkEnds(pts: THREE.Points | null, ends: Float32Array, color: THREE.ColorRepresentation, bg: THREE.ColorRepresentation): void {
+/** Free ends [x, y, z, weight] × n into a points cloud (positions only: the dot takes the line's colour). */
+function setWalkEnds(pts: THREE.Points | null, ends: Float32Array): void {
   if (!pts) return;
   const n = Math.floor(ends.length / 4);
   const pos = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) pos.set([ends[i * 4], ends[i * 4 + 1], ends[i * 4 + 2]], i * 3);
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.BufferAttribute(weighColours(ends, 4, color, bg), 3));
   pts.geometry.dispose();
   pts.geometry = g;
 }
@@ -610,39 +580,12 @@ function SpaceWorld({
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats });
-  const walkLive = useRef<LineSegments2>(null);
-  const walkKept = useRef<LineSegments2>(null);
+  const walkLive = useRef<THREE.LineSegments>(null);
+  const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
   const endKept = useRef<THREE.Points>(null);
-  const { size: viewSize } = useThree();
-  const walkObjs = useMemo(() => {
-    const mk = () => {
-      const l = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ vertexColors: true, linewidth: 2 }));
-      l.frustumCulled = false;
-      return l;
-    };
-    return { live: mk(), kept: mk() };
-  }, []);
-  useEffect(() => () => { for (const l of [walkObjs.live, walkObjs.kept]) { l.geometry.dispose(); (l.material as LineMaterial).dispose(); } }, [walkObjs]);
-  useEffect(() => {
-    for (const l of [walkObjs.live, walkObjs.kept]) {
-      const m = l.material as LineMaterial;
-      m.linewidth = walkLook.walkWidth;
-      m.resolution.set(viewSize.width, viewSize.height);
-    }
-  }, [walkObjs, walkLook.walkWidth, viewSize.width, viewSize.height]);
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
-  const keptWalkColor = useMemo(() => new THREE.Color(walkLook.walkColor).lerp(new THREE.Color(walkLook.walkBg), 1 - walkLook.walkKeptDim), [walkLook.walkColor, walkLook.walkBg, walkLook.walkKeptDim]);
-  const walkData = useRef<{ live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array } | null>(null);
-  useEffect(() => {
-    const d = walkData.current;
-    if (!d) return;
-    setWalkLines(walkLive.current, d.live, d.liveW, walkLook.walkColor, walkLook.walkBg);
-    setWalkLines(walkKept.current, d.kept, d.keptW, keptWalkColor, walkLook.walkBg);
-    setWalkEnds(endLive.current, d.liveEnds, walkLook.walkColor, walkLook.walkBg);
-    setWalkEnds(endKept.current, d.keptEnds, keptWalkColor, walkLook.walkBg);
-  }, [walkLook.walkColor, walkLook.walkBg, keptWalkColor]);
   useEffect(() => {
     live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
@@ -718,11 +661,10 @@ function SpaceWorld({
         ax.geometry.dispose();
         ax.geometry = g;
       }
-      walkData.current = p.walk;
-      setWalkLines(walkLive.current, p.walk.live, p.walk.liveW, walkLook.walkColor, walkLook.walkBg);
-      setWalkLines(walkKept.current, p.walk.kept, p.walk.keptW, keptWalkColor, walkLook.walkBg);
-      setWalkEnds(endLive.current, p.walk.liveEnds, walkLook.walkColor, walkLook.walkBg);
-      setWalkEnds(endKept.current, p.walk.keptEnds, keptWalkColor, walkLook.walkBg);
+      setSegments(walkLive.current, p.walk.live);
+      setSegments(walkKept.current, p.walk.kept);
+      setWalkEnds(endLive.current, p.walk.liveEnds);
+      setWalkEnds(endKept.current, p.walk.keptEnds);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
@@ -857,14 +799,20 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#15181c" />
       </lineSegments>
-      {/* WALKWAYS' pre-layer as fat lines (px), light grey, the kept ones dimmer and an old layer fading with its
-          weathering; an end with nothing to arrive at any more is closed with a round dot */}
-      <primitive object={walkObjs.live} ref={walkLive} visible={!!walk} />
-      <primitive object={walkObjs.kept} ref={walkKept} visible={!!walk} />
+      {/* WALKWAYS' pre-layer as lines: light grey, the kept ones (below the present) see-through; an end with nothing
+          to arrive at any more is closed with a round dot */}
+      <lineSegments ref={walkLive} frustumCulled={false} visible={!!walk}>
+        <bufferGeometry />
+        <lineBasicMaterial color={walkLook.walkColor} />
+      </lineSegments>
+      <lineSegments ref={walkKept} frustumCulled={false} visible={!!walk}>
+        <bufferGeometry />
+        <lineBasicMaterial color={walkLook.walkColor} transparent opacity={walkLook.walkKeptOpacity} depthWrite={false} />
+      </lineSegments>
       {(["live", "kept"] as const).map((w) => (
         <points key={w} ref={w === "live" ? endLive : endKept} frustumCulled={false} visible={!!walk}>
           <bufferGeometry />
-          <pointsMaterial vertexColors map={dotTex} alphaTest={0.5} sizeAttenuation={false} size={walkLook.walkWidth * walkLook.walkDot} />
+          <pointsMaterial color={walkLook.walkColor} map={dotTex} alphaTest={0.5} sizeAttenuation={false} size={walkLook.walkDot} transparent={w === "kept"} opacity={w === "kept" ? walkLook.walkKeptOpacity : 1} depthWrite={w === "live"} />
         </points>
       ))}
       {/* PIPES as plumbing (the wrapper around the pre-layer): straight cylinders at right angles, ball fittings at the
@@ -1405,13 +1353,11 @@ export default function ParliamentSpace() {
           },
           { order: 4, render: () => isV2 },
         ),
-        "⑤ 다리 모양 · 끝 · 풍화 (V2 · 프리레이어 선)": folder(
+        "⑤ 다리 선 · 끝 점 (V2 · 프리레이어 선)": folder(
           {
-            walkWidth: { value: 3, min: 0.5, max: 12, step: 0.5, label: "선 굵기 (px)", render: () => isV2 },
-            walkDot: { value: 2.5, min: 1, max: 6, step: 0.1, label: "이어지지 않은 끝의 점 크기 (선 굵기 배)", render: () => isV2 },
             walkColor: { value: "#d8d8d8", label: "다리 선 색 (무채색)", render: () => isV2 },
-            walkKeptDim: { value: 0.45, min: 0.05, max: 1, step: 0.05, label: "굳은 다리의 밝기 (현재 대비)", render: () => isV2 },
-            walkLife: { value: DEFAULT_WALK.life, min: 0, max: 5, step: 0.05, label: "풍화: 다리 수명 (슬래브 대비; 0 = 안 사라짐)", render: () => isV2 },
+            walkKeptOpacity: { value: 0.4, min: 0.05, max: 1, step: 0.05, label: "굳은 다리의 불투명도 (현재 = 1)", render: () => isV2 },
+            walkDot: { value: 6, min: 0, max: 20, step: 0.5, label: "이어지지 않은 끝의 점 크기 (px, 0 = 없음)", render: () => isV2 },
           },
           { order: 5, collapsed: true, render: () => isV2 },
         ),
@@ -1436,10 +1382,10 @@ export default function ParliamentSpace() {
             grace: wlk.grace,
             minorShare: wlk.minorShare,
             resurface: wlk.resurfaceOn ? wlk.resurface : -1,
-            life: wlk.walkLife,
+            life: 0,
           }
         : null,
-    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLength, wlk.smooth, wlk.reach, wlk.grace, wlk.minorShare, wlk.resurfaceOn, wlk.resurface, wlk.walkLife],
+    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLength, wlk.smooth, wlk.reach, wlk.grace, wlk.minorShare, wlk.resurfaceOn, wlk.resurface],
   );
   // ── 물 → 배관 (V1 + V2): the sealed ground → its rain piped below (dense) / open streams (sparse, past outfalls) ──
   const WATER_GROUP = "물 → 배관";
@@ -1564,8 +1510,8 @@ export default function ParliamentSpace() {
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(
-    () => ({ walkColor: wlk.walkColor, walkWidth: wlk.walkWidth, walkDot: wlk.walkDot, walkKeptDim: wlk.walkKeptDim, walkBg: theme.bg, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
-    [wlk.walkColor, wlk.walkWidth, wlk.walkDot, wlk.walkKeptDim, theme.bg, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
+    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
+    [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
   const fu = useControls(
