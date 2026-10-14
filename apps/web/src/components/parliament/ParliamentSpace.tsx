@@ -22,9 +22,6 @@ import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postproc
 import { BlendFunction } from "postprocessing";
 import { Leva, button, folder, monitor, useControls } from "leva";
 import * as THREE from "three";
-import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
-import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import {
   DEFAULT_BOXES,
   LS_PARLIAMENT_ME_KEY,
@@ -262,27 +259,43 @@ function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void
 }
 
 /**
- * Walkway segments [a, b] × n with a weight per vertex into a fat line: the colour is the walkway's, faded towards the
- * background by the weight (a free end's taper, an old layer's weathering).
+ * Walkway segments [a, b] × n with a weight per vertex into a flat RIBBON mesh of `width` (world): each segment a quad
+ * lying level, across its horizontal direction; the colour is the walkway's, faded towards the background by the
+ * weight (a free end's taper, an old layer's weathering).
  */
 const _c0 = new THREE.Color(), _c1 = new THREE.Color(), _cm = new THREE.Color();
-function setWalkLines(line: LineSegments2 | null, segs: Float32Array, weights: Float32Array, color: THREE.ColorRepresentation, bg: THREE.ColorRepresentation): void {
-  if (!line) return;
-  const g = new LineSegmentsGeometry();
-  if (segs.length >= 6) {
-    g.setPositions(segs);
-    _c1.set(color);
-    _c0.set(bg);
-    const cols = new Float32Array(weights.length * 3);
-    for (let i = 0; i < weights.length; i++) {
-      _cm.copy(_c0).lerp(_c1, Math.max(0, Math.min(1, weights[i])));
-      cols.set([_cm.r, _cm.g, _cm.b], i * 3);
+function setWalkLines(mesh: THREE.Mesh | null, segs: Float32Array, weights: Float32Array, color: THREE.ColorRepresentation, bg: THREE.ColorRepresentation, width: number): void {
+  if (!mesh) return;
+  const n = Math.floor(segs.length / 6);
+  const pos = new Float32Array(n * 12), col = new Float32Array(n * 12), idx = new Uint32Array(n * 6);
+  _c1.set(color);
+  _c0.set(bg);
+  const h = width / 2;
+  for (let i = 0; i < n; i++) {
+    const o = i * 6;
+    const ax = segs[o], ay = segs[o + 1], az = segs[o + 2], bx = segs[o + 3], by = segs[o + 4], bz = segs[o + 5];
+    let px = -(bz - az), pz = bx - ax;
+    const L = Math.hypot(px, pz);
+    if (L < 1e-6) {
+      px = 1;
+      pz = 0;
+    } else {
+      px /= L;
+      pz /= L;
     }
-    g.setColors(cols);
+    pos.set([ax + px * h, ay, az + pz * h, ax - px * h, ay, az - pz * h, bx + px * h, by, bz + pz * h, bx - px * h, by, bz - pz * h], i * 12);
+    for (let v = 0; v < 4; v++) {
+      _cm.copy(_c0).lerp(_c1, Math.max(0, Math.min(1, weights[i * 2 + (v < 2 ? 0 : 1)] ?? 1)));
+      col.set([_cm.r, _cm.g, _cm.b], i * 12 + v * 3);
+    }
+    idx.set([i * 4, i * 4 + 2, i * 4 + 1, i * 4 + 1, i * 4 + 2, i * 4 + 3], i * 6);
   }
-  line.geometry.dispose();
-  line.geometry = g;
-  line.computeLineDistances();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  mesh.geometry.dispose();
+  mesh.geometry = g;
 }
 
 const PIPE_CAPACITY = 12000;
@@ -583,36 +596,16 @@ function SpaceWorld({
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats });
-  const walkLive = useRef<LineSegments2>(null);
-  const walkKept = useRef<LineSegments2>(null);
-  const { size: viewSize } = useThree();
-  const walkMats = useMemo(() => {
-    const mk = () => new LineMaterial({ vertexColors: true, worldUnits: true, linewidth: 0.1 });
-    return { live: mk(), kept: mk() };
-  }, []);
-  useEffect(() => () => { walkMats.live.dispose(); walkMats.kept.dispose(); }, [walkMats]);
-  useEffect(() => {
-    for (const m of [walkMats.live, walkMats.kept]) {
-      m.linewidth = walkLook.walkWidth;
-      m.resolution.set(viewSize.width, viewSize.height);
-    }
-  }, [walkMats, walkLook.walkWidth, viewSize.width, viewSize.height]);
-  const walkLineObjs = useMemo(() => {
-    const mk = (m: LineMaterial) => {
-      const l = new LineSegments2(new LineSegmentsGeometry(), m);
-      l.frustumCulled = false;
-      return l;
-    };
-    return { live: mk(walkMats.live), kept: mk(walkMats.kept) };
-  }, [walkMats]);
+  const walkLive = useRef<THREE.Mesh>(null);
+  const walkKept = useRef<THREE.Mesh>(null);
   const keptWalkColor = useMemo(() => new THREE.Color(walkLook.walkColor).lerp(new THREE.Color(walkLook.walkBg), 1 - walkLook.walkKeptDim), [walkLook.walkColor, walkLook.walkBg, walkLook.walkKeptDim]);
   const walkData = useRef<{ live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array } | null>(null);
   useEffect(() => {
     const d = walkData.current;
     if (!d) return;
-    setWalkLines(walkLive.current, d.live, d.liveW, walkLook.walkColor, walkLook.walkBg);
-    setWalkLines(walkKept.current, d.kept, d.keptW, keptWalkColor, walkLook.walkBg);
-  }, [walkLook.walkColor, walkLook.walkBg, keptWalkColor]);
+    setWalkLines(walkLive.current, d.live, d.liveW, walkLook.walkColor, walkLook.walkBg, walkLook.walkWidth);
+    setWalkLines(walkKept.current, d.kept, d.keptW, keptWalkColor, walkLook.walkBg, walkLook.walkWidth);
+  }, [walkLook.walkColor, walkLook.walkBg, walkLook.walkWidth, keptWalkColor]);
   useEffect(() => {
     live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
@@ -689,8 +682,8 @@ function SpaceWorld({
         ax.geometry = g;
       }
       walkData.current = p.walk;
-      setWalkLines(walkLive.current, p.walk.live, p.walk.liveW, walkLook.walkColor, walkLook.walkBg);
-      setWalkLines(walkKept.current, p.walk.kept, p.walk.keptW, keptWalkColor, walkLook.walkBg);
+      setWalkLines(walkLive.current, p.walk.live, p.walk.liveW, walkLook.walkColor, walkLook.walkBg, walkLook.walkWidth);
+      setWalkLines(walkKept.current, p.walk.kept, p.walk.keptW, keptWalkColor, walkLook.walkBg, walkLook.walkWidth);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
@@ -827,10 +820,16 @@ function SpaceWorld({
       </lineSegments>
       {/* PRE-LAYER lines (the visual wrapper comes later): walkways light grey, pipes dark grey; within the present
           (still changing) brighter, below it (kept) dimmer */}
-      {/* WALKWAYS' pre-layer as fat lines (the wrapper, a ribbon, comes later): light grey, the kept ones dimmer; a free
+      {/* WALKWAYS' pre-layer as flat ribbons of the line width: light grey, the kept ones dimmer; a free
           end tapers into the background, an old layer fades with its weathering */}
-      <primitive object={walkLineObjs.live} ref={walkLive} visible={!!walk} />
-      <primitive object={walkLineObjs.kept} ref={walkKept} visible={!!walk} />
+      <mesh ref={walkLive} frustumCulled={false} visible={!!walk}>
+        <bufferGeometry />
+        <meshBasicMaterial vertexColors side={THREE.DoubleSide} />
+      </mesh>
+      <mesh ref={walkKept} frustumCulled={false} visible={!!walk}>
+        <bufferGeometry />
+        <meshBasicMaterial vertexColors side={THREE.DoubleSide} />
+      </mesh>
       {/* PIPES as plumbing (the wrapper around the pre-layer): straight cylinders at right angles, ball fittings at the
           bends, upright manholes with covers — grey, a human trace; the kept ones (below the present) dimmer */}
       {(["live", "kept"] as const).map((w) => (
