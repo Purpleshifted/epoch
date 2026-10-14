@@ -18,9 +18,9 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { buildingKey, chordName, homeKey, keyName, magentaChordName, type Key } from "./harmony";
+import { buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, type Key } from "./harmony";
 import { Magenta } from "./magenta";
-import { makeMotif, midiToHz, realize, type Motif } from "./motif";
+import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
 import { barClock, conformity, lockOf, planBar, type BarPlan } from "./sequencer";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
@@ -52,6 +52,8 @@ export interface SoundParams {
   padLevel: number;
   /** Use the Magenta models for variation when they can be loaded. */
   magenta: boolean;
+  /** World units of PATH walked that move the progression on by one chord. */
+  stepEvery: number;
   /** How much conforming pulls single notes onto the chord of the place (0 = the motif is never rewritten). */
   lockPull: number;
   /** Share of noise in a voice at full roughness (crossing vegetation): the tonal/noise ratio. */
@@ -73,8 +75,9 @@ export const DEFAULT_SOUND: SoundParams = {
   bassLevel: 0.6,
   padLevel: 0.35,
   magenta: true,
-  lockPull: 0.25,
+  lockPull: 0.35,
   noiseMix: 0.6,
+  stepEvery: 6,
 };
 
 interface Voice {
@@ -125,7 +128,16 @@ export interface SoundDebug {
   /** The key I am in and, at a building, which one. */
   key: string;
   building: string | null;
+  /** Degree of the progression (0 = tonic) and the chord. */
+  degree: number;
   chord: string;
+  /** How far the nearest neighbour has got into my motif (closeness 0..1), and who. */
+  nearest: string | null;
+  closeness: number;
+  /** What the last bar held. */
+  bass: number;
+  pad: number;
+  othersPlaying: number;
   stable: number;
   rough: number;
   lock: number;
@@ -159,6 +171,11 @@ export class SoundEngine {
   private home: Key | null = null;
   private placeKey: Key | null = null;
   private atBuilding: string | null = null;
+  /** The progression: its degree, and how much path I have walked since it last moved. */
+  private degree = 0;
+  private walked = 0;
+  private lastPos: { x: number; z: number } | null = null;
+  private steps = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastUpdate = 0;
   private planned = -1;
@@ -178,7 +195,13 @@ export class SoundEngine {
       bar: p?.bar ?? -1,
       key: this.placeKey ? keyName(this.placeKey) : "",
       building: this.atBuilding,
+      degree: this.degree,
       chord: p ? chordName(p.chord) : "",
+      nearest: this.sig?.neighbours[0]?.o ?? null,
+      closeness: this.sig?.neighbours[0] ? this.closeness.get(this.sig.neighbours[0].o) ?? 0 : 0,
+      bass: p?.bass.length ?? 0,
+      pad: p?.pad.level ?? 0,
+      othersPlaying: p?.others.length ?? 0,
       stable: p?.stable ?? 0,
       rough: p?.rough ?? 0,
       lock: p?.lock ?? 0,
@@ -359,10 +382,30 @@ export class SoundEngine {
     if (sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
       this.atBuilding = sig.building.id;
       this.placeKey = buildingKey(sig.building.id);
+      this.degree = 0; // a new key starts on its tonic
+      this.walked = 0;
     } else if (this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
       this.atBuilding = null;
       this.placeKey = this.home;
+      this.degree = 0;
+      this.walked = 0;
     }
+    // THE PATH IS A PROGRESSION: every `stepEvery` world units walked ON a path move the chord on (Markov table of
+    // the key); off the path it falls back to the tonic once I stop
+    if (this.lastPos) {
+      const d = Math.hypot(sig.x - this.lastPos.x, sig.z - this.lastPos.z);
+      if (sig.pathP >= 0.25) {
+        this.walked += d * sig.pathP;
+        if (this.walked >= params.stepEvery && this.placeKey) {
+          this.walked = 0;
+          this.degree = nextDegree(this.placeKey, this.degree, rng(hashString(`${myId}:${this.steps++}`))());
+        }
+      } else if (sig.pathP < 0.1 && sig.speed < 0.3 && this.degree !== 0) {
+        this.degree = 0;
+        this.walked = 0;
+      }
+    }
+    this.lastPos = { x: sig.x, z: sig.z };
     const ctx = this.ctx;
     if (!ctx || !this.timer) return;
     const t = ctx.currentTime;
@@ -493,16 +536,32 @@ export class SoundEngine {
     const peak = 0.5 * level * this.params.bassLevel;
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(peak, at + 0.02);
-    g.gain.setTargetAtTime(0, at + 0.08, 0.18);
-    const o = ctx.createOscillator();
-    o.type = "sine";
+    g.gain.setTargetAtTime(0, at + 0.12, 0.22);
     const f = midiToHz(pitch);
+    // a triangle for the body (audible on small speakers) with a sine an octave below for the weight
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = f * 4;
+    lp.connect(g);
+    const o = ctx.createOscillator();
+    o.type = "triangle";
     o.frequency.setValueAtTime(f * 1.5, at);
     o.frequency.exponentialRampToValueAtTime(f, at + 0.06);
-    o.connect(g);
+    o.connect(lp);
     o.start(at);
     o.stop(at + 1.2);
-    setTimeout(() => g.disconnect(), (at + 1.2 - ctx.currentTime) * 1000 + 100);
+    const sub = ctx.createOscillator();
+    sub.type = "sine";
+    sub.frequency.value = f / 2;
+    const sg = ctx.createGain();
+    sg.gain.value = 0.7;
+    sub.connect(sg).connect(lp);
+    sub.start(at);
+    sub.stop(at + 1.2);
+    setTimeout(() => {
+      g.disconnect();
+      lp.disconnect();
+    }, (at + 1.2 - ctx.currentTime) * 1000 + 100);
   }
 
   private setPad(pitches: number[], level: number, at: number): void {
@@ -589,6 +648,7 @@ export class SoundEngine {
       sig,
       key,
       building: this.atBuilding,
+      degree: this.degree,
       me: this.me.motif,
       others: this.motifs,
       closeness: this.closeness,

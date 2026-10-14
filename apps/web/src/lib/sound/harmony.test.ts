@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, magentaChordName, snapToClasses } from "./harmony";
+import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, magentaChordName, nextDegree, snapToClasses } from "./harmony";
 
 describe("harmony: a key per motif, a key per building", () => {
   it("home keys are deterministic per id, in the middle modes, and differ between ids", () => {
@@ -34,6 +34,16 @@ describe("harmony: a key per motif, a key per building", () => {
     expect(chordName(keyChord(d, 6))).toBe("Dbm7b5");
     expect(magentaChordName(chordName(keyChord(d, 6)))).toBe("Dbm");
     expect(chordName(keyChord(d, 6, 3))).toBe("Dbdim");
+  });
+
+  it("nextDegree walks the Markov table of the mode", () => {
+    const major = { root: 0, mode: MODES[5] };
+    expect([3, 4, 5, 1]).toContain(nextDegree(major, 0, 0.5));
+    expect(nextDegree(major, 0, 0)).toBe(3); // I → IV first
+    expect(nextDegree(major, 4, 0)).toBe(0); // V → I
+    const minor = { root: 9, mode: MODES[2] };
+    expect([3, 4, 5, 2]).toContain(nextDegree(minor, 0, 0.99));
+    expect(nextDegree(minor, 6, 0.5)).toBe(0); // VII → i (middle option)
   });
 
   it("degreePitch and snapToClasses", () => {

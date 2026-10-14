@@ -9,8 +9,9 @@
  *               view is on the same beat. Nothing is ever played off the grid.
  *   DENSITY     walking speed does not change the tempo (a shared pulse cannot smear): it changes how often the
  *               motif comes round — still = every other bar, walking = every bar, running = twice a bar.
- *   KEY         my motif is in my home key; at a building, in the building's key (a modulation) — and so is everybody
- *               there with me (harmony.ts). The chord of the place is that key's tonic seventh.
+ *   KEY         my motif is in my home key; at a building, in the building's key (a modulation). The others are heard
+ *               through my key (their identity = contour, rhythm, register; the scale is mine). The chord of the
+ *               place is the current DEGREE of my key: a path walked moves it on (a progression), standing holds it.
  *   LOCK        conforming (a path, concrete, staying among others) pulls a few notes onto that chord (small).
  *   BASS        on a path the root of the place's chord is a soft pulse on the downbeat: the walking rhythm.
  *   VOICES      the others within earshot play their own motifs on the same grid (intersection: bass / baritone /
@@ -20,7 +21,7 @@
  *   PAD         staying among others holds the chord tones (the building being born) — a sustained pad.
  */
 
-import { homeKey, keyChord, type Key, type PlaceChord } from "./harmony";
+import { keyChord, type Key, type PlaceChord } from "./harmony";
 import { midiToHz, realize, type Motif, type MotifNote } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
@@ -99,8 +100,10 @@ export interface BarInputs {
   sig: PersonalSignals;
   /** The key I am in now: my home key, or the key of the building I am at (the engine decides, with hysteresis). */
   key: Key;
-  /** The building I am at (its id) — then everybody within earshot is in its key too; null = each in their own. */
+  /** The building I am at (its id), or null. */
   building: string | null;
+  /** Degree (0..6) of the progression in my key: moved on by walking a path (engine), 0 = the tonic. */
+  degree: number;
   me: Motif;
   others: ReadonlyMap<string, Motif>;
   /** 0..1 per neighbour id: how long and close they have been (engine keeps it). */
@@ -122,7 +125,7 @@ export function placeInBar(notes: readonly MotifNote[], d: Density, bar: number)
 export function planBar(inp: BarInputs): BarPlan {
   const p = inp.params ?? DEFAULT_SEQUENCER;
   const { bar, sig, key, me } = inp;
-  const chord = keyChord(key);
+  const chord = keyChord(key, inp.degree);
   const stable = conformity(sig);
   const rough = roughness(sig, p.speedMax);
   const lock = lockOf(sig, p.lockPull);
@@ -159,11 +162,10 @@ export function planBar(inp: BarInputs): BarPlan {
       continue;
     }
     if (staying && answer && n !== sig.neighbours[0]) continue;
-    // the others: at a building we are all in its key; in the open each is in their own. Same pull, same
-    // roughness as me (we share the ground); answering while we build is the steadiest of all
-    const theirKey = inp.building ? key : homeKey(n.o);
-    const theirChord = inp.building ? chord : keyChord(theirKey);
-    const notes = realize(m, theirKey, theirChord, staying ? Math.max(lock, p.lockPull) : lock, bar, undefined, staying ? rough * 0.3 : rough);
+    // the others are heard THROUGH MY KEY: their contour, rhythm and register (their identity), on my scale and
+    // my chord — in their own headset it is the other way round. Same pull, same roughness as me (we share the
+    // ground); answering while we build is the steadiest of all
+    const notes = realize(m, key, chord, staying ? Math.max(lock, p.lockPull) : lock, bar, undefined, staying ? rough * 0.3 : rough);
     others.push({ o: n.o, notes });
   }
 
@@ -171,14 +173,14 @@ export function planBar(inp: BarInputs): BarPlan {
   const bass: BarPlan["bass"] = [];
   if (sig.pathP >= p.bassFrom) {
     const level = Math.min(1, (sig.pathP - p.bassFrom) / (1 - p.bassFrom) + 0.25);
-    const pitch = 36 + chord.rootClass; // C2 … B2
+    const pitch = 48 + chord.rootClass; // C3 … B3 (an octave lower was inaudible on small speakers)
     bass.push({ at: 0, pitch, level });
     if (d === 2) bass.push({ at: 0.5, pitch, level: level * 0.7 });
   }
 
   // pad: the chord held while building
   const padLevel = sig.stay * company;
-  const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
+  const pad = padLevel > 0.2 ? { pitches: [48 + chord.rootClass, ...chord.classes.map((c) => 60 + c)], level: padLevel } : { pitches: [], level: 0 };
 
   return { bar, chord, stable, rough, lock, density: d, answer, me: mine, others, bass, pad };
 }

@@ -95,6 +95,21 @@ export function keyChord(key: Key, degree = 0, size = DEFAULT_HARMONY.chordSize)
   return { degree, classes: tones.map((t) => (key.root + t) % 12), rootClass: (key.root + key.mode.intervals[degree]) % 12 };
 }
 
+/** Diatonic Markov transitions by degree (umwelt chord_library): where a progression may go next. */
+const MAJOR_MARKOV = [[3, 4, 5, 1], [4, 6, 0], [5, 3, 0], [0, 4, 1], [0, 5, 2], [1, 3, 0], [0, 2]];
+const MINOR_MARKOV = [[3, 4, 5, 2], [4, 6, 0], [5, 3, 0], [0, 4, 6], [0, 5, 2], [1, 3, 6], [2, 0, 4]];
+
+/**
+ * The next degree of a progression in `key` after `degree`, chosen by `u` (0..1). A PATH is a progression: every
+ * stretch of path walked moves the chord on (sequencer.ts); standing holds it; leaving the path falls back to the
+ * tonic.
+ */
+export function nextDegree(key: Key, degree: number, u: number): number {
+  const m = key.mode.base === "major" ? MAJOR_MARKOV : MINOR_MARKOV;
+  const opts = m[((degree % 7) + 7) % 7];
+  return opts[Math.min(opts.length - 1, Math.floor(u * opts.length))];
+}
+
 /** Pitch classes (0..11) of the key's scale. */
 export function scaleClasses(key: Key): number[] {
   return key.mode.intervals.map((i) => (i + key.root) % 12);
