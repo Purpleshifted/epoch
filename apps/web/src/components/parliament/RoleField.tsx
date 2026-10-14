@@ -246,7 +246,7 @@ export function RoleField({
         sound.engine.update(me.current.id, sig, sound.params, playerYawRef?.current ?? 0, epochMs.current, tonal.current.key);
         const d = sound.engine.debug;
         const k = tonal.current.key;
-        soundLine = `${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
+        soundLine = `${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · stable ${d.stable.toFixed(2)} rough ${d.rough.toFixed(2)} lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
       }
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
         role,

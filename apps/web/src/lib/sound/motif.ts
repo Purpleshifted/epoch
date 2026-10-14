@@ -130,12 +130,16 @@ export interface MotifNote {
 }
 
 /**
- * One cycle of the motif made real in the world: degrees → pitches of the world's mode in the motif's register,
- * then LOCKED onto the chord of the place with probability `lock` per note (a formed path under the feet, or
- * staying among others, see signals.ts / docs/sound-logic.md §5). A free voice (lock 0) wobbles by `freeCents`.
+ * One cycle of the motif made real in the world: degrees → pitches of the world's mode in the motif's register.
+ * The motif is the visitor's IDENTITY (their name in sound), so its contour, rhythm and register are never
+ * rewritten by the place; the place acts on it in two gentler ways (docs/sound-logic.md §5):
+ *   lock   0..1 — a PULL of single notes onto the chord of the place (probability per note), meant to stay small
+ *          (the Leva knob scales it); the harmony of the place is mostly heard in the accompaniment, not in the motif
+ *   rough  0..1 — how UNSTABLE the voice is: a walk across untrodden vegetation is rough (pitch wobble up to
+ *          `freeCents`, and the engine adds noise and timing drift); a path, concrete or building together is stable.
  * `cycle` indexes the cycle so the choices differ from cycle to cycle but are reproducible.
  */
-export function realize(m: Motif, key: WorldKey, chord: PlaceChord | null, lock: number, cycle: number, cfg: MotifConfig = DEFAULT_MOTIF): MotifNote[] {
+export function realize(m: Motif, key: WorldKey, chord: PlaceChord | null, lock: number, cycle: number, cfg: MotifConfig = DEFAULT_MOTIF, rough = 1 - lock): MotifNote[] {
   const r = rng(hashString(`${m.id}#${cycle}`));
   const n = m.degrees.length;
   // the register lands on the nearest note of the world's scale: degree 0 of this voice
@@ -148,7 +152,7 @@ export function realize(m: Motif, key: WorldKey, chord: PlaceChord | null, lock:
       locked = true;
       pitch = snapped;
     } else r();
-    const wobble = (1 - lock) * cfg.freeCents * (r() * 2 - 1);
+    const wobble = rough * cfg.freeCents * (r() * 2 - 1);
     const next = i + 1 < n ? m.onsets[i + 1] : m.steps;
     return { at: m.onsets[i] / m.steps, len: ((next - m.onsets[i]) / m.steps) * 0.85, pitch, freq: midiToHz(pitch, m.colour + wobble), locked };
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { worldKey } from "./harmony";
 import { makeMotif, realize } from "./motif";
-import { DEFAULT_SEQUENCER, barClock, density, lockOf, placeInBar, planBar, type BarInputs } from "./sequencer";
+import { DEFAULT_SEQUENCER, barClock, conformity, density, lockOf, placeInBar, planBar, roughness, type BarInputs } from "./sequencer";
 import type { PersonalSignals } from "./signals";
 
 const KEY = worldKey("epoch-t");
@@ -23,30 +23,54 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(placeInBar(notes, 2, 0)[notes.length].at).toBeCloseTo(0.5);
   });
 
-  it("lock: a path or staying among others", () => {
-    expect(lockOf({ pathP: 0.7, stay: 0, neighbours: [] })).toBeCloseTo(0.7);
-    expect(lockOf({ pathP: 0, stay: 1, neighbours: [near("bot1")] })).toBeCloseTo(0.5);
-    expect(lockOf({ pathP: 0, stay: 1, neighbours: [near("bot1"), near("v_b")] })).toBeCloseTo(1);
-    expect(lockOf({ pathP: 0, stay: 1, neighbours: [] })).toBe(0);
+  it("conformity: a path, concrete or staying among others; lock = conformity × lockPull (small by default)", () => {
+    expect(conformity({ pathP: 0.7, stay: 0, neighbours: [], sealed: 0 })).toBeCloseTo(0.7);
+    expect(conformity({ pathP: 0, stay: 1, neighbours: [near("bot1")], sealed: 0 })).toBeCloseTo(0.5);
+    expect(conformity({ pathP: 0, stay: 1, neighbours: [near("bot1"), near("v_b")], sealed: 0 })).toBeCloseTo(1);
+    expect(conformity({ pathP: 0, stay: 1, neighbours: [], sealed: 0 })).toBe(0);
+    expect(conformity({ pathP: 0, stay: 0, neighbours: [], sealed: 1 })).toBeCloseTo(0.7);
+    expect(lockOf({ pathP: 1, stay: 0, neighbours: [], sealed: 0 })).toBeCloseTo(DEFAULT_SEQUENCER.lockPull);
+    expect(lockOf({ pathP: 1, stay: 0, neighbours: [], sealed: 0 }, 0)).toBe(0);
+  });
+
+  it("roughness: crossing vegetation while moving is the roughest; a path, concrete or building together is smooth", () => {
+    const crossing = roughness({ pathP: 0, stay: 0, neighbours: [], sealed: 0, grass: 1, speed: 5 }, 7);
+    const standingInGrass = roughness({ pathP: 0, stay: 1, neighbours: [], sealed: 0, grass: 1, speed: 0 }, 7);
+    const onPath = roughness({ pathP: 1, stay: 0, neighbours: [], sealed: 0, grass: 0.2, speed: 5 }, 7);
+    const building = roughness({ pathP: 0, stay: 1, neighbours: [near("bot1"), near("v_b")], sealed: 0, grass: 1, speed: 0 }, 7);
+    expect(crossing).toBeCloseTo(1);
+    expect(standingInGrass).toBeLessThan(crossing);
+    expect(standingInGrass).toBeGreaterThan(0);
+    expect(onPath).toBe(0);
+    expect(building).toBe(0);
   });
 
   it("alone on open ground: my motif free, no bass, no pad, nobody else", () => {
     const plan = planBar(inputs(2, sig({ speed: 3 })));
     expect(plan.me.length).toBe(ME.degrees.length);
     expect(plan.me.every((n) => !n.locked)).toBe(true);
+    expect(plan.stable).toBe(0);
+    expect(plan.rough).toBeGreaterThan(0.3);
     expect(plan.bass).toEqual([]);
     expect(plan.pad.level).toBe(0);
     expect(plan.others).toEqual([]);
     expect(plan.answer).toBe(false);
   });
 
-  it("on a path: bass pulse on the downbeat with the chord root, notes locked", () => {
+  it("on a path: bass pulse on the downbeat with the chord root, the motif kept (only a small pull), smooth", () => {
     const plan = planBar(inputs(2, sig({ speed: 3, pathP: 1 })));
     expect(plan.bass.length).toBe(1);
     expect(plan.bass[0].at).toBe(0);
     expect(plan.bass[0].pitch % 12).toBe(plan.chord.rootClass);
-    expect(plan.me.every((n) => n.locked)).toBe(true);
-    for (const n of plan.me) expect(plan.chord.classes).toContain(((n.pitch % 12) + 12) % 12);
+    expect(plan.stable).toBeCloseTo(1);
+    expect(plan.rough).toBe(0);
+    expect(plan.lock).toBeCloseTo(DEFAULT_SEQUENCER.lockPull);
+    // identity first: with lockPull 1 every note would be a chord tone; by default most notes stay the motif's own
+    const pulled = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { params: { ...DEFAULT_SEQUENCER, lockPull: 1 } }));
+    expect(pulled.me.every((n) => n.locked)).toBe(true);
+    for (const n of pulled.me) expect(pulled.chord.classes).toContain(((n.pitch % 12) + 12) % 12);
+    const untouched = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { params: { ...DEFAULT_SEQUENCER, lockPull: 0 } }));
+    expect(untouched.me.every((n) => !n.locked)).toBe(true);
     const running = planBar(inputs(2, sig({ speed: 7, pathP: 1 })));
     expect(running.bass.length).toBe(2);
     const weak = planBar(inputs(2, sig({ speed: 3, pathP: DEFAULT_SEQUENCER.bassFrom - 0.05 })));
@@ -73,7 +97,7 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(odd.answer).toBe(true);
     expect(odd.me).toEqual([]);
     expect(odd.others.map((v) => v.o)).toEqual(["bot1"]);
-    expect(odd.others[0].notes.every((n) => n.locked)).toBe(true);
+    expect(odd.rough).toBe(0);
     expect(even.pad.level).toBeCloseTo(1);
     expect(even.pad.pitches.length).toBe(1 + even.chord.classes.length);
     expect(even.pad.pitches[0] % 12).toBe(even.chord.rootClass);

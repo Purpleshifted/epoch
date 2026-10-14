@@ -21,7 +21,7 @@
 import { chordName, magentaChordName, type WorldKey } from "./harmony";
 import { Magenta } from "./magenta";
 import { makeMotif, midiToHz, realize, type Motif } from "./motif";
-import { barClock, lockOf, planBar, type BarPlan } from "./sequencer";
+import { barClock, conformity, lockOf, planBar, type BarPlan } from "./sequencer";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -52,6 +52,10 @@ export interface SoundParams {
   padLevel: number;
   /** Use the Magenta models for variation when they can be loaded. */
   magenta: boolean;
+  /** How much conforming pulls single notes onto the chord of the place (0 = the motif is never rewritten). */
+  lockPull: number;
+  /** Share of noise in a voice at full roughness (crossing vegetation): the tonal/noise ratio. */
+  noiseMix: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -69,6 +73,8 @@ export const DEFAULT_SOUND: SoundParams = {
   bassLevel: 0.6,
   padLevel: 0.35,
   magenta: true,
+  lockPull: 0.25,
+  noiseMix: 0.6,
 };
 
 interface Voice {
@@ -117,6 +123,8 @@ function noiseBuffer(ctx: AudioContext, seconds = 2): AudioBuffer {
 export interface SoundDebug {
   bar: number;
   chord: string;
+  stable: number;
+  rough: number;
   lock: number;
   density: number;
   answer: boolean;
@@ -132,6 +140,7 @@ export class SoundEngine {
   private dry!: GainNode;
   private rooms!: { open: GainNode; concrete: GainNode; hall: GainNode };
   private noiseGain!: GainNode;
+  private noiseBuf!: AudioBuffer;
   private bassGain!: GainNode;
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
   private me: Voice | null = null;
@@ -162,6 +171,8 @@ export class SoundEngine {
     return {
       bar: p?.bar ?? -1,
       chord: p && this.key ? chordName(this.key, p.chord) : "",
+      stable: p?.stable ?? 0,
+      rough: p?.rough ?? 0,
       lock: p?.lock ?? 0,
       density: p?.density ?? 1,
       answer: p?.answer ?? false,
@@ -210,8 +221,9 @@ export class SoundEngine {
         L.upZ.value = 0;
       }
       // vegetation: a faint bright noise
+      this.noiseBuf = noiseBuffer(ctx);
       const noise = ctx.createBufferSource();
-      noise.buffer = noiseBuffer(ctx);
+      noise.buffer = this.noiseBuf;
       noise.loop = true;
       const bp = ctx.createBiquadFilter();
       bp.type = "bandpass";
@@ -395,8 +407,8 @@ export class SoundEngine {
     }
   }
 
-  // ── the instrument ──
-  private note(dest: AudioNode, freq: number, at: number, dur: number, vel: number, timbre: number, blur: number): void {
+  // ── the instrument: tone + (rough) noise ──
+  private note(dest: AudioNode, freq: number, at: number, dur: number, vel: number, timbre: number, blur: number, rough = 0): void {
     const ctx = this.ctx!;
     const g = ctx.createGain();
     g.connect(dest);
@@ -407,14 +419,20 @@ export class SoundEngine {
     g.gain.setTargetAtTime(peak * 0.55, at + 0.012, 0.09);
     g.gain.setTargetAtTime(0, at + dur, release / 3);
     const end = at + dur + release + 0.3;
+    // the tonal / noise ratio: a rough walk (crossing vegetation) turns part of the tone into pitched noise
+    const noiseShare = this.params.noiseMix * rough;
+    const tone = ctx.createGain();
+    tone.gain.value = 1 - noiseShare;
+    tone.connect(g);
     const o1 = ctx.createOscillator();
     o1.type = blur > 0 ? "sine" : "triangle";
     o1.frequency.value = freq;
-    if (blur > 0) {
-      o1.detune.setValueAtTime((Math.random() * 2 - 1) * 25 * blur, at);
-      o1.detune.linearRampToValueAtTime((Math.random() * 2 - 1) * 25 * blur, end);
+    const drift = 25 * blur + 40 * rough;
+    if (drift > 0) {
+      o1.detune.setValueAtTime((Math.random() * 2 - 1) * drift, at);
+      o1.detune.linearRampToValueAtTime((Math.random() * 2 - 1) * drift, end);
     }
-    o1.connect(g);
+    o1.connect(tone);
     o1.start(at);
     o1.stop(end);
     const o2 = ctx.createOscillator();
@@ -422,12 +440,28 @@ export class SoundEngine {
     o2.frequency.value = freq * 2;
     const g2 = ctx.createGain();
     g2.gain.value = 0.35 * timbre * (1 - blur);
-    o2.connect(g2).connect(g);
+    o2.connect(g2).connect(tone);
     o2.start(at);
     o2.stop(end);
+    let nz: AudioBufferSourceNode | null = null;
+    if (noiseShare > 0.02) {
+      nz = ctx.createBufferSource();
+      nz.buffer = this.noiseBuf;
+      nz.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = freq;
+      bp.Q.value = 6 - 4 * rough; // the rougher, the wider the band (less pitched)
+      const ng = ctx.createGain();
+      ng.gain.value = noiseShare * 2.5;
+      nz.connect(bp).connect(ng).connect(g);
+      nz.start(at);
+      nz.stop(end);
+    }
     setTimeout(() => {
       g.disconnect();
       g2.disconnect();
+      tone.disconnect();
     }, (end - ctx.currentTime) * 1000 + 100);
   }
 
@@ -490,7 +524,7 @@ export class SoundEngine {
   }
 
   /** Ask Magenta for a phrase when the moment calls for one; it takes my bars once it has answered. */
-  private askMagenta(bar: number, sig: PersonalSignals, lock: number): void {
+  private askMagenta(bar: number, sig: PersonalSignals, lock: number, stable: number): void {
     if (!this.params.magenta || !this.magenta.ready || !this.key) return;
     if (this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE + 2) return; // one phrase, then a breath
     const nearest = sig.neighbours[0];
@@ -500,7 +534,7 @@ export class SoundEngine {
       if (res) this.phrase = { phrase: res, from: bar, kind: `vae×${nearest.o}` };
       return;
     }
-    if (lock >= 0.6 && this.lockedBars >= 2 && this.lastPlan) {
+    if (stable >= 0.6 && this.lockedBars >= 2 && this.lastPlan) {
       const name = chordName(this.key, this.lastPlan.chord);
       const safe = magentaChordName(name);
       const res = this.magenta.improvise(this.myPhrase(bar, lock), [safe, safe]);
@@ -522,9 +556,10 @@ export class SoundEngine {
     if (nextStart > now + LOOKAHEAD) return;
     this.planned = next;
 
-    const lock = lockOf(sig);
-    this.lockedBars = lock >= 0.6 ? this.lockedBars + 1 : 0;
-    this.askMagenta(next, sig, lock);
+    const stable = conformity(sig);
+    const lock = lockOf(sig, p.lockPull);
+    this.lockedBars = stable >= 0.6 ? this.lockedBars + 1 : 0;
+    this.askMagenta(next, sig, lock, stable);
     if (this.phrase && next - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
 
     const plan = planBar({
@@ -535,17 +570,20 @@ export class SoundEngine {
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && next - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25 },
+      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.lockPull },
     });
     this.lastPlan = plan;
-    const jitter = p.jitterMax * (1 - plan.lock);
+    // a rough walk drifts off the grid and loses notes; a conforming one is steady and complete
+    const jitter = p.jitterMax * plan.rough;
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
+    const kept = () => Math.random() >= plan.rough * 0.35;
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, this.me.motif.timbre, 0);
+    for (const n of plan.me) if (kept()) this.note(this.me.filt, n.freq, nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, this.me.motif.timbre, 0, plan.rough);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
-      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * p.barSec + human() * 0.5, n.len * p.barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
+      const theirRough = plan.answer ? plan.rough * 0.3 : plan.rough;
+      for (const n of vb.notes) if (kept()) this.note(v.filt, n.freq, nextStart + n.at * p.barSec + human() * 0.5, n.len * p.barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur, theirRough);
     }
     for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * p.barSec, b.level);
     this.setPad(plan.pad.pitches, plan.pad.level, nextStart);
