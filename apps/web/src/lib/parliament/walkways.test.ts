@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FLOW, DEFAULT_WALK, walkSegments, walkways, type PEvent, type Seed } from "./index";
+import { DEFAULT_FLOW, DEFAULT_WALK, otherLineNear, walkSegments, walkways, type PEvent, type Seed } from "./index";
 
 const SPU = 20;
 const seed = (id: number, cx: number, cz: number, t0 = 0): Seed => ({ id, material: "concrete", role: "worker", x: (cx + 0.5) * CELL_SIZE, z: (cz + 0.5) * CELL_SIZE, t0, t1: 2000, mass: 2 }) as Seed;
@@ -190,5 +190,31 @@ describe("walkway segments: weights and free ends", () => {
     expect(Math.min(...t.liveW)).toBe(1); // no fading out
     const old = walkSegments(w, 0, { anchored: () => true, decayOf: () => 0.5 });
     expect(Math.max(...old.liveW)).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe("walkway ends: a dot only where nothing is arrived at", () => {
+  it("a ramp's foot stands on the line it leaves (no dot there); an end with nothing under it is free", () => {
+    const C = block(200, 8, 8, 3, 3, 400);
+    const more = [...walkers, ...["e", "f", "g"].flatMap((o, i) => commuteZ(o, 9.6, 4.9, 9.4, 400 + i * 5, 500))];
+    const w = walkways(more, [...A, ...B, ...C], { ...DEFAULT_WALK, resurface: -1, reach: 40, minorShare: 0 }, opts);
+    const onLine = otherLineNear(w, 1);
+    // no parts at all: only the lines hold ends up
+    const seg = walkSegments(w, 0, { anchored: (x, y, z, own) => onLine(x, y, z, own), decayOf: () => 0 });
+    let id = -1, feet = 0;
+    for (const l of w.layers)
+      for (const line of l.lines) {
+        id++;
+        for (const i of [0, line.length / 3 - 1]) {
+          if (line[i * 3 + 1] < l.k - 1e-3) {
+            feet++;
+            expect(onLine(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], id)).toBe(true); // a ramp's foot
+          }
+        }
+      }
+    expect(feet).toBeGreaterThan(0);
+    // and the dots are fewer than all ends: the feet are not among them
+    const ends = w.layers.reduce((n, l) => n + l.lines.length * 2, 0);
+    expect((seg.liveEnds.length + seg.keptEnds.length) / 4).toBeLessThanOrEqual(ends - feet);
   });
 });

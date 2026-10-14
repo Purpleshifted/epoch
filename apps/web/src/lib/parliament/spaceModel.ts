@@ -20,7 +20,7 @@ import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
-import { NO_WALKWAYS, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
+import { NO_WALKWAYS, otherLineNear, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
 import { NO_DRAINAGE, drainage, pipeParts, waterDistance, waterField, type Drainage, type PipeParts, type PipeRun, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
@@ -500,18 +500,10 @@ export class SpaceModel {
       const parts = new Set<string>();
       const cellOf = (x: number, y: number, z: number) => `${Math.floor(x / CELL)},${Math.round(y / box.unit)},${Math.floor(z / CELL)}`;
       for (const b of shown) parts.add(cellOf(b.x, b.y, b.z));
-      const lines = new Set<string>();
-      for (const l of this.walks.layers) for (const line of l.lines) for (let i = 0; i < line.length; i += 3) lines.add(`${l.k}:${cellOf(line[i], line[i + 1], line[i + 2])}`);
-      const near = (set: Set<string>, prefix: string, x: number, y: number, z: number) => {
-        for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) for (const dy of [-1, 0, 1]) if (set.has(prefix + cellOf(x + dx * CELL, y + dy * box.unit, z + dz * CELL))) return true;
-        return false;
-      };
-      const kOfY = (y: number) => Math.round(y / box.unit);
-      const anchored = (x: number, y: number, z: number) => {
-        if (near(parts, "", x, y, z)) return true;
-        // a line of a layer other than this point's own (its own line does not hold its own end up)
-        for (const l of this.walks.layers) if (l.k !== kOfY(y) && Math.abs(l.k - kOfY(y)) <= 1 && near(lines, `${l.k}:`, x, y, z)) return true;
-        return false;
+      const onLine = otherLineNear(this.walks, box.unit);
+      const anchored = (x: number, y: number, z: number, own: number) => {
+        for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) for (const dy of [-1, 0, 1]) if (parts.has(cellOf(x + dx * CELL, y + dy * box.unit, z + dz * CELL))) return true;
+        return onLine(x, y, z, own);
       };
       const life = input.walk.life;
       const decayOf = (k: number): number => {

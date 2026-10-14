@@ -464,10 +464,38 @@ function layLink(out: WalkLayer, link: Link, unit: number, k: number, join: { li
   }
 }
 
+/**
+ * Whether a point lies on (within a cell and a slot of) any walkway line but `own` — a ramp's foot on the line it
+ * leaves, a branch on the corridor it shares, two links meeting. Lines are numbered as walkSegments meets them.
+ */
+export function otherLineNear(w: Walkways, unit: number): (x: number, y: number, z: number, own: number) => boolean {
+  const cellOf = (x: number, y: number, z: number) => `${Math.floor(x / CELL_SIZE)},${Math.round(y / unit)},${Math.floor(z / CELL_SIZE)}`;
+  const lines = new Map<string, Set<number>>();
+  let id = 0;
+  for (const l of w.layers)
+    for (const line of l.lines) {
+      for (let i = 0; i < line.length; i += 3) {
+        const c = cellOf(line[i], line[i + 1], line[i + 2]);
+        const set = lines.get(c) ?? new Set<number>();
+        set.add(id);
+        lines.set(c, set);
+      }
+      id++;
+    }
+  return (x, y, z, own) => {
+    for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) for (const dy of [-1, 0, 1]) {
+      const on = lines.get(cellOf(x + dx * CELL_SIZE, y + dy * unit, z + dz * CELL_SIZE));
+      if (on) for (const j of on) if (j !== own) return true;
+    }
+    return false;
+  };
+}
+
 /** What walkSegments needs to weigh its vertices. */
 export interface WalkWeighing {
-  /** Whether something stands at (x, y, z): a part, or a line of another layer (a ramp's foot). */
-  anchored: (x: number, y: number, z: number) => boolean;
+  /** Whether something stands at (x, y, z): a part, or any line but `own` (a ramp's foot, a junction). Lines are
+   *  numbered in the order walkSegments meets them (layer by layer, line by line). */
+  anchored: (x: number, y: number, z: number, own: number) => boolean;
   /** A layer's decay (0 fresh … 1 gone) on the parts' weathering clock. */
   decayOf: (k: number) => number;
 }
@@ -475,16 +503,18 @@ export interface WalkWeighing {
 /**
  * All layers' lines as segments (pairs of points) for drawing, with a WEIGHT per vertex (1 = the line's full colour,
  * fading with its layer's decay): `live` = laid within the present (from slot `fromK`), `kept` = below. An end that
- * arrives at nothing (no part there any more, no line of another layer to stand on) is a FREE END: it is listed in
+ * arrives at nothing (no part there any more, no other line to stand on — a ramp's foot or a branch joins a line) is a FREE END: it is listed in
  * `liveEnds` / `keptEnds` [x, y, z, weight] × n, to be closed with a dot.
  */
 export function walkSegments(w: Walkways, fromK: number, weigh?: WalkWeighing): { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array } {
   const live: number[] = [], kept: number[] = [], liveW: number[] = [], keptW: number[] = [], liveEnds: number[] = [], keptEnds: number[] = [];
+  let id = -1;
   for (const l of w.layers) {
     const isLive = l.k >= fromK;
     const to = isLive ? live : kept, tw = isLive ? liveW : keptW, te = isLive ? liveEnds : keptEnds;
     const base = weigh ? 1 - Math.max(0, Math.min(1, weigh.decayOf(l.k))) : 1;
     for (const line of l.lines) {
+      id++;
       const n = line.length / 3;
       if (n < 2) continue;
       for (let i = 0; i + 1 < n; i++) {
@@ -492,7 +522,7 @@ export function walkSegments(w: Walkways, fromK: number, weigh?: WalkWeighing): 
         tw.push(base, base);
       }
       if (!weigh) continue;
-      for (const i of [0, n - 1]) if (!weigh.anchored(line[i * 3], line[i * 3 + 1], line[i * 3 + 2])) te.push(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], base);
+      for (const i of [0, n - 1]) if (!weigh.anchored(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], id)) te.push(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], base);
     }
   }
   const f = (a: ArrayLike<number>) => Float32Array.from(a);
