@@ -43,6 +43,7 @@ import {
   type NatureConfig,
   type PEvent,
   type PartKind,
+  type PipeMesh,
   type PointsResult,
   type Recipe,
   type RoleId,
@@ -229,10 +230,25 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
 }
 
 /** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
-/** Pre-layer look: line colours of walkways and pipes. */
+/** Pre-layer look: line colour of walkways; the pipes' material (round tubes). */
 interface WalkLook {
   walkColor: string;
   pipeColor: string;
+  pipeRoughness: number;
+  pipeMetalness: number;
+  /** Brightness of the kept pipes (below the present) against the live ones. */
+  pipeKeptDim: number;
+}
+
+/** A pipe mesh (positions, normals, indices) into a mesh. */
+function setPipeMesh(mesh: THREE.Mesh | null, m: PipeMesh): void {
+  if (!mesh) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(m.position, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(m.normal, 3));
+  g.setIndex(new THREE.BufferAttribute(m.index, 1));
+  mesh.geometry.dispose();
+  mesh.geometry = g;
 }
 
 /** Line segments [a, b] × n into a line set. */
@@ -435,8 +451,8 @@ function SpaceWorld({
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
-  const pipeLive = useRef<THREE.LineSegments>(null);
-  const pipeKept = useRef<THREE.LineSegments>(null);
+  const pipeLive = useRef<THREE.Mesh>(null);
+  const pipeKept = useRef<THREE.Mesh>(null);
   const naturePts = useRef<THREE.Points>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
   // count changes, the gatherings stay in the shared attributes
@@ -468,6 +484,7 @@ function SpaceWorld({
   });
   const fused = useRef<THREE.Mesh>(null);
   const fibres = useRef<THREE.LineSegments>(null);
+  const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
   const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
@@ -525,8 +542,8 @@ function SpaceWorld({
       }
       setSegments(walkLive.current, p.walk.live);
       setSegments(walkKept.current, p.walk.kept);
-      setSegments(pipeLive.current, p.pipes.live);
-      setSegments(pipeKept.current, p.pipes.kept);
+      setPipeMesh(pipeLive.current, p.pipes.live);
+      setPipeMesh(pipeKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
@@ -669,14 +686,16 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color={walkLook.walkColor} transparent opacity={0.4} depthWrite={false} />
       </lineSegments>
-      <lineSegments ref={pipeLive} frustumCulled={false} visible={!!water}>
+      {/* PIPES as round tubes (the wrapper around the pre-layer): grey, a human trace; the kept ones (below the present)
+          dimmer */}
+      <mesh ref={pipeLive} frustumCulled={false} visible={!!water} castShadow receiveShadow>
         <bufferGeometry />
-        <lineBasicMaterial color={walkLook.pipeColor} />
-      </lineSegments>
-      <lineSegments ref={pipeKept} frustumCulled={false} visible={!!water}>
+        <meshStandardMaterial color={walkLook.pipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
+      </mesh>
+      <mesh ref={pipeKept} frustumCulled={false} visible={!!water} castShadow receiveShadow>
         <bufferGeometry />
-        <lineBasicMaterial color={walkLook.pipeColor} transparent opacity={0.4} depthWrite={false} />
-      </lineSegments>
+        <meshStandardMaterial color={keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
+      </mesh>
       <lineSegments ref={axis} frustumCulled={false} visible={!noAxis}>
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
@@ -1252,8 +1271,11 @@ export default function ParliamentSpace() {
             quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
             diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "45° 꺾임 (0 = 직각만)" },
             pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "묻히는 깊이 (깔린 층보다 몇 단 아래 — 늘 다리 아래)" },
-            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 감싸기 단계에서)" },
-            pipeColor: { value: "#7c7f84", label: "관 선 색" },
+            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 모일수록 √배)" },
+            pipeColor: { value: "#7c7f84", label: "관 색 (무채색)" },
+            pipeRoughness: { value: 0.55, min: 0, max: 1, step: 0.01, label: "관 거칠기" },
+            pipeMetalness: { value: 0.35, min: 0, max: 1, step: 0.01, label: "관 금속성" },
+            pipeKeptDim: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "굳은 관의 밝기 (현재 대비)" },
           },
           { order: 2 },
         ),
@@ -1318,7 +1340,10 @@ export default function ParliamentSpace() {
         : null,
     [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay],
   );
-  const walkLook = useMemo<WalkLook>(() => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor }), [wlk.walkColor, wtr.pipeColor]);
+  const walkLook = useMemo<WalkLook>(
+    () => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim }),
+    [wlk.walkColor, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim],
+  );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
   const fu = useControls(
     "엉김 · 융합 · 레진",
