@@ -28,7 +28,7 @@ export default function GlobalSound() {
   const c = useControls(
     ROOT,
     savable(ROOT, {
-      on: { value: true, label: "켜기 (첫 클릭 뒤 시작 · ESC = 이 창 음소거/해제)", render: v2 },
+      on: { value: false, label: "켜기 (기본 꺼짐 · 첫 클릭 뒤 시작 · ESC = 음소거/해제)", render: v2 },
       solo: { value: false, label: "이 창만 듣기 (다른 창은 음소거 — 창 사이에 공유됨)", render: v2 },
       output: { options: outputOptions, value: "default", label: canPickOutput() ? "출력 장치 (헤드셋 / 스피커)" : "출력 장치 — 이 브라우저는 선택 불가", render: v2 },
       master: { value: DEFAULT_GLOBAL.master, min: 0, max: 1, step: 0.01, label: "음량", render: v2 },
@@ -54,7 +54,7 @@ export default function GlobalSound() {
   // ESC mutes this window's sound (and un-mutes on the next ESC); another window's SOLO (output.ts) too
   const muted = useRef(false);
   const soloed = useRef(false);
-  const [status, setStatus] = useState("♪ 스피커");
+  const [status, setStatus] = useState("♪ 스피커 (글로벌 뷰) · 꺼짐 (Leva)");
   useEffect(() => {
     if (!engine) return;
     const start = () => {

@@ -271,7 +271,8 @@ export class GlobalEngine {
     const moving = present.length ? present.filter((p) => p.speed > 0.5).length / present.length : 0;
     this.lp.frequency.setTargetAtTime(params.cutoff * (1 + 0.6 * moving), t, 1.5);
     this.hallSend.gain.setTargetAtTime(params.hall, t, 1.0);
-    this.bed.gain.setTargetAtTime(Math.min(0.5, present.length * 0.035), t, 2.0);
+    // the bed of low noise: a faint floor, not a rumble (with 14 bots the old 0.035 / person hit its 0.5 cap)
+    this.bed.gain.setTargetAtTime(Math.min(0.12, present.length * 0.01), t, 2.0);
   }
 
   private motifOf(id: string): Motif {
