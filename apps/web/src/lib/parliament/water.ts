@@ -783,52 +783,96 @@ export function pipeSegments(pipes: readonly PipeRun[], unit: number, cfg: Water
   return out;
 }
 
-/** The pipes as PARTS to instance: straight cylinders [ax, ay, az, bx, by, bz, r] × n and fittings [x, y, z, r] × m. */
+/**
+ * The pipes as PARTS to instance: straight cylinders [ax, ay, az, bx, by, bz, r] × n, ELBOWS (a quarter torus joining
+ * two horizontal runs at a right angle) [cx, cy, cz, ax, ay, az, bx, by, bz, r] × m — centre of the bend, the unit
+ * directions of its two arms seen from the centre, the pipe radius (the bend's radius is ELBOW × r) — and round
+ * FITTINGS [x, y, z, r] × j where three or more ends meet, or a shaft meets a pipe.
+ */
 export interface PipeParts {
   cylinders: Float32Array;
+  elbows: Float32Array;
   fittings: Float32Array;
 }
 
+/** An elbow's centreline radius, × the pipe radius. */
+export const ELBOW = 1.6;
+
 /**
- * The pipes as PLUMBING: every run a straight OPEN cylinder along its axis (right angles kept); wherever two or more
- * ends meet (a bend, a junction of lateral and trunk, a manhole's foot and head) a round FITTING (a slightly wider
- * ball) joins them; a free end (a building's entry, the outfall) stays open. Every manhole an upright cylinder
+ * The pipes as PLUMBING: every run a straight OPEN cylinder along its axis (right angles kept). Where exactly two
+ * horizontal runs meet at a right angle, both are cut short by the bend's radius and a quarter-torus ELBOW joins them
+ * (a pipe fitting); where three or more ends meet (a junction of lateral and trunk), or a manhole's shaft meets a
+ * pipe, a round FITTING; a free end (a building's entry, the outfall) stays open. Every manhole an upright cylinder
  * (wider) with a flat COVER on top. Radius `pipeRadius` × √flow.
- * `live` = laid within the present (from slot `fromK`), `kept` = below it.
  */
 export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number): { live: PipeParts; kept: PipeParts } {
-  const out = { live: { cyl: [] as number[], fit: [] as number[] }, kept: { cyl: [] as number[], fit: [] as number[] } };
   const y = (k: number) => (k - cfg.pipeDepth) * unit;
   const rad = (flow: number) => cfg.pipeRadius * Math.sqrt(Math.max(1, flow));
-  // the ends of every cylinder, per point: a FITTING where two or more meet (a bend, a junction, a manhole's foot);
-  // a free end stays open
-  const ends = new Map<string, { x: number; y: number; z: number; r: number; n: number; live: boolean }>();
-  const end = (x: number, yy: number, z: number, r: number, live: boolean) => {
-    const key = `${Math.round(x / CELL_SIZE * 2)},${Math.round(yy / unit * 4)},${Math.round(z / CELL_SIZE * 2)}`;
+  type Cyl = { a: [number, number, number]; b: [number, number, number]; r: number; live: boolean; shaft: boolean };
+  const cyls: Cyl[] = [];
+  // the ends of every run, per point
+  const ends = new Map<string, { at: [number, number, number]; of: { c: number; end: 0 | 1 }[] }>();
+  const end = (c: number, which: 0 | 1) => {
+    const p = which ? cyls[c].b : cyls[c].a;
+    const key = `${Math.round((p[0] / CELL_SIZE) * 2)},${Math.round((p[1] / unit) * 4)},${Math.round((p[2] / CELL_SIZE) * 2)}`;
     const e = ends.get(key);
-    if (e) {
-      e.n++;
-      e.r = Math.max(e.r, r);
-      e.live = e.live || live;
-    } else ends.set(key, { x, y: yy, z, r, n: 1, live });
+    if (e) e.of.push({ c, end: which });
+    else ends.set(key, { at: p, of: [{ c, end: which }] });
   };
+  const fit: { live: number[]; kept: number[] } = { live: [], kept: [] };
+  const elb: { live: number[]; kept: number[] } = { live: [], kept: [] };
   for (const p of pipes) {
     const live = p.k >= fromK;
-    const b = live ? out.live : out.kept;
     if (p.k0 !== undefined) {
-      const r = cfg.pipeRadius * 1.3;
-      b.cyl.push(p.ax, y(p.k0), p.az, p.ax, y(p.k), p.az, r); // the shaft, from the old pipe up to the new
-      b.cyl.push(p.ax, y(p.k) + r * 0.8, p.az, p.ax, y(p.k) + r * 1.2, p.az, r * 1.6); // the cover
-      end(p.ax, y(p.k0), p.az, r, live);
-      end(p.ax, y(p.k), p.az, r, live);
+      const r = cfg.pipeRadius * 1.6;
+      cyls.push({ a: [p.ax, y(p.k0), p.az], b: [p.ax, y(p.k), p.az], r, live, shaft: true }); // the shaft, old pipe to new
+      cyls.push({ a: [p.ax, y(p.k) + r * 0.8, p.az], b: [p.ax, y(p.k) + r * 1.2, p.az], r: r * 1.6, live, shaft: true }); // the cover
+      end(cyls.length - 2, 0);
+      end(cyls.length - 2, 1);
       continue;
     }
-    const r = rad(p.flow);
-    b.cyl.push(p.ax, y(p.k), p.az, p.bx, y(p.k), p.bz, r);
-    end(p.ax, y(p.k), p.az, r, live);
-    end(p.bx, y(p.k), p.bz, r, live);
+    cyls.push({ a: [p.ax, y(p.k), p.az], b: [p.bx, y(p.k), p.bz], r: rad(p.flow), live, shaft: false });
+    end(cyls.length - 1, 0);
+    end(cyls.length - 1, 1);
   }
-  for (const e of ends.values()) if (e.n >= 2) (e.live ? out.live : out.kept).fit.push(e.x, e.y, e.z, e.r * 1.15);
-  const pack = (x: { cyl: number[]; fit: number[] }): PipeParts => ({ cylinders: Float32Array.from(x.cyl), fittings: Float32Array.from(x.fit) });
-  return { live: pack(out.live), kept: pack(out.kept) };
+  const dirFrom = (c: Cyl, which: 0 | 1): [number, number, number] => {
+    // the unit direction from this end into the run
+    const from = which ? c.b : c.a, to = which ? c.a : c.b;
+    const d: [number, number, number] = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    const L = Math.hypot(d[0], d[1], d[2]) || 1;
+    return [d[0] / L, d[1] / L, d[2] / L];
+  };
+  for (const e of ends.values()) {
+    if (e.of.length < 2) continue; // a free end: open
+    const live = e.of.some((o) => cyls[o.c].live);
+    const r = Math.max(...e.of.map((o) => cyls[o.c].r));
+    const two = e.of.length === 2 && e.of.every((o) => !cyls[o.c].shaft);
+    if (two) {
+      const [o1, o2] = e.of;
+      const u = dirFrom(cyls[o1.c], o1.end), v = dirFrom(cyls[o2.c], o2.end);
+      const cosang = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+      if (Math.abs(cosang) < 0.05) {
+        // a right-angle bend: cut both arms by the bend radius, put the elbow between
+        const R = ELBOW * r;
+        for (const [o, d] of [[o1, u], [o2, v]] as const) {
+          const c = cyls[o.c];
+          const p = o.end ? c.b : c.a;
+          const len = Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1], c.b[2] - c.a[2]);
+          const cut = Math.min(R, len * 0.45);
+          const q: [number, number, number] = [p[0] + d[0] * cut, p[1] + d[1] * cut, p[2] + d[2] * cut];
+          if (o.end) c.b = q;
+          else c.a = q;
+        }
+        const centre = [e.at[0] + (u[0] + v[0]) * R, e.at[1] + (u[1] + v[1]) * R, e.at[2] + (u[2] + v[2]) * R];
+        (live ? elb.live : elb.kept).push(...centre, -u[0], -u[1], -u[2], -v[0], -v[1], -v[2], r);
+        continue;
+      }
+      if (Math.abs(cosang) > 0.95) continue; // straight on: nothing to join
+    }
+    (live ? fit.live : fit.kept).push(e.at[0], e.at[1], e.at[2], r * 1.15);
+  }
+  const cyl: { live: number[]; kept: number[] } = { live: [], kept: [] };
+  for (const c of cyls) (c.live ? cyl.live : cyl.kept).push(...c.a, ...c.b, c.r);
+  const pack = (w: "live" | "kept"): PipeParts => ({ cylinders: Float32Array.from(cyl[w]), elbows: Float32Array.from(elb[w]), fittings: Float32Array.from(fit[w]) });
+  return { live: pack("live"), kept: pack("kept") };
 }

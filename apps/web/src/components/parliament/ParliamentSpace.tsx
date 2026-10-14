@@ -51,6 +51,7 @@ import {
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
+  ELBOW,
   rotOnsetSlots,
   DEFAULT_WALK,
   DEFAULT_WATER,
@@ -253,8 +254,28 @@ function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void
 
 const PIPE_CAPACITY = 12000;
 const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3(), _q = new THREE.Quaternion(), _sc = new THREE.Vector3(), _m = new THREE.Matrix4();
-/** Straight cylinders [a, b, r] × n into an instanced unit cylinder (y-axis, height 1); fittings [x, y, z, r] × m into spheres. */
-function setPipeParts(cyl: THREE.InstancedMesh | null, fit: THREE.InstancedMesh | null, p: PipeParts): void {
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3();
+/**
+ * Straight cylinders [a, b, r] × n into an instanced unit cylinder (y-axis, height 1); elbows into an instanced quarter
+ * torus (centreline radius ELBOW, tube 1, its arc from local +x to local +y) turned so its arms point along the two
+ * given directions; fittings [x, y, z, r] × m into spheres.
+ */
+function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMesh | null, fit: THREE.InstancedMesh | null, p: PipeParts): void {
+  if (elbow) {
+    const n = Math.min(PIPE_CAPACITY, p.elbows.length / 10);
+    for (let i = 0; i < n; i++) {
+      const o = i * 10;
+      _mid.set(p.elbows[o], p.elbows[o + 1], p.elbows[o + 2]);
+      _a.set(p.elbows[o + 3], p.elbows[o + 4], p.elbows[o + 5]);
+      _b.set(p.elbows[o + 6], p.elbows[o + 7], p.elbows[o + 8]);
+      _n.crossVectors(_a, _b);
+      const r = p.elbows[o + 9];
+      _m.makeBasis(_a, _b, _n).scale(_sc.set(r, r, r)).setPosition(_mid);
+      elbow.setMatrixAt(i, _m);
+    }
+    elbow.count = n;
+    elbow.instanceMatrix.needsUpdate = true;
+  }
   if (cyl) {
     const n = Math.min(PIPE_CAPACITY, p.cylinders.length / 7);
     for (let i = 0; i < n; i++) {
@@ -478,6 +499,8 @@ function SpaceWorld({
   const pipeKept = useRef<THREE.InstancedMesh>(null);
   const fitLive = useRef<THREE.InstancedMesh>(null);
   const fitKept = useRef<THREE.InstancedMesh>(null);
+  const elbowLive = useRef<THREE.InstancedMesh>(null);
+  const elbowKept = useRef<THREE.InstancedMesh>(null);
   const naturePts = useRef<THREE.Points>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
   // count changes, the gatherings stay in the shared attributes
@@ -567,8 +590,8 @@ function SpaceWorld({
       }
       setSegments(walkLive.current, p.walk.live);
       setSegments(walkKept.current, p.walk.kept);
-      setPipeParts(pipeLive.current, fitLive.current, p.pipes.live);
-      setPipeParts(pipeKept.current, fitKept.current, p.pipes.kept);
+      setPipeParts(pipeLive.current, elbowLive.current, fitLive.current, p.pipes.live);
+      setPipeParts(pipeKept.current, elbowKept.current, fitKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
@@ -718,6 +741,10 @@ function SpaceWorld({
           <instancedMesh ref={w === "live" ? pipeLive : pipeKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow>
             <cylinderGeometry args={[1, 1, 1, 14, 1, true]} />
             <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} side={THREE.DoubleSide} />
+          </instancedMesh>
+          <instancedMesh ref={w === "live" ? elbowLive : elbowKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow>
+            <torusGeometry args={[ELBOW, 1, 10, 10, Math.PI / 2]} />
+            <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
           </instancedMesh>
           <instancedMesh ref={w === "live" ? fitLive : fitKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow visible={walkLook.pipeFittings}>
             <sphereGeometry args={[1, 12, 8]} />
@@ -1305,7 +1332,7 @@ export default function ParliamentSpace() {
             pipeRoughness: { value: 0.55, min: 0, max: 1, step: 0.01, label: "관 거칠기" },
             pipeMetalness: { value: 0.35, min: 0, max: 1, step: 0.01, label: "관 금속성" },
             pipeKeptDim: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "굳은 관의 밝기 (현재 대비)" },
-            pipeFittings: { value: true, label: "꺾임마다 이음쇠 (둥근 조인트)" },
+            pipeFittings: { value: true, label: "합류 · 맨홀 발의 둥근 이음쇠 (꺾임은 늘 엘보)" },
           },
           { order: 2 },
         ),

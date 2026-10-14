@@ -213,8 +213,15 @@ describe("pipes as plumbing (the wrapper)", () => {
       expect([ax !== bx, az !== bz, ay !== by].filter(Boolean)).toHaveLength(1);
       expect(r).toBeGreaterThan(0);
     }
-    const bends = d.pipes.filter((p) => p.k0 === undefined && p.route !== undefined).length > 1;
-    if (bends) expect(m.live.fittings.length + m.kept.fittings.length).toBeGreaterThan(0);
+    // right-angle bends are elbows (quarter tori) with both arms horizontal and orthogonal
+    const elb = [...m.live.elbows, ...m.kept.elbows];
+    expect(elb.length).toBeGreaterThan(0);
+    for (let i = 0; i < elb.length; i += 10) {
+      const [, , , ax, ay, az, bx, by, bz, r] = elb.slice(i, i + 10);
+      expect(Math.abs(ay) + Math.abs(by)).toBeLessThan(1e-6);
+      expect(Math.abs(ax * bx + az * bz)).toBeLessThan(0.05);
+      expect(r).toBeGreaterThan(0);
+    }
     // one shaft and one cover per manhole
     const risers = d.pipes.filter((p) => p.k0 !== undefined).length;
     const upright = cyl.length / 7 - d.pipes.filter((p) => p.k0 === undefined).length;
