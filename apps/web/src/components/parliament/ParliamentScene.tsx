@@ -228,6 +228,7 @@ export default function ParliamentScene() {
               {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths}
             </div>
           )}
+          {debug?.sound && <div>♪ {debug.sound}</div>}
         </div>
       )}
     </div>

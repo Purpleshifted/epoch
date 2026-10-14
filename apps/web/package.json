@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@magenta/music": "^1.23.1",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.4.2",
     "@react-three/postprocessing": "^3.1.3",

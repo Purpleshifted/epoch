@@ -42,6 +42,9 @@ export interface Neighbour {
 }
 
 export interface PersonalSignals {
+  /** Where I am (world). */
+  x: number;
+  z: number;
   /** World units per second. */
   speed: number;
   /** 0 (walking) … 1 (staying). */
@@ -135,5 +138,5 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   }
   grass /= 9;
 
-  return { speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, grass };
+  return { x: me.x, z: me.z, speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, grass };
 }
