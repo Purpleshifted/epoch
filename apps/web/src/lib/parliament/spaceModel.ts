@@ -177,8 +177,8 @@ export interface PartsResult {
   pipeRuns: number;
   /** The pipes as plumbing to instance (water.pipeParts): `live` within the present (still changing), `kept` below. */
   pipes: { live: PipeParts; kept: PipeParts };
-  /** V2 walkways' pre-layer as line segments (walkways.walkSegments): `live` within the present, `kept` below. */
-  walk: { live: Float32Array; kept: Float32Array };
+  /** V2 walkways' pre-layer as line segments with a weight per vertex (walkways.walkSegments): `live` within the present, `kept` below. */
+  walk: { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array };
   t: number;
   top: number;
   minX: number;
@@ -493,6 +493,35 @@ export class SpaceModel {
       }
       ei++;
     }
+    // what a walkway's end can arrive at: a shown part (after wear) within a cell and a slot of it, or a point of a
+    // line of another layer (a ramp's foot, a junction); the lines' weathering on the parts' clock (concrete)
+    const walkWeigh = (() => {
+      if (!input.walk) return undefined;
+      const parts = new Set<string>();
+      const cellOf = (x: number, y: number, z: number) => `${Math.floor(x / CELL)},${Math.round(y / box.unit)},${Math.floor(z / CELL)}`;
+      for (const b of shown) parts.add(cellOf(b.x, b.y, b.z));
+      const lines = new Set<string>();
+      for (const l of this.walks.layers) for (const line of l.lines) for (let i = 0; i < line.length; i += 3) lines.add(`${l.k}:${cellOf(line[i], line[i + 1], line[i + 2])}`);
+      const near = (set: Set<string>, prefix: string, x: number, y: number, z: number) => {
+        for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) for (const dy of [-1, 0, 1]) if (set.has(prefix + cellOf(x + dx * CELL, y + dy * box.unit, z + dz * CELL))) return true;
+        return false;
+      };
+      const kOfY = (y: number) => Math.round(y / box.unit);
+      const anchored = (x: number, y: number, z: number) => {
+        if (near(parts, "", x, y, z)) return true;
+        // a line of a layer other than this point's own (its own line does not hold its own end up)
+        for (const l of this.walks.layers) if (l.k !== kOfY(y) && Math.abs(l.k - kOfY(y)) <= 1 && near(lines, `${l.k}:`, x, y, z)) return true;
+        return false;
+      };
+      const life = input.walk.life;
+      const decayOf = (k: number): number => {
+        if (!input.wear || !w.strata || life <= 0) return 0;
+        const laid = Math.min(t, (k + 1 + presentSlots) * box.secPerUnit);
+        const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
+        return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.concreteLife * life));
+      };
+      return { anchored, decayOf };
+    })();
     return {
       counts: fill,
       matrices,
@@ -504,7 +533,7 @@ export class SpaceModel {
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
       pipes: pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, pipeDecay),
-      walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1),
+      walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1, input.walk ?? undefined, walkWeigh),
       t,
       top,
       minX,
@@ -819,7 +848,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
       for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.elbows.buffer as ArrayBuffer);
-      transfer.add(out.parts.walk.live.buffer as ArrayBuffer).add(out.parts.walk.kept.buffer as ArrayBuffer);
+      for (const a of [out.parts.walk.live, out.parts.walk.kept, out.parts.walk.liveW, out.parts.walk.keptW]) transfer.add(a.buffer as ArrayBuffer);
     }
   }
   if (m.nature) {

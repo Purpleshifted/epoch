@@ -174,3 +174,21 @@ describe("walkways: what joins what (in use, change, reach, re-surfacing)", () =
     expect(abLayersOf(long.layers).length).toBe(1);
   });
 });
+
+describe("walkway segments: weights (free ends taper, old layers fade)", () => {
+  it("an end that arrives at nothing tapers to 0 over `taper`; an anchored end keeps full weight; decay lowers all", () => {
+    const w = walkways(walkers, [...A, ...B], DEFAULT_WALK, opts);
+    const full = walkSegments(w, 0, { taper: 3 });
+    expect(full.liveW.length).toBe(full.live.length / 3);
+    expect(Math.min(...full.liveW)).toBe(1);
+    // only the A end holds: B has gone — the B end tapers
+    const line = w.layers[0].lines[0];
+    const bEnd = [line[line.length - 3], line[line.length - 1]];
+    const weigh = { anchored: (x: number, _y: number, z: number) => Math.hypot(x - bEnd[0], z - bEnd[1]) > 2, decayOf: () => 0 };
+    const t = walkSegments(w, 0, { taper: 3 }, weigh);
+    expect(Math.min(...t.liveW)).toBe(0);
+    expect(t.liveW[0]).toBe(1);
+    const old = walkSegments(w, 0, { taper: 3 }, { anchored: () => true, decayOf: () => 0.5 });
+    expect(Math.max(...old.liveW)).toBeCloseTo(0.5, 6);
+  });
+});

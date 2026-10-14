@@ -65,6 +65,10 @@ export interface WalkConfig {
   /** RE-SURFACING: a link still in use whose line is older than this (slots; 0 = `reach`) is laid again at the next
    *  layer (whole, flat), so a long-used walkway stays in time as surfaces stacked at this interval. Off when < 0. */
   resurface: number;
+  /** A FREE END (nothing to arrive at: no part, no other line) fades out over this length (world); 0 = cut sharp. */
+  taper: number;
+  /** WEATHERING: the lines' life × the slab life of the parts (an old layer fades with it); ≤ 0 = lines do not fade. */
+  life: number;
 }
 
 export const DEFAULT_WALK: WalkConfig = {
@@ -80,6 +84,8 @@ export const DEFAULT_WALK: WalkConfig = {
   grace: 3,
   minorShare: 0.6,
   resurface: 0,
+  taper: 3,
+  life: 1,
 };
 
 /** One layer of walkways: the lines of its new links. */
@@ -461,12 +467,47 @@ function layLink(out: WalkLayer, link: Link, unit: number, k: number, join: { li
   }
 }
 
-/** All layers' lines as segments (pairs of points) for drawing; `live` = laid within the present (from slot `fromK`). */
-export function walkSegments(w: Walkways, fromK: number): { live: Float32Array; kept: Float32Array } {
-  const live: number[] = [], kept: number[] = [];
+/** What walkSegments needs to weigh its vertices. */
+export interface WalkWeighing {
+  /** Whether something stands at (x, y, z): a part, or a line of another layer (a ramp's foot). */
+  anchored: (x: number, y: number, z: number) => boolean;
+  /** A layer's decay (0 fresh … 1 gone) on the parts' weathering clock. */
+  decayOf: (k: number) => number;
+}
+
+/**
+ * All layers' lines as segments (pairs of points) for drawing, with a WEIGHT per vertex (1 = the line's full colour,
+ * 0 = gone into the background): `live` = laid within the present (from slot `fromK`), `kept` = below. A line's
+ * weight is 1 − its layer's decay; an end that arrives at nothing (no part there any more, no line below to stand on)
+ * is a FREE END and tapers to 0 over `taper` — a path that ran to something that has since gone fades out instead of
+ * stopping in the air.
+ */
+export function walkSegments(w: Walkways, fromK: number, cfg?: Pick<WalkConfig, "taper">, weigh?: WalkWeighing): { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array } {
+  const live: number[] = [], kept: number[] = [], liveW: number[] = [], keptW: number[] = [];
+  const taper = Math.max(0, cfg?.taper ?? 0);
   for (const l of w.layers) {
-    const to = l.k >= fromK ? live : kept;
-    for (const line of l.lines) for (let i = 0; i + 5 < line.length; i += 3) for (let c = 0; c < 6; c++) to.push(line[i + c]);
+    const to = l.k >= fromK ? live : kept, tw = l.k >= fromK ? liveW : keptW;
+    const base = weigh ? 1 - Math.max(0, Math.min(1, weigh.decayOf(l.k))) : 1;
+    for (const line of l.lines) {
+      const n = line.length / 3;
+      if (n < 2) continue;
+      // the distance along the line from each end, for the taper of a free end
+      const cum = new Float64Array(n);
+      for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + Math.hypot(line[i * 3] - line[i * 3 - 3], line[i * 3 + 1] - line[i * 3 - 2], line[i * 3 + 2] - line[i * 3 - 1]);
+      const L = cum[n - 1];
+      const freeA = weigh ? !weigh.anchored(line[0], line[1], line[2]) : false;
+      const freeB = weigh ? !weigh.anchored(line[(n - 1) * 3], line[(n - 1) * 3 + 1], line[(n - 1) * 3 + 2]) : false;
+      const wAt = (i: number) => {
+        let f = 1;
+        if (freeA) f = Math.min(f, taper > 0 ? Math.min(1, cum[i] / taper) : i === 0 ? 0 : 1);
+        if (freeB) f = Math.min(f, taper > 0 ? Math.min(1, (L - cum[i]) / taper) : i === n - 1 ? 0 : 1);
+        return base * f;
+      };
+      for (let i = 0; i + 1 < n; i++) {
+        for (let c = 0; c < 6; c++) to.push(line[i * 3 + c]);
+        tw.push(wAt(i), wAt(i + 1));
+      }
+    }
   }
-  return { live: Float32Array.from(live), kept: Float32Array.from(kept) };
+  return { live: Float32Array.from(live), kept: Float32Array.from(kept), liveW: Float32Array.from(liveW), keptW: Float32Array.from(keptW) };
 }
