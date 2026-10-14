@@ -8,12 +8,13 @@
  * sounds the same in every view and on every tab; the global drone takes the PARTIAL (`partialOf`) of the same motif.
  *
  * The 2026-10-10 version put the whole pitch content in micro-tones (±90 cents) — an out-of-tune unison that was
- * monotonous and could not resolve. Pitch now comes from the shared tonal field; micro-tones are colour only.
+ * monotonous and could not resolve. Pitch now comes from a KEY (the motif's own home key, or the key of the building
+ * I am at — harmony.ts); micro-tones are colour only.
  *
  * Pure and deterministic. No Web Audio here (engine.ts).
  */
 
-import { degreePitch, scaleClasses, snapToClasses, type PlaceChord, type WorldKey } from "./harmony";
+import { degreePitch, scaleClasses, snapToClasses, type Key, type PlaceChord } from "./harmony";
 
 export interface MotifConfig {
   /** Register: MIDI pitch of the motif's degree 0, drawn uniformly (D3 … D5). */
@@ -130,7 +131,8 @@ export interface MotifNote {
 }
 
 /**
- * One cycle of the motif made real in the world: degrees → pitches of the world's mode in the motif's register.
+ * One cycle of the motif made real in a KEY: degrees → pitches of that key's mode in the motif's register (so a
+ * change of key = a modulation of the same motif).
  * The motif is the visitor's IDENTITY (their name in sound), so its contour, rhythm and register are never
  * rewritten by the place; the place acts on it in two gentler ways (docs/sound-logic.md §5):
  *   lock   0..1 — a PULL of single notes onto the chord of the place (probability per note), meant to stay small
@@ -139,7 +141,7 @@ export interface MotifNote {
  *          `freeCents`, and the engine adds noise and timing drift); a path, concrete or building together is stable.
  * `cycle` indexes the cycle so the choices differ from cycle to cycle but are reproducible.
  */
-export function realize(m: Motif, key: WorldKey, chord: PlaceChord | null, lock: number, cycle: number, cfg: MotifConfig = DEFAULT_MOTIF, rough = 1 - lock): MotifNote[] {
+export function realize(m: Motif, key: Key, chord: PlaceChord | null, lock: number, cycle: number, cfg: MotifConfig = DEFAULT_MOTIF, rough = 1 - lock): MotifNote[] {
   const r = rng(hashString(`${m.id}#${cycle}`));
   const n = m.degrees.length;
   // the register lands on the nearest note of the world's scale: degree 0 of this voice

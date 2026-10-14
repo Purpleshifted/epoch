@@ -39,7 +39,7 @@ import {
   type Snapshot,
   worldNow,
 } from "@/lib/parliament";
-import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
+import { personalSignals } from "@/lib/sound";
 import { NatureCloud } from "./NatureCloud";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -119,8 +119,6 @@ export function RoleField({
   }, [role, botCount, botRole, botFlock, cfg]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
-  // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
-  const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
   useEffect(() => {
     epochMs.current = getEpochMs();
@@ -233,7 +231,6 @@ export function RoleField({
       // the headset: what I hear, folded from the same events
       let soundLine: string | undefined;
       if (sound) {
-        if (!tonal.current || tonal.current.epochMs !== epochMs.current) tonal.current = { epochMs: epochMs.current, key: worldKey(String(epochMs.current)) };
         const sig = personalSignals({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
           events,
@@ -243,10 +240,9 @@ export function RoleField({
           natureCfg,
           cfg: sound.sigCfg,
         });
-        sound.engine.update(me.current.id, sig, sound.params, playerYawRef?.current ?? 0, epochMs.current, tonal.current.key);
+        sound.engine.update(me.current.id, sig, sound.params, playerYawRef?.current ?? 0, epochMs.current);
         const d = sound.engine.debug;
-        const k = tonal.current.key;
-        soundLine = `${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · stable ${d.stable.toFixed(2)} rough ${d.rough.toFixed(2)} lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
+        soundLine = `${d.key}${d.building ? " (building " + d.building + ")" : " (home)"} · bar ${d.bar} ${d.chord} · stable ${d.stable.toFixed(2)} rough ${d.rough.toFixed(2)} lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
       }
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
         role,

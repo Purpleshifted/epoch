@@ -1,25 +1,15 @@
 /**
- * sound/harmony.ts — the TONAL FIELD the world shares, and the chord of a place.
+ * sound/harmony.ts — KEYS: every motif has its own, every building has its own (docs/sound-logic.md §3).
  *
- * Why: the first headset sound (micro-tones ±90 cents round a random centroid) was an out-of-tune unison — nothing
- * in it could resolve, so neither following a path nor building with others could ever sound like something
- * (docs/sound-logic.md §3). So the pitch content now comes from ONE shared field:
+ * There is no world key. A visitor's leitmotif is their identity, so it comes with its HOME KEY (root + mode,
+ * from the id). A BUILDING is a key too (root + mode from the building's cell): when I come near one my motif
+ * MODULATES into the building's key — the contour, rhythm and register stay mine, the scale under them changes.
+ * Everybody at the same building is in the same key, so building together is where voices become consonant;
+ * far from buildings each voice is in its own key, and the mass of them (the global view) is polytonal.
  *
- *   WORLD KEY      one key + mode per epoch (seeded by the epoch), diatonic for everybody: two visitors near each
- *                  other are consonant-ish by construction, before any rule acts.
- *   PROGRESSION    the ground carries harmony: a Markov chord progression (umwelt's chord_library, kept here as a
- *                  pure port) laid out over the ground in bands (`bandCells` cells wide, along x + z). Walking
- *                  moves through the progression; standing holds one chord. So a path IS a progression, and a
- *                  building is born on one chord.
- *   LOCK           how much a voice snaps to the chord of its place: a formed path under the feet, or staying among
- *                  others, pull every tone of the motif onto the nearest chord tone (consonance arrives when you
- *                  follow or build). Alone on open ground the motif is free: diatonic but with loose timing and
- *                  wider micro-tonal colour.
- *
- * Pitches are MIDI numbers (semitones); frequencies are made in motif.ts. Pure and deterministic.
+ * Modes and chord stacking come from umwelt's chord_library (pure port). Pitches are MIDI numbers.
  */
 
-import { CELL_SIZE } from "@/lib/stratum/field";
 import { hashString, rng } from "./motif";
 
 export interface Mode {
@@ -39,58 +29,47 @@ export const MODES: readonly Mode[] = [
   { name: "Lydian", intervals: [0, 2, 4, 6, 7, 9, 11], base: "major" },
 ];
 
-/** Diatonic Markov transitions by degree (umwelt chord_library). */
-const MAJOR_MARKOV = [[3, 4, 5, 1], [4, 6, 0], [5, 3, 0], [0, 4, 1], [0, 5, 2], [1, 3, 0], [0, 2]];
-const MINOR_MARKOV = [[3, 4, 5, 2], [4, 6, 0], [5, 3, 0], [0, 4, 6], [0, 5, 2], [1, 3, 6], [2, 0, 4]];
-
 export const KEY_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
 
-export interface WorldKey {
+export interface Key {
   /** Tonic as a pitch class (0 = C). */
   root: number;
   mode: Mode;
-  /** The chord progression laid over the ground: degree (0..6) per band, `bands` long, wrapping. */
-  degrees: number[];
 }
 
 export interface HarmonyConfig {
-  /** Which modes an epoch may get (indices into MODES). The outer ones are left out by default: too sour / too sweet. */
-  modes: number[];
-  /** Length of the progression before it wraps (bands). */
-  bands: number;
-  /** Width of one band (cells): walking this far moves the chord on. */
-  bandCells: number;
+  /** Which modes a HOME key may have (indices into MODES): the middle four, not too sour, not too sweet. */
+  homeModes: number[];
+  /** Which modes a BUILDING may have: wider — a building may be strange. */
+  buildingModes: number[];
   /** Chord size: 3 = triads, 4 = sevenths. */
   chordSize: number;
 }
 
 export const DEFAULT_HARMONY: HarmonyConfig = {
-  modes: [2, 3, 4, 5],
-  bands: 16,
-  bandCells: 4,
+  homeModes: [2, 3, 4, 5],
+  buildingModes: [1, 2, 3, 4, 5, 6],
   chordSize: 4,
 };
 
-/** The key, mode and progression of one epoch (seed = the epoch key / ms as a string). */
-export function worldKey(seed: string, cfg: HarmonyConfig = DEFAULT_HARMONY): WorldKey {
-  const r = rng(hashString("key:" + seed));
+function keyFrom(seed: string, modes: readonly number[]): Key {
+  const r = rng(hashString(seed));
   const root = Math.floor(r() * 12);
-  const mode = MODES[cfg.modes[Math.floor(r() * cfg.modes.length)] ?? 3];
-  const matrix = mode.base === "major" ? MAJOR_MARKOV : MINOR_MARKOV;
-  const degrees: number[] = [0];
-  for (let i = 1; i < cfg.bands; i++) {
-    const from = degrees[i - 1];
-    const opts = matrix[from];
-    degrees.push(opts[Math.floor(r() * opts.length)]);
-  }
-  return { root, mode, degrees };
+  const mode = MODES[modes[Math.floor(r() * modes.length)] ?? 3];
+  return { root, mode };
 }
 
-/** Which band of the progression a world position is in (bands run along x + z, so any walk crosses them). */
-export function bandOf(x: number, z: number, cfg: HarmonyConfig = DEFAULT_HARMONY): number {
-  const b = Math.floor((x + z) / (CELL_SIZE * cfg.bandCells));
-  return ((b % cfg.bands) + cfg.bands) % cfg.bands;
+/** The home key of a visitor (or bot): part of their identity. */
+export function homeKey(id: string, cfg: HarmonyConfig = DEFAULT_HARMONY): Key {
+  return keyFrom("home:" + id, cfg.homeModes);
 }
+
+/** The key of a building, from its identity (the slab's cell key). */
+export function buildingKey(buildingId: string, cfg: HarmonyConfig = DEFAULT_HARMONY): Key {
+  return keyFrom("building:" + buildingId, cfg.buildingModes);
+}
+
+export const keyName = (k: Key): string => `${KEY_NAMES[k.root]} ${k.mode.name}`;
 
 /** Diatonic chord on `degree` of the mode: `size` stacked thirds as semitones above the TONIC (not the chord root). */
 export function diatonicChord(mode: Mode, degree: number, size: number): number[] {
@@ -103,7 +82,6 @@ export function diatonicChord(mode: Mode, degree: number, size: number): number[
 }
 
 export interface PlaceChord {
-  band: number;
   degree: number;
   /** Pitch classes (0..11) of the chord tones. */
   classes: number[];
@@ -111,17 +89,14 @@ export interface PlaceChord {
   rootClass: number;
 }
 
-/** The chord of a place. */
-export function placeChord(key: WorldKey, x: number, z: number, cfg: HarmonyConfig = DEFAULT_HARMONY): PlaceChord {
-  const band = bandOf(x, z, cfg);
-  const degree = key.degrees[band];
-  const tones = diatonicChord(key.mode, degree, cfg.chordSize);
-  const classes = tones.map((t) => (key.root + t) % 12);
-  return { band, degree, classes, rootClass: (key.root + key.mode.intervals[degree]) % 12 };
+/** The chord of a key's degree (the tonic chord by default): what the bass and the pad play. */
+export function keyChord(key: Key, degree = 0, size = DEFAULT_HARMONY.chordSize): PlaceChord {
+  const tones = diatonicChord(key.mode, degree, size);
+  return { degree, classes: tones.map((t) => (key.root + t) % 12), rootClass: (key.root + key.mode.intervals[degree]) % 12 };
 }
 
 /** Pitch classes (0..11) of the key's scale. */
-export function scaleClasses(key: WorldKey): number[] {
+export function scaleClasses(key: Key): number[] {
   return key.mode.intervals.map((i) => (i + key.root) % 12);
 }
 
@@ -129,7 +104,7 @@ export function scaleClasses(key: WorldKey): number[] {
  * MIDI pitch `deg` scale degrees above `base` (negative = below; octaves wrap). `base` must be a scale note of the
  * key (snap it with `snapToClasses(base, scaleClasses(key))` first); it is degree 0 of the voice, not the tonic.
  */
-export function degreePitch(key: WorldKey, base: number, deg: number): number {
+export function degreePitch(key: Key, base: number, deg: number): number {
   const cls = (((base - key.root) % 12) + 12) % 12;
   const baseIdx = Math.max(0, key.mode.intervals.indexOf(cls));
   const total = baseIdx + deg;
@@ -143,7 +118,6 @@ export function snapToClasses(pitch: number, classes: readonly number[]): number
   let best = pitch;
   let bestD = Infinity;
   for (const c of classes) {
-    // the candidate of class c nearest to pitch
     const base = pitch - (((pitch % 12) + 12) % 12) + c;
     for (const cand of [base - 12, base, base + 12]) {
       const d = Math.abs(cand - pitch);
@@ -156,8 +130,8 @@ export function snapToClasses(pitch: number, classes: readonly number[]): number
   return best;
 }
 
-/** Chord name for the debug line / doc, e.g. "Dm7" in "A Aeolian". */
-export function chordName(key: WorldKey, pc: PlaceChord): string {
+/** Chord name for the debug line / doc, e.g. "Dm7", "Dbm7b5". */
+export function chordName(pc: PlaceChord): string {
   const third = (pc.classes[1] - pc.classes[0] + 12) % 12;
   const fifth = (pc.classes[2] - pc.classes[0] + 12) % 12;
   const seventh = pc.classes.length >= 4 ? (pc.classes[3] - pc.classes[0] + 12) % 12 : -1;

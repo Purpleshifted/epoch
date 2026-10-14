@@ -18,7 +18,7 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { chordName, magentaChordName, type WorldKey } from "./harmony";
+import { buildingKey, chordName, homeKey, keyName, magentaChordName, type Key } from "./harmony";
 import { Magenta } from "./magenta";
 import { makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { barClock, conformity, lockOf, planBar, type BarPlan } from "./sequencer";
@@ -122,6 +122,9 @@ function noiseBuffer(ctx: AudioContext, seconds = 2): AudioBuffer {
 
 export interface SoundDebug {
   bar: number;
+  /** The key I am in and, at a building, which one. */
+  key: string;
+  building: string | null;
   chord: string;
   stable: number;
   rough: number;
@@ -152,7 +155,10 @@ export class SoundEngine {
   private yaw = 0;
   private myId = "";
   private epochMs = 0;
-  private key: WorldKey | null = null;
+  /** My home key (identity) and the key I am in now (home, or the building's). */
+  private home: Key | null = null;
+  private placeKey: Key | null = null;
+  private atBuilding: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastUpdate = 0;
   private planned = -1;
@@ -170,7 +176,9 @@ export class SoundEngine {
     const p = this.lastPlan;
     return {
       bar: p?.bar ?? -1,
-      chord: p && this.key ? chordName(this.key, p.chord) : "",
+      key: this.placeKey ? keyName(this.placeKey) : "",
+      building: this.atBuilding,
+      chord: p ? chordName(p.chord) : "",
       stable: p?.stable ?? 0,
       rough: p?.rough ?? 0,
       lock: p?.lock ?? 0,
@@ -333,15 +341,28 @@ export class SoundEngine {
 
   /**
    * The latest fold of the player's signals (signals.ts), every ~0.5 s. `yaw` = where the camera looks; `epochMs`
-   * anchors the shared grid; `key` is the epoch's tonal field.
+   * anchors the shared grid.
    */
-  update(myId: string, sig: PersonalSignals, params: SoundParams, yaw: number, epochMs: number, key: WorldKey): void {
+  update(myId: string, sig: PersonalSignals, params: SoundParams, yaw: number, epochMs: number): void {
     this.sig = sig;
     this.params = params;
     this.yaw = yaw;
-    this.myId = myId;
+    if (this.myId !== myId || !this.home) {
+      this.myId = myId;
+      this.home = homeKey(myId);
+      this.placeKey = this.home;
+      this.atBuilding = null;
+    }
     this.epochMs = epochMs;
-    this.key = key;
+    // MODULATION: coming to a building puts me in its key (hysteresis so a step at its edge does not flicker); the
+    // change itself lands on the next bar, where the plan is made
+    if (sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
+      this.atBuilding = sig.building.id;
+      this.placeKey = buildingKey(sig.building.id);
+    } else if (this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
+      this.atBuilding = null;
+      this.placeKey = this.home;
+    }
     const ctx = this.ctx;
     if (!ctx || !this.timer) return;
     const t = ctx.currentTime;
@@ -501,8 +522,8 @@ export class SoundEngine {
   /** My next 4 bars as a phrase (what Magenta works from). */
   private myPhrase(fromBar: number, lock: number): Phrase {
     const out: Phrase = new Array(PHRASE_STEPS).fill(0);
-    if (!this.me || !this.key || !this.sig) return out;
-    const key = this.key;
+    if (!this.me || !this.placeKey || !this.sig) return out;
+    const key = this.placeKey;
     const chord = this.lastPlan?.chord ?? null;
     for (let c = 0; c < CYCLES_PER_PHRASE; c++) {
       const steps = cycleToSteps(realize(this.me.motif, key, chord, lock, fromBar + c));
@@ -513,11 +534,12 @@ export class SoundEngine {
 
   private theirPhrase(id: string, fromBar: number, lock: number): Phrase {
     const out: Phrase = new Array(PHRASE_STEPS).fill(0);
-    if (!this.key) return out;
+    if (!this.placeKey) return out;
     const m = this.motifOf(id);
-    const chord = this.lastPlan?.chord ?? null;
+    const key = this.atBuilding ? this.placeKey : homeKey(id);
+    const chord = this.atBuilding ? this.lastPlan?.chord ?? null : null;
     for (let c = 0; c < CYCLES_PER_PHRASE; c++) {
-      const steps = cycleToSteps(realize(m, this.key, chord, lock, fromBar + c));
+      const steps = cycleToSteps(realize(m, key, chord, lock, fromBar + c));
       for (let i = 0; i < STEPS_PER_CYCLE; i++) out[c * STEPS_PER_CYCLE + i] = steps[i];
     }
     return out;
@@ -525,7 +547,7 @@ export class SoundEngine {
 
   /** Ask Magenta for a phrase when the moment calls for one; it takes my bars once it has answered. */
   private askMagenta(bar: number, sig: PersonalSignals, lock: number, stable: number): void {
-    if (!this.params.magenta || !this.magenta.ready || !this.key) return;
+    if (!this.params.magenta || !this.magenta.ready || !this.placeKey) return;
     if (this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE + 2) return; // one phrase, then a breath
     const nearest = sig.neighbours[0];
     const amount = nearest ? this.closeness.get(nearest.o) ?? 0 : 0;
@@ -535,7 +557,7 @@ export class SoundEngine {
       return;
     }
     if (stable >= 0.6 && this.lockedBars >= 2 && this.lastPlan) {
-      const name = chordName(this.key, this.lastPlan.chord);
+      const name = chordName(this.lastPlan.chord);
       const safe = magentaChordName(name);
       const res = this.magenta.improvise(this.myPhrase(bar, lock), [safe, safe]);
       if (res) this.phrase = { phrase: res, from: bar, kind: `rnn ${name}` };
@@ -545,7 +567,7 @@ export class SoundEngine {
   private tick(): void {
     const ctx = this.ctx;
     const sig = this.sig;
-    const key = this.key;
+    const key = this.placeKey;
     if (!ctx || !sig || !key || !this.me || ctx.state !== "running" || !this.epochMs) return;
     const p = this.params;
     const now = ctx.currentTime;
@@ -566,6 +588,7 @@ export class SoundEngine {
       bar: next,
       sig,
       key,
+      building: this.atBuilding,
       me: this.me.motif,
       others: this.motifs,
       closeness: this.closeness,

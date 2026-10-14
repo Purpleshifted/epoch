@@ -55,6 +55,8 @@ export interface PersonalSignals {
   pathP: number;
   /** 0..1 how close concrete is (1 = standing on it). */
   sealed: number;
+  /** The nearest building (slab cell key) within 2 × sealRadius, and how far (world): the key I would modulate to. */
+  building: { id: string; dist: number } | null;
   /** 0..1 vegetation around the visitor (3 × 3 cells). */
   grass: number;
 }
@@ -114,6 +116,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   const myKey = `${ix},${iz}`;
   let pathP = 0;
   let sealed = 0;
+  let building: PersonalSignals["building"] = null;
   const pathAt = new Map<string, number>();
   const sealedCells = new Set<string>();
   if (snap) {
@@ -127,6 +130,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
       const d = Math.hypot(sl.x - me.x, sl.z - me.z);
       const near = 1 - Math.min(1, Math.max(0, (d - CELL_SIZE * 0.5) / cfg.sealRadius));
       if (near > sealed) sealed = near;
+      if (d <= 2 * cfg.sealRadius && (!building || d < building.dist)) building = { id: sl.key, dist: d };
     }
   }
   let grass = 0;
@@ -138,5 +142,5 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   }
   grass /= 9;
 
-  return { x: me.x, z: me.z, speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, grass };
+  return { x: me.x, z: me.z, speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, building, grass };
 }

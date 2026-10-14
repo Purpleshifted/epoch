@@ -24,7 +24,7 @@ export function useSound(): SoundSetup | null {
   const c = useControls(
     ROOT,
     savable(ROOT, {
-      on: { value: true, label: "켜기 (첫 클릭/터치 뒤 시작)", render: v2 },
+      on: { value: true, label: "켜기 (첫 클릭/터치 뒤 시작 · ESC = 이 창 음소거/해제)", render: v2 },
       master: { value: DEFAULT_SOUND.master, min: 0, max: 1, step: 0.01, label: "음량", render: v2 },
       barSec: { value: DEFAULT_SOUND.barSec, min: 1, max: 4, step: 0.1, label: "한 마디 길이 (s) — 모두가 같은 박자", render: v2 },
       speedMax: { value: DEFAULT_SOUND.speedMax, min: 1, max: 15, step: 0.5, label: "뛰는 속도 (월드/s): 마디에 두 번 · 그 1/10 아래 = 멈춤: 두 마디에 한 번", render: v2 },
@@ -52,17 +52,28 @@ export function useSound(): SoundSetup | null {
     onRef.current = c.on;
   }, [c.on]);
 
+  // ESC mutes this window's sound (and un-mutes on the next ESC); the Leva switch is the other way to stop it
+  const muted = useRef(false);
   useEffect(() => {
     if (!engine) return;
     const start = () => {
-      if (onRef.current) engine.start().catch(() => {});
+      if (onRef.current && !muted.current) engine.start().catch(() => {});
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        muted.current = !muted.current;
+        if (muted.current) engine.stop();
+        else if (onRef.current) engine.start().catch(() => {});
+        return;
+      }
+      start();
     };
     window.addEventListener("pointerdown", start);
-    window.addEventListener("keydown", start);
+    window.addEventListener("keydown", onKey);
     window.addEventListener("touchend", start);
     return () => {
       window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
+      window.removeEventListener("keydown", onKey);
       window.removeEventListener("touchend", start);
       engine.dispose();
     };
@@ -70,7 +81,7 @@ export function useSound(): SoundSetup | null {
 
   useEffect(() => {
     if (!engine) return;
-    if (c.on) engine.start().catch(() => {}); // no-op until a gesture has unlocked the context
+    if (c.on && !muted.current) engine.start().catch(() => {}); // no-op until a gesture has unlocked the context
     else engine.stop();
   }, [engine, c.on]);
 
