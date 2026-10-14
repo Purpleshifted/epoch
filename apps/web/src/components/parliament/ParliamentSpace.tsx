@@ -1377,7 +1377,7 @@ export default function ParliamentSpace() {
           },
           { order: 3 },
         ),
-        "⑤ 배관 모양 · 재질 · 부식": folder(
+        "④ 배관 모양 · 재질 · 부식": folder(
           {
             pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.2, step: 0.005, label: "관 굵기 (건물 하나 몫, 반지름)" },
             flowGain: { value: DEFAULT_WATER.flowGain, min: 0, max: 1, step: 0.05, label: "모일수록 굵어짐 (0 = 다 같게, 0.5 = √)" },
@@ -1402,7 +1402,7 @@ export default function ParliamentSpace() {
           },
           { order: 4, collapsed: true },
         ),
-        "④ 열린 물길: 식생 · 부식 (남음: 식생 속 물길)": folder(
+        "⑤ 열린 물길: 식생 · 부식 (남음: 식생 속 물길)": folder(
           {
             openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "물이 다시 스미는 덮인 비율 (배출구)" },
             streamLength: { value: DEFAULT_WATER.streamLength, min: 0, max: 40, step: 0.5, label: "배출구 너머로 흐르는 거리 (월드)" },
