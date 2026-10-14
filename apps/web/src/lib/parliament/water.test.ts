@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DEFAULT_FLOW, DEFAULT_WATER, buildingsOf, drainage, pipeMesh, pipeSegments, straightRuns, waterDistance, waterField, type PEvent, type Seed } from "./index";
+import { DEFAULT_FLOW, DEFAULT_WATER, buildingsOf, drainage, pipeParts, pipeSegments, straightRuns, waterDistance, waterField, type PEvent, type Seed } from "./index";
 
 const SPU = 20;
 /** A seed on cell (cx, cz), born t0, used until t1. */
@@ -200,24 +200,24 @@ describe("pipes join only what is still in use (reach, re-laying)", () => {
   });
 });
 
-describe("pipes as round tubes (the wrapper)", () => {
-  it("every route is one continuous tube with rounded elbows; manholes stand upright; kept and live apart", () => {
+describe("pipes as plumbing (the wrapper)", () => {
+  it("every run a straight cylinder on its axis (right angles kept), a fitting at every bend, manholes upright with covers", () => {
     const seeds = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5), ...block(300, 8, 8, 5, 5, 300)];
     const d = drainage([], seeds, DEFAULT_WATER, opts);
-    const m = pipeMesh(d.pipes, 1, DEFAULT_WATER, 20);
-    for (const part of [m.live, m.kept]) {
-      expect(part.position.length).toBe(part.normal.length);
-      expect(part.index.length % 3).toBe(0);
-      for (const i of part.index) expect(i).toBeLessThan(part.position.length / 3);
+    const m = pipeParts(d.pipes, 1, DEFAULT_WATER, 20);
+    const cyl = [...m.live.cylinders, ...m.kept.cylinders];
+    expect(cyl.length / 7).toBeGreaterThanOrEqual(d.pipes.length);
+    for (let i = 0; i < cyl.length; i += 7) {
+      const [ax, ay, az, bx, by, bz, r] = cyl.slice(i, i + 7);
+      // along one axis only: x, z or y (a shaft / cover)
+      expect([ax !== bx, az !== bz, ay !== by].filter(Boolean)).toHaveLength(1);
+      expect(r).toBeGreaterThan(0);
     }
-    expect(m.live.index.length + m.kept.index.length).toBeGreaterThan(0);
-    // all of it lies at or below the pipes' depth of its slot (a tube's radius above at most)
-    const top = Math.max(...d.pipes.map((p) => p.k)) - DEFAULT_WATER.pipeDepth + 1;
-    for (let i = 1; i < m.live.position.length; i += 3) expect(m.live.position[i]).toBeLessThanOrEqual(top);
-    // a bend yields normals that are not all axis-aligned (the elbow is rounded)
-    const nrm = m.live.normal.length ? m.live.normal : m.kept.normal;
-    let skew = 0;
-    for (let i = 0; i < nrm.length; i += 3) if (Math.abs(nrm[i]) > 0.05 && Math.abs(nrm[i + 2]) > 0.05 && Math.abs(nrm[i + 1]) > 0.05) skew++;
-    expect(skew).toBeGreaterThan(0);
+    const bends = d.pipes.filter((p) => p.k0 === undefined && p.route !== undefined).length > 1;
+    if (bends) expect(m.live.fittings.length + m.kept.fittings.length).toBeGreaterThan(0);
+    // one shaft and one cover per manhole
+    const risers = d.pipes.filter((p) => p.k0 !== undefined).length;
+    const upright = cyl.length / 7 - d.pipes.filter((p) => p.k0 === undefined).length;
+    expect(upright).toBe(risers * 2);
   });
 });

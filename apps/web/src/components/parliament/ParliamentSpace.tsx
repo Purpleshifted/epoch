@@ -43,7 +43,7 @@ import {
   type NatureConfig,
   type PEvent,
   type PartKind,
-  type PipeMesh,
+  type PipeParts,
   type PointsResult,
   type Recipe,
   type RoleId,
@@ -238,17 +238,8 @@ interface WalkLook {
   pipeMetalness: number;
   /** Brightness of the kept pipes (below the present) against the live ones. */
   pipeKeptDim: number;
-}
-
-/** A pipe mesh (positions, normals, indices) into a mesh. */
-function setPipeMesh(mesh: THREE.Mesh | null, m: PipeMesh): void {
-  if (!mesh) return;
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(m.position, 3));
-  g.setAttribute("normal", new THREE.BufferAttribute(m.normal, 3));
-  g.setIndex(new THREE.BufferAttribute(m.index, 1));
-  mesh.geometry.dispose();
-  mesh.geometry = g;
+  /** Ball fittings at the bends. */
+  pipeFittings: boolean;
 }
 
 /** Line segments [a, b] × n into a line set. */
@@ -258,6 +249,38 @@ function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void
   g.setAttribute("position", new THREE.BufferAttribute(segs, 3));
   lines.geometry.dispose();
   lines.geometry = g;
+}
+
+const PIPE_CAPACITY = 12000;
+const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3(), _q = new THREE.Quaternion(), _sc = new THREE.Vector3(), _m = new THREE.Matrix4();
+/** Straight cylinders [a, b, r] × n into an instanced unit cylinder (y-axis, height 1); fittings [x, y, z, r] × m into spheres. */
+function setPipeParts(cyl: THREE.InstancedMesh | null, fit: THREE.InstancedMesh | null, p: PipeParts): void {
+  if (cyl) {
+    const n = Math.min(PIPE_CAPACITY, p.cylinders.length / 7);
+    for (let i = 0; i < n; i++) {
+      const o = i * 7;
+      _dir.set(p.cylinders[o + 3] - p.cylinders[o], p.cylinders[o + 4] - p.cylinders[o + 1], p.cylinders[o + 5] - p.cylinders[o + 2]);
+      const L = _dir.length() || 1e-6;
+      _mid.set((p.cylinders[o] + p.cylinders[o + 3]) / 2, (p.cylinders[o + 1] + p.cylinders[o + 4]) / 2, (p.cylinders[o + 2] + p.cylinders[o + 5]) / 2);
+      _q.setFromUnitVectors(_up, _dir.multiplyScalar(1 / L));
+      const r = p.cylinders[o + 6];
+      _sc.set(r, L, r);
+      cyl.setMatrixAt(i, _m.compose(_mid, _q, _sc));
+    }
+    cyl.count = n;
+    cyl.instanceMatrix.needsUpdate = true;
+  }
+  if (fit) {
+    const n = Math.min(PIPE_CAPACITY, p.fittings.length / 4);
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      _mid.set(p.fittings[o], p.fittings[o + 1], p.fittings[o + 2]);
+      const r = p.fittings[o + 3];
+      fit.setMatrixAt(i, _m.compose(_mid, _q.identity(), _sc.set(r, r, r)));
+    }
+    fit.count = n;
+    fit.instanceMatrix.needsUpdate = true;
+  }
 }
 
 function setPoints(pts: THREE.Points | null, r: PointsResult | null | undefined): void {
@@ -451,8 +474,10 @@ function SpaceWorld({
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
-  const pipeLive = useRef<THREE.Mesh>(null);
-  const pipeKept = useRef<THREE.Mesh>(null);
+  const pipeLive = useRef<THREE.InstancedMesh>(null);
+  const pipeKept = useRef<THREE.InstancedMesh>(null);
+  const fitLive = useRef<THREE.InstancedMesh>(null);
+  const fitKept = useRef<THREE.InstancedMesh>(null);
   const naturePts = useRef<THREE.Points>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
   // count changes, the gatherings stay in the shared attributes
@@ -542,8 +567,8 @@ function SpaceWorld({
       }
       setSegments(walkLive.current, p.walk.live);
       setSegments(walkKept.current, p.walk.kept);
-      setPipeMesh(pipeLive.current, p.pipes.live);
-      setPipeMesh(pipeKept.current, p.pipes.kept);
+      setPipeParts(pipeLive.current, fitLive.current, p.pipes.live);
+      setPipeParts(pipeKept.current, fitKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
@@ -686,16 +711,20 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color={walkLook.walkColor} transparent opacity={0.4} depthWrite={false} />
       </lineSegments>
-      {/* PIPES as round tubes (the wrapper around the pre-layer): grey, a human trace; the kept ones (below the present)
-          dimmer */}
-      <mesh ref={pipeLive} frustumCulled={false} visible={!!water} castShadow receiveShadow>
-        <bufferGeometry />
-        <meshStandardMaterial color={walkLook.pipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
-      </mesh>
-      <mesh ref={pipeKept} frustumCulled={false} visible={!!water} castShadow receiveShadow>
-        <bufferGeometry />
-        <meshStandardMaterial color={keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
-      </mesh>
+      {/* PIPES as plumbing (the wrapper around the pre-layer): straight cylinders at right angles, ball fittings at the
+          bends, upright manholes with covers — grey, a human trace; the kept ones (below the present) dimmer */}
+      {(["live", "kept"] as const).map((w) => (
+        <group key={w} visible={!!water}>
+          <instancedMesh ref={w === "live" ? pipeLive : pipeKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow>
+            <cylinderGeometry args={[1, 1, 1, 14]} />
+            <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
+          </instancedMesh>
+          <instancedMesh ref={w === "live" ? fitLive : fitKept} args={[undefined, undefined, PIPE_CAPACITY]} frustumCulled={false} castShadow receiveShadow visible={walkLook.pipeFittings}>
+            <sphereGeometry args={[1, 12, 8]} />
+            <meshStandardMaterial color={w === "live" ? walkLook.pipeColor : keptPipeColor} roughness={walkLook.pipeRoughness} metalness={walkLook.pipeMetalness} />
+          </instancedMesh>
+        </group>
+      ))}
       <lineSegments ref={axis} frustumCulled={false} visible={!noAxis}>
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
@@ -1271,11 +1300,12 @@ export default function ParliamentSpace() {
             quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
             diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "45° 꺾임 (0 = 직각만)" },
             pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "묻히는 깊이 (깔린 층보다 몇 단 아래 — 늘 다리 아래)" },
-            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.4, step: 0.01, label: "관 굵기 (건물 하나 몫; 모일수록 √배)" },
+            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.2, step: 0.005, label: "관 굵기 (건물 하나 몫; 모일수록 √배)" },
             pipeColor: { value: "#7c7f84", label: "관 색 (무채색)" },
             pipeRoughness: { value: 0.55, min: 0, max: 1, step: 0.01, label: "관 거칠기" },
             pipeMetalness: { value: 0.35, min: 0, max: 1, step: 0.01, label: "관 금속성" },
             pipeKeptDim: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "굳은 관의 밝기 (현재 대비)" },
+            pipeFittings: { value: true, label: "꺾임마다 이음쇠 (둥근 조인트)" },
           },
           { order: 2 },
         ),
@@ -1341,8 +1371,8 @@ export default function ParliamentSpace() {
     [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay],
   );
   const walkLook = useMemo<WalkLook>(
-    () => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim }),
-    [wlk.walkColor, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim],
+    () => ({ walkColor: wlk.walkColor, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeFittings: wtr.pipeFittings }),
+    [wlk.walkColor, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeFittings],
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
   const fu = useControls(

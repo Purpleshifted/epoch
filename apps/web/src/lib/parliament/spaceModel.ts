@@ -21,7 +21,7 @@ import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensi
 import type { FoldConfig, PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
 import { NO_WALKWAYS, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
-import { NO_DRAINAGE, drainage, pipeMesh, waterDistance, waterField, type Drainage, type PipeMesh, type PipeRun, type WaterConfig } from "./water";
+import { NO_DRAINAGE, drainage, pipeParts, waterDistance, waterField, type Drainage, type PipeParts, type PipeRun, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -175,8 +175,8 @@ export interface PartsResult {
   /** Open streams now / pipe runs laid in all. */
   links: number;
   pipeRuns: number;
-  /** The pipes as round tubes (water.pipeMesh): `live` within the present (still changing), `kept` below. */
-  pipes: { live: PipeMesh; kept: PipeMesh };
+  /** The pipes as plumbing to instance (water.pipeParts): `live` within the present (still changing), `kept` below. */
+  pipes: { live: PipeParts; kept: PipeParts };
   /** V2 walkways' pre-layer as line segments (walkways.walkSegments): `live` within the present, `kept` below. */
   walk: { live: Float32Array; kept: Float32Array };
   t: number;
@@ -495,7 +495,7 @@ export class SpaceModel {
       farSeeds: far.size,
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
-      pipes: pipeMesh(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1),
+      pipes: pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1),
       walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1),
       t,
       top,
@@ -810,7 +810,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.matrices)) transfer.add(a.buffer as ArrayBuffer);
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
-      for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.position.buffer as ArrayBuffer).add(m.normal.buffer as ArrayBuffer).add(m.index.buffer as ArrayBuffer);
+      for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.fittings.buffer as ArrayBuffer);
       transfer.add(out.parts.walk.live.buffer as ArrayBuffer).add(out.parts.walk.kept.buffer as ArrayBuffer);
     }
   }

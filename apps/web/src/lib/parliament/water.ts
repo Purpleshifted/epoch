@@ -115,7 +115,7 @@ export const DEFAULT_WATER: WaterConfig = {
   vegBoost: 1,
   wetShare: 1,
   corrode: 1.5,
-  pipeRadius: 0.06,
+  pipeRadius: 0.035,
   quarterGap: 40,
   reach: 0,
   grace: 3,
@@ -778,174 +778,53 @@ export function pipeSegments(pipes: readonly PipeRun[], unit: number, cfg: Water
   return out;
 }
 
-/** A mesh of the pipes: positions and normals [x, y, z] × n, triangle indices. */
-export interface PipeMesh {
-  position: Float32Array;
-  normal: Float32Array;
-  index: Uint32Array;
+/** The pipes as PARTS to instance: straight cylinders [ax, ay, az, bx, by, bz, r] × n and fittings [x, y, z, r] × m. */
+export interface PipeParts {
+  cylinders: Float32Array;
+  fittings: Float32Array;
 }
-
-/** Sides of a pipe's cross-section; arc samples at a rounded elbow. */
-const PIPE_SIDES = 10;
-const ELBOW_STEPS = 4;
 
 /**
- * The pipes as a MESH: every route (trunk or lateral) one continuous round tube with rounded elbows, its radius
- * `pipeRadius` × √flow (thicker as the water collects); every manhole shaft a vertical tube with a wider cover ring at
- * the top. `live` = laid within the present (from slot `fromK`), `kept` = below it.
+ * The pipes as PLUMBING: every run a straight cylinder along its axis (right angles kept), extended by its radius at
+ * both ends so two runs meet in a closed corner, with a round FITTING (a slightly wider ball) at every bend of a
+ * route; every manhole an upright cylinder (wider) with a flat COVER on top. Radius `pipeRadius` × √flow.
+ * `live` = laid within the present (from slot `fromK`), `kept` = below it.
  */
-export function pipeMesh(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number): { live: PipeMesh; kept: PipeMesh } {
-  const live = new MeshBuilder(), kept = new MeshBuilder();
+export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number): { live: PipeParts; kept: PipeParts } {
+  const out = { live: { cyl: [] as number[], fit: [] as number[] }, kept: { cyl: [] as number[], fit: [] as number[] } };
   const y = (k: number) => (k - cfg.pipeDepth) * unit;
   const rad = (flow: number) => cfg.pipeRadius * Math.sqrt(Math.max(1, flow));
-  // routes: runs with a route id, end to end in their order
   const routes = new Map<number, PipeRun[]>();
   for (const p of pipes) {
+    const b = p.k >= fromK ? out.live : out.kept;
     if (p.k0 !== undefined) {
-      const b = p.k >= fromK ? live : kept;
-      const r = cfg.pipeRadius * 1.6;
-      b.tube([[p.ax, y(p.k0) - r, p.az], [p.ax, y(p.k) + r, p.az]], [r, r], false);
-      b.tube([[p.ax, y(p.k) + r * 0.6, p.az], [p.ax, y(p.k) + r * 1.4, p.az]], [r * 1.5, r * 1.5], false); // the cover
+      const r = cfg.pipeRadius * 1.3;
+      b.cyl.push(p.ax, y(p.k0), p.az, p.ax, y(p.k) + r, p.az, r); // the shaft (upright: the only other axis a pipe takes)
+      b.cyl.push(p.ax, y(p.k) + r, p.az, p.ax, y(p.k) + r * 1.4, p.az, r * 1.6); // the cover
       continue;
     }
-    if (p.route === undefined) {
-      (p.k >= fromK ? live : kept).tube([[p.ax, y(p.k), p.az], [p.bx, y(p.k), p.bz]], [rad(p.flow), rad(p.flow)], true);
-      continue;
+    const r = rad(p.flow);
+    const dx = p.bx - p.ax, dz = p.bz - p.az, L = Math.hypot(dx, dz) || 1;
+    const ex = (dx / L) * r, ez = (dz / L) * r;
+    b.cyl.push(p.ax - ex, y(p.k), p.az - ez, p.bx + ex, y(p.k), p.bz + ez, r);
+    if (p.route !== undefined) {
+      const list = routes.get(p.route) ?? [];
+      list.push(p);
+      routes.set(p.route, list);
     }
-    const list = routes.get(p.route) ?? [];
-    list.push(p);
-    routes.set(p.route, list);
   }
+  // fittings where a route bends
   for (const list of routes.values()) {
     list.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-    const b = list[0].k >= fromK ? live : kept;
-    const pts: [number, number, number][] = [[list[0].ax, y(list[0].k), list[0].az]];
-    const rs: number[] = [rad(list[0].flow)];
-    for (const p of list) {
-      // a run that does not start where the last ended begins a new tube
-      const [lx, , lz] = pts[pts.length - 1];
-      if (Math.hypot(p.ax - lx, p.az - lz) > CELL_SIZE * 0.51 && pts.length > 1) {
-        b.tube(rounded(pts, rs), roundedRadii(pts, rs), true);
-        pts.length = 0;
-        rs.length = 0;
-        pts.push([p.ax, y(p.k), p.az]);
-        rs.push(rad(p.flow));
-      }
-      pts.push([p.bx, y(p.k), p.bz]);
-      rs.push(rad(p.flow));
-    }
-    if (pts.length > 1) b.tube(rounded(pts, rs), roundedRadii(pts, rs), true);
-  }
-  return { live: live.build(), kept: kept.build() };
-}
-
-type V3 = [number, number, number];
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const mul = (a: V3, s: number): V3 => [a[0] * s, a[1] * s, a[2] * s];
-const len = (a: V3) => Math.hypot(a[0], a[1], a[2]);
-const norm = (a: V3): V3 => mul(a, 1 / (len(a) || 1));
-const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-
-/** The polyline with its corners cut into arcs (an elbow of radius ≈ 1.5 × the pipe's, within the runs' length). */
-function rounded(pts: readonly V3[], rs: readonly number[]): V3[] {
-  const out: V3[] = [pts[0]];
-  for (let i = 1; i + 1 < pts.length; i++) {
-    const a = pts[i - 1], c = pts[i], b = pts[i + 1];
-    const da = sub(a, c), db = sub(b, c);
-    const la = len(da), lb = len(db);
-    const r = Math.min(rs[i] * 1.5, la * 0.45, lb * 0.45);
-    if (r < 1e-4 || Math.abs(dot(norm(da), norm(db))) > 0.999) {
-      out.push(c);
-      continue;
-    }
-    const p0 = add(c, mul(norm(da), r)), p1 = add(c, mul(norm(db), r));
-    // a quadratic Bézier through the corner
-    for (let s = 0; s <= ELBOW_STEPS; s++) {
-      const t = s / ELBOW_STEPS, u = 1 - t;
-      out.push(add(add(mul(p0, u * u), mul(c, 2 * u * t)), mul(p1, t * t)));
+    for (let i = 0; i + 1 < list.length; i++) {
+      const p = list[i], q = list[i + 1];
+      if (Math.hypot(q.ax - p.bx, q.az - p.bz) > CELL_SIZE * 0.51) continue; // not joined
+      const d1 = Math.atan2(p.bz - p.az, p.bx - p.ax), d2 = Math.atan2(q.bz - q.az, q.bx - q.ax);
+      if (Math.abs(Math.sin(d1 - d2)) < 0.05) continue; // straight on
+      const b = p.k >= fromK ? out.live : out.kept;
+      b.fit.push(p.bx, y(p.k), p.bz, rad(Math.max(p.flow, q.flow)) * 1.15);
     }
   }
-  out.push(pts[pts.length - 1]);
-  return out;
-}
-/** The radii along `rounded(pts)`: each corner's arc takes that corner's radius. */
-function roundedRadii(pts: readonly V3[], rs: readonly number[]): number[] {
-  const out = [rs[0]];
-  for (let i = 1; i + 1 < pts.length; i++) {
-    const a = pts[i - 1], c = pts[i], b = pts[i + 1];
-    const da = sub(a, c), db = sub(b, c);
-    const r = Math.min(rs[i] * 1.5, len(da) * 0.45, len(db) * 0.45);
-    if (r < 1e-4 || Math.abs(dot(norm(da), norm(db))) > 0.999) out.push(rs[i]);
-    else for (let s = 0; s <= ELBOW_STEPS; s++) out.push(rs[i]);
-  }
-  out.push(rs[rs.length - 1]);
-  return out;
-}
-
-/** Appends tubes to one mesh. */
-class MeshBuilder {
-  private pos: number[] = [];
-  private nor: number[] = [];
-  private idx: number[] = [];
-  /** A tube along `pts` with radius `rs[i]` at each point (frames carried along), capped at both ends if `caps`. */
-  tube(pts: readonly V3[], rs: readonly number[], caps: boolean): void {
-    if (pts.length < 2) return;
-    const S = PIPE_SIDES;
-    // tangents at the points; a frame carried along (parallel transport)
-    const tangents: V3[] = pts.map((p, i) => norm(sub(pts[Math.min(i + 1, pts.length - 1)], pts[Math.max(i - 1, 0)])));
-    let n: V3 = Math.abs(tangents[0][1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
-    n = norm(sub(n, mul(tangents[0], dot(n, tangents[0]))));
-    const base = this.pos.length / 3;
-    for (let i = 0; i < pts.length; i++) {
-      if (i > 0) {
-        const axis = cross(tangents[i - 1], tangents[i]);
-        const l = len(axis);
-        if (l > 1e-6) {
-          const ang = Math.acos(Math.max(-1, Math.min(1, dot(tangents[i - 1], tangents[i]))));
-          n = rotate(n, mul(axis, 1 / l), ang);
-        }
-        n = norm(sub(n, mul(tangents[i], dot(n, tangents[i]))));
-      }
-      const bn = cross(tangents[i], n);
-      for (let s = 0; s < S; s++) {
-        const th = (s / S) * Math.PI * 2;
-        const d = add(mul(n, Math.cos(th)), mul(bn, Math.sin(th)));
-        const p = add(pts[i], mul(d, rs[i]));
-        this.pos.push(p[0], p[1], p[2]);
-        this.nor.push(d[0], d[1], d[2]);
-      }
-    }
-    for (let i = 0; i + 1 < pts.length; i++) {
-      for (let s = 0; s < S; s++) {
-        const a = base + i * S + s, b = base + i * S + ((s + 1) % S), c = a + S, d = b + S;
-        this.idx.push(a, c, b, b, c, d);
-      }
-    }
-    if (caps) {
-      this.cap(pts[0], mul(tangents[0], -1), rs[0], base, true);
-      this.cap(pts[pts.length - 1], tangents[pts.length - 1], rs[pts.length - 1], base + (pts.length - 1) * S, false);
-    }
-  }
-  private cap(centre: V3, outward: V3, _r: number, ring: number, flip: boolean): void {
-    const S = PIPE_SIDES;
-    const ci = this.pos.length / 3;
-    this.pos.push(centre[0], centre[1], centre[2]);
-    this.nor.push(outward[0], outward[1], outward[2]);
-    for (let s = 0; s < S; s++) {
-      const a = ring + s, b = ring + ((s + 1) % S);
-      if (flip) this.idx.push(ci, a, b);
-      else this.idx.push(ci, b, a);
-    }
-  }
-  build(): PipeMesh {
-    return { position: Float32Array.from(this.pos), normal: Float32Array.from(this.nor), index: Uint32Array.from(this.idx) };
-  }
-}
-
-/** `v` rotated about the unit `axis` by `ang` (Rodrigues). */
-function rotate(v: V3, axis: V3, ang: number): V3 {
-  const c = Math.cos(ang), s = Math.sin(ang);
-  return add(add(mul(v, c), mul(cross(axis, v), s)), mul(axis, dot(axis, v) * (1 - c)));
+  const pack = (x: { cyl: number[]; fit: number[] }): PipeParts => ({ cylinders: Float32Array.from(x.cyl), fittings: Float32Array.from(x.fit) });
+  return { live: pack(out.live), kept: pack(out.kept) };
 }
