@@ -39,8 +39,10 @@ import {
   type Snapshot,
   worldNow,
 } from "@/lib/parliament";
+import { personalSignals } from "@/lib/sound";
 import { NatureCloud } from "./NatureCloud";
 import { useTicker } from "./useTicker";
+import type { SoundSetup } from "./useSound";
 import { useWorld } from "./useWorld";
 
 const VIEW_RADIUS = 24;
@@ -72,8 +74,10 @@ export function RoleField({
   botCount,
   botRole,
   botFlock = ONE_FLOCK,
+  sound = null,
+  playerYawRef,
 }: {
-  playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
+  playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
   cfg: FoldConfig;
   natureCfg: NatureConfig;
@@ -83,6 +87,10 @@ export function RoleField({
   botRole: RoleId;
   /** How the bots spread over the ground (flocks). */
   botFlock?: Flock;
+  /** V2: the headset sound — fed the player's signals (lib/sound/signals.ts) after every fold. */
+  sound?: SoundSetup | null;
+  /** Where the camera looks (radians), for panning the others' voices. */
+  playerYawRef?: React.MutableRefObject<number>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -226,6 +234,19 @@ export function RoleField({
         slabs: snap.current.slabs.length,
         paths: snap.current.paths.length,
       };
+      // the headset: what I hear, folded from the same events
+      if (sound) {
+        const sig = personalSignals({
+          me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
+          events,
+          sNow: sMe,
+          snap: snap.current,
+          stress: stress.current,
+          natureCfg,
+          cfg: sound.sigCfg,
+        });
+        sound.engine.update(me.current.id, sig, sound.params, playerYawRef?.current ?? 0);
+      }
     }
   });
 

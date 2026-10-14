@@ -12,11 +12,20 @@ import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
+import { useSound } from "./useSound";
 import { seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
 const ORB_Y = 0.45;
+
+/** Where the player is and how fast they move (world units, /s). */
+export interface PlayerState {
+  x: number;
+  z: number;
+  vx?: number;
+  vz?: number;
+}
 
 const ROLE_OPTIONS: Record<string, RoleId> = {
   "회사원 (worker)": "worker",
@@ -47,12 +56,14 @@ function useKeys() {
 
 function Controller({
   playerPosRef,
+  playerYawRef,
   setLocked,
   camDist,
   camLerp,
   viscosity,
 }: {
-  playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
+  playerPosRef: React.MutableRefObject<PlayerState>;
+  playerYawRef: React.MutableRefObject<number>;
   setLocked: (v: boolean) => void;
   camDist: number;
   camLerp: number;
@@ -105,7 +116,8 @@ function Controller({
     p.vz += (tvz - p.vz) * damp;
     p.x += p.vx * dt;
     p.z += p.vz * dt;
-    playerPosRef.current = { x: p.x, z: p.z };
+    playerPosRef.current = { x: p.x, z: p.z, vx: p.vx, vz: p.vz };
+    playerYawRef.current = y;
     group.current?.position.set(p.x, ORB_Y, p.z);
 
     const hd = camDist * Math.cos(pitch.current);
@@ -128,8 +140,11 @@ export default function ParliamentScene() {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const hideChrome = demo || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ui") === "0");
   const [locked, setLocked] = useState(false);
-  const playerPosRef = useRef({ x: 0, z: 0 });
+  const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
+  const playerYawRef = useRef(Math.PI);
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
+  // V2: the headset sound (null in V1)
+  const sound = useSound();
 
   const { role, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
@@ -193,8 +208,10 @@ export default function ParliamentScene() {
           botCount={botEnabled ? botCount : 0}
           botRole={botRole}
           botFlock={botFlock}
+          sound={sound}
+          playerYawRef={playerYawRef}
         />
-        <Controller playerPosRef={playerPosRef} setLocked={setLocked} camDist={camDist} camLerp={camLerp} viscosity={viscosity} />
+        <Controller playerPosRef={playerPosRef} playerYawRef={playerYawRef} setLocked={setLocked} camDist={camDist} camLerp={camLerp} viscosity={viscosity} />
       </Canvas>
 
       {!locked && !hideChrome && (
