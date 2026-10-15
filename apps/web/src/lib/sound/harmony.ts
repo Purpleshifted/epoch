@@ -169,6 +169,136 @@ export function degreePitch(key: Key, base: number, deg: number): number {
   return base - key.mode.intervals[baseIdx] + oct * 12 + key.mode.intervals[idx];
 }
 
+/**
+ * INTERVAL CLASS of a melodic interval (semitones): what a listener keeps of a motif's shape when its tuning moves.
+ *   0 unison · 1 step (1–2) · 2 skip (3–4) · 3 leap (5–7) · 4 wide (8+)
+ */
+export function intervalClass(semis: number): number {
+  const a = Math.abs(semis);
+  return a === 0 ? 0 : a <= 2 ? 1 : a <= 4 ? 2 : a <= 7 ? 3 : 4;
+}
+
+/** The two notes `p → q` keep the shape of `a → b`: same direction, same interval class. */
+export function keepsShape(a: number, b: number, p: number, q: number): boolean {
+  return Math.sign(b - a) === Math.sign(q - p) && intervalClass(b - a) === intervalClass(q - p);
+}
+
+/**
+ * TONAL ANSWER (what a fugue does to its subject in the dominant; what a composer does by ear when a theme must fit
+ * a key): the motif's REAL intervals `semis` (from `base`) are laid on the scale of `key` so that every note is a
+ * scale tone and the shape is kept — every direction and every step / skip / leap class as in the original — with
+ * the least total displacement (semitones ↔ whole tones traded). Up to `chromaticBudget` notes may keep their exact
+ * pitch outside the key when the shape cannot otherwise be kept (a chromatic colour, cost 2.5 each). If no scale
+ * rendering keeps the full shape, the interval classes are relaxed and only the directions are kept.
+ * The first note lands on the scale tone nearest to `base`. Dynamic programming over scale candidates ±2 semitones.
+ */
+export function tonalAnswer(semis: readonly number[], base: number, key: Key, chromaticBudget = 1): number[] {
+  const n = semis.length;
+  if (n === 0) return [];
+  const scale = scaleClasses(key);
+  const inScale = (p: number) => scale.includes(((p % 12) + 12) % 12);
+  const first = snapToClasses(base, scale);
+  const targets = semis.map((d) => first + d);
+  const CHROMATIC = 2.5;
+  const candidatesOf = (i: number): { p: number; chroma: boolean }[] => {
+    if (i === 0) return [{ p: first, chroma: false }];
+    const t = targets[i];
+    const out: { p: number; chroma: boolean }[] = [];
+    for (let d = -2; d <= 2; d++) if (inScale(t + d)) out.push({ p: t + d, chroma: false });
+    if (!inScale(t)) out.push({ p: t, chroma: true });
+    return out;
+  };
+  const solve = (strict: boolean): number[] | null => {
+    // state: (candidate index, chromatic notes used) → best cost, back pointer
+    type Cell = { cost: number; from: number; used: number };
+    let layer: { p: number; cells: Map<number, Cell> }[] = candidatesOf(0).map((c) => ({ p: c.p, cells: new Map([[0, { cost: 0, from: -1, used: 0 }]]) }));
+    const layers = [layer];
+    for (let i = 1; i < n; i++) {
+      const cands = candidatesOf(i);
+      const next: { p: number; cells: Map<number, Cell> }[] = cands.map((c) => ({ p: c.p, cells: new Map() }));
+      cands.forEach((c, ci) => {
+        layer.forEach((prev, pi) => {
+          for (const [used, cell] of prev.cells) {
+            const ok = strict ? keepsShape(targets[i - 1], targets[i], prev.p, c.p) : Math.sign(targets[i] - targets[i - 1]) === Math.sign(c.p - prev.p);
+            if (!ok) continue;
+            const nu = used + (c.chroma ? 1 : 0);
+            if (nu > chromaticBudget) continue;
+            const cost = cell.cost + Math.abs(c.p - targets[i]) + (c.chroma ? CHROMATIC : 0);
+            const cur = next[ci].cells.get(nu);
+            if (!cur || cost < cur.cost) next[ci].cells.set(nu, { cost, from: pi, used });
+          }
+        });
+      });
+      layer = next;
+      layers.push(layer);
+    }
+    // best end
+    let bestCi = -1, bestUsed = 0, bestCost = Infinity;
+    for (let ci = 0; ci < layer.length; ci++) {
+      for (const [used, cell] of layer[ci].cells) {
+        if (cell.cost < bestCost) {
+          bestCost = cell.cost;
+          bestCi = ci;
+          bestUsed = used;
+        }
+      }
+    }
+    if (bestCi < 0) return null;
+    const out = new Array<number>(n);
+    let ci = bestCi, used = bestUsed;
+    for (let i = n - 1; i >= 0; i--) {
+      const node = layers[i][ci];
+      out[i] = node.p;
+      const cell = node.cells.get(used)!;
+      ci = cell.from;
+      used = cell.used;
+    }
+    return out;
+  };
+  return solve(true) ?? solve(false) ?? targets.map((t) => snapToClasses(t, scale));
+}
+
+/**
+ * CHORD PULL on the strong beats: with probability `lock` a strong-beat note moves to the nearest tone of `classes`,
+ * but only if the shape to its neighbours is kept (keepsShape); weak-beat notes stay — passing tones. Returns the
+ * pitches and which were pulled.
+ */
+export function pullToChord(pitches: readonly number[], strong: readonly boolean[], classes: readonly number[], lock: number, r: () => number): { pitches: number[]; locked: boolean[] } {
+  const out = pitches.slice();
+  const locked = pitches.map(() => false);
+  for (let i = 0; i < out.length; i++) {
+    const roll = r();
+    if (!strong[i] || roll >= lock) continue;
+    const to = snapToClasses(out[i], classes);
+    if (to === out[i]) {
+      locked[i] = true;
+      continue;
+    }
+    const okPrev = i === 0 || keepsShape(pitches[i - 1], pitches[i], out[i - 1], to);
+    const okNext = i === out.length - 1 || keepsShape(pitches[i], pitches[i + 1], to, out[i + 1]);
+    if (okPrev && okNext) {
+      out[i] = to;
+      locked[i] = true;
+    }
+  }
+  return { pitches: out, locked };
+}
+
+/**
+ * A key CLOSELY RELATED to `home` for a building (so a modulation on arrival is musical, not a jump): the dominant,
+ * the subdominant, the relative (major ↔ minor) or the parallel, chosen by the building's identity.
+ */
+export function relatedKey(home: Key, buildingId: string): Key {
+  const u = rng(hashString("related:" + buildingId))();
+  const major = home.mode.base === "major";
+  const IONIAN = MODES[5], AEOLIAN = MODES[2];
+  const pick = Math.floor(u * 4);
+  if (pick === 0) return { root: (home.root + 7) % 12, mode: home.mode }; // dominant
+  if (pick === 1) return { root: (home.root + 5) % 12, mode: home.mode }; // subdominant
+  if (pick === 2) return major ? { root: (home.root + 9) % 12, mode: AEOLIAN } : { root: (home.root + 3) % 12, mode: IONIAN }; // relative
+  return { root: home.root, mode: major ? AEOLIAN : IONIAN }; // parallel
+}
+
 /** The nearest pitch (MIDI) whose pitch class is one of `classes`; ties go down. */
 export function snapToClasses(pitch: number, classes: readonly number[]): number {
   let best = pitch;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, magentaChordName, nextDegree, snapToClasses, worldKey, bandOf, DEFAULT_WORLD } from "./harmony";
+import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, intervalClass, keepsShape, magentaChordName, nextDegree, pullToChord, relatedKey, scaleClasses, snapToClasses, tonalAnswer, worldKey, bandOf, DEFAULT_WORLD } from "./harmony";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 describe("harmony: a key per motif, a key per building", () => {
@@ -49,6 +49,82 @@ describe("harmony: a key per motif, a key per building", () => {
     expect(bandOf(0, w)).toBe(1);
     expect(bandOf(w * DEFAULT_WORLD.bands, 0)).toBe(0);
     expect(bandOf(-0.01, 0)).toBe(DEFAULT_WORLD.bands - 1);
+  });
+
+  it("interval classes and the shape test", () => {
+    expect([0, 1, 2, 3, 4].map((c) => intervalClass([0, 2, 3, 7, 9][c]))).toEqual([0, 1, 2, 3, 4]);
+    expect(intervalClass(-1)).toBe(1);
+    expect(intervalClass(4)).toBe(2);
+    expect(intervalClass(5)).toBe(3);
+    expect(keepsShape(60, 61, 60, 62)).toBe(true); // a semitone step rendered as a whole-tone step
+    expect(keepsShape(60, 63, 60, 64)).toBe(true); // minor third → major third: still a skip
+    expect(keepsShape(60, 62, 60, 63)).toBe(false); // a step must not become a skip
+    expect(keepsShape(60, 62, 62, 60)).toBe(false); // direction must not flip
+  });
+
+  it("tonal answer: the shape laid on a scale — semitones become whole tones where needed, directions and classes kept", () => {
+    const C = { root: 0, mode: MODES[5] }; // C Ionian
+    // a chromatic shape from E: E F# G# A (0 2 4 5) → in C the answer trades the sharps: E F G A (0 1 3 5)
+    const ans = tonalAnswer([0, 2, 4, 5], 64, C);
+    expect(ans[0]).toBe(64);
+    for (const p of ans) expect(scaleClasses(C)).toContain(((p % 12) + 12) % 12);
+    expect(ans.map((p, i) => (i ? Math.sign(p - ans[i - 1]) : 0))).toEqual([0, 1, 1, 1]);
+    expect(ans.map((p, i) => (i ? intervalClass(p - ans[i - 1]) : 0))).toEqual([0, 1, 1, 1]);
+    // a shape that already fits stays exactly
+    expect(tonalAnswer([0, 2, 4, 7], 60, C)).toEqual([60, 62, 64, 67]);
+    // the first note lands on the nearest scale tone of the register
+    expect(tonalAnswer([0, 2], 61, C)[0]).toBe(60);
+    // a leap stays a leap, a skip a skip, in a minor key too
+    const Am = { root: 9, mode: MODES[2] };
+    const leap = tonalAnswer([0, 7, 4, 0], 64, Am);
+    expect(leap.map((p, i) => (i ? intervalClass(p - leap[i - 1]) : 0))).toEqual([0, 3, 2, 2]);
+    for (const p of leap) expect(scaleClasses(Am)).toContain(((p % 12) + 12) % 12);
+  });
+
+  it("tonal answer: at most one chromatic note survives, and only when the shape needs it", () => {
+    const C = { root: 0, mode: MODES[5] };
+    // E → F → F# → G: two consecutive semitone steps up from F cannot both be whole-tone steps without a class change
+    const ans = tonalAnswer([0, 1, 2, 3], 64, C, 1);
+    const chroma = ans.filter((p) => !scaleClasses(C).includes(((p % 12) + 12) % 12)).length;
+    expect(chroma).toBeLessThanOrEqual(1);
+    expect(ans.map((p, i) => (i ? Math.sign(p - ans[i - 1]) : 0))).toEqual([0, 1, 1, 1]);
+    const strict = tonalAnswer([0, 1, 2, 3], 64, C, 0);
+    for (const p of strict) expect(scaleClasses(C)).toContain(((p % 12) + 12) % 12);
+    expect(strict.map((p, i) => (i ? Math.sign(p - strict[i - 1]) : 0))).toEqual([0, 1, 1, 1]);
+  });
+
+  it("chord pull: strong beats onto chord tones when the shape allows, weak beats untouched", () => {
+    const classes = [0, 4, 7, 11]; // Cmaj7
+    const always = () => 0; // every roll < lock
+    const { pitches, locked } = pullToChord([62, 64, 65, 67], [true, false, true, false], classes, 1, always);
+    expect(pitches[1]).toBe(64);
+    expect(pitches[3]).toBe(67);
+    expect(locked[1]).toBe(false);
+    expect(locked[3]).toBe(false);
+    // 62 (D) on a strong beat: nearest chord tone is C (60) — the step up to 64 would become a skip, so D stays
+    expect(pitches[0]).toBe(62);
+    // 65 (F) strong: E (64) would make a unison with the previous E → stays; so F stays too
+    expect(pitches[2]).toBe(65);
+    // a case that moves: 61 strong before 64: C (60) keeps a skip up to E
+    const moved = pullToChord([61, 64], [true, false], classes, 1, always);
+    expect(moved.pitches[0]).toBe(60);
+    expect(moved.locked[0]).toBe(true);
+    // lock 0: nothing moves
+    expect(pullToChord([61, 64], [true, false], classes, 0, always).pitches).toEqual([61, 64]);
+  });
+
+  it("relatedKey: a building's key is the dominant, subdominant, relative or parallel of the world's", () => {
+    const C = { root: 0, mode: MODES[5] };
+    const seen = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      const k = relatedKey(C, `b${i}`);
+      const tag = `${k.root}:${k.mode.name}`;
+      seen.add(tag);
+      expect(["7:Ionian", "5:Ionian", "9:Aeolian", "0:Aeolian"]).toContain(tag);
+    }
+    expect(seen.size).toBe(4);
+    const Am = { root: 9, mode: MODES[2] };
+    for (let i = 0; i < 20; i++) expect(["4:Aeolian", "2:Aeolian", "0:Ionian", "9:Ionian"]).toContain(`${relatedKey(Am, `m${i}`).root}:${relatedKey(Am, `m${i}`).mode.name}`);
   });
 
   it("nextDegree walks the Markov table of the mode", () => {

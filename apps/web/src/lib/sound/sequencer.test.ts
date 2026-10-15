@@ -47,7 +47,7 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
 
   it("alone on open ground: my motif free, no bass, no pad, nobody else", () => {
     const plan = planBar(inputs(2, sig({ speed: 3 })));
-    expect(plan.me.length).toBe(ME.degrees.length);
+    expect(plan.me.length).toBe(ME.semis.length);
     expect(plan.me.every((n) => !n.locked)).toBe(true);
     expect(plan.stable).toBe(0);
     expect(plan.rough).toBeGreaterThan(0.3);
@@ -65,12 +65,16 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(plan.stable).toBeCloseTo(1);
     expect(plan.rough).toBe(0);
     expect(plan.lock).toBeCloseTo(DEFAULT_SEQUENCER.lockPull);
-    // identity first: with lockPull 1 every note would be a chord tone; by default most notes stay the motif's own
+    // the pull works on strong beats only (weak beats pass): with lockPull 1 every pulled note is a chord tone and
+    // weak-beat notes are exactly as with no pull at all
     const pulled = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { params: { ...DEFAULT_SEQUENCER, lockPull: 1 } }));
-    expect(pulled.me.every((n) => n.locked)).toBe(true);
-    for (const n of pulled.me) expect(pulled.chord.classes).toContain(((n.pitch % 12) + 12) % 12);
     const untouched = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { params: { ...DEFAULT_SEQUENCER, lockPull: 0 } }));
     expect(untouched.me.every((n) => !n.locked)).toBe(true);
+    expect(pulled.me.some((n) => n.locked)).toBe(true);
+    pulled.me.forEach((n, i) => {
+      if (n.locked) expect(pulled.chord.classes).toContain(((n.pitch % 12) + 12) % 12);
+      if (ME.onsets[i] % 4 !== 0) expect(n.pitch).toBe(untouched.me[i].pitch);
+    });
     const running = planBar(inputs(2, sig({ speed: 7, pathP: 1 })));
     expect(running.bass.length).toBe(2);
     const weak = planBar(inputs(2, sig({ speed: 3, pathP: DEFAULT_SEQUENCER.bassFrom - 0.05 })));
@@ -106,13 +110,15 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
   it("the others are heard through my key (their contour, my scale); at a building, the building's key for all", () => {
     const s = sig({ speed: 3, neighbours: [near("v_b")] });
     const open = planBar(inputs(6, s));
-    for (const n of open.others[0].notes) expect(KEY.mode.intervals).toContain((((n.pitch - KEY.root) % 12) + 12) % 12);
+    const outOfKey = (notes: { pitch: number }[], root: number) => notes.filter((n) => !KEY.mode.intervals.includes((((n.pitch - root) % 12) + 12) % 12)).length;
+    expect(outOfKey(open.others[0].notes, KEY.root)).toBeLessThanOrEqual(1); // a tonal answer: at most one chromatic note
     const theirs = OTHERS.get("v_b")!;
-    expect(open.others[0].notes.length).toBe(theirs.degrees.length);
+    expect(open.others[0].notes.length).toBe(theirs.semis.length);
     open.others[0].notes.forEach((n, i) => expect(n.at).toBeCloseTo(theirs.onsets[i] / theirs.steps));
     const bKey = { root: 1, mode: KEY.mode };
     const atB = planBar(inputs(6, s, { key: bKey, building: "3,4" }));
-    for (const n of [...atB.me, ...atB.others[0].notes]) expect(bKey.mode.intervals).toContain((((n.pitch - 1) % 12) + 12) % 12);
+    expect(outOfKey(atB.me, 1)).toBeLessThanOrEqual(1);
+    expect(outOfKey(atB.others[0].notes, 1)).toBeLessThanOrEqual(1);
     expect(atB.chord.rootClass).toBe(1);
   });
 
@@ -142,7 +148,7 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     const third = planBar(inputs(12, s, { phrase: { phrase, from: 10 } }));
     expect(third.me.map((n) => n.pitch)).toEqual([64]);
     const after = planBar(inputs(14, s, { phrase: { phrase, from: 10 } }));
-    expect(after.me.length).toBe(ME.degrees.length);
+    expect(after.me.length).toBe(ME.semis.length);
   });
 
   it("barClock counts bars from the epoch on the wall clock", () => {

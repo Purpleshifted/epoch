@@ -10,8 +10,8 @@ describe("variation: my motif borrows from whoever stays near", () => {
     const full = blend(mine, theirs, 1, 0);
     expect(full.id).toBe(mine.id);
     expect(full.base).toBe(mine.base); // my register stays: it is still my voice
-    expect(full.onsets).toEqual(theirs.onsets.slice(0, full.degrees.length));
-    full.degrees.forEach((d, i) => expect(d).toBe(theirs.degrees[i % theirs.degrees.length]));
+    expect(full.onsets).toEqual(theirs.onsets.slice(0, full.semis.length));
+    full.semis.forEach((d, i) => expect(d).toBe(theirs.semis[i % theirs.semis.length]));
   });
 
   it("in between, some notes are theirs, some mine; reproducible per cycle; onsets stay a valid cell", () => {
@@ -21,12 +21,12 @@ describe("variation: my motif borrows from whoever stays near", () => {
     for (let c = 0; c < 20; c++) {
       const b = blend(mine, theirs, 0.4, c);
       expect(blend(mine, theirs, 0.4, c)).toEqual(b);
-      expect(b.onsets.length).toBe(b.degrees.length);
+      expect(b.onsets.length).toBe(b.semis.length);
       expect(b.onsets[0]).toBe(0);
       for (let i = 1; i < b.onsets.length; i++) expect(b.onsets[i]).toBeGreaterThan(b.onsets[i - 1]);
-      b.degrees.forEach((d, i) => {
-        if (d === theirs.degrees[i % theirs.degrees.length] && d !== mine.degrees[i % mine.degrees.length]) borrowed++;
-        else if (d === mine.degrees[i % mine.degrees.length]) kept++;
+      b.semis.forEach((d, i) => {
+        if (d === theirs.semis[i % theirs.semis.length] && d !== mine.semis[i % mine.semis.length]) borrowed++;
+        else if (d === mine.semis[i % mine.semis.length]) kept++;
       });
     }
     expect(borrowed).toBeGreaterThan(0);

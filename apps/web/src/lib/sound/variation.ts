@@ -28,14 +28,14 @@ export function blend(mine: Motif, theirs: Motif, amount: number, cycle: number)
   const r = rng(hashString(`${mine.id}~${theirs.id}#${cycle}`));
   // whose rhythm cell (and so how many notes): theirs once they are more than half in
   const cell = amount > 0.5 ? theirs : mine;
-  const n = cell.degrees.length;
-  const degrees: number[] = [];
+  const n = cell.semis.length;
+  const semis: number[] = [];
   for (let i = 0; i < n; i++) {
-    const own = mine.degrees[i % mine.degrees.length];
-    const other = theirs.degrees[i % theirs.degrees.length];
-    degrees.push(r() < amount ? other : own);
+    const own = mine.semis[i % mine.semis.length];
+    const other = theirs.semis[i % theirs.semis.length];
+    semis.push(r() < amount ? other : own);
   }
-  return { ...mine, degrees, onsets: cell.onsets.slice() };
+  return { ...mine, semis, onsets: cell.onsets.slice() };
 }
 
 /** The pitches a cycle of realized notes puts on the 8-step grid (one cycle of a phrase). */

@@ -1,23 +1,23 @@
 /**
- * sound/motif.ts — the visitor's SIGNATURE (graduation_exhibition_spec §3.1, revised 2026-10-14; docs/sound-logic.md §4).
+ * sound/motif.ts — the visitor's SIGNATURE (graduation_exhibition_spec §3.1; docs/sound-logic.md §4).
  *
- * On arrival every visitor (or bot) is given a leitmotif: a REGISTER (where their voice sits), a CONTOUR of 3–5
- * scale degrees of the world's shared mode (harmony.ts), a RHYTHM CELL (which of the cycle's 8 steps they sound
- * on) and a micro-tonal COLOUR (a few cents off, constant: the voice stays recognisable). Density (notes) and
- * tempo (cycle speed) differ per signature. Everything is a pure function of the visitor id, so the same person
+ * On arrival every visitor (or bot) is given a leitmotif: a REGISTER (where their voice sits), a SHAPE of 3–5 notes
+ * as REAL INTERVALS in semitones (the motif's true identity, the way a composer remembers a theme), a RHYTHM CELL
+ * (which of the cycle's 8 steps they sound on) and a micro-tonal COLOUR (a few cents off, constant). Density (notes)
+ * and tempo (cycle speed) differ per signature. Everything is a pure function of the visitor id, so the same person
  * sounds the same in every view and on every tab; the global drone takes the PARTIAL (`partialOf`) of the same motif.
  *
- * The 2026-10-10 version put the whole pitch content in micro-tones (±90 cents) — an out-of-tune unison that was
- * monotonous and could not resolve. Pitch now comes from a KEY (the motif's own home key, or the key of the building
- * I am at — harmony.ts); micro-tones are colour only.
+ * In a KEY the shape is rendered as a TONAL ANSWER (harmony.ts): semitones and whole tones are traded within the
+ * line of "still the same motif" — every direction, every step / skip / leap kept — so one motif can move into
+ * any key or chord and stay recognisable, which is what the fusion of the two harmony modes rests on.
  *
  * Pure and deterministic. No Web Audio here (engine.ts).
  */
 
-import { degreePitch, scaleClasses, snapToClasses, type Key, type PlaceChord } from "./harmony";
+import { pullToChord, tonalAnswer, type Key, type PlaceChord } from "./harmony";
 
 export interface MotifConfig {
-  /** Register: MIDI pitch of the motif's degree 0, drawn uniformly (D3 … D5). */
+  /** Register: MIDI pitch of the motif's first note, drawn uniformly (D3 … D5). */
   baseLo: number;
   baseHi: number;
   /** Notes in the motif (inclusive). */
@@ -27,12 +27,14 @@ export interface MotifConfig {
   steps: number;
   /** Constant micro-tonal colour of a voice: ± this many cents. */
   colourCents: number;
-  /** Extra wobble (cents) of a FREE voice (lock 0: alone, off any path), per note. */
+  /** Extra wobble (cents) of a ROUGH voice (crossing vegetation), per note. */
   freeCents: number;
   /** Length (s) of one cycle at 60 BPM (see cycleSeconds). */
   cycleSec: number;
   /** Per-signature tempo scale range (log-uniform): 1 / tempoRange … tempoRange. */
   tempoRange: number;
+  /** How many notes of a rendered motif may stay chromatic (outside the key) to keep its shape. */
+  chromaticBudget: number;
 }
 
 export const DEFAULT_MOTIF: MotifConfig = {
@@ -45,17 +47,18 @@ export const DEFAULT_MOTIF: MotifConfig = {
   freeCents: 35,
   cycleSec: 2,
   tempoRange: 1.33,
+  chromaticBudget: 1,
 };
 
 export interface Motif {
   id: string;
-  /** MIDI pitch of degree 0 (the register). */
+  /** MIDI pitch of the first note (the register). */
   base: number;
   /** Hz of the register note: the "centroid" the spec speaks of; the global partial is derived from it. */
   centroid: number;
-  /** Scale degrees relative to the register (0 = the register note; may go below 0 or above 6), in order. */
-  degrees: number[];
-  /** Step (0 … steps−1) each degree sounds on, strictly increasing, the first at 0. */
+  /** The shape: semitones from the register note, in order (the first is 0). This is the identity. */
+  semis: number[];
+  /** Step (0 … steps−1) each note sounds on, strictly increasing, the first at 0. */
   onsets: number[];
   steps: number;
   /** Micro-tonal colour (cents), constant for this voice. */
@@ -96,14 +99,16 @@ export function makeMotif(id: string, cfg: MotifConfig = DEFAULT_MOTIF): Motif {
   const r = rng(hashString(id));
   const base = cfg.baseLo + Math.floor(r() * (cfg.baseHi - cfg.baseLo + 1));
   const n = cfg.notesMin + Math.floor(r() * (cfg.notesMax - cfg.notesMin + 1));
-  // contour: a walk in scale degrees, steps of 1–3, mostly within an octave, never the same degree twice in a row
-  const degrees = [0];
-  let d = 0;
+  // the shape: a walk in real intervals — mostly steps (1–2), some skips (3–4), now and then a leap (5–7) —
+  // mostly within an octave, never the same note twice in a row
+  const semis = [0];
+  let p = 0;
   for (let i = 1; i < n; i++) {
-    const step = 1 + Math.floor(r() * 3);
-    const up = d <= -2 ? true : d >= 5 ? false : r() < 0.55;
-    d += up ? step : -step;
-    degrees.push(d);
+    const u = r();
+    const size = u < 0.55 ? 1 + Math.floor(r() * 2) : u < 0.88 ? 3 + Math.floor(r() * 2) : 5 + Math.floor(r() * 3);
+    const up = p <= -4 ? true : p >= 9 ? false : r() < 0.55;
+    p += up ? size : -size;
+    semis.push(p);
   }
   // rhythm cell: n distinct steps of the grid, the first on the downbeat
   const pool = Array.from({ length: cfg.steps - 1 }, (_, i) => i + 1);
@@ -115,7 +120,7 @@ export function makeMotif(id: string, cfg: MotifConfig = DEFAULT_MOTIF): Motif {
   const colour = (r() * 2 - 1) * cfg.colourCents;
   const tempoScale = Math.exp((r() * 2 - 1) * Math.log(cfg.tempoRange));
   const timbre = r();
-  return { id, base, centroid: midiToHz(base), degrees, onsets, steps: cfg.steps, colour, tempoScale, timbre, cycleSec: cfg.cycleSec };
+  return { id, base, centroid: midiToHz(base), semis, onsets, steps: cfg.steps, colour, tempoScale, timbre, cycleSec: cfg.cycleSec };
 }
 
 export interface MotifNote {
@@ -123,40 +128,34 @@ export interface MotifNote {
   at: number;
   /** Length as a share of the cycle (0..1). */
   len: number;
-  /** MIDI pitch played (after the lock). */
+  /** MIDI pitch played (after the key and the chord). */
   pitch: number;
   freq: number;
-  /** Whether the lock moved this note onto a chord tone. */
+  /** Whether the chord pulled this note onto a chord tone. */
   locked: boolean;
 }
 
 /**
- * One cycle of the motif made real in a KEY: degrees → pitches of that key's mode in the motif's register (so a
- * change of key = a modulation of the same motif).
- * The motif is the visitor's IDENTITY (their name in sound), so its contour, rhythm and register are never
- * rewritten by the place; the place acts on it in two gentler ways (docs/sound-logic.md §5):
- *   lock   0..1 — a PULL of single notes onto the chord of the place (probability per note), meant to stay small
- *          (the Leva knob scales it); the harmony of the place is mostly heard in the accompaniment, not in the motif
- *   rough  0..1 — how UNSTABLE the voice is: a walk across untrodden vegetation is rough (pitch wobble up to
- *          `freeCents`, and the engine adds noise and timing drift); a path, concrete or building together is stable.
+ * One cycle of the motif made real in a KEY, and against a CHORD:
+ *   1. TONAL ANSWER: the shape (real intervals) is laid on the key's scale, trading semitones for whole tones only
+ *      where the motif still reads as itself (directions and step / skip / leap classes kept; up to
+ *      `chromaticBudget` notes may stay outside the key when the shape needs them).
+ *   2. CHORD PULL: with probability `lock` a note on a STRONG beat (step 0 or 4 of 8) is moved to the nearest chord
+ *      tone — only if that keeps the shape too; weak-beat notes stay as passing tones. That is how a composer makes
+ *      a theme fit a progression: chord tones on the beat, the rest passes.
+ *   3. ROUGH: an unstable voice (crossing vegetation) wobbles by `freeCents`.
  * `cycle` indexes the cycle so the choices differ from cycle to cycle but are reproducible.
  */
 export function realize(m: Motif, key: Key, chord: PlaceChord | null, lock: number, cycle: number, cfg: MotifConfig = DEFAULT_MOTIF, rough = 1 - lock): MotifNote[] {
   const r = rng(hashString(`${m.id}#${cycle}`));
-  const n = m.degrees.length;
-  // the register lands on the nearest note of the world's scale: degree 0 of this voice
-  const base = snapToClasses(m.base, scaleClasses(key));
-  return m.degrees.map((deg, i) => {
-    let pitch = degreePitch(key, base, deg);
-    let locked = false;
-    if (chord && lock > 0 && r() < lock) {
-      const snapped = snapToClasses(pitch, chord.classes);
-      locked = true;
-      pitch = snapped;
-    } else r();
+  const n = m.semis.length;
+  const answered = tonalAnswer(m.semis, m.base, key, cfg.chromaticBudget);
+  const strong = m.onsets.map((o) => o % (m.steps / 2) === 0);
+  const { pitches, locked } = chord && lock > 0 ? pullToChord(answered, strong, chord.classes, lock, r) : { pitches: answered, locked: answered.map(() => false) };
+  return pitches.map((pitch, i) => {
     const wobble = rough * cfg.freeCents * (r() * 2 - 1);
     const next = i + 1 < n ? m.onsets[i + 1] : m.steps;
-    return { at: m.onsets[i] / m.steps, len: ((next - m.onsets[i]) / m.steps) * 0.85, pitch, freq: midiToHz(pitch, m.colour + wobble), locked };
+    return { at: m.onsets[i] / m.steps, len: ((next - m.onsets[i]) / m.steps) * 0.85, pitch, freq: midiToHz(pitch, m.colour + wobble), locked: locked[i] };
   });
 }
 

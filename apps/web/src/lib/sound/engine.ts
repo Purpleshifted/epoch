@@ -18,7 +18,7 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { bandOf, buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, worldKey, type Key, type WorldKey } from "./harmony";
+import { bandOf, buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, relatedKey, worldKey, type Key, type WorldKey } from "./harmony";
 import { Magenta, phraseNotes } from "./magenta";
 import { applySink } from "./output";
 import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
@@ -56,10 +56,14 @@ export interface SoundParams {
   /** World units of PATH walked that move the progression on by one chord. */
   stepEvery: number;
   /**
-   * HARMONY MODE: "world" = one shared key per epoch with a progression over the ground, full pull (the version of
-   * 2026-10-14 afternoon, 93e85c5); "identity" = a home key per motif, a key per building, the path as a progression.
+   * HARMONY MODE:
+   *   "fusion"   (default) one shared key per epoch with the Markov progression over the ground; motifs rendered as
+   *              tonal answers of their real shape; chord pull on strong beats only (lockPull); buildings modulate
+   *              to a CLOSELY RELATED key (dominant / subdominant / relative / parallel)
+   *   "world"    the 2026-10-14 afternoon version (93e85c5): same key and progression, full pull, no modulation
+   *   "identity" a home key per motif, a key per building, the path as a progression
    */
-  harmony: "world" | "identity";
+  harmony: "fusion" | "world" | "identity";
   /** How much conforming pulls single notes onto the chord of the place (0 = the motif is never rewritten). */
   lockPull: number;
   /** Share of noise in a voice at full roughness (crossing vegetation): the tonal/noise ratio. */
@@ -81,10 +85,10 @@ export const DEFAULT_SOUND: SoundParams = {
   bassLevel: 0.6,
   padLevel: 0.35,
   magenta: true,
-  lockPull: 0.35,
+  lockPull: 0.7,
   noiseMix: 0.6,
   stepEvery: 6,
-  harmony: "world",
+  harmony: "fusion",
 };
 
 interface Voice {
@@ -203,7 +207,7 @@ export class SoundEngine {
     const p = this.lastPlan;
     return {
       bar: p?.bar ?? -1,
-      key: this.placeKey ? keyName(this.placeKey) + (this.params.harmony === "world" ? " [world]" : "") : "",
+      key: this.placeKey ? keyName(this.placeKey) + (this.params.harmony === "identity" ? "" : ` [${this.params.harmony}]`) : "",
       building: this.atBuilding,
       degree: this.degree,
       chord: p ? chordName(p.chord) : "",
@@ -394,14 +398,25 @@ export class SoundEngine {
       this.atBuilding = null;
     }
     this.epochMs = epochMs;
-    if (params.harmony === "world") {
-      // WORLD MODE: one key for everybody, the chord from the band of the ground I stand on; no modulation
+    if (params.harmony === "world" || params.harmony === "fusion") {
+      // WORLD / FUSION: one key for everybody, the chord from the band of the ground I stand on
       if (!this.world || this.world.epochMs !== epochMs) this.world = { epochMs, key: worldKey(String(epochMs)) };
-      this.placeKey = this.world.key;
-      this.atBuilding = null;
       this.degree = this.world.key.degrees[bandOf(sig.x, sig.z)];
       this.walked = 0;
       this.lastPos = { x: sig.x, z: sig.z };
+      if (params.harmony === "fusion") {
+        // FUSION: a building modulates to a key closely related to the world's (hysteresis as in identity mode)
+        if (sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
+          this.atBuilding = sig.building.id;
+          this.placeKey = relatedKey(this.world.key, sig.building.id);
+        } else if (this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
+          this.atBuilding = null;
+          this.placeKey = this.world.key;
+        } else if (!this.atBuilding) this.placeKey = this.world.key;
+      } else {
+        this.placeKey = this.world.key;
+        this.atBuilding = null;
+      }
     } else if (this.placeKey && (this.placeKey as WorldKey).degrees) {
       // back from world mode: my home key again
       this.placeKey = this.home;

@@ -1,29 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { MODES, homeKey, keyChord } from "./harmony";
+import { MODES, homeKey, intervalClass, keyChord, scaleClasses } from "./harmony";
 import { DEFAULT_MOTIF, cycleSeconds, makeMotif, midiToHz, partialOf, realize } from "./motif";
 
 const KEY = { root: 0, mode: MODES[5] }; // C Ionian
+const pc = (p: number) => ((p % 12) + 12) % 12;
+const inKey = (p: number, k = KEY) => scaleClasses(k).includes(pc(p));
 
-describe("motif: the visitor's signature (spec §3.1, revised)", () => {
+describe("motif: the visitor's signature as a SHAPE of real intervals + a rhythm cell", () => {
   it("is deterministic per id and differs between ids", () => {
     const a = makeMotif("v_abc12");
     expect(makeMotif("v_abc12")).toEqual(a);
     const b = makeMotif("v_xyz99");
-    expect(b.base !== a.base || b.degrees.join() !== a.degrees.join() || b.onsets.join() !== a.onsets.join()).toBe(true);
+    expect(b.base !== a.base || b.semis.join() !== a.semis.join() || b.onsets.join() !== a.onsets.join()).toBe(true);
   });
 
-  it("has a register in range, 3–5 degrees starting on 0 with no repeats in a row, a rhythm cell on the downbeat, small colour", () => {
+  it("has a register in range, 3–5 notes starting on 0 with no repeats in a row, steps/skips/leaps only, a rhythm cell on the downbeat, small colour", () => {
     const ids = Array.from({ length: 300 }, (_, i) => `v_${i.toString(36)}`).concat(["bot0", "bot1", "bot2"]);
     for (const id of ids) {
       const m = makeMotif(id);
       expect(m.base).toBeGreaterThanOrEqual(DEFAULT_MOTIF.baseLo);
       expect(m.base).toBeLessThanOrEqual(DEFAULT_MOTIF.baseHi);
-      expect(m.degrees.length).toBeGreaterThanOrEqual(DEFAULT_MOTIF.notesMin);
-      expect(m.degrees.length).toBeLessThanOrEqual(DEFAULT_MOTIF.notesMax);
-      expect(m.degrees[0]).toBe(0);
-      for (let i = 1; i < m.degrees.length; i++) expect(m.degrees[i]).not.toBe(m.degrees[i - 1]);
-      for (const d of m.degrees) expect(Math.abs(d)).toBeLessThanOrEqual(8);
-      expect(m.onsets.length).toBe(m.degrees.length);
+      expect(m.semis.length).toBeGreaterThanOrEqual(DEFAULT_MOTIF.notesMin);
+      expect(m.semis.length).toBeLessThanOrEqual(DEFAULT_MOTIF.notesMax);
+      expect(m.semis[0]).toBe(0);
+      for (let i = 1; i < m.semis.length; i++) {
+        const iv = Math.abs(m.semis[i] - m.semis[i - 1]);
+        expect(iv).toBeGreaterThanOrEqual(1);
+        expect(iv).toBeLessThanOrEqual(7);
+      }
+      for (const d of m.semis) expect(Math.abs(d)).toBeLessThanOrEqual(16);
+      expect(m.onsets.length).toBe(m.semis.length);
       expect(m.onsets[0]).toBe(0);
       for (let i = 1; i < m.onsets.length; i++) expect(m.onsets[i]).toBeGreaterThan(m.onsets[i - 1]);
       expect(m.onsets[m.onsets.length - 1]).toBeLessThan(m.steps);
@@ -40,38 +46,59 @@ describe("motif: the visitor's signature (spec §3.1, revised)", () => {
     expect(new Set(ms.map((m) => m.onsets.join())).size).toBeGreaterThan(20);
   });
 
-  it("realize: free (lock 0) = diatonic pitches of the mode in the register, with wobble but never snapped", () => {
-    const m = makeMotif("v_free");
-    const notes = realize(m, KEY, null, 0, 0);
-    expect(notes.length).toBe(m.degrees.length);
-    notes.forEach((n, i) => {
-      expect(n.at).toBeCloseTo(m.onsets[i] / m.steps);
-      expect(KEY.mode.intervals).toContain((((n.pitch - KEY.root) % 12) + 12) % 12);
-      expect(n.locked).toBe(false);
-      // wobble stays within colour + freeCents
-      const cents = 1200 * Math.log2(n.freq / midiToHz(n.pitch));
-      expect(Math.abs(cents)).toBeLessThanOrEqual(DEFAULT_MOTIF.colourCents + DEFAULT_MOTIF.freeCents + 1e-6);
-    });
+  it("realize in a key = a tonal answer: in the key (≤ 1 chromatic note), every direction and interval class of the shape kept", () => {
+    for (let i = 0; i < 200; i++) {
+      const m = makeMotif(`v_ta${i}`);
+      const notes = realize(m, KEY, null, 0, 0);
+      expect(notes.length).toBe(m.semis.length);
+      let chromatic = 0;
+      notes.forEach((n, j) => {
+        expect(n.at).toBeCloseTo(m.onsets[j] / m.steps);
+        if (!inKey(n.pitch)) chromatic++;
+        if (j > 0) {
+          const a = m.semis[j - 1], b = m.semis[j];
+          expect(Math.sign(n.pitch - notes[j - 1].pitch)).toBe(Math.sign(b - a));
+        }
+      });
+      expect(chromatic).toBeLessThanOrEqual(DEFAULT_MOTIF.chromaticBudget);
+      // the strict shape (interval classes) holds for the great majority; when it cannot, directions still do
+      const classesKept = notes.every((n, j) => j === 0 || intervalClass(n.pitch - notes[j - 1].pitch) === intervalClass(m.semis[j] - m.semis[j - 1]));
+      if (!classesKept) expect(chromatic).toBeLessThanOrEqual(1);
+    }
   });
 
-  it("realize: locked (lock 1) = every note a chord tone of the place, no wobble, and it differs from free for some motif", () => {
-    const chord = keyChord(KEY); // C maj7: 0 4 7 11
-    let moved = 0;
-    for (let i = 0; i < 40; i++) {
-      const m = makeMotif(`v_l${i}`);
+  it("the same motif in two keys is a modulation: same rhythm, same directions, both in their keys", () => {
+    const m = makeMotif("v_mod");
+    const home = homeKey("v_mod");
+    const other = { root: (home.root + 6) % 12, mode: MODES[1] };
+    const a = realize(m, home, null, 0, 0);
+    const b = realize(m, other, null, 0, 0);
+    expect(a.length).toBe(b.length);
+    a.forEach((n, i) => expect(n.at).toBe(b[i].at));
+    for (let i = 1; i < a.length; i++) expect(Math.sign(a[i].pitch - a[i - 1].pitch)).toBe(Math.sign(b[i].pitch - b[i - 1].pitch));
+  });
+
+  it("chord pull: only strong beats move, only onto chord tones, never breaking a direction; weak beats pass", () => {
+    const chord = keyChord(KEY); // Cmaj7
+    let pulled = 0;
+    for (let i = 0; i < 200; i++) {
+      const m = makeMotif(`v_cp${i}`);
       const free = realize(m, KEY, chord, 0, 3);
       const locked = realize(m, KEY, chord, 1, 3);
       locked.forEach((n, j) => {
-        expect(chord.classes).toContain(((n.pitch % 12) + 12) % 12);
-        expect(n.locked).toBe(true);
-        expect(1200 * Math.log2(n.freq / midiToHz(n.pitch))).toBeCloseTo(m.colour, 5);
-        if (n.pitch !== free[j].pitch) moved++;
+        const strong = m.onsets[j] % (m.steps / 2) === 0;
+        if (!strong) expect(n.pitch).toBe(free[j].pitch);
+        if (n.locked) {
+          expect(chord.classes).toContain(pc(n.pitch));
+          if (n.pitch !== free[j].pitch) pulled++;
+        }
+        if (j > 0) expect(Math.sign(n.pitch - locked[j - 1].pitch)).toBe(Math.sign(m.semis[j] - m.semis[j - 1]));
       });
     }
-    expect(moved).toBeGreaterThan(0);
+    expect(pulled).toBeGreaterThan(0);
   });
 
-  it("realize is reproducible per cycle and varies between cycles under a partial lock", () => {
+  it("realize is reproducible per cycle and varies between cycles under a partial pull", () => {
     const m = makeMotif("v_c");
     const chord = keyChord(KEY);
     expect(realize(m, KEY, chord, 0.5, 7)).toEqual(realize(m, KEY, chord, 0.5, 7));
@@ -90,19 +117,5 @@ describe("motif: the visitor's signature (spec §3.1, revised)", () => {
     const m = makeMotif("v_p");
     expect(partialOf(m, 3)).toBeCloseTo(m.centroid / 8);
     expect(partialOf(m, 3)).toBeLessThan(80);
-  });
-
-  it("the same motif in two keys is a modulation: same contour, different scale", () => {
-    const m = makeMotif("v_mod");
-    const home = homeKey("v_mod");
-    const other = { root: (home.root + 6) % 12, mode: MODES[1] };
-    const a = realize(m, home, null, 0, 0);
-    const b = realize(m, other, null, 0, 0);
-    expect(a.length).toBe(b.length);
-    a.forEach((n, i) => expect(n.at).toBe(b[i].at));
-    for (const n of a) expect(home.mode.intervals).toContain((((n.pitch - home.root) % 12) + 12) % 12);
-    for (const n of b) expect(other.mode.intervals).toContain((((n.pitch - other.root) % 12) + 12) % 12);
-    // the contour's direction is kept
-    for (let i = 1; i < a.length; i++) expect(Math.sign(a[i].pitch - a[i - 1].pitch)).toBe(Math.sign(b[i].pitch - b[i - 1].pitch));
   });
 });

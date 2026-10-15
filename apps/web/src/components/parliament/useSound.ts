@@ -34,7 +34,11 @@ export function useSound(): SoundSetup | null {
     savable(ROOT, {
       on: { value: true, label: "켜기 (첫 클릭/터치 뒤 시작 · ESC = 이 창 음소거/해제)", render: v2 },
       harmony: {
-        options: { "공유 월드 키 + 땅의 진행 (10/14 오후 버전)": "world", "모티프·건물 키 + 길의 진행 (10/14 밤 버전)": "identity" },
+        options: {
+          "융합: 공유 키 + 땅의 진행 · 조적 응답 · 강박 끌림 · 건물은 가까운 조로 전조": "fusion",
+          "공유 월드 키 + 땅의 진행 · 전면 끌림 (10/14 오후 버전)": "world",
+          "모티프·건물 키 + 길의 진행 (10/14 밤 버전)": "identity",
+        },
         value: DEFAULT_SOUND.harmony,
         label: "화성 방식",
         render: v2,
@@ -46,7 +50,7 @@ export function useSound(): SoundSetup | null {
       speedMax: { value: DEFAULT_SOUND.speedMax, min: 1, max: 15, step: 0.5, label: "뛰는 속도 (월드/s): 마디에 두 번 · 그 1/10 아래 = 멈춤: 두 마디에 한 번", render: v2 },
       noiseMix: { value: DEFAULT_SOUND.noiseMix, min: 0, max: 1, step: 0.01, label: "식생을 가로지를 때 노이즈 비율 (최대) — 길·건물·함께 지을 땐 0", render: v2 },
       jitterMax: { value: DEFAULT_SOUND.jitterMax, min: 0, max: 0.1, step: 0.005, label: "식생을 가로지를 때 박자가 흐트러지는 폭 (s)", render: v2 },
-      lockPull: { value: DEFAULT_SOUND.lockPull, min: 0, max: 1, step: 0.05, label: "순응할 때 내 음이 장소의 코드에 끌리는 정도 (0 = 모티프 불변)", render: v2 },
+      lockPull: { value: DEFAULT_SOUND.lockPull, min: 0, max: 1, step: 0.05, label: "순응할 때 강박의 음이 코드톤으로 끌리는 정도 (0 = 안 끌림; world 모드는 항상 1)", render: v2 },
       stepEvery: { value: DEFAULT_SOUND.stepEvery, min: 1, max: 30, step: 0.5, label: "길 위에서 코드가 한 번 바뀌는 거리 (월드)", render: v2 },
       bassLevel: { value: DEFAULT_SOUND.bassLevel, min: 0, max: 1, step: 0.01, label: "길 위의 베이스 펄스 (근음)", render: v2 },
       padLevel: { value: DEFAULT_SOUND.padLevel, min: 0, max: 1, step: 0.01, label: "함께 머물 때 이어지는 코드 (패드)", render: v2 },
