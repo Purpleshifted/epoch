@@ -18,6 +18,7 @@ import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { useSound } from "./useSound";
 import SoundButton from "./SoundButton";
+import { usePerfMeter } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { SessionHud } from "./SessionHud";
@@ -226,6 +227,8 @@ export default function ParliamentScene() {
   const role: RoleId = session.role ?? "worker";
   // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
   const sound = useSound({ escMute: !withSession });
+  // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
+  const perf = usePerfMeter(!hideChrome);
   // a mute never carries over to the next visitor (sound wiring)
   useEffect(() => {
     if (sound?.muted) sound.toggleMute();
@@ -308,6 +311,11 @@ export default function ParliamentScene() {
             </div>
           )}
           {debug?.sound && <div>♪ {debug.sound}</div>}
+          {perf && (
+            <div>
+              ⏱ {perf.fps} fps · 가장 느린 프레임 {perf.p95Ms} ms · 50 ms 넘는 프레임 {perf.slowPerMin}/분{perf.heapMb ? ` · heap ${perf.heapMb} MB` : ""}
+            </div>
+          )}
         </div>
       )}
     </div>

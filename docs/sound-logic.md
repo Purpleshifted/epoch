@@ -196,7 +196,7 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
 - **이웃 목소리 상한 4명**(가까운 순, `MAX_VOICES`): 전에는 `hearRadius` 안의 모두에게 목소리를 만들었다 — 봇 12명이면 패너 12개.
 - **패닝 LOD**: 가장 가까운 1명만 HRTF(패너마다 컨볼루션), 2–4위는 equal-power. 순위가 바뀌면 그 자리에서 모델을 바꾼다.
 - **홀 잔향 4.5 → 3.0 s**: 컨볼버의 비용은 임펄스 길이다.
-- 측정 방법(작가 기계, 각 단계 뒤 같은 방법으로): DevTools ⋮ → More tools → **Performance monitor**(CPU usage % 실시간) + **Rendering → Frame Rendering Stats**(FPS 오버레이). LIVE에서 걸으며, 봇 끔 / 봇 12명 켬 두 경우의 CPU %와 FPS, 그리고 소리가 끊기는지. Chrome 창 메뉴 → **작업 관리자**는 탭·GPU 프로세스·Audio Service를 따로 보여준다.
+- 측정은 **화면이 직접** 한다(`usePerfMeter.ts`, 작가가 DevTools에서 찾기 어려웠다): 왼쪽 위 ♪ 줄 아래 `⏱ 58 fps · 가장 느린 프레임 19 ms · 50 ms 넘는 프레임 0/분 · heap 120 MB`. 렉 = fps가 떨어지고 "50 ms 넘는 프레임"이 쌓이는 것. 각 단계 뒤 LIVE에서 걸으며 봇 끔 / 봇 12명 켬 두 경우를 읽는다(스크린샷이면 충분). DevTools가 필요하면 ⋮ → More tools → Performance monitor(CPU %).
 
 ## 14. v4 — 붙이는 순서 (작가 승인, 2026-10-15)
 
