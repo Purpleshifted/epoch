@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { homeKey } from "./harmony";
+import { worldKey } from "./harmony";
 import { makeMotif, realize } from "./motif";
 import { DEFAULT_SEQUENCER, barClock, conformity, density, lockOf, placeInBar, planBar, roughness, type BarInputs } from "./sequencer";
 import type { PersonalSignals } from "./signals";
 
-const KEY = homeKey("v_me");
+const KEY = worldKey("epoch-t");
 const ME = makeMotif("v_me");
 const OTHERS = new Map([["bot1", makeMotif("bot1")], ["v_b", makeMotif("v_b")]]);
-const sig = (over: Partial<PersonalSignals> = {}): PersonalSignals => ({ x: 0, z: 0, speed: 0, stay: 0, neighbours: [], pathP: 0, sealed: 0, building: null, grass: 0.5, ...over });
+const sig = (over: Partial<PersonalSignals> = {}): PersonalSignals => ({ x: 0, z: 0, speed: 0, stay: 0, neighbours: [], pathP: 0, sealed: 0, grass: 0.5, ...over });
 const near = (o: string, dist = 2) => ({ o, dist, angle: 0, bot: o.startsWith("bot") });
-const inputs = (bar: number, s: PersonalSignals, over: Partial<BarInputs> = {}): BarInputs => ({ bar, sig: s, key: KEY, building: null, me: ME, others: OTHERS, closeness: new Map(), phrase: null, ...over });
+const inputs = (bar: number, s: PersonalSignals, over: Partial<BarInputs> = {}): BarInputs => ({ bar, sig: s, key: KEY, me: ME, others: OTHERS, closeness: new Map(), phrase: null, ...over });
 
 describe("sequencer: one grid for everybody, bars planned from the signals", () => {
   it("density: still = every other bar, walking = every bar, running = twice a bar", () => {
@@ -101,17 +101,6 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(even.pad.level).toBeCloseTo(1);
     expect(even.pad.pitches.length).toBe(1 + even.chord.classes.length);
     expect(even.pad.pitches[0] % 12).toBe(even.chord.rootClass);
-  });
-
-  it("in the open each voice is in its own key; at a building everybody is in the building's key", () => {
-    const s = sig({ speed: 3, neighbours: [near("v_b")] });
-    const open = planBar(inputs(6, s));
-    const theirKey = homeKey("v_b");
-    for (const n of open.others[0].notes) expect(theirKey.mode.intervals).toContain((((n.pitch - theirKey.root) % 12) + 12) % 12);
-    const bKey = { root: 1, mode: KEY.mode };
-    const atB = planBar(inputs(6, s, { key: bKey, building: "3,4" }));
-    for (const n of [...atB.me, ...atB.others[0].notes]) expect(bKey.mode.intervals).toContain((((n.pitch - 1) % 12) + 12) % 12);
-    expect(atB.chord.rootClass).toBe(1);
   });
 
   it("closeness blends the nearest neighbour's motif into mine", () => {

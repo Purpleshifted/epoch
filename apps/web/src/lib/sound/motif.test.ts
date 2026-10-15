@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { MODES, homeKey, keyChord } from "./harmony";
+import { MODES, placeChord, worldKey } from "./harmony";
 import { DEFAULT_MOTIF, cycleSeconds, makeMotif, midiToHz, partialOf, realize } from "./motif";
 
-const KEY = { root: 0, mode: MODES[5] }; // C Ionian
+const KEY = { root: 0, mode: MODES[5], degrees: Array(16).fill(0) }; // C Ionian, I everywhere
 
 describe("motif: the visitor's signature (spec §3.1, revised)", () => {
   it("is deterministic per id and differs between ids", () => {
@@ -55,7 +55,7 @@ describe("motif: the visitor's signature (spec §3.1, revised)", () => {
   });
 
   it("realize: locked (lock 1) = every note a chord tone of the place, no wobble, and it differs from free for some motif", () => {
-    const chord = keyChord(KEY); // C maj7: 0 4 7 11
+    const chord = placeChord(KEY, 0, 0); // C maj7: 0 4 7 11
     let moved = 0;
     for (let i = 0; i < 40; i++) {
       const m = makeMotif(`v_l${i}`);
@@ -73,7 +73,7 @@ describe("motif: the visitor's signature (spec §3.1, revised)", () => {
 
   it("realize is reproducible per cycle and varies between cycles under a partial lock", () => {
     const m = makeMotif("v_c");
-    const chord = keyChord(KEY);
+    const chord = placeChord(KEY, 0, 0);
     expect(realize(m, KEY, chord, 0.5, 7)).toEqual(realize(m, KEY, chord, 0.5, 7));
     const a = realize(m, KEY, chord, 0.5, 1).map((n) => n.freq).join();
     const b = realize(m, KEY, chord, 0.5, 2).map((n) => n.freq).join();
@@ -92,17 +92,10 @@ describe("motif: the visitor's signature (spec §3.1, revised)", () => {
     expect(partialOf(m, 3)).toBeLessThan(80);
   });
 
-  it("the same motif in two keys is a modulation: same contour, different scale", () => {
-    const m = makeMotif("v_mod");
-    const home = homeKey("v_mod");
-    const other = { root: (home.root + 6) % 12, mode: MODES[1] };
-    const a = realize(m, home, null, 0, 0);
-    const b = realize(m, other, null, 0, 0);
-    expect(a.length).toBe(b.length);
-    a.forEach((n, i) => expect(n.at).toBe(b[i].at));
-    for (const n of a) expect(home.mode.intervals).toContain((((n.pitch - home.root) % 12) + 12) % 12);
-    for (const n of b) expect(other.mode.intervals).toContain((((n.pitch - other.root) % 12) + 12) % 12);
-    // the contour's direction is kept
-    for (let i = 1; i < a.length; i++) expect(Math.sign(a[i].pitch - a[i - 1].pitch)).toBe(Math.sign(b[i].pitch - b[i - 1].pitch));
+  it("two visitors in the same epoch are diatonic to each other", () => {
+    const key = worldKey("epoch-1");
+    const a = realize(makeMotif("v_a"), key, null, 0, 0);
+    const b = realize(makeMotif("v_b"), key, null, 0, 0);
+    for (const n of [...a, ...b]) expect(key.mode.intervals).toContain((((n.pitch - key.root) % 12) + 12) % 12);
   });
 });

@@ -48,8 +48,6 @@ describe("signals: what the player hears, from the same log", () => {
     };
     const onSlab = personalSignals({ ...base, me: me(CELL_SIZE / 2, CELL_SIZE / 2), snap });
     expect(onSlab.sealed).toBeCloseTo(1);
-    expect(onSlab.building?.id).toBe(key(0, 0));
-    expect(personalSignals({ ...base, me: me(40, 40), snap }).building).toBeNull();
     const onPath = personalSignals({ ...base, me: me(6, 6), snap });
     expect(onPath.pathP).toBeCloseTo(0.7);
     expect(onPath.sealed).toBe(0);

@@ -9,9 +9,8 @@
  *               view is on the same beat. Nothing is ever played off the grid.
  *   DENSITY     walking speed does not change the tempo (a shared pulse cannot smear): it changes how often the
  *               motif comes round — still = every other bar, walking = every bar, running = twice a bar.
- *   KEY         my motif is in my home key; at a building, in the building's key (a modulation) — and so is everybody
- *               there with me (harmony.ts). The chord of the place is that key's tonic seventh.
- *   LOCK        conforming (a path, concrete, staying among others) pulls a few notes onto that chord (small).
+ *   LOCK        pathP (a formed path under the feet) or stay × company pull the notes onto the chord of the place
+ *               (harmony.ts): consonance arrives when you follow or build.
  *   BASS        on a path the root of the place's chord is a soft pulse on the downbeat: the walking rhythm.
  *   VOICES      the others within earshot play their own motifs on the same grid (intersection: bass / baritone /
  *               tenor = me / first neighbour / second neighbour). While I STAY among them the bars alternate:
@@ -20,7 +19,7 @@
  *   PAD         staying among others holds the chord tones (the building being born) — a sustained pad.
  */
 
-import { homeKey, keyChord, type Key, type PlaceChord } from "./harmony";
+import { placeChord, type PlaceChord, type WorldKey } from "./harmony";
 import { midiToHz, realize, type Motif, type MotifNote } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
@@ -97,10 +96,7 @@ export interface BarPlan {
 export interface BarInputs {
   bar: number;
   sig: PersonalSignals;
-  /** The key I am in now: my home key, or the key of the building I am at (the engine decides, with hysteresis). */
-  key: Key;
-  /** The building I am at (its id) — then everybody within earshot is in its key too; null = each in their own. */
-  building: string | null;
+  key: WorldKey;
   me: Motif;
   others: ReadonlyMap<string, Motif>;
   /** 0..1 per neighbour id: how long and close they have been (engine keeps it). */
@@ -122,7 +118,7 @@ export function placeInBar(notes: readonly MotifNote[], d: Density, bar: number)
 export function planBar(inp: BarInputs): BarPlan {
   const p = inp.params ?? DEFAULT_SEQUENCER;
   const { bar, sig, key, me } = inp;
-  const chord = keyChord(key);
+  const chord = placeChord(key, sig.x, sig.z);
   const stable = conformity(sig);
   const rough = roughness(sig, p.speedMax);
   const lock = lockOf(sig, p.lockPull);
@@ -159,11 +155,8 @@ export function planBar(inp: BarInputs): BarPlan {
       continue;
     }
     if (staying && answer && n !== sig.neighbours[0]) continue;
-    // the others: at a building we are all in its key; in the open each is in their own. Same pull, same
-    // roughness as me (we share the ground); answering while we build is the steadiest of all
-    const theirKey = inp.building ? key : homeKey(n.o);
-    const theirChord = inp.building ? chord : keyChord(theirKey);
-    const notes = realize(m, theirKey, theirChord, staying ? Math.max(lock, p.lockPull) : lock, bar, undefined, staying ? rough * 0.3 : rough);
+    // the others share my place: same pull, same roughness; answering while we build is the steadiest of all
+    const notes = realize(m, key, chord, staying ? Math.max(lock, p.lockPull) : lock, bar, undefined, staying ? rough * 0.3 : rough);
     others.push({ o: n.o, notes });
   }
 
