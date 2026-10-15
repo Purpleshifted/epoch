@@ -31,11 +31,9 @@ export interface SequencerParams {
   speedMax: number;
   /** Path strength from which the bass pulse is heard. */
   bassFrom: number;
-  /** How much conforming pulls single notes of a motif onto the chord of the place (0 = never: the motif is untouched). */
-  lockPull: number;
 }
 
-export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25, lockPull: 0.25 };
+export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25 };
 
 export type Density = 0.5 | 1 | 2;
 
@@ -45,28 +43,10 @@ export function density(speed: number, speedMax: number): Density {
   return s < 0.12 ? 0.5 : s < 0.75 ? 1 : 2;
 }
 
-/**
- * CONFORMITY 0..1: how much the visitor goes along with what is already there — a formed path under the feet,
- * concrete, or staying among others (building). The conforming walk is the stable one.
- */
-export function conformity(sig: Pick<PersonalSignals, "pathP" | "stay" | "neighbours" | "sealed">): number {
+/** 0..1 how much the place pulls the notes onto its chord. */
+export function lockOf(sig: Pick<PersonalSignals, "pathP" | "stay" | "neighbours">): number {
   const company = Math.min(1, sig.neighbours.length / 2);
-  return Math.max(0, Math.min(1, Math.max(sig.pathP, sig.stay * company, sig.sealed * 0.7)));
-}
-
-/**
- * ROUGHNESS 0..1: how unstable the voice is — crossing untrodden vegetation while moving is the roughest walk;
- * standing still anywhere is calmer; anything conforming is smooth.
- */
-export function roughness(sig: Pick<PersonalSignals, "pathP" | "stay" | "neighbours" | "sealed" | "grass" | "speed">, speedMax: number): number {
-  const c = conformity(sig);
-  const moving = Math.min(1, sig.speed / Math.max(0.01, speedMax * 0.3));
-  return (1 - c) * (0.35 + 0.65 * sig.grass) * (0.4 + 0.6 * moving);
-}
-
-/** 0..1 how much the place pulls single notes onto its chord (conformity, scaled by `lockPull`). */
-export function lockOf(sig: Pick<PersonalSignals, "pathP" | "stay" | "neighbours" | "sealed">, lockPull = DEFAULT_SEQUENCER.lockPull): number {
-  return conformity(sig) * lockPull;
+  return Math.max(0, Math.min(1, Math.max(sig.pathP, sig.stay * company)));
 }
 
 export interface VoiceBar {
@@ -77,10 +57,6 @@ export interface VoiceBar {
 export interface BarPlan {
   bar: number;
   chord: PlaceChord;
-  /** Conformity 0..1 (see conformity()). */
-  stable: number;
-  /** Roughness 0..1 (see roughness()): the engine turns it into noise, drift and dropped notes. */
-  rough: number;
   lock: number;
   density: Density;
   /** Whether this bar is the others' answer (I keep quiet). */
@@ -119,9 +95,7 @@ export function planBar(inp: BarInputs): BarPlan {
   const p = inp.params ?? DEFAULT_SEQUENCER;
   const { bar, sig, key, me } = inp;
   const chord = placeChord(key, sig.x, sig.z);
-  const stable = conformity(sig);
-  const rough = roughness(sig, p.speedMax);
-  const lock = lockOf(sig, p.lockPull);
+  const lock = lockOf(sig);
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
@@ -140,7 +114,7 @@ export function planBar(inp: BarInputs): BarPlan {
       const amount = nearest ? inp.closeness.get(nearest.o) ?? 0 : 0;
       const theirs = nearest ? inp.others.get(nearest.o) : undefined;
       if (theirs && amount > 0) motif = blend(me, theirs, amount, bar);
-      mine = placeInBar(realize(motif, key, chord, lock, bar, undefined, rough), d, bar);
+      mine = placeInBar(realize(motif, key, chord, lock, bar), d, bar);
     }
   }
 
@@ -155,8 +129,7 @@ export function planBar(inp: BarInputs): BarPlan {
       continue;
     }
     if (staying && answer && n !== sig.neighbours[0]) continue;
-    // the others share my place: same pull, same roughness; answering while we build is the steadiest of all
-    const notes = realize(m, key, chord, staying ? Math.max(lock, p.lockPull) : lock, bar, undefined, staying ? rough * 0.3 : rough);
+    const notes = realize(m, key, chord, Math.max(lock, staying ? 0.8 : 0), bar);
     others.push({ o: n.o, notes });
   }
 
@@ -173,7 +146,7 @@ export function planBar(inp: BarInputs): BarPlan {
   const padLevel = sig.stay * company;
   const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 
-  return { bar, chord, stable, rough, lock, density: d, answer, me: mine, others, bass, pad };
+  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad };
 }
 
 /** Bar index and the AudioContext time of its start, from the epoch on the wall clock (shared by every tab). */
