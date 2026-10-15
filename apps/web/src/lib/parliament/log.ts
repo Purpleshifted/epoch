@@ -106,15 +106,37 @@ export function currentEpochKey(): string | null {
   }
 }
 
-/** The stored events of the CURRENT epoch ([] if the stored events belong to another one, or to none). */
 /**
- * HISTORY WINDOW (for performance, for now): only the last KEEP_WINDOW_SEC before the player's present are kept.
- * A player tab writes the cutoff (its assigned time − KEEP_WINDOW_SEC) when it loads and every 30 s after, so the
- * window rolls on; loading and saving drop older events, and open views forget them (useWorld). Raise it (or remove
- * the key) to keep more.
+ * HISTORY WINDOW (for performance, for now): only the last `keepWindowSec()` before the player's present are kept.
+ * A player tab writes the cutoff (its assigned time − window) when it loads and every 30 s after, so the window
+ * rolls on; loading and saving drop older events, and open views forget them (useWorld). The window's length is a
+ * SHARED SETTING of this browser (LS_KEEP_WINDOW_KEY, default KEEP_WINDOW_SEC): the global views have a Leva knob
+ * for it (useWorld.ts useKeepWindowControl) — short while working on something else, so little data gathers.
  */
 export const KEEP_WINDOW_SEC = 20 * 60;
 export const LS_KEEP_FROM_KEY = "anthropocene:parliament:keep-from:v1";
+export const LS_KEEP_WINDOW_KEY = "anthropocene:parliament:keep-window-sec:v1";
+
+/** The history window's length (seconds): the shared setting, or KEEP_WINDOW_SEC. */
+export function keepWindowSec(): number {
+  try {
+    const raw = localStorage.getItem(LS_KEEP_WINDOW_KEY);
+    const v = raw === null ? NaN : Number(raw);
+    return Number.isFinite(v) && v > 0 ? v : KEEP_WINDOW_SEC;
+  } catch {
+    return KEEP_WINDOW_SEC;
+  }
+}
+
+/** Sets the shared history window (seconds); the next setKeepFrom (every player tab, every 30 s) applies it. */
+export function setKeepWindowSec(sec: number): void {
+  try {
+    if (Number.isFinite(sec) && sec > 0) localStorage.setItem(LS_KEEP_WINDOW_KEY, String(sec));
+    else localStorage.removeItem(LS_KEEP_WINDOW_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 /** Assigned time before which events are dropped (−Infinity: keep everything). */
 export function keepFromS(): number {
@@ -127,10 +149,10 @@ export function keepFromS(): number {
   }
 }
 
-/** A player session that starts at assigned time `sessionStartS` keeps the KEEP_WINDOW_SEC before it. */
+/** A player session that starts at assigned time `sessionStartS` keeps the window (keepWindowSec) before it. */
 export function setKeepFrom(sessionStartS: number): void {
   try {
-    localStorage.setItem(LS_KEEP_FROM_KEY, String(sessionStartS - KEEP_WINDOW_SEC));
+    localStorage.setItem(LS_KEEP_FROM_KEY, String(sessionStartS - keepWindowSec()));
   } catch {
     /* storage unavailable */
   }

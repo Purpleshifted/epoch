@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { EventLog, KEEP_WINDOW_SEC, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, getEpochMs, keepFromS, loadEvents, saveMerged, setKeepFrom, type PEvent } from "./index";
+import { EventLog, KEEP_WINDOW_SEC, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_KEEP_WINDOW_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, getEpochMs, keepFromS, keepWindowSec, loadEvents, saveMerged, setKeepFrom, setKeepWindowSec, type PEvent } from "./index";
 
 class MemoryStorage {
   private m = new Map<string, string>();
@@ -74,5 +74,20 @@ describe("history window: only the last KEEP_WINDOW_SEC before the player's sess
     setKeepFrom(5000);
     clearWorld();
     expect(keepFromS()).toBe(-Infinity);
+  });
+});
+
+describe("history window: a shared setting of the browser", () => {
+  it("defaults to KEEP_WINDOW_SEC, follows the setting, and setKeepFrom applies it", () => {
+    localStorage.removeItem(LS_KEEP_WINDOW_KEY);
+    expect(keepWindowSec()).toBe(KEEP_WINDOW_SEC);
+    setKeepFrom(5000);
+    expect(keepFromS()).toBe(5000 - KEEP_WINDOW_SEC);
+    setKeepWindowSec(300);
+    expect(keepWindowSec()).toBe(300);
+    setKeepFrom(5000);
+    expect(keepFromS()).toBe(4700);
+    setKeepWindowSec(0); // nonsense clears the setting
+    expect(keepWindowSec()).toBe(KEEP_WINDOW_SEC);
   });
 });
