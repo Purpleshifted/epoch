@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useControls } from "leva";
+import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 import { DEFAULT_SIGNALS, DEFAULT_SOUND, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
@@ -70,13 +70,37 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       motifEvery: { value: DEFAULT_SOUND.motifEvery, min: 1, max: 6, step: 0.1, label: "내 모티프: 평균 몇 마디에 한 번 (소수점 = 확률)", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
-      motifSoft: { value: DEFAULT_SOUND.motifSoft, min: 0, max: 1, step: 0.05, label: "모티프 부드럽게 (느린 어택 · 어두운 음색)", render: v2 },
+      "모티프 음색 (세부)": folder(
+        {
+          motifWave: { value: DEFAULT_SOUND.motifWave, options: { "삼각 (부드러움)": "triangle", "사인 (가장 순수)": "sine", "톱니 (밝고 거침)": "sawtooth", "사각 (속이 빈)": "square" }, label: "파형", render: v2 },
+          motifTranspose: { value: DEFAULT_SOUND.motifTranspose, min: -24, max: 12, step: 1, label: "음역 이동 (반음)", render: v2 },
+          motifLevel: { value: DEFAULT_SOUND.motifLevel, min: 0, max: 1.5, step: 0.05, label: "모티프 음량", render: v2 },
+          motifAttackMs: { value: DEFAULT_SOUND.motifAttackMs, min: 2, max: 400, step: 1, label: "어택 (ms)", render: v2 },
+          motifDecayMs: { value: DEFAULT_SOUND.motifDecayMs, min: 10, max: 1000, step: 5, label: "디케이 (ms)", render: v2 },
+          motifSustain: { value: DEFAULT_SOUND.motifSustain, min: 0, max: 1, step: 0.05, label: "서스테인 (0–1)", render: v2 },
+          motifRelease: { value: DEFAULT_SOUND.motifRelease, min: 0, max: 2, step: 0.05, label: "릴리즈 (음 길이의 배)", render: v2 },
+          motifCutoff: { value: DEFAULT_SOUND.motifCutoff, min: 300, max: 12000, step: 50, label: "저역통과 (Hz)", render: v2 },
+          motifQ: { value: DEFAULT_SOUND.motifQ, min: 0.3, max: 8, step: 0.1, label: "필터 공명 (Q)", render: v2 },
+          motifFilterEnv: { value: DEFAULT_SOUND.motifFilterEnv, min: 0, max: 3, step: 0.1, label: "어택 때 필터 열림 (옥타브)", render: v2 },
+          motifOctaveLevel: { value: DEFAULT_SOUND.motifOctaveLevel, min: 0, max: 1, step: 0.05, label: "옥타브 위 배음", render: v2 },
+          motifFifthLevel: { value: DEFAULT_SOUND.motifFifthLevel, min: 0, max: 1, step: 0.05, label: "5도 위 배음", render: v2 },
+          motifDetune: { value: DEFAULT_SOUND.motifDetune, min: 0, max: 30, step: 1, label: "디튠 두 겹 (센트; 0 = 한 겹)", render: v2 },
+          motifVibrato: { value: DEFAULT_SOUND.motifVibrato, min: 0, max: 40, step: 1, label: "비브라토 깊이 (센트)", render: v2 },
+          motifVibratoHz: { value: DEFAULT_SOUND.motifVibratoHz, min: 0.5, max: 9, step: 0.1, label: "비브라토 속도 (Hz)", render: v2 },
+          motifBreath: { value: DEFAULT_SOUND.motifBreath, min: 0, max: 1, step: 0.05, label: "숨 (음에 섞이는 노이즈 — 전파의 잡음)", render: v2 },
+          motifTremolo: { value: DEFAULT_SOUND.motifTremolo, min: 0, max: 1, step: 0.05, label: "트레몰로 (전파의 떨림, 비브라토 속도로)", render: v2 },
+          motifVerb: { value: DEFAULT_SOUND.motifVerb, min: 0, max: 1, step: 0.05, label: "먼 공간 (4초 잔향 — 보내진 신호의 꼬리)", render: v2 },
+        },
+        { collapsed: true, render: v2 },
+      ),
       ncDull: { value: DEFAULT_SOUND.ncDull, min: 0, max: 1, step: 0.05, label: "패치도 건물에서 먹먹해지는 정도 (0 = 안 먹먹)", render: v2 },
     }, [], [
       { tag: "v4-a1-magenta-off", set: { magenta: false } }, // a saved "on" from before v4 A1 is switched off once
       { tag: "v4-a2b-both", set: { instrument: "both" } }, // the artist (A2 test): both instruments side by side
       { tag: "v4-a2d-heartbeat", set: { bassLevel: 0.9 } }, // the artist: the heartbeat louder, in front
       { tag: "v4-a2e-heartbeat2", set: { bassSpread: 0.7, bassDub: 0.45 } }, // heavier, spreading
+      // the artist: the motif as a signal sent into space (Interstellar, 전파) — the preset on top of saved values once
+      { tag: "v4-a2f-radio", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),
     { collapsed: false, order: -1, render: v2 },
   ) as unknown as SoundParams & { on: boolean; sealRadius: number };
@@ -145,10 +169,16 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     return () => clearInterval(id);
   }, [engine]);
 
-  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub, bassDuck, bassDrop } = c;
+  const {
+    master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
+    motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
+  } = c;
   const params = useMemo<SoundParams>(
-    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub, bassDuck, bassDrop }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub, bassDuck, bassDrop],
+    () => ({
+      master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
+      motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
+    }),
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);

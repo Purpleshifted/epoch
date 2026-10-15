@@ -66,8 +66,36 @@ export interface SoundParams {
   microtone: number;
   /** A bar-synced echo on my motif (0..1 send level). */
   motifEcho: number;
-  /** How soft my motif is (0 = as before, 1 = slow attack, dark). */
-  motifSoft: number;
+  // ── the motif's timbre (v4 A2f, the artist: fine controls; the preset = "a signal sent into space") ──
+  /** The oscillator of the voice. */
+  motifWave: "triangle" | "sine" | "sawtooth" | "square";
+  /** My register, in semitones (the others keep theirs). */
+  motifTranspose: number;
+  /** My motif's level (1 = as the others' reference). */
+  motifLevel: number;
+  /** The envelope: attack and decay (ms), sustain (0..1), release as a share of the note's length. */
+  motifAttackMs: number;
+  motifDecayMs: number;
+  motifSustain: number;
+  motifRelease: number;
+  /** The voice's low-pass (Hz), its resonance, and how far (octaves) it opens on the attack. */
+  motifCutoff: number;
+  motifQ: number;
+  motifFilterEnv: number;
+  /** Partials: an octave above and a fifth above (0..1). */
+  motifOctaveLevel: number;
+  motifFifthLevel: number;
+  /** A second oscillator detuned by this many cents (0 = none). */
+  motifDetune: number;
+  /** Vibrato depth (cents) and rate (Hz). */
+  motifVibrato: number;
+  motifVibratoHz: number;
+  /** A breath of noise on each note (0..1). */
+  motifBreath: number;
+  /** Tremolo depth (0..1) at the vibrato rate — the flutter of a transmission. */
+  motifTremolo: number;
+  /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
+  motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
   ncDull: number;
   /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
@@ -98,8 +126,27 @@ export const DEFAULT_SOUND: SoundParams = {
   clockPull: 0.08,
   motifEvery: 2,
   microtone: 0.3,
-  motifEcho: 0.35,
-  motifSoft: 0.5,
+  motifEcho: 0.6, // the signal's repeats (0.35 before the radio preset)
+  // "a signal sent out into space" (the artist: Interstellar, 전파 보내는 느낌): a pure tone, a clean onset, long
+  // tails, two layers beating slowly, a flutter, a little static, a long open space
+  motifWave: "sine",
+  motifTranspose: 0,
+  motifLevel: 1,
+  motifAttackMs: 60,
+  motifDecayMs: 200,
+  motifSustain: 0.8,
+  motifRelease: 1.2,
+  motifCutoff: 6000,
+  motifQ: 0.7,
+  motifFilterEnv: 0,
+  motifOctaveLevel: 0.1,
+  motifFifthLevel: 0,
+  motifDetune: 4,
+  motifVibrato: 0,
+  motifVibratoHz: 5.5,
+  motifBreath: 0.15,
+  motifTremolo: 0.15,
+  motifVerb: 0.5,
   ncDull: 1,
   bassSpread: 0.7, // v4 A2e: its own long dark room
   bassDub: 0.45,
@@ -176,6 +223,8 @@ export class SoundEngine {
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
   /** My motif's bar-synced echo: send → delay (3/8 bar) → feedback, darkened → dry + hall. */
   private echo!: { send: GainNode; delay: DelayNode; feedback: GainNode };
+  /** The long open space my motif is sent into (motifVerb). */
+  private space!: GainNode;
   /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
   private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   /** The path's heartbeat: a soft clip for weight, then dry, and its own long dark room by bassSpread. */
@@ -423,6 +472,9 @@ export class SoundEngine {
       dark.connect(this.dry);
       dark.connect(this.rooms.hall);
       this.echo = { send, delay, feedback };
+      // the long open space the signal goes out into (a 4 s room, half bright), from my voice and its echo
+      this.space = room(4.0, 1.8, 0, 0.45, 0);
+      dark.connect(this.space);
       this.lastUpdate = ctx.currentTime;
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
@@ -518,11 +570,14 @@ export class SoundEngine {
       this.me = this.newVoice(myId, 0, false);
       this.me.gain.gain.setTargetAtTime(1, t, 0.5);
       this.me.gain.connect(this.echo.send);
+      this.me.gain.connect(this.space);
     }
+    this.space.gain.setTargetAtTime(params.motifVerb * 0.5, t, 0.3);
     // my motif's body: the echo follows the bar, the softness darkens the voice
     this.echo.send.gain.setTargetAtTime(params.motifEcho * 0.6, t, 0.3);
     this.echo.delay.delayTime.setTargetAtTime(this.musicBarSec() * 0.375, t, 0.2);
-    this.me.filt.frequency.setTargetAtTime(4000 * (1 - 0.6 * params.motifSoft), t, 0.3);
+    this.me.filt.frequency.setTargetAtTime(params.motifCutoff, t, 0.3);
+    this.me.filt.Q.setTargetAtTime(params.motifQ, t, 0.3);
     // the listener turns with the camera: forward = (sin yaw, 0, cos yaw) in world terms
     const L = ctx.listener;
     if (L.forwardX) {
@@ -585,40 +640,97 @@ export class SoundEngine {
     }
   }
 
-  // ── the instrument ──
-  private note(dest: AudioNode, freq: number, at: number, dur: number, vel: number, timbre: number, blur: number, attack = 0.012): void {
+  // ── the instrument: one note of a voice (mine or another's), shaped by the motif timbre knobs ──
+  private note(dest: AudioNode, freq0: number, at: number, dur: number, vel: number, timbre: number, blur: number, mine = false): void {
     const ctx = this.ctx!;
+    const p = this.params;
+    const freq = mine ? freq0 * Math.pow(2, p.motifTranspose / 12) : freq0;
+    const attack = Math.max(0.002, p.motifAttackMs / 1000);
+    const decay = Math.max(0.01, p.motifDecayMs / 1000);
+    const release = 0.15 + dur * p.motifRelease;
+    const peak = 0.22 * vel * (mine ? p.motifLevel : 1);
     const g = ctx.createGain();
-    g.connect(dest);
-    const peak = 0.22 * vel;
-    const release = 0.15 + dur * 0.4;
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(peak, at + attack);
-    g.gain.setTargetAtTime(peak * 0.55, at + attack, 0.09);
+    g.gain.setTargetAtTime(peak * p.motifSustain, at + attack, decay / 3);
     g.gain.setTargetAtTime(0, at + dur, release / 3);
     const end = at + dur + release + 0.3;
-    const o1 = ctx.createOscillator();
-    o1.type = blur > 0 ? "sine" : "triangle";
-    o1.frequency.value = freq;
+    // the note's own filter, opening on the attack (motifFilterEnv octaves) and settling on the voice's cutoff
+    let into: AudioNode = g;
+    if (p.motifFilterEnv > 0) {
+      const nf = ctx.createBiquadFilter();
+      nf.type = "lowpass";
+      nf.Q.value = p.motifQ;
+      const base = Math.min(16000, p.motifCutoff);
+      nf.frequency.setValueAtTime(Math.min(16000, base * Math.pow(2, p.motifFilterEnv)), at);
+      nf.frequency.exponentialRampToValueAtTime(base, at + attack + decay);
+      nf.connect(g);
+      into = nf;
+    }
+    g.connect(dest);
+    const started: OscillatorNode[] = [];
+    const osc = (type: OscillatorType, f: number, level: number, detune = 0): OscillatorNode | null => {
+      if (level <= 0) return null;
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      o.detune.value = detune;
+      const og = ctx.createGain();
+      og.gain.value = level;
+      o.connect(og).connect(into);
+      o.start(at);
+      o.stop(end);
+      started.push(o);
+      return o;
+    };
+    const wave: OscillatorType = blur > 0 ? "sine" : p.motifWave;
+    const o1 = osc(wave, freq, 1, p.motifDetune > 0 ? -p.motifDetune / 2 : 0)!;
     if (blur > 0) {
       o1.detune.setValueAtTime((Math.random() * 2 - 1) * 25 * blur, at);
       o1.detune.linearRampToValueAtTime((Math.random() * 2 - 1) * 25 * blur, end);
     }
-    o1.connect(g);
-    o1.start(at);
-    o1.stop(end);
-    const o2 = ctx.createOscillator();
-    o2.type = "sine";
-    o2.frequency.value = freq * 2;
-    const g2 = ctx.createGain();
-    g2.gain.value = 0.35 * timbre * (1 - blur);
-    o2.connect(g2).connect(g);
-    o2.start(at);
-    o2.stop(end);
-    setTimeout(() => {
-      g.disconnect();
-      g2.disconnect();
-    }, (end - ctx.currentTime) * 1000 + 100);
+    if (p.motifDetune > 0 && blur === 0) osc(wave, freq, 0.5, p.motifDetune / 2);
+    osc("sine", freq * 2, p.motifOctaveLevel * (0.5 + 0.5 * timbre) * (1 - blur));
+    osc("sine", freq * 3, p.motifFifthLevel * 0.5 * (1 - blur));
+    // tremolo: the flutter of a transmission, on the note's gain
+    if (p.motifTremolo > 0 && blur === 0) {
+      const tlfo = ctx.createOscillator();
+      tlfo.type = "sine";
+      tlfo.frequency.value = p.motifVibratoHz;
+      const tg = ctx.createGain();
+      tg.gain.value = 0.5 * p.motifTremolo * peak;
+      tlfo.connect(tg).connect(g.gain);
+      tlfo.start(at);
+      tlfo.stop(end);
+    }
+    // vibrato: a slow sine on the detune of the oscillators
+    if (p.motifVibrato > 0 && blur === 0) {
+      const lfo = ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = p.motifVibratoHz;
+      const lg = ctx.createGain();
+      lg.gain.value = p.motifVibrato;
+      lfo.connect(lg);
+      for (const o of started) lg.connect(o.detune);
+      lfo.start(at);
+      lfo.stop(end);
+    }
+    // a breath: noise through a band around the note, with the note's envelope
+    if (p.motifBreath > 0 && blur === 0 && this.noise) {
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      n.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = Math.min(12000, freq * 2);
+      bp.Q.value = 2.5;
+      const ng = ctx.createGain();
+      ng.gain.value = 0.3 * p.motifBreath;
+      n.connect(bp).connect(ng).connect(into);
+      n.start(at);
+      n.stop(end);
+    }
+    setTimeout(() => g.disconnect(), (end - ctx.currentTime) * 1000 + 100);
   }
 
   /**
@@ -775,7 +887,7 @@ export class SoundEngine {
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, 0.012 + 0.05 * p.motifSoft);
+    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
