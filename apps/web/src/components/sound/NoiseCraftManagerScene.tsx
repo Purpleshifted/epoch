@@ -133,8 +133,15 @@ export default function NoiseCraftManagerScene() {
       if (readSolo() === "manager") setSolo(null);
       engine.stop();
     }
-    return () => {
+    // leaving the page (tab closed, a navigation) must release the solo too — React's cleanup does not run on a
+    // full navigation, and a solo left behind mutes the player tab's instrument silently
+    const release = () => {
       if (readSolo() === "manager") setSolo(null);
+    };
+    window.addEventListener("pagehide", release);
+    return () => {
+      window.removeEventListener("pagehide", release);
+      release();
     };
   }, [playing, engine]);
 
