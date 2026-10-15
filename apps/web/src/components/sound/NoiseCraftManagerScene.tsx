@@ -4,11 +4,12 @@
  * into the work's mixing desk (docs/sound-logic.md §8b, §9):
  *   patch list  →  editor: the patch in NoiseCraft's full editor (auto-saved) + the INSPECTOR on the right.
  * What drives the patch here is the same brain as in the player tab: a SoundEngine fed by the bus (the player
- * tab's live signals, when a player tab is open — the link) or by the SIMULATOR (sliders and SCENARIOS). Every
- * sound control of the work lives here (SoundControls.tsx → the DESK, lib/sound/desk.ts) and the player tab and
- * the speakers follow it live. The mapping is code (noisecraftMap.ts); the inspector shows every knob rule with
- * its live value, and a knob clicked in the editor shows its rule and can be HELD by hand (umwelt's auto-fill,
- * turned into an override).
+ * tab's live signals, when a player tab is open — the link) or by the SIMULATOR (sliders and SCENARIOS). The
+ * controls (SoundControls.tsx → the DESK, lib/sound/desk.ts) drive THIS page's engine only: the work's values are
+ * code (DEFAULT_DESK), which the artist asked to be tuned by hand in the repo (2026-10-15) — this page is the
+ * BENCH where a value is tried before it goes into the code. It is not linked from the home. The mapping is code
+ * (noisecraftMap.ts); the inspector shows every knob rule with its live value, and a knob clicked in the editor
+ * shows its rule and can be HELD by hand (umwelt's auto-fill, turned into an override — here only).
  *
  * Borrowed from umwelt: the manager page itself; GlobalDashboard's stream monitor (sparklines of the signals);
  * ControlPanel's spectral meter (two track meters here); NodeMappingPanel's node click; the autosave / export /
@@ -369,14 +370,7 @@ export default function NoiseCraftManagerScene() {
               ← 패치 목록
             </button>
             <span className="text-white/50">
-              편집 중: <strong className="text-white/80">{patch}</strong> · 자동 저장
-              {desk.ncPatch !== patch ? (
-                <button onClick={() => setOverrideNcPatch(patch)} className="ml-2 rounded border border-white/20 px-1.5 py-0.5 text-[10px] text-white/60" title="플레이어가 연주하는 패치를 이걸로">
-                  플레이어도 이 패치로
-                </button>
-              ) : (
-                <span className="ml-2 text-[10px] text-[#4ecdc4]">= 플레이어의 패치</span>
-              )}
+              편집 중: <strong className="text-white/80">{patch}</strong> · 자동 저장 · <span className="text-white/35">벤치: 여기 값은 이 창에만 — 작품의 값은 코드 (DEFAULT_SOUND)</span>
             </span>
             <button onClick={() => setPlaying((p) => !p)} className={`rounded border px-3 py-1 ${playing ? "border-red-400/50 text-red-300" : "border-[#4ecdc4]/50 text-[#4ecdc4]"}`}>
               {playing ? "■ STOP" : "▶ PLAY"}
@@ -565,7 +559,7 @@ export default function NoiseCraftManagerScene() {
                 <p className="mt-2 text-white/40">수신 모듈: {map.modules.join(", ")} — 패치의 AI_Seq / AI_Poly 노드 드롭다운에서 고릅니다. hybrid: parliament voice 0 = 베이스, 1–3 = 코드 음; harmony = 4성 보이싱; GateSeq 이름 traces = 리듬 흔적.</p>
               </section>
               <section>
-                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">컨트롤 — 모든 창의 소리 (실시간)</h3>
+                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">컨트롤 — 이 벤치의 엔진 (실험용; 작품의 값은 코드)</h3>
                 <SoundControls initial={desk0} onChange={onDeskChange} />
               </section>
             </div>
@@ -576,21 +570,4 @@ export default function NoiseCraftManagerScene() {
       )}
     </div>
   );
-
-  /** The player plays the patch being edited here: into the desk (the Leva select follows through SoundControls' store). */
-  function setOverrideNcPatch(p: string) {
-    const d = readDesk();
-    const full: DeskState = { ...d, ncPatch: p, at: Date.now() };
-    writeDesk(full);
-    const msg: BusDesk = { type: "desk", desk: full };
-    busOut.current?.postMessage(msg);
-    deskRef.current = full;
-    setDeskState(full);
-    try {
-      // the Leva select in SoundControls shows the new patch
-      import("leva").then(({ levaStore }) => levaStore.setValueAtPath("헤드셋 (플레이어 창).ncPatch", p, true));
-    } catch {
-      /* ignore */
-    }
-  }
 }

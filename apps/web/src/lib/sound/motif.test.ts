@@ -14,7 +14,7 @@ describe("motif: the visitor's signature as a SHAPE of real intervals + a rhythm
     expect(b.base !== a.base || b.semis.join() !== a.semis.join() || b.onsets.join() !== a.onsets.join()).toBe(true);
   });
 
-  it("has a register in range, 3–5 notes starting on 0 with no repeats in a row, steps/skips/leaps only, a rhythm cell on the downbeat, small colour", () => {
+  it("has a register in range, 2–4 notes starting on 0 with no repeats in a row, steps/skips/leaps only, a short rhythm cell on the downbeat, small colour", () => {
     const ids = Array.from({ length: 300 }, (_, i) => `v_${i.toString(36)}`).concat(["bot0", "bot1", "bot2"]);
     for (const id of ids) {
       const m = makeMotif(id);
@@ -32,7 +32,10 @@ describe("motif: the visitor's signature as a SHAPE of real intervals + a rhythm
       expect(m.onsets.length).toBe(m.semis.length);
       expect(m.onsets[0]).toBe(0);
       for (let i = 1; i < m.onsets.length; i++) expect(m.onsets[i]).toBeGreaterThan(m.onsets[i - 1]);
-      expect(m.onsets[m.onsets.length - 1]).toBeLessThan(m.steps);
+      expect(m.onsets[m.onsets.length - 1]).toBeLessThan(DEFAULT_MOTIF.cellSpan); // the figure, then a rest
+      const notes = realize(m, homeKey(id), null, 0, 0);
+      const last = notes[notes.length - 1];
+      expect(last.at + last.len).toBeLessThanOrEqual((DEFAULT_MOTIF.cellSpan + DEFAULT_MOTIF.lastHold) / m.steps + 1e-9);
       expect(Math.abs(m.colour)).toBeLessThanOrEqual(DEFAULT_MOTIF.colourCents);
       expect(m.centroid).toBeCloseTo(midiToHz(m.base));
     }

@@ -223,7 +223,7 @@ export default function SoundControls({ initial, onChange }: SoundControlsProps)
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 text-[10px] text-white/50">
-        <span>모든 창이 이 값을 따릅니다 (실시간 · 자동 저장)</span>
+        <span>이 벤치의 엔진에만 적용 (자동 저장) — 작품의 값은 코드</span>
         <button
           onClick={() => {
             const blob = new Blob([exportDesk(readDesk())], { type: "application/json" });

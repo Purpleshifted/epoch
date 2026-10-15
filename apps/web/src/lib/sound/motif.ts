@@ -25,6 +25,11 @@ export interface MotifConfig {
   notesMax: number;
   /** Steps of the rhythm grid in one cycle. */
   steps: number;
+  /** The cell lives in the first `cellSpan` steps of the cycle; the rest is a rest (the artist, 2026-10-15: a motif
+   *  spread over the whole bar was too long to feel like a name — a short figure and a pause is one). */
+  cellSpan: number;
+  /** The last note of the cell is held at most this many steps (so the rest after it is heard). */
+  lastHold: number;
   /** Constant micro-tonal colour of a voice: ± this many cents. */
   colourCents: number;
   /** Extra wobble (cents) of a ROUGH voice (crossing vegetation), per note. */
@@ -40,9 +45,11 @@ export interface MotifConfig {
 export const DEFAULT_MOTIF: MotifConfig = {
   baseLo: 50,
   baseHi: 74,
-  notesMin: 3,
-  notesMax: 5,
+  notesMin: 2,
+  notesMax: 4,
   steps: 8,
+  cellSpan: 6,
+  lastHold: 2,
   colourCents: 12,
   freeCents: 35,
   cycleSec: 2,
@@ -98,7 +105,10 @@ export const midiToHz = (midi: number, cents = 0): number => 440 * Math.pow(2, (
 export function makeMotif(id: string, cfg: MotifConfig = DEFAULT_MOTIF): Motif {
   const r = rng(hashString(id));
   const base = cfg.baseLo + Math.floor(r() * (cfg.baseHi - cfg.baseLo + 1));
-  const n = cfg.notesMin + Math.floor(r() * (cfg.notesMax - cfg.notesMin + 1));
+  // how many notes: the middle count most often (2–4 → 3 half the time), never outside the range
+  const span = cfg.notesMax - cfg.notesMin;
+  const u0 = r();
+  const n = span <= 0 ? cfg.notesMin : cfg.notesMin + (u0 < 0.3 ? 0 : u0 < 0.8 ? Math.min(span, 1) : span);
   // the shape: a walk in real intervals — mostly steps (1–2), some skips (3–4), now and then a leap (5–7) —
   // mostly within an octave, never the same note twice in a row
   const semis = [0];
@@ -110,8 +120,9 @@ export function makeMotif(id: string, cfg: MotifConfig = DEFAULT_MOTIF): Motif {
     p += up ? size : -size;
     semis.push(p);
   }
-  // rhythm cell: n distinct steps of the grid, the first on the downbeat
-  const pool = Array.from({ length: cfg.steps - 1 }, (_, i) => i + 1);
+  // rhythm cell: n distinct steps inside the first cellSpan steps of the grid, the first on the downbeat; the rest of
+  // the cycle is a rest — the figure is short enough to be heard whole, like a name
+  const pool = Array.from({ length: Math.max(n - 1, Math.min(cfg.cellSpan, cfg.steps) - 1) }, (_, i) => i + 1);
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(r() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -154,7 +165,7 @@ export function realize(m: Motif, key: Key, chord: PlaceChord | null, lock: numb
   const { pitches, locked } = chord && lock > 0 ? pullToChord(answered, strong, chord.classes, lock, r) : { pitches: answered, locked: answered.map(() => false) };
   return pitches.map((pitch, i) => {
     const wobble = rough * cfg.freeCents * (r() * 2 - 1);
-    const next = i + 1 < n ? m.onsets[i + 1] : m.steps;
+    const next = i + 1 < n ? m.onsets[i + 1] : Math.min(m.steps, m.onsets[i] + cfg.lastHold);
     return { at: m.onsets[i] / m.steps, len: ((next - m.onsets[i]) / m.steps) * 0.85, pitch, freq: midiToHz(pitch, m.colour + wobble), locked: locked[i] };
   });
 }
