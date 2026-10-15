@@ -55,7 +55,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       hearRadius: { value: DEFAULT_SOUND.hearRadius, min: 2, max: 40, step: 0.5, label: "다른 사람이 들리는 거리 (월드)", render: v2 },
       othersLevel: { value: DEFAULT_SOUND.othersLevel, min: 0, max: 1, step: 0.01, label: "다른 사람 목소리 크기 (바로 옆에서)", render: v2 },
       botBlur: { value: DEFAULT_SOUND.botBlur, min: 0, max: 1, step: 0.01, label: "봇(메아리)의 흐림", render: v2 },
-      magenta: { value: DEFAULT_SOUND.magenta, label: "Magenta 변주 (네트워크, 몇 초 뒤 로드)", render: v2 },
+      magenta: { value: DEFAULT_SOUND.magenta, label: "Magenta 변주 (기본 꺼짐 — 켜면 네트워크 + GPU를 three.js와 나눔)", render: v2 },
     }),
     { collapsed: false, order: -1, render: v2 },
   ) as unknown as SoundParams & { on: boolean; sealRadius: number };

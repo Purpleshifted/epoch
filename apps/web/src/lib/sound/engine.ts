@@ -68,7 +68,7 @@ export const DEFAULT_SOUND: SoundParams = {
   botBlur: 0.6,
   bassLevel: 0.6,
   padLevel: 0.35,
-  magenta: true,
+  magenta: false, // the light version has no Magenta (the artist, v4 A1); tfjs shared the GPU with three.js
 };
 
 interface Voice {
@@ -85,6 +85,8 @@ const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
 const MAGENTA_AFTER_MS = 4000;
+/** The others heard at once (nearest first): an HRTF panner per bot was what lagged with a dozen bots (v4 A1). */
+const MAX_VOICES = 4;
 
 /** A room: exponentially decaying noise, with `taps` early reflections for hard surfaces. */
 function impulse(ctx: AudioContext, seconds: number, decay: number, taps = 0, bright = 1): AudioBuffer {
@@ -197,7 +199,7 @@ export class SoundEngine {
       this.rooms = {
         open: room(1.2, 0.35, 0, 0.25, 0.12),
         concrete: room(2.0, 0.6, 6, 0.9, 0),
-        hall: room(4.5, 1.6, 0, 0.5, 0),
+        hall: room(3.0, 1.2, 0, 0.5, 0), // 4.5 s before v4 A1: the convolver's cost is its length
       };
       // the listener: at the origin, turned by the camera yaw (update())
       const L = ctx.listener;
@@ -292,7 +294,7 @@ export class SoundEngine {
     let out: AudioNode = gain;
     if (spatial) {
       panner = ctx.createPanner();
-      panner.panningModel = "HRTF";
+      panner.panningModel = "equalpower"; // the nearest voice is switched to HRTF in update()
       panner.distanceModel = "inverse";
       panner.refDistance = 1.5;
       panner.rolloffFactor = 1;
@@ -360,10 +362,12 @@ export class SoundEngine {
     this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
     this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
 
-    // who is within earshot: a voice each, placed by HRTF; closeness accumulates while they are near
+    // who is within earshot: a voice each, the nearest MAX_VOICES only, with a level of detail in the panning
+    // (v4 A1): the nearest one is placed by HRTF (a convolution per panner), the others by equal-power panning;
+    // closeness accumulates while they are near
     const alive = new Set<string>();
-    for (const n of sig.neighbours) {
-      if (n.dist > params.hearRadius) continue;
+    const heard = sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES);
+    heard.forEach((n, rank) => {
       alive.add(n.o);
       let v = this.voices.get(n.o);
       if (!v) {
@@ -374,13 +378,15 @@ export class SoundEngine {
       v.level = params.othersLevel;
       v.gain.gain.setTargetAtTime(v.level, t, 0.4);
       if (v.panner) {
+        const model = rank === 0 ? "HRTF" : "equalpower";
+        if (v.panner.panningModel !== model) v.panner.panningModel = model;
         v.panner.positionX.setTargetAtTime(Math.sin(n.angle) * n.dist, t, 0.1);
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
       v.filt.frequency.setTargetAtTime(v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, 0.3);
       const near = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
-    }
+    });
     for (const [id, v] of this.voices) {
       if (alive.has(id)) continue;
       if (t - v.seen > OTHER_FADE_SEC) this.dropVoice(id, v);
