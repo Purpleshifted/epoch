@@ -52,6 +52,14 @@ export interface SoundParams {
   padLevel: number;
   /** Use the Magenta models for variation when they can be loaded. */
   magenta: boolean;
+  /**
+   * The instrument (v4 A2): "webaudio" = everything here; "noisecraft" = the artist's patch plays the harmony (root,
+   * colour, fifth, the chorale) on the MUSIC CLOCK this engine decides, and Web Audio keeps the motif, the others,
+   * the vegetation and the rooms (the bass and the pad here fall silent).
+   */
+  instrument: "webaudio" | "noisecraft";
+  /** How much the music clock tightens with the lock (0..0.3 of the bar length) — only with the noisecraft instrument. */
+  clockPull: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -69,6 +77,8 @@ export const DEFAULT_SOUND: SoundParams = {
   bassLevel: 0.6,
   padLevel: 0.35,
   magenta: false, // the light version has no Magenta (the artist, v4 A1); tfjs shared the GPU with three.js
+  instrument: "webaudio",
+  clockPull: 0.08,
 };
 
 interface Voice {
@@ -125,6 +135,8 @@ export interface SoundDebug {
   magenta: "off" | "loading" | "ready" | "failed";
   phrase: string | null;
   voices: number;
+  /** The NoiseCraft instrument's state (NoiseCraftHost), one phrase; empty without it. */
+  nc: string;
 }
 
 export class SoundEngine {
@@ -154,6 +166,12 @@ export class SoundEngine {
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
+  /** The patch's clock when it carries the grid's phase: wall time of a bar's start (NoiseCraftDriver → setGridAnchor). */
+  private anchor: { bar: number; wallMs: number } | null = null;
+  /** Plans by bar, so the patch's driver and the scheduler share one plan per bar. */
+  private plans = new Map<number, BarPlan>();
+  /** What the NoiseCraft host reports (debug line). */
+  ncStatus = "";
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
@@ -170,7 +188,61 @@ export class SoundEngine {
       magenta: this.magentaState,
       phrase: this.phrase ? `${this.phrase.kind} @${this.phrase.from}` : null,
       voices: this.voices.size,
+      nc: this.ncStatus,
     };
+  }
+
+  /** The latest signals (null before the first fold). */
+  get signals(): PersonalSignals | null {
+    return this.sig;
+  }
+
+  get currentParams(): SoundParams {
+    return this.params;
+  }
+
+  /**
+   * THE MUSIC CLOCK (v4 A2, the artist): seconds a bar, decided here from the Leva bar length and the interaction —
+   * the lock (a path, building together) tightens it by `clockPull`. The patch receives this value. With the Web
+   * Audio instrument alone the bar stays the Leva length (the epoch grid must not jump).
+   */
+  musicBarSec(): number {
+    const p = this.params;
+    if (p.instrument !== "noisecraft" || !this.sig) return p.barSec;
+    return p.barSec * (1 - p.clockPull * lockOf(this.sig));
+  }
+
+  /** The patch's clock carries the grid's phase: bar `bar` starts at `wallMs` (NoiseCraftDriver). */
+  setGridAnchor(bar: number, wallMs: number): void {
+    this.anchor = { bar, wallMs };
+  }
+
+  /** The plan of bar `bar` (planned once, shared with the patch's driver); null before anyone is here. */
+  planFor(bar: number): BarPlan | null {
+    const sig = this.sig;
+    const key = this.key;
+    if (!sig || !key || !this.me || !this.myId) return null;
+    const cached = this.plans.get(bar);
+    if (cached) return cached;
+    const p = this.params;
+    const lock = lockOf(sig);
+    this.lockedBars = lock >= 0.6 ? this.lockedBars + 1 : 0;
+    this.askMagenta(bar, sig, lock);
+    if (this.phrase && bar - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
+    const plan = planBar({
+      bar,
+      sig,
+      key,
+      me: this.me.motif,
+      others: this.motifs,
+      closeness: this.closeness,
+      phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
+      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25 },
+    });
+    this.plans.set(bar, plan);
+    for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
+    this.lastPlan = plan;
+    return plan;
   }
 
   /** Builds the graph on first call; resumes the context. Must be called from a user gesture on mobile. */
@@ -522,39 +594,30 @@ export class SoundEngine {
     if (!ctx || !sig || !key || !this.me || !this.myId || ctx.state !== "running" || !this.epochMs) return;
     const p = this.params;
     const now = ctx.currentTime;
-    const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
+    const barSec = this.musicBarSec();
+    // the grid: the patch's clock carries the phase when it plays (anchor), else the epoch on the wall clock
+    const nc = p.instrument === "noisecraft";
+    const epoch = nc && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
+    const { bar, start } = barClock(epoch, Date.now(), now, barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
     const next = this.planned + 1;
-    const nextStart = start + (next - bar) * p.barSec;
+    const nextStart = start + (next - bar) * barSec;
     if (nextStart > now + LOOKAHEAD) return;
     this.planned = next;
 
-    const lock = lockOf(sig);
-    this.lockedBars = lock >= 0.6 ? this.lockedBars + 1 : 0;
-    this.askMagenta(next, sig, lock);
-    if (this.phrase && next - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
-
-    const plan = planBar({
-      bar: next,
-      sig,
-      key,
-      me: this.me.motif,
-      others: this.motifs,
-      closeness: this.closeness,
-      phrase: this.phrase && next - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25 },
-    });
-    this.lastPlan = plan;
+    const plan = this.planFor(next);
+    if (!plan) return;
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, this.me.motif.timbre, 0);
+    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
-      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * p.barSec + human() * 0.5, n.len * p.barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
+      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * barSec + human() * 0.5, n.len * barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
     }
-    for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * p.barSec, b.level);
-    this.setPad(plan.pad.pitches, plan.pad.level, nextStart);
+    // with the patch as the instrument the root and the chord are its (a static machine, our gates): silent here
+    if (!nc) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level);
+    this.setPad(plan.pad.pitches, nc ? 0 : plan.pad.level, nextStart);
   }
 }

@@ -112,6 +112,18 @@ export class AudioGraph
             node.noteOn(msg.noteNo, msg.velocity);
             break;
 
+            case 'SET_SEQUENCE':
+            if (node.setSequence) {
+                node.setSequence(msg.pitches, msg.gates);
+            }
+            break;
+
+            case 'SET_PATTERN_DATA':
+            if (node.setPatternData) {
+                node.setPatternData(msg.patIdx, msg.grid);
+            }
+            break;
+
             default:
             throw new TypeError('unknown message type');
         }
@@ -726,6 +738,14 @@ class Sequencer extends AudioNode
     }
 
     /**
+     * Replace a whole pattern at once (SetPatternData from the bridge)
+     */
+    setPatternData(patIdx, grid)
+    {
+        this.state.patterns[patIdx] = grid;
+    }
+
+    /**
      * Queue the next pattern to play
      */
     queuePattern(patIdx, patData)
@@ -1004,6 +1024,198 @@ class GateSeq extends Sequencer
 }
 
 /**
+ * AI Sequence Receiver (Unlimited Steps)
+ */
+class AI_Seq extends AudioNode {
+    constructor(id, state, sampleRate, send) {
+        // Ensure voice param exists for old patches that predate it
+        if (!('voice' in state.params)) {
+            state.params.voice = 0;
+        }
+        super(id, state, sampleRate, send);
+        this.pitches = state.pitches || [];
+        this.gates = state.gates || [];
+        this.stepIdx = 0;
+        this.freq = 0;
+        this.gateState = 'off';
+        this.clockSgn = false;
+        this.trigTime = 0;
+        this.clockCnt = 0;
+        // A gate value is a LENGTH IN STEPS (× the gateT input): the step length is measured from the clock
+        this.lastEdge = -1;
+        this.stepDur = 0.125;
+        this.noteLen = 0.125;
+    }
+
+    /**
+     * Store sequence sent from main thread
+     */
+    setSequence(pitches, gates)
+    {
+        this.pitches = pitches || [];
+        this.gates = gates || [];
+        // DO NOT reset stepIdx. Allow the sequencer to progress seamlessly 
+        // through the newly generated sequence without restarting from the beginning.
+    }
+
+    update(time, clock, gateTime)
+    {
+        // Rising edge of the clock
+        if (!this.clockSgn && clock > 0)
+        {
+            if (this.lastEdge >= 0 && time > this.lastEdge)
+                this.stepDur = (time - this.lastEdge) * music.CLOCK_PPS;
+            this.lastEdge = time;
+
+            if (this.clockCnt === 0)
+            {
+                this.clockCnt = music.CLOCK_PPS;
+                
+                if (this.pitches.length > 0)
+                {
+                    let idx = this.stepIdx % this.pitches.length;
+                    
+                    // Support both monophonic arrays [60, 62] and polyphonic arrays [[60, 64], [62, 67]]
+                    let pitchGroup = this.pitches[idx];
+                    let gateGroup = this.gates[idx];
+                    
+                    let voice = this.params.voice || 0;
+                    
+                    let pitch = Array.isArray(pitchGroup) ? (pitchGroup[voice] ?? pitchGroup[0]) : pitchGroup;
+                    let gate = Array.isArray(gateGroup) ? (gateGroup[voice] ?? gateGroup[0]) : gateGroup;
+                    
+                    if (gate > 0) {
+                        // Convert MIDI to Hz
+                        this.freq = 440 * Math.pow(2, (pitch - 69) / 12);
+                        this.gateState = 'pretrig';
+                        this.trigTime = time;
+                        this.noteLen = gate * this.stepDur * gateTime;
+                    }
+                    // a rest step does not cut a note still held: its length is in steps and may span rests
+                    
+                    this.stepIdx++;
+                }
+            }
+            
+            if (this.clockCnt > 0)
+                this.clockCnt--;
+        }
+
+        this.clockSgn = (clock > 0);
+
+        switch (this.gateState)
+        {
+            case 'off':
+                return [this.freq, 0];
+
+            case 'pretrig':
+                this.gateState = 'on';
+                return [0, 0]; // force gate to 0 for one cycle to retrigger envelopes
+
+            case 'on':
+                if (time - this.trigTime > this.noteLen)
+                {
+                    this.gateState = 'off';
+                    this.trigTime = 0;
+                }
+                return [this.freq, 1];
+
+            default:
+                assert (false);
+        }
+        
+        return [0, 0];
+    }
+}
+
+/**
+ * AI Polyphonic Receiver (4 voices)
+ * Outputs 8 values: [freq0, gate0, freq1, gate1, freq2, gate2, freq3, gate3]
+ */
+class AI_Poly extends AudioNode {
+    constructor(id, state, sampleRate, send) {
+        if (!('moduleId' in state.params)) {
+            state.params.moduleId = '';
+        }
+        super(id, state, sampleRate, send);
+        this.pitches = state.pitches || [];
+        this.gates = state.gates || [];
+        this.stepIdx = 0;
+        this.freqs = [0, 0, 0, 0];
+        this.gateStates = ['off', 'off', 'off', 'off'];
+        this.clockSgn = false;
+        this.trigTimes = [0, 0, 0, 0];
+        this.clockCnt = 0;
+        // A gate value is a LENGTH IN STEPS (× the gateT input): the step length is measured from the clock
+        this.lastEdge = -1;
+        this.stepDur = 0.125;
+        this.noteLens = [0.125, 0.125, 0.125, 0.125];
+    }
+
+    setSequence(pitches, gates) {
+        this.pitches = pitches || [];
+        this.gates = gates || [];
+    }
+
+    update(time, clock, gateTime) {
+        if (!this.clockSgn && clock > 0) {
+            if (this.lastEdge >= 0 && time > this.lastEdge)
+                this.stepDur = (time - this.lastEdge) * music.CLOCK_PPS;
+            this.lastEdge = time;
+
+            if (this.clockCnt === 0) {
+                this.clockCnt = music.CLOCK_PPS;
+                
+                if (this.pitches.length > 0) {
+                    let idx = this.stepIdx % this.pitches.length;
+                    let pitchGroup = this.pitches[idx];
+                    let gateGroup = this.gates[idx];
+                    
+                    for (let v = 0; v < 4; v++) {
+                        let pitch = Array.isArray(pitchGroup) ? (pitchGroup[v] ?? 0) : (v === 0 ? pitchGroup : 0);
+                        let gate = Array.isArray(gateGroup) ? (gateGroup[v] ?? 0) : (v === 0 ? gateGroup : 0);
+                        
+                        if (gate > 0) {
+                            this.freqs[v] = 440 * Math.pow(2, (pitch - 69) / 12);
+                            this.gateStates[v] = 'pretrig';
+                            this.trigTimes[v] = time;
+                            this.noteLens[v] = gate * this.stepDur * gateTime;
+                        }
+                    }
+                    this.stepIdx++;
+                }
+            }
+            if (this.clockCnt > 0) this.clockCnt--;
+        }
+
+        this.clockSgn = (clock > 0);
+
+        let out = [];
+        for (let v = 0; v < 4; v++) {
+            switch (this.gateStates[v]) {
+                case 'off':
+                    out.push(this.freqs[v], 0);
+                    break;
+                case 'pretrig':
+                    this.gateStates[v] = 'on';
+                    out.push(0, 0);
+                    break;
+                case 'on':
+                    if (time - this.trigTimes[v] > this.noteLens[v]) {
+                        this.gateStates[v] = 'off';
+                        this.trigTimes[v] = 0;
+                    }
+                    out.push(this.freqs[v], 1);
+                    break;
+                default:
+                    out.push(0, 0);
+            }
+        }
+        return out;
+    }
+}
+
+/**
  * Map of node types to classes
  */
 let NODE_CLASSES =
@@ -1027,4 +1239,6 @@ let NODE_CLASSES =
     MidiIn: MidiIn,
     MonoSeq: MonoSeq,
     GateSeq: GateSeq,
+    AI_Seq: AI_Seq,
+    AI_Poly: AI_Poly,
 };

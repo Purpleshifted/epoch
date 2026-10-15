@@ -56,11 +56,22 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       othersLevel: { value: DEFAULT_SOUND.othersLevel, min: 0, max: 1, step: 0.01, label: "다른 사람 목소리 크기 (바로 옆에서)", render: v2 },
       botBlur: { value: DEFAULT_SOUND.botBlur, min: 0, max: 1, step: 0.01, label: "봇(메아리)의 흐림", render: v2 },
       magenta: { value: DEFAULT_SOUND.magenta, label: "Magenta 변주 (기본 꺼짐 — 켜면 네트워크 + GPU를 three.js와 나눔)", render: v2 },
+      instrument: {
+        value: DEFAULT_SOUND.instrument,
+        options: { "Web Audio만 (가벼운 판)": "webaudio", "NoiseCraft 패치가 화성 + Web Audio 모티프 (A2)": "noisecraft" },
+        label: "악기",
+        render: v2,
+      },
+      clockPull: { value: DEFAULT_SOUND.clockPull, min: 0, max: 0.3, step: 0.01, label: "음악 클록: 길·함께 지을 때 마디가 죄어드는 비율 (NoiseCraft일 때)", render: v2 },
     }, [], [{ tag: "v4-a1-magenta-off", set: { magenta: false } }]), // a saved "on" from before v4 A1 is switched off once
     { collapsed: false, order: -1, render: v2 },
   ) as unknown as SoundParams & { on: boolean; sealRadius: number };
 
   const engine = useMemo(() => (isV2 && typeof window !== "undefined" ? new SoundEngine() : null), [isV2]);
+  useEffect(() => {
+    // for measuring from DevTools / a hidden tab (debug.nc, running): no UI reads this
+    (window as unknown as { __soundEngine?: SoundEngine | null }).__soundEngine = engine;
+  }, [engine]);
   const onRef = useRef(c.on);
   useEffect(() => {
     onRef.current = c.on;
@@ -120,10 +131,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     return () => clearInterval(id);
   }, [engine]);
 
-  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius } = c;
+  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull } = c;
   const params = useMemo<SoundParams>(
-    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta],
+    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull }),
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);

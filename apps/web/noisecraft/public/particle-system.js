@@ -348,7 +348,12 @@ export class SignalGenerator {
 
   // Add a particle
   addParticle(particle) {
+    if (!particle) {
+      console.error("[SignalGenerator] Cannot add null/undefined particle");
+      return;
+    }
     this.particles.push(particle);
+    console.log(`[SignalGenerator] Particle ${particle.id} added to array, total: ${this.particles.length}`);
   }
 
   // Remove a particle by ID
@@ -384,9 +389,15 @@ export class ParticleSystem {
   // Add a particle
   // Default mass is 100 for stronger gravitational interaction
   addParticle(id, x, y, tone = 0, mass = 100) {
-    const particle = new VirtualParticle(id, x, y, tone, mass);
-    this.signalGenerator.addParticle(particle);
-    return particle;
+    try {
+      const particle = new VirtualParticle(id, x, y, tone, mass);
+      this.signalGenerator.addParticle(particle);
+      console.log(`[ParticleSystem] Added particle ${id} at (${x}, ${y}), total particles: ${this.signalGenerator.particles.length}`);
+      return particle;
+    } catch (e) {
+      console.error(`[ParticleSystem] Failed to add particle ${id}:`, e);
+      throw e;
+    }
   }
 
   // Remove a particle

@@ -57,6 +57,30 @@ export class AudioView
             return;
         }
 
+        if (action instanceof model.SetSequence)
+        {
+            this.send({
+                type: 'SET_SEQUENCE',
+                nodeId: action.nodeId,
+                pitches: action.pitches,
+                gates: action.gates
+            });
+
+            return;
+        }
+
+        if (action instanceof model.SetPatternData)
+        {
+            this.send({
+                type: 'SET_PATTERN_DATA',
+                nodeId: action.nodeId,
+                patIdx: action.patIdx,
+                grid: state.nodes[action.nodeId].patterns[action.patIdx]
+            });
+
+            return;
+        }
+
         if (action instanceof model.ToggleCell)
         {
             this.send({
@@ -109,7 +133,11 @@ export class AudioView
             return;
         }
 
-        console.log('recompile unit');
+        // Log only occasionally to reduce console spam
+        if (!window._lastRecompileLog || Date.now() - window._lastRecompileLog > 5000) {
+          console.log('recompile unit');
+          window._lastRecompileLog = Date.now();
+        }
 
         // Compile a new unit from the project state
         this.unit = compile(state);
@@ -138,7 +166,8 @@ export class AudioView
         // This seems to be necessary for Safari
         this.audioCtx.resume();
 
-        await this.audioCtx.audioWorklet.addModule('/public/audioworklet.js');
+        // relative to this module, so the embed works wherever NoiseCraft is mounted (/noisecraft/public/… in epoch)
+        await this.audioCtx.audioWorklet.addModule(new URL('audioworklet.js', import.meta.url).href);
 
         this.audioWorklet = new AudioWorkletNode(
             this.audioCtx,

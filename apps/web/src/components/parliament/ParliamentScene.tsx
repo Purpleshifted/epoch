@@ -18,6 +18,7 @@ import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { useSound } from "./useSound";
 import SoundButton from "./SoundButton";
+import NoiseCraftHost from "./NoiseCraftHost";
 import { usePerfMeter } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
@@ -316,6 +317,8 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} />}
+      {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
+      {sound && sound.params.instrument === "noisecraft" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
       {/* sound wiring: this window's ♪ switch — while LIVE only (the HUD owns the dark screens), top-right beside the HUD */}
       {sound && !hideChrome && (!withSession || session.phase === "live") && <SoundButton sound={sound} corner={withSession ? "top-right" : "bottom"} />}
       {!locked && !hideChrome && !withSession && (
