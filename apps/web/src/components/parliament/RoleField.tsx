@@ -52,6 +52,7 @@ import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
+import { markSpan } from "./usePerfMeter";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
@@ -183,7 +184,9 @@ export function RoleField({
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && nBots > 0 && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
       const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
+      const tBot = performance.now();
       const snapAll = foldWorld(log.all(), tSess, foldCfg);
+      markSpan("bot-fold", performance.now() - tBot);
       const level = new Map<string, number>();
       for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
       const built = new Set<string>();
@@ -228,7 +231,9 @@ export function RoleField({
       lastSaveMs.current = wall;
       if (pending.current.length) {
         // false = this tab's epoch has ended; useWorld's poll makes it join the new one
+        const tSave = performance.now();
         saveMerged(pending.current, epochMs.current);
+        markSpan("save", performance.now() - tSave);
         pending.current = [];
       }
     }
@@ -245,8 +250,10 @@ export function RoleField({
     if (foldTimer.current >= FOLD_EVERY) {
       foldTimer.current = 0;
       const events = log.all();
+      const tFold = performance.now();
       snap.current = foldWorld(events, sMe, cfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
       stress.current = stressMap(events, sMe, natureCfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      markSpan("fold", performance.now() - tFold);
       if (witnessRef) {
         witnessRef.current = observe({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
@@ -259,6 +266,7 @@ export function RoleField({
       }
       // the headset: what I hear, folded from the same events
       let soundLine: string | undefined;
+      const tSound = performance.now();
       if (sound) {
         if (!tonal.current || tonal.current.epochMs !== epochMs.current) tonal.current = { epochMs: epochMs.current, key: worldKey(String(epochMs.current)) };
         const sig = personalSignals({
@@ -285,6 +293,7 @@ export function RoleField({
         const k = tonal.current.key;
         soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
       }
+      if (sound) markSpan("sound", performance.now() - tSound);
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
         role,
         s: +sMe.toFixed(1),

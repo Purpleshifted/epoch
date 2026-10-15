@@ -8,6 +8,20 @@
 
 import { useEffect, useState } from "react";
 
+/** Named spans of main-thread work (ms), kept a minute: which chunk makes the slow frames. */
+const spans = new Map<string, { at: number; ms: number }[]>();
+
+/** Record how long a chunk of main-thread work took (RoleField times the fold, the mirror, the sound). */
+export function markSpan(name: string, ms: number): void {
+  let list = spans.get(name);
+  if (!list) {
+    list = [];
+    spans.set(name, list);
+  }
+  list.push({ at: performance.now(), ms });
+  if (list.length > 600) list.shift();
+}
+
 export interface PerfReading {
   fps: number;
   /** The 95th percentile frame interval (ms) over the last two seconds. */
@@ -16,6 +30,8 @@ export interface PerfReading {
   slowPerMin: number;
   /** JS heap (MB), Chrome only; 0 elsewhere. */
   heapMb: number;
+  /** The slowest run of each timed chunk in the last minute (ms), slowest first. */
+  spans: { name: string; maxMs: number }[];
 }
 
 export function usePerfMeter(on: boolean): PerfReading | null {
@@ -52,7 +68,13 @@ export function usePerfMeter(on: boolean): PerfReading | null {
       const sorted = recent.slice().sort((a, b) => a - b);
       const p95 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : 0;
       const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
-      setReading({ fps: Math.round(fps), p95Ms: Math.round(p95), slowPerMin: slow.length, heapMb: mem ? Math.round(mem.usedJSHeapSize / 1048576) : 0 });
+      const tops: { name: string; maxMs: number }[] = [];
+      for (const [name, list] of spans) {
+        while (list.length && now - list[0].at > 60000) list.shift();
+        if (list.length) tops.push({ name, maxMs: Math.round(Math.max(...list.map((x) => x.ms))) });
+      }
+      tops.sort((a, b) => b.maxMs - a.maxMs);
+      setReading({ fps: Math.round(fps), p95Ms: Math.round(p95), slowPerMin: slow.length, heapMb: mem ? Math.round(mem.usedJSHeapSize / 1048576) : 0, spans: tops });
     }, 500);
     return () => {
       cancelAnimationFrame(raf);

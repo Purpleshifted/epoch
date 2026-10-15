@@ -314,6 +314,7 @@ export default function ParliamentScene() {
           {perf && (
             <div>
               ⏱ {perf.fps} fps · 가장 느린 프레임 {perf.p95Ms} ms · 50 ms 넘는 프레임 {perf.slowPerMin}/분{perf.heapMb ? ` · heap ${perf.heapMb} MB` : ""}
+              {perf.spans.length ? ` · 최대(ms/분) ${perf.spans.map((s) => `${s.name} ${s.maxMs}`).join(" · ")}` : ""}
             </div>
           )}
         </div>
