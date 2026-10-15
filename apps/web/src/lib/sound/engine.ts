@@ -501,6 +501,7 @@ export class SoundEngine {
     for (const n of sig.neighbours) {
       if (n.dist > params.hearRadius) continue;
       near.add(n.o);
+      this.motifOf(n.o); // their leitmotif is known to the planner whichever instrument plays it
       const close = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + wdt * (close ? 0.12 : -0.08))));
     }
