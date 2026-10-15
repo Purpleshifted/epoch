@@ -1,7 +1,8 @@
 "use client";
 /**
- * PathLines: the trodden paths of the player's ground as LINES (the artist, v4: "길은 선으로") — flat grey strips
- * between neighbouring path cells, their shade the path's strength; a lone path cell is a small square. Human
+ * PathLines: the trodden paths of the player's ground as LINES — the thin white lines the global views draw (the
+ * artist: "글로벌에서 보이는 그런 선, 흰색으로 쨍하게"): one-pixel segments between neighbouring path cells (and
+ * across a diagonal where no orthogonal route joins them), white, their brightness the path's strength. Human
  * traces stay achromatic. Laid out every half second around the player, the nearest image of every cell (the world
  * wraps, world.ts).
  */
@@ -12,27 +13,27 @@ import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { nearestImage, wrapCell, type Snapshot } from "@/lib/parliament";
 
-const MAX_QUADS = 6000;
+const MAX_SEGS = 8000;
 const MIN_P = 0.08;
-const Y = 0.02;
+const Y = 0.025;
 
 export function PathLines({
   playerPosRef,
   getSnapshot,
-  width = 0.3,
+  brightness = 1,
   radius = 24,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   getSnapshot: () => Snapshot | null;
-  /** World width of a strip (0 = none). */
-  width?: number;
+  /** 0 = no lines; 1 = full white at full strength. */
+  brightness?: number;
   radius?: number;
 }) {
   const timer = useRef(10);
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_QUADS * 6 * 3), 3));
-    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(MAX_QUADS * 6 * 3), 3));
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_SEGS * 2 * 3), 3));
+    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(MAX_SEGS * 2 * 3), 3));
     g.setDrawRange(0, 0);
     return g;
   }, []);
@@ -49,53 +50,37 @@ export function PathLines({
     let v = 0;
     const snap = getSnapshot();
     const p = playerPosRef.current;
-    const quad = (ax: number, az: number, bx: number, bz: number, half: number, shade: number) => {
-      if (v + 6 > MAX_QUADS * 6) return;
-      const dx = bx - ax;
-      const dz = bz - az;
-      const len = Math.hypot(dx, dz) || 1;
-      const nx = (-dz / len) * half;
-      const nz = (dx / len) * half;
-      const put = (x: number, z: number) => {
+    const seg = (ax: number, az: number, bx: number, bz: number, shade: number) => {
+      if (v + 2 > MAX_SEGS * 2) return;
+      for (const [x, z] of [
+        [ax, az],
+        [bx, bz],
+      ]) {
         P[v * 3] = x;
         P[v * 3 + 1] = Y;
         P[v * 3 + 2] = z;
         C[v * 3] = C[v * 3 + 1] = C[v * 3 + 2] = shade;
         v++;
-      };
-      put(ax + nx, az + nz);
-      put(bx + nx, bz + nz);
-      put(bx - nx, bz - nz);
-      put(ax + nx, az + nz);
-      put(bx - nx, bz - nz);
-      put(ax - nx, az - nz);
+      }
     };
-    if (snap && width > 0) {
+    if (snap && brightness > 0) {
       const at = new Map<string, number>();
       for (const q of snap.paths) at.set(q.key, q.p);
-      const half = width / 2;
+      const has = (cx: number, cz: number) => (at.get(`${wrapCell(cx)},${wrapCell(cz)}`) ?? 0) >= MIN_P;
+      const str = (cx: number, cz: number) => at.get(`${wrapCell(cx)},${wrapCell(cz)}`) ?? 0;
       for (const q of snap.paths) {
         if (q.p < MIN_P) continue;
         const ax = nearestImage(q.x, p.x);
         const az = nearestImage(q.z, p.z);
         if (Math.hypot(ax - p.x, az - p.z) > radius) continue;
         const [cx, cz] = q.key.split(",").map(Number);
-        let joined = 0;
-        for (const [dx, dz] of [
-          [1, 0],
-          [0, 1],
-          [-1, 0],
-          [0, -1],
-        ] as const) {
-          const pn = at.get(`${wrapCell(cx + dx)},${wrapCell(cz + dz)}`);
-          if (pn == null || pn < MIN_P) continue;
-          joined++;
-          if (dx < 0 || dz < 0) continue; // each pair once
-          const s = Math.min(q.p, pn);
-          quad(ax, az, ax + dx * CELL_SIZE, az + dz * CELL_SIZE, half, 0.22 + 0.55 * s);
-        }
-        // a lone cell (a path just beginning): a small square
-        if (joined === 0) quad(ax - half, az, ax + half, az, half, 0.22 + 0.55 * q.p);
+        const shadeOf = (s: number) => brightness * (0.55 + 0.45 * Math.min(1, s));
+        // the orthogonal neighbours to the right and below (each pair once)
+        if (has(cx + 1, cz)) seg(ax, az, ax + CELL_SIZE, az, shadeOf(Math.min(q.p, str(cx + 1, cz))));
+        if (has(cx, cz + 1)) seg(ax, az, ax, az + CELL_SIZE, shadeOf(Math.min(q.p, str(cx, cz + 1))));
+        // a diagonal where no orthogonal route joins the two cells (so a slanted path is one line, not a stair)
+        if (has(cx + 1, cz + 1) && !has(cx + 1, cz) && !has(cx, cz + 1)) seg(ax, az, ax + CELL_SIZE, az + CELL_SIZE, shadeOf(Math.min(q.p, str(cx + 1, cz + 1))));
+        if (has(cx - 1, cz + 1) && !has(cx - 1, cz) && !has(cx, cz + 1)) seg(ax, az, ax - CELL_SIZE, az + CELL_SIZE, shadeOf(Math.min(q.p, str(cx - 1, cz + 1))));
       }
     }
     geom.setDrawRange(0, v);
@@ -104,8 +89,8 @@ export function PathLines({
   });
 
   return (
-    <mesh geometry={geom} frustumCulled={false}>
-      <meshBasicMaterial vertexColors transparent opacity={0.9} depthWrite={false} />
-    </mesh>
+    <lineSegments geometry={geom} frustumCulled={false}>
+      <lineBasicMaterial vertexColors />
+    </lineSegments>
   );
 }

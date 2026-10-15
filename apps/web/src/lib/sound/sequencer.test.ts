@@ -115,11 +115,16 @@ describe("v4 A2 (the artist): the motif half as often, the micro-tones turned do
     const others = new Map([["b", makeMotif("b")]]);
     const sig = { x: 0, z: 0, speed: 2, stay: 0, neighbours: [{ o: "b", dist: 3, angle: 0, bot: true }], pathP: 0, sealed: 0, grass: 0 };
     const at = (bar: number, every: number) => planBar({ bar, sig, key, me, others, closeness: new Map(), phrase: null, params: { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: every } });
-    expect(at(0, 2).me.length).toBeGreaterThan(0);
-    expect(at(1, 2).me.length).toBe(0);
-    expect(at(2, 2).me.length).toBeGreaterThan(0);
-    expect(at(1, 1).me.length).toBeGreaterThan(0);
-    expect(at(1, 2).others[0].notes.length).toBeGreaterThan(0);
+    const rate = (every: number) => [...Array(400).keys()].filter((b) => at(b, every).me.length > 0).length / 400;
+    expect(rate(1)).toBe(1);
+    expect(rate(2)).toBeGreaterThan(0.4);
+    expect(rate(2)).toBeLessThan(0.6);
+    expect(rate(1.5)).toBeGreaterThan(0.57);
+    expect(rate(1.5)).toBeLessThan(0.77);
+    expect(rate(4)).toBeGreaterThan(0.17);
+    expect(rate(4)).toBeLessThan(0.33);
+    expect(at(1, 2).me.length).toBe(at(1, 2).me.length); // the same bar, the same answer
+    expect([...Array(50).keys()].some((b) => at(b, 2).others[0].notes.length > 0)).toBe(true);
   });
 
   it("microtone 0 puts every note exactly on its MIDI pitch", async () => {

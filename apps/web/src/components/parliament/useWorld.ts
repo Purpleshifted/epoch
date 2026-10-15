@@ -268,7 +268,7 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const drawing = {
     pointsPerCell: { value: DEFAULT_NATURE.pointsPerCell, min: 4, max: 80, step: 1, label: "셀당 최대 점 수" },
     pointSize: { value: 0.11, min: 0.03, max: 0.4, step: 0.01, label: "점 크기" },
-    pathLine: { value: 0.3, min: 0, max: 1, step: 0.05, label: "길의 선 굵기 (월드; 0 = 선 없음)" },
+    pathLine: { value: 1, min: 0, max: 1, step: 0.05, label: "길의 선 밝기 (흰 선; 0 = 선 없음)" },
     pathDots: { value: 0, min: 0, max: 8, step: 0.5, label: "길의 점 (배율; 선 대신·함께)" },
   };
   const natureRoot = place.folder ?? "자연 (초목 point cloud)";
@@ -280,7 +280,7 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;
   const pointSize = c.pointSize ?? 0.11;
   const pathDots = c.pathDots ?? 0;
-  const pathLine = c.pathLine ?? 0.3;
+  const pathLine = c.pathLine ?? 1;
   const cfg = useMemo(
     () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell }),
     [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell],

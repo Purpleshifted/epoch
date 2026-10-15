@@ -75,6 +75,8 @@ export interface SoundParams {
   bassDub: number;
   /** How much the voices (my motif, the others) dip on each heartbeat (0..1): the beat stands in front. */
   bassDuck: number;
+  /** How much the heartbeat's pitch drops onto the root (0 = a pure thump, 1 = an electronic kick). */
+  bassDrop: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -99,9 +101,10 @@ export const DEFAULT_SOUND: SoundParams = {
   motifEcho: 0.35,
   motifSoft: 0.5,
   ncDull: 1,
-  bassSpread: 0.4,
-  bassDub: 0.55,
+  bassSpread: 0.7, // v4 A2e: its own long dark room
+  bassDub: 0.45,
   bassDuck: 0.35,
+  bassDrop: 0.3,
 };
 
 interface Voice {
@@ -175,8 +178,9 @@ export class SoundEngine {
   private echo!: { send: GainNode; delay: DelayNode; feedback: GainNode };
   /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
   private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
-  /** The path's heartbeat spreads into the rooms by bassSpread. */
+  /** The path's heartbeat: a soft clip for weight, then dry, and its own long dark room by bassSpread. */
   private bassSpread!: GainNode;
+  private noise!: AudioBuffer;
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
   private me: Voice | null = null;
@@ -364,15 +368,28 @@ export class SoundEngine {
       this.noiseGain.gain.value = 0;
       noise.connect(bp).connect(this.noiseGain).connect(this.dry);
       noise.start();
-      // bass bus: the path's heartbeat, dry and spread into the open room and the hall
+      // bass bus: the path's heartbeat → a soft clip (weight) → dry, and its own long dark room (bassSpread)
       this.bassGain = ctx.createGain();
       this.bassGain.gain.value = 1;
-      this.bassGain.connect(this.dry);
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(1024);
+      for (let i = 0; i < curve.length; i++) {
+        const x = (i / (curve.length - 1)) * 2 - 1;
+        curve[i] = Math.tanh(x * 1.6) / Math.tanh(1.6);
+      }
+      shaper.curve = curve;
+      shaper.oversample = "2x";
+      this.bassGain.connect(shaper).connect(this.dry);
       this.bassSpread = ctx.createGain();
       this.bassSpread.gain.value = 0;
-      this.bassGain.connect(this.bassSpread);
-      this.bassSpread.connect(this.rooms.open);
-      this.bassSpread.connect(this.rooms.hall);
+      shaper.connect(this.bassSpread);
+      const bassRoom = ctx.createConvolver();
+      bassRoom.buffer = impulse(ctx, 3.6, 1.5, 0, 0.1); // long and dark: the beat spreads under everything
+      const bassRoomLp = ctx.createBiquadFilter();
+      bassRoomLp.type = "lowpass";
+      bassRoomLp.frequency.value = 500;
+      this.bassSpread.connect(bassRoom).connect(bassRoomLp).connect(this.dull);
+      this.noise = noiseBuffer(ctx, 1);
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
@@ -605,30 +622,50 @@ export class SoundEngine {
   }
 
   /**
-   * The path's HEARTBEAT (v4 A2c, the artist: not frivolous — low, strong, spreading): a lub and a softer dub
-   * 0.17 s later, each a sine kick (a short drop onto the root) with a sub an octave below and a long body.
+   * The path's HEARTBEAT (v4 A2c–e, the artist: heavy, not electronic, spreading): a lub and a softer dub 0.17 s
+   * later. Each: the root brought down into 40–80 Hz, a soft attack, a small drop (bassDrop), a long body; a sub an
+   * octave below with its own slower swell; a dark thump of noise for flesh. The bus clips softly and spreads into
+   * a long dark room of its own.
    */
   private bassNote(pitch: number, at: number, level: number): void {
     const ctx = this.ctx!;
-    const f = midiToHz(pitch);
+    let f = midiToHz(pitch);
+    while (f > 80) f /= 2;
+    while (f < 40) f *= 2;
     const hit = (when: number, vel: number) => {
       const g = ctx.createGain();
       g.connect(this.bassGain);
-      const peak = 1.1 * vel * this.params.bassLevel;
+      const peak = 1.2 * vel * this.params.bassLevel;
       g.gain.setValueAtTime(0, when);
-      g.gain.linearRampToValueAtTime(peak, when + 0.012);
-      g.gain.setTargetAtTime(0, when + 0.08, 0.2);
+      g.gain.linearRampToValueAtTime(peak, when + 0.025);
+      g.gain.setTargetAtTime(0, when + 0.1, 0.28);
       const o = ctx.createOscillator();
       o.type = "sine";
-      o.frequency.setValueAtTime(f * 2.2, when);
-      o.frequency.exponentialRampToValueAtTime(f, when + 0.05);
+      const drop = 1 + 1.2 * this.params.bassDrop;
+      o.frequency.setValueAtTime(f * drop, when);
+      o.frequency.exponentialRampToValueAtTime(f, when + 0.07);
       o.connect(g);
       const sub = ctx.createOscillator();
       sub.type = "sine";
       sub.frequency.value = f / 2;
       const sg = ctx.createGain();
-      sg.gain.value = 0.7;
+      sg.gain.setValueAtTime(0, when);
+      sg.gain.linearRampToValueAtTime(0.9, when + 0.04);
+      sg.gain.setTargetAtTime(0, when + 0.15, 0.35);
       sub.connect(sg).connect(g);
+      // flesh: a dark burst of noise under the beat
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      const nf = ctx.createBiquadFilter();
+      nf.type = "lowpass";
+      nf.frequency.value = 220;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0, when);
+      ng.gain.linearRampToValueAtTime(0.9 * vel, when + 0.01);
+      ng.gain.setTargetAtTime(0, when + 0.04, 0.06);
+      n.connect(nf).connect(ng).connect(g);
+      n.start(when);
+      n.stop(when + 0.5);
       // the beat in front: the voices dip for a moment
       const duck = this.params.bassDuck * vel;
       if (duck > 0) {

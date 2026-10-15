@@ -20,7 +20,7 @@
  */
 
 import { placeChord, type PlaceChord, type WorldKey } from "./harmony";
-import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF } from "./motif";
+import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF, hashString, rng } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
 
@@ -31,7 +31,7 @@ export interface SequencerParams {
   speedMax: number;
   /** Path strength from which the bass pulse is heard. */
   bassFrom: number;
-  /** My motif comes round every this many bars (v4 A2, the artist: half as often) — 1 = every bar. */
+  /** My motif comes on average every this many bars (v4 A2): 1 = every bar; 1.5 = two bars in three, drawn by chance (reproducible per bar). */
   motifEvery?: number;
   /** How much of the micro-tones is heard (motif.ts MotifConfig.microtone), 0..1. */
   microtone?: number;
@@ -106,9 +106,9 @@ export function planBar(inp: BarInputs): BarPlan {
   // call and response while staying among others: odd bars are theirs
   const answer = staying && bar % 2 === 1;
   const motifCfg = { ...DEFAULT_MOTIF, microtone: p.microtone ?? 1 };
-  const every = Math.max(1, Math.round(p.motifEvery ?? 1));
-  // my bar: every `every` bars (when staying, the answer bars are theirs anyway)
-  const myBar = bar % every === 0;
+  const every = Math.max(1, p.motifEvery ?? 1);
+  // my bar: with probability 1/every, drawn from the bar and my id (the same answer every time this bar is planned)
+  const myBar = every <= 1.0001 || rng(hashString(`${me.id}#every#${bar}`))() < 1 / every;
 
   // my notes: a Magenta phrase if one is running, else my motif blended with whoever has been close
   let mine: MotifNote[] = [];

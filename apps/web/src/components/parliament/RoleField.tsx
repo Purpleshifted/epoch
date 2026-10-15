@@ -87,7 +87,7 @@ export function RoleField({
   natureCfg,
   pointSize,
   pathDots = 1,
-  pathLine = 0.3,
+  pathLine = 1,
   offsetWindow,
   botCount,
   botRole,
@@ -104,7 +104,7 @@ export function RoleField({
   pointSize: number;
   /** How many dust points a trodden cell gets (× the base 14 at full strength); the artist wanted the paths visible. */
   pathDots?: number;
-  /** World width of the path LINES (PathLines; 0 = none). */
+  /** Brightness of the path LINES (PathLines; 0 = none, 1 = white). */
   pathLine?: number;
   offsetWindow: number;
   botCount: number;
@@ -340,7 +340,7 @@ export function RoleField({
         pointSize={pointSize}
         pathDots={pathDots}
       />
-      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} width={pathLine} radius={VIEW_RADIUS} />
+      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
     </>
   );
 }
