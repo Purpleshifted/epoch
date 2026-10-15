@@ -15,6 +15,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { ROLE_TAG, fmtClock } from "./session";
 import type { PEvent, RoleId, Snapshot } from "./types";
+import { wrapDelta, wrapDist } from "./world";
 
 export type Surface = "open" | "trodden" | "sealed";
 
@@ -114,12 +115,12 @@ export function observe(inp: ObserveInputs): Observation {
   }
   const others: Other[] = [];
   for (const e of last.values()) {
-    const dx = e.x - me.x, dz = e.z - me.z;
+    const dx = wrapDelta(e.x - me.x), dz = wrapDelta(e.z - me.z);
     const dist = Math.hypot(dx, dz);
     if (dist > watch) continue;
     const p = prev.get(e.o);
     const ds = p ? e.s - p.s : 0;
-    const v = p && ds > 0 ? Math.hypot(e.x - p.x, e.z - p.z) / ds : 0;
+    const v = p && ds > 0 ? wrapDist(e.x, e.z, p.x, p.z) / ds : 0;
     others.push({ o: e.o, r: e.r, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed });
   }
   others.sort((a, b) => a.dist - b.dist || (a.o < b.o ? -1 : 1));

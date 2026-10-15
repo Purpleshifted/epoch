@@ -8,6 +8,7 @@
 import type { PEvent, RoleId } from "./types";
 import { ROLES } from "./types";
 import { worldNow } from "./worldClock";
+import { wrapEvent } from "./world";
 
 export const LS_EVENTS_KEY = "anthropocene:parliament:v1";
 /** Shared with the older stratum code: the wall-clock moment the exhibition epoch began. */
@@ -27,6 +28,9 @@ export class EventLog {
   private cache: PEvent[] | null = null;
   /** Bumps on every change. */
   version = 0;
+  /** Bumps whenever events were forgotten (dropBefore, clear); `droppedBefore` is the last cutoff. */
+  drops = 0;
+  droppedBefore = -Infinity;
 
   get size(): number {
     return this.m.size;
@@ -58,6 +62,8 @@ export class EventLog {
     if (n) {
       this.cache = null;
       this.version++;
+      this.drops++;
+      this.droppedBefore = s;
     }
     return n;
   }
@@ -66,6 +72,8 @@ export class EventLog {
     this.m.clear();
     this.cache = null;
     this.version++;
+    this.drops++;
+    this.droppedBefore = Infinity;
   }
 
   all(): PEvent[] {
@@ -136,7 +144,8 @@ export function loadEvents(): PEvent[] {
     if (!raw) return [];
     const arr = JSON.parse(raw) as unknown;
     const from = keepFromS();
-    return Array.isArray(arr) ? arr.filter((e): e is PEvent => isEvent(e) && e.s >= from) : [];
+    // the world is finite and wraps (world.ts): whatever was stored is read back in canonical coordinates
+    return Array.isArray(arr) ? arr.filter((e): e is PEvent => isEvent(e) && e.s >= from).map(wrapEvent) : [];
   } catch {
     return [];
   }

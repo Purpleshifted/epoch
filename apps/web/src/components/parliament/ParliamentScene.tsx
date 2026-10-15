@@ -20,7 +20,7 @@ import { useSound } from "./useSound";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { SessionHud } from "./SessionHud";
-import { DEFAULT_LIFE, hindrance, seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type Observation, type RoleId } from "@/lib/parliament";
+import { DEFAULT_LIFE, hindrance, seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, wrapCoord, type Observation, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -156,6 +156,18 @@ function Controller({
     p.vz += (tvz - p.vz) * damp;
     p.x += p.vx * dt;
     p.z += p.vz * dt;
+    // the world is finite and wraps (world.ts): over the edge, in from the other side — the camera and the look-at
+    // move by the same jump, so nothing is seen to happen (the ground is laid out around the player)
+    const wx = wrapCoord(p.x);
+    const wz = wrapCoord(p.z);
+    if (wx !== p.x || wz !== p.z) {
+      camPos.current.x += wx - p.x;
+      camPos.current.z += wz - p.z;
+      lookAt.current.x += wx - p.x;
+      lookAt.current.z += wz - p.z;
+      p.x = wx;
+      p.z = wz;
+    }
     playerPosRef.current = { x: p.x, z: p.z, vx: p.vx, vz: p.vz };
     playerYawRef.current = y;
     group.current?.position.set(p.x, ORB_Y, p.z);
@@ -174,6 +186,19 @@ function Controller({
       <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} />
     </group>
   );
+}
+
+/**
+ * The faint cell grid, carried along under the player and snapped to whole cells (its lines stay the cells' lines):
+ * the world wraps (world.ts), so a grid fixed at the origin would end somewhere.
+ */
+function FollowGrid({ playerPosRef, size }: { playerPosRef: React.MutableRefObject<PlayerState>; size: number }) {
+  const ref = useRef<THREE.GridHelper>(null);
+  useFrame(() => {
+    const p = playerPosRef.current;
+    ref.current?.position.set(Math.round(p.x / CELL_SIZE) * CELL_SIZE, 0.001, Math.round(p.z / CELL_SIZE) * CELL_SIZE);
+  });
+  return <gridHelper ref={ref} args={[size, 100, "#1a1d33", "#0d0f1c"]} />;
 }
 
 export default function ParliamentScene() {
@@ -251,8 +276,18 @@ export default function ParliamentScene() {
         <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
-        {/* the ground: faint cell lines (one cell = CELL_SIZE) */}
-        <gridHelper args={[grid, 100, "#1a1d33", "#0d0f1c"]} position={[0, 0.001, 0]} />
+        {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
+        <FollowGrid playerPosRef={playerPosRef} size={grid} />
+        <Controller
+          key={`controller-${session.sessionNo}`}
+          playerPosRef={playerPosRef}
+          playerYawRef={playerYawRef}
+          setLocked={setLocked}
+          camDist={camDist}
+          camLerp={camLerp}
+          viscosity={viscosity}
+          lifeRef={withSession ? session.lifeRef : undefined}
+        />
         <RoleField
           key={`field-${session.sessionNo}`}
           playerPosRef={playerPosRef}
@@ -268,16 +303,6 @@ export default function ParliamentScene() {
           playerYawRef={playerYawRef}
           lifeRef={withSession ? session.lifeRef : undefined}
           witnessRef={withSession ? witnessRef : undefined}
-        />
-        <Controller
-          key={`controller-${session.sessionNo}`}
-          playerPosRef={playerPosRef}
-          playerYawRef={playerYawRef}
-          setLocked={setLocked}
-          camDist={camDist}
-          camLerp={camLerp}
-          viscosity={viscosity}
-          lifeRef={withSession ? session.lifeRef : undefined}
         />
       </Canvas>
 
@@ -296,7 +321,8 @@ export default function ParliamentScene() {
             <div>
               {debug.role}
               {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"}
-              {withSession ? ` · ${session.phase}` : ""} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths}
+              {withSession ? ` · ${session.phase}` : ""} · s={debug.s} (offset {debug.offset}) · ({debug.x}, {debug.z}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths}
+              {debug.fold ? ` · ${debug.fold}` : ""}
             </div>
           )}
           {debug?.sound && <div>♪ {debug.sound}</div>}

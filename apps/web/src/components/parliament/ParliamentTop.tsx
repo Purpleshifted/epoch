@@ -15,8 +15,9 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Leva, button, useControls } from "leva";
 import * as THREE from "three";
 import {
+  WORLD_HALF,
+  WORLD_SIZE,
   clearWorld,
-  foldWorld,
   horizonSeconds,
   latestS,
   seedParliamentDemoIfRequested,
@@ -26,7 +27,7 @@ import {
   type Snapshot,
 } from "@/lib/parliament";
 import { ArchitectureLayer, type ArchStyle } from "./Architecture";
-import { LEVA_THEME, useArchControls, useFoldControls, useWorld } from "./useWorld";
+import { LEVA_THEME, useArchControls, useFoldControls, useFoldState, useWorld } from "./useWorld";
 
 const BG = "#05060a";
 const PAPER = "#e9ebee";
@@ -59,13 +60,14 @@ function Surface({
 }) {
   const { camera, size } = useThree();
   const timer = useRef(10);
+  // the whole world's fold, grown with the log instead of refolded (foldState.ts)
+  const fold = useFoldState(log, cfg);
   useFrame((_, dt) => {
     timer.current += dt;
     if (timer.current < 0.5) return;
     timer.current = 0;
     const cam = camera as THREE.OrthographicCamera;
-    const events = log.all();
-    snapRef.current = foldWorld(events, horizonSeconds(latestS(events), horizonYears), cfg);
+    snapRef.current = fold.at(horizonSeconds(latestS(log.all()), horizonYears));
 
     const { cx, cz, span } = view;
     if (mode === "top") {
@@ -87,6 +89,27 @@ function Surface({
   return null;
 }
 
+/** The world's edge (world.ts): a thin frame round the square — beyond it the ground comes round from the other side. */
+function WorldEdge({ color }: { color: string }) {
+  const t = 0.35;
+  return (
+    <group position={[0, 0.02, 0]}>
+      {[-WORLD_HALF, WORLD_HALF].map((z) => (
+        <mesh key={`z${z}`} position={[0, 0, z]}>
+          <boxGeometry args={[WORLD_SIZE + t, 0.02, t]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+      ))}
+      {[-WORLD_HALF, WORLD_HALF].map((x) => (
+        <mesh key={`x${x}`} position={[x, 0, 0]}>
+          <boxGeometry args={[t, 0.02, WORLD_SIZE + t]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld();
@@ -104,9 +127,9 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
       step: 10,
       label: "미래 (마지막 사건 이후 년)",
     },
-    viewCx: { value: 0, min: -60, max: 60, step: 0.5, label: "화면 중심 x (고정, 자동 맞춤 없음)" },
-    viewCz: { value: 0, min: -60, max: 60, step: 0.5, label: "화면 중심 z (Top)" },
-    viewSpan: { value: 30, min: 6, max: 120, step: 1, label: "화면 폭 (월드 단위)" },
+    viewCx: { value: 0, min: -WORLD_HALF, max: WORLD_HALF, step: 0.5, label: "화면 중심 x (고정, 자동 맞춤 없음)" },
+    viewCz: { value: 0, min: -WORLD_HALF, max: WORLD_HALF, step: 0.5, label: "화면 중심 z (Top)" },
+    viewSpan: { value: Math.round(WORLD_SIZE * 1.04), min: 6, max: Math.round(WORLD_SIZE * 1.3), step: 1, label: "화면 폭 (월드 단위; 기본 = 세계 전체)" },
     reload: button(() => log.addMany(loadEvents())),
     "clear world": button(() => {
       if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
@@ -139,6 +162,7 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
           </>
         )}
         <Surface log={log} mode={mode} horizonYears={c.horizonYears} cfg={cfg} heightUnit={arch.heightUnit} view={{ cx: c.viewCx, cz: c.viewCz, span: c.viewSpan }} snapRef={snapRef} />
+        {mode === "top" && <WorldEdge color={paper ? "#aeb3ba" : "#262a36"} />}
         <ArchitectureLayer
           getSnapshot={() => snapRef.current}
           heightUnit={arch.heightUnit}

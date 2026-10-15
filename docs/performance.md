@@ -37,3 +37,14 @@ After (Node, same data): `resolveNear` r=16 ≈ 5 ms, `resolveNaturalIn` ≈ 1.5
 5. **Incremental, low-frequency resolve** (0.5–1 Hz).
 6. **Deterministic recompute**: all fates derive from hashes of event ids, so clients can recompute from the same events.
 7. GPU draw is cheap (one `Points` draw). CPU and network are the bottleneck.
+
+## 4. The parliament ground (2026-10-15)
+
+The player's stutter was the fold: `foldWorld` re-read the whole 20-minute window twice a second (Node: 152 ms at
+16,800 events with twelve bots; the artist's Chrome: 3–8 frames over 50 ms per minute). The sound engine's own
+update is ~1 ms.
+
+Fix: the fold as a growing state (`lib/parliament/foldState.ts`, `useFoldState` / `useStressState`): the same
+rules, applied to each sample once; the viewer's region only selects which cells are read. With it the world was
+made finite and wrapping (`lib/parliament/world.ts`), so the ground — and the state — stay bounded. Rules and
+measurements: `docs/world-logic.md`.

@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { grassDensity, hash2, type NatureConfig, type Snapshot } from "@/lib/parliament";
+import { WORLD_SIZE, grassDensity, hash2, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
 
 const RADIUS = 22; // world units around the player
 const MAX_POINTS = 90000;
@@ -53,6 +53,8 @@ export function NatureCloud({
 }) {
   const ref = useRef<THREE.Points>(null);
   const timer = useRef(10);
+  /** Where the cloud was last laid out: a jump of more than a quarter world = the player wrapped round the edge. */
+  const laidAt = useRef({ x: NaN, z: NaN });
   const tex = useMemo(() => dotTexture(), []);
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -67,11 +69,13 @@ export function NatureCloud({
 
   useFrame((_, dt) => {
     timer.current += dt;
-    if (timer.current < 0.25) return;
+    const p = playerPosRef.current;
+    const jumped = Number.isFinite(laidAt.current.x) && Math.hypot(p.x - laidAt.current.x, p.z - laidAt.current.z) > WORLD_SIZE / 4;
+    if (timer.current < 0.25 && !jumped) return;
     timer.current = 0;
+    laidAt.current = { x: p.x, z: p.z };
     const stress = getStress();
     const snap = getSnapshot();
-    const p = playerPosRef.current;
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
     const col = geom.getAttribute("color") as THREE.BufferAttribute;
     const P = pos.array as Float32Array;
@@ -90,20 +94,23 @@ export function NatureCloud({
     let k = 0;
     for (let dx = -n; dx <= n && k < MAX_POINTS - 64; dx++) {
       for (let dz = -n; dz <= n && k < MAX_POINTS - 64; dz++) {
+        // drawn where it lies around the player (ix, iz), but it IS the canonical cell (wx, wz): the world wraps
         const ix = cx0 + dx;
         const iz = cz0 + dz;
         if (Math.hypot((ix + 0.5) * CELL_SIZE - p.x, (iz + 0.5) * CELL_SIZE - p.z) > RADIUS) continue;
-        const key = `${ix},${iz}`;
+        const wx = wrapCell(ix);
+        const wz = wrapCell(iz);
+        const key = `${wx},${wz}`;
         const S = stress?.get(key) ?? 0;
         const pp = pathAt.get(key) ?? 0;
-        const G = grassDensity(ix, iz, S, pp, sealed.has(key), cfg);
+        const G = grassDensity(wx, wz, S, pp, sealed.has(key), cfg);
         const worn = 1 - Math.exp(-S); // 0 fresh .. 1 trampled
 
         for (let i = 0; i < cfg.pointsPerCell; i++) {
-          if (hash2(ix, iz, 100 + i) >= G) continue; // candidate i is drawn iff its threshold < G
-          const u = hash2(ix, iz, 200 + i);
-          const v = hash2(ix, iz, 300 + i);
-          const h = hash2(ix, iz, 400 + i);
+          if (hash2(wx, wz, 100 + i) >= G) continue; // candidate i is drawn iff its threshold < G
+          const u = hash2(wx, wz, 200 + i);
+          const v = hash2(wx, wz, 300 + i);
+          const h = hash2(wx, wz, 400 + i);
           const y = 0.02 + h * (0.12 + 0.3 * G) * (1 - 0.6 * worn);
           P[k * 3] = (ix + u) * CELL_SIZE;
           P[k * 3 + 1] = y;
@@ -117,10 +124,10 @@ export function NatureCloud({
         if (pp > 0.05) {
           const nd = Math.round(14 * pp);
           for (let i = 0; i < nd; i++) {
-            P[k * 3] = (ix + hash2(ix, iz, 500 + i)) * CELL_SIZE;
-            P[k * 3 + 1] = 0.015 + hash2(ix, iz, 600 + i) * 0.03;
-            P[k * 3 + 2] = (iz + hash2(ix, iz, 700 + i)) * CELL_SIZE;
-            tmp.copy(DUST).multiplyScalar(0.75 + 0.5 * hash2(ix, iz, 800 + i));
+            P[k * 3] = (ix + hash2(wx, wz, 500 + i)) * CELL_SIZE;
+            P[k * 3 + 1] = 0.015 + hash2(wx, wz, 600 + i) * 0.03;
+            P[k * 3 + 2] = (iz + hash2(wx, wz, 700 + i)) * CELL_SIZE;
+            tmp.copy(DUST).multiplyScalar(0.75 + 0.5 * hash2(wx, wz, 800 + i));
             Cc[k * 3] = tmp.r;
             Cc[k * 3 + 1] = tmp.g;
             Cc[k * 3 + 2] = tmp.b;
