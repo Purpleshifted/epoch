@@ -160,6 +160,27 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
 
 ---
 
+## 8b. NoiseCraft 악기 — umwelt 방식 그대로, 매핑은 코드로 (2026-10-15)
+
+작가 결정: umwelt에서 NoiseCraft를 쓰던 방식을 그대로 가져오고, 매핑(신호 → 노브)은 UI가 아니라 **코드로 직접** 써서 기존 사운드 로직과 잇는다. 리뷰 문서 `docs/sound-review-2026-10-15.md`가 배경.
+
+| 부분 | 파일 | 무엇 |
+|---|---|---|
+| NoiseCraft 런타임 | `apps/web/noisecraft/public/*` | umwelt 포크 (AI_Seq / AI_Poly 수신 노드, ClockOut → clockPulse, setSequence / updateModules / enableAutoSave / nodeSelection). 두 군데만 손봄: 워클릿 경로를 모듈 상대 경로로(`/public/audioworklet.js`는 404였다 — 지난 세션에 소리가 안 난 원인), MIDI 권한이 없을 때 `broadcast`가 던지지 않게 |
+| 정적 서빙 | `apps/web/public/noisecraft → ../noisecraft` | `/noisecraft/public/embedded.html`, `/noisecraft/examples/<patch>`. 서버(express) 없음 |
+| 저장·목록 라우트 | `app/noisecraft/{save-ncft,list,create,rename,duplicate,delete}-patch` | umwelt 라우트 이식. 파일 위치는 `next.config.ts`가 `NOISECRAFT_EXAMPLES_DIR`로 고정(dev 서버의 cwd가 저장소 루트라 `process.cwd()`가 틀렸다). dev 전용; 전시 빌드는 파일 고정 |
+| 브리지 | `lib/sound/NoiseCraftBridge.ts` | umwelt `NoiseCraftBridge` 이식(싱글톤, 숨은/보이는 iframe, 프로토콜, 아날라이저). 모듈 목록 고정: `parliament`(poly: voice 0 나, 1–3 이웃), `me`, `n1–n3`, `bass`, `pad` |
+| 매핑 (코드) | `lib/sound/noisecraftMap.ts` | 패치별 **노브 규칙 표**: `{nodeId, label, min, max, drive(ctx)}` — ctx = 신호 + **모드**(open / path / build / building, `modeOf`) + 다음 마디 계획 + 마스터. `planToSequences`: 마디 계획 → AI_Poly "parliament"(스텝마다 [나, n1, n2, n3]), "bass", "pad"(코드톤 4성, 다운비트·중간에 게이트). 지금 표는 `nc_noise_patch` / `Feedback_Synth`(같은 노브 id: 70 vol, 183 Vol CHORDS, 163 REVERB WET, 166 DRY, 84 Del Vol, 171 amt, 206 fact, 138/152 FB, 132/146 Dist)와 `global_audio` |
+| 드라이버 | `lib/sound/noisecraftDriver.ts` | **NoiseCraft가 마스터 클록**: ClockOut 펄스 6개 = 한 스텝, 8스텝 = 우리 한 마디(사이클). AI_Seq는 스텝 인덱스를 리셋하지 않으므로 **마디 마지막 펄스에서 다음 마디 시퀀스를 보낸다**. ClockOut이 없는 패치는 umwelt처럼 벽시계 마디(위상 안 맞음). 노브는 250 ms마다, 데드밴드 밖으로 움직인 것만. 재생은 `running()`을 따름 |
+| 플레이어 탭 | `components/parliament/NoiseCraftHost.tsx` | 악기 = NoiseCraft일 때 숨은 iframe이 이 탭 안에서 재생(전시 모드). 편집기는 여기 없음 |
+| 버스 | `lib/sound/bus.ts` | BroadcastChannel: 플레이어 탭이 0.5초마다 {myId, 신호, 파라미터, 에포크, yaw}를 보냄 |
+| 워크스페이스 | `/v2/sound` — `components/sound/NoiseCraftManagerScene.tsx`, `NoiseCraftPatchManager.tsx` | umwelt NoiseCraft Manager 이식: 패치 목록(생성·복제·이름·삭제) → 편집기(자동 저장) + 인스펙터(신호, 모드, 마디/코드, **코드 매핑 표와 실시간 값**, 시뮬레이터 슬라이더). 자기 **headless 엔진**(AudioContext 없이 `planFor`만)을 버스의 플레이어 신호 또는 시뮬레이터로 돌려 편집기의 패치를 연주. PLAY면 솔로 "manager"를 잡아 플레이어 탭의 악기는 조용해짐 |
+| 패치 | `noisecraft/examples/{nc_noise_patch, Feedback_Synth, global_audio}.ncft` | 작가의 umwelt 패치. AI_Seq의 moduleId → `parliament`(voice 유지), ClockOut 노드를 시퀀서 클록(Pulse 173)에 추가 |
+
+템포에 대한 사실: 작가 패치의 시퀀서 클록은 **0.33 스텝/s**(BPM 120 → Div 60 → 2 Hz 펄스 ÷ 6)다. 즉 우리 8스텝 사이클 하나가 **24 s** — 느린 앰비언트. 빠르게 하려면 편집기에서 Div/BPM 노드를 바꾸면 되고, 드라이버는 어떤 템포든 펄스를 세서 따라간다. 인스펙터 상태 줄이 측정된 스텝/s와 마디 길이를 보여준다.
+
+Leva "악기"에서 Web Audio(내장, 폴백) / NoiseCraft를 고른다. 솔로 우선순위: manager > global/mobile.
+
 ## 9. Leva — "소리 (V2 · 헤드셋)" (V1에는 없음)
 
 | 노브 | 의미 | 기본 |
@@ -216,6 +237,8 @@ HRTF·베이스·패드·부르고 답하기 없음 (헤드셋의 것). 건물�
 ---
 
 ## 12. 변경 이력
+
+- **2026-10-15 (3)** umwelt 방식의 NoiseCraft 악기(§8b): 포크 런타임, 정적 서빙, 브리지·드라이버·버스, 코드 매핑, 워크스페이스 `/v2/sound`, 작가 패치 3개 이식. 지난 세션 사운드가 안 난 원인 두 가지 수정(워클릿 404, MIDI broadcast 예외). 사이드 패널 방식과 임시 패치는 폐기.
 
 - **2026-10-15 (2)** 두 방식의 **융합**(fusion, 기본): 모티프를 실제 음정(반음)으로 정의하고 키 위에는 조적 응답으로 얹음(방향·음정 급 보존, 조 밖 음 ≤ 1), 끌림은 강박에만·모양 유지 조건부, 건물 전조는 가까운 조(딸림·버금딸림·나란한·같은으뜸음)로. world / identity는 선택 가능(§3, §4, §9). 47 테스트.
 

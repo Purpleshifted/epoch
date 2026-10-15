@@ -69,7 +69,8 @@ class MIDI extends Eventable
     // Send a message to all MIDI devices
     broadcast(msg, timestamp)
     {
-        if (!midi)
+        // no MIDI access (permission denied, or not asked): nothing to send to — and never throw into the editor
+        if (!this.midiAccess || !this.midiAccess.outputs)
             return;
 
         for (let output of this.midiAccess.outputs.values())

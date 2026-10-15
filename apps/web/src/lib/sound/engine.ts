@@ -64,6 +64,8 @@ export interface SoundParams {
    *   "identity" a home key per motif, a key per building, the path as a progression
    */
   harmony: "fusion" | "world" | "identity";
+  /** Who makes the sound: the built-in Web Audio instrument, or a NoiseCraft patch (noisecraft.ts) fed by this engine's plans. */
+  instrument: "webaudio" | "noisecraft";
   /** How much conforming pulls single notes onto the chord of the place (0 = the motif is never rewritten). */
   lockPull: number;
   /** Share of noise in a voice at full roughness (crossing vegetation): the tonal/noise ratio. */
@@ -89,6 +91,7 @@ export const DEFAULT_SOUND: SoundParams = {
   noiseMix: 0.6,
   stepEvery: 6,
   harmony: "fusion",
+  instrument: "webaudio",
 };
 
 interface Voice {
@@ -135,6 +138,9 @@ function noiseBuffer(ctx: AudioContext, seconds = 2): AudioBuffer {
 }
 
 export interface SoundDebug {
+  myId: string;
+  epochMs: number;
+  yaw: number;
   bar: number;
   /** The key I am in and, at a building, which one. */
   key: string;
@@ -170,11 +176,14 @@ export class SoundEngine {
   private bassGain!: GainNode;
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
   private me: Voice | null = null;
+  /** My motif (pure): planning needs it even with no AudioContext (headless engine on the manager page). */
+  private myMotif: Motif | null = null;
+  private lastWall = 0;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
   private closeness = new Map<string, number>();
   private sig: PersonalSignals | null = null;
-  private params: SoundParams = DEFAULT_SOUND;
+  private params_: SoundParams = DEFAULT_SOUND;
   private yaw = 0;
   private myId = "";
   private epochMs = 0;
@@ -203,11 +212,24 @@ export class SoundEngine {
     return !!this.ctx && this.ctx.state === "running" && this.timer !== null;
   }
 
+  /** The latest signals (for whoever else renders them, e.g. the NoiseCraft knobs). */
+  get signals(): PersonalSignals | null {
+    return this.sig;
+  }
+
+  /** The parameters last given to update(). */
+  get params(): SoundParams {
+    return this.params_;
+  }
+
   get debug(): SoundDebug {
     const p = this.lastPlan;
     return {
+      myId: this.myId,
+      epochMs: this.epochMs,
+      yaw: this.yaw,
       bar: p?.bar ?? -1,
-      key: this.placeKey ? keyName(this.placeKey) + (this.params.harmony === "identity" ? "" : ` [${this.params.harmony}]`) : "",
+      key: this.placeKey ? keyName(this.placeKey) + (this.params_.harmony === "identity" ? "" : ` [${this.params_.harmony}]`) : "",
       building: this.atBuilding,
       degree: this.degree,
       chord: p ? chordName(p.chord) : "",
@@ -236,7 +258,7 @@ export class SoundEngine {
       this.master.gain.value = 0;
       this.dull = ctx.createBiquadFilter();
       this.dull.type = "lowpass";
-      this.dull.frequency.value = this.params.lpOpen;
+      this.dull.frequency.value = this.params_.lpOpen;
       this.dull.Q.value = 0.5;
       this.dull.connect(this.master).connect(ctx.destination);
       this.dry = ctx.createGain();
@@ -306,8 +328,8 @@ export class SoundEngine {
     if (this.ctx.state !== "running") await this.ctx.resume();
     if (this.sinkId !== "default") await applySink(this.ctx, this.sinkId);
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
-    this.master.gain.setTargetAtTime(this.params.master, this.ctx.currentTime, 0.3);
-    if (this.params.magenta && this.magentaState === "off") {
+    this.master.gain.setTargetAtTime(this.params_.instrument === "webaudio" ? this.params_.master : 0, this.ctx.currentTime, 0.3);
+    if (this.params_.magenta && this.magentaState === "off") {
       this.magentaState = "loading";
       setTimeout(() => this.magenta.load().then((ok) => (this.magentaState = ok ? "ready" : "failed")), MAGENTA_AFTER_MS);
     }
@@ -389,7 +411,7 @@ export class SoundEngine {
    */
   update(myId: string, sig: PersonalSignals, params: SoundParams, yaw: number, epochMs: number): void {
     this.sig = sig;
-    this.params = params;
+    this.params_ = params;
     this.yaw = yaw;
     if (this.myId !== myId || !this.home) {
       this.myId = myId;
@@ -452,12 +474,30 @@ export class SoundEngine {
       }
     }
     this.lastPos = { x: sig.x, z: sig.z };
+    if (!this.myMotif || this.myMotif.id !== myId) this.myMotif = this.motifOf(myId);
+    // closeness accumulates on the wall clock (so a headless engine, which only plans, keeps it too)
+    const wall = Date.now();
+    const wdt = this.lastWall ? Math.max(0, Math.min(2, (wall - this.lastWall) / 1000)) : 0;
+    this.lastWall = wall;
+    const near = new Set<string>();
+    for (const n of sig.neighbours) {
+      if (n.dist > params.hearRadius) continue;
+      near.add(n.o);
+      const close = n.dist < params.hearRadius * 0.5;
+      this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + wdt * (close ? 0.12 : -0.08))));
+    }
+    for (const [id, c] of this.closeness) {
+      if (near.has(id)) continue;
+      const nc = c - wdt * 0.08;
+      if (nc <= 0) this.closeness.delete(id);
+      else this.closeness.set(id, nc);
+    }
     const ctx = this.ctx;
     if (!ctx || !this.timer) return;
     const t = ctx.currentTime;
     const dt = Math.max(0, Math.min(2, t - this.lastUpdate));
     this.lastUpdate = t;
-    this.master.gain.setTargetAtTime(params.master, t, 0.3);
+    this.master.gain.setTargetAtTime(params.instrument === "webaudio" ? params.master : 0, t, 0.3);
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
@@ -500,21 +540,13 @@ export class SoundEngine {
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
       v.filt.frequency.setTargetAtTime(v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, 0.3);
-      const near = n.dist < params.hearRadius * 0.5;
-      this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
     }
     for (const [id, v] of this.voices) {
       if (alive.has(id)) continue;
       if (t - v.seen > OTHER_FADE_SEC) this.dropVoice(id, v);
       else v.gain.gain.setTargetAtTime(0, t, 0.4);
     }
-    for (const [id, c] of this.closeness) {
-      if (!alive.has(id)) {
-        const nc = c - dt * 0.08;
-        if (nc <= 0) this.closeness.delete(id);
-        else this.closeness.set(id, nc);
-      }
-    }
+    void dt;
   }
 
   // ── the instrument: tone + (rough) noise ──
@@ -530,7 +562,7 @@ export class SoundEngine {
     g.gain.setTargetAtTime(0, at + dur, release / 3);
     const end = at + dur + release + 0.3;
     // the tonal / noise ratio: a rough walk (crossing vegetation) turns part of the tone into pitched noise
-    const noiseShare = this.params.noiseMix * rough;
+    const noiseShare = this.params_.noiseMix * rough;
     const tone = ctx.createGain();
     tone.gain.value = 1 - noiseShare;
     tone.connect(g);
@@ -579,7 +611,7 @@ export class SoundEngine {
     const ctx = this.ctx!;
     const g = ctx.createGain();
     g.connect(this.bassGain);
-    const peak = 0.5 * level * this.params.bassLevel;
+    const peak = 0.5 * level * this.params_.bassLevel;
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(peak, at + 0.02);
     g.gain.setTargetAtTime(0, at + 0.12, 0.22);
@@ -612,7 +644,7 @@ export class SoundEngine {
 
   private setPad(pitches: number[], level: number, at: number): void {
     const { oscs, gains, level: lv } = this.pad;
-    lv.gain.setTargetAtTime(level * this.params.padLevel * 0.25, at, 0.6);
+    lv.gain.setTargetAtTime(level * this.params_.padLevel * 0.25, at, 0.6);
     for (let i = 0; i < oscs.length; i++) {
       const p = pitches[i];
       if (p == null) {
@@ -627,11 +659,11 @@ export class SoundEngine {
   /** My next 4 bars as a phrase (what Magenta works from). */
   private myPhrase(fromBar: number, lock: number): Phrase {
     const out: Phrase = new Array(PHRASE_STEPS).fill(0);
-    if (!this.me || !this.placeKey || !this.sig) return out;
+    if (!this.myMotif || !this.placeKey || !this.sig) return out;
     const key = this.placeKey;
     const chord = this.lastPlan?.chord ?? null;
     for (let c = 0; c < CYCLES_PER_PHRASE; c++) {
-      const steps = cycleToSteps(realize(this.me.motif, key, chord, lock, fromBar + c));
+      const steps = cycleToSteps(realize(this.myMotif, key, chord, lock, fromBar + c));
       for (let i = 0; i < STEPS_PER_CYCLE; i++) out[c * STEPS_PER_CYCLE + i] = steps[i];
     }
     return out;
@@ -652,7 +684,7 @@ export class SoundEngine {
 
   /** Ask Magenta for a phrase when the moment calls for one; it takes my bars once it has answered. */
   private askMagenta(bar: number, sig: PersonalSignals, lock: number, stable: number): void {
-    if (!this.params.magenta || !this.magenta.ready || !this.placeKey) return;
+    if (!this.params_.magenta || !this.magenta.ready || !this.placeKey) return;
     if (this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE + 2) return; // one phrase, then a breath
     const nearest = sig.neighbours[0];
     const amount = nearest ? this.closeness.get(nearest.o) ?? 0 : 0;
@@ -670,12 +702,42 @@ export class SoundEngine {
     }
   }
 
+  /**
+   * The plan of bar `bar` from the current signals (sequencer.planBar), with the Magenta requests and the phrase
+   * bookkeeping. Public: the Web Audio scheduler calls it on its grid, the NoiseCraft instrument on NoiseCraft's.
+   */
+  planFor(bar: number): BarPlan | null {
+    const sig = this.sig;
+    const key = this.placeKey;
+    if (!sig || !key || !this.myMotif) return null;
+    const p = this.params_;
+    const stable = conformity(sig);
+    const lock = lockOf(sig, p.harmony === "world" ? 1 : p.lockPull);
+    this.lockedBars = stable >= 0.6 ? this.lockedBars + 1 : 0;
+    this.askMagenta(bar, sig, lock, stable);
+    if (this.phrase && bar - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
+    const plan = planBar({
+      bar,
+      sig,
+      key,
+      building: this.atBuilding,
+      degree: this.degree,
+      me: this.myMotif,
+      others: this.motifs,
+      closeness: this.closeness,
+      phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
+      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.harmony === "world" ? 1 : p.lockPull },
+    });
+    this.lastPlan = plan;
+    return plan;
+  }
+
   private tick(): void {
     const ctx = this.ctx;
     const sig = this.sig;
     const key = this.placeKey;
     if (!ctx || !sig || !key || !this.me || ctx.state !== "running" || !this.epochMs) return;
-    const p = this.params;
+    const p = this.params_;
     const now = ctx.currentTime;
     const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
@@ -684,25 +746,9 @@ export class SoundEngine {
     if (nextStart > now + LOOKAHEAD) return;
     this.planned = next;
 
-    const stable = conformity(sig);
-    const lock = lockOf(sig, p.harmony === "world" ? 1 : p.lockPull);
-    this.lockedBars = stable >= 0.6 ? this.lockedBars + 1 : 0;
-    this.askMagenta(next, sig, lock, stable);
-    if (this.phrase && next - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
-
-    const plan = planBar({
-      bar: next,
-      sig,
-      key,
-      building: this.atBuilding,
-      degree: this.degree,
-      me: this.me.motif,
-      others: this.motifs,
-      closeness: this.closeness,
-      phrase: this.phrase && next - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.harmony === "world" ? 1 : p.lockPull },
-    });
-    this.lastPlan = plan;
+    const plan = this.planFor(next);
+    if (!plan) return;
+    if (p.instrument !== "webaudio") return; // NoiseCraft makes the sound from its own bars (planFor on its pulses)
     // a rough walk drifts off the grid and loses notes; a conforming one is steady and complete
     const jitter = p.jitterMax * plan.rough;
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);

@@ -5,4 +5,8 @@ export * from "./sequencer";
 export * from "./variation";
 export * from "./engine";
 export * from "./global";
+export * from "./NoiseCraftBridge";
+export * from "./noisecraftMap";
+export * from "./noisecraftDriver";
+export * from "./bus";
 export * from "./output";

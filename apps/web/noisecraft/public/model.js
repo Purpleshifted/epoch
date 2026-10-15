@@ -43,6 +43,33 @@ export const NODE_SCHEMA =
         description: 'ADSR envelope generator',
     },
 
+    'AI_Seq': {
+        ins: [
+            { name: 'clock', default: 0 },
+            { name: 'gateT', default: 0.1 }
+        ],
+        outs: ['freq', 'gate'],
+        params: [
+            { name: 'moduleId', default: '' },
+            { name: 'voice', default: 0 }
+        ],
+        state: ['pitches', 'gates'],
+        description: 'AI Sequence Receiver (Unlimited Steps)',
+    },
+
+    'AI_Poly': {
+        ins: [
+            { name: 'clock', default: 0 },
+            { name: 'gateT', default: 0.1 }
+        ],
+        outs: ['freq0', 'gate0', 'freq1', 'gate1', 'freq2', 'gate2', 'freq3', 'gate3'],
+        params: [
+            { name: 'moduleId', default: '' }
+        ],
+        state: ['pitches', 'gates'],
+        description: 'AI Polyphonic Receiver (4 voices)',
+    },
+
     'AudioOut': {
         unique: true,
         ins: [
@@ -545,6 +572,30 @@ export function normalizeNode(node)
         node.params[param.name] = param.default;
     }
 
+    // Coerce invalid parameter values back to schema defaults. This is mostly
+    // for older UI paths that could write NaN/null into string parameters.
+    for (let param of schema.params)
+    {
+        let value = node.params[param.name];
+
+        if (value === null)
+        {
+            if (param.default !== null)
+                node.params[param.name] = param.default;
+            continue;
+        }
+
+        if (typeof value !== typeof param.default)
+        {
+            node.params[param.name] = param.default;
+        }
+
+        if (typeof param.default == 'number' && isNaN(node.params[param.name]))
+        {
+            node.params[param.name] = param.default;
+        }
+    }
+
     return node;
 }
 
@@ -598,9 +649,9 @@ export function validateProject(project)
     }
 
     // Validate that there are no extraneous properties
-    for (let key in Object.keys(project))
+    for (let key of Object.keys(project))
     {
-        assert (key in ['title', 'nodes']);
+        assert (['title', 'nodes'].includes(key), `unknown project property ${key}`);
     }
 }
 
@@ -609,49 +660,49 @@ export function validateProject(project)
  */
 export function validateNode(node)
 {
-    assert (node instanceof Object);
-    assert (node.type in NODE_SCHEMA);
+    assert (node instanceof Object, 'node must be an object');
+    assert (node.type in NODE_SCHEMA, `unknown node type ${node && node.type}`);
     let schema = NODE_SCHEMA[node.type];
-    assert (!schema.internal);
+    assert (!schema.internal, `node type ${node.type} cannot be saved`);
 
     // Node name
-    assert (typeof node.name == 'string');
-    assert (node.name.length <= 12);
+    assert (typeof node.name == 'string', `${node.type} node name must be a string`);
+    assert (node.name.length <= 12, `${node.type} node name is too long`);
 
     // Node x/y position
-    assert (typeof node.x === 'number');
-    assert (typeof node.y === 'number');
-    assert (isInt(node.x));
-    assert (isInt(node.y));
+    assert (typeof node.x === 'number', `${node.type} x position must be a number`);
+    assert (typeof node.y === 'number', `${node.type} y position must be a number`);
+    assert (isInt(node.x), `${node.type} x position must be an integer`);
+    assert (isInt(node.y), `${node.type} y position must be an integer`);
 
     // Validate input format
-    assert (node.ins instanceof Array);
-    assert (node.ins.length >= schema.ins.length);
+    assert (node.ins instanceof Array, `${node.type} inputs must be an array`);
+    assert (node.ins.length >= schema.ins.length, `${node.type} has too few inputs`);
     for (let input of node.ins)
     {
         if (input)
         {
-            assert (input instanceof Array);
-            assert (input.length == 2);
-            assert (typeof input[0] == 'string');
-            assert (typeof input[1] == 'number');
-            assert (input[1] >= 0);
+            assert (input instanceof Array, `${node.type} input connection must be an array`);
+            assert (input.length == 2, `${node.type} input connection must have source node and port`);
+            assert (typeof input[0] == 'string', `${node.type} input source node id must be a string`);
+            assert (typeof input[1] == 'number', `${node.type} input source port must be a number`);
+            assert (input[1] >= 0, `${node.type} input source port must be non-negative`);
         }
     }
 
     // Validate the input names
-    assert (node.inNames.length == node.ins.length);
-    assert (node.inNames.length >= schema.ins.length);
+    assert (node.inNames.length == node.ins.length, `${node.type} input names must match inputs`);
+    assert (node.inNames.length >= schema.ins.length, `${node.type} has too few input names`);
     for (var i = 0; i < node.inNames.length; ++i)
     {
-        assert (typeof node.inNames[i] == 'string');
+        assert (typeof node.inNames[i] == 'string', `${node.type} input name must be a string`);
     }
 
     // Validate the output names
-    assert (node.outNames.length >= schema.outs.length);
+    assert (node.outNames.length >= schema.outs.length, `${node.type} has too few output names`);
     for (var i = 0; i < node.outNames.length; ++i)
     {
-        assert (typeof node.outNames[i] == 'string');
+        assert (typeof node.outNames[i] == 'string', `${node.type} output name must be a string`);
     }
 
     // Validate the node parameters
@@ -780,7 +831,7 @@ export function validateParams(nodeType, params)
 /**
  * Remove non-persistent state variables from the model's state
  */
-function resetState(project)
+export function resetState(project)
 {
     // Properties found on every node
     let nodeProps = new Set([
@@ -793,6 +844,13 @@ function resetState(project)
         'outNames',
         'params'
     ]);
+
+    // Delete any extraneous top-level properties like _lastSaved
+    for (let key of Object.keys(project)) {
+        if (key !== 'title' && key !== 'nodes') {
+            delete project[key];
+        }
+    }
 
     // For each node
     for (let id in project.nodes)
@@ -1308,6 +1366,25 @@ export class SetParam extends Action
     {
         let node = model.state.nodes[this.nodeId];
         assert (this.paramName in node.params);
+
+        let schema = NODE_SCHEMA[node.type];
+        let param = schema.params.find(p => p.name == this.paramName);
+        if (param)
+        {
+            if (this.value === null)
+            {
+                this.value = param.default === null ? null : param.default;
+            }
+            else if (typeof this.value !== typeof param.default)
+            {
+                this.value = param.default;
+            }
+            else if (typeof param.default == 'number' && isNaN(this.value))
+            {
+                this.value = param.default;
+            }
+        }
+
         node.params[this.paramName] = this.value;
     }
 }
@@ -1643,6 +1720,27 @@ export class QueuePattern extends Action
     get undoable()
     {
         return false;
+    }
+}
+
+/**
+ * Set the AI Sequence pitches and gates
+ */
+export class SetSequence extends Action
+{
+    constructor(nodeId, pitches, gates)
+    {
+        super();
+        this.nodeId = nodeId;
+        this.pitches = pitches;
+        this.gates = gates;
+    }
+
+    update(model)
+    {
+        let node = model.state.nodes[this.nodeId];
+        node.pitches = this.pitches;
+        node.gates = this.gates;
     }
 }
 

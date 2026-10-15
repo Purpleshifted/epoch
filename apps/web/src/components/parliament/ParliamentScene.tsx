@@ -13,6 +13,7 @@ import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { useSound } from "./useSound";
+import NoiseCraftHost from "./NoiseCraftHost";
 import { seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
@@ -231,6 +232,8 @@ export default function ParliamentScene() {
           {debug?.sound && <div>♪ {debug.sound}</div>}
         </div>
       )}
+      {/* sound wiring: the NoiseCraft instrument (hidden iframe; the editor is /v2/sound) when that instrument is chosen */}
+      {sound && sound.params.instrument === "noisecraft" && <NoiseCraftHost sound={sound} />}
       {/* sound wiring: a visible notice while this window's sound is muted or off (ESC is also the pointer-lock key) */}
       {!hideChrome && debug?.sound && /음소거|꺼짐|클릭하면/.test(debug.sound.split(" · ")[1] ?? "") && (
         <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 select-none rounded bg-black/60 px-3 py-1 font-mono text-[11px] tracking-wider text-amber-200/90">

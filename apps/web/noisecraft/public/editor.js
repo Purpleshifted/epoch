@@ -182,7 +182,22 @@ export class Editor {
     // Set a parameter on a node
     if (action instanceof model.SetParam) {
       if (action.paramName == "value") {
-        node.setValue(action.value);
+        // Ensure node exists before calling setValue
+        if (node) {
+          node.setValue(action.value);
+        } else {
+          // Node not found - might not be created yet, try to find it
+          node = this.nodes.get(action.nodeId);
+          if (node) {
+            node.setValue(action.value);
+          } else {
+            // Log warning only occasionally to reduce spam
+            if (!window._missingNodeForSetValue || Date.now() - window._missingNodeForSetValue > 5000) {
+              console.warn(`[Editor] Node ${action.nodeId} not found for SetParam(value=${action.value})`);
+              window._missingNodeForSetValue = Date.now();
+            }
+          }
+        }
         return;
       }
 
@@ -253,7 +268,11 @@ export class Editor {
       this.selected = action.pastedIds;
     }
 
-    console.log("recreating UI nodes");
+    // Log only occasionally to reduce console spam
+    if (!window._lastRecreateLog || Date.now() - window._lastRecreateLog > 5000) {
+      console.log("recreating UI nodes");
+      window._lastRecreateLog = Date.now();
+    }
 
     // Release resource for all UI nodes
     for (let node of this.nodes.values()) {
@@ -380,7 +399,11 @@ export class Editor {
   // Select a given set of nodes
   selectNodes(nodeIds) {
     nodeIds = Array.from(nodeIds);
-    console.log(`selecting ${nodeIds.length} nodes`);
+    // Log only occasionally to reduce console spam
+    if (!window._lastSelectLog || Date.now() - window._lastSelectLog > 5000) {
+      console.log(`selecting ${nodeIds.length} nodes`);
+      window._lastSelectLog = Date.now();
+    }
     if (nodeIds.length) {
       console.log("[NoiseCraft Editor] selected nodeIds:", nodeIds);
     }
@@ -418,6 +441,11 @@ export class Editor {
         maxHeight,
         node.y + node.nodeDiv.offsetHeight + model.EDGE_PADDING
       );
+      
+      // Update edge positions when resizing (vital for when iframe becomes visible)
+      if (typeof node.move === 'function') {
+        node.move(0, 0);
+      }
     }
 
     setSvg(this.svg, "width", maxWidth);
@@ -847,6 +875,12 @@ class UINode {
       evt.stopPropagation();
 
       console.log("pointerdown on node");
+      
+      // Notify parent window for mapping editor
+      window.parent.postMessage({ 
+        type: 'noiseCraft:nodeClicked', 
+        nodeId: this.nodeId 
+      }, '*');
 
       // Can't drag a node while connecting a port
       if (this.editor.edge) {
@@ -1064,8 +1098,15 @@ class UINode {
       paramDiv.appendChild(input);
 
       input.oninput = function (evt) {
-        if (input.value == "null") newParams[param.name] = null;
-        else newParams[param.name] = Number(input.value);
+        if (input.value == "null") {
+          newParams[param.name] = null;
+        } else if (typeof param.default == "string") {
+          newParams[param.name] = input.value;
+        } else if (typeof param.default == "number") {
+          newParams[param.name] = Number(input.value);
+        } else {
+          newParams[param.name] = input.value;
+        }
       };
     }
 
@@ -1240,6 +1281,14 @@ class ClockOut extends UINode {
     // Broadcast a clock pulse
     midi.broadcast([0xf8], sendTime);
 
+    // Forward to React parent frame
+    window.parent.postMessage({
+      type: 'noiseCraft:clockPulse',
+      nodeId: this.id,
+      pulseTime: pulseTime,
+      sendTime: sendTime
+    }, '*');
+
     this.lastTime = pulseTime;
     this.lastSent = sendTime;
   }
@@ -1363,8 +1412,15 @@ class KnobNode extends UINode {
   }
 
   setValue(value) {
+    // Update knob value and redraw
     this.knob.value = value;
     this.knob.drawKnob();
+    // Also update the value display text
+    // drawKnob() already updates valDiv, but ensure it's called
+    if (this.knob.valDiv) {
+      const valStr = value.toFixed(2);
+      this.knob.valDiv.textContent = valStr;
+    }
   }
 }
 
@@ -1425,6 +1481,8 @@ class MidiIn extends UINode {
       this.notesOn.add(noteNo);
       this.lightDiv.style.background = "#F00";
     } else {
+      if (!this.notesOn.has(noteNo)) return;
+
       console.log("note off:", noteNo);
       this.send(new model.NoteOn(this.nodeId, noteNo, 0));
       this.notesOn.delete(noteNo);
@@ -1480,6 +1538,8 @@ class MidiIn extends UINode {
     }
 
     function keyDown(evt) {
+      if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
+
       // If a text input box is focused, do nothing
       if (anyInputActive()) return;
 
@@ -1508,6 +1568,8 @@ class MidiIn extends UINode {
     }
 
     function keyUp(evt) {
+      if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
+
       let note = getNote(evt.key);
 
       if (note) {
@@ -2162,6 +2224,125 @@ class Scope extends UINode {
   }
 }
 
+class AI_Seq extends UINode {
+  constructor(id, state, editor) {
+    // Ensure voice param exists for old patches
+    if (!('voice' in state.params)) {
+      state.params.voice = 0;
+    }
+    super(id, state, editor);
+    // Visual label
+    let label = document.createElement("div");
+    label.innerText = "(Receives sequences from Umwelt)";
+    label.style.fontSize = "10px";
+    label.style.color = "#888";
+    label.style.padding = "4px";
+    label.style.textAlign = "center";
+    this.centerDiv.appendChild(label);
+
+    // Dropdown for selecting the AI Module
+    let select = document.createElement("select");
+    select.className = "nodrag";
+    select.style.margin = "4px";
+    select.style.width = "90%";
+    select.style.backgroundColor = "#222";
+    select.style.color = "#FFF";
+    select.style.border = "1px solid #444";
+    this.centerDiv.appendChild(select);
+
+    // Function to update options
+    this.updateMusicModuleOptions = () => {
+      select.innerHTML = '';
+      let defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      defaultOpt.innerText = "-- Select Output Channel --";
+      select.appendChild(defaultOpt);
+
+      if (window._musicModules) {
+        console.log("[AI_Seq] Updating options with modules:", window._musicModules);
+        window._musicModules.forEach(mod => {
+          let opt = document.createElement("option");
+          opt.value = mod.id;
+          opt.innerText = mod.name || `Module ${mod.id}`;
+          select.appendChild(opt);
+        });
+      }
+      select.value = state.params.moduleId || "";
+    };
+
+    this.updateMusicModuleOptions();
+
+    // Re-render options when window gets new modules
+    window.addEventListener('musicModulesUpdated', this.updateMusicModuleOptions);
+
+    select.onchange = (evt) => {
+      this.send(new model.SetParam(this.nodeId, "moduleId", select.value));
+    };
+    
+    // Stop event propagation so clicking the select doesn't drag the node
+    select.onpointerdown = (evt) => evt.stopPropagation();
+
+    // We no longer need the voice select since AI_Seq will receive mono sequences directly
+    // from the Umwelt "AI Seq Out" nodes, which are connected per-voice using the Voice Splitter.
+  }
+
+  destroy() {
+    window.removeEventListener('musicModulesUpdated', this.updateMusicModuleOptions);
+  }
+}
+
+class AI_Poly extends UINode {
+  constructor(id, state, editor) {
+    if (!('moduleId' in state.params)) {
+      state.params.moduleId = '';
+    }
+    super(id, state, editor);
+    
+    let label = document.createElement("div");
+    label.innerText = "(4-Voice Polyphonic Receiver)";
+    label.style.fontSize = "10px";
+    label.style.color = "#f472b6";
+    label.style.padding = "4px";
+    label.style.textAlign = "center";
+    this.centerDiv.appendChild(label);
+
+    let select = document.createElement("select");
+    select.className = "nodrag";
+    select.style.margin = "4px";
+    select.style.width = "90%";
+    select.style.backgroundColor = "#222";
+    select.style.color = "#FFF";
+    select.style.border = "1px solid #444";
+    this.centerDiv.appendChild(select);
+
+    const updateOptions = () => {
+      select.innerHTML = '';
+      let defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      defaultOpt.innerText = "-- Select Output Channel --";
+      select.appendChild(defaultOpt);
+
+      if (window._musicModules) {
+        window._musicModules.forEach(mod => {
+          let opt = document.createElement("option");
+          opt.value = mod.id;
+          opt.innerText = mod.name || `Module ${mod.id}`;
+          select.appendChild(opt);
+        });
+      }
+      select.value = state.params.moduleId || "";
+    };
+
+    updateOptions();
+    window.addEventListener('musicModulesUpdated', updateOptions);
+
+    select.onchange = (evt) => {
+      this.send(new model.SetParam(this.nodeId, "moduleId", select.value));
+    };
+    select.onpointerdown = (evt) => evt.stopPropagation();
+  }
+}
+
 // Map of node types to specialized node classes
 const NODE_CLASSES = {
   Clock: ClockNode,
@@ -2174,4 +2355,6 @@ const NODE_CLASSES = {
   GateSeq: GateSeq,
   Notes: Notes,
   Scope: Scope,
+  AI_Seq: AI_Seq,
+  AI_Poly: AI_Poly,
 };

@@ -9,7 +9,7 @@
  *            exhibition PC routes the player view to the headset and the global view to the speakers.
  */
 
-export type SoundView = "mobile" | "global";
+export type SoundView = "mobile" | "global" | "manager";
 
 export const LS_SOLO_KEY = "anthropocene:sound:solo:v1";
 
@@ -17,7 +17,7 @@ export const LS_SOLO_KEY = "anthropocene:sound:solo:v1";
 export function readSolo(): SoundView | null {
   try {
     const v = localStorage.getItem(LS_SOLO_KEY);
-    return v === "mobile" || v === "global" ? v : null;
+    return v === "mobile" || v === "global" || v === "manager" ? v : null;
   } catch {
     return null;
   }
