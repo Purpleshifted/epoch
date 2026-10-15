@@ -68,6 +68,11 @@ export interface SoundParams {
   motifEcho: number;
   /** How soft my motif is (0 = as before, 1 = slow attack, dark). */
   motifSoft: number;
+  /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
+  ncDull: number;
+  /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
+  bassSpread: number;
+  bassDub: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -91,6 +96,9 @@ export const DEFAULT_SOUND: SoundParams = {
   microtone: 0.3,
   motifEcho: 0.35,
   motifSoft: 0.5,
+  ncDull: 1,
+  bassSpread: 0.4,
+  bassDub: 0.55,
 };
 
 interface Voice {
@@ -162,6 +170,10 @@ export class SoundEngine {
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
   /** My motif's bar-synced echo: send → delay (3/8 bar) → feedback, darkened → dry + hall. */
   private echo!: { send: GainNode; delay: DelayNode; feedback: GainNode };
+  /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
+  private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
+  /** The path's heartbeat spreads into the rooms by bassSpread. */
+  private bassSpread!: GainNode;
   private me: Voice | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
@@ -202,7 +214,7 @@ export class SoundEngine {
       magenta: this.magentaState,
       phrase: this.phrase ? `${this.phrase.kind} @${this.phrase.from}` : null,
       voices: this.voices.size,
-      nc: this.ncStatus,
+      nc: this.ncStatus + (this.nc ? " → engine" : ""),
     };
   }
 
@@ -229,6 +241,38 @@ export class SoundEngine {
   /** The patch's clock carries the grid's phase: bar `bar` starts at `wallMs` (NoiseCraftDriver). */
   setGridAnchor(bar: number, wallMs: number): void {
     this.anchor = { bar, wallMs };
+  }
+
+  /**
+   * The NoiseCraft patch's output (out=parent: its MediaStream) into this engine: its own low-pass (the building's
+   * dullness by ncDull) → the master (level, mute, the lifespan's dulling). null = detach.
+   */
+  attachNoiseCraft(stream: MediaStream | null): void {
+    const ctx = this.ctx;
+    if (this.nc) {
+      try {
+        this.nc.source.disconnect();
+        this.nc.filter.disconnect();
+        this.nc.gain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.nc = null;
+    }
+    if (!stream || !ctx) return;
+    const source = ctx.createMediaStreamSource(stream);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = this.params.lpOpen;
+    filter.Q.value = 0.5;
+    const gain = ctx.createGain();
+    gain.gain.value = 1;
+    source.connect(filter).connect(gain).connect(this.master);
+    this.nc = { source, filter, gain };
+  }
+
+  get noiseCraftAttached(): boolean {
+    return !!this.nc;
   }
 
   /** The plan of bar `bar` (planned once, shared with the patch's driver); null before anyone is here. */
@@ -309,10 +353,15 @@ export class SoundEngine {
       this.noiseGain.gain.value = 0;
       noise.connect(bp).connect(this.noiseGain).connect(this.dry);
       noise.start();
-      // bass bus
+      // bass bus: the path's heartbeat, dry and spread into the open room and the hall
       this.bassGain = ctx.createGain();
       this.bassGain.gain.value = 1;
       this.bassGain.connect(this.dry);
+      this.bassSpread = ctx.createGain();
+      this.bassSpread.gain.value = 0;
+      this.bassGain.connect(this.bassSpread);
+      this.bassSpread.connect(this.rooms.open);
+      this.bassSpread.connect(this.rooms.hall);
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
@@ -455,9 +504,14 @@ export class SoundEngine {
       L.forwardX.setTargetAtTime(Math.sin(yaw), t, 0.05);
       L.forwardZ.setTargetAtTime(Math.cos(yaw), t, 0.05);
     }
-    // the dull: concrete nearby (log-interpolated cutoff)
+    // the dull: concrete nearby (log-interpolated cutoff); the patch gets its own share of it (ncDull)
     const cut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed);
     this.dull.frequency.setTargetAtTime(cut, t, 0.25);
+    if (this.nc) {
+      const ncCut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed * params.ncDull);
+      this.nc.filter.frequency.setTargetAtTime(ncCut, t, 0.25);
+    }
+    this.bassSpread.gain.setTargetAtTime(params.bassSpread, t, 0.3);
     // vegetation
     this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
     // rooms: open ground → concrete → the hall of building together
@@ -542,23 +596,42 @@ export class SoundEngine {
     }, (end - ctx.currentTime) * 1000 + 100);
   }
 
+  /**
+   * The path's HEARTBEAT (v4 A2c, the artist: not frivolous — low, strong, spreading): a lub and a softer dub
+   * 0.17 s later, each a sine kick (a short drop onto the root) with a sub an octave below and a long body.
+   */
   private bassNote(pitch: number, at: number, level: number): void {
     const ctx = this.ctx!;
-    const g = ctx.createGain();
-    g.connect(this.bassGain);
-    const peak = 0.5 * level * this.params.bassLevel;
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(peak, at + 0.02);
-    g.gain.setTargetAtTime(0, at + 0.08, 0.18);
-    const o = ctx.createOscillator();
-    o.type = "sine";
     const f = midiToHz(pitch);
-    o.frequency.setValueAtTime(f * 1.5, at);
-    o.frequency.exponentialRampToValueAtTime(f, at + 0.06);
-    o.connect(g);
-    o.start(at);
-    o.stop(at + 1.2);
-    setTimeout(() => g.disconnect(), (at + 1.2 - ctx.currentTime) * 1000 + 100);
+    const hit = (when: number, vel: number) => {
+      const g = ctx.createGain();
+      g.connect(this.bassGain);
+      const peak = 0.7 * vel * this.params.bassLevel;
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(peak, when + 0.015);
+      g.gain.setTargetAtTime(0, when + 0.06, 0.14);
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.setValueAtTime(f * 1.8, when);
+      o.frequency.exponentialRampToValueAtTime(f, when + 0.04);
+      o.connect(g);
+      const sub = ctx.createOscillator();
+      sub.type = "sine";
+      sub.frequency.value = f / 2;
+      const sg = ctx.createGain();
+      sg.gain.value = 0.6;
+      sub.connect(sg).connect(g);
+      o.start(when);
+      sub.start(when);
+      o.stop(when + 1.2);
+      sub.stop(when + 1.2);
+      setTimeout(() => {
+        g.disconnect();
+        sg.disconnect();
+      }, (when + 1.2 - ctx.currentTime) * 1000 + 100);
+    };
+    hit(at, level);
+    if (this.params.bassDub > 0) hit(at + 0.17, level * this.params.bassDub);
   }
 
   private setPad(pitches: number[], level: number, at: number): void {

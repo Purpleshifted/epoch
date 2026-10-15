@@ -40,6 +40,8 @@ export class NoiseCraftBridge {
   private iframe: HTMLIFrameElement | null = null;
   private messageHandler: ((e: MessageEvent) => void) | null = null;
   private _editorVisible = false;
+  /** out=parent: the embed plays only into its MediaStream, which the parent's engine takes (building dullness, master). */
+  private _outToParent = false;
   private _loaded = false;
   private _status: NoiseCraftAudioStatus = "idle";
   private currentPatchFilename = "nc_noise_patch.ncft";
@@ -80,14 +82,16 @@ export class NoiseCraftBridge {
 
   noisecraftUrl(filename = this.currentPatchFilename): string {
     // a hidden iframe (the player tab) asks the embed to run without its editor view (view=hidden): no DOM work.
-    // The patch plays through its OWN output (v4 A2: a static machine with its own sound; no stream routing).
-    return `/noisecraft/public/embedded.html?src=${encodeURIComponent(`/noisecraft/examples/${filename}`)}&ui=full${this._editorVisible ? "" : "&view=hidden"}`;
+    // out=parent (the player): the patch plays into a MediaStream the engine takes into its bus, so the building's
+    // dullness, the master and the lifespan's dulling reach it too (v4 A2c); the bench hears the patch directly.
+    return `/noisecraft/public/embedded.html?src=${encodeURIComponent(`/noisecraft/examples/${filename}`)}&ui=full${this._outToParent ? "&out=parent" : ""}${this._editorVisible ? "" : "&view=hidden"}`;
   }
 
   /** Create (or move) the iframe into `container`; hidden off-screen unless `visible`. Reloads on a new patch. */
-  createIframe(container: HTMLElement, visible = false, filename?: string): HTMLIFrameElement {
+  createIframe(container: HTMLElement, visible = false, filename?: string, outToParent = false): HTMLIFrameElement {
     if (filename) this.currentPatchFilename = filename;
     this._editorVisible = visible; // before the URL: a hidden iframe is opened without its editor view
+    this._outToParent = outToParent;
     if (!this.iframe) {
       this.iframe = document.createElement("iframe");
       this.iframe.src = this.noisecraftUrl();

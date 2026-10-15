@@ -67,9 +67,9 @@ export class NoiseCraftDriver {
     };
   }
 
-  /** Mount the embed into `container` (hidden unless `visible`) and start following the source. */
-  mount(container: HTMLElement, patch: string, visible: boolean): void {
-    this.bridge.createIframe(container, visible, patch);
+  /** Mount the embed into `container` (hidden unless `visible`) and start following the source; `outToParent` = the patch plays into the parent's engine. */
+  mount(container: HTMLElement, patch: string, visible: boolean, outToParent = false): void {
+    this.bridge.createIframe(container, visible, patch, outToParent);
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
     if (!this.fallback) this.fallback = setInterval(() => this.fallbackBar(), FALLBACK_BAR_MS);
   }

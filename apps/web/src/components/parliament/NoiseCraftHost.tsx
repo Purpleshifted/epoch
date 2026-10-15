@@ -33,7 +33,9 @@ export default function NoiseCraftHost({ sound, live }: { sound: SoundSetup; liv
       barSec: () => engine.musicBarSec(),
       onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
     });
-    driver.mount(host.current, NC_PATCH, false);
+    // the patch plays into the engine (building dullness by ncDull, master, the lifespan's dulling)
+    driver.bridge.onStream = (s) => engine.attachNoiseCraft(s);
+    driver.mount(host.current, NC_PATCH, false, true);
     const id = setInterval(() => {
       const s = driver.status;
       const clock = s.clocked ? `${(s.pulseHz / PULSES_PER_STEP).toFixed(1)} steps/s · bar ${s.pulseHz > 0 ? (PULSES_PER_BAR / s.pulseHz).toFixed(2) : "–"} s (sent ${s.barSecSent.toFixed(2)})` : "no ClockOut: wall-clock bars";
@@ -42,6 +44,8 @@ export default function NoiseCraftHost({ sound, live }: { sound: SoundSetup; liv
     return () => {
       clearInterval(id);
       engine.ncStatus = "";
+      driver.bridge.onStream = undefined;
+      engine.attachNoiseCraft(null);
       driver.dispose();
     };
   }, [engine]);
