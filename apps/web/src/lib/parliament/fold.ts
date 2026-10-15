@@ -20,10 +20,19 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { flowLevel, flowP, flowTracks, inUseAt, stayShares, type Track } from "./flow";
 import { DEFAULT_FOLD, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
+import { wrapCell, wrapDist } from "./world";
 
-const MIN_FOOT = 0.03;
-const MIN_ALPHA = 0.05;
-const EPS = 1e-9;
+/** A footprint fainter than this is gone. */
+export const FOLD_MIN_FOOT = 0.03;
+/** A path fainter than this is gone. */
+export const FOLD_MIN_ALPHA = 0.05;
+export const FOLD_EPS = 1e-9;
+const MIN_FOOT = FOLD_MIN_FOOT;
+const MIN_ALPHA = FOLD_MIN_ALPHA;
+const EPS = FOLD_EPS;
+
+/** Raw (unworn) height of a slab from the mass put into its cell. */
+export const rawHeightOf = (mass: number, cfg: FoldConfig): number => Math.min(cfg.maxHeight, 1 + Math.max(0, mass - cfg.threshold) / cfg.pourUnit);
 
 export interface Region {
   x: number;
@@ -49,7 +58,7 @@ export function foldWorld(
   const vis: PEvent[] = [];
   for (const e of events) {
     if (e.s > sView) continue; // the future of this viewer: invisible
-    if (region && Math.hypot(e.x - region.x, e.z - region.z) > reach) continue;
+    if (region && wrapDist(e.x, e.z, region.x, region.z) > reach) continue;
     vis.push(e);
   }
   vis.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)); // ties by id: same float sums in every view
@@ -72,8 +81,8 @@ export function foldWorld(
     wi++;
     const builds = flow && stay ? stay[wi] + (1 - stay[wi]) * flow.moveShare : 1;
     // a visit = entering a cell (standing still in it is one visit, not many)
-    const vcx = Math.floor(e.x / CELL_SIZE);
-    const vcz = Math.floor(e.z / CELL_SIZE);
+    const vcx = wrapCell(Math.floor(e.x / CELL_SIZE));
+    const vcz = wrapCell(Math.floor(e.z / CELL_SIZE));
     const vk = `${vcx},${vcz}`;
     if (lastCell.get(e.o) !== vk) {
       lastCell.set(e.o, vk);
@@ -88,10 +97,11 @@ export function foldWorld(
     const cz0 = Math.floor(e.z / CELL_SIZE);
     for (let dx = -n; dx <= n; dx++) {
       for (let dz = -n; dz <= n; dz++) {
-        const cx = cx0 + dx;
-        const cz = cz0 + dz;
-        const d = Math.hypot((cx + 0.5) * CELL_SIZE - e.x, (cz + 0.5) * CELL_SIZE - e.z);
+        const d = Math.hypot((cx0 + dx + 0.5) * CELL_SIZE - e.x, (cz0 + dz + 0.5) * CELL_SIZE - e.z);
         if (d >= cfg.radius) continue;
+        // the world wraps: a presence by the edge splats onto the cells across it
+        const cx = wrapCell(cx0 + dx);
+        const cz = wrapCell(cz0 + dz);
         const nk = (cx + 32768) * 65536 + (cz + 32768);
         let acc = cells.get(nk);
         if (!acc) {
@@ -151,7 +161,7 @@ export function foldWorld(
     const lastOf = new Map<string, number>();
     const growth: [number, number][] = [];
     let mass = 0;
-    const rawOf = (m: number) => Math.min(cfg.maxHeight, 1 + Math.max(0, m - cfg.threshold) / cfg.pourUnit);
+    const rawOf = (m: number) => rawHeightOf(m, cfg);
     for (let k = 0; k < s.length; k++) {
       const prev = total.get(o[k]) ?? 0;
       const next = prev + w[k] * dt;
