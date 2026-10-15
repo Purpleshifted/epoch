@@ -137,3 +137,33 @@ describe("v4 A2 (the artist): the motif half as often, the micro-tones turned do
     expect(coloured.some((n) => Math.abs(n.freq - midiToHz(n.pitch)) > 0.01)).toBe(true);
   });
 });
+
+describe("octave shifts of my motif (the artist: not always one register)", () => {
+  it("shifts one bar in `motifOctaveEvery` by a whole octave (or two), never otherwise", async () => {
+    const { planBar } = await import("./sequencer");
+    const { makeMotif } = await import("./motif");
+    const { worldKey } = await import("./harmony");
+    const key = worldKey("t");
+    const me = makeMotif("v_oct");
+    const sig = { x: 0, z: 0, speed: 2, stay: 0, neighbours: [], pathP: 0, sealed: 0, grass: 0 };
+    const plain = (bar: number) => planBar({ bar, sig, key, me, others: new Map(), closeness: new Map(), phrase: null, params: { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: 1 } });
+    const shifted = (bar: number, every: number, range: number) => planBar({ bar, sig, key, me, others: new Map(), closeness: new Map(), phrase: null, params: { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: 1, motifOctaveEvery: every, motifOctaveRange: range } });
+    let moved = 0;
+    const offsets = new Set<number>();
+    for (let b = 0; b < 300; b++) {
+      const a = plain(b).me, s = shifted(b, 3, 2).me;
+      const off = s[0].pitch - a[0].pitch;
+      if (off !== 0) {
+        moved++;
+        offsets.add(off);
+        expect(s.every((n, i) => n.pitch - a[i].pitch === off)).toBe(true); // the whole bar together
+        expect(Math.abs(off) % 12).toBe(0);
+        expect(s[0].freq / a[0].freq).toBeCloseTo(Math.pow(2, off / 12), 6);
+      }
+    }
+    expect(moved / 300).toBeGreaterThan(0.22);
+    expect(moved / 300).toBeLessThan(0.45);
+    expect([...offsets].some((o) => Math.abs(o) === 24)).toBe(true);
+    expect(shifted(5, 0, 1).me.map((n) => n.pitch)).toEqual(plain(5).me.map((n) => n.pitch));
+  });
+});

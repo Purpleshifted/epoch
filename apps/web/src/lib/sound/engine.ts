@@ -94,6 +94,15 @@ export interface SoundParams {
   motifBreath: number;
   /** Tremolo depth (0..1) at the vibrato rate — the flutter of a transmission. */
   motifTremolo: number;
+  /** How the tone is made: "subtractive" (the wave, its partials, the filter) or "fm" (a sine carrier bent by a modulator). */
+  motifSynth: "subtractive" | "fm";
+  /** FM: the modulator's ratio to the note, its depth (index) and how fast the depth settles (ms). */
+  fmRatio: number;
+  fmIndex: number;
+  fmDecayMs: number;
+  /** My motif an octave away now and then: one bar in this many (0 = never), up to this many octaves. */
+  motifOctaveEvery: number;
+  motifOctaveRange: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -147,6 +156,12 @@ export const DEFAULT_SOUND: SoundParams = {
   motifBreath: 0.15,
   motifTremolo: 0.15,
   motifVerb: 0.5,
+  motifSynth: "subtractive",
+  fmRatio: 2,
+  fmIndex: 2,
+  fmDecayMs: 300,
+  motifOctaveEvery: 3,
+  motifOctaveRange: 1,
   ncDull: 1,
   bassSpread: 0.7, // v4 A2e: its own long dark room
   bassDub: 0.45,
@@ -353,7 +368,7 @@ export class SoundEngine {
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25, motifEvery: p.motifEvery, microtone: p.microtone },
+      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25, motifEvery: p.motifEvery, microtone: p.microtone, motifOctaveEvery: p.motifOctaveEvery, motifOctaveRange: p.motifOctaveRange },
     });
     this.plans.set(bar, plan);
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
@@ -684,14 +699,29 @@ export class SoundEngine {
       return o;
     };
     const wave: OscillatorType = blur > 0 ? "sine" : p.motifWave;
-    const o1 = osc(wave, freq, 1, p.motifDetune > 0 ? -p.motifDetune / 2 : 0)!;
+    const fm = p.motifSynth === "fm" && blur === 0;
+    const o1 = osc(fm ? "sine" : wave, freq, 1, p.motifDetune > 0 ? -p.motifDetune / 2 : 0)!;
     if (blur > 0) {
       o1.detune.setValueAtTime((Math.random() * 2 - 1) * 25 * blur, at);
       o1.detune.linearRampToValueAtTime((Math.random() * 2 - 1) * 25 * blur, end);
     }
-    if (p.motifDetune > 0 && blur === 0) osc(wave, freq, 0.5, p.motifDetune / 2);
-    osc("sine", freq * 2, p.motifOctaveLevel * (0.5 + 0.5 * timbre) * (1 - blur));
-    osc("sine", freq * 3, p.motifFifthLevel * 0.5 * (1 - blur));
+    if (fm) {
+      // a modulator bends the carrier's frequency; its depth (freq × index) settles to a fifth of itself
+      const mod = ctx.createOscillator();
+      mod.type = "sine";
+      mod.frequency.value = freq * p.fmRatio;
+      const depth = ctx.createGain();
+      const full = freq * p.fmIndex;
+      depth.gain.setValueAtTime(full, at);
+      depth.gain.setTargetAtTime(full * 0.2, at + attack, Math.max(0.01, p.fmDecayMs / 1000) / 3);
+      mod.connect(depth).connect(o1.frequency);
+      mod.start(at);
+      mod.stop(end);
+    } else {
+      if (p.motifDetune > 0 && blur === 0) osc(wave, freq, 0.5, p.motifDetune / 2);
+      osc("sine", freq * 2, p.motifOctaveLevel * (0.5 + 0.5 * timbre) * (1 - blur));
+      osc("sine", freq * 3, p.motifFifthLevel * 0.5 * (1 - blur));
+    }
     // tremolo: the flutter of a transmission, on the note's gain
     if (p.motifTremolo > 0 && blur === 0) {
       const tlfo = ctx.createOscillator();

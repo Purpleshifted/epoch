@@ -35,6 +35,10 @@ export interface SequencerParams {
   motifEvery?: number;
   /** How much of the micro-tones is heard (motif.ts MotifConfig.microtone), 0..1. */
   microtone?: number;
+  /** One of my bars in this many (on average) is played an octave (or two) away — 0 = never. */
+  motifOctaveEvery?: number;
+  /** How far such a shift may go: 1 = one octave, 2 = up to two. */
+  motifOctaveRange?: number;
 }
 
 export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: 1, microtone: 1 };
@@ -123,6 +127,17 @@ export function planBar(inp: BarInputs): BarPlan {
       const theirs = nearest ? inp.others.get(nearest.o) : undefined;
       if (theirs && amount > 0) motif = blend(me, theirs, amount, bar);
       mine = placeInBar(realize(motif, key, chord, lock, bar, motifCfg), d, bar);
+    }
+    // now and then the whole bar an octave (or two) away, so the voice is not always in one register
+    const octEvery = p.motifOctaveEvery ?? 0;
+    if (mine.length && octEvery > 0) {
+      const r = rng(hashString(`${me.id}#oct#${bar}`));
+      if (r() < 1 / octEvery) {
+        const range = Math.max(1, Math.round(p.motifOctaveRange ?? 1));
+        const k = 1 + Math.floor(r() * range);
+        const shift = (r() < 0.5 ? -1 : 1) * 12 * k;
+        mine = mine.map((n) => ({ ...n, pitch: n.pitch + shift, freq: n.freq * Math.pow(2, shift / 12) }));
+      }
     }
   }
 

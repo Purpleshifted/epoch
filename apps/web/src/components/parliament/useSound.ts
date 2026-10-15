@@ -69,6 +69,8 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       },
       clockPull: { value: DEFAULT_SOUND.clockPull, min: 0, max: 0.3, step: 0.01, label: "음악 클록: 길·함께 지을 때 마디가 죄어드는 비율 (패치가 켜졌을 때)", render: v2 },
       motifEvery: { value: DEFAULT_SOUND.motifEvery, min: 1, max: 6, step: 0.1, label: "내 모티프: 평균 몇 마디에 한 번 (소수점 = 확률)", render: v2 },
+      motifOctaveEvery: { value: DEFAULT_SOUND.motifOctaveEvery, min: 0, max: 8, step: 0.5, label: "내 모티프: 옥타브 이동 — 연주 몇 번에 한 번 (0 = 안 함)", render: v2 },
+      motifOctaveRange: { value: DEFAULT_SOUND.motifOctaveRange, min: 1, max: 2, step: 1, label: "옥타브 이동 폭 (1 = 한 옥타브, 2 = 두 옥타브까지)", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
       motifPreset: {
@@ -88,7 +90,11 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       },
       [TIMBRE_FOLDER]: folder(
         {
-          motifWave: { value: DEFAULT_SOUND.motifWave, options: { "삼각 (부드러움)": "triangle", "사인 (가장 순수)": "sine", "톱니 (밝고 거침)": "sawtooth", "사각 (속이 빈)": "square" }, label: "파형", render: v2 },
+          motifSynth: { value: DEFAULT_SOUND.motifSynth, options: { "감산 (파형 · 배음 · 필터)": "subtractive", "FM (사인을 휘는 변조)": "fm" }, label: "합성 방식", render: v2 },
+          fmRatio: { value: DEFAULT_SOUND.fmRatio, min: 0.25, max: 8, step: 0.01, label: "FM: 변조 비율 (정수 = 배음, 소수 = 금속)", render: v2 },
+          fmIndex: { value: DEFAULT_SOUND.fmIndex, min: 0, max: 12, step: 0.1, label: "FM: 변조 깊이", render: v2 },
+          fmDecayMs: { value: DEFAULT_SOUND.fmDecayMs, min: 10, max: 2000, step: 10, label: "FM: 깊이가 가라앉는 시간 (ms)", render: v2 },
+          motifWave: { value: DEFAULT_SOUND.motifWave, options: { "삼각 (부드러움)": "triangle", "사인 (가장 순수)": "sine", "톱니 (밝고 거침)": "sawtooth", "사각 (속이 빈)": "square" }, label: "파형 (감산)", render: v2 },
           motifTranspose: { value: DEFAULT_SOUND.motifTranspose, min: -24, max: 12, step: 1, label: "음역 이동 (반음)", render: v2 },
           motifLevel: { value: DEFAULT_SOUND.motifLevel, min: 0, max: 1.5, step: 0.05, label: "모티프 음량", render: v2 },
           motifAttackMs: { value: DEFAULT_SOUND.motifAttackMs, min: 2, max: 400, step: 1, label: "어택 (ms)", render: v2 },
@@ -188,13 +194,15 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
   const {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
+    motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
       master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
       motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
+      motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);
