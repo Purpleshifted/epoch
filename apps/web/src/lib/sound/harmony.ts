@@ -10,6 +10,7 @@
  * Modes and chord stacking come from umwelt's chord_library (pure port). Pitches are MIDI numbers.
  */
 
+import { CELL_SIZE } from "@/lib/stratum/field";
 import { hashString, rng } from "./motif";
 
 export interface Mode {
@@ -93,6 +94,46 @@ export interface PlaceChord {
 export function keyChord(key: Key, degree = 0, size = DEFAULT_HARMONY.chordSize): PlaceChord {
   const tones = diatonicChord(key.mode, degree, size);
   return { degree, classes: tones.map((t) => (key.root + t) % 12), rootClass: (key.root + key.mode.intervals[degree]) % 12 };
+}
+
+/**
+ * HARMONY MODE "world" (the 2026-10-14 afternoon version, commit 93e85c5, which the artist liked): ONE key per epoch
+ * for everybody, with a Markov progression laid over the ground in bands along x + z — walking anywhere moves
+ * through it, standing holds one chord, and conforming pulls every note onto it. Kept as a selectable mode next to
+ * "identity" (a home key per motif, a key per building).
+ */
+export interface WorldKey extends Key {
+  /** The progression over the ground: degree (0..6) per band, `bands` long, wrapping. */
+  degrees: number[];
+}
+
+export interface WorldConfig {
+  modes: number[];
+  bands: number;
+  /** Width of one band (cells): walking this far moves the chord on. */
+  bandCells: number;
+}
+
+export const DEFAULT_WORLD: WorldConfig = { modes: [2, 3, 4, 5], bands: 16, bandCells: 4 };
+
+/** The key, mode and progression of one epoch (seed = the epoch ms as a string). */
+export function worldKey(seed: string, cfg: WorldConfig = DEFAULT_WORLD): WorldKey {
+  const r = rng(hashString("key:" + seed));
+  const root = Math.floor(r() * 12);
+  const mode = MODES[cfg.modes[Math.floor(r() * cfg.modes.length)] ?? 3];
+  const matrix = mode.base === "major" ? MAJOR_MARKOV : MINOR_MARKOV;
+  const degrees: number[] = [0];
+  for (let i = 1; i < cfg.bands; i++) {
+    const opts = matrix[degrees[i - 1]];
+    degrees.push(opts[Math.floor(r() * opts.length)]);
+  }
+  return { root, mode, degrees };
+}
+
+/** Which band of the progression a world position is in (bands run along x + z, so any walk crosses them). */
+export function bandOf(x: number, z: number, cfg: WorldConfig = DEFAULT_WORLD): number {
+  const b = Math.floor((x + z) / (CELL_SIZE * cfg.bandCells));
+  return ((b % cfg.bands) + cfg.bands) % cfg.bands;
 }
 
 /** Diatonic Markov transitions by degree (umwelt chord_library): where a progression may go next. */

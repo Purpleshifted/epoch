@@ -33,6 +33,12 @@ export function useSound(): SoundSetup | null {
     ROOT,
     savable(ROOT, {
       on: { value: true, label: "켜기 (첫 클릭/터치 뒤 시작 · ESC = 이 창 음소거/해제)", render: v2 },
+      harmony: {
+        options: { "공유 월드 키 + 땅의 진행 (10/14 오후 버전)": "world", "모티프·건물 키 + 길의 진행 (10/14 밤 버전)": "identity" },
+        value: DEFAULT_SOUND.harmony,
+        label: "화성 방식",
+        render: v2,
+      },
       solo: { value: false, label: "이 창만 듣기 (다른 창은 음소거 — 창 사이에 공유됨)", render: v2 },
       output: { options: outputOptions, value: "default", label: canPickOutput() ? "출력 장치 (헤드셋 / 스피커)" : "출력 장치 — 이 브라우저는 선택 불가", render: v2 },
       master: { value: DEFAULT_SOUND.master, min: 0, max: 1, step: 0.01, label: "음량", render: v2 },
@@ -134,10 +140,10 @@ export function useSound(): SoundSetup | null {
     engine.setSink(c.output ?? "default").catch(() => {});
   }, [engine, c.output]);
 
-  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, sealRadius } = c;
+  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony, sealRadius } = c;
   const params = useMemo<SoundParams>(
-    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery],
+    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony }),
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status } : null), [engine, params, sigCfg, status]);

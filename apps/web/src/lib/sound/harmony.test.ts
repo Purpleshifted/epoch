@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, magentaChordName, nextDegree, snapToClasses } from "./harmony";
+import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, magentaChordName, nextDegree, snapToClasses, worldKey, bandOf, DEFAULT_WORLD } from "./harmony";
+import { CELL_SIZE } from "@/lib/stratum/field";
 
 describe("harmony: a key per motif, a key per building", () => {
   it("home keys are deterministic per id, in the middle modes, and differ between ids", () => {
@@ -34,6 +35,20 @@ describe("harmony: a key per motif, a key per building", () => {
     expect(chordName(keyChord(d, 6))).toBe("Dbm7b5");
     expect(magentaChordName(chordName(keyChord(d, 6)))).toBe("Dbm");
     expect(chordName(keyChord(d, 6, 3))).toBe("Dbdim");
+  });
+
+  it("world mode: one key per epoch with a progression over the ground in bands (93e85c5)", () => {
+    const k = worldKey("1760000000000");
+    expect(worldKey("1760000000000")).toEqual(k);
+    expect(k.degrees.length).toBe(DEFAULT_WORLD.bands);
+    expect(k.degrees[0]).toBe(0);
+    expect(new Set(k.degrees).size).toBeGreaterThan(2);
+    const w = CELL_SIZE * DEFAULT_WORLD.bandCells;
+    expect(bandOf(0, 0)).toBe(0);
+    expect(bandOf(w, 0)).toBe(1);
+    expect(bandOf(0, w)).toBe(1);
+    expect(bandOf(w * DEFAULT_WORLD.bands, 0)).toBe(0);
+    expect(bandOf(-0.01, 0)).toBe(DEFAULT_WORLD.bands - 1);
   });
 
   it("nextDegree walks the Markov table of the mode", () => {

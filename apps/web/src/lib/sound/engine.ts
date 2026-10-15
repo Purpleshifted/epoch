@@ -18,7 +18,7 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, type Key } from "./harmony";
+import { bandOf, buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, worldKey, type Key, type WorldKey } from "./harmony";
 import { Magenta, phraseNotes } from "./magenta";
 import { applySink } from "./output";
 import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
@@ -55,6 +55,11 @@ export interface SoundParams {
   magenta: boolean;
   /** World units of PATH walked that move the progression on by one chord. */
   stepEvery: number;
+  /**
+   * HARMONY MODE: "world" = one shared key per epoch with a progression over the ground, full pull (the version of
+   * 2026-10-14 afternoon, 93e85c5); "identity" = a home key per motif, a key per building, the path as a progression.
+   */
+  harmony: "world" | "identity";
   /** How much conforming pulls single notes onto the chord of the place (0 = the motif is never rewritten). */
   lockPull: number;
   /** Share of noise in a voice at full roughness (crossing vegetation): the tonal/noise ratio. */
@@ -79,6 +84,7 @@ export const DEFAULT_SOUND: SoundParams = {
   lockPull: 0.35,
   noiseMix: 0.6,
   stepEvery: 6,
+  harmony: "world",
 };
 
 interface Voice {
@@ -172,6 +178,8 @@ export class SoundEngine {
   private home: Key | null = null;
   private placeKey: Key | null = null;
   private atBuilding: string | null = null;
+  /** World mode: the epoch's shared key (cached per epoch). */
+  private world: { epochMs: number; key: WorldKey } | null = null;
   /** The progression: its degree, and how much path I have walked since it last moved. */
   private degree = 0;
   private walked = 0;
@@ -195,7 +203,7 @@ export class SoundEngine {
     const p = this.lastPlan;
     return {
       bar: p?.bar ?? -1,
-      key: this.placeKey ? keyName(this.placeKey) : "",
+      key: this.placeKey ? keyName(this.placeKey) + (this.params.harmony === "world" ? " [world]" : "") : "",
       building: this.atBuilding,
       degree: this.degree,
       chord: p ? chordName(p.chord) : "",
@@ -386,22 +394,36 @@ export class SoundEngine {
       this.atBuilding = null;
     }
     this.epochMs = epochMs;
-    // MODULATION: coming to a building puts me in its key (hysteresis so a step at its edge does not flicker); the
-    // change itself lands on the next bar, where the plan is made
-    if (sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
+    if (params.harmony === "world") {
+      // WORLD MODE: one key for everybody, the chord from the band of the ground I stand on; no modulation
+      if (!this.world || this.world.epochMs !== epochMs) this.world = { epochMs, key: worldKey(String(epochMs)) };
+      this.placeKey = this.world.key;
+      this.atBuilding = null;
+      this.degree = this.world.key.degrees[bandOf(sig.x, sig.z)];
+      this.walked = 0;
+      this.lastPos = { x: sig.x, z: sig.z };
+    } else if (this.placeKey && (this.placeKey as WorldKey).degrees) {
+      // back from world mode: my home key again
+      this.placeKey = this.home;
+      this.atBuilding = null;
+      this.degree = 0;
+    }
+    // MODULATION (identity mode): coming to a building puts me in its key (hysteresis so a step at its edge does not
+    // flicker); the change itself lands on the next bar, where the plan is made
+    if (params.harmony === "identity" && sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
       this.atBuilding = sig.building.id;
       this.placeKey = buildingKey(sig.building.id);
       this.degree = 0; // a new key starts on its tonic
       this.walked = 0;
-    } else if (this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
+    } else if (params.harmony === "identity" && this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
       this.atBuilding = null;
       this.placeKey = this.home;
       this.degree = 0;
       this.walked = 0;
     }
-    // THE PATH IS A PROGRESSION: every `stepEvery` world units walked ON a path move the chord on (Markov table of
-    // the key); off the path it falls back to the tonic once I stop
-    if (this.lastPos) {
+    // THE PATH IS A PROGRESSION (identity mode): every `stepEvery` world units walked ON a path move the chord on
+    // (Markov table of the key); off the path it falls back to the tonic once I stop
+    if (params.harmony === "identity" && this.lastPos) {
       const d = Math.hypot(sig.x - this.lastPos.x, sig.z - this.lastPos.z);
       if (sig.pathP >= 0.25) {
         this.walked += d * sig.pathP;
@@ -648,7 +670,7 @@ export class SoundEngine {
     this.planned = next;
 
     const stable = conformity(sig);
-    const lock = lockOf(sig, p.lockPull);
+    const lock = lockOf(sig, p.harmony === "world" ? 1 : p.lockPull);
     this.lockedBars = stable >= 0.6 ? this.lockedBars + 1 : 0;
     this.askMagenta(next, sig, lock, stable);
     if (this.phrase && next - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
@@ -663,7 +685,7 @@ export class SoundEngine {
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && next - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.lockPull },
+      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.harmony === "world" ? 1 : p.lockPull },
     });
     this.lastPlan = plan;
     // a rough walk drifts off the grid and loses notes; a conforming one is steady and complete
