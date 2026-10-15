@@ -23,11 +23,14 @@ describe("motif: the visitor's signature as a SHAPE of real intervals + a rhythm
       expect(m.semis.length).toBeGreaterThanOrEqual(DEFAULT_MOTIF.notesMin);
       expect(m.semis.length).toBeLessThanOrEqual(DEFAULT_MOTIF.notesMax);
       expect(m.semis[0]).toBe(0);
+      let marked = false;
       for (let i = 1; i < m.semis.length; i++) {
         const iv = Math.abs(m.semis[i] - m.semis[i - 1]);
         expect(iv).toBeGreaterThanOrEqual(1);
         expect(iv).toBeLessThanOrEqual(7);
+        if (iv >= 3) marked = true;
       }
+      expect(marked).toBe(true); // a short motif still has a skip or a leap in it: a figure, not a step
       for (const d of m.semis) expect(Math.abs(d)).toBeLessThanOrEqual(16);
       expect(m.onsets.length).toBe(m.semis.length);
       expect(m.onsets[0]).toBe(0);

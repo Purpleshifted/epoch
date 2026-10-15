@@ -1,14 +1,15 @@
 "use client";
 /**
  * useSound — the player's headset sound (V2 only): the engine (lib/sound/engine.ts), started on the first user
- * gesture (mobile autoplay rules). Its controls are CODE: DEFAULT_DESK (lib/sound/desk.ts → DEFAULT_SOUND …),
- * tuned by hand in the repo (the artist, 2026-10-15: no sound workspace in the workflow; the bench at /v2/sound
- * is for testing and touches only its own engine). No Leva here.
+ * gesture (mobile autoplay rules), with its Leva folders (useSoundLeva.ts) on this page — the artist's choice
+ * (2026-10-15 night): the sound Leva on the mobile view, in place of the world folders. Defaults are code
+ * (DEFAULT_DESK); saved values per page as everywhere (levaSave.ts).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParliamentVersion } from "./version";
-import { DEFAULT_DESK, DEFAULT_SIGNALS, SoundEngine, mutedBySolo, readSolo, type SignalConfig, type SoundParams } from "@/lib/sound";
+import { useSoundLeva } from "./useSoundLeva";
+import { DEFAULT_SIGNALS, SoundEngine, mutedBySolo, readSolo, setSolo, type SignalConfig, type SoundParams } from "@/lib/sound";
 import { openBus, type BusState } from "@/lib/sound/bus";
 
 export interface SoundSetup {
@@ -28,8 +29,9 @@ export interface SoundSetup {
 
 export function useSound(): SoundSetup | null {
   const isV2 = useParliamentVersion() === "v2";
-  const desk = DEFAULT_DESK;
-  const c = { on: desk.on, output: desk.output };
+  const v2 = () => isV2;
+  const { desk, solo } = useSoundLeva({ headset: true, solo: true, speakers: false, render: v2 });
+  const c = { on: desk.on, output: desk.output, solo };
   const engine = useMemo(() => (isV2 && typeof window !== "undefined" ? new SoundEngine() : null), [isV2]);
   const onRef = useRef(c.on);
   useEffect(() => {
@@ -82,7 +84,12 @@ export function useSound(): SoundSetup | null {
     else engine.stop();
   }, [engine, c.on]);
 
-  // SOLO: every second obey another window's claim (the workspace decides who plays) and refresh the status line
+  // SOLO: claim or release the shared solo; every second obey another window's claim and refresh the status line
+  useEffect(() => {
+    if (!engine) return;
+    if (c.solo) setSolo("mobile");
+    else if (readSolo() === "mobile") setSolo(null);
+  }, [engine, c.solo]);
   useEffect(() => {
     if (!engine) return;
     const id = setInterval(() => {
@@ -93,7 +100,7 @@ export function useSound(): SoundSetup | null {
         else if (onRef.current && !muted.current) engine.start().catch(() => {});
       }
       const who = readSolo();
-      const why = !onRef.current ? "꺼짐" : muted.current ? "음소거 (ESC)" : other ? `음소거 (${who === "global" ? "글로벌" : who === "manager" ? "작업실" : "다른"} 창이 솔로)` : engine.running ? "재생 중" : "클릭하면 시작";
+      const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : other ? `음소거 (${who === "global" ? "글로벌" : who === "manager" ? "벤치" : "다른"} 창이 솔로)` : engine.running ? "재생 중" : "클릭하면 시작";
       setStatus(`♪ 헤드셋 (모바일 뷰) · ${why}${who === "mobile" ? " · 솔로" : ""}`);
     }, 1000);
     return () => clearInterval(id);
@@ -117,7 +124,7 @@ export function useSound(): SoundSetup | null {
     };
   }, [engine]);
 
-  // OUTPUT DEVICE: the default output (DEFAULT_DESK.output; a device id can be set in code for the exhibition PC)
+  // OUTPUT DEVICE: from the Leva select (devices of this machine)
   useEffect(() => {
     if (!engine) return;
     engine.setSink(c.output ?? "default").catch(() => {});

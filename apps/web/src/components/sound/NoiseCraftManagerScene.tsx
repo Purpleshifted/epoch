@@ -23,9 +23,9 @@ import { getNoiseCraftBridge } from "@/lib/sound/NoiseCraftBridge";
 import { NoiseCraftDriver, type DriverStatus } from "@/lib/sound/noisecraftDriver";
 import { harmonyLabel } from "@/lib/sound/harmonyState";
 import { PULSES_PER_BAR, PULSES_PER_STEP, knobParams, mapFor, modeOf, roughOf } from "@/lib/sound/noisecraftMap";
-import { openBus, type BusDesk, type BusMessage, type BusState } from "@/lib/sound/bus";
+import { openBus, type BusMessage, type BusState } from "@/lib/sound/bus";
 import { readSolo, setSolo, type SoundView } from "@/lib/sound/output";
-import { readDesk, writeDesk, type DeskState } from "@/lib/sound/desk";
+import { DEFAULT_DESK, type DeskState } from "@/lib/sound/desk";
 import { KEY_NAMES, chordName } from "@/lib/sound/harmony";
 import type { BarPlan } from "@/lib/sound/sequencer";
 import type { PersonalSignals } from "@/lib/sound/signals";
@@ -165,9 +165,13 @@ export default function NoiseCraftManagerScene() {
   const muteRef = useRef(mute);
   const [bars, setBars] = useState<BarRow[]>([]);
   const barsRef = useRef<BarRow[]>([]);
-  const [desk0] = useState<DeskState>(() => readDesk());
-  const deskRef = useRef<DeskState>(desk0);
-  const [desk, setDeskState] = useState<DeskState>(desk0);
+  const deskRef = useRef<DeskState>(DEFAULT_DESK);
+  const [desk, setDeskState] = useState<DeskState>(DEFAULT_DESK);
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const overridesRef = useRef(overrides);
+  useEffect(() => {
+    overridesRef.current = overrides;
+  }, [overrides]);
   const [picked, setPicked] = useState<string | null>(null);
   const spark = useRef<Record<string, number[]>>({});
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
@@ -177,7 +181,6 @@ export default function NoiseCraftManagerScene() {
   const live = useRef<{ bus: BusState | null; sig: PersonalSignals | null }>({ bus: null, sig: null });
   const driver = useRef<NoiseCraftDriver | null>(null);
   const playingRef = useRef(false);
-  const busOut = useRef<BroadcastChannel | null>(null);
   useEffect(() => {
     playingRef.current = playing;
   }, [playing]);
@@ -196,18 +199,14 @@ export default function NoiseCraftManagerScene() {
     setDeskState(d);
   }, []);
 
-  /** A patch knob held by hand (null = released): into the desk, so the player tab's driver holds it too. */
+  /** A patch knob held by hand on this bench (null = released). */
   const setOverride = useCallback((nodeId: string, value: number | null) => {
-    const d = readDesk();
-    const overrides = { ...d.overrides };
-    if (value == null) delete overrides[nodeId];
-    else overrides[nodeId] = value;
-    const full: DeskState = { ...d, overrides, at: Date.now() };
-    writeDesk(full);
-    const msg: BusDesk = { type: "desk", desk: full };
-    busOut.current?.postMessage(msg);
-    deskRef.current = full;
-    setDeskState(full);
+    setOverrides((prev) => {
+      const next = { ...prev };
+      if (value == null) delete next[nodeId];
+      else next[nodeId] = value;
+      return next;
+    });
   }, []);
 
   // a scenario drives the simulator: the step by the time elapsed, looping
@@ -235,19 +234,14 @@ export default function NoiseCraftManagerScene() {
     return () => clearInterval(id);
   }, [scenario]);
 
-  // the bus: the player tab's state, when one is talking (the link); and our channel to post the desk on
+  // the bus: the player tab's state, when one is talking (the link)
   useEffect(() => {
     const bus = openBus();
-    busOut.current = openBus();
     if (!bus) return;
     bus.onmessage = (e: MessageEvent<BusMessage>) => {
       if (e.data?.type === "state") live.current.bus = e.data;
     };
-    return () => {
-      bus.close();
-      busOut.current?.close();
-      busOut.current = null;
-    };
+    return () => bus.close();
   }, []);
 
   // feed the engine twice a second: bus if fresh, else the simulator; the desk's controls, this page's own
@@ -307,7 +301,7 @@ export default function NoiseCraftManagerScene() {
         layer: () => (engine.params.instrument === "noisecraft" ? "all" : "harmony"),
         octave: () => engine.params.ncOctave,
         onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
-        overrides: () => deskRef.current.overrides,
+        overrides: () => overridesRef.current,
       },
       patch,
     );
@@ -349,10 +343,10 @@ export default function NoiseCraftManagerScene() {
   const knobs = sig ? knobParams(map, { sig, mode: modeOf(sig), plan, master: desk.headset.master, barSec: desk.headset.barSec }) : [];
   const pickedRule = picked ? map.knobs.find((k) => k.nodeId === picked) ?? null : null;
   const pickedInfo = picked ? getNoiseCraftBridge().nodeInfo(picked) : null;
-  const pickedHeld = picked != null && picked in desk.overrides;
+  const pickedHeld = picked != null && picked in overrides;
   const pickedMin = pickedRule?.min ?? pickedInfo?.min ?? 0;
   const pickedMax = pickedRule?.max ?? pickedInfo?.max ?? 1;
-  const pickedValue = picked ? (desk.overrides[picked] ?? knobs.find((k) => k.nodeId === picked)?.value ?? pickedInfo?.value ?? pickedMin) : 0;
+  const pickedValue = picked ? (overrides[picked] ?? knobs.find((k) => k.nodeId === picked)?.value ?? pickedInfo?.value ?? pickedMin) : 0;
 
   return (
     <div className="flex h-screen w-screen flex-col bg-[#020205] text-white" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -370,7 +364,7 @@ export default function NoiseCraftManagerScene() {
               ← 패치 목록
             </button>
             <span className="text-white/50">
-              편집 중: <strong className="text-white/80">{patch}</strong> · 자동 저장 · <span className="text-white/35">벤치: 여기 값은 이 창에만 — 작품의 값은 코드 (DEFAULT_SOUND)</span>
+              편집 중: <strong className="text-white/80">{patch}</strong> · 자동 저장 · <span className="text-white/35">벤치: 여기 값은 이 창에만</span>
             </span>
             <button onClick={() => setPlaying((p) => !p)} className={`rounded border px-3 py-1 ${playing ? "border-red-400/50 text-red-300" : "border-[#4ecdc4]/50 text-[#4ecdc4]"}`}>
               {playing ? "■ STOP" : "▶ PLAY"}
@@ -523,14 +517,14 @@ export default function NoiseCraftManagerScene() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-white/35">노브를 클릭하면 어떤 규칙이 돌리는지 보이고, 슬라이더로 잡으면 그 값에 고정됩니다 (플레이어 창의 패치에도 같이). umwelt의 auto-fill을 고정 기능으로.</p>
+                  <p className="text-white/35">노브를 클릭하면 어떤 규칙이 돌리는지 보이고, 슬라이더로 잡으면 그 값에 고정됩니다 (이 벤치에서만). umwelt의 auto-fill을 고정 기능으로.</p>
                 )}
-                {Object.keys(desk.overrides).length > 0 && (
+                {Object.keys(overrides).length > 0 && (
                   <div className="mt-1 font-mono text-[10px] text-[#f59e0b]">
-                    고정: {Object.entries(desk.overrides).map(([id, v]) => `#${id}=${v.toFixed(2)}`).join(" · ")}{" "}
+                    고정: {Object.entries(overrides).map(([id, v]) => `#${id}=${v.toFixed(2)}`).join(" · ")}{" "}
                     <button
                       onClick={() => {
-                        for (const id of Object.keys(desk.overrides)) setOverride(id, null);
+                        for (const id of Object.keys(overrides)) setOverride(id, null);
                       }}
                       className="rounded border border-white/20 px-1 text-white/50"
                     >
@@ -545,12 +539,12 @@ export default function NoiseCraftManagerScene() {
                   <tbody>
                     {map.knobs.map((r) => {
                       const v = knobs.find((k) => k.nodeId === r.nodeId)?.value;
-                      const held = r.nodeId in desk.overrides;
+                      const held = r.nodeId in overrides;
                       return (
                         <tr key={r.nodeId} onClick={() => setPicked(r.nodeId)} className={`cursor-pointer border-b border-white/5 ${picked === r.nodeId ? "bg-white/5" : ""}`}>
                           <td className="py-0.5 pr-2 text-white/40">{r.nodeId}</td>
                           <td className="py-0.5 pr-2 text-white/70">{r.label}</td>
-                          <td className={`py-0.5 text-right ${held ? "text-[#f59e0b]" : "text-[#4ecdc4]"}`}>{held ? `${desk.overrides[r.nodeId].toFixed(3)} 고정` : v != null ? v.toFixed(3) : "–"}</td>
+                          <td className={`py-0.5 text-right ${held ? "text-[#f59e0b]" : "text-[#4ecdc4]"}`}>{held ? `${overrides[r.nodeId].toFixed(3)} 고정` : v != null ? v.toFixed(3) : "–"}</td>
                         </tr>
                       );
                     })}
@@ -559,8 +553,8 @@ export default function NoiseCraftManagerScene() {
                 <p className="mt-2 text-white/40">수신 모듈: {map.modules.join(", ")} — 패치의 AI_Seq / AI_Poly 노드 드롭다운에서 고릅니다. hybrid: parliament voice 0 = 베이스, 1–3 = 코드 음; harmony = 4성 보이싱; GateSeq 이름 traces = 리듬 흔적.</p>
               </section>
               <section>
-                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">컨트롤 — 이 벤치의 엔진 (실험용; 작품의 값은 코드)</h3>
-                <SoundControls initial={desk0} onChange={onDeskChange} />
+                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">컨트롤 — 플레이어 페이지와 같은 Leva (이 벤치의 엔진에만)</h3>
+                <SoundControls onChange={onDeskChange} />
               </section>
             </div>
           </div>

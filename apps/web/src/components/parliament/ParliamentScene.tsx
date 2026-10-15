@@ -172,8 +172,10 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
-  const cfg = useFoldControls();
-  const { cfg: natureCfg, pointSize } = useNatureControls();
+  // sound wiring (the artist, 2026-10-15): the player page shows the SOUND folders instead of the world folders —
+  // the rules still apply here (their saved values too); they are set on the global views
+  const cfg = useFoldControls(undefined, { hidden: true });
+  const { cfg: natureCfg, pointSize } = useNatureControls({ hidden: true });
 
   useEffect(() => {
     if (hideChrome) return;

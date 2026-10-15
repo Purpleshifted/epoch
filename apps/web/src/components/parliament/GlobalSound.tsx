@@ -2,22 +2,24 @@
 /**
  * GlobalSound — the room's speakers under every V2 global view (space / top / side): the mass of everybody present,
  * folded into a monotonous landscape of noise (lib/sound/global.ts). Mounted by app/v2/global/layout.tsx so the
- * views themselves stay untouched. Starts on the first gesture on the page (autoplay rules). Its controls are CODE
- * (DEFAULT_DESK.speakers = DEFAULT_GLOBAL, lib/sound/desk.ts); no Leva here.
+ * views themselves stay untouched. Starts on the first gesture on the page (autoplay rules). Its Leva folder
+ * ("소리 (V2 · 스피커)", useSoundLeva.ts) is on the global pages; defaults are code (DEFAULT_GLOBAL).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParliamentVersion } from "./version";
 import { useWorld } from "./useWorld";
+import { useSoundLeva } from "./useSoundLeva";
 import { DEFAULT_FOLD, currentEpochKey, foldWorld, latestS, withoutWear, type Slab } from "@/lib/parliament";
-import { DEFAULT_DESK } from "@/lib/sound/desk";
+import { setSolo } from "@/lib/sound/output";
 import { GlobalEngine, presences } from "@/lib/sound/global";
 import { mutedBySolo, readSolo } from "@/lib/sound/output";
 
 export default function GlobalSound() {
   const isV2 = useParliamentVersion() === "v2";
-  const desk = DEFAULT_DESK;
-  const c = { on: desk.speakersOn, output: desk.speakersOutput };
+  const v2 = () => isV2;
+  const { desk, speakersSolo } = useSoundLeva({ headset: false, speakers: true, render: v2 });
+  const c = { on: desk.speakersOn, output: desk.speakersOutput, solo: speakersSolo };
   const log = useWorld(undefined, 1000);
   const engine = useMemo(() => (isV2 && typeof window !== "undefined" ? new GlobalEngine() : null), [isV2]);
   const onRef = useRef(c.on);
@@ -60,6 +62,11 @@ export default function GlobalSound() {
 
   useEffect(() => {
     if (!engine) return;
+    if (c.solo) setSolo("global");
+    else if (readSolo() === "global") setSolo(null);
+  }, [engine, c.solo]);
+  useEffect(() => {
+    if (!engine) return;
     engine.setSink(c.output ?? "default").catch(() => {});
   }, [engine, c.output]);
 
@@ -87,7 +94,7 @@ export default function GlobalSound() {
       }
       const d = engine.debug;
       const who = readSolo();
-      const why = !onRef.current ? "꺼짐" : muted.current ? "음소거 (ESC)" : other ? `음소거 (${who === "mobile" ? "모바일" : who === "manager" ? "작업실" : "다른"} 창이 솔로)` : engine.running ? "재생 중" : "클릭하면 시작";
+      const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : other ? `음소거 (${who === "mobile" ? "모바일" : who === "manager" ? "작업실" : "다른"} 창이 솔로)` : engine.running ? "재생 중" : "클릭하면 시작";
       setStatus(`♪ 스피커 (글로벌 뷰) · ${why}${who === "global" ? " · 솔로" : ""} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · bar ${d.bar}`);
       (window as unknown as { __globalSound?: unknown }).__globalSound = { ...d, running: engine.running };
     }, 1000);

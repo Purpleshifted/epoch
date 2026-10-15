@@ -64,6 +64,8 @@ export interface ControlPlacement {
   collapsed?: boolean;
   /** Order among the top-level folders (lower first). */
   order?: number;
+  /** Register the controls (values, saved values) but show no folder — a view that uses the rules but is not where they are set. */
+  hidden?: boolean;
 }
 
 /** Where the V2 path (flow) rules go: a folder path ("group.folder") of their own; default: inside the fold group. */
@@ -106,9 +108,10 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     gridShare: { value: DEFAULT_FLOW.gridShare ?? 0.3, min: 0, max: 1, step: 0.05, label: "길의 격자 비율 (0 = 곡선, 1 = 격자 0°/45°/90°)", render: v2 },
   };
   const root = place.folder ?? "회사원 규칙 (시공간 밀집)";
-  const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order }) as unknown as Record<string, number>;
+  const hidden = () => false;
+  const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order, render: place.hidden ? hidden : undefined }) as unknown as Record<string, number>;
   const flowPath = place.flow?.path ?? `${root}.길 (V2 · 유지되는 유통량)`;
-  const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: true, order: place.flow?.order, render: v2 }) as unknown as Record<string, number>;
+  const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: true, order: place.flow?.order, render: place.hidden ? hidden : v2 }) as unknown as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
   const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare } = f as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(
@@ -149,6 +152,7 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const c = useControls(natureRoot, savable(natureRoot, place.rulesOnly ? rules : { ...rules, ...drawing }), {
     collapsed: place.collapsed,
     order: place.order,
+    render: place.hidden ? () => false : undefined,
   }) as Record<string, number>;
   const { lingerRadius, dose, recoverSec, pathBite, sealedLeft } = c;
   const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;

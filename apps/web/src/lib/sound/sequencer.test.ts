@@ -70,14 +70,21 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(plan.lock).toBeCloseTo(DEFAULT_SEQUENCER.lockPull);
     // the pull works on strong beats only (weak beats pass): with lockPull 1 every pulled note is a chord tone and
     // weak-beat notes are exactly as with no pull at all
-    const pulled = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { params: { ...DEFAULT_SEQUENCER, lockPull: 1 } }));
-    const untouched = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { params: { ...DEFAULT_SEQUENCER, lockPull: 0 } }));
-    expect(untouched.me.every((n) => !n.locked)).toBe(true);
-    expect(pulled.me.some((n) => n.locked)).toBe(true);
-    pulled.me.forEach((n, i) => {
-      if (n.locked) expect(pulled.chord.classes).toContain(((n.pitch % 12) + 12) % 12);
-      if (ME.onsets[i] % 4 !== 0) expect(n.pitch).toBe(untouched.me[i].pitch);
-    });
+    // (a short motif may have no strong-beat note the pull can move without breaking its shape, so the "some note
+    // locked" claim is made over a few motifs, the invariants over every one)
+    let anyLocked = false;
+    for (const id of ["v_me", "v_a", "v_b", "v_c", "v_d", "v_e"]) {
+      const me = makeMotif(id);
+      const pulled = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { me, params: { ...DEFAULT_SEQUENCER, lockPull: 1 } }));
+      const untouched = planBar(inputs(2, sig({ speed: 3, pathP: 1 }), { me, params: { ...DEFAULT_SEQUENCER, lockPull: 0 } }));
+      expect(untouched.me.every((n) => !n.locked)).toBe(true);
+      if (pulled.me.some((n) => n.locked)) anyLocked = true;
+      pulled.me.forEach((n, i) => {
+        if (n.locked) expect(pulled.chord.classes).toContain(((n.pitch % 12) + 12) % 12);
+        if (me.onsets[i] % 4 !== 0) expect(n.pitch).toBe(untouched.me[i].pitch);
+      });
+    }
+    expect(anyLocked).toBe(true);
     const running = planBar(inputs(2, sig({ speed: 7, pathP: 1 })));
     expect(running.bass.length).toBe(2);
     const weak = planBar(inputs(2, sig({ speed: 3, pathP: DEFAULT_SEQUENCER.bassFrom - 0.05 })));

@@ -109,13 +109,16 @@ export function makeMotif(id: string, cfg: MotifConfig = DEFAULT_MOTIF): Motif {
   const span = cfg.notesMax - cfg.notesMin;
   const u0 = r();
   const n = span <= 0 ? cfg.notesMin : cfg.notesMin + (u0 < 0.3 ? 0 : u0 < 0.8 ? Math.min(span, 1) : span);
-  // the shape: a walk in real intervals — mostly steps (1–2), some skips (3–4), now and then a leap (5–7) —
-  // mostly within an octave, never the same note twice in a row
+  // the shape: a walk in real intervals — steps (1–2), skips (3–4), leaps (5–7) — mostly within an octave, never
+  // the same note twice in a row. A SHORT motif (2026-10-15) is mostly steps no more: at least one of its
+  // intervals is a skip or a leap (the `mark`), so two or three notes still make a figure one recognises — a
+  // whole step alone was nobody's name
   const semis = [0];
   let p = 0;
+  const mark = 1 + Math.floor(r() * Math.max(1, n - 1)); // the interval that must be a skip or a leap
   for (let i = 1; i < n; i++) {
     const u = r();
-    const size = u < 0.55 ? 1 + Math.floor(r() * 2) : u < 0.88 ? 3 + Math.floor(r() * 2) : 5 + Math.floor(r() * 3);
+    const size = i === mark ? (u < 0.6 ? 3 + Math.floor(r() * 2) : 5 + Math.floor(r() * 3)) : u < 0.55 ? 1 + Math.floor(r() * 2) : u < 0.88 ? 3 + Math.floor(r() * 2) : 5 + Math.floor(r() * 3);
     const up = p <= -4 ? true : p >= 9 ? false : r() < 0.55;
     p += up ? size : -size;
     semis.push(p);
