@@ -64,7 +64,7 @@ import {
   handleSpaceRequest,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
-import { LEVA_THEME, useFoldControls, useNatureControls, useWorld } from "./useWorld";
+import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 
@@ -1089,6 +1089,7 @@ export default function ParliamentSpace() {
   const isV2 = useParliamentVersion() === "v2";
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000);
+  useKeepWindowControl(log); // the shared history window (log.ts), the first folder
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
