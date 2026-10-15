@@ -512,7 +512,8 @@ export class SoundEngine {
     const ctx = this.ctx;
     const sig = this.sig;
     const key = this.key;
-    if (!ctx || !sig || !key || !this.me || ctx.state !== "running" || !this.epochMs) return;
+    // nobody here yet (a session before LIVE gives an empty id): nothing to plan, nothing to schedule
+    if (!ctx || !sig || !key || !this.me || !this.myId || ctx.state !== "running" || !this.epochMs) return;
     const p = this.params;
     const now = ctx.currentTime;
     const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);

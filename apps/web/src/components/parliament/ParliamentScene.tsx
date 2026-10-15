@@ -17,6 +17,7 @@ import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { useSound } from "./useSound";
+import SoundButton from "./SoundButton";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { SessionHud } from "./SessionHud";
@@ -183,8 +184,6 @@ export default function ParliamentScene() {
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
-  // V2: the headset sound (null in V1)
-  const sound = useSound();
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
@@ -225,6 +224,13 @@ export default function ParliamentScene() {
   const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
+  // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
+  const sound = useSound({ escMute: !withSession });
+  // a mute never carries over to the next visitor (sound wiring)
+  useEffect(() => {
+    if (sound?.muted) sound.toggleMute();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.sessionNo]);
   const cfg = useFoldControls();
   const { cfg: natureCfg, pointSize } = useNatureControls();
 
@@ -282,6 +288,8 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} />}
+      {/* sound wiring: this window's ♪ switch — while LIVE only (the HUD owns the dark screens), top-right beside the HUD */}
+      {sound && !hideChrome && (!withSession || session.phase === "live") && <SoundButton sound={sound} corner={withSession ? "top-right" : "bottom"} />}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="font-mono text-[11px] tracking-[0.35em] text-white/15">click to enter</p>

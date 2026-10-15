@@ -1,10 +1,12 @@
 "use client";
 /**
  * useSound — the player's headset sound (V2 only): a Leva folder of its mapping ranges and the engine
- * (lib/sound/engine.ts), started on the first user gesture (mobile autoplay rules).
+ * (lib/sound/engine.ts), started on the first user gesture (mobile autoplay rules). The window's own mute (the ♪
+ * button, SoundButton.tsx; ESC too when there is no session — with one, ESC is the look-release key) and a status
+ * line for the screen (docs/sound-logic.md §13).
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
@@ -14,13 +16,27 @@ export interface SoundSetup {
   engine: SoundEngine;
   params: SoundParams;
   sigCfg: SignalConfig;
+  /** One line for the screen: which window this is and whether it is playing (and why not). */
+  status: string;
+  /** This window's mute (the ♪ button / ESC) and its switch. */
+  muted: boolean;
+  toggleMute(): void;
+}
+
+export interface SoundOptions {
+  /** ESC toggles the mute (true without a session; with one ESC releases the look instead). */
+  escMute?: boolean;
 }
 
 const ROOT = "소리 (V2 · 헤드셋)";
 
-export function useSound(): SoundSetup | null {
+export function useSound(opts: SoundOptions = {}): SoundSetup | null {
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
+  const escMuteRef = useRef(opts.escMute ?? true);
+  useEffect(() => {
+    escMuteRef.current = opts.escMute ?? true;
+  }, [opts.escMute]);
   const c = useControls(
     ROOT,
     savable(ROOT, {
@@ -50,27 +66,59 @@ export function useSound(): SoundSetup | null {
     onRef.current = c.on;
   }, [c.on]);
 
-  useEffect(() => {
-    if (!engine) return;
-    const start = () => {
-      if (onRef.current) engine.start().catch(() => {});
-    };
-    window.addEventListener("pointerdown", start);
-    window.addEventListener("keydown", start);
-    window.addEventListener("touchend", start);
-    return () => {
-      window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
-      window.removeEventListener("touchend", start);
-      engine.dispose();
-    };
-  }, [engine]);
+  // the window's own mute: the ♪ button, and ESC when there is no session (with one ESC releases the look)
+  const muted = useRef(false);
+  const [mutedState, setMutedState] = useState(false);
+  const [status, setStatus] = useState("♪ 헤드셋 (모바일 뷰)");
+  const toggleMute = useMemo(
+    () => () => {
+      if (!engine) return;
+      muted.current = !muted.current;
+      setMutedState(muted.current);
+      if (muted.current) engine.stop();
+      else if (onRef.current) engine.start().catch(() => {});
+    },
+    [engine],
+  );
 
   useEffect(() => {
     if (!engine) return;
-    if (c.on) engine.start().catch(() => {}); // no-op until a gesture has unlocked the context
+    const start = () => {
+      if (onRef.current && !muted.current) engine.start().catch(() => {});
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (escMuteRef.current) toggleMute();
+        return;
+      }
+      start();
+    };
+    window.addEventListener("pointerdown", start);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("touchend", start);
+    return () => {
+      window.removeEventListener("pointerdown", start);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("touchend", start);
+      engine.dispose();
+    };
+  }, [engine, toggleMute]);
+
+  useEffect(() => {
+    if (!engine) return;
+    if (c.on && !muted.current) engine.start().catch(() => {}); // no-op until a gesture has unlocked the context
     else engine.stop();
   }, [engine, c.on]);
+
+  // the status line, once a second
+  useEffect(() => {
+    if (!engine) return;
+    const id = setInterval(() => {
+      const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (♪ 버튼)" : engine.running ? "재생 중" : "클릭하면 시작";
+      setStatus(`♪ 헤드셋 (모바일 뷰) · ${why}`);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [engine]);
 
   const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius } = c;
   const params = useMemo<SoundParams>(
@@ -78,5 +126,5 @@ export function useSound(): SoundSetup | null {
     [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
-  return useMemo(() => (engine ? { engine, params, sigCfg } : null), [engine, params, sigCfg]);
+  return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);
 }

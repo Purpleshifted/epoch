@@ -103,6 +103,8 @@ class SessionMachine {
   /** IDLE → DRAW (any gesture); ENDED → DRAW of the next session (SPACE, once the end screen has held). */
   begin = (e: Event) => {
     if (!this.enabled || onPanel(e)) return;
+    // ESC is the sound's mute / the look-release key, never the gesture that starts a session (sound wiring)
+    if (e.type === "keydown" && (e as KeyboardEvent).code === "Escape") return;
     const v = this.view;
     const next = v.phase === "ended" && v.restartReady && e.type === "keydown" && (e as KeyboardEvent).code === "Space";
     if (v.phase !== "idle" && !next) return;
