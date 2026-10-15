@@ -57,9 +57,17 @@ export interface SoundParams {
    * colour, fifth, the chorale) on the MUSIC CLOCK this engine decides, and Web Audio keeps the motif, the others,
    * the vegetation and the rooms (the bass and the pad here fall silent).
    */
-  instrument: "webaudio" | "noisecraft";
-  /** How much the music clock tightens with the lock (0..0.3 of the bar length) — only with the noisecraft instrument. */
+  instrument: "webaudio" | "noisecraft" | "both";
+  /** How much the music clock tightens with the lock (0..0.3 of the bar length) — only with the patch playing. */
   clockPull: number;
+  /** My motif comes round every this many bars (the artist: half as often). */
+  motifEvery: number;
+  /** How much of the motif's micro-tones is heard (0..1). */
+  microtone: number;
+  /** A bar-synced echo on my motif (0..1 send level). */
+  motifEcho: number;
+  /** How soft my motif is (0 = as before, 1 = slow attack, dark). */
+  motifSoft: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -77,8 +85,12 @@ export const DEFAULT_SOUND: SoundParams = {
   bassLevel: 0.6,
   padLevel: 0.35,
   magenta: false, // the light version has no Magenta (the artist, v4 A1); tfjs shared the GPU with three.js
-  instrument: "webaudio",
+  instrument: "both",
   clockPull: 0.08,
+  motifEvery: 2,
+  microtone: 0.3,
+  motifEcho: 0.35,
+  motifSoft: 0.5,
 };
 
 interface Voice {
@@ -148,6 +160,8 @@ export class SoundEngine {
   private noiseGain!: GainNode;
   private bassGain!: GainNode;
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
+  /** My motif's bar-synced echo: send → delay (3/8 bar) → feedback, darkened → dry + hall. */
+  private echo!: { send: GainNode; delay: DelayNode; feedback: GainNode };
   private me: Voice | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
@@ -208,7 +222,7 @@ export class SoundEngine {
    */
   musicBarSec(): number {
     const p = this.params;
-    if (p.instrument !== "noisecraft" || !this.sig) return p.barSec;
+    if (p.instrument === "webaudio" || !this.sig) return p.barSec;
     return p.barSec * (1 - p.clockPull * lockOf(this.sig));
   }
 
@@ -237,7 +251,7 @@ export class SoundEngine {
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25 },
+      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25, motifEvery: p.motifEvery, microtone: p.microtone },
     });
     this.plans.set(bar, plan);
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
@@ -318,6 +332,20 @@ export class SoundEngine {
         gains.push(g);
       }
       this.pad = { oscs, gains, level };
+      // my motif's echo (v4 A2: a body for the melody beside the patch): a dotted eighth of the bar, darkened
+      const send = ctx.createGain();
+      send.gain.value = 0;
+      const delay = ctx.createDelay(4);
+      delay.delayTime.value = this.params.barSec * 0.375;
+      const feedback = ctx.createGain();
+      feedback.gain.value = 0.3;
+      const dark = ctx.createBiquadFilter();
+      dark.type = "lowpass";
+      dark.frequency.value = 1800;
+      send.connect(delay).connect(dark).connect(feedback).connect(delay);
+      dark.connect(this.dry);
+      dark.connect(this.rooms.hall);
+      this.echo = { send, delay, feedback };
       this.lastUpdate = ctx.currentTime;
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
@@ -415,7 +443,12 @@ export class SoundEngine {
       if (this.me) this.dropVoice("me", this.me);
       this.me = this.newVoice(myId, 0, false);
       this.me.gain.gain.setTargetAtTime(1, t, 0.5);
+      this.me.gain.connect(this.echo.send);
     }
+    // my motif's body: the echo follows the bar, the softness darkens the voice
+    this.echo.send.gain.setTargetAtTime(params.motifEcho * 0.6, t, 0.3);
+    this.echo.delay.delayTime.setTargetAtTime(this.musicBarSec() * 0.375, t, 0.2);
+    this.me.filt.frequency.setTargetAtTime(4000 * (1 - 0.6 * params.motifSoft), t, 0.3);
     // the listener turns with the camera: forward = (sin yaw, 0, cos yaw) in world terms
     const L = ctx.listener;
     if (L.forwardX) {
@@ -474,15 +507,15 @@ export class SoundEngine {
   }
 
   // ── the instrument ──
-  private note(dest: AudioNode, freq: number, at: number, dur: number, vel: number, timbre: number, blur: number): void {
+  private note(dest: AudioNode, freq: number, at: number, dur: number, vel: number, timbre: number, blur: number, attack = 0.012): void {
     const ctx = this.ctx!;
     const g = ctx.createGain();
     g.connect(dest);
     const peak = 0.22 * vel;
     const release = 0.15 + dur * 0.4;
     g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(peak, at + 0.012);
-    g.gain.setTargetAtTime(peak * 0.55, at + 0.012, 0.09);
+    g.gain.linearRampToValueAtTime(peak, at + attack);
+    g.gain.setTargetAtTime(peak * 0.55, at + attack, 0.09);
     g.gain.setTargetAtTime(0, at + dur, release / 3);
     const end = at + dur + release + 0.3;
     const o1 = ctx.createOscillator();
@@ -596,7 +629,7 @@ export class SoundEngine {
     const now = ctx.currentTime;
     const barSec = this.musicBarSec();
     // the grid: the patch's clock carries the phase when it plays (anchor), else the epoch on the wall clock
-    const nc = p.instrument === "noisecraft";
+    const nc = p.instrument !== "webaudio";
     const epoch = nc && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
     const { bar, start } = barClock(epoch, Date.now(), now, barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
@@ -610,14 +643,16 @@ export class SoundEngine {
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0);
+    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, 0.012 + 0.05 * p.motifSoft);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
       for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * barSec + human() * 0.5, n.len * barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
     }
-    // with the patch as the instrument the root and the chord are its (a static machine, our gates): silent here
-    if (!nc) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level);
-    this.setPad(plan.pad.pitches, nc ? 0 : plan.pad.level, nextStart);
+    // with the patch ALONE as the harmony its root and chord are its (a static machine, our gates): silent here;
+    // "both" (the artist: 병행) keeps the Web Audio bass and pad beside the patch
+    const alone = p.instrument === "noisecraft";
+    if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level);
+    this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level, nextStart);
   }
 }

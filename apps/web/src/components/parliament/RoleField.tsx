@@ -85,6 +85,7 @@ export function RoleField({
   cfg,
   natureCfg,
   pointSize,
+  pathDots = 1,
   offsetWindow,
   botCount,
   botRole,
@@ -99,6 +100,8 @@ export function RoleField({
   cfg: FoldConfig;
   natureCfg: NatureConfig;
   pointSize: number;
+  /** How many dust points a trodden cell gets (× the base 14 at full strength); the artist wanted the paths visible. */
+  pathDots?: number;
   offsetWindow: number;
   botCount: number;
   /** "mixed" (V2): the bots take the session roles in turn. */
@@ -331,6 +334,7 @@ export function RoleField({
         getSnapshot={() => snap.current}
         cfg={natureCfg}
         pointSize={pointSize}
+        pathDots={pathDots}
       />
     </>
   );

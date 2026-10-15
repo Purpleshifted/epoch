@@ -219,8 +219,10 @@ export default function ParliamentScene() {
     useControls({
       "역할 (Role)": folder({
         session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
+        // SOUND TESTS (v4 A2, the artist): the worker by default, so building together can be heard — back to
+        // "random" (the slot) when this branch is integrated
         role: isV2
-          ? { options: V2_ROLE_OPTIONS, value: "random" as RoleId | "random", label: "배정 (랜덤 = 슬롯)" }
+          ? { options: V2_ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "배정 (랜덤 = 슬롯; 사운드 테스트 동안 회사원 고정)" }
           : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
@@ -261,7 +263,7 @@ export default function ParliamentScene() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.sessionNo]);
   const cfg = useFoldControls();
-  const { cfg: natureCfg, pointSize } = useNatureControls();
+  const { cfg: natureCfg, pointSize, pathDots } = useNatureControls();
 
   useEffect(() => {
     if (hideChrome) return;
@@ -305,6 +307,7 @@ export default function ParliamentScene() {
           cfg={cfg}
           natureCfg={natureCfg}
           pointSize={pointSize}
+          pathDots={pathDots}
           offsetWindow={offsetWindow}
           botCount={botEnabled ? botCount : 0}
           botRole={botRole}
@@ -318,7 +321,7 @@ export default function ParliamentScene() {
 
       {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} />}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
-      {sound && sound.params.instrument === "noisecraft" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
+      {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
       {/* sound wiring: this window's ♪ switch — while LIVE only (the HUD owns the dark screens), top-right beside the HUD */}
       {sound && !hideChrome && (!withSession || session.phase === "live") && <SoundButton sound={sound} corner={withSession ? "top-right" : "bottom"} />}
       {!locked && !hideChrome && !withSession && (

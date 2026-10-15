@@ -58,12 +58,19 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       magenta: { value: DEFAULT_SOUND.magenta, label: "Magenta 변주 (기본 꺼짐 — 켜면 네트워크 + GPU를 three.js와 나눔)", render: v2 },
       instrument: {
         value: DEFAULT_SOUND.instrument,
-        options: { "Web Audio만 (가벼운 판)": "webaudio", "NoiseCraft 패치가 화성 + Web Audio 모티프 (A2)": "noisecraft" },
+        options: { "둘 다 — Web Audio 전체 + NoiseCraft 패치 (병행)": "both", "NoiseCraft 패치가 화성, Web Audio는 모티프만": "noisecraft", "Web Audio만 (가벼운 판)": "webaudio" },
         label: "악기",
         render: v2,
       },
-      clockPull: { value: DEFAULT_SOUND.clockPull, min: 0, max: 0.3, step: 0.01, label: "음악 클록: 길·함께 지을 때 마디가 죄어드는 비율 (NoiseCraft일 때)", render: v2 },
-    }, [], [{ tag: "v4-a1-magenta-off", set: { magenta: false } }]), // a saved "on" from before v4 A1 is switched off once
+      clockPull: { value: DEFAULT_SOUND.clockPull, min: 0, max: 0.3, step: 0.01, label: "음악 클록: 길·함께 지을 때 마디가 죄어드는 비율 (패치가 켜졌을 때)", render: v2 },
+      motifEvery: { value: DEFAULT_SOUND.motifEvery, min: 1, max: 4, step: 1, label: "내 모티프: 몇 마디에 한 번", render: v2 },
+      microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
+      motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
+      motifSoft: { value: DEFAULT_SOUND.motifSoft, min: 0, max: 1, step: 0.05, label: "모티프 부드럽게 (느린 어택 · 어두운 음색)", render: v2 },
+    }, [], [
+      { tag: "v4-a1-magenta-off", set: { magenta: false } }, // a saved "on" from before v4 A1 is switched off once
+      { tag: "v4-a2b-both", set: { instrument: "both" } }, // the artist (A2 test): both instruments side by side
+    ]),
     { collapsed: false, order: -1, render: v2 },
   ) as unknown as SoundParams & { on: boolean; sealRadius: number };
 
@@ -131,10 +138,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     return () => clearInterval(id);
   }, [engine]);
 
-  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull } = c;
+  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft } = c;
   const params = useMemo<SoundParams>(
-    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull],
+    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft }),
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);

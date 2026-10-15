@@ -20,7 +20,7 @@
  */
 
 import { placeChord, type PlaceChord, type WorldKey } from "./harmony";
-import { midiToHz, realize, type Motif, type MotifNote } from "./motif";
+import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
 
@@ -31,9 +31,13 @@ export interface SequencerParams {
   speedMax: number;
   /** Path strength from which the bass pulse is heard. */
   bassFrom: number;
+  /** My motif comes round every this many bars (v4 A2, the artist: half as often) — 1 = every bar. */
+  motifEvery?: number;
+  /** How much of the micro-tones is heard (motif.ts MotifConfig.microtone), 0..1. */
+  microtone?: number;
 }
 
-export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25 };
+export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: 1, microtone: 1 };
 
 export type Density = 0.5 | 1 | 2;
 
@@ -101,10 +105,14 @@ export function planBar(inp: BarInputs): BarPlan {
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
   // call and response while staying among others: odd bars are theirs
   const answer = staying && bar % 2 === 1;
+  const motifCfg = { ...DEFAULT_MOTIF, microtone: p.microtone ?? 1 };
+  const every = Math.max(1, Math.round(p.motifEvery ?? 1));
+  // my bar: every `every` bars (when staying, the answer bars are theirs anyway)
+  const myBar = bar % every === 0;
 
   // my notes: a Magenta phrase if one is running, else my motif blended with whoever has been close
   let mine: MotifNote[] = [];
-  if (!answer) {
+  if (!answer && myBar) {
     if (inp.phrase && bar - inp.phrase.from < CYCLES_PER_PHRASE && bar >= inp.phrase.from) {
       const cyc = stepsToCycle(inp.phrase.phrase, (bar - inp.phrase.from) * STEPS_PER_CYCLE);
       mine = cyc.map((n) => ({ at: n.at, len: n.len, pitch: n.pitch, freq: midiToHz(n.pitch, me.colour), locked: false }));
@@ -114,7 +122,7 @@ export function planBar(inp: BarInputs): BarPlan {
       const amount = nearest ? inp.closeness.get(nearest.o) ?? 0 : 0;
       const theirs = nearest ? inp.others.get(nearest.o) : undefined;
       if (theirs && amount > 0) motif = blend(me, theirs, amount, bar);
-      mine = placeInBar(realize(motif, key, chord, lock, bar), d, bar);
+      mine = placeInBar(realize(motif, key, chord, lock, bar, motifCfg), d, bar);
     }
   }
 
@@ -129,7 +137,7 @@ export function planBar(inp: BarInputs): BarPlan {
       continue;
     }
     if (staying && answer && n !== sig.neighbours[0]) continue;
-    const notes = realize(m, key, chord, Math.max(lock, staying ? 0.8 : 0), bar);
+    const notes = realize(m, key, chord, Math.max(lock, staying ? 0.8 : 0), bar, motifCfg);
     others.push({ o: n.o, notes });
   }
 

@@ -104,3 +104,31 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(start).toBeCloseTo(10 - 0.5);
   });
 });
+
+describe("v4 A2 (the artist): the motif half as often, the micro-tones turned down", () => {
+  it("my motif comes every `motifEvery` bars; the others keep theirs", async () => {
+    const { planBar } = await import("./sequencer");
+    const { makeMotif } = await import("./motif");
+    const { worldKey } = await import("./harmony");
+    const key = worldKey("t");
+    const me = makeMotif("v_me");
+    const others = new Map([["b", makeMotif("b")]]);
+    const sig = { x: 0, z: 0, speed: 2, stay: 0, neighbours: [{ o: "b", dist: 3, angle: 0, bot: true }], pathP: 0, sealed: 0, grass: 0 };
+    const at = (bar: number, every: number) => planBar({ bar, sig, key, me, others, closeness: new Map(), phrase: null, params: { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: every } });
+    expect(at(0, 2).me.length).toBeGreaterThan(0);
+    expect(at(1, 2).me.length).toBe(0);
+    expect(at(2, 2).me.length).toBeGreaterThan(0);
+    expect(at(1, 1).me.length).toBeGreaterThan(0);
+    expect(at(1, 2).others[0].notes.length).toBeGreaterThan(0);
+  });
+
+  it("microtone 0 puts every note exactly on its MIDI pitch", async () => {
+    const { realize, makeMotif, midiToHz, DEFAULT_MOTIF } = await import("./motif");
+    const { worldKey } = await import("./harmony");
+    const key = worldKey("t");
+    const m = makeMotif("v_x");
+    for (const n of realize(m, key, null, 0, 3, { ...DEFAULT_MOTIF, microtone: 0 })) expect(n.freq).toBeCloseTo(midiToHz(n.pitch), 6);
+    const coloured = realize(m, key, null, 0, 3, { ...DEFAULT_MOTIF, microtone: 1 });
+    expect(coloured.some((n) => Math.abs(n.freq - midiToHz(n.pitch)) > 0.01)).toBe(true);
+  });
+});
