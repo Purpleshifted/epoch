@@ -26,6 +26,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import type { PEvent } from "./types";
+import { wrapCell, wrapDelta, wrapDist } from "./world";
 
 export interface FlowConfig {
   enabled: boolean;
@@ -65,7 +66,8 @@ export const DEFAULT_FLOW: FlowConfig = {
 const SENSE = 2;
 
 /** Samples further apart than this (s) are not one walk (a pause, a jump): nothing is trodden between them. */
-const MAX_STEP_SEC = 3;
+/** A gap between two samples of one person longer than this is not a walk between them. */
+export const MAX_STEP_SEC = 3;
 
 const smoothstep = (a: number, b: number, x: number) => {
   const t = Math.max(0, Math.min(1, (x - a) / Math.max(1e-9, b - a)));
@@ -100,10 +102,10 @@ export function stayShares(pres: readonly PEvent[], cfg: FlowConfig): Float32Arr
       let r = 0;
       for (let b = lo; b <= hi; b++) {
         const f = pres[list[b]];
-        const d = Math.hypot(f.x - e.x, f.z - e.z);
+        const d = wrapDist(f.x, f.z, e.x, e.z);
         if (d > r) r = d;
       }
-      out[list[a]] = 1 - smoothstep(cfg.stayRadius, 2 * cfg.stayRadius, r);
+      out[list[a]] = stayShareOf(r, cfg);
     }
   }
   return out;
@@ -147,6 +149,31 @@ export function seedsInUse(seeds: Iterable<{ x: number; z: number; t0: number; t
  * Every MOVE treads the cells along its segment (from the same person's previous sample), by its move share. A cell
  * on which a building is in use at that moment (`inUse`) is not trodden.
  */
+/** Stay share from how far the person got within ±staySec: 1 up to stayRadius, 0 from twice it. */
+export const stayShareOf = (r: number, cfg: FlowConfig): number => 1 - smoothstep(cfg.stayRadius, 2 * cfg.stayRadius, r);
+
+/**
+ * The (canonical) cells a walk from (px, pz) by (dx, dz) crosses, each once, in walking order — half a cell per step,
+ * round the world's edge when the walk goes over it.
+ */
+export function treadCells(px: number, pz: number, dx: number, dz: number): [number, number][] {
+  const len = Math.hypot(dx, dz);
+  const steps = Math.max(1, Math.ceil(len / (CELL_SIZE * 0.5)));
+  const seen = new Set<number>();
+  const out: [number, number][] = [];
+  for (let t = 0; t <= steps; t++) {
+    const x = px + (dx * t) / steps;
+    const z = pz + (dz * t) / steps;
+    const cx = wrapCell(Math.floor(x / CELL_SIZE));
+    const cz = wrapCell(Math.floor(z / CELL_SIZE));
+    const nk = (cx + 32768) * 65536 + (cz + 32768);
+    if (seen.has(nk)) continue;
+    seen.add(nk);
+    out.push([cx, cz]);
+  }
+  return out;
+}
+
 export function flowTracks(
   pres: readonly PEvent[],
   stay: Float32Array,
@@ -154,7 +181,6 @@ export function flowTracks(
 ): Map<string, Track> {
   const tracks = new Map<string, Track>();
   const last = new Map<string, number>();
-  const seen = new Set<string>();
   for (let i = 0; i < pres.length; i++) {
     const e = pres[i];
     const pi = last.get(e.o);
@@ -164,21 +190,15 @@ export function flowTracks(
     if (e.s - p.s > MAX_STEP_SEC) continue;
     const m = 1 - (stay[i] + stay[pi]) / 2;
     if (m <= 0.01) continue;
-    const len = Math.hypot(e.x - p.x, e.z - p.z);
+    // the shortest way round the world (world.ts): a walk over the edge is a short walk
+    const dx = wrapDelta(e.x - p.x);
+    const dz = wrapDelta(e.z - p.z);
+    const len = Math.hypot(dx, dz);
     if (len < 1e-6) continue;
-    const steps = Math.max(1, Math.ceil(len / (CELL_SIZE * 0.5)));
     // the segment's axis (doubled angle: there and back is the same route)
-    const th = Math.atan2(e.z - p.z, e.x - p.x);
+    const th = Math.atan2(dz, dx);
     const c2 = Math.cos(2 * th), s2 = Math.sin(2 * th);
-    seen.clear();
-    const touched: string[] = [];
-    for (let t = 0; t <= steps; t++) {
-      const x = p.x + ((e.x - p.x) * t) / steps, z = p.z + ((e.z - p.z) * t) / steps;
-      const key = cellKey(Math.floor(x / CELL_SIZE), Math.floor(z / CELL_SIZE));
-      if (seen.has(key)) continue;
-      seen.add(key);
-      touched.push(key);
-    }
+    const touched = treadCells(p.x, p.z, dx, dz).map(([cx, cz]) => cellKey(cx, cz));
     // the walked distance, shared by the cells it crossed (in cell widths: crossing one cell ≈ 1)
     const amount = (m * len) / CELL_SIZE / touched.length;
     for (const key of touched) {
