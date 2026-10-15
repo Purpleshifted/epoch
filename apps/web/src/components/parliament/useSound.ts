@@ -74,7 +74,8 @@ export function useSound(): SoundSetup | null {
       lpSealed: { value: DEFAULT_SOUND.lpSealed, min: 100, max: 8000, step: 50, label: "건물 위의 먹먹함 (저역통과 Hz)", render: v2 },
       sealRadius: { value: DEFAULT_SIGNALS.sealRadius, min: 0.5, max: 10, step: 0.25, label: "건물이 먹먹하게 들리는 거리 (월드)", render: v2 },
       noiseMax: { value: DEFAULT_SOUND.noiseMax, min: 0, max: 1, step: 0.01, label: "식생의 노이즈 밝기 (최대)", render: v2 },
-      hearRadius: { value: DEFAULT_SOUND.hearRadius, min: 2, max: 40, step: 0.5, label: "다른 사람이 들리는 거리 (월드)", render: v2 },
+      hearRadius: { value: DEFAULT_SOUND.hearRadius, min: 2, max: 40, step: 0.5, label: "다른 사람이 들리는 거리 (월드) — 바깥: 질감·동반만", render: v2 },
+      innerRadius: { value: DEFAULT_SOUND.innerRadius, min: 1, max: 20, step: 0.5, label: "성부로 들어오는 거리 (월드) — 안쪽: 그 사람의 모티프가 내 시퀀스에", render: v2 },
       othersLevel: { value: DEFAULT_SOUND.othersLevel, min: 0, max: 1, step: 0.01, label: "다른 사람 목소리 크기 (바로 옆에서)", render: v2 },
       botBlur: { value: DEFAULT_SOUND.botBlur, min: 0, max: 1, step: 0.01, label: "봇(메아리)의 흐림", render: v2 },
       magenta: { value: DEFAULT_SOUND.magenta, label: "Magenta 변주 (GPU를 three.js와 나눠 씀 → 봇 많으면 렉; 기본 꺼짐)", render: v2 },
@@ -178,10 +179,10 @@ export function useSound(): SoundSetup | null {
     engine.setSink(c.output ?? "default").catch(() => {});
   }, [engine, c.output]);
 
-  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony, instrument, sealRadius, ncPatch } = c;
+  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, innerRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony, instrument, sealRadius, ncPatch } = c;
   const params = useMemo<SoundParams>(
-    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony, instrument }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony, instrument],
+    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, innerRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony, instrument }),
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, innerRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, lockPull, noiseMix, stepEvery, harmony, instrument],
   );
   const nc = useMemo(() => ({ patch: ncPatch || "nc_noise_patch.ncft" }), [ncPatch]);
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);

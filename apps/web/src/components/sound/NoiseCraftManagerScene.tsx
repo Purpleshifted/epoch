@@ -34,7 +34,8 @@ const SIM0: Sim = { speed: 0, stay: 1, pathP: 0, sealed: 0, grass: 0.5, neighbou
 
 function simSignals(s: Sim): PersonalSignals {
   const neighbours = Array.from({ length: Math.round(s.neighbours) }, (_, i) => ({ o: `bot${i}`, dist: 2 + i * 2.5, angle: (i * 2.1) % (Math.PI * 2), bot: true }));
-  return { x: 0, z: 0, speed: s.speed, stay: s.stay, neighbours, pathP: s.pathP, sealed: s.sealed, building: s.sealed >= 0.3 ? { id: "sim", dist: 0.5 } : null, grass: s.grass };
+  const who = s.sealed >= 0.3 ? [{ o: "v_manager", amount: 10 }, ...neighbours.map((n, i) => ({ o: n.o, amount: 8 - i * 2 }))] : [];
+  return { x: 0, z: 0, speed: s.speed, stay: s.stay, neighbours, pathP: s.pathP, sealed: s.sealed, building: s.sealed >= 0.3 ? { id: "sim", dist: 0.5, who } : null, grass: s.grass };
 }
 
 interface View {

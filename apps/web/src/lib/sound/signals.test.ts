@@ -43,12 +43,13 @@ describe("signals: what the player hears, from the same log", () => {
   it("ground: path under the feet, concrete nearby, vegetation around", () => {
     const key = (x: number, z: number) => `${Math.floor(x / CELL_SIZE)},${Math.floor(z / CELL_SIZE)}`;
     const snap: Snapshot = {
-      slabs: [{ key: key(0, 0), x: CELL_SIZE / 2, z: CELL_SIZE / 2, h: 2, raw: 2, foot: 1, bornS: 0, lastS: 100 }],
+      slabs: [{ key: key(0, 0), x: CELL_SIZE / 2, z: CELL_SIZE / 2, h: 2, raw: 2, foot: 1, bornS: 0, lastS: 100, who: [{ o: "v_a", first: 0, last: 90, amount: 12 }, { o: "bot1", first: 5, last: 100, amount: 7 }] }],
       paths: [{ key: key(6, 6), x: 6, z: 6, p: 0.7, visits: 9 }],
     };
     const onSlab = personalSignals({ ...base, me: me(CELL_SIZE / 2, CELL_SIZE / 2), snap });
     expect(onSlab.sealed).toBeCloseTo(1);
     expect(onSlab.building?.id).toBe(key(0, 0));
+    expect(onSlab.building?.who).toEqual([{ o: "v_a", amount: 12 }, { o: "bot1", amount: 7 }]);
     expect(personalSignals({ ...base, me: me(40, 40), snap }).building).toBeNull();
     const onPath = personalSignals({ ...base, me: me(6, 6), snap });
     expect(onPath.pathP).toBeCloseTo(0.7);

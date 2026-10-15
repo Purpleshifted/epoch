@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, intervalClass, keepsShape, magentaChordName, nextDegree, pullToChord, relatedKey, scaleClasses, snapToClasses, tonalAnswer, worldKey, bandOf, DEFAULT_WORLD } from "./harmony";
+import { DEFAULT_HARMONY, MODES, buildingKey, chordName, degreePitch, diatonicChord, homeKey, keyChord, keyName, intervalClass, keepsShape, magentaChordName, nextDegree, pullToChord, relatedKey, scaleClasses, snapToClasses, tonalAnswer, tonalityOf, worldKey, bandOf, DEFAULT_WORLD } from "./harmony";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 describe("harmony: a key per motif, a key per building", () => {
@@ -125,6 +125,27 @@ describe("harmony: a key per motif, a key per building", () => {
     expect(seen.size).toBe(4);
     const Am = { root: 9, mode: MODES[2] };
     for (let i = 0; i < 20; i++) expect(["4:Aeolian", "2:Aeolian", "0:Ionian", "9:Ionian"]).toContain(`${relatedKey(Am, `m${i}`).root}:${relatedKey(Am, `m${i}`).mode.name}`);
+  });
+
+  it("a building's tonality is made of its builders' home roots: tonic = the heaviest, chord = the roots, mode = best fit", () => {
+    expect(tonalityOf([])).toBeNull();
+    const a = tonalityOf([{ o: "v_a", amount: 10 }])!;
+    expect(a.key.root).toBe(homeKey("v_a").root);
+    expect(a.chord.rootClass).toBe(a.key.root);
+    expect(a.chord.classes.length).toBeGreaterThanOrEqual(3); // filled to a triad
+    expect(a.builders).toEqual(["v_a"]);
+    const who = [{ o: "v_a", amount: 3 }, { o: "v_b", amount: 9 }, { o: "bot1", amount: 5 }, { o: "bot2", amount: 1 }, { o: "bot3", amount: 2 }];
+    const t = tonalityOf(who)!;
+    expect(t.key.root).toBe(homeKey("v_b").root); // the heaviest builder is the tonic
+    expect(t.builders[0]).toBe("v_b");
+    expect(t.chord.classes[0]).toBe(homeKey("v_b").root);
+    expect(t.chord.classes.length).toBeLessThanOrEqual(4);
+    for (const b of t.builders) expect(t.chord.classes).toContain(homeKey(b).root);
+    expect(DEFAULT_HARMONY.homeModes.map((i) => MODES[i].name)).toContain(t.key.mode.name);
+    // weights move the chord: when v_a grows past v_b the tonic changes — a progression made of people
+    const later = tonalityOf([{ o: "v_a", amount: 12 }, { o: "v_b", amount: 9 }])!;
+    expect(later.key.root).toBe(homeKey("v_a").root);
+    expect(tonalityOf(who)).toEqual(t); // deterministic
   });
 
   it("nextDegree walks the Markov table of the mode", () => {

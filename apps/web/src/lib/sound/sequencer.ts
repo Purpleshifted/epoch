@@ -35,9 +35,14 @@ export interface SequencerParams {
   bassFrom: number;
   /** How much conforming pulls single notes of a motif onto the chord of the place (0 = never: the motif is untouched). */
   lockPull: number;
+  /**
+   * intersection's INNER radius (world): only people this close become VOICES in my sequence (their motif on my
+   * grid); people further out but within earshot are only heard as texture / company (knobs, pad level).
+   */
+  innerRadius: number;
 }
 
-export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25, lockPull: 0.25 };
+export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25, lockPull: 0.25, innerRadius: 5 };
 
 export type Density = 0.5 | 1 | 2;
 
@@ -104,6 +109,8 @@ export interface BarInputs {
   building: string | null;
   /** Degree (0..6) of the progression in my key: moved on by walking a path (engine), 0 = the tonic. */
   degree: number;
+  /** The chord of the place when it is not the key's degree chord: a building's chord of its builders' roots. */
+  chord?: PlaceChord | null;
   me: Motif;
   others: ReadonlyMap<string, Motif>;
   /** 0..1 per neighbour id: how long and close they have been (engine keeps it). */
@@ -125,7 +132,7 @@ export function placeInBar(notes: readonly MotifNote[], d: Density, bar: number)
 export function planBar(inp: BarInputs): BarPlan {
   const p = inp.params ?? DEFAULT_SEQUENCER;
   const { bar, sig, key, me } = inp;
-  const chord = keyChord(key, inp.degree);
+  const chord = inp.chord ?? keyChord(key, inp.degree);
   const stable = conformity(sig);
   const rough = roughness(sig, p.speedMax);
   const lock = lockOf(sig, p.lockPull);
@@ -155,6 +162,7 @@ export function planBar(inp: BarInputs): BarPlan {
   // nearest plays alone, otherwise everybody, every bar
   const others: VoiceBar[] = [];
   for (const n of sig.neighbours) {
+    if (n.dist > p.innerRadius) continue; // outer range: texture only (intersection: audio cue, no sequencer)
     const m = inp.others.get(n.o);
     if (!m) continue;
     if (staying && !answer && n !== sig.neighbours[0]) {

@@ -132,6 +132,24 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(fourth.bass[0].pitch).toBeLessThan(60);
   });
 
+  it("inner radius (intersection): only people within it become voices; further ones are company only", () => {
+    const s = sig({ speed: 3, neighbours: [near("v_b", 2), near("bot1", 9)] });
+    const plan = planBar(inputs(6, s));
+    expect(plan.others.map((v) => v.o)).toEqual(["v_b"]);
+    const wide = planBar(inputs(6, s, { params: { ...DEFAULT_SEQUENCER, innerRadius: 12 } }));
+    expect(wide.others.map((v) => v.o)).toEqual(["v_b", "bot1"]);
+  });
+
+  it("an explicit chord (a building's builders) replaces the key's degree chord for bass, pad and pull", () => {
+    const s = sig({ stay: 1, pathP: 1, neighbours: [near("bot1"), near("v_b")] });
+    const chord = { degree: 0, classes: [2, 6, 9, 1], rootClass: 2 };
+    const plan = planBar(inputs(4, s, { chord }));
+    expect(plan.chord).toEqual(chord);
+    expect(plan.bass[0].pitch % 12).toBe(2);
+    expect(plan.pad.pitches[0] % 12).toBe(2);
+    for (const n of plan.me) if (n.locked) expect(chord.classes).toContain(((n.pitch % 12) + 12) % 12);
+  });
+
   it("closeness blends the nearest neighbour's motif into mine", () => {
     const s = sig({ speed: 3, neighbours: [near("v_b")] });
     const plain = planBar(inputs(6, s)).me.map((n) => n.pitch).join();

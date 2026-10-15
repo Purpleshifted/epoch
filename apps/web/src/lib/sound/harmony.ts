@@ -299,6 +299,57 @@ export function relatedKey(home: Key, buildingId: string): Key {
   return { root: home.root, mode: major ? AEOLIAN : IONIAN }; // parallel
 }
 
+export interface Contribution {
+  o: string;
+  /** Worker-seconds put into the building (fold.ts Contributor.amount). */
+  amount: number;
+}
+
+export interface Tonality {
+  key: Key;
+  chord: PlaceChord;
+  /** The builders whose home roots make the chord, heaviest first. */
+  builders: string[];
+}
+
+/**
+ * A BUILDING'S TONALITY comes from the people who built it (intersection's cluster chord, made of leitmotifs):
+ * every builder brings the ROOT of their home key (their identity); the heaviest builder's root is the tonic;
+ * the mode is the one (of the home modes) whose scale holds the most of the builders' roots, weighted by what
+ * they put in; the chord is the builders' roots themselves (up to four, heaviest first, the tonic always in),
+ * filled up to a triad from the mode when fewer than three people built. As people come and go, their weights
+ * change and so does the chord — that IS the harmonic progression of the place; no mood sliders.
+ */
+export function tonalityOf(contrib: readonly Contribution[], cfg: HarmonyConfig = DEFAULT_HARMONY): Tonality | null {
+  const weighed = contrib.filter((c) => c.amount > 0).map((c) => ({ o: c.o, amount: c.amount, root: homeKey(c.o, cfg).root }));
+  if (!weighed.length) return null;
+  weighed.sort((a, b) => b.amount - a.amount || (a.o < b.o ? -1 : 1));
+  const tonic = weighed[0].root;
+  let best = MODES[cfg.homeModes[0]];
+  let bestScore = -1;
+  for (const mi of cfg.homeModes) {
+    const mode = MODES[mi];
+    const score = weighed.reduce((s, w) => s + (mode.intervals.includes((w.root - tonic + 12) % 12) ? w.amount : 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = mode;
+    }
+  }
+  const key: Key = { root: tonic, mode: best };
+  const classes: number[] = [];
+  const builders: string[] = [];
+  for (const w of weighed) {
+    if (classes.length >= 4) break;
+    if (!classes.includes(w.root)) {
+      classes.push(w.root);
+      builders.push(w.o);
+    }
+  }
+  const triad = diatonicChord(best, 0, 3).map((t) => (tonic + t) % 12);
+  for (const t of triad) if (classes.length < 3 && !classes.includes(t)) classes.push(t);
+  return { key, chord: { degree: 0, classes, rootClass: tonic }, builders };
+}
+
 /** The nearest pitch (MIDI) whose pitch class is one of `classes`; ties go down. */
 export function snapToClasses(pitch: number, classes: readonly number[]): number {
   let best = pitch;

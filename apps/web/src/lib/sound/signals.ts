@@ -55,8 +55,11 @@ export interface PersonalSignals {
   pathP: number;
   /** 0..1 how close concrete is (1 = standing on it). */
   sealed: number;
-  /** The nearest building (slab cell key) within 2 × sealRadius, and how far (world): the key I would modulate to. */
-  building: { id: string; dist: number } | null;
+  /**
+   * The nearest building (slab cell key) within 2 × sealRadius, how far (world), and WHO built it (fold.ts
+   * Slab.who, capped worker-seconds each): its tonality is made of their leitmotifs (harmony.tonalityOf).
+   */
+  building: { id: string; dist: number; who: { o: string; amount: number }[] } | null;
   /** 0..1 vegetation around the visitor (3 × 3 cells). */
   grass: number;
 }
@@ -130,7 +133,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
       const d = Math.hypot(sl.x - me.x, sl.z - me.z);
       const near = 1 - Math.min(1, Math.max(0, (d - CELL_SIZE * 0.5) / cfg.sealRadius));
       if (near > sealed) sealed = near;
-      if (d <= 2 * cfg.sealRadius && (!building || d < building.dist)) building = { id: sl.key, dist: d };
+      if (d <= 2 * cfg.sealRadius && (!building || d < building.dist)) building = { id: sl.key, dist: d, who: (sl.who ?? []).map((w) => ({ o: w.o, amount: w.amount })) };
     }
   }
   let grass = 0;

@@ -18,7 +18,7 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { bandOf, buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, relatedKey, worldKey, type Key, type WorldKey } from "./harmony";
+import { bandOf, buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, relatedKey, tonalityOf, worldKey, type Key, type PlaceChord, type WorldKey } from "./harmony";
 import { Magenta, phraseNotes } from "./magenta";
 import { applySink } from "./output";
 import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
@@ -70,6 +70,8 @@ export interface SoundParams {
   lockPull: number;
   /** Share of noise in a voice at full roughness (crossing vegetation): the tonal/noise ratio. */
   noiseMix: number;
+  /** intersection's inner radius (world): people this close become voices in my sequence; further = texture only. */
+  innerRadius: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -89,6 +91,7 @@ export const DEFAULT_SOUND: SoundParams = {
   magenta: false,
   lockPull: 0.7,
   noiseMix: 0.6,
+  innerRadius: 5,
   stepEvery: 6,
   harmony: "fusion",
   instrument: "webaudio",
@@ -146,6 +149,8 @@ export interface SoundDebug {
   /** The key I am in and, at a building, which one. */
   key: string;
   building: string | null;
+  /** At a building: who built it (heaviest first), whose roots make its chord. */
+  builders: string[];
   /** Degree of the progression (0 = tonic) and the chord. */
   degree: number;
   chord: string;
@@ -192,6 +197,9 @@ export class SoundEngine {
   private home: Key | null = null;
   private placeKey: Key | null = null;
   private atBuilding: string | null = null;
+  /** At a building: the chord of its builders' roots (harmony.tonalityOf), and who they are. */
+  private placeChord: PlaceChord | null = null;
+  private builders: string[] = [];
   /** World mode: the epoch's shared key (cached per epoch). */
   private world: { epochMs: number; key: WorldKey } | null = null;
   /** The progression: its degree, and how much path I have walked since it last moved. */
@@ -232,6 +240,7 @@ export class SoundEngine {
       bar: p?.bar ?? -1,
       key: this.placeKey ? keyName(this.placeKey) + (this.params_.harmony === "identity" ? "" : ` [${this.params_.harmony}]`) : "",
       building: this.atBuilding,
+      builders: this.builders,
       degree: this.degree,
       chord: p ? chordName(p.chord) : "",
       nearest: this.sig?.neighbours[0]?.o ?? null,
@@ -431,10 +440,14 @@ export class SoundEngine {
         // FUSION: a building modulates to a key closely related to the world's (hysteresis as in identity mode)
         if (sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
           this.atBuilding = sig.building.id;
-          this.placeKey = relatedKey(this.world.key, sig.building.id);
+          this.enterBuilding(sig.building, this.world.key);
         } else if (this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
           this.atBuilding = null;
           this.placeKey = this.world.key;
+          this.placeChord = null;
+          this.builders = [];
+        } else if (this.atBuilding && sig.building && sig.building.id === this.atBuilding) {
+          this.enterBuilding(sig.building, this.world.key); // the builders' weights move: so does the chord
         } else if (!this.atBuilding) this.placeKey = this.world.key;
       } else {
         this.placeKey = this.world.key;
@@ -450,14 +463,18 @@ export class SoundEngine {
     // flicker); the change itself lands on the next bar, where the plan is made
     if (params.harmony === "identity" && sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
       this.atBuilding = sig.building.id;
-      this.placeKey = buildingKey(sig.building.id);
+      this.enterBuilding(sig.building, null);
       this.degree = 0; // a new key starts on its tonic
       this.walked = 0;
     } else if (params.harmony === "identity" && this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
       this.atBuilding = null;
       this.placeKey = this.home;
+      this.placeChord = null;
+      this.builders = [];
       this.degree = 0;
       this.walked = 0;
+    } else if (params.harmony === "identity" && this.atBuilding && sig.building && sig.building.id === this.atBuilding) {
+      this.enterBuilding(sig.building, null);
     }
     // THE PATH IS A PROGRESSION (identity mode): every `stepEvery` world units walked ON a path move the chord on
     // (Markov table of the key); off the path it falls back to the tonic once I stop
@@ -705,6 +722,23 @@ export class SoundEngine {
   }
 
   /**
+   * A building's tonality: its builders' leitmotifs (tonalityOf). Nobody known (a hand-built or empty slab): a key
+   * related to `fallback` (fusion: the world key) or the building's own hashed key (identity mode).
+   */
+  private enterBuilding(b: NonNullable<PersonalSignals["building"]>, fallback: Key | null): void {
+    const t = tonalityOf(b.who);
+    if (t) {
+      this.placeKey = t.key;
+      this.placeChord = t.chord;
+      this.builders = t.builders;
+    } else {
+      this.placeKey = fallback ? relatedKey(fallback, b.id) : buildingKey(b.id);
+      this.placeChord = null;
+      this.builders = [];
+    }
+  }
+
+  /**
    * The plan of bar `bar` from the current signals (sequencer.planBar), with the Magenta requests and the phrase
    * bookkeeping. Public: the Web Audio scheduler calls it on its grid, the NoiseCraft instrument on NoiseCraft's.
    */
@@ -724,11 +758,12 @@ export class SoundEngine {
       key,
       building: this.atBuilding,
       degree: this.degree,
+      chord: this.atBuilding ? this.placeChord : null,
       me: this.myMotif,
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.harmony === "world" ? 1 : p.lockPull },
+      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.harmony === "world" ? 1 : p.lockPull, innerRadius: p.innerRadius },
     });
     this.lastPlan = plan;
     return plan;
