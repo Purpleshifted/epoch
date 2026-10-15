@@ -211,6 +211,12 @@ export default function ParliamentScene() {
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
+  // a kick for the Canvas's first measurement: in some embedded browser panes the ResizeObserver does not fire on the
+  // first layout and the scene's children never mount until a resize (seen in the desktop app's built-in browser)
+  useEffect(() => {
+    const id = setTimeout(() => window.dispatchEvent(new Event("resize")), 400);
+    return () => clearTimeout(id);
+  }, []);
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
