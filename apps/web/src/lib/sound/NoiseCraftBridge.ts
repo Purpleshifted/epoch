@@ -80,12 +80,14 @@ export class NoiseCraftBridge {
   }
 
   noisecraftUrl(filename = this.currentPatchFilename): string {
-    return `/noisecraft/public/embedded.html?src=${encodeURIComponent(`/noisecraft/examples/${filename}`)}&ui=full`;
+    // a hidden iframe (the player tab) asks the embed to run without its editor view (view=hidden): no DOM work
+    return `/noisecraft/public/embedded.html?src=${encodeURIComponent(`/noisecraft/examples/${filename}`)}&ui=full${this._editorVisible ? "" : "&view=hidden"}`;
   }
 
   /** Create (or move) the iframe into `container`; hidden off-screen unless `visible`. Reloads on a new patch. */
   createIframe(container: HTMLElement, visible = false, filename?: string): HTMLIFrameElement {
     if (filename) this.currentPatchFilename = filename;
+    this._editorVisible = visible; // before the URL: a hidden iframe is opened without its editor view
     if (!this.iframe) {
       this.iframe = document.createElement("iframe");
       this.iframe.src = this.noisecraftUrl();

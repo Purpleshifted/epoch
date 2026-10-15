@@ -23,7 +23,7 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { bandOf, chordName, homeKey, keyName, magentaChordName, worldKey, type Key, type WorldKey } from "./harmony";
+import { KEY_NAMES, bandOf, chordName, homeKey, keyName, magentaChordName, worldKey, type Key, type WorldKey } from "./harmony";
 import { HarmonyTracker, harmonyLabel, nextHarmony, type HarmonyState, type PlaceState } from "./harmonyState";
 import { Magenta, phraseNotes } from "./magenta";
 import { applySink } from "./output";
@@ -122,6 +122,8 @@ interface Voice {
 }
 
 const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
+const ECHO_STEPS = 3; // the melody's echo: three 16th steps of the bar (a dotted eighth)
+const noteName = (midi: number) => KEY_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
 const MAX_VOICES = 4; // the others heard at once by the Web Audio instrument (nearest first)
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
@@ -171,6 +173,9 @@ export interface SoundDebug {
   /** The harmony state in one line (fusion mode). */
   harmony: string;
   tension: number;
+  /** My notes this bar (names; * = pulled onto the chord) and the register shift that anchored them. */
+  me: string;
+  anchor: number;
   /** How far the nearest neighbour has got into my motif (closeness 0..1), and who. */
   nearest: string | null;
   closeness: number;
@@ -198,6 +203,8 @@ export class SoundEngine {
   private noiseBuf!: AudioBuffer;
   private bassGain!: GainNode;
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
+  /** The melody's echo: a bar-synced feedback delay, darker on every repeat; its feedback follows the conformity. */
+  private echo!: { send: GainNode; delay: DelayNode; fb: GainNode };
   private me: Voice | null = null;
   /** My motif (pure): planning needs it even with no AudioContext (headless engine on the manager page). */
   private myMotif: Motif | null = null;
@@ -266,6 +273,8 @@ export class SoundEngine {
       chord: p ? chordName(p.chord) : "",
       harmony: this.harmony ? harmonyLabel(this.harmony) : "",
       tension: this.harmony?.tension ?? 0,
+      me: p ? p.me.map((n) => noteName(n.pitch) + (n.locked ? "*" : "")).join(" ") : "",
+      anchor: p?.anchor ?? 0,
       nearest: this.sig?.neighbours[0]?.o ?? null,
       closeness: this.sig?.neighbours[0] ? this.closeness.get(this.sig.neighbours[0].o) ?? 0 : 0,
       bass: p?.bass.length ?? 0,
@@ -356,6 +365,21 @@ export class SoundEngine {
         gains.push(g);
       }
       this.pad = { oscs, gains, level };
+      // the melody's echo
+      const send = ctx.createGain();
+      send.gain.value = 0.35;
+      const delay = ctx.createDelay(2);
+      delay.delayTime.value = (this.params_.barSec * ECHO_STEPS) / 16;
+      const fb = ctx.createGain();
+      fb.gain.value = 0.3;
+      const dark = ctx.createBiquadFilter();
+      dark.type = "lowpass";
+      dark.frequency.value = 2200;
+      send.connect(delay);
+      delay.connect(dark).connect(fb).connect(delay);
+      delay.connect(this.dry);
+      delay.connect(this.rooms.open);
+      this.echo = { send, delay, fb };
       this.lastUpdate = ctx.currentTime;
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
@@ -502,13 +526,19 @@ export class SoundEngine {
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
-      // my voice: dry and close — in the hybrid only the short open room, the hall is the patch's
-      this.me = this.newVoice(myId, 0, false, params.instrument === "hybrid" ? ["open"] : ["open", "concrete", "hall"]);
+      // my voice: close, but in the same rooms as everything (bone dry it floated above the patch) and into the echo
+      this.me = this.newVoice(myId, 0, false);
       this.me.gain.gain.setTargetAtTime(1, t, 0.5);
+      this.me.filt.connect(this.echo.send);
       if (this.line) this.dropVoice("line", this.line);
       this.line = this.newVoice(myId, 0.3, false, ["open", "hall"]);
       this.line.gain.gain.setTargetAtTime(0.55, t, 0.5);
     }
+    // the melody moves with the walk: brighter when moving, darker when still; the echo holds on when I conform
+    const moving = Math.min(1, sig.speed / Math.max(0.01, params.speedMax * 0.5));
+    this.me.filt.frequency.setTargetAtTime(1800 + 3200 * moving, t, 0.4);
+    this.echo.delay.delayTime.setTargetAtTime((params.barSec * ECHO_STEPS) / 16, t, 0.1);
+    this.echo.fb.gain.setTargetAtTime(0.2 + 0.4 * conformity(sig), t, 0.5);
     // the listener turns with the camera: forward = (sin yaw, 0, cos yaw) in world terms
     const L = ctx.listener;
     if (L.forwardX) {
@@ -522,7 +552,8 @@ export class SoundEngine {
     this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
     // rooms: open ground → concrete → the hall of building together
     const company = Math.min(1, sig.neighbours.length / 2);
-    const hall = params.reverbMax * sig.stay * company;
+    // the hall opens while building together; it is never fully shut (a floor of a tenth) so the melody has a room
+    const hall = params.reverbMax * Math.max(0.1, sig.stay * company);
     this.rooms.hall.gain.setTargetAtTime(hall, t, 0.8);
     this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
     this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
@@ -794,7 +825,10 @@ export class SoundEngine {
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
     const kept = () => Math.random() >= plan.rough * 0.35;
 
-    for (const n of plan.me) if (kept()) this.note(this.me.filt, n.freq, nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, this.me.motif.timbre, 0, plan.rough);
+    // the timbre breathes slowly from bar to bar (a slow sine per motif) and brightens with the walk
+    const breath = 0.5 + 0.5 * Math.sin(next * 0.37 + this.me.motif.timbre * 6.28);
+    const timbre = Math.max(0, Math.min(1, this.me.motif.timbre * 0.6 + 0.3 * breath + 0.2 * Math.min(1, sig.speed / p.speedMax)));
+    for (const n of plan.me) if (kept()) this.note(this.me.filt, n.freq, nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, timbre, 0, plan.rough);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;

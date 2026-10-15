@@ -165,6 +165,7 @@
         ToggleCell,
         SetSequence,
         SetPatternData,
+        ClockPulse,
       } from "./model.js";
       import { AudioView } from "./audioview.js";
       import { Editor } from "./editor.js";
@@ -492,6 +493,20 @@
       const model = new Model();
       const audioView = new AudioView(model);
       const editor = new Editor(model);
+      // A HIDDEN instrument (the player tab's iframe, ?view=hidden) needs no editor view: otherwise 48 clock
+      // pulses a second and the bars' sequences kept redrawing a DOM nobody sees (parliament: the lag)
+      const hiddenView = new URLSearchParams(window.location.search).get("view") === "hidden";
+      if (hiddenView) {
+        model.views = model.views.filter((v) => v !== editor);
+        // the editor's ClockOut node was what forwarded the clock to the parent: a tiny view does it instead
+        model.addView({
+          update(state, action) {
+            if (action instanceof ClockPulse) {
+              window.parent.postMessage({ type: "noiseCraft:clockPulse", nodeId: action.nodeId, pulseTime: action.time, sendTime: performance.now() }, "*");
+            }
+          },
+        });
+      }
 
       // Expose AudioWorkletNode to parent window for spatial audio processing
       let mediaStreamDestination = null;
@@ -785,7 +800,9 @@
             actionType === "SetSequence" || // the bridge's bars
             actionType === "SetPatternData" || // the bridge's rhythm
             actionType === "SetPattern" ||
-            actionType === "ClockPulse";
+            actionType === "ClockPulse" ||
+            actionType === "Play" || // the bridge's play / stop
+            actionType === "Stop";
 
           if (
             autoSaveEnabled &&

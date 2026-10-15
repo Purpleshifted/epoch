@@ -12,7 +12,9 @@
  *                               new to the chord prefers the top voice (the newcomer is heard on top).
  *   PATH = PROGRESSION          walking a path moves the degree through the Markov table (harmony.nextDegree) every
  *                               `stepEvery` world units; stopping on it is a HALF cadence (the dominant, held);
- *                               leaving it a FULL cadence (the next bar resolves to the tonic).
+ *                               leaving it a FULL cadence (the next bar resolves to the tonic). Wandering off the
+ *                               path moves it too, three times slower (the artist: alone in the open nothing moved
+ *                               and the motif could not be heard changing); standing holds.
  *   APPROACH = DOMINANT         within reach of a building but not in it, the chord is the DOMINANT of the
  *                               building's tonality: arriving resolves. The one place the harmony pulls forward.
  *   MODULATION                  coming home from a building or a group goes through a PIVOT bar (a triad both keys
@@ -171,6 +173,13 @@ export class HarmonyTracker {
         this.walked = 0;
         this.walkedOnPath = 0;
         this.stoppedOn = false;
+      } else if (!onPath && sig.speed > 0.3) {
+        // wandering: the progression drifts on, slowly
+        this.walked += d * 0.5;
+        if (this.walked >= stepEvery * 1.5) {
+          this.walked = 0;
+          this.degree = nextDegree(this.keyForProgression(sig), this.degree, rng(hashString(`${myId}:${this.steps++}`))());
+        }
       }
     }
     this.onPath = onPath;
@@ -297,10 +306,9 @@ export function nextHarmony(prev: HarmonyState | null, inp: HarmonyInputs): Harm
   let builders = t?.builders ?? [];
   let source = w.source;
   let placeId = w.placeId;
-  let degree = place.onPath ? place.degree : 0;
-  // the chord of the place: the people's roots, or the progression's degree on a path
-  let chord: PlaceChord = place.onPath && source !== "building" ? keyChord(key, degree) : (t?.chord ?? keyChord(key, 0));
-  if (source === "home" && !place.onPath) degree = 0;
+  let degree = place.degree;
+  // the chord of the place: the people's roots (a building; a group off the path), else the progression's degree
+  let chord: PlaceChord = source === "building" || (source === "group" && !place.onPath) ? (t?.chord ?? keyChord(key, 0)) : keyChord(key, degree);
   let cadence = inp.cadence;
   let modulation: HarmonyState["modulation"] = null;
   let tension = 0;

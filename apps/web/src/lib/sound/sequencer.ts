@@ -28,7 +28,7 @@
 
 import { keyChord, type Key, type PlaceChord } from "./harmony";
 import type { Cadence, HarmonyState } from "./harmonyState";
-import { midiToHz, realize, realizeIn, type Motif, type MotifNote } from "./motif";
+import { anchorBase, midiToHz, realize, realizeIn, type Motif, type MotifNote } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
 
@@ -112,6 +112,8 @@ export interface BarPlan {
   line: MotifNote[];
   /** Rhythm cells on the 16-step grid: mine and the nearest neighbours' (for the patch's GateSeq traces). */
   traces: { o: string; steps: number[] }[];
+  /** Semitones my register was shifted to anchor on the chord (0 = sitting on my own register). */
+  anchor: number;
 }
 
 export interface BarInputs {
@@ -183,6 +185,7 @@ export function planBar(inp: BarInputs): BarPlan {
   // my notes: my motif blended with whoever has been close, through the harmony (anchored, budgeted, ornamented);
   // a Magenta phrase takes my bars only in the legacy routing (phraseTo "me")
   let mine: MotifNote[] = [];
+  let anchor = 0;
   if (!answer) {
     if (phraseRunning && phraseTo === "me") {
       mine = phraseNotes();
@@ -193,8 +196,10 @@ export function planBar(inp: BarInputs): BarPlan {
       const theirs = nearest ? inp.others.get(nearest.o) : undefined;
       if (theirs && amount > 0) motif = blend(me, theirs, amount, bar);
       const budget = h ? Math.min(3, Math.round(1 + 2 * tension + 2 * rough)) : undefined;
+      const changed = !!h && h.changedBar === bar;
+      if (h && (lock >= 0.3 || changed)) anchor = anchorBase(motif, key, chord, inp.prevLast ?? null) - motif.base;
       let cycle = h
-        ? realizeIn(motif, key, chord, lock, bar, rough, { anchor: inp.prevLast ?? null, chromaticBudget: budget, passing: lock >= 0.6 && d <= 1 && rough < 0.3, cadence })
+        ? realizeIn(motif, key, chord, lock, bar, rough, { anchor: inp.prevLast ?? null, chromaticBudget: budget, passing: lock >= 0.6 && d <= 1 && rough < 0.3, cadence, forceAnchor: changed })
         : realize(motif, key, chord, lock, bar, undefined, rough);
       // a rough run keeps only the head of the motif
       if (d === 2 && rough >= 0.5) cycle = cycle.slice(0, 3);
@@ -252,7 +257,7 @@ export function planBar(inp: BarInputs): BarPlan {
     if (m) traces.push({ o: n.o, steps: cellSteps(m) });
   }
 
-  return { bar, chord, stable, rough, lock, density: d, answer, me: mine, others, bass, pad, harmony: h, tension, cadence, line, traces };
+  return { bar, chord, stable, rough, lock, density: d, answer, me: mine, others, bass, pad, harmony: h, tension, cadence, line, traces, anchor };
 }
 
 /** Bar index and the AudioContext time of its start, from the epoch on the wall clock (shared by every tab). */

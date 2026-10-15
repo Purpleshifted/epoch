@@ -158,5 +158,21 @@ describe("harmony state H: tonality is whose weights", () => {
     st = tr.update(ME, sig({ x: 8, z: 0, pathP: 0, speed: 3 }));
     expect(st.cadence).toBe("full");
     expect(tr.takeCadence()).toBe("full");
+    // wandering off the path moves the progression too, three times slower; standing holds it
+    const w = new HarmonyTracker({ stepEvery: 4 });
+    w.update(ME, sig({ x: 0, z: 0, speed: 3 }));
+    expect(w.update(ME, sig({ x: 6, z: 0, speed: 3 })).degree).toBe(0); // 6 × 0.5 = 3 < 6
+    expect(w.update(ME, sig({ x: 13, z: 0, speed: 3 })).degree).not.toBe(0); // 3 + 3.5 ≥ 6
+    const held = w.update(ME, sig({ x: 13, z: 0, speed: 0 })).degree;
+    expect(w.update(ME, sig({ x: 13, z: 0, speed: 0 })).degree).toBe(held);
+  });
+
+  it("a chord change re-anchors the motif even in the open; alone and unchanged it sits on its register", () => {
+    const h0 = nextHarmony(null, inputs(0));
+    const h1 = nextHarmony(h0, inputs(1, { place: place({ degree: 3 }) }));
+    expect(h1.changedBar).toBe(1);
+    expect(h1.chord.rootClass).toBe(keyChord(HOME, 3).rootClass);
+    const h2 = nextHarmony(h1, inputs(2, { place: place({ degree: 3 }) }));
+    expect(h2.changedBar).toBe(1);
   });
 });

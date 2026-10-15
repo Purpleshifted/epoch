@@ -168,6 +168,8 @@ export interface RealizeOpts {
   passing?: boolean;
   /** A FULL cadence: the last note lands on the tonic or the third. */
   cadence?: "none" | "half" | "full";
+  /** Anchor even when the walk does not conform (the chord just changed: the motif follows it anyway). */
+  forceAnchor?: boolean;
 }
 
 /**
@@ -197,7 +199,7 @@ export function anchorBase(m: Motif, key: Key, chord: PlaceChord, anchor: number
  * identity stays: directions and interval classes of the shape, the rhythm cell, the colour.
  */
 export function realizeIn(m: Motif, key: Key, chord: PlaceChord | null, lock: number, cycle: number, rough: number, opts: RealizeOpts = {}, cfg: MotifConfig = DEFAULT_MOTIF): MotifNote[] {
-  const base = chord && lock >= 0.3 ? anchorBase(m, key, chord, opts.anchor ?? null) : m.base;
+  const base = chord && (lock >= 0.3 || opts.forceAnchor) ? anchorBase(m, key, chord, opts.anchor ?? null) : m.base;
   const mm = base === m.base ? m : { ...m, base };
   const c = opts.chromaticBudget != null ? { ...cfg, chromaticBudget: opts.chromaticBudget } : cfg;
   let notes = realize(mm, key, chord, lock, cycle, c, rough);

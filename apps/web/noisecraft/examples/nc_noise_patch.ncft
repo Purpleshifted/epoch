@@ -3084,7 +3084,7 @@
       "y": 383,
       "ins": [
         [
-          "233",
+          "331",
           0
         ],
         [
@@ -5478,6 +5478,580 @@
           ]
         ]
       ]
+    },
+    "309": {
+      "type": "AI_Poly",
+      "name": "harmony",
+      "x": 1300,
+      "y": 2600,
+      "ins": [
+        [
+          "307",
+          0
+        ],
+        null
+      ],
+      "inNames": [
+        "clock",
+        "gateT"
+      ],
+      "outNames": [
+        "freq0",
+        "gate0",
+        "freq1",
+        "gate1",
+        "freq2",
+        "gate2",
+        "freq3",
+        "gate3"
+      ],
+      "params": {
+        "moduleId": "harmony"
+      },
+      "pitches": [],
+      "gates": []
+    },
+    "310": {
+      "type": "Sine",
+      "name": "harm 0",
+      "x": 1520,
+      "y": 2600,
+      "ins": [
+        [
+          "309",
+          0
+        ],
+        null
+      ],
+      "inNames": [
+        "freq",
+        "sync"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {
+        "minVal": -1,
+        "maxVal": 1
+      }
+    },
+    "311": {
+      "type": "ADSR",
+      "name": "ADSR",
+      "x": 1520,
+      "y": 2650,
+      "ins": [
+        [
+          "309",
+          1
+        ],
+        [
+          "322",
+          0
+        ],
+        [
+          "323",
+          0
+        ],
+        [
+          "324",
+          0
+        ],
+        [
+          "325",
+          0
+        ]
+      ],
+      "inNames": [
+        "gate",
+        "att",
+        "dec",
+        "sus",
+        "rel"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "312": {
+      "type": "Mul",
+      "name": "Mul",
+      "x": 1700,
+      "y": 2600,
+      "ins": [
+        [
+          "310",
+          0
+        ],
+        [
+          "311",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "313": {
+      "type": "Sine",
+      "name": "harm 1",
+      "x": 1520,
+      "y": 2710,
+      "ins": [
+        [
+          "309",
+          2
+        ],
+        null
+      ],
+      "inNames": [
+        "freq",
+        "sync"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {
+        "minVal": -1,
+        "maxVal": 1
+      }
+    },
+    "314": {
+      "type": "ADSR",
+      "name": "ADSR",
+      "x": 1520,
+      "y": 2760,
+      "ins": [
+        [
+          "309",
+          3
+        ],
+        [
+          "322",
+          0
+        ],
+        [
+          "323",
+          0
+        ],
+        [
+          "324",
+          0
+        ],
+        [
+          "325",
+          0
+        ]
+      ],
+      "inNames": [
+        "gate",
+        "att",
+        "dec",
+        "sus",
+        "rel"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "315": {
+      "type": "Mul",
+      "name": "Mul",
+      "x": 1700,
+      "y": 2710,
+      "ins": [
+        [
+          "313",
+          0
+        ],
+        [
+          "314",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "316": {
+      "type": "Sine",
+      "name": "harm 2",
+      "x": 1520,
+      "y": 2820,
+      "ins": [
+        [
+          "309",
+          4
+        ],
+        null
+      ],
+      "inNames": [
+        "freq",
+        "sync"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {
+        "minVal": -1,
+        "maxVal": 1
+      }
+    },
+    "317": {
+      "type": "ADSR",
+      "name": "ADSR",
+      "x": 1520,
+      "y": 2870,
+      "ins": [
+        [
+          "309",
+          5
+        ],
+        [
+          "322",
+          0
+        ],
+        [
+          "323",
+          0
+        ],
+        [
+          "324",
+          0
+        ],
+        [
+          "325",
+          0
+        ]
+      ],
+      "inNames": [
+        "gate",
+        "att",
+        "dec",
+        "sus",
+        "rel"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "318": {
+      "type": "Mul",
+      "name": "Mul",
+      "x": 1700,
+      "y": 2820,
+      "ins": [
+        [
+          "316",
+          0
+        ],
+        [
+          "317",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "319": {
+      "type": "Sine",
+      "name": "harm 3",
+      "x": 1520,
+      "y": 2930,
+      "ins": [
+        [
+          "309",
+          6
+        ],
+        null
+      ],
+      "inNames": [
+        "freq",
+        "sync"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {
+        "minVal": -1,
+        "maxVal": 1
+      }
+    },
+    "320": {
+      "type": "ADSR",
+      "name": "ADSR",
+      "x": 1520,
+      "y": 2980,
+      "ins": [
+        [
+          "309",
+          7
+        ],
+        [
+          "322",
+          0
+        ],
+        [
+          "323",
+          0
+        ],
+        [
+          "324",
+          0
+        ],
+        [
+          "325",
+          0
+        ]
+      ],
+      "inNames": [
+        "gate",
+        "att",
+        "dec",
+        "sus",
+        "rel"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "321": {
+      "type": "Mul",
+      "name": "Mul",
+      "x": 1700,
+      "y": 2930,
+      "ins": [
+        [
+          "319",
+          0
+        ],
+        [
+          "320",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "322": {
+      "type": "Const",
+      "name": "att",
+      "x": 1300,
+      "y": 2720,
+      "ins": [],
+      "inNames": [],
+      "outNames": [
+        ""
+      ],
+      "params": {
+        "value": 0.35
+      }
+    },
+    "323": {
+      "type": "Const",
+      "name": "dec",
+      "x": 1300,
+      "y": 2780,
+      "ins": [],
+      "inNames": [],
+      "outNames": [
+        ""
+      ],
+      "params": {
+        "value": 0.4
+      }
+    },
+    "324": {
+      "type": "Const",
+      "name": "sus",
+      "x": 1300,
+      "y": 2840,
+      "ins": [],
+      "inNames": [],
+      "outNames": [
+        ""
+      ],
+      "params": {
+        "value": 0.8
+      }
+    },
+    "325": {
+      "type": "Const",
+      "name": "rel",
+      "x": 1300,
+      "y": 2900,
+      "ins": [],
+      "inNames": [],
+      "outNames": [
+        ""
+      ],
+      "params": {
+        "value": 1.4
+      }
+    },
+    "326": {
+      "type": "Add",
+      "name": "Add",
+      "x": 1840,
+      "y": 2630,
+      "ins": [
+        [
+          "312",
+          0
+        ],
+        [
+          "315",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "327": {
+      "type": "Add",
+      "name": "Add",
+      "x": 1840,
+      "y": 2850,
+      "ins": [
+        [
+          "318",
+          0
+        ],
+        [
+          "321",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "328": {
+      "type": "Add",
+      "name": "Add",
+      "x": 1980,
+      "y": 2740,
+      "ins": [
+        [
+          "326",
+          0
+        ],
+        [
+          "327",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "329": {
+      "type": "Mul",
+      "name": "Mul",
+      "x": 2120,
+      "y": 2740,
+      "ins": [
+        [
+          "328",
+          0
+        ],
+        [
+          "330",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
+    },
+    "330": {
+      "type": "Knob",
+      "name": "harm vol",
+      "x": 1980,
+      "y": 2860,
+      "ins": [],
+      "inNames": [],
+      "outNames": [
+        ""
+      ],
+      "params": {
+        "minVal": 0,
+        "maxVal": 1,
+        "value": 0.4,
+        "deviceId": null,
+        "controlId": null
+      }
+    },
+    "331": {
+      "type": "Add",
+      "name": "Add",
+      "x": 2900,
+      "y": 65,
+      "ins": [
+        [
+          "233",
+          0
+        ],
+        [
+          "329",
+          0
+        ]
+      ],
+      "inNames": [
+        "in0",
+        "in1"
+      ],
+      "outNames": [
+        "out"
+      ],
+      "params": {}
     }
   }
 }
