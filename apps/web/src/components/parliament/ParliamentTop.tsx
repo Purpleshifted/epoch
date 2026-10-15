@@ -27,7 +27,7 @@ import {
   type Snapshot,
 } from "@/lib/parliament";
 import { ArchitectureLayer, type ArchStyle } from "./Architecture";
-import { LEVA_THEME, useArchControls, useFoldControls, useFoldState, useWorld } from "./useWorld";
+import { LEVA_THEME, useArchControls, useFoldControls, useFoldState, useKeepWindowControl, useWorld } from "./useWorld";
 
 const BG = "#05060a";
 const PAPER = "#e9ebee";
@@ -113,6 +113,7 @@ function WorldEdge({ color }: { color: string }) {
 export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld();
+  useKeepWindowControl(log);
   const cfg = useFoldControls();
   const arch = useArchControls(mode === "top" ? 0.2 : 1.0, "photo");
   const snapRef = useRef<Snapshot | null>(null);
