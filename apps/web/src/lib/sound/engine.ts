@@ -246,6 +246,10 @@ export class SoundEngine {
   /** Track B: the patch's stream → level → vegetation grain (AM by noise) → low-pass → dry + a send into the rooms. */
   private nc: { source: MediaStreamAudioSourceNode; level: GainNode; am: GainNode; grain: GainNode; filt: BiquadFilterNode; send: GainNode } | null = null;
   private ncStream: MediaStream | null = null;
+  /** Level meters of the two tracks (the workspace shows them). */
+  private meterA: AnalyserNode | null = null;
+  private meterB: AnalyserNode | null = null;
+  private meterBuf: Float32Array<ArrayBuffer> | null = null;
   private dry!: GainNode;
   private rooms!: { open: GainNode; concrete: GainNode; hall: GainNode };
   private noiseGain!: GainNode;
@@ -388,6 +392,12 @@ export class SoundEngine {
       melFilt.connect(melSend);
       for (const r of ["open", "concrete", "hall"] as const) melSend.connect(this.rooms[r]);
       this.mel = { bus: melBus, delay: melDelay, filt: melFilt, send: melSend };
+      this.meterA = ctx.createAnalyser();
+      this.meterA.fftSize = 512;
+      melFilt.connect(this.meterA);
+      this.meterB = ctx.createAnalyser();
+      this.meterB.fftSize = 512;
+      this.meterBuf = new Float32Array(512);
       // the listener: at the origin, turned by the camera yaw (update())
       const L = ctx.listener;
       if (L.positionX) {
@@ -528,12 +538,25 @@ export class SoundEngine {
       source.connect(level).connect(am).connect(filt);
       filt.connect(this.dry);
       filt.connect(send);
+      if (this.meterB) filt.connect(this.meterB);
       for (const r of ["open", "concrete", "hall"] as const) send.connect(this.rooms[r]);
       this.nc = { source, level, am, grain, filt, send };
     } catch (e) {
       console.warn("[sound] could not route the NoiseCraft stream:", e);
       this.nc = null;
     }
+  }
+
+  /** RMS level (0..1) of track A (the melody) and track B (the patch), after their filters. */
+  meters(): { a: number; b: number } {
+    const rms = (an: AnalyserNode | null) => {
+      if (!an || !this.meterBuf) return 0;
+      an.getFloatTimeDomainData(this.meterBuf);
+      let s = 0;
+      for (let i = 0; i < this.meterBuf.length; i++) s += this.meterBuf[i] * this.meterBuf[i];
+      return Math.min(1, Math.sqrt(s / this.meterBuf.length) * 3);
+    };
+    return { a: rms(this.meterA), b: this.nc ? rms(this.meterB) : 0 };
   }
 
   /**

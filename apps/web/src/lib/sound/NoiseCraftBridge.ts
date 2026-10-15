@@ -61,6 +61,8 @@ export class NoiseCraftBridge {
   public onStatus?: (status: NoiseCraftAudioStatus) => void;
   /** The embed's output as a MediaStream (null when it stops): the engine takes it into its own bus. */
   public onStream?: (stream: MediaStream | null) => void;
+  /** A node was clicked in the editor (umwelt used it to auto-fill a mapping; the workspace shows its rule). */
+  public onNodeClicked?: (nodeId: string) => void;
 
   get iframeElement(): HTMLIFrameElement | null {
     return this.iframe;
@@ -190,6 +192,22 @@ export class NoiseCraftBridge {
         // (the editor posts nodeId as `this.id`, which this fork leaves undefined — the pulse is what matters)
         this.onClockPulse?.(String(d.nodeId ?? ""), Number(d.pulseTime ?? 0));
         break;
+      case "noiseCraft:nodeClicked":
+        if (d.nodeId != null) this.onNodeClicked?.(String(d.nodeId));
+        break;
+    }
+  }
+
+  /** A node of the loaded patch as the embed holds it (same origin), for the workspace's inspector; null if unknown. */
+  nodeInfo(nodeId: string): { type: string; name: string; min?: number; max?: number; value?: number } | null {
+    try {
+      const w = this.iframe?.contentWindow as (Window & { noiseCraftApp?: { model: { state: { nodes: Record<string, { type: string; name?: string; params?: Record<string, unknown> }> } } } }) | null | undefined;
+      const n = w?.noiseCraftApp?.model.state.nodes[nodeId];
+      if (!n) return null;
+      const p = n.params ?? {};
+      return { type: n.type, name: n.name ?? n.type, min: typeof p.minVal === "number" ? p.minVal : undefined, max: typeof p.maxVal === "number" ? p.maxVal : undefined, value: typeof p.value === "number" ? p.value : undefined };
+    } catch {
+      return null;
     }
   }
 

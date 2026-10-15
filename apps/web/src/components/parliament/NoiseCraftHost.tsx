@@ -21,6 +21,10 @@ export default function NoiseCraftHost({ sound }: { sound: SoundSetup }) {
   const { engine, params } = sound;
   const patch = sound.nc.patch;
   const master = params.master;
+  const overridesRef = useRef(sound.overrides);
+  useEffect(() => {
+    overridesRef.current = sound.overrides;
+  }, [sound.overrides]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -34,6 +38,7 @@ export default function NoiseCraftHost({ sound }: { sound: SoundSetup }) {
         layer: (): PatchLayer => (engine.params.instrument === "noisecraft" ? "all" : "harmony"),
         octave: () => engine.params.ncOctave,
         onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
+        overrides: () => overridesRef.current,
       },
       patch,
     );

@@ -1,30 +1,35 @@
 "use client";
 /**
- * NoiseCraftManagerScene — the sound workspace (/v2/sound), umwelt's NoiseCraft Manager brought over
- * (docs/sound-logic.md §8b):
+ * NoiseCraftManagerScene — the sound WORKSPACE (/v2/sound), umwelt's NoiseCraft Manager brought over and grown
+ * into the work's mixing desk (docs/sound-logic.md §8b, §9):
  *   patch list  →  editor: the patch in NoiseCraft's full editor (auto-saved) + the INSPECTOR on the right.
- * What drives the patch here is the same brain as in the player tab: a headless SoundEngine fed by the bus
- * (the player tab's live signals, when a player tab is open in the split view) or by the SIMULATOR sliders.
- * The mapping is code (noisecraftMap.ts); the inspector shows every knob rule with its live value.
- * While this page plays it holds the solo, so the player tab's own instrument stays quiet.
+ * What drives the patch here is the same brain as in the player tab: a SoundEngine fed by the bus (the player
+ * tab's live signals, when a player tab is open — the link) or by the SIMULATOR (sliders and SCENARIOS). Every
+ * sound control of the work lives here (SoundControls.tsx → the DESK, lib/sound/desk.ts) and the player tab and
+ * the speakers follow it live. The mapping is code (noisecraftMap.ts); the inspector shows every knob rule with
+ * its live value, and a knob clicked in the editor shows its rule and can be HELD by hand (umwelt's auto-fill,
+ * turned into an override).
  *
- * For working on the music without walking: SCENARIOS (timelines of simulated signals — a path walked and left,
- * a building approached and entered, two people staying and building …), LAYER MUTES (melody / harmony), and the
- * BAR LOG (the last bars: harmony state, my notes, the anchor, the line) with a copy button, to paste into a chat.
+ * Borrowed from umwelt: the manager page itself; GlobalDashboard's stream monitor (sparklines of the signals);
+ * ControlPanel's spectral meter (two track meters here); NodeMappingPanel's node click; the autosave / export /
+ * import of the mapping store (the desk). The listening choice ("듣기") decides which window plays: this one
+ * (the player's walk rendered here, solo), the player's, the speakers', or all.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { SoundEngine, DEFAULT_SOUND } from "@/lib/sound/engine";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SoundEngine } from "@/lib/sound/engine";
 import { getNoiseCraftBridge } from "@/lib/sound/NoiseCraftBridge";
 import { NoiseCraftDriver, type DriverStatus } from "@/lib/sound/noisecraftDriver";
 import { harmonyLabel } from "@/lib/sound/harmonyState";
 import { PULSES_PER_BAR, PULSES_PER_STEP, knobParams, mapFor, modeOf, roughOf } from "@/lib/sound/noisecraftMap";
-import { openBus, type BusMessage, type BusState } from "@/lib/sound/bus";
-import { readSolo, setSolo } from "@/lib/sound/output";
+import { openBus, type BusDesk, type BusMessage, type BusState } from "@/lib/sound/bus";
+import { readSolo, setSolo, type SoundView } from "@/lib/sound/output";
+import { readDesk, writeDesk, type DeskState } from "@/lib/sound/desk";
 import { KEY_NAMES, chordName } from "@/lib/sound/harmony";
 import type { BarPlan } from "@/lib/sound/sequencer";
 import type { PersonalSignals } from "@/lib/sound/signals";
 import NoiseCraftPatchManager from "./NoiseCraftPatchManager";
+import SoundControls from "./SoundControls";
 
 interface Sim {
   speed: number;
@@ -108,14 +113,49 @@ interface View {
   source: "bus" | "sim";
   status: DriverStatus | null;
   plan: BarPlan | null;
+  /** The player tab on the bus: who, and how long ago it spoke (ms); null when none. */
+  link: { myId: string; ago: number } | null;
+  meters: { a: number; b: number };
 }
 
 const BUS_STALE_MS = 3000;
 
+/** Who plays while this page is on: this page (the player's walk rendered here), the player's own window, the speakers, or everybody. */
+type Listen = SoundView | "none";
+const LISTEN: { id: Listen; label: string }[] = [
+  { id: "manager", label: "이 작업실에서 (플레이어의 걸음을 여기서 연주 · 솔로)" },
+  { id: "mobile", label: "플레이어 창에서 (헤드셋) — 여기선 조정만" },
+  { id: "global", label: "스피커 창에서 — 여기선 조정만" },
+  { id: "none", label: "모든 창 각자" },
+];
+
+/** The signals the sparklines follow (umwelt's stream monitor). */
+const SPARK: { key: string; max: number; color: string }[] = [
+  { key: "speed", max: 8, color: "#4ecdc4" },
+  { key: "stay", max: 1, color: "#4ecdc4" },
+  { key: "pathP", max: 1, color: "#a78bfa" },
+  { key: "sealed", max: 1, color: "#a78bfa" },
+  { key: "grass", max: 1, color: "#8bd17c" },
+  { key: "rough", max: 1, color: "#ff6b9d" },
+  { key: "tension", max: 1, color: "#f59e0b" },
+];
+const SPARK_LEN = 60;
+
+function Sparkline({ hist, max, color }: { hist: number[]; max: number; color: string }) {
+  const W = 120, H = 22;
+  const pts = hist.map((v, i) => `${(i / (SPARK_LEN - 1)) * W},${H - Math.max(0, Math.min(1, v / max)) * (H - 2) - 1}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="block h-[22px] w-full rounded bg-black/40">
+      {hist.length > 1 && <polyline points={pts} fill="none" stroke={color} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />}
+    </svg>
+  );
+}
+
 export default function NoiseCraftManagerScene() {
   const [patch, setPatch] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [master, setMaster] = useState(0.6);
+  const [listen, setListen] = useState<Listen>("manager");
+  const listenRef = useRef<Listen>("manager");
   const [sim, setSim] = useState<Sim>(SIM0);
   const simRef = useRef(sim);
   const [scenario, setScenario] = useState<string | null>(null);
@@ -124,25 +164,50 @@ export default function NoiseCraftManagerScene() {
   const muteRef = useRef(mute);
   const [bars, setBars] = useState<BarRow[]>([]);
   const barsRef = useRef<BarRow[]>([]);
-  const [view, setView] = useState<View>({ sig: null, source: "sim", status: null, plan: null });
+  const [desk0] = useState<DeskState>(() => readDesk());
+  const deskRef = useRef<DeskState>(desk0);
+  const [desk, setDeskState] = useState<DeskState>(desk0);
+  const [picked, setPicked] = useState<string | null>(null);
+  const spark = useRef<Record<string, number[]>>({});
+  const [sparks, setSparks] = useState<Record<string, number[]>>({});
+  const [view, setView] = useState<View>({ sig: null, source: "sim", status: null, plan: null, link: null, meters: { a: 0, b: 0 } });
   const container = useRef<HTMLDivElement>(null);
-  const engine = useMemo(() => new SoundEngine(), []); // headless: never started, only plans
+  const engine = useMemo(() => new SoundEngine(), []); // this page's instrument: silent unless it is the one listening
   const live = useRef<{ bus: BusState | null; sig: PersonalSignals | null }>({ bus: null, sig: null });
   const driver = useRef<NoiseCraftDriver | null>(null);
   const playingRef = useRef(false);
-  const masterRef = useRef(0.6);
+  const busOut = useRef<BroadcastChannel | null>(null);
   useEffect(() => {
     playingRef.current = playing;
   }, [playing]);
   useEffect(() => {
-    masterRef.current = master;
-  }, [master]);
+    listenRef.current = listen;
+  }, [listen]);
   useEffect(() => {
     muteRef.current = mute;
   }, [mute]);
   useEffect(() => {
     simRef.current = sim;
   }, [sim]);
+
+  const onDeskChange = useCallback((d: DeskState) => {
+    deskRef.current = d;
+    setDeskState(d);
+  }, []);
+
+  /** A patch knob held by hand (null = released): into the desk, so the player tab's driver holds it too. */
+  const setOverride = useCallback((nodeId: string, value: number | null) => {
+    const d = readDesk();
+    const overrides = { ...d.overrides };
+    if (value == null) delete overrides[nodeId];
+    else overrides[nodeId] = value;
+    const full: DeskState = { ...d, overrides, at: Date.now() };
+    writeDesk(full);
+    const msg: BusDesk = { type: "desk", desk: full };
+    busOut.current?.postMessage(msg);
+    deskRef.current = full;
+    setDeskState(full);
+  }, []);
 
   // a scenario drives the simulator: the step by the time elapsed, looping
   useEffect(() => {
@@ -169,85 +234,105 @@ export default function NoiseCraftManagerScene() {
     return () => clearInterval(id);
   }, [scenario]);
 
-  // the bus: the player tab's state, when one is talking
+  // the bus: the player tab's state, when one is talking (the link); and our channel to post the desk on
   useEffect(() => {
     const bus = openBus();
+    busOut.current = openBus();
     if (!bus) return;
     bus.onmessage = (e: MessageEvent<BusMessage>) => {
       if (e.data?.type === "state") live.current.bus = e.data;
     };
-    return () => bus.close();
+    return () => {
+      bus.close();
+      busOut.current?.close();
+      busOut.current = null;
+    };
   }, []);
 
-  // feed the headless engine twice a second: bus if fresh, else the simulator; mirror what the panels show
+  // feed the engine twice a second: bus if fresh, else the simulator; the desk's controls, this page's own
+  // levels; mirror what the panels show (signals, link, meters, sparklines, the bar log)
   useEffect(() => {
     const id = setInterval(() => {
       const b = live.current.bus;
       const fresh = !!b && Date.now() - b.at < BUS_STALE_MS;
+      const d = deskRef.current;
+      const here = listenRef.current === "manager";
+      const params = {
+        ...d.headset,
+        master: here ? d.headset.master : 0,
+        ...(muteRef.current.melody ? { melLevel: 0 } : {}),
+        ...(muteRef.current.harmony ? { ncLevel: 0 } : {}),
+      };
       let sig: PersonalSignals;
       let source: View["source"];
-      // both tracks run through this page's engine: the layer mutes are the tracks' levels
-      const mutes = { master: masterRef.current, ...(muteRef.current.melody ? { melLevel: 0 } : {}), ...(muteRef.current.harmony ? { ncLevel: 0 } : {}) };
       if (fresh && b) {
         source = "bus";
         sig = b.sig;
-        engine.update(b.myId, b.sig, { ...b.params, ...mutes }, b.yaw, b.epochMs);
+        engine.update(b.myId, b.sig, params, b.yaw, b.epochMs);
       } else {
         source = "sim";
         sig = simSignals(simRef.current);
-        engine.update("v_manager", sig, { ...DEFAULT_SOUND, ...mutes }, 0, 1700000000000);
+        engine.update("v_manager", sig, params, 0, 1700000000000);
       }
       live.current.sig = sig;
-      const d = driver.current;
-      const plan = d ? d.plan : null;
+      const dr = driver.current;
+      const plan = dr ? dr.plan : null;
       if (plan && (barsRef.current.length === 0 || barsRef.current[barsRef.current.length - 1].bar !== plan.bar)) {
         barsRef.current = [...barsRef.current.slice(-63), rowOf(plan)];
         setBars(barsRef.current);
       }
-      setView({ sig, source, status: d ? d.status : null, plan });
+      const vals: Record<string, number> = { speed: sig.speed, stay: sig.stay, pathP: sig.pathP, sealed: sig.sealed, grass: sig.grass, rough: roughOf(sig), tension: plan?.tension ?? 0 };
+      for (const s of SPARK) {
+        const h = (spark.current[s.key] ??= []);
+        h.push(vals[s.key]);
+        if (h.length > SPARK_LEN) h.shift();
+      }
+      setSparks({ ...spark.current });
+      setView({ sig, source, status: dr ? dr.status : null, plan, link: fresh && b ? { myId: b.myId, ago: Date.now() - b.at } : null, meters: engine.meters() });
     }, 500);
     return () => clearInterval(id);
-  }, [engine]); // the simulator is read through a ref: re-creating this interval on every slider move starved it
+  }, [engine]); // the simulator and the desk are read through refs: re-creating this interval on every change starved it
 
   // the editor + driver for the selected patch
   useEffect(() => {
     if (!patch || !container.current) return;
-    const d = new NoiseCraftDriver(
+    const dr = new NoiseCraftDriver(
       {
         signals: () => live.current.sig,
         planFor: (bar) => engine.planFor(bar),
         running: () => playingRef.current,
-        master: () => (muteRef.current.harmony ? 0 : masterRef.current),
+        master: () => (muteRef.current.harmony || listenRef.current !== "manager" ? 0 : deskRef.current.headset.master),
         barSec: () => engine.params.barSec,
         layer: () => (engine.params.instrument === "noisecraft" ? "all" : "harmony"),
         octave: () => engine.params.ncOctave,
         onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
+        overrides: () => deskRef.current.overrides,
       },
       patch,
     );
-    driver.current = d;
-    d.bridge.onStream = (s) => engine.attachNoiseCraft(s); // the patch through the engine's bus here too
-    d.mount(container.current, patch, true);
+    driver.current = dr;
+    dr.bridge.onStream = (s) => engine.attachNoiseCraft(s); // the patch through the engine's bus here too
+    dr.bridge.onNodeClicked = (id) => setPicked(id);
+    dr.mount(container.current, patch, true);
     return () => {
-      d.bridge.onStream = undefined;
+      dr.bridge.onStream = undefined;
+      dr.bridge.onNodeClicked = undefined;
       engine.attachNoiseCraft(null);
-      d.dispose();
+      dr.dispose();
       driver.current = null;
     };
   }, [patch, engine]);
 
-  // the solo: while this page plays, the player tab's instrument is quiet; in the hybrid this page's own engine
-  // plays the melody (Web Audio, started from the PLAY gesture) while the patch plays the harmony
+  // who plays: the listening choice claims the solo (output.ts) for that window; this page's engine runs only when
+  // it is the one (its PLAY gesture starts the audio); leaving the page releases a solo this page holds
   useEffect(() => {
     if (playing) {
-      setSolo("manager");
-      engine.start().catch(() => {}); // the engine is the bus for both tracks now, whatever the instrument
+      setSolo(listen === "none" ? null : listen);
+      engine.start().catch(() => {}); // the engine is the bus for both tracks, whatever the instrument
     } else {
       if (readSolo() === "manager") setSolo(null);
       engine.stop();
     }
-    // leaving the page (tab closed, a navigation) must release the solo too — React's cleanup does not run on a
-    // full navigation, and a solo left behind mutes the player tab's instrument silently
     const release = () => {
       if (readSolo() === "manager") setSolo(null);
     };
@@ -256,17 +341,23 @@ export default function NoiseCraftManagerScene() {
       window.removeEventListener("pagehide", release);
       release();
     };
-  }, [playing, engine]);
+  }, [playing, listen, engine]);
 
-  const { sig, source, status, plan } = view;
+  const { sig, source, status, plan, link, meters } = view;
   const map = mapFor(patch ?? "nc_noise_patch.ncft");
-  const knobs = sig ? knobParams(map, { sig, mode: modeOf(sig), plan, master, barSec: engine.params.barSec }) : [];
+  const knobs = sig ? knobParams(map, { sig, mode: modeOf(sig), plan, master: desk.headset.master, barSec: desk.headset.barSec }) : [];
+  const pickedRule = picked ? map.knobs.find((k) => k.nodeId === picked) ?? null : null;
+  const pickedInfo = picked ? getNoiseCraftBridge().nodeInfo(picked) : null;
+  const pickedHeld = picked != null && picked in desk.overrides;
+  const pickedMin = pickedRule?.min ?? pickedInfo?.min ?? 0;
+  const pickedMax = pickedRule?.max ?? pickedInfo?.max ?? 1;
+  const pickedValue = picked ? (desk.overrides[picked] ?? knobs.find((k) => k.nodeId === picked)?.value ?? pickedInfo?.value ?? pickedMin) : 0;
 
   return (
     <div className="flex h-screen w-screen flex-col bg-[#020205] text-white" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
       {patch ? (
         <>
-          <div className="flex shrink-0 items-center gap-4 border-b border-white/10 bg-[#1a1a2e] px-4 py-2 text-xs">
+          <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-white/10 bg-[#1a1a2e] px-4 py-2 text-xs">
             <button
               onClick={() => {
                 setPlaying(false);
@@ -279,31 +370,79 @@ export default function NoiseCraftManagerScene() {
             </button>
             <span className="text-white/50">
               편집 중: <strong className="text-white/80">{patch}</strong> · 자동 저장
+              {desk.ncPatch !== patch ? (
+                <button onClick={() => setOverrideNcPatch(patch)} className="ml-2 rounded border border-white/20 px-1.5 py-0.5 text-[10px] text-white/60" title="플레이어가 연주하는 패치를 이걸로">
+                  플레이어도 이 패치로
+                </button>
+              ) : (
+                <span className="ml-2 text-[10px] text-[#4ecdc4]">= 플레이어의 패치</span>
+              )}
             </span>
             <button onClick={() => setPlaying((p) => !p)} className={`rounded border px-3 py-1 ${playing ? "border-red-400/50 text-red-300" : "border-[#4ecdc4]/50 text-[#4ecdc4]"}`}>
-              {playing ? "■ STOP" : "▶ PLAY (이 창이 솔로)"}
+              {playing ? "■ STOP" : "▶ PLAY"}
             </button>
-            <label className="flex items-center gap-2 text-white/60">
-              음량 <input type="range" min={0} max={1} step={0.01} value={master} onChange={(e) => setMaster(+e.target.value)} />
+            <label className="flex items-center gap-1 text-white/60">
+              듣기
+              <select value={listen} onChange={(e) => setListen(e.target.value as Listen)} className="rounded border border-white/20 bg-black/40 px-1 py-0.5 text-[11px] text-white/80">
+                {LISTEN.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            <span className="flex items-center gap-1 text-white/60">
-              듣기:
-              <button onClick={() => setMute((m) => ({ ...m, melody: !m.melody }))} className={`rounded border px-2 py-0.5 ${mute.melody ? "border-white/20 text-white/30 line-through" : "border-[#4ecdc4]/50 text-[#4ecdc4]"}`}>
-                멜로디 (Web Audio)
-              </button>
-              <button onClick={() => setMute((m) => ({ ...m, harmony: !m.harmony }))} className={`rounded border px-2 py-0.5 ${mute.harmony ? "border-white/20 text-white/30 line-through" : "border-[#ff6b9d]/50 text-[#ff6b9d]"}`}>
-                화성 (패치)
-              </button>
-            </span>
-            <span className="ml-auto font-mono text-[10px] text-white/40">
-              {status ? `${status.audio} · ${status.clocked ? `클록 ${(status.pulseHz / PULSES_PER_STEP).toFixed(1)} 스텝/s (마디 ${status.pulseHz > 0 ? (PULSES_PER_BAR / status.pulseHz).toFixed(1) : "–"} s)` : "ClockOut 없음 (벽시계 마디)"} · bar ${status.bar} · ${status.mode}` : ""} · 입력: {source === "bus" ? "플레이어 탭 (bus)" : "시뮬레이터"}
+            {listen === "manager" && (
+              <span className="flex items-center gap-1 text-white/60">
+                <button onClick={() => setMute((m) => ({ ...m, melody: !m.melody }))} className={`rounded border px-2 py-0.5 ${mute.melody ? "border-white/20 text-white/30 line-through" : "border-[#4ecdc4]/50 text-[#4ecdc4]"}`}>
+                  멜로디
+                </button>
+                <button onClick={() => setMute((m) => ({ ...m, harmony: !m.harmony }))} className={`rounded border px-2 py-0.5 ${mute.harmony ? "border-white/20 text-white/30 line-through" : "border-[#ff6b9d]/50 text-[#ff6b9d]"}`}>
+                  화성
+                </button>
+              </span>
+            )}
+            <span className="ml-auto flex items-center gap-2 font-mono text-[10px] text-white/40">
+              <span className={link ? "text-[#4ecdc4]" : "text-white/30"}>{link ? `● 플레이어 연결됨 (${link.myId})` : "○ 플레이어 창 없음 — 시뮬레이터"}</span>
+              <span>
+                {status ? `${status.audio} · ${status.clocked ? `클록 ${(status.pulseHz / PULSES_PER_STEP).toFixed(1)} 스텝/s (마디 ${status.pulseHz > 0 ? (PULSES_PER_BAR / status.pulseHz).toFixed(1) : "–"} s)` : "ClockOut 없음 (벽시계 마디)"} · bar ${status.bar} · ${status.mode}` : ""}
+              </span>
             </span>
           </div>
           <div className="flex min-h-0 flex-1">
             <div ref={container} className="relative min-h-0 flex-1" />
-            <div className="flex w-[320px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-white/10 bg-[#0a0a14] p-3 text-[11px]">
+            <div className="flex w-[460px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-white/10 bg-[#0a0a14] p-3 text-[11px]">
               <section>
-                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">신호 {source === "sim" ? "(시뮬레이터)" : "(플레이어 탭)"}</h3>
+                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">트랙 미터</h3>
+                <div className="space-y-1 font-mono text-[10px]">
+                  {(
+                    [
+                      ["A 멜로디 (Web Audio)", meters.a, "#4ecdc4"],
+                      ["B 화성 (패치 → 엔진 버스)", meters.b, "#ff6b9d"],
+                    ] as [string, number, string][]
+                  ).map(([label, v, color]) => (
+                    <div key={label} className="flex items-center gap-2">
+                      <span className="w-44 text-white/50">{label}</span>
+                      <div className="h-2 flex-1 rounded bg-black/40">
+                        <div className="h-2 rounded" style={{ width: `${Math.round(v * 100)}%`, background: color, transition: "width 0.2s" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {listen !== "manager" && <p className="mt-1 text-white/35">이 창은 조정만 합니다 — 소리는 {listen === "none" ? "각 창" : listen === "mobile" ? "플레이어 창" : "스피커 창"}에서.</p>}
+              </section>
+              <section>
+                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">신호 {source === "sim" ? "(시뮬레이터)" : `(플레이어 탭 · ${link ? `${(link.ago / 1000).toFixed(1)} s 전` : ""})`}</h3>
+                <div className="mb-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  {SPARK.map((s) => (
+                    <div key={s.key}>
+                      <div className="flex justify-between font-mono text-[9px] text-white/50">
+                        <span>{s.key}</span>
+                        <span style={{ color: s.color }}>{(sparks[s.key]?.[sparks[s.key].length - 1] ?? 0).toFixed(2)}</span>
+                      </div>
+                      <Sparkline hist={sparks[s.key] ?? []} max={s.max} color={s.color} />
+                    </div>
+                  ))}
+                </div>
                 {source === "sim" ? (
                   <div className="space-y-1">
                     <div className="mb-2 flex flex-wrap gap-1">
@@ -331,24 +470,7 @@ export default function NoiseCraftManagerScene() {
                     ))}
                   </div>
                 ) : sig ? (
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-white/70">
-                    {(
-                      [
-                        ["speed", sig.speed],
-                        ["stay", sig.stay],
-                        ["pathP", sig.pathP],
-                        ["sealed", sig.sealed],
-                        ["grass", sig.grass],
-                        ["near", sig.neighbours.length],
-                        ["rough", roughOf(sig)],
-                      ] as [string, number][]
-                    ).map(([k, v]) => (
-                      <div key={k} className="flex justify-between">
-                        <span className="text-white/40">{k}</span>
-                        <span className="text-[#4ecdc4]">{v.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="font-mono text-[10px] text-white/50">near {sig.neighbours.length} · building {sig.building ? `${sig.building.id} (${sig.building.dist.toFixed(1)})` : "–"}</div>
                 ) : null}
               </section>
               <section>
@@ -364,7 +486,7 @@ export default function NoiseCraftManagerScene() {
                   <span>마디 로그 (H · 내 음 · 앵커 · 선)</span>
                   <button
                     onClick={() => {
-                      const text = barsRef.current.map(rowText).join("\n");
+                      const text = bars.map(rowText).join("\n");
                       navigator.clipboard?.writeText(text).catch(() => {});
                     }}
                     className="rounded border border-white/20 px-1.5 py-0.5 normal-case tracking-normal text-white/60"
@@ -372,7 +494,7 @@ export default function NoiseCraftManagerScene() {
                     복사 ({bars.length}마디)
                   </button>
                 </h3>
-                <div className="max-h-48 space-y-0.5 overflow-y-auto font-mono text-[10px] text-white/60">
+                <div className="max-h-40 space-y-0.5 overflow-y-auto font-mono text-[10px] text-white/60">
                   {bars.slice(-10).map((r) => (
                     <div key={r.bar} className="border-b border-white/5 py-0.5">
                       <span className="text-white/40">{r.bar}</span> <span className="text-[#4ecdc4]">[{r.me}]</span>
@@ -384,22 +506,67 @@ export default function NoiseCraftManagerScene() {
                 </div>
               </section>
               <section>
+                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">패치 노드 — 편집기에서 노드를 클릭</h3>
+                {picked ? (
+                  <div className="space-y-1 font-mono text-[10px]">
+                    <div className="text-white/70">
+                      #{picked} {pickedInfo ? `${pickedInfo.type} "${pickedInfo.name}"` : ""}
+                      {pickedRule ? <span className="text-[#4ecdc4]"> ← 규칙: {pickedRule.label}</span> : <span className="text-white/35"> (매핑 규칙 없음 — 패치의 값 그대로)</span>}
+                    </div>
+                    {pickedInfo?.type === "Knob" || pickedRule ? (
+                      <div className="flex items-center gap-2">
+                        <span className={pickedHeld ? "text-[#f59e0b]" : "text-white/50"}>{pickedHeld ? "손으로 고정" : "규칙이 돌림"}</span>
+                        <input type="range" min={pickedMin} max={pickedMax} step={(pickedMax - pickedMin) / 200} value={pickedValue} onChange={(e) => setOverride(picked, +e.target.value)} className="flex-1" />
+                        <span className="w-14 text-right text-[#4ecdc4]">{pickedValue.toFixed(3)}</span>
+                        {pickedHeld && (
+                          <button onClick={() => setOverride(picked, null)} className="rounded border border-white/20 px-1.5 py-0.5 text-white/60">
+                            해제
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-white/35">노브가 아닙니다.</div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-white/35">노브를 클릭하면 어떤 규칙이 돌리는지 보이고, 슬라이더로 잡으면 그 값에 고정됩니다 (플레이어 창의 패치에도 같이). umwelt의 auto-fill을 고정 기능으로.</p>
+                )}
+                {Object.keys(desk.overrides).length > 0 && (
+                  <div className="mt-1 font-mono text-[10px] text-[#f59e0b]">
+                    고정: {Object.entries(desk.overrides).map(([id, v]) => `#${id}=${v.toFixed(2)}`).join(" · ")}{" "}
+                    <button
+                      onClick={() => {
+                        for (const id of Object.keys(desk.overrides)) setOverride(id, null);
+                      }}
+                      className="rounded border border-white/20 px-1 text-white/50"
+                    >
+                      모두 해제
+                    </button>
+                  </div>
+                )}
+              </section>
+              <section>
                 <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">매핑 (코드: lib/sound/noisecraftMap.ts)</h3>
                 <table className="w-full font-mono text-[10px]">
                   <tbody>
                     {map.knobs.map((r) => {
                       const v = knobs.find((k) => k.nodeId === r.nodeId)?.value;
+                      const held = r.nodeId in desk.overrides;
                       return (
-                        <tr key={r.nodeId} className="border-b border-white/5">
+                        <tr key={r.nodeId} onClick={() => setPicked(r.nodeId)} className={`cursor-pointer border-b border-white/5 ${picked === r.nodeId ? "bg-white/5" : ""}`}>
                           <td className="py-0.5 pr-2 text-white/40">{r.nodeId}</td>
                           <td className="py-0.5 pr-2 text-white/70">{r.label}</td>
-                          <td className="py-0.5 text-right text-[#4ecdc4]">{v != null ? v.toFixed(3) : "–"}</td>
+                          <td className={`py-0.5 text-right ${held ? "text-[#f59e0b]" : "text-[#4ecdc4]"}`}>{held ? `${desk.overrides[r.nodeId].toFixed(3)} 고정` : v != null ? v.toFixed(3) : "–"}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
                 <p className="mt-2 text-white/40">수신 모듈: {map.modules.join(", ")} — 패치의 AI_Seq / AI_Poly 노드 드롭다운에서 고릅니다. hybrid: parliament voice 0 = 베이스, 1–3 = 코드 음; harmony = 4성 보이싱; GateSeq 이름 traces = 리듬 흔적.</p>
+              </section>
+              <section>
+                <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">컨트롤 — 모든 창의 소리 (실시간)</h3>
+                <SoundControls initial={desk0} onChange={onDeskChange} />
               </section>
             </div>
           </div>
@@ -409,4 +576,21 @@ export default function NoiseCraftManagerScene() {
       )}
     </div>
   );
+
+  /** The player plays the patch being edited here: into the desk (the Leva select follows through SoundControls' store). */
+  function setOverrideNcPatch(p: string) {
+    const d = readDesk();
+    const full: DeskState = { ...d, ncPatch: p, at: Date.now() };
+    writeDesk(full);
+    const msg: BusDesk = { type: "desk", desk: full };
+    busOut.current?.postMessage(msg);
+    deskRef.current = full;
+    setDeskState(full);
+    try {
+      // the Leva select in SoundControls shows the new patch
+      import("leva").then(({ levaStore }) => levaStore.setValueAtPath("헤드셋 (플레이어 창).ncPatch", p, true));
+    } catch {
+      /* ignore */
+    }
+  }
 }

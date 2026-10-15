@@ -10,3 +10,4 @@ export * from "./noisecraftMap";
 export * from "./noisecraftDriver";
 export * from "./bus";
 export * from "./output";
+export * from "./desk";

@@ -7,6 +7,7 @@
  * artist edits the patch while hearing the player's actual walk in the split view.
  */
 
+import type { DeskState } from "./desk";
 import type { SoundParams } from "./engine";
 import type { PersonalSignals } from "./signals";
 
@@ -23,7 +24,13 @@ export interface BusState {
   at: number;
 }
 
-export type BusMessage = BusState;
+/** The workspace's desk changed (desk.ts): every window takes the new controls at once. */
+export interface BusDesk {
+  type: "desk";
+  desk: DeskState;
+}
+
+export type BusMessage = BusState | BusDesk;
 
 export function openBus(): BroadcastChannel | null {
   if (typeof BroadcastChannel === "undefined") return null;

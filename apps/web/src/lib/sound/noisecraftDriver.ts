@@ -39,6 +39,8 @@ export interface DriverSource {
   octave?(): number;
   /** Bar `bar` starts at `wallMs` on the patch's clock (only when clocked): the engine anchors its grid to it. */
   onBar?(bar: number, wallMs: number): void;
+  /** Knobs held by hand (desk.ts overrides): node id → value; the mapping's rules for them are not sent. */
+  overrides?(): Record<string, number>;
 }
 
 export interface DriverStatus {
@@ -162,7 +164,16 @@ export class NoiseCraftDriver {
     if (!should || !this.bridge.loaded) return;
     const sig = this.source.signals();
     if (!sig) return;
-    const params = knobParams(this.map, { sig, mode: modeOf(sig), plan: this.lastPlan, master: this.source.master(), barSec: this.source.barSec() }, this.lastKnobs);
+    const ov = this.source.overrides?.() ?? {};
+    let params = knobParams(this.map, { sig, mode: modeOf(sig), plan: this.lastPlan, master: this.source.master(), barSec: this.source.barSec() }, this.lastKnobs);
+    if (Object.keys(ov).length) {
+      params = params.filter((p) => !(p.nodeId in ov));
+      for (const [nodeId, value] of Object.entries(ov)) {
+        if (this.lastKnobs.get(nodeId) === value) continue;
+        this.lastKnobs.set(nodeId, value);
+        params.push({ nodeId, paramName: "value", value });
+      }
+    }
     this.bridge.setParams(params);
   }
 
