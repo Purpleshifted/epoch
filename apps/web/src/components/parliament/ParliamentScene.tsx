@@ -263,7 +263,7 @@ export default function ParliamentScene() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.sessionNo]);
   const cfg = useFoldControls();
-  const { cfg: natureCfg, pointSize, pathDots } = useNatureControls();
+  const { cfg: natureCfg, pointSize, pathDots, pathLine } = useNatureControls();
 
   useEffect(() => {
     if (hideChrome) return;
@@ -308,6 +308,7 @@ export default function ParliamentScene() {
           natureCfg={natureCfg}
           pointSize={pointSize}
           pathDots={pathDots}
+          pathLine={pathLine}
           offsetWindow={offsetWindow}
           botCount={botEnabled ? botCount : 0}
           botRole={botRole}

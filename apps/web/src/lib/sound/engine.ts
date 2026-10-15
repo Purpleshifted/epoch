@@ -73,6 +73,8 @@ export interface SoundParams {
   /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
   bassSpread: number;
   bassDub: number;
+  /** How much the voices (my motif, the others) dip on each heartbeat (0..1): the beat stands in front. */
+  bassDuck: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -87,7 +89,7 @@ export const DEFAULT_SOUND: SoundParams = {
   hearRadius: 12,
   othersLevel: 0.7,
   botBlur: 0.6,
-  bassLevel: 0.6,
+  bassLevel: 0.9, // v4 A2d: the heartbeat in front (0.6 before)
   padLevel: 0.35,
   magenta: false, // the light version has no Magenta (the artist, v4 A1); tfjs shared the GPU with three.js
   instrument: "both",
@@ -99,6 +101,7 @@ export const DEFAULT_SOUND: SoundParams = {
   ncDull: 1,
   bassSpread: 0.4,
   bassDub: 0.55,
+  bassDuck: 0.35,
 };
 
 interface Voice {
@@ -174,6 +177,8 @@ export class SoundEngine {
   private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   /** The path's heartbeat spreads into the rooms by bassSpread. */
   private bassSpread!: GainNode;
+  /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
+  private voiceBus!: GainNode;
   private me: Voice | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
@@ -317,6 +322,9 @@ export class SoundEngine {
       this.dull.connect(this.master).connect(ctx.destination);
       this.dry = ctx.createGain();
       this.dry.connect(this.dull);
+      this.voiceBus = ctx.createGain();
+      this.voiceBus.gain.value = 1;
+      this.voiceBus.connect(this.dry);
       // three rooms
       const room = (seconds: number, decay: number, taps: number, bright: number, level: number) => {
         const g = ctx.createGain();
@@ -331,6 +339,9 @@ export class SoundEngine {
         concrete: room(2.0, 0.6, 6, 0.9, 0),
         hall: room(3.0, 1.2, 0, 0.5, 0), // 4.5 s before v4 A1: the convolver's cost is its length
       };
+      this.voiceBus.connect(this.rooms.open);
+      this.voiceBus.connect(this.rooms.concrete);
+      this.voiceBus.connect(this.rooms.hall);
       // the listener: at the origin, turned by the camera yaw (update())
       const L = ctx.listener;
       if (L.positionX) {
@@ -452,10 +463,7 @@ export class SoundEngine {
       out = panner;
     }
     filt.connect(gain);
-    out.connect(this.dry);
-    out.connect(this.rooms.open);
-    out.connect(this.rooms.concrete);
-    out.connect(this.rooms.hall);
+    out.connect(this.voiceBus); // dry + the rooms, ducked by the heartbeat
     return { motif: this.motifOf(id), gain, filt, panner, blur, seen: ctx.currentTime, level: 0 };
   }
 
@@ -606,21 +614,29 @@ export class SoundEngine {
     const hit = (when: number, vel: number) => {
       const g = ctx.createGain();
       g.connect(this.bassGain);
-      const peak = 0.7 * vel * this.params.bassLevel;
+      const peak = 1.1 * vel * this.params.bassLevel;
       g.gain.setValueAtTime(0, when);
-      g.gain.linearRampToValueAtTime(peak, when + 0.015);
-      g.gain.setTargetAtTime(0, when + 0.06, 0.14);
+      g.gain.linearRampToValueAtTime(peak, when + 0.012);
+      g.gain.setTargetAtTime(0, when + 0.08, 0.2);
       const o = ctx.createOscillator();
       o.type = "sine";
-      o.frequency.setValueAtTime(f * 1.8, when);
-      o.frequency.exponentialRampToValueAtTime(f, when + 0.04);
+      o.frequency.setValueAtTime(f * 2.2, when);
+      o.frequency.exponentialRampToValueAtTime(f, when + 0.05);
       o.connect(g);
       const sub = ctx.createOscillator();
       sub.type = "sine";
       sub.frequency.value = f / 2;
       const sg = ctx.createGain();
-      sg.gain.value = 0.6;
+      sg.gain.value = 0.7;
       sub.connect(sg).connect(g);
+      // the beat in front: the voices dip for a moment
+      const duck = this.params.bassDuck * vel;
+      if (duck > 0) {
+        this.voiceBus.gain.cancelScheduledValues(when);
+        this.voiceBus.gain.setValueAtTime(1, when);
+        this.voiceBus.gain.linearRampToValueAtTime(1 - duck, when + 0.01);
+        this.voiceBus.gain.setTargetAtTime(1, when + 0.08, 0.15);
+      }
       o.start(when);
       sub.start(when);
       o.stop(when + 1.2);
@@ -706,6 +722,12 @@ export class SoundEngine {
     const epoch = nc && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
     const { bar, start } = barClock(epoch, Date.now(), now, barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
+    if (this.planned > bar + 1) {
+      // the grid moved back (the patch's clock took over from the epoch grid, or the other way round): the bars
+      // are numbered anew — plan from here, forget the plans of the old numbering
+      this.planned = bar;
+      this.plans.clear();
+    }
     const next = this.planned + 1;
     const nextStart = start + (next - bar) * barSec;
     if (nextStart > now + LOOKAHEAD) return;

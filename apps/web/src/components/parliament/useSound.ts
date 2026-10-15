@@ -48,6 +48,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       bassLevel: { value: DEFAULT_SOUND.bassLevel, min: 0, max: 1, step: 0.01, label: "길의 심장박동 (근음, 낮게) 세기", render: v2 },
       bassDub: { value: DEFAULT_SOUND.bassDub, min: 0, max: 1, step: 0.05, label: "심장박동: 두 번째 박 세기", render: v2 },
       bassSpread: { value: DEFAULT_SOUND.bassSpread, min: 0, max: 1, step: 0.05, label: "심장박동: 퍼짐 (방·홀로)", render: v2 },
+      bassDuck: { value: DEFAULT_SOUND.bassDuck, min: 0, max: 1, step: 0.05, label: "심장박동이 올 때 모티프·타인이 눌리는 정도", render: v2 },
       padLevel: { value: DEFAULT_SOUND.padLevel, min: 0, max: 1, step: 0.01, label: "함께 머물 때 이어지는 코드 (패드)", render: v2 },
       reverbMax: { value: DEFAULT_SOUND.reverbMax, min: 0, max: 1, step: 0.01, label: "함께 지을 때 열리는 홀 잔향 (최대)", render: v2 },
       lpOpen: { value: DEFAULT_SOUND.lpOpen, min: 500, max: 16000, step: 100, label: "열린 땅의 밝기 (저역통과 Hz)", render: v2 },
@@ -73,6 +74,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     }, [], [
       { tag: "v4-a1-magenta-off", set: { magenta: false } }, // a saved "on" from before v4 A1 is switched off once
       { tag: "v4-a2b-both", set: { instrument: "both" } }, // the artist (A2 test): both instruments side by side
+      { tag: "v4-a2d-heartbeat", set: { bassLevel: 0.9 } }, // the artist: the heartbeat louder, in front
     ]),
     { collapsed: false, order: -1, render: v2 },
   ) as unknown as SoundParams & { on: boolean; sealRadius: number };
@@ -141,10 +143,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     return () => clearInterval(id);
   }, [engine]);
 
-  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub } = c;
+  const { master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub, bassDuck } = c;
   const params = useMemo<SoundParams>(
-    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub],
+    () => ({ master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub, bassDuck }),
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, motifSoft, ncDull, bassSpread, bassDub, bassDuck],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);

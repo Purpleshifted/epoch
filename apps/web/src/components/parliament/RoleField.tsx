@@ -47,6 +47,7 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { NatureCloud } from "./NatureCloud";
+import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
@@ -86,6 +87,7 @@ export function RoleField({
   natureCfg,
   pointSize,
   pathDots = 1,
+  pathLine = 0.3,
   offsetWindow,
   botCount,
   botRole,
@@ -102,6 +104,8 @@ export function RoleField({
   pointSize: number;
   /** How many dust points a trodden cell gets (× the base 14 at full strength); the artist wanted the paths visible. */
   pathDots?: number;
+  /** World width of the path LINES (PathLines; 0 = none). */
+  pathLine?: number;
   offsetWindow: number;
   botCount: number;
   /** "mixed" (V2): the bots take the session roles in turn. */
@@ -336,6 +340,7 @@ export function RoleField({
         pointSize={pointSize}
         pathDots={pathDots}
       />
+      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} width={pathLine} radius={VIEW_RADIUS} />
     </>
   );
 }

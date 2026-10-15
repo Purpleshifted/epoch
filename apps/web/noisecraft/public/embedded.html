@@ -497,6 +497,10 @@
       // pulses a second and the bars' sequences kept redrawing a DOM nobody sees (parliament: the lag)
       const hiddenView = new URLSearchParams(window.location.search).get("view") === "hidden";
       if (hiddenView) {
+        // quiet: the embed's console chatter (thousands of lines a minute) is main-thread work nobody reads
+        console.log = () => {};
+        console.info = () => {};
+        console.debug = () => {};
         model.views = model.views.filter((v) => v !== editor);
         // the editor's ClockOut node was what forwarded the clock to the parent: a tiny view does it instead
         model.addView({
@@ -775,7 +779,9 @@
         try {
           updateCount++;
           const actionType = action?.constructor?.name || "Unknown";
-          if (updateCount % 100 === 0) {
+          // a hidden instrument has no scopes to feed: the worklet's sample stream (thousands a second) stops here
+          if (hiddenView && actionType === "SendSamples") return undefined;
+          if (!hiddenView && updateCount % 100 === 0) {
             const now = Date.now();
             const elapsed = now - lastUpdateTime;
             console.log(
@@ -1091,10 +1097,10 @@
               return;
             }
             model.load(state);
-            // Ensure editor is updated after state is loaded
+            // Ensure editor is updated after state is loaded (not for a hidden instrument: no DOM to build)
             setTimeout(() => {
               try {
-                if (editor && model.state) {
+                if (!hiddenView && editor && model.state) {
                   editor.update(model.state, null);
                 }
               } catch (err) {
@@ -1585,7 +1591,7 @@
 
       // Ensure edges are visible after load - force editor update after everything is laid out
       setTimeout(() => {
-        if (editor && editor.model && editor.model.state) {
+        if (!hiddenView && editor && editor.model && editor.model.state) {
           // Force a complete re-render of the editor to ensure edges are created
           editor.update(editor.model.state, null);
 
