@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
+import { markSpan } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import {
   DEFAULT_COLLAGE,
@@ -53,8 +54,10 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
       }
       epoch = now;
       // the history window moved on (a new player session): forget what is now too old
+      const tLoad = performance.now();
       log.dropBefore(keepFromS());
       log.addMany(loadEvents());
+      markSpan("load", performance.now() - tLoad);
     };
     sync();
     const poll = setInterval(sync, pollMs);

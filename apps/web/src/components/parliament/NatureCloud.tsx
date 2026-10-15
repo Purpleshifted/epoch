@@ -14,6 +14,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { WORLD_SIZE, grassDensity, hash2, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
+import { markSpan } from "./usePerfMeter";
 
 const RADIUS = 22; // world units around the player
 const MAX_POINTS = 90000;
@@ -74,6 +75,7 @@ export function NatureCloud({
     if (timer.current < 0.25 && !jumped) return;
     timer.current = 0;
     laidAt.current = { x: p.x, z: p.z };
+    const tCloud = performance.now();
     const stress = getStress();
     const snap = getSnapshot();
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
@@ -139,6 +141,7 @@ export function NatureCloud({
     geom.setDrawRange(0, k);
     pos.needsUpdate = true;
     col.needsUpdate = true;
+    markSpan("cloud", performance.now() - tCloud);
   });
 
   return (
