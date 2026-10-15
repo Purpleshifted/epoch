@@ -194,7 +194,7 @@ export function RoleField({
     }
     const ground = flow ? botGround.current : null;
     const steer = (a: Actor, i: number, w: number): Actor => {
-      if (!flow || !ground) return a;
+      if (!flow || !ground || a.r === "tree") return a; // a tree is rooted (roleControls.ts)
       const plan = botPlan(i, w, botStartMs.current, epochMs.current, me.current.offset, flock);
       const [x, z] = steerBot(a.o, plan, { level: (k) => ground.level.get(k) ?? 0, built: (k) => ground.built.has(k) }, flow, botRoutes.current);
       return { ...a, x, z };

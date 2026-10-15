@@ -18,3 +18,4 @@ export * from "./flow";
 export * from "./walkways";
 export * from "./session";
 export * from "./witness";
+export * from "./roleControls";

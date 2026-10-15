@@ -7,6 +7,8 @@
  * V2: a visitor's SESSION (useLifeSession, lib/parliament/session.ts): the first touch spins the role slot, the
  * lifespan runs, near its end the cursor blinks fast, the sound goes dull and the controls stop answering; at the
  * end the visitor is removed and the next one starts afresh. The HUD (SessionHud) reports it all in dry text.
+ * Each role moves and looks its own way (lib/parliament/roleControls.ts): the worker walks, the street cat darts low,
+ * the car drives (A/D steer), the tree is rooted and grows.
  */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -20,7 +22,20 @@ import { useSound } from "./useSound";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { SessionHud } from "./SessionHud";
-import { DEFAULT_LIFE, hindrance, seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type Observation, type RoleId } from "@/lib/parliament";
+import {
+  DEFAULT_LIFE,
+  hindrance,
+  seedParliamentDemoIfRequested,
+  ROLE_CONTROLS,
+  ROLE_IMPLEMENTED,
+  camDistOf,
+  stepBody,
+  type Body,
+  type Observation,
+  type RoleControl,
+  type RoleId,
+  type Surface,
+} from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -85,6 +100,9 @@ function Controller({
   camLerp,
   viscosity,
   lifeRef,
+  role = "worker",
+  lifeSec = 0,
+  getSurface,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -95,15 +113,26 @@ function Controller({
   /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
    *  near the end they answer worse and drop out. */
   lifeRef?: { readonly current: LifeSignal };
+  /** V2: whose controls (lib/parliament/roleControls.ts); V1 always walks as the worker. */
+  role?: RoleId;
+  /** The lifespan (s): a tree's eye rises over it. */
+  lifeSec?: number;
+  /** The ground under the player (witness.ts): a car is fast on sealed ground, slow on open ground. */
+  getSurface?: () => Surface | undefined;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
-  const player = useRef({ x: 0, z: 0, vx: 0, vz: 0 });
+  const player = useRef<Body>({ x: 0, z: 0, vx: 0, vz: 0, yaw: Math.PI });
   const yaw = useRef(Math.PI);
   const pitch = useRef(0.45);
   const camPos = useRef(new THREE.Vector3(0, 4.5, 7));
   const lookAt = useRef(new THREE.Vector3());
   const group = useRef<THREE.Group>(null);
+  // the mouse handler reads the role's controls through this ref
+  const ctrl = useRef<RoleControl>(ROLE_CONTROLS[role]);
+  useEffect(() => {
+    ctrl.current = ROLE_CONTROLS[role];
+  }, [role]);
 
   useEffect(() => {
     const c = gl.domElement;
@@ -114,8 +143,9 @@ function Controller({
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
-      yaw.current -= e.movementX * 0.0025 * look;
-      pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + e.movementY * 0.002 * look));
+      const r = ctrl.current.look;
+      yaw.current -= e.movementX * 0.0025 * look * r.yaw;
+      pitch.current = Math.max(r.pitchMin, Math.min(r.pitchMax, pitch.current + e.movementY * 0.002 * look * r.pitch));
     };
     const onChange = () => setLocked(document.pointerLockElement === c);
     const onClick = () => {
@@ -135,34 +165,34 @@ function Controller({
   useFrame((_, delta) => {
     const p = player.current;
     const k = keys.current;
-    const y = yaw.current;
     const dt = Math.min(delta, 0.05);
+    const c = ROLE_CONTROLS[role];
     // V2: the input is dead unless the session is live; near the end of the lifespan it answers worse and drops out
     const L = lifeRef?.current;
     const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
     const dead = (!!L && L.phase !== "live") || !!h?.dropped;
-    const gain = h?.gain ?? 1;
-    const fwd = !dead && (k.has("KeyW") || k.has("ArrowUp")) ? 1 : 0;
-    const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
-    const left = !dead && (k.has("KeyA") || k.has("ArrowLeft")) ? 1 : 0;
-    const rgt = !dead && (k.has("KeyD") || k.has("ArrowRight")) ? 1 : 0;
-    const tgtFwd = (fwd - bwd * 0.4) * 7.0 * gain;
-    const tgtStrafe = (rgt - left) * 4.5 * gain;
-    const tvx = Math.sin(y) * tgtFwd + -Math.cos(y) * tgtStrafe;
-    const tvz = Math.cos(y) * tgtFwd + Math.sin(y) * tgtStrafe;
+    const keysNow = {
+      fwd: !dead && (k.has("KeyW") || k.has("ArrowUp")),
+      back: !dead && (k.has("KeyS") || k.has("ArrowDown")),
+      left: !dead && (k.has("KeyA") || k.has("ArrowLeft")),
+      right: !dead && (k.has("KeyD") || k.has("ArrowRight")),
+    };
     const drag = (2.0 + (1 - viscosity) * 13.0) * (h?.response ?? 1);
-    const damp = 1.0 - Math.exp(-drag * dt);
-    p.vx += (tvx - p.vx) * damp;
-    p.vz += (tvz - p.vz) * damp;
-    p.x += p.vx * dt;
-    p.z += p.vz * dt;
+    // the role's body (a car steers its own heading with A/D, so the heading goes in and comes back out)
+    p.yaw = yaw.current;
+    stepBody(p, keysNow, c.motion, { dt, drag, gain: h?.gain ?? 1, surface: getSurface?.() });
+    yaw.current = p.yaw;
+    const y = p.yaw;
+    pitch.current = Math.max(c.look.pitchMin, Math.min(c.look.pitchMax, pitch.current));
     playerPosRef.current = { x: p.x, z: p.z, vx: p.vx, vz: p.vz };
     playerYawRef.current = y;
     group.current?.position.set(p.x, ORB_Y, p.z);
 
-    const hd = camDist * Math.cos(pitch.current);
-    const vd = camDist * Math.sin(pitch.current);
-    const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + 0.4, p.z - Math.cos(y) * hd);
+    // the eye: low for a cat, high and far for a car; a tree's rises as it grows over the lifespan
+    const dist = camDist * camDistOf(c.cam, L && lifeSec > 0 ? L.t / lifeSec : 0);
+    const hd = dist * Math.cos(pitch.current);
+    const vd = dist * Math.sin(pitch.current);
+    const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + c.cam.lift, p.z - Math.cos(y) * hd);
     camPos.current.lerp(desired, camLerp);
     camera.position.copy(camPos.current);
     lookAt.current.lerp(new THREE.Vector3(p.x, ORB_Y + 0.2, p.z), camLerp * 2);
@@ -189,13 +219,14 @@ export default function ParliamentScene() {
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lifeSec, warnSec, endHoldSec, lifeRate, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, roleMotion, lifeSec, warnSec, endHoldSec, lifeRate, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
         session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
         role: isV2
           ? { options: V2_ROLE_OPTIONS, value: "random" as RoleId | "random", label: "배정 (랜덤 = 슬롯)" }
           : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
+        roleMotion: { value: true, label: "역할별 조작 (끄면 모두 회사원처럼 걷기)", render: v2 },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
         endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
@@ -225,6 +256,8 @@ export default function ParliamentScene() {
   const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
+  // whose controls: V2 = the role's own (roleControls.ts), V1 = everyone walks as the worker
+  const controlRole: RoleId = isV2 && roleMotion ? role : "worker";
   const cfg = useFoldControls();
   const { cfg: natureCfg, pointSize } = useNatureControls();
 
@@ -278,10 +311,13 @@ export default function ParliamentScene() {
           camLerp={camLerp}
           viscosity={viscosity}
           lifeRef={withSession ? session.lifeRef : undefined}
+          role={controlRole}
+          lifeSec={lifeSec}
+          getSurface={() => witnessRef.current?.surface}
         />
       </Canvas>
 
-      {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} />}
+      {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} hint={ROLE_CONTROLS[controlRole].hint} />}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="font-mono text-[11px] tracking-[0.35em] text-white/15">click to enter</p>
@@ -291,7 +327,7 @@ export default function ParliamentScene() {
         <div
           className={`pointer-events-none absolute ${withSession ? "left-4 top-4" : "bottom-4 left-4"} select-none space-y-0.5 font-mono text-[9px] text-white/25`}
         >
-          {locked && <div>WASD · mouse · ESC</div>}
+          {locked && <div>{isV2 ? `${ROLE_CONTROLS[controlRole].hint} · ESC` : "WASD · mouse · ESC"}</div>}
           {debug && (
             <div>
               {debug.role}

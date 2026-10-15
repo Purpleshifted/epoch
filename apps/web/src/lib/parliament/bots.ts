@@ -133,9 +133,14 @@ export function botPlan(i: number, wallMs: number, startMs: number, epochMs: num
  *   WANDER         while walking it follows its own noise path around its flock's centre (radius 1.5–4)
  *   MIGRATE        every 1–3 min it may move on to another flock, walking over in ~12 s
  * It lives around the player's time slot (see Flock.timeSpread; some a little ahead, invisible to the player at first).
+ * A tree bot is rooted (roleControls.ts): it stays where it stood when the bots started.
  */
 export function botActor(i: number, role: RoleId, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): Actor {
   const b = botPlan(i, wallMs, startMs, epochMs, playerOffset, flock);
+  if (role === "tree") {
+    const r = botPlan(i, startMs, startMs, epochMs, playerOffset, flock);
+    return { o: `bot${i}`, r: role, x: r.ax + (r.bx - r.ax) * r.m + r.ox, z: r.az + (r.bz - r.az) * r.m + r.oz, s: b.s };
+  }
   const cx = b.ax + (b.bx - b.ax) * b.m, cz = b.az + (b.bz - b.az) * b.m;
   return { o: `bot${i}`, r: role, x: cx + b.ox, z: cz + b.oz, s: b.s };
 }

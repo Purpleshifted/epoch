@@ -38,6 +38,7 @@ export function SessionHud({
   witnessRef,
   locked,
   lifeSec,
+  hint,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -45,6 +46,8 @@ export function SessionHud({
   locked: boolean;
   /** The lifespan (s): what the end screen says the visitor was present for. */
   lifeSec: number;
+  /** What the keys do for this role (lib/parliament/roleControls.ts), under the role while live. */
+  hint?: string;
 }) {
   const { phase, role, reel, drawAt } = session;
   const [log] = useState(() => new WitnessLog());
@@ -139,6 +142,7 @@ export function SessionHud({
               {slot.text || " "}
             </span>
           </div>
+          {phase === "live" && hint && <div className="mt-1 text-center text-[12px] tracking-[0.3em] text-white/30">{hint}</div>}
         </div>
       </div>
 
