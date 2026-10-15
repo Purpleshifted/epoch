@@ -18,7 +18,7 @@ const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
 const POLL_MS = 250;
 
 /** How dark the screen is in each phase (0 = the world, 1 = black). */
-const DARK = { idle: 0, draw: 0.94, live: 0, ended: 1 } as const;
+const DARK = { idle: 0.94, draw: 0.94, live: 0, ended: 1 } as const;
 
 interface WitnessView {
   lines: string[];
@@ -88,15 +88,18 @@ export function SessionHud({
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
-      {/* the dark: almost black while the role is drawn (only the slot shows), black after the end, lifting when live */}
+      {/* the dark: almost black before and while the role is drawn (only the hint and the slot show), black after the end.
+          Hard cuts (digital) — the only fade is the dying one, into the end. */}
       <div
         className="absolute inset-0 bg-black transition-opacity"
-        style={{ opacity: DARK[phase], transitionDuration: `${phase === "live" ? 1500 : phase === "ended" ? 2000 : 600}ms` }}
+        style={{ opacity: DARK[phase], transitionDuration: phase === "ended" ? "2000ms" : "0ms" }}
       />
+      {/* hints blink on / off (steps, no fade) */}
+      <style>{`@keyframes hud-blink { 50% { opacity: 0; } } .hud-blink { animation: hud-blink 1.1s steps(1, end) infinite; }`}</style>
       {/* centre hints */}
       {phase === "idle" && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <p className="animate-pulse text-[18px] tracking-[0.3em] text-white/45">TOUCH TO BEGIN</p>
+          <p className="hud-blink text-[18px] tracking-[0.3em] text-white/45">TOUCH TO BEGIN</p>
         </div>
       )}
       {phase === "live" && !locked && (
@@ -151,7 +154,7 @@ export function SessionHud({
               <div>NEAR OTHERS  {fmtClock(rec.nearSec)} · {rec.met} MET</div>
             </div>
             <div className="pt-4 text-white/35">THE RECORD IS KEPT.</div>
-            {session.restartReady && <div className="animate-pulse pt-8 text-[16px] tracking-[0.3em] text-white/45">PRESS SPACE — NEXT SESSION</div>}
+            {session.restartReady && <div className="hud-blink pt-8 text-[16px] tracking-[0.3em] text-white/45">PRESS SPACE — NEXT SESSION</div>}
           </div>
         )}
       </div>
