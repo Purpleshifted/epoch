@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chordName, homeKey, keyChord, keyName, tonalityOf } from "./harmony";
-import { HarmonyTracker, leadVoices, nextHarmony, pivotChord, weightsOf, type HarmonyInputs, type HarmonyState, type PlaceState } from "./harmonyState";
+import { HarmonyTracker, bandAt, bandDegrees, leadVoices, nextHarmony, pivotChord, weightsOf, type HarmonyInputs, type HarmonyState, type PlaceState } from "./harmonyState";
 import type { PersonalSignals } from "./signals";
 
 const ME = "v_me";
@@ -137,17 +137,27 @@ describe("harmony state H: tonality is whose weights", () => {
     expect(p.classes.every((c) => fromScale.includes(c))).toBe(true);
   });
 
-  it("the tracker: hysteresis at a building, the progression on a path, cadences when stopping and leaving", () => {
+  it("the tracker: hysteresis at a building, the ground's bands as the progression, cadences when stopping on and leaving a path", () => {
     const tr = new HarmonyTracker({ stepEvery: 4 });
     const who = [{ o: "v_x", amount: 10 }];
     expect(tr.update(ME, sig({ building: { id: "b", dist: 4, who }, sealed: 0 })).approach?.amount).toBeCloseTo(1 - 4 / 6);
     expect(tr.update(ME, sig({ building: { id: "b", dist: 1, who }, sealed: 0.5 })).at?.id).toBe("b");
     expect(tr.update(ME, sig({ building: { id: "b", dist: 2, who }, sealed: 0.2 })).at?.id).toBe("b"); // hysteresis
     expect(tr.update(ME, sig({ building: { id: "b", dist: 3, who }, sealed: 0.05 })).at).toBeNull();
-    // walking a path moves the degree; stopping on it = half cadence; leaving = full
+    // the bands: a Markov walk of my home key, 16 wide, bound to the place
+    const bands = bandDegrees(ME);
+    expect(bands).toHaveLength(16);
+    expect(bands[0]).toBe(0);
+    expect(bands.slice(1).every((d) => d >= 0 && d < 7)).toBe(true);
+    expect(bandAt(0, 0, 4)).toBe(0);
+    expect(bandAt(5, 0, 4)).toBe(1);
+    expect(bandAt(2, 3, 4)).toBe(1);
+    expect(bandAt(-1, 0, 4)).toBe(15);
+    // walking a path moves the chord with the band; stopping on it = half cadence (V held); leaving = full
     tr.update(ME, sig({ x: 0, z: 0, pathP: 1, speed: 3 }));
     let st = tr.update(ME, sig({ x: 5, z: 0, pathP: 1, speed: 3 }));
     expect(st.onPath).toBe(true);
+    expect(st.degree).toBe(bands[1]);
     expect(st.degree).not.toBe(0);
     st = tr.update(ME, sig({ x: 5, z: 0, pathP: 1, speed: 0 }));
     expect(st.cadence).toBe("half");
@@ -158,13 +168,13 @@ describe("harmony state H: tonality is whose weights", () => {
     st = tr.update(ME, sig({ x: 8, z: 0, pathP: 0, speed: 3 }));
     expect(st.cadence).toBe("full");
     expect(tr.takeCadence()).toBe("full");
-    // wandering off the path moves the progression too, three times slower; standing holds it
+    // off the path the band still names the chord: walking moves it, coming back brings it back, standing holds
     const w = new HarmonyTracker({ stepEvery: 4 });
-    w.update(ME, sig({ x: 0, z: 0, speed: 3 }));
-    expect(w.update(ME, sig({ x: 6, z: 0, speed: 3 })).degree).toBe(0); // 6 × 0.5 = 3 < 6
-    expect(w.update(ME, sig({ x: 13, z: 0, speed: 3 })).degree).not.toBe(0); // 3 + 3.5 ≥ 6
-    const held = w.update(ME, sig({ x: 13, z: 0, speed: 0 })).degree;
-    expect(w.update(ME, sig({ x: 13, z: 0, speed: 0 })).degree).toBe(held);
+    expect(w.update(ME, sig({ x: 0, z: 0, speed: 3 })).degree).toBe(0);
+    expect(w.update(ME, sig({ x: 6, z: 0, speed: 3 })).degree).toBe(bands[1]);
+    expect(w.update(ME, sig({ x: 13, z: 0, speed: 3 })).degree).toBe(bands[3]);
+    expect(w.update(ME, sig({ x: 13, z: 0, speed: 0 })).degree).toBe(bands[3]);
+    expect(w.update(ME, sig({ x: 0, z: 0, speed: 3 })).degree).toBe(0);
   });
 
   it("a chord change re-anchors the motif even in the open; alone and unchanged it sits on its register", () => {

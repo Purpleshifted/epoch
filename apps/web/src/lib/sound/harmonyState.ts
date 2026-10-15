@@ -10,11 +10,13 @@
  *   PEOPLE ARE VOICES           the chord is the weighted people's home ROOTS; its four voices are LED: each upper
  *                               voice moves to the nearest tone of the next chord, the bass takes the root, a root
  *                               new to the chord prefers the top voice (the newcomer is heard on top).
- *   PATH = PROGRESSION          walking a path moves the degree through the Markov table (harmony.nextDegree) every
- *                               `stepEvery` world units; stopping on it is a HALF cadence (the dominant, held);
- *                               leaving it a FULL cadence (the next bar resolves to the tonic). Wandering off the
- *                               path moves it too, three times slower (the artist: alone in the open nothing moved
- *                               and the motif could not be heard changing); standing holds.
+ *   THE GROUND = PROGRESSION    the chord of the open ground is BOUND TO THE PLACE: bands `stepEvery` world units
+ *                               wide along x + z carry a Markov progression of my home key (16 bands, wrapping, a
+ *                               walk of my own) — walking anywhere moves the chord, coming back brings it back,
+ *                               standing holds it. This is the 2026-10-14 "world" version's idea, which the artist
+ *                               found intuitive, kept under the people's chords: a path adds its cadences
+ *                               (stopping on it = the dominant held, leaving it = the tonic), a building or a group
+ *                               replaces the band's chord with the people's.
  *   APPROACH = DOMINANT         within reach of a building but not in it, the chord is the DOMINANT of the
  *                               building's tonality: arriving resolves. The one place the harmony pulls forward.
  *   MODULATION                  coming home from a building or a group goes through a PIVOT bar (a triad both keys
@@ -99,11 +101,25 @@ const sameClasses = (a: readonly number[], b: readonly number[]) => a.length ===
  * The tracker: hysteresis at buildings, the path walked, the cadences. Fed every signal fold (~0.5 s), read when a
  * bar is planned.
  */
+/** The bands' progression of one person: 16 degrees walked through the Markov table of their home key. */
+export function bandDegrees(myId: string, bands = 16): number[] {
+  const key = homeKey(myId);
+  const r = rng(hashString("bands:" + myId));
+  const out = [0];
+  for (let i = 1; i < bands; i++) out.push(nextDegree(key, out[i - 1], r()));
+  return out;
+}
+
+/** Which band a position is in: bands `width` wide along x + z, wrapping every `bands`. */
+export function bandAt(x: number, z: number, width: number, bands = 16): number {
+  const b = Math.floor((x + z) / Math.max(0.5, width));
+  return ((b % bands) + bands) % bands;
+}
+
 export class HarmonyTracker {
   private at: { id: string; who: Contribution[] } | null = null;
   private degree = 0;
-  private walked = 0;
-  private steps = 0;
+  private bands: number[] = [];
   private lastPos: { x: number; z: number } | null = null;
   private onPath = false;
   private walkedOnPath = 0;
@@ -119,7 +135,7 @@ export class HarmonyTracker {
   reset(): void {
     this.at = null;
     this.degree = 0;
-    this.walked = 0;
+    this.bands = bandDegrees(this.myId);
     this.lastPos = null;
     this.onPath = false;
     this.walkedOnPath = 0;
@@ -137,12 +153,10 @@ export class HarmonyTracker {
     if (sig.building && sig.sealed >= cfg.enterAt && this.at?.id !== sig.building.id) {
       this.at = { id: sig.building.id, who: sig.building.who };
       this.degree = 0;
-      this.walked = 0;
       this.cadence = "none";
     } else if (this.at && (!sig.building || sig.building.id !== this.at.id || sig.sealed <= cfg.leaveAt)) {
       this.at = null;
       this.degree = 0;
-      this.walked = 0;
     } else if (this.at && sig.building && sig.building.id === this.at.id) {
       this.at = { id: this.at.id, who: sig.building.who }; // the builders' weights move
     }
@@ -151,37 +165,28 @@ export class HarmonyTracker {
       const amount = clamp01(1 - sig.building.dist / cfg.reach);
       if (amount > 0) approach = { id: sig.building.id, who: sig.building.who, amount };
     }
-    // the path: a progression; stopping on it a half cadence, leaving it a full one
+    // the ground: the band I stand on names the chord (position-bound); a path adds its cadences — stopping on it
+    // holds the dominant (half), leaving it resolves (full)
     const onPath = sig.pathP >= 0.25;
+    if (!this.bands.length) this.bands = bandDegrees(myId);
+    const band = this.bands[bandAt(sig.x, sig.z, stepEvery)] ?? 0;
     if (this.lastPos) {
       const d = Math.hypot(sig.x - this.lastPos.x, sig.z - this.lastPos.z);
       if (onPath) {
-        this.walked += d * sig.pathP;
         this.walkedOnPath += d * sig.pathP;
-        if (this.walked >= stepEvery) {
-          this.walked = 0;
-          this.degree = nextDegree(this.keyForProgression(sig), this.degree, rng(hashString(`${myId}:${this.steps++}`))());
-          this.stoppedOn = false;
-        }
         if (sig.speed < 0.3 && !this.stoppedOn && this.walkedOnPath >= stepEvery * 0.5) {
           this.stoppedOn = true;
           this.cadence = "half";
-          this.degree = DOMINANT;
+        } else if (sig.speed >= 0.3 && this.stoppedOn && d > 0.2) {
+          this.stoppedOn = false;
         }
       } else if (this.onPath && sig.pathP < 0.15) {
         if (this.walkedOnPath >= stepEvery * 0.5) this.cadence = "full";
-        this.walked = 0;
         this.walkedOnPath = 0;
         this.stoppedOn = false;
-      } else if (!onPath && sig.speed > 0.3) {
-        // wandering: the progression drifts on, slowly
-        this.walked += d * 0.5;
-        if (this.walked >= stepEvery * 1.5) {
-          this.walked = 0;
-          this.degree = nextDegree(this.keyForProgression(sig), this.degree, rng(hashString(`${myId}:${this.steps++}`))());
-        }
       }
     }
+    this.degree = this.at ? 0 : this.stoppedOn ? DOMINANT : band;
     this.onPath = onPath;
     this.lastPos = { x: sig.x, z: sig.z };
     return { at: this.at, approach, degree: this.degree, cadence: this.cadence, onPath };
@@ -191,14 +196,7 @@ export class HarmonyTracker {
   takeCadence(): Cadence {
     const c = this.cadence;
     this.cadence = "none";
-    if (c === "full") this.degree = 0;
     return c;
-  }
-
-  private keyForProgression(sig: PersonalSignals): Key {
-    if (this.at) return tonalityOf(this.at.who)?.key ?? buildingKey(this.at.id);
-    void sig;
-    return homeKey(this.myId);
   }
 }
 

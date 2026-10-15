@@ -112,6 +112,10 @@ export interface SoundParams {
   ncOctave: number;
   /** The glue compressor on the master. */
   glue: boolean;
+  /** HRTF panning of the others (heavier; off = equal-power stereo). New voices only. */
+  hrtf: boolean;
+  /** The TEXTURE: random short blips on the chord's tones every bar (the patch's bubbling, in Web Audio; 0 = none). */
+  textureLevel: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -134,7 +138,7 @@ export const DEFAULT_SOUND: SoundParams = {
   innerRadius: 5,
   stepEvery: 6,
   harmony: "fusion",
-  instrument: "hybrid",
+  instrument: "webaudio",
   melLevel: 1,
   melRoom: 1,
   melEcho: 0.35,
@@ -147,6 +151,8 @@ export const DEFAULT_SOUND: SoundParams = {
   ncRough: 0.5,
   ncOctave: -1,
   glue: true,
+  hrtf: false,
+  textureLevel: 0.3,
 };
 
 /** Whether the Web Audio instrument plays the melody / the harmony under `instrument`. */
@@ -166,7 +172,7 @@ interface Voice {
 const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
 const ECHO_STEPS = 3; // the melody's echo: three 16th steps of the bar (a dotted eighth)
 const noteName = (midi: number) => KEY_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
-const MAX_VOICES = 4; // the others heard at once by the Web Audio instrument (nearest first)
+const MAX_VOICES = 3; // the others heard at once by the Web Audio instrument (nearest first)
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
 const MAGENTA_AFTER_MS = 4000;
@@ -258,6 +264,8 @@ export class SoundEngine {
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
   /** The melody's echo: a bar-synced feedback delay, darker on every repeat; its feedback follows the conformity. */
   private echo!: { send: GainNode; delay: DelayNode; fb: GainNode };
+  /** The texture's bus: chord-tone blips into the dry mix, the hall and the echo. */
+  private texture!: GainNode;
   private me: Voice | null = null;
   /** My motif (pure): planning needs it even with no AudioContext (headless engine on the manager page). */
   private myMotif: Motif | null = null;
@@ -373,8 +381,8 @@ export class SoundEngine {
       };
       this.rooms = {
         open: room(1.2, 0.35, 0, 0.25, 0.12),
-        concrete: room(2.0, 0.6, 6, 0.9, 0),
-        hall: room(4.5, 1.6, 0, 0.5, 0),
+        concrete: room(1.5, 0.5, 6, 0.9, 0),
+        hall: room(3.0, 1.2, 0, 0.5, 0),
       };
       // track A: the melody bus
       const melBus = ctx.createGain();
@@ -458,6 +466,12 @@ export class SoundEngine {
       delay.connect(dark).connect(fb).connect(delay);
       delay.connect(this.mel.bus);
       this.echo = { send, delay, fb };
+      // the texture
+      this.texture = ctx.createGain();
+      this.texture.gain.value = 1;
+      this.texture.connect(this.dry);
+      this.texture.connect(this.rooms.hall);
+      this.texture.connect(send);
       this.lastUpdate = ctx.currentTime;
       if (this.ncStream) this.attachNoiseCraft(this.ncStream);
     }
@@ -588,7 +602,7 @@ export class SoundEngine {
     let out: AudioNode = gain;
     if (spatial) {
       panner = ctx.createPanner();
-      panner.panningModel = "HRTF";
+      panner.panningModel = this.params_.hrtf ? "HRTF" : "equalpower";
       panner.distanceModel = "inverse";
       panner.refDistance = 1.5;
       panner.rolloffFactor = 1;
@@ -1002,5 +1016,18 @@ export class SoundEngine {
     if (!playsHarmony(p.instrument)) return; // the harmony (bass, pad) is the patch's in the hybrid
     for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * p.barSec, b.level);
     this.setPad(plan.pad.pitches, plan.pad.level, nextStart);
+    // the texture: a few short blips on the chord's tones at random steps — more among people, calmer alone; what
+    // the patch's random triggers did, in Web Audio
+    const company = Math.min(1, sig.neighbours.length / 2);
+    const tex = p.textureLevel * (0.35 + 0.65 * company);
+    if (tex > 0.01 && plan.chord.classes.length) {
+      const count = 1 + Math.floor(Math.random() * (2 + 3 * company));
+      for (let i = 0; i < count; i++) {
+        const cls = plan.chord.classes[Math.floor(Math.random() * plan.chord.classes.length)];
+        const pitch = 60 + cls + 12 * Math.floor(Math.random() * 2);
+        const at = nextStart + (Math.floor(Math.random() * 16) / 16) * p.barSec;
+        this.note(this.texture, midiToHz(pitch), at, 0.06 + Math.random() * 0.1, tex * 0.5, 0.15, 0.5, plan.rough * 0.5);
+      }
+    }
   }
 }

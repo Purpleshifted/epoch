@@ -22,8 +22,8 @@ export const SPEAKERS = "소리 (V2 · 스피커)";
 
 const PATCHES: Record<string, string> = { "nc_noise_patch.ncft (umwelt 개인)": "nc_noise_patch.ncft", "Feedback_Synth.ncft (umwelt)": "Feedback_Synth.ncft", "global_audio.ncft (umwelt 글로벌)": "global_audio.ncft" };
 
-type HeadKeys = "master" | "glue" | "instrument" | "harmony" | "barSec" | "speedMax" | "lockPull" | "stepEvery" | "hearRadius" | "innerRadius" | "magenta";
-type AKeys = "melLevel" | "melRoom" | "melEcho" | "melFilter" | "melDelayMs" | "colourScale" | "noiseMix" | "jitterMax" | "othersLevel" | "botBlur" | "bassLevel" | "padLevel";
+type HeadKeys = "master" | "glue" | "instrument" | "harmony" | "barSec" | "speedMax" | "lockPull" | "stepEvery" | "hearRadius" | "innerRadius" | "magenta" | "textureLevel";
+type AKeys = "melLevel" | "melRoom" | "melEcho" | "melFilter" | "melDelayMs" | "colourScale" | "noiseMix" | "jitterMax" | "othersLevel" | "botBlur" | "bassLevel" | "padLevel" | "hrtf";
 type BKeys = "ncLevel" | "ncRoom" | "ncFilter" | "ncRough" | "ncOctave";
 type RKeys = "reverbMax" | "lpOpen" | "lpSealed" | "noiseMax";
 
@@ -76,12 +76,13 @@ export function useSoundLeva(opts: SoundLevaOptions = {}): SoundLeva {
       ncPatch: { options: PATCHES, value: DEFAULT_DESK.ncPatch, label: "NoiseCraft 패치 — 편집은 /v2/sound 에서", render: rh },
       master: { value: h0.master, min: 0, max: 1, step: 0.01, label: "음량 (마스터 — 두 트랙 합)", render: rh },
       glue: { value: h0.glue, label: "글루 컴프레서 (두 트랙을 한 버스에서 묶음)", render: rh },
-      instrument: { options: { "하이브리드: 멜로디는 Web Audio, 화성은 NoiseCraft 패치": "hybrid", "Web Audio만 (내장)": "webaudio", "NoiseCraft 패치만 (umwelt 방식)": "noisecraft" }, value: h0.instrument, label: "악기", render: rh },
+      instrument: { options: { "Web Audio (가벼움 · 즉각적 — 기본)": "webaudio", "하이브리드: 멜로디는 Web Audio, 화성은 NoiseCraft 패치 (무거움)": "hybrid", "NoiseCraft 패치만 (umwelt 방식)": "noisecraft" }, value: h0.instrument, label: "악기", render: rh },
       harmony: { options: { "화성 상태 H: 조성 = 누구의 무게 · 길 = 진행과 종지 · 접근 = 도미넌트 · 전조는 피벗으로": "fusion", "공유 월드 키 + 땅의 진행 · 전면 끌림 (10/14 오후 버전)": "world" }, value: h0.harmony, label: "화성 방식", render: rh },
       barSec: { value: h0.barSec, min: 1, max: 4, step: 0.1, label: "한 마디 길이 (s) — 모두가 같은 박자", render: rh },
       speedMax: { value: h0.speedMax, min: 1, max: 15, step: 0.5, label: "뛰는 속도 (월드/s): 마디에 두 번 · 그 1/10 아래 = 멈춤: 확대", render: rh },
       lockPull: { value: h0.lockPull, min: 0, max: 1, step: 0.05, label: "순응할 때 강박의 음이 코드톤으로 끌리는 정도", render: rh },
-      stepEvery: { value: h0.stepEvery, min: 1, max: 30, step: 0.5, label: "길 위에서 코드가 한 번 바뀌는 거리 (월드)", render: rh },
+      stepEvery: { value: h0.stepEvery, min: 1, max: 30, step: 0.5, label: "코드가 바뀌는 거리 (월드) — 땅의 띠 폭 (x+z 방향)", render: rh },
+      textureLevel: { value: h0.textureLevel, min: 0, max: 1, step: 0.01, label: "텍스처 — 코드 음의 방울 (Web Audio; 함께 있을수록 많이)", render: rh },
       sealRadius: { value: DEFAULT_DESK.sealRadius, min: 0.5, max: 10, step: 0.25, label: "건물이 먹먹하게 들리는 거리 (월드)", render: rh },
       hearRadius: { value: h0.hearRadius, min: 2, max: 40, step: 0.5, label: "다른 사람이 들리는 거리 (월드) — 바깥: 질감·동반만", render: rh },
       innerRadius: { value: h0.innerRadius, min: 1, max: 20, step: 0.5, label: "성부로 들어오는 거리 (월드)", render: rh },
@@ -103,8 +104,9 @@ export function useSoundLeva(opts: SoundLevaOptions = {}): SoundLeva {
       jitterMax: { value: h0.jitterMax, min: 0, max: 0.1, step: 0.005, label: "식생을 가로지를 때 박자가 흐트러지는 폭 (s)", render: rh },
       othersLevel: { value: h0.othersLevel, min: 0, max: 1, step: 0.01, label: "다른 사람 목소리 크기 (바로 옆에서)", render: rh },
       botBlur: { value: h0.botBlur, min: 0, max: 1, step: 0.01, label: "봇(메아리)의 흐림", render: rh },
-      bassLevel: { value: h0.bassLevel, min: 0, max: 1, step: 0.01, label: "베이스 펄스 (webaudio 악기일 때만)", render: rh },
-      padLevel: { value: h0.padLevel, min: 0, max: 1, step: 0.01, label: "패드 (webaudio 악기일 때만)", render: rh },
+      bassLevel: { value: h0.bassLevel, min: 0, max: 1, step: 0.01, label: "베이스 펄스 (Web Audio 악기)", render: rh },
+      padLevel: { value: h0.padLevel, min: 0, max: 1, step: 0.01, label: "패드 (Web Audio 악기)", render: rh },
+      hrtf: { value: h0.hrtf, label: "이웃을 HRTF로 (무거움; 끄면 좌우 패닝) — 새로 들리는 이웃부터", render: rh },
     }),
     { collapsed: true, order: 0, render: rh },
   ) as unknown as Pick<SoundParams, AKeys>;
