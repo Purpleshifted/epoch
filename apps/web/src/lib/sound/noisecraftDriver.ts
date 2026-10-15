@@ -37,7 +37,7 @@ export interface DriverStatus {
   lastKnobs: number;
 }
 
-const KNOB_EVERY_MS = 250;
+const KNOB_EVERY_MS = 500;
 const FALLBACK_BAR_MS = 2000;
 
 export class NoiseCraftDriver {

@@ -86,7 +86,7 @@ export const DEFAULT_SOUND: SoundParams = {
   botBlur: 0.6,
   bassLevel: 0.6,
   padLevel: 0.35,
-  magenta: true,
+  magenta: false,
   lockPull: 0.7,
   noiseMix: 0.6,
   stepEvery: 6,
@@ -105,6 +105,7 @@ interface Voice {
 }
 
 const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
+const MAX_VOICES = 4; // the others heard at once by the Web Audio instrument (nearest first)
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
 const MAGENTA_AFTER_MS = 4000;
@@ -522,10 +523,11 @@ export class SoundEngine {
     this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
     this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
 
-    // who is within earshot: a voice each, placed by HRTF; closeness accumulates while they are near
+    // who is within earshot: a voice each, placed by HRTF — only for the Web Audio instrument (NoiseCraft plays the
+    // others itself) and only the nearest MAX_VOICES (an HRTF panner per bot is what lagged with a dozen bots)
     const alive = new Set<string>();
-    for (const n of sig.neighbours) {
-      if (n.dist > params.hearRadius) continue;
+    const heard = params.instrument === "webaudio" ? sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES) : [];
+    for (const n of heard) {
       alive.add(n.o);
       let v = this.voices.get(n.o);
       if (!v) {
