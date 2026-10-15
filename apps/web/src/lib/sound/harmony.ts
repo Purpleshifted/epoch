@@ -325,11 +325,13 @@ export function tonalityOf(contrib: readonly Contribution[], cfg: HarmonyConfig 
   if (!weighed.length) return null;
   weighed.sort((a, b) => b.amount - a.amount || (a.o < b.o ? -1 : 1));
   const tonic = weighed[0].root;
-  let best = MODES[cfg.homeModes[0]];
-  let bestScore = -1;
+  // the heaviest person's own home mode unless another home mode holds strictly more of the roots
+  const fit = (mode: Mode) => weighed.reduce((s, w) => s + (mode.intervals.includes((w.root - tonic + 12) % 12) ? w.amount : 0), 0);
+  let best = homeKey(weighed[0].o, cfg).mode;
+  let bestScore = fit(best);
   for (const mi of cfg.homeModes) {
     const mode = MODES[mi];
-    const score = weighed.reduce((s, w) => s + (mode.intervals.includes((w.root - tonic + 12) % 12) ? w.amount : 0), 0);
+    const score = fit(mode);
     if (score > bestScore) {
       bestScore = score;
       best = mode;

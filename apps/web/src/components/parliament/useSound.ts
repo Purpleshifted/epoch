@@ -37,7 +37,7 @@ export function useSound(): SoundSetup | null {
     savable(ROOT, {
       on: { value: true, label: "켜기 (첫 클릭/터치 뒤 시작 · ESC = 이 창 음소거/해제)", render: v2 },
       instrument: {
-        options: { "Web Audio (내장, 얇음)": "webaudio", "NoiseCraft 패치 (intersection/umwelt 방식)": "noisecraft" },
+        options: { "하이브리드: 멜로디는 Web Audio, 화성은 NoiseCraft 패치": "hybrid", "Web Audio만 (내장)": "webaudio", "NoiseCraft 패치만 (umwelt 방식)": "noisecraft" },
         value: DEFAULT_SOUND.instrument,
         label: "악기",
         render: v2,
@@ -50,9 +50,8 @@ export function useSound(): SoundSetup | null {
       },
       harmony: {
         options: {
-          "융합: 공유 키 + 땅의 진행 · 조적 응답 · 강박 끌림 · 건물은 가까운 조로 전조": "fusion",
+          "화성 상태 H: 조성 = 누구의 무게 (홈 / 집단 / 건물) · 길 = 진행과 종지 · 접근 = 도미넌트 · 전조는 피벗으로": "fusion",
           "공유 월드 키 + 땅의 진행 · 전면 끌림 (10/14 오후 버전)": "world",
-          "모티프·건물 키 + 길의 진행 (10/14 밤 버전)": "identity",
         },
         value: DEFAULT_SOUND.harmony,
         label: "화성 방식",

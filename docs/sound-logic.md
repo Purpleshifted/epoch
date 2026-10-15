@@ -42,18 +42,27 @@
 
 ## 3. 키 — `harmony.ts`
 
-**화성 방식** (Leva "화성 방식", `harmony`): 세 방식을 전환할 수 있다. 기본은 **fusion** (2026-10-15, 작가: "둘을 적당히 융합할 순 없어?").
+**화성 방식** (Leva "화성 방식", `harmony`): 두 방식. 기본은 **fusion** = **화성 상태 H** (`harmonyState.ts`, 2026-10-15 하이브리드 계획 §2를 구현한 것). identity 방식은 H에 흡수되어 지웠다.
 
-- **fusion (기본)** = 오후 버전의 화성 뼈대 + 모티프의 정체성 보존 + 음악적 전조.
-  - 키와 진행은 world와 같다: 에포크마다 공유 키 하나, 마르코프 진행을 땅 위에 띠(4셀, x+z 방향, 16띠 순환)로 깐다. 걸으면 진행을 통과, 서면 한 코드.
+- **fusion (기본) — 화성 상태 H** (`HarmonyTracker` + 순수 `nextHarmony(prev, inputs)`, 마디마다; 두 악기와 스피커가 같은 H를 읽는다):
+  - **조성은 언제나 "누구의 무게"다** (`weightsOf`): 홀로면 {나} → 내 홈 키. 가까이 있었던 사람들(closeness ≥ 0.15)이 있으면 {나: 0.8, 이웃: closeness} → **집단의 조성** `tonalityOf` — 오래 가까웠던 사람(closeness > 0.8)이 나보다 무거워지면 그 사람의 근음이 으뜸음(내가 따라간다). 건물 안이면 {기여자들} (아래). 같은 함수라서 모여서 집단의 조성이 생기고 짓기 시작하면 건물의 조성으로 굳는다. `tonalityOf`는 가장 무거운 사람의 **자기 홈 모드**를 우선하고, 다른 홈 모드가 근음들을 엄격히 더 많이 품을 때만 바꾼다.
+  - **사람이 성부다** (`leadVoices`): 코드 = 무게 있는 사람들의 홈 근음들. 4성 보이싱 — 베이스는 근음(MIDI 48–59), 위 세 성부(60–79)는 **성부 진행**: 각 성부가 가장 가까운 새 코드 음으로(교차 벌점), 코드에 새로 들어온 근음은 맨 위 성부를 선호(새로 온 사람이 위에서 들린다). 사람이 나가면 그 성부만 빠진다.
+  - **길 = 진행, 멈춤 = 반종지, 벗어남 = 종지** (`HarmonyTracker`): 길 위를 `stepEvery` 걸을 때마다 마르코프 다음 도수. 길 위에서 멈추면(속도 < 0.3, 반 `stepEvery` 이상 걸은 뒤) **반종지** — V로 가서 그대로 멈춤. 길을 벗어나면(pathP < 0.15) **종지** — 다음 마디에 으뜸으로 해결, 긴장 0. 종지는 마디가 한 번 가져간다(`takeCadence`).
+  - **접근 = 도미넌트 준비**: 건물의 reach(6) 안에 있지만 아직 들어서지 않았으면(amount ≥ 0.3) 코드는 그 건물 조성의 **V**. 들어서면(`sealed ≥ 0.3`, 이탈 `≤ 0.1`) 건물의 코드로 해결. 도착이 종지로 들린다.
+  - **전조**: 집으로 돌아올 때(건물·집단 → 홈)만 3마디로 — 피벗(두 키가 다 가진 3화음, 직전 코드와 공통음 최다; 그동안 키는 옛 키), 홈의 V, 홈의 I(종지). 건물로 들어갈 땐 접근이 이미 V였고, 사람들의 코드끼리는 근음들이 곧 피벗이라 즉시.
+  - **화성 리듬**: 코드는 마디 머리에서만 바뀌고, 사람들의 코드(집단·건물)는 2마디에 한 번 이하(`peopleEvery`).
+  - **긴장도** `tension` = 0.5·도수 기능(I 0 … V 0.8, vii 0.9) + 0.3·접근 + 0.2·거칢; 종지 0, 반종지 ≥ 0.6, 전조의 V 마디 0.7. 모티프의 반음 예산(§4), 패치 노브(§8b), 스피커가 읽는다.
+  - 디버그 ♪ 줄 끝 `H …`: 키 · 코드 (도수, 왜: home / group 누구 / 건물 ← 기여자 / → 접근 건물) · 4성 · tension · 전조 단계 · 종지. 워크스페이스 인스펙터도 같은 줄.
+- 아래 fusion의 나머지(조적 응답·강박 끌림·건물의 조성)는 그대로 H 위에서 동작한다.
+  - (이전: 키와 진행은 world와 같았다 — 에포크마다 공유 키 하나, 땅 위의 띠. 이제 world 방식에만 남아 있다.)
   - 모티프는 **실제 음정(반음 수)**으로 정의되고(§4), 키 위에는 **조적 응답(tonal answer)**으로 얹힌다: "같은 모티프로 들리는 선" 안에서 반음↔온음을 바꾼다. 그 선 = 모든 음의 **방향**과 **음정 급(동음 / 2도 / 3도 / 4~5도 / 그 이상)**이 원형과 같을 것. 그 안에서 총 이동량이 가장 작은 음계 위의 배치를 동적 계획법으로 고른다. 모양을 지키려면 꼭 필요한 경우 음 하나까지 조 밖(반음계적 색)에 남을 수 있다 (`chromaticBudget` 1). 음계 위 배치로는 급을 못 지키면 방향만 지킨다.
   - **끌림은 강박에만**: 확률 `lockPull`(기본 0.7)로 **스텝 0·4의 음**만 가장 가까운 코드톤으로 옮기되, 이웃 음과의 방향·급이 유지될 때만. 약박의 음은 경과음으로 그대로 둔다. 작곡가가 주제를 진행에 맞출 때 하는 일(박에 코드톤, 사이는 경과)을 규칙으로 쓴 것.
   - **건물의 조성은 지은 사람들의 라이트모티프로** (2026-10-15, umwelt의 valence/arousal 진행을 대신함): 건물에 가면(`sealed ≥ 0.3`, 이탈 `≤ 0.1`) 그 건물의 조성으로 전조한다. 조성 `tonalityOf(who)`는 fold의 `Slab.who`(기여자와 기여량)에서 나온다 — 기여자마다 자기 홈 키의 **근음**(정체성)을 가져오고, 가장 많이 기여한 사람의 근음이 으뜸음, 모드는 기여자 근음을 (기여량 가중으로) 가장 많이 품는 홈 모드, 코드는 기여자 근음들 자체(최대 4개, 무거운 순, 으뜸 포함; 3명 미만이면 모드의 3화음으로 채움). 사람이 오가며 기여량이 바뀌면 으뜸음과 코드가 바뀐다 → **사람으로 된 화성 진행**. 내 모티프는 그 조성에 조적 응답으로 얹히고 강박이 그 코드로 끌린다(내가 기여자면 내 근음이 코드 안에 있어 저절로 어울린다). 기여자를 모르는 슬래브(손으로 지은 것)는 전처럼 공유 키의 관계조. ♪ 줄에 `(building 셀키 ← 기여자…)`. 진행 도수는 띠를 그대로 따른다.
   - 다른 사람은 내 키를 통해 들린다(아래).
 - **world**: 10/14 오후 버전(93e85c5). 같은 키·진행, 전면 끌림(lockPull 1, 모든 음), 전조 없음. 디버그 줄에 `[world]`.
-- **identity**: 10/14 밤 버전. 모티프마다 홈 키, 건물마다 키(모드 넓음), 길 = 진행(`stepEvery`).
+- (identity — 10/14 밤 버전 — 는 H에 흡수되어 2026-10-15 (7)에 지웠다. 아래 설명의 홈 키·건물 키·길의 진행은 H 안에서 그대로 산다.)
 
-identity 방식 (작가: "월드 키는 있는 게 이상함, 건물별로 있는 거면 모를까"). 키는 두 종류다.
+키는 두 종류다.
 
 - **홈 키** `homeKey(id)`: 모티프의 일부, 그 사람(봇)의 정체성. 으뜸음 12개 중 하나 + 가운데 네 모드(Aeolian, Dorian, Mixolydian, Ionian) 중 하나, id의 해시로 고정.
 - **건물 키** `buildingKey(slabKey)`: 건물(슬래브 셀)마다 하나. 모드는 더 넓게(Phrygian … Lydian) — 건물은 낯설어도 된다.
@@ -81,6 +90,14 @@ umwelt `chord_library`에서 가져온 것: 모드 7개, 3도 쌓기(`diatonicCh
 
 `realize(motif, key, chord, lock, cycle, cfg, rough)`: ① 모양(실제 음정)을 키 위에 **조적 응답**으로 얹음(§3 fusion: 첫 음은 음역에 가장 가까운 음계음, 방향·음정 급 보존, 조 밖 음 최대 1개) ② **강박**(스텝 0·4)의 음만 확률 lock으로 코드톤에 끌되 모양이 유지될 때만 ③ 거칢(rough)만큼 `freeCents`(±35) 흔들림. 음 길이는 다음 onset까지의 85 %. 리듬·음역·방향·음정 급은 어떤 키·코드에서도 바뀌지 않는다 — **그 사람의 이름**이고, 키가 바뀌면 그 이름의 전조다.
 
+`realizeIn(motif, key, chord, lock, cycle, rough, opts)` (2026-10-15 (7), H 위에서 `planBar`가 쓴다) = `realize` + 화성의 말:
+- **앵커 / 동형진행** `anchorBase`: 순응할 때(lock ≥ 0.3) 음역을 최대 완전4도(±5반음) 옮겨 **첫 음이 코드 음**이 되게 하고, 그중 직전 마디의 마지막 음(`prevLast`)에 가장 가까운 것 — 모티프가 진행을 따라 옮겨 앉는다. 열린 땅(lock < 0.3)에서는 제 음역 그대로.
+- **반음 예산** = round(1 + 2·tension + 2·rough), 최대 3: 안정된 I 위에서는 온음계, 긴장·거칢이 색을 들인다.
+- **경과음** (lock ≥ 0.6, 밀도 ≤ 1, rough < 0.3): 완전5도 이상 도약에 2스텝 이상 틈이 있으면 가운데 스텝에 음계음 하나.
+- **종지 착지**: 종지 마디의 마지막 음은 으뜸음/3음 중 가까운 것.
+- **음역**: 콘크리트 안(sealed ≥ 0.5)이면 내 모티프 한 옥타브 아래(`register`).
+정체성 테스트(`melody.test.ts`): 어떤 키·코드에서도 방향 100 %, 음정 급 ≥ 80 %, 리듬 셀 동일.
+
 미세음정은 이제 **색**일 뿐이다 (기획서 §3.1의 "미세음정 3–5개"는 윤곽 + 색으로 해석).
 
 ---
@@ -90,11 +107,13 @@ umwelt `chord_library`에서 가져온 것: 모드 7개, 3도 쌓기(`diatonicCh
 intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/sequencer-logic.js`). 신시사이저는 Web Audio (§8).
 
 - **그리드**: 한 마디 `barSec`(2 s) = 8스텝(16분음표). 마디 번호는 **에포크부터 벽시계**로 센다 → 모든 탭·봇·뷰가 같은 박자. 그리드 밖에서는 아무것도 울리지 않는다 (자유로울 때 `jitterMax` ≤ 30 ms의 휴머나이즈만).
-- **밀도** `density(speed)`: 템포는 공유 박자라 바꾸지 않는다. 대신 모티프가 **얼마나 자주 돌아오는가**: 멈춤(속도 < speedMax의 12 %) = 두 마디에 한 번(짝수 마디), 걷기 = 매 마디, 뛰기(≥ 75 %) = 한 마디에 두 번(반으로 압축).
+- **밀도** `density(speed)`: 템포는 공유 박자라 바꾸지 않는다. 대신 모티프가 **얼마나 자주 돌아오는가**: 멈춤(속도 < speedMax의 12 %) = **확대**(augmentation: 셀을 두 마디에 걸쳐 반 속도로 — 짝수 마디에 앞 절반, 홀수 마디에 뒤 절반; 2026-10-15 (7), 전에는 짝수 마디에만 한 번), 걷기 = 매 마디, 뛰기(≥ 75 %) = 한 마디에 두 번(반으로 압축). 뛰면서 거칠면(rough ≥ 0.5) **단편화** — 머리 3음만.
 - **베이스**: `pathP ≥ bassFrom`(0.25)이면 다운비트에 장소 코드의 근음 (MIDI 48–59, 삼각파 + 한 옥타브 아래 사인, 짧은 피치 드롭 — 처음의 36–47 순수 사인은 작은 스피커에서 안 들렸다). 뛰면 반 마디에도. 세기 ∝ pathP. 길을 걸으면 근음이 진행을 따라 움직인다(§3). **길을 따르는 리듬이자 진행.**
 - **성부 = 참가자, 두 반경** (intersection의 inner/outer): `hearRadius`(기본 12) 안은 **동반·질감**(company, 노브, 패드 레벨)에만 들고, `innerRadius`(기본 5) 안의 사람만 **성부**가 되어 그 사람의 모티프가 내 그리드에 놓인다. 열린 땅에서는 내 키를 통해, 건물에서는 건물의 조성으로 (§3).
 - **부르고 답하기**: `stay > 0.5`이고 이웃이 있으면 마디가 번갈아 간다 — 짝수 마디 나(+가장 가까운 사람이 조용히 함께), 홀수 마디 가장 가까운 사람 혼자(lock ≥ 0.8로 코드에 붙어 "답"). 걷는 중엔 모두 동시에.
-- **패드**: `stay × company > 0.2`이면 장소 코드(근음 MIDI 48–59 + 코드톤 4개 60–71)를 마디마다 다시 조율하며 지속. **건물이 태어나는 소리.**
+- **패드**: `stay × company > 0.2`이면 코드를 지속; H가 있으면 H의 4성 보이싱(성부 진행된)이고 **건물 안에서는 혼자여도 ≥ 0.6**. **건물이 태어나는 소리.** 베이스는 길 위의 펄스 외에 집단·건물에서는 근음 홀드(`len: 1`).
+- **흔적** `traces`: 나와 가장 가까운 이웃 3명의 리듬 셀을 16스텝 격자에 (패치의 GateSeq `traces`가 받는다, §8b).
+- **선** `line`: Magenta 프레이즈는 내 마디를 **대신하지 않고** 따로 간다(§6).
 - **변주 투입**: 가장 가까운 사람의 `closeness`(§6)만큼 내 모티프에 그 사람 것이 섞인다 (`blend`). Magenta 프레이즈가 와 있으면 4마디 동안 그것이 내 마디를 대신한다.
 
 - **순응 ↔ 거칢 (조성성/노이즈 비율)**: 거칢은 엔진에서 세 가지가 된다 — 음의 일부가 그 음높이의 대역 잡음으로 바뀜(`noiseMix × rough`, 거칠수록 대역이 넓어져 덜 음정적), 음마다 ±40센트·rough의 드리프트, 박자 흐트러짐(`jitterMax × rough`), 음 탈락(확률 0.35·rough). 길 위·콘크리트·함께 지을 때는 셋 다 0 → **순응할수록 안정적이고 완전한 음악**, 식생을 가로지르면 **갈라지고 흔들리는 소리**.
@@ -118,7 +137,8 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
   - 프레이즈 = 4마디 = 32스텝 (MIDI, 0 = 새 음 없음). Magenta에는 120 QPM·4분음표당 4스텝·음역 48–83으로 보낸다.
   - **VAE 보간**: 가장 가까운 사람의 closeness ≥ 0.5이면 내 다음 4마디 ↔ 그 사람의 4마디를 잠재공간에서 보간 (0, ¼, ½, ¾, 1 중 closeness에 가장 가까운 것). 결과가 오면 그때부터 4마디 동안 내 목소리가 된다. 요청 키로 캐시, 같은 요청 동시 1회.
   - **RNN 즉흥**: lock ≥ 0.6이 2마디 이상 이어지면 내 프레이즈를 시드로 장소 코드(`magentaChordName`으로 Magenta가 확실히 아는 이름: '', m, 7, m7, maj7) 위에서 32스텝 이어 받는다.
-  - 프레이즈 하나 뒤에는 두 마디 쉼(원래 모티프로 복귀) 후 다시 요청 가능.
+  - 프레이즈 하나 뒤에는 두 마디 쉼 후 다시 요청 가능.
+  - **2026-10-15 (7): Magenta는 라이트모티프를 절대 대신하지 않는다** (작가: 모티프는 정체성). 프레이즈는 `line` — 내 모티프를 코드 위에서 즉흥한(RNN) / 이웃과 섞은(VAE) **제2의 선**으로 간다. Web Audio에서는 부드러운 둘째 목소리(레벨 0.55, 약간 흐림, 홀 리버브), 패치에서는 모듈 `line`(nc_noise_patch의 AI_Seq 219). RNN은 집단·건물 안(또는 길에 2마디 이상 안착)에서 장소의 코드 이름으로 요청 — **화성 진행이 선으로 들리게 하는 것**이 Magenta의 자리다 ("마젠타 기껏 써놓고 아까운데"). 기본은 여전히 꺼짐(GPU 렉, (4)); 켜면 프레이즈 사이 2마디 쉼이 요청 빈도를 상한한다.
 
 ---
 
@@ -154,6 +174,9 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
   - **솔로** "이 창만 듣기": localStorage(`anthropocene:sound:solo:v1`)로 공유되는 주장. 한 창이 솔로를 켜면 다른 창은 1초 안에 음소거되고, 끄면 돌아온다. 한 노트북에서 모니터링할 때.
   - **출력 장치**: Leva "출력 장치"로 창마다 다른 장치(`AudioContext.setSinkId`, Chromium 110+). 전시 PC 한 대에서 모바일 뷰 → 헤드셋, 글로벌 뷰 → 스피커로 보낸다. 장치 이름은 브라우저가 미디어 권한을 한 번 받은 뒤에 보이고, 그 전에는 "출력 n"으로 뜬다. 지원하지 않는 브라우저에서는 선택 불가로 표시.
 - `update(myId, sig, params, yaw, epochMs)`: 0.5초마다 (RoleField). 전조 판정(§3 히스테리시스), 리스너 방향, 먹먹함, 풀, 방 믹스, 이웃 목소리 생성/배치/소멸(1.5 s 뒤), closeness.
+- **악기 셋** (Leva "악기", 2026-10-15 (7)): **hybrid(기본)** — 멜로디(나, inner radius의 이웃, line)는 여기 Web Audio로 **드라이**(내 목소리는 짧은 open 룸만, 홀·콘크리트 룸은 패치의 몫), 화성(베이스·패드·텍스처·흔적)은 NoiseCraft 패치; **webaudio** — 전부 여기; **noisecraft** — 전부 패치. `playsMelody / playsHarmony`가 갈림길.
+- **클록 앵커** `setGridAnchor(bar, wallMs)`: 패치가 클록일 때(hybrid / noisecraft) 드라이버가 마디 시작 벽시계를 알려주고, Web Audio 스케줄러는 에포크 대신 거기서 마디를 센다 → 두 악기가 한 박자. 패치가 없으면 에포크 그리드.
+- `planFor(bar)`: 마디마다 H를 만들고(`nextHarmony`), `planBar`를 H·`prevLast`·register로 부른다. **마디 번호로 메모**(최근 8마디) — Web Audio 스케줄러와 NoiseCraft 드라이버가 같은 마디를 물어도 같은 계획.
 - `tick()`: 다음 마디 시작이 0.3 s 안이면 `planBar`로 계획하고 음을 스케줄. 숨은 탭에서 돌아와도 지나간 마디는 건너뛴다(폭주 없음).
 - 악기: 삼각파 + 옥타브 사인(`timbre`) × (1 − 노이즈 비율) + 음높이 대역의 잡음 × 노이즈 비율(§5 거칢), 12 ms 어택, 음 길이의 40 % + 150 ms 릴리스. 악기 호출부(`note()`)는 한 곳 → 나중에 NoiseCraft 패치 음색이 필요하면 umwelt `NoiseCraftBridge`(`noiseCraft:setParams`)로 이 함수만 바꿔 끼운다.
 - 디버그: 화면 왼쪽 아래 ♪ 줄 — 지금 키(home / building id), 마디, 코드(도수), 이번 마디의 베이스 수·패드 레벨·연주 중인 이웃 수, 가장 가까운 이웃과 closeness, stable/rough/lock, 밀도, answer, 이웃 수, path/stay/sealed, Magenta 상태, 진행 중 프레이즈.
@@ -169,13 +192,13 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
 | NoiseCraft 런타임 | `apps/web/noisecraft/public/*` | umwelt 포크 (AI_Seq / AI_Poly 수신 노드, ClockOut → clockPulse, setSequence / updateModules / enableAutoSave / nodeSelection). 손본 곳: 워클릿 경로를 모듈 상대 경로로(`/public/audioworklet.js`는 404였다), MIDI 권한이 없을 때 `broadcast`가 던지지 않게. **리듬(2026-10-15 (6))**: (a) AI_Seq / AI_Poly의 **게이트 값 = 스텝 단위 길이**(0 = 쉼, 3.4 = 3.4스텝 동안 열림; `gateT` 입력은 배율, 기본 1) — 스텝 길이는 클록 펄스 간격으로 잰다; 쉼 스텝이 아직 울리는 음을 끊지 않는다. (b) **모듈 이름을 가진 GateSeq**(예: 이름 `parliament`)는 그 모듈의 리듬만 받는다(행 = 성부, gate0 = voice 0; `SetPatternData` 액션 → 편집기 격자가 실시간으로 바뀌고 출력은 무엇에든 꽂을 수 있다). (c) 모듈을 못 찾았을 때 **모든** 수신 노드를 덮어쓰던 umwelt 폴백 제거 — 7개 모듈을 차례로 보내면 마지막(pad)이 전부를 덮어 모든 성부가 패드 리듬(다운비트·중간 두 번)으로 울렸다; 이제 모듈을 고르지 않은 노드만 `parliament`를 따른다. (d) 브리지 액션(SetSequence, SetPatternData, ClockPulse)은 자동 저장을 일으키지 않는다. (e) 편집기가 SetSequence마다 UI 노드 전체를 다시 만들던 것(마디마다 7번 × 235노드 — 메인 스레드가 막혀 펄스가 밀렸다) 제거 |
 | 정적 서빙 | `apps/web/public/noisecraft → ../noisecraft` | `/noisecraft/public/embedded.html`, `/noisecraft/examples/<patch>`. 서버(express) 없음 |
 | 저장·목록 라우트 | `app/noisecraft/{save-ncft,list,create,rename,duplicate,delete}-patch` | umwelt 라우트 이식. 파일 위치는 `next.config.ts`가 `NOISECRAFT_EXAMPLES_DIR`로 고정(dev 서버의 cwd가 저장소 루트라 `process.cwd()`가 틀렸다). dev 전용; 전시 빌드는 파일 고정 |
-| 브리지 | `lib/sound/NoiseCraftBridge.ts` | umwelt `NoiseCraftBridge` 이식(싱글톤, 숨은/보이는 iframe, 프로토콜, 아날라이저). 모듈 목록 고정: `parliament`(poly: voice 0 나, 1–3 이웃), `me`, `n1–n3`, `bass`, `pad` |
-| 매핑 (코드) | `lib/sound/noisecraftMap.ts` | 패치별 **노브 규칙 표**: `{nodeId, label, min, max, drive(ctx)}` — ctx = 신호 + **모드**(open / path / build / building, `modeOf`) + 다음 마디 계획 + 마스터. `planToSequences`: 마디 계획 → AI_Poly "parliament"(스텝마다 [나, n1, n2, n3]), "bass", "pad"(코드톤 4성, 다운비트·중간에 게이트). 지금 표는 `nc_noise_patch` / `Feedback_Synth`(같은 노브 id: 70 vol, 183 Vol CHORDS, 163 REVERB WET, 166 DRY, 84 Del Vol, 171 amt, 206 fact, 138/152 FB, 132/146 Dist)와 `global_audio` |
+| 브리지 | `lib/sound/NoiseCraftBridge.ts` | umwelt `NoiseCraftBridge` 이식(싱글톤, 숨은/보이는 iframe, 프로토콜, 아날라이저). 모듈 목록(2026-10-15 (7)): `parliament`(poly 4 — **hybrid: 0 베이스 · 1–3 화성 성부**, noisecraft 악기: 0 나 · 1–3 이웃), `harmony`(= `pad`, 4성 보이싱 마디 홀드·마디마다 재어택), `bass`(길 펄스 1.5스텝 / 사람들 사이 홀드), `texture`(코드 음 집합 4개를 두 옥타브에 — **음높이만**, 게이트는 패치의 트리거), `line`(Magenta 선), `me`·`n1–n3`(noisecraft 악기일 때만, hybrid에선 무음), `traces`(GateSeq 이름으로: 나·이웃 3명의 리듬 셀, 행 = 사람) |
+| 매핑 (코드) | `lib/sound/noisecraftMap.ts` | 패치별 **노브 규칙 표**: `{nodeId, label, min, max, drive(ctx)}` — ctx = 신호 + **모드**(open / path / build / building, `modeOf`) + 다음 마디 계획(그 H: `tensionOf`, `modulatingOf`) + 마스터 + barSec. `planToSequences(plan, layer)`: 마디 계획 → 위 모듈들(§브리지); layer = harmony(hybrid) / all(noisecraft 악기). 표는 `nc_noise_patch`(헤드셋 노브 + `CLOCK_RULE`) / `Feedback_Synth`(같은 노브 id: 70 vol, 183 Vol CHORDS, 163 REVERB WET, 166 DRY, 84 Del Vol, 171 amt(거칢·긴장), 206 fact(거칢·전조 중), 138/152 FB, 132/146 Dist(콘크리트·긴장))와 `global_audio` |
 | 드라이버 | `lib/sound/noisecraftDriver.ts` | **NoiseCraft가 마스터 클록**: ClockOut 펄스 6개 = 한 스텝, **16스텝 = 우리 한 마디**(96펄스; 모티프의 8스텝 셀이 마디에 두 번 들어가도(밀도 2) 셀이 살아남는다). AI_Seq는 스텝 인덱스를 리셋하지 않으므로 **마디 마지막 펄스에서 다음 마디 시퀀스를 보낸다**. ClockOut이 없는 패치는 umwelt처럼 벽시계 마디(위상 안 맞음). 노브는 500 ms마다, 데드밴드 밖으로 움직인 것만; `barSec`도 노브로 간다(아래 템포). 펄스 속도는 메시지 도착 시각이 아니라 패치의 오디오 시간으로 잰다. 재생은 `running()`을 따름 |
-| 플레이어 탭 | `components/parliament/NoiseCraftHost.tsx` | 악기 = NoiseCraft일 때 숨은 iframe이 이 탭 안에서 재생(전시 모드). 편집기는 여기 없음 |
+| 플레이어 탭 | `components/parliament/NoiseCraftHost.tsx` | 악기 = hybrid / noisecraft일 때 숨은 iframe이 이 탭 안에서 재생(전시 모드); 드라이버의 `layer`(harmony / all)와 `onBar` → `engine.setGridAnchor`. 편집기는 여기 없음 |
 | 버스 | `lib/sound/bus.ts` | BroadcastChannel: 플레이어 탭이 0.5초마다 {myId, 신호, 파라미터, 에포크, yaw}를 보냄 |
-| 워크스페이스 | `/v2/sound` — `components/sound/NoiseCraftManagerScene.tsx`, `NoiseCraftPatchManager.tsx` | umwelt NoiseCraft Manager 이식: 패치 목록(생성·복제·이름·삭제) → 편집기(자동 저장) + 인스펙터(신호, 모드, 마디/코드, **코드 매핑 표와 실시간 값**, 시뮬레이터 슬라이더). 자기 **headless 엔진**(AudioContext 없이 `planFor`만)을 버스의 플레이어 신호 또는 시뮬레이터로 돌려 편집기의 패치를 연주. PLAY면 솔로 "manager"를 잡아 플레이어 탭의 악기는 조용해짐 |
-| 패치 | `noisecraft/examples/{nc_noise_patch, Feedback_Synth, global_audio}.ncft` | 작가의 umwelt 패치. AI_Seq의 moduleId → `parliament`(voice 유지), ClockOut 노드 추가. **nc_noise_patch의 리듬 배선(2026-10-15 (6))**: Knob `clock`(306, Hz, 매핑이 `96 / barSec`로 돌림) → Pulse `seq clock`(307) → AI_Seq 7개 + GateSeq `parliament`(308, 4행 = 나·n1·n2·n3, 보는 용도·자유 출력) + ClockOut. 작가의 Pulse 173(BPM 120 → 2 Hz)은 그대로 패치의 랜덤 트리거만 돌린다. 성부 엔벨로프의 gate를 **수신 노드의 gate 출력**에 물렸다: ADSR 90 ← AI_Seq 214(voice 0), 89 ← 217(voice 1), 124 ← 218(voice 2), 289 ← 257(voice 1). 전에는 넷 다 패치 자체의 랜덤 트리거(Mul 24/43/115)에 물려 있어 **리듬 셀이 음높이만 바꾸고 아티큘레이션은 못 바꿨다** — 그 트리거 체인은 지우지 않았으니 편집기에서 다시 섞어도 된다 |
+| 워크스페이스 | `/v2/sound` — `components/sound/NoiseCraftManagerScene.tsx`, `NoiseCraftPatchManager.tsx` | umwelt NoiseCraft Manager 이식: 패치 목록(생성·복제·이름·삭제) → 편집기(자동 저장) + 인스펙터(신호, 모드, 마디/**H 한 줄**, **코드 매핑 표와 실시간 값**, 시뮬레이터 슬라이더). 자기 엔진을 버스의 플레이어 신호 또는 시뮬레이터로 돌려 편집기의 패치를 연주; **hybrid면 PLAY 제스처로 그 엔진의 Web Audio도 시작**해 멜로디까지 들린다(패치만 듣고 싶으면 플레이어 탭의 악기를 noisecraft로). PLAY면 솔로 "manager"를 잡아 플레이어 탭의 악기는 조용해짐 |
+| 패치 | `noisecraft/examples/{nc_noise_patch, Feedback_Synth, global_audio}.ncft` | 작가의 umwelt 패치. AI_Seq의 moduleId → `parliament`(voice 유지), ClockOut 노드 추가. **nc_noise_patch 배선**: Knob `clock`(306, Hz, 매핑이 `96 / barSec`로 돌림) → Pulse `seq clock`(307) → AI_Seq 7개 + GateSeq + ClockOut ((6)). 작가의 Pulse 173(BPM 120 → 2 Hz)은 그대로 패치의 랜덤 트리거를 돌린다. **하이브리드 배선 (7)**: `parliament` voice 0 = 베이스 → ADSR 90 ← AI_Seq 214 gate(시퀀스된 펄스/홀드); voice 1 = 화성 성부 → ADSR 289 ← AI_Seq 257 gate(마디 홀드·재어택 = 스웰); voice 1·2 텍스처 성부 → ADSR 89 ← Mul 43, ADSR 124 ← Mul 115 (**작가의 랜덤 트리거로 되돌림** — (6)에서 떼었더니 보글거리는 텍스처가 사라져 얇아졌다; 이제 그 트리거가 코드 음을 친다 = 화성 변화가 장(field)으로 들린다); AI_Seq 219 → 모듈 `line`; GateSeq 308 이름 `traces`(4행, 출력은 작가가 꽂는다). 새 성부의 규칙: clock은 `seq clock`, 음높이는 모듈에서, 게이트는 **리듬이 필요하면 수신 노드의 gate, 텍스처면 패치의 트리거** |
 
 템포: 처음엔 작가 패치의 시퀀서 클록이 Pulse 173(BPM 120 → Div 60 → 2 Hz ÷ 6 = **0.33 스텝/s**, 8스텝 사이클이 24 s)이어서 리듬이 들릴 수 없었다. 지금은 시퀀서만의 클록 `seq clock`을 매핑 규칙 `CLOCK_RULE`이 **`96 / barSec` Hz**로 돌린다(마디 2 s → 48 Hz → 8 스텝/s; Leva `barSec`가 바뀌면 따라간다). 인스펙터 상태 줄이 오디오 시간으로 잰 스텝/s와 마디 길이를 보여준다. 새 성부를 만들 때의 규칙: 수신 노드의 **clock은 `seq clock`에, 엔벨로프의 gate는 수신 노드의 gate 출력에** — 그래야 라이트모티프의 리듬·길이가 그 성부에 실린다.
 
@@ -194,8 +217,9 @@ Leva "악기"에서 Web Audio(내장, 폴백) / NoiseCraft를 고른다. 솔로 
 | 노이즈 비율 | 식생을 가로지를 때 최대 노이즈 (`noiseMix`) | 0.6 |
 | 박자 흐트러짐 | 거칠 때 최대 (`jitterMax`) | 0.03 s |
 | 코드에 끌리는 정도 | `lockPull`: 강박의 음이 코드톤으로 (0 = 안 끌림; world는 항상 1) | 0.7 |
-| 코드가 바뀌는 거리 | 길 위에서 `stepEvery` 월드마다 진행이 한 칸 (identity) | 6 |
-| 화성 방식 | fusion / world (10/14 오후) / identity (10/14 밤) | fusion |
+| 코드가 바뀌는 거리 | 길 위에서 `stepEvery` 월드마다 진행이 한 칸 | 6 |
+| 화성 방식 | fusion (= 화성 상태 H) / world (10/14 오후) | fusion |
+| 악기 | hybrid (멜로디 Web Audio + 화성 NoiseCraft) / webaudio / noisecraft | hybrid |
 | 베이스 펄스 | 길 위의 근음 | 0.6 |
 | 패드 | 함께 머물 때 코드 | 0.35 |
 | 홀 잔향 | 함께 지을 때 최대 | 0.6 |
@@ -231,13 +255,14 @@ HRTF·베이스·패드·부르고 답하기 없음 (헤드셋의 것). 건물�
 - (확정) 전시장은 **헤드셋 + 스피커 둘 다** (2026-10-14).
 - 걷기 속도 → 밀도 경계(12 % / 75 %)와 마디 길이는 작가가 헤드셋으로 듣고 조정.
 - 봇을 "지난 관객 재생"으로 바꾸기 (direction §2) — 그러면 메아리 음색이 실제 과거의 소리가 된다. ping(귀 기울이기)도 그때.
-- **하이브리드(2026-10-15)**: 화성은 NoiseCraft, 라이트모티프는 Web Audio로 병렬 — 화성 상태 H와 멜로디 변화 M의 로직·단계는 `sound-plan-hybrid-2026-10-15.md`. 확정되는 규칙부터 이 문서로 옮긴다.
+- **하이브리드(2026-10-15)**: 계획 `sound-plan-hybrid-2026-10-15.md`의 0–3단계는 (7)에서 구현되어 이 문서(§3 H, §4 `realizeIn`, §5, §6, §8, §8b)로 옮겼다. 남은 것: 4단계 **스피커**(`global_audio`가 세계의 H를 받기 — 지금은 Web Audio 판 `global.ts`), 길 그래프의 노드(교차로) 종지, 듣고 조정(작가).
 - 모바일 실기기 성능 (HRTF 패너 n개 + Magenta tfjs).
 
 ---
 
 ## 12. 변경 이력
 
+- **2026-10-15 (7)** **하이브리드**: 작가 — 리듬 배선 뒤 소리가 얇아지고 모티프에 패치 리버브가 어색 → 화성은 NoiseCraft, 라이트모티프는 Web Audio로 병렬("마젠타도 아깝다"). 구현: `harmonyState.ts`(조성 = 누구의 무게, 사람이 성부(성부 진행), 길 = 진행·반종지·종지, 접근 = 도미넌트, 집으로의 전조는 피벗·V·I, 화성 리듬, 긴장도; 11 tests), `realizeIn`(앵커/동형진행, 반음 예산, 경과음, 종지 착지; 정체성 불변 테스트), 확대·단편화·음역, Magenta → `line`(모티프를 대신하지 않음; RNN은 집단·건물의 코드 위에서), 악기 `hybrid` 기본(멜로디 드라이, 화성은 패치, 패치 클록에 앵커, 마디별 계획 메모), 모듈 `harmony/texture/line/traces`, 노브에 tension·modulating, 패치 배선(텍스처는 작가의 트리거로 복귀, 219 → line, GateSeq → traces), identity 방식 제거. 74 tests.
 - **2026-10-15 (6)** 라이트모티프의 리듬이 NoiseCraft에서 들리지 않던 이유 넷을 고침: 패치의 엔벨로프가 수신 노드의 gate가 아니라 자체 랜덤 트리거에 물려 있었고(§8b 패치 배선), 시퀀서 클록이 2 Hz라 한 스텝이 3 s였고(전용 `seq clock` + `CLOCK_RULE`), 마디가 8스텝이라 밀도 2의 셀이 뭉개졌고(16스텝, 게이트 = 스텝 단위 길이 → 레가토와 쉼), umwelt 폴백이 모든 수신 노드를 마지막 모듈(pad)로 덮어썼다. 포크에 GateSeq 수신(이름 = 모듈)과 `SetPatternData` 추가, 편집기의 마디마다 전체 재생성 제거. `noisecraftMap.test.ts`(6), 56 tests.
 - **2026-10-15 (5)** AI_Seq를 우리 로직에 맞게: 건물의 조성 = 기여자들의 라이트모티프(`tonalityOf`, §3) — umwelt의 valence/arousal 진행 대신 사람의 오감으로 코드가 바뀜; intersection의 inner/outer 반경(§5, `innerRadius`); 시뮬레이터도 기여자를 가진 건물을 흉내냄. 수신 모듈 체계는 그대로(parliament voice 0–3, bass, pad).
 

@@ -41,15 +41,32 @@ describe("the rhythm on the patch's grid (noisecraftMap)", () => {
       others: [{ notes: [{ at: 0.25, len: 0.2, pitch: 69, freq: 0, locked: false }] }],
       bass: [{ at: 0, pitch: 50, level: 0.5 }],
       pad: { pitches: [50, 62, 65, 69], level: 0.3 },
+      chord: { degree: 0, classes: [2, 5, 9, 0], rootClass: 2 },
+      line: [{ at: 0.5, len: 0.1, pitch: 74, freq: 0, locked: false }],
+      traces: [{ o: "v_me", steps: [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] }],
     } as unknown as BarPlan;
+    // the noisecraft instrument: the melody in parliament too
+    const all = planToSequences(plan, "all");
+    expect(all.parliament.pitches).toHaveLength(16);
+    expect(all.parliament.pitches[0]).toEqual([62, 69, 0, 0]);
+    expect(all.parliament.gates[0]).toEqual([6.4, 0, 0, 0]);
+    expect(all.parliament.gates[4]).toEqual([0, 3.2, 0, 0]);
+    expect(all.me.gates[0]).toBe(6.4);
+    // the hybrid (default): parliament = the bass and the three upper chord voices, the melody modules silent
     const seq = planToSequences(plan);
-    expect(seq.parliament.pitches).toHaveLength(16);
-    expect(seq.parliament.pitches[0]).toEqual([62, 69, 0, 0]);
-    expect(seq.parliament.gates[0]).toEqual([6.4, 0, 0, 0]);
-    expect(seq.parliament.gates[4]).toEqual([0, 3.2, 0, 0]);
-    expect(seq.pad.gates[0]).toEqual([8, 8, 8, 8]);
-    expect(seq.pad.gates[8]).toEqual([8, 8, 8, 8]);
-    expect(seq.pad.gates[1]).toEqual([0, 0, 0, 0]);
+    expect(seq.parliament.pitches[0]).toEqual([50, 65, 81, 60]); // the bass, then the chord's tones above the root
+    expect(seq.parliament.gates[0]).toEqual([1.5, 16, 16, 16]); // gated: the pad is on (among people)
+    const open = planToSequences({ ...plan, pad: { pitches: [], level: 0 }, bass: [] } as unknown as BarPlan);
+    expect(open.parliament.pitches[0]).toEqual([0, 65, 81, 60]); // pitched for the patch's own triggers
+    expect(open.parliament.gates[0]).toEqual([0, 0, 0, 0]);
+    expect(seq.me.gates.every((g) => g === 0)).toBe(true);
+    expect(seq.harmony.gates[0]).toEqual([16, 16, 16, 16]);
+    expect(seq.harmony.gates[8]).toEqual([0, 0, 0, 0]);
+    expect(seq.pad).toEqual(seq.harmony);
+    expect(seq.texture.pitches[0].map((p) => p % 12)).toEqual([2, 5, 9, 0]);
+    expect(seq.line.gates[8]).toBeCloseTo(1.6);
+    expect(seq.traces.gates[0]).toEqual([1, 0, 0, 0]);
+    expect(seq.traces.gates[4]).toEqual([1, 0, 0, 0]);
     expect(seq.bass.gates[0]).toBe(1.5);
     expect(seq.bass.pitches[0]).toBe(50);
   });

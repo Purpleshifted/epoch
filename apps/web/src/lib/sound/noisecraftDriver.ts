@@ -9,13 +9,17 @@
  *   TEMPO     the patch's sequencer clock is a Pulse whose rate is a knob the mapping drives from barSec
  *             (noisecraftMap.CLOCK_RULE), so the bar is as long here as in the Web Audio instrument.
  *   PLAN      every bar the engine plans it (engine.planFor → sequencer.planBar) from the latest signals; the plan
- *             becomes AI_Poly "parliament" (voices = participants), "bass", "pad" (noisecraftMap.planToSequences).
+ *             becomes the receivers' sequences (noisecraftMap.planToSequences): in the HYBRID the harmony only
+ *             (parliament = bass + 3 chord voices, harmony, bass, texture, line, traces), with the "noisecraft"
+ *             instrument the melody too (parliament = me + 3 neighbours, me, n1–n3).
+ *   ANCHOR    when the patch is clocked the driver tells the source when a bar starts on the wall clock
+ *             (`onBar`), so the Web Audio melody counts its bars from the patch's beat.
  *   KNOBS     every 250 ms the coded mapping (noisecraftMap.knobParams) sends what moved.
  *   PLAY      follows `running()` (the engine's running state in the player tab, or the manager's own switch).
  */
 
 import { getNoiseCraftBridge, type NoiseCraftBridge } from "./NoiseCraftBridge";
-import { PULSES_PER_BAR, knobParams, mapFor, modeOf, planToSequences, type PatchMap, type SoundMode } from "./noisecraftMap";
+import { PULSES_PER_BAR, knobParams, mapFor, modeOf, planToSequences, type PatchLayer, type PatchMap, type SoundMode } from "./noisecraftMap";
 import type { BarPlan } from "./sequencer";
 import type { PersonalSignals } from "./signals";
 
@@ -29,6 +33,10 @@ export interface DriverSource {
   master(): number;
   /** Seconds per bar (the engine's barSec): drives the patch's sequencer clock. */
   barSec(): number;
+  /** What the patch plays: the harmony (hybrid) or everything. */
+  layer?(): PatchLayer;
+  /** Bar `bar` starts at `wallMs` on the patch's clock (only when clocked): the engine anchors its grid to it. */
+  onBar?(bar: number, wallMs: number): void;
 }
 
 export interface DriverStatus {
@@ -110,9 +118,17 @@ export class NoiseCraftDriver {
     this.pulses++;
     this.pulseTimes.push(pulseTime);
     while (this.pulseTimes.length > PULSES_PER_BAR) this.pulseTimes.shift();
-    if (this.pulses === 0) this.sendBar(0);
-    // the last pulse before the next bar: send it now so AI_Seq reads it from step 0
-    if (this.pulses % PULSES_PER_BAR === PULSES_PER_BAR - 1) this.sendBar(Math.floor(this.pulses / PULSES_PER_BAR) + 1);
+    const period = this.status.pulseHz > 0 ? 1000 / this.status.pulseHz : 0;
+    if (this.pulses === 0) {
+      this.sendBar(0);
+      this.source.onBar?.(0, Date.now());
+    }
+    // the last pulse before the next bar: send it now so AI_Seq reads it from step 0; the bar starts one pulse on
+    if (this.pulses % PULSES_PER_BAR === PULSES_PER_BAR - 1) {
+      const bar = Math.floor(this.pulses / PULSES_PER_BAR) + 1;
+      this.sendBar(bar);
+      this.source.onBar?.(bar, Date.now() + period);
+    }
   }
 
   /** umwelt's way when the patch has no ClockOut: a sequence every bar on the wall clock. */
@@ -127,14 +143,9 @@ export class NoiseCraftDriver {
     if (!plan) return;
     this.bar = bar;
     this.lastPlan = plan;
-    const seq = planToSequences(plan);
-    this.bridge.setSequence("parliament", seq.parliament.pitches, seq.parliament.gates);
-    this.bridge.setSequence("me", seq.me.pitches, seq.me.gates);
-    this.bridge.setSequence("n1", seq.n1.pitches, seq.n1.gates);
-    this.bridge.setSequence("n2", seq.n2.pitches, seq.n2.gates);
-    this.bridge.setSequence("n3", seq.n3.pitches, seq.n3.gates);
-    this.bridge.setSequence("bass", seq.bass.pitches, seq.bass.gates);
-    this.bridge.setSequence("pad", seq.pad.pitches, seq.pad.gates);
+    const seq = planToSequences(plan, this.source.layer?.() ?? "harmony");
+    const send = (id: keyof typeof seq) => this.bridge.setSequence(id, seq[id].pitches, seq[id].gates);
+    for (const id of ["parliament", "harmony", "pad", "bass", "texture", "line", "me", "n1", "n2", "n3", "traces"] as const) send(id);
   }
 
   private tick(): void {

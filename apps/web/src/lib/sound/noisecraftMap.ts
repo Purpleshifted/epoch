@@ -47,6 +47,10 @@ export interface PatchMap {
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const company = (s: PersonalSignals) => Math.min(1, s.neighbours.length / 2);
+/** The harmony's tension of the bar about to play (0 before the first bar / in world mode). */
+export const tensionOf = (c: MapContext) => c.plan?.harmony?.tension ?? 0;
+/** 1 while a staged modulation is under way (pivot / dominant bars), else 0. */
+export const modulatingOf = (c: MapContext) => (c.plan?.harmony?.modulation ? 1 : 0);
 
 /** Roughness as sequencer.ts computes it (kept local so this table stays pure and small). */
 export function roughOf(s: PersonalSignals): number {
@@ -109,12 +113,12 @@ export const HEADSET_MAP: PatchMap = {
       max: 1,
       drive: (c) => ({ open: clamp01(0.35 + 0.5 * roughOf(c.sig)), path: 0.8, build: 0.5, building: 0.6 })[c.mode],
     },
-    { nodeId: "171", label: "amt (distortion) — rough", min: 0, max: 1, drive: (c) => clamp01(0.1 + 0.6 * roughOf(c.sig) + (c.mode === "building" ? 0.2 : 0)) },
-    { nodeId: "206", label: "fact (detune) — rough", min: 0, max: 0.1, drive: (c) => clamp01(0.1 + 0.9 * roughOf(c.sig)) },
+    { nodeId: "171", label: "amt (distortion) — rough, tense", min: 0, max: 1, drive: (c) => clamp01(0.1 + 0.5 * roughOf(c.sig) + 0.2 * tensionOf(c) + (c.mode === "building" ? 0.15 : 0)) },
+    { nodeId: "206", label: "fact (detune) — rough, modulating", min: 0, max: 0.1, drive: (c) => clamp01(0.1 + 0.7 * roughOf(c.sig) + 0.3 * modulatingOf(c)) },
     { nodeId: "138", label: "FB (delay feedback 1) — steady on a path", min: 0, max: 0.9, drive: (c) => (c.mode === "path" ? 0.78 : 0.55) },
     { nodeId: "152", label: "FB (delay feedback 2)", min: 0, max: 0.9, drive: (c) => (c.mode === "path" ? 0.75 : 0.55) },
-    { nodeId: "132", label: "Dist [m] 1 — walls close in on concrete", min: 2, max: 200, drive: (c) => clamp01(0.75 - 0.6 * c.sig.sealed) },
-    { nodeId: "146", label: "Dist [m] 2", min: 2, max: 200, drive: (c) => clamp01(0.8 - 0.6 * c.sig.sealed) },
+    { nodeId: "132", label: "Dist [m] 1 — walls close in on concrete and with tension", min: 2, max: 200, drive: (c) => clamp01(0.75 - 0.5 * c.sig.sealed - 0.2 * tensionOf(c)) },
+    { nodeId: "146", label: "Dist [m] 2", min: 2, max: 200, drive: (c) => clamp01(0.8 - 0.5 * c.sig.sealed - 0.2 * tensionOf(c)) },
   ],
 };
 
@@ -195,35 +199,63 @@ export function notesToSteps(notes: readonly { at: number; pitch: number; len?: 
   return { pitches, gates };
 }
 
+type Mono = { pitches: number[]; gates: number[] };
+type Poly = { pitches: number[][]; gates: number[][] };
+
 export interface PatchSequences {
-  /** AI_Poly "parliament": per step [me, n1, n2, n3]. */
-  parliament: { pitches: number[][]; gates: number[][] };
-  me: { pitches: number[]; gates: number[] };
-  n1: { pitches: number[]; gates: number[] };
-  n2: { pitches: number[]; gates: number[] };
-  n3: { pitches: number[]; gates: number[] };
-  bass: { pitches: number[]; gates: number[] };
-  /** AI_Poly "pad": the chord held (a half-bar gate on the downbeat and the half bar). */
-  pad: { pitches: number[][]; gates: number[][] };
+  /** AI_Poly "parliament": per step 4 voices — hybrid: [bass, chord tones 1–3 (gated among people)]; noisecraft: [me, n1, n2, n3]. */
+  parliament: Poly;
+  /** The chord's four voices (harmonyState voicing) held a whole bar, re-attacked each bar (a swell). */
+  harmony: Poly;
+  /** = harmony (the earlier name). */
+  pad: Poly;
+  bass: Mono;
+  /** The chord's tones spread over two octaves — pitch only; the patch's own triggers gate them. */
+  texture: Poly;
+  /** The Magenta line. */
+  line: Mono;
+  me: Mono;
+  n1: Mono;
+  n2: Mono;
+  n3: Mono;
+  /** Rhythm cells: per step one gate per person (a GateSeq named "traces" takes it). */
+  traces: Poly;
 }
 
+/** What the patch plays: "harmony" (hybrid: the melody is Web Audio's) or "all" (the noisecraft instrument). */
+export type PatchLayer = "harmony" | "all";
+
+const silent = (): Mono => ({ pitches: new Array<number>(STEPS_PER_BAR).fill(0), gates: new Array<number>(STEPS_PER_BAR).fill(0) });
+const poly = (voices: Mono[]): Poly => ({
+  pitches: Array.from({ length: STEPS_PER_BAR }, (_, i) => voices.map((v) => v.pitches[i])),
+  gates: Array.from({ length: STEPS_PER_BAR }, (_, i) => voices.map((v) => v.gates[i])),
+});
+/** A pitch held the whole bar: gate = the bar's length on the downbeat. */
+const hold = (pitch: number, on = true): Mono => ({ pitches: new Array<number>(STEPS_PER_BAR).fill(pitch), gates: [on && pitch > 0 ? STEPS_PER_BAR : 0, ...new Array<number>(STEPS_PER_BAR - 1).fill(0)] });
+
 /** A bar plan (sequencer.ts) as the sequences the patch's receivers take. */
-export function planToSequences(plan: BarPlan): PatchSequences {
+export function planToSequences(plan: BarPlan, layer: PatchLayer = "harmony"): PatchSequences {
   const me = notesToSteps(plan.me);
   const others = [0, 1, 2].map((k) => notesToSteps(plan.others[k]?.notes ?? []));
-  const voices = [me, ...others];
-  const parliament = {
-    pitches: Array.from({ length: STEPS_PER_BAR }, (_, i) => voices.map((v) => v.pitches[i])),
-    gates: Array.from({ length: STEPS_PER_BAR }, (_, i) => voices.map((v) => v.gates[i])),
-  };
-  // the walking bass: a soft pulse, a step and a half
-  const bass = notesToSteps(plan.bass.map((b) => ({ at: b.at, pitch: b.pitch, len: 1.5 / STEPS_PER_BAR })));
-  const padPitches = plan.pad.level > 0 ? plan.pad.pitches.slice(0, 4) : [];
-  while (padPitches.length && padPitches.length < 4) padPitches.push(padPitches[padPitches.length - 1]);
-  const pad = {
-    pitches: Array.from({ length: STEPS_PER_BAR }, () => (padPitches.length ? padPitches.slice() : [0, 0, 0, 0])),
-    // held for the half bar it starts: a chord that breathes twice a bar, not two blips
-    gates: Array.from({ length: STEPS_PER_BAR }, (_, i) => (padPitches.length && (i === 0 || i === STEPS_PER_BAR / 2) ? [STEPS_PER_BAR / 2, STEPS_PER_BAR / 2, STEPS_PER_BAR / 2, STEPS_PER_BAR / 2] : [0, 0, 0, 0])),
-  };
-  return { parliament, me, n1: others[0], n2: others[1], n3: others[2], bass, pad };
+  // the bass: a soft pulse (a step and a half) on a path, the root held among people
+  const bass = notesToSteps(plan.bass.map((b) => ({ at: b.at, pitch: b.pitch, len: b.len ?? 1.5 / STEPS_PER_BAR })));
+  const voicing = plan.pad.level > 0 ? plan.pad.pitches.slice(0, 4) : [];
+  while (voicing.length && voicing.length < 4) voicing.push(voicing[voicing.length - 1]);
+  const harmony = poly(voicing.length ? voicing.map((p) => hold(p)) : [silent(), silent(), silent(), silent()]);
+  // the texture's pitch set: the chord's classes over two octaves around the voicing (the patch's triggers play them)
+  const classes = plan.chord.classes.slice(0, 4);
+  while (classes.length < 4) classes.push(classes[classes.length - 1] ?? plan.chord.rootClass);
+  const texture = poly(classes.map((c, i) => hold(60 + c + (i % 2) * 12)));
+  const line = notesToSteps(plan.line);
+  const traces = poly([0, 1, 2, 3].map((k) => {
+    const t = plan.traces[k];
+    return t ? { pitches: new Array<number>(STEPS_PER_BAR).fill(0), gates: t.steps.slice(0, STEPS_PER_BAR) } : silent();
+  }));
+  // hybrid parliament: voice 0 the bass, voices 1–3 the chord's tones above the root (the texture set) — pitched
+  // always, so the patch's own triggers keep bubbling on the chord in the open; GATED (a bar-long hold) only among
+  // people, where the pad is on, so a voice whose envelope follows the receiver's gate swells there and rests here
+  const tex = classes.slice(1).map((c, i) => hold(60 + c + (i % 2) * 12, voicing.length > 0));
+  const parliament = layer === "all" ? poly([me, ...others]) : poly([bass, ...tex]);
+  const melody = layer === "all";
+  return { parliament, harmony, pad: harmony, bass, texture, line, me: melody ? me : silent(), n1: melody ? others[0] : silent(), n2: melody ? others[1] : silent(), n3: melody ? others[2] : silent(), traces };
 }

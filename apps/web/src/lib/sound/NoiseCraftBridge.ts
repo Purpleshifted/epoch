@@ -28,13 +28,17 @@ export type NoiseCraftAudioStatus = "idle" | "loading" | "ready" | "playing" | "
 
 /** The modules our sequencer feeds (the AI_Seq / AI_Poly nodes of a patch pick one of these). */
 export const PARLIAMENT_MODULES: NoiseCraftModule[] = [
-  { id: "parliament", name: "parliament (poly: 0 나 · 1–3 이웃)" },
-  { id: "me", name: "me (내 모티프, mono)" },
-  { id: "n1", name: "n1 (가장 가까운 이웃)" },
+  { id: "parliament", name: "parliament (poly 4 — hybrid: 0 베이스 · 1–3 화성 성부 / noisecraft: 0 나 · 1–3 이웃)" },
+  { id: "harmony", name: "harmony (코드 보이싱 4성, 성부 진행, 마디 홀드)" },
+  { id: "bass", name: "bass (길의 근음 펄스 · 사람들 사이에선 홀드)" },
+  { id: "texture", name: "texture (코드 음 집합 4개 — 음높이만, 게이트는 패치의 트리거로)" },
+  { id: "line", name: "line (Magenta: 내 모티프를 코드 위에서 즉흥한 선)" },
+  { id: "pad", name: "pad (= harmony, 이전 이름)" },
+  { id: "me", name: "me (내 모티프 — noisecraft 악기일 때만)" },
+  { id: "n1", name: "n1 (가장 가까운 이웃 — noisecraft 악기일 때만)" },
   { id: "n2", name: "n2 (두 번째 이웃)" },
   { id: "n3", name: "n3 (세 번째 이웃)" },
-  { id: "bass", name: "bass (길 위의 근음)" },
-  { id: "pad", name: "pad (함께 머물 때의 코드, poly 4)" },
+  { id: "traces", name: "traces (GateSeq 이름으로: 나·이웃들의 리듬 셀, 행 = 사람)" },
 ];
 
 export class NoiseCraftBridge {

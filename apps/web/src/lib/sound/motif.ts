@@ -14,7 +14,7 @@
  * Pure and deterministic. No Web Audio here (engine.ts).
  */
 
-import { pullToChord, tonalAnswer, type Key, type PlaceChord } from "./harmony";
+import { pullToChord, scaleClasses, snapToClasses, tonalAnswer, type Key, type PlaceChord } from "./harmony";
 
 export interface MotifConfig {
   /** Register: MIDI pitch of the motif's first note, drawn uniformly (D3 … D5). */
@@ -157,6 +157,76 @@ export function realize(m: Motif, key: Key, chord: PlaceChord | null, lock: numb
     const next = i + 1 < n ? m.onsets[i + 1] : m.steps;
     return { at: m.onsets[i] / m.steps, len: ((next - m.onsets[i]) / m.steps) * 0.85, pitch, freq: midiToHz(pitch, m.colour + wobble), locked: locked[i] };
   });
+}
+
+export interface RealizeOpts {
+  /** The last pitch of my previous bar: the first note of this one anchors on a chord tone near it (a SEQUENCE). */
+  anchor?: number | null;
+  /** Notes that may stay outside the key (harmony's tension and the roughness open it; 1 by default). */
+  chromaticBudget?: number;
+  /** PASSING TONES: a leap of a fifth or more with room before the next onset is filled with a scale tone. */
+  passing?: boolean;
+  /** A FULL cadence: the last note lands on the tonic or the third. */
+  cadence?: "none" | "half" | "full";
+}
+
+/**
+ * ANCHOR (the sequence technique): the base of the motif shifted by at most a fourth so that its first note (the
+ * scale tone nearest the base) is a CHORD tone, preferring the smallest shift and the pitch nearest `anchor`
+ * (where my previous bar ended): the motif moves with the progression instead of sitting on its register.
+ */
+export function anchorBase(m: Motif, key: Key, chord: PlaceChord, anchor: number | null): number {
+  const scale = scaleClasses(key);
+  let best = m.base;
+  let bestCost = Infinity;
+  for (let s = -5; s <= 5; s++) {
+    const first = snapToClasses(m.base + s, scale);
+    const onChord = chord.classes.includes(((first % 12) + 12) % 12);
+    const cost = Math.abs(s) + (onChord ? 0 : 20) + (anchor != null ? 0.4 * Math.abs(first - anchor) : 0);
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = m.base + s;
+    }
+  }
+  return best;
+}
+
+/**
+ * `realize` with the harmony's say (docs/sound-plan-hybrid-2026-10-15.md §3): anchored on a chord tone when the walk
+ * conforms (lock ≥ 0.3), a chromatic budget from the tension, passing tones when asked, the cadence landing. The
+ * identity stays: directions and interval classes of the shape, the rhythm cell, the colour.
+ */
+export function realizeIn(m: Motif, key: Key, chord: PlaceChord | null, lock: number, cycle: number, rough: number, opts: RealizeOpts = {}, cfg: MotifConfig = DEFAULT_MOTIF): MotifNote[] {
+  const base = chord && lock >= 0.3 ? anchorBase(m, key, chord, opts.anchor ?? null) : m.base;
+  const mm = base === m.base ? m : { ...m, base };
+  const c = opts.chromaticBudget != null ? { ...cfg, chromaticBudget: opts.chromaticBudget } : cfg;
+  let notes = realize(mm, key, chord, lock, cycle, c, rough);
+  if (opts.passing && notes.length >= 2) {
+    const scale = scaleClasses(key);
+    const out: MotifNote[] = [];
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
+      out.push(n);
+      const nx = notes[i + 1];
+      if (!nx) continue;
+      const gapSteps = Math.round((nx.at - n.at) * m.steps);
+      if (Math.abs(nx.pitch - n.pitch) < 5 || gapSteps < 2) continue;
+      const midStep = Math.floor((n.at + nx.at) * 0.5 * m.steps);
+      const mid = snapToClasses(Math.round((n.pitch + nx.pitch) / 2), scale);
+      if (mid === n.pitch || mid === nx.pitch) continue;
+      const at = midStep / m.steps;
+      out[out.length - 1] = { ...n, len: Math.min(n.len, (at - n.at) * 0.85) };
+      out.push({ at, len: (nx.at - at) * 0.85, pitch: mid, freq: midiToHz(mid, m.colour), locked: false });
+    }
+    notes = out;
+  }
+  if (opts.cadence === "full" && notes.length) {
+    const last = notes[notes.length - 1];
+    const landing = [key.root, (key.root + key.mode.intervals[2]) % 12];
+    const to = snapToClasses(last.pitch, landing);
+    notes[notes.length - 1] = { ...last, pitch: to, freq: midiToHz(to, m.colour), locked: true };
+  }
+  return notes;
 }
 
 /**

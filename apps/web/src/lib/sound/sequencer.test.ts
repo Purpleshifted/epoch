@@ -17,8 +17,11 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(density(3, 7)).toBe(1);
     expect(density(7, 7)).toBe(2);
     const notes = realize(ME, KEY, null, 0, 0);
-    expect(placeInBar(notes, 0.5, 1)).toEqual([]);
-    expect(placeInBar(notes, 0.5, 2).length).toBe(notes.length);
+    // still = the cell augmented over two bars: the first half of it in the even bar, the second in the odd, twice as slow
+    const even = placeInBar(notes, 0.5, 2), odd = placeInBar(notes, 0.5, 1);
+    expect(even.length + odd.length).toBe(notes.length);
+    expect(even[0].at).toBe(0);
+    expect(even[0].len).toBeCloseTo(Math.min(1, notes[0].len * 2));
     expect(placeInBar(notes, 2, 0).length).toBe(notes.length * 2);
     expect(placeInBar(notes, 2, 0)[notes.length].at).toBeCloseTo(0.5);
   });
@@ -157,15 +160,18 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(blended).not.toBe(plain);
   });
 
-  it("a phrase takes my bars for 4 bars from its start, then my motif returns", () => {
+  it("a phrase is a LINE of its own by default (my motif stays); routed to \"me\" it takes my bars for 4 bars, then my motif returns", () => {
     const phrase = new Array(32).fill(0);
     phrase[0] = 60; phrase[8] = 62; phrase[16] = 64; phrase[24] = 65;
     const s = sig({ speed: 3 });
-    const inBar = planBar(inputs(10, s, { phrase: { phrase, from: 10 } }));
+    const asLine = planBar(inputs(10, s, { phrase: { phrase, from: 10 } }));
+    expect(asLine.line.map((n) => n.pitch)).toEqual([60]);
+    expect(asLine.me.length).toBe(ME.semis.length);
+    const inBar = planBar(inputs(10, s, { phrase: { phrase, from: 10 }, phraseTo: "me" }));
     expect(inBar.me.map((n) => n.pitch)).toEqual([60]);
-    const third = planBar(inputs(12, s, { phrase: { phrase, from: 10 } }));
+    const third = planBar(inputs(12, s, { phrase: { phrase, from: 10 }, phraseTo: "me" }));
     expect(third.me.map((n) => n.pitch)).toEqual([64]);
-    const after = planBar(inputs(14, s, { phrase: { phrase, from: 10 } }));
+    const after = planBar(inputs(14, s, { phrase: { phrase, from: 10 }, phraseTo: "me" }));
     expect(after.me.length).toBe(ME.semis.length);
   });
 

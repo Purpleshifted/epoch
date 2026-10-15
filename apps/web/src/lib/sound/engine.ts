@@ -1,12 +1,17 @@
 /**
  * sound/engine.ts — the PLAYER's ears: Web Audio, no dependencies (docs/sound-logic.md §8).
  *
- * The engine is a step sequencer on the shared grid (sequencer.ts plans every bar from the signals) and a small
- * subtractive instrument that plays what the plan says:
+ * The engine is a step sequencer on the shared grid (sequencer.ts plans every bar from the signals, on the harmony
+ * state of harmonyState.ts) and a small subtractive instrument that plays what the plan says. Three instruments:
+ * "webaudio" plays everything here; "noisecraft" leaves everything to the patch; "hybrid" (default) plays the
+ * MELODY here — dry, close, mine — and leaves the HARMONY (bass, pad, texture, traces) to the patch, on the
+ * patch's clock (setGridAnchor).
  *
- *   my voice      straight ahead, in my register.
+ *   my voice      straight ahead, in my register, dry.
  *   the others    one voice each, placed around me with the browser's HRTF (PannerNode) at their bearing and
  *                 distance; bots are blurred (darker, drifting) so they read as echoes, not people.
+ *   the line      a Magenta phrase (my motif improvised over the chords, or blended with a neighbour's) as a
+ *                 softer second voice — never in place of my motif.
  *   bass          the root of the place on the downbeat while I follow a path.
  *   pad           the chord of the place held while I stay among others (the building being born).
  *   the dull      concrete nearby closes a low-pass over everything.
@@ -18,11 +23,12 @@
  * models (magenta.ts) are loaded a few seconds after that and only used when they have answered.
  */
 
-import { bandOf, buildingKey, chordName, homeKey, keyName, magentaChordName, nextDegree, relatedKey, tonalityOf, worldKey, type Key, type PlaceChord, type WorldKey } from "./harmony";
+import { bandOf, chordName, homeKey, keyName, magentaChordName, worldKey, type Key, type WorldKey } from "./harmony";
+import { HarmonyTracker, harmonyLabel, nextHarmony, type HarmonyState, type PlaceState } from "./harmonyState";
 import { Magenta, phraseNotes } from "./magenta";
 import { applySink } from "./output";
-import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
-import { barClock, conformity, lockOf, planBar, type BarPlan } from "./sequencer";
+import { makeMotif, midiToHz, realize, type Motif } from "./motif";
+import { barClock, conformity, lockOf, planBar, roughness, type BarPlan } from "./sequencer";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -57,15 +63,19 @@ export interface SoundParams {
   stepEvery: number;
   /**
    * HARMONY MODE:
-   *   "fusion"   (default) one shared key per epoch with the Markov progression over the ground; motifs rendered as
-   *              tonal answers of their real shape; chord pull on strong beats only (lockPull); buildings modulate
-   *              to a CLOSELY RELATED key (dominant / subdominant / relative / parallel)
-   *   "world"    the 2026-10-14 afternoon version (93e85c5): same key and progression, full pull, no modulation
-   *   "identity" a home key per motif, a key per building, the path as a progression
+   *   "fusion"   (default) the harmony state H (harmonyState.ts): tonality = whose weights (home / group /
+   *              building), people as voices, the path as a progression with cadences, approach = dominant,
+   *              staged modulations home, tension; motifs as tonal answers anchored on the chords
+   *   "world"    the 2026-10-14 afternoon version (93e85c5): one key per epoch with a progression over the ground,
+   *              full pull, no modulation
    */
-  harmony: "fusion" | "world" | "identity";
-  /** Who makes the sound: the built-in Web Audio instrument, or a NoiseCraft patch (noisecraft.ts) fed by this engine's plans. */
-  instrument: "webaudio" | "noisecraft";
+  harmony: "fusion" | "world";
+  /**
+   * Who makes the sound: "hybrid" (default) = the melody (me, the near ones, the line) here in Web Audio and the
+   * harmony (bass, pad, texture, traces) in the NoiseCraft patch; "webaudio" = everything here; "noisecraft" =
+   * everything in the patch (noisecraftDriver.ts feeds it this engine's plans either way).
+   */
+  instrument: "webaudio" | "noisecraft" | "hybrid";
   /** How much conforming pulls single notes onto the chord of the place (0 = the motif is never rewritten). */
   lockPull: number;
   /** Share of noise in a voice at full roughness (crossing vegetation): the tonal/noise ratio. */
@@ -94,8 +104,12 @@ export const DEFAULT_SOUND: SoundParams = {
   innerRadius: 5,
   stepEvery: 6,
   harmony: "fusion",
-  instrument: "webaudio",
+  instrument: "hybrid",
 };
+
+/** Whether the Web Audio instrument plays the melody / the harmony under `instrument`. */
+export const playsMelody = (i: SoundParams["instrument"]) => i !== "noisecraft";
+export const playsHarmony = (i: SoundParams["instrument"]) => i === "webaudio";
 
 interface Voice {
   motif: Motif;
@@ -154,6 +168,9 @@ export interface SoundDebug {
   /** Degree of the progression (0 = tonic) and the chord. */
   degree: number;
   chord: string;
+  /** The harmony state in one line (fusion mode). */
+  harmony: string;
+  tension: number;
   /** How far the nearest neighbour has got into my motif (closeness 0..1), and who. */
   nearest: string | null;
   closeness: number;
@@ -193,24 +210,28 @@ export class SoundEngine {
   private yaw = 0;
   private myId = "";
   private epochMs = 0;
-  /** My home key (identity) and the key I am in now (home, or the building's). */
+  /** My home key (identity) and the key I am in now (home, the group's, or the building's). */
   private home: Key | null = null;
   private placeKey: Key | null = null;
-  private atBuilding: string | null = null;
-  /** At a building: the chord of its builders' roots (harmony.tonalityOf), and who they are. */
-  private placeChord: PlaceChord | null = null;
-  private builders: string[] = [];
   /** World mode: the epoch's shared key (cached per epoch). */
   private world: { epochMs: number; key: WorldKey } | null = null;
-  /** The progression: its degree, and how much path I have walked since it last moved. */
+  /** World mode: the degree of the band I stand on. */
   private degree = 0;
-  private walked = 0;
-  private lastPos: { x: number; z: number } | null = null;
-  private steps = 0;
+  /** Fusion mode: the harmony tracker (hysteresis, path, cadences) and the state of the last planned bar. */
+  private tracker = new HarmonyTracker();
+  private place: PlaceState | null = null;
+  private harmony: HarmonyState | null = null;
+  /** The last pitch of my previous bar (anchoring). */
+  private prevLast: number | null = null;
+  /** Plans by bar: the Web Audio scheduler and the NoiseCraft driver ask for the same bars. */
+  private plans = new Map<number, BarPlan>();
+  /** The patch's clock, when it is the master: wall time of a bar's start (NoiseCraftDriver → setGridAnchor). */
+  private anchor: { bar: number; wallMs: number } | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastUpdate = 0;
   private planned = -1;
   private lastPlan: BarPlan | null = null;
+  private line: Voice | null = null;
   private lockedBars = 0;
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
@@ -238,11 +259,13 @@ export class SoundEngine {
       epochMs: this.epochMs,
       yaw: this.yaw,
       bar: p?.bar ?? -1,
-      key: this.placeKey ? keyName(this.placeKey) + (this.params_.harmony === "identity" ? "" : ` [${this.params_.harmony}]`) : "",
-      building: this.atBuilding,
-      builders: this.builders,
-      degree: this.degree,
+      key: this.placeKey ? keyName(this.placeKey) + (this.params_.harmony === "world" ? " [world]" : "") : "",
+      building: this.harmony && this.harmony.source === "building" ? this.harmony.placeId : null,
+      builders: this.harmony?.builders ?? [],
+      degree: this.harmony?.degree ?? this.degree,
       chord: p ? chordName(p.chord) : "",
+      harmony: this.harmony ? harmonyLabel(this.harmony) : "",
+      tension: this.harmony?.tension ?? 0,
       nearest: this.sig?.neighbours[0]?.o ?? null,
       closeness: this.sig?.neighbours[0] ? this.closeness.get(this.sig.neighbours[0].o) ?? 0 : 0,
       bass: p?.bass.length ?? 0,
@@ -338,7 +361,7 @@ export class SoundEngine {
     if (this.ctx.state !== "running") await this.ctx.resume();
     if (this.sinkId !== "default") await applySink(this.ctx, this.sinkId);
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
-    this.master.gain.setTargetAtTime(this.params_.instrument === "webaudio" ? this.params_.master : 0, this.ctx.currentTime, 0.3);
+    this.master.gain.setTargetAtTime(playsMelody(this.params_.instrument) ? this.params_.master : 0, this.ctx.currentTime, 0.3);
     if (this.params_.magenta && this.magentaState === "off") {
       this.magentaState = "loading";
       setTimeout(() => this.magenta.load().then((ok) => (this.magentaState = ok ? "ready" : "failed")), MAGENTA_AFTER_MS);
@@ -366,6 +389,16 @@ export class SoundEngine {
     this.ctx = null;
     this.voices.clear();
     this.me = null;
+    this.line = null;
+  }
+
+  /**
+   * The NoiseCraft patch is the master clock (hybrid / noisecraft): the driver tells when a bar started on the wall
+   * clock, and the Web Audio scheduler counts its bars from there instead of the epoch — so the melody here and
+   * the harmony there are on one beat.
+   */
+  setGridAnchor(bar: number, wallMs: number): void {
+    this.anchor = { bar, wallMs };
   }
 
   private motifOf(id: string): Motif {
@@ -377,7 +410,7 @@ export class SoundEngine {
     return m;
   }
 
-  private newVoice(id: string, blur: number, spatial: boolean): Voice {
+  private newVoice(id: string, blur: number, spatial: boolean, rooms: ("open" | "concrete" | "hall")[] = ["open", "concrete", "hall"]): Voice {
     const ctx = this.ctx!;
     const gain = ctx.createGain();
     gain.gain.value = 0;
@@ -398,9 +431,7 @@ export class SoundEngine {
     }
     filt.connect(gain);
     out.connect(this.dry);
-    out.connect(this.rooms.open);
-    out.connect(this.rooms.concrete);
-    out.connect(this.rooms.hall);
+    for (const r of rooms) out.connect(this.rooms[r]);
     return { motif: this.motifOf(id), gain, filt, panner, blur, seen: ctx.currentTime, level: 0 };
   }
 
@@ -427,71 +458,22 @@ export class SoundEngine {
       this.myId = myId;
       this.home = homeKey(myId);
       this.placeKey = this.home;
-      this.atBuilding = null;
+      this.harmony = null;
+      this.prevLast = null;
+      this.plans.clear();
     }
     this.epochMs = epochMs;
-    if (params.harmony === "world" || params.harmony === "fusion") {
-      // WORLD / FUSION: one key for everybody, the chord from the band of the ground I stand on
+    if (params.harmony === "world") {
+      // WORLD: one key for everybody, the chord from the band of the ground I stand on (93e85c5)
       if (!this.world || this.world.epochMs !== epochMs) this.world = { epochMs, key: worldKey(String(epochMs)) };
       this.degree = this.world.key.degrees[bandOf(sig.x, sig.z)];
-      this.walked = 0;
-      this.lastPos = { x: sig.x, z: sig.z };
-      if (params.harmony === "fusion") {
-        // FUSION: a building modulates to a key closely related to the world's (hysteresis as in identity mode)
-        if (sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
-          this.atBuilding = sig.building.id;
-          this.enterBuilding(sig.building, this.world.key);
-        } else if (this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
-          this.atBuilding = null;
-          this.placeKey = this.world.key;
-          this.placeChord = null;
-          this.builders = [];
-        } else if (this.atBuilding && sig.building && sig.building.id === this.atBuilding) {
-          this.enterBuilding(sig.building, this.world.key); // the builders' weights move: so does the chord
-        } else if (!this.atBuilding) this.placeKey = this.world.key;
-      } else {
-        this.placeKey = this.world.key;
-        this.atBuilding = null;
-      }
-    } else if (this.placeKey && (this.placeKey as WorldKey).degrees) {
-      // back from world mode: my home key again
-      this.placeKey = this.home;
-      this.atBuilding = null;
-      this.degree = 0;
+      this.placeKey = this.world.key;
+      this.harmony = null;
+    } else {
+      // FUSION: the harmony tracker follows the walk; the state itself is made per bar (planFor)
+      this.place = this.tracker.update(myId, sig, params.stepEvery);
+      if (this.placeKey && (this.placeKey as WorldKey).degrees) this.placeKey = this.home; // back from world mode
     }
-    // MODULATION (identity mode): coming to a building puts me in its key (hysteresis so a step at its edge does not
-    // flicker); the change itself lands on the next bar, where the plan is made
-    if (params.harmony === "identity" && sig.building && sig.sealed >= 0.3 && this.atBuilding !== sig.building.id) {
-      this.atBuilding = sig.building.id;
-      this.enterBuilding(sig.building, null);
-      this.degree = 0; // a new key starts on its tonic
-      this.walked = 0;
-    } else if (params.harmony === "identity" && this.atBuilding && (!sig.building || sig.sealed <= 0.1)) {
-      this.atBuilding = null;
-      this.placeKey = this.home;
-      this.placeChord = null;
-      this.builders = [];
-      this.degree = 0;
-      this.walked = 0;
-    } else if (params.harmony === "identity" && this.atBuilding && sig.building && sig.building.id === this.atBuilding) {
-      this.enterBuilding(sig.building, null);
-    }
-    // THE PATH IS A PROGRESSION (identity mode): every `stepEvery` world units walked ON a path move the chord on
-    // (Markov table of the key); off the path it falls back to the tonic once I stop
-    if (params.harmony === "identity" && this.lastPos) {
-      const d = Math.hypot(sig.x - this.lastPos.x, sig.z - this.lastPos.z);
-      if (sig.pathP >= 0.25) {
-        this.walked += d * sig.pathP;
-        if (this.walked >= params.stepEvery && this.placeKey) {
-          this.walked = 0;
-          this.degree = nextDegree(this.placeKey, this.degree, rng(hashString(`${myId}:${this.steps++}`))());
-        }
-      } else if (sig.pathP < 0.1 && sig.speed < 0.3 && this.degree !== 0) {
-        this.degree = 0;
-        this.walked = 0;
-      }
-    }
-    this.lastPos = { x: sig.x, z: sig.z };
     if (!this.myMotif || this.myMotif.id !== myId) this.myMotif = this.motifOf(myId);
     // closeness accumulates on the wall clock (so a headless engine, which only plans, keeps it too)
     const wall = Date.now();
@@ -516,12 +498,16 @@ export class SoundEngine {
     const t = ctx.currentTime;
     const dt = Math.max(0, Math.min(2, t - this.lastUpdate));
     this.lastUpdate = t;
-    this.master.gain.setTargetAtTime(params.instrument === "webaudio" ? params.master : 0, t, 0.3);
+    this.master.gain.setTargetAtTime(playsMelody(params.instrument) ? params.master : 0, t, 0.3);
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
-      this.me = this.newVoice(myId, 0, false);
+      // my voice: dry and close — in the hybrid only the short open room, the hall is the patch's
+      this.me = this.newVoice(myId, 0, false, params.instrument === "hybrid" ? ["open"] : ["open", "concrete", "hall"]);
       this.me.gain.gain.setTargetAtTime(1, t, 0.5);
+      if (this.line) this.dropVoice("line", this.line);
+      this.line = this.newVoice(myId, 0.3, false, ["open", "hall"]);
+      this.line.gain.gain.setTargetAtTime(0.55, t, 0.5);
     }
     // the listener turns with the camera: forward = (sin yaw, 0, cos yaw) in world terms
     const L = ctx.listener;
@@ -544,7 +530,7 @@ export class SoundEngine {
     // who is within earshot: a voice each, placed by HRTF — only for the Web Audio instrument (NoiseCraft plays the
     // others itself) and only the nearest MAX_VOICES (an HRTF panner per bot is what lagged with a dozen bots)
     const alive = new Set<string>();
-    const heard = params.instrument === "webaudio" ? sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES) : [];
+    const heard = playsMelody(params.instrument) ? sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES) : [];
     for (const n of heard) {
       alive.add(n.o);
       let v = this.voices.get(n.o);
@@ -693,8 +679,10 @@ export class SoundEngine {
     const out: Phrase = new Array(PHRASE_STEPS).fill(0);
     if (!this.placeKey) return out;
     const m = this.motifOf(id);
-    const key = this.atBuilding ? this.placeKey : homeKey(id);
-    const chord = this.atBuilding ? this.lastPlan?.chord ?? null : null;
+    // among people (a group, a building) we share the place's key and chord; in the open their own home key
+    const among = this.harmony?.source === "building" || this.harmony?.source === "group";
+    const key = among ? this.placeKey : homeKey(id);
+    const chord = among ? this.lastPlan?.chord ?? null : null;
     for (let c = 0; c < CYCLES_PER_PHRASE; c++) {
       const steps = cycleToSteps(realize(m, key, chord, lock, fromBar + c));
       for (let i = 0; i < STEPS_PER_CYCLE; i++) out[c * STEPS_PER_CYCLE + i] = steps[i];
@@ -716,40 +704,45 @@ export class SoundEngine {
       take(this.magenta.interpolate(this.myPhrase(bar, lock), this.theirPhrase(nearest.o, bar, lock), amount), `vae×${nearest.o}`);
       return;
     }
-    if (stable >= 0.6 && this.lockedBars >= 2 && this.lastPlan) {
+    // the RNN improvises my motif over the chords of the place: among people (a group, a building) or settled on
+    // a path — the line that makes the progression audible as a line (the artist: "Magenta, else what was it for")
+    const among = this.harmony && (this.harmony.source === "building" || this.harmony.source === "group");
+    if ((among || (stable >= 0.6 && this.lockedBars >= 2)) && this.lastPlan) {
       const name = chordName(this.lastPlan.chord);
       take(this.magenta.improvise(this.myPhrase(bar, lock), [magentaChordName(name), magentaChordName(name)]), `rnn ${name}`);
     }
   }
 
   /**
-   * A building's tonality: its builders' leitmotifs (tonalityOf). Nobody known (a hand-built or empty slab): a key
-   * related to `fallback` (fusion: the world key) or the building's own hashed key (identity mode).
-   */
-  private enterBuilding(b: NonNullable<PersonalSignals["building"]>, fallback: Key | null): void {
-    const t = tonalityOf(b.who);
-    if (t) {
-      this.placeKey = t.key;
-      this.placeChord = t.chord;
-      this.builders = t.builders;
-    } else {
-      this.placeKey = fallback ? relatedKey(fallback, b.id) : buildingKey(b.id);
-      this.placeChord = null;
-      this.builders = [];
-    }
-  }
-
-  /**
-   * The plan of bar `bar` from the current signals (sequencer.planBar), with the Magenta requests and the phrase
-   * bookkeeping. Public: the Web Audio scheduler calls it on its grid, the NoiseCraft instrument on NoiseCraft's.
+   * The plan of bar `bar` from the current signals (sequencer.planBar) on the harmony state of that bar
+   * (harmonyState.nextHarmony), with the Magenta requests and the phrase bookkeeping. Memoized per bar: the Web
+   * Audio scheduler and the NoiseCraft driver both ask, and must get the same bar.
    */
   planFor(bar: number): BarPlan | null {
     const sig = this.sig;
-    const key = this.placeKey;
-    if (!sig || !key || !this.myMotif) return null;
+    if (!sig || !this.myMotif || !this.home) return null;
+    const cached = this.plans.get(bar);
+    if (cached) return cached;
     const p = this.params_;
+    const world = p.harmony === "world";
     const stable = conformity(sig);
-    const lock = lockOf(sig, p.harmony === "world" ? 1 : p.lockPull);
+    const lock = lockOf(sig, world ? 1 : p.lockPull);
+    let h: HarmonyState | null = null;
+    if (!world) {
+      const place = this.place ?? this.tracker.update(this.myId, sig, p.stepEvery);
+      h = nextHarmony(this.harmony && this.harmony.bar < bar ? this.harmony : null, {
+        bar,
+        myId: this.myId,
+        sig,
+        place,
+        closeness: this.closeness,
+        rough: roughness(sig, p.speedMax),
+        cadence: this.tracker.takeCadence(),
+      });
+      this.harmony = h;
+      this.placeKey = h.key;
+    }
+    const key = this.placeKey ?? this.home;
     this.lockedBars = stable >= 0.6 ? this.lockedBars + 1 : 0;
     this.askMagenta(bar, sig, lock, stable);
     if (this.phrase && bar - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
@@ -757,16 +750,23 @@ export class SoundEngine {
       bar,
       sig,
       key,
-      building: this.atBuilding,
-      degree: this.degree,
-      chord: this.atBuilding ? this.placeChord : null,
+      building: h && h.source === "building" ? h.placeId : null,
+      degree: h ? h.degree : this.degree,
+      chord: h ? h.chord : null,
+      harmony: h,
+      prevLast: this.prevLast,
+      register: sig.sealed >= 0.5 ? -12 : 0,
       me: this.myMotif,
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: p.harmony === "world" ? 1 : p.lockPull, innerRadius: p.innerRadius },
+      phraseTo: "line",
+      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25, lockPull: world ? 1 : p.lockPull, innerRadius: p.innerRadius },
     });
+    if (plan.me.length) this.prevLast = plan.me[plan.me.length - 1].pitch;
     this.lastPlan = plan;
+    this.plans.set(bar, plan);
+    for (const b of this.plans.keys()) if (b < bar - 8) this.plans.delete(b);
     return plan;
   }
 
@@ -777,7 +777,9 @@ export class SoundEngine {
     if (!ctx || !sig || !key || !this.me || ctx.state !== "running" || !this.epochMs) return;
     const p = this.params_;
     const now = ctx.currentTime;
-    const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
+    // the grid: the patch's clock when it is the master (anchor), else the epoch on the wall clock
+    const epoch = this.anchor && p.instrument !== "webaudio" ? this.anchor.wallMs - this.anchor.bar * p.barSec * 1000 : this.epochMs;
+    const { bar, start } = barClock(epoch, Date.now(), now, p.barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
     const next = this.planned + 1;
     const nextStart = start + (next - bar) * p.barSec;
@@ -786,7 +788,7 @@ export class SoundEngine {
 
     const plan = this.planFor(next);
     if (!plan) return;
-    if (p.instrument !== "webaudio") return; // NoiseCraft makes the sound from its own bars (planFor on its pulses)
+    if (!playsMelody(p.instrument)) return; // NoiseCraft makes the sound from its own bars (planFor on its pulses)
     // a rough walk drifts off the grid and loses notes; a conforming one is steady and complete
     const jitter = p.jitterMax * plan.rough;
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
@@ -799,6 +801,9 @@ export class SoundEngine {
       const theirRough = plan.answer ? plan.rough * 0.3 : plan.rough;
       for (const n of vb.notes) if (kept()) this.note(v.filt, n.freq, nextStart + n.at * p.barSec + human() * 0.5, n.len * p.barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur, theirRough);
     }
+    // the line: a softer second voice of mine (a Magenta phrase), in my register's colour
+    if (this.line) for (const n of plan.line) this.note(this.line.filt, n.freq, nextStart + n.at * p.barSec, n.len * p.barSec, 0.7, this.me.motif.timbre, 0.3, plan.rough * 0.5);
+    if (!playsHarmony(p.instrument)) return; // the harmony (bass, pad) is the patch's in the hybrid
     for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * p.barSec, b.level);
     this.setPad(plan.pad.pitches, plan.pad.level, nextStart);
   }

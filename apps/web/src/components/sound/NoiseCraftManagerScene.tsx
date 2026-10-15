@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SoundEngine, DEFAULT_SOUND } from "@/lib/sound/engine";
 import { getNoiseCraftBridge } from "@/lib/sound/NoiseCraftBridge";
 import { NoiseCraftDriver, type DriverStatus } from "@/lib/sound/noisecraftDriver";
+import { harmonyLabel } from "@/lib/sound/harmonyState";
 import { PULSES_PER_BAR, PULSES_PER_STEP, knobParams, mapFor, modeOf, roughOf } from "@/lib/sound/noisecraftMap";
 import { openBus, type BusMessage, type BusState } from "@/lib/sound/bus";
 import { readSolo, setSolo } from "@/lib/sound/output";
@@ -86,11 +87,11 @@ export default function NoiseCraftManagerScene() {
       if (fresh && b) {
         source = "bus";
         sig = b.sig;
-        engine.update(b.myId, b.sig, { ...b.params, instrument: "noisecraft" }, b.yaw, b.epochMs);
+        engine.update(b.myId, b.sig, { ...b.params, master: masterRef.current }, b.yaw, b.epochMs);
       } else {
         source = "sim";
         sig = simSignals(sim);
-        engine.update("v_manager", sig, { ...DEFAULT_SOUND, instrument: "noisecraft" }, 0, 1700000000000);
+        engine.update("v_manager", sig, { ...DEFAULT_SOUND, master: masterRef.current }, 0, 1700000000000);
       }
       live.current.sig = sig;
       const d = driver.current;
@@ -109,6 +110,8 @@ export default function NoiseCraftManagerScene() {
         running: () => playingRef.current,
         master: () => masterRef.current,
         barSec: () => engine.params.barSec,
+        layer: () => (engine.params.instrument === "noisecraft" ? "all" : "harmony"),
+        onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
       },
       patch,
     );
@@ -120,14 +123,20 @@ export default function NoiseCraftManagerScene() {
     };
   }, [patch, engine]);
 
-  // the solo: while this page plays, the player tab's instrument is quiet
+  // the solo: while this page plays, the player tab's instrument is quiet; in the hybrid this page's own engine
+  // plays the melody (Web Audio, started from the PLAY gesture) while the patch plays the harmony
   useEffect(() => {
-    if (playing) setSolo("manager");
-    else if (readSolo() === "manager") setSolo(null);
+    if (playing) {
+      setSolo("manager");
+      if (engine.params.instrument !== "noisecraft") engine.start().catch(() => {});
+    } else {
+      if (readSolo() === "manager") setSolo(null);
+      engine.stop();
+    }
     return () => {
       if (readSolo() === "manager") setSolo(null);
     };
-  }, [playing]);
+  }, [playing, engine]);
 
   const { sig, source, status, plan } = view;
   const map = mapFor(patch ?? "nc_noise_patch.ncft");
@@ -210,7 +219,7 @@ export default function NoiseCraftManagerScene() {
                 <h3 className="mb-2 text-[10px] uppercase tracking-wider text-[#ff6b9d]">마디</h3>
                 <div className="font-mono text-white/70">
                   {sig ? `mode ${modeOf(sig)}` : ""}
-                  {plan ? ` · bar ${plan.bar} · ${chordName(plan.chord)} (deg ${plan.chord.degree}) · stable ${plan.stable.toFixed(2)} rough ${plan.rough.toFixed(2)}` : ""}
+                  {plan ? ` · bar ${plan.bar} · ${plan.harmony ? harmonyLabel(plan.harmony) : `${chordName(plan.chord)} (deg ${plan.chord.degree})`} · stable ${plan.stable.toFixed(2)} rough ${plan.rough.toFixed(2)}` : ""}
                   {plan ? ` · me ${plan.me.length}n · others ${plan.others.length} · bass ${plan.bass.length} · pad ${plan.pad.level.toFixed(2)}${plan.answer ? " · answer" : ""}` : ""}
                 </div>
               </section>
