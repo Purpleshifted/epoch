@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
-import { DEFAULT_SIGNALS, DEFAULT_SOUND, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
+import { DEFAULT_MOTIF_PRESET, DEFAULT_SIGNALS, DEFAULT_SOUND, MOTIF_PRESETS, MOTIF_PRESET_NAMES, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
 
 export interface SoundSetup {
   engine: SoundEngine;
@@ -37,9 +37,11 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
   useEffect(() => {
     escMuteRef.current = opts.escMute ?? true;
   }, [opts.escMute]);
-  const c = useControls(
+  // a preset puts a whole timbre into the knobs (set); the knobs are then turned from there
+  const setRef = useRef<((v: Record<string, unknown>) => void) | null>(null);
+  const [c, setC] = useControls(
     ROOT,
-    savable(ROOT, {
+    () => savable(ROOT, {
       on: { value: true, label: "켜기 (첫 클릭/터치 뒤 시작)", render: v2 },
       master: { value: DEFAULT_SOUND.master, min: 0, max: 1, step: 0.01, label: "음량", render: v2 },
       barSec: { value: DEFAULT_SOUND.barSec, min: 1, max: 4, step: 0.1, label: "한 마디 길이 (s) — 모두가 같은 박자", render: v2 },
@@ -70,6 +72,17 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       motifEvery: { value: DEFAULT_SOUND.motifEvery, min: 1, max: 6, step: 0.1, label: "내 모티프: 평균 몇 마디에 한 번 (소수점 = 확률)", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
+      motifPreset: {
+        value: DEFAULT_MOTIF_PRESET,
+        options: MOTIF_PRESET_NAMES,
+        label: "모티프 음색 프리셋 (고르면 아래 세부 값이 바뀜)",
+        onChange: (v: string, _path: string, ctx: { initial: boolean }) => {
+          if (ctx.initial) return;
+          const preset = MOTIF_PRESETS[v];
+          if (preset && setRef.current) setRef.current({ ...preset });
+        },
+        render: v2,
+      },
       "모티프 음색 (세부)": folder(
         {
           motifWave: { value: DEFAULT_SOUND.motifWave, options: { "삼각 (부드러움)": "triangle", "사인 (가장 순수)": "sine", "톱니 (밝고 거침)": "sawtooth", "사각 (속이 빈)": "square" }, label: "파형", render: v2 },
@@ -103,7 +116,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       { tag: "v4-a2f-radio", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),
     { collapsed: false, order: -1, render: v2 },
-  ) as unknown as SoundParams & { on: boolean; sealRadius: number };
+  ) as unknown as [SoundParams & { on: boolean; sealRadius: number }, (v: Record<string, unknown>) => void];
+  useEffect(() => {
+    setRef.current = setC;
+  }, [setC]);
 
   const engine = useMemo(() => (isV2 && typeof window !== "undefined" ? new SoundEngine() : null), [isV2]);
   useEffect(() => {
