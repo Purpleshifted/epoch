@@ -535,7 +535,10 @@
             
             const url = new URL(window.location.href);
             const uiMode = url.searchParams.get("ui");
-            if (uiMode !== "minimal") {
+            // out=parent (parliament): the parent's engine takes the MediaStream into its own bus (rooms, filters,
+            // vegetation roughness, the glue) — so the embed must not also play to its own output
+            const outParent = url.searchParams.get("out") === "parent";
+            if (uiMode !== "minimal" && !outParent) {
               audioWorkletNode.connect(audioView.audioCtx.destination); 
             }
             

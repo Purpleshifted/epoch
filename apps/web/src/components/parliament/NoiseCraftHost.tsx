@@ -32,17 +32,22 @@ export default function NoiseCraftHost({ sound }: { sound: SoundSetup }) {
         master: () => master,
         barSec: () => engine.params.barSec,
         layer: (): PatchLayer => (engine.params.instrument === "noisecraft" ? "all" : "harmony"),
+        octave: () => engine.params.ncOctave,
         onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
       },
       patch,
     );
+    // track B: the patch's output goes through the engine's bus (rooms, filter, grain, glue)
+    driver.bridge.onStream = (s) => engine.attachNoiseCraft(s);
     driver.mount(host.current, patch, false);
     const id = setInterval(() => {
       const s = driver.status;
-      setStatus(`noisecraft ${s.patch} (${engine.params.instrument === "noisecraft" ? "all" : "harmony"}) · ${s.audio} · ${s.clocked ? `${(s.pulseHz / PULSES_PER_STEP).toFixed(1)} steps/s · bar ${s.pulseHz > 0 ? (PULSES_PER_BAR / s.pulseHz).toFixed(1) : "–"} s` : "no ClockOut: wall-clock bars"} · bar ${s.bar} · ${s.mode}`);
+      setStatus(`noisecraft ${s.patch} (${engine.params.instrument === "noisecraft" ? "all" : "harmony"}) · ${s.audio}${engine.debug.ncStream ? " → engine bus" : ""} · ${s.clocked ? `${(s.pulseHz / PULSES_PER_STEP).toFixed(1)} steps/s · bar ${s.pulseHz > 0 ? (PULSES_PER_BAR / s.pulseHz).toFixed(1) : "–"} s` : "no ClockOut: wall-clock bars"} · bar ${s.bar} · ${s.mode}`);
     }, 500);
     return () => {
       clearInterval(id);
+      driver.bridge.onStream = undefined;
+      engine.attachNoiseCraft(null);
       driver.dispose();
     };
   }, [engine, patch, master]);

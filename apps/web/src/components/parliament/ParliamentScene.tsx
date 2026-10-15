@@ -14,6 +14,7 @@ import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { useSound } from "./useSound";
 import NoiseCraftHost from "./NoiseCraftHost";
+import SoundButton from "./SoundButton";
 import { seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
@@ -234,6 +235,8 @@ export default function ParliamentScene() {
       )}
       {/* sound wiring: the NoiseCraft instrument (hidden iframe; the editor is /v2/sound) when that instrument is chosen */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} />}
+      {/* sound wiring: this window's own sound button (the artist: "v2 창에 사운드 버튼은 따로 없는데?") */}
+      {sound && !hideChrome && <SoundButton sound={sound} />}
       {/* sound wiring: a visible notice while this window's sound is muted or off (ESC is also the pointer-lock key) */}
       {!hideChrome && debug?.sound && /음소거|꺼짐|클릭하면/.test(debug.sound.split(" · ")[1] ?? "") && (
         <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 select-none rounded bg-black/60 px-3 py-1 font-mono text-[11px] tracking-wider text-amber-200/90">

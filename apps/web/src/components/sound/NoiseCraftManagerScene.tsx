@@ -186,15 +186,16 @@ export default function NoiseCraftManagerScene() {
       const fresh = !!b && Date.now() - b.at < BUS_STALE_MS;
       let sig: PersonalSignals;
       let source: View["source"];
-      const melody = muteRef.current.melody ? 0 : masterRef.current;
+      // both tracks run through this page's engine: the layer mutes are the tracks' levels
+      const mutes = { master: masterRef.current, ...(muteRef.current.melody ? { melLevel: 0 } : {}), ...(muteRef.current.harmony ? { ncLevel: 0 } : {}) };
       if (fresh && b) {
         source = "bus";
         sig = b.sig;
-        engine.update(b.myId, b.sig, { ...b.params, master: melody }, b.yaw, b.epochMs);
+        engine.update(b.myId, b.sig, { ...b.params, ...mutes }, b.yaw, b.epochMs);
       } else {
         source = "sim";
         sig = simSignals(simRef.current);
-        engine.update("v_manager", sig, { ...DEFAULT_SOUND, master: melody }, 0, 1700000000000);
+        engine.update("v_manager", sig, { ...DEFAULT_SOUND, ...mutes }, 0, 1700000000000);
       }
       live.current.sig = sig;
       const d = driver.current;
@@ -219,13 +220,17 @@ export default function NoiseCraftManagerScene() {
         master: () => (muteRef.current.harmony ? 0 : masterRef.current),
         barSec: () => engine.params.barSec,
         layer: () => (engine.params.instrument === "noisecraft" ? "all" : "harmony"),
+        octave: () => engine.params.ncOctave,
         onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
       },
       patch,
     );
     driver.current = d;
+    d.bridge.onStream = (s) => engine.attachNoiseCraft(s); // the patch through the engine's bus here too
     d.mount(container.current, patch, true);
     return () => {
+      d.bridge.onStream = undefined;
+      engine.attachNoiseCraft(null);
       d.dispose();
       driver.current = null;
     };
@@ -236,7 +241,7 @@ export default function NoiseCraftManagerScene() {
   useEffect(() => {
     if (playing) {
       setSolo("manager");
-      if (engine.params.instrument !== "noisecraft") engine.start().catch(() => {});
+      engine.start().catch(() => {}); // the engine is the bus for both tracks now, whatever the instrument
     } else {
       if (readSolo() === "manager") setSolo(null);
       engine.stop();

@@ -35,6 +35,8 @@ export interface DriverSource {
   barSec(): number;
   /** What the patch plays: the harmony (hybrid) or everything. */
   layer?(): PatchLayer;
+  /** Octaves the patch's texture pitch set is shifted (SoundParams.ncOctave). */
+  octave?(): number;
   /** Bar `bar` starts at `wallMs` on the patch's clock (only when clocked): the engine anchors its grid to it. */
   onBar?(bar: number, wallMs: number): void;
 }
@@ -143,7 +145,7 @@ export class NoiseCraftDriver {
     if (!plan) return;
     this.bar = bar;
     this.lastPlan = plan;
-    const seq = planToSequences(plan, this.source.layer?.() ?? "harmony");
+    const seq = planToSequences(plan, this.source.layer?.() ?? "harmony", this.source.octave?.() ?? 0);
     const send = (id: keyof typeof seq) => this.bridge.setSequence(id, seq[id].pitches, seq[id].gates);
     for (const id of ["parliament", "harmony", "pad", "bass", "texture", "line", "me", "n1", "n2", "n3", "traces"] as const) send(id);
   }

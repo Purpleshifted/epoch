@@ -234,7 +234,7 @@ const poly = (voices: Mono[]): Poly => ({
 const hold = (pitch: number, on = true): Mono => ({ pitches: new Array<number>(STEPS_PER_BAR).fill(pitch), gates: [on && pitch > 0 ? STEPS_PER_BAR : 0, ...new Array<number>(STEPS_PER_BAR - 1).fill(0)] });
 
 /** A bar plan (sequencer.ts) as the sequences the patch's receivers take. */
-export function planToSequences(plan: BarPlan, layer: PatchLayer = "harmony"): PatchSequences {
+export function planToSequences(plan: BarPlan, layer: PatchLayer = "harmony", octave = 0): PatchSequences {
   const me = notesToSteps(plan.me);
   const others = [0, 1, 2].map((k) => notesToSteps(plan.others[k]?.notes ?? []));
   // the bass: a soft pulse (a step and a half) on a path, the root held among people
@@ -245,7 +245,7 @@ export function planToSequences(plan: BarPlan, layer: PatchLayer = "harmony"): P
   // the texture's pitch set: the chord's classes over two octaves around the voicing (the patch's triggers play them)
   const classes = plan.chord.classes.slice(0, 4);
   while (classes.length < 4) classes.push(classes[classes.length - 1] ?? plan.chord.rootClass);
-  const texture = poly(classes.map((c, i) => hold(60 + c + (i % 2) * 12)));
+  const texture = poly(classes.map((c, i) => hold(60 + c + (i % 2) * 12 + 12 * octave)));
   const line = notesToSteps(plan.line);
   const traces = poly([0, 1, 2, 3].map((k) => {
     const t = plan.traces[k];
@@ -254,7 +254,7 @@ export function planToSequences(plan: BarPlan, layer: PatchLayer = "harmony"): P
   // hybrid parliament: voice 0 the bass, voices 1–3 the chord's tones above the root (the texture set) — pitched
   // always, so the patch's own triggers keep bubbling on the chord in the open; GATED (a bar-long hold) only among
   // people, where the pad is on, so a voice whose envelope follows the receiver's gate swells there and rests here
-  const tex = classes.slice(1).map((c, i) => hold(60 + c + (i % 2) * 12, voicing.length > 0));
+  const tex = classes.slice(1).map((c, i) => hold(60 + c + (i % 2) * 12 + 12 * octave, voicing.length > 0));
   const parliament = layer === "all" ? poly([me, ...others]) : poly([bass, ...tex]);
   const melody = layer === "all";
   return { parliament, harmony, pad: harmony, bass, texture, line, me: melody ? me : silent(), n1: melody ? others[0] : silent(), n2: melody ? others[1] : silent(), n3: melody ? others[2] : silent(), traces };

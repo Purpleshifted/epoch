@@ -14,6 +14,13 @@
  *                 softer second voice — never in place of my motif.
  *   bass          the root of the place on the downbeat while I follow a path.
  *   pad           the chord of the place held while I stay among others (the building being born).
+ *
+ * ONE BUS, TWO TRACKS (the artist, 2026-10-15 evening: "they still don't blend" — they were two AudioContexts in
+ * two rooms). Track A, the melody (the voices above). Track B, the NoiseCraft patch: the embed's output comes in
+ * as a MediaStream (attachNoiseCraft) and goes through the SAME treatment the melody gets — a low-pass that
+ * closes on concrete, the three rooms, and the vegetation's roughness (an amplitude grain from the noise) — each
+ * with its own amounts (SoundParams mel* / nc*), then both into one master with a gentle glue compressor. The
+ * melody is delayed by `melDelayMs` to meet the stream's latency.
  *   the dull      concrete nearby closes a low-pass over everything.
  *   grass         vegetation around me as a faint bright noise.
  *   rooms         three convolution reverbs, cross-faded by where I am: open ground (short, dark), concrete
@@ -82,6 +89,29 @@ export interface SoundParams {
   noiseMix: number;
   /** intersection's inner radius (world): people this close become voices in my sequence; further = texture only. */
   innerRadius: number;
+  // ── TRACK A: the melody (Web Audio) ──
+  /** Level of the melody track (0..1). */
+  melLevel: number;
+  /** Its send into the rooms (0..1 × the rooms' own mix). */
+  melRoom: number;
+  /** Its bar-synced echo send (0..1). */
+  melEcho: number;
+  /** How much its low-pass follows concrete (0 = never closes, 1 = lpSealed on a building). */
+  melFilter: number;
+  /** Delay (ms) of the melody so it meets the patch's stream latency. */
+  melDelayMs: number;
+  /** Scale of the motifs' micro-tonal colour (1 = the signature's cents, 0 = equal temperament). */
+  colourScale: number;
+  // ── TRACK B: the patch (NoiseCraft through this bus) ──
+  ncLevel: number;
+  ncRoom: number;
+  ncFilter: number;
+  /** Max depth of the vegetation grain on the patch (amplitude modulated by noise × roughness). */
+  ncRough: number;
+  /** Octaves the patch's texture pitch set is shifted (−1 = below the melody's register). */
+  ncOctave: number;
+  /** The glue compressor on the master. */
+  glue: boolean;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -105,6 +135,18 @@ export const DEFAULT_SOUND: SoundParams = {
   stepEvery: 6,
   harmony: "fusion",
   instrument: "hybrid",
+  melLevel: 1,
+  melRoom: 1,
+  melEcho: 0.35,
+  melFilter: 1,
+  melDelayMs: 40,
+  colourScale: 0.5,
+  ncLevel: 1,
+  ncRoom: 0.5,
+  ncFilter: 1,
+  ncRough: 0.5,
+  ncOctave: -1,
+  glue: true,
 };
 
 /** Whether the Web Audio instrument plays the melody / the harmony under `instrument`. */
@@ -191,12 +233,19 @@ export interface SoundDebug {
   magenta: "off" | "loading" | "ready" | "failed";
   phrase: string | null;
   voices: number;
+  /** Whether the patch's stream is routed through this bus. */
+  ncStream: boolean;
 }
 
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
-  private dull!: BiquadFilterNode;
+  private glue!: DynamicsCompressorNode;
+  /** Track A: the melody bus → its delay → its low-pass → dry + a send into the rooms. */
+  private mel!: { bus: GainNode; delay: DelayNode; filt: BiquadFilterNode; send: GainNode };
+  /** Track B: the patch's stream → level → vegetation grain (AM by noise) → low-pass → dry + a send into the rooms. */
+  private nc: { source: MediaStreamAudioSourceNode; level: GainNode; am: GainNode; grain: GainNode; filt: BiquadFilterNode; send: GainNode } | null = null;
+  private ncStream: MediaStream | null = null;
   private dry!: GainNode;
   private rooms!: { open: GainNode; concrete: GainNode; hall: GainNode };
   private noiseGain!: GainNode;
@@ -288,6 +337,7 @@ export class SoundEngine {
       magenta: this.magentaState,
       phrase: this.phrase ? `${this.phrase.kind} @${this.phrase.from}` : null,
       voices: this.voices.size,
+      ncStream: !!this.nc,
     };
   }
 
@@ -298,20 +348,23 @@ export class SoundEngine {
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = 0;
-      this.dull = ctx.createBiquadFilter();
-      this.dull.type = "lowpass";
-      this.dull.frequency.value = this.params_.lpOpen;
-      this.dull.Q.value = 0.5;
-      this.dull.connect(this.master).connect(ctx.destination);
+      // the glue: a gentle compressor both tracks share (threshold 0 dB = off)
+      this.glue = ctx.createDynamicsCompressor();
+      this.glue.threshold.value = -18;
+      this.glue.knee.value = 12;
+      this.glue.ratio.value = 2.5;
+      this.glue.attack.value = 0.01;
+      this.glue.release.value = 0.25;
+      this.master.connect(this.glue).connect(ctx.destination);
       this.dry = ctx.createGain();
-      this.dry.connect(this.dull);
+      this.dry.connect(this.master);
       // three rooms
       const room = (seconds: number, decay: number, taps: number, bright: number, level: number) => {
         const g = ctx.createGain();
         g.gain.value = level;
         const v = ctx.createConvolver();
         v.buffer = impulse(ctx, seconds, decay, taps, bright);
-        g.connect(v).connect(this.dull);
+        g.connect(v).connect(this.master);
         return g;
       };
       this.rooms = {
@@ -319,6 +372,22 @@ export class SoundEngine {
         concrete: room(2.0, 0.6, 6, 0.9, 0),
         hall: room(4.5, 1.6, 0, 0.5, 0),
       };
+      // track A: the melody bus
+      const melBus = ctx.createGain();
+      melBus.gain.value = 1;
+      const melDelay = ctx.createDelay(1);
+      melDelay.delayTime.value = this.params_.melDelayMs / 1000;
+      const melFilt = ctx.createBiquadFilter();
+      melFilt.type = "lowpass";
+      melFilt.frequency.value = this.params_.lpOpen;
+      melFilt.Q.value = 0.5;
+      const melSend = ctx.createGain();
+      melSend.gain.value = this.params_.melRoom;
+      melBus.connect(melDelay).connect(melFilt);
+      melFilt.connect(this.dry);
+      melFilt.connect(melSend);
+      for (const r of ["open", "concrete", "hall"] as const) melSend.connect(this.rooms[r]);
+      this.mel = { bus: melBus, delay: melDelay, filt: melFilt, send: melSend };
       // the listener: at the origin, turned by the camera yaw (update())
       const L = ctx.listener;
       if (L.positionX) {
@@ -377,15 +446,15 @@ export class SoundEngine {
       dark.frequency.value = 2200;
       send.connect(delay);
       delay.connect(dark).connect(fb).connect(delay);
-      delay.connect(this.dry);
-      delay.connect(this.rooms.open);
+      delay.connect(this.mel.bus);
       this.echo = { send, delay, fb };
       this.lastUpdate = ctx.currentTime;
+      if (this.ncStream) this.attachNoiseCraft(this.ncStream);
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
     if (this.sinkId !== "default") await applySink(this.ctx, this.sinkId);
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
-    this.master.gain.setTargetAtTime(playsMelody(this.params_.instrument) ? this.params_.master : 0, this.ctx.currentTime, 0.3);
+    this.master.gain.setTargetAtTime(this.params_.master, this.ctx.currentTime, 0.3);
     if (this.params_.magenta && this.magentaState === "off") {
       this.magentaState = "loading";
       setTimeout(() => this.magenta.load().then((ok) => (this.magentaState = ok ? "ready" : "failed")), MAGENTA_AFTER_MS);
@@ -414,6 +483,57 @@ export class SoundEngine {
     this.voices.clear();
     this.me = null;
     this.line = null;
+  }
+
+  /**
+   * TRACK B: the NoiseCraft embed's output (NoiseCraftBridge.onStream) into this bus — level, the vegetation grain
+   * (amplitude modulated by filtered noise, depth = ncRough × roughness), a low-pass that closes on concrete
+   * (ncFilter), dry + a send into the three rooms. null detaches. Kept until the context exists.
+   */
+  attachNoiseCraft(stream: MediaStream | null): void {
+    this.ncStream = stream;
+    if (this.nc) {
+      try {
+        this.nc.source.disconnect();
+        this.nc.level.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.nc = null;
+    }
+    const ctx = this.ctx;
+    if (!ctx || !stream) return;
+    try {
+      const source = ctx.createMediaStreamSource(stream);
+      const level = ctx.createGain();
+      level.gain.value = 0;
+      const am = ctx.createGain();
+      am.gain.value = 1;
+      const grainNoise = ctx.createBufferSource();
+      grainNoise.buffer = this.noiseBuf;
+      grainNoise.loop = true;
+      const grainLp = ctx.createBiquadFilter();
+      grainLp.type = "lowpass";
+      grainLp.frequency.value = 400;
+      const grain = ctx.createGain();
+      grain.gain.value = 0;
+      grainNoise.connect(grainLp).connect(grain).connect(am.gain);
+      grainNoise.start();
+      const filt = ctx.createBiquadFilter();
+      filt.type = "lowpass";
+      filt.frequency.value = this.params_.lpOpen;
+      filt.Q.value = 0.5;
+      const send = ctx.createGain();
+      send.gain.value = this.params_.ncRoom;
+      source.connect(level).connect(am).connect(filt);
+      filt.connect(this.dry);
+      filt.connect(send);
+      for (const r of ["open", "concrete", "hall"] as const) send.connect(this.rooms[r]);
+      this.nc = { source, level, am, grain, filt, send };
+    } catch (e) {
+      console.warn("[sound] could not route the NoiseCraft stream:", e);
+      this.nc = null;
+    }
   }
 
   /**
@@ -454,8 +574,8 @@ export class SoundEngine {
       out = panner;
     }
     filt.connect(gain);
-    out.connect(this.dry);
-    for (const r of rooms) out.connect(this.rooms[r]);
+    out.connect(this.mel.bus); // every voice is on track A; the rooms are the track's send (rooms[] kept for the signature)
+    void rooms;
     return { motif: this.motifOf(id), gain, filt, panner, blur, seen: ctx.currentTime, level: 0 };
   }
 
@@ -522,7 +642,24 @@ export class SoundEngine {
     const t = ctx.currentTime;
     const dt = Math.max(0, Math.min(2, t - this.lastUpdate));
     this.lastUpdate = t;
-    this.master.gain.setTargetAtTime(playsMelody(params.instrument) ? params.master : 0, t, 0.3);
+    this.master.gain.setTargetAtTime(params.master, t, 0.3);
+    // the two tracks: the melody here unless the patch plays everything; the patch's stream unless only Web Audio
+    this.mel.bus.gain.setTargetAtTime(playsMelody(params.instrument) ? params.melLevel : 0, t, 0.3);
+    this.mel.send.gain.setTargetAtTime(params.melRoom, t, 0.3);
+    this.mel.delay.delayTime.setTargetAtTime(this.nc ? params.melDelayMs / 1000 : 0, t, 0.1);
+    this.echo.send.gain.setTargetAtTime(params.melEcho, t, 0.3);
+    this.glue.threshold.setTargetAtTime(params.glue ? -18 : 0, t, 0.1);
+    const rough = roughness(sig, params.speedMax);
+    const lp = (amount: number) => Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * Math.min(1, sig.sealed * amount));
+    this.mel.filt.frequency.setTargetAtTime(lp(params.melFilter), t, 0.25);
+    if (this.nc) {
+      this.nc.level.gain.setTargetAtTime(params.instrument !== "webaudio" ? params.ncLevel : 0, t, 0.3);
+      this.nc.send.gain.setTargetAtTime(params.ncRoom, t, 0.3);
+      this.nc.filt.frequency.setTargetAtTime(lp(params.ncFilter), t, 0.25);
+      const depth = Math.min(0.9, params.ncRough * rough);
+      this.nc.am.gain.setTargetAtTime(1 - depth, t, 0.3);
+      this.nc.grain.gain.setTargetAtTime(depth * 2, t, 0.3);
+    }
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
@@ -545,9 +682,6 @@ export class SoundEngine {
       L.forwardX.setTargetAtTime(Math.sin(yaw), t, 0.05);
       L.forwardZ.setTargetAtTime(Math.cos(yaw), t, 0.05);
     }
-    // the dull: concrete nearby (log-interpolated cutoff)
-    const cut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed);
-    this.dull.frequency.setTargetAtTime(cut, t, 0.25);
     // vegetation
     this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
     // rooms: open ground → concrete → the hall of building together
@@ -824,19 +958,24 @@ export class SoundEngine {
     const jitter = p.jitterMax * plan.rough;
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
     const kept = () => Math.random() >= plan.rough * 0.35;
+    // the colour (the signature's cents) scaled: freq = base × (freq / base) ^ colourScale
+    const coloured = (n: { pitch: number; freq: number }) => {
+      const base = midiToHz(n.pitch);
+      return base * Math.pow(n.freq / base, p.colourScale);
+    };
 
     // the timbre breathes slowly from bar to bar (a slow sine per motif) and brightens with the walk
     const breath = 0.5 + 0.5 * Math.sin(next * 0.37 + this.me.motif.timbre * 6.28);
     const timbre = Math.max(0, Math.min(1, this.me.motif.timbre * 0.6 + 0.3 * breath + 0.2 * Math.min(1, sig.speed / p.speedMax)));
-    for (const n of plan.me) if (kept()) this.note(this.me.filt, n.freq, nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, timbre, 0, plan.rough);
+    for (const n of plan.me) if (kept()) this.note(this.me.filt, coloured(n), nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, timbre, 0, plan.rough);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
       const theirRough = plan.answer ? plan.rough * 0.3 : plan.rough;
-      for (const n of vb.notes) if (kept()) this.note(v.filt, n.freq, nextStart + n.at * p.barSec + human() * 0.5, n.len * p.barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur, theirRough);
+      for (const n of vb.notes) if (kept()) this.note(v.filt, coloured(n), nextStart + n.at * p.barSec + human() * 0.5, n.len * p.barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur, theirRough);
     }
     // the line: a softer second voice of mine (a Magenta phrase), in my register's colour
-    if (this.line) for (const n of plan.line) this.note(this.line.filt, n.freq, nextStart + n.at * p.barSec, n.len * p.barSec, 0.7, this.me.motif.timbre, 0.3, plan.rough * 0.5);
+    if (this.line) for (const n of plan.line) this.note(this.line.filt, coloured(n), nextStart + n.at * p.barSec, n.len * p.barSec, 0.7, this.me.motif.timbre, 0.3, plan.rough * 0.5);
     if (!playsHarmony(p.instrument)) return; // the harmony (bass, pad) is the patch's in the hybrid
     for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * p.barSec, b.level);
     this.setPad(plan.pad.pitches, plan.pad.level, nextStart);

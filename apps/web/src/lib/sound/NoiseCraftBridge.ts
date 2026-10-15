@@ -59,6 +59,8 @@ export class NoiseCraftBridge {
   /** The embed loaded its project (nodes exist; sequences / params may be sent). */
   public onProjectLoaded?: () => void;
   public onStatus?: (status: NoiseCraftAudioStatus) => void;
+  /** The embed's output as a MediaStream (null when it stops): the engine takes it into its own bus. */
+  public onStream?: (stream: MediaStream | null) => void;
 
   get iframeElement(): HTMLIFrameElement | null {
     return this.iframe;
@@ -81,7 +83,8 @@ export class NoiseCraftBridge {
 
   noisecraftUrl(filename = this.currentPatchFilename): string {
     // a hidden iframe (the player tab) asks the embed to run without its editor view (view=hidden): no DOM work
-    return `/noisecraft/public/embedded.html?src=${encodeURIComponent(`/noisecraft/examples/${filename}`)}&ui=full${this._editorVisible ? "" : "&view=hidden"}`;
+    // out=parent: the embed plays only into its MediaStream, which the engine routes (engine.attachNoiseCraft)
+    return `/noisecraft/public/embedded.html?src=${encodeURIComponent(`/noisecraft/examples/${filename}`)}&ui=full&out=parent${this._editorVisible ? "" : "&view=hidden"}`;
   }
 
   /** Create (or move) the iframe into `container`; hidden off-screen unless `visible`. Reloads on a new patch. */
@@ -170,9 +173,11 @@ export class NoiseCraftBridge {
         break;
       case "noiseCraft:audioStreamReady":
         this.tryConnectAnalyser();
+        this.onStream?.(this.stream);
         break;
       case "noiseCraft:audioStreamStopped":
         this.disconnectAnalyser();
+        this.onStream?.(null);
         break;
       case "noiseCraft:audioState":
         if (d.status === "playing") this._status = "playing";
@@ -186,6 +191,12 @@ export class NoiseCraftBridge {
         this.onClockPulse?.(String(d.nodeId ?? ""), Number(d.pulseTime ?? 0));
         break;
     }
+  }
+
+  /** The embed's output stream (window.noiseCraftMediaStream), or null before audio starts. */
+  get stream(): MediaStream | null {
+    const w = this.iframe?.contentWindow as (Window & { noiseCraftMediaStream?: MediaStream }) | null | undefined;
+    return w?.noiseCraftMediaStream ?? null;
   }
 
   /** The embed exposes its MediaStream for an analyser (spectral data for a visual, as umwelt used it). */
