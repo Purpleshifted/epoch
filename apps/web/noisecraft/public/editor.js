@@ -179,6 +179,12 @@ export class Editor {
       return;
     }
 
+    // A sequence arriving from the bridge changes nothing the receiver draws: without this every bar (7 modules)
+    // fell through to "recreating UI nodes" — the whole patch rebuilt 7 times a bar, the main thread choking
+    if (action instanceof model.SetSequence) {
+      return;
+    }
+
     // Set a parameter on a node
     if (action instanceof model.SetParam) {
       if (action.paramName == "value") {
@@ -218,6 +224,17 @@ export class Editor {
         action.value
       );
 
+      return;
+    }
+
+    // Replace a whole sequencer pattern (a GateSeq fed by the bridge)
+    if (action instanceof model.SetPatternData) {
+      let grid = newState.nodes[action.nodeId].patterns[action.patIdx];
+      if (action.patIdx in node.cellDivs) {
+        for (let i = 0; i < grid.length; ++i)
+          for (let j = 0; j < grid[i].length; ++j)
+            node.setGridCell(action.patIdx, i, j, grid[i][j]);
+      }
       return;
     }
 

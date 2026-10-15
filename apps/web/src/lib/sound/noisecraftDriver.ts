@@ -1,10 +1,13 @@
 /**
  * sound/noisecraftDriver.ts — the sequencer's brain driving a NoiseCraft patch (docs/sound-logic.md §8b).
  *
- *   BARS      NoiseCraft is the master clock: a ClockOut node in the patch reports every pulse (6 per 16th step);
- *             16 steps = one bar. AI_Seq never resets its step index, so the next bar's sequences are sent on the
- *             LAST pulse of the bar and are read from step 0. Without a ClockOut (a patch the artist has not wired)
- *             the driver falls back to umwelt's way: a wall-clock timer, sequences every bar, phase unaligned.
+ *   BARS      NoiseCraft is the master clock: a ClockOut node in the patch reports every pulse (6 per step);
+ *             16 steps = one bar (noisecraftMap.STEPS_PER_BAR). AI_Seq never resets its step index, so the next
+ *             bar's sequences are sent on the LAST pulse of the bar and are read from step 0. Without a ClockOut
+ *             (a patch the artist has not wired) the driver falls back to umwelt's way: a wall-clock timer,
+ *             sequences every bar, phase unaligned.
+ *   TEMPO     the patch's sequencer clock is a Pulse whose rate is a knob the mapping drives from barSec
+ *             (noisecraftMap.CLOCK_RULE), so the bar is as long here as in the Web Audio instrument.
  *   PLAN      every bar the engine plans it (engine.planFor → sequencer.planBar) from the latest signals; the plan
  *             becomes AI_Poly "parliament" (voices = participants), "bass", "pad" (noisecraftMap.planToSequences).
  *   KNOBS     every 250 ms the coded mapping (noisecraftMap.knobParams) sends what moved.
@@ -24,6 +27,8 @@ export interface DriverSource {
   /** Whether the sound should play now (on / not muted / not soloed away). */
   running(): boolean;
   master(): number;
+  /** Seconds per bar (the engine's barSec): drives the patch's sequencer clock. */
+  barSec(): number;
 }
 
 export interface DriverStatus {
@@ -32,7 +37,7 @@ export interface DriverStatus {
   bar: number;
   mode: SoundMode | "-";
   clocked: boolean;
-  /** Pulses per second of the patch's clock (0 until measured): steps/s = this / 6, bar seconds = 48 / this. */
+  /** Pulses per second of the patch's clock (0 until measured): steps/s = this / PULSES_PER_STEP, bar seconds = PULSES_PER_BAR / this. */
   pulseHz: number;
   lastKnobs: number;
 }
@@ -58,7 +63,7 @@ export class NoiseCraftDriver {
     this.source = source;
     this.bridge = bridge;
     this.map = mapFor(patch);
-    bridge.onClockPulse = () => this.onPulse();
+    bridge.onClockPulse = (_node, pulseTime) => this.onPulse(pulseTime);
     bridge.onProjectLoaded = () => {
       this.pulses = -1;
       this.bar = -1;
@@ -83,7 +88,7 @@ export class NoiseCraftDriver {
   get status(): DriverStatus {
     const sig = this.source.signals();
     const pt = this.pulseTimes;
-    const pulseHz = pt.length >= 2 ? ((pt.length - 1) * 1000) / Math.max(1, pt[pt.length - 1] - pt[0]) : 0;
+    const pulseHz = pt.length >= 2 ? (pt.length - 1) / Math.max(0.001, pt[pt.length - 1] - pt[0]) : 0;
     return {
       patch: this.bridge.patch,
       audio: this.bridge.status,
@@ -99,12 +104,12 @@ export class NoiseCraftDriver {
     return this.lastPlan;
   }
 
-  private onPulse(): void {
+  /** `pulseTime` is the patch's AUDIO time (s): the rate is measured on it, not on when the message arrived. */
+  private onPulse(pulseTime: number): void {
     this.clocked = true;
     this.pulses++;
-    const now = performance.now();
-    this.pulseTimes.push(now);
-    while (this.pulseTimes.length > 48) this.pulseTimes.shift();
+    this.pulseTimes.push(pulseTime);
+    while (this.pulseTimes.length > PULSES_PER_BAR) this.pulseTimes.shift();
     if (this.pulses === 0) this.sendBar(0);
     // the last pulse before the next bar: send it now so AI_Seq reads it from step 0
     if (this.pulses % PULSES_PER_BAR === PULSES_PER_BAR - 1) this.sendBar(Math.floor(this.pulses / PULSES_PER_BAR) + 1);
@@ -144,7 +149,7 @@ export class NoiseCraftDriver {
     if (!should || !this.bridge.loaded) return;
     const sig = this.source.signals();
     if (!sig) return;
-    const params = knobParams(this.map, { sig, mode: modeOf(sig), plan: this.lastPlan, master: this.source.master() }, this.lastKnobs);
+    const params = knobParams(this.map, { sig, mode: modeOf(sig), plan: this.lastPlan, master: this.source.master(), barSec: this.source.barSec() }, this.lastKnobs);
     this.bridge.setParams(params);
   }
 

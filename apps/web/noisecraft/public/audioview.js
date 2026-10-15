@@ -69,6 +69,18 @@ export class AudioView
             return;
         }
 
+        if (action instanceof model.SetPatternData)
+        {
+            this.send({
+                type: 'SET_PATTERN_DATA',
+                nodeId: action.nodeId,
+                patIdx: action.patIdx,
+                grid: state.nodes[action.nodeId].patterns[action.patIdx]
+            });
+
+            return;
+        }
+
         if (action instanceof model.ToggleCell)
         {
             this.send({

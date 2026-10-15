@@ -24,6 +24,8 @@ export interface MapContext {
   plan: BarPlan | null;
   /** Master level 0..1 (Leva). */
   master: number;
+  /** Seconds per bar (Leva barSec): the patch's sequencer clock follows it (CLOCK_RULE). */
+  barSec: number;
 }
 
 export interface KnobRule {
@@ -63,6 +65,22 @@ export function modeOf(s: PersonalSignals): SoundMode {
   if (s.pathP >= 0.25) return "path";
   return "open";
 }
+
+/**
+ * The sequencer clock of nc_noise_patch: a Knob "clock" (Hz) → Pulse "seq clock" → every AI_Seq, the GateSeq and
+ * the ClockOut. A step is 6 rising edges and a bar 16 steps, so the knob is PULSES_PER_BAR / barSec Hz: 48 Hz for
+ * the 2 s bar, the still visitor's 3 s bar 32 Hz, the running one's 1.2 s bar 80 Hz. The artist's own Pulse 173
+ * (BPM 120 → 2 Hz) keeps driving the patch's random triggers and is no longer the sequencer's clock.
+ */
+export const CLOCK_KNOB = { nodeId: "306", min: 16, max: 128 };
+export const CLOCK_RULE: KnobRule = {
+  nodeId: CLOCK_KNOB.nodeId,
+  label: "clock (Hz) — 96 / barSec",
+  min: CLOCK_KNOB.min,
+  max: CLOCK_KNOB.max,
+  drive: (c) => (PULSES_PER_BAR / Math.max(0.5, c.barSec) - CLOCK_KNOB.min) / (CLOCK_KNOB.max - CLOCK_KNOB.min),
+  deadband: 0.002,
+};
 
 /** nc_noise_patch.ncft and Feedback_Synth.ncft (same knob ids). */
 export const HEADSET_MAP: PatchMap = {
@@ -110,8 +128,11 @@ export const GLOBAL_MAP: PatchMap = {
   ],
 };
 
+/** nc_noise_patch.ncft: the headset knobs plus its sequencer clock. */
+export const NC_NOISE_MAP: PatchMap = { modules: HEADSET_MAP.modules, knobs: [...HEADSET_MAP.knobs, CLOCK_RULE] };
+
 export const PATCH_MAPS: Record<string, PatchMap> = {
-  "nc_noise_patch.ncft": HEADSET_MAP,
+  "nc_noise_patch.ncft": NC_NOISE_MAP,
   "Feedback_Synth.ncft": HEADSET_MAP,
   "global_audio.ncft": GLOBAL_MAP,
 };
@@ -135,27 +156,39 @@ export function knobParams(map: PatchMap, c: MapContext, last?: Map<string, numb
 }
 
 /**
- * One AI_Seq step = one step of our 8-step cycle; the PATCH's clock (its BPM / Div nodes) sets how fast the cycle
- * runs. A step is CLOCK_PPS = 6 rising edges of the clock (noisecraft/public/music.js).
+ * THE RHYTHM. A bar is 16 AI_Seq steps (a step = CLOCK_PPS = 6 rising edges of the patch's sequencer clock,
+ * noisecraft/public/music.js), so a motif's 8-step cycle keeps its cell when the bar holds it twice (density 2,
+ * sequencer.placeInBar) and the half-bar pad / bass land on the grid. A gate is not on / off but a LENGTH IN STEPS
+ * (motif.ts: a note lasts 85 % of the way to the next onset): the fork's AI_Seq / AI_Poly hold their gate that long
+ * (gateT input = a multiplier, default 1), so envelopes breathe with the cell instead of blipping — the legato and
+ * the rests of the leitmotif as the Web Audio instrument played them.
  */
-export const STEPS_PER_BAR = 8;
+export const STEPS_PER_BAR = 16;
 export const PULSES_PER_STEP = 6;
 export const PULSES_PER_BAR = STEPS_PER_BAR * PULSES_PER_STEP;
+/** Shortest gate (steps) so an envelope still opens on a very short note. */
+export const MIN_GATE_STEPS = 0.5;
 
-/** A voice's notes (onset 0..1 of the bar, MIDI) on the 16-step grid: pitch per step (held), gate on onsets. */
-export function notesToSteps(notes: readonly { at: number; pitch: number }[], steps = STEPS_PER_BAR): { pitches: number[]; gates: number[] } {
+/**
+ * A voice's notes (onset 0..1 of the bar, MIDI, length 0..1 of the bar) on the grid: pitch per step (held), gate on
+ * onsets with the note's length in steps (capped at the bar; a note with no length lasts one step).
+ */
+export function notesToSteps(notes: readonly { at: number; pitch: number; len?: number }[], steps = STEPS_PER_BAR): { pitches: number[]; gates: number[] } {
   const pitches = new Array<number>(steps).fill(0);
   const gates = new Array<number>(steps).fill(0);
-  const byStep = new Map<number, number>();
-  for (const n of notes) byStep.set(Math.min(steps - 1, Math.round(n.at * steps)), n.pitch);
+  const byStep = new Map<number, { pitch: number; len: number }>();
+  for (const n of notes) {
+    const len = n.len == null ? 1 : Math.max(MIN_GATE_STEPS, Math.min(steps, n.len * steps));
+    byStep.set(Math.min(steps - 1, Math.round(n.at * steps)), { pitch: n.pitch, len: +len.toFixed(2) });
+  }
   let last = 0;
   const first = byStep.size ? Math.min(...byStep.keys()) : -1;
-  if (first >= 0) last = byStep.get(first)!;
+  if (first >= 0) last = byStep.get(first)!.pitch;
   for (let i = 0; i < steps; i++) {
-    const p = byStep.get(i);
-    if (p != null) {
-      last = p;
-      gates[i] = 1;
+    const n = byStep.get(i);
+    if (n) {
+      last = n.pitch;
+      gates[i] = n.len;
     }
     pitches[i] = last;
   }
@@ -170,7 +203,7 @@ export interface PatchSequences {
   n2: { pitches: number[]; gates: number[] };
   n3: { pitches: number[]; gates: number[] };
   bass: { pitches: number[]; gates: number[] };
-  /** AI_Poly "pad": the chord held (gate on the downbeat and the half bar). */
+  /** AI_Poly "pad": the chord held (a half-bar gate on the downbeat and the half bar). */
   pad: { pitches: number[][]; gates: number[][] };
 }
 
@@ -183,12 +216,14 @@ export function planToSequences(plan: BarPlan): PatchSequences {
     pitches: Array.from({ length: STEPS_PER_BAR }, (_, i) => voices.map((v) => v.pitches[i])),
     gates: Array.from({ length: STEPS_PER_BAR }, (_, i) => voices.map((v) => v.gates[i])),
   };
-  const bass = notesToSteps(plan.bass.map((b) => ({ at: b.at, pitch: b.pitch })));
+  // the walking bass: a soft pulse, a step and a half
+  const bass = notesToSteps(plan.bass.map((b) => ({ at: b.at, pitch: b.pitch, len: 1.5 / STEPS_PER_BAR })));
   const padPitches = plan.pad.level > 0 ? plan.pad.pitches.slice(0, 4) : [];
   while (padPitches.length && padPitches.length < 4) padPitches.push(padPitches[padPitches.length - 1]);
   const pad = {
     pitches: Array.from({ length: STEPS_PER_BAR }, () => (padPitches.length ? padPitches.slice() : [0, 0, 0, 0])),
-    gates: Array.from({ length: STEPS_PER_BAR }, (_, i) => (padPitches.length && (i === 0 || i === STEPS_PER_BAR / 2) ? [1, 1, 1, 1] : [0, 0, 0, 0])),
+    // held for the half bar it starts: a chord that breathes twice a bar, not two blips
+    gates: Array.from({ length: STEPS_PER_BAR }, (_, i) => (padPitches.length && (i === 0 || i === STEPS_PER_BAR / 2) ? [STEPS_PER_BAR / 2, STEPS_PER_BAR / 2, STEPS_PER_BAR / 2, STEPS_PER_BAR / 2] : [0, 0, 0, 0])),
   };
   return { parliament, me, n1: others[0], n2: others[1], n3: others[2], bass, pad };
 }

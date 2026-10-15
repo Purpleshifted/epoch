@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { NoiseCraftDriver } from "@/lib/sound/noisecraftDriver";
+import { PULSES_PER_BAR, PULSES_PER_STEP } from "@/lib/sound/noisecraftMap";
 import { mutedBySolo } from "@/lib/sound/output";
 import type { SoundSetup } from "./useSound";
 
@@ -28,13 +29,14 @@ export default function NoiseCraftHost({ sound }: { sound: SoundSetup }) {
         planFor: (bar) => engine.planFor(bar),
         running: () => engine.running && !mutedBySolo("mobile"),
         master: () => master,
+        barSec: () => engine.params.barSec,
       },
       patch,
     );
     driver.mount(host.current, patch, false);
     const id = setInterval(() => {
       const s = driver.status;
-      setStatus(`noisecraft ${s.patch} · ${s.audio} · ${s.clocked ? `${(s.pulseHz / 6).toFixed(2)} steps/s` : "no ClockOut: wall-clock bars"} · bar ${s.bar} · ${s.mode}`);
+      setStatus(`noisecraft ${s.patch} · ${s.audio} · ${s.clocked ? `${(s.pulseHz / PULSES_PER_STEP).toFixed(1)} steps/s · bar ${s.pulseHz > 0 ? (PULSES_PER_BAR / s.pulseHz).toFixed(1) : "–"} s` : "no ClockOut: wall-clock bars"} · bar ${s.bar} · ${s.mode}`);
     }, 500);
     return () => {
       clearInterval(id);

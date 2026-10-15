@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SoundEngine, DEFAULT_SOUND } from "@/lib/sound/engine";
 import { getNoiseCraftBridge } from "@/lib/sound/NoiseCraftBridge";
 import { NoiseCraftDriver, type DriverStatus } from "@/lib/sound/noisecraftDriver";
-import { knobParams, mapFor, modeOf, roughOf } from "@/lib/sound/noisecraftMap";
+import { PULSES_PER_BAR, PULSES_PER_STEP, knobParams, mapFor, modeOf, roughOf } from "@/lib/sound/noisecraftMap";
 import { openBus, type BusMessage, type BusState } from "@/lib/sound/bus";
 import { readSolo, setSolo } from "@/lib/sound/output";
 import { chordName } from "@/lib/sound/harmony";
@@ -108,6 +108,7 @@ export default function NoiseCraftManagerScene() {
         planFor: (bar) => engine.planFor(bar),
         running: () => playingRef.current,
         master: () => masterRef.current,
+        barSec: () => engine.params.barSec,
       },
       patch,
     );
@@ -130,7 +131,7 @@ export default function NoiseCraftManagerScene() {
 
   const { sig, source, status, plan } = view;
   const map = mapFor(patch ?? "nc_noise_patch.ncft");
-  const knobs = sig ? knobParams(map, { sig, mode: modeOf(sig), plan, master }) : [];
+  const knobs = sig ? knobParams(map, { sig, mode: modeOf(sig), plan, master, barSec: engine.params.barSec }) : [];
 
   return (
     <div className="flex h-screen w-screen flex-col bg-[#020205] text-white" style={{ fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -157,7 +158,7 @@ export default function NoiseCraftManagerScene() {
               음량 <input type="range" min={0} max={1} step={0.01} value={master} onChange={(e) => setMaster(+e.target.value)} />
             </label>
             <span className="ml-auto font-mono text-[10px] text-white/40">
-              {status ? `${status.audio} · ${status.clocked ? `클록 ${(status.pulseHz / 6).toFixed(2)} 스텝/s (마디 ${status.pulseHz > 0 ? (48 / status.pulseHz).toFixed(1) : "–"} s)` : "ClockOut 없음 (벽시계 마디)"} · bar ${status.bar} · ${status.mode}` : ""} · 입력: {source === "bus" ? "플레이어 탭 (bus)" : "시뮬레이터"}
+              {status ? `${status.audio} · ${status.clocked ? `클록 ${(status.pulseHz / PULSES_PER_STEP).toFixed(1)} 스텝/s (마디 ${status.pulseHz > 0 ? (PULSES_PER_BAR / status.pulseHz).toFixed(1) : "–"} s)` : "ClockOut 없음 (벽시계 마디)"} · bar ${status.bar} · ${status.mode}` : ""} · 입력: {source === "bus" ? "플레이어 탭 (bus)" : "시뮬레이터"}
             </span>
           </div>
           <div className="flex min-h-0 flex-1">

@@ -118,6 +118,12 @@ export class AudioGraph
             }
             break;
 
+            case 'SET_PATTERN_DATA':
+            if (node.setPatternData) {
+                node.setPatternData(msg.patIdx, msg.grid);
+            }
+            break;
+
             default:
             throw new TypeError('unknown message type');
         }
@@ -732,6 +738,14 @@ class Sequencer extends AudioNode
     }
 
     /**
+     * Replace a whole pattern at once (SetPatternData from the bridge)
+     */
+    setPatternData(patIdx, grid)
+    {
+        this.state.patterns[patIdx] = grid;
+    }
+
+    /**
      * Queue the next pattern to play
      */
     queuePattern(patIdx, patData)
@@ -1027,6 +1041,10 @@ class AI_Seq extends AudioNode {
         this.clockSgn = false;
         this.trigTime = 0;
         this.clockCnt = 0;
+        // A gate value is a LENGTH IN STEPS (× the gateT input): the step length is measured from the clock
+        this.lastEdge = -1;
+        this.stepDur = 0.125;
+        this.noteLen = 0.125;
     }
 
     /**
@@ -1045,6 +1063,10 @@ class AI_Seq extends AudioNode {
         // Rising edge of the clock
         if (!this.clockSgn && clock > 0)
         {
+            if (this.lastEdge >= 0 && time > this.lastEdge)
+                this.stepDur = (time - this.lastEdge) * music.CLOCK_PPS;
+            this.lastEdge = time;
+
             if (this.clockCnt === 0)
             {
                 this.clockCnt = music.CLOCK_PPS;
@@ -1067,9 +1089,9 @@ class AI_Seq extends AudioNode {
                         this.freq = 440 * Math.pow(2, (pitch - 69) / 12);
                         this.gateState = 'pretrig';
                         this.trigTime = time;
-                    } else {
-                        this.gateState = 'off';
+                        this.noteLen = gate * this.stepDur * gateTime;
                     }
+                    // a rest step does not cut a note still held: its length is in steps and may span rests
                     
                     this.stepIdx++;
                 }
@@ -1091,7 +1113,7 @@ class AI_Seq extends AudioNode {
                 return [0, 0]; // force gate to 0 for one cycle to retrigger envelopes
 
             case 'on':
-                if (time - this.trigTime > gateTime)
+                if (time - this.trigTime > this.noteLen)
                 {
                     this.gateState = 'off';
                     this.trigTime = 0;
@@ -1124,6 +1146,10 @@ class AI_Poly extends AudioNode {
         this.clockSgn = false;
         this.trigTimes = [0, 0, 0, 0];
         this.clockCnt = 0;
+        // A gate value is a LENGTH IN STEPS (× the gateT input): the step length is measured from the clock
+        this.lastEdge = -1;
+        this.stepDur = 0.125;
+        this.noteLens = [0.125, 0.125, 0.125, 0.125];
     }
 
     setSequence(pitches, gates) {
@@ -1133,6 +1159,10 @@ class AI_Poly extends AudioNode {
 
     update(time, clock, gateTime) {
         if (!this.clockSgn && clock > 0) {
+            if (this.lastEdge >= 0 && time > this.lastEdge)
+                this.stepDur = (time - this.lastEdge) * music.CLOCK_PPS;
+            this.lastEdge = time;
+
             if (this.clockCnt === 0) {
                 this.clockCnt = music.CLOCK_PPS;
                 
@@ -1149,8 +1179,7 @@ class AI_Poly extends AudioNode {
                             this.freqs[v] = 440 * Math.pow(2, (pitch - 69) / 12);
                             this.gateStates[v] = 'pretrig';
                             this.trigTimes[v] = time;
-                        } else {
-                            this.gateStates[v] = 'off';
+                            this.noteLens[v] = gate * this.stepDur * gateTime;
                         }
                     }
                     this.stepIdx++;
@@ -1172,7 +1201,7 @@ class AI_Poly extends AudioNode {
                     out.push(0, 0);
                     break;
                 case 'on':
-                    if (time - this.trigTimes[v] > gateTime) {
+                    if (time - this.trigTimes[v] > this.noteLens[v]) {
                         this.gateStates[v] = 'off';
                         this.trigTimes[v] = 0;
                     }

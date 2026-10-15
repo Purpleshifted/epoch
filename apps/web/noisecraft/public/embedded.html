@@ -164,6 +164,7 @@
         Stop,
         ToggleCell,
         SetSequence,
+        SetPatternData,
       } from "./model.js";
       import { AudioView } from "./audioview.js";
       import { Editor } from "./editor.js";
@@ -779,7 +780,12 @@
           const isStreamParamUpdate =
             actionType === "SetParam" && action?.paramName === "value";
           const isProgrammaticUpdate =
-            isStreamParamUpdate || actionType === "SetCurStep";
+            isStreamParamUpdate ||
+            actionType === "SetCurStep" ||
+            actionType === "SetSequence" || // the bridge's bars
+            actionType === "SetPatternData" || // the bridge's rhythm
+            actionType === "SetPattern" ||
+            actionType === "ClockPulse";
 
           if (
             autoSaveEnabled &&
@@ -1447,39 +1453,41 @@
           }, 10);
         } else if (data.type === "noiseCraft:setSequence") {
           if (app.model && app.audioView) {
-            const { nodeId, pitches, gates } = data; // Here nodeId is actually the moduleId
-            
+            // nodeId is a MODULE id (parliament / me / n1… / bass / pad); AI_Seq / AI_Poly nodes that chose it take
+            // the pitches and gates; a GateSeq NAMED after it takes the rhythm alone (row = voice, gate0 = voice 0)
+            const { nodeId, pitches, gates } = data;
             let matched = false;
-            // Find all AI_Seq nodes that have this moduleId selected
+            const unbound = [];
             for (const [id, nodeState] of Object.entries(app.model.state.nodes)) {
-              if ((nodeState.type === "AI_Seq" || nodeState.type === "AI_Poly") && nodeState.params.moduleId == nodeId) {
-                matched = true;
-                // Update model state (which triggers audioView update and auto-save)
-                try {
+              const t = nodeState.type;
+              if (t === "AI_Seq" || t === "AI_Poly") {
+                if (nodeState.params.moduleId == nodeId) {
+                  matched = true;
                   app.model.update(new SetSequence(id, pitches, gates));
-                } catch (e) {
-                  // Fallback if SetSequence is not yet loaded globally on model
-                  app.audioView.send({
-                    type: "SET_SEQUENCE",
-                    nodeId: id,
-                    pitches: pitches,
-                    gates: gates
-                  });
+                } else if (!nodeState.params.moduleId) {
+                  unbound.push(id);
                 }
+              } else if (t === "GateSeq" && nodeState.name === nodeId && Array.isArray(gates)) {
+                matched = true;
+                const grid = nodeState.patterns[nodeState.curPattern];
+                const rows = nodeState.numRows;
+                const next = [];
+                for (let step = 0; step < grid.length; step++) {
+                  const g = gates.length ? gates[step % gates.length] : 0;
+                  const row = new Array(rows).fill(0);
+                  for (let v = 0; v < rows; v++) {
+                    const gv = Array.isArray(g) ? (g[v] ?? 0) : (v === 0 ? g : 0);
+                    row[rows - 1 - v] = gv > 0 ? 1 : 0; // internal row 0 is the top row = the last output
+                  }
+                  next.push(row);
+                }
+                app.model.update(new SetPatternData(id, nodeState.curPattern, next));
               }
             }
-            
-            // Fallback: If no exact match found (user deleted/recreated seq_out), apply to ALL AI sequence nodes
-            if (!matched) {
-              for (const [id, nodeState] of Object.entries(app.model.state.nodes)) {
-                if (nodeState.type === "AI_Seq" || nodeState.type === "AI_Poly") {
-                  try {
-                    app.model.update(new SetSequence(id, pitches, gates));
-                  } catch (e) {
-                    app.audioView.send({ type: "SET_SEQUENCE", nodeId: id, pitches: pitches, gates: gates });
-                  }
-                }
-              }
+            // umwelt's fallback, narrowed: receivers with NO module chosen follow "parliament" (their voice param
+            // picks the part) — never a receiver bound to another module, which the old fallback overwrote
+            if (!matched && nodeId === "parliament") {
+              for (const id of unbound) app.model.update(new SetSequence(id, pitches, gates));
             }
           }
         } else if (data.type === "noiseCraft:updateModules") {

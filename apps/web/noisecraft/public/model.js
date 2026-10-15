@@ -46,7 +46,7 @@ export const NODE_SCHEMA =
     'AI_Seq': {
         ins: [
             { name: 'clock', default: 0 },
-            { name: 'gateT', default: 0.1 }
+            { name: 'gateT', default: 1 }
         ],
         outs: ['freq', 'gate'],
         params: [
@@ -54,20 +54,20 @@ export const NODE_SCHEMA =
             { name: 'voice', default: 0 }
         ],
         state: ['pitches', 'gates'],
-        description: 'AI Sequence Receiver (Unlimited Steps)',
+        description: 'AI Sequence Receiver (Unlimited Steps): gates are lengths in steps × gateT',
     },
 
     'AI_Poly': {
         ins: [
             { name: 'clock', default: 0 },
-            { name: 'gateT', default: 0.1 }
+            { name: 'gateT', default: 1 }
         ],
         outs: ['freq0', 'gate0', 'freq1', 'gate1', 'freq2', 'gate2', 'freq3', 'gate3'],
         params: [
             { name: 'moduleId', default: '' }
         ],
         state: ['pitches', 'gates'],
-        description: 'AI Polyphonic Receiver (4 voices)',
+        description: 'AI Polyphonic Receiver (4 voices): gates are lengths in steps × gateT',
     },
 
     'AudioOut': {
@@ -1741,6 +1741,42 @@ export class SetSequence extends Action
         let node = model.state.nodes[this.nodeId];
         node.pitches = this.pitches;
         node.gates = this.gates;
+    }
+}
+
+/**
+ * Replace a whole pattern of a GateSeq at once (the bridge's rhythm receiver: a GateSeq named after a module
+ * takes that module's gates, one row per voice). Not undoable, not saved: it is the sound logic playing.
+ */
+export class SetPatternData extends Action
+{
+    constructor(nodeId, patIdx, grid)
+    {
+        super();
+        this.nodeId = nodeId;
+        this.patIdx = patIdx;
+        this.grid = grid;
+    }
+
+    update(model)
+    {
+        let node = model.state.nodes[this.nodeId];
+        assert (node.type == 'GateSeq');
+        initPattern(node, this.patIdx);
+        let grid = node.patterns[this.patIdx];
+        assert (this.grid instanceof Array && this.grid.length == grid.length);
+
+        for (let step = 0; step < grid.length; ++step)
+        {
+            assert (this.grid[step].length == node.numRows);
+            for (let row = 0; row < node.numRows; ++row)
+                grid[step][row] = this.grid[step][row]? 1:0;
+        }
+    }
+
+    get undoable()
+    {
+        return false;
     }
 }
 
