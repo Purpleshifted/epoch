@@ -22,6 +22,19 @@ export function markSpan(name: string, ms: number): void {
   if (list.length > 600) list.shift();
 }
 
+/** Last 60 s per span: max, mean, count — readable from DevTools / a hidden tab as `__perfSpans()`. */
+export function spanSummary(): Record<string, { maxMs: number; meanMs: number; n: number }> {
+  const since = performance.now() - 60_000;
+  const out: Record<string, { maxMs: number; meanMs: number; n: number }> = {};
+  for (const [name, list] of spans) {
+    let max = 0, sum = 0, n = 0;
+    for (const e of list) if (e.at >= since) { n++; sum += e.ms; if (e.ms > max) max = e.ms; }
+    if (n) out[name] = { maxMs: Math.round(max * 10) / 10, meanMs: Math.round((sum / n) * 10) / 10, n };
+  }
+  return out;
+}
+if (typeof window !== "undefined") (window as unknown as { __perfSpans?: typeof spanSummary }).__perfSpans = spanSummary;
+
 export interface PerfReading {
   fps: number;
   /** The 95th percentile frame interval (ms) over the last two seconds. */
