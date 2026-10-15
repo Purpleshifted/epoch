@@ -24,6 +24,7 @@ import { cellKey, flowLevel, flowP, flowTracks, seedsInUse, stayShares } from ".
 import { grassDensity, hash2, type NatureConfig } from "./nature";
 import { partAgeYears, seedAgeYears, type Box, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
+import { wrapCell } from "./world";
 
 /** A slab at least this high seals its cell (same as the player view). */
 export const SEAL_H = 0.15;
@@ -172,11 +173,11 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
       const decay = Math.exp(-(tEnd - e.s) / nc.recoverSec);
       for (let dx = -n; dx <= n; dx++) {
         for (let dz = -n; dz <= n; dz++) {
-          const cx = cx0 + dx;
-          const cz = cz0 + dz;
-          if (!inGrid(cx, cz)) continue;
-          const d = Math.hypot((cx + 0.5) * CELL_SIZE - e.x, (cz + 0.5) * CELL_SIZE - e.z);
+          const d = Math.hypot((cx0 + dx + 0.5) * CELL_SIZE - e.x, (cz0 + dz + 0.5) * CELL_SIZE - e.z);
           if (d >= nc.lingerRadius) continue;
+          const cx = wrapCell(cx0 + dx);
+          const cz = wrapCell(cz0 + dz);
+          if (!inGrid(cx, cz)) continue;
           S[idx(cx, cz)] += nc.dose * (1 - d / nc.lingerRadius) * decay;
         }
       }

@@ -1,10 +1,31 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
-import { DEFAULT_COLLAGE, DEFAULT_FLOW, DEFAULT_FOLD, DEFAULT_NATURE, DEFAULT_SHARDS, EventLog, LS_EVENTS_KEY, currentEpochKey, keepFromS, loadEvents, type CollageConfig, type FoldConfig, type NatureConfig, type ShardConfig } from "@/lib/parliament";
+import {
+  DEFAULT_COLLAGE,
+  DEFAULT_FLOW,
+  DEFAULT_FOLD,
+  DEFAULT_NATURE,
+  DEFAULT_SHARDS,
+  EventLog,
+  FoldState,
+  LS_EVENTS_KEY,
+  StressState,
+  currentEpochKey,
+  keepFromS,
+  loadEvents,
+  type CollageConfig,
+  type FoldConfig,
+  type FoldStateOptions,
+  type FoldStateStats,
+  type NatureConfig,
+  type Region,
+  type ShardConfig,
+  type Snapshot,
+} from "@/lib/parliament";
 import type { ArchStyle } from "./Architecture";
 
 /** A wider Leva panel for every parliament view: the Korean labels are long. */
@@ -49,6 +70,72 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log]);
   return log;
+}
+
+interface Growing {
+  add(e: Parameters<EventLog["add"]>[0]): boolean;
+  dropBefore(cut: number): number;
+  clear(): void;
+}
+
+interface Fed<S extends Growing> {
+  state: S;
+  /** How many of log.all() (insertion order) the state has been given. */
+  fed: number;
+  drops: number;
+}
+
+/** Gives the state what arrived in the log since the last call; follows the log's forgetting (dropBefore / clear). */
+function feed<S extends Growing>(log: EventLog, h: Fed<S>): void {
+  if (h.drops !== log.drops) {
+    h.drops = log.drops;
+    if (log.droppedBefore === Infinity) h.state.clear();
+    else h.state.dropBefore(log.droppedBefore);
+    h.fed = 0; // the array shrank: give it everything again (ids it knows are ignored)
+  }
+  const all = log.all();
+  for (let i = h.fed; i < all.length; i++) h.state.add(all[i]);
+  h.fed = all.length;
+}
+
+/**
+ * The fold of this tab's log as a state that grows with it (lib/parliament/foldState.ts): the same ground as
+ * foldWorld, but a snapshot costs only what arrived since the last one. A new config = a new state (one full fold).
+ */
+export interface GrowingFold {
+  at(sView: number, region?: Region): Snapshot;
+  /** The state's bookkeeping (null before the first reading). */
+  stats(): FoldStateStats | null;
+}
+
+export function useFoldState(log: EventLog, cfg: FoldConfig, opts?: FoldStateOptions): GrowingFold {
+  const ref = useRef<(Fed<FoldState> & { cfg: FoldConfig }) | null>(null);
+  return useMemo(
+    () => ({
+      at(sView: number, region?: Region) {
+        let h = ref.current;
+        if (!h || h.cfg !== cfg) h = ref.current = { cfg, state: new FoldState(cfg, opts), fed: 0, drops: log.drops };
+        feed(log, h);
+        return h.state.snapshot(sView, region);
+      },
+      stats: () => ref.current?.state.stats ?? null,
+    }),
+    [log, cfg, opts],
+  );
+}
+
+/** The vegetation stress of this tab's log as a growing state (foldState.ts StressState); same as stressMap. */
+export function useStressState(log: EventLog, cfg: NatureConfig): (sView: number, region?: Region) => Map<string, number> {
+  const ref = useRef<(Fed<StressState> & { cfg: NatureConfig }) | null>(null);
+  return useCallback(
+    (sView: number, region?: Region) => {
+      let h = ref.current;
+      if (!h || h.cfg !== cfg) h = ref.current = { cfg, state: new StressState(cfg), fed: 0, drops: log.drops };
+      feed(log, h);
+      return h.state.at(sView, region);
+    },
+    [log, cfg],
+  );
 }
 
 /**

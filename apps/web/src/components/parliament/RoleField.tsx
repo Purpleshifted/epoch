@@ -28,14 +28,13 @@ import {
   dueSamples,
   steerBot,
   getEpochMs,
-  foldWorld,
   pickOffset,
   saveMerged,
   setKeepFrom,
   observe,
   sessionSeconds,
   SESSION_ROLES,
-  stressMap,
+  wrapCoord,
   type Actor,
   type Flock,
   type FoldConfig,
@@ -50,7 +49,7 @@ import { personalSignals } from "@/lib/sound";
 import { NatureCloud } from "./NatureCloud";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
-import { useWorld } from "./useWorld";
+import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 
 const VIEW_RADIUS = 24;
@@ -69,6 +68,11 @@ export interface ParliamentDebug {
   paths: number;
   /** V2: the headset sound's state (one line). */
   sound?: string;
+  /** The growing fold's state (foldState.ts stats), one line. */
+  fold?: string;
+  /** Where the player stands (canonical world coordinates). */
+  x?: number;
+  z?: number;
 }
 
 /** V2: how often the ground the bots walk on (trodden paths, buildings) is refolded. */
@@ -115,6 +119,9 @@ export function RoleField({
     epochMs.current = getEpochMs(); // the world was cleared: join the NEW epoch (and its history window is unset)
   });
   const epochMs = useRef(0);
+  // the ground, folded as it grows (foldState.ts): the whole world is folded, the region only chooses what is read
+  const fold = useFoldState(log, cfg);
+  const stressAt = useStressState(log, natureCfg);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
   const seq = useRef(0);
   const lastSampleMs = useRef(0);
@@ -124,14 +131,14 @@ export function RoleField({
   const lastKeepWall = useRef(0);
   const foldTimer = useRef(10);
   // the ticker reads the latest Leva values through this ref
-  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg });
+  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold });
   // V2: what bots walk on — trodden ground (G per cell) and the cells buildings stand on; refreshed every few seconds
   const botGround = useRef<{ at: number; level: Map<string, number>; built: Set<string> } | null>(null);
   // V2: each migration's route, chosen once (on the ground as it was) and kept until it is over
   const botRoutes = useRef(new Map<string, number[]>());
   useEffect(() => {
-    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg };
-  }, [role, botCount, botRole, botFlock, cfg]);
+    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold };
+  }, [role, botCount, botRole, botFlock, cfg, fold]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
 
@@ -165,7 +172,8 @@ export function RoleField({
   }, []);
 
   const emit = (o: string, r: RoleId, k: PEvent["k"], x: number, z: number, s: number) => {
-    const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x, z, s };
+    // the world is finite and wraps (world.ts): every stored coordinate is canonical
+    const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
     log.add(e);
     pending.current.push(e);
   };
@@ -176,12 +184,12 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const now = worldNow();
     const wall = Date.now();
-    const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg } = live.current;
+    const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold } = live.current;
     // V2: bots walk where others walked (bundling) and around buildings (detour)
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && nBots > 0 && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
       const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
-      const snapAll = foldWorld(log.all(), tSess, foldCfg);
+      const snapAll = theFold.at(tSess); // the whole world: what the bots walk on
       const level = new Map<string, number>();
       for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
       const built = new Set<string>();
@@ -243,8 +251,8 @@ export function RoleField({
     if (foldTimer.current >= FOLD_EVERY) {
       foldTimer.current = 0;
       const events = log.all();
-      snap.current = foldWorld(events, sMe, cfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
-      stress.current = stressMap(events, sMe, natureCfg, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       if (witnessRef) {
         witnessRef.current = observe({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
@@ -285,9 +293,15 @@ export function RoleField({
         s: +sMe.toFixed(1),
         offset: +me.current.offset.toFixed(1),
         events: log.size,
+        x: +p.x.toFixed(1),
+        z: +p.z.toFixed(1),
         slabs: snap.current.slabs.length,
         paths: snap.current.paths.length,
         sound: soundLine,
+        fold: (() => {
+          const st = fold.stats();
+          return st ? `fold: cells ${st.cells} · tail ${st.tail} · rebuilds ${st.rebuilds}` : undefined;
+        })(),
       };
     }
   });

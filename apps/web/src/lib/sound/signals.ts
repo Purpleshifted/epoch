@@ -10,7 +10,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { grassDensity, type NatureConfig, type PEvent, type Snapshot } from "@/lib/parliament";
+import { grassDensity, wrapDelta, wrapDist, type NatureConfig, type PEvent, type Snapshot } from "@/lib/parliament";
 
 export interface SignalConfig {
   /** How far (world) other people can be heard. */
@@ -91,7 +91,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
     if (e.o === me.id) {
       // STAY: how far I got from where I am now over the last staySec
       if (e.s >= sNow - cfg.staySec) {
-        const d = Math.hypot(e.x - me.x, e.z - me.z);
+        const d = wrapDist(e.x, e.z, me.x, me.z);
         if (d > farthest) farthest = d;
       }
       continue;
@@ -102,7 +102,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   }
   const neighbours: Neighbour[] = [];
   for (const e of latest.values()) {
-    const dx = e.x - me.x, dz = e.z - me.z;
+    const dx = wrapDelta(e.x - me.x), dz = wrapDelta(e.z - me.z);
     const dist = Math.hypot(dx, dz);
     if (dist > cfg.hearRadius) continue;
     neighbours.push({ o: e.o, dist, angle: Math.atan2(dx, dz), bot: isBotId(e.o) });
@@ -127,7 +127,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
     for (const sl of snap.slabs) {
       if (sl.h < 0.15) continue;
       sealedCells.add(sl.key);
-      const d = Math.hypot(sl.x - me.x, sl.z - me.z);
+      const d = wrapDist(sl.x, sl.z, me.x, me.z);
       const near = 1 - Math.min(1, Math.max(0, (d - CELL_SIZE * 0.5) / cfg.sealRadius));
       if (near > sealed) sealed = near;
       if (d <= 2 * cfg.sealRadius && (!building || d < building.dist)) building = { id: sl.key, dist: d };

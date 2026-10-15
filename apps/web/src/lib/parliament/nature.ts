@@ -17,6 +17,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import type { PEvent } from "./types";
+import { wrapCell, wrapDist } from "./world";
 
 export interface NatureConfig {
   /** World-unit radius within which a lingering worker wears the vegetation down. */
@@ -94,16 +95,14 @@ export function stressMap(
     if (e.r !== "worker" || e.k !== "p" || e.s > sView) continue;
     const decay = Math.exp(-(sView - e.s) / cfg.recoverSec);
     if (decay < 0.01) continue;
-    if (region && Math.hypot(e.x - region.x, e.z - region.z) > reach) continue;
+    if (region && wrapDist(e.x, e.z, region.x, region.z) > reach) continue;
     const cx0 = Math.floor(e.x / CELL_SIZE);
     const cz0 = Math.floor(e.z / CELL_SIZE);
     for (let dx = -n; dx <= n; dx++) {
       for (let dz = -n; dz <= n; dz++) {
-        const cx = cx0 + dx;
-        const cz = cz0 + dz;
-        const d = Math.hypot((cx + 0.5) * CELL_SIZE - e.x, (cz + 0.5) * CELL_SIZE - e.z);
+        const d = Math.hypot((cx0 + dx + 0.5) * CELL_SIZE - e.x, (cz0 + dz + 0.5) * CELL_SIZE - e.z);
         if (d >= cfg.lingerRadius) continue;
-        const key = `${cx},${cz}`;
+        const key = `${wrapCell(cx0 + dx)},${wrapCell(cz0 + dz)}`;
         out.set(key, (out.get(key) ?? 0) + cfg.dose * (1 - d / cfg.lingerRadius) * decay);
       }
     }
