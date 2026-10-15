@@ -12,9 +12,9 @@
 
 import type { FlowConfig } from "./flow";
 
-export type RoleId = "shepherd" | "wolf" | "worker" | "warrior" | "tree";
+export type RoleId = "shepherd" | "wolf" | "worker" | "warrior" | "tree" | "cat" | "car";
 
-export const ROLES: readonly RoleId[] = ["shepherd", "wolf", "worker", "warrior", "tree"];
+export const ROLES: readonly RoleId[] = ["shepherd", "wolf", "worker", "warrior", "tree", "cat", "car"];
 
 /** Which roles already have an effect in the fold (the rest only leave presence events). */
 export const ROLE_IMPLEMENTED: Record<RoleId, boolean> = {
@@ -23,6 +23,8 @@ export const ROLE_IMPLEMENTED: Record<RoleId, boolean> = {
   worker: true,
   warrior: false,
   tree: false,
+  cat: false,
+  car: false,
 };
 
 /**

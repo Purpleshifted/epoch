@@ -16,3 +16,5 @@ export * from "./fuse";
 export * from "./water";
 export * from "./flow";
 export * from "./walkways";
+export * from "./session";
+export * from "./witness";

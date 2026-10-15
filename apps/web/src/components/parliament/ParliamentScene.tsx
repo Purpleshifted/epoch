@@ -3,6 +3,10 @@
  * ParliamentScene — the player view of the "parliament of things".
  * Pick a role in the Leva panel (demo build), walk (WASD + mouse look after a click), and the
  * role's trace appears in the ground. Only the worker has an effect so far.
+ *
+ * V2: a visitor's SESSION (useLifeSession, lib/parliament/session.ts): the first touch spins the role slot, the
+ * lifespan runs, near its end the cursor blinks fast, the sound goes dull and the controls stop answering; at the
+ * end the visitor is removed and the next one starts afresh. The HUD (SessionHud) reports it all in dry text.
  */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -13,7 +17,10 @@ import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { useSound } from "./useSound";
-import { seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type RoleId } from "@/lib/parliament";
+import { useParliamentVersion } from "./version";
+import { useLifeSession, type LifeSignal } from "./useLifeSession";
+import { SessionHud } from "./SessionHud";
+import { DEFAULT_LIFE, hindrance, seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, type Observation, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -33,6 +40,22 @@ const ROLE_OPTIONS: Record<string, RoleId> = {
   "양치기 (shepherd) — 효과 미구현": "shepherd",
   "늑대 (wolf) — 효과 미구현": "wolf",
   "나무 (tree) — 효과 미구현": "tree",
+};
+
+/** V2: the session roles; "random" = drawn by the slot at every session. */
+const V2_ROLE_OPTIONS: Record<string, RoleId | "random"> = {
+  "랜덤 (슬롯)": "random",
+  "회사원 (worker)": "worker",
+  "길고양이 (street cat) — 효과 미구현": "cat",
+  "자동차 (car) — 효과 미구현": "car",
+  "나무 (tree) — 효과 미구현": "tree",
+};
+const V2_BOT_OPTIONS: Record<string, RoleId | "mixed"> = {
+  "회사원 (worker)": "worker",
+  "섞어서 (worker · cat · car · tree 차례로)": "mixed",
+  "길고양이 (street cat)": "cat",
+  "자동차 (car)": "car",
+  "나무 (tree)": "tree",
 };
 
 function useKeys() {
@@ -61,6 +84,7 @@ function Controller({
   camDist,
   camLerp,
   viscosity,
+  lifeRef,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -68,6 +92,9 @@ function Controller({
   camDist: number;
   camLerp: number;
   viscosity: number;
+  /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
+   *  near the end they answer worse and drop out. */
+  lifeRef?: { readonly current: LifeSignal };
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -82,11 +109,19 @@ function Controller({
     const c = gl.domElement;
     const onMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== c) return;
-      yaw.current -= e.movementX * 0.0025;
-      pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + e.movementY * 0.002));
+      const L = lifeRef?.current;
+      if (L && L.phase !== "live") return;
+      const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
+      if (h?.dropped) return;
+      const look = h?.look ?? 1;
+      yaw.current -= e.movementX * 0.0025 * look;
+      pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + e.movementY * 0.002 * look));
     };
     const onChange = () => setLocked(document.pointerLockElement === c);
-    const onClick = () => c.requestPointerLock();
+    const onClick = () => {
+      if (lifeRef && lifeRef.current.phase !== "live") return;
+      c.requestPointerLock();
+    };
     c.addEventListener("click", onClick);
     document.addEventListener("mousemove", onMove);
     document.addEventListener("pointerlockchange", onChange);
@@ -95,22 +130,27 @@ function Controller({
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("pointerlockchange", onChange);
     };
-  }, [gl, setLocked]);
+  }, [gl, setLocked, lifeRef]);
 
   useFrame((_, delta) => {
     const p = player.current;
     const k = keys.current;
     const y = yaw.current;
     const dt = Math.min(delta, 0.05);
-    const fwd = k.has("KeyW") || k.has("ArrowUp") ? 1 : 0;
-    const bwd = k.has("KeyS") || k.has("ArrowDown") ? 1 : 0;
-    const left = k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0;
-    const rgt = k.has("KeyD") || k.has("ArrowRight") ? 1 : 0;
-    const tgtFwd = (fwd - bwd * 0.4) * 7.0;
-    const tgtStrafe = (rgt - left) * 4.5;
+    // V2: the input is dead unless the session is live; near the end of the lifespan it answers worse and drops out
+    const L = lifeRef?.current;
+    const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
+    const dead = (!!L && L.phase !== "live") || !!h?.dropped;
+    const gain = h?.gain ?? 1;
+    const fwd = !dead && (k.has("KeyW") || k.has("ArrowUp")) ? 1 : 0;
+    const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
+    const left = !dead && (k.has("KeyA") || k.has("ArrowLeft")) ? 1 : 0;
+    const rgt = !dead && (k.has("KeyD") || k.has("ArrowRight")) ? 1 : 0;
+    const tgtFwd = (fwd - bwd * 0.4) * 7.0 * gain;
+    const tgtStrafe = (rgt - left) * 4.5 * gain;
     const tvx = Math.sin(y) * tgtFwd + -Math.cos(y) * tgtStrafe;
     const tvz = Math.cos(y) * tgtFwd + Math.sin(y) * tgtStrafe;
-    const drag = 2.0 + (1 - viscosity) * 13.0;
+    const drag = (2.0 + (1 - viscosity) * 13.0) * (h?.response ?? 1);
     const damp = 1.0 - Math.exp(-drag * dt);
     p.vx += (tvx - p.vx) * damp;
     p.vz += (tvz - p.vz) * damp;
@@ -131,7 +171,7 @@ function Controller({
 
   return (
     <group ref={group}>
-      <PlayerCursor position={[0, -0.25, 0]} />
+      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} />
     </group>
   );
 }
@@ -145,17 +185,27 @@ export default function ParliamentScene() {
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
   // V2: the headset sound (null in V1)
   const sound = useSound();
+  const isV2 = useParliamentVersion() === "v2";
+  const v2 = () => isV2;
+  const witnessRef = useRef<Observation | null>(null);
 
-  const { role, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lifeSec, warnSec, endHoldSec, lifeRate, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
-        role: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "내 역할" },
+        session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
+        role: isV2
+          ? { options: V2_ROLE_OPTIONS, value: "random" as RoleId | "random", label: "배정 (랜덤 = 슬롯)" }
+          : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
+        lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
+        warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
+        endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
+        lifeRate: { value: 1, min: 1, max: 30, step: 0.5, label: "수명 시계 배율 (테스트용, 1 = 실제)", render: v2 },
         offsetWindow: { value: 120, min: 0, max: 600, step: 5, label: "시각 배정 창 (s) — 새로고침 시 적용" },
       }),
       "Debug / 봇": folder({
         botEnabled: { value: false, label: "봇 활성화" },
         botCount: { value: 12, min: 1, max: 30, step: 1, label: "봇 수" },
-        botRole: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "봇 역할" },
+        botRole: { options: isV2 ? V2_BOT_OPTIONS : ROLE_OPTIONS, value: "worker" as RoleId | "mixed", label: "봇 역할" },
         botGroups: { value: 4, min: 1, max: 10, step: 1, label: "봇 무리 수 (무리당 3명 이상이어야 콘크리트)" },
         botSpread: { value: 14, min: 0, max: 60, step: 1, label: "무리 간 거리 (월드)" },
         botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s, 나 기준 ±절반에서 랜덤)" },
@@ -170,6 +220,11 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
+  const lifeCfg = useMemo(() => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate }), [lifeSec, warnSec, endHoldSec, lifeRate]);
+  const withSession = isV2 && sessionOn;
+  const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice);
+  // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
+  const role: RoleId = session.role ?? "worker";
   const cfg = useFoldControls();
   const { cfg: natureCfg, pointSize } = useNatureControls();
 
@@ -199,6 +254,7 @@ export default function ParliamentScene() {
         {/* the ground: faint cell lines (one cell = CELL_SIZE) */}
         <gridHelper args={[grid, 100, "#1a1d33", "#0d0f1c"]} position={[0, 0.001, 0]} />
         <RoleField
+          key={`field-${session.sessionNo}`}
           playerPosRef={playerPosRef}
           role={role}
           cfg={cfg}
@@ -210,22 +266,37 @@ export default function ParliamentScene() {
           botFlock={botFlock}
           sound={sound}
           playerYawRef={playerYawRef}
+          lifeRef={withSession ? session.lifeRef : undefined}
+          witnessRef={withSession ? witnessRef : undefined}
         />
-        <Controller playerPosRef={playerPosRef} playerYawRef={playerYawRef} setLocked={setLocked} camDist={camDist} camLerp={camLerp} viscosity={viscosity} />
+        <Controller
+          key={`controller-${session.sessionNo}`}
+          playerPosRef={playerPosRef}
+          playerYawRef={playerYawRef}
+          setLocked={setLocked}
+          camDist={camDist}
+          camLerp={camLerp}
+          viscosity={viscosity}
+          lifeRef={withSession ? session.lifeRef : undefined}
+        />
       </Canvas>
 
-      {!locked && !hideChrome && (
+      {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} />}
+      {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="font-mono text-[11px] tracking-[0.35em] text-white/15">click to enter</p>
         </div>
       )}
       {!hideChrome && (
-        <div className="pointer-events-none absolute bottom-4 left-4 select-none space-y-0.5 font-mono text-[9px] text-white/25">
+        <div
+          className={`pointer-events-none absolute ${withSession ? "left-4 top-4" : "bottom-4 left-4"} select-none space-y-0.5 font-mono text-[9px] text-white/25`}
+        >
           {locked && <div>WASD · mouse · ESC</div>}
           {debug && (
             <div>
               {debug.role}
-              {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths}
+              {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"}
+              {withSession ? ` · ${session.phase}` : ""} · s={debug.s} (offset {debug.offset}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths}
             </div>
           )}
           {debug?.sound && <div>♪ {debug.sound}</div>}
