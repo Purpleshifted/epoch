@@ -17,6 +17,9 @@ const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
 
 const POLL_MS = 250;
 
+/** How dark the screen is in each phase (0 = the world, 1 = black). */
+const DARK = { idle: 0, draw: 0.94, live: 0, ended: 1 } as const;
+
 interface WitnessView {
   lines: string[];
   status: string;
@@ -34,11 +37,14 @@ export function SessionHud({
   session,
   witnessRef,
   locked,
+  lifeSec,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
   /** Pointer lock (desktop): shows the "click to look" hint while live and unlocked. */
   locked: boolean;
+  /** The lifespan (s): what the end screen says the visitor was present for. */
+  lifeSec: number;
 }) {
   const { phase, role, reel, drawAt } = session;
   const [log] = useState(() => new WitnessLog());
@@ -82,6 +88,11 @@ export function SessionHud({
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
+      {/* the dark: almost black while the role is drawn (only the slot shows), black after the end, lifting when live */}
+      <div
+        className="absolute inset-0 bg-black transition-opacity"
+        style={{ opacity: DARK[phase], transitionDuration: `${phase === "live" ? 1500 : phase === "ended" ? 2000 : 600}ms` }}
+      />
       {/* centre hints */}
       {phase === "idle" && (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -95,7 +106,7 @@ export function SessionHud({
       )}
 
       {/* the record + the role slot */}
-      <div className="absolute inset-x-0 bottom-0 flex justify-center px-4 pb-6">
+      <div className="absolute inset-x-0 bottom-0 flex justify-center px-4 pb-6" style={{ display: phase === "ended" ? "none" : undefined }}>
         <div className="w-full max-w-[30rem]">
           {phase === "live" && (
             <div className="mb-3 text-[15px] leading-[1.15] tracking-[0.04em]">
@@ -129,20 +140,18 @@ export function SessionHud({
       </div>
 
       {/* the end */}
-      <div
-        className="absolute inset-0 flex items-center justify-center bg-black px-6 transition-opacity duration-[2000ms]"
-        style={{ opacity: phase === "ended" ? 1 : 0 }}
-      >
+      <div className="absolute inset-0 flex items-center justify-center px-6">
         {phase === "ended" && role && (
           <div className="w-full max-w-[30rem] space-y-1 text-[18px] leading-tight tracking-[0.06em] text-white/75">
             <div className="text-[26px] text-white/90">LIFESPAN EXPIRED</div>
             <div>{ROLE_TAG[role]} — REMOVED FROM THE GROUND</div>
             <div className="whitespace-pre pt-4 text-white/55">
-              <div>PRESENT      {fmtClock(rec.t)}</div>
+              <div>PRESENT      {fmtClock(lifeSec)}</div>
               <div>STATIONARY   {fmtClock(rec.stillSec)}</div>
               <div>NEAR OTHERS  {fmtClock(rec.nearSec)} · {rec.met} MET</div>
             </div>
             <div className="pt-4 text-white/35">THE RECORD IS KEPT.</div>
+            {session.restartReady && <div className="animate-pulse pt-8 text-[16px] tracking-[0.3em] text-white/45">PRESS SPACE — NEXT SESSION</div>}
           </div>
         )}
       </div>

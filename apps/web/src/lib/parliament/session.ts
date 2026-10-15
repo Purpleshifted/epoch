@@ -6,7 +6,8 @@
  *   DRAW      the role slot spins through the roles and stops on the one drawn at random (`reelAt`)
  *   LIVE      the lifespan runs; in its last `warnSec` the cursor blinks faster, the sound goes dull and the
  *             controls stop answering properly (`lifeAt`, `hindrance`)
- *   ENDED     the lifespan is over: the visitor is taken off the ground, a dry end screen, then IDLE for the next one
+ *   ENDED     the lifespan is over: the visitor is taken off the ground, a dry end screen; SPACE starts the next
+ *             session (a new visitor and a new draw)
  *
  * Pure: everything is a function of the elapsed seconds (and a few random numbers drawn once per session).
  */
@@ -101,11 +102,13 @@ export interface LifeConfig {
   lifeSec: number;
   /** The last seconds of it in which the end makes itself felt. */
   warnSec: number;
-  /** Seconds the end screen stays before the ground waits for the next visitor. */
+  /** Seconds the end screen stays before SPACE starts the next session. */
   endHoldSec: number;
+  /** How fast the lifespan runs against the wall clock (1 = real time; more = for testing the end). */
+  rate?: number;
 }
 
-export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 10 };
+export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 3, rate: 1 };
 
 export interface LifeState {
   /** 0 (just arrived) … 1 (lifespan used up). */

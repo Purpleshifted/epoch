@@ -92,7 +92,8 @@ function Controller({
   camDist: number;
   camLerp: number;
   viscosity: number;
-  /** V2: the session — near the end the controls answer worse and drop out, after it they are dead. */
+  /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
+   *  near the end they answer worse and drop out. */
   lifeRef?: { readonly current: LifeSignal };
 }) {
   const { camera, gl } = useThree();
@@ -109,7 +110,7 @@ function Controller({
     const onMove = (e: MouseEvent) => {
       if (document.pointerLockElement !== c) return;
       const L = lifeRef?.current;
-      if (L?.phase === "ended") return;
+      if (L && L.phase !== "live") return;
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
@@ -118,7 +119,7 @@ function Controller({
     };
     const onChange = () => setLocked(document.pointerLockElement === c);
     const onClick = () => {
-      if (lifeRef?.current.phase === "ended") return;
+      if (lifeRef && lifeRef.current.phase !== "live") return;
       c.requestPointerLock();
     };
     c.addEventListener("click", onClick);
@@ -136,10 +137,10 @@ function Controller({
     const k = keys.current;
     const y = yaw.current;
     const dt = Math.min(delta, 0.05);
-    // V2: near the end of the lifespan the input answers worse and drops out; after the end it is dead
+    // V2: the input is dead unless the session is live; near the end of the lifespan it answers worse and drops out
     const L = lifeRef?.current;
     const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
-    const dead = L?.phase === "ended" || !!h?.dropped;
+    const dead = (!!L && L.phase !== "live") || !!h?.dropped;
     const gain = h?.gain ?? 1;
     const fwd = !dead && (k.has("KeyW") || k.has("ArrowUp")) ? 1 : 0;
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
@@ -188,7 +189,7 @@ export default function ParliamentScene() {
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lifeSec, warnSec, endHoldSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lifeSec, warnSec, endHoldSec, lifeRate, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
         session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
@@ -197,7 +198,8 @@ export default function ParliamentScene() {
           : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
-        endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 (s) → 다음 관객 대기", render: v2 },
+        endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
+        lifeRate: { value: 1, min: 1, max: 30, step: 0.5, label: "수명 시계 배율 (테스트용, 1 = 실제)", render: v2 },
         offsetWindow: { value: 120, min: 0, max: 600, step: 5, label: "시각 배정 창 (s) — 새로고침 시 적용" },
       }),
       "Debug / 봇": folder({
@@ -218,7 +220,7 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
-  const lifeCfg = useMemo(() => ({ lifeSec, warnSec, endHoldSec }), [lifeSec, warnSec, endHoldSec]);
+  const lifeCfg = useMemo(() => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate }), [lifeSec, warnSec, endHoldSec, lifeRate]);
   const withSession = isV2 && sessionOn;
   const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
@@ -252,7 +254,7 @@ export default function ParliamentScene() {
         {/* the ground: faint cell lines (one cell = CELL_SIZE) */}
         <gridHelper args={[grid, 100, "#1a1d33", "#0d0f1c"]} position={[0, 0.001, 0]} />
         <RoleField
-          key={session.sessionNo}
+          key={`field-${session.sessionNo}`}
           playerPosRef={playerPosRef}
           role={role}
           cfg={cfg}
@@ -268,7 +270,7 @@ export default function ParliamentScene() {
           witnessRef={withSession ? witnessRef : undefined}
         />
         <Controller
-          key={session.sessionNo}
+          key={`controller-${session.sessionNo}`}
           playerPosRef={playerPosRef}
           playerYawRef={playerYawRef}
           setLocked={setLocked}
@@ -279,7 +281,7 @@ export default function ParliamentScene() {
         />
       </Canvas>
 
-      {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} />}
+      {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} />}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="font-mono text-[11px] tracking-[0.35em] text-white/15">click to enter</p>

@@ -270,7 +270,17 @@ export function RoleField({
           natureCfg,
           cfg: sound.sigCfg,
         });
-        sound.engine.update(me.current.id, sig, muffleSound(sound.params, lifeRef?.current), playerYawRef?.current ?? 0, epochMs.current, tonal.current.key);
+        // V2 session: the visitor's motif is only given once their role is fixed (LIVE); before that the engine hears
+        // nobody (no id → no motif of mine, no voices of others) and is silent (muffleSound)
+        const present = !lifeRef || lifeRef.current.phase === "live";
+        sound.engine.update(
+          present ? me.current.id : "",
+          present ? sig : { ...sig, neighbours: [] },
+          muffleSound(sound.params, lifeRef?.current),
+          playerYawRef?.current ?? 0,
+          epochMs.current,
+          tonal.current.key,
+        );
         const d = sound.engine.debug;
         const k = tonal.current.key;
         soundLine = `${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
