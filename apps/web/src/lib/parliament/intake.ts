@@ -101,7 +101,7 @@ export function hintUp(tSec: number, after = HINT_AFTER_SEC, period = HINT_PERIO
   return (tSec - after) % Math.max(0.001, period) < show;
 }
 /** The line after a failed attempt stays this long (s). */
-export const FAIL_MSG_SEC = 4;
+export const FAIL_MSG_SEC = 8;
 
 /** Whether an attempt to stop living succeeds: u in [0,1) against the success probability p. */
 export function attemptEnd(u: number, p: number): boolean {
