@@ -113,7 +113,7 @@ export function SessionHud({
   /** A phone-like device: the lines say tap / tilt / hold instead of keys, click and mouse; no pointer lock. */
   coarse?: boolean;
 }) {
-  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopHint, attemptFailed, attempts } = session;
+  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
   const names = ROLE_NAME[lang];
   const say = lang === "ko" ? "hud-ko" : "";
@@ -271,12 +271,37 @@ export function SessionHud({
           <div className="border border-white/40 bg-black/70 px-6 py-3 text-[20px] text-white/90">{S.live.look}</div>
         </Centre>
       )}
-      {/* stopping living (worker): the banner at the top, now and then; and the line when it fails */}
-      {phase === "live" && stopHint && (
-        <div className="absolute inset-x-0 top-8 flex justify-center px-6">
-          <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[17px] tracking-[0.04em] text-white/85`}>{coarse ? S.live.stopTouch(holdSec) : S.live.stop(holdSec)}</div>
+      {/* a phone: how to walk, once more for the first seconds of the life */}
+      {phase === "live" && coarse && rec.t < 10 && !attemptFailed && (
+        <div className="absolute inset-x-0 bottom-28 flex justify-center px-6">
+          <div className={`${say} text-[14px] tracking-[0.05em] text-white/40`}>{S.verdict.controlsTouch}</div>
         </div>
       )}
+      {/* stopping living (worker): on a desktop a banner at the top, now and then (the key works regardless); on a phone
+          a button, up the whole time it is on offer — held for holdSec it is the attempt (the dark follows the hold) */}
+      {phase === "live" && !coarse && stopHint && (
+        <div className="absolute inset-x-0 top-8 flex justify-center px-6">
+          <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[17px] tracking-[0.04em] text-white/85`}>{S.live.stop(holdSec)}</div>
+        </div>
+      )}
+      {phase === "live" && coarse && stopOn && (
+        <div className="absolute inset-x-0 top-8 flex justify-center px-6">
+          <button
+            type="button"
+            onTouchStart={session.beginHold}
+            onTouchEnd={session.endHold}
+            onTouchCancel={session.endHold}
+            onMouseDown={session.beginHold}
+            onMouseUp={session.endHold}
+            onMouseLeave={session.endHold}
+            className={`${say} pointer-events-auto select-none border bg-black/60 px-5 py-2 text-[17px] tracking-[0.04em] text-white/85 outline-none ${attempt > 0 ? "border-white/90" : "border-white/40"}`}
+            style={{ touchAction: "none", WebkitTapHighlightColor: "transparent" }}
+          >
+            {S.live.stopTouch(holdSec)}
+          </button>
+        </div>
+      )}
+      {/* the line when an attempt fails */}
       {phase === "live" && attemptFailed && (
         <Centre className={`${say} flex justify-center text-center`}>
           <div className="border border-white/40 bg-black/70 px-6 py-4 text-[20px] leading-[1.6] text-white/90">{S.attempt.failed}</div>

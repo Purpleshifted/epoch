@@ -2,7 +2,9 @@
 /**
  * useTilt — the phone's orientation sensor as the walking input (lib/parliament/tilt.ts has the mapping).
  *
- * - Only on a phone-like device (coarse pointer, no fine one); on the iMac the ref stays inactive.
+ * - Only on a phone-like device (coarse pointer, no fine one) and only when the phone mode is "tilt" (Leva 폰 조작;
+ *   the default is pressing the screen — see ParliamentScene's Controller); otherwise the ref stays inactive and
+ *   iOS is never asked for the sensor.
  * - iOS asks for permission, and only from inside a user gesture: the first tap on the page (there is always one
  *   before a life — the title screen) requests it; elsewhere the sensor is simply listened to.
  * - The front-back angle at which the life begins (LIVE) is the neutral one: the hand holds the phone wherever it
@@ -24,14 +26,14 @@ type OrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () 
 /**
  * @returns `tiltRef` (read per frame by the controller) and `coarse` (a phone-like device: no pointer lock, no keys)
  */
-export function useTilt(enabled: boolean, lifeRef?: { readonly current: LifeSignal }): { tiltRef: React.MutableRefObject<TiltState>; coarse: boolean } {
+export function useTilt(enabled: boolean, lifeRef?: { readonly current: LifeSignal }, mode: "touch" | "tilt" = "touch"): { tiltRef: React.MutableRefObject<TiltState>; coarse: boolean } {
   const [coarse] = useState(() => isCoarsePointer());
   const tiltRef = useRef<TiltState>({ fwd: 0, turn: 0, active: false });
   const neutral = useRef<number | null>(null);
   const wasLive = useRef(false);
 
   useEffect(() => {
-    if (!enabled || !coarse || typeof window === "undefined") return;
+    if (!enabled || !coarse || mode !== "tilt" || typeof window === "undefined") return;
     let listening = false;
     const onOrientation = (e: DeviceOrientationEvent) => {
       if (e.beta === null || e.gamma === null) return;
@@ -73,7 +75,7 @@ export function useTilt(enabled: boolean, lifeRef?: { readonly current: LifeSign
       window.removeEventListener("deviceorientation", onOrientation);
       tiltRef.current = { fwd: 0, turn: 0, active: false };
     };
-  }, [enabled, coarse, lifeRef]);
+  }, [enabled, coarse, lifeRef, mode]);
 
   return { tiltRef, coarse };
 }
