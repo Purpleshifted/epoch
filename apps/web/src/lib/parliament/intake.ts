@@ -21,7 +21,7 @@ export const VERDICT_SEC = 4;
 export const IDLE_AFTER_SEC = 45;
 /** The end screen, once SPACE is allowed, returns to the title screen by itself after this long. */
 export const END_RETURN_SEC = 90;
-/** SPACE this soon after the end is the same visitor again: the notices and the headset are skipped. */
+/** SPACE this soon after the end is the same visitor again: the next life starts at once, at the choice. */
 export const QUICK_RESTART_SEC = 20;
 /** Two gestures closer than this count as one (a tap fires pointerdown and touchend; a held key repeats). */
 export const GESTURE_GAP_MS = 300;
@@ -31,7 +31,7 @@ export const GESTURE_GAP_MS = 300;
 export const INTAKE_PHASES = ["notice", "consent", "headset", "choose"] as const;
 export type IntakePhase = (typeof INTAKE_PHASES)[number];
 
-/** A restart this soon after the end (wall ms) skips the notices and the headset screen. */
+/** A restart this soon after the end (wall ms) skips the notices, the consent and the headset: straight to the choice. */
 export function quickRestart(nowMs: number, endedAtMs: number, withinSec = QUICK_RESTART_SEC): boolean {
   return endedAtMs > 0 && nowMs - endedAtMs <= withinSec * 1000;
 }
@@ -83,12 +83,23 @@ export function verdictOf(wanted: RoleId | null, drawn: RoleId): Verdict {
 /** `lifespan`: the lifespan ran out. `self`: the visitor stopped living (worker only), and it succeeded. */
 export type EndedBy = "lifespan" | "self";
 
-/** B — stopping living (worker only): the visitor holds a key this long … */
-export const HOLD_SEC = 3;
+/** B — stopping living (worker only): the visitor holds X this long … (the pointer is locked while live, so a key) */
+export const HOLD_SEC = 2;
+export const STOP_KEYS: readonly string[] = ["KeyX"];
+export const isStopKey = (code: string): boolean => STOP_KEYS.includes(code);
 /** … then may try again this long after a failed attempt. */
 export const COOLDOWN_SEC = 20;
-/** The hint for it only appears this long into the life. */
+/** The hint for it only appears this long into the life … */
 export const HINT_AFTER_SEC = 20;
+/** … and then now and then: for HINT_SHOW_SEC every HINT_PERIOD_SEC (the key works in between too). */
+export const HINT_PERIOD_SEC = 20;
+export const HINT_SHOW_SEC = 4;
+
+/** Whether the hint is up at `tSec` into the life (it comes and goes; stopAllowed says whether the key works). */
+export function hintUp(tSec: number, after = HINT_AFTER_SEC, period = HINT_PERIOD_SEC, show = HINT_SHOW_SEC): boolean {
+  if (tSec < after) return false;
+  return (tSec - after) % Math.max(0.001, period) < show;
+}
 /** The line after a failed attempt stays this long (s). */
 export const FAIL_MSG_SEC = 4;
 

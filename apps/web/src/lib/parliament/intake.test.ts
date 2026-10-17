@@ -9,10 +9,14 @@ import {
   SCRIPT,
   SESSION_ROLES,
   HINT_AFTER_SEC,
+  HINT_PERIOD_SEC,
+  HINT_SHOW_SEC,
   HOLD_SEC,
   attemptEnd,
   causeOfDeath,
+  hintUp,
   holdProgress,
+  isStopKey,
   stopAllowed,
   linesShown,
   moveCursor,
@@ -91,6 +95,18 @@ describe("stopping living", () => {
     expect(stopAllowed("worker", HINT_AFTER_SEC + 50, 1000, 2000)).toBe(false);
     expect(stopAllowed("cat", HINT_AFTER_SEC + 50, 1000, 0)).toBe(false);
     expect(stopAllowed(null, HINT_AFTER_SEC + 50, 1000, 0)).toBe(false);
+  });
+  it("is held on X, not on the walking keys", () => {
+    expect(isStopKey("KeyX")).toBe(true);
+    for (const k of ["Delete", "KeyW", "Space", "Enter"]) expect(isStopKey(k)).toBe(false);
+  });
+  it("shows its hint now and then from the twentieth second on", () => {
+    expect(hintUp(HINT_AFTER_SEC - 0.1)).toBe(false);
+    expect(hintUp(HINT_AFTER_SEC)).toBe(true);
+    expect(hintUp(HINT_AFTER_SEC + HINT_SHOW_SEC - 0.1)).toBe(true);
+    expect(hintUp(HINT_AFTER_SEC + HINT_SHOW_SEC)).toBe(false);
+    expect(hintUp(HINT_AFTER_SEC + HINT_PERIOD_SEC)).toBe(true);
+    expect(hintUp(HINT_AFTER_SEC + HINT_PERIOD_SEC + HINT_SHOW_SEC + 1)).toBe(false);
   });
   it("counts the hold up to one and no further", () => {
     expect(holdProgress(0, 0)).toBe(0);

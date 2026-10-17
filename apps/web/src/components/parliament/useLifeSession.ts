@@ -7,11 +7,12 @@
  *   DRAW     → VERDICT: requested / assigned, for a few seconds
  *   VERDICT  → LIVE: the lifespan runs (wall clock: it is the visitor's real time, not the world clock)
  *   LIVE     → ENDED: the visitor is taken off the ground; the end screen (with the cause of death) stays
- *   LIVE, worker only, once the hint is up: X held for HOLD_SEC is an attempt to stop living — the dark comes up and
+ *   LIVE, worker only, from HINT_AFTER_SEC on (a banner says so now and then): X held for HOLD_SEC is an attempt to
+ *              stop living — the dark comes up and
  *              the sound closes while it is held; at the end luck decides (selfP): ENDED by "self", or a failed line
  *              and a cooldown. Let go early and nothing happens.
- *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or straight to CONSENT when SPACE
- *              comes within QUICK_RESTART_SEC of the end (the same visitor again: no notices, no headset screen) —
+ *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or straight to CHOOSE when SPACE
+ *              comes within QUICK_RESTART_SEC of the end (the same visitor again: the next life starts at once) —
  *              or (END_RETURN_SEC later) IDLE: `sessionNo` goes up, so the player parts remount as a NEW visitor
  *              (new id, new time slot)
  *   NOTICE … CHOOSE → (IDLE_AFTER_SEC without input) IDLE: the visitor left before living; nothing was recorded
@@ -34,7 +35,9 @@ import {
   VERDICT_SEC,
   assignRole,
   attemptEnd,
+  hintUp,
   holdProgress,
+  isStopKey,
   lifeAt,
   moveCursor,
   pageDone,
@@ -89,7 +92,7 @@ export interface SessionView {
   endedBy: EndedBy | null;
   /** LIVE: how far the hold to stop living has got (0 … 1). */
   attempt: number;
-  /** LIVE: the hint for stopping living is up (worker, hint due, no cooldown, not holding). */
+  /** LIVE: the banner for stopping living is up (worker, now and then from HINT_AFTER_SEC on, no cooldown, not holding). */
   stopHint: boolean;
   /** LIVE: the line after a failed attempt is up. */
   attemptFailed: boolean;
@@ -177,7 +180,7 @@ class SessionMachine {
   }
 
   /** A new visitor: everything fresh, `sessionNo` up, starting at `phase`. */
-  private next(phase: "idle" | "notice" | "consent") {
+  private next(phase: "idle" | "notice" | "choose") {
     this.holding = false;
     this.cooldownUntil = 0;
     this.failedUntil = 0;
@@ -201,9 +204,10 @@ class SessionMachine {
     this.enter("draw", { wanted, role, reel: planReel(role), drawAt: Date.now(), verdict: null });
   };
 
-  /** B — X pressed while live: a worker, once the hint is up and no cooldown runs, starts holding to stop living. */
+  /** B — X pressed while live: a worker, from HINT_AFTER_SEC on and with no cooldown running, starts holding to stop living. */
   holdKey = (e: KeyboardEvent) => {
-    if (!this.enabled || e.code !== "KeyX" || e.repeat || onPanel(e)) return;
+    if (!this.enabled || !isStopKey(e.code) || e.repeat || onPanel(e)) return;
+    if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
     const v = this.view;
     if (v.phase !== "live" || this.holding || !stopAllowed(v.role, this.lifeRef.current.t, Date.now(), this.cooldownUntil)) return;
     this.holding = true;
@@ -212,7 +216,7 @@ class SessionMachine {
 
   /** Let go before the hold is complete: nothing happens, the dark cuts back. */
   releaseKey = (e: KeyboardEvent) => {
-    if (e.code !== "KeyX" || !this.holding) return;
+    if (!isStopKey(e.code) || !this.holding) return;
     this.holding = false;
     this.lifeRef.current = { ...this.lifeRef.current, attempt: 0 };
     if (this.view.attempt !== 0) this.set({ attempt: 0 });
@@ -263,8 +267,8 @@ class SessionMachine {
         return;
       }
       case "ended":
-        // soon after the end it is the same visitor again: no notices, no headset screen
-        if (v.restartReady && code === "Space") this.next(quickRestart(now, this.endAt) ? "consent" : "notice");
+        // soon after the end it is the same visitor again: the next life starts at once (the choice, then the slot)
+        if (v.restartReady && code === "Space") this.next(quickRestart(now, this.endAt) ? "choose" : "notice");
         return;
       default:
         return; // draw, verdict, live: the screen runs on its own (the controls are the Controller's)
@@ -311,7 +315,7 @@ class SessionMachine {
         this.end("lifespan", t);
         return;
       }
-      const stopHint = !this.holding && stopAllowed(v.role, t, now, this.cooldownUntil);
+      const stopHint = !this.holding && stopAllowed(v.role, t, now, this.cooldownUntil) && hintUp(t);
       const attemptFailed = now < this.failedUntil;
       if (attempt !== v.attempt || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) this.set({ attempt, stopHint, attemptFailed });
     } else if (v.phase === "ended") {

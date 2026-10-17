@@ -5,7 +5,7 @@
  *   - the ROLE SLOT: spins like a slot reel and stops on the role drawn — the choice made before is not looked at
  *   - the verdict: requested / assigned
  *   - while live: the dry record (lib/parliament/witness.ts) — facts only, never what they amount to; for a worker,
- *     the hint to stop living, the dark that comes up while X is held, and the line when it fails
+ *     a banner now and then saying how to stop living, the dark that comes up while X is held, and the line when it fails
  *   - at the end: the cause of death (intake.ts, from the record) and the totals
  * The words are lib/parliament/script.ts (ko / en); the machine log stays English. VT323 has no Hangul, so the
  * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
@@ -158,7 +158,7 @@ export function SessionHud({
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
       {/* the dark: almost black before the life (only the words and the slot show), black after the end; while X is
-          held to stop living it comes up with the hold. Hard cuts (digital) — the only fade is the dying one, into the end. */}
+          held (X) to stop living it comes up with the hold. Hard cuts (digital) — the only fade is the dying one, into the end. */}
       <div
         className="absolute inset-0 bg-black transition-opacity"
         style={{ opacity: phase === "live" ? attempt * 0.9 : DARK[phase], transitionDuration: phase === "ended" ? "2000ms" : "0ms" }}
@@ -250,13 +250,15 @@ export function SessionHud({
           <p className="text-[14px] tracking-[0.2em] text-white/20">{S.live.look}</p>
         </Centre>
       )}
-      {/* stopping living (worker): the hint, and the line when it fails */}
+      {/* stopping living (worker): the banner at the top, now and then; and the line when it fails */}
       {phase === "live" && stopHint && (
-        <div className={`${say} absolute bottom-6 right-6 text-[13px] tracking-[0.05em] text-white/25`}>{S.live.stop}</div>
+        <div className="absolute inset-x-0 top-8 flex justify-center px-6">
+          <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[17px] tracking-[0.04em] text-white/85`}>{S.live.stop}</div>
+        </div>
       )}
       {phase === "live" && attemptFailed && (
-        <Centre className={`${say} text-center`}>
-          <p className="text-[20px] leading-[1.6] text-white/85">{S.attempt.failed}</p>
+        <Centre className={`${say} flex justify-center text-center`}>
+          <div className="border border-white/40 bg-black/70 px-6 py-4 text-[20px] leading-[1.6] text-white/90">{S.attempt.failed}</div>
         </Centre>
       )}
 
