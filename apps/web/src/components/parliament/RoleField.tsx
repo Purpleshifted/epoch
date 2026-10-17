@@ -47,6 +47,7 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { NatureCloud } from "./NatureCloud";
+import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
@@ -84,6 +85,7 @@ export function RoleField({
   cfg,
   natureCfg,
   pointSize,
+  pathLine = 1,
   offsetWindow,
   botCount,
   botRole,
@@ -98,6 +100,8 @@ export function RoleField({
   cfg: FoldConfig;
   natureCfg: NatureConfig;
   pointSize: number;
+  /** Brightness of the path LINES (PathLines; 0 = none, 1 = white). */
+  pathLine?: number;
   offsetWindow: number;
   botCount: number;
   /** "mixed" (V2): the bots take the session roles in turn. */
@@ -323,6 +327,7 @@ export function RoleField({
         cfg={natureCfg}
         pointSize={pointSize}
       />
+      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
     </>
   );
 }
