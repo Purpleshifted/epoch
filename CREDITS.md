@@ -267,3 +267,10 @@ Notes:
 - CC BY: attribution required (this file). Converted to 16-colour pixel sprites; changes were made.
 - Noto Emoji: only the `2D/svg` artwork is used (Apache-2.0 as shipped in `2D/svg/LICENSE`); the repository root carries OFL-1.1 for the font files.
 - DCSS tiles: CC0; tiles listed in `TILES_UNDER_UNKNOWN_LICENSE.md` are excluded programmatically.
+
+## Fonts
+
+- **Neo둥근모 (neodgm) v1.601** — `apps/web/public/fonts/neodgm.woff2`, unmodified. Pixel Hangul face used for what the
+  player view says in Korean (`.hud-ko`). SIL Open Font License 1.1. <https://github.com/neodgm/neodgm>
+- **VT323** — the terminal face of the player view's machine text, fetched at build time through `next/font/google`.
+  SIL Open Font License 1.1. <https://fonts.google.com/specimen/VT323>
