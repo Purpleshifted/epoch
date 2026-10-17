@@ -29,6 +29,7 @@ import {
   HINT_PERIOD_SEC,
   HINT_SHOW_SEC,
   HOLD_SEC,
+  NOTICE_LINE_SEC,
   SELF_NEAR_FACTOR,
   STOP_LAST_SEC,
   asLang,
@@ -237,7 +238,7 @@ export default function ParliamentScene() {
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -248,6 +249,7 @@ export default function ParliamentScene() {
           : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
         lang: { options: { 한국어: "ko", English: "en" } as Record<string, Lang>, value: "ko" as Lang, label: "안내 언어 (?lang= 이 우선)", render: v2 },
         helpLine: { value: false, label: "자살일 때 상담전화 한 줄", render: v2 },
+        noticeLineSec: { value: NOTICE_LINE_SEC, min: 0.2, max: 3, step: 0.1, label: "안내 줄 간격 (s)", render: v2 },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
         endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
@@ -283,8 +285,8 @@ export default function ParliamentScene() {
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
   const lifeCfg = useMemo(
-    () => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
-    [lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
+    () => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
+    [lifeSec, warnSec, endHoldSec, lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
   );
   const withSession = isV2 && sessionOn;
   const lang: Lang = asLang(langParam, levaLang);
@@ -352,7 +354,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} />
       )}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

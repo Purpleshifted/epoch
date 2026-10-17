@@ -117,6 +117,8 @@ export interface LifeConfig {
   selfP?: number;
   /** … multiplied by this for every other being near at the time (intake.ts selfChance). */
   selfNearFactor?: number;
+  /** The notices before a life: seconds between one line coming on and the next (intake.ts NOTICE_LINE_SEC). */
+  noticeLineSec?: number;
   /** Stopping living (intake.ts has the defaults): how long X is held … */
   holdSec?: number;
   /** … from how many seconds into the life it is on offer (and the first banner comes) … */

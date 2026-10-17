@@ -14,7 +14,7 @@ import type { Surface } from "./witness";
 // ── timing ───────────────────────────────────────────────────────────────────
 
 /** A notice page's lines come on one after another, this many seconds apart (hard cuts, no typing effect). */
-export const NOTICE_LINE_SEC = 0.6;
+export const NOTICE_LINE_SEC = 0.9;
 /** The verdict (requested / assigned) stays this long before the life begins. */
 export const VERDICT_SEC = 4;
 /** No input for this long before the life (notices, consent, headset, choice): back to the title screen. */

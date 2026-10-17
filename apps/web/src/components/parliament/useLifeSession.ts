@@ -33,6 +33,7 @@ import {
   HINT_PERIOD_SEC,
   HINT_SHOW_SEC,
   HOLD_SEC,
+  NOTICE_LINE_SEC,
   SELF_NEAR_FACTOR,
   STOP_LAST_SEC,
   IDLE_AFTER_SEC,
@@ -266,7 +267,7 @@ export class SessionMachine {
       case "notice": {
         const pages = SCRIPT[this.lang].notice;
         const lines = pages[v.page]?.length ?? 1;
-        if (!pageDone(lines, (now - v.phaseAt) / 1000)) return;
+        if (!pageDone(lines, (now - v.phaseAt) / 1000, this.cfg.noticeLineSec ?? NOTICE_LINE_SEC)) return;
         if (v.page + 1 < pages.length) this.set({ page: v.page + 1, phaseAt: now });
         else this.enter("consent");
         return;

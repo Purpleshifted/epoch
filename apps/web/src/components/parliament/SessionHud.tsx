@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   CAUSE_NAME,
   HOLD_SEC,
+  NOTICE_LINE_SEC,
   ROLE_NAME,
   ROLE_TAG,
   SCRIPT,
@@ -70,9 +71,9 @@ function Centre({ className = "", children }: { className?: string; children: Re
   );
 }
 
-/** Lines that come on one after another (hard cuts); the ones not yet up keep their room. */
-function Lines({ lines, since, className = "" }: { lines: string[]; since: number; className?: string }) {
-  const n = linesShown(lines.length, since);
+/** Lines that come on one after another, `lineSec` apart (hard cuts); the ones not yet up keep their room. */
+function Lines({ lines, since, lineSec = NOTICE_LINE_SEC, className = "" }: { lines: string[]; since: number; lineSec?: number; className?: string }) {
+  const n = linesShown(lines.length, since, lineSec);
   return (
     <>
       {lines.map((l, i) => (
@@ -92,6 +93,7 @@ export function SessionHud({
   lang = "ko",
   helpLine = false,
   holdSec = HOLD_SEC,
+  noticeLineSec = NOTICE_LINE_SEC,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -105,6 +107,8 @@ export function SessionHud({
   helpLine?: boolean;
   /** How long X is held to stop living (what the banner says). */
   holdSec?: number;
+  /** Seconds between one notice line coming on and the next. */
+  noticeLineSec?: number;
 }) {
   const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
@@ -193,9 +197,9 @@ export function SessionHud({
       {/* the notice: a few pages, their lines coming on one after another */}
       {phase === "notice" && (
         <Centre className={`${say} text-[20px] leading-[1.6] tracking-[0.02em] text-white/80`}>
-          <Lines lines={S.notice[page] ?? []} since={since} />
+          <Lines lines={S.notice[page] ?? []} since={since} lineSec={noticeLineSec} />
           <div className="mt-6 h-4 text-[12px] text-white/35">
-            {pageDone((S.notice[page] ?? []).length, since) && <span className="hud-blink">▪</span>}
+            {pageDone((S.notice[page] ?? []).length, since, noticeLineSec) && <span className="hud-blink">▪</span>}
           </div>
         </Centre>
       )}
@@ -217,7 +221,7 @@ export function SessionHud({
       {/* the headset */}
       {phase === "headset" && (
         <Centre className={`${say} text-center text-[20px] leading-[1.6] text-white/80`}>
-          <Lines lines={S.headset} since={since} />
+          <Lines lines={S.headset} since={since} lineSec={noticeLineSec} />
         </Centre>
       )}
 
