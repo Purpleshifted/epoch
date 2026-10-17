@@ -4,8 +4,11 @@
  *
  *   WORKER      walks: forward, sidestep, a slow step back (the controls as they were)
  *   STREET CAT  low and quick: darts off and stops short, sidesteps freely, looks around fast; the eye sits low
- *   CAR         drives: W throttle, S brake / reverse, A/D steer — only while rolling; no sidestep, the mouse does not
- *               turn it; slow to pick up, long to roll out; fast on sealed ground, slow on open (overgrown) ground
+ *   CAR         drives: W throttle, S brake / reverse; no sidestep, the mouse does not turn it; slow to pick up, long
+ *               to roll out. ON RAILS: on a road (trodden ground, PathCell.p ≥ ROAD_P) its heading is drawn to the
+ *               road's line (PathCell.axis) by how much the treads agree on it (align), so A/D only steer at
+ *               crossings and off the road; speed by how formed the road is, full on sealed ground; off the road it
+ *               CRAWLS (× crawl) — and scars the grass (nature.ts wearOf) and treads a new road (flow.ts treadOf)
  *   TREE        rooted: the keys only sway it (it springs back to where it stands), it looks around slowly, and its eye
  *               rises over the lifespan (it grows)
  *
@@ -32,10 +35,27 @@ export interface RoleMotion {
   brake?: number;
   /** drive: turn rate (rad/s) once rolling at half the top speed or more; none at a standstill. */
   steer?: number;
-  /** × top speed on each surface (absent = 1 everywhere). */
-  surface?: Record<Surface, number>;
+  /** drive: × top speed off the road (open ground). */
+  crawl?: number;
+  /** drive: how fast (1/s) the heading is drawn to the road's line when the treads fully agree on it. */
+  rail?: number;
   /** rooted: how far the keys sway it (world units). */
   sway?: number;
+}
+
+/** A path at least this formed is a ROAD (witness.ts: TRODDEN GROUND) … */
+export const ROAD_P = 0.3;
+/** … and from here on a car runs at full speed. */
+export const FULL_ROAD_P = 0.8;
+
+/** The ground under a body (from the fold's PathCell / Slab at its cell). */
+export interface Ground {
+  surface: Surface;
+  /** 0..1 how formed the path under it is (0 = open ground). */
+  p: number;
+  /** The path's line and how much the treads agree on it (PathCell.axis / align); absent off the road. */
+  axis?: number;
+  align?: number;
 }
 
 export interface RoleLook {
@@ -89,7 +109,8 @@ export const ROLE_CONTROLS: Record<RoleId, RoleControl> = {
       coast: 0.06,
       brake: 0.9,
       steer: 1.6,
-      surface: { sealed: 1, trodden: 0.7, open: 0.3 },
+      crawl: 0.08,
+      rail: 4,
     },
     look: { yaw: 0, pitch: 0.6, pitchMin: 0.12, pitchMax: 0.7 },
     cam: { dist: 1.3, lift: 0.6 },
@@ -132,20 +153,33 @@ export interface StepOpts {
   drag: number;
   /** × the speed the input asks for (the hindrance's gain). */
   gain: number;
-  /** The ground under it (witness.ts); absent = unknown, top speed as is. */
-  surface?: Surface;
+  /** The ground under it; absent = unknown (a car then crawls as on open ground). */
+  ground?: Ground;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const wrapAngle = (a: number) => ((((a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
+
+/** The heading (yaw: forward = (sin, cos)) that runs along a path's line `axis` (atan2(dz, dx)). */
+export const yawAlong = (axis: number) => Math.atan2(Math.cos(axis), Math.sin(axis));
+
+/** × top speed a car gets from the ground: full on sealed ground, by how formed the road is, `crawl` off it. */
+export function roadSpeed(g: Ground | undefined, crawl: number): number {
+  if (g?.surface === "sealed") return 1;
+  if (!g || g.p < ROAD_P) return crawl;
+  const road = clamp((g.p - ROAD_P) / (FULL_ROAD_P - ROAD_P), 0, 1);
+  return crawl + (1 - crawl) * road;
+}
 
 /** Advances `b` by one frame of `keys` under the role's motion. */
 export function stepBody(b: Body, keys: MoveKeys, m: RoleMotion, o: StepOpts): void {
   const f = keys.fwd ? 1 : 0, bk = keys.back ? 1 : 0, l = keys.left ? 1 : 0, r = keys.right ? 1 : 0;
-  const s = o.surface && m.surface ? m.surface[o.surface] : 1;
   const sin = Math.sin(b.yaw), cos = Math.cos(b.yaw);
   const damp = (resp: number) => 1 - Math.exp(-o.drag * resp * o.dt);
 
   if (m.kind === "drive") {
+    const g = o.ground;
+    const s = roadSpeed(g, m.crawl ?? 1);
     // speed along the heading only (it does not slide sideways)
     let v = b.vx * sin + b.vz * cos;
     // input against the motion brakes to a stop first; only then does S reverse (or W pull away again)
@@ -153,9 +187,17 @@ export function stepBody(b: Body, keys: MoveKeys, m: RoleMotion, o: StepOpts): v
     const target = opposing ? 0 : (f * m.fwd - bk * m.back) * o.gain * s;
     const resp = opposing ? (m.brake ?? m.response) : f || bk ? m.response : (m.coast ?? m.response);
     v += (target - v) * damp(resp);
-    // steering needs speed: none at a standstill, full from half the top speed; reversing turns the other way
-    const roll = clamp(v / (m.fwd * 0.5), -1, 1);
-    b.yaw -= (r - l) * (m.steer ?? 0) * roll * o.dt;
+    // the rail: on a road the heading is drawn to the road's line (the nearer way along it) by how much the treads
+    // agree on that line; A/D are free off the road and at crossings (where the treads disagree), nothing on a clean road
+    const rail = g && g.p >= ROAD_P && g.axis !== undefined && g.align !== undefined ? clamp(g.align, 0, 1) : 0;
+    if (rail > 0 && m.rail) {
+      let d = wrapAngle(yawAlong(g!.axis!) - b.yaw);
+      if (Math.abs(d) > Math.PI / 2) d = wrapAngle(d + Math.PI);
+      b.yaw += d * (1 - Math.exp(-m.rail * rail * o.dt));
+    }
+    // steering needs speed: none at a standstill, full from half the top speed (as the ground allows); reversing turns the other way
+    const roll = clamp(v / (m.fwd * s * 0.5), -1, 1);
+    b.yaw -= (r - l) * (m.steer ?? 0) * roll * (1 - rail) * o.dt;
     b.vx = Math.sin(b.yaw) * v;
     b.vz = Math.cos(b.yaw) * v;
     b.x += b.vx * o.dt;
@@ -185,8 +227,8 @@ export function stepBody(b: Body, keys: MoveKeys, m: RoleMotion, o: StepOpts): v
   }
 
   // walk
-  const tf = (f * m.fwd - bk * m.back) * o.gain * s;
-  const ts = (r - l) * m.side * o.gain * s;
+  const tf = (f * m.fwd - bk * m.back) * o.gain;
+  const ts = (r - l) * m.side * o.gain;
   const tvx = sin * tf - cos * ts;
   const tvz = cos * tf + sin * ts;
   const d = damp(m.response);

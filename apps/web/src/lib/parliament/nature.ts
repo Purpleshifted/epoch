@@ -12,11 +12,13 @@
  * S    stress: every worker presence sample (x, z, s) adds `dose · w(d)` to the cells within
  *      `lingerRadius` (w = linear kernel), and that dose fades with e-folding time `recoverSec`.
  *      A worker who lingers digs S up, so G falls; when they leave, S decays and G recovers.
+ *      Other roles by their weight (wearOf): a car `carWear` times a worker (it scars the ground it
+ *      crawls over off the road), a street cat and a tree nothing.
  * p    desire-path formation from the fold (cells crossed many times).
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import type { PEvent } from "./types";
+import type { PEvent, RoleId } from "./types";
 import { wrapCell, wrapDist } from "./world";
 
 export interface NatureConfig {
@@ -32,12 +34,29 @@ export interface NatureConfig {
   sealedLeft: number;
   /** Candidate points per cell at density 1. */
   pointsPerCell: number;
+  /** How hard a CAR wears the vegetation, relative to a worker (absent = DEFAULT_CAR_WEAR). */
+  carWear?: number;
+}
+
+export const DEFAULT_CAR_WEAR = 4;
+
+/** How hard `role` wears the vegetation, relative to a worker; 0 = not at all. */
+export function wearOf(role: RoleId, cfg: NatureConfig): number {
+  switch (role) {
+    case "worker":
+      return 1;
+    case "car":
+      return cfg.carWear ?? DEFAULT_CAR_WEAR;
+    default:
+      return 0;
+  }
 }
 
 export const DEFAULT_NATURE: NatureConfig = {
   lingerRadius: 3.5,
   dose: 0.12,
   recoverSec: 45,
+  carWear: DEFAULT_CAR_WEAR,
   pathBite: 0.95,
   sealedLeft: 0.05,
   pointsPerCell: 28,
@@ -92,8 +111,10 @@ export function stressMap(
   const n = Math.ceil(cfg.lingerRadius / CELL_SIZE);
   const reach = region ? region.r + cfg.lingerRadius : Infinity;
   for (const e of events) {
-    if (e.r !== "worker" || e.k !== "p" || e.s > sView) continue;
-    const decay = Math.exp(-(sView - e.s) / cfg.recoverSec);
+    if (e.k !== "p" || e.s > sView) continue;
+    const wear = wearOf(e.r, cfg);
+    if (wear <= 0) continue;
+    const decay = Math.exp(-(sView - e.s) / cfg.recoverSec) * wear;
     if (decay < 0.01) continue;
     if (region && wrapDist(e.x, e.z, region.x, region.z) > reach) continue;
     const cx0 = Math.floor(e.x / CELL_SIZE);

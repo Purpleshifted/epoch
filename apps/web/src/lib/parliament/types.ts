@@ -30,13 +30,17 @@ export const ROLE_IMPLEMENTED: Record<RoleId, boolean> = {
 /**
  * One spacetime event. Compact on purpose: the log is mirrored into localStorage.
  *   k = "p": presence sample (the visitor stood or walked here; stands for `sampleSec` seconds)
+ *   k = "x": the visitor's life ended here (V2 session): what a role leaves as a THING — a car its wreck (seeds.ts)
  */
+export type EventKind = "p" | "x";
+export const EVENT_KINDS: readonly EventKind[] = ["p", "x"];
+
 export interface PEvent {
   id: string;
   /** Visitor (or bot) id. */
   o: string;
   r: RoleId;
-  k: "p";
+  k: EventKind;
   x: number;
   z: number;
   /** Assigned exhibition seconds of the actor when the event happened. */
@@ -135,6 +139,12 @@ export interface PathCell {
   p: number;
   /** Raw visit count. */
   visits: number;
+  /** V2 (flow): 0..1 how trodden the cell is regardless of direction (p counts only the flow along one line: at a crossing p ~ 0 but level is high). */
+  level?: number;
+  /** V2 (flow): the line the treads run along, as an angle in the ground plane (atan2(dz, dx), in (−π/2, π/2]). */
+  axis?: number;
+  /** V2 (flow): 0..1 how much the treads agree on that line (1 = one road, ~0 = a crossing or milling about). */
+  align?: number;
 }
 
 export interface Snapshot {

@@ -14,6 +14,9 @@
  *
  * V2 session (useLifeSession): the visitor only leaves presence while their session is LIVE; near the end the
  * headset goes dull (muffleSound); after every fold a dry reading of who is near is put in `witnessRef` (HUD).
+ * When the life ends an END event (k = "x") is left where they stood: a car's wreck (seeds.ts seedsFromDeaths).
+ * `groundRef` gives the controls the ground under any point (a car runs on the roads, roleControls.ts) and a car's
+ * starting place (the strongest road near the origin).
  */
 
 import { useEffect, useRef } from "react";
@@ -40,11 +43,16 @@ import {
   type FoldConfig,
   type NatureConfig,
   type Observation,
+  type Ground,
+  type PathCell,
   type PEvent,
   type RoleId,
   type Snapshot,
+  ROAD_P,
+  wrapCell,
   worldNow,
 } from "@/lib/parliament";
+import { CELL_SIZE } from "@/lib/stratum/field";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { NatureCloud } from "./NatureCloud";
 import { PathLines } from "./PathLines";
@@ -78,6 +86,17 @@ export interface ParliamentDebug {
 
 /** V2: how often the ground the bots walk on (trodden paths, buildings) is refolded. */
 const BOT_GROUND_EVERY_MS = 5000;
+/** A car starts on the strongest road within this distance of the origin (world units); none = the origin. */
+const SPAWN_REACH = 40;
+
+/** The ground as the controls read it (roleControls.ts): the cell under a point, and where a role starts. */
+export interface GroundLookup {
+  at(x: number, z: number): Ground;
+  /** Where a role begins its life: a car on a road (its heading along it); null = where everyone starts. */
+  spawn(role: RoleId): { x: number; z: number; yaw?: number } | null;
+}
+
+const cellOf = (x: number, z: number) => `${wrapCell(Math.floor(x / CELL_SIZE))},${wrapCell(Math.floor(z / CELL_SIZE))}`;
 
 export function RoleField({
   playerPosRef,
@@ -94,6 +113,7 @@ export function RoleField({
   playerYawRef,
   lifeRef,
   witnessRef,
+  groundRef,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -116,6 +136,8 @@ export function RoleField({
   lifeRef?: { readonly current: LifeSignal };
   /** V2: a dry reading of the visitor's situation, renewed after every fold (lib/parliament/witness.ts). */
   witnessRef?: React.MutableRefObject<Observation | null>;
+  /** V2: the ground as the controls read it (a car's roads and starting place), renewed after every fold. */
+  groundRef?: React.MutableRefObject<GroundLookup | null>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -145,6 +167,10 @@ export function RoleField({
   }, [role, botCount, botRole, botFlock, cfg, fold]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
+  // the player's cells, by key, for the controls (groundRef): paths and sealed ground of the latest regional fold
+  const cells = useRef<{ paths: Map<string, PathCell>; sealed: Set<string> }>({ paths: new Map(), sealed: new Set() });
+  // the visitor's phase at the last tick: the END event is left on the step out of LIVE
+  const lastPhase = useRef<string | undefined>(undefined);
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
@@ -177,6 +203,35 @@ export function RoleField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!groundRef) return;
+    groundRef.current = {
+      at(x, z) {
+        const k = cellOf(x, z);
+        const c = cells.current;
+        const pc = c.paths.get(k);
+        // how trodden regardless of direction: a crossing is a road too (its treads just disagree on a line)
+        const p = pc?.level ?? pc?.p ?? 0;
+        return { surface: c.sealed.has(k) ? "sealed" : p >= ROAD_P ? "trodden" : "open", p, axis: pc?.axis, align: pc?.align };
+      },
+      spawn(r) {
+        if (r !== "car" || epochMs.current === 0) return null;
+        // the whole world as it is now: the strongest road near the origin, facing along it
+        const all = fold.at(sessionSeconds(worldNow(), epochMs.current, me.current.offset));
+        let best: PathCell | null = null;
+        for (const pc of all.paths) {
+          if (pc.p < ROAD_P || Math.hypot(pc.x, pc.z) > SPAWN_REACH) continue; // p, not level: a clear line to face along
+          if (!best || pc.p > best.p || (pc.p === best.p && Math.hypot(pc.x, pc.z) < Math.hypot(best.x, best.z))) best = pc;
+        }
+        if (!best) return null;
+        return { x: best.x, z: best.z, yaw: best.axis !== undefined ? Math.atan2(Math.cos(best.axis), Math.sin(best.axis)) : undefined };
+      },
+    };
+    return () => {
+      groundRef.current = null;
+    };
+  }, [groundRef, fold]);
+
   const emit = (o: string, r: RoleId, k: PEvent["k"], x: number, z: number, s: number) => {
     // the world is finite and wraps (world.ts): every stored coordinate is canonical
     const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
@@ -205,10 +260,12 @@ export function RoleField({
       if (botRoutes.current.size > nBots * 4) botRoutes.current.clear(); // old migrations
     }
     const ground = flow ? botGround.current : null;
+    // a car bot keeps to the roads twice as keenly as a walker
+    const carFlow = flow ? { ...flow, pull: flow.pull * 2 } : null;
     const steer = (a: Actor, i: number, w: number): Actor => {
       if (!flow || !ground || a.r === "tree") return a; // a tree is rooted (roleControls.ts)
       const plan = botPlan(i, w, botStartMs.current, epochMs.current, me.current.offset, flock);
-      const [x, z] = steerBot(a.o, plan, { level: (k) => ground.level.get(k) ?? 0, built: (k) => ground.built.has(k) }, flow, botRoutes.current);
+      const [x, z] = steerBot(a.o, plan, { level: (k) => ground.level.get(k) ?? 0, built: (k) => ground.built.has(k) }, a.r === "car" && carFlow ? carFlow : flow, botRoutes.current);
       return { ...a, x, z };
     };
     const period = Math.max(50, sampleSec * 1000);
@@ -218,6 +275,11 @@ export function RoleField({
     if (nBots <= 0) botStartMs.current = 0;
     else if (botStartMs.current === 0) botStartMs.current = now;
     const p = playerPosRef.current;
+
+    // V2: the life ended since the last tick — leave the END event where the visitor stood (a car: its wreck)
+    const phase = lifeRef?.current.phase;
+    if (lastPhase.current === "live" && phase === "ended") emit(me.current.id, myRole, "x", p.x, p.z, sessionSeconds(now, epochMs.current, me.current.offset));
+    lastPhase.current = phase;
 
     for (const w of due) {
       const actors: Actor[] = [];
@@ -259,6 +321,13 @@ export function RoleField({
       const events = log.all();
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      if (groundRef) {
+        const paths = new Map<string, PathCell>();
+        for (const pc of snap.current.paths) paths.set(pc.key, pc);
+        const sealed = new Set<string>();
+        for (const sl of snap.current.slabs) if (sl.h >= SEAL_H) sealed.add(sl.key);
+        cells.current = { paths, sealed };
+      }
       if (witnessRef) {
         witnessRef.current = observe({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },

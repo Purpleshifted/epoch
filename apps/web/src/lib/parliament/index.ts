@@ -19,6 +19,7 @@ export * from "./walkways";
 export * from "./session";
 export * from "./witness";
 export * from "./roleControls";
+export * from "./bores";
 export * from "./intake";
 export * from "./script";
 export * from "./world";

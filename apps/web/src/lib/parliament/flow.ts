@@ -20,12 +20,16 @@
  *                 building is there first again.
  *   BUNDLING      bots are drawn towards trodden ground (flowSteer): walking where others walked, their straight
  *                 crossings merge into a few trunks (Frei Otto's wool threads). Players see the paths in their grass.
+ *   ROLES         every role treads by its own weight (treadOf): a worker 1, a car `carTread` (3: it turns footpaths
+ *                 into roads), a street cat faintly (0.2: a thin trail that soon closes), a tree not at all. Only the
+ *                 worker BUILDS (fold.ts). Each cell also keeps its treads' AXIS and how much they agree (PathCell
+ *                 axis / align): a car follows the axis like a rail (roleControls.ts).
  *
  * Pure and deterministic. Off (FoldConfig.flow absent or disabled) everything is as in V1.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import type { PEvent } from "./types";
+import type { PEvent, RoleId } from "./types";
 import { wrapCell, wrapDelta, wrapDist } from "./world";
 
 export interface FlowConfig {
@@ -48,6 +52,26 @@ export interface FlowConfig {
    * like a surveyed line). Absent = 1.
    */
   gridShare?: number;
+  /** How hard a CAR treads, relative to a worker (absent = DEFAULT_CAR_TREAD). */
+  carTread?: number;
+}
+
+export const DEFAULT_CAR_TREAD = 3;
+/** How hard a street cat treads, relative to a worker: a thin trail. */
+export const CAT_TREAD = 0.2;
+
+/** How hard `role` treads the ground, relative to a worker; 0 = it leaves no path (a tree, the V1 roles). */
+export function treadOf(role: RoleId, cfg: FlowConfig): number {
+  switch (role) {
+    case "worker":
+      return 1;
+    case "car":
+      return cfg.carTread ?? DEFAULT_CAR_TREAD;
+    case "cat":
+      return CAT_TREAD;
+    default:
+      return 0;
+  }
 }
 
 export const DEFAULT_FLOW: FlowConfig = {
@@ -60,6 +84,7 @@ export const DEFAULT_FLOW: FlowConfig = {
   blockAt: 0.5,
   pull: 1.6,
   gridShare: 0.3,
+  carTread: DEFAULT_CAR_TREAD,
 };
 
 /** BOTS sense trodden ground this many cells around them. */
@@ -178,6 +203,8 @@ export function flowTracks(
   pres: readonly PEvent[],
   stay: Float32Array,
   inUse?: (key: string, s: number) => boolean,
+  /** How hard each sample's owner treads (treadOf); absent = 1. */
+  weight?: (e: PEvent) => number,
 ): Map<string, Track> {
   const tracks = new Map<string, Track>();
   const last = new Map<string, number>();
@@ -199,8 +226,8 @@ export function flowTracks(
     const th = Math.atan2(dz, dx);
     const c2 = Math.cos(2 * th), s2 = Math.sin(2 * th);
     const touched = treadCells(p.x, p.z, dx, dz).map(([cx, cz]) => cellKey(cx, cz));
-    // the walked distance, shared by the cells it crossed (in cell widths: crossing one cell ≈ 1)
-    const amount = (m * len) / CELL_SIZE / touched.length;
+    // the walked distance, shared by the cells it crossed (in cell widths: crossing one cell ≈ 1), by the role's weight
+    const amount = ((m * len) / CELL_SIZE / touched.length) * (weight ? weight(e) : 1);
     for (const key of touched) {
       if (inUse?.(key, e.s)) continue; // a building in use: not trodden
       const tr = tracks.get(key);
@@ -215,26 +242,45 @@ export function flowTracks(
   return tracks;
 }
 
-/** Trodden-ness G (flow along one axis) of a track at time t (treads after t do not count). */
-export function flowLevel(tr: Track | undefined, t: number, tauSec: number): number {
-  if (!tr || !tr.s.length) return 0;
+/** The decayed tread sums of a track at time t: the axis vector (gc, gq), its length g, and the plain sum. */
+export interface FlowVec {
+  gc: number;
+  gq: number;
+  /** Trodden-ness G = |(gc, gq)|: the flow along one axis. */
+  g: number;
+  /** Σ amount · decay regardless of axis (g / sum = how much the treads agree on one line). */
+  sum: number;
+}
+
+export function flowVec(tr: Track | undefined, t: number, tauSec: number): FlowVec {
+  if (!tr || !tr.s.length || tr.s[0] > t) return { gc: 0, gq: 0, g: 0, sum: 0 };
   // last tread at or before t
   let lo = 0, hi = tr.s.length - 1;
-  if (tr.s[0] > t) return 0;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
     if (tr.s[mid] <= t) lo = mid;
     else hi = mid - 1;
   }
-  let gc = 0, gq = 0;
+  let gc = 0, gq = 0, sum = 0;
   for (let i = lo; i >= 0; i--) {
     const age = t - tr.s[i];
     if (age > tauSec * 8) break;
     const w = tr.a[i] * Math.exp(-age / tauSec);
     gc += w * tr.c[i];
     gq += w * tr.q[i];
+    sum += w;
   }
-  return Math.hypot(gc, gq);
+  return { gc, gq, g: Math.hypot(gc, gq), sum };
+}
+
+/** Trodden-ness G (flow along one axis) of a track at time t (treads after t do not count). */
+export function flowLevel(tr: Track | undefined, t: number, tauSec: number): number {
+  return flowVec(tr, t, tauSec).g;
+}
+
+/** The line of a tread sum, as an angle in (−π/2, π/2] (the doubled angle halved), and how much the treads agree on it. */
+export function flowAxis(v: { gc: number; gq: number; g: number; sum: number }): { axis: number; align: number } {
+  return { axis: Math.atan2(v.gq, v.gc) / 2, align: v.sum > 1e-9 ? Math.min(1, v.g / v.sum) : 0 };
 }
 
 /** Path strength (0..1) from trodden-ness. */

@@ -225,13 +225,14 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     blockAt: { value: DEFAULT_FLOW.blockAt, min: 0.05, max: 1.01, step: 0.01, label: "이만큼 길이면 건물이 피함 (>1 = 안 피함)", render: v2 },
     pull: { value: DEFAULT_FLOW.pull, min: 0, max: 3, step: 0.05, label: "봇이 길에 끌리는 정도 (월드)", render: v2 },
     gridShare: { value: DEFAULT_FLOW.gridShare ?? 0.3, min: 0, max: 1, step: 0.05, label: "길의 격자 비율 (0 = 곡선, 1 = 격자 0°/45°/90°)", render: v2 },
+    carTread: { value: DEFAULT_FLOW.carTread ?? 3, min: 0, max: 10, step: 0.5, label: "자동차 밟기 배수 (회사원 = 1 · 고양이 0.2 · 나무 0)", render: v2 },
   };
   const root = place.folder ?? "회사원 규칙 (시공간 밀집)";
   const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order }) as unknown as Record<string, number>;
   const flowPath = place.flow?.path ?? `${root}.길 (V2 · 유지되는 유통량)`;
   const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: true, order: place.flow?.order, render: v2 }) as unknown as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
-  const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare } = f as unknown as Record<string, number> & { flowOn: boolean };
+  const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare, carTread } = f as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(
     () => ({
       ...D,
@@ -246,9 +247,9 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
       tauFootprintYears,
       pathVisits,
       tauPathYears,
-      flow: isV2 && flowOn ? { enabled: true, stayRadius, staySec, moveShare, tauSec, unit: flowUnit, blockAt, pull, gridShare } : undefined,
+      flow: isV2 && flowOn ? { enabled: true, stayRadius, staySec, moveShare, tauSec, unit: flowUnit, blockAt, pull, gridShare, carTread } : undefined,
     }),
-    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears, isV2, flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare],
+    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears, isV2, flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare, carTread],
   );
 }
 
@@ -260,6 +261,7 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
     recoverSec: { value: DEFAULT_NATURE.recoverSec, min: 5, max: 600, step: 5, label: "떠난 뒤 회복 시간 (s)" },
     pathBite: { value: DEFAULT_NATURE.pathBite, min: 0, max: 1, step: 0.05, label: "길이 초목을 지우는 정도" },
     sealedLeft: { value: DEFAULT_NATURE.sealedLeft, min: 0, max: 1, step: 0.05, label: "콘크리트 아래 남는 초목" },
+    carWear: { value: DEFAULT_NATURE.carWear ?? 4, min: 0, max: 20, step: 0.5, label: "자동차의 훼손 배수 (회사원 = 1 · 고양이·나무 0)" },
   };
   // how the player view draws its point cloud (meaningless elsewhere)
   const drawing = {
@@ -272,13 +274,13 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
     collapsed: place.collapsed,
     order: place.order,
   }) as Record<string, number>;
-  const { lingerRadius, dose, recoverSec, pathBite, sealedLeft } = c;
+  const { lingerRadius, dose, recoverSec, pathBite, sealedLeft, carWear } = c;
   const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;
   const pointSize = c.pointSize ?? 0.11;
   const pathLine = c.pathLine ?? 1;
   const cfg = useMemo(
-    () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell }),
-    [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell],
+    () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, carWear }),
+    [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, carWear],
   );
   return { cfg, pointSize, pathLine };
 }

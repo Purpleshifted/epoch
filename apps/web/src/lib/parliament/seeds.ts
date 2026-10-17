@@ -44,12 +44,17 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { hash2 } from "./nature";
-import type { Contributor, RoleId, Slab, Snapshot } from "./types";
+import type { Contributor, PEvent, RoleId, Slab, Snapshot } from "./types";
 
-export type MaterialId = "concrete";
+export type MaterialId = "concrete" | "wreck";
 
 export const MATERIAL_OF_ROLE: Partial<Record<RoleId, MaterialId>> = {
   worker: "concrete",
+};
+
+/** What a role leaves as a THING where its life ended (PEvent k = "x", V2 session): a car its wreck. */
+export const MATERIAL_OF_DEATH: Partial<Record<RoleId, MaterialId>> = {
+  car: "wreck",
 };
 
 export interface Seed {
@@ -192,6 +197,20 @@ export const RECIPES: Record<MaterialId, Recipe> = {
     basement: { footprint: [0.45, 0.85], depth: [0.8, 2.6] },
     pile: { count: [2, 5], width: [0.06, 0.12], depth: [0.4, 2.5] },
   },
+  // a car's wreck: one low bar lying where it died, in its one slot; no floors, no steel, no piles. A first shape —
+  // the fusion session gives it its look (rust: it should weather faster than concrete).
+  wreck: {
+    mass: { footprint: [0.9, 1.3], alpha: 1.5, height: [0.08, 0.14], aspect: 2.4, barChance: 1, bar: 2.4, scatter: 0.1, perMass: 0, maxPerSlot: 1, growth: 0 },
+    slab: { every: 1e9, thick: [0.02, 0.03], footprint: [0.5, 0.6], cantilever: 0 },
+    column: { width: [0.03, 0.04], count: [0, 0] },
+    beam: { chance: 0, length: [0.5, 1], width: [0.03, 0.04], onGrid: 1, skew: 0, scatter: 0 },
+    brace: { chance: 0, length: [0.5, 1], width: [0.03, 0.04], tilt: [0.5, 0.6], scatter: 0 },
+    slat: { enabled: false, minFootprint: 99, width: [0.1, 0.2], density: 0, maxPerMass: 1, vertical: 0, shortest: 0.5 },
+    drip: { perArea: 0, max: 0, length: [0.1, 0.2], alpha: 1.3, width: [0.03, 0.04] },
+    plinth: { footprint: [0.6, 0.9], thick: [0.03, 0.05] },
+    basement: { footprint: [0.5, 0.6], depth: [0.02, 0.03] },
+    pile: { count: [0, 0], width: [0.05, 0.06], depth: [0.1, 0.2] },
+  },
 };
 
 function mix(h: number): number {
@@ -236,6 +255,26 @@ export function seedsFromSnapshot(snap: Pick<Snapshot, "slabs">, role: RoleId = 
     if (s.growth) seed.growth = s.growth;
     return seed;
   });
+}
+
+/**
+ * The things left where lives ended (events k = "x" up to `sView`): one seed per death of a role that leaves one
+ * (MATERIAL_OF_DEATH), at the exact spot, in the one time slot of its death (t0 = t1 = s), mass 1. A wreck is a seed
+ * like a building, so it goes through the same parts → weathering → fusion → resin.
+ */
+export function seedsFromDeaths(events: readonly PEvent[], sView = Infinity): Seed[] {
+  const out: Seed[] = [];
+  for (const e of events) {
+    if (e.k !== "x" || e.s > sView) continue;
+    const material = MATERIAL_OF_DEATH[e.r];
+    if (!material) continue;
+    const cx = Math.floor(e.x / CELL_SIZE);
+    const cz = Math.floor(e.z / CELL_SIZE);
+    // salted cell: a wreck born the second a slab is born in the same cell is not that slab
+    out.push({ id: seedId(cx ^ 0x5bd1, cz, e.s), material, role: e.r, x: e.x, z: e.z, t0: e.s, t1: e.s, mass: 1 });
+  }
+  out.sort((a, b) => a.t0 - b.t0 || a.id - b.id);
+  return out;
 }
 
 /**

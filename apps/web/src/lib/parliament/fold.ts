@@ -18,7 +18,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
-import { flowLevel, flowP, flowTracks, inUseAt, stayShares, type Track } from "./flow";
+import { flowAxis, flowP, flowTracks, flowVec, inUseAt, stayShares, treadOf, type Track } from "./flow";
 import { DEFAULT_FOLD, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 import { wrapCell, wrapDist } from "./world";
 
@@ -70,15 +70,17 @@ export function foldWorld(
   const lastCell = new Map<string, string>();
   const visits = new Map<string, { n: number; lastS: number; x: number; z: number }>();
 
-  // V2: stays build, moves tread (flow.ts); a move still builds by moveShare
+  // V2: stays build, moves tread (flow.ts); a move still builds by moveShare. Every role with a tread weight walks
+  // (the worker, a car, a cat — each by its weight); only the WORKER builds.
   const flow = cfg.flow?.enabled ? cfg.flow : null;
-  const workers = flow ? vis.filter((e) => e.r === "worker") : [];
-  const stay = flow ? stayShares(workers, flow) : null;
+  const weigh = flow ? (e: PEvent) => treadOf(e.r, flow) : null;
+  const walkers = weigh ? vis.filter((e) => weigh(e) > 0) : [];
+  const stay = flow ? stayShares(walkers, flow) : null;
   let wi = -1;
 
   for (const e of vis) {
+    if (weigh && weigh(e) > 0) wi++;
     if (e.r !== "worker") continue;
-    wi++;
     const builds = flow && stay ? stay[wi] + (1 - stay[wi]) * flow.moveShare : 1;
     // a visit = entering a cell (standing still in it is one visit, not many)
     const vcx = wrapCell(Math.floor(e.x / CELL_SIZE));
@@ -116,8 +118,8 @@ export function foldWorld(
   }
 
   // V2, the path came first: a cell already trodden to blockAt when it would nucleate gets no slab
-  const treadA = flow && stay ? flowTracks(workers, stay) : null;
-  const blocked = (key: string, s: number) => !!flow && !!treadA && flowP(flowLevel(treadA.get(key), s, flow.tauSec), flow) >= flow.blockAt;
+  const treadA = flow && stay && weigh ? flowTracks(walkers, stay, undefined, weigh) : null;
+  const blocked = (key: string, s: number) => !!flow && !!treadA && flowP(flowVec(treadA.get(key), s, flow.tauSec).g, flow) >= flow.blockAt;
 
   const cap = cfg.visitorCap;
   const slabs: Slab[] = [];
@@ -210,12 +212,16 @@ export function foldWorld(
     // V2: paths are the ground trodden by sustained flow; on a cell whose building is in use nobody treads (in its
     // empty time — a ruin — they do)
     const inUse = inUseAt(slabs.map((sl) => ({ key: sl.key, spans: sl.spans ?? [[sl.bornS, sl.lastS]] })), cfg.emptyGapSec);
-    const tread: Map<string, Track> = flowTracks(workers, stay, inUse);
+    const tread: Map<string, Track> = flowTracks(walkers, stay, inUse, weigh ?? undefined);
     for (const [key, tr] of tread) {
-      const p = flowP(flowLevel(tr, sView, flow.tauSec), flow);
-      if (p < MIN_ALPHA) continue;
+      const v = flowVec(tr, sView, flow.tauSec);
+      const p = flowP(v.g, flow);
+      // a cell is kept while it is trodden at all (level): a crossing of two flows has p ~ 0 but is not open ground
+      const level = flowP(v.sum, flow);
+      if (level < MIN_ALPHA) continue;
       const [cx, cz] = key.split(",").map(Number);
-      paths.push({ key, x: (cx + 0.5) * CELL_SIZE, z: (cz + 0.5) * CELL_SIZE, p, visits: tr.s.length });
+      const { axis, align } = flowAxis(v);
+      paths.push({ key, x: (cx + 0.5) * CELL_SIZE, z: (cz + 0.5) * CELL_SIZE, p, visits: tr.s.length, level, axis, align });
     }
     paths.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     return { slabs, paths };

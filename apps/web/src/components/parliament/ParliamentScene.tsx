@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
-import { RoleField, type ParliamentDebug } from "./RoleField";
+import { RoleField, type GroundLookup, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -47,7 +47,6 @@ import {
   type Observation,
   type RoleControl,
   type RoleId,
-  type Surface,
 } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
@@ -115,7 +114,7 @@ function Controller({
   lifeRef,
   role = "worker",
   lifeSec = 0,
-  getSurface,
+  groundRef,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -130,8 +129,8 @@ function Controller({
   role?: RoleId;
   /** The lifespan (s): a tree's eye rises over it. */
   lifeSec?: number;
-  /** The ground under the player (witness.ts): a car is fast on sealed ground, slow on open ground. */
-  getSurface?: () => Surface | undefined;
+  /** V2: the ground (RoleField): a car runs on the roads and starts on one. */
+  groundRef?: React.MutableRefObject<GroundLookup | null>;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -143,6 +142,8 @@ function Controller({
   const group = useRef<THREE.Group>(null);
   // the mouse handler reads the role's controls through this ref
   const ctrl = useRef<RoleControl>(ROLE_CONTROLS[role]);
+  // V2: the visitor has been put where their role begins (a car: on a road) — once per session (the controller is remade per session)
+  const placed = useRef(false);
   useEffect(() => {
     ctrl.current = ROLE_CONTROLS[role];
   }, [role]);
@@ -193,9 +194,24 @@ function Controller({
       right: !dead && (k.has("KeyD") || k.has("ArrowRight")),
     };
     const drag = (2.0 + (1 - viscosity) * 13.0) * (h?.response ?? 1);
+    const ground = groundRef?.current;
+    // V2: the life begins where the role begins — a car on the strongest road, facing along it (a hard cut, like the screen)
+    if (L && L.phase === "live" && !placed.current) {
+      placed.current = true;
+      const sp = ground?.spawn(role);
+      if (sp) {
+        camPos.current.x += sp.x - p.x;
+        camPos.current.z += sp.z - p.z;
+        lookAt.current.x += sp.x - p.x;
+        lookAt.current.z += sp.z - p.z;
+        p.x = sp.x;
+        p.z = sp.z;
+        if (sp.yaw !== undefined) yaw.current = sp.yaw;
+      }
+    }
     // the role's body (a car steers its own heading with A/D, so the heading goes in and comes back out)
     p.yaw = yaw.current;
-    stepBody(p, keysNow, c.motion, { dt, drag, gain: h?.gain ?? 1, surface: getSurface?.() });
+    stepBody(p, keysNow, c.motion, { dt, drag, gain: h?.gain ?? 1, ground: ground?.at(p.x, p.z) });
     yaw.current = p.yaw;
     const y = p.yaw;
     pitch.current = Math.max(c.look.pitchMin, Math.min(c.look.pitchMax, pitch.current));
@@ -265,6 +281,8 @@ export default function ParliamentScene() {
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
+  // V2: the ground as the controls read it (RoleField fills it after every fold)
+  const groundRef = useRef<GroundLookup | null>(null);
 
   const { session: sessionOn, role: roleChoice, roleMotion, lang: levaLang, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
@@ -367,7 +385,7 @@ export default function ParliamentScene() {
           lifeRef={withSession ? session.lifeRef : undefined}
           role={controlRole}
           lifeSec={lifeSec}
-          getSurface={() => witnessRef.current?.surface}
+          groundRef={isV2 ? groundRef : undefined}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -385,6 +403,7 @@ export default function ParliamentScene() {
           playerYawRef={playerYawRef}
           lifeRef={withSession ? session.lifeRef : undefined}
           witnessRef={withSession ? witnessRef : undefined}
+          groundRef={isV2 ? groundRef : undefined}
         />
       </Canvas>
 

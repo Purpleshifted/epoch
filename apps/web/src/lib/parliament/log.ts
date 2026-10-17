@@ -5,8 +5,8 @@
  * the same interface — add / addMany / all — is what a socket channel would feed).
  */
 
-import type { PEvent, RoleId } from "./types";
-import { ROLES } from "./types";
+import type { EventKind, PEvent, RoleId } from "./types";
+import { EVENT_KINDS, ROLES } from "./types";
 import { worldNow } from "./worldClock";
 import { wrapEvent } from "./world";
 
@@ -91,7 +91,7 @@ function isEvent(e: unknown): e is PEvent {
     typeof o.x === "number" &&
     typeof o.z === "number" &&
     typeof o.s === "number" &&
-    o.k === "p" &&
+    (EVENT_KINDS as readonly string[]).includes(o.k as EventKind) &&
     typeof o.r === "string" &&
     (ROLES as readonly string[]).includes(o.r as RoleId)
   );

@@ -29,17 +29,21 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { FOLD_EPS, FOLD_MIN_ALPHA, FOLD_MIN_FOOT, rawHeightOf, type Region } from "./fold";
-import { MAX_STEP_SEC, flowP, stayShareOf, treadCells, type FlowConfig } from "./flow";
-import type { NatureConfig } from "./nature";
+import { MAX_STEP_SEC, flowAxis, flowP, stayShareOf, treadCells, treadOf, type FlowConfig } from "./flow";
+import { wearOf, type NatureConfig } from "./nature";
 import type { Contributor, FoldConfig, PathCell, PEvent, Slab, Snapshot } from "./types";
 import { wrapCell, wrapCoord, wrapDelta, wrapDist } from "./world";
 
 const nkOf = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768);
 const cmpRef = (a: Ref, b: Ref) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** One owner's timeline, sorted by (s, id). */
+/** One owner's timeline, sorted by (s, id). An owner has one role: it builds (the worker) and / or treads by a weight. */
 interface Line {
   o: number;
+  /** Its presence builds (fold.ts: the worker). */
+  builds: boolean;
+  /** How hard it treads (flow.ts treadOf); 0 = it leaves no path. */
+  tread: number;
   s: number[];
   x: number[];
   z: number[];
@@ -91,6 +95,8 @@ class Cell {
   gq = 0;
   pc = 0;
   pq = 0;
+  /** The path treads' plain sum (no axis): with (pc, pq) it says how much they agree on one line. */
+  ps = 0;
   pn = 0;
   /** V1 desire paths: entries and the last one. */
   vn = 0;
@@ -117,7 +123,7 @@ class Cell {
     this.growth = [];
     this.spans = [];
     this.ref = 0;
-    this.gc = this.gq = this.pc = this.pq = 0;
+    this.gc = this.gq = this.pc = this.pq = this.ps = 0;
     this.pn = 0;
     this.vn = 0;
     this.vLast = -Infinity;
@@ -143,6 +149,7 @@ interface Checkpoint {
   gq: number;
   pc: number;
   pq: number;
+  ps: number;
   pn: number;
   vn: number;
   vLast: number;
@@ -168,6 +175,7 @@ function checkpoint(c: Cell): Checkpoint {
     gq: c.gq,
     pc: c.pc,
     pq: c.pq,
+    ps: c.ps,
     pn: c.pn,
     vn: c.vn,
     vLast: c.vLast,
@@ -193,6 +201,7 @@ function restore(c: Cell, k: Checkpoint): void {
   c.gq = k.gq;
   c.pc = k.pc;
   c.pq = k.pq;
+  c.ps = k.ps;
   c.pn = k.pn;
   c.vn = k.vn;
   c.vLast = k.vLast;
@@ -243,15 +252,19 @@ export class FoldState {
     return this.seen.has(id);
   }
 
-  /** Adds one event (ignored when its id is known). Only worker presence shapes the ground. */
+  /** Adds one event (ignored when its id is known). Presence shapes the ground: the worker builds, every role treads by its weight (flow.ts treadOf). */
   add(e: PEvent): boolean {
     if (this.seen.has(e.id)) return false;
     this.seen.add(e.id);
     if (e.s > this.latestS) this.latestS = e.s;
-    if (e.k !== "p" || e.r !== "worker") return true;
+    if (e.k !== "p") return true;
+    const builds = e.r === "worker";
+    const flow = this.flow;
+    const tread = flow ? treadOf(e.r, flow) : 0;
+    if (!builds && tread <= 0) return true;
     let L = this.lines.get(e.o);
     if (!L) {
-      L = { o: this.names.length, s: [], x: [], z: [], id: [], stay: [], settled: 0, lastTick: this.tick, lastCell: NaN };
+      L = { o: this.names.length, builds, tread, s: [], x: [], z: [], id: [], stay: [], settled: 0, lastTick: this.tick, lastCell: NaN };
       this.names.push(e.o);
       this.lines.set(e.o, L);
     }
@@ -376,6 +389,7 @@ export class FoldState {
       c.gq *= f;
       c.pc *= f;
       c.pq *= f;
+      c.ps *= f;
       c.ref = s;
     }
     const k = Math.exp((s - c.ref) / tau) * c.ta[i];
@@ -394,6 +408,7 @@ export class FoldState {
     const k = Math.exp((s - c.ref) / flow.tauSec) * c.ta[i];
     c.pc += k * c.tc[i];
     c.pq += k * c.tq[i];
+    c.ps += k;
     c.pn++;
   }
 
@@ -497,7 +512,7 @@ export class FoldState {
     const c2 = Math.cos(2 * th);
     const q2 = Math.sin(2 * th);
     const cells = treadCells(L.x[p], L.z[p], dx, dz);
-    const amount = (m * len) / CELL_SIZE / cells.length;
+    const amount = ((m * len) / CELL_SIZE / cells.length) * L.tread;
     for (const [cx, cz] of cells) {
       const c = this.cell(cx, cz, touched);
       c.ts.push(L.s[i]);
@@ -510,9 +525,10 @@ export class FoldState {
     }
   }
 
-  /** The presence splat of sample i (fold.ts). */
+  /** The presence splat of sample i (fold.ts) — only a builder's (the worker's); the others only tread. */
   private splat(ref: Ref, flow: FlowConfig | null, touched?: Map<Cell, Checkpoint | null>): void {
     const { L, i } = ref;
+    if (!L.builds) return;
     const cfg = this.cfg;
     const s = L.s[i];
     const x = L.x[i];
@@ -670,8 +686,14 @@ export class FoldState {
       }
       if (flow) {
         if (c.pn > 0) {
-          const p = flowP(this.levelAt(c, c.pc, c.pq, sView, flow.tauSec), flow);
-          if (p >= FOLD_MIN_ALPHA) paths.push({ key: c.key, x: c.x, z: c.z, p, visits: c.pn });
+          const dec = Math.exp(-(sView - c.ref) / flow.tauSec);
+          const v = { gc: c.pc * dec, gq: c.pq * dec, g: Math.hypot(c.pc, c.pq) * dec, sum: c.ps * dec };
+          const p = flowP(v.g, flow);
+          const level = flowP(v.sum, flow);
+          if (level >= FOLD_MIN_ALPHA) {
+            const { axis, align } = flowAxis(v);
+            paths.push({ key: c.key, x: c.x, z: c.z, p, visits: c.pn, level, axis, align });
+          }
         }
       } else if (c.vn > 0) {
         const age = Math.max(0, yView - geoYears(c.vLast));
@@ -710,6 +732,8 @@ export class StressState {
   private readonly x: number[] = [];
   private readonly z: number[] = [];
   private readonly id: string[] = [];
+  /** The role's wear (nature.ts wearOf). */
+  private readonly k: number[] = [];
   private absorbed = 0;
   private sView = -Infinity;
   private ref = 0;
@@ -724,7 +748,9 @@ export class StressState {
   add(e: PEvent): boolean {
     if (this.seen.has(e.id)) return false;
     this.seen.add(e.id);
-    if (e.k !== "p" || e.r !== "worker") return true;
+    if (e.k !== "p") return true;
+    const wear = wearOf(e.r, this.cfg);
+    if (wear <= 0) return true;
     let lo = 0;
     let hi = this.s.length;
     while (lo < hi) {
@@ -736,6 +762,7 @@ export class StressState {
     this.x.splice(lo, 0, wrapCoord(e.x));
     this.z.splice(lo, 0, wrapCoord(e.z));
     this.id.splice(lo, 0, e.id);
+    this.k.splice(lo, 0, wear);
     if (lo < this.absorbed) {
       // behind the viewer's time already: a sum does not mind the order
       this.absorbed++;
@@ -752,7 +779,7 @@ export class StressState {
 
   private apply(i: number, sign: number): void {
     const cfg = this.cfg;
-    const k = sign * cfg.dose * Math.exp((this.s[i] - this.ref) / cfg.recoverSec);
+    const k = sign * cfg.dose * this.k[i] * Math.exp((this.s[i] - this.ref) / cfg.recoverSec);
     const x = this.x[i];
     const z = this.z[i];
     const cx0 = Math.floor(x / CELL_SIZE);
@@ -774,7 +801,7 @@ export class StressState {
 
   clear(): void {
     this.seen.clear();
-    this.s.length = this.x.length = this.z.length = this.id.length = 0;
+    this.s.length = this.x.length = this.z.length = this.id.length = this.k.length = 0;
     this.absorbed = 0;
     this.sView = -Infinity;
     this.a.clear();
@@ -791,6 +818,7 @@ export class StressState {
     this.x.splice(0, k);
     this.z.splice(0, k);
     this.id.splice(0, k);
+    this.k.splice(0, k);
     this.absorbed = Math.max(0, this.absorbed - k);
     return k;
   }
