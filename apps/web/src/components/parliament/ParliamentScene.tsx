@@ -41,6 +41,7 @@ import {
   hindrance,
   seedParliamentDemoIfRequested,
   ROLE_IMPLEMENTED,
+  SESSION_ROLES,
   wrapCoord,
   type Lang,
   type Observation,
@@ -171,6 +172,9 @@ function Controller({
     const touch = { id: -1, x: 0, y: 0 };
     const onTouchStart = (e: TouchEvent) => {
       if (!coarse) return;
+      // iOS: no text selection, callout or loupe on a long press (pointer events still fire, so the taps that go on
+      // through the frame are not lost)
+      if (e.cancelable) e.preventDefault();
       if (e.touches.length !== 1) {
         touch.id = -1;
         pressing.current = false;
@@ -204,7 +208,7 @@ function Controller({
       pressing.current = false;
     };
     c.addEventListener("click", onClick);
-    c.addEventListener("touchstart", onTouchStart, { passive: true });
+    c.addEventListener("touchstart", onTouchStart, { passive: false });
     c.addEventListener("touchmove", onTouchMove, { passive: true });
     c.addEventListener("touchend", onTouchEnd);
     c.addEventListener("touchcancel", onTouchEnd);
@@ -303,6 +307,12 @@ export default function ParliamentScene() {
   const hideChrome = demo || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ui") === "0");
   // the language the apparatus speaks: ?lang=ko|en on the exhibition URL wins over the Leva knob
   const [langParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null));
+  // ?role=worker (or cat / car / tree) on a test link: every draw lands on that role, over the Leva choice
+  const [roleParam] = useState<RoleId | null>(() => {
+    if (typeof window === "undefined") return null;
+    const r = new URLSearchParams(window.location.search).get("role") as RoleId | null;
+    return r && (SESSION_ROLES as readonly string[]).includes(r) ? r : null;
+  });
   const [locked, setLocked] = useState(false);
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
@@ -371,7 +381,7 @@ export default function ParliamentScene() {
   // stopping living less likely (intake.ts selfChance)
   const nearRadius = cfg.radius;
   const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
-  const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang, getNear);
+  const session = useLifeSession(withSession, lifeCfg, roleParam ?? (roleChoice === "random" ? null : roleChoice), lang, getNear);
   // a phone: a finger walks by default; its tilt walks instead in tilt mode (useTilt; nothing on the iMac)
   const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined, phoneMode);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
@@ -390,7 +400,11 @@ export default function ParliamentScene() {
   const grid = useMemo(() => 100 * CELL_SIZE, []);
 
   return (
-    <div className="h-full w-full" style={{ touchAction: "none" }}>
+    <div
+      className="h-full w-full"
+      style={{ touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent" }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <Leva hidden={hideChrome} theme={LEVA_THEME} />
       <Canvas
         camera={{ position: [0, 4.5, 7], fov: 60 }}

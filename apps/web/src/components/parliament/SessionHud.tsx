@@ -291,11 +291,12 @@ export function SessionHud({
             onTouchStart={session.beginHold}
             onTouchEnd={session.endHold}
             onTouchCancel={session.endHold}
+            onContextMenu={(e) => e.preventDefault()}
             onMouseDown={session.beginHold}
             onMouseUp={session.endHold}
             onMouseLeave={session.endHold}
             className={`${say} pointer-events-auto select-none border bg-black/60 px-5 py-2 text-[17px] tracking-[0.04em] text-white/85 outline-none ${attempt > 0 ? "border-white/90" : "border-white/40"}`}
-            style={{ touchAction: "none", WebkitTapHighlightColor: "transparent" }}
+            style={{ touchAction: "none", WebkitTapHighlightColor: "transparent", WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
           >
             {S.live.stopTouch(holdSec)}
           </button>
