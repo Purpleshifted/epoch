@@ -298,7 +298,7 @@ export default function ParliamentScene() {
   const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang, getNear);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
-  const { cfg: natureCfg, pointSize } = useNatureControls();
+  const { cfg: natureCfg, pointSize, pathLine } = useNatureControls();
 
   useEffect(() => {
     if (hideChrome) return;
@@ -342,6 +342,7 @@ export default function ParliamentScene() {
           cfg={cfg}
           natureCfg={natureCfg}
           pointSize={pointSize}
+          pathLine={pathLine}
           offsetWindow={offsetWindow}
           botCount={botEnabled ? botCount : 0}
           botRole={botRole}

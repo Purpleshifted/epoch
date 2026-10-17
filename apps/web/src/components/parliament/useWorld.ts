@@ -253,7 +253,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
 }
 
 /** Leva knobs of the vegetation point cloud (placeholder formulas, see lib/parliament/nature.ts). */
-export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolean } = {}): { cfg: NatureConfig; pointSize: number } {
+export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolean } = {}): { cfg: NatureConfig; pointSize: number; pathLine: number } {
   const rules = {
     lingerRadius: { value: DEFAULT_NATURE.lingerRadius, min: 1, max: 10, step: 0.25, label: "머문 회사원의 영향 반경" },
     dose: { value: DEFAULT_NATURE.dose, min: 0.01, max: 1, step: 0.01, label: "초당 훼손량 (중심)" },
@@ -265,6 +265,7 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const drawing = {
     pointsPerCell: { value: DEFAULT_NATURE.pointsPerCell, min: 4, max: 80, step: 1, label: "셀당 최대 점 수" },
     pointSize: { value: 0.11, min: 0.03, max: 0.4, step: 0.01, label: "점 크기" },
+    pathLine: { value: 1, min: 0, max: 1, step: 0.05, label: "길의 선 밝기 (흰 선; 0 = 선 없음)" },
   };
   const natureRoot = place.folder ?? "자연 (초목 point cloud)";
   const c = useControls(natureRoot, savable(natureRoot, place.rulesOnly ? rules : { ...rules, ...drawing }), {
@@ -274,11 +275,12 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const { lingerRadius, dose, recoverSec, pathBite, sealedLeft } = c;
   const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;
   const pointSize = c.pointSize ?? 0.11;
+  const pathLine = c.pathLine ?? 1;
   const cfg = useMemo(
     () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell }),
     [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell],
   );
-  return { cfg, pointSize };
+  return { cfg, pointSize, pathLine };
 }
 
 /** Leva knobs of how concrete is drawn in Top / Side. */
