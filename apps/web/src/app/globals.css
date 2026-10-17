@@ -75,3 +75,24 @@ body {
   /* Korean wraps between words, not inside them */
   word-break: keep-all;
 }
+
+/* The player view (usePageLock): the page answers only to the piece — no selection, callout, zoom, scroll or bounce. */
+html.player-lock,
+html.player-lock body {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+html.player-lock *:not(input):not(textarea):not([class*="leva-"] *) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  /* iOS lifts a long-pressed canvas as a draggable image (a small copy of the screen floats up): no */
+  -webkit-user-drag: none;
+}
+html.player-lock ::selection {
+  background: transparent;
+}

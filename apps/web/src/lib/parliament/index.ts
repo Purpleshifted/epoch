@@ -22,5 +22,6 @@ export * from "./roleControls";
 export * from "./bores";
 export * from "./intake";
 export * from "./script";
+export * from "./tilt";
 export * from "./world";
 export * from "./foldState";

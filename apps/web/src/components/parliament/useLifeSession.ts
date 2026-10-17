@@ -101,7 +101,9 @@ export interface SessionView {
   endedBy: EndedBy | null;
   /** LIVE: how far the hold to stop living has got (0 … 1). */
   attempt: number;
-  /** LIVE: the banner for stopping living is up (worker, now and then from hintAfterSec on, no failed line up, not holding). */
+  /** LIVE: stopping living is on offer right now (worker, within the rule's window) — the phone's button shows then. */
+  stopOn: boolean;
+  /** LIVE: the banner for stopping living is up (stopOn, now and then, not holding). */
   stopHint: boolean;
   /** LIVE: the line after a failed attempt is up. */
   attemptFailed: boolean;
@@ -115,6 +117,9 @@ export interface LifeSession extends SessionView {
   lifeRef: { readonly current: LifeSignal };
   /** CHOOSE: pick a role (the buttons on the screen; the keys go through the machine itself). */
   choose: (role: RoleId) => void;
+  /** LIVE: start / stop holding to stop living (the X key on a keyboard; a long press on a phone). */
+  beginHold: () => void;
+  endHold: () => void;
 }
 
 const TICK_MS = 100;
@@ -134,6 +139,7 @@ const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   verdict: null,
   endedBy: null,
   attempt: 0,
+  stopOn: false,
   stopHint: false,
   attemptFailed: false,
   attempts: 0,
@@ -229,8 +235,14 @@ export class SessionMachine {
 
   /** B — X pressed while live: a worker within the rule's window starts holding to stop living (line or no line). */
   holdKey = (e: KeyboardEvent) => {
-    if (!this.enabled || !isStopKey(e.code) || e.repeat || onPanel(e)) return;
+    if (!isStopKey(e.code) || e.repeat || onPanel(e)) return;
     if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
+    this.beginHold();
+  };
+
+  /** Start holding to stop living (a worker within the rule's window; otherwise nothing). */
+  beginHold = () => {
+    if (!this.enabled) return;
     const v = this.view;
     const t = this.lifeRef.current.t;
     if (v.phase !== "live" || this.holding || !stopAllowed(v.role, t, lifeAt(t, this.cfg).left, this.stopRule())) return;
@@ -240,7 +252,13 @@ export class SessionMachine {
 
   /** Let go before the hold is complete: nothing happens, the dark cuts back. */
   releaseKey = (e: KeyboardEvent) => {
-    if (!isStopKey(e.code) || !this.holding) return;
+    if (!isStopKey(e.code)) return;
+    this.endHold();
+  };
+
+  /** Let go: nothing happens if the hold was not complete (the dark cuts back). */
+  endHold = () => {
+    if (!this.holding) return;
     this.holding = false;
     this.lifeRef.current = { ...this.lifeRef.current, attempt: 0 };
     if (this.view.attempt !== 0) this.set({ attempt: 0 });
@@ -291,8 +309,9 @@ export class SessionMachine {
         return;
       }
       case "ended":
-        // soon after the end it is the same visitor again: the next life starts at once (the choice, then the slot)
-        if (v.restartReady && code === "Space") this.next(quickRestart(now, this.endAt) ? "choose" : "notice");
+        // SPACE — or a tap / click (a phone has no keys) — once the end screen has held; soon after the end it is the
+        // same visitor again: the next life starts at once (the choice, then the slot)
+        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt) ? "choose" : "notice");
         return;
       default:
         return; // draw, verdict, live: the screen runs on its own (the controls are the Controller's)
@@ -344,11 +363,11 @@ export class SessionMachine {
         return;
       }
       const rule = this.stopRule();
-      const stopHint =
-        !this.holding && stopAllowed(v.role, t, st.left, rule) && hintUp(t, rule.afterSec, this.cfg.hintPeriodSec ?? HINT_PERIOD_SEC, this.cfg.hintShowSec ?? HINT_SHOW_SEC);
+      const stopOn = stopAllowed(v.role, t, st.left, rule);
+      const stopHint = stopOn && !this.holding && hintUp(t, rule.afterSec, this.cfg.hintPeriodSec ?? HINT_PERIOD_SEC, this.cfg.hintShowSec ?? HINT_SHOW_SEC);
       const attemptFailed = now < this.failedUntil;
-      if (tried || attempt !== v.attempt || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
-        this.set({ attempt, stopHint, attemptFailed, attempts: v.attempts + tried, lastAttemptNear: near });
+      if (tried || attempt !== v.attempt || stopOn !== v.stopOn || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
+        this.set({ attempt, stopOn, stopHint, attemptFailed, attempts: v.attempts + tried, lastAttemptNear: near });
       }
     } else if (v.phase === "ended") {
       const held = now - this.endAt;
@@ -365,7 +384,7 @@ export class SessionMachine {
     this.endAt = Date.now();
     if (typeof document !== "undefined" && document.pointerLockElement) document.exitPointerLock();
     this.lifeRef.current = { phase: "ended", t, warn: 1, attempt: 0 };
-    this.enter("ended", { endedBy: by, attempt: 0, stopHint: false, attemptFailed: false });
+    this.enter("ended", { endedBy: by, attempt: 0, stopOn: false, stopHint: false, attemptFailed: false });
   }
 
   start() {
@@ -408,7 +427,7 @@ export function useLifeSession(enabled: boolean, cfg: LifeConfig, fixedRole: Rol
     return () => m.stop();
   }, [m]);
   const view = useSyncExternalStore(m.subscribe, m.get, m.get);
-  return { ...view, role: enabled ? view.role : fixedRole ?? "worker", lifeRef: m.lifeRef, choose: m.choose };
+  return { ...view, role: enabled ? view.role : fixedRole ?? "worker", lifeRef: m.lifeRef, choose: m.choose, beginHold: m.beginHold, endHold: m.endHold };
 }
 
 /** Log-interpolate a frequency towards `to` by k (0 … 1). */

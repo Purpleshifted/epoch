@@ -95,6 +95,7 @@ export function SessionHud({
   helpLine = false,
   holdSec = HOLD_SEC,
   noticeLineSec = NOTICE_LINE_SEC,
+  coarse = false,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -112,8 +113,10 @@ export function SessionHud({
   holdSec?: number;
   /** Seconds between one notice line coming on and the next. */
   noticeLineSec?: number;
+  /** A phone-like device: the lines say tap / tilt / hold instead of keys, click and mouse; no pointer lock. */
+  coarse?: boolean;
 }) {
-  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopHint, attemptFailed, attempts } = session;
+  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
   const names = ROLE_NAME[lang];
   const say = lang === "ko" ? "hud-ko" : "";
@@ -192,7 +195,7 @@ export function SessionHud({
         <Centre className="text-center">
           <div className={`${say} text-[44px] leading-none tracking-[0.1em] text-white/85`}>{title.main}</div>
           {title.sub && <div className="mt-2 text-[16px] tracking-[0.3em] text-white/40">{title.sub}</div>}
-          <div className={`${say} hud-blink mt-12 text-[18px] tracking-[0.2em] text-white/45`}>{S.idle.press}</div>
+          <div className={`${say} hud-blink mt-12 text-[18px] tracking-[0.2em] text-white/45`}>{coarse ? S.idle.pressTouch : S.idle.press}</div>
           <div className={`${say} mt-3 text-[14px] tracking-[0.05em] text-white/30`}>{S.idle.duration(Math.max(1, Math.round(lifeSec / 60)))}</div>
         </Centre>
       )}
@@ -224,7 +227,7 @@ export function SessionHud({
       {/* the headset */}
       {phase === "headset" && (
         <Centre className={`${say} text-center text-[20px] leading-[1.6] text-white/80`}>
-          <Lines lines={S.headset} since={since} lineSec={noticeLineSec} />
+          <Lines lines={coarse ? S.headsetTouch : S.headset} since={since} lineSec={noticeLineSec} />
         </Centre>
       )}
 
@@ -261,22 +264,48 @@ export function SessionHud({
           <div className="mt-4 text-[18px] text-white/70">
             <Lines lines={verdict === "lucky" ? [S.verdict.lucky] : [S.verdict.received, S.verdict.cannotHelp]} since={Math.max(0, since - 0.6)} />
           </div>
-          <div className="mt-5 border-t border-white/15 pt-3 text-[14px] tracking-[0.15em] text-white/35">{S.verdict.controls}</div>
+          <div className="mt-5 border-t border-white/15 pt-3 text-[14px] tracking-[0.15em] text-white/35">{coarse ? S.verdict.controlsTouch : S.verdict.controls}</div>
         </Centre>
       )}
 
       {/* live, before the pointer is locked */}
-      {phase === "live" && !locked && !attemptFailed && (
+      {phase === "live" && !coarse && !locked && !attemptFailed && (
         <Centre className={`${say} flex justify-center text-center`}>
           <div className="border border-white/40 bg-black/70 px-6 py-3 text-[20px] text-white/90">{S.live.look}</div>
         </Centre>
       )}
-      {/* stopping living (worker): the banner at the top, now and then; and the line when it fails */}
-      {phase === "live" && stopHint && (
+      {/* a phone: how to walk, once more for the first seconds of the life */}
+      {phase === "live" && coarse && rec.t < 10 && !attemptFailed && (
+        <div className="absolute inset-x-0 bottom-28 flex justify-center px-6">
+          <div className={`${say} text-[14px] tracking-[0.05em] text-white/40`}>{S.verdict.controlsTouch}</div>
+        </div>
+      )}
+      {/* stopping living (worker): on a desktop a banner at the top, now and then (the key works regardless); on a phone
+          a button, up the whole time it is on offer — held for holdSec it is the attempt (the dark follows the hold) */}
+      {phase === "live" && !coarse && stopHint && (
         <div className="absolute inset-x-0 top-8 flex justify-center px-6">
           <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[17px] tracking-[0.04em] text-white/85`}>{S.live.stop(holdSec)}</div>
         </div>
       )}
+      {phase === "live" && coarse && stopOn && (
+        <div className="absolute inset-x-0 top-8 flex justify-center px-6">
+          <button
+            type="button"
+            onTouchStart={session.beginHold}
+            onTouchEnd={session.endHold}
+            onTouchCancel={session.endHold}
+            onContextMenu={(e) => e.preventDefault()}
+            onMouseDown={session.beginHold}
+            onMouseUp={session.endHold}
+            onMouseLeave={session.endHold}
+            className={`${say} pointer-events-auto select-none border bg-black/60 px-5 py-2 text-[17px] tracking-[0.04em] text-white/85 outline-none ${attempt > 0 ? "border-white/90" : "border-white/40"}`}
+            style={{ touchAction: "none", WebkitTapHighlightColor: "transparent", WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+          >
+            {S.live.stopTouch(holdSec)}
+          </button>
+        </div>
+      )}
+      {/* the line when an attempt fails */}
       {phase === "live" && attemptFailed && (
         <Centre className={`${say} flex justify-center text-center`}>
           <div className="border border-white/40 bg-black/70 px-6 py-4 text-[20px] leading-[1.6] text-white/90">{S.attempt.failed}</div>
@@ -352,7 +381,7 @@ export function SessionHud({
           <div className="pt-5 text-white/35">{S.ended.kept}</div>
           <div className="text-white/35">{S.ended.read}</div>
           {helpLine && cause === "suicide" && <div className="pt-3 text-white/35">{S.ended.help}</div>}
-          {session.restartReady && <div className="hud-blink pt-8 text-[16px] tracking-[0.2em] text-white/45">{S.ended.next}</div>}
+          {session.restartReady && <div className="hud-blink pt-8 text-[16px] tracking-[0.2em] text-white/45">{coarse ? S.ended.nextTouch : S.ended.next}</div>}
         </Centre>
       )}
     </div>
