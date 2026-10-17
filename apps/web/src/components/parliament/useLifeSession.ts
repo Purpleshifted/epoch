@@ -115,6 +115,9 @@ export interface LifeSession extends SessionView {
   lifeRef: { readonly current: LifeSignal };
   /** CHOOSE: pick a role (the buttons on the screen; the keys go through the machine itself). */
   choose: (role: RoleId) => void;
+  /** LIVE: start / stop holding to stop living (the X key on a keyboard; a long press on a phone). */
+  beginHold: () => void;
+  endHold: () => void;
 }
 
 const TICK_MS = 100;
@@ -229,8 +232,14 @@ export class SessionMachine {
 
   /** B — X pressed while live: a worker within the rule's window starts holding to stop living (line or no line). */
   holdKey = (e: KeyboardEvent) => {
-    if (!this.enabled || !isStopKey(e.code) || e.repeat || onPanel(e)) return;
+    if (!isStopKey(e.code) || e.repeat || onPanel(e)) return;
     if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
+    this.beginHold();
+  };
+
+  /** Start holding to stop living (a worker within the rule's window; otherwise nothing). */
+  beginHold = () => {
+    if (!this.enabled) return;
     const v = this.view;
     const t = this.lifeRef.current.t;
     if (v.phase !== "live" || this.holding || !stopAllowed(v.role, t, lifeAt(t, this.cfg).left, this.stopRule())) return;
@@ -240,7 +249,13 @@ export class SessionMachine {
 
   /** Let go before the hold is complete: nothing happens, the dark cuts back. */
   releaseKey = (e: KeyboardEvent) => {
-    if (!isStopKey(e.code) || !this.holding) return;
+    if (!isStopKey(e.code)) return;
+    this.endHold();
+  };
+
+  /** Let go: nothing happens if the hold was not complete (the dark cuts back). */
+  endHold = () => {
+    if (!this.holding) return;
     this.holding = false;
     this.lifeRef.current = { ...this.lifeRef.current, attempt: 0 };
     if (this.view.attempt !== 0) this.set({ attempt: 0 });
@@ -291,8 +306,9 @@ export class SessionMachine {
         return;
       }
       case "ended":
-        // soon after the end it is the same visitor again: the next life starts at once (the choice, then the slot)
-        if (v.restartReady && code === "Space") this.next(quickRestart(now, this.endAt) ? "choose" : "notice");
+        // SPACE — or a tap / click (a phone has no keys) — once the end screen has held; soon after the end it is the
+        // same visitor again: the next life starts at once (the choice, then the slot)
+        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt) ? "choose" : "notice");
         return;
       default:
         return; // draw, verdict, live: the screen runs on its own (the controls are the Controller's)
@@ -408,7 +424,7 @@ export function useLifeSession(enabled: boolean, cfg: LifeConfig, fixedRole: Rol
     return () => m.stop();
   }, [m]);
   const view = useSyncExternalStore(m.subscribe, m.get, m.get);
-  return { ...view, role: enabled ? view.role : fixedRole ?? "worker", lifeRef: m.lifeRef, choose: m.choose };
+  return { ...view, role: enabled ? view.role : fixedRole ?? "worker", lifeRef: m.lifeRef, choose: m.choose, beginHold: m.beginHold, endHold: m.endHold };
 }
 
 /** Log-interpolate a frequency towards `to` by k (0 … 1). */

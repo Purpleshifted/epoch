@@ -4,6 +4,9 @@
  * Pick a role in the Leva panel (demo build), walk (WASD + mouse look after a click), and the
  * role's trace appears in the ground. Only the worker has an effect so far.
  *
+ * On a phone (useTilt, lib/parliament/tilt.ts): no keys, no pointer lock — tilt to walk and turn, drag to look, hold
+ * the screen to stop living, tap to go on.
+ *
  * V2: a visitor's SESSION (useLifeSession, lib/parliament/session.ts + intake.ts): the title screen, the notices, a
  * consent with only yes, the headset, a choice of role the slot then ignores, the verdict; then the lifespan runs,
  * near its end the cursor blinks fast, the sound goes dull and the controls stop answering; at the end the visitor is
@@ -22,6 +25,7 @@ import { savable } from "./levaSave";
 import { useSound } from "./useSound";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
+import { useTilt, type TiltState } from "./useTilt";
 import { SessionHud } from "./SessionHud";
 import {
   DEFAULT_LIFE,
@@ -32,6 +36,7 @@ import {
   NOTICE_LINE_SEC,
   SELF_NEAR_FACTOR,
   STOP_LAST_SEC,
+  TILT_TURN_RATE,
   asLang,
   hindrance,
   seedParliamentDemoIfRequested,
@@ -105,6 +110,9 @@ function Controller({
   camLerp,
   viscosity,
   lifeRef,
+  tiltRef,
+  coarse = false,
+  hold,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -115,6 +123,12 @@ function Controller({
   /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
    *  near the end they answer worse and drop out; while X is held to stop living they are dead. */
   lifeRef?: { readonly current: LifeSignal };
+  /** A phone: its tilt (useTilt) walks and turns; the finger looks around and, held still, stops living. */
+  tiltRef?: React.MutableRefObject<TiltState>;
+  /** A phone-like device: no pointer lock, no keys. */
+  coarse?: boolean;
+  /** V2: start / stop the hold to stop living (the long press on a phone). */
+  hold?: { begin: () => void; end: () => void };
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -140,35 +154,97 @@ function Controller({
     };
     const onChange = () => setLocked(document.pointerLockElement === c);
     const onClick = () => {
+      if (coarse || typeof c.requestPointerLock !== "function") return;
       if (lifeRef && lifeRef.current.phase !== "live") return;
       c.requestPointerLock();
     };
+    // a phone: one finger drags to look; held still for a moment it starts the hold to stop living (moving cancels)
+    const touch = { id: -1, x: 0, y: 0, moved: false, timer: null as ReturnType<typeof setTimeout> | null };
+    const stopHold = () => {
+      if (touch.timer) clearTimeout(touch.timer);
+      touch.timer = null;
+      hold?.end();
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      if (!coarse) return;
+      if (e.touches.length !== 1) return stopHold();
+      const t = e.touches[0];
+      touch.id = t.identifier;
+      touch.x = t.clientX;
+      touch.y = t.clientY;
+      touch.moved = false;
+      if (touch.timer) clearTimeout(touch.timer);
+      touch.timer = setTimeout(() => {
+        touch.timer = null;
+        if (!touch.moved && touch.id >= 0) hold?.begin();
+      }, 250);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!coarse || touch.id < 0) return;
+      let t: Touch | null = null;
+      for (let i = 0; i < e.touches.length; i++) if (e.touches[i].identifier === touch.id) t = e.touches[i];
+      if (!t) return;
+      const dx = t.clientX - touch.x;
+      const dy = t.clientY - touch.y;
+      if (!touch.moved) {
+        if (Math.hypot(dx, dy) <= 12) return;
+        touch.moved = true;
+        stopHold();
+      }
+      touch.x = t.clientX;
+      touch.y = t.clientY;
+      const L = lifeRef?.current;
+      if (L && (L.phase !== "live" || L.attempt > 0)) return;
+      const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
+      if (h?.dropped) return;
+      const look = h?.look ?? 1;
+      yaw.current -= dx * 0.005 * look;
+      pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + dy * 0.004 * look));
+    };
+    const onTouchEnd = () => {
+      touch.id = -1;
+      stopHold();
+    };
     c.addEventListener("click", onClick);
+    c.addEventListener("touchstart", onTouchStart, { passive: true });
+    c.addEventListener("touchmove", onTouchMove, { passive: true });
+    c.addEventListener("touchend", onTouchEnd);
+    c.addEventListener("touchcancel", onTouchEnd);
     document.addEventListener("mousemove", onMove);
     document.addEventListener("pointerlockchange", onChange);
     return () => {
       c.removeEventListener("click", onClick);
+      c.removeEventListener("touchstart", onTouchStart);
+      c.removeEventListener("touchmove", onTouchMove);
+      c.removeEventListener("touchend", onTouchEnd);
+      c.removeEventListener("touchcancel", onTouchEnd);
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("pointerlockchange", onChange);
+      stopHold();
     };
-  }, [gl, setLocked, lifeRef]);
+  }, [gl, setLocked, lifeRef, coarse, hold]);
 
   useFrame((_, delta) => {
     const p = player.current;
     const k = keys.current;
-    const y = yaw.current;
     const dt = Math.min(delta, 0.05);
     // V2: the input is dead unless the session is live; near the end of the lifespan it answers worse and drops out
     const L = lifeRef?.current;
     const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
-    // V2: and nothing moves until the visitor has clicked the screen (pointer lock) — the banner says so
-    const dead = (!!L && L.phase !== "live") || !!h?.dropped || (L?.attempt ?? 0) > 0 || (!!L && document.pointerLockElement !== gl.domElement);
+    // V2: and on a desktop nothing moves until the visitor has clicked the screen (pointer lock) — the banner says so
+    const dead = (!!L && L.phase !== "live") || !!h?.dropped || (L?.attempt ?? 0) > 0 || (!!L && !coarse && document.pointerLockElement !== gl.domElement);
     const gain = h?.gain ?? 1;
+    // a phone: the sideways tilt turns, the front-back tilt walks (lib/parliament/tilt.ts)
+    const tl = tiltRef?.current;
+    const tilt = !dead && coarse && tl?.active ? tl : null;
+    if (tilt && tilt.turn !== 0) yaw.current -= tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * dt;
+    const y = yaw.current;
+    const tiltFwd = tilt ? (tilt.fwd >= 0 ? tilt.fwd : tilt.fwd * 0.4) : 0;
     const fwd = !dead && (k.has("KeyW") || k.has("ArrowUp")) ? 1 : 0;
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
     const left = !dead && (k.has("KeyA") || k.has("ArrowLeft")) ? 1 : 0;
     const rgt = !dead && (k.has("KeyD") || k.has("ArrowRight")) ? 1 : 0;
-    const tgtFwd = (fwd - bwd * 0.4) * 7.0 * gain;
+    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd)) * 7.0 * gain;
     const tgtStrafe = (rgt - left) * 4.5 * gain;
     const tvx = Math.sin(y) * tgtFwd + -Math.cos(y) * tgtStrafe;
     const tvz = Math.cos(y) * tgtFwd + Math.sin(y) * tgtStrafe;
@@ -296,6 +372,9 @@ export default function ParliamentScene() {
   const nearRadius = cfg.radius;
   const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
   const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang, getNear);
+  // a phone: its tilt walks (useTilt; nothing on the iMac)
+  const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined);
+  const hold = useMemo(() => (withSession ? { begin: session.beginHold, end: session.endHold } : undefined), [withSession, session.beginHold, session.endHold]);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
   const { cfg: natureCfg, pointSize, pathLine } = useNatureControls();
@@ -334,6 +413,9 @@ export default function ParliamentScene() {
           camLerp={camLerp}
           viscosity={viscosity}
           lifeRef={withSession ? session.lifeRef : undefined}
+          tiltRef={tiltRef}
+          coarse={coarse}
+          hold={hold}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -355,7 +437,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} />
       )}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
