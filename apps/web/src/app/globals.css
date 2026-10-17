@@ -90,6 +90,8 @@ html.player-lock *:not(input):not(textarea):not([class*="leva-"] *) {
   user-select: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
+  /* iOS lifts a long-pressed canvas as a draggable image (a small copy of the screen floats up): no */
+  -webkit-user-drag: none;
 }
 html.player-lock ::selection {
   background: transparent;
