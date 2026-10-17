@@ -4,8 +4,8 @@
  * Pick a role in the Leva panel (demo build), walk (WASD + mouse look after a click), and the
  * role's trace appears in the ground. Only the worker has an effect so far.
  *
- * On a phone (useTilt, lib/parliament/tilt.ts): no keys, no pointer lock — tilt to walk and turn, drag to look, hold
- * the screen to stop living, tap to go on.
+ * On a phone: no keys, no pointer lock — a finger on the screen walks, dragging it turns (and tips the camera), letting
+ * go stays; stopping living is a button (SessionHud); tap to go on. Tilt walking (useTilt) is an option in Leva.
  *
  * V2: a visitor's SESSION (useLifeSession, lib/parliament/session.ts + intake.ts): the title screen, the notices, a
  * consent with only yes, the headset, a choice of role the slot then ignores, the verdict; then the lifespan runs,
@@ -50,6 +50,15 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
 const ORB_Y = 0.45;
+/** A phone: a horizontal drag of about 300 px is a half turn; a vertical one of 300 px runs the camera's whole pitch range. */
+const TOUCH_TURN_RAD_PER_PX = Math.PI / 300;
+const TOUCH_PITCH_RAD_PER_PX = 1.15 / 300;
+
+/** V2, a phone: a finger on the screen walks (default), or the phone's tilt does (useTilt). */
+const PHONE_MODE_OPTIONS: Record<string, "touch" | "tilt"> = {
+  "누르기 (누르는 동안 걷기 · 끌어서 회전)": "touch",
+  "기울임 (센서)": "tilt",
+};
 
 /** Where the player is and how fast they move (world units, /s). */
 export interface PlayerState {
@@ -112,7 +121,6 @@ function Controller({
   lifeRef,
   tiltRef,
   coarse = false,
-  hold,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -123,12 +131,10 @@ function Controller({
   /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
    *  near the end they answer worse and drop out; while X is held to stop living they are dead. */
   lifeRef?: { readonly current: LifeSignal };
-  /** A phone: its tilt (useTilt) walks and turns; the finger looks around and, held still, stops living. */
+  /** A phone in tilt mode: its tilt (useTilt) walks and turns (inactive otherwise). */
   tiltRef?: React.MutableRefObject<TiltState>;
-  /** A phone-like device: no pointer lock, no keys. */
+  /** A phone-like device: no pointer lock, no keys — a finger on the screen walks, dragging turns. */
   coarse?: boolean;
-  /** V2: start / stop the hold to stop living (the long press on a phone). */
-  hold?: { begin: () => void; end: () => void };
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -138,6 +144,8 @@ function Controller({
   const camPos = useRef(new THREE.Vector3(0, 4.5, 7));
   const lookAt = useRef(new THREE.Vector3());
   const group = useRef<THREE.Group>(null);
+  /** A phone: a finger is on the screen (= walking). */
+  const pressing = useRef(false);
 
   useEffect(() => {
     const c = gl.domElement;
@@ -158,26 +166,21 @@ function Controller({
       if (lifeRef && lifeRef.current.phase !== "live") return;
       c.requestPointerLock();
     };
-    // a phone: one finger drags to look; held still for a moment it starts the hold to stop living (moving cancels)
-    const touch = { id: -1, x: 0, y: 0, moved: false, timer: null as ReturnType<typeof setTimeout> | null };
-    const stopHold = () => {
-      if (touch.timer) clearTimeout(touch.timer);
-      touch.timer = null;
-      hold?.end();
-    };
+    // a phone: while one finger is on the screen the visitor walks (pressing.current); dragging it turns — about
+    // 300 px for a half turn — and tips the camera; letting go stays. (Stopping living is the HUD's button.)
+    const touch = { id: -1, x: 0, y: 0 };
     const onTouchStart = (e: TouchEvent) => {
       if (!coarse) return;
-      if (e.touches.length !== 1) return stopHold();
+      if (e.touches.length !== 1) {
+        touch.id = -1;
+        pressing.current = false;
+        return;
+      }
       const t = e.touches[0];
       touch.id = t.identifier;
       touch.x = t.clientX;
       touch.y = t.clientY;
-      touch.moved = false;
-      if (touch.timer) clearTimeout(touch.timer);
-      touch.timer = setTimeout(() => {
-        touch.timer = null;
-        if (!touch.moved && touch.id >= 0) hold?.begin();
-      }, 250);
+      pressing.current = true;
     };
     const onTouchMove = (e: TouchEvent) => {
       if (!coarse || touch.id < 0) return;
@@ -186,11 +189,6 @@ function Controller({
       if (!t) return;
       const dx = t.clientX - touch.x;
       const dy = t.clientY - touch.y;
-      if (!touch.moved) {
-        if (Math.hypot(dx, dy) <= 12) return;
-        touch.moved = true;
-        stopHold();
-      }
       touch.x = t.clientX;
       touch.y = t.clientY;
       const L = lifeRef?.current;
@@ -198,12 +196,12 @@ function Controller({
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
-      yaw.current -= dx * 0.005 * look;
-      pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + dy * 0.004 * look));
+      yaw.current -= dx * TOUCH_TURN_RAD_PER_PX * look;
+      pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + dy * TOUCH_PITCH_RAD_PER_PX * look));
     };
     const onTouchEnd = () => {
       touch.id = -1;
-      stopHold();
+      pressing.current = false;
     };
     c.addEventListener("click", onClick);
     c.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -220,9 +218,9 @@ function Controller({
       c.removeEventListener("touchcancel", onTouchEnd);
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("pointerlockchange", onChange);
-      stopHold();
+      pressing.current = false;
     };
-  }, [gl, setLocked, lifeRef, coarse, hold]);
+  }, [gl, setLocked, lifeRef, coarse]);
 
   useFrame((_, delta) => {
     const p = player.current;
@@ -240,11 +238,12 @@ function Controller({
     if (tilt && tilt.turn !== 0) yaw.current -= tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * dt;
     const y = yaw.current;
     const tiltFwd = tilt ? (tilt.fwd >= 0 ? tilt.fwd : tilt.fwd * 0.4) : 0;
+    const pressFwd = !dead && coarse && pressing.current ? 1 : 0;
     const fwd = !dead && (k.has("KeyW") || k.has("ArrowUp")) ? 1 : 0;
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
     const left = !dead && (k.has("KeyA") || k.has("ArrowLeft")) ? 1 : 0;
     const rgt = !dead && (k.has("KeyD") || k.has("ArrowRight")) ? 1 : 0;
-    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd)) * 7.0 * gain;
+    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd + pressFwd)) * 7.0 * gain;
     const tgtStrafe = (rgt - left) * 4.5 * gain;
     const tvx = Math.sin(y) * tgtFwd + -Math.cos(y) * tgtStrafe;
     const tvz = Math.cos(y) * tgtFwd + Math.sin(y) * tgtStrafe;
@@ -314,7 +313,7 @@ export default function ParliamentScene() {
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -324,6 +323,7 @@ export default function ParliamentScene() {
           ? { options: V2_ROLE_OPTIONS, value: "random" as RoleId | "random", label: "배정 (랜덤 = 슬롯)" }
           : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
         lang: { options: { 한국어: "ko", English: "en" } as Record<string, Lang>, value: "ko" as Lang, label: "안내 언어 (?lang= 이 우선)", render: v2 },
+        phoneMode: { options: PHONE_MODE_OPTIONS, value: "touch" as "touch" | "tilt", label: "폰 조작", render: v2 },
         helpLine: { value: false, label: "자살일 때 상담전화 한 줄", render: v2 },
         noticeLineSec: { value: NOTICE_LINE_SEC, min: 0.2, max: 3, step: 0.1, label: "안내 줄 간격 (s)", render: v2 },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
@@ -372,9 +372,8 @@ export default function ParliamentScene() {
   const nearRadius = cfg.radius;
   const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
   const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang, getNear);
-  // a phone: its tilt walks (useTilt; nothing on the iMac)
-  const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined);
-  const hold = useMemo(() => (withSession ? { begin: session.beginHold, end: session.endHold } : undefined), [withSession, session.beginHold, session.endHold]);
+  // a phone: a finger walks by default; its tilt walks instead in tilt mode (useTilt; nothing on the iMac)
+  const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined, phoneMode);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
   const { cfg: natureCfg, pointSize, pathLine } = useNatureControls();
@@ -415,7 +414,6 @@ export default function ParliamentScene() {
           lifeRef={withSession ? session.lifeRef : undefined}
           tiltRef={tiltRef}
           coarse={coarse}
-          hold={hold}
         />
         <RoleField
           key={`field-${session.sessionNo}`}

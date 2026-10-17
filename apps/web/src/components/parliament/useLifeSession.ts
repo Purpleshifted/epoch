@@ -101,7 +101,9 @@ export interface SessionView {
   endedBy: EndedBy | null;
   /** LIVE: how far the hold to stop living has got (0 … 1). */
   attempt: number;
-  /** LIVE: the banner for stopping living is up (worker, now and then from hintAfterSec on, no failed line up, not holding). */
+  /** LIVE: stopping living is on offer right now (worker, within the rule's window) — the phone's button shows then. */
+  stopOn: boolean;
+  /** LIVE: the banner for stopping living is up (stopOn, now and then, not holding). */
   stopHint: boolean;
   /** LIVE: the line after a failed attempt is up. */
   attemptFailed: boolean;
@@ -137,6 +139,7 @@ const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   verdict: null,
   endedBy: null,
   attempt: 0,
+  stopOn: false,
   stopHint: false,
   attemptFailed: false,
   attempts: 0,
@@ -360,11 +363,11 @@ export class SessionMachine {
         return;
       }
       const rule = this.stopRule();
-      const stopHint =
-        !this.holding && stopAllowed(v.role, t, st.left, rule) && hintUp(t, rule.afterSec, this.cfg.hintPeriodSec ?? HINT_PERIOD_SEC, this.cfg.hintShowSec ?? HINT_SHOW_SEC);
+      const stopOn = stopAllowed(v.role, t, st.left, rule);
+      const stopHint = stopOn && !this.holding && hintUp(t, rule.afterSec, this.cfg.hintPeriodSec ?? HINT_PERIOD_SEC, this.cfg.hintShowSec ?? HINT_SHOW_SEC);
       const attemptFailed = now < this.failedUntil;
-      if (tried || attempt !== v.attempt || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
-        this.set({ attempt, stopHint, attemptFailed, attempts: v.attempts + tried, lastAttemptNear: near });
+      if (tried || attempt !== v.attempt || stopOn !== v.stopOn || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
+        this.set({ attempt, stopOn, stopHint, attemptFailed, attempts: v.attempts + tried, lastAttemptNear: near });
       }
     } else if (v.phase === "ended") {
       const held = now - this.endAt;
@@ -381,7 +384,7 @@ export class SessionMachine {
     this.endAt = Date.now();
     if (typeof document !== "undefined" && document.pointerLockElement) document.exitPointerLock();
     this.lifeRef.current = { phase: "ended", t, warn: 1, attempt: 0 };
-    this.enter("ended", { endedBy: by, attempt: 0, stopHint: false, attemptFailed: false });
+    this.enter("ended", { endedBy: by, attempt: 0, stopOn: false, stopHint: false, attemptFailed: false });
   }
 
   start() {

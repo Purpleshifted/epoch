@@ -121,7 +121,7 @@ export const SCRIPT: Record<Lang, Script> = {
     notice: [
       ["인류는 멸망했습니다.", "먼 미래, 지구 밖에서 온 고고학자들이 인류세를 연구하고 있습니다."],
       ["벽의 창 너머에 그들의 작업이 보입니다.", "남은 흔적으로 인간의 서식지를 재구성하는 중입니다."],
-      ["당신은 지금 그 흔적을 남기며 살고 있습니다.", "당신의 삶은 인류세의 모습에 영향을 줄 수도 있고,", "주지 않을 수도 있습니다."],
+      ["당신은 지금 그 흔적을 남기며 살고 있습니다.", "당신의 삶은 미래의 풍경에 영향을 줄 수도 있고,", "주지 않을 수도 있습니다."],
       ["태어난 이상 살아가야 합니다."],
     ],
     consent: { question: "속절없이 존재하시겠습니까?", yes: "예", no: "아니요", noNote: "선택할 수 없습니다" },
@@ -136,9 +136,9 @@ export const SCRIPT: Record<Lang, Script> = {
       received: "선택은 접수되었습니다. 반영되지는 않았습니다.",
       cannotHelp: "어쩔 수 없습니다.",
       controls: "클릭한 뒤 W A S D 걷기 · 마우스 둘러보기",
-      controlsTouch: "기울여서 걷기 · 끌어서 둘러보기",
+      controlsTouch: "누르는 동안 걷고, 떼면 머뭅니다 · 끌면 돕니다",
     },
-    live: { look: "화면을 클릭하세요", stop: (s) => `그만 살기: X 키를 ${s}초 동안 누르세요`, stopTouch: (s) => `그만 살기: 화면을 ${s}초 동안 누르세요` },
+    live: { look: "화면을 클릭하세요", stop: (s) => `그만 살기: X 키를 ${s}초 동안 누르세요`, stopTouch: (s) => `그만 살기 — ${s}초 길게 누르기` },
     attempt: { failed: "저런. 그만 살기에 실패했습니다. 삶은 계속됩니다." },
     ended: {
       title: "삶이 끝났습니다.",
@@ -178,12 +178,12 @@ export const SCRIPT: Record<Lang, Script> = {
       received: "Your choice was received. It was not applied.",
       cannotHelp: "It cannot be helped.",
       controls: "click, then W A S D walk · mouse look",
-      controlsTouch: "tilt to walk · drag to look",
+      controlsTouch: "Hold to walk, let go to stay · drag to turn",
     },
     live: {
       look: "Click the screen",
       stop: (s) => `Stop living: hold X for ${s} second${s === 1 ? "" : "s"}`,
-      stopTouch: (s) => `Stop living: hold the screen for ${s} second${s === 1 ? "" : "s"}`,
+      stopTouch: (s) => `Stop living — hold ${s} second${s === 1 ? "" : "s"}`,
     },
     attempt: { failed: "Oh. Stopping living has failed. Life goes on." },
     ended: {
