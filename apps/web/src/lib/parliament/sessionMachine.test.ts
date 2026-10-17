@@ -58,6 +58,8 @@ function hold(m: SessionMachine) {
   m.releaseKey(key("KeyX", "keyup"));
 }
 
+const tap = () => ({ type: "pointerdown", target: null }) as unknown as Event;
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-17T10:00:00Z"));
@@ -182,5 +184,19 @@ describe("the end and the restart", () => {
     press(m, "Space");
     expect(m.view.phase).toBe("notice");
     expect(m.view.sessionNo).toBe(no + 2);
+  });
+  it("a tap restarts too (a phone has no SPACE), and the long press holds like X", () => {
+    const m = make({ ...CFG, selfP: 1 });
+    live(m);
+    step(m, (HINT_AFTER_SEC + 1) * 1000);
+    m.beginHold();
+    step(m, 1200);
+    m.endHold();
+    expect(m.view.phase).toBe("ended");
+    expect(m.view.endedBy).toBe("self");
+    step(m, 1100);
+    vi.advanceTimersByTime(350);
+    m.gesture(tap());
+    expect(m.view.phase).toBe("choose");
   });
 });

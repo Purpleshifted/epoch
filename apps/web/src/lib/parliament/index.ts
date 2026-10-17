@@ -20,5 +20,6 @@ export * from "./session";
 export * from "./witness";
 export * from "./intake";
 export * from "./script";
+export * from "./tilt";
 export * from "./world";
 export * from "./foldState";
