@@ -8,8 +8,12 @@ import {
   ROLE_NAME,
   SCRIPT,
   SESSION_ROLES,
+  HINT_AFTER_SEC,
+  HOLD_SEC,
   attemptEnd,
   causeOfDeath,
+  holdProgress,
+  stopAllowed,
   linesShown,
   moveCursor,
   nextIntake,
@@ -74,6 +78,20 @@ describe("the verdict", () => {
 });
 
 describe("stopping living", () => {
+  it("is on offer to a worker only, once the hint is due, and not during a cooldown", () => {
+    expect(stopAllowed("worker", HINT_AFTER_SEC, 1000, 0)).toBe(true);
+    expect(stopAllowed("worker", HINT_AFTER_SEC - 1, 1000, 0)).toBe(false);
+    expect(stopAllowed("worker", HINT_AFTER_SEC + 50, 1000, 2000)).toBe(false);
+    expect(stopAllowed("cat", HINT_AFTER_SEC + 50, 1000, 0)).toBe(false);
+    expect(stopAllowed(null, HINT_AFTER_SEC + 50, 1000, 0)).toBe(false);
+  });
+  it("counts the hold up to one and no further", () => {
+    expect(holdProgress(0, 0)).toBe(0);
+    expect(holdProgress(HOLD_SEC * 500, 0)).toBeCloseTo(0.5);
+    expect(holdProgress(HOLD_SEC * 1000, 0)).toBe(1);
+    expect(holdProgress(HOLD_SEC * 5000, 0)).toBe(1);
+    expect(holdProgress(500, 1000)).toBe(0);
+  });
   it("never succeeds at p = 0, always at p = 1, and otherwise by u", () => {
     for (const u of [0, 0.3, 0.999]) expect(attemptEnd(u, 0)).toBe(false);
     for (const u of [0, 0.3, 0.999]) expect(attemptEnd(u, 1)).toBe(true);

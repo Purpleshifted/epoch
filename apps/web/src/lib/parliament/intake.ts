@@ -82,11 +82,23 @@ export const HOLD_SEC = 3;
 export const COOLDOWN_SEC = 20;
 /** The hint for it only appears this long into the life. */
 export const HINT_AFTER_SEC = 20;
+/** The line after a failed attempt stays this long (s). */
+export const FAIL_MSG_SEC = 4;
 
 /** Whether an attempt to stop living succeeds: u in [0,1) against the success probability p. */
 export function attemptEnd(u: number, p: number): boolean {
   const q = Math.min(1, Math.max(0, p));
   return q > 0 && u < q;
+}
+
+/** How far a hold that began at `startMs` has got by `nowMs` (0 … 1; 1 = the attempt is made). */
+export function holdProgress(nowMs: number, startMs: number, holdSec = HOLD_SEC): number {
+  return Math.min(1, Math.max(0, (nowMs - startMs) / 1000 / Math.max(0.001, holdSec)));
+}
+
+/** Whether stopping living is on offer: a worker, far enough into the life, and no cooldown running. */
+export function stopAllowed(role: RoleId | null, tSec: number, nowMs: number, cooldownUntilMs: number): boolean {
+  return role === "worker" && tSec >= HINT_AFTER_SEC && nowMs >= cooldownUntilMs;
 }
 
 // ── the cause of death ───────────────────────────────────────────────────────

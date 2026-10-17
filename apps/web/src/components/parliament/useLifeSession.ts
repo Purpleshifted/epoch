@@ -7,6 +7,9 @@
  *   DRAW     → VERDICT: requested / assigned, for a few seconds
  *   VERDICT  → LIVE: the lifespan runs (wall clock: it is the visitor's real time, not the world clock)
  *   LIVE     → ENDED: the visitor is taken off the ground; the end screen (with the cause of death) stays
+ *   LIVE, worker only, once the hint is up: X held for HOLD_SEC is an attempt to stop living — the dark comes up and
+ *              the sound closes while it is held; at the end luck decides (selfP): ENDED by "self", or a failed line
+ *              and a cooldown. Let go early and nothing happens.
  *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session, or (END_RETURN_SEC later) IDLE:
  *              `sessionNo` goes up, so the player parts remount as a NEW visitor (new id, new time slot)
  *   NOTICE … CHOOSE → (IDLE_AFTER_SEC without input) IDLE: the visitor left before living; nothing was recorded
@@ -17,19 +20,25 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
+  COOLDOWN_SEC,
+  DEFAULT_LIFE,
   END_RETURN_SEC,
+  FAIL_MSG_SEC,
   GESTURE_GAP_MS,
   IDLE_AFTER_SEC,
   SCRIPT,
   SESSION_ROLES,
   VERDICT_SEC,
   assignRole,
+  attemptEnd,
+  holdProgress,
   lifeAt,
   moveCursor,
   pageDone,
   planReel,
   reelDuration,
   roleForKey,
+  stopAllowed,
   verdictOf,
   type EndedBy,
   type Lang,
@@ -47,6 +56,8 @@ export interface LifeSignal {
   t: number;
   /** 0 … 1 over the last warnSec of the lifespan. */
   warn: number;
+  /** 0 … 1 while X is held to stop living (the dark, the sound and the dead controls follow it); 0 otherwise. */
+  attempt: number;
 }
 
 export interface SessionView {
@@ -73,6 +84,12 @@ export interface SessionView {
   verdict: Verdict | null;
   /** ENDED: how the life ended. */
   endedBy: EndedBy | null;
+  /** LIVE: how far the hold to stop living has got (0 … 1). */
+  attempt: number;
+  /** LIVE: the hint for stopping living is up (worker, hint due, no cooldown, not holding). */
+  stopHint: boolean;
+  /** LIVE: the line after a failed attempt is up. */
+  attemptFailed: boolean;
 }
 
 export interface LifeSession extends SessionView {
@@ -97,6 +114,9 @@ const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   cursor: -1,
   verdict: null,
   endedBy: null,
+  attempt: 0,
+  stopHint: false,
+  attemptFailed: false,
 };
 
 /** A gesture on the Leva panel (tuning) does not count. */
@@ -107,7 +127,7 @@ function onPanel(e: Event): boolean {
 
 class SessionMachine {
   view: SessionView = { ...FRESH, phase: "live", sessionNo: 0 };
-  readonly lifeRef: { current: LifeSignal } = { current: { phase: "live", t: 0, warn: 0 } };
+  readonly lifeRef: { current: LifeSignal } = { current: { phase: "live", t: 0, warn: 0, attempt: 0 } };
   cfg: LifeConfig;
   fixedRole: RoleId | null = null;
   lang: Lang = "ko";
@@ -118,6 +138,11 @@ class SessionMachine {
   private endAt = 0;
   private lastGestureAt = 0;
   private lastInputAt = 0;
+  /** B — stopping living: X is down since holdStart; no new attempt before cooldownUntil; the failed line until failedUntil. */
+  private holding = false;
+  private holdStart = 0;
+  private cooldownUntil = 0;
+  private failedUntil = 0;
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -150,7 +175,10 @@ class SessionMachine {
 
   /** A new visitor: everything fresh, `sessionNo` up, starting at `phase`. */
   private next(phase: "idle" | "notice") {
-    this.lifeRef.current = { phase, t: 0, warn: 0 };
+    this.holding = false;
+    this.cooldownUntil = 0;
+    this.failedUntil = 0;
+    this.lifeRef.current = { phase, t: 0, warn: 0, attempt: 0 };
     this.set({ ...FRESH, phase, phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
   }
 
@@ -158,7 +186,7 @@ class SessionMachine {
   setEnabled(on: boolean) {
     if (on === this.enabled && this.view.sessionNo > 0) return;
     this.enabled = on;
-    this.lifeRef.current = { phase: on ? "idle" : "live", t: 0, warn: 0 };
+    this.lifeRef.current = { phase: on ? "idle" : "live", t: 0, warn: 0, attempt: 0 };
     this.set({ ...FRESH, phase: on ? "idle" : "live", phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
   }
 
@@ -166,8 +194,25 @@ class SessionMachine {
   choose = (wanted: RoleId) => {
     if (!this.enabled || this.view.phase !== "choose") return;
     const role = this.fixedRole ?? assignRole(Math.random());
-    this.lifeRef.current = { phase: "draw", t: 0, warn: 0 };
+    this.lifeRef.current = { phase: "draw", t: 0, warn: 0, attempt: 0 };
     this.enter("draw", { wanted, role, reel: planReel(role), drawAt: Date.now(), verdict: null });
+  };
+
+  /** B — X pressed while live: a worker, once the hint is up and no cooldown runs, starts holding to stop living. */
+  holdKey = (e: KeyboardEvent) => {
+    if (!this.enabled || e.code !== "KeyX" || e.repeat || onPanel(e)) return;
+    const v = this.view;
+    if (v.phase !== "live" || this.holding || !stopAllowed(v.role, this.lifeRef.current.t, Date.now(), this.cooldownUntil)) return;
+    this.holding = true;
+    this.holdStart = Date.now();
+  };
+
+  /** Let go before the hold is complete: nothing happens, the dark cuts back. */
+  releaseKey = (e: KeyboardEvent) => {
+    if (e.code !== "KeyX" || !this.holding) return;
+    this.holding = false;
+    this.lifeRef.current = { ...this.lifeRef.current, attempt: 0 };
+    if (this.view.attempt !== 0) this.set({ attempt: 0 });
   };
 
   /** Any gesture (pointer, touch, key): what it does depends on the phase. */
@@ -233,7 +278,7 @@ class SessionMachine {
       if (now - v.phaseAt >= VERDICT_SEC * 1000) {
         this.lived = 0;
         this.lastTick = now;
-        this.lifeRef.current = { phase: "live", t: 0, warn: 0 };
+        this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0 };
         this.enter("live");
       }
     } else if (v.phase === "live") {
@@ -242,8 +287,29 @@ class SessionMachine {
       this.lastTick = now;
       const t = this.lived;
       const st = lifeAt(t, this.cfg);
-      this.lifeRef.current = { phase: "live", t, warn: st.warn };
-      if (st.over) this.end("lifespan", t);
+      // B — the hold to stop living: the dark comes up with it; when it is complete, luck decides
+      let attempt = 0;
+      if (this.holding) {
+        attempt = holdProgress(now, this.holdStart);
+        if (attempt >= 1) {
+          this.holding = false;
+          attempt = 0;
+          this.cooldownUntil = now + COOLDOWN_SEC * 1000;
+          if (attemptEnd(Math.random(), this.cfg.selfP ?? DEFAULT_LIFE.selfP ?? 0)) {
+            this.end("self", t);
+            return;
+          }
+          this.failedUntil = now + FAIL_MSG_SEC * 1000;
+        }
+      }
+      this.lifeRef.current = { phase: "live", t, warn: st.warn, attempt };
+      if (st.over) {
+        this.end("lifespan", t);
+        return;
+      }
+      const stopHint = !this.holding && stopAllowed(v.role, t, now, this.cooldownUntil);
+      const attemptFailed = now < this.failedUntil;
+      if (attempt !== v.attempt || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) this.set({ attempt, stopHint, attemptFailed });
     } else if (v.phase === "ended") {
       const held = now - this.endAt;
       if (!v.restartReady && held >= Math.max(0, this.cfg.endHoldSec) * 1000) this.set({ restartReady: true });
@@ -255,10 +321,11 @@ class SessionMachine {
 
   /** LIVE → ENDED. */
   private end(by: EndedBy, t: number) {
+    this.holding = false;
     this.endAt = Date.now();
     if (typeof document !== "undefined" && document.pointerLockElement) document.exitPointerLock();
-    this.lifeRef.current = { phase: "ended", t, warn: 1 };
-    this.enter("ended", { endedBy: by });
+    this.lifeRef.current = { phase: "ended", t, warn: 1, attempt: 0 };
+    this.enter("ended", { endedBy: by, attempt: 0, stopHint: false, attemptFailed: false });
   }
 
   start() {
@@ -267,6 +334,8 @@ class SessionMachine {
     window.addEventListener("pointerdown", this.gesture);
     window.addEventListener("keydown", this.gesture);
     window.addEventListener("touchend", this.gesture);
+    window.addEventListener("keydown", this.holdKey);
+    window.addEventListener("keyup", this.releaseKey);
   }
 
   stop() {
@@ -275,6 +344,8 @@ class SessionMachine {
     window.removeEventListener("pointerdown", this.gesture);
     window.removeEventListener("keydown", this.gesture);
     window.removeEventListener("touchend", this.gesture);
+    window.removeEventListener("keydown", this.holdKey);
+    window.removeEventListener("keyup", this.releaseKey);
   }
 }
 
@@ -304,12 +375,13 @@ const towards = (f: number, to: number, k: number) => f * Math.pow(to / Math.max
 
 /**
  * The headset near the end: the low-pass closes (as if through a wall), the others fade first, then everything.
- * Silent whenever the session is not live: before the role is drawn, while it is drawn, and after the end.
+ * The same closing while X is held to stop living (over the hold, all the way). Silent whenever the session is not
+ * live: before the role is drawn, while it is drawn, and after the end.
  */
 export function muffleSound(p: SoundParams, life: LifeSignal | undefined): SoundParams {
   if (!life) return p;
   if (life.phase !== "live") return { ...p, master: 0 };
-  const w = life.warn;
+  const w = Math.max(life.warn, life.attempt ?? 0);
   if (!(w > 0)) return p;
   const k = Math.pow(w, 0.7);
   return {

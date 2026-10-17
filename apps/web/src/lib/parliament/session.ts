@@ -113,9 +113,11 @@ export interface LifeConfig {
   endHoldSec: number;
   /** How fast the lifespan runs against the wall clock (1 = real time; more = for testing the end). */
   rate?: number;
+  /** The chance that a worker's attempt to stop living (intake.ts) succeeds. */
+  selfP?: number;
 }
 
-export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 3, rate: 1 };
+export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 3, rate: 1, selfP: 0.35 };
 
 export interface LifeState {
   /** 0 (just arrived) … 1 (lifespan used up). */

@@ -4,7 +4,8 @@
  *   - before the life: the title screen, the notices, a consent with only yes, the headset, the choice (intake.ts)
  *   - the ROLE SLOT: spins like a slot reel and stops on the role drawn — the choice made before is not looked at
  *   - the verdict: requested / assigned
- *   - while live: the dry record (lib/parliament/witness.ts) — facts only, never what they amount to
+ *   - while live: the dry record (lib/parliament/witness.ts) — facts only, never what they amount to; for a worker,
+ *     the hint to stop living, the dark that comes up while X is held, and the line when it fails
  *   - at the end: the cause of death (intake.ts, from the record) and the totals
  * The words are lib/parliament/script.ts (ko / en); the machine log stays English. VT323 has no Hangul, so the
  * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
@@ -100,7 +101,7 @@ export function SessionHud({
   /** After a suicide, one line of where to get help (the artist's call). */
   helpLine?: boolean;
 }) {
-  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict } = session;
+  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopHint, attemptFailed } = session;
   const S = SCRIPT[lang];
   const names = ROLE_NAME[lang];
   const say = lang === "ko" ? "hud-ko" : "";
@@ -156,11 +157,11 @@ export function SessionHud({
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
-      {/* the dark: almost black before the life (only the words and the slot show), black after the end.
-          Hard cuts (digital) — the only fade is the dying one, into the end. */}
+      {/* the dark: almost black before the life (only the words and the slot show), black after the end; while X is
+          held to stop living it comes up with the hold. Hard cuts (digital) — the only fade is the dying one, into the end. */}
       <div
         className="absolute inset-0 bg-black transition-opacity"
-        style={{ opacity: DARK[phase], transitionDuration: phase === "ended" ? "2000ms" : "0ms" }}
+        style={{ opacity: phase === "live" ? attempt * 0.9 : DARK[phase], transitionDuration: phase === "ended" ? "2000ms" : "0ms" }}
       />
       {/* hints blink on / off (steps, no fade) */}
       <style>{`@keyframes hud-blink { 50% { opacity: 0; } } .hud-blink { animation: hud-blink 1.1s steps(1, end) infinite; }`}</style>
@@ -244,9 +245,18 @@ export function SessionHud({
       )}
 
       {/* live, before the pointer is locked */}
-      {phase === "live" && !locked && (
+      {phase === "live" && !locked && !attemptFailed && (
         <Centre className={`${say} text-center`}>
           <p className="text-[14px] tracking-[0.2em] text-white/20">{S.live.look}</p>
+        </Centre>
+      )}
+      {/* stopping living (worker): the hint, and the line when it fails */}
+      {phase === "live" && stopHint && (
+        <div className={`${say} absolute bottom-6 right-6 text-[13px] tracking-[0.05em] text-white/25`}>{S.live.stop}</div>
+      )}
+      {phase === "live" && attemptFailed && (
+        <Centre className={`${say} text-center`}>
+          <p className="text-[20px] leading-[1.6] text-white/85">{S.attempt.failed}</p>
         </Centre>
       )}
 

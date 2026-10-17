@@ -95,7 +95,7 @@ function Controller({
   camLerp: number;
   viscosity: number;
   /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
-   *  near the end they answer worse and drop out. */
+   *  near the end they answer worse and drop out; while X is held to stop living they are dead. */
   lifeRef?: { readonly current: LifeSignal };
 }) {
   const { camera, gl } = useThree();
@@ -113,6 +113,7 @@ function Controller({
       if (document.pointerLockElement !== c) return;
       const L = lifeRef?.current;
       if (L && L.phase !== "live") return;
+      if (L && L.attempt > 0) return;
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
@@ -142,7 +143,7 @@ function Controller({
     // V2: the input is dead unless the session is live; near the end of the lifespan it answers worse and drops out
     const L = lifeRef?.current;
     const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
-    const dead = (!!L && L.phase !== "live") || !!h?.dropped;
+    const dead = (!!L && L.phase !== "live") || !!h?.dropped || (L?.attempt ?? 0) > 0;
     const gain = h?.gain ?? 1;
     const fwd = !dead && (k.has("KeyW") || k.has("ArrowUp")) ? 1 : 0;
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
@@ -218,7 +219,7 @@ export default function ParliamentScene() {
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, lifeSec, warnSec, endHoldSec, lifeRate, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, lifeSec, warnSec, endHoldSec, lifeRate, selfP, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
         session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
@@ -231,6 +232,7 @@ export default function ParliamentScene() {
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
         endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
         lifeRate: { value: 1, min: 1, max: 30, step: 0.5, label: "수명 시계 배율 (테스트용, 1 = 실제)", render: v2 },
+        selfP: { value: DEFAULT_LIFE.selfP ?? 0.35, min: 0, max: 1, step: 0.05, label: "그만 살기 성공 확률 (회사원)", render: v2 },
         offsetWindow: { value: 120, min: 0, max: 600, step: 5, label: "시각 배정 창 (s) — 새로고침 시 적용" },
       }),
       "Debug / 봇": folder({
@@ -251,7 +253,7 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
-  const lifeCfg = useMemo(() => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate }), [lifeSec, warnSec, endHoldSec, lifeRate]);
+  const lifeCfg = useMemo(() => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate, selfP }), [lifeSec, warnSec, endHoldSec, lifeRate, selfP]);
   const withSession = isV2 && sessionOn;
   const lang: Lang = asLang(langParam, levaLang);
   const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang);
