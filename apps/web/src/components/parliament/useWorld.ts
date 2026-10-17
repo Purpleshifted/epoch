@@ -16,7 +16,11 @@ import {
   StressState,
   currentEpochKey,
   keepFromS,
+  keepWindowSec,
+  latestS,
   loadEvents,
+  setKeepFrom,
+  setKeepWindowSec,
   type CollageConfig,
   type FoldConfig,
   type FoldStateOptions,
@@ -70,6 +74,36 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log]);
   return log;
+}
+
+/**
+ * The global views' knob for the HISTORY WINDOW (log.ts): how many minutes of events the whole browser keeps. A
+ * shared setting — every player tab applies it within 30 s; this view applies it at once (the cutoff is set from the
+ * latest event, and this log forgets). Short while working on something else, so little data gathers.
+ */
+export function useKeepWindowControl(log: EventLog, order = -2): void {
+  useControls(
+    "세계 (모든 창 공유)",
+    {
+      keepMin: {
+        value: Math.max(1, Math.round(keepWindowSec() / 60)),
+        min: 1,
+        max: 120,
+        step: 1,
+        label: "시간 범위 — 최근 이만큼만 모음 (분)",
+        onChange: (v: number, _path: string, ctx: { initial: boolean }) => {
+          if (ctx.initial) return;
+          setKeepWindowSec(v * 60);
+          const all = log.all();
+          if (all.length) {
+            setKeepFrom(latestS(all));
+            log.dropBefore(keepFromS());
+          }
+        },
+      },
+    },
+    { order, collapsed: false },
+  );
 }
 
 interface Growing {
@@ -219,7 +253,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
 }
 
 /** Leva knobs of the vegetation point cloud (placeholder formulas, see lib/parliament/nature.ts). */
-export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolean } = {}): { cfg: NatureConfig; pointSize: number } {
+export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolean } = {}): { cfg: NatureConfig; pointSize: number; pathLine: number } {
   const rules = {
     lingerRadius: { value: DEFAULT_NATURE.lingerRadius, min: 1, max: 10, step: 0.25, label: "머문 회사원의 영향 반경" },
     dose: { value: DEFAULT_NATURE.dose, min: 0.01, max: 1, step: 0.01, label: "초당 훼손량 (중심)" },
@@ -231,6 +265,7 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const drawing = {
     pointsPerCell: { value: DEFAULT_NATURE.pointsPerCell, min: 4, max: 80, step: 1, label: "셀당 최대 점 수" },
     pointSize: { value: 0.11, min: 0.03, max: 0.4, step: 0.01, label: "점 크기" },
+    pathLine: { value: 1, min: 0, max: 1, step: 0.05, label: "길의 선 밝기 (흰 선; 0 = 선 없음)" },
   };
   const natureRoot = place.folder ?? "자연 (초목 point cloud)";
   const c = useControls(natureRoot, savable(natureRoot, place.rulesOnly ? rules : { ...rules, ...drawing }), {
@@ -240,11 +275,12 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const { lingerRadius, dose, recoverSec, pathBite, sealedLeft } = c;
   const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;
   const pointSize = c.pointSize ?? 0.11;
+  const pathLine = c.pathLine ?? 1;
   const cfg = useMemo(
     () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell }),
     [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell],
   );
-  return { cfg, pointSize };
+  return { cfg, pointSize, pathLine };
 }
 
 /** Leva knobs of how concrete is drawn in Top / Side. */

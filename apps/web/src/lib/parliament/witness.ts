@@ -185,7 +185,7 @@ export class WitnessLog {
   private near = new Map<string, NearState>();
   private last: Observation | null = null;
   /** Totals over the session (for the end screen). */
-  private totals = { stillSec: 0, nearSec: 0, met: new Set<string>() };
+  private totals = { stillSec: 0, nearSec: 0, met: new Set<string>(), metByRole: new Map<RoleId, number>(), attempts: 0 };
 
   constructor(cfg: WitnessConfig = DEFAULT_WITNESS) {
     this.cfg = cfg;
@@ -194,6 +194,17 @@ export class WitnessLog {
   private write(t: number, text: string) {
     this.lines.push(`T+${fmtClock(t)}  ${text}`);
     if (this.lines.length > this.cfg.keep) this.lines.splice(0, this.lines.length - this.cfg.keep);
+  }
+
+  /**
+   * A worker tried to stop living and it failed (a success ends the session instead): two flat lines, one more try;
+   * `near` = how many others were around then (company makes it less likely — the record only states the number).
+   */
+  attempt(t: number, near = 0): string[] {
+    this.totals.attempts += 1;
+    this.write(t, `YOU  TRIED TO STOP LIVING${near > 0 ? ` · NEAR ${near}` : ""}`);
+    this.write(t, "YOU  FAILED");
+    return this.lines.slice(-2);
   }
 
   /** Feed one observation; returns the lines written by it. */
@@ -227,6 +238,7 @@ export class WitnessLog {
       const st = this.near.get(o.o);
       if (!st) {
         if (o.dist <= nearRadius) {
+          if (!this.totals.met.has(o.o)) this.totals.metByRole.set(o.r, (this.totals.metByRole.get(o.r) ?? 0) + 1);
           this.totals.met.add(o.o);
           this.near.set(o.o, { r: o.r, since: obs.t, moving: new Settled(o.moving, obs.t), lastDist: o.dist, lastBearing: o.bearing });
           w(`${nameOf(o.o, o.r)}  NEAR · ${o.dist.toFixed(1)} M ${o.bearing} · ${o.moving ? "MOVING" : "STATIONARY"}`);
@@ -254,9 +266,21 @@ export class WitnessLog {
     return `YOU  ${mv} · ${SURFACE_WORD[this.surface.value]} · NEAR ${this.near.size}`;
   }
 
-  /** Totals so far: seconds stationary, seconds with someone near, how many others came near. */
-  summary(): { stillSec: number; nearSec: number; met: number } {
-    return { stillSec: this.totals.stillSec, nearSec: this.totals.nearSec, met: this.totals.met.size };
+  /**
+   * Totals so far: seconds stationary, seconds with someone near, how many others came near (and by their role), and
+   * the ground underfoot now — what the end screen and the cause of death (intake.ts) are made from.
+   */
+  summary(): { stillSec: number; nearSec: number; met: number; metByRole: Partial<Record<RoleId, number>>; surface: Surface; attempts: number } {
+    const metByRole: Partial<Record<RoleId, number>> = {};
+    for (const [r, n] of this.totals.metByRole) metByRole[r] = n;
+    return {
+      stillSec: this.totals.stillSec,
+      nearSec: this.totals.nearSec,
+      met: this.totals.met.size,
+      metByRole,
+      surface: this.surface?.value ?? "open",
+      attempts: this.totals.attempts,
+    };
   }
 
   /** The others near now, one short entry each, nearest first. */
