@@ -60,3 +60,16 @@ body {
 .space-vignette {
   animation: vignette 8s ease-in-out infinite alternate;
 }
+
+/* The pixel Hangul face for what the player view's apparatus says in Korean (VT323 has no Hangul).
+   The file is not in the repository yet: put Neo둥근모's neodgm.woff2 (SIL OFL) at apps/web/public/fonts/neodgm.woff2;
+   until then the browser falls back to a system face. docs/session-logic.md §5. */
+@font-face {
+  font-family: "NeoDunggeunmo";
+  src: url("/fonts/neodgm.woff2") format("woff2");
+  font-display: swap;
+}
+
+.hud-ko {
+  font-family: "NeoDunggeunmo", "Galmuri11", "DungGeunMo", "VT323", monospace;
+}

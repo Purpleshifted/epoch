@@ -4,9 +4,11 @@
  * Pick a role in the Leva panel (demo build), walk (WASD + mouse look after a click), and the
  * role's trace appears in the ground. Only the worker has an effect so far.
  *
- * V2: a visitor's SESSION (useLifeSession, lib/parliament/session.ts): the first touch spins the role slot, the
- * lifespan runs, near its end the cursor blinks fast, the sound goes dull and the controls stop answering; at the
- * end the visitor is removed and the next one starts afresh. The HUD (SessionHud) reports it all in dry text.
+ * V2: a visitor's SESSION (useLifeSession, lib/parliament/session.ts + intake.ts): the title screen, the notices, a
+ * consent with only yes, the headset, a choice of role the slot then ignores, the verdict; then the lifespan runs,
+ * near its end the cursor blinks fast, the sound goes dull and the controls stop answering; at the end the visitor is
+ * removed, the cause of death is written, and the next one starts afresh. The HUD (SessionHud) says it all in dry
+ * text (lib/parliament/script.ts, Korean or English: ?lang= first, then the Leva knob).
  */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -20,7 +22,7 @@ import { useSound } from "./useSound";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { SessionHud } from "./SessionHud";
-import { DEFAULT_LIFE, hindrance, seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, wrapCoord, type Observation, type RoleId } from "@/lib/parliament";
+import { DEFAULT_LIFE, asLang, hindrance, seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, wrapCoord, type Lang, type Observation, type RoleId } from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -204,6 +206,8 @@ function FollowGrid({ playerPosRef, size }: { playerPosRef: React.MutableRefObje
 export default function ParliamentScene() {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const hideChrome = demo || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ui") === "0");
+  // the language the apparatus speaks: ?lang=ko|en on the exhibition URL wins over the Leva knob
+  const [langParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null));
   const [locked, setLocked] = useState(false);
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
@@ -214,13 +218,15 @@ export default function ParliamentScene() {
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lifeSec, warnSec, endHoldSec, lifeRate, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, lifeSec, warnSec, endHoldSec, lifeRate, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       "역할 (Role)": folder({
         session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
         role: isV2
           ? { options: V2_ROLE_OPTIONS, value: "random" as RoleId | "random", label: "배정 (랜덤 = 슬롯)" }
           : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
+        lang: { options: { 한국어: "ko", English: "en" } as Record<string, Lang>, value: "ko" as Lang, label: "안내 언어 (?lang= 이 우선)", render: v2 },
+        helpLine: { value: false, label: "자살일 때 상담전화 한 줄", render: v2 },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
         endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
@@ -247,7 +253,8 @@ export default function ParliamentScene() {
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
   const lifeCfg = useMemo(() => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate }), [lifeSec, warnSec, endHoldSec, lifeRate]);
   const withSession = isV2 && sessionOn;
-  const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice);
+  const lang: Lang = asLang(langParam, levaLang);
+  const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
   const cfg = useFoldControls();
@@ -306,7 +313,9 @@ export default function ParliamentScene() {
         />
       </Canvas>
 
-      {withSession && !demo && <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} />}
+      {withSession && !demo && (
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} />
+      )}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="font-mono text-[11px] tracking-[0.35em] text-white/15">click to enter</p>

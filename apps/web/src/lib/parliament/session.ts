@@ -3,7 +3,10 @@
  * may stay, and how the end makes itself felt.
  *
  *   IDLE      nobody has touched the screen yet: the ground runs on (bots), the visitor leaves nothing
- *   DRAW      the role slot spins through the roles and stops on the one drawn at random (`reelAt`)
+ *   NOTICE … CHOOSE   the frame before a life (intake.ts): what this is, a consent with only yes, the headset, a choice
+ *   DRAW      the role slot spins through the roles and stops on the one drawn at random (`reelAt`) — the choice
+ *             made before is not looked at (intake.ts `verdictOf` only says whether it happened to agree)
+ *   VERDICT   requested / assigned, for a few seconds
  *   LIVE      the lifespan runs; in its last `warnSec` the cursor blinks faster, the sound goes dull and the
  *             controls stop answering properly (`lifeAt`, `hindrance`)
  *   ENDED     the lifespan is over: the visitor is taken off the ground, a dry end screen; SPACE starts the next
@@ -15,7 +18,11 @@
 import { hash2 } from "./nature";
 import type { RoleId } from "./types";
 
-export type SessionPhase = "idle" | "draw" | "live" | "ended";
+/**
+ * IDLE → the steps before the draw (intake.ts: NOTICE → CONSENT → HEADSET → CHOOSE) → DRAW → VERDICT → LIVE → ENDED.
+ * The visitor is only present (traces, sound, controls) while LIVE; every other phase is dark and silent.
+ */
+export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "choose" | "draw" | "verdict" | "live" | "ended";
 
 /** The roles a session can be given (V2). */
 export const SESSION_ROLES: readonly RoleId[] = ["worker", "cat", "car", "tree"];
