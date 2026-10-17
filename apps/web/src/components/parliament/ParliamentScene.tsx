@@ -26,6 +26,7 @@ import { useSound } from "./useSound";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { useTilt, type TiltState } from "./useTilt";
+import { usePageLock } from "./usePageLock";
 import { SessionHud } from "./SessionHud";
 import {
   DEFAULT_LIFE,
@@ -321,6 +322,8 @@ export default function ParliamentScene() {
   const sound = useSound();
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
+  // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
+  usePageLock(isV2);
   const witnessRef = useRef<Observation | null>(null);
 
   const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
