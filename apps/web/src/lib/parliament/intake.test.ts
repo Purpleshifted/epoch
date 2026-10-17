@@ -18,6 +18,7 @@ import {
   moveCursor,
   nextIntake,
   pageDone,
+  quickRestart,
   roleForKey,
   verdictOf,
   type LifeRecord,
@@ -43,6 +44,12 @@ describe("the steps before the draw", () => {
     expect(nextIntake("consent")).toBe("headset");
     expect(nextIntake("headset")).toBe("choose");
     expect(nextIntake("choose")).toBe("draw");
+  });
+  it("are skipped for the same visitor starting again soon after the end", () => {
+    expect(quickRestart(5_000, 1_000)).toBe(true);
+    expect(quickRestart(21_000, 1_000)).toBe(true);
+    expect(quickRestart(21_001, 1_000)).toBe(false);
+    expect(quickRestart(5_000, 0)).toBe(false);
   });
   it("show a page's lines one after another and only let the page turn once all are up", () => {
     expect(linesShown(3, 0)).toBe(1);

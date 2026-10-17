@@ -21,6 +21,8 @@ export const VERDICT_SEC = 4;
 export const IDLE_AFTER_SEC = 45;
 /** The end screen, once SPACE is allowed, returns to the title screen by itself after this long. */
 export const END_RETURN_SEC = 90;
+/** SPACE this soon after the end is the same visitor again: the notices and the headset are skipped. */
+export const QUICK_RESTART_SEC = 20;
 /** Two gestures closer than this count as one (a tap fires pointerdown and touchend; a held key repeats). */
 export const GESTURE_GAP_MS = 300;
 
@@ -28,6 +30,11 @@ export const GESTURE_GAP_MS = 300;
 
 export const INTAKE_PHASES = ["notice", "consent", "headset", "choose"] as const;
 export type IntakePhase = (typeof INTAKE_PHASES)[number];
+
+/** A restart this soon after the end (wall ms) skips the notices and the headset screen. */
+export function quickRestart(nowMs: number, endedAtMs: number, withinSec = QUICK_RESTART_SEC): boolean {
+  return endedAtMs > 0 && nowMs - endedAtMs <= withinSec * 1000;
+}
 
 /** The step after `p`; after the choice comes the draw. */
 export function nextIntake(p: IntakePhase): IntakePhase | "draw" {

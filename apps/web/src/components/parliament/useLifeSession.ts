@@ -10,8 +10,10 @@
  *   LIVE, worker only, once the hint is up: X held for HOLD_SEC is an attempt to stop living — the dark comes up and
  *              the sound closes while it is held; at the end luck decides (selfP): ENDED by "self", or a failed line
  *              and a cooldown. Let go early and nothing happens.
- *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session, or (END_RETURN_SEC later) IDLE:
- *              `sessionNo` goes up, so the player parts remount as a NEW visitor (new id, new time slot)
+ *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or straight to CONSENT when SPACE
+ *              comes within QUICK_RESTART_SEC of the end (the same visitor again: no notices, no headset screen) —
+ *              or (END_RETURN_SEC later) IDLE: `sessionNo` goes up, so the player parts remount as a NEW visitor
+ *              (new id, new time slot)
  *   NOTICE … CHOOSE → (IDLE_AFTER_SEC without input) IDLE: the visitor left before living; nothing was recorded
  *
  * The machine is a small store outside React (SessionMachine); the per-frame values (phase, seconds into the
@@ -27,6 +29,7 @@ import {
   GESTURE_GAP_MS,
   IDLE_AFTER_SEC,
   SCRIPT,
+  quickRestart,
   SESSION_ROLES,
   VERDICT_SEC,
   assignRole,
@@ -174,7 +177,7 @@ class SessionMachine {
   }
 
   /** A new visitor: everything fresh, `sessionNo` up, starting at `phase`. */
-  private next(phase: "idle" | "notice") {
+  private next(phase: "idle" | "notice" | "consent") {
     this.holding = false;
     this.cooldownUntil = 0;
     this.failedUntil = 0;
@@ -260,7 +263,8 @@ class SessionMachine {
         return;
       }
       case "ended":
-        if (v.restartReady && code === "Space") this.next("notice");
+        // soon after the end it is the same visitor again: no notices, no headset screen
+        if (v.restartReady && code === "Space") this.next(quickRestart(now, this.endAt) ? "consent" : "notice");
         return;
       default:
         return; // draw, verdict, live: the screen runs on its own (the controls are the Controller's)
