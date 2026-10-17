@@ -66,7 +66,7 @@ ENDED: 소리 0, 입력 무시, 포인터 락 해제.
 ## 5. 글꼴
 
 - 기계 로그·슬롯·영어 안내: VT323 (DEC VT320 터미널 서체, next/font로 빌드 때 받아 자체 호스팅 → 전시장 오프라인 OK).
-- 한국어 안내: VT323에 한글이 없어 픽셀 한글 서체 **Neo둥근모**(SIL OFL)를 `.hud-ko`(`globals.css`, `@font-face`)로. 파일 `apps/web/public/fonts/neodgm.woff2`는 저장소에 아직 없음 — 넣기 전까지는 시스템 서체로 폴백 (동작엔 영향 없음). 대안: Galmuri11.
+- 한국어 안내: VT323에 한글이 없어 픽셀 한글 서체 **Neo둥근모** v1.601 (SIL OFL, CREDITS.md)을 `.hud-ko`(`globals.css`, `@font-face`)로. 파일은 `apps/web/public/fonts/neodgm.woff2` (44 KB, 자체 호스팅 → 오프라인 OK). 대안: Galmuri11.
 
 ## 6. Leva (역할 폴더)
 
