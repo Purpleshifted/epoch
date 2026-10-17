@@ -3,7 +3,10 @@
  * may stay, and how the end makes itself felt.
  *
  *   IDLE      nobody has touched the screen yet: the ground runs on (bots), the visitor leaves nothing
- *   DRAW      the role slot spins through the roles and stops on the one drawn at random (`reelAt`)
+ *   NOTICE … CHOOSE   the frame before a life (intake.ts): what this is, a consent with only yes, the headset, a choice
+ *   DRAW      the role slot spins through the roles and stops on the one drawn at random (`reelAt`) — the choice
+ *             made before is not looked at (intake.ts `verdictOf` only says whether it happened to agree)
+ *   VERDICT   requested / assigned, for a few seconds
  *   LIVE      the lifespan runs; in its last `warnSec` the cursor blinks faster, the sound goes dull and the
  *             controls stop answering properly (`lifeAt`, `hindrance`)
  *   ENDED     the lifespan is over: the visitor is taken off the ground, a dry end screen; SPACE starts the next
@@ -15,7 +18,11 @@
 import { hash2 } from "./nature";
 import type { RoleId } from "./types";
 
-export type SessionPhase = "idle" | "draw" | "live" | "ended";
+/**
+ * IDLE → the steps before the draw (intake.ts: NOTICE → CONSENT → HEADSET → CHOOSE) → DRAW → VERDICT → LIVE → ENDED.
+ * The visitor is only present (traces, sound, controls) while LIVE; every other phase is dark and silent.
+ */
+export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "choose" | "draw" | "verdict" | "live" | "ended";
 
 /** The roles a session can be given (V2). */
 export const SESSION_ROLES: readonly RoleId[] = ["worker", "cat", "car", "tree"];
@@ -106,9 +113,24 @@ export interface LifeConfig {
   endHoldSec: number;
   /** How fast the lifespan runs against the wall clock (1 = real time; more = for testing the end). */
   rate?: number;
+  /** The chance that a worker's attempt to stop living (intake.ts) succeeds — alone … */
+  selfP?: number;
+  /** … multiplied by this for every other being near at the time (intake.ts selfChance). */
+  selfNearFactor?: number;
+  /** The notices before a life: seconds between one line coming on and the next (intake.ts NOTICE_LINE_SEC). */
+  noticeLineSec?: number;
+  /** Stopping living (intake.ts has the defaults): how long X is held … */
+  holdSec?: number;
+  /** … from how many seconds into the life it is on offer (and the first banner comes) … */
+  hintAfterSec?: number;
+  /** … how often the banner returns, and for how long … */
+  hintPeriodSec?: number;
+  hintShowSec?: number;
+  /** … and in how many last seconds of the life it is withdrawn. */
+  stopLastSec?: number;
 }
 
-export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 3, rate: 1 };
+export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 3, rate: 1, selfP: 0.35 };
 
 export interface LifeState {
   /** 0 (just arrived) … 1 (lifespan used up). */
