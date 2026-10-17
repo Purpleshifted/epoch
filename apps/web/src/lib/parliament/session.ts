@@ -38,6 +38,12 @@ export const ROLE_TAG: Record<RoleId, string> = {
   warrior: "WARRIOR",
 };
 
+/**
+ * TEST PERIOD (2026-10-17): every draw lands on this role unless the URL says otherwise (?role=random draws at
+ * random, ?role=cat … fixes another). Set it to null for the exhibition: then the slot draws at random by default.
+ */
+export const DRAW_DEFAULT: RoleId | null = "worker";
+
 /** u in [0,1) → one of `roles`, uniformly. */
 export function assignRole(u: number, roles: readonly RoleId[] = SESSION_ROLES): RoleId {
   const n = roles.length;

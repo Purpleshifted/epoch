@@ -30,6 +30,7 @@ import { usePageLock } from "./usePageLock";
 import { SessionHud } from "./SessionHud";
 import {
   DEFAULT_LIFE,
+  DRAW_DEFAULT,
   HINT_AFTER_SEC,
   HINT_PERIOD_SEC,
   HINT_SHOW_SEC,
@@ -309,10 +310,13 @@ export default function ParliamentScene() {
   // the language the apparatus speaks: ?lang=ko|en on the exhibition URL wins over the Leva knob
   const [langParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null));
   // ?role=worker (or cat / car / tree) on a test link: every draw lands on that role, over the Leva choice
-  const [roleParam] = useState<RoleId | null>(() => {
+  // test links: ?role=worker / cat / car / tree fixes the draw, ?role=random draws at random; without it the draw
+  // follows DRAW_DEFAULT (session.ts — the worker during the test period), then the Leva choice
+  const [roleParam] = useState<RoleId | "random" | null>(() => {
     if (typeof window === "undefined") return null;
-    const r = new URLSearchParams(window.location.search).get("role") as RoleId | null;
-    return r && (SESSION_ROLES as readonly string[]).includes(r) ? r : null;
+    const r = new URLSearchParams(window.location.search).get("role");
+    if (r === "random") return "random";
+    return r && (SESSION_ROLES as readonly string[]).includes(r) ? (r as RoleId) : null;
   });
   const [locked, setLocked] = useState(false);
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
@@ -384,7 +388,9 @@ export default function ParliamentScene() {
   // stopping living less likely (intake.ts selfChance)
   const nearRadius = cfg.radius;
   const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
-  const session = useLifeSession(withSession, lifeCfg, roleParam ?? (roleChoice === "random" ? null : roleChoice), lang, getNear);
+  const fixedRole: RoleId | null =
+    roleParam === "random" ? null : roleParam ?? (roleChoice !== "random" ? roleChoice : DRAW_DEFAULT);
+  const session = useLifeSession(withSession, lifeCfg, fixedRole, lang, getNear);
   // a phone: a finger walks by default; its tilt walks instead in tilt mode (useTilt; nothing on the iMac)
   const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined, phoneMode);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
