@@ -90,7 +90,7 @@ export interface Script {
   choose: { question: string };
   draw: { assigning: string };
   verdict: { requested: string; assigned: string; lucky: string; received: string; cannotHelp: string; controls: string };
-  live: { look: string; stop: string };
+  live: { look: string; stop: (holdSec: number) => string };
   attempt: { failed: string };
   ended: {
     title: string;
@@ -101,6 +101,9 @@ export interface Script {
     still: string;
     near: string;
     metUnit: string;
+    /** Only when there were attempts to stop living: the label, and "n tried". */
+    stop: string;
+    tried: (n: number) => string;
     kept: string;
     read: string;
     next: string;
@@ -128,9 +131,9 @@ export const SCRIPT: Record<Lang, Script> = {
       lucky: "운이 좋습니다.",
       received: "선택은 접수되었습니다. 반영되지는 않았습니다.",
       cannotHelp: "어쩔 수 없습니다.",
-      controls: "W A S D 걷기 · 마우스 둘러보기",
+      controls: "클릭한 뒤 W A S D 걷기 · 마우스 둘러보기",
     },
-    live: { look: "클릭 — 둘러보기", stop: "그만 살기: X 키를 2초 동안 누르세요" },
+    live: { look: "화면을 클릭하세요", stop: (s) => `그만 살기: X 키를 ${s}초 동안 누르세요` },
     attempt: { failed: "저런. 그만 살기에 실패했습니다. 삶은 계속됩니다." },
     ended: {
       title: "삶이 끝났습니다.",
@@ -141,6 +144,8 @@ export const SCRIPT: Record<Lang, Script> = {
       still: "머묾",
       near: "가까이",
       metUnit: "만남",
+      stop: "그만 살기",
+      tried: (n) => `${n}회 시도 · 실패`,
       kept: "기록은 남습니다.",
       read: "흔적은 벽의 창에서 읽힐 수도, 읽히지 않을 수도 있습니다.",
       next: "SPACE — 다음 삶",
@@ -165,9 +170,9 @@ export const SCRIPT: Record<Lang, Script> = {
       lucky: "You are lucky.",
       received: "Your choice was received. It was not applied.",
       cannotHelp: "It cannot be helped.",
-      controls: "W A S D walk · mouse look",
+      controls: "click, then W A S D walk · mouse look",
     },
-    live: { look: "Click to look", stop: "Stop living: hold X for 2 seconds" },
+    live: { look: "Click the screen", stop: (s) => `Stop living: hold X for ${s} second${s === 1 ? "" : "s"}` },
     attempt: { failed: "Oh. Stopping living has failed. Life goes on." },
     ended: {
       title: "Life has ended.",
@@ -178,6 +183,8 @@ export const SCRIPT: Record<Lang, Script> = {
       still: "Still",
       near: "Near",
       metUnit: "met",
+      stop: "Stop living",
+      tried: (n) => `tried ${n}× · failed`,
       kept: "The record is kept.",
       read: "The traces may be read through the window in the wall, or they may not.",
       next: "SPACE — next life",

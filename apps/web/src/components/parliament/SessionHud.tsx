@@ -15,6 +15,7 @@ import { VT323 } from "next/font/google";
 import { useEffect, useRef, useState } from "react";
 import {
   CAUSE_NAME,
+  HOLD_SEC,
   ROLE_NAME,
   ROLE_TAG,
   SCRIPT,
@@ -55,9 +56,10 @@ interface WitnessView {
   met: number;
   metByRole: Partial<Record<RoleId, number>>;
   surface: Surface;
+  attempts: number;
 }
 
-const EMPTY: WitnessView = { lines: [], status: "", near: [], t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open" };
+const EMPTY: WitnessView = { lines: [], status: "", near: [], t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0 };
 
 /** A block in the middle of the screen. */
 function Centre({ className = "", children }: { className?: string; children: React.ReactNode }) {
@@ -89,10 +91,11 @@ export function SessionHud({
   lifeSec,
   lang = "ko",
   helpLine = false,
+  holdSec = HOLD_SEC,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
-  /** Pointer lock (desktop): shows the "click to look" hint while live and unlocked. */
+  /** Pointer lock (desktop): a "click the screen" banner while live and unlocked (the controls are dead until then). */
   locked: boolean;
   /** The lifespan (s): what the end screen says the visitor was present for. */
   lifeSec: number;
@@ -100,8 +103,10 @@ export function SessionHud({
   lang?: Lang;
   /** After a suicide, one line of where to get help (the artist's call). */
   helpLine?: boolean;
+  /** How long X is held to stop living (what the banner says). */
+  holdSec?: number;
 }) {
-  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopHint, attemptFailed } = session;
+  const { phase, role, reel, drawAt, wanted, page, phaseAt, cursor, verdict, attempt, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
   const names = ROLE_NAME[lang];
   const say = lang === "ko" ? "hud-ko" : "";
@@ -136,6 +141,15 @@ export function SessionHud({
     }, POLL_MS);
     return () => clearInterval(id);
   }, [phase, witnessRef, log]);
+
+  // a failed attempt to stop living goes into the record as two flat lines
+  const seenAttempts = useRef(0);
+  useEffect(() => {
+    if (attempts <= seenAttempts.current) return;
+    seenAttempts.current = attempts;
+    log.attempt(session.lifeRef.current.t, session.lastAttemptNear);
+    setRec((r) => ({ ...r, lines: [...log.lines], ...log.summary() }));
+  }, [attempts, log, session.lifeRef, session.lastAttemptNear]);
 
   const since = Math.max(0, (now - phaseAt) / 1000);
 
@@ -246,14 +260,14 @@ export function SessionHud({
 
       {/* live, before the pointer is locked */}
       {phase === "live" && !locked && !attemptFailed && (
-        <Centre className={`${say} text-center`}>
-          <p className="text-[14px] tracking-[0.2em] text-white/20">{S.live.look}</p>
+        <Centre className={`${say} flex justify-center text-center`}>
+          <div className="border border-white/40 bg-black/70 px-6 py-3 text-[20px] text-white/90">{S.live.look}</div>
         </Centre>
       )}
       {/* stopping living (worker): the banner at the top, now and then; and the line when it fails */}
       {phase === "live" && stopHint && (
         <div className="absolute inset-x-0 top-8 flex justify-center px-6">
-          <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[17px] tracking-[0.04em] text-white/85`}>{S.live.stop}</div>
+          <div className={`${say} border border-white/30 bg-black/50 px-4 py-1.5 text-[17px] tracking-[0.04em] text-white/85`}>{S.live.stop(holdSec)}</div>
         </div>
       )}
       {phase === "live" && attemptFailed && (
@@ -320,6 +334,12 @@ export function SessionHud({
             <div>
               {fmtClock(rec.nearSec)} · {rec.met} {S.ended.metUnit}
             </div>
+            {rec.attempts > 0 && (
+              <>
+                <div className="text-white/45">{S.ended.stop}</div>
+                <div>{S.ended.tried(rec.attempts)}</div>
+              </>
+            )}
           </div>
           <div className="pt-5 text-white/35">{S.ended.kept}</div>
           <div className="text-white/35">{S.ended.read}</div>

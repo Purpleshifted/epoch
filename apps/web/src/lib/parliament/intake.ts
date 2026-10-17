@@ -84,16 +84,15 @@ export function verdictOf(wanted: RoleId | null, drawn: RoleId): Verdict {
 export type EndedBy = "lifespan" | "self";
 
 /** B — stopping living (worker only): the visitor holds X this long … (the pointer is locked while live, so a key) */
-export const HOLD_SEC = 2;
+export const HOLD_SEC = 1;
 export const STOP_KEYS: readonly string[] = ["KeyX"];
 export const isStopKey = (code: string): boolean => STOP_KEYS.includes(code);
-/** … then may try again this long after a failed attempt. */
-export const COOLDOWN_SEC = 20;
+/** … and may try again at once after a failed attempt (whether or not its line is still up). */
 /** The hint for it only appears this long into the life … */
-export const HINT_AFTER_SEC = 20;
+export const HINT_AFTER_SEC = 30;
 /** … and then now and then: for HINT_SHOW_SEC every HINT_PERIOD_SEC (the key works in between too). */
-export const HINT_PERIOD_SEC = 20;
-export const HINT_SHOW_SEC = 4;
+export const HINT_PERIOD_SEC = 30;
+export const HINT_SHOW_SEC = 5;
 
 /** Whether the hint is up at `tSec` into the life (it comes and goes; stopAllowed says whether the key works). */
 export function hintUp(tSec: number, after = HINT_AFTER_SEC, period = HINT_PERIOD_SEC, show = HINT_SHOW_SEC): boolean {
@@ -101,7 +100,9 @@ export function hintUp(tSec: number, after = HINT_AFTER_SEC, period = HINT_PERIO
   return (tSec - after) % Math.max(0.001, period) < show;
 }
 /** The line after a failed attempt stays this long (s). */
-export const FAIL_MSG_SEC = 8;
+export const FAIL_MSG_SEC = 4;
+/** Not in the last this many seconds of the life: the end is already on its way (a failed attempt then read as a revival). */
+export const STOP_LAST_SEC = 15;
 
 /** Whether an attempt to stop living succeeds: u in [0,1) against the success probability p. */
 export function attemptEnd(u: number, p: number): boolean {
@@ -109,14 +110,36 @@ export function attemptEnd(u: number, p: number): boolean {
   return q > 0 && u < q;
 }
 
+/** Each other being near (the record's NEAR radius) multiplies the chance by this: alone it is the base chance. */
+export const SELF_NEAR_FACTOR = 0.5;
+
+/** The chance an attempt succeeds with `near` others around: base × factor^near (the more company, the less). */
+export function selfChance(base: number, near: number, factor = SELF_NEAR_FACTOR): number {
+  const b = Math.min(1, Math.max(0, base));
+  const f = Math.min(1, Math.max(0, factor));
+  return b * Math.pow(f, Math.max(0, Math.floor(near)));
+}
+
 /** How far a hold that began at `startMs` has got by `nowMs` (0 … 1; 1 = the attempt is made). */
 export function holdProgress(nowMs: number, startMs: number, holdSec = HOLD_SEC): number {
   return Math.min(1, Math.max(0, (nowMs - startMs) / 1000 / Math.max(0.001, holdSec)));
 }
 
-/** Whether stopping living is on offer: a worker, far enough into the life, and no cooldown running. */
-export function stopAllowed(role: RoleId | null, tSec: number, nowMs: number, cooldownUntilMs: number): boolean {
-  return role === "worker" && tSec >= HINT_AFTER_SEC && nowMs >= cooldownUntilMs;
+/** When stopping living is on offer (tunable in Leva; intake.ts has the defaults). */
+export interface StopRule {
+  /** Not before this many seconds into the life (the first banner comes then). */
+  afterSec: number;
+  /** Not in the last this many seconds of the life. */
+  lastSec: number;
+}
+export const DEFAULT_STOP_RULE: StopRule = { afterSec: HINT_AFTER_SEC, lastSec: STOP_LAST_SEC };
+
+/**
+ * Whether stopping living is on offer: a worker, far enough into the life, not too near its end (`leftSec`). The key
+ * works whenever this holds — whether or not the banner (hintUp) or the line of a failed attempt is up.
+ */
+export function stopAllowed(role: RoleId | null, tSec: number, leftSec = Infinity, rule: StopRule = DEFAULT_STOP_RULE): boolean {
+  return role === "worker" && tSec >= rule.afterSec && leftSec > rule.lastSec;
 }
 
 // ── the cause of death ───────────────────────────────────────────────────────

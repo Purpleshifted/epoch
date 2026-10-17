@@ -113,8 +113,19 @@ export interface LifeConfig {
   endHoldSec: number;
   /** How fast the lifespan runs against the wall clock (1 = real time; more = for testing the end). */
   rate?: number;
-  /** The chance that a worker's attempt to stop living (intake.ts) succeeds. */
+  /** The chance that a worker's attempt to stop living (intake.ts) succeeds — alone … */
   selfP?: number;
+  /** … multiplied by this for every other being near at the time (intake.ts selfChance). */
+  selfNearFactor?: number;
+  /** Stopping living (intake.ts has the defaults): how long X is held … */
+  holdSec?: number;
+  /** … from how many seconds into the life it is on offer (and the first banner comes) … */
+  hintAfterSec?: number;
+  /** … how often the banner returns, and for how long … */
+  hintPeriodSec?: number;
+  hintShowSec?: number;
+  /** … and in how many last seconds of the life it is withdrawn. */
+  stopLastSec?: number;
 }
 
 export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 3, rate: 1, selfP: 0.35 };

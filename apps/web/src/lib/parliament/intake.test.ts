@@ -12,8 +12,10 @@ import {
   HINT_PERIOD_SEC,
   HINT_SHOW_SEC,
   HOLD_SEC,
+  STOP_LAST_SEC,
   attemptEnd,
   causeOfDeath,
+  selfChance,
   hintUp,
   holdProgress,
   isStopKey,
@@ -89,12 +91,18 @@ describe("the verdict", () => {
 });
 
 describe("stopping living", () => {
-  it("is on offer to a worker only, once the hint is due, and not during a cooldown", () => {
-    expect(stopAllowed("worker", HINT_AFTER_SEC, 1000, 0)).toBe(true);
-    expect(stopAllowed("worker", HINT_AFTER_SEC - 1, 1000, 0)).toBe(false);
-    expect(stopAllowed("worker", HINT_AFTER_SEC + 50, 1000, 2000)).toBe(false);
-    expect(stopAllowed("cat", HINT_AFTER_SEC + 50, 1000, 0)).toBe(false);
-    expect(stopAllowed(null, HINT_AFTER_SEC + 50, 1000, 0)).toBe(false);
+  it("is on offer to a worker only, once the first banner is due", () => {
+    expect(stopAllowed("worker", HINT_AFTER_SEC)).toBe(true);
+    expect(stopAllowed("worker", HINT_AFTER_SEC - 1)).toBe(false);
+    expect(stopAllowed("cat", HINT_AFTER_SEC + 50)).toBe(false);
+    expect(stopAllowed(null, HINT_AFTER_SEC + 50)).toBe(false);
+  });
+  it("is withdrawn in the last seconds of the life, and follows the rule it is given", () => {
+    expect(stopAllowed("worker", 100, STOP_LAST_SEC)).toBe(false);
+    expect(stopAllowed("worker", 100, STOP_LAST_SEC + 0.1)).toBe(true);
+    expect(stopAllowed("worker", 5, 0.5, { afterSec: 5, lastSec: 0 })).toBe(true);
+    expect(stopAllowed("worker", 4.9, 100, { afterSec: 5, lastSec: 0 })).toBe(false);
+    expect(stopAllowed("worker", 100, 30, { afterSec: 5, lastSec: 30 })).toBe(false);
   });
   it("is held on X, not on the walking keys", () => {
     expect(isStopKey("KeyX")).toBe(true);
@@ -114,6 +122,14 @@ describe("stopping living", () => {
     expect(holdProgress(HOLD_SEC * 1000, 0)).toBe(1);
     expect(holdProgress(HOLD_SEC * 5000, 0)).toBe(1);
     expect(holdProgress(500, 1000)).toBe(0);
+  });
+  it("gets less likely with every other being near, and stays the base chance alone", () => {
+    expect(selfChance(0.4, 0)).toBe(0.4);
+    expect(selfChance(0.4, 1)).toBeCloseTo(0.2);
+    expect(selfChance(0.4, 2)).toBeCloseTo(0.1);
+    expect(selfChance(0.4, 3, 0.1)).toBeCloseTo(0.0004);
+    expect(selfChance(1, 5, 1)).toBe(1);
+    expect(selfChance(0.4, 2, 0)).toBe(0);
   });
   it("never succeeds at p = 0, always at p = 1, and otherwise by u", () => {
     for (const u of [0, 0.3, 0.999]) expect(attemptEnd(u, 0)).toBe(false);

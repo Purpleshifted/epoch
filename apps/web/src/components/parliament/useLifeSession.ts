@@ -7,10 +7,12 @@
  *   DRAW     → VERDICT: requested / assigned, for a few seconds
  *   VERDICT  → LIVE: the lifespan runs (wall clock: it is the visitor's real time, not the world clock)
  *   LIVE     → ENDED: the visitor is taken off the ground; the end screen (with the cause of death) stays
- *   LIVE, worker only, from HINT_AFTER_SEC on (a banner says so now and then): X held for HOLD_SEC is an attempt to
+ *   LIVE, worker only, from hintAfterSec on and not in the last stopLastSec (a banner says so now and then): X held
+ *              for holdSec is an attempt to
  *              stop living — the dark comes up and
- *              the sound closes while it is held; at the end luck decides (selfP): ENDED by "self", or a failed line
- *              and a cooldown. Let go early and nothing happens.
+ *              the sound closes while it is held; at the end luck decides (selfP, less with every other being near —
+ *              selfChance): ENDED by "self", or a failed line
+ *              (and X works again at once, line or no line). Let go early and nothing happens.
  *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or straight to CHOOSE when SPACE
  *              comes within QUICK_RESTART_SEC of the end (the same visitor again: the next life starts at once) —
  *              or (END_RETURN_SEC later) IDLE: `sessionNo` goes up, so the player parts remount as a NEW visitor
@@ -23,11 +25,16 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
-  COOLDOWN_SEC,
   DEFAULT_LIFE,
   END_RETURN_SEC,
   FAIL_MSG_SEC,
   GESTURE_GAP_MS,
+  HINT_AFTER_SEC,
+  HINT_PERIOD_SEC,
+  HINT_SHOW_SEC,
+  HOLD_SEC,
+  SELF_NEAR_FACTOR,
+  STOP_LAST_SEC,
   IDLE_AFTER_SEC,
   SCRIPT,
   quickRestart,
@@ -44,6 +51,7 @@ import {
   planReel,
   reelDuration,
   roleForKey,
+  selfChance,
   stopAllowed,
   verdictOf,
   type EndedBy,
@@ -92,10 +100,14 @@ export interface SessionView {
   endedBy: EndedBy | null;
   /** LIVE: how far the hold to stop living has got (0 … 1). */
   attempt: number;
-  /** LIVE: the banner for stopping living is up (worker, now and then from HINT_AFTER_SEC on, no cooldown, not holding). */
+  /** LIVE: the banner for stopping living is up (worker, now and then from hintAfterSec on, no failed line up, not holding). */
   stopHint: boolean;
   /** LIVE: the line after a failed attempt is up. */
   attemptFailed: boolean;
+  /** LIVE: how many attempts to stop living have failed so far (the record writes them) … */
+  attempts: number;
+  /** … and how many others were near at the last one. */
+  lastAttemptNear: number;
 }
 
 export interface LifeSession extends SessionView {
@@ -123,6 +135,8 @@ const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   attempt: 0,
   stopHint: false,
   attemptFailed: false,
+  attempts: 0,
+  lastAttemptNear: 0,
 };
 
 /** A gesture on the Leva panel (tuning) does not count. */
@@ -131,12 +145,15 @@ function onPanel(e: Event): boolean {
   return !!el?.closest?.("[class*='leva-']");
 }
 
-class SessionMachine {
+export class SessionMachine {
   view: SessionView = { ...FRESH, phase: "live", sessionNo: 0 };
   readonly lifeRef: { current: LifeSignal } = { current: { phase: "live", t: 0, warn: 0, attempt: 0 } };
   cfg: LifeConfig;
   fixedRole: RoleId | null = null;
   lang: Lang = "ko";
+  /** How many others are near the visitor right now (the record's NEAR radius); 0 when unknown. */
+  getNear: () => number = () => 0;
+  private readonly rng: () => number;
   private enabled = false;
   /** Lifespan seconds lived so far (advanced by the clock × rate) and the wall ms of the last tick. */
   private lived = 0;
@@ -144,22 +161,23 @@ class SessionMachine {
   private endAt = 0;
   private lastGestureAt = 0;
   private lastInputAt = 0;
-  /** B — stopping living: X is down since holdStart; no new attempt before cooldownUntil; the failed line until failedUntil. */
+  /** B — stopping living: X is down since holdStart; the failed line is up until failedUntil. */
   private holding = false;
   private holdStart = 0;
-  private cooldownUntil = 0;
   private failedUntil = 0;
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(cfg: LifeConfig) {
+  constructor(cfg: LifeConfig, rng: () => number = Math.random) {
     this.cfg = cfg;
+    this.rng = rng;
   }
 
-  configure(cfg: LifeConfig, fixedRole: RoleId | null, lang: Lang) {
+  configure(cfg: LifeConfig, fixedRole: RoleId | null, lang: Lang, getNear?: () => number) {
     this.cfg = cfg;
     this.fixedRole = fixedRole;
     this.lang = lang;
+    if (getNear) this.getNear = getNear;
   }
 
   subscribe = (fn: () => void) => {
@@ -182,7 +200,6 @@ class SessionMachine {
   /** A new visitor: everything fresh, `sessionNo` up, starting at `phase`. */
   private next(phase: "idle" | "notice" | "choose") {
     this.holding = false;
-    this.cooldownUntil = 0;
     this.failedUntil = 0;
     this.lifeRef.current = { phase, t: 0, warn: 0, attempt: 0 };
     this.set({ ...FRESH, phase, phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
@@ -204,12 +221,18 @@ class SessionMachine {
     this.enter("draw", { wanted, role, reel: planReel(role), drawAt: Date.now(), verdict: null });
   };
 
-  /** B — X pressed while live: a worker, from HINT_AFTER_SEC on and with no cooldown running, starts holding to stop living. */
+  /** The stop-living rule from the config (Leva), with intake.ts's defaults. */
+  private stopRule() {
+    return { afterSec: this.cfg.hintAfterSec ?? HINT_AFTER_SEC, lastSec: this.cfg.stopLastSec ?? STOP_LAST_SEC };
+  }
+
+  /** B — X pressed while live: a worker within the rule's window starts holding to stop living (line or no line). */
   holdKey = (e: KeyboardEvent) => {
     if (!this.enabled || !isStopKey(e.code) || e.repeat || onPanel(e)) return;
     if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
     const v = this.view;
-    if (v.phase !== "live" || this.holding || !stopAllowed(v.role, this.lifeRef.current.t, Date.now(), this.cooldownUntil)) return;
+    const t = this.lifeRef.current.t;
+    if (v.phase !== "live" || this.holding || !stopAllowed(v.role, t, lifeAt(t, this.cfg).left, this.stopRule())) return;
     this.holding = true;
     this.holdStart = Date.now();
   };
@@ -297,17 +320,21 @@ class SessionMachine {
       const st = lifeAt(t, this.cfg);
       // B — the hold to stop living: the dark comes up with it; when it is complete, luck decides
       let attempt = 0;
+      let tried = 0;
+      let near = v.lastAttemptNear;
       if (this.holding) {
-        attempt = holdProgress(now, this.holdStart);
+        attempt = holdProgress(now, this.holdStart, this.cfg.holdSec ?? HOLD_SEC);
         if (attempt >= 1) {
           this.holding = false;
           attempt = 0;
-          this.cooldownUntil = now + COOLDOWN_SEC * 1000;
-          if (attemptEnd(Math.random(), this.cfg.selfP ?? DEFAULT_LIFE.selfP ?? 0)) {
+          near = Math.max(0, Math.floor(this.getNear()));
+          const p = selfChance(this.cfg.selfP ?? DEFAULT_LIFE.selfP ?? 0, near, this.cfg.selfNearFactor ?? SELF_NEAR_FACTOR);
+          if (attemptEnd(this.rng(), p)) {
             this.end("self", t);
             return;
           }
           this.failedUntil = now + FAIL_MSG_SEC * 1000;
+          tried = 1;
         }
       }
       this.lifeRef.current = { phase: "live", t, warn: st.warn, attempt };
@@ -315,9 +342,13 @@ class SessionMachine {
         this.end("lifespan", t);
         return;
       }
-      const stopHint = !this.holding && stopAllowed(v.role, t, now, this.cooldownUntil) && hintUp(t);
+      const rule = this.stopRule();
+      const stopHint =
+        !this.holding && stopAllowed(v.role, t, st.left, rule) && hintUp(t, rule.afterSec, this.cfg.hintPeriodSec ?? HINT_PERIOD_SEC, this.cfg.hintShowSec ?? HINT_SHOW_SEC);
       const attemptFailed = now < this.failedUntil;
-      if (attempt !== v.attempt || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) this.set({ attempt, stopHint, attemptFailed });
+      if (tried || attempt !== v.attempt || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
+        this.set({ attempt, stopHint, attemptFailed, attempts: v.attempts + tried, lastAttemptNear: near });
+      }
     } else if (v.phase === "ended") {
       const held = now - this.endAt;
       if (!v.restartReady && held >= Math.max(0, this.cfg.endHoldSec) * 1000) this.set({ restartReady: true });
@@ -361,12 +392,13 @@ class SessionMachine {
  * @param enabled  false (V1, or switched off in Leva): always LIVE with `fixedRole` (or worker), no lifespan
  * @param fixedRole  a role to give every session instead of drawing one (null = random)
  * @param lang  the language the apparatus speaks (how many lines each notice page has)
+ * @param getNear  how many others are near right now (for the chance of stopping living); absent = alone
  */
-export function useLifeSession(enabled: boolean, cfg: LifeConfig, fixedRole: RoleId | null, lang: Lang = "ko"): LifeSession {
+export function useLifeSession(enabled: boolean, cfg: LifeConfig, fixedRole: RoleId | null, lang: Lang = "ko", getNear?: () => number): LifeSession {
   const [m] = useState(() => new SessionMachine(cfg));
   useEffect(() => {
-    m.configure(cfg, fixedRole, lang);
-  }, [m, cfg, fixedRole, lang]);
+    m.configure(cfg, fixedRole, lang, getNear);
+  }, [m, cfg, fixedRole, lang, getNear]);
   useEffect(() => {
     m.setEnabled(enabled);
   }, [m, enabled]);

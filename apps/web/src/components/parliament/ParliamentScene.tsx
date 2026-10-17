@@ -12,17 +12,34 @@
  */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
+import { savable } from "./levaSave";
 import { useSound } from "./useSound";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { SessionHud } from "./SessionHud";
-import { DEFAULT_LIFE, asLang, hindrance, seedParliamentDemoIfRequested, ROLE_IMPLEMENTED, wrapCoord, type Lang, type Observation, type RoleId } from "@/lib/parliament";
+import {
+  DEFAULT_LIFE,
+  HINT_AFTER_SEC,
+  HINT_PERIOD_SEC,
+  HINT_SHOW_SEC,
+  HOLD_SEC,
+  SELF_NEAR_FACTOR,
+  STOP_LAST_SEC,
+  asLang,
+  hindrance,
+  seedParliamentDemoIfRequested,
+  ROLE_IMPLEMENTED,
+  wrapCoord,
+  type Lang,
+  type Observation,
+  type RoleId,
+} from "@/lib/parliament";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -143,7 +160,8 @@ function Controller({
     // V2: the input is dead unless the session is live; near the end of the lifespan it answers worse and drops out
     const L = lifeRef?.current;
     const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
-    const dead = (!!L && L.phase !== "live") || !!h?.dropped || (L?.attempt ?? 0) > 0;
+    // V2: and nothing moves until the visitor has clicked the screen (pointer lock) — the banner says so
+    const dead = (!!L && L.phase !== "live") || !!h?.dropped || (L?.attempt ?? 0) > 0 || (!!L && document.pointerLockElement !== gl.domElement);
     const gain = h?.gain ?? 1;
     const fwd = !dead && (k.has("KeyW") || k.has("ArrowUp")) ? 1 : 0;
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
@@ -219,9 +237,11 @@ export default function ParliamentScene() {
   const v2 = () => isV2;
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, lifeSec, warnSec, endHoldSec, lifeRate, selfP, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, helpLine, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
-      "역할 (Role)": folder({
+      // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
+      "역할 (Role)": folder(
+        savable("역할 (Role)", {
         session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
         role: isV2
           ? { options: V2_ROLE_OPTIONS, value: "random" as RoleId | "random", label: "배정 (랜덤 = 슬롯)" }
@@ -232,9 +252,18 @@ export default function ParliamentScene() {
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
         endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
         lifeRate: { value: 1, min: 1, max: 30, step: 0.5, label: "수명 시계 배율 (테스트용, 1 = 실제)", render: v2 },
-        selfP: { value: DEFAULT_LIFE.selfP ?? 0.35, min: 0, max: 1, step: 0.05, label: "그만 살기 성공 확률 (회사원)", render: v2 },
+        "그만 살기 (회사원)": folder({
+          selfP: { value: DEFAULT_LIFE.selfP ?? 0.35, min: 0, max: 1, step: 0.05, label: "성공 확률 (혼자일 때)", render: v2 },
+          selfNearFactor: { value: SELF_NEAR_FACTOR, min: 0, max: 1, step: 0.05, label: "가까운 존재 1명당 ×", render: v2 },
+          holdSec: { value: HOLD_SEC, min: 0.5, max: 5, step: 0.5, label: "X 누르는 시간 (s)", render: v2 },
+          hintAfterSec: { value: HINT_AFTER_SEC, min: 0, max: 150, step: 5, label: "첫 안내 (s, 삶 시작 뒤)", render: v2 },
+          hintPeriodSec: { value: HINT_PERIOD_SEC, min: 5, max: 120, step: 5, label: "안내 간격 (s)", render: v2 },
+          hintShowSec: { value: HINT_SHOW_SEC, min: 1, max: 30, step: 1, label: "안내 표시 (s)", render: v2 },
+          stopLastSec: { value: STOP_LAST_SEC, min: 0, max: 60, step: 5, label: "죽기 전 불가 (s)", render: v2 },
+        }),
         offsetWindow: { value: 120, min: 0, max: 600, step: 5, label: "시각 배정 창 (s) — 새로고침 시 적용" },
-      }),
+        }),
+      ),
       "Debug / 봇": folder({
         botEnabled: { value: false, label: "봇 활성화" },
         botCount: { value: 12, min: 1, max: 30, step: 1, label: "봇 수" },
@@ -253,13 +282,20 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
-  const lifeCfg = useMemo(() => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate, selfP }), [lifeSec, warnSec, endHoldSec, lifeRate, selfP]);
+  const lifeCfg = useMemo(
+    () => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
+    [lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
+  );
   const withSession = isV2 && sessionOn;
   const lang: Lang = asLang(langParam, levaLang);
-  const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang);
+  const cfg = useFoldControls();
+  // how many others are near right now (the record's NEAR radius = the fold's presence radius): company makes
+  // stopping living less likely (intake.ts selfChance)
+  const nearRadius = cfg.radius;
+  const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
+  const session = useLifeSession(withSession, lifeCfg, roleChoice === "random" ? null : roleChoice, lang, getNear);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
-  const cfg = useFoldControls();
   const { cfg: natureCfg, pointSize } = useNatureControls();
 
   useEffect(() => {
@@ -316,7 +352,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} />
       )}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
