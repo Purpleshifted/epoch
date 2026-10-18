@@ -126,16 +126,16 @@ describe("the witness: a dry record of who is near", () => {
 
   it("the log: near, a state that holds, gone with how long", () => {
     const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1 });
-    const o = (t: number, others: Observation["others"], moving = false): Observation => ({ t, moving, speed: moving ? 2 : 0, surface: "open", others });
+    const o = (t: number, others: Observation["others"], moving = false): Observation => ({ t, moving, speed: moving ? 2 : 0, surface: "open", others, sealedNear: 0 });
     const bot = (dist: number, moving: boolean) => ({ o: "bot1", r: "worker" as const, dist, bearing: "E", moving });
     expect(log.push(o(0, []))).toEqual(["T+00:00  YOU  STATIONARY · OPEN GROUND"]);
     expect(log.push(o(1, [bot(3.5, true)]))).toEqual([]); // inside the watch radius, not yet near
     expect(log.push(o(2, [bot(2, true)]))).toEqual(["T+00:02  WORKER #01  NEAR · 2.0 M E · MOVING"]);
     expect(log.push(o(2.5, [bot(2, false)]))).toEqual([]); // not held long enough
-    expect(log.push(o(3.6, [bot(2, false)]))).toEqual(["T+00:03  WORKER #01  STATIONARY · 2.0 M E"]);
+    expect(log.push(o(3.6, [bot(2, false)]))).toEqual(["T+00:03  WORKER #01  STATIONARY · 2.0 M E", "T+00:03  YOU  BUILDING TOGETHER · NEAR 1"]);
     expect(log.push(o(4, [bot(3.5, false)]))).toEqual([]); // inside the leave margin: still near
     expect(log.status()).toBe("YOU  STATIONARY 00:04 · OPEN GROUND · NEAR 1");
-    expect(log.push(o(50, []))).toEqual(["T+00:50  WORKER #01  GONE · NEAR FOR 00:48"]);
+    expect(log.push(o(50, []))).toEqual(["T+00:50  WORKER #01  GONE · NEAR FOR 00:48", "T+00:50  YOU  BUILDING ENDS"]);
     // a short tap on a key leaves no line, a real walk does
     expect(log.push(o(51, [], true))).toEqual([]);
     expect(log.push(o(51.5, [], false))).toEqual([]);

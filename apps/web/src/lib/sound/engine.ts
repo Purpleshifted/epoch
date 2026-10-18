@@ -113,6 +113,10 @@ export interface SoundParams {
   /** The arrival cadence (v4 A4b): on/off, and how much the hall opens on it (0..1 of reverbMax). */
   arrival: boolean;
   arrivalHall: number;
+  /** The WAVE of an arrival (v4 A4c, the artist: "파도 효과"): a swell of filtered noise rising through the dominant bar and breaking on the tonic (0..1). */
+  arrivalWave: number;
+  /** The breath before the tonic: everything dips for this long (ms) right before the downbeat (0 = none). */
+  arrivalGapMs: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -177,7 +181,9 @@ export const DEFAULT_SOUND: SoundParams = {
   zoneMargin: 0.15,
   bandCells: 12,
   arrival: true,
-  arrivalHall: 1,
+  arrivalHall: 0.7,
+  arrivalWave: 0.6,
+  arrivalGapMs: 120,
   ncDull: 1,
   bassSpread: 0.7, // v4 A2e: its own long dark room
   bassDub: 0.45,
@@ -260,9 +266,11 @@ export class SoundEngine {
   private space!: GainNode;
   /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
   private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
-  /** The path's heartbeat: a soft clip for weight, then dry, and its own long dark room by bassSpread. */
+  /** The path's heartbeat: a soft clip for weight, then dry, and the hall's room darkened by bassSpread. */
   private bassSpread!: GainNode;
   private noise!: AudioBuffer;
+  /** The wave: looped noise → a low-pass that rises → a level that swells, into dry and the hall. */
+  private wave!: { filter: BiquadFilterNode; gain: GainNode };
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
   private me: Voice | null = null;
@@ -503,21 +511,35 @@ export class SoundEngine {
       const curve = new Float32Array(1024);
       for (let i = 0; i < curve.length; i++) {
         const x = (i / (curve.length - 1)) * 2 - 1;
-        curve[i] = Math.tanh(x * 1.6) / Math.tanh(1.6);
+        curve[i] = Math.tanh(x * 1.3) / Math.tanh(1.3); // a gentle clip (1.6 crackled — the artist, A4c)
       }
       shaper.curve = curve;
       shaper.oversample = "2x";
       this.bassGain.connect(shaper).connect(this.dry);
+      // the beat spreads under everything: into the hall's room through a dark low-pass (no convolver of its own —
+      // every convolver is audio-thread work, and five of them crackled on the artist's machine)
       this.bassSpread = ctx.createGain();
       this.bassSpread.gain.value = 0;
-      shaper.connect(this.bassSpread);
-      const bassRoom = ctx.createConvolver();
-      bassRoom.buffer = impulse(ctx, 3.6, 1.5, 0, 0.1); // long and dark: the beat spreads under everything
-      const bassRoomLp = ctx.createBiquadFilter();
-      bassRoomLp.type = "lowpass";
-      bassRoomLp.frequency.value = 500;
-      this.bassSpread.connect(bassRoom).connect(bassRoomLp).connect(this.dull);
+      const bassDark = ctx.createBiquadFilter();
+      bassDark.type = "lowpass";
+      bassDark.frequency.value = 500;
+      shaper.connect(this.bassSpread).connect(bassDark).connect(this.rooms.hall);
       this.noise = noiseBuffer(ctx, 1);
+      // the wave (v4 A4c): looped noise, a low-pass the swell opens, a level that rises and breaks
+      const wn = ctx.createBufferSource();
+      wn.buffer = noiseBuffer(ctx, 3);
+      wn.loop = true;
+      const wf = ctx.createBiquadFilter();
+      wf.type = "lowpass";
+      wf.frequency.value = 300;
+      wf.Q.value = 0.8;
+      const wg = ctx.createGain();
+      wg.gain.value = 0;
+      wn.connect(wf).connect(wg);
+      wg.connect(this.dry);
+      wg.connect(this.rooms.hall);
+      wn.start();
+      this.wave = { filter: wf, gain: wg };
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
@@ -552,7 +574,7 @@ export class SoundEngine {
       dark.connect(this.rooms.hall);
       this.echo = { send, delay, feedback };
       // the long open space the signal goes out into (a 4 s room, half bright), from my voice and its echo
-      this.space = room(4.0, 1.8, 0, 0.45, 0);
+      this.space = room(3.2, 1.6, 0, 0.45, 0); // 4 s before A4c: the convolver's cost is its length
       dark.connect(this.space);
       this.lastUpdate = ctx.currentTime;
     }
@@ -843,7 +865,7 @@ export class SoundEngine {
     const hit = (when: number, vel: number) => {
       const g = ctx.createGain();
       g.connect(this.bassGain);
-      const peak = 1.2 * vel * this.params.bassLevel;
+      const peak = 0.9 * vel * this.params.bassLevel;
       g.gain.setValueAtTime(0, when);
       g.gain.linearRampToValueAtTime(peak, when + 0.025);
       g.gain.setTargetAtTime(0, when + 0.1, 0.28);
@@ -858,7 +880,7 @@ export class SoundEngine {
       sub.frequency.value = f / 2;
       const sg = ctx.createGain();
       sg.gain.setValueAtTime(0, when);
-      sg.gain.linearRampToValueAtTime(0.9, when + 0.04);
+      sg.gain.linearRampToValueAtTime(0.7, when + 0.04);
       sg.gain.setTargetAtTime(0, when + 0.15, 0.35);
       sub.connect(sg).connect(g);
       // flesh: a dark burst of noise under the beat
@@ -874,12 +896,10 @@ export class SoundEngine {
       n.connect(nf).connect(ng).connect(g);
       n.start(when);
       n.stop(when + 0.5);
-      // the beat in front: the voices dip for a moment
+      // the beat in front: the voices dip for a moment — from wherever the gain is (a jump to 1 clicked)
       const duck = this.params.bassDuck * vel;
       if (duck > 0) {
-        this.voiceBus.gain.cancelScheduledValues(when);
-        this.voiceBus.gain.setValueAtTime(1, when);
-        this.voiceBus.gain.linearRampToValueAtTime(1 - duck, when + 0.01);
+        this.voiceBus.gain.setTargetAtTime(1 - duck, when, 0.006);
         this.voiceBus.gain.setTargetAtTime(1, when + 0.08, 0.15);
       }
       o.start(when);
@@ -893,6 +913,33 @@ export class SoundEngine {
     };
     hit(at, level);
     if (this.params.bassDub > 0) hit(at + 0.17, level * this.params.bassDub);
+  }
+
+  /** The wave rising through a bar: the low-pass opens 300 → 2400 Hz, the level swells (sin^1.5-ish by the ramps). */
+  private waveSwell(at: number, barSec: number, level: number): void {
+    const { filter, gain } = this.wave;
+    filter.frequency.cancelScheduledValues(at);
+    filter.frequency.setValueAtTime(300, at);
+    filter.frequency.exponentialRampToValueAtTime(2400, at + barSec);
+    gain.gain.cancelScheduledValues(at);
+    gain.gain.setValueAtTime(0.001, at);
+    gain.gain.exponentialRampToValueAtTime(0.35 * level, at + barSec * 0.7);
+    gain.gain.linearRampToValueAtTime(0.45 * level, at + barSec);
+  }
+
+  /** The wave breaking on the downbeat: a last push, then it falls back over ~3 s. */
+  private waveBreak(at: number, level: number): void {
+    const { filter, gain } = this.wave;
+    gain.gain.setTargetAtTime(0.5 * level, at, 0.03);
+    gain.gain.setTargetAtTime(0, at + 0.25, 1.0);
+    filter.frequency.setTargetAtTime(300, at + 0.25, 1.2);
+  }
+
+  /** The breath before the tonic: everything (the patch included, it is on the master) dips, then comes back on the downbeat. */
+  private breath(at: number, sec: number): void {
+    const m = this.params.master;
+    this.master.gain.setTargetAtTime(m * 0.08, at - sec, 0.02);
+    this.master.gain.setTargetAtTime(m, at, 0.04);
   }
 
   private setPad(pitches: number[], level: number, at: number, fast = false): void {
@@ -988,6 +1035,13 @@ export class SoundEngine {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
       for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * barSec + human() * 0.5, n.len * barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
+    }
+    // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a
+    // breath, then the tonic breaks — the contrast the hall alone could not give in a sound already wet
+    if (plan.arrival === "dominant" && p.arrivalWave > 0) this.waveSwell(nextStart, barSec, p.arrivalWave);
+    if (plan.arrival === "tonic") {
+      if (p.arrivalWave > 0) this.waveBreak(nextStart, p.arrivalWave);
+      if (p.arrivalGapMs > 0) this.breath(nextStart, p.arrivalGapMs / 1000);
     }
     // with the patch ALONE as the harmony its root and chord are its (a static machine, our gates): silent here;
     // "both" (the artist: 병행) keeps the Web Audio bass and pad beside the patch
