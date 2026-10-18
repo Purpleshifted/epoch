@@ -136,6 +136,7 @@ function Controller({
   camDist,
   camLerp,
   viscosity,
+  moveScale = 1,
   lifeRef,
   role = "worker",
   lifeSec = 0,
@@ -150,6 +151,8 @@ function Controller({
   camDist: number;
   camLerp: number;
   viscosity: number;
+  /** × every role's speed (the artist's scale of the world: slower = the world feels larger). */
+  moveScale?: number;
   /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
    *  near the end they answer worse and drop out; while X is held to stop living they are dead. */
   lifeRef?: { readonly current: LifeSignal };
@@ -336,7 +339,7 @@ function Controller({
     }
     // the role's body (a car steers its own heading with A/D, so the heading goes in and comes back out)
     p.yaw = yaw.current;
-    stepBody(p, keysNow, c.motion, { dt, drag, gain: h?.gain ?? 1, ground: ground?.at(p.x, p.z) });
+    stepBody(p, keysNow, c.motion, { dt, drag, gain: (h?.gain ?? 1) * moveScale, ground: ground?.at(p.x, p.z) });
     yaw.current = p.yaw;
     const y = p.yaw;
     pitch.current = Math.max(c.look.pitchMin, Math.min(c.look.pitchMax, pitch.current));
@@ -424,7 +427,7 @@ export default function ParliamentScene() {
   const groundRef = useRef<GroundLookup | null>(null);
   const sowRef = useRef<{ x: number; z: number }[]>([]);
 
-  const { session: sessionOn, role: roleChoice, roleMotion, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, roleMotion, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, moveScale, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -464,6 +467,7 @@ export default function ParliamentScene() {
       }),
       "화면": folder({
         pixelDpr: { value: 1, min: 0.15, max: 1, step: 0.05, label: "해상도 (1 = 픽셀 아님, 작을수록 거칠게)" },
+        moveScale: { value: 1, min: 0.2, max: 1.5, step: 0.05, label: "이동 속도 배율 (모든 역할; 1 = 회사원 7/s)" },
         camDist: { value: 7, min: 2, max: 20, step: 0.5 },
         camLerp: { value: 0.07, min: 0.01, max: 0.3, step: 0.01, label: "카메라 부드러움" },
         viscosity: { value: 0.72, min: 0, max: 1, step: 0.01, label: "점성" },
@@ -531,6 +535,7 @@ export default function ParliamentScene() {
           camDist={camDist}
           camLerp={camLerp}
           viscosity={viscosity}
+          moveScale={moveScale}
           lifeRef={withSession ? session.lifeRef : undefined}
           role={controlRole}
           lifeSec={lifeSec}
