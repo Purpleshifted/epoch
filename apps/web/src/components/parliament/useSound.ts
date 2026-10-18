@@ -85,7 +85,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       dyingFreeze: { value: DEFAULT_SOUND.dyingFreeze, min: 0, max: 1, step: 0.05, label: "죽어갈 때부터 얼어 울리기 시작하는 정도 (여운이 미리 스며듦)", render: v2 },
       afterlifeSec: { value: DEFAULT_SOUND.afterlifeSec, min: 1.5, max: 20, step: 0.5, label: "죽음의 여운 — 변화 과정 (s): 얼어 어두워지고 알갱이가 성겨지는 시간", render: v2 },
       afterlifeTail: { value: DEFAULT_SOUND.afterlifeTail, min: 0, max: 30, step: 0.5, label: "여운의 리버브 꼬리 (s) — 과정 뒤 울리며 사라지는 시간", render: v2 },
-      afterlifeGrains: { value: DEFAULT_SOUND.afterlifeGrains, min: 0, max: 1, step: 0.05, label: "여운의 그래뉼러 밀도 (아스트랄 알갱이)", render: v2 },
+      afterlifeGrains: { value: DEFAULT_SOUND.afterlifeGrains, min: 0, max: 1, step: 0.05, label: "그래뉼러 알갱이 밀도 (여운·죽어감) — 지금은 0 (작가)", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
       motifPreset: {
@@ -140,6 +140,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       { tag: "v4-a2e-heartbeat2", set: { bassSpread: 0.7, bassDub: 0.45 } }, // heavier, spreading
       { tag: "v4-a4b-scale", set: { zoneRing: 8 } }, // the harmony's scale widened (the artist: changes too fine to feel)
       { tag: "v4-a5b-afterlife", set: { afterlifeSec: 4 } }, // the artist: the process half as long, the tail long
+      { tag: "v4-a5c-no-grains", set: { afterlifeGrains: 0 } }, // the artist: no granular sound for now
       // the artist: the motif as a signal sent into space (Interstellar, 전파) — the preset on top of saved values once
       { tag: "v4-a2f-radio", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),

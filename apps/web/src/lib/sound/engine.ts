@@ -212,7 +212,7 @@ export const DEFAULT_SOUND: SoundParams = {
   dyingWobble: 0.6,
   afterlifeSec: 4, // 8 before A5b: the artist wanted the process half as long and the tail long
   afterlifeTail: 10,
-  afterlifeGrains: 0.6,
+  afterlifeGrains: 0, // 0.6 before A5c — the artist (10/18 night): "걍 그래뉼러한 소리 빼 지금은"; the knob stays
   dyingFreeze: 0.6,
   ncDull: 1,
   ncMap: true,
