@@ -253,7 +253,7 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
 
 코드가 보내는 음높이(`noisecraftMap.ts`): v0 36 + 근음 · v1 60 + 색채 · v2 60 + 5도 · v3 60 + 네 번째 음(패치에 성부 없음) · harmony 패드 위 4음. **음역을 옮기려면 성부 이름으로** ("v2 5도를 84+로") 말하면 코드가 보내는 음높이를 바꾼다; 패치의 필터·파형은 작가의 것(A5j의 교훈).
 
-**패치 고르기(A5l)**: 벤치 상단 `패치` 셀렉트 = `noisecraft/examples`의 모든 .ncft(`/noisecraft/list-patches`). 옆의 **`저장`**(편집기의 지금 상태를 이 파일에 바로 저장 — 자동저장은 늘 켜져 있고, 결과는 `저장됨 nc_noise_patch (62 KB)`로 표시) · **`복제…`**(새 이름을 물어 복제하고 그 패치로 전환, `/noisecraft/duplicate-patch`) · **`이름…`**(파일 이름 바꾸기, `/noisecraft/rename-patch`). 롤별 패치는 `복제…`로 갈라 나가면 된다. 삭제 버튼은 두지 않았다(파일은 git에 있다). 고른 것은 localStorage(`anthropocene:sound:patch:v1`)에 남고 **플레이어도 같은 패치를 연다**(상태줄 `nc ready (nc_noise_patch)`); 나중에 역할별 패치로 갈 때의 자리. umwelt의 원본 `global_audio.ncft`(177노드, 수신 노드 없음 — 우리 시퀀스엔 반응하지 않고 자기 소리만)를 `umwelt_global_audio.ncft`로 가져다 두었다(`/Users/exhibition/umwelt/noisecraft/examples/`에서; 이 폴더의 `global_audio.ncft`·`Feedback_Synth.ncft`는 그와 조금 다른 10/15 사본). 수신 노드(AI_Seq `parliament` 등)가 없는 패치는 클록·노브 메시지를 받아도 무시한다(embed가 없는 노드를 한 번 경고하고 넘어감).
+**패치 고르기(A5l → A5n, 작가: "목록 화면이랑 패치 화면이 다른 단계였으면")**: `/v2/sound` = **패치 목록**(`noisecraft/examples`의 모든 .ncft, 크기·수정 시각, `열기` · `복제…` · `이름…` · 상단 `새 패치…`(빈 패치); 플레이어가 쓰는 패치에 ★), `/v2/sound/<패치이름>` = **그 패치의 벤치**(`src/components/sound/SoundBench.tsx`, 클라이언트 전용으로 렌더 — localStorage를 읽는 첫 렌더가 하이드레이션 경고를 냈던 것을 없앰). 벤치 상단: `← 패치 목록`, 패치 이름, `저장`, `복제…`(새 이름으로 복제하고 그 벤치로 이동). `저장`은 편집기의 지금 상태를 파일에 바로 쓴다(자동저장은 늘 켜져 있고, 결과는 `저장됨 nc_noise_patch (62 KB)`). 롤별 패치는 `복제…`로 갈라 나가면 된다. 삭제 버튼은 두지 않았다(파일은 git에 있다). 고른 것은 localStorage(`anthropocene:sound:patch:v1`)에 남고 **플레이어도 같은 패치를 연다**(상태줄 `nc ready (nc_noise_patch)`); 나중에 역할별 패치로 갈 때의 자리. umwelt의 원본 `global_audio.ncft`(177노드, 수신 노드 없음 — 우리 시퀀스엔 반응하지 않고 자기 소리만)를 `umwelt_global_audio.ncft`로 가져다 두었다(`/Users/exhibition/umwelt/noisecraft/examples/`에서; 이 폴더의 `global_audio.ncft`·`Feedback_Synth.ncft`는 그와 조금 다른 10/15 사본). 수신 노드(AI_Seq `parliament` 등)가 없는 패치는 클록·노브 메시지를 받아도 무시한다(embed가 없는 노드를 한 번 경고하고 넘어감).
 
 ### 플레이어와 벤치
 
@@ -397,6 +397,8 @@ intersection/umwelt의 NoiseCraft 시퀀서 논리 이식 (`noisecraft/public/se
 A0 세션 연동(이 절) → A1 가볍게(Magenta 기본 끔, 이웃 캡 4, HRTF는 1위만, 홀 3 s; 작가 기계에서 렉 측정) → A2 NoiseCraft = 정적 기계(`nc_noise_patch` 숨은 iframe, 자기 출력; 화성 시퀀스만 받고 노브·제어값은 안 보냄; **음악 클록은 바깥**(인터랙션·상태)이 정하고 패치의 Clock은 그 값을 받음, 위상은 패치 펄스로 맞춤 — 시간축 클록이 아니라 음악 클록) → A3 짧은 모티프(2–4음, 3도 이상 하나) → A4 건물의 조성(조성 거리 알고리즘 `tonality.ts`; §8c) → A5 길의 전조(앞의 건물로, 키 경로) → A6 식생 프리레이어 + 드론 → A7 타인(HRTF LOD, 같이 지을 때만 모임) → A8 Magenta(세션 모티프·건물의 주제, 사건마다 한 번) → A9 반주 오스티나토 → A10 스피커. 각 단계 = 커밋 하나 + 이 문서에 절 하나.
 
 ## 12. 변경 이력
+
+- **2026-10-18 밤 (v4 A5n)** — /v2/sound = 패치 목록(열기·복제·이름·새 패치, ★ 플레이어), /v2/sound/<패치> = 벤치(클라이언트 전용); 하이드레이션 경고 제거.
 
 - **2026-10-18 밤 (v4 A5m)** — 벤치 패치 줄에 저장·복제·이름 버튼(bridge.saveProject + saveStatus).
 
