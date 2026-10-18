@@ -47,6 +47,8 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       speedMax: { value: DEFAULT_SOUND.speedMax, min: 1, max: 15, step: 0.5, label: "뛰는 속도 (월드/s): 마디에 두 번 · 그 1/10 아래 = 멈춤: 두 마디에 한 번", render: v2 },
       jitterMax: { value: DEFAULT_SOUND.jitterMax, min: 0, max: 0.1, step: 0.005, label: "자유로울 때 박자가 흐트러지는 폭 (s) — 길 위·함께 지을 땐 0", render: v2 },
       bassLevel: { value: DEFAULT_SOUND.bassLevel, min: 0, max: 1, step: 0.01, label: "길의 심장박동 (근음, 낮게) 세기", render: v2 },
+      bassFrom: { value: DEFAULT_SOUND.bassFrom, min: 0.02, max: 0.8, step: 0.01, label: "심장박동이 시작되는 길의 세기 (낮을수록 너그러움)", render: v2 },
+      pathRadius: { value: DEFAULT_SIGNALS.pathRadius, min: 0.5, max: 6, step: 0.25, label: "길로 치는 반경 (월드) — 이 안의 길이 발밑으로", render: v2 },
       bassDub: { value: DEFAULT_SOUND.bassDub, min: 0, max: 1, step: 0.05, label: "심장박동: 두 번째 박 세기", render: v2 },
       bassSpread: { value: DEFAULT_SOUND.bassSpread, min: 0, max: 1, step: 0.05, label: "심장박동: 퍼짐 (방·홀로)", render: v2 },
       bassDuck: { value: DEFAULT_SOUND.bassDuck, min: 0, max: 1, step: 0.05, label: "심장박동이 올 때 모티프·타인이 눌리는 정도", render: v2 },
@@ -79,6 +81,9 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       arrivalHall: { value: DEFAULT_SOUND.arrivalHall, min: 0, max: 1, step: 0.05, label: "도착 때 홀이 열리는 정도", render: v2 },
       arrivalWave: { value: DEFAULT_SOUND.arrivalWave, min: 0, max: 1, step: 0.05, label: "도착의 파도 — 도미넌트 마디에 밀려와 으뜸에서 부서짐", render: v2 },
       arrivalGapMs: { value: DEFAULT_SOUND.arrivalGapMs, min: 0, max: 400, step: 10, label: "으뜸 직전의 숨 (ms, 전부 잠깐 비움)", render: v2 },
+      dyingWobble: { value: DEFAULT_SOUND.dyingWobble, min: 0, max: 1, step: 0.05, label: "죽어갈 때 흔들림 (음정 떨림 · 끊김 · 에코 번짐)", render: v2 },
+      afterlifeSec: { value: DEFAULT_SOUND.afterlifeSec, min: 2, max: 20, step: 0.5, label: "죽음의 여운 (s) — 마지막 소리가 얼어 울리는 시간", render: v2 },
+      afterlifeGrains: { value: DEFAULT_SOUND.afterlifeGrains, min: 0, max: 1, step: 0.05, label: "여운의 그래뉼러 밀도 (아스트랄 알갱이)", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
       motifPreset: {
@@ -134,7 +139,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       { tag: "v4-a2f-radio", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),
     { collapsed: false, order: -1, render: v2 },
-  ) as unknown as SoundParams & { on: boolean; sealRadius: number };
+  ) as unknown as SoundParams & { on: boolean; sealRadius: number; pathRadius: number };
 
   const engine = useMemo(() => (isV2 && typeof window !== "undefined" ? new SoundEngine() : null), [isV2]);
   useEffect(() => {
@@ -204,15 +209,17 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs,
+    bassFrom, pathRadius, dyingWobble, afterlifeSec, afterlifeGrains,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
       master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
       motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
       motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs,
+      bassFrom, dyingWobble, afterlifeSec, afterlifeGrains, dying: 0, dead: false,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, bassFrom, dyingWobble, afterlifeSec, afterlifeGrains],
   );
-  const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
+  const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);
 }

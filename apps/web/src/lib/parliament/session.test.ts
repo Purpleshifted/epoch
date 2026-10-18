@@ -126,16 +126,16 @@ describe("the witness: a dry record of who is near", () => {
 
   it("the log: near, a state that holds, gone with how long", () => {
     const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1 });
-    const o = (t: number, others: Observation["others"], moving = false): Observation => ({ t, moving, speed: moving ? 2 : 0, surface: "open", others, sealedNear: 0 });
+    const o = (t: number, others: Observation["others"], moving = false): Observation => ({ t, moving, speed: moving ? 2 : 0, surface: "open", others, builds: [] });
     const bot = (dist: number, moving: boolean) => ({ o: "bot1", r: "worker" as const, dist, bearing: "E", moving });
     expect(log.push(o(0, []))).toEqual(["T+00:00  YOU  STATIONARY · OPEN GROUND"]);
     expect(log.push(o(1, [bot(3.5, true)]))).toEqual([]); // inside the watch radius, not yet near
     expect(log.push(o(2, [bot(2, true)]))).toEqual(["T+00:02  WORKER #01  NEAR · 2.0 M E · MOVING"]);
     expect(log.push(o(2.5, [bot(2, false)]))).toEqual([]); // not held long enough
-    expect(log.push(o(3.6, [bot(2, false)]))).toEqual(["T+00:03  WORKER #01  STATIONARY · 2.0 M E", "T+00:03  YOU  BUILDING TOGETHER · NEAR 1"]);
+    expect(log.push(o(3.6, [bot(2, false)]))).toEqual(["T+00:03  WORKER #01  STATIONARY · 2.0 M E"]);
     expect(log.push(o(4, [bot(3.5, false)]))).toEqual([]); // inside the leave margin: still near
     expect(log.status()).toBe("YOU  STATIONARY 00:04 · OPEN GROUND · NEAR 1");
-    expect(log.push(o(50, []))).toEqual(["T+00:50  WORKER #01  GONE · NEAR FOR 00:48", "T+00:50  YOU  BUILDING ENDS"]);
+    expect(log.push(o(50, []))).toEqual(["T+00:50  WORKER #01  GONE · NEAR FOR 00:48"]);
     // a short tap on a key leaves no line, a real walk does
     expect(log.push(o(51, [], true))).toEqual([]);
     expect(log.push(o(51.5, [], false))).toEqual([]);
@@ -145,5 +145,18 @@ describe("the witness: a dry record of who is near", () => {
     expect(sum.met).toBe(1);
     expect(sum.nearSec).toBeCloseTo(48); // from 2 (came near) to 50 (gone)
     expect(sum.stillSec).toBeGreaterThan(50);
+  });
+});
+
+describe("the record of building (sound wiring, v4 A4d): only when my weight has counted", () => {
+  it("writes whom I build with when my weight registers on a slab, then each new storey; a passing sample is nothing", () => {
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1 });
+    const o = (t: number, builds: Observation["builds"]): Observation => ({ t, moving: false, speed: 0, surface: "sealed", others: [{ o: "bot1", r: "worker", dist: 2, bearing: "E", moving: false }], builds });
+    log.push(o(0, []));
+    expect(log.push(o(1, [{ key: "3,3", storeys: 1, mine: 0.5, others: ["bot1", "bot2"] }]))).toEqual([]);
+    expect(log.push(o(4, [{ key: "3,3", storeys: 1, mine: 2.5, others: ["bot1", "bot2"] }]))).toEqual(["T+00:04  YOU  BUILDING WITH WORKER #01 · WORKER #02"]);
+    expect(log.push(o(5, [{ key: "3,3", storeys: 1, mine: 3.5, others: ["bot1", "bot2"] }]))).toEqual([]);
+    expect(log.push(o(9, [{ key: "3,3", storeys: 2, mine: 7, others: ["bot1", "bot2"] }]))).toEqual(["T+00:09  BUILDING  STOREY 2 · WITH WORKER #01 · WORKER #02"]);
+    expect(log.push(o(10, [{ key: "9,9", storeys: 3, mine: 2, others: [] }]))).toEqual(["T+00:10  YOU  BUILDING · ALONE ON THEIR WORK"]);
   });
 });

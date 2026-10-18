@@ -22,6 +22,10 @@ export interface SignalConfig {
   staySec: number;
   /** Concrete this close (world, from the slab's cell centre) makes the sound dull; at 0 fully. */
   sealRadius: number;
+  /** A path this close (world) counts as under my feet (v4 A4d: the heartbeat was too strict on the exact cell). */
+  pathRadius: number;
+  /** My weight on a building's cell (worker·s) from which I count as building it. */
+  buildFrom: number;
 }
 
 export const DEFAULT_SIGNALS: SignalConfig = {
@@ -30,6 +34,8 @@ export const DEFAULT_SIGNALS: SignalConfig = {
   stayRadius: 1.5,
   staySec: 6,
   sealRadius: 3,
+  pathRadius: 2.5,
+  buildFrom: 2,
 };
 
 export interface Neighbour {
@@ -59,8 +65,15 @@ export interface PersonalSignals {
   grass: number;
   /** The building whose zone I am in or nearest to (v4 A4), or null when none is within reach. */
   building?: BuildingSignal | null;
-  /** Keys of the sealed slabs within 2 × sealRadius (v4 A4b: a new one = a building born beside me). */
+  /** Keys of the sealed slabs within 2 × sealRadius. */
   nearSlabs?: string[];
+  /**
+   * The others I am REALLY building with (v4 A4d): contributors of the sealed slabs near me on which my own weight
+   * has counted (≥ buildFrom worker·s), nearest slab first, each once. Empty = my presence is not in any building.
+   */
+  coBuilders?: string[];
+  /** My largest weight on those slabs (0 when none). */
+  myBuild?: number;
 }
 
 /** A BUILDING: sealed slabs that touch, as one; its harmonic zone grows with its mass (tonality.ts). */
@@ -205,18 +218,37 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   const pathAt = new Map<string, number>();
   const sealedCells = new Set<string>();
   const nearSlabs: string[] = [];
+  const coBuilders: string[] = [];
+  let myBuild = 0;
   if (snap) {
+    // the path under my feet: the strongest path cell within pathRadius, fading with distance (not only my own cell)
     for (const pc of snap.paths) {
       pathAt.set(pc.key, pc.p);
-      if (pc.key === myKey) pathP = pc.p;
+      const d = wrapDist(pc.x, pc.z, me.x, me.z);
+      if (d <= cfg.pathRadius) {
+        const w = pc.key === myKey ? 1 : 1 - 0.5 * (d / cfg.pathRadius);
+        if (pc.p * w > pathP) pathP = pc.p * w;
+      }
     }
+    const nearSealed: { d: number; sl: (typeof snap.slabs)[number] }[] = [];
     for (const sl of snap.slabs) {
       if (sl.h < 0.15) continue;
       sealedCells.add(sl.key);
       const d = wrapDist(sl.x, sl.z, me.x, me.z);
-      if (d <= 2 * cfg.sealRadius) nearSlabs.push(sl.key);
+      if (d <= 2 * cfg.sealRadius) {
+        nearSlabs.push(sl.key);
+        nearSealed.push({ d, sl });
+      }
       const near = 1 - Math.min(1, Math.max(0, (d - CELL_SIZE * 0.5) / cfg.sealRadius));
       if (near > sealed) sealed = near;
+    }
+    // whom I am building with: the slabs my weight has counted on, their other contributors
+    nearSealed.sort((a, b) => a.d - b.d);
+    for (const { sl } of nearSealed) {
+      const mine = sl.who?.find((w) => w.o === me.id)?.amount ?? 0;
+      if (mine < cfg.buildFrom) continue;
+      if (mine > myBuild) myBuild = mine;
+      for (const w of sl.who ?? []) if (w.o !== me.id && w.amount > 0 && !coBuilders.includes(w.o)) coBuilders.push(w.o);
     }
   }
   const building = snap ? buildingAround(snap.slabs, me.x, me.z) : null;
@@ -229,5 +261,5 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   }
   grass /= 9;
 
-  return { x: me.x, z: me.z, speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, grass, building, nearSlabs };
+  return { x: me.x, z: me.z, speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, grass, building, nearSlabs, coBuilders, myBuild };
 }

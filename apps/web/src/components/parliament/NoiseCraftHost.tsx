@@ -29,7 +29,7 @@ export default function NoiseCraftHost({ sound, live }: { sound: SoundSetup; liv
     if (!host.current) return;
     const driver = new NoiseCraftDriver({
       planFor: (bar) => engine.planFor(bar),
-      running: () => engine.running && liveRef.current && !mutedRef.current,
+      running: () => engine.running && (liveRef.current || engine.inAfterlife) && !mutedRef.current,
       barSec: () => engine.musicBarSec(),
       onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
     });

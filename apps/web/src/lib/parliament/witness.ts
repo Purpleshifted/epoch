@@ -38,8 +38,11 @@ export interface Observation {
   surface: Surface;
   /** Everyone whose latest sample is within `watchRadius`, nearest first. */
   others: Other[];
-  /** Sealed slabs within 2 × nearRadius: a rise = a building born beside the visitor (sound wiring, v4 A4c). */
-  sealedNear: number;
+  /**
+   * The buildings my own weight has counted on (sealed slabs within 2 × nearRadius whose `who` has me): the slab,
+   * its height in storeys, my weight, and the others who built it (sound wiring, v4 A4d).
+   */
+  builds: { key: string; storeys: number; mine: number; others: string[] }[];
 }
 
 export interface WitnessConfig {
@@ -129,14 +132,19 @@ export function observe(inp: ObserveInputs): Observation {
 
   const key = `${Math.floor(me.x / CELL_SIZE)},${Math.floor(me.z / CELL_SIZE)}`;
   let surface: Surface = "open";
-  let sealedNear = 0;
+  const builds: Observation["builds"] = [];
   if (snap) {
     if (snap.slabs.some((s) => s.key === key && s.h >= cfg.sealedH)) surface = "sealed";
     else if (snap.paths.some((p) => p.key === key && p.p >= cfg.trodden)) surface = "trodden";
-    for (const s of snap.slabs) if (s.h >= cfg.sealedH && wrapDist(s.x, s.z, me.x, me.z) <= 2 * cfg.nearRadius) sealedNear++;
+    for (const s of snap.slabs) {
+      if (s.h < cfg.sealedH || wrapDist(s.x, s.z, me.x, me.z) > 2 * cfg.nearRadius) continue;
+      const mine = s.who?.find((w) => w.o === me.id)?.amount ?? 0;
+      if (mine <= 0) continue;
+      builds.push({ key: s.key, storeys: Math.floor(s.raw), mine, others: (s.who ?? []).filter((w) => w.o !== me.id && w.amount > 0).map((w) => w.o) });
+    }
   }
   const speed = Math.hypot(me.vx, me.vz);
-  return { t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, sealedNear };
+  return { t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, builds };
 }
 
 /** A state that is only taken over once a new value has held for `settleSec`. */
@@ -188,8 +196,10 @@ export class WitnessLog {
   private surface: Settled<Surface> | null = null;
   private near = new Map<string, NearState>();
   private last: Observation | null = null;
-  /** Building together: stationary with someone near (the moment the artist wanted written down). */
-  private together = false;
+  /** The buildings I have been written down as building: slab key → storeys last written. */
+  private built = new Map<string, number>();
+  /** Roles seen for ids (for the names in the building lines); unknown ids are workers (the bots mostly are). */
+  private roles = new Map<string, RoleId>();
   /** Totals over the session (for the end screen). */
   private totals = { stillSec: 0, nearSec: 0, met: new Set<string>(), metByRole: new Map<RoleId, number>(), attempts: 0 };
 
@@ -260,15 +270,20 @@ export class WitnessLog {
       this.near.delete(o);
       w(`${nameOf(o, st.r)}  GONE · NEAR FOR ${fmtClock(obs.t - st.since)}`);
     }
-    // building together: standing still with someone near who stands still too — the beginning and the end are written
-    let together = false;
-    if (!this.moving.value) for (const st of this.near.values()) if (!st.moving.value) together = true;
-    if (together !== this.together) {
-      this.together = together;
-      w(together ? `YOU  BUILDING TOGETHER · NEAR ${this.near.size}` : "YOU  BUILDING ENDS");
+    // building: only when my own weight has counted on a building (the artist: not "near", but really building it)
+    for (const o of obs.others) this.roles.set(o.o, o.r);
+    for (const b of obs.builds) {
+      if (b.mine < 2) continue; // a passing sample is not building
+      const names = b.others.map((o) => nameOf(o, this.roles.get(o) ?? "worker")).slice(0, 3).join(" · ");
+      const prev = this.built.get(b.key);
+      if (prev === undefined) {
+        this.built.set(b.key, b.storeys);
+        w(names ? `YOU  BUILDING WITH ${names}` : "YOU  BUILDING · ALONE ON THEIR WORK");
+      } else if (b.storeys > prev) {
+        this.built.set(b.key, b.storeys);
+        w(`BUILDING  STOREY ${b.storeys}${names ? ` · WITH ${names}` : ""}`);
+      }
     }
-    // a building born beside the visitor (a sealed slab that was not there)
-    if (this.last && obs.sealedNear > this.last.sealedNear) w(`BUILDING  BORN BESIDE YOU${this.near.size > 0 ? ` · NEAR ${this.near.size}` : ""}`);
     this.last = obs;
     return written;
   }

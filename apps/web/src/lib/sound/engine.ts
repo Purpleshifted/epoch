@@ -20,7 +20,7 @@
 
 import { chordName, magentaChordName, type WorldKey } from "./harmony";
 import { Magenta } from "./magenta";
-import { makeMotif, midiToHz, realize, type Motif } from "./motif";
+import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
 import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { PersonalSignals } from "./signals";
@@ -117,6 +117,16 @@ export interface SoundParams {
   arrivalWave: number;
   /** The breath before the tonic: everything dips for this long (ms) right before the downbeat (0 = none). */
   arrivalGapMs: number;
+  /** The path strength under my feet from which the heartbeat is heard (v4 A4d: 0.25 on the exact cell was too strict). */
+  bassFrom: number;
+  /** Dying (0..1 over the lifespan's last stretch) and dead (the session ended) — set by the session (muffleSound). */
+  dying: number;
+  dead: boolean;
+  /** How much the dying shakes the voices (0..1): detune drift, dropouts, the echo smearing. */
+  dyingWobble: number;
+  /** The afterlife (v4 A4d, the artist): the last sound frozen and ringing with astral grains, over this many seconds; the grains' density (0..1). */
+  afterlifeSec: number;
+  afterlifeGrains: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -184,6 +194,12 @@ export const DEFAULT_SOUND: SoundParams = {
   arrivalHall: 0.7,
   arrivalWave: 0.6,
   arrivalGapMs: 120,
+  bassFrom: 0.15,
+  dying: 0,
+  dead: false,
+  dyingWobble: 0.6,
+  afterlifeSec: 8,
+  afterlifeGrains: 0.6,
   ncDull: 1,
   bassSpread: 0.7, // v4 A2e: its own long dark room
   bassDub: 0.45,
@@ -271,6 +287,10 @@ export class SoundEngine {
   private noise!: AudioBuffer;
   /** The wave: looped noise → a low-pass that rises → a level that swells, into dry and the hall. */
   private wave!: { filter: BiquadFilterNode; gain: GainNode };
+  /** The freeze (afterlife): the dry bus into two delays with feedback and a darkening low-pass, ringing on after the end. */
+  private freeze!: { input: GainNode; output: GainNode; lp: BiquadFilterNode; fb: GainNode };
+  private afterlife: { at: number; until: number } | null = null;
+  private wasDead = false;
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
   private me: Voice | null = null;
@@ -409,7 +429,7 @@ export class SoundEngine {
   planFor(bar: number): BarPlan | null {
     const sig = this.sig;
     const key = this.key;
-    if (!sig || !key || !this.me || !this.myId) return null;
+    if (!sig || !key || !this.me || !this.myId || this.params.dead) return null;
     const cached = this.plans.get(bar);
     if (cached) return cached;
     const p = this.params;
@@ -417,13 +437,14 @@ export class SoundEngine {
     this.lockedBars = lock >= 0.6 ? this.lockedBars + 1 : 0;
     this.askMagenta(bar, sig, lock);
     if (this.phrase && bar - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
-    // the arrival: beginning to build together, or a building born beside me (a sealed slab I had not seen)
+    // the arrival: the moment my own weight counts on a building others built (the artist: not nearness — real
+    // contribution); a building born under us while we stand together counts too
     const near = sig.nearSlabs ?? [];
     let born = false;
     if (this.seenSlabs) for (const k of near) if (!this.seenSlabs.has(k)) born = true;
     this.seenSlabs = new Set(near);
-    const together = sig.stay > 0.5 && sig.neighbours.length > 0;
-    const step = nextArrival(this.arrivalState, bar, together, born);
+    const together = (sig.coBuilders?.length ?? 0) > 0;
+    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0);
     this.arrivalState = step.state;
     const arrival = p.arrival ? step.phase : null;
     if (arrival === "tonic" && this.ctx) {
@@ -440,7 +461,7 @@ export class SoundEngine {
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25, motifEvery: p.motifEvery, microtone: p.microtone, motifOctaveEvery: p.motifOctaveEvery, motifOctaveRange: p.motifOctaveRange, bandCells: p.bandCells },
+      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: p.bassFrom, motifEvery: p.motifEvery, microtone: p.microtone, motifOctaveEvery: p.motifOctaveEvery, motifOctaveRange: p.motifOctaveRange, bandCells: p.bandCells },
     });
     this.plans.set(bar, plan);
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
@@ -540,6 +561,32 @@ export class SoundEngine {
       wg.connect(this.rooms.hall);
       wn.start();
       this.wave = { filter: wf, gain: wg };
+      // the freeze (v4 A4d): what rang last keeps ringing — two delays in a loop, darkening; silent until the end
+      const fin = ctx.createGain();
+      fin.gain.value = 0;
+      const dA = ctx.createDelay(2);
+      dA.delayTime.value = 0.37;
+      const dB = ctx.createDelay(2);
+      dB.delayTime.value = 0.53;
+      const flp = ctx.createBiquadFilter();
+      flp.type = "lowpass";
+      flp.frequency.value = 2500;
+      const ffb = ctx.createGain();
+      ffb.gain.value = 0;
+      const fout = ctx.createGain();
+      fout.gain.value = 0;
+      this.dry.connect(fin);
+      fin.connect(dA);
+      fin.connect(dB);
+      dA.connect(flp);
+      dB.connect(flp);
+      flp.connect(ffb);
+      ffb.connect(dA);
+      ffb.connect(dB);
+      flp.connect(fout);
+      fout.connect(this.dull);
+      fout.connect(this.rooms.hall);
+      this.freeze = { input: fin, output: fout, lp: flp, fb: ffb };
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
@@ -664,7 +711,14 @@ export class SoundEngine {
     const t = ctx.currentTime;
     const dt = Math.max(0, Math.min(2, t - this.lastUpdate));
     this.lastUpdate = t;
-    this.master.gain.setTargetAtTime(params.master, t, 0.3);
+    // the end of a life: the afterlife plays once and fades itself; a new life brings the master back
+    if (params.dead && !this.wasDead) this.startAfterlife(t);
+    if (!params.dead && this.wasDead) this.endAfterlife(t);
+    this.wasDead = params.dead;
+    if (this.afterlife && t > this.afterlife.until) this.afterlife = null;
+    if (!this.afterlife && !params.dead) this.master.gain.setTargetAtTime(params.master, t, 0.3);
+    // dying: the echo smears, the hall widens (the voices' drift and dropouts are per note / per bar)
+    this.echo.feedback.gain.setTargetAtTime(0.3 + 0.45 * params.dying * params.dyingWobble, t, 0.5);
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
@@ -699,7 +753,7 @@ export class SoundEngine {
     const company = Math.min(1, sig.neighbours.length / 2);
     // the arrival opens the hall at once and lets it close over ~6 s
     const glow = this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6);
-    const hall = Math.max(params.reverbMax * sig.stay * company, params.reverbMax * params.arrivalHall * glow);
+    const hall = Math.max(params.reverbMax * sig.stay * company, params.reverbMax * params.arrivalHall * glow, params.reverbMax * 0.8 * params.dying);
     this.rooms.hall.gain.setTargetAtTime(hall, t, glow > 0.3 ? 0.15 : 0.8);
     this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
     this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
@@ -810,6 +864,15 @@ export class SoundEngine {
       osc("sine", freq * 2, p.motifOctaveLevel * (0.5 + 0.5 * timbre) * (1 - blur));
       osc("sine", freq * 3, p.motifFifthLevel * 0.5 * (1 - blur));
     }
+    // dying: the pitch drifts within the note, more as the end comes
+    const drift = mine ? p.dying * p.dyingWobble * 40 : 0;
+    if (drift > 0) {
+      for (const o of started) {
+        const d0 = o.detune.value;
+        o.detune.setValueAtTime(d0 + (Math.random() * 2 - 1) * drift, at);
+        o.detune.linearRampToValueAtTime(d0 + (Math.random() * 2 - 1) * drift, end);
+      }
+    }
     // tremolo: the flutter of a transmission, on the note's gain
     if (p.motifTremolo > 0 && blur === 0) {
       const tlfo = ctx.createOscillator();
@@ -915,6 +978,94 @@ export class SoundEngine {
     if (this.params.bassDub > 0) hit(at + 0.17, level * this.params.bassDub);
   }
 
+  get inAfterlife(): boolean {
+    return !!this.afterlife;
+  }
+
+  /**
+   * THE AFTERLIFE (v4 A4d, the artist: not a plain fade — "the last sound + reverb + a little astral granular noise").
+   * The living voices stop; what rang last enters the freeze loop for 0.7 s and rings on, darkening; grains of the
+   * last chord's classes, high and far, come thick then thin; the master holds a second and then goes.
+   */
+  private startAfterlife(t: number): void {
+    const p = this.params;
+    const sec = Math.max(2, p.afterlifeSec);
+    this.afterlife = { at: t, until: t + sec };
+    this.voiceBus.gain.setTargetAtTime(0, t + 0.5, 0.15);
+    this.pad.level.gain.setTargetAtTime(0, t + 0.3, 0.3);
+    this.bassGain.gain.setTargetAtTime(0, t, 0.2);
+    this.wave.gain.gain.setTargetAtTime(0, t, 0.3);
+    this.noiseGain.gain.setTargetAtTime(0, t, 0.5);
+    const f = this.freeze;
+    f.input.gain.setValueAtTime(1, t);
+    f.input.gain.setTargetAtTime(0, t + 0.7, 0.1);
+    f.fb.gain.setValueAtTime(0.92, t);
+    f.fb.gain.setTargetAtTime(0.5, t + Math.max(0.5, sec - 2), 0.6);
+    f.output.gain.setTargetAtTime(0.9, t, 0.1);
+    f.lp.frequency.setValueAtTime(2500, t);
+    f.lp.frequency.exponentialRampToValueAtTime(400, t + sec);
+    if (p.afterlifeGrains > 0) this.grains(t + 0.4, sec - 0.4, p.afterlifeGrains);
+    this.master.gain.setTargetAtTime(p.master, t, 0.05);
+    this.master.gain.setTargetAtTime(0, t + 1.2, Math.max(0.5, (sec - 1.2) / 3.5));
+  }
+
+  /** A new life: the freeze closes, the living buses come back (the master follows the params again). */
+  private endAfterlife(t: number): void {
+    this.afterlife = null;
+    const f = this.freeze;
+    f.input.gain.setTargetAtTime(0, t, 0.05);
+    f.fb.gain.setTargetAtTime(0, t, 0.05);
+    f.output.gain.setTargetAtTime(0, t, 0.2);
+    this.voiceBus.gain.setTargetAtTime(1, t, 0.2);
+    this.bassGain.gain.setTargetAtTime(1, t, 0.2);
+  }
+
+  /** Astral grains: tiny sines (and a few noise grains) on the last chord's classes, 2–3 octaves up, scattered in the stereo field and the far room. */
+  private grains(at: number, span: number, density: number): void {
+    const ctx = this.ctx!;
+    const classes = this.lastPlan?.chord.classes ?? (this.key ? [this.key.root] : [0]);
+    const r = rng(hashString(`${this.myId}#afterlife#${Math.floor(at)}`));
+    const n = Math.round(90 * density);
+    for (let i = 0; i < n; i++) {
+      const tau = span * Math.pow(r(), 0.7); // thick early, thinning to the end
+      const when = at + tau;
+      const life = 1 - tau / span;
+      const cls = classes[Math.floor(r() * classes.length)] ?? 0;
+      const freq = midiToHz(84 + cls + 12 * Math.floor(r() * 2)) * Math.pow(2, ((r() * 2 - 1) * 25) / 1200);
+      const dur = 0.05 + r() * 0.13;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(0.07 * (0.4 + 0.6 * life), when + dur * 0.4);
+      g.gain.linearRampToValueAtTime(0, when + dur);
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = r() * 2 - 1;
+      g.connect(pan);
+      pan.connect(this.space);
+      pan.connect(this.rooms.hall);
+      pan.connect(this.dull);
+      let src: AudioScheduledSourceNode;
+      if (i % 4 === 3) {
+        const ns = ctx.createBufferSource();
+        ns.buffer = this.noise;
+        ns.loop = true;
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = Math.min(12000, freq);
+        bp.Q.value = 8;
+        ns.connect(bp).connect(g);
+        src = ns;
+      } else {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = freq;
+        o.connect(g);
+        src = o;
+      }
+      src.start(when);
+      src.stop(when + dur + 0.05);
+    }
+  }
+
   /** The wave rising through a bar: the low-pass opens 300 → 2400 Hz, the level swells (sin^1.5-ish by the ramps). */
   private waveSwell(at: number, barSec: number, level: number): void {
     const { filter, gain } = this.wave;
@@ -1006,6 +1157,7 @@ export class SoundEngine {
     const key = this.key;
     // nobody here yet (a session before LIVE gives an empty id): nothing to plan, nothing to schedule
     if (!ctx || !sig || !key || !this.me || !this.myId || ctx.state !== "running" || !this.epochMs) return;
+    if (this.afterlife || this.params.dead) return; // the afterlife rings on its own; nothing new is planned
     const p = this.params;
     const now = ctx.currentTime;
     const barSec = this.musicBarSec();
@@ -1027,6 +1179,16 @@ export class SoundEngine {
 
     const plan = this.planFor(next);
     if (!plan) return;
+    // dying: the voices drop out for moments, more as the end comes
+    const dy = p.dying * p.dyingWobble;
+    if (dy > 0.2) {
+      for (let i = 0; i < 8; i++) {
+        if (Math.random() > dy * 0.45) continue;
+        const when = nextStart + (i / 8) * barSec + Math.random() * 0.05;
+        this.voiceBus.gain.setTargetAtTime(0.15, when, 0.01);
+        this.voiceBus.gain.setTargetAtTime(1, when + 0.06 + 0.12 * dy, 0.03);
+      }
+    }
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
