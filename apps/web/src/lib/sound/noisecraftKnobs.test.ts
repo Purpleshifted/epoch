@@ -18,7 +18,7 @@ describe("the table: every mapped knob exists in nc_noise_patch and stays inside
     }
   });
 
-  it("never maps the locked BPM, the music clock or a delay time", () => {
+  it("never maps the two clock knobs (the music clock writes them) or a delay time", () => {
     const ids = KNOB_MAPS.map((m) => m.nodeId);
     for (const forbidden of ["22", "306", "132", "146"]) expect(ids).not.toContain(forbidden);
   });

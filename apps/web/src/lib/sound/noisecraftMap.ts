@@ -5,9 +5,9 @@
  * interaction, gliding within their ranges — noisecraftKnobs.ts, v4 A5a). Two things cross into it from here:
  *
  *   THE MUSIC CLOCK   the bar length is decided outside (the engine: Leva + interaction), and the patch's sequencer
- *                     clock knob RECEIVES it (pulses/s, 96 a bar). (The patch's own
- *                     BPM knob, which paces its random triggers, the artist locked at 120: it is not touched — a
- *                     value outside a knob's range breaks the patch on its next load.)
+ *                     clock knob RECEIVES it (pulses/s, 96 a bar), and so does the patch's own BPM knob, which
+ *                     paces its random machine (A5k, the artist: unlocked 30–300; 240 / barSec). A value outside
+ *                     a knob's range breaks the patch on its next load, so both are clamped.
  *   HARMONIC SEQUENCES per bar, 16 steps, pitch per step (MIDI) and gate = note length in steps — to the receivers
  *                     (AI_Seq / AI_Poly / GateSeq nodes that picked a module name). The patch decides how much of
  *                     each voice is heard: some envelopes follow our gates exactly, some are fired by the patch's own
@@ -37,11 +37,22 @@ export const MIN_GATE_STEPS = 0.5;
 
 /** nc_noise_patch: the sequencer clock knob (Pulse "seq clock" rate, pulses/s) and its range in the patch. */
 export const CLOCK_KNOB = { nodeId: "306", min: 16, max: 128 } as const;
+/**
+ * nc_noise_patch: the BPM knob of the artist's own clock chain (Div 20 → the pulses that draw the random machine's
+ * numbers and fire its envelopes). Locked at 120 until A5k; the artist unlocked it (30–300) so that this chain too
+ * RECEIVES the music clock: both clocks follow the bar. Four beats a bar.
+ */
+export const BPM_KNOB = { nodeId: "22", min: 30, max: 300, beatsPerBar: 4 } as const;
 
-/** The music clock as the patch receives it: `barSec` seconds a bar → pulses/s, within the knob's range. */
+/** The music clock as the patch receives it: `barSec` seconds a bar → the seq clock (pulses/s) and the BPM, each within its knob's range. */
 export function clockParams(barSec: number): NoiseCraftParam[] {
-  const hz = Math.max(CLOCK_KNOB.min, Math.min(CLOCK_KNOB.max, PULSES_PER_BAR / Math.max(0.25, barSec)));
-  return [{ nodeId: CLOCK_KNOB.nodeId, paramName: "value", value: +hz.toFixed(3) }];
+  const sec = Math.max(0.25, barSec);
+  const hz = Math.max(CLOCK_KNOB.min, Math.min(CLOCK_KNOB.max, PULSES_PER_BAR / sec));
+  const bpm = Math.max(BPM_KNOB.min, Math.min(BPM_KNOB.max, (60 * BPM_KNOB.beatsPerBar) / sec));
+  return [
+    { nodeId: CLOCK_KNOB.nodeId, paramName: "value", value: +hz.toFixed(3) },
+    { nodeId: BPM_KNOB.nodeId, paramName: "value", value: +bpm.toFixed(2) },
+  ];
 }
 
 /**

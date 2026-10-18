@@ -69,7 +69,7 @@ export const DEAD_BAND = 0.002;
 
 /**
  * nc_noise_patch's real-time knobs. Rests are the patch's saved values (2026-10-18); `learn` refreshes them.
- * Not mapped on purpose: BPM 22 (locked), clock 306 (the music clock, noisecraftDriver), the two `Dist [m]` (delay
+ * Not mapped on purpose: BPM 22 and clock 306 (the music clock writes both, noisecraftDriver), the two `Dist [m]` (delay
  * times zip), the ADSR knobs (an envelope's shape is the artist's).
  */
 export const KNOB_MAPS: readonly KnobMap[] = [

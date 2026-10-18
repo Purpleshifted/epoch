@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NoiseCraftBridge, NoiseCraftParam } from "./NoiseCraftBridge";
 import { NoiseCraftDriver } from "./noisecraftDriver";
 import { IDLE_SOURCES, KNOB_MAPS } from "./noisecraftKnobs";
-import { CLOCK_KNOB, PULSES_PER_BAR } from "./noisecraftMap";
+import { BPM_KNOB, CLOCK_KNOB, PULSES_PER_BAR } from "./noisecraftMap";
 import type { BarPlan } from "./sequencer";
 
 /** A bridge that only records what the driver does. */
@@ -57,8 +57,9 @@ describe("the driver: the music clock goes in, the phase comes out", () => {
     vi.advanceTimersByTime(300);
     expect(b.played).toBe(1);
     expect(b.params).toHaveLength(1);
-    expect(b.params[0].map((p) => p.nodeId)).toEqual([CLOCK_KNOB.nodeId]);
+    expect(b.params[0].map((p) => p.nodeId)).toEqual([CLOCK_KNOB.nodeId, BPM_KNOB.nodeId]); // both clocks receive the bar
     expect(b.params[0][0].value).toBeCloseTo(48);
+    expect(b.params[0][1].value).toBeCloseTo(120);
     vi.advanceTimersByTime(1000);
     expect(b.params).toHaveLength(1); // unchanged: not sent again
     barSec = 1.84;
