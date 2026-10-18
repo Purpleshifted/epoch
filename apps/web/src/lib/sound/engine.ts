@@ -125,9 +125,17 @@ export interface SoundParams {
   dead: boolean;
   /** How much the dying shakes the voices (0..1): detune drift, dropouts, the echo smearing. */
   dyingWobble: number;
-  /** The afterlife (v4 A4d, the artist): the last sound frozen and ringing with astral grains, over this many seconds; the grains' density (0..1). */
+  /**
+   * The afterlife (v4 A4d, the artist): the last sound frozen and ringing with astral grains. `afterlifeSec` = the
+   * PROCESS (the freeze darkening, the grains thick → thin; A5b: half of before), `afterlifeTail` = the REVERB TAIL
+   * after it (the frozen loop and the hall ringing out while the master goes, seconds), `afterlifeGrains` = the
+   * grains' density (0..1), `dyingFreeze` = how much the dying already freezes and smears (0..1): the afterlife
+   * begins while dying, little by little.
+   */
   afterlifeSec: number;
+  afterlifeTail: number;
   afterlifeGrains: number;
+  dyingFreeze: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -202,8 +210,10 @@ export const DEFAULT_SOUND: SoundParams = {
   dying: 0,
   dead: false,
   dyingWobble: 0.6,
-  afterlifeSec: 8,
+  afterlifeSec: 4, // 8 before A5b: the artist wanted the process half as long and the tail long
+  afterlifeTail: 10,
   afterlifeGrains: 0.6,
+  dyingFreeze: 0.6,
   ncDull: 1,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -759,6 +769,17 @@ export class SoundEngine {
     if (!this.afterlife && !params.dead) this.master.gain.setTargetAtTime(params.master, t, 0.3);
     // dying: the echo smears, the hall widens (the voices' drift and dropouts are per note / per bar)
     this.echo.feedback.gain.setTargetAtTime(0.3 + 0.45 * params.dying * params.dyingWobble, t, 0.5);
+    // dying (A5b, the artist: "죽어갈 때부터 점점 이런 식으로"): the freeze loop already catches the dry sound, little by
+    // little — a smear that rings longer and darker as the end comes; at the end the loop is ringing already
+    if (!params.dead && !this.afterlife) {
+      const f = this.freeze;
+      const d = Math.max(0, Math.min(1, params.dying)) * params.dyingFreeze;
+      const d2 = d * d;
+      f.input.gain.setTargetAtTime(0.35 * d2, t, 0.6);
+      f.fb.gain.setTargetAtTime(0.7 * d, t, 0.6); // a continuous input: the loop must not build up (≤ 0.7)
+      f.output.gain.setTargetAtTime(0.6 * d, t, 0.6);
+      f.lp.frequency.setTargetAtTime(2500 - 1300 * d, t, 0.8);
+    }
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
@@ -1029,24 +1050,39 @@ export class SoundEngine {
    */
   private startAfterlife(t: number): void {
     const p = this.params;
-    const sec = Math.max(2, p.afterlifeSec);
-    this.afterlife = { at: t, until: t + sec };
+    const sec = Math.max(1.5, p.afterlifeSec);
+    const tail = Math.max(0, p.afterlifeTail);
+    this.afterlife = { at: t, until: t + sec + tail };
     this.voiceBus.gain.setTargetAtTime(0, t + 0.5, 0.15);
     this.pad.level.gain.setTargetAtTime(0, t + 0.3, 0.3);
     this.bassGain.gain.setTargetAtTime(0, t, 0.2);
     this.wave.gain.gain.setTargetAtTime(0, t, 0.3);
     this.noiseGain.gain.setTargetAtTime(0, t, 0.5);
     const f = this.freeze;
-    f.input.gain.setValueAtTime(1, t);
+    // the last 0.7 s of the dry bus into the loop (the dying may have opened it a little already: cancel that)
+    f.input.gain.cancelScheduledValues(t);
+    f.input.gain.setTargetAtTime(1, t, 0.02);
     f.input.gain.setTargetAtTime(0, t + 0.7, 0.1);
-    f.fb.gain.setValueAtTime(0.92, t);
-    f.fb.gain.setTargetAtTime(0.5, t + Math.max(0.5, sec - 2), 0.6);
+    f.fb.gain.cancelScheduledValues(t);
+    f.fb.gain.setTargetAtTime(0.92, t, 0.02);
+    // the PROCESS (sec): the loop darkens 2500 → 400 Hz; then the TAIL: the feedback rises so the frozen sound
+    // rings on (slowly darkening further) while the master takes `tail` seconds to go
     f.output.gain.setTargetAtTime(0.9, t, 0.1);
-    f.lp.frequency.setValueAtTime(2500, t);
+    f.lp.frequency.cancelScheduledValues(t);
+    f.lp.frequency.setValueAtTime(Math.max(400, f.lp.frequency.value), t);
     f.lp.frequency.exponentialRampToValueAtTime(400, t + sec);
-    if (p.afterlifeGrains > 0) this.grains(t + 0.4, sec - 0.4, p.afterlifeGrains);
+    if (tail > 0) {
+      f.fb.gain.setTargetAtTime(0.955, t + sec, 0.4);
+      f.lp.frequency.exponentialRampToValueAtTime(260, t + sec + tail);
+    } else f.fb.gain.setTargetAtTime(0.5, t + Math.max(0.5, sec - 1), 0.6);
+    if (p.afterlifeGrains > 0) this.grains(t + 0.3, Math.max(0.5, sec - 0.3), p.afterlifeGrains);
+    this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(p.master, t, 0.05);
-    this.master.gain.setTargetAtTime(0, t + 1.2, Math.max(0.5, (sec - 1.2) / 3.5));
+    // the master holds through the process, then the long tail: a slow exponential, −35 dB at the tail's end
+    const hold = Math.min(1.2, sec * 0.3);
+    const fadeFrom = tail > 0 ? t + sec : t + hold;
+    const fadeTau = tail > 0 ? tail / 4 : Math.max(0.5, (sec - hold) / 3.5);
+    this.master.gain.setTargetAtTime(0, fadeFrom, fadeTau);
   }
 
   /** A new life: the freeze closes, the living buses come back (the master follows the params again). */
@@ -1219,6 +1255,9 @@ export class SoundEngine {
 
     const plan = this.planFor(next);
     if (!plan) return;
+    // dying (A5b): a few astral grains already fall in the bar, more as the end comes — the afterlife, little by little
+    const dg = p.dying * p.dyingFreeze;
+    if (dg > 0.3 && p.afterlifeGrains > 0) this.grains(nextStart, barSec, p.afterlifeGrains * dg * dg * 0.07);
     // dying: the voices drop out for moments, more as the end comes
     const dy = p.dying * p.dyingWobble;
     if (dy > 0.2) {
