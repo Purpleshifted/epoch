@@ -39,7 +39,7 @@ describe("what each voice receives (planToSequences)", () => {
   it("in the open: the root breathes every other bar, the colour and the fifth are pitch only, the chorale is silent", () => {
     const even = planToSequences(plan({ bar: 2 }));
     expect(modeOfPlan(plan({}))).toBe("open");
-    expect(even.parliament.pitches[0]).toEqual([38, 65, 93, 72]); // D2 root, F4 colour, A6 fifth (the high bell), C5 fourth
+    expect(even.parliament.pitches[0]).toEqual([38, 65, 69, 60]); // D2 root, F4 colour, A4 fifth, C4 fourth
     expect(even.parliament.gates[0]).toEqual([8, 16, 0, 0]); // the first bar: the colour swells (a "change" from nothing)
     const odd = planToSequences(plan({ bar: 3 }), plan({ bar: 2 }));
     expect(odd.parliament.gates[0]).toEqual([0, 0, 0, 0]);
@@ -56,7 +56,7 @@ describe("what each voice receives (planToSequences)", () => {
     expect(same.parliament.gates[8][0]).toBe(1.5);
     expect(same.bass.gates[8]).toBe(1.5);
     const changed = planToSequences({ ...walk, chord: chord(7, [7, 11, 2, 5]), bass: walk.bass.map((b) => ({ ...b, pitch: 43 })) }, plan({ bar: 3 }));
-    expect(changed.parliament.pitches[0]).toEqual([43, 71, 86, 77]);
+    expect(changed.parliament.pitches[0]).toEqual([43, 71, 62, 65]);
     expect(changed.parliament.gates[0][1]).toBe(16);
   });
 

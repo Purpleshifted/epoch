@@ -127,7 +127,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
         { collapsed: true, render: v2 },
       ),
       ncDull: { value: DEFAULT_SOUND.ncDull, min: 0, max: 1, step: 0.05, label: "패치도 건물에서 먹먹해지는 정도 (0 = 안 먹먹)", render: v2 },
-      ncMap: { value: DEFAULT_SOUND.ncMap, label: "패치 노브 실시간 매핑 (사람·존·콘크리트·속도·함께 → 패치의 노브 열 개)", render: v2 },
+      ncMap: { value: DEFAULT_SOUND.ncMap, label: "패치 노브 실시간 매핑 (사람·존·콘크리트·속도·함께 → 패치의 노브 아홉 개)", render: v2 },
       ncMapDepth: { value: DEFAULT_SOUND.ncMapDepth, min: 0, max: 1, step: 0.05, label: "패치 노브가 움직이는 깊이 (0 = 작가가 저장한 값 그대로)", render: v2 },
     }, [], [
       { tag: "v4-a1-magenta-off", set: { magenta: false } }, // a saved "on" from before v4 A1 is switched off once
