@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLOCK_KNOB, MIN_GATE_STEPS, PULSES_PER_BAR, STEPS_PER_BAR, clockParams, modeOfPlan, notesToSteps, planToSequences } from "./noisecraftMap";
+import { BPM_KNOB, CLOCK_KNOB, MIN_GATE_STEPS, PULSES_PER_BAR, STEPS_PER_BAR, clockParams, modeOfPlan, notesToSteps, planToSequences } from "./noisecraftMap";
 import type { BarPlan } from "./sequencer";
 
 const chord = (root: number, classes: number[]) => ({ band: 0, degree: 0, classes, rootClass: root });
@@ -22,16 +22,21 @@ describe("the patch's grid (noisecraftMap)", () => {
     expect(notesToSteps([{ at: 0, pitch: 60, len: 0.001 }]).gates[0]).toBe(MIN_GATE_STEPS);
   });
 
-  it("the music clock as the patch receives it: 96 pulses a bar on the one clock knob, within its range", () => {
+  it("the music clock as the patch receives it: 96 pulses a bar on the seq clock knob and the BPM on the artist's clock knob, each within its range", () => {
     const at = (sec: number) => clockParams(sec);
     expect(PULSES_PER_BAR).toBe(96);
-    expect(at(2)).toHaveLength(1);
-    expect(at(2)[0].nodeId).toBe(CLOCK_KNOB.nodeId);
+    expect(at(2)).toHaveLength(2);
+    expect(at(2).map((p) => p.nodeId)).toEqual([CLOCK_KNOB.nodeId, BPM_KNOB.nodeId]);
     expect(at(2)[0].value).toBeCloseTo(48);
+    expect(at(2)[1].value).toBeCloseTo(120); // four beats a bar: 2 s → 120 BPM, as the artist's lock had it
     expect(at(3)[0].value).toBeCloseTo(32);
+    expect(at(3)[1].value).toBeCloseTo(80);
     expect(at(1.84)[0].value).toBeCloseTo(52.17, 1);
-    expect(at(10)[0].value).toBe(CLOCK_KNOB.min); // never below the knob's range: the patch would not load again
+    expect(at(1.84)[1].value).toBeCloseTo(130.43, 1);
+    expect(at(10)[0].value).toBe(CLOCK_KNOB.min); // never below a knob's range: the patch would not load again
+    expect(at(10)[1].value).toBe(BPM_KNOB.min);
     expect(at(0.3)[0].value).toBe(CLOCK_KNOB.max);
+    expect(at(0.3)[1].value).toBe(BPM_KNOB.max);
   });
 });
 

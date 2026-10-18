@@ -101,7 +101,8 @@ describe("the driver: the music clock goes in, the phase comes out", () => {
     d.mount({} as HTMLElement, b.patch, false);
     vi.advanceTimersByTime(1100);
     // idle sources: the clock only, the knobs sit at their rests
-    expect(b.params.flat().every((p) => p.nodeId === CLOCK_KNOB.nodeId)).toBe(true);
+    const clocks: string[] = [CLOCK_KNOB.nodeId, BPM_KNOB.nodeId];
+    expect(b.params.flat().every((p) => clocks.includes(p.nodeId))).toBe(true);
     expect(d.status.knobs).toBe(0);
     company = 1;
     vi.advanceTimersByTime(250 * 30);
