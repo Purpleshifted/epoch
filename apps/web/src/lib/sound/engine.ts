@@ -126,13 +126,10 @@ export interface SoundParams {
   /** How much the dying shakes the voices (0..1): detune drift, dropouts, the echo smearing. */
   dyingWobble: number;
   /**
-   * The afterlife (v4 A4d, the artist): the last sound frozen and ringing with astral grains. `afterlifeSec` = the
-   * PROCESS (the freeze darkening, the grains thick → thin; A5b: half of before), `afterlifeTail` = the REVERB TAIL
-   * after it (the frozen loop and the hall ringing out while the master goes, seconds), `afterlifeGrains` = the
-   * grains' density (0..1), `dyingFreeze` = how much the dying already freezes and smears (0..1): the afterlife
-   * begins while dying, little by little.
+   * The afterlife (v4 A5d, the artist: after the end nothing but the reverb): `afterlifeTail` = the long room's
+   * length (s) the last sound rings out in; `dyingFreeze` = how much the dying already freezes and smears the sound
+   * (0..1); `afterlifeGrains` = grains falling while dying (0..1; 0 since A5c — the artist).
    */
-  afterlifeSec: number;
   afterlifeTail: number;
   afterlifeGrains: number;
   dyingFreeze: number;
@@ -210,7 +207,6 @@ export const DEFAULT_SOUND: SoundParams = {
   dying: 0,
   dead: false,
   dyingWobble: 0.6,
-  afterlifeSec: 4, // 8 before A5b: the artist wanted the process half as long and the tail long
   afterlifeTail: 10,
   afterlifeGrains: 0, // 0.6 before A5c — the artist (10/18 night): "걍 그래뉼러한 소리 빼 지금은"; the knob stays
   dyingFreeze: 0.6,
@@ -305,7 +301,9 @@ export class SoundEngine {
   private wave!: { filter: BiquadFilterNode; gain: GainNode };
   /** The freeze (afterlife): the dry bus into two delays with feedback and a darkening low-pass, ringing on after the end. */
   private freeze!: { input: GainNode; output: GainNode; lp: BiquadFilterNode; fb: GainNode };
-  private afterlife: { at: number; until: number } | null = null;
+  private afterlife: { at: number; until: number; feedUntil: number } | null = null;
+  /** The afterlife's long room (A5d): built with the graph for the tail's length, rebuilt at a death if the knob moved. */
+  private afterRoom: { send: GainNode; conv: ConvolverNode; seconds: number } | null = null;
   private wasDead = false;
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
@@ -637,6 +635,7 @@ export class SoundEngine {
       fout.connect(this.dull);
       fout.connect(this.rooms.hall);
       this.freeze = { input: fin, output: fout, lp: flp, fb: ffb };
+      this.afterlifeRoom(this.params.afterlifeTail); // the afterlife's long room, ready (no cold start at a death)
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
@@ -1039,61 +1038,93 @@ export class SoundEngine {
     if (this.params.bassDub > 0) hit(at + 0.17, level * this.params.bassDub);
   }
 
+  /** True while the end's last sound is still being taken into the long room (the patch keeps playing that long, then stops). */
   get inAfterlife(): boolean {
-    return !!this.afterlife;
+    const a = this.afterlife;
+    return !!a && (this.ctx?.currentTime ?? 0) < a.feedUntil;
   }
 
   /**
-   * THE AFTERLIFE (v4 A4d, the artist: not a plain fade — "the last sound + reverb + a little astral granular noise").
-   * The living voices stop; what rang last enters the freeze loop for 0.7 s and rings on, darkening; grains of the
-   * last chord's classes, high and far, come thick then thin; the master holds a second and then goes.
+   * THE AFTERLIFE (v4 A4d → A5d, the artist: "잔향 말고는 아무것도 안 들리게"): after the end nothing is heard but the
+   * reverb. Every living source goes within half a second (the voices, the pad, the heartbeat, the wave, the
+   * vegetation, the dying's loop, the patch), and the LAST SOUND — the dry bus, the loop's ring and the patch's
+   * stream, for 0.8 s — goes into a long dark room (`afterlifeTail` seconds) whose tail is all that remains; the
+   * master holds and, as the tail dies on its own, a slow safety fade closes it.
    */
   private startAfterlife(t: number): void {
     const p = this.params;
-    const sec = Math.max(1.5, p.afterlifeSec);
-    const tail = Math.max(0, p.afterlifeTail);
-    this.afterlife = { at: t, until: t + sec + tail };
-    this.voiceBus.gain.setTargetAtTime(0, t + 0.5, 0.15);
-    this.pad.level.gain.setTargetAtTime(0, t + 0.3, 0.3);
-    this.bassGain.gain.setTargetAtTime(0, t, 0.2);
-    this.wave.gain.gain.setTargetAtTime(0, t, 0.3);
-    this.noiseGain.gain.setTargetAtTime(0, t, 0.5);
+    const tail = Math.max(1, p.afterlifeTail);
+    const FEED = 0.8;
+    this.afterlife = { at: t, until: t + tail, feedUntil: t + FEED };
+    this.voiceBus.gain.setTargetAtTime(0, t + 0.2, 0.12);
+    this.pad.level.gain.setTargetAtTime(0, t + 0.2, 0.2);
+    this.bassGain.gain.setTargetAtTime(0, t, 0.15);
+    this.wave.gain.gain.setTargetAtTime(0, t, 0.2);
+    this.noiseGain.gain.setTargetAtTime(0, t, 0.3);
+    // the dying's loop stops taking sound and rings out with the rest
     const f = this.freeze;
-    // the last 0.7 s of the dry bus into the loop (the dying may have opened it a little already: cancel that)
     f.input.gain.cancelScheduledValues(t);
-    f.input.gain.setTargetAtTime(1, t, 0.02);
-    f.input.gain.setTargetAtTime(0, t + 0.7, 0.1);
+    f.input.gain.setTargetAtTime(0, t, 0.1);
     f.fb.gain.cancelScheduledValues(t);
-    f.fb.gain.setTargetAtTime(0.92, t, 0.02);
-    // the PROCESS (sec): the loop darkens 2500 → 400 Hz; then the TAIL: the feedback rises so the frozen sound
-    // rings on (slowly darkening further) while the master takes `tail` seconds to go
-    f.output.gain.setTargetAtTime(0.9, t, 0.1);
-    f.lp.frequency.cancelScheduledValues(t);
-    f.lp.frequency.setValueAtTime(Math.max(400, f.lp.frequency.value), t);
-    f.lp.frequency.exponentialRampToValueAtTime(400, t + sec);
-    if (tail > 0) {
-      f.fb.gain.setTargetAtTime(0.955, t + sec, 0.4);
-      f.lp.frequency.exponentialRampToValueAtTime(260, t + sec + tail);
-    } else f.fb.gain.setTargetAtTime(0.5, t + Math.max(0.5, sec - 1), 0.6);
-    if (p.afterlifeGrains > 0) this.grains(t + 0.3, Math.max(0.5, sec - 0.3), p.afterlifeGrains);
+    f.fb.gain.setTargetAtTime(0, t + 0.4, 0.3);
+    f.output.gain.setTargetAtTime(0, t + 0.5, 0.2);
+    // the last sound into the long room (the patch before its gain: it is not heard dry after the end)
+    const room = this.afterlifeRoom(tail);
+    if (this.nc) {
+      this.nc.filter.connect(room.send);
+      this.nc.gain.gain.setTargetAtTime(0, t + 0.3, 0.15);
+    }
+    room.send.gain.cancelScheduledValues(t);
+    room.send.gain.setTargetAtTime(1, t, 0.02);
+    room.send.gain.setTargetAtTime(0, t + FEED, 0.08);
+    // the master holds; the tail dies on its own (about −45 dB at its end); a slow fade from 60 % makes sure of silence
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(p.master, t, 0.05);
-    // the master holds through the process, then the long tail: a slow exponential, −35 dB at the tail's end
-    const hold = Math.min(1.2, sec * 0.3);
-    const fadeFrom = tail > 0 ? t + sec : t + hold;
-    const fadeTau = tail > 0 ? tail / 4 : Math.max(0.5, (sec - hold) / 3.5);
-    this.master.gain.setTargetAtTime(0, fadeFrom, fadeTau);
+    this.master.gain.setTargetAtTime(0, t + tail * 0.6, tail / 6);
   }
 
-  /** A new life: the freeze closes, the living buses come back (the master follows the params again). */
+  /** A new life: the room's send closes, the living buses come back (the master follows the params again). */
   private endAfterlife(t: number): void {
     this.afterlife = null;
     const f = this.freeze;
     f.input.gain.setTargetAtTime(0, t, 0.05);
     f.fb.gain.setTargetAtTime(0, t, 0.05);
     f.output.gain.setTargetAtTime(0, t, 0.2);
+    this.afterRoom?.send.gain.setTargetAtTime(0, t, 0.05);
     this.voiceBus.gain.setTargetAtTime(1, t, 0.2);
     this.bassGain.gain.setTargetAtTime(1, t, 0.2);
+    this.nc?.gain.gain.setTargetAtTime(1, t, 0.2);
+  }
+
+  /**
+   * The afterlife's long room: a dark impulse `seconds` long (about −45 dB at its end), fed by the dry bus and the
+   * loop through a send that stays closed until the end; built with the graph (no cold start at a death), rebuilt
+   * when the knob has moved by more than a quarter second.
+   */
+  private afterlifeRoom(seconds: number): { send: GainNode; conv: ConvolverNode } {
+    const ctx = this.ctx!;
+    const sec = Math.max(1, Math.min(30, seconds));
+    if (this.afterRoom && Math.abs(this.afterRoom.seconds - sec) < 0.26) return this.afterRoom;
+    if (this.afterRoom) {
+      try {
+        this.dry.disconnect(this.afterRoom.send);
+        this.freeze.lp.disconnect(this.afterRoom.send);
+        this.afterRoom.send.disconnect();
+        this.afterRoom.conv.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+    const send = ctx.createGain();
+    send.gain.value = 0;
+    const conv = ctx.createConvolver();
+    conv.normalize = true;
+    conv.buffer = impulse(ctx, sec, sec / 5.2, 0, 0.3);
+    send.connect(conv).connect(this.master);
+    this.dry.connect(send);
+    this.freeze.lp.connect(send);
+    this.afterRoom = { send, conv, seconds: sec };
+    return this.afterRoom;
   }
 
   /** Astral grains: tiny sines (and a few noise grains) on the last chord's classes, 2–3 octaves up, scattered in the stereo field and the far room. */
