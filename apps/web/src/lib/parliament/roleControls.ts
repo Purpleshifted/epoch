@@ -4,11 +4,12 @@
  *
  *   WORKER      walks: forward, sidestep, a slow step back (the controls as they were)
  *   STREET CAT  low and quick: darts off and stops short, sidesteps freely, looks around fast; the eye sits low
- *   CAR         drives: W throttle, S brake / reverse; no sidestep, the mouse does not turn it; slow to pick up, long
- *               to roll out. ON RAILS: on a road (trodden ground, PathCell.p ≥ ROAD_P) its heading is drawn to the
- *               road's line (PathCell.axis) by how much the treads agree on it (align), so A/D only steer at
- *               crossings and off the road; speed by how formed the road is, full on sealed ground; off the road it
- *               CRAWLS (× crawl) — and scars the grass (nature.ts wearOf) and treads a new road (flow.ts treadOf)
+ *   CAR         drives: W throttle, S brake / reverse; no sidestep; the mouse turns the EYE, not the body (free look
+ *               from the driver's seat); slow to pick up, long to roll out. ON RAILS: on a road (trodden ground,
+ *               PathCell.p ≥ ROAD_P) its heading is drawn to the road's line (PathCell.axis) by how much the treads
+ *               agree on it (align); A/D steer fully at crossings and off the road, a little on a clean road; speed
+ *               by how formed the road is, full on sealed ground; off the road it CRAWLS (× crawl) — and scars the
+ *               grass (nature.ts wearOf) and treads a new road (flow.ts treadOf)
  *   TREE        rooted: the keys only sway it (it springs back to where it stands), it looks around slowly, and its eye
  *               rises over the lifespan (it grows)
  *
@@ -39,6 +40,8 @@ export interface RoleMotion {
   crawl?: number;
   /** drive: how fast (1/s) the heading is drawn to the road's line when the treads fully agree on it. */
   rail?: number;
+  /** drive: × steering left on a clean road (the rest is the rail's); 1 at a crossing and off the road. */
+  railSteer?: number;
   /** rooted: how far the keys sway it (world units). */
   sway?: number;
 }
@@ -62,6 +65,8 @@ export interface RoleLook {
   /** × mouse sensitivity, left–right (0 = the mouse does not turn it) and up–down. */
   yaw: number;
   pitch: number;
+  /** The mouse turns the EYE about the body (free look), not the body's heading — a driver looking out of the window. */
+  free?: boolean;
   /** Camera pitch range (rad above the horizon). */
   pitchMin: number;
   pitchMax: number;
@@ -110,11 +115,12 @@ export const ROLE_CONTROLS: Record<RoleId, RoleControl> = {
       brake: 0.9,
       steer: 1.6,
       crawl: 0.08,
-      rail: 4,
+      rail: 3,
+      railSteer: 0.3,
     },
-    look: { yaw: 0, pitch: 0.6, pitchMin: 0.12, pitchMax: 0.7 },
+    look: { yaw: 1, pitch: 1, pitchMin: 0.05, pitchMax: 1.2, free: true },
     cam: { dist: 1.3, lift: 0.6 },
-    hint: "W  THROTTLE · S  BRAKE · A D  STEER",
+    hint: "W  THROTTLE · S  BRAKE · A D  STEER · MOUSE  LOOK",
   },
   tree: {
     motion: { kind: "rooted", fwd: 0, side: 0, back: 0, response: 0.5, sway: 0.35 },
@@ -195,9 +201,11 @@ export function stepBody(b: Body, keys: MoveKeys, m: RoleMotion, o: StepOpts): v
       if (Math.abs(d) > Math.PI / 2) d = wrapAngle(d + Math.PI);
       b.yaw += d * (1 - Math.exp(-m.rail * rail * o.dt));
     }
-    // steering needs speed: none at a standstill, full from half the top speed (as the ground allows); reversing turns the other way
+    // steering needs speed: none at a standstill, full from half the top speed (as the ground allows); reversing turns
+    // the other way; on a clean road only railSteer of it is left (enough to wobble, or to leave the road on purpose)
     const roll = clamp(v / (m.fwd * s * 0.5), -1, 1);
-    b.yaw -= (r - l) * (m.steer ?? 0) * roll * (1 - rail) * o.dt;
+    const steer = 1 - rail * (1 - (m.railSteer ?? 0));
+    b.yaw -= (r - l) * (m.steer ?? 0) * roll * steer * o.dt;
     b.vx = Math.sin(b.yaw) * v;
     b.vz = Math.cos(b.yaw) * v;
     b.x += b.vx * o.dt;

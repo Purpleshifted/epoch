@@ -52,6 +52,12 @@ describe("role controls", () => {
     expect(Math.abs(side)).toBeLessThan(1e-9);
   });
 
+  it("the car's mouse is a free look: it turns the eye, not the body", () => {
+    expect(ROLE_CONTROLS.car.look.free).toBe(true);
+    expect(ROLE_CONTROLS.car.look.yaw).toBeGreaterThan(0);
+    expect(ROLE_CONTROLS.worker.look.free).toBeUndefined();
+  });
+
   it("the car's speed comes from the ground: full on sealed ground and a formed road, a crawl off the road", () => {
     const crawl = ROLE_CONTROLS.car.motion.crawl!;
     expect(roadSpeed(SEALED, crawl)).toBe(1);
@@ -66,7 +72,7 @@ describe("role controls", () => {
     expect(speed(open)).toBeGreaterThan(0.5); // it does move, slowly
   });
 
-  it("on a road the car runs on rails: its heading turns onto the road's line, the nearer way, and A/D do nothing", () => {
+  it("on a road the car runs on rails: its heading turns onto the road's line, the nearer way; A/D barely move it", () => {
     // heading +z (yaw 0) onto a road along x: the nearer way is +x (yaw π/2)
     const b = run("car", { ...NONE, fwd: true }, 4, { x: 0, z: 0, vx: 0, vz: 0, yaw: 0.2 }, ROAD_X);
     expect(Math.abs(b.yaw - Math.PI / 2)).toBeLessThan(0.02);
@@ -74,8 +80,11 @@ describe("role controls", () => {
     // heading −x-ish stays −x
     const c = run("car", { ...NONE, fwd: true }, 4, { x: 0, z: 0, vx: 0, vz: 0, yaw: -Math.PI / 2 + 0.3 }, ROAD_X);
     expect(Math.abs(c.yaw + Math.PI / 2)).toBeLessThan(0.02);
-    // steering on a clean road does not turn it off the line
+    // steering on a clean road is mostly the rail's: it holds the line, a little off it while the key is held
     run("car", { ...NONE, fwd: true, right: true }, 2, b, ROAD_X);
+    expect(b.yaw).toBeLessThan(Math.PI / 2 - 0.05);
+    expect(b.yaw).toBeGreaterThan(Math.PI / 2 - 0.6);
+    run("car", { ...NONE, fwd: true }, 2, b, ROAD_X);
     expect(Math.abs(b.yaw - Math.PI / 2)).toBeLessThan(0.02);
     expect(yawAlong(0)).toBeCloseTo(Math.PI / 2);
     expect(yawAlong(Math.PI / 2)).toBeCloseTo(0);

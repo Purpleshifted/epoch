@@ -60,6 +60,8 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
 const ORB_Y = 0.45;
+/** An angle folded into (−π, π]. */
+const wrapRad = (a: number) => ((((a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
 /** A phone: a horizontal drag of about 300 px is a half turn; a vertical one of 300 px runs the camera's whole pitch range. */
 const TOUCH_TURN_RAD_PER_PX = Math.PI / 300;
 const TOUCH_PITCH_RAD_PER_PX = 1.15 / 300;
@@ -165,6 +167,12 @@ function Controller({
   const group = useRef<THREE.Group>(null);
   // the mouse handler reads the role's controls through this ref
   const ctrl = useRef<RoleControl>(ROLE_CONTROLS[role]);
+  // a free-look role (a car): where the eye is turned, about the body's heading (rad); the mouse moves this, not the heading
+  const lookOff = useRef(0);
+  const turnBy = (d: number) => {
+    if (ctrl.current.look.free) lookOff.current = wrapRad(lookOff.current + d);
+    else yaw.current += d;
+  };
   // V2: the visitor has been put where their role begins (a car: on a road) — once per session (the controller is remade per session)
   const placed = useRef(false);
   useEffect(() => {
@@ -184,7 +192,7 @@ function Controller({
       if (h?.dropped) return;
       const look = h?.look ?? 1;
       const r = ctrl.current.look;
-      yaw.current -= e.movementX * 0.0025 * look * r.yaw;
+      turnBy(-e.movementX * 0.0025 * look * r.yaw);
       pitch.current = Math.max(r.pitchMin, Math.min(r.pitchMax, pitch.current + e.movementY * 0.002 * look * r.pitch));
     };
     const onChange = () => setLocked(document.pointerLockElement === c);
@@ -227,7 +235,7 @@ function Controller({
       if (h?.dropped) return;
       const look = h?.look ?? 1;
       const r = ctrl.current.look;
-      yaw.current -= dx * TOUCH_TURN_RAD_PER_PX * look * r.yaw;
+      turnBy(-dx * TOUCH_TURN_RAD_PER_PX * look * r.yaw);
       pitch.current = Math.max(r.pitchMin, Math.min(r.pitchMax, pitch.current + dy * TOUCH_PITCH_RAD_PER_PX * look * r.pitch));
     };
     const onTouchEnd = () => {
@@ -267,7 +275,7 @@ function Controller({
     // a finger on the screen walks
     const tl = tiltRef?.current;
     const tilt = !dead && coarse && tl?.active ? tl : null;
-    if (tilt && tilt.turn !== 0) yaw.current -= tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * c.look.yaw * dt;
+    if (tilt && tilt.turn !== 0) turnBy(-tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * c.look.yaw * dt);
     const tiltFwd = tilt ? tilt.fwd : 0;
     const pressFwd = !dead && coarse && pressing.current;
     const keysNow = {
@@ -316,14 +324,17 @@ function Controller({
       p.z = wz;
     }
     playerPosRef.current = { x: p.x, z: p.z, vx: p.vx, vz: p.vz };
-    playerYawRef.current = y;
+    // a free-look role: the eye is turned about the heading; while the throttle or brake is held it eases back ahead
+    if (c.look.free && (keysNow.fwd || keysNow.back)) lookOff.current *= Math.exp(-1.5 * dt);
+    const eye = c.look.free ? y + lookOff.current : y;
+    playerYawRef.current = eye;
     group.current?.position.set(p.x, ORB_Y, p.z);
 
     // the eye: low for a cat, high and far for a car; a tree's rises as it grows over the lifespan
     const dist = camDist * camDistOf(c.cam, L && lifeSec > 0 ? L.t / lifeSec : 0);
     const hd = dist * Math.cos(pitch.current);
     const vd = dist * Math.sin(pitch.current);
-    const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + c.cam.lift, p.z - Math.cos(y) * hd);
+    const desired = new THREE.Vector3(p.x - Math.sin(eye) * hd, ORB_Y + vd + c.cam.lift, p.z - Math.cos(eye) * hd);
     camPos.current.lerp(desired, camLerp);
     camera.position.copy(camPos.current);
     lookAt.current.lerp(new THREE.Vector3(p.x, ORB_Y + 0.2, p.z), camLerp * 2);
