@@ -3,12 +3,18 @@
  * /v2/sound — the NoiseCraft bench (v4 A2; unlisted). The artist's patch with its editor, driven by a staged
  * scenario through the same driver the player uses: what each voice receives, the music clock the patch follows,
  * a log of the bars. Edits made in the editor save into apps/web/noisecraft/examples (this app's folder).
+ *
+ * KNOB REGISTRATION (v4 A5f, the artist, the umwelt way without streams): the right panel's "노브 등록" box — click
+ * the blank row to arm it, then press a Knob node in the editor and its number, name, range and value are written
+ * in; note what it should contribute to; "복사" gives the list as text to paste into the sound chat, where the
+ * mapping row is written (lib/sound/noisecraftKnobs.ts). Nothing here moves a knob.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { KEY_NAMES, chordName, worldKey } from "@/lib/sound/harmony";
 import { makeMotif } from "@/lib/sound/motif";
 import { NoiseCraftDriver, type DriverStatus } from "@/lib/sound/noisecraftDriver";
+import { KNOB_MAPS } from "@/lib/sound/noisecraftKnobs";
 import { PULSES_PER_BAR, PULSES_PER_STEP, modeOfPlan, planToSequences } from "@/lib/sound/noisecraftMap";
 import { planBar, type BarPlan } from "@/lib/sound/sequencer";
 import type { BuildingSignal, Neighbour, PersonalSignals } from "@/lib/sound/signals";
@@ -39,6 +45,32 @@ const SCENARIOS: Record<string, (bar: number) => PersonalSignals> = {
   },
 };
 
+/** A knob the artist registered from the editor (bench only; localStorage). */
+interface KnobSlot {
+  nodeId: string;
+  type: string;
+  name: string;
+  min?: number;
+  max?: number;
+  value?: number;
+  /** What it should contribute to (the artist's words). */
+  note: string;
+}
+const SLOTS_KEY = "anthropocene:sound:knob-slots:v1";
+const loadSlots = (): KnobSlot[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(SLOTS_KEY);
+    return raw ? (JSON.parse(raw) as KnobSlot[]) : [];
+  } catch {
+    return [];
+  }
+};
+const fmt = (n?: number) => (n == null ? "?" : +n.toFixed(3) + "");
+/** The registered knobs as text for the sound chat. */
+export const slotsAsText = (slots: readonly KnobSlot[]): string =>
+  slots.map((k) => `노브 ${k.nodeId} (${k.name}, ${fmt(k.min)}–${fmt(k.max)}, 지금 ${fmt(k.value)})${k.note ? ` → ${k.note}` : ""}`).join("\n");
+
 interface LogRow {
   bar: number;
   chord: string;
@@ -55,6 +87,21 @@ export default function SoundBench() {
   const [playing, setPlaying] = useState(false);
   const [status, setStatus] = useState<DriverStatus | null>(null);
   const [log, setLog] = useState<LogRow[]>([]);
+  // knob registration (A5f)
+  const [slots, setSlots] = useState<KnobSlot[]>(loadSlots);
+  const [armed, setArmed] = useState<number | null>(null); // the row waiting for a knob (slots.length = the blank row)
+  const [flash, setFlash] = useState("");
+  const armedRef = useRef<number | null>(null);
+  useEffect(() => {
+    armedRef.current = armed;
+  }, [armed]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SLOTS_KEY, JSON.stringify(slots));
+    } catch {
+      /* ignore */
+    }
+  }, [slots]);
   const key = useMemo(() => worldKey("bench"), []);
   const me = useMemo(() => makeMotif("v_bench"), []);
   const others = useMemo(() => new Map([["bot1", makeMotif("bot1")], ["bot2", makeMotif("bot2")]]), []);
@@ -95,13 +142,44 @@ export default function SoundBench() {
         setLog((l) => [row, ...l].slice(0, 10));
       },
     });
+    // a node pressed in the editor while a row is armed: a Knob fills the row (anything else is named and refused)
+    driver.bridge.onNodeClicked = (nodeId) => {
+      const at = armedRef.current;
+      if (at == null) return;
+      const info = driver.bridge.nodeInfo(nodeId);
+      if (!info) return;
+      if (info.type !== "Knob") {
+        setFlash(`#${nodeId}는 ${info.type} — 노브(Knob)를 눌러 주세요`);
+        return;
+      }
+      const slot: KnobSlot = { nodeId, type: info.type, name: info.name, min: info.min, max: info.max, value: info.value, note: "" };
+      setSlots((prev) => {
+        const next = prev.slice();
+        if (at < next.length) next[at] = { ...slot, note: next[at].note };
+        else next.push(slot);
+        return next;
+      });
+      setArmed(null);
+      setFlash(`노브 ${nodeId} (${info.name}) 등록`);
+    };
     driver.mount(host.current, PATCH, true);
     const id = setInterval(() => setStatus(driver.status), 500);
     return () => {
       clearInterval(id);
+      driver.bridge.onNodeClicked = undefined;
       driver.dispose();
     };
   }, [key, me, others]);
+
+  const copySlots = async () => {
+    const text = slotsAsText(slots);
+    try {
+      await navigator.clipboard.writeText(text);
+      setFlash("복사됨 — 소리 챗에 붙여 넣으세요");
+    } catch {
+      setFlash("클립보드 불가 — 아래 글상자에서 복사하세요");
+    }
+  };
 
   const clock = status?.clocked ? `${(status.pulseHz / PULSES_PER_STEP).toFixed(1)} steps/s · bar ${status.pulseHz > 0 ? (PULSES_PER_BAR / status.pulseHz).toFixed(2) : "–"} s` : "no ClockOut";
   return (
@@ -129,13 +207,59 @@ export default function SoundBench() {
       </div>
       <div className="flex min-h-0 flex-1">
         <div ref={host} className="min-w-0 flex-1" />
-        <div className="w-[380px] overflow-auto border-l border-white/10 p-2">
+        <div className="flex w-[400px] flex-col border-l border-white/10">
+          <div className="max-h-[55%] overflow-auto border-b border-white/10 p-2">
+            <div className="mb-1 flex items-center gap-2 text-white/40">
+              <span>노브 등록</span>
+              <span className="text-white/25">빈 칸을 누르고 → 편집기에서 노브를 누르면 번호가 적힘</span>
+              <button className="ml-auto border border-white/30 px-2 text-white/70" onClick={copySlots} disabled={!slots.length}>
+                복사
+              </button>
+            </div>
+            {slots.map((k, i) => {
+              const mapped = KNOB_MAPS.find((m) => m.nodeId === k.nodeId);
+              return (
+                <div key={`${k.nodeId}-${i}`} className="mb-1 flex items-center gap-1 whitespace-nowrap">
+                  <button
+                    className={`border px-1 ${armed === i ? "border-amber-300 text-amber-200" : "border-white/20 text-white/80"}`}
+                    title="누르면 이 칸이 다음 노브를 기다림"
+                    onClick={() => setArmed(armed === i ? null : i)}
+                  >
+                    #{k.nodeId}
+                  </button>
+                  <span className="text-white/60">
+                    {k.name} · {fmt(k.min)}–{fmt(k.max)} · 지금 {fmt(k.value)}
+                  </span>
+                  {mapped && <span className="text-emerald-300/80">← {mapped.source}</span>}
+                  <input
+                    className="min-w-0 flex-1 bg-black/40 px-1 text-white/80"
+                    placeholder="→ 어디에 기여할지"
+                    value={k.note}
+                    onChange={(e) => setSlots((prev) => prev.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))}
+                  />
+                  <button className="text-white/40" title="지우기" onClick={() => setSlots((prev) => prev.filter((_, j) => j !== i))}>
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              className={`w-full border border-dashed px-1 py-1 text-left ${armed === slots.length ? "border-amber-300 text-amber-200" : "border-white/20 text-white/40"}`}
+              onClick={() => setArmed(armed === slots.length ? null : slots.length)}
+            >
+              {armed === slots.length ? "편집기에서 노브를 누르세요…" : "+ 빈 칸"}
+            </button>
+            {flash && <div className="mt-1 text-amber-200/80">{flash}</div>}
+            {slots.length > 0 && <textarea readOnly className="mt-1 h-16 w-full bg-black/40 p-1 text-white/60" value={slotsAsText(slots)} />}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-2">
           <div className="mb-1 text-white/40">마디 · 코드 · 상황 · 건물 조성 · parliament v0 v1 v2 v3 (게이트) · harmony</div>
           {log.map((r) => (
             <div key={r.bar} className="whitespace-nowrap">
               {r.bar} · {r.chord} · {r.mode} · {r.place} · {r.v} · {r.harm}
             </div>
           ))}
+          </div>
         </div>
       </div>
     </div>
