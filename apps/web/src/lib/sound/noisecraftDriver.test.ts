@@ -37,7 +37,7 @@ function fakeBridge() {
 }
 
 const aPlan = (bar: number): BarPlan =>
-  ({ bar, chord: { band: 0, degree: 0, classes: [0, 4, 7], rootClass: 0 }, lock: 0, density: 1, answer: false, me: [], others: [], bass: [], pad: { pitches: [], level: 0 } }) as BarPlan;
+  ({ bar, chord: { band: 0, degree: 0, classes: [0, 4, 7], rootClass: 0 }, lock: 0, density: 1, answer: false, me: [], others: [], bass: [], pad: { pitches: [], level: 0 }, arrival: null }) as BarPlan;
 
 describe("the driver: the music clock goes in, the phase comes out", () => {
   beforeEach(() => vi.useFakeTimers());

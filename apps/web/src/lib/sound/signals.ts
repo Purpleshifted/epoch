@@ -59,6 +59,8 @@ export interface PersonalSignals {
   grass: number;
   /** The building whose zone I am in or nearest to (v4 A4), or null when none is within reach. */
   building?: BuildingSignal | null;
+  /** Keys of the sealed slabs within 2 × sealRadius (v4 A4b: a new one = a building born beside me). */
+  nearSlabs?: string[];
 }
 
 /** A BUILDING: sealed slabs that touch, as one; its harmonic zone grows with its mass (tonality.ts). */
@@ -78,9 +80,9 @@ export interface BuildingSignal {
   who: { o: string; amount: number }[];
 }
 
-export const ZONE_BASE = 6;
-export const ZONE_PER_SQRT_MASS = 0.4;
-export const ZONE_MAX = 14;
+export const ZONE_BASE = 8;
+export const ZONE_PER_SQRT_MASS = 0.6;
+export const ZONE_MAX = 18;
 
 /** The buildings of a snapshot: sealed slabs joined by 4-neighbourhood (the world wraps). */
 export function buildingsOf(slabs: readonly Slab[], sealH = 0.15): BuildingSignal[] {
@@ -202,6 +204,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   let sealed = 0;
   const pathAt = new Map<string, number>();
   const sealedCells = new Set<string>();
+  const nearSlabs: string[] = [];
   if (snap) {
     for (const pc of snap.paths) {
       pathAt.set(pc.key, pc.p);
@@ -211,6 +214,7 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
       if (sl.h < 0.15) continue;
       sealedCells.add(sl.key);
       const d = wrapDist(sl.x, sl.z, me.x, me.z);
+      if (d <= 2 * cfg.sealRadius) nearSlabs.push(sl.key);
       const near = 1 - Math.min(1, Math.max(0, (d - CELL_SIZE * 0.5) / cfg.sealRadius));
       if (near > sealed) sealed = near;
     }
@@ -225,5 +229,5 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   }
   grass /= 9;
 
-  return { x: me.x, z: me.z, speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, grass, building };
+  return { x: me.x, z: me.z, speed: Math.hypot(me.vx, me.vz), stay, neighbours, pathP, sealed, grass, building, nearSlabs };
 }

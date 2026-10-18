@@ -19,7 +19,7 @@
  *   PAD         staying among others holds the chord tones (the building being born) — a sustained pad.
  */
 
-import { placeChord, type PlaceChord, type WorldKey } from "./harmony";
+import { placeChord, type PlaceChord, type WorldKey, DEFAULT_HARMONY, diatonicChord } from "./harmony";
 import { midiToHz, realize, type Motif, type MotifNote, DEFAULT_MOTIF, hashString, rng } from "./motif";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, STEPS_PER_CYCLE, blend, stepsToCycle, type Phrase } from "./variation";
@@ -39,6 +39,38 @@ export interface SequencerParams {
   motifOctaveEvery?: number;
   /** How far such a shift may go: 1 = one octave, 2 = up to two. */
   motifOctaveRange?: number;
+  /** Width of the ground's chord bands (cells; harmony.ts bandCells). */
+  bandCells?: number;
+}
+
+/**
+ * THE ARRIVAL (v4 A4b, the artist: "같이 짓기 시작할 때 확 들어오는 충족감"): when I begin building with others, or a
+ * building is born beside me, two bars make a cadence — a bar of the DOMINANT leaning in, then the TONIC arriving
+ * with everything at once (the pad full, the chorale, a downbeat, my motif locked and lifted). Then the ordinary
+ * rules resume. The engine keeps the state across bars; this is the pure step.
+ */
+export interface ArrivalState {
+  /** The bar the cadence began on, or -1. */
+  since: number;
+  /** Whether I was building together last bar (the edge is what counts). */
+  together: boolean;
+  /** The last bar a cadence began (a breath between cadences). */
+  last: number;
+}
+
+export const ARRIVAL_IDLE: ArrivalState = { since: -1, together: false, last: -1e9 };
+/** Bars between two cadences at the least. */
+export const ARRIVAL_COOLDOWN = 8;
+
+export type ArrivalPhase = "dominant" | "tonic" | null;
+
+/** Moves the arrival state one bar on; `together` = staying among others now, `born` = a building appeared beside me. */
+export function nextArrival(prev: ArrivalState, bar: number, together: boolean, born: boolean, cooldown = ARRIVAL_COOLDOWN): { state: ArrivalState; phase: ArrivalPhase } {
+  const rising = together && !prev.together;
+  const canStart = bar - prev.last >= cooldown && prev.since < 0;
+  if ((rising || (born && together)) && canStart) return { state: { since: bar, together, last: bar }, phase: "dominant" };
+  if (prev.since >= 0 && bar === prev.since + 1) return { state: { ...prev, together }, phase: "tonic" };
+  return { state: { since: -1, together, last: prev.last }, phase: null };
 }
 
 export const DEFAULT_SEQUENCER: SequencerParams = { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: 1, microtone: 1 };
@@ -75,6 +107,8 @@ export interface BarPlan {
   bass: { at: number; pitch: number; level: number }[];
   /** Chord tones (MIDI) to hold through the bar and their level (0 = none). */
   pad: { pitches: number[]; level: number };
+  /** The arrival cadence this bar, if any (the engine opens the hall, lifts the voices). */
+  arrival: ArrivalPhase;
 }
 
 export interface BarInputs {
@@ -90,6 +124,8 @@ export interface BarInputs {
   params?: SequencerParams;
   /** The building's tonality where I stand (v4 A4, tonality.ts): its key and the zone's chord; null = the world's bands. */
   place?: { key: WorldKey; chord: PlaceChord; zone: "in" | "ring" } | null;
+  /** The arrival cadence this bar (nextArrival): the dominant leaning in, the tonic arriving, or nothing. */
+  arrival?: ArrivalPhase;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -106,8 +142,12 @@ export function planBar(inp: BarInputs): BarPlan {
   const { bar, sig, me } = inp;
   // inside a building's zone (or its ring) the building's key and chord; elsewhere the world's bands
   const key = inp.place ? inp.place.key : inp.key;
-  const chord = inp.place ? inp.place.chord : placeChord(key, sig.x, sig.z);
-  const lock = lockOf(sig);
+  const hcfg = { ...DEFAULT_HARMONY, bandCells: p.bandCells ?? DEFAULT_HARMONY.bandCells };
+  const arrival = inp.arrival ?? null;
+  let chord = inp.place ? inp.place.chord : placeChord(key, sig.x, sig.z, hcfg);
+  // the cadence: a bar of the dominant leaning in, then the tonic (the place's own chord) arriving
+  if (arrival === "dominant") chord = dominantOf(key, chord);
+  const lock = arrival === "tonic" ? 1 : lockOf(sig);
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
@@ -116,7 +156,7 @@ export function planBar(inp: BarInputs): BarPlan {
   const motifCfg = { ...DEFAULT_MOTIF, microtone: p.microtone ?? 1 };
   const every = Math.max(1, p.motifEvery ?? 1);
   // my bar: with probability 1/every, drawn from the bar and my id (the same answer every time this bar is planned)
-  const myBar = every <= 1.0001 || rng(hashString(`${me.id}#every#${bar}`))() < 1 / every;
+  const myBar = arrival === "tonic" || every <= 1.0001 || rng(hashString(`${me.id}#every#${bar}`))() < 1 / every;
 
   // my notes: a Magenta phrase if one is running, else my motif blended with whoever has been close
   let mine: MotifNote[] = [];
@@ -132,9 +172,11 @@ export function planBar(inp: BarInputs): BarPlan {
       if (theirs && amount > 0) motif = blend(me, theirs, amount, bar);
       mine = placeInBar(realize(motif, key, chord, lock, bar, motifCfg), d, bar);
     }
+    // the tonic of an arrival: my motif lifted an octave, every note on the chord
+    if (arrival === "tonic" && mine.length) mine = mine.map((n) => ({ ...n, pitch: n.pitch + 12, freq: n.freq * 2 }));
     // now and then the whole bar an octave (or two) away, so the voice is not always in one register
     const octEvery = p.motifOctaveEvery ?? 0;
-    if (mine.length && octEvery > 0) {
+    if (mine.length && octEvery > 0 && arrival !== "tonic") {
       const r = rng(hashString(`${me.id}#oct#${bar}`));
       if (r() < 1 / octEvery) {
         const range = Math.max(1, Math.round(p.motifOctaveRange ?? 1));
@@ -160,20 +202,29 @@ export function planBar(inp: BarInputs): BarPlan {
     others.push({ o: n.o, notes });
   }
 
-  // bass: the root of the place on the downbeat while on a path
+  // bass: the root of the place on the downbeat while on a path; the arrival's tonic lands on a downbeat too
   const bass: BarPlan["bass"] = [];
   if (sig.pathP >= p.bassFrom) {
     const level = Math.min(1, (sig.pathP - p.bassFrom) / (1 - p.bassFrom) + 0.25);
     const pitch = 36 + chord.rootClass; // C2 … B2
     bass.push({ at: 0, pitch, level });
     if (d === 2) bass.push({ at: 0.5, pitch, level: level * 0.7 });
-  }
+  } else if (arrival === "tonic") bass.push({ at: 0, pitch: 36 + chord.rootClass, level: 1 });
 
-  // pad: the chord held while building
-  const padLevel = sig.stay * company;
+  // pad: the chord held while building; the cadence brings it in at once (the dominant leaning, the tonic full)
+  let padLevel = sig.stay * company;
+  if (arrival === "dominant") padLevel = Math.max(padLevel, 0.7);
+  if (arrival === "tonic") padLevel = 1;
   const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 
-  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad };
+  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival };
+}
+
+/** The dominant seventh of `key` (degree 4), unless the chord is already it. */
+export function dominantOf(key: WorldKey, chord: PlaceChord): PlaceChord {
+  if (chord.degree === 4) return chord;
+  const classes = diatonicChord(key.mode, 4, 4).map((t) => (key.root + t) % 12);
+  return { band: chord.band, degree: 4, classes, rootClass: (key.root + key.mode.intervals[4]) % 12 };
 }
 
 /** Bar index and the AudioContext time of its start, from the epoch on the wall clock (shared by every tab). */

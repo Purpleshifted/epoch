@@ -21,7 +21,7 @@
 import { chordName, magentaChordName, type WorldKey } from "./harmony";
 import { Magenta } from "./magenta";
 import { makeMotif, midiToHz, realize, type Motif } from "./motif";
-import { barClock, lockOf, planBar, type BarPlan } from "./sequencer";
+import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
@@ -108,6 +108,11 @@ export interface SoundParams {
   zoneTonality: boolean;
   zoneRing: number;
   zoneMargin: number;
+  /** Width of the ground's chord bands (cells): how far a walk goes before the chord moves on. */
+  bandCells: number;
+  /** The arrival cadence (v4 A4b): on/off, and how much the hall opens on it (0..1 of reverbMax). */
+  arrival: boolean;
+  arrivalHall: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -168,8 +173,11 @@ export const DEFAULT_SOUND: SoundParams = {
   motifOctaveEvery: 3,
   motifOctaveRange: 1,
   zoneTonality: true,
-  zoneRing: 4,
+  zoneRing: 8, // 4 before A4b: at walking speed the ring went by in under a second
   zoneMargin: 0.15,
+  bandCells: 12,
+  arrival: true,
+  arrivalHall: 1,
   ncDull: 1,
   bassSpread: 0.7, // v4 A2e: its own long dark room
   bassDub: 0.45,
@@ -284,6 +292,12 @@ export class SoundEngine {
   /** The key of the building zone I am in (kept across bars for the hysteresis); null in the open. */
   private zoneKey: WorldKey | null = null;
   private placeLine = "";
+  /** The arrival cadence (sequencer.ts nextArrival) and the sealed slabs I have already seen near me. */
+  private arrivalState: ArrivalState = ARRIVAL_IDLE;
+  private seenSlabs: Set<string> | null = null;
+  /** 1 right after an arrival's tonic, fading: the hall stays open a moment. */
+  private arrivalGlow = 0;
+  private arrivalAt = 0;
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
@@ -301,7 +315,7 @@ export class SoundEngine {
       phrase: this.phrase ? `${this.phrase.kind} @${this.phrase.from}` : null,
       voices: this.voices.size,
       nc: this.ncStatus + (this.nc ? " → engine" : ""),
-      place: this.placeLine,
+      place: this.placeLine + (this.lastPlan?.arrival ? ` · 도착 ${this.lastPlan.arrival}` : ""),
     };
   }
 
@@ -395,16 +409,30 @@ export class SoundEngine {
     this.lockedBars = lock >= 0.6 ? this.lockedBars + 1 : 0;
     this.askMagenta(bar, sig, lock);
     if (this.phrase && bar - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
+    // the arrival: beginning to build together, or a building born beside me (a sealed slab I had not seen)
+    const near = sig.nearSlabs ?? [];
+    let born = false;
+    if (this.seenSlabs) for (const k of near) if (!this.seenSlabs.has(k)) born = true;
+    this.seenSlabs = new Set(near);
+    const together = sig.stay > 0.5 && sig.neighbours.length > 0;
+    const step = nextArrival(this.arrivalState, bar, together, born);
+    this.arrivalState = step.state;
+    const arrival = p.arrival ? step.phase : null;
+    if (arrival === "tonic" && this.ctx) {
+      this.arrivalGlow = 1;
+      this.arrivalAt = this.ctx.currentTime;
+    }
     const plan = planBar({
       bar,
       sig,
       key,
       place: this.placeFor(sig),
+      arrival,
       me: this.me.motif,
       others: this.motifs,
       closeness: this.closeness,
       phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25, motifEvery: p.motifEvery, microtone: p.microtone, motifOctaveEvery: p.motifOctaveEvery, motifOctaveRange: p.motifOctaveRange },
+      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: 0.25, motifEvery: p.motifEvery, microtone: p.microtone, motifOctaveEvery: p.motifOctaveEvery, motifOctaveRange: p.motifOctaveRange, bandCells: p.bandCells },
     });
     this.plans.set(bar, plan);
     for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
@@ -647,8 +675,10 @@ export class SoundEngine {
     this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
     // rooms: open ground → concrete → the hall of building together
     const company = Math.min(1, sig.neighbours.length / 2);
-    const hall = params.reverbMax * sig.stay * company;
-    this.rooms.hall.gain.setTargetAtTime(hall, t, 0.8);
+    // the arrival opens the hall at once and lets it close over ~6 s
+    const glow = this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6);
+    const hall = Math.max(params.reverbMax * sig.stay * company, params.reverbMax * params.arrivalHall * glow);
+    this.rooms.hall.gain.setTargetAtTime(hall, t, glow > 0.3 ? 0.15 : 0.8);
     this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
     this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
 
@@ -865,9 +895,9 @@ export class SoundEngine {
     if (this.params.bassDub > 0) hit(at + 0.17, level * this.params.bassDub);
   }
 
-  private setPad(pitches: number[], level: number, at: number): void {
+  private setPad(pitches: number[], level: number, at: number, fast = false): void {
     const { oscs, gains, level: lv } = this.pad;
-    lv.gain.setTargetAtTime(level * this.params.padLevel * 0.25, at, 0.6);
+    lv.gain.setTargetAtTime(level * this.params.padLevel * 0.25, at, fast ? 0.12 : 0.6);
     for (let i = 0; i < oscs.length; i++) {
       const p = pitches[i];
       if (p == null) {
@@ -963,6 +993,6 @@ export class SoundEngine {
     // "both" (the artist: 병행) keeps the Web Audio bass and pad beside the patch
     const alone = p.instrument === "noisecraft";
     if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level);
-    this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level, nextStart);
+    this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level, nextStart, plan.arrival === "tonic");
   }
 }

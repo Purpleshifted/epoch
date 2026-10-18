@@ -190,3 +190,45 @@ describe("a building's place in the plan (v4 A4)", () => {
     expect(inside.pad.pitches.slice(1).every((p) => inside.chord.classes.includes(((p % 12) + 12) % 12))).toBe(true);
   });
 });
+
+describe("the arrival cadence (v4 A4b)", () => {
+  it("begins on the edge of building together (or a birth while together), once, with a breath between", async () => {
+    const { ARRIVAL_IDLE, nextArrival } = await import("./sequencer");
+    let s = ARRIVAL_IDLE;
+    let r = nextArrival(s, 10, false, false); s = r.state; expect(r.phase).toBeNull();
+    r = nextArrival(s, 11, true, false); s = r.state; expect(r.phase).toBe("dominant");
+    r = nextArrival(s, 12, true, false); s = r.state; expect(r.phase).toBe("tonic");
+    r = nextArrival(s, 13, true, false); s = r.state; expect(r.phase).toBeNull();
+    r = nextArrival(s, 14, true, true); s = r.state; expect(r.phase).toBeNull(); // a birth, but within the cooldown
+    r = nextArrival(s, 20, true, true); s = r.state; expect(r.phase).toBe("dominant"); // a birth while together, after the breath
+    r = nextArrival(s, 21, true, false); s = r.state; expect(r.phase).toBe("tonic");
+    r = nextArrival(s, 30, false, false); s = r.state; expect(r.phase).toBeNull();
+    r = nextArrival(s, 31, false, true); s = r.state; expect(r.phase).toBeNull(); // a birth alone: no cadence
+  });
+
+  it("the dominant bar leans (V7, the pad up), the tonic bar arrives (the place's chord, pad full, lock 1, my motif lifted, a downbeat)", async () => {
+    const { planBar, dominantOf } = await import("./sequencer");
+    const { makeMotif } = await import("./motif");
+    const { worldKey, placeChord } = await import("./harmony");
+    const key = worldKey("t");
+    const me = makeMotif("v_arr");
+    const sig = { x: 3, z: 3, speed: 0, stay: 1, neighbours: [{ o: "b", dist: 2, angle: 0, bot: true }], pathP: 0, sealed: 0, grass: 0 };
+    const base = { sig, key, me, others: new Map(), closeness: new Map(), phrase: null as null, params: { barSec: 2, speedMax: 7, bassFrom: 0.25, motifEvery: 100 } };
+    const plain = planBar({ ...base, bar: 4 });
+    const dom = planBar({ ...base, bar: 4, arrival: "dominant" });
+    const ton = planBar({ ...base, bar: 6, arrival: "tonic" });
+    const placeC = placeChord(key, 3, 3, { modes: [2, 3, 4, 5], bands: 16, bandCells: 12, chordSize: 4 });
+    expect(plain.chord).toEqual(placeC);
+    expect(dom.chord).toEqual(dominantOf(key, placeC));
+    expect(dom.chord.degree).toBe(4);
+    expect(dom.pad.level).toBeGreaterThanOrEqual(0.7);
+    expect(ton.chord).toEqual(placeC);
+    expect(ton.pad.level).toBe(1);
+    expect(ton.lock).toBe(1);
+    expect(ton.me.length).toBeGreaterThan(0); // forced in spite of motifEvery 100
+    expect(ton.bass[0]).toEqual({ at: 0, pitch: 36 + placeC.rootClass, level: 1 });
+    expect(ton.arrival).toBe("tonic");
+    const wide = planBar({ ...base, bar: 4, params: { ...base.params, bandCells: 4 } });
+    expect(wide.chord).toEqual(placeChord(key, 3, 3, { modes: [2, 3, 4, 5], bands: 16, bandCells: 4, chordSize: 4 }));
+  });
+});
