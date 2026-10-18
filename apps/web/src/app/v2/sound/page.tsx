@@ -15,12 +15,12 @@ import { KEY_NAMES, chordName, worldKey } from "@/lib/sound/harmony";
 import { makeMotif } from "@/lib/sound/motif";
 import { NoiseCraftDriver, type DriverStatus } from "@/lib/sound/noisecraftDriver";
 import { KNOB_MAPS } from "@/lib/sound/noisecraftKnobs";
+import { loadPatchChoice, savePatchChoice } from "@/lib/sound/patchChoice";
 import { PULSES_PER_BAR, PULSES_PER_STEP, modeOfPlan, planToSequences } from "@/lib/sound/noisecraftMap";
 import { planBar, type BarPlan } from "@/lib/sound/sequencer";
 import type { BuildingSignal, Neighbour, PersonalSignals } from "@/lib/sound/signals";
 import { bestKey, keyName, zoneChord, zoneOf } from "@/lib/sound/tonality";
 
-const PATCH = "nc_noise_patch.ncft";
 
 const sig = (over: Partial<PersonalSignals>): PersonalSignals => ({ x: 0, z: 0, speed: 0, stay: 0, neighbours: [], pathP: 0, sealed: 0, grass: 0.5, ...over });
 const bots: Neighbour[] = [
@@ -87,6 +87,25 @@ export default function SoundBench() {
   const [playing, setPlaying] = useState(false);
   const [status, setStatus] = useState<DriverStatus | null>(null);
   const [log, setLog] = useState<LogRow[]>([]);
+  // the patch (A5l): any .ncft of noisecraft/examples; the choice is shared with the player
+  const [patch, setPatch] = useState<string>(loadPatchChoice);
+  const [patches, setPatches] = useState<string[]>([]);
+  const patchRef = useRef(patch);
+  const driverRef = useRef<NoiseCraftDriver | null>(null);
+  useEffect(() => {
+    fetch("/noisecraft/list-patches")
+      .then((r) => r.json())
+      .then((j: { patches?: { filename: string }[] }) => setPatches((j.patches ?? []).map((x) => x.filename).sort()))
+      .catch(() => setPatches([]));
+  }, []);
+  useEffect(() => {
+    savePatchChoice(patch);
+    if (patchRef.current !== patch) {
+      patchRef.current = patch;
+      driverRef.current?.bridge.loadPatch(patch);
+      setLog([]);
+    }
+  }, [patch]);
   // knob registration (A5f)
   const [slots, setSlots] = useState<KnobSlot[]>(loadSlots);
   const [armed, setArmed] = useState<number | null>(null); // the row waiting for a knob (slots.length = the blank row)
@@ -162,11 +181,13 @@ export default function SoundBench() {
       setArmed(null);
       setFlash(`노브 ${nodeId} (${info.name}) 등록`);
     };
-    driver.mount(host.current, PATCH, true);
+    driverRef.current = driver;
+    driver.mount(host.current, patchRef.current, true);
     const id = setInterval(() => setStatus(driver.status), 500);
     return () => {
       clearInterval(id);
       driver.bridge.onNodeClicked = undefined;
+      driverRef.current = null;
       driver.dispose();
     };
   }, [key, me, others]);
@@ -192,6 +213,16 @@ export default function SoundBench() {
           <select className="bg-black/40 px-1" value={scenario} onChange={(e) => setScenario(e.target.value as keyof typeof SCENARIOS)}>
             {Object.keys(SCENARIOS).map((k) => (
               <option key={k}>{k}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          패치{" "}
+          <select className="bg-black/40 px-1" value={patch} onChange={(e) => setPatch(e.target.value)}>
+            {(patches.includes(patch) ? patches : [patch, ...patches]).map((f) => (
+              <option key={f} value={f}>
+                {f.replace(/\.ncft$/, "")}
+              </option>
             ))}
           </select>
         </label>

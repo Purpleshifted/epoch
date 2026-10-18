@@ -12,9 +12,11 @@
 import { useEffect, useRef } from "react";
 import { NoiseCraftDriver } from "@/lib/sound/noisecraftDriver";
 import { PULSES_PER_BAR, PULSES_PER_STEP } from "@/lib/sound/noisecraftMap";
+import { DEFAULT_PATCH, loadPatchChoice } from "@/lib/sound/patchChoice";
 import type { SoundSetup } from "./useSound";
 
-export const NC_PATCH = "nc_noise_patch.ncft";
+/** The default patch; the bench's choice (patchChoice.ts) overrides it. */
+export const NC_PATCH = DEFAULT_PATCH;
 
 export default function NoiseCraftHost({ sound, live }: { sound: SoundSetup; live: boolean }) {
   const host = useRef<HTMLDivElement>(null);
@@ -38,11 +40,11 @@ export default function NoiseCraftHost({ sound, live }: { sound: SoundSetup; liv
     });
     // the patch plays into the engine (building dullness by ncDull, master, the lifespan's dulling)
     driver.bridge.onStream = (s) => engine.attachNoiseCraft(s);
-    driver.mount(host.current, NC_PATCH, false, true);
+    driver.mount(host.current, loadPatchChoice(), false, true);
     const id = setInterval(() => {
       const s = driver.status;
       const clock = s.clocked ? `${(s.pulseHz / PULSES_PER_STEP).toFixed(1)} steps/s · bar ${s.pulseHz > 0 ? (PULSES_PER_BAR / s.pulseHz).toFixed(2) : "–"} s (sent ${s.barSecSent.toFixed(2)})` : "no ClockOut: wall-clock bars";
-      engine.ncStatus = `nc ${s.audio} · ${clock} · bar ${s.bar} · ${s.mode}${s.knobs ? ` · 노브 ${s.knobs}` : ""}`;
+      engine.ncStatus = `nc ${s.audio} (${s.patch.replace(/\.ncft$/, "")}) · ${clock} · bar ${s.bar} · ${s.mode}${s.knobs ? ` · 노브 ${s.knobs}` : ""}`;
     }, 500);
     return () => {
       clearInterval(id);

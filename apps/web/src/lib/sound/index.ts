@@ -10,3 +10,4 @@ export * from "./NoiseCraftBridge";
 export * from "./noisecraftMap";
 export * from "./noisecraftDriver";
 export * from "./noisecraftKnobs";
+export * from "./patchChoice";
