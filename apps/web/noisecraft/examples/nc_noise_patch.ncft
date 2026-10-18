@@ -290,8 +290,8 @@
         ""
       ],
       "params": {
-        "minVal": 120,
-        "maxVal": 120,
+        "minVal": 30,
+        "maxVal": 300,
         "value": 120,
         "deviceId": null,
         "controlId": null
