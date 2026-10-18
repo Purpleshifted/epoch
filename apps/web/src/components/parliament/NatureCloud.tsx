@@ -41,12 +41,15 @@ function dotTexture(): THREE.Texture {
 export function NatureCloud({
   playerPosRef,
   getStress,
+  getSow,
   getSnapshot,
   cfg,
   pointSize = 0.11,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   getStress: () => Map<string, number> | null;
+  /** What the trees have sown per cell (nature.ts sowMap); absent = nothing. */
+  getSow?: () => Map<string, number> | null;
   getSnapshot: () => Snapshot | null;
   cfg: NatureConfig;
   pointSize?: number;
@@ -75,6 +78,7 @@ export function NatureCloud({
     timer.current = 0;
     laidAt.current = { x: p.x, z: p.z };
     const stress = getStress();
+    const sow = getSow?.() ?? null;
     const snap = getSnapshot();
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
     const col = geom.getAttribute("color") as THREE.BufferAttribute;
@@ -103,7 +107,7 @@ export function NatureCloud({
         const key = `${wx},${wz}`;
         const S = stress?.get(key) ?? 0;
         const pp = pathAt.get(key) ?? 0;
-        const G = grassDensity(wx, wz, S, pp, sealed.has(key), cfg);
+        const G = grassDensity(wx, wz, S, pp, sealed.has(key), cfg, sow?.get(key) ?? 0);
         const worn = 1 - Math.exp(-S); // 0 fresh .. 1 trampled
 
         for (let i = 0; i < cfg.pointsPerCell; i++) {

@@ -14,6 +14,7 @@ import {
   FoldState,
   LS_EVENTS_KEY,
   StressState,
+  sowSource,
   currentEpochKey,
   keepFromS,
   keepWindowSec,
@@ -160,15 +161,24 @@ export function useFoldState(log: EventLog, cfg: FoldConfig, opts?: FoldStateOpt
 
 /** The vegetation stress of this tab's log as a growing state (foldState.ts StressState); same as stressMap. */
 export function useStressState(log: EventLog, cfg: NatureConfig): (sView: number, region?: Region) => Map<string, number> {
+  return useSumState(log, cfg, "stress");
+}
+
+/** The trees' sowing of this tab's log as a growing state; same as sowMap. */
+export function useSowState(log: EventLog, cfg: NatureConfig): (sView: number, region?: Region) => Map<string, number> {
+  return useSumState(log, cfg, "sow");
+}
+
+function useSumState(log: EventLog, cfg: NatureConfig, which: "stress" | "sow"): (sView: number, region?: Region) => Map<string, number> {
   const ref = useRef<(Fed<StressState> & { cfg: NatureConfig }) | null>(null);
   return useCallback(
     (sView: number, region?: Region) => {
       let h = ref.current;
-      if (!h || h.cfg !== cfg) h = ref.current = { cfg, state: new StressState(cfg), fed: 0, drops: log.drops };
+      if (!h || h.cfg !== cfg) h = ref.current = { cfg, state: new StressState(cfg, which === "sow" ? sowSource(cfg) : undefined), fed: 0, drops: log.drops };
       feed(log, h);
       return h.state.at(sView, region);
     },
-    [log, cfg],
+    [log, cfg, which],
   );
 }
 
@@ -262,6 +272,9 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
     pathBite: { value: DEFAULT_NATURE.pathBite, min: 0, max: 1, step: 0.05, label: "길이 초목을 지우는 정도" },
     sealedLeft: { value: DEFAULT_NATURE.sealedLeft, min: 0, max: 1, step: 0.05, label: "콘크리트 아래 남는 초목" },
     carWear: { value: DEFAULT_NATURE.carWear ?? 4, min: 0, max: 20, step: 0.5, label: "자동차의 훼손 배수 (회사원 = 1 · 고양이·나무 0)" },
+    sowRadius: { value: DEFAULT_NATURE.sowRadius ?? 1.8, min: 0.5, max: 6, step: 0.1, label: "나무 씨앗: 반경 (월드)" },
+    sowDose: { value: DEFAULT_NATURE.sowDose ?? 0.5, min: 0.05, max: 2, step: 0.05, label: "나무 씨앗: 한 알이 더하는 밀도" },
+    sowSec: { value: DEFAULT_NATURE.sowSec ?? 900, min: 30, max: 3600, step: 30, label: "나무 씨앗: 남는 시간 (s)" },
   };
   // how the player view draws its point cloud (meaningless elsewhere)
   const drawing = {
@@ -274,13 +287,13 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
     collapsed: place.collapsed,
     order: place.order,
   }) as Record<string, number>;
-  const { lingerRadius, dose, recoverSec, pathBite, sealedLeft, carWear } = c;
+  const { lingerRadius, dose, recoverSec, pathBite, sealedLeft, carWear, sowRadius, sowDose, sowSec } = c;
   const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;
   const pointSize = c.pointSize ?? 0.11;
   const pathLine = c.pathLine ?? 1;
   const cfg = useMemo(
-    () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, carWear }),
-    [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, carWear],
+    () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, carWear, sowRadius, sowDose, sowSec }),
+    [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell, carWear, sowRadius, sowDose, sowSec],
   );
   return { cfg, pointSize, pathLine };
 }

@@ -38,6 +38,8 @@ export interface Observation {
   surface: Surface;
   /** Everyone whose latest sample is within `watchRadius`, nearest first. */
   others: Other[];
+  /** Seeds the visitor has scattered so far (events k = "s" of their own); absent = none. */
+  sown?: number;
 }
 
 export interface WitnessConfig {
@@ -102,7 +104,9 @@ export function observe(inp: ObserveInputs): Observation {
   // the two latest samples of everyone else (not from the future, not too old)
   const last = new Map<string, PEvent>();
   const prev = new Map<string, PEvent>();
+  let sown = 0;
   for (const e of events) {
+    if (e.k === "s" && e.o === me.id && e.s <= sNow) sown++;
     if (e.k !== "p" || e.o === me.id || e.s > sNow || e.s < sNow - cfg.recentSec) continue;
     const l = last.get(e.o);
     if (!l || e.s > l.s) {
@@ -132,7 +136,7 @@ export function observe(inp: ObserveInputs): Observation {
     else if (snap.paths.some((p) => p.key === key && p.p >= cfg.trodden)) surface = "trodden";
   }
   const speed = Math.hypot(me.vx, me.vz);
-  return { t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others };
+  return { t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, sown };
 }
 
 /** A state that is only taken over once a new value has held for `settleSec`. */
@@ -184,6 +188,7 @@ export class WitnessLog {
   private surface: Settled<Surface> | null = null;
   private near = new Map<string, NearState>();
   private last: Observation | null = null;
+  private sown = 0;
   /** Totals over the session (for the end screen). */
   private totals = { stillSec: 0, nearSec: 0, met: new Set<string>(), metByRole: new Map<RoleId, number>(), attempts: 0 };
 
@@ -229,6 +234,12 @@ export class WitnessLog {
     } else {
       if (this.moving.feed(obs.moving, obs.t, settleSec)) w(`YOU  ${obs.moving ? "MOVING" : "STATIONARY"}`);
       if (this.surface.feed(obs.surface, obs.t, settleSec)) w(`SURFACE  ${SURFACE_WORD[obs.surface]}`);
+    }
+
+    // seed scattered (a tree): the count only
+    if ((obs.sown ?? 0) > this.sown) {
+      this.sown = obs.sown ?? 0;
+      w(`YOU  SCATTERED SEED · ${this.sown}`);
     }
 
     // who came near / left

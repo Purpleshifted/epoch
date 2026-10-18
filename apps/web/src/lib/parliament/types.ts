@@ -31,9 +31,10 @@ export const ROLE_IMPLEMENTED: Record<RoleId, boolean> = {
  * One spacetime event. Compact on purpose: the log is mirrored into localStorage.
  *   k = "p": presence sample (the visitor stood or walked here; stands for `sampleSec` seconds)
  *   k = "x": the visitor's life ended here (V2 session): what a role leaves as a THING — a car its wreck (seeds.ts)
+ *   k = "s": a seed landed here (a tree's scattering, nature.ts sowing): vegetation grows from it
  */
-export type EventKind = "p" | "x";
-export const EVENT_KINDS: readonly EventKind[] = ["p", "x"];
+export type EventKind = "p" | "x" | "s";
+export const EVENT_KINDS: readonly EventKind[] = ["p", "x", "s"];
 
 export interface PEvent {
   id: string;

@@ -6,9 +6,12 @@
  * literature-backed laws (docs/urban-*-research.md) can replace them later without touching the
  * renderer, because everything goes through `grassDensity`.
  *
- *   G(cell) = G0(cell) · exp(−S(cell)) · (1 − pathBite·p(cell)) · (sealed ? sealedLeft : 1)
+ *   G(cell) = min(1, G0(cell) + T(cell)) · exp(−S(cell)) · (1 − pathBite·p(cell)) · (sealed ? sealedLeft : 1)
  *
  * G0   base density: smooth noise (patches of meadow / bare ground), deterministic.
+ * T    sowing: every seed event (k = "s", a TREE's scattering) adds `sowDose · w(d)` to the cells within
+ *      `sowRadius` and fades with e-folding time `sowSec` (long): new plants, which still wear (S), are
+ *      bitten by paths and buried by concrete like the rest.
  * S    stress: every worker presence sample (x, z, s) adds `dose · w(d)` to the cells within
  *      `lingerRadius` (w = linear kernel), and that dose fades with e-folding time `recoverSec`.
  *      A worker who lingers digs S up, so G falls; when they leave, S decays and G recovers.
@@ -36,7 +39,36 @@ export interface NatureConfig {
   pointsPerCell: number;
   /** How hard a CAR wears the vegetation, relative to a worker (absent = DEFAULT_CAR_WEAR). */
   carWear?: number;
+  /** A TREE's seed (event k = "s"): world radius it greens, density it adds at its centre, e-folding time (s) it lasts. */
+  sowRadius?: number;
+  sowDose?: number;
+  sowSec?: number;
 }
+
+export const DEFAULT_SOW = { sowRadius: 1.8, sowDose: 0.5, sowSec: 900 };
+
+/**
+ * One source of per-cell sums (stressMap / StressState): which events, their weight by role, the kernel radius,
+ * the dose at the centre and the e-folding time. Stress (wear) and sowing are the two sources.
+ */
+export interface SumSource {
+  kind: "p" | "s";
+  weight: (role: RoleId) => number;
+  radius: number;
+  dose: number;
+  tau: number;
+}
+
+/** The wear of presence: a worker 1, a car carWear, the rest nothing. */
+export const stressSource = (cfg: NatureConfig): SumSource => ({ kind: "p", weight: (r) => wearOf(r, cfg), radius: cfg.lingerRadius, dose: cfg.dose, tau: cfg.recoverSec });
+/** The greening of seeds: a tree's only. */
+export const sowSource = (cfg: NatureConfig): SumSource => ({
+  kind: "s",
+  weight: (r) => (r === "tree" ? 1 : 0),
+  radius: cfg.sowRadius ?? DEFAULT_SOW.sowRadius,
+  dose: cfg.sowDose ?? DEFAULT_SOW.sowDose,
+  tau: cfg.sowSec ?? DEFAULT_SOW.sowSec,
+});
 
 export const DEFAULT_CAR_WEAR = 4;
 
@@ -57,6 +89,7 @@ export const DEFAULT_NATURE: NatureConfig = {
   dose: 0.12,
   recoverSec: 45,
   carWear: DEFAULT_CAR_WEAR,
+  ...DEFAULT_SOW,
   pathBite: 0.95,
   sealedLeft: 0.05,
   pointsPerCell: 28,
@@ -101,20 +134,25 @@ export interface StressRegion {
  * Worker-induced stress per cell at viewing time `sView`. Only events with s <= sView count
  * (same causality as the fold). Returns Map "ix,iz" -> S (>= 0).
  */
-export function stressMap(
-  events: readonly PEvent[],
-  sView: number,
-  cfg: NatureConfig,
-  region?: StressRegion,
-): Map<string, number> {
+export function stressMap(events: readonly PEvent[], sView: number, cfg: NatureConfig, region?: StressRegion): Map<string, number> {
+  return sumMap(events, sView, stressSource(cfg), region);
+}
+
+/** The sowing per cell ("cx,cz" → T) at `sView`: what the trees' seeds have added. */
+export function sowMap(events: readonly PEvent[], sView: number, cfg: NatureConfig, region?: StressRegion): Map<string, number> {
+  return sumMap(events, sView, sowSource(cfg), region);
+}
+
+/** A per-cell sum of one source's events, each a linear kernel of its radius, decayed from its time to `sView`. */
+export function sumMap(events: readonly PEvent[], sView: number, src: SumSource, region?: StressRegion): Map<string, number> {
   const out = new Map<string, number>();
-  const n = Math.ceil(cfg.lingerRadius / CELL_SIZE);
-  const reach = region ? region.r + cfg.lingerRadius : Infinity;
+  const n = Math.ceil(src.radius / CELL_SIZE);
+  const reach = region ? region.r + src.radius : Infinity;
   for (const e of events) {
-    if (e.k !== "p" || e.s > sView) continue;
-    const wear = wearOf(e.r, cfg);
-    if (wear <= 0) continue;
-    const decay = Math.exp(-(sView - e.s) / cfg.recoverSec) * wear;
+    if (e.k !== src.kind || e.s > sView) continue;
+    const w = src.weight(e.r);
+    if (w <= 0) continue;
+    const decay = Math.exp(-(sView - e.s) / src.tau) * w;
     if (decay < 0.01) continue;
     if (region && wrapDist(e.x, e.z, region.x, region.z) > reach) continue;
     const cx0 = Math.floor(e.x / CELL_SIZE);
@@ -122,17 +160,17 @@ export function stressMap(
     for (let dx = -n; dx <= n; dx++) {
       for (let dz = -n; dz <= n; dz++) {
         const d = Math.hypot((cx0 + dx + 0.5) * CELL_SIZE - e.x, (cz0 + dz + 0.5) * CELL_SIZE - e.z);
-        if (d >= cfg.lingerRadius) continue;
+        if (d >= src.radius) continue;
         const key = `${wrapCell(cx0 + dx)},${wrapCell(cz0 + dz)}`;
-        out.set(key, (out.get(key) ?? 0) + cfg.dose * (1 - d / cfg.lingerRadius) * decay);
+        out.set(key, (out.get(key) ?? 0) + src.dose * (1 - d / src.radius) * decay);
       }
     }
   }
   return out;
 }
 
-/** Vegetation density of one cell (0..1). */
-export function grassDensity(ix: number, iz: number, stress: number, pathP: number, sealed: boolean, cfg: NatureConfig): number {
-  const g = baseGrass(ix, iz) * Math.exp(-stress) * (1 - cfg.pathBite * pathP);
+/** Vegetation density of one cell (0..1): the base plus what was sown, worn by stress, bitten by paths, buried by concrete. */
+export function grassDensity(ix: number, iz: number, stress: number, pathP: number, sealed: boolean, cfg: NatureConfig, sow = 0): number {
+  const g = Math.min(1, baseGrass(ix, iz) + sow) * Math.exp(-stress) * (1 - cfg.pathBite * pathP);
   return sealed ? g * cfg.sealedLeft : g;
 }

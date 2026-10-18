@@ -30,7 +30,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { FOLD_EPS, FOLD_MIN_ALPHA, FOLD_MIN_FOOT, rawHeightOf, type Region } from "./fold";
 import { MAX_STEP_SEC, flowAxis, flowP, stayShareOf, treadCells, treadOf, type FlowConfig } from "./flow";
-import { wearOf, type NatureConfig } from "./nature";
+import { stressSource, type NatureConfig, type SumSource } from "./nature";
 import type { Contributor, FoldConfig, PathCell, PEvent, Slab, Snapshot } from "./types";
 import { wrapCell, wrapCoord, wrapDelta, wrapDist } from "./world";
 
@@ -725,6 +725,7 @@ export class FoldState {
  * The vegetation stress (nature.ts stressMap) as a state: S(cell, t) = Σ dose · w · e^(−(t − s)/recoverSec) is a sum
  * whose order does not matter, so every sample is added once (when the viewer's time has reached it) as
  * dose · w · e^((s − ref)/recoverSec), and a reading is the per-cell sum times e^(−(t − ref)/recoverSec).
+ * The same state over another source (nature.ts sowSource: a tree's seeds) is the sowing (sowMap).
  */
 export class StressState {
   private readonly seen = new Set<string>();
@@ -732,14 +733,20 @@ export class StressState {
   private readonly x: number[] = [];
   private readonly z: number[] = [];
   private readonly id: string[] = [];
-  /** The role's wear (nature.ts wearOf). */
+  /** The event's weight (the source's: a role's wear, or 1 for a tree's seed). */
   private readonly k: number[] = [];
   private absorbed = 0;
   private sView = -Infinity;
   private ref = 0;
   private readonly a = new Map<number, { cx: number; cz: number; v: number }>();
+  readonly src: SumSource;
 
-  constructor(readonly cfg: NatureConfig) {}
+  constructor(
+    readonly cfg: NatureConfig,
+    source?: SumSource,
+  ) {
+    this.src = source ?? stressSource(cfg);
+  }
 
   has(id: string): boolean {
     return this.seen.has(id);
@@ -748,8 +755,8 @@ export class StressState {
   add(e: PEvent): boolean {
     if (this.seen.has(e.id)) return false;
     this.seen.add(e.id);
-    if (e.k !== "p") return true;
-    const wear = wearOf(e.r, this.cfg);
+    if (e.k !== this.src.kind) return true;
+    const wear = this.src.weight(e.r);
     if (wear <= 0) return true;
     let lo = 0;
     let hi = this.s.length;
@@ -778,23 +785,23 @@ export class StressState {
   }
 
   private apply(i: number, sign: number): void {
-    const cfg = this.cfg;
-    const k = sign * cfg.dose * this.k[i] * Math.exp((this.s[i] - this.ref) / cfg.recoverSec);
+    const { dose, radius, tau } = this.src;
+    const k = sign * dose * this.k[i] * Math.exp((this.s[i] - this.ref) / tau);
     const x = this.x[i];
     const z = this.z[i];
     const cx0 = Math.floor(x / CELL_SIZE);
     const cz0 = Math.floor(z / CELL_SIZE);
-    const n = Math.ceil(cfg.lingerRadius / CELL_SIZE);
+    const n = Math.ceil(radius / CELL_SIZE);
     for (let dx = -n; dx <= n; dx++) {
       for (let dz = -n; dz <= n; dz++) {
         const d = Math.hypot((cx0 + dx + 0.5) * CELL_SIZE - x, (cz0 + dz + 0.5) * CELL_SIZE - z);
-        if (d >= cfg.lingerRadius) continue;
+        if (d >= radius) continue;
         const cx = wrapCell(cx0 + dx);
         const cz = wrapCell(cz0 + dz);
         const nk = nkOf(cx, cz);
         const cell = this.a.get(nk);
-        if (cell) cell.v += k * (1 - d / cfg.lingerRadius);
-        else this.a.set(nk, { cx, cz, v: k * (1 - d / cfg.lingerRadius) });
+        if (cell) cell.v += k * (1 - d / radius);
+        else this.a.set(nk, { cx, cz, v: k * (1 - d / radius) });
       }
     }
   }
@@ -825,22 +832,22 @@ export class StressState {
 
   /** Stress per cell ("cx,cz" → S) at the viewer's time, within `region` (absent = everywhere). */
   at(sView: number, region?: Region): Map<string, number> {
-    const cfg = this.cfg;
+    const { radius, tau } = this.src;
     if (sView < this.sView) {
       this.a.clear();
       this.absorbed = 0;
       this.ref = sView;
     }
-    if (sView - this.ref > 30 * cfg.recoverSec) {
-      const f = Math.exp(-(sView - this.ref) / cfg.recoverSec);
+    if (sView - this.ref > 30 * tau) {
+      const f = Math.exp(-(sView - this.ref) / tau);
       for (const cell of this.a.values()) cell.v *= f;
       this.ref = sView;
     }
     while (this.absorbed < this.s.length && this.s[this.absorbed] <= sView) this.apply(this.absorbed++, 1);
     this.sView = sView;
-    const f = Math.exp(-(sView - this.ref) / cfg.recoverSec);
+    const f = Math.exp(-(sView - this.ref) / tau);
     const out = new Map<string, number>();
-    const reach = region ? region.r + cfg.lingerRadius : Infinity;
+    const reach = region ? region.r + radius : Infinity;
     for (const cell of this.a.values()) {
       const S = cell.v * f;
       if (S < 1e-4) continue;

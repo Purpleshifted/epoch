@@ -15,8 +15,9 @@
  * V2 session (useLifeSession): the visitor only leaves presence while their session is LIVE; near the end the
  * headset goes dull (muffleSound); after every fold a dry reading of who is near is put in `witnessRef` (HUD).
  * When the life ends an END event (k = "x") is left where they stood: a car's wreck (seeds.ts seedsFromDeaths).
- * `groundRef` gives the controls the ground under any point (a car runs on the roads, roleControls.ts) and a car's
- * starting place (the strongest road near the origin).
+ * `groundRef` gives the controls the ground under any point (a car runs on the roads, roleControls.ts) and a role's
+ * starting place (a car: the strongest road near the origin; a tree: open ground near the others). `sowRef` is the
+ * queue of seeds the controls throw (a tree's click): each becomes a SEED event (k = "s") the vegetation grows from.
  */
 
 import { useEffect, useRef } from "react";
@@ -58,7 +59,7 @@ import { NatureCloud } from "./NatureCloud";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
-import { useFoldState, useStressState, useWorld } from "./useWorld";
+import { useFoldState, useSowState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 
 const VIEW_RADIUS = 24;
@@ -92,9 +93,13 @@ const SPAWN_REACH = 40;
 /** The ground as the controls read it (roleControls.ts): the cell under a point, and where a role starts. */
 export interface GroundLookup {
   at(x: number, z: number): Ground;
-  /** Where a role begins its life: a car on a road (its heading along it); null = where everyone starts. */
+  /** Where a role begins its life: a car on a road (its heading along it), a tree on open ground; null = where everyone starts. */
   spawn(role: RoleId): { x: number; z: number; yaw?: number } | null;
 }
+
+/** A tree roots this far from the origin (world units), on open ground (no road, no concrete). */
+const TREE_RING: [number, number] = [8, 28];
+const TREE_TRIES = 24;
 
 const cellOf = (x: number, z: number) => `${wrapCell(Math.floor(x / CELL_SIZE))},${wrapCell(Math.floor(z / CELL_SIZE))}`;
 
@@ -114,6 +119,7 @@ export function RoleField({
   lifeRef,
   witnessRef,
   groundRef,
+  sowRef,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -138,6 +144,8 @@ export function RoleField({
   witnessRef?: React.MutableRefObject<Observation | null>;
   /** V2: the ground as the controls read it (a car's roads and starting place), renewed after every fold. */
   groundRef?: React.MutableRefObject<GroundLookup | null>;
+  /** V2: seeds thrown by the controls (a tree's click), emitted as SEED events on the next tick. */
+  sowRef?: React.MutableRefObject<{ x: number; z: number }[]>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -148,6 +156,7 @@ export function RoleField({
   // the ground, folded as it grows (foldState.ts): the whole world is folded, the region only chooses what is read
   const fold = useFoldState(log, cfg);
   const stressAt = useStressState(log, natureCfg);
+  const sowAt = useSowState(log, natureCfg);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
   const seq = useRef(0);
   const lastSampleMs = useRef(0);
@@ -167,6 +176,7 @@ export function RoleField({
   }, [role, botCount, botRole, botFlock, cfg, fold]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
+  const sown = useRef<Map<string, number> | null>(null);
   // the player's cells, by key, for the controls (groundRef): paths and sealed ground of the latest regional fold
   const cells = useRef<{ paths: Map<string, PathCell>; sealed: Set<string> }>({ paths: new Map(), sealed: new Set() });
   // the visitor's phase at the last tick: the END event is left on the step out of LIVE
@@ -215,9 +225,25 @@ export function RoleField({
         return { surface: c.sealed.has(k) ? "sealed" : p >= ROAD_P ? "trodden" : "open", p, axis: pc?.axis, align: pc?.align };
       },
       spawn(r) {
-        if (r !== "car" || epochMs.current === 0) return null;
-        // the whole world as it is now: the strongest road near the origin, facing along it
+        if (epochMs.current === 0) return null;
         const all = fold.at(sessionSeconds(worldNow(), epochMs.current, me.current.offset));
+        if (r === "tree") {
+          // open ground in a ring around the origin (where the others are): no road, no concrete; else where everyone starts
+          const roads = new Set<string>();
+          for (const pc of all.paths) if ((pc.level ?? pc.p) >= ROAD_P) roads.add(pc.key);
+          const sealed = new Set<string>();
+          for (const sl of all.slabs) if (sl.h >= SEAL_H) sealed.add(sl.key);
+          for (let i = 0; i < TREE_TRIES; i++) {
+            const a = Math.random() * 2 * Math.PI;
+            const d = TREE_RING[0] + Math.random() * (TREE_RING[1] - TREE_RING[0]);
+            const x = Math.sin(a) * d, z = Math.cos(a) * d;
+            const k = cellOf(x, z);
+            if (!roads.has(k) && !sealed.has(k)) return { x, z };
+          }
+          return null;
+        }
+        if (r !== "car") return null;
+        // the whole world as it is now: the strongest road near the origin, facing along it
         let best: PathCell | null = null;
         for (const pc of all.paths) {
           if (pc.p < ROAD_P || Math.hypot(pc.x, pc.z) > SPAWN_REACH) continue; // p, not level: a clear line to face along
@@ -280,6 +306,11 @@ export function RoleField({
     const phase = lifeRef?.current.phase;
     if (lastPhase.current === "live" && phase === "ended") emit(me.current.id, myRole, "x", p.x, p.z, sessionSeconds(now, epochMs.current, me.current.offset));
     lastPhase.current = phase;
+    // V2: the seeds the controls threw since the last tick (a tree's click) — only while live
+    if (sowRef && sowRef.current.length) {
+      const spots = sowRef.current.splice(0);
+      if (!lifeRef || phase === "live") for (const sp of spots) emit(me.current.id, myRole, "s", sp.x, sp.z, sessionSeconds(now, epochMs.current, me.current.offset));
+    }
 
     for (const w of due) {
       const actors: Actor[] = [];
@@ -321,6 +352,7 @@ export function RoleField({
       const events = log.all();
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      sown.current = sowAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       if (groundRef) {
         const paths = new Map<string, PathCell>();
         for (const pc of snap.current.paths) paths.set(pc.key, pc);
@@ -392,6 +424,7 @@ export function RoleField({
       <NatureCloud
         playerPosRef={playerPosRef}
         getStress={() => stress.current}
+        getSow={() => sown.current}
         getSnapshot={() => snap.current}
         cfg={natureCfg}
         pointSize={pointSize}

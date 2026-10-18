@@ -11,7 +11,8 @@
  *               by how formed the road is, full on sealed ground; off the road it CRAWLS (× crawl) — and scars the
  *               grass (nature.ts wearOf) and treads a new road (flow.ts treadOf)
  *   TREE        rooted: the keys only sway it (it springs back to where it stands), it looks around slowly, and its eye
- *               rises over the lifespan (it grows)
+ *               rises over the lifespan (it grows). A CLICK (a tap) scatters seed ahead of it (SOW): the ground there
+ *               greens (nature.ts sowing) — the tree's only act, and its vote
  *
  * The end of the lifespan (session.ts `hindrance`) slows and drops the input of every role alike.
  * Pure: `stepBody` advances a body by one frame.
@@ -81,12 +82,31 @@ export interface RoleCamera {
   grow?: number;
 }
 
+/** A click's (tap's) act: "sow" throws seed ahead (lib/parliament sowing). */
+export type RoleAct = "sow";
+
 export interface RoleControl {
   motion: RoleMotion;
   look: RoleLook;
   cam: RoleCamera;
+  /** What a click (tap) does while live; absent = nothing (a click only takes the pointer lock). */
+  act?: RoleAct;
   /** What the keys do, as dry machine text (HUD). */
   hint: string;
+}
+
+/** SOW: where a click's seeds land — a fan ahead of the body: `count` spots, within ±spread (rad), reach … reach + throw units. */
+export const SOW = { count: 3, spread: 0.6, reach: 1.2, throw: 3.5, coolSec: 0.2 };
+
+/** The landing spots of one scattering from (x, z) facing `yaw`, with random numbers u (3 per seed). */
+export function sowSpots(x: number, z: number, yaw: number, u: () => number): { x: number; z: number }[] {
+  const out: { x: number; z: number }[] = [];
+  for (let i = 0; i < SOW.count; i++) {
+    const a = yaw + (u() * 2 - 1) * SOW.spread;
+    const d = SOW.reach + u() * SOW.throw;
+    out.push({ x: x + Math.sin(a) * d, z: z + Math.cos(a) * d });
+  }
+  return out;
 }
 
 const WORKER: RoleControl = {
@@ -126,7 +146,8 @@ export const ROLE_CONTROLS: Record<RoleId, RoleControl> = {
     motion: { kind: "rooted", fwd: 0, side: 0, back: 0, response: 0.5, sway: 0.35 },
     look: { yaw: 0.35, pitch: 0.35, pitchMin: 0.3, pitchMax: 1.2 },
     cam: { dist: 0.6, lift: 0.4, grow: 2 },
-    hint: "ROOTED · MOUSE  LOOK",
+    act: "sow",
+    hint: "ROOTED · CLICK  SCATTER SEED · MOUSE  LOOK",
   },
   // V1 roles: they walk like the worker
   shepherd: WORKER,

@@ -73,6 +73,8 @@ export interface LifeSignal {
   warn: number;
   /** 0 … 1 while X is held to stop living (the dark, the sound and the dead controls follow it); 0 otherwise. */
   attempt: number;
+  /** LIVE / ENDED: the role, as soon as the life begins (before React has re-rendered with it — the controls place the body by it). */
+  role?: RoleId;
 }
 
 export interface SessionView {
@@ -329,7 +331,7 @@ export class SessionMachine {
       if (now - v.phaseAt >= VERDICT_SEC * 1000) {
         this.lived = 0;
         this.lastTick = now;
-        this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0 };
+        this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0, role: v.role ?? undefined };
         this.enter("live");
       }
     } else if (v.phase === "live") {
@@ -357,7 +359,7 @@ export class SessionMachine {
           tried = 1;
         }
       }
-      this.lifeRef.current = { phase: "live", t, warn: st.warn, attempt };
+      this.lifeRef.current = { phase: "live", t, warn: st.warn, attempt, role: v.role ?? undefined };
       if (st.over) {
         this.end("lifespan", t);
         return;

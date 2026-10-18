@@ -6,10 +6,11 @@
  * For every ground cell of the world extent and every slot k, V(c, k) is the mean vegetation density during that
  * slot, from exactly the terms of the player view (nature.ts / grassDensity):
  *
- *   V(c,k) = mean over the slot of  baseGrass(c) · exp(−S) · (1 − pathBite·p) · (sealed ? sealedLeft : 1)
+ *   V(c,k) = mean over the slot of  min(1, baseGrass(c) + T) · exp(−S) · (1 − pathBite·p) · (sealed ? sealedLeft : 1)
  *
  *   S      worker stress, carried slot to slot: S_end(k) = S_end(k−1)·exp(−slot/recoverSec) + this slot's doses
  *          (same kernel and decay as stressMap, so S_end(k) equals stressMap at the slot's end)
+ *   T      the trees' sowing (events k = "s"), carried the same way with sowRadius / sowDose / sowSec (sowMap)
  *   p      desire paths, the fold's rule: entries counted per cell, (1 − e^(−n/pathVisits)) · e^(−age/tauPathYears);
  *          V2 (fold.flow): the ground trodden by sustained flow (flow.ts), not trodden where a slab already stands
  *   sealed a slab stands on the cell: from the seed's birth for as long as its height (the fold's wear,
@@ -21,7 +22,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { cellKey, flowLevel, flowP, flowTracks, seedsInUse, stayShares } from "./flow";
-import { grassDensity, hash2, type NatureConfig } from "./nature";
+import { grassDensity, hash2, sowSource, type NatureConfig } from "./nature";
 import { partAgeYears, seedAgeYears, type Box, type Seed } from "./seeds";
 import type { FoldConfig, PEvent } from "./types";
 import { wrapCell } from "./world";
@@ -137,6 +138,14 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
   }
 
   const S = new Float64Array(nc2);
+  // the trees' sowing, in time order, carried slot to slot like S
+  const sow = sowSource(nc);
+  const seedEv = events.filter((e) => e.k === sow.kind && sow.weight(e.r) > 0).sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const T = new Float64Array(nc2);
+  const Tstart = new Float64Array(nc2);
+  const nT = Math.ceil(sow.radius / CELL_SIZE);
+  const fallT = Math.exp(-spu / sow.tau);
+  let si = 0;
   const visitsN = new Float64Array(nc2);
   const visitsLast = new Float64Array(nc2).fill(-1);
   const lastCell = new Map<string, number>();
@@ -153,10 +162,32 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
     const tEnd = (k + 1) * spu;
     const emit = k >= k0;
     if (emit) {
-      // stress at the slot's start (carried from the previous slot's end); paths and seal are taken at its end
-      for (let i = 0; i < nc2; i++) Sstart[i] = S[i];
+      // stress and sowing at the slot's start (carried from the previous slot's end); paths and seal are taken at its end
+      for (let i = 0; i < nc2; i++) {
+        Sstart[i] = S[i];
+        Tstart[i] = T[i];
+      }
     }
-    for (let i = 0; i < nc2; i++) S[i] *= fall;
+    for (let i = 0; i < nc2; i++) {
+      S[i] *= fall;
+      T[i] *= fallT;
+    }
+    for (; si < seedEv.length && seedEv[si].s < tEnd; si++) {
+      const e = seedEv[si];
+      const cx0 = Math.floor(e.x / CELL_SIZE);
+      const cz0 = Math.floor(e.z / CELL_SIZE);
+      const decay = Math.exp(-(tEnd - e.s) / sow.tau) * sow.weight(e.r);
+      for (let dx = -nT; dx <= nT; dx++) {
+        for (let dz = -nT; dz <= nT; dz++) {
+          const d = Math.hypot((cx0 + dx + 0.5) * CELL_SIZE - e.x, (cz0 + dz + 0.5) * CELL_SIZE - e.z);
+          if (d >= sow.radius) continue;
+          const cx = wrapCell(cx0 + dx);
+          const cz = wrapCell(cz0 + dz);
+          if (!inGrid(cx, cz)) continue;
+          T[idx(cx, cz)] += sow.dose * (1 - d / sow.radius) * decay;
+        }
+      }
+    }
     for (; ei < pres.length && pres[ei].s < tEnd; ei++) {
       const e = pres[ei];
       const cx0 = Math.floor(e.x / CELL_SIZE);
@@ -201,8 +232,8 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
         const sealed = !!list && list.some((sd) => sealsAt(sd, tEnd, fold.tauSlabYears));
         const ix = x0 + i;
         const iz = z0 + j;
-        const a = grassDensity(ix, iz, Sstart[c], p, sealed, nc);
-        const b = grassDensity(ix, iz, S[c], p, sealed, nc);
+        const a = grassDensity(ix, iz, Sstart[c], p, sealed, nc, Tstart[c]);
+        const b = grassDensity(ix, iz, S[c], p, sealed, nc, T[c]);
         out[base + c] = Math.min(1, (a + b) / 2 + (!sealed && input.waterBoost ? input.waterBoost(ix, iz, k) : 0));
         pathOut[base + c] = p;
       }

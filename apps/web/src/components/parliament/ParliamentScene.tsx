@@ -46,7 +46,9 @@ import {
   seedParliamentDemoIfRequested,
   ROLE_CONTROLS,
   ROLE_IMPLEMENTED,
+  SOW,
   camDistOf,
+  sowSpots,
   stepBody,
   SESSION_ROLES,
   wrapCoord,
@@ -71,6 +73,10 @@ const PHONE_MODE_OPTIONS: Record<string, "touch" | "tilt"> = {
   "누르기 (누르는 동안 걷기 · 끌어서 회전)": "touch",
   "기울임 (센서)": "tilt",
 };
+
+/** A role's key hint said for a phone: a finger instead of keys and the mouse. */
+const phoneHint = (h: string) =>
+  h.replace("W  THROTTLE · S  BRAKE · A D  STEER", "HOLD  THROTTLE").replace(/W A S D  (WALK|MOVE)/, "HOLD  $1").replace("CLICK", "TAP").replace("MOUSE  LOOK", "DRAG  LOOK");
 
 /** Where the player is and how fast they move (world units, /s). */
 export interface PlayerState {
@@ -134,6 +140,7 @@ function Controller({
   role = "worker",
   lifeSec = 0,
   groundRef,
+  sowRef,
   tiltRef,
   coarse = false,
 }: {
@@ -152,6 +159,8 @@ function Controller({
   lifeSec?: number;
   /** V2: the ground (RoleField): a car runs on the roads and starts on one. */
   groundRef?: React.MutableRefObject<GroundLookup | null>;
+  /** V2: where a click's seeds land (a tree's act, roleControls.ts SOW); RoleField makes them seed events. */
+  sowRef?: React.MutableRefObject<{ x: number; z: number }[]>;
   /** A phone in tilt mode: its tilt (useTilt) walks and turns (inactive otherwise). */
   tiltRef?: React.MutableRefObject<TiltState>;
   /** A phone-like device: no pointer lock, no keys — a finger on the screen walks, dragging turns. */
@@ -180,6 +189,17 @@ function Controller({
   }, [role]);
   /** A phone: a finger is on the screen (= walking). */
   const pressing = useRef(false);
+  /** The role's act on a click / tap (a tree sows): while live, not more often than SOW.coolSec. */
+  const actAt = useRef(0);
+  const act = () => {
+    const L = lifeRef?.current;
+    if (!ctrl.current.act || !sowRef || (L && (L.phase !== "live" || L.attempt > 0))) return;
+    const now = performance.now() / 1000;
+    if (now - actAt.current < SOW.coolSec) return;
+    actAt.current = now;
+    const p = player.current;
+    sowRef.current.push(...sowSpots(p.x, p.z, yaw.current, Math.random));
+  };
 
   useEffect(() => {
     const c = gl.domElement;
@@ -199,11 +219,13 @@ function Controller({
     const onClick = () => {
       if (coarse || typeof c.requestPointerLock !== "function") return;
       if (lifeRef && lifeRef.current.phase !== "live") return;
-      c.requestPointerLock();
+      // a click while looking (pointer lock) is the role's act; the first click only takes the pointer
+      if (document.pointerLockElement === c) act();
+      else c.requestPointerLock();
     };
     // a phone: while one finger is on the screen the visitor walks (pressing.current); dragging it turns — about
     // 300 px for a half turn — and tips the camera; letting go stays. (Stopping living is the HUD's button.)
-    const touch = { id: -1, x: 0, y: 0 };
+    const touch = { id: -1, x: 0, y: 0, at: 0, moved: 0 };
     const onTouchStart = (e: TouchEvent) => {
       if (!coarse) return;
       // iOS: no text selection, callout or loupe on a long press (pointer events still fire, so the taps that go on
@@ -218,6 +240,8 @@ function Controller({
       touch.id = t.identifier;
       touch.x = t.clientX;
       touch.y = t.clientY;
+      touch.at = performance.now();
+      touch.moved = 0;
       pressing.current = true;
     };
     const onTouchMove = (e: TouchEvent) => {
@@ -229,6 +253,7 @@ function Controller({
       const dy = t.clientY - touch.y;
       touch.x = t.clientX;
       touch.y = t.clientY;
+      touch.moved += Math.hypot(dx, dy);
       const L = lifeRef?.current;
       if (L && (L.phase !== "live" || L.attempt > 0)) return;
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
@@ -239,6 +264,8 @@ function Controller({
       pitch.current = Math.max(r.pitchMin, Math.min(r.pitchMax, pitch.current + dy * TOUCH_PITCH_RAD_PER_PX * look * r.pitch));
     };
     const onTouchEnd = () => {
+      // a short still touch is a TAP: the role's act (a tree sows); a long or moving one walked or turned
+      if (touch.id >= 0 && performance.now() - touch.at < 300 && touch.moved < 12) act();
       touch.id = -1;
       pressing.current = false;
     };
@@ -259,6 +286,7 @@ function Controller({
       document.removeEventListener("pointerlockchange", onChange);
       pressing.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gl, setLocked, lifeRef, coarse]);
 
   useFrame((_, delta) => {
@@ -286,10 +314,11 @@ function Controller({
     };
     const drag = (2.0 + (1 - viscosity) * 13.0) * (h?.response ?? 1);
     const ground = groundRef?.current;
-    // V2: the life begins where the role begins — a car on the strongest road, facing along it (a hard cut, like the screen)
+    // V2: the life begins where the role begins — a car on the strongest road, facing along it; a tree on open ground
+    // (a hard cut, like the screen). The role is read off the signal: the prop may be a render behind the phase.
     if (L && L.phase === "live" && !placed.current) {
       placed.current = true;
-      const sp = ground?.spawn(role);
+      const sp = ground?.spawn(L.role ?? role);
       if (sp) {
         camPos.current.x += sp.x - p.x;
         camPos.current.z += sp.z - p.z;
@@ -297,6 +326,11 @@ function Controller({
         lookAt.current.z += sp.z - p.z;
         p.x = sp.x;
         p.z = sp.z;
+        // a rooted body (a tree) stood at the origin through the draw: it roots afresh where it is put
+        if (p.hx !== undefined) {
+          p.hx = sp.x;
+          p.hz = sp.z;
+        }
         if (sp.yaw !== undefined) yaw.current = sp.yaw;
       }
     }
@@ -386,8 +420,9 @@ export default function ParliamentScene() {
   // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
   usePageLock(isV2);
   const witnessRef = useRef<Observation | null>(null);
-  // V2: the ground as the controls read it (RoleField fills it after every fold)
+  // V2: the ground as the controls read it (RoleField fills it after every fold); the seeds the controls throw
   const groundRef = useRef<GroundLookup | null>(null);
+  const sowRef = useRef<{ x: number; z: number }[]>([]);
 
   const { session: sessionOn, role: roleChoice, roleMotion, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
@@ -500,6 +535,7 @@ export default function ParliamentScene() {
           role={controlRole}
           lifeSec={lifeSec}
           groundRef={isV2 ? groundRef : undefined}
+          sowRef={isV2 ? sowRef : undefined}
           tiltRef={tiltRef}
           coarse={coarse}
         />
@@ -520,6 +556,7 @@ export default function ParliamentScene() {
           lifeRef={withSession ? session.lifeRef : undefined}
           witnessRef={withSession ? witnessRef : undefined}
           groundRef={isV2 ? groundRef : undefined}
+          sowRef={isV2 ? sowRef : undefined}
         />
       </Canvas>
 
@@ -534,7 +571,7 @@ export default function ParliamentScene() {
           helpLine={helpLine}
           holdSec={holdSec}
           noticeLineSec={noticeLineSec}
-          hint={ROLE_CONTROLS[controlRole].hint}
+          hint={coarse ? phoneHint(ROLE_CONTROLS[controlRole].hint) : ROLE_CONTROLS[controlRole].hint}
           coarse={coarse}
         />
       )}
