@@ -127,7 +127,7 @@ export interface SoundParams {
   dyingWobble: number;
   /**
    * The afterlife (v4 A5d, the artist: after the end nothing but the reverb): `afterlifeTail` = the long room's
-   * length (s) the last sound rings out in; `dyingFreeze` = how much the dying already freezes and smears the sound
+   * length (s) the last sound rings out in, with a fade envelope over its second half (A5e); `dyingFreeze` = how much the dying already freezes and smears the sound
    * (0..1); `afterlifeGrains` = grains falling while dying (0..1; 0 since A5c — the artist).
    */
   afterlifeTail: number;
@@ -207,7 +207,7 @@ export const DEFAULT_SOUND: SoundParams = {
   dying: 0,
   dead: false,
   dyingWobble: 0.6,
-  afterlifeTail: 10,
+  afterlifeTail: 5, // 10 before A5e: the artist found it too long
   afterlifeGrains: 0, // 0.6 before A5c — the artist (10/18 night): "걍 그래뉼러한 소리 빼 지금은"; the knob stays
   dyingFreeze: 0.6,
   ncDull: 1,
@@ -1077,10 +1077,12 @@ export class SoundEngine {
     room.send.gain.cancelScheduledValues(t);
     room.send.gain.setTargetAtTime(1, t, 0.02);
     room.send.gain.setTargetAtTime(0, t + FEED, 0.08);
-    // the master holds; the tail dies on its own (about −45 dB at its end); a slow fade from 60 % makes sure of silence
+    // the master holds through the first half; then a FADE ENVELOPE lies over the tail's own decay (the artist: if
+    // the volume has not come down by then, overlap a fade) — a straight line to silence exactly at the tail's end
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(p.master, t, 0.05);
-    this.master.gain.setTargetAtTime(0, t + tail * 0.6, tail / 6);
+    this.master.gain.setValueAtTime(p.master, t + tail * 0.5);
+    this.master.gain.linearRampToValueAtTime(0, t + tail);
   }
 
   /** A new life: the room's send closes, the living buses come back (the master follows the params again). */
