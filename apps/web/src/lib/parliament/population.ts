@@ -13,6 +13,7 @@
  *             in use (weighted, nearer a little preferred) — otherwise somewhere else in the world (exploring, far);
  *             it stays long when others are near (`nearR`: what the building rule counts), and leaves soon when it is
  *             alone there: so staying together, and building together, happens often; leaving happens too
+ *   TIME      a resident's assigned time is the player's at its birth ± timeSpread/2, fixed for its life
  *   COUNT     `capacity` residents (min … max); the caller moves it with the frame rate (nextCapacity): fewer when
  *             frames are slow, more when there is room
  *
@@ -92,8 +93,9 @@ export interface Resident {
   role: RoleId;
   bornMs: number;
   lifeMs: number;
-  /** Assigned-time offset relative to the player (s). */
-  dOff: number;
+  /** Its assigned-time offset (s): the player's at its birth ± timeSpread/2, then fixed — a new visitor (another
+   *  offset) does not make every resident jump in time; the next generations are born around the new one. */
+  off: number;
   /** Where it is (canonical). */
   x: number;
   z: number;
@@ -136,6 +138,8 @@ export interface Site {
 }
 
 export interface StepInputs {
+  /** The player's assigned-time offset now (s): the newborn are born around it. */
+  refOffset?: number;
   /** Visitors and buildings in use, besides the residents themselves. */
   sites?: readonly Site[];
   /** The way from A to B for a role (a polyline from A to B, continuous coordinates); absent = straight. */
@@ -185,7 +189,7 @@ function pickRole(u: number, roles: PopulationConfig["roles"]): RoleId {
 
 // ── birth, trips, stays ─────────────────────────────────────────────────────
 
-function born(n: number, wallMs: number, epochMs: number, cfg: PopulationConfig, ageShare = 0): Resident {
+function born(n: number, wallMs: number, epochMs: number, cfg: PopulationConfig, refOffset: number, ageShare = 0): Resident {
   const salt = epochSalt(epochMs);
   const u = (i: number) => hash2(n, i, salt * 13 + 5);
   const role = pickRole(u(0), cfg.roles);
@@ -197,7 +201,7 @@ function born(n: number, wallMs: number, epochMs: number, cfg: PopulationConfig,
     // a resident of the first population is met at some age, so they do not all die together
     bornMs: wallMs - ageShare * lifeMs,
     lifeMs,
-    dOff: (u(4) - 0.5) * cfg.timeSpread,
+    off: Math.max(0, refOffset + (u(4) - 0.5) * cfg.timeSpread),
     x,
     z,
     mode: "stay",
@@ -304,10 +308,10 @@ function companyAt(x: number, z: number, n: number, residents: readonly Resident
 // ── the population ──────────────────────────────────────────────────────────
 
 /** The first population: `capacity` residents met at random ages. */
-export function initPopulation(epochMs: number, wallMs: number, capacity: number, cfg: PopulationConfig = DEFAULT_POPULATION): PopulationState {
+export function initPopulation(epochMs: number, wallMs: number, capacity: number, cfg: PopulationConfig = DEFAULT_POPULATION, refOffset = 0): PopulationState {
   const cap = Math.max(cfg.min, Math.min(cfg.max, Math.round(capacity)));
   const residents: Resident[] = [];
-  for (let n = 0; n < cap; n++) residents.push(born(n, wallMs, epochMs, cfg, hash2(n, 3, epochSalt(epochMs)) * 0.85));
+  for (let n = 0; n < cap; n++) residents.push(born(n, wallMs, epochMs, cfg, refOffset, hash2(n, 3, epochSalt(epochMs)) * 0.85));
   return { epochMs, lastMs: wallMs, nextN: cap, capacity: cap, residents };
 }
 
@@ -332,7 +336,7 @@ export function stepPopulation(prev: PopulationState, wallMs: number, inp: StepI
   residents = residents.map((r) => {
     if (wallMs - r.bornMs < r.lifeMs) return r;
     deaths.push(r);
-    const b = born(nextN++, wallMs, epochMs, cfg);
+    const b = born(nextN++, wallMs, epochMs, cfg, inp.refOffset ?? 0);
     births.push(b);
     return b;
   });
@@ -346,7 +350,7 @@ export function stepPopulation(prev: PopulationState, wallMs: number, inp: StepI
     residents.splice(yi, 1);
   }
   if (residents.length < cap) {
-    const b = born(nextN++, wallMs, epochMs, cfg);
+    const b = born(nextN++, wallMs, epochMs, cfg, inp.refOffset ?? 0);
     births.push(b);
     residents.push(b);
   }
@@ -402,9 +406,9 @@ export function stepPopulation(prev: PopulationState, wallMs: number, inp: StepI
   return { state: { epochMs, lastMs: wallMs, nextN, capacity: cap, residents }, deaths, births };
 }
 
-/** A resident as an actor at wall time `wallMs`: its presence sample (assigned time = the player's + its dOff). */
-export function residentActor(r: Resident, wallMs: number, epochMs: number, playerOffset: number): Actor {
-  return { o: `bot${r.n}`, r: r.role, x: r.x, z: r.z, s: sessionSeconds(wallMs, epochMs, Math.max(0, playerOffset + r.dOff)) };
+/** A resident as an actor at wall time `wallMs`: its presence sample at its own assigned time. */
+export function residentActor(r: Resident, wallMs: number, epochMs: number): Actor {
+  return { o: `bot${r.n}`, r: r.role, x: r.x, z: r.z, s: sessionSeconds(wallMs, epochMs, r.off) };
 }
 
 /**
@@ -424,6 +428,6 @@ export function readPopulation(raw: unknown, epochMs: number): PopulationState |
   if (!raw || typeof raw !== "object") return null;
   const s = raw as PopulationState;
   if (s.epochMs !== epochMs || !Array.isArray(s.residents) || typeof s.lastMs !== "number" || typeof s.nextN !== "number") return null;
-  for (const r of s.residents) if (typeof r?.n !== "number" || typeof r.x !== "number" || typeof r.z !== "number" || typeof r.role !== "string") return null;
+  for (const r of s.residents) if (typeof r?.n !== "number" || typeof r.x !== "number" || typeof r.z !== "number" || typeof r.role !== "string" || typeof r.off !== "number") return null;
   return s;
 }

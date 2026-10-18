@@ -147,6 +147,78 @@ describe("foldState: the same ground as the batch fold, grown instead of refolde
     expect(got.slabs.length).toBeLessThan(whole.slabs.length);
   });
 
+  it("a moving region replays only the tail that reaches it, and still reads the batch fold's values", () => {
+    const owners = crowd();
+    const feed = arrivals(owners, 300);
+    const state = new FoldState(V2, { inactiveTicks: 30 });
+    const seen: PEvent[] = [];
+    let k = 0;
+    let checks = 0;
+    let lessTail = 0;
+    for (let w = 1; w <= 300; w++) {
+      while (k < feed.length && feed[k].w < w) {
+        state.add(feed[k].e);
+        seen.push(feed[k].e);
+        k++;
+      }
+      if (w % 5 !== 0) continue;
+      // the viewer walks about, over the edge too
+      const region = { x: [3, 9, -2, WORLD_HALF - 1][(w / 5) % 4], z: [0, -4, 6, -2][(w / 5) % 4], r: 6 };
+      const sView = w - 0.5;
+      const got = state.snapshot(sView, region);
+      const regionTail = state.stats.tail;
+      const whole = foldWorld(seen, sView, V2);
+      const reach = region.r + V2.radius;
+      const dist = (c: { x: number; z: number }) => {
+        const dx = Math.abs(c.x - region.x), dz = Math.abs(c.z - region.z);
+        return Math.hypot(Math.min(dx, 2 * WORLD_HALF - dx), Math.min(dz, 2 * WORLD_HALF - dz));
+      };
+      const inside = (c: { x: number; z: number }) => dist(c) <= reach;
+      expectSame(got, { slabs: whole.slabs.filter(inside), paths: whole.paths.filter(inside) }, `region w=${w}`);
+      state.snapshot(sView); // the whole world: the full tail
+      if (regionTail < state.stats.tail) lessTail++;
+      checks++;
+    }
+    expect(checks).toBeGreaterThan(50);
+    expect(lessTail, "the region replayed less than the whole world").toBeGreaterThan(checks / 2);
+  });
+
+  it("lateMarginSec: an owner who joins a little behind the frontier is not late (no rebuild), the same ground", () => {
+    const owners = crowd().filter((o) => o.id !== "latecomer");
+    // a resident born later, 20 s behind the most-behind owner (−30)
+    owners.push({ id: "newborn", offset: -50, from: 150, at: wander(77, 2, 1, 2.5) });
+    const feed = arrivals(owners, 300);
+    const plain = new FoldState(V2, { inactiveTicks: 30 });
+    const margin = new FoldState(V2, { inactiveTicks: 30, lateMarginSec: 35 });
+    const seen: PEvent[] = [];
+    let k = 0;
+    for (let w = 1; w <= 300; w++) {
+      while (k < feed.length && feed[k].w < w) {
+        plain.add(feed[k].e);
+        margin.add(feed[k].e);
+        seen.push(feed[k].e);
+        k++;
+      }
+      if (w % 5 !== 0) continue;
+      plain.snapshot(w - 0.5);
+      const got = margin.snapshot(w - 0.5);
+      if (w % 25 === 0) expectSame(got, foldWorld(seen, w - 0.5, V2), `margin w=${w}`);
+    }
+    expect(plain.stats.rebuilds, "without the margin the newborn is late").toBeGreaterThan(0);
+    expect(margin.stats.rebuilds).toBe(0);
+  });
+
+  it("{ tail: false } reads the settled state only, and leaves the state as it was", () => {
+    const { state, seen } = runAgainstBatch(V2, 240, 40);
+    const settled = state.snapshot(239.5, undefined, { tail: false });
+    expect(state.stats.tail).toBe(0);
+    const full = state.snapshot(239.5);
+    expect(state.stats.tail).toBeGreaterThan(0);
+    const fullKeys = new Set(full.slabs.map((s) => s.key));
+    for (const sl of settled.slabs) expect(fullKeys.has(sl.key)).toBe(true);
+    expectSame(full, foldWorld(seen, 239.5, V2), "after a settled read");
+  });
+
   it("the viewer's time going backwards (a new session) rebuilds, then goes on", () => {
     const { state, seen } = runAgainstBatch(V2, 150, 50);
     expectSame(state.snapshot(100), foldWorld(seen, 100, V2), "back to 100");

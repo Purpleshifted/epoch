@@ -21,6 +21,12 @@ export const LS_PARLIAMENT_ME_KEY = "anthropocene:parliament:me";
  * (their times can be far ahead of the present) and are ignored, then replaced on the next save.
  */
 export const LS_EVENTS_EPOCH_KEY = "anthropocene:parliament:events-epoch:v1";
+/**
+ * Who wrote the stored log last: a token every saveMerged writes with it. A tab that finds its own token there knows
+ * nobody else has written since — it can append to what it wrote instead of reading and re-serializing everything
+ * (saveMerged), and it has nothing new to read (useWorld's poll, eventsUnchangedSince).
+ */
+export const LS_EVENTS_TOKEN_KEY = "anthropocene:parliament:events-token:v1";
 export const MAX_EVENTS = 30000;
 
 export class EventLog {
@@ -178,6 +184,50 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
 let warnedQuota = false;
 
 /**
+ * What this tab last wrote: the stored events (sorted by assigned time, rounded as stored), each one's JSON, their
+ * ids, and the token written with them. Valid while the stored token is still this one (nobody else has written).
+ */
+interface WriteCache {
+  epochMs: number;
+  token: string;
+  list: PEvent[];
+  json: string[];
+  ids: Set<string>;
+}
+let cache: WriteCache | null = null;
+/** The last token this tab wrote, and whether its last write merged events written by someone else. */
+let lastToken: string | null = null;
+let mergedForeign = false;
+let tokenSeq = 0;
+
+function readToken(): string | null {
+  try {
+    return localStorage.getItem(LS_EVENTS_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** The stored log's writer token (null: none written yet, or older code wrote it). */
+export function eventsToken(): string | null {
+  return readToken();
+}
+
+/**
+ * True when the stored log is exactly what this tab wrote last and that write had nothing in it from anyone else: a
+ * poll has nothing new to read. (Once per foreign merge it says false, so the poll picks those events up.)
+ */
+export function eventsWrittenHere(): boolean {
+  const t = readToken();
+  if (t === null || t !== lastToken) return false;
+  if (mergedForeign) {
+    mergedForeign = false;
+    return false;
+  }
+  return true;
+}
+
+/**
  * Merge `local` (events of epoch `epochMs`) into the stored log (by id), keep the latest MAX_EVENTS by assigned time.
  * Stored events of another epoch are dropped (loadEvents ignores them). If `epochMs` is no longer the current epoch,
  * nothing is written: the caller is in a world that has ended and must rejoin (useWorld's onCleared).
@@ -186,30 +236,77 @@ let warnedQuota = false;
  * Returns false when nothing was written.
  */
 export function saveMerged(local: Iterable<PEvent>, epochMs: number): boolean {
-  let all: PEvent[];
+  let c: WriteCache;
   try {
     if (localStorage.getItem(LS_PARLIAMENT_EPOCH_KEY) !== String(epochMs)) return false;
-    const merged = new Map<string, PEvent>();
-    for (const e of loadEvents()) merged.set(e.id, e);
+    // what is stored: what this tab wrote last (its token is still there), else read it all once
+    if (cache && cache.epochMs === epochMs && readToken() === cache.token && localStorage.getItem(LS_EVENTS_EPOCH_KEY) === String(epochMs)) c = cache;
+    else {
+      const stored = loadEvents().sort((a, b) => a.s - b.s);
+      c = { epochMs, token: "", list: stored, json: stored.map((e) => JSON.stringify(e)), ids: new Set(stored.map((e) => e.id)) };
+      mergedForeign = stored.length > 0;
+    }
+    // the history window: forget the head
     const from = keepFromS();
-    for (const e of local) if (e.s >= from) merged.set(e.id, { ...e, x: r2(e.x), z: r2(e.z), s: r2(e.s) });
-    all = [...merged.values()].sort((a, b) => a.s - b.s).slice(-MAX_EVENTS);
+    let k = 0;
+    while (k < c.list.length && c.list[k].s < from) k++;
+    if (k) {
+      for (let i = 0; i < k; i++) c.ids.delete(c.list[i].id);
+      c.list.splice(0, k);
+      c.json.splice(0, k);
+    }
+    // the new events, in assigned-time order (mostly at the end: a binary search from the back)
+    for (const e of local) {
+      if (e.s < from || c.ids.has(e.id)) continue;
+      const r: PEvent = { ...e, x: r2(e.x), z: r2(e.z), s: r2(e.s) };
+      let lo = 0;
+      let hi = c.list.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (c.list[mid].s <= r.s) lo = mid + 1;
+        else hi = mid;
+      }
+      c.list.splice(lo, 0, r);
+      c.json.splice(lo, 0, JSON.stringify(r));
+      c.ids.add(r.id);
+    }
+    // keep the latest MAX_EVENTS by assigned time
+    if (c.list.length > MAX_EVENTS) {
+      const cut = c.list.length - MAX_EVENTS;
+      for (let i = 0; i < cut; i++) c.ids.delete(c.list[i].id);
+      c.list.splice(0, cut);
+      c.json.splice(0, cut);
+    }
   } catch {
+    cache = null;
     return false;
   }
-  for (let keep = all.length; keep > 0; keep = Math.floor(keep * 0.75)) {
+  const n = c.json.length;
+  for (let keep = n; keep > 0; keep = Math.floor(keep * 0.75)) {
     try {
-      localStorage.setItem(LS_EVENTS_KEY, JSON.stringify(keep === all.length ? all : all.slice(-keep)));
+      const token = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}.${tokenSeq++}`;
+      localStorage.setItem(LS_EVENTS_KEY, "[" + (keep === n ? c.json : c.json.slice(-keep)).join(",") + "]");
       localStorage.setItem(LS_EVENTS_EPOCH_KEY, String(epochMs));
-      if (keep < all.length && !warnedQuota) {
-        warnedQuota = true;
-        console.warn(`[parliament] storage quota: kept the latest ${keep} of ${all.length} events (older history dropped)`);
+      localStorage.setItem(LS_EVENTS_TOKEN_KEY, token);
+      if (keep < n) {
+        const cut = n - keep;
+        for (let i = 0; i < cut; i++) c.ids.delete(c.list[i].id);
+        c.list.splice(0, cut);
+        c.json.splice(0, cut);
+        if (!warnedQuota) {
+          warnedQuota = true;
+          console.warn(`[parliament] storage quota: kept the latest ${keep} of ${n} events (older history dropped)`);
+        }
       }
+      c.token = token;
+      cache = c;
+      lastToken = token;
       return true;
     } catch {
       /* quota: try with fewer */
     }
   }
+  cache = null;
   return false;
 }
 
@@ -228,7 +325,10 @@ export function getEpochMs(): number {
 
 /** Empty the shared world and start a new epoch (the old stratum code shares the epoch key). */
 export function clearWorld(): void {
+  cache = null;
+  lastToken = null;
   try {
+    localStorage.removeItem(LS_EVENTS_TOKEN_KEY);
     localStorage.removeItem(LS_EVENTS_KEY);
     localStorage.removeItem(LS_KEEP_FROM_KEY);
     localStorage.removeItem(LS_EVENTS_EPOCH_KEY);

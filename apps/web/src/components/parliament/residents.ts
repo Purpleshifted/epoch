@@ -18,7 +18,7 @@ let current: PopulationState | null = null;
 let lastSave = 0;
 
 /** The population of `epochMs` at wall time `wallMs`: this page's, else the stored one, else a first one. */
-export function residentsOf(epochMs: number, wallMs: number, capacity: number, cfg: PopulationConfig): PopulationState {
+export function residentsOf(epochMs: number, wallMs: number, capacity: number, cfg: PopulationConfig, refOffset = 0): PopulationState {
   if (current && current.epochMs === epochMs) return current;
   let stored: PopulationState | null = null;
   try {
@@ -27,7 +27,7 @@ export function residentsOf(epochMs: number, wallMs: number, capacity: number, c
   } catch {
     stored = null;
   }
-  current = stored && wallMs - stored.lastMs < STALE_MS && stored.lastMs <= wallMs ? stored : initPopulation(epochMs, wallMs, capacity, cfg);
+  current = stored && wallMs - stored.lastMs < STALE_MS && stored.lastMs <= wallMs ? stored : initPopulation(epochMs, wallMs, capacity, cfg, refOffset);
   return current;
 }
 

@@ -101,6 +101,12 @@ export interface ResidentSetup {
   auto: boolean;
   fixed: number;
 }
+/**
+ * The player's growing fold: the settled frontier held 35 s further back, so a resident born up to ±30 s around the
+ * visitor's time (population.ts) never arrives "late" (which would make the whole fold rebuild itself).
+ */
+const PLAYER_FOLD_OPTS = { lateMarginSec: 35 };
+
 /** How often (wall) the size is reconsidered from the slow frames of the last minute. */
 const CAPACITY_EVERY_MS = 20_000;
 /** Most buildings in use offered to the residents as places to go. */
@@ -154,7 +160,7 @@ export function RoleField({
   });
   const epochMs = useRef(0);
   // the ground, folded as it grows (foldState.ts): the whole world is folded, the region only chooses what is read
-  const fold = useFoldState(log, cfg);
+  const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
   const stressAt = useStressState(log, natureCfg);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
   const seq = useRef(0);
@@ -234,12 +240,14 @@ export function RoleField({
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && needGround && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
       const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
-      const snapAll = theFold.at(tSess); // the whole world: what the bots walk on
+      // the whole world, settled part only (cheap; seconds behind): what the bots walk on
+      const snapAll = theFold.at(tSess, undefined, { tail: false });
+      const settledTo = Math.min(tSess, theFold.stats()?.frontier ?? tSess);
       const level = new Map<string, number>();
       for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
       const built = new Set<string>();
       // buildings in use now (a ruin — nobody around for longer than emptyGapSec — can be crossed)
-      for (const sl of snapAll.slabs) if (sl.h >= SEAL_H && tSess - sl.lastS <= foldCfg.emptyGapSec) built.add(sl.key);
+      for (const sl of snapAll.slabs) if (sl.h >= SEAL_H && settledTo - sl.lastS <= foldCfg.emptyGapSec) built.add(sl.key);
       botGround.current = { at: wall, level, built };
       if (botRoutes.current.size > Math.max(8, nBots * 4)) botRoutes.current.clear(); // old migrations
     }
@@ -260,7 +268,7 @@ export function RoleField({
 
     // V2 residents: the population at the first due sample, the places others are (the visitor, buildings in use), the way
     // a resident goes (the trodden ground, round the buildings; the cells wrap round the torus)
-    let pop = res && due.length ? residentsOf(epochMs.current, due[0] - period, res.auto ? Math.round((res.cfg.min + res.cfg.max) / 2) : res.fixed, res.cfg) : null;
+    let pop = res && due.length ? residentsOf(epochMs.current, due[0] - period, res.auto ? Math.round((res.cfg.min + res.cfg.max) / 2) : res.fixed, res.cfg, me.current.offset) : null;
     const present = !lifeRef || lifeRef.current.phase === "live";
     const sites: Site[] = [];
     if (pop) {
@@ -289,9 +297,9 @@ export function RoleField({
       if (pop && res) {
         // the population one step on; the dead leave where they stood (their END event, k = "x", comes with the role
         // controls: docs/session-logic.md §2b)
-        const step = stepPopulation(pop, w, { sites, planRoute }, res.cfg);
+        const step = stepPopulation(pop, w, { sites, planRoute, refOffset: me.current.offset }, res.cfg);
         pop = step.state;
-        for (const r of pop.residents) actors.push(residentActor(r, w, epochMs.current, me.current.offset));
+        for (const r of pop.residents) actors.push(residentActor(r, w, epochMs.current));
       }
       // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled;
       // V2: and only while their session is live (before the role is drawn, and after the end, they leave nothing)

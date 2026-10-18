@@ -15,6 +15,7 @@ import {
   LS_EVENTS_KEY,
   StressState,
   currentEpochKey,
+  eventsWrittenHere,
   keepFromS,
   keepWindowSec,
   latestS,
@@ -25,6 +26,7 @@ import {
   type FoldConfig,
   type FoldStateOptions,
   type FoldStateStats,
+  type SnapshotOptions,
   type NatureConfig,
   type Region,
   type ShardConfig,
@@ -54,7 +56,8 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
       epoch = now;
       // the history window moved on (a new player session): forget what is now too old
       log.dropBefore(keepFromS());
-      log.addMany(loadEvents());
+      // nothing to read when the stored log is just what this tab wrote (the player tab, alone): log.ts
+      if (!eventsWrittenHere()) log.addMany(loadEvents());
     };
     sync();
     const poll = setInterval(sync, pollMs);
@@ -137,7 +140,8 @@ function feed<S extends Growing>(log: EventLog, h: Fed<S>): void {
  * foldWorld, but a snapshot costs only what arrived since the last one. A new config = a new state (one full fold).
  */
 export interface GrowingFold {
-  at(sView: number, region?: Region): Snapshot;
+  /** `{ tail: false }`: the settled state only (foldState.ts SnapshotOptions) — cheap, seconds behind. */
+  at(sView: number, region?: Region, opts?: SnapshotOptions): Snapshot;
   /** The state's bookkeeping (null before the first reading). */
   stats(): FoldStateStats | null;
 }
@@ -146,11 +150,11 @@ export function useFoldState(log: EventLog, cfg: FoldConfig, opts?: FoldStateOpt
   const ref = useRef<(Fed<FoldState> & { cfg: FoldConfig }) | null>(null);
   return useMemo(
     () => ({
-      at(sView: number, region?: Region) {
+      at(sView: number, region?: Region, snapOpts?: SnapshotOptions) {
         let h = ref.current;
         if (!h || h.cfg !== cfg) h = ref.current = { cfg, state: new FoldState(cfg, opts), fed: 0, drops: log.drops };
         feed(log, h);
-        return h.state.snapshot(sView, region);
+        return h.state.snapshot(sView, region, snapOpts);
       },
       stats: () => ref.current?.state.stats ?? null,
     }),

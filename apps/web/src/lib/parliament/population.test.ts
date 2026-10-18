@@ -30,7 +30,7 @@ function run(st: PopulationState, sec: number, cfg: PopulationConfig = DEFAULT_P
     s = r.state;
     for (const d of r.deaths) deaths.push(d.n);
     for (const res of s.residents) {
-      const a = residentActor(res, w, EPOCH, 60);
+      const a = residentActor(res, w, EPOCH);
       events.push({ id: `${a.o}:${i}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s });
     }
   }
@@ -76,8 +76,8 @@ describe("the resident population", () => {
     expect(DEFAULT_POPULATION.timeSpread).toBe(60);
     expect(DEFAULT_POPULATION.lifeSec).toEqual([240, 480]);
     expect([DEFAULT_POPULATION.min, DEFAULT_POPULATION.max]).toEqual([6, 24]);
-    for (const r of initPopulation(EPOCH, T0, 24).residents) {
-      expect(Math.abs(r.dOff)).toBeLessThanOrEqual(30);
+    for (const r of initPopulation(EPOCH, T0, 24, DEFAULT_POPULATION, 60).residents) {
+      expect(Math.abs(r.off - 60)).toBeLessThanOrEqual(30);
       expect(r.lifeMs).toBeGreaterThanOrEqual(240_000);
       expect(r.lifeMs).toBeLessThanOrEqual(480_000);
     }
