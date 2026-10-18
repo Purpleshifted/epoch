@@ -60,6 +60,8 @@ export class NoiseCraftBridge {
   public onStream?: (stream: MediaStream | null) => void;
   /** A node was clicked in the editor (umwelt used it to auto-fill a mapping; the workspace shows its rule). */
   public onNodeClicked?: (nodeId: string) => void;
+  /** The embed saved (or failed to save) the patch file — auto-save or the bench's 저장 button (`manual`). */
+  public onSaveStatus?: (s: { status: "saved" | "error"; filename: string; size?: number; error?: string; manual?: boolean }) => void;
 
   get iframeElement(): HTMLIFrameElement | null {
     return this.iframe;
@@ -195,6 +197,11 @@ export class NoiseCraftBridge {
       case "noiseCraft:nodeClicked":
         if (d.nodeId != null) this.onNodeClicked?.(String(d.nodeId));
         break;
+      case "noiseCraft:saveStatus": {
+        const x = d as unknown as { status?: string; filename?: string; size?: number; error?: string; manual?: boolean };
+        this.onSaveStatus?.({ status: x.status === "saved" ? "saved" : "error", filename: String(x.filename ?? this.currentPatchFilename), size: x.size, error: x.error, manual: x.manual });
+        break;
+      }
     }
   }
 
@@ -285,6 +292,11 @@ export class NoiseCraftBridge {
   setModules(mods: NoiseCraftModule[]): void {
     this.modules = mods;
     if (this._loaded) this.postMessage({ type: "noiseCraft:updateModules", modules: mods });
+  }
+
+  /** Save the editor's current state to `filename` (default: the loaded patch) now — the bench's 저장 button; the embed answers with saveStatus. */
+  saveProject(filename = this.currentPatchFilename): void {
+    this.postMessage({ type: "noiseCraft:saveProject", filename });
   }
 
   setParams(params: NoiseCraftParam[]): void {

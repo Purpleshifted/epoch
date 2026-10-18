@@ -90,14 +90,45 @@ export default function SoundBench() {
   // the patch (A5l): any .ncft of noisecraft/examples; the choice is shared with the player
   const [patch, setPatch] = useState<string>(loadPatchChoice);
   const [patches, setPatches] = useState<string[]>([]);
+  const [fileMsg, setFileMsg] = useState("");
   const patchRef = useRef(patch);
   const driverRef = useRef<NoiseCraftDriver | null>(null);
-  useEffect(() => {
+  const refreshPatches = () =>
     fetch("/noisecraft/list-patches")
       .then((r) => r.json())
       .then((j: { patches?: { filename: string }[] }) => setPatches((j.patches ?? []).map((x) => x.filename).sort()))
       .catch(() => setPatches([]));
+  useEffect(() => {
+    void refreshPatches();
   }, []);
+  const ncft = (name: string) => (name.trim().endsWith(".ncft") ? name.trim() : `${name.trim()}.ncft`);
+  /** 저장: the editor's state into the current file, now (auto-save already follows every edit). */
+  const savePatch = () => {
+    setFileMsg("저장 중…");
+    driverRef.current?.bridge.saveProject(patch);
+  };
+  /** 복제: the current file under a new name, then switch to it. */
+  const duplicatePatch = async () => {
+    const name = window.prompt("복제할 새 이름 (.ncft)", patch.replace(/\.ncft$/, "") + "_copy");
+    if (!name) return;
+    const r = await fetch("/noisecraft/duplicate-patch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceFile: patch, newName: ncft(name) }) });
+    const j = (await r.json()) as { success?: boolean; filename?: string; error?: string };
+    if (!r.ok || !j.filename) return setFileMsg(`복제 실패: ${j.error ?? r.status}`);
+    await refreshPatches();
+    setPatch(j.filename);
+    setFileMsg(`복제됨 → ${j.filename}`);
+  };
+  /** 이름: rename the current file, then follow it. */
+  const renamePatch = async () => {
+    const name = window.prompt("새 이름 (.ncft)", patch.replace(/\.ncft$/, ""));
+    if (!name || ncft(name) === patch) return;
+    const r = await fetch("/noisecraft/rename-patch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ oldFilename: patch, newFilename: ncft(name) }) });
+    const j = (await r.json()) as { success?: boolean; filename?: string; error?: string };
+    if (!r.ok || !j.filename) return setFileMsg(`이름 바꾸기 실패: ${j.error ?? r.status}`);
+    await refreshPatches();
+    setPatch(j.filename);
+    setFileMsg(`이름 바꿈 → ${j.filename}`);
+  };
   useEffect(() => {
     savePatchChoice(patch);
     if (patchRef.current !== patch) {
@@ -181,12 +212,14 @@ export default function SoundBench() {
       setArmed(null);
       setFlash(`노브 ${nodeId} (${info.name}) 등록`);
     };
+    driver.bridge.onSaveStatus = (st) => setFileMsg(st.status === "saved" ? `${st.manual ? "저장됨" : "자동저장"} ${st.filename.replace(/\.ncft$/, "")}${st.size ? ` (${Math.round(st.size / 1024)} KB)` : ""}` : `저장 실패 ${st.filename}: ${st.error ?? ""}`);
     driverRef.current = driver;
     driver.mount(host.current, patchRef.current, true);
     const id = setInterval(() => setStatus(driver.status), 500);
     return () => {
       clearInterval(id);
       driver.bridge.onNodeClicked = undefined;
+      driver.bridge.onSaveStatus = undefined;
       driverRef.current = null;
       driver.dispose();
     };
@@ -226,6 +259,16 @@ export default function SoundBench() {
             ))}
           </select>
         </label>
+        <button className="border border-white/30 px-2" title="편집기의 지금 상태를 이 파일에 저장 (자동저장도 켜져 있음)" onClick={savePatch}>
+          저장
+        </button>
+        <button className="border border-white/30 px-2" title="이 패치를 새 이름으로 복제하고 그쪽으로 전환" onClick={() => void duplicatePatch()}>
+          복제…
+        </button>
+        <button className="border border-white/30 px-2" title="이 패치 파일의 이름 바꾸기" onClick={() => void renamePatch()}>
+          이름…
+        </button>
+        {fileMsg && <span className="text-amber-200/80">{fileMsg}</span>}
         <label>
           마디 {barSec.toFixed(1)} s <input type="range" min={1} max={4} step={0.1} value={barSec} onChange={(e) => setBarSec(Number(e.target.value))} />
         </label>
