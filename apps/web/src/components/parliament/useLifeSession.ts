@@ -423,16 +423,17 @@ const towards = (f: number, to: number, k: number) => f * Math.pow(to / Math.max
  */
 export function muffleSound(p: SoundParams, life: LifeSignal | undefined): SoundParams {
   if (!life) return p;
-  // ended: the engine plays the AFTERLIFE (the last sound frozen, grains) and fades itself (sound wiring, v4 A4d)
-  if (life.phase === "ended") return { ...p, dead: true, dying: 1 };
-  if (life.phase !== "live") return { ...p, master: 0, dead: false, dying: 0 };
+  // ended: the engine plays the AFTERLIFE (nothing but the reverb of the last sound, from the master where it was)
+  // and fades itself (sound wiring, v4 A5d/A5g)
+  if (life.phase === "ended") return { ...p, dead: true };
+  if (life.phase !== "live") return { ...p, master: 0, dead: false };
+  // dying — the lifespan's last stretch, or X held to stop — is only this muffling (the artist, 10/18: simple, as before)
   const w = Math.max(life.warn, life.attempt ?? 0);
-  if (!(w > 0)) return { ...p, dead: false, dying: 0 };
+  if (!(w > 0)) return { ...p, dead: false };
   const k = Math.pow(w, 0.7);
   return {
     ...p,
     dead: false,
-    dying: w,
     master: p.master * (1 - 0.5 * w),
     lpOpen: towards(p.lpOpen, 220, k),
     lpSealed: Math.min(p.lpSealed, towards(p.lpSealed, 150, k)),

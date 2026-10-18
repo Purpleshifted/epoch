@@ -37,11 +37,9 @@ export interface KnobSources {
   speed: number;
   /** 1 while my weight really counts on a building with others (coBuilders), else 0. */
   together: number;
-  /** 0..1 the lifespan's last stretch. */
-  dying: number;
 }
 
-export const IDLE_SOURCES: KnobSources = { company: 0, zone: 0, space: 0, sealed: 0, speed: 0, together: 0, dying: 0 };
+export const IDLE_SOURCES: KnobSources = { company: 0, zone: 0, space: 0, sealed: 0, speed: 0, together: 0 };
 
 export interface KnobMap {
   /** The Knob node in nc_noise_patch. */
@@ -81,8 +79,6 @@ export const KNOB_MAPS: readonly KnobMap[] = [
   { nodeId: "163", name: "REVERB WET", min: 0, max: 2, rest: 1.0, source: "space", lo: 0.45, hi: 1.7, slew: 0.08, why: "concrete dries the patch; the arrival opens it (with the engine's hall)" },
   { nodeId: "166", name: "DRY", min: 0, max: 1, rest: 0.377, source: "sealed", hi: 0.62, why: "inside a building the dry voice stands close while the echo retreats" },
   { nodeId: "171", name: "amt (distortion)", min: 0, max: 1, rest: 0.41, source: "speed", hi: 0.68, why: "running grinds the root's distortion" },
-  { nodeId: "138", name: "FB (echo 1 feedback)", min: 0, max: 0.9, rest: 0.695, source: "dying", hi: 0.88, why: "the dying smears the patch's echo, as it smears the motif's" },
-  { nodeId: "152", name: "FB (echo 2 feedback)", min: 0, max: 0.9, rest: 0.668, source: "dying", hi: 0.88, why: "(the second echo line)" },
   { nodeId: "141", name: "< (echo 1 band's upper edge)", min: 0, max: 1, rest: 0.812, source: "together", hi: 0.95, slew: 0.03, why: "building together opens the echo's highs (the artist: the patch's highs are quiet)" },
   { nodeId: "155", name: "< (echo 2 band's upper edge)", min: 0, max: 1, rest: 0.797, source: "together", hi: 0.95, slew: 0.03, why: "(the second echo line)" },
 ];

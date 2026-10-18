@@ -100,7 +100,7 @@ describe("KnobMapper", () => {
 
   it("depth 0 keeps every knob at the artist's values", () => {
     const k = new KnobMapper();
-    for (let i = 0; i < 10; i++) expect(k.step({ company: 1, zone: 1, space: 1, sealed: 1, speed: 1, together: 1, dying: 1 }, 0)).toEqual([]);
+    for (let i = 0; i < 10; i++) expect(k.step({ company: 1, zone: 1, space: 1, sealed: 1, speed: 1, together: 1 }, 0)).toEqual([]);
     expect(DEAD_BAND).toBeLessThan(0.01);
   });
 });
