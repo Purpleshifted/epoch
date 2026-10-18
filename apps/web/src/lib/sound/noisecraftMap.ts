@@ -18,8 +18,10 @@
  *                 pulse on a path, a hold while building.
  *   v1  COLOUR    sine swell (envelope = our gate) + a saw the patch fires itself (~25 %).  The chord's colour tone
  *                 (its third): swells when the chord changes and while building; bubbles on its own otherwise.
- *   v2  FIFTH     saw + sine the patch fires rarely (~20 % at a slow rate); pitch only.  The chord's fifth.
- *   v3  (free)    the chord's fourth tone, pitch only, for a patch that wants it.
+ *   v2  FIFTH     saw + sine the patch fires rarely (~20 % at a slow rate); pitch only.  The chord's fifth, HIGH
+ *                 (84+): the far bell — the register the artist missed (A5i).
+ *   v3  FOURTH    (A5i) a bright sine on the patch's third random chain (~10 %), mid-high (72+); gated by the
+ *                 patch's chance OR by us: a chime when the chord changes while building, and on the arrival.
  *   harmony       four sines with a slow swell (AI_Poly); gated only among people / in a building zone.
  *   line          empty for now (A8 Magenta line / A9 ostinato).
  *   traces        rhythm rows (GateSeq): my cell and the neighbours', for the editor to show.
@@ -127,9 +129,12 @@ export function planToSequences(plan: BarPlan, prev: BarPlan | null = null): Pat
   else root = hold(rootPitch, plan.bar % 2 === 0 ? STEPS_PER_BAR / 2 : 0);
   // v1 COLOUR: a swell on a chord change and while building; otherwise the patch's own triggers bubble it
   const colourVoice = hold(60 + colour, changed || mode === "build" ? STEPS_PER_BAR : 0);
-  // v2 FIFTH and v3: pitch only — the patch fires them in its own time
-  const fifthVoice = hold(48 + fifth + 12, 0);
-  const fourthVoice = hold(60 + fourth, 0);
+  // v2 FIFTH: the far bell, HIGH (84+), pitch only — the patch fires it in its own time (its % follows building together)
+  const fifthVoice = hold(84 + fifth, 0);
+  // v3 FOURTH TONE: mid-high (72+) on the patch's third random chain (A5i); our gate too — a chime on the downbeat
+  // when the chord changes while building, and on the arrival's tonic bar
+  const chime = (changed && mode === "build") || plan.arrival === "tonic";
+  const fourthVoice = chime ? notesToSteps([{ at: 0, pitch: 72 + fourth, len: 2 / STEPS_PER_BAR }]) : hold(72 + fourth, 0);
   const parliament = poly([root, colourVoice, fifthVoice, fourthVoice]);
 
   // harmony: the pad's upper four tones, held a bar, only while building (the light engine's pad rule)

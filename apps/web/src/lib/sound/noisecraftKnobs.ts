@@ -70,12 +70,14 @@ export const DEAD_BAND = 0.002;
 /**
  * nc_noise_patch's real-time knobs. Rests are the patch's saved values (2026-10-18); `learn` refreshes them.
  * Not mapped on purpose: BPM 22 (locked), clock 306 (the music clock, noisecraftDriver), the two `Dist [m]` (delay
- * times zip), the ADSR knobs (an envelope's shape is the artist's), `Vol CHORDS` 183 (their mix).
+ * times zip), the ADSR knobs (an envelope's shape is the artist's).
  */
 export const KNOB_MAPS: readonly KnobMap[] = [
   { nodeId: "40", name: "% (v1 colour's random trigger)", min: 0, max: 1, rest: 0.248, source: "company", hi: 0.55, why: "the colour tone bubbles more among people (≈ 25 % alone → ≈ 55 % with three)" },
-  { nodeId: "112", name: "% (v2 fifth's random trigger)", min: 0, max: 1, rest: 0.196, source: "zone", hi: 0.42, why: "the far bells ring more inside a building's zone" },
-  { nodeId: "330", name: "harm vol", min: 0, max: 1, rest: 0.4, source: "zone", hi: 0.7, why: "the harmony layer comes forward in the zone" },
+  { nodeId: "112", name: "% (v2 high bell's random trigger)", min: 0, max: 1, rest: 0.196, source: "together", hi: 0.6, slew: 0.06, why: "building together: the high bells ring three times as often (≈ 20 % → 60 %)" },
+  { nodeId: "17", name: "% (v3 fourth's random trigger)", min: 0, max: 1, rest: 0.102, source: "zone", hi: 0.35, why: "inside a building's zone the mid-high chimes come more often" },
+  { nodeId: "330", name: "harm vol", min: 0, max: 1, rest: 0.4, source: "together", hi: 0.85, slew: 0.06, why: "building together: the harmony layer comes right forward" },
+  { nodeId: "183", name: "Vol CHORDS", min: 0, max: 1, rest: 0.373, source: "zone", hi: 0.6, why: "the chords layer (the colour swell, the harmony) lifts in the zone" },
   { nodeId: "163", name: "REVERB WET", min: 0, max: 2, rest: 1.0, source: "space", lo: 0.45, hi: 1.7, slew: 0.08, why: "concrete dries the patch; the arrival opens it (with the engine's hall)" },
   { nodeId: "166", name: "DRY", min: 0, max: 1, rest: 0.377, source: "sealed", hi: 0.62, why: "inside a building the dry voice stands close while the echo retreats" },
   { nodeId: "171", name: "amt (distortion)", min: 0, max: 1, rest: 0.41, source: "speed", hi: 0.68, why: "running grinds the root's distortion" },
