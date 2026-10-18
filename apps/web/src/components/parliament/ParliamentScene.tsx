@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
-import { RoleField, type ParliamentDebug } from "./RoleField";
+import { RoleField, type ParliamentDebug, type ResidentSetup } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -30,6 +30,7 @@ import { usePageLock } from "./usePageLock";
 import { SessionHud } from "./SessionHud";
 import {
   DEFAULT_LIFE,
+  DEFAULT_POPULATION,
   DRAW_DEFAULT,
   HINT_AFTER_SEC,
   HINT_PERIOD_SEC,
@@ -86,6 +87,14 @@ const V2_ROLE_OPTIONS: Record<string, RoleId | "random"> = {
   "길고양이 (street cat) — 효과 미구현": "cat",
   "자동차 (car) — 효과 미구현": "car",
   "나무 (tree) — 효과 미구현": "tree",
+};
+/** V2 residents: "mixed" = the population's mix (worker the majority, DEFAULT_POPULATION.roles). */
+const V2_RESIDENT_OPTIONS: Record<string, RoleId | "mixed"> = {
+  "섞어서 (worker 다수 · cat · car · tree)": "mixed",
+  "회사원 (worker)": "worker",
+  "길고양이 (street cat)": "cat",
+  "자동차 (car)": "car",
+  "나무 (tree)": "tree",
 };
 const V2_BOT_OPTIONS: Record<string, RoleId | "mixed"> = {
   "회사원 (worker)": "worker",
@@ -330,7 +339,7 @@ export default function ParliamentScene() {
   usePageLock(isV2);
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, popOn, popAuto, popMin, popMax, popFixed, popRole, popLifeMin, popLifeMax, popSocial, popTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -359,6 +368,21 @@ export default function ParliamentScene() {
         offsetWindow: { value: 120, min: 0, max: 600, step: 5, label: "시각 배정 창 (s) — 새로고침 시 적용" },
         }),
       ),
+      "봇 (V2 · 상주 인구)": folder(
+        {
+          popOn: { value: true, label: "상주 (늘 세계에 있음)", render: v2 },
+          popAuto: { value: true, label: "수: 성능 따라 자동 (50 ms 넘는 프레임/분)", render: v2 },
+          popMin: { value: DEFAULT_POPULATION.min, min: 0, max: 40, step: 1, label: "자동: 최소", render: v2 },
+          popMax: { value: DEFAULT_POPULATION.max, min: 1, max: 60, step: 1, label: "자동: 최대", render: v2 },
+          popFixed: { value: 12, min: 0, max: 60, step: 1, label: "수 (자동 끔일 때)", render: v2 },
+          popRole: { options: V2_RESIDENT_OPTIONS, value: "mixed" as RoleId | "mixed", label: "역할", render: v2 },
+          popLifeMin: { value: DEFAULT_POPULATION.lifeSec[0] / 60, min: 0.5, max: 30, step: 0.5, label: "수명 최소 (분)", render: v2 },
+          popLifeMax: { value: DEFAULT_POPULATION.lifeSec[1] / 60, min: 0.5, max: 30, step: 0.5, label: "수명 최대 (분)", render: v2 },
+          popSocial: { value: DEFAULT_POPULATION.social, min: 0, max: 1, step: 0.05, label: "사회성 (함께 있는 곳으로 가는 비율)", render: v2 },
+          popTimeSpread: { value: DEFAULT_POPULATION.timeSpread, min: 0, max: 600, step: 5, label: "시각 폭 (s, 나 기준 ±절반)", render: v2 },
+        },
+        { render: v2 },
+      ),
       "Debug / 봇": folder({
         botEnabled: { value: false, label: "봇 활성화" },
         botCount: { value: 12, min: 1, max: 30, step: 1, label: "봇 수" },
@@ -366,7 +390,7 @@ export default function ParliamentScene() {
         botGroups: { value: 4, min: 1, max: 10, step: 1, label: "봇 무리 수 (무리당 3명 이상이어야 콘크리트)" },
         botSpread: { value: 14, min: 0, max: 60, step: 1, label: "무리 간 거리 (월드)" },
         botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s, 나 기준 ±절반에서 랜덤)" },
-      }),
+      }, { render: () => !isV2 }),
       "화면": folder({
         pixelDpr: { value: 1, min: 0.15, max: 1, step: 0.05, label: "해상도 (1 = 픽셀 아님, 작을수록 거칠게)" },
         camDist: { value: 7, min: 2, max: 20, step: 0.5 },
@@ -377,6 +401,24 @@ export default function ParliamentScene() {
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
+  // V2: the world's resident population (replaces the debug bots)
+  const resident = useMemo<ResidentSetup | null>(() => {
+    if (!isV2 || !popOn) return null;
+    const lo = Math.min(popLifeMin, popLifeMax), hi = Math.max(popLifeMin, popLifeMax);
+    return {
+      auto: popAuto,
+      fixed: popFixed,
+      cfg: {
+        ...DEFAULT_POPULATION,
+        min: Math.min(popMin, popMax),
+        max: Math.max(popMin, popMax),
+        lifeSec: [lo * 60, hi * 60],
+        social: popSocial,
+        timeSpread: popTimeSpread,
+        roles: popRole === "mixed" ? DEFAULT_POPULATION.roles : [[popRole, 1]],
+      },
+    };
+  }, [isV2, popOn, popAuto, popMin, popMax, popFixed, popRole, popLifeMin, popLifeMax, popSocial, popTimeSpread]);
   const lifeCfg = useMemo(
     () => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
     [lifeSec, warnSec, endHoldSec, lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
@@ -447,13 +489,14 @@ export default function ParliamentScene() {
           pointSize={pointSize}
           pathLine={pathLine}
           offsetWindow={offsetWindow}
-          botCount={botEnabled ? botCount : 0}
+          botCount={!isV2 && botEnabled ? botCount : 0}
           botRole={botRole}
           botFlock={botFlock}
           sound={sound}
           playerYawRef={playerYawRef}
           lifeRef={withSession ? session.lifeRef : undefined}
           witnessRef={withSession ? witnessRef : undefined}
+          resident={resident ? { ...resident, cfg: { ...resident.cfg, nearR: cfg.radius } } : null}
         />
       </Canvas>
 
@@ -478,6 +521,7 @@ export default function ParliamentScene() {
               {debug.fold ? ` · ${debug.fold}` : ""}
             </div>
           )}
+          {debug?.pop && <div>{debug.pop}</div>}
           {debug?.sound && <div>♪ {debug.sound}</div>}
         </div>
       )}

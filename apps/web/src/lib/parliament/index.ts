@@ -23,3 +23,4 @@ export * from "./script";
 export * from "./tilt";
 export * from "./world";
 export * from "./foldState";
+export * from "./population";
