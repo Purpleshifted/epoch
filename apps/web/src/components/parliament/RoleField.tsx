@@ -46,7 +46,7 @@ import {
   worldNow,
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
-import { NatureCloud } from "./NatureCloud";
+import { DEFAULT_CLOUD_VIEW, NatureCloud, type CloudView } from "./NatureCloud";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -94,6 +94,7 @@ export function RoleField({
   playerYawRef,
   lifeRef,
   witnessRef,
+  cloudView = DEFAULT_CLOUD_VIEW,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -106,6 +107,8 @@ export function RoleField({
   botCount: number;
   /** "mixed" (V2): the bots take the session roles in turn. */
   botRole: RoleId | "mixed";
+  /** How far the ground cloud reaches around the player, how it thins out there and how tall it grows. */
+  cloudView?: CloudView;
   /** How the bots spread over the ground (flocks). */
   botFlock?: Flock;
   /** V2: the headset sound — fed the player's signals (lib/sound/signals.ts) after every fold. */
@@ -257,8 +260,8 @@ export function RoleField({
     if (foldTimer.current >= FOLD_EVERY) {
       foldTimer.current = 0;
       const events = log.all();
-      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
-      stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: Math.max(VIEW_RADIUS, cloudView.radius) });
+      stress.current = stressAt(sMe, { x: p.x, z: p.z, r: Math.max(VIEW_RADIUS, cloudView.radius) });
       if (witnessRef) {
         witnessRef.current = observe({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
@@ -326,8 +329,9 @@ export function RoleField({
         getSnapshot={() => snap.current}
         cfg={natureCfg}
         pointSize={pointSize}
+        view={cloudView}
       />
-      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
+      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={Math.max(VIEW_RADIUS, cloudView.radius)} />
     </>
   );
 }

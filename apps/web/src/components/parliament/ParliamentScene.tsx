@@ -124,6 +124,8 @@ function Controller({
   lifeRef,
   tiltRef,
   coarse = false,
+  pitch0 = 0.45,
+  eyeLift = 0.4,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -138,12 +140,19 @@ function Controller({
   tiltRef?: React.MutableRefObject<TiltState>;
   /** A phone-like device: no pointer lock, no keys — a finger on the screen walks, dragging turns. */
   coarse?: boolean;
+  /** The camera's pitch to start with (rad; the visitor turns it after) and how far above the cursor it looks from. */
+  pitch0?: number;
+  eyeLift?: number;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
   const player = useRef({ x: 0, z: 0, vx: 0, vz: 0 });
   const yaw = useRef(Math.PI);
-  const pitch = useRef(0.45);
+  const pitch = useRef(pitch0);
+  // a new starting pitch from the knob: taken at once
+  useEffect(() => {
+    pitch.current = pitch0;
+  }, [pitch0]);
   const camPos = useRef(new THREE.Vector3(0, 4.5, 7));
   const lookAt = useRef(new THREE.Vector3());
   const group = useRef<THREE.Group>(null);
@@ -277,7 +286,7 @@ function Controller({
 
     const hd = camDist * Math.cos(pitch.current);
     const vd = camDist * Math.sin(pitch.current);
-    const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + 0.4, p.z - Math.cos(y) * hd);
+    const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + eyeLift, p.z - Math.cos(y) * hd);
     camPos.current.lerp(desired, camLerp);
     camera.position.copy(camPos.current);
     lookAt.current.lerp(new THREE.Vector3(p.x, ORB_Y + 0.2, p.z), camLerp * 2);
@@ -291,6 +300,18 @@ function Controller({
   );
 }
 
+/** The camera's field of view from the knob (the Canvas only sets it once). */
+function CameraFov({ fov }: { fov: number }) {
+  const { camera } = useThree();
+  useEffect(() => {
+    const c = camera as THREE.PerspectiveCamera;
+    if (c.fov === fov) return;
+    c.fov = fov;
+    c.updateProjectionMatrix();
+  }, [camera, fov]);
+  return null;
+}
+
 /**
  * The faint cell grid, carried along under the player and snapped to whole cells (its lines stay the cells' lines):
  * the world wraps (world.ts), so a grid fixed at the origin would end somewhere.
@@ -301,7 +322,7 @@ function FollowGrid({ playerPosRef, size }: { playerPosRef: React.MutableRefObje
     const p = playerPosRef.current;
     ref.current?.position.set(Math.round(p.x / CELL_SIZE) * CELL_SIZE, 0.001, Math.round(p.z / CELL_SIZE) * CELL_SIZE);
   });
-  return <gridHelper ref={ref} args={[size, 100, "#1a1d33", "#0d0f1c"]} />;
+  return <gridHelper ref={ref} args={[size, Math.round(size / CELL_SIZE), "#1a1d33", "#0d0f1c"]} key={size} />;
 }
 
 export default function ParliamentScene() {
@@ -330,7 +351,7 @@ export default function ParliamentScene() {
   usePageLock(isV2);
   const witnessRef = useRef<Observation | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar, fov, pitch0, eyeLift, cloudRadius, cloudFarKeep, grassHeight, gridCells } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -374,6 +395,15 @@ export default function ParliamentScene() {
         viscosity: { value: 0.72, min: 0, max: 1, step: 0.01, label: "점성" },
         fogNear: { value: 18, min: 5, max: 80, step: 1 },
         fogFar: { value: 80, min: 20, max: 200, step: 5 },
+        "스케일 (세계가 얼마나 크게 느껴지는지)": folder({
+          fov: { value: 60, min: 30, max: 90, step: 1, label: "시야각 (°)" },
+          pitch0: { value: 0.45, min: 0.05, max: 1.2, step: 0.01, label: "처음 내려다보는 각 (rad)" },
+          eyeLift: { value: 0.4, min: 0, max: 3, step: 0.05, label: "시선 높이 (커서 위)" },
+          cloudRadius: { value: 22, min: 10, max: 60, step: 1, label: "식생이 그려지는 거리 (월드)" },
+          cloudFarKeep: { value: 1, min: 0.05, max: 1, step: 0.05, label: "먼 곳 점 비율 (1 = 가까운 곳과 같게)" },
+          grassHeight: { value: 1, min: 0.3, max: 4, step: 0.05, label: "식생 높이 배" },
+          gridCells: { value: 100, min: 20, max: 160, step: 10, label: "바닥 격자 크기 (셀)" },
+        }),
       }, { collapsed: true }),
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
@@ -406,7 +436,8 @@ export default function ParliamentScene() {
     return () => clearInterval(id);
   }, [hideChrome]);
 
-  const grid = useMemo(() => 100 * CELL_SIZE, []);
+  const grid = useMemo(() => gridCells * CELL_SIZE, [gridCells]);
+  const cloudView = useMemo(() => ({ radius: cloudRadius, farKeep: cloudFarKeep, height: grassHeight }), [cloudRadius, cloudFarKeep, grassHeight]);
 
   return (
     <div
@@ -422,6 +453,7 @@ export default function ParliamentScene() {
         style={{ background: FOG_COLOR, imageRendering: "pixelated" }}
       >
         <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />
+        <CameraFov fov={fov} />
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
         {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
@@ -437,6 +469,8 @@ export default function ParliamentScene() {
           lifeRef={withSession ? session.lifeRef : undefined}
           tiltRef={tiltRef}
           coarse={coarse}
+          pitch0={pitch0}
+          eyeLift={eyeLift}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -454,6 +488,7 @@ export default function ParliamentScene() {
           playerYawRef={playerYawRef}
           lifeRef={withSession ? session.lifeRef : undefined}
           witnessRef={withSession ? witnessRef : undefined}
+          cloudView={cloudView}
         />
       </Canvas>
 
