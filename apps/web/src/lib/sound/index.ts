@@ -5,6 +5,7 @@ export * from "./sequencer";
 export * from "./variation";
 export * from "./engine";
 export * from "./motifPresets";
+export * from "./tonality";
 export * from "./NoiseCraftBridge";
 export * from "./noisecraftMap";
 export * from "./noisecraftDriver";

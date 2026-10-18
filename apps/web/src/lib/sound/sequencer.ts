@@ -88,6 +88,8 @@ export interface BarInputs {
   /** A phrase (variation.ts) that takes my bars: its cycle index and the phrase; null = my motif. */
   phrase: { phrase: Phrase; from: number } | null;
   params?: SequencerParams;
+  /** The building's tonality where I stand (v4 A4, tonality.ts): its key and the zone's chord; null = the world's bands. */
+  place?: { key: WorldKey; chord: PlaceChord; zone: "in" | "ring" } | null;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -101,8 +103,10 @@ export function placeInBar(notes: readonly MotifNote[], d: Density, bar: number)
 
 export function planBar(inp: BarInputs): BarPlan {
   const p = inp.params ?? DEFAULT_SEQUENCER;
-  const { bar, sig, key, me } = inp;
-  const chord = placeChord(key, sig.x, sig.z);
+  const { bar, sig, me } = inp;
+  // inside a building's zone (or its ring) the building's key and chord; elsewhere the world's bands
+  const key = inp.place ? inp.place.key : inp.key;
+  const chord = inp.place ? inp.place.chord : placeChord(key, sig.x, sig.z);
   const lock = lockOf(sig);
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);

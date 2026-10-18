@@ -22,6 +22,7 @@ import { chordName, magentaChordName, type WorldKey } from "./harmony";
 import { Magenta } from "./magenta";
 import { makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { barClock, lockOf, planBar, type BarPlan } from "./sequencer";
+import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -103,6 +104,10 @@ export interface SoundParams {
   /** My motif an octave away now and then: one bar in this many (0 = never), up to this many octaves. */
   motifOctaveEvery: number;
   motifOctaveRange: number;
+  /** A building's tonality from its contributors (v4 A4): on/off, the ring outside its zone (world), the hysteresis. */
+  zoneTonality: boolean;
+  zoneRing: number;
+  zoneMargin: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -162,6 +167,9 @@ export const DEFAULT_SOUND: SoundParams = {
   fmDecayMs: 300,
   motifOctaveEvery: 3,
   motifOctaveRange: 1,
+  zoneTonality: true,
+  zoneRing: 4,
+  zoneMargin: 0.15,
   ncDull: 1,
   bassSpread: 0.7, // v4 A2e: its own long dark room
   bassDub: 0.45,
@@ -225,6 +233,8 @@ export interface SoundDebug {
   voices: number;
   /** The NoiseCraft instrument's state (NoiseCraftHost), one phrase; empty without it. */
   nc: string;
+  /** The building's tonality where I stand: "D Dorian · in" / "· ring", empty in the open. */
+  place: string;
 }
 
 export class SoundEngine {
@@ -271,6 +281,9 @@ export class SoundEngine {
   private plans = new Map<number, BarPlan>();
   /** What the NoiseCraft host reports (debug line). */
   ncStatus = "";
+  /** The key of the building zone I am in (kept across bars for the hysteresis); null in the open. */
+  private zoneKey: WorldKey | null = null;
+  private placeLine = "";
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
@@ -288,7 +301,29 @@ export class SoundEngine {
       phrase: this.phrase ? `${this.phrase.kind} @${this.phrase.from}` : null,
       voices: this.voices.size,
       nc: this.ncStatus + (this.nc ? " → engine" : ""),
+      place: this.placeLine,
     };
+  }
+
+  /** Where I stand in a building's harmony this bar (tonality.ts), or null in the open. */
+  private placeFor(sig: PersonalSignals): NonNullable<Parameters<typeof planBar>[0]["place"]> | null {
+    const p = this.params;
+    const b = sig.building;
+    const zone = p.zoneTonality && b ? zoneOf(b.dist, b.radius, p.zoneRing) : null;
+    if (!b || !zone) {
+      this.zoneKey = null;
+      this.placeLine = "";
+      return null;
+    }
+    const key = bestKey(b.who, this.zoneKey, p.zoneMargin);
+    if (!key) {
+      this.zoneKey = null;
+      this.placeLine = "";
+      return null;
+    }
+    this.zoneKey = key;
+    this.placeLine = `${keyName(key)} · ${zone}`;
+    return { key, chord: zoneChord(key, zone), zone };
   }
 
   /** The latest signals (null before the first fold). */
@@ -364,6 +399,7 @@ export class SoundEngine {
       bar,
       sig,
       key,
+      place: this.placeFor(sig),
       me: this.me.motif,
       others: this.motifs,
       closeness: this.closeness,

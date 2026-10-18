@@ -66,3 +66,21 @@ describe("signals: what the player hears, from the same log", () => {
     expect(personalSignals({ ...base, me: me(10, 0), snap }).sealed).toBe(0);
   });
 });
+
+describe("buildings (v4 A4): sealed slabs that touch, their zone, who built them", () => {
+  it("joins touching slabs into one building, sums the builders, grows the zone with the mass", async () => {
+    const { buildingAround, buildingsOf, ZONE_BASE } = await import("./signals");
+    const slab = (cx: number, cz: number, raw: number, who: { o: string; amount: number }[]) => ({ key: `${cx},${cz}`, x: (cx + 0.5) * 1.2, z: (cz + 0.5) * 1.2, h: raw, raw, foot: 1, bornS: 0, lastS: 10, who: who.map((w) => ({ ...w, first: 0, last: 10 })) });
+    const slabs = [slab(0, 0, 2, [{ o: "a", amount: 5 }]), slab(1, 0, 3, [{ o: "a", amount: 4 }, { o: "b", amount: 6 }]), slab(1, 1, 1, [{ o: "b", amount: 2 }]), slab(10, 10, 4, [{ o: "c", amount: 9 }]), slab(5, 5, 0.05, [{ o: "d", amount: 1 }])];
+    const bs = buildingsOf(slabs as never);
+    expect(bs).toHaveLength(2); // the low slab at (5,5) is not sealed
+    const big = bs.find((b) => b.id === "0,0")!;
+    expect(big.mass).toBe(6);
+    expect(big.who).toEqual([{ o: "b", amount: 8 }, { o: "a", amount: 9 }].sort((p, q) => q.amount - p.amount));
+    expect(big.radius).toBeCloseTo(ZONE_BASE + 0.4 * Math.sqrt(6));
+    const near = buildingAround(slabs as never, 1.5, 0.5);
+    expect(near?.id).toBe("0,0");
+    expect(near!.dist).toBeLessThan(2);
+    expect(buildingAround(slabs as never, 60, 60)).toBeNull();
+  });
+});

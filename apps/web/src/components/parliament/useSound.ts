@@ -71,6 +71,9 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       motifEvery: { value: DEFAULT_SOUND.motifEvery, min: 1, max: 6, step: 0.1, label: "내 모티프: 평균 몇 마디에 한 번 (소수점 = 확률)", render: v2 },
       motifOctaveEvery: { value: DEFAULT_SOUND.motifOctaveEvery, min: 0, max: 8, step: 0.5, label: "내 모티프: 옥타브 이동 — 연주 몇 번에 한 번 (0 = 안 함)", render: v2 },
       motifOctaveRange: { value: DEFAULT_SOUND.motifOctaveRange, min: 1, max: 2, step: 1, label: "옥타브 이동 폭 (1 = 한 옥타브, 2 = 두 옥타브까지)", render: v2 },
+      zoneTonality: { value: DEFAULT_SOUND.zoneTonality, label: "건물의 조성 — 지은 사람들의 모티프에 맞춘 키 (A4)", render: v2 },
+      zoneRing: { value: DEFAULT_SOUND.zoneRing, min: 0, max: 12, step: 0.5, label: "건물 바깥 고리 폭 (월드) — 거기선 도미넌트", render: v2 },
+      zoneMargin: { value: DEFAULT_SOUND.zoneMargin, min: 0, max: 1, step: 0.05, label: "조성이 바뀌는 문턱 (클수록 잘 안 바뀜)", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
       motifPreset: {
@@ -194,15 +197,15 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
   const {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
-    motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange,
+    motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
       master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop,
       motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
-      motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange,
+      motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius }), [hearRadius, sealRadius]);
   return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);

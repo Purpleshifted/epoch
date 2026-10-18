@@ -11,7 +11,8 @@ import { makeMotif } from "@/lib/sound/motif";
 import { NoiseCraftDriver, type DriverStatus } from "@/lib/sound/noisecraftDriver";
 import { PULSES_PER_BAR, PULSES_PER_STEP, modeOfPlan, planToSequences } from "@/lib/sound/noisecraftMap";
 import { planBar, type BarPlan } from "@/lib/sound/sequencer";
-import type { Neighbour, PersonalSignals } from "@/lib/sound/signals";
+import type { BuildingSignal, Neighbour, PersonalSignals } from "@/lib/sound/signals";
+import { bestKey, keyName, zoneChord, zoneOf } from "@/lib/sound/tonality";
 
 const PATCH = "nc_noise_patch.ncft";
 
@@ -20,6 +21,8 @@ const bots: Neighbour[] = [
   { o: "bot1", dist: 2, angle: 0.3, bot: true },
   { o: "bot2", dist: 3, angle: 2.1, bot: true },
 ];
+/** A building the two bots and the staged visitor built, at (4, 4), mass 24 → zone radius ≈ 8. */
+const house = (dist: number): BuildingSignal => ({ id: "3,3", x: 4, z: 4, dist, radius: 6 + 0.4 * Math.sqrt(24), mass: 24, who: [{ o: "bot1", amount: 12 }, { o: "bot2", amount: 9 }, { o: "v_bench", amount: 3 }] });
 
 /** Where the staged visitor is at bar `bar`. */
 const SCENARIOS: Record<string, (bar: number) => PersonalSignals> = {
@@ -27,12 +30,12 @@ const SCENARIOS: Record<string, (bar: number) => PersonalSignals> = {
   "열린 땅, 천천히 걷기": (bar) => sig({ x: (bar * 1.5) % 30, z: 2, speed: 1.5 }),
   "길 위, 걷기 (띠를 건넘)": (bar) => sig({ x: (bar * 4) % 60 - 30, z: 6, speed: 4, pathP: 0.85 }),
   "길 위, 뛰기": (bar) => sig({ x: (bar * 8) % 60 - 30, z: 6, speed: 7.5, pathP: 0.9 }),
-  "함께 짓기 (둘과 머묾)": () => sig({ x: 4, z: 4, stay: 1, neighbours: bots }),
+  "함께 짓기 (둘과 머묾)": () => sig({ x: 4, z: 4, stay: 1, neighbours: bots, building: house(0) }),
   "접근 → 함께 짓기 → 떠남 (8마디 주기)": (bar) => {
     const k = bar % 8;
-    if (k < 3) return sig({ x: 12 - k * 3, z: 4, speed: 3, pathP: 0.5 });
-    if (k < 6) return sig({ x: 4, z: 4, stay: 1, neighbours: bots });
-    return sig({ x: 4 + (k - 5) * 4, z: 4, speed: 3 });
+    if (k < 3) return sig({ x: 18 - k * 4, z: 4, speed: 3, pathP: 0.5, building: house(14 - k * 4) });
+    if (k < 6) return sig({ x: 4, z: 4, stay: 1, neighbours: bots, building: house(0) });
+    return sig({ x: 4 + (k - 5) * 5, z: 4, speed: 3, building: house((k - 5) * 5) });
   },
 };
 
@@ -40,6 +43,7 @@ interface LogRow {
   bar: number;
   chord: string;
   mode: string;
+  place: string;
   v: string;
   harm: string;
 }
@@ -55,10 +59,12 @@ export default function SoundBench() {
   const me = useMemo(() => makeMotif("v_bench"), []);
   const others = useMemo(() => new Map([["bot1", makeMotif("bot1")], ["bot2", makeMotif("bot2")]]), []);
   const live = useRef({ scenario, barSec, playing });
+  const zoneKey = useRef<ReturnType<typeof bestKey>>(null);
   useEffect(() => {
     live.current = { scenario, barSec, playing };
   }, [scenario, barSec, playing]);
 
+  const placeOf = useRef(new Map<number, string>());
   useEffect(() => {
     if (!host.current) return;
     const plans = new Map<number, BarPlan>();
@@ -67,7 +73,13 @@ export default function SoundBench() {
         const cached = plans.get(bar);
         if (cached) return cached;
         const s = SCENARIOS[live.current.scenario](bar);
-        const plan = planBar({ bar, sig: s, key, me, others, closeness: new Map(), phrase: null, params: { barSec: live.current.barSec, speedMax: 7, bassFrom: 0.25 } });
+        // the building's tonality where the staged visitor stands (as the engine does it)
+        const zone = s.building ? zoneOf(s.building.dist, s.building.radius, 4) : null;
+        const zk = s.building && zone ? bestKey(s.building.who, zoneKey.current, 0.15) : null;
+        zoneKey.current = zk;
+        const place = zk && zone ? { key: zk, chord: zoneChord(zk, zone), zone } : null;
+        const plan = planBar({ bar, sig: s, key, me, others, closeness: new Map(), phrase: null, place, params: { barSec: live.current.barSec, speedMax: 7, bassFrom: 0.25 } });
+        placeOf.current.set(bar, place ? `${keyName(place.key)} · ${place.zone}` : "–");
         plans.set(bar, plan);
         for (const k of plans.keys()) if (k < bar - 4) plans.delete(k);
         return plan;
@@ -79,7 +91,7 @@ export default function SoundBench() {
         if (!plan) return;
         const q = planToSequences(plan, plans.get(bar - 1) ?? null);
         const v = q.parliament.pitches[0].map((p, i) => `${p}${q.parliament.gates[0][i] ? `(${q.parliament.gates[0][i]})` : ""}`).join(" ");
-        const row: LogRow = { bar, chord: chordName(key, plan.chord), mode: modeOfPlan(plan), v, harm: q.harmony.gates[0][0] ? q.harmony.pitches[0].join(" ") : "–" };
+        const row: LogRow = { bar, chord: chordName(key, plan.chord), mode: modeOfPlan(plan), place: placeOf.current.get(bar) ?? "–", v, harm: q.harmony.gates[0][0] ? q.harmony.pitches[0].join(" ") : "–" };
         setLog((l) => [row, ...l].slice(0, 10));
       },
     });
@@ -118,10 +130,10 @@ export default function SoundBench() {
       <div className="flex min-h-0 flex-1">
         <div ref={host} className="min-w-0 flex-1" />
         <div className="w-[380px] overflow-auto border-l border-white/10 p-2">
-          <div className="mb-1 text-white/40">마디 · 코드 · 상황 · parliament v0 v1 v2 v3 (게이트) · harmony</div>
+          <div className="mb-1 text-white/40">마디 · 코드 · 상황 · 건물 조성 · parliament v0 v1 v2 v3 (게이트) · harmony</div>
           {log.map((r) => (
             <div key={r.bar} className="whitespace-nowrap">
-              {r.bar} · {r.chord} · {r.mode} · {r.v} · {r.harm}
+              {r.bar} · {r.chord} · {r.mode} · {r.place} · {r.v} · {r.harm}
             </div>
           ))}
         </div>

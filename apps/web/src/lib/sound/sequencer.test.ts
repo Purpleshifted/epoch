@@ -167,3 +167,26 @@ describe("octave shifts of my motif (the artist: not always one register)", () =
     expect(shifted(5, 0, 1).me.map((n) => n.pitch)).toEqual(plain(5).me.map((n) => n.pitch));
   });
 });
+
+describe("a building's place in the plan (v4 A4)", () => {
+  it("inside a zone the plan takes the building's key and chord; the motif re-sits in that scale; outside, the bands", async () => {
+    const { planBar } = await import("./sequencer");
+    const { makeMotif } = await import("./motif");
+    const { worldKey, scaleClasses, placeChord } = await import("./harmony");
+    const { bestKey, zoneChord } = await import("./tonality");
+    const world = worldKey("t");
+    const me = makeMotif("v_zone");
+    const who = [{ o: "bot1", amount: 12 }, { o: "bot2", amount: 9 }];
+    const bkey = bestKey(who)!;
+    const sig = { x: 4, z: 4, speed: 0, stay: 1, neighbours: [{ o: "bot1", dist: 2, angle: 0, bot: true }, { o: "bot2", dist: 3, angle: 1, bot: true }], pathP: 0, sealed: 1, grass: 0 };
+    const inside = planBar({ bar: 2, sig, key: world, me, others: new Map(), closeness: new Map(), phrase: null, place: { key: bkey, chord: zoneChord(bkey, "in"), zone: "in" } });
+    const ring = planBar({ bar: 2, sig, key: world, me, others: new Map(), closeness: new Map(), phrase: null, place: { key: bkey, chord: zoneChord(bkey, "ring"), zone: "ring" } });
+    const open = planBar({ bar: 2, sig, key: world, me, others: new Map(), closeness: new Map(), phrase: null, place: null });
+    expect(inside.chord.rootClass).toBe(bkey.root);
+    expect(ring.chord.rootClass).toBe((bkey.root + bkey.mode.intervals[4]) % 12);
+    expect(open.chord).toEqual(placeChord(world, 4, 4));
+    const scale = new Set(scaleClasses(bkey));
+    expect(inside.me.every((n) => scale.has(((n.pitch % 12) + 12) % 12))).toBe(true); // every note of mine in the building's scale
+    expect(inside.pad.pitches.slice(1).every((p) => inside.chord.classes.includes(((p % 12) + 12) % 12))).toBe(true);
+  });
+});
