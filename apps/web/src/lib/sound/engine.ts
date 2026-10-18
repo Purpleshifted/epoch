@@ -472,7 +472,9 @@ export class SoundEngine {
   /** Builds the graph on first call; resumes the context. Must be called from a user gesture on mobile. */
   async start(): Promise<void> {
     if (!this.ctx) {
-      const ctx = new AudioContext();
+      // "playback": a larger output buffer — the artist heard glitches when the hall opened on an arrival; this piece
+      // needs headroom, not low latency (v4 A5)
+      const ctx = new AudioContext({ latencyHint: "playback" });
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = 0;
@@ -497,9 +499,18 @@ export class SoundEngine {
       };
       this.rooms = {
         open: room(1.2, 0.35, 0, 0.25, 0.12),
-        concrete: room(2.0, 0.6, 6, 0.9, 0),
-        hall: room(3.0, 1.2, 0, 0.5, 0), // 4.5 s before v4 A1: the convolver's cost is its length
+        concrete: room(1.6, 0.5, 6, 0.9, 0),
+        hall: room(2.4, 1.0, 0, 0.5, 0), // 4.5 s → 3 s (A1) → 2.4 s (A5): the convolver's cost is its length
       };
+      // the hall never sleeps: a whisper of noise keeps its convolver running, so opening it on an arrival does not
+      // start a cold convolution (the burst the artist heard as lag)
+      const keep = ctx.createBufferSource();
+      keep.buffer = noiseBuffer(ctx, 1);
+      keep.loop = true;
+      const keepGain = ctx.createGain();
+      keepGain.gain.value = 0.00002;
+      keep.connect(keepGain).connect(this.rooms.hall);
+      keep.start();
       this.voiceBus.connect(this.rooms.open);
       this.voiceBus.connect(this.rooms.concrete);
       this.voiceBus.connect(this.rooms.hall);
@@ -557,8 +568,7 @@ export class SoundEngine {
       const wg = ctx.createGain();
       wg.gain.value = 0;
       wn.connect(wf).connect(wg);
-      wg.connect(this.dry);
-      wg.connect(this.rooms.hall);
+      wg.connect(this.dry); // dry only: the wave into the hall doubled the convolver's work at the arrival
       wn.start();
       this.wave = { filter: wf, gain: wg };
       // the freeze (v4 A4d): what rang last keeps ringing — two delays in a loop, darkening; silent until the end
@@ -621,7 +631,7 @@ export class SoundEngine {
       dark.connect(this.rooms.hall);
       this.echo = { send, delay, feedback };
       // the long open space the signal goes out into (a 4 s room, half bright), from my voice and its echo
-      this.space = room(3.2, 1.6, 0, 0.45, 0); // 4 s before A4c: the convolver's cost is its length
+      this.space = room(2.4, 1.3, 0, 0.45, 0); // 4 s → 3.2 (A4c) → 2.4 s (A5)
       dark.connect(this.space);
       this.lastUpdate = ctx.currentTime;
     }
