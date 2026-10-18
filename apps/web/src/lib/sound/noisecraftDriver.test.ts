@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NoiseCraftBridge, NoiseCraftParam } from "./NoiseCraftBridge";
 import { NoiseCraftDriver } from "./noisecraftDriver";
+import { IDLE_SOURCES, KNOB_MAPS } from "./noisecraftKnobs";
 import { CLOCK_KNOB, PULSES_PER_BAR } from "./noisecraftMap";
 import type { BarPlan } from "./sequencer";
 
@@ -85,6 +86,38 @@ describe("the driver: the music clock goes in, the phase comes out", () => {
     expect(sent.filter((id) => id === "parliament")).toHaveLength(2); // bar 0 and bar 1
     expect(new Set(sent)).toEqual(new Set(["parliament", "harmony", "bass", "texture", "line", "traces"]));
     expect(d.status.bar).toBe(1);
+    d.dispose();
+  });
+
+  it("moves the real-time knobs only when the source offers them: gliding toward the targets, within the ranges, back to the rests when stopped", () => {
+    const b = fakeBridge();
+    let running = true;
+    let company = 0;
+    const d = new NoiseCraftDriver(
+      { planFor: aPlan, running: () => running, barSec: () => 2, knobSources: () => ({ ...IDLE_SOURCES, company }), knobDepth: () => 1 },
+      b,
+    );
+    d.mount({} as HTMLElement, b.patch, false);
+    vi.advanceTimersByTime(1100);
+    // idle sources: the clock only, the knobs sit at their rests
+    expect(b.params.flat().every((p) => p.nodeId === CLOCK_KNOB.nodeId)).toBe(true);
+    expect(d.status.knobs).toBe(0);
+    company = 1;
+    vi.advanceTimersByTime(250 * 30);
+    const colour = KNOB_MAPS.find((m) => m.nodeId === "40")!;
+    const sent = b.params.flat().filter((p) => p.nodeId === "40").map((p) => p.value as number);
+    expect(sent.length).toBeGreaterThan(3); // it glided, not jumped
+    for (let i = 1; i < sent.length; i++) expect(sent[i] - sent[i - 1]).toBeLessThanOrEqual((colour.slew ?? 0.04) * (colour.max - colour.min) + 1e-6);
+    expect(sent[sent.length - 1]).toBeCloseTo(colour.hi, 3);
+    expect(sent.every((v) => v >= colour.min && v <= colour.max)).toBe(true);
+    expect(d.status.knobs).toBe(1);
+    // stopped: back to the rest, then silence
+    running = false;
+    vi.advanceTimersByTime(250 * 30);
+    expect(d.knobs.current("40")).toBeCloseTo(colour.rest, 3);
+    const n = b.params.length;
+    vi.advanceTimersByTime(2000);
+    expect(b.params.length).toBe(n);
     d.dispose();
   });
 });

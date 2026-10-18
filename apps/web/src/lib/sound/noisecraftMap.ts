@@ -1,10 +1,11 @@
 /**
  * sound/noisecraftMap.ts — what our logic gives the artist's NoiseCraft patch (docs/sound-logic.md §8b, v4 A2).
  *
- * The patch (`nc_noise_patch`) is a STATIC MACHINE: nothing in here turns its knobs. Two things cross into it:
+ * The patch (`nc_noise_patch`) is a STATIC MACHINE: nothing in here turns its knobs (a few knobs do follow the
+ * interaction, gliding within their ranges — noisecraftKnobs.ts, v4 A5a). Two things cross into it from here:
  *
  *   THE MUSIC CLOCK   the bar length is decided outside (the engine: Leva + interaction), and the patch's sequencer
- *                     clock knob RECEIVES it (pulses/s, 96 a bar). The only parameter ever sent. (The patch's own
+ *                     clock knob RECEIVES it (pulses/s, 96 a bar). (The patch's own
  *                     BPM knob, which paces its random triggers, the artist locked at 120: it is not touched — a
  *                     value outside a knob's range breaks the patch on its next load.)
  *   HARMONIC SEQUENCES per bar, 16 steps, pitch per step (MIDI) and gate = note length in steps — to the receivers

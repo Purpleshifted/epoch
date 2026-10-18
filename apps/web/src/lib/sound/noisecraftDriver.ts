@@ -2,8 +2,10 @@
  * sound/noisecraftDriver.ts — drives the artist's NoiseCraft patch from the engine (docs/sound-logic.md §8b, v4 A2).
  *
  *   CLOCK     the MUSIC CLOCK is the engine's (interaction and status decide the bar length); the patch RECEIVES it:
- *             whenever the bar length changes the two clock knobs get it (noisecraftMap.clockParams). That is the
- *             only parameter ever sent — the patch is a static machine.
+ *             whenever the bar length changes the clock knob gets it (noisecraftMap.clockParams).
+ *   KNOBS     (v4 A5a) a few of the patch's knobs follow the interaction at 4 Hz, gliding, within their ranges
+ *             (noisecraftKnobs.ts) — when the source offers `knobSources`; the bench does not. Otherwise the patch
+ *             is a static machine: the clock is the only parameter ever sent.
  *   PHASE     a ClockOut node in the patch reports every pulse (6 a step, 96 a bar); the driver counts them, sends
  *             the next bar's sequences on the last pulse of a bar (AI_Seq reads from step 0 and never resets), and
  *             tells the engine when the bar starts on the wall clock (`onBar` → setGridAnchor), so the Web Audio
@@ -12,6 +14,7 @@
  */
 
 import { getNoiseCraftBridge, type NoiseCraftBridge } from "./NoiseCraftBridge";
+import { KnobMapper, type KnobSources } from "./noisecraftKnobs";
 import { PULSES_PER_BAR, clockParams, modeOfPlan, planToSequences, type PlaceMode } from "./noisecraftMap";
 import type { BarPlan } from "./sequencer";
 
@@ -24,6 +27,10 @@ export interface DriverSource {
   barSec(): number;
   /** Bar `bar` starts at `wallMs` on the patch's clock (only when clocked): the engine anchors its grid to it. */
   onBar?(bar: number, wallMs: number): void;
+  /** What the patch's real-time knobs follow (v4 A5a); absent = the knobs are never touched; null = back to the rests. */
+  knobSources?(): KnobSources | null;
+  /** How far the knobs depart from the artist's saved values (0..1, default 1). */
+  knobDepth?(): number;
 }
 
 export interface DriverStatus {
@@ -36,6 +43,8 @@ export interface DriverStatus {
   pulseHz: number;
   /** The bar length last sent to the patch (s). */
   barSecSent: number;
+  /** How many of the patch's real-time knobs are away from their rest (v4 A5a). */
+  knobs: number;
 }
 
 const TICK_MS = 250;
@@ -53,6 +62,8 @@ export class NoiseCraftDriver {
   private pulseTimes: number[] = [];
   private barSecSent = 0;
   private source: DriverSource;
+  /** The patch's real-time knobs (v4 A5a). */
+  readonly knobs = new KnobMapper();
 
   constructor(source: DriverSource, bridge = getNoiseCraftBridge()) {
     this.source = source;
@@ -62,6 +73,9 @@ export class NoiseCraftDriver {
       this.pulses = -1;
       this.bar = -1;
       this.barSecSent = 0;
+      // the loaded patch's own ranges and saved values are the knobs' rests; its knobs sit there now
+      if (typeof bridge.nodeInfo === "function") this.knobs.learn((id) => bridge.nodeInfo(id));
+      this.knobs.reset();
       this.sendClock();
       if (this.wantPlay) bridge.play();
     };
@@ -77,14 +91,14 @@ export class NoiseCraftDriver {
   get status(): DriverStatus {
     const pt = this.pulseTimes;
     const pulseHz = pt.length >= 2 ? (pt.length - 1) / Math.max(0.001, pt[pt.length - 1] - pt[0]) : 0;
-    return { patch: this.bridge.patch, audio: this.bridge.status, bar: this.bar, mode: this.lastPlan ? modeOfPlan(this.lastPlan) : "-", clocked: this.clocked, pulseHz, barSecSent: this.barSecSent };
+    return { patch: this.bridge.patch, audio: this.bridge.status, bar: this.bar, mode: this.lastPlan ? modeOfPlan(this.lastPlan) : "-", clocked: this.clocked, pulseHz, barSecSent: this.barSecSent, knobs: this.knobs.moved };
   }
 
   get plan(): BarPlan | null {
     return this.lastPlan;
   }
 
-  /** The music clock to the patch, when it changed (the only parameters ever sent). */
+  /** The music clock to the patch, when it changed. */
   private sendClock(): void {
     if (!this.bridge.loaded) return;
     const sec = this.source.barSec();
@@ -138,6 +152,15 @@ export class NoiseCraftDriver {
       }
     }
     if (should) this.sendClock();
+    this.sendKnobs(should);
+  }
+
+  /** The real-time knobs (v4 A5a): one glide step toward the sources' targets, or toward the rests when not running. */
+  private sendKnobs(running: boolean): void {
+    if (!this.source.knobSources || !this.bridge.loaded) return;
+    const src = running ? this.source.knobSources() : null;
+    const params = this.knobs.step(src, this.source.knobDepth?.() ?? 1);
+    if (params.length) this.bridge.setParams(params);
   }
 
   dispose(): void {

@@ -23,6 +23,7 @@ import { Magenta } from "./magenta";
 import { hashString, makeMotif, midiToHz, realize, rng, type Motif } from "./motif";
 import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
+import type { KnobSources } from "./noisecraftKnobs";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -131,6 +132,9 @@ export interface SoundParams {
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
   ncDull: number;
+  /** The patch's real-time knobs follow the interaction (noisecraftKnobs.ts, v4 A5a) and how far they depart from the artist's saved values (0..1). */
+  ncMap: boolean;
+  ncMapDepth: number;
   /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
   bassSpread: number;
   bassDub: number;
@@ -201,6 +205,8 @@ export const DEFAULT_SOUND: SoundParams = {
   afterlifeSec: 8,
   afterlifeGrains: 0.6,
   ncDull: 1,
+  ncMap: true,
+  ncMapDepth: 0.8,
   bassSpread: 0.7, // v4 A2e: its own long dark room
   bassDub: 0.45,
   bassDuck: 0.35,
@@ -320,6 +326,8 @@ export class SoundEngine {
   /** The key of the building zone I am in (kept across bars for the hysteresis); null in the open. */
   private zoneKey: WorldKey | null = null;
   private placeLine = "";
+  /** Where I stood in a building's harmony at the last plan (the patch's knobs read it). */
+  private zone: "in" | "ring" | null = null;
   /** The arrival cadence (sequencer.ts nextArrival) and the sealed slabs I have already seen near me. */
   private arrivalState: ArrivalState = ARRIVAL_IDLE;
   private seenSlabs: Set<string> | null = null;
@@ -352,6 +360,7 @@ export class SoundEngine {
     const p = this.params;
     const b = sig.building;
     const zone = p.zoneTonality && b ? zoneOf(b.dist, b.radius, p.zoneRing) : null;
+    this.zone = zone;
     if (!b || !zone) {
       this.zoneKey = null;
       this.placeLine = "";
@@ -375,6 +384,27 @@ export class SoundEngine {
 
   get currentParams(): SoundParams {
     return this.params;
+  }
+
+  /**
+   * What the patch's real-time knobs follow (noisecraftKnobs.ts, v4 A5a): numbers this engine already has, 0 = idle.
+   * null = mapping off or nobody here yet (the knobs glide back to the artist's values).
+   */
+  knobSources(): KnobSources | null {
+    const sig = this.sig;
+    const p = this.params;
+    if (!sig || !p.ncMap) return null;
+    const t = this.ctx?.currentTime ?? 0;
+    const glow = this.ctx ? this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6) : 0;
+    return {
+      company: Math.min(1, sig.neighbours.length / 3),
+      zone: this.zone === "in" ? 1 : this.zone === "ring" ? 0.5 : 0,
+      space: Math.max(-1, Math.min(1, glow - sig.sealed)),
+      sealed: sig.sealed,
+      speed: Math.min(1, sig.speed / Math.max(0.1, p.speedMax)),
+      together: (sig.coBuilders?.length ?? 0) > 0 ? 1 : 0,
+      dying: p.dying,
+    };
   }
 
   /**
