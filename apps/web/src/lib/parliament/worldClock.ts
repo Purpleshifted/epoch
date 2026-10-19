@@ -51,6 +51,31 @@ export function timeRate(): number {
   return readAnchor()?.rate ?? 1;
 }
 
+/** A clock a view runs on: the shared world clock, or a local one (the lab's: this tab only). */
+export interface Clock {
+  now(): number;
+  rate(): number;
+  setRate(rate: number): void;
+}
+
+/** The shared world clock as a Clock. */
+export const sharedClock: Clock = { now: () => worldNow(), rate: () => timeRate(), setRate: (r) => setTimeRate(r) };
+
+/** A clock of this tab only (nothing shared): the same anchor arithmetic, in memory; starts at `rate`. */
+export function makeLocalClock(rate = 1): Clock {
+  let a: Anchor = { r: Date.now(), v: Date.now(), rate: Math.max(MIN_TIME_RATE, Math.min(MAX_TIME_RATE, rate)) };
+  const now = () => a.v + (Date.now() - a.r) * a.rate;
+  return {
+    now,
+    rate: () => a.rate,
+    setRate: (r) => {
+      const rr = Math.max(MIN_TIME_RATE, Math.min(MAX_TIME_RATE, Math.round(r * 100) / 100));
+      if (rr === a.rate) return;
+      a = { r: Date.now(), v: now(), rate: rr };
+    },
+  };
+}
+
 /** Sets the time rate for every tab, from the current world time on. */
 export function setTimeRate(rate: number): void {
   const r = Math.max(MIN_TIME_RATE, Math.min(MAX_TIME_RATE, Math.round(rate * 100) / 100));

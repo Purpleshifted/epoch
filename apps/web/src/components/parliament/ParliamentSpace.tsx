@@ -32,12 +32,13 @@ import {
   clearWorld,
   MAX_TIME_RATE,
   MIN_TIME_RATE,
-  setTimeRate,
-  timeRate,
   latestOf,
   latestS,
   loadEvents,
-  seedTestColumn,
+  buildTestColumn,
+  makeLocalClock,
+  sharedClock,
+  type Clock,
   seedParliamentDemoIfRequested,
   type BoxConfig,
   type EventLog,
@@ -550,8 +551,11 @@ function SpaceWorld({
   noAxis,
   walk,
   walkLook,
+  clock,
 }: {
   log: EventLog;
+  /** The clock this view runs on (rate 0 = paused: the view is pinned and settings apply at once). */
+  clock: Clock;
   fold: FoldConfig;
   boxCfg: BoxConfig;
   showEdges: boolean;
@@ -768,7 +772,7 @@ function SpaceWorld({
     const o = controls.current;
     // TIME STANDING STILL (rate 0): the camera the LOD and the vegetation window follow is pinned too, so moving the
     // view does not rebuild anything — only a changed setting does (and chunks still catching up)
-    const frozen = timeRate() === 0;
+    const frozen = clock.rate() === 0;
     const camNow: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
     const focusNow = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
     if (!frozen || !pinned.current) pinned.current = { cam: camNow, focusK: focusNow };
@@ -1123,11 +1127,21 @@ function Markers({
   );
 }
 
-export default function ParliamentSpace() {
+/**
+ * `lab`: the WORK ROOM (/v2/global/lab) — a world of this tab only (a test column on opening, never the shared
+ * storage), its own clock (paused at first), no history window; the same Leva, saved under the shared view's key.
+ */
+export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {}) {
   const isV2 = useParliamentVersion() === "v2";
   const [demo] = useState(() => seedParliamentDemoIfRequested());
-  const log = useWorld(undefined, 1000);
-  useKeepWindowControl(log); // the shared history window (log.ts), the first folder
+  const log = useWorld(undefined, 1000, !lab);
+  useKeepWindowControl(log, -2, !lab); // the shared history window (log.ts), the first folder
+  // the lab opens with a whole column in view
+  useEffect(() => {
+    if (lab && log.size === 0) log.addMany(buildTestColumn());
+  }, [lab, log]);
+  // the clock the view and its bots run on: the shared world clock, or the lab's own (this tab only)
+  const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   const controls = useRef<Orbit | null>(null);
@@ -1171,20 +1185,23 @@ export default function ParliamentSpace() {
       }),
       "데이터": folder(
         {
-          "기록 다시 읽기": button(() => log.addMany(loadEvents())),
-          // WORK MODE: a whole column at once (every stage in view), replacing the shared world
-          "테스트 기둥 만들기 (봇 기록 창 분량 즉시 · 세계를 대체)": button(() => {
-            if (!window.confirm("Replace the shared world with a test column (a bot crowd's log for the whole history window, a new epoch)?")) return;
-            seedTestColumn();
-            log.clear();
-            log.addMany(loadEvents());
-          }),
-          "세계 지우기": button(() => {
-            if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
-              clearWorld();
-              log.clear();
-            }
-          }),
+          ...(lab
+            ? {
+                // the lab: a fresh column (this tab only)
+                "테스트 기둥 다시 만들기 (봇 20분치 · 이 탭만)": button(() => {
+                  log.clear();
+                  log.addMany(buildTestColumn());
+                }),
+              }
+            : {
+                "기록 다시 읽기": button(() => log.addMany(loadEvents())),
+                "세계 지우기": button(() => {
+                  if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
+                    clearWorld();
+                    log.clear();
+                  }
+                }),
+              }),
         },
         { collapsed: true },
       ),
@@ -1207,18 +1224,18 @@ export default function ParliamentSpace() {
     "시간축",
     {
       timeRate: {
-        value: timeRate(),
-        min: MIN_TIME_RATE,
+        value: clk.rate(),
+        min: lab ? MIN_TIME_RATE : 0.2, // standing still only in the lab (the shared clock stops every tab)
         max: MAX_TIME_RATE,
         step: 0.1,
-        label: "시간 배율 (모든 탭 공유, 1 = 실제 속도, 0 = 정지)",
-        onChange: (r: number) => setTimeRate(r),
+        label: lab ? "시간 배율 (이 탭만, 0 = 정지 · 작업 모드)" : "시간 배율 (모든 탭 공유, 1 = 실제 속도)",
+        onChange: (r: number) => clk.setRate(r),
         transient: false, // also returned, for the readout
       },
-      // quick presets for watching an iteration: stand still, slow motion, real time, fast
+      // quick presets for watching an iteration: stand still (lab), slow motion, real time, fast
       rates: buttonGroup({
         label: "빠르게 고르기",
-        opts: Object.fromEntries([0, 0.2, 0.5, 1, 5, 20].map((r) => [r === 0 ? "정지" : `×${r}`, () => levaStore.setValueAtPath("시간축.timeRate", r, true)])),
+        opts: Object.fromEntries((lab ? [0, 0.2, 0.5, 1, 5, 20] : [0.2, 0.5, 1, 5, 20]).map((r) => [r === 0 ? "정지" : `×${r}`, () => levaStore.setValueAtPath("시간축.timeRate", r, true)])),
       }),
     },
     { order: 1 },
@@ -1367,7 +1384,7 @@ export default function ParliamentSpace() {
     },
   });
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
-  const globalBots = useGlobalBots(log, fold, isV2);
+  const globalBots = useGlobalBots(log, fold, isV2, 1.5, lab ? { clock: clk, local: true } : undefined);
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -1815,6 +1832,7 @@ export default function ParliamentSpace() {
           noAxis={isV2}
           walk={walkView}
           walkLook={walkLook}
+          clock={clk}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
@@ -1846,7 +1864,8 @@ export default function ParliamentSpace() {
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
-        {globalBots > 0 && <div>bots: {globalBots} running from this view (global)</div>}
+        {globalBots > 0 && <div>bots: {globalBots} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
+        {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}

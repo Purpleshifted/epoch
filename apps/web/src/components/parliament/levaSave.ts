@@ -11,8 +11,14 @@ const PREFIX = "parliament.leva";
 /** Read once per page load and storage key (the schema is rebuilt every render; Leva only reads it at mount). */
 const cache = new Map<string, Record<string, unknown> | null>();
 
+/** A page whose saved values another page shares (the lab tunes the shared global view's): set before Leva mounts. */
+let pageOverride: string | null = null;
+export function setLevaPage(path: string | null): void {
+  pageOverride = path;
+}
+
 function storageKey(root: string): string {
-  const page = typeof window === "undefined" ? "" : window.location.pathname;
+  const page = pageOverride ?? (typeof window === "undefined" ? "" : window.location.pathname);
   return `${PREFIX}:${page}:${root}`;
 }
 

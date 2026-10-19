@@ -20,11 +20,13 @@ import {
   currentEpochKey,
   dueSamples,
   getEpochMs,
+  latestS,
   saveMerged,
+  sharedClock,
+  type Clock,
   sessionSeconds,
   setKeepFrom,
   steerBot,
-  worldNow,
   type Actor,
   type EventLog,
   type Flock,
@@ -54,7 +56,10 @@ const BOT_OPTIONS: Record<string, RoleId | "mixed"> = {
  * The bots' Leva group and emitter for a global view. `enabled` false (V1) renders nothing and emits nothing.
  * Returns how many bots run (0 = off), for the view's readout.
  */
-export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, order = 1.5): number {
+export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, order = 1.5, opts?: { clock?: Clock; local?: boolean }): number {
+  // the lab: its own clock, its own world — nothing written to the shared storage, no history window
+  const clock = opts?.clock ?? sharedClock;
+  const local = !!opts?.local;
   const b = useControls(
     "봇 (글로벌에서 돌리기)",
     savable("봇 (글로벌에서 돌리기)", {
@@ -93,10 +98,11 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   // fresh crowd
   useEffect(() => {
     if (nBots > 0) {
-      epochMs.current = getEpochMs();
+      // local: the bots go on from the end of what the log holds
+      epochMs.current = local ? clock.now() - latestS(log.all()) * 1000 : getEpochMs();
       if (!tag.current) tag.current = Math.random().toString(36).slice(2, 6); // this view's crowd, unique ids
     } else {
-      if (pending.current.length && epochMs.current) saveMerged(pending.current, epochMs.current);
+      if (!local && pending.current.length && epochMs.current) saveMerged(pending.current, epochMs.current);
       pending.current = [];
       botStartMs.current = 0;
       lastSampleMs.current = 0;
@@ -107,7 +113,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     const { nBots: n, role, flock: fl, cfg: foldCfg, fold: theFold } = live.current;
     if (n <= 0) return;
     // a cleared world (here or in another tab): join the new epoch with a fresh crowd
-    if (currentEpochKey() !== String(epochMs.current)) {
+    if (!local && currentEpochKey() !== String(epochMs.current)) {
       epochMs.current = getEpochMs();
       pending.current = [];
       botStartMs.current = 0;
@@ -115,7 +121,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       ground.current = null;
       routes.current.clear();
     }
-    const now = worldNow();
+    const now = clock.now();
     const wall = Date.now();
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && (!ground.current || wall - ground.current.at >= BOT_GROUND_EVERY_MS)) {
@@ -148,6 +154,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
         pending.current.push(e);
       }
     }
+    if (local) return; // the lab keeps everything, in memory
     if (now - lastKeepMs.current >= KEEP_EVERY_MS && wall - lastKeepWall.current >= KEEP_MIN_WALL_MS) {
       lastKeepMs.current = now;
       lastKeepWall.current = wall;
