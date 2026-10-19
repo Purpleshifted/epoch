@@ -262,10 +262,12 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.ior = 1.5;
   m.attenuationColor.set(r.attenuationColor);
   m.attenuationDistance = r.attenuationDistance;
-  // transmission 0 (the translucent body, also performance mode): no refraction pass — alpha, what is inside shows
-  m.transparent = r.transmission <= 0;
-  m.opacity = r.transmission <= 0 ? r.opacity : 1;
-  m.depthWrite = r.transmission > 0;
+  // transmission 0 (the glass / alpha body, also performance mode): no refraction pass — a solid body at opacity 1
+  // (the artist, 2026-10-19: the translucent body was too see-through, opaque fits the intent), alpha below it
+  const solid = r.transmission > 0 || r.opacity >= 1;
+  m.transparent = !solid;
+  m.opacity = solid ? 1 : r.opacity;
+  m.depthWrite = solid;
   (m.userData.uShade as THREE.IUniform).value = r.shade;
   (m.userData.uRim as THREE.IUniform).value = r.rim;
   // the glass body: a clearcoat for the lights' highlights (cheap), no refraction
@@ -1779,11 +1781,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           // the artist, 2026-10-19: the exhibition view turns slowly, it is not zoomed into — the light glass is the
           // default (the refraction cost 1–16 fps on the lab column), the refraction stays as a choice
           resinMode: {
-            options: { "유리 느낌 (가벼움: 반투명 + 가장자리 광택, 굴절 없음)": "glass", "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가장 가벼움, 광택 없음)": "alpha" },
+            options: { "유리 느낌 (가벼움: 불투명 몸체 + 가장자리 광택, 굴절 없음)": "glass", "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가장 가벼움, 광택 없음)": "alpha" },
             value: "glass" as "alpha" | "refract" | "glass",
             label: "레진 몸체 (화석 층)",
           },
-          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도", render: (get) => get(RESIN_MODE_PATH) !== "refract" },
+          resinOpacity: { value: 1, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도 (1 = 불투명 몸체; 낮추면 속의 부재가 비침)", render: (get) => get(RESIN_MODE_PATH) !== "refract" },
           resinRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "유리 느낌 · 가장자리 광택 (프레넬)", render: (get) => get(RESIN_MODE_PATH) === "glass" },
           resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
           resinShade: { value: 0.5, min: 0, max: 1, step: 0.05, label: "레진에 비치는 덩어리 얼룩 · 곰보 (0 = 레진 색만, 1 = 다)" },
@@ -1795,7 +1797,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }] : []),
     { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
