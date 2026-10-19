@@ -153,6 +153,7 @@ const PAUSED_FUSE_PER_CALL = 12;
 const MODE_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.massMode";
 const FILL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.fill";
 const SHELL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.shell";
+const RESIN_MODE_PATH = "엉김 · 융합 · 레진.⑥ 레진 재질.resinMode";
 
 /** sRGB hex → linear RGB (the fused mass's vertex colours are linear). */
 function hexToLinear(hex: string): [number, number, number] {
@@ -224,7 +225,9 @@ interface NatureParams {
 /** The resin body of the oldest layers: transmissive, darkening with thickness (Beer–Lambert attenuation). */
 interface ResinLook {
   color: string;
+  /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
+  opacity: number;
   roughness: number;
   thickness: number;
   attenuationColor: string;
@@ -251,9 +254,9 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.ior = 1.5;
   m.attenuationColor.set(r.attenuationColor);
   m.attenuationDistance = r.attenuationDistance;
-  // transmission 0 (performance mode): no refraction pass — a plain translucent body instead
+  // transmission 0 (the translucent body, also performance mode): no refraction pass — alpha, what is inside shows
   m.transparent = r.transmission <= 0;
-  m.opacity = r.transmission <= 0 ? 0.7 : 1;
+  m.opacity = r.transmission <= 0 ? r.opacity : 1;
   m.depthWrite = r.transmission > 0;
   m.needsUpdate = true;
 }
@@ -1678,8 +1681,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       ),
       "⑥ 레진 재질": folder(
         {
+          // two bodies: refraction (three.js transmission: the scene behind is re-rendered every frame — heavy) or a
+          // plain translucent body (alpha, no depth write: what stands inside shows through — light; the artist
+          // liked it in performance mode, 2026-10-19)
+          resinMode: { options: { "반투명 (가벼움 · 속의 부재가 비쳐 보임)": "alpha", "굴절 (무거움 · 유리처럼 뒤를 굴절)": "refract" }, value: "alpha" as "alpha" | "refract", label: "몸체" },
+          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "반투명 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
           resinColor: { value: KIND_COLOR.slab, label: "색 (슬래브와 같은 회색)" },
-          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "투과" },
+          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과", render: (get) => get(RESIN_MODE_PATH) === "refract" },
           resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (서리 낀 정도)" },
           thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "두께감" },
           attenuationColor: { value: "#8a8b8c", label: "깊을수록 물드는 색 (무채색)" },
@@ -1736,25 +1744,29 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const resinLook = useMemo<ResinLook>(
     () => ({
       color: fu.resinColor,
-      transmission: fu.transmission,
+      transmission: fu.resinMode === "refract" ? fu.transmission : 0,
+      opacity: fu.resinOpacity,
       roughness: fu.resinRoughness,
       thickness: fu.thickness,
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.resinMode, fu.resinOpacity, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
     savable("렌더 · 성능", {
       perfMode: { value: false, label: "성능 모드 (해상도 ↓ · AO 절반 · 그림자 끔 · 식생 점 ↓ · LOD 가까이)" },
+      // the pixels: a 5K iMac at ×2 draws 15 M of them per frame, with the AO on every one — ×1.5 looks the same
+      // at that density and costs half
+      dprMax: { value: 1.5, min: 1, max: 2, step: 0.25, label: "해상도 상한 (화면 픽셀 배율; 2 = 레티나 전부, 1.5 권장)" },
       AO: folder({
         aoOn: { value: true, label: "켜기" },
         aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
         distanceFalloff: { value: 1, min: 0.05, max: 4, step: 0.05, label: "거리 감쇠" },
         aoIntensity: { value: 3, min: 0, max: 12, step: 0.1, label: "세기" },
         quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
-        halfRes: { value: false, label: "절반 해상도" },
+        halfRes: { value: true, label: "절반 해상도 (거의 티 안 남, 비용은 ¼)" },
       }),
       "빛": folder({
         shadows: { value: true, label: "그림자" },
@@ -1776,7 +1788,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
   const perf = rnd.perfMode;
-  const dprMax = perf ? 1.25 : 2;
+  const dprMax = perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
   const aoHalfRes = perf || rnd.halfRes;
   const aoQuality = perf ? ("performance" as const) : rnd.quality;
   const shadowsOn = rnd.shadows && !perf;
