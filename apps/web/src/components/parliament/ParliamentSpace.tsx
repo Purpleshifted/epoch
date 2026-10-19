@@ -1675,7 +1675,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "B · 채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(FILL_PATH) },
           fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "B · 판 가장자리에서 물러남 (월드)", render: (get) => get(FILL_PATH) },
           shell: { value: DEFAULT_STUDY.shell, label: "+ C 껍질 · 리브: 속을 비우고 구멍을 열어 그 사이 벽(리브)만 남김 (둥근 구멍 대신)" },
-          shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "C · 껍질 두께 (복셀)", render: (get) => get(SHELL_PATH) },
+          shellThickYoung: { value: DEFAULT_STUDY.shellThickYoung, min: 1, max: 4, step: 1, label: "C · 껍질 두께 · 얕은 층 (복셀)", render: (get) => get(SHELL_PATH) },
+          shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "C · 껍질 두께 · 깊은 층 (복셀)", render: (get) => get(SHELL_PATH) },
+          shellSplit: { value: DEFAULT_STUDY.shellSplit, min: 0.05, max: 1, step: 0.01, label: "C · 깊은 층으로 치는 부식 정도 (층의 나이)", render: (get) => get(SHELL_PATH) },
           ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "C · 구멍 크기 (월드)", render: (get) => get(SHELL_PATH) },
           ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "C · 리브 굵기 = 구멍 사이 벽의 두께 (월드)", render: (get) => get(SHELL_PATH) },
           ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "C · 열리는 구멍 비율 (0 = 닫힌 껍질, 1 = 리브만)", render: (get) => get(SHELL_PATH) },
@@ -1746,6 +1748,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             fillInset: fu.fillInset,
             shell: fu.shell,
             shellThick: fu.shellThick,
+            shellThickYoung: fu.shellThickYoung,
+            shellSplit: fu.shellSplit,
             ribCell: fu.ribCell,
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
@@ -1755,7 +1759,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({

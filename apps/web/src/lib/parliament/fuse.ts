@@ -100,8 +100,12 @@ export interface FuseStudy {
   fillInset: number;
   /** C: the mass is a hollow shell with rib-edged openings. */
   shell: boolean;
-  /** C: shell thickness (voxels). */
+  /** C: shell thickness (voxels) in the OLD layers (layer age ≥ shellSplit). */
   shellThick: number;
+  /** C: shell thickness (voxels) in the YOUNG layers (layer age < shellSplit); the artist, 2026-10-19: thinner above. */
+  shellThickYoung: number;
+  /** C: the layer age (0 … 1) from which the thick shell applies. */
+  shellSplit: number;
   /** C: size of the opening cells (world). */
   ribCell: number;
   /** C: width of the ribs between open cells (world). */
@@ -123,6 +127,8 @@ export const DEFAULT_STUDY: FuseStudy = {
   fillInset: 0.25,
   shell: false,
   shellThick: 2,
+  shellThickYoung: 1,
+  shellSplit: 0.6,
   ribCell: 1.6,
   ribWidth: 0.3,
   ribOpen: 0.6,
@@ -180,7 +186,7 @@ export function fusePad(cfg: FuseConfig): { below: number; above: number } {
   const st = cfg.study;
   // C: the shell's interior is found by a blur of its own; spikes reach out of the chunk's rows
   const spikeRows = cfg.spikes > 0 ? Math.ceil(cfg.spikeLen / cfg.voxel) + 1 : 0;
-  const base = Math.max(2, Math.round(cfg.blur) * 2 + 2) + 2 * Math.max(0, Math.round(cfg.smooth)) + (st?.shell ? Math.round(st.shellThick) : 0) + spikeRows;
+  const base = Math.max(2, Math.round(cfg.blur) * 2 + 2) + 2 * Math.max(0, Math.round(cfg.smooth)) + (st?.shell ? Math.round(Math.max(st.shellThick, st.shellThickYoung)) : 0) + spikeRows;
   const sagRows = cfg.sag > 0.01 ? Math.min(10, Math.ceil(Math.log(0.03) / Math.log(Math.min(0.95, cfg.sag)))) : 0;
   return { below: base, above: base + sagRows };
 }
@@ -667,13 +673,26 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   // C SHELL: hollow the mass (whatever lies deeper than the shell's thickness), then open some of the cells that touch
   // each other so only ribs remain between them; old layers are opened most
   if (st?.shell) {
-    const r = Math.max(1, Math.round(st.shellThick));
-    const S = new Float32Array(n);
-    for (let p = 0; p < n; p++) S[p] = F[p] > iso ? 1 : 0;
-    blur3(S, tmp, nx, ny, nz, r);
-    for (let p = 0; p < n; p++) {
-      const w = F[p] > iso ? smoothRamp(S[p], 0.86, 0.985) : 0;
-      if (w > 0) F[p] -= (F[p] - iso + 0.25) * w;
+    // two thicknesses: thin in the young layers, thick in the old ones (blended over a short band of layer age)
+    const rOld = Math.max(1, Math.round(st.shellThick)), rYoung = Math.max(1, Math.round(st.shellThickYoung));
+    const inside = new Float32Array(n);
+    for (let p = 0; p < n; p++) inside[p] = F[p] > iso ? 1 : 0;
+    const S = inside.slice();
+    blur3(S, tmp, nx, ny, nz, rOld);
+    let S2: Float32Array | null = null;
+    if (rYoung !== rOld) {
+      S2 = inside;
+      blur3(S2, tmp, nx, ny, nz, rYoung);
+    }
+    for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) {
+      const old = S2 ? smoothRamp(rowQ[j], st.shellSplit - 0.08, st.shellSplit + 0.08) : 1;
+      for (let i = 0; i < nx; i++) {
+        const p = idx(i, j, k);
+        if (F[p] <= iso) continue;
+        const s = S2 ? S2[p] + (S[p] - S2[p]) * old : S[p];
+        const w = smoothRamp(s, 0.86, 0.985);
+        if (w > 0) F[p] -= (F[p] - iso + 0.25) * w;
+      }
     }
     const vo = new Float64Array(3);
     const half = st.ribWidth / 2;
