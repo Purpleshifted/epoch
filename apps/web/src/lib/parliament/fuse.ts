@@ -112,8 +112,14 @@ export interface FuseStudy {
   ribWidth: number;
   /** C: share of the cells that open (× layer age: the old layers are most open). */
   ribOpen: number;
-  /** C: dark pits on the surface (0 = none). */
+  /** C: dark pits on the surface — how dark (0 = none). */
   pits: number;
+  /** C: size of a pit (world). */
+  pitSize: number;
+  /** C: how much the pits differ in size from place to place (0 = all alike … 1). */
+  pitJitter: number;
+  /** C: softness of a pit's edge (0 = hard dot … 0.4 = a soft stain). */
+  pitSoft: number;
   /** E PIPES: a part fuses as tubes along its edges (its frame), not as its full box — tubes meet and merge like a
    *  multipipe over the building's wireframe; the rooms stay open. */
   pipe: boolean;
@@ -133,6 +139,9 @@ export const DEFAULT_STUDY: FuseStudy = {
   ribWidth: 0.3,
   ribOpen: 0.6,
   pits: 0.5,
+  pitSize: 0.35,
+  pitJitter: 0.5,
+  pitSoft: 0.12,
   pipe: false,
   pipeRadius: 0.3,
 };
@@ -788,8 +797,13 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         const streak = noise3(vx * 1.7, vy * 0.35, vz * 1.7, 31); // vertical stains
         const brown = Math.min(1, 0.25 + 0.55 * streak + 0.4 * (N[p] / tot));
         let dark = 1 - 0.35 * q;
-        // C: dark pits on the shell (colour only)
-        if (st?.shell && st.pits > 0) dark *= 1 - 0.7 * st.pits * smoothRamp(noise3(vx * 3.2, vy * 3.2, vz * 3.2, 83), 0.7, 0.78);
+        // C: dark pits on the shell (colour only): soft-edged dots of a size that drifts from place to place
+        if (st?.shell && st.pits > 0) {
+          const drift = (noise3(vx * 0.5, vy * 0.5, vz * 0.5, 85) - 0.5) * 1.6 * st.pitJitter; // −0.8 … 0.8
+          const f = 1 / (Math.max(0.05, st.pitSize) * Math.max(0.3, 1 + drift));
+          const n = noise3(vx * f, vy * f, vz * f, 83);
+          dark *= 1 - 0.7 * st.pits * smoothRamp(n, 0.72 - st.pitSoft, 0.72 + st.pitSoft);
+        }
         for (let c = 0; c < 3; c++) {
           const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;
           const growc = GROW[c] + (DULL_BROWN[c] - GROW[c]) * Math.min(1, q * 1.2);

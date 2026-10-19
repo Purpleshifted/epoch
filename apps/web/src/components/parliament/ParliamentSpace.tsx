@@ -1681,7 +1681,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "C · 구멍 크기 (월드)", render: (get) => get(SHELL_PATH) },
           ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "C · 리브 굵기 = 구멍 사이 벽의 두께 (월드)", render: (get) => get(SHELL_PATH) },
           ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "C · 열리는 구멍 비율 (0 = 닫힌 껍질, 1 = 리브만)", render: (get) => get(SHELL_PATH) },
-          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "C · 표면 곰보 (어두운 점; 색만)", render: (get) => get(SHELL_PATH) },
+          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "C · 표면 곰보 · 진하기 (어두운 점; 색만, 0 = 없음)", render: (get) => get(SHELL_PATH) },
+          pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "C · 곰보 · 크기 (월드)", render: (get) => get(SHELL_PATH) },
+          pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 크기 지터 (0 = 다 같게)", render: (get) => get(SHELL_PATH) },
+          pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "C · 곰보 · 가장자리 부드러움 (0.01 = 또렷한 점 … 0.4 = 번진 얼룩)", render: (get) => get(SHELL_PATH) },
         },
         { render: () => isV2 },
       ),
@@ -1754,12 +1757,15 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
             pits: fu.pits,
+            pitSize: fu.pitSize,
+            pitJitter: fu.pitJitter,
+            pitSoft: fu.pitSoft,
             pipe: fu.massMode === "pipe",
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
