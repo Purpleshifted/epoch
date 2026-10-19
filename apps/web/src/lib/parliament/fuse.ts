@@ -80,6 +80,10 @@ export interface FuseConfig {
   skeletonUntil: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
+  /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
+  spikes: number;
+  /** Longest spike (world); each spike has its own hashed length up to this. */
+  spikeLen: number;
   /** FORM STUDY (V2): other ways for the mass; absent = none (the mass wraps the parts). */
   study?: FuseStudy;
 }
@@ -104,6 +108,11 @@ export interface FuseStudy {
   ribOpen: number;
   /** C: dark pits on the surface (0 = none). */
   pits: number;
+  /** E PIPES: a part fuses as tubes along its edges (its frame), not as its full box — tubes meet and merge like a
+   *  multipipe over the building's wireframe; the rooms stay open. */
+  pipe: boolean;
+  /** E: tube radius (world). */
+  pipeRadius: number;
 }
 
 export const DEFAULT_STUDY: FuseStudy = {
@@ -116,6 +125,8 @@ export const DEFAULT_STUDY: FuseStudy = {
   ribWidth: 0.3,
   ribOpen: 0.6,
   pits: 0.5,
+  pipe: false,
+  pipeRadius: 0.3,
 };
 
 /** B FILL: the plates that bound a room (they stay sharp as frame). */
@@ -146,6 +157,8 @@ export const DEFAULT_FUSE: FuseConfig = {
   skeleton: 0.3,
   skeletonUntil: 0.9,
   skeletonWrap: 0.35,
+  spikes: 0,
+  spikeLen: 1.2,
 };
 
 /** Concrete kinds that can be skeleton (the orthogonal frame: slabs, slat bundles and walls, plinths). */
@@ -163,8 +176,9 @@ export function isSkeleton(b: Box, decay: number, cfg: FuseConfig): boolean {
 /** Sample rows of padding a chunk needs: below (blur, smoothing) and above (also the sag hanging down into it). */
 export function fusePad(cfg: FuseConfig): { below: number; above: number } {
   const st = cfg.study;
-  // C: the shell's interior is found by a blur of its own
-  const base = Math.max(2, Math.round(cfg.blur) * 2 + 2) + 2 * Math.max(0, Math.round(cfg.smooth)) + (st?.shell ? Math.round(st.shellThick) : 0);
+  // C: the shell's interior is found by a blur of its own; spikes reach out of the chunk's rows
+  const spikeRows = cfg.spikes > 0 ? Math.ceil(cfg.spikeLen / cfg.voxel) + 1 : 0;
+  const base = Math.max(2, Math.round(cfg.blur) * 2 + 2) + 2 * Math.max(0, Math.round(cfg.smooth)) + (st?.shell ? Math.round(st.shellThick) : 0) + spikeRows;
   const sagRows = cfg.sag > 0.01 ? Math.min(10, Math.ceil(Math.log(0.03) / Math.log(Math.min(0.95, cfg.sag)))) : 0;
   return { below: base, above: base + sagRows };
 }
@@ -412,7 +426,8 @@ export interface FuseChunkInput {
 /** Linear-RGB colours: fresh concrete, old stone; moss, humus, peat. */
 /** The fused mass: the concrete's own grey, mixed in streaks with a low-saturation brown (ref 9570). */
 const CONCRETE = [0.42, 0.42, 0.42];
-const DULL_BROWN = [0.25, 0.205, 0.165];
+/** The mass's stains: a darker grey, no brown (the artist, 2026-10-19: the soil before the resin is grey too). */
+const DULL_BROWN = [0.2, 0.2, 0.2];
 /** Accretions (ref 9578: pale ochre-green rock growths). */
 const GROWTH = [0.42, 0.38, 0.22];
 
@@ -458,6 +473,21 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   };
   const st = cfg.study;
+  /** A capsule of radius r along the segment (x0,y0,z0)→(x1,y1,z1), written as max(v) into `arr`. */
+  const tube = (arr: Float32Array, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r: number, v: number) => {
+    const ia = Math.max(0, Math.ceil((Math.min(x0, x1) - r) / vs) - I0), ib = Math.min(nx - 1, Math.floor((Math.max(x0, x1) + r) / vs) - I0);
+    const ja = Math.max(0, Math.ceil((Math.min(y0, y1) - r) / vs) - J0), jb = Math.min(ny - 1, Math.floor((Math.max(y0, y1) + r) / vs) - J0);
+    const ka = Math.max(0, Math.ceil((Math.min(z0, z1) - r) / vs) - K0), kb = Math.min(nz - 1, Math.floor((Math.max(z0, z1) + r) / vs) - K0);
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, l2 = dx * dx + dy * dy + dz * dz || 1;
+    for (let k = ka; k <= kb; k++) for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) {
+      const px = (I0 + i) * vs, py = (J0 + j) * vs, pz = (K0 + k) * vs;
+      const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy + (pz - z0) * dz) / l2));
+      const qx = x0 + dx * t - px, qy = y0 + dy * t - py, qz = z0 + dz * t - pz;
+      if (qx * qx + qy * qy + qz * qz > r * r) continue;
+      const p = idx(i, j, k);
+      if (arr[p] < v) arr[p] = v;
+    }
+  };
   let any = false;
   for (let pi = 0; pi < input.parts.length; pi++) {
     const b = input.parts[pi];
@@ -468,7 +498,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     // 2 FUSION: the part becomes mass as it decays (also once it has fallen away: its mass stays in its place)
     const f = fusedShare(input.decay ? input.decay[pi] : 1, cfg);
     if (f > 0) {
-      fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, input.skeleton?.[pi] ? f * cfg.skeletonWrap : f);
+      const v = input.skeleton?.[pi] ? f * cfg.skeletonWrap : f;
+      if (st?.pipe) {
+        // E PIPES: the part's twelve edges as tubes (its frame), the box itself left open
+        const r = Math.max(vs * 0.6, st.pipeRadius);
+        const xs = [b.x - hx, b.x + hx], ys = [b.y - hy, b.y + hy], zs = [b.z - hz, b.z + hz];
+        for (const y of ys) for (const z of zs) tube(C, xs[0], y, z, xs[1], y, z, r, v);
+        for (const x of xs) for (const z of zs) tube(C, x, ys[0], z, x, ys[1], z, r, v);
+        for (const x of xs) for (const y of ys) tube(C, x, y, zs[0], x, y, zs[1], r, v);
+      } else fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, v);
       any = true;
     }
     // 1 ACCRETION: growths on top and hanging below a standing part, from the moment it begins to corrode
@@ -638,6 +676,35 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         if (carve > 0) F[p] -= (F[p] - iso + 0.25) * carve;
       }
     }
+  }
+
+  // SPIKES: out of a hashed share of the surface cells a thin spike of the same mass grows outward along the field's
+  // gradient (one voxel thick, its own length up to spikeLen); the smoothing rounds them a little
+  if (cfg.spikes > 0 && cfg.spikeLen > 0) {
+    const maxSteps = Math.ceil(cfg.spikeLen / vs);
+    const adds: number[] = [];
+    for (let k = 1; k < nz - 1; k++) for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) {
+      const p = idx(i, j, k);
+      if (F[p] <= iso) continue;
+      // a surface cell: an air neighbour on some side
+      if (F[p - 1] > iso && F[p + 1] > iso && F[p - nx] > iso && F[p + nx] > iso && F[p - nx * ny] > iso && F[p + nx * ny] > iso) continue;
+      const hsh = hash2(I0 + i, (J0 + j) * 7919 + (K0 + k) * 31, 97);
+      if (hsh >= cfg.spikes * 0.08) continue;
+      // outward = −gradient of the field
+      let gx = F[p - 1] - F[p + 1], gy = F[p - nx] - F[p + nx], gz = F[p - nx * ny] - F[p + nx * ny];
+      const gl = Math.hypot(gx, gy, gz);
+      if (gl < 1e-6) continue;
+      gx /= gl;
+      gy /= gl;
+      gz /= gl;
+      const steps = Math.max(1, Math.round(maxSteps * (0.3 + 0.7 * hash2(I0 + i, (J0 + j) * 7919 + (K0 + k) * 31, 98))));
+      for (let s = 1; s <= steps; s++) {
+        const ii = Math.round(i + gx * s), jj = Math.round(j + gy * s), kk = Math.round(k + gz * s);
+        if (ii < 1 || ii >= nx - 1 || jj < 1 || jj >= ny - 1 || kk < 1 || kk >= nz - 1) break;
+        adds.push(idx(ii, jj, kk));
+      }
+    }
+    for (const p of adds) if (F[p] < iso + 0.25) F[p] = iso + 0.25;
   }
 
   // ── naive surface nets ──

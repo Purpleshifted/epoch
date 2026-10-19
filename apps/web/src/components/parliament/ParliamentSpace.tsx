@@ -233,6 +233,10 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.ior = 1.5;
   m.attenuationColor.set(r.attenuationColor);
   m.attenuationDistance = r.attenuationDistance;
+  // transmission 0 (performance mode): no refraction pass — a plain translucent body instead
+  m.transparent = r.transmission <= 0;
+  m.opacity = r.transmission <= 0 ? 0.7 : 1;
+  m.depthWrite = r.transmission > 0;
   m.needsUpdate = true;
 }
 
@@ -1569,6 +1573,8 @@ export default function ParliamentSpace() {
         poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드)" },
         skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)" },
         skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)" },
+        spikes: { value: DEFAULT_FUSE.spikes, min: 0, max: 1, step: 0.01, label: "가시: 표면에서 뻗어 나오는 양 (같은 재질; 0 = 없음)" },
+        spikeLen: { value: DEFAULT_FUSE.spikeLen, min: 0.2, max: 4, step: 0.1, label: "가시: 가장 긴 길이 (월드)" },
       }),
       "④ 형태 스터디 (V2 · 켜서 비교, 같이 켜도 됨)": folder(
         {
@@ -1584,6 +1590,10 @@ export default function ParliamentSpace() {
             ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (월드)" },
             ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 구멍 비율 (오래된 층일수록 많이)" },
             pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "표면 곰보 (어두운 점; 색만)" },
+          }),
+          "E 관 (multipipe)": folder({
+            pipe: { value: DEFAULT_STUDY.pipe, label: "켜기: 부재가 통째로가 아니라 모서리를 따라 관으로 녹음 — 관끼리 만나 이어지고 방은 비어 있음" },
+            pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "관 굵기 (월드; ③ 이어 붙는 세기를 1 근처로 내리면 관이 살아남)" },
           }),
         },
         { render: () => isV2 },
@@ -1633,6 +1643,8 @@ export default function ParliamentSpace() {
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
       skeletonWrap: fu.skeletonWrap,
+      spikes: fu.spikes,
+      spikeLen: fu.spikeLen,
       study: isV2
         ? {
             fill: fu.fill,
@@ -1644,10 +1656,12 @@ export default function ParliamentSpace() {
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
             pits: fu.pits,
+            pipe: fu.pipe,
+            pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipe, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -1699,6 +1713,8 @@ export default function ParliamentSpace() {
   const vegBudget = perf ? Math.min(veg.budget, 250000) : veg.budget;
   const lodNear = perf ? Math.min(rnd.near, 25) : rnd.near;
   const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
+  // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
+  const resinView = useMemo<ResinLook>(() => (perf ? { ...resinLook, transmission: 0 } : resinLook), [perf, resinLook]);
   const fps = useFps();
   const natureParams = useMemo<NatureParams | null>(
     () =>
@@ -1774,7 +1790,7 @@ export default function ParliamentSpace() {
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
-          resin={resinLook}
+          resin={resinView}
           water={waterView}
           nearFade={v.nearFade}
           noAxis={isV2}

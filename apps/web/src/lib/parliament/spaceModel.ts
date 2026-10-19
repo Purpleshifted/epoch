@@ -45,8 +45,8 @@ export const NATURE_PALETTE: [string, string][] = [
   ["#8a9a3a", "#b8bb52"], // moss / lichen (reclaim)
   ["#24402a", "#3b5d34"], // woody growth (reclaim)
   ["#3e3630", "#5a4e44"], // buried under concrete
-  ["#4b3a28", "#6b5136"], // humus (aged vegetation)
-  ["#26221f", "#3a332c"], // peat / compressed (old sediment)
+  ["#3a3a3a", "#525252"], // humus (aged vegetation) — dark grey, no brown (the artist, 2026-10-19)
+  ["#222222", "#303030"], // peat / compressed (old sediment) — darker grey
   ["#4a4a4a", "#7a7a7a"], // trodden ground at a path's rim (a human trace: grey)
   ["#0b4f57", "#2a9c9a"], // wetland vegetation along waterways (blue-green: reads as water)
 ];

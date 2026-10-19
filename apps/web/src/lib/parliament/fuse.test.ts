@@ -207,4 +207,28 @@ describe("form study (V2): fill, shell", () => {
     expect(open.index.length).not.toBe(closed.index.length);
   });
 
+  it("E PIPES: a part fuses as tubes along its edges — the middle of a big box stays open", () => {
+    const big: Box[] = [part({ x: 2, y: 5.5, z: 2, sx: 3.2, sy: 3, sz: 3.2, slot: 5 })];
+    const one = { ...base, parts: big, decay: [1], standing: [false], k0: 0, k1: 9 };
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const full = fuseChunk({ ...one, cfg: { ...DEFAULT_FUSE, ...flat } });
+    const pipes = fuseChunk({ ...one, cfg: { ...cfgOf({ pipe: true, pipeRadius: 0.3 }), ...flat } });
+    expect(pipes.index.length).toBeGreaterThan(0);
+    // a vertex on the middle of a face of the box exists for the full box, not for the tubes (the face is open)
+    const faceMid = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.abs(x - 2) < 0.5 && Math.abs(y - 5.5) < 0.5 && z > 3.3);
+    expect(faceMid(full)).toBe(true);
+    expect(faceMid(pipes)).toBe(false);
+    // and the tubes run along the edges: a vertex near a vertical edge, halfway up
+    expect(verts(pipes).some(([x, y, z]) => Math.abs(x - 3.6) < 0.5 && Math.abs(z - 3.6) < 0.5 && Math.abs(y - 5.5) < 0.6)).toBe(true);
+  });
+
+  it("SPIKES: thin spikes of the same mass grow out of the surface, up to their length", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const plain = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, ...flat } });
+    const spiky = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, ...flat, spikes: 1, spikeLen: 1.5 } });
+    const reach = (m: FuseMesh) => Math.max(...verts(m).map(([x, y, z]) => nearest(x, y, z)));
+    expect(spiky.position.length).toBeGreaterThan(plain.position.length);
+    expect(reach(spiky)).toBeGreaterThan(reach(plain) + 0.4);
+    expect(reach(spiky)).toBeLessThanOrEqual(1.5 + 2 * DEFAULT_FUSE.voxel);
+  });
 });
