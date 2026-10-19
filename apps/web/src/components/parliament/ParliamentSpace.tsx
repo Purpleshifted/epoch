@@ -797,7 +797,7 @@ function SpaceWorld({
     }
     // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
     if (frozen || id % NATURE_EVERY === 1) {
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears };
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen };
     }
     inFlight.current = { id, at: now };
     w.post(req);

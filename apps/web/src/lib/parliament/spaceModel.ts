@@ -261,6 +261,8 @@ export interface FuseInput {
   oneClock?: boolean;
   /** The fold's slab wear time (for the layers' corrosion clock); DEFAULT_FOLD's when absent. */
   tauSlabYears?: number;
+  /** WORK MODE (the paused view): baked layers are rendered again when the fuse config changed. */
+  rebake?: boolean;
 }
 
 export interface PointsResult {
@@ -279,6 +281,36 @@ interface Baked {
   /** Grey shade per box (the part's weathering at the time of baking). */
   shade: Float32Array;
   nature: { pos: Float32Array; col: Float32Array } | null;
+  /**
+   * WORK MODE: what the mesh was made from (the parts' state, a slice of the vegetation history, the layers' age) and
+   * the fuse config it was made with — so a paused view can re-render the baked layers with a changed look
+   * (computeFuse rebake). The world below does not change; its rendering can.
+   */
+  src: {
+    parts: Box[];
+    decay: number[];
+    standing: boolean[];
+    skeleton: boolean[];
+    history: NatureHistory | null;
+    x0: number;
+    z0: number;
+    nx: number;
+    nz: number;
+    unit: number;
+    sediment: NonNullable<ReturnType<typeof sedimentOf>>;
+    /** The layers' age per slot from `ageK0` (clamped outside), or null for the sediment clock. */
+    age: Float32Array | null;
+    ageK0: number;
+    cfgKey: string;
+  };
+}
+
+/** The slots [k0, k1] of a vegetation history as a history of their own (V only: what fuseChunk reads). */
+function sliceHistory(h: NatureHistory, k0: number, k1: number): NatureHistory {
+  const a = Math.max(h.k0, k0), b = Math.min(h.k0 + h.nk - 1, k1);
+  const n = h.nx * h.nz;
+  if (b < a) return { ...h, k0: a, nk: 0, V: new Float32Array(0), P: new Float32Array(0) };
+  return { x0: h.x0, z0: h.z0, nx: h.nx, nz: h.nz, k0: a, nk: b - a + 1, V: h.V.slice((a - h.k0) * n, (b - h.k0 + 1) * n), P: new Float32Array(0) };
 }
 
 /** Decay (1 − survival) from which a part counts as done, for baking a chunk early. */
@@ -878,7 +910,30 @@ export class SpaceModel {
         const shade = new Float32Array(boxes.length);
         boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
         const nat = this.chunks.get(w.c0);
-        this.baked.set(w.c0, { c0: w.c0, c1: w.c1, mesh: ch.mesh, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null });
+        // what the chunk was made from, so a paused view can render it again with another look
+        const ageK0 = w.c0 - padSlots - 3, ageK1 = w.c1 + padSlots + 8;
+        let age: Float32Array | null = null;
+        if (layerDecay) {
+          age = new Float32Array(ageK1 - ageK0 + 1);
+          for (let k = ageK0; k <= ageK1; k++) age[k - ageK0] = layerDecay(k);
+        }
+        const src: Baked["src"] = {
+          parts: w.ps.map((e) => e.b),
+          decay: w.ps.map((e) => e.d),
+          standing: w.ps.map((e) => e.up),
+          skeleton: w.ps.map((e) => e.sk),
+          history: h ? sliceHistory(h, ageK0, ageK1) : null,
+          x0,
+          z0,
+          nx,
+          nz,
+          unit: u,
+          sediment: sed,
+          age,
+          ageK0,
+          cfgKey: JSON.stringify(fuse),
+        };
+        this.baked.set(w.c0, { c0: w.c0, c1: w.c1, mesh: ch.mesh, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null, src });
         this.fuseChunks.delete(w.c0);
         this.chunks.delete(w.c0);
         bakedNow++;
@@ -911,14 +966,29 @@ export class SpaceModel {
       for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
       this.fuseBuilt++;
     }
-    const pending = todo.length > perCall;
-    const out: FuseMesh[] = [...bakedMeshes];
+    let pending = todo.length > perCall;
+    // WORK MODE (rebake): the baked layers rendered again with the current look, within what is left of this call's
+    // budget — the world below stays, its rendering follows the settings
+    if (input.rebake) {
+      const cfgKey = JSON.stringify(fuse);
+      let budget = Math.max(1, perCall - Math.min(todo.length, perCall));
+      for (const bk of this.baked.values()) {
+        if (bk.src.cfgKey === cfgKey) continue;
+        if (budget <= 0) {
+          pending = true;
+          break;
+        }
+        const s = bk.src;
+        const ageOf = s.age ? (k: number) => s.age![Math.max(0, Math.min(s.age!.length - 1, k - s.ageK0))] : undefined;
+        bk.mesh = fuseChunk({ parts: s.parts, decay: s.decay, standing: s.standing, skeleton: s.skeleton, history: s.history, k0: bk.c0, k1: bk.c1, x0: s.x0, z0: s.z0, nx: s.nx, nz: s.nz, unit: s.unit, sediment: s.sediment, layerDecay: ageOf, cfg: fuse });
+        s.cfgKey = cfgKey;
+        budget--;
+      }
+    }
+    const out: FuseMesh[] = [...this.baked.values()].map((b) => b.mesh);
     const keep = new Set<number>();
     for (const w of wants) {
-      if (this.baked.has(w.c0)) {
-        out.push(this.baked.get(w.c0)!.mesh);
-        continue;
-      }
+      if (this.baked.has(w.c0)) continue;
       keep.add(w.c0);
       const ch = this.fuseChunks.get(w.c0); // fresh, or the stale one until its turn comes
       if (ch) out.push(ch.mesh);

@@ -227,10 +227,22 @@ describe("SpaceModel: what the worker computes", () => {
     let low = 0;
     for (let i = 0; i < r.counts.mass; i++) if (r.matrices.mass[i * 16 + 13] < 20) low++;
     expect(low).toBeGreaterThan(0);
+    // WORK MODE: a paused view with a changed look renders the baked layers again (the world below unchanged)
+    const before = after.position.length;
+    let re = null;
+    for (let i = 0; i < 20; i++) {
+      m.computeParts({ ...pin, fuse: { ...DEFAULT_FUSE, gain: 1, blur: 0 } });
+      const f = m.computeFuse({ ...fin, fuse: { ...DEFAULT_FUSE, gain: 1, blur: 0 }, rebake: true, perCall: 12 });
+      if (f) re = f;
+      else break;
+    }
+    expect(re).not.toBeNull();
+    expect(lowest(re!)).toBeLessThan(10); // still there
+    expect(re!.position.length).not.toBe(before); // and drawn differently
     // and a cleared world (a new epoch, far earlier) lets them go
     m.reset();
     m.add(runBots(4, 60));
     m.computeParts(pin);
     expect(m.bakedChunks).toBe(0);
-  }, 120_000);
+  }, 180_000);
 });
