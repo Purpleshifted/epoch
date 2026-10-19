@@ -128,6 +128,12 @@ export interface FuseStudy {
   pitSoft: number;
   /** C: how much of the surface the pits cover (0 … 1). */
   pitCover: number;
+  /**
+   * C: how deep the pits are CARVED into the shell (0 = colour only … 1 = through). Carved only on the broad closed
+   * faces (inside a closed Voronoi cell, away from the ribs): small pores on the large surfaces, as on bone or coral
+   * (the artist, 2026-10-19: decoration that reads as biogenic).
+   */
+  pitDepth: number;
   /** E PIPES: a part fuses as tubes along its edges (its frame), not as its full box — tubes meet and merge like a
    *  multipipe over the building's wireframe; the rooms stay open. */
   pipe: boolean;
@@ -152,6 +158,7 @@ export const DEFAULT_STUDY: FuseStudy = {
   pitJitter: 0.5,
   pitSoft: 0.12,
   pitCover: 0.45,
+  pitDepth: 0,
   pipe: false,
   pipeRadius: 0.3,
 };
@@ -511,6 +518,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   };
   const st = cfg.study;
+  /** C: the pits' pattern (0 … 1 how much a point is in a pit): dots of a size drifting from place to place. */
+  const pitAt = (x: number, y: number, z: number): number => {
+    if (!st) return 0;
+    const drift = (noise3(x * 0.5, y * 0.5, z * 0.5, 85) - 0.5) * 1.6 * st.pitJitter; // −0.8 … 0.8
+    const f = 1 / (Math.max(0.05, st.pitSize) * Math.max(0.3, 1 + drift));
+    const n = noise3(x * f, y * f, z * f, 83);
+    const edge = 0.95 - 0.6 * Math.max(0, Math.min(1, st.pitCover)); // coverage: where the noise crosses
+    return smoothRamp(n, edge - st.pitSoft, edge + st.pitSoft);
+  };
   /** A capsule of radius r along the segment (x0,y0,z0)→(x1,y1,z1), written as max(v) into `arr`. */
   const tube = (arr: Float32Array, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r: number, v: number) => {
     const ia = Math.max(0, Math.ceil((Math.min(x0, x1) - r) / vs) - I0), ib = Math.min(nx - 1, Math.floor((Math.max(x0, x1) + r) / vs) - I0);
@@ -717,9 +733,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const half = st.ribWidth / 2;
     const shape = st.holeShape ?? "voronoi";
     const nf = 1 / Math.max(0.2, st.ribCell); // noise openings: one feature per ribCell
+    const pitDepth = Math.max(0, Math.min(1, st.pitDepth ?? 0));
     for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) {
       const open = st.ribOpen * (0.35 + 0.65 * rowQ[j]);
-      if (open <= 0) continue;
+      if (open <= 0 && pitDepth <= 0) continue;
       for (let i = 0; i < nx; i++) {
         const p = idx(i, j, k);
         if (F[p] <= iso - 0.25) continue;
@@ -730,12 +747,16 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
           const n = noise3(x * nf, y * nf * 0.8, z * nf, 87);
           const soft = Math.max(0.02, st.ribWidth * 0.5);
           carve = smoothRamp(n, 1 - open - soft, 1 - open + soft);
+          if (pitDepth > 0) carve = Math.max(carve, pitDepth * pitAt(x, y, z));
         } else if (shape === "round") {
           carve = smoothRamp(voids(x, y, z, cfg.poreSize), 0, 0.35) * Math.min(1, open * 1.5);
+          if (pitDepth > 0) carve = Math.max(carve, pitDepth * pitAt(x, y, z));
         } else {
           voronoi(x, y, z, st.ribCell, 1.35, vo);
-          if (vo[2] >= open) continue;
-          carve = smoothRamp((vo[1] - vo[0]) / 2, half, half + vs);
+          const margin = (vo[1] - vo[0]) / 2; // distance to the cell's boundary (the rib)
+          if (vo[2] < open) carve = smoothRamp(margin, half, half + vs);
+          // CARVED PITS: on the broad face of a closed cell, away from the ribs — pores on the large surfaces
+          else if (pitDepth > 0 && margin > half + st.pitSize * 0.5) carve = pitDepth * pitAt(x, y, z);
         }
         if (carve > 0) F[p] -= (F[p] - iso + 0.25) * carve;
       }
@@ -820,14 +841,8 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         const streak = noise3(vx * 1.7, vy * 0.35, vz * 1.7, 31); // vertical stains
         const brown = Math.min(1, 0.25 + 0.55 * streak + 0.4 * (N[p] / tot));
         let dark = 1 - 0.35 * q;
-        // C: dark pits on the shell (colour only): soft-edged dots of a size that drifts from place to place
-        if (st?.shell && st.pits > 0) {
-          const drift = (noise3(vx * 0.5, vy * 0.5, vz * 0.5, 85) - 0.5) * 1.6 * st.pitJitter; // −0.8 … 0.8
-          const f = 1 / (Math.max(0.05, st.pitSize) * Math.max(0.3, 1 + drift));
-          const n = noise3(vx * f, vy * f, vz * f, 83);
-          const edge = 0.95 - 0.6 * Math.max(0, Math.min(1, st.pitCover)); // coverage: where the noise crosses
-          dark *= 1 - 0.7 * st.pits * smoothRamp(n, edge - st.pitSoft, edge + st.pitSoft);
-        }
+        // C: dark pits on the shell (colour): soft-edged dots of a size that drifts from place to place
+        if (st?.shell && st.pits > 0) dark *= 1 - 0.7 * st.pits * pitAt(vx, vy, vz);
         for (let c = 0; c < 3; c++) {
           const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;
           const growc = GROW[c] + (DULL_BROWN[c] - GROW[c]) * Math.min(1, q * 1.2);

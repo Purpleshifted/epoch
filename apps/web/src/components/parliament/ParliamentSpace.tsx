@@ -582,6 +582,7 @@ function SpaceWorld({
   nature,
   lodNear,
   lodMid,
+  pointsInRefraction,
   farFactor,
   weather,
   fuse,
@@ -608,6 +609,12 @@ function SpaceWorld({
   lodNear: number;
   /** Seeds between lodNear and this get thinned slat bundles; beyond, solid masses (spaceModel LodConfig.mid). */
   lodMid: number;
+  /**
+   * Whether the vegetation points are drawn into the resin's refraction (they are the bulk of what the transmission
+   * pass re-renders every frame). Off: the points are drawn as transparent (after the resin, not through it) and the
+   * refraction pass costs a fraction.
+   */
+  pointsInRefraction: boolean;
   farFactor: number;
   weather: WeatherConfig;
   /** Old layers fused into one mass. */
@@ -696,6 +703,13 @@ function SpaceWorld({
   }, [stoneMat, resin.massOpacity]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
+  useEffect(() => {
+    // transparent points are left out of the transmission pass (three.js re-renders only the opaque objects into it)
+    for (const m of [natureMat, gatherMat]) {
+      m.transparent = !pointsInRefraction;
+      m.needsUpdate = true;
+    }
+  }, [natureMat, gatherMat, pointsInRefraction]);
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
     applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
@@ -1008,6 +1022,19 @@ function FocusFollow({
  * The shadow-casting sun. The scene climbs the time axis, so the light (and its shadow camera) follows the orbit
  * target every frame at a fixed direction; the shadow box covers ±`extent` around it.
  */
+/**
+ * Renderer settings that are not props of anything: the resolution of the TRANSMISSION pass (the resin's refraction
+ * re-renders the opaque scene into a texture every frame — at half resolution that pass costs a quarter, and the
+ * frosted resin shows no difference).
+ */
+function RendererTuning({ transmissionScale }: { transmissionScale: number }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    gl.transmissionResolutionScale = transmissionScale;
+  }, [gl, transmissionScale]);
+  return null;
+}
+
 function Sun({
   controls,
   azimuth,
@@ -1713,6 +1740,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "C · 곰보 · 크기 (월드)", render: (get) => get(SHELL_PATH) },
           pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 크기 지터 (0 = 다 같게)", render: (get) => get(SHELL_PATH) },
           pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "C · 곰보 · 가장자리 부드러움 (0.01 = 또렷한 점 … 0.4 = 번진 얼룩)", render: (get) => get(SHELL_PATH) },
+          pitDepth: { value: DEFAULT_STUDY.pitDepth, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 파이는 깊이 (0 = 색만, 1 = 뚫림; 리브에서 떨어진 넓은 면에만 — 크기 0.5 이상이어야 격자에 잡힘)", render: (get) => get(SHELL_PATH) },
         },
         { render: () => isV2 },
       ),
@@ -1791,12 +1819,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             pitJitter: fu.pitJitter,
             pitSoft: fu.pitSoft,
             pitCover: fu.pitCover,
+            pitDepth: fu.pitDepth,
             pipe: fu.massMode === "pipe",
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -1819,6 +1848,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       // the pixels: a 5K iMac at ×2 draws 15 M of them per frame, with the AO on every one — ×1.5 looks the same
       // at that density and costs half
       dprMax: { value: 1.5, min: 1, max: 2, step: 0.25, label: "해상도 상한 (화면 픽셀 배율; 2 = 레티나 전부, 1.5 권장)" },
+      transmissionScale: { value: 0.5, min: 0.25, max: 1, step: 0.25, label: "굴절 패스 해상도 (레진 굴절용 장면 재렌더 배율; 0.5 = 비용 ¼, 서리 낀 레진엔 티 안 남)" },
+      pointsInRefraction: { value: false, label: "굴절에 식생 점 비침 (켜면 굴절 패스가 식생 점 수십만 개를 매 프레임 다시 그림 — 무거움)" },
       AO: folder({
         aoOn: { value: true, label: "켜기" },
         aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
@@ -1934,6 +1965,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
+        <RendererTuning transmissionScale={perf ? Math.min(0.25, rnd.transmissionScale) : rnd.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
         <SpaceWorld
@@ -1948,6 +1980,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           nature={natureParams}
           lodNear={lodNear}
           lodMid={lodMid}
+          pointsInRefraction={rnd.pointsInRefraction && !perf}
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
