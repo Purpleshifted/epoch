@@ -120,6 +120,8 @@ export interface FuseStudy {
   pitJitter: number;
   /** C: softness of a pit's edge (0 = hard dot … 0.4 = a soft stain). */
   pitSoft: number;
+  /** C: how much of the surface the pits cover (0 … 1). */
+  pitCover: number;
   /** E PIPES: a part fuses as tubes along its edges (its frame), not as its full box — tubes meet and merge like a
    *  multipipe over the building's wireframe; the rooms stay open. */
   pipe: boolean;
@@ -142,6 +144,7 @@ export const DEFAULT_STUDY: FuseStudy = {
   pitSize: 0.35,
   pitJitter: 0.5,
   pitSoft: 0.12,
+  pitCover: 0.45,
   pipe: false,
   pipeRadius: 0.3,
 };
@@ -802,7 +805,8 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
           const drift = (noise3(vx * 0.5, vy * 0.5, vz * 0.5, 85) - 0.5) * 1.6 * st.pitJitter; // −0.8 … 0.8
           const f = 1 / (Math.max(0.05, st.pitSize) * Math.max(0.3, 1 + drift));
           const n = noise3(vx * f, vy * f, vz * f, 83);
-          dark *= 1 - 0.7 * st.pits * smoothRamp(n, 0.72 - st.pitSoft, 0.72 + st.pitSoft);
+          const edge = 0.95 - 0.6 * Math.max(0, Math.min(1, st.pitCover)); // coverage: where the noise crosses
+          dark *= 1 - 0.7 * st.pits * smoothRamp(n, edge - st.pitSoft, edge + st.pitSoft);
         }
         for (let c = 0; c < 3; c++) {
           const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;

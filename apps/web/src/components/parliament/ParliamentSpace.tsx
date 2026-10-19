@@ -664,7 +664,9 @@ function SpaceWorld({
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
-  const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
+  // vertex colours on the resin too: the mass's shades (stains, pits, darkening with age) show through the glass —
+  // without them nothing coloured in fuse.ts reached the resin layers
+  const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true }), []);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
   useEffect(() => {
     // the mass as a translucent body: alpha, no depth write (what stands inside shows through)
@@ -1682,6 +1684,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "C · 리브 굵기 = 구멍 사이 벽의 두께 (월드)", render: (get) => get(SHELL_PATH) },
           ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "C · 열리는 구멍 비율 (0 = 닫힌 껍질, 1 = 리브만)", render: (get) => get(SHELL_PATH) },
           pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "C · 표면 곰보 · 진하기 (어두운 점; 색만, 0 = 없음)", render: (get) => get(SHELL_PATH) },
+          pitCover: { value: DEFAULT_STUDY.pitCover, min: 0, max: 1, step: 0.01, label: "C · 곰보 · 양 (표면의 얼마나를 덮나)", render: (get) => get(SHELL_PATH) },
           pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "C · 곰보 · 크기 (월드)", render: (get) => get(SHELL_PATH) },
           pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 크기 지터 (0 = 다 같게)", render: (get) => get(SHELL_PATH) },
           pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "C · 곰보 · 가장자리 부드러움 (0.01 = 또렷한 점 … 0.4 = 번진 얼룩)", render: (get) => get(SHELL_PATH) },
@@ -1707,7 +1710,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           // frame — heavy, glass-like) or the same translucent body (light)
           resinMode: { options: { "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가벼움)": "alpha" }, value: "refract" as "alpha" | "refract", label: "레진 몸체 (화석 층)" },
           resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
-          resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
+          resinColor: { value: "#ffffff", label: "레진 색 (덩어리의 정점 색에 곱함; 흰색 = 덩어리 색 그대로)" },
           transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
           resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "레진 거칠기 (0 = 맑음, 1 = 서리 낀 유리)" },
           thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "굴절 · 두께감 (굴절이 얼마나 휘는지)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
@@ -1716,7 +1719,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-vertex-colours-2026-10-19", set: { resinColor: "#ffffff" } }] : []),
     { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
@@ -1760,12 +1763,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             pitSize: fu.pitSize,
             pitJitter: fu.pitJitter,
             pitSoft: fu.pitSoft,
+            pitCover: fu.pitCover,
             pipe: fu.massMode === "pipe",
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
