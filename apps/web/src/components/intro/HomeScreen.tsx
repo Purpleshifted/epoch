@@ -39,6 +39,7 @@ function Group({ title, note, entries, dim }: { title: string; note: string; ent
 /**
  * Entry page (the artist, 2026-10-18): EXHIBITION = the V2 global and personal views without any panel (?ui=0),
  * TEST = the same with Leva plus the sound bench, OLD = V1 and the version before the parliament build.
+ * "Global" is the 3D timespace (the artist, 2026-10-19); top and side views are reached from the TEST subtitle.
  */
 export default function HomeScreen() {
   return (
@@ -49,7 +50,7 @@ export default function HomeScreen() {
           title="EXHIBITION"
           note="no panel"
           entries={[
-            { href: "/v2/global/top?ui=0", name: "Global", sub: "top view · the future", main: true },
+            { href: "/v2/global/space?ui=0", name: "Global", sub: "3D timespace · the strata", main: true },
             { href: "/v2/mobile?ui=0", name: "Personal", sub: "player · a life in the parliament", main: true },
           ]}
         />
