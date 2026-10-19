@@ -112,6 +112,12 @@ export interface FuseStudy {
   ribWidth: number;
   /** C: share of the cells that open (× layer age: the old layers are most open). */
   ribOpen: number;
+  /**
+   * C: the shape of the openings. "voronoi": cells that touch, ribs between them (bone). "noise": openings where a
+   * smooth noise runs high — rounded, worm-eaten, merging into one another (ribCell = their size, ribWidth = how
+   * soft their edge is). "round": the round voids of ③ (poreSize), on the shell.
+   */
+  holeShape: "voronoi" | "noise" | "round";
   /** C: dark pits on the surface — how dark (0 = none). */
   pits: number;
   /** C: size of a pit (world). */
@@ -140,6 +146,7 @@ export const DEFAULT_STUDY: FuseStudy = {
   ribCell: 1.6,
   ribWidth: 0.3,
   ribOpen: 0.6,
+  holeShape: "voronoi",
   pits: 0.5,
   pitSize: 0.35,
   pitJitter: 0.5,
@@ -708,15 +715,28 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
     const vo = new Float64Array(3);
     const half = st.ribWidth / 2;
+    const shape = st.holeShape ?? "voronoi";
+    const nf = 1 / Math.max(0.2, st.ribCell); // noise openings: one feature per ribCell
     for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) {
       const open = st.ribOpen * (0.35 + 0.65 * rowQ[j]);
       if (open <= 0) continue;
       for (let i = 0; i < nx; i++) {
         const p = idx(i, j, k);
         if (F[p] <= iso - 0.25) continue;
-        voronoi((I0 + i) * vs, (J0 + j) * vs, (K0 + k) * vs, st.ribCell, 1.35, vo);
-        if (vo[2] >= open) continue;
-        const carve = smoothRamp((vo[1] - vo[0]) / 2, half, half + vs);
+        const x = (I0 + i) * vs, y = (J0 + j) * vs, z = (K0 + k) * vs;
+        let carve = 0;
+        if (shape === "noise") {
+          // open where the noise runs high: the share `open` of the surface, edges softened over ribWidth
+          const n = noise3(x * nf, y * nf * 0.8, z * nf, 87);
+          const soft = Math.max(0.02, st.ribWidth * 0.5);
+          carve = smoothRamp(n, 1 - open - soft, 1 - open + soft);
+        } else if (shape === "round") {
+          carve = smoothRamp(voids(x, y, z, cfg.poreSize), 0, 0.35) * Math.min(1, open * 1.5);
+        } else {
+          voronoi(x, y, z, st.ribCell, 1.35, vo);
+          if (vo[2] >= open) continue;
+          carve = smoothRamp((vo[1] - vo[0]) / 2, half, half + vs);
+        }
         if (carve > 0) F[p] -= (F[p] - iso + 0.25) * carve;
       }
     }

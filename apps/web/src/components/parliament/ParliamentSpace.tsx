@@ -1699,9 +1699,15 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           shellThickYoung: { value: DEFAULT_STUDY.shellThickYoung, min: 1, max: 4, step: 1, label: "C · 껍질 두께 · 얕은 층 (복셀)", render: (get) => get(SHELL_PATH) },
           shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "C · 껍질 두께 · 깊은 층 (복셀)", render: (get) => get(SHELL_PATH) },
           shellSplit: { value: DEFAULT_STUDY.shellSplit, min: 0.05, max: 1, step: 0.01, label: "C · 깊은 층으로 치는 부식 정도 (층의 나이)", render: (get) => get(SHELL_PATH) },
-          ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "C · 구멍 크기 (월드)", render: (get) => get(SHELL_PATH) },
-          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "C · 리브 굵기 = 구멍 사이 벽의 두께 (월드)", render: (get) => get(SHELL_PATH) },
-          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "C · 열리는 구멍 비율 (0 = 닫힌 껍질, 1 = 리브만)", render: (get) => get(SHELL_PATH) },
+          holeShape: {
+            options: { "보로노이: 맞닿은 다각형 구멍, 사이에 리브 (뼈)": "voronoi", "노이즈: 둥글게 번지며 서로 이어지는 구멍 (벌레 먹은 듯)": "noise", "둥근 구멍: ③의 구형 공극을 껍질에": "round" },
+            value: DEFAULT_STUDY.holeShape as "voronoi" | "noise" | "round",
+            label: "C · 구멍 모양",
+            render: (get) => get(SHELL_PATH),
+          },
+          ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "C · 구멍 크기 (월드; 둥근 구멍은 ③의 크기를 씀)", render: (get) => get(SHELL_PATH) },
+          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "C · 리브 굵기 (보로노이: 구멍 사이 벽의 두께 · 노이즈: 가장자리 부드러움)", render: (get) => get(SHELL_PATH) },
+          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "C · 열리는 구멍 비율 (0 = 닫힌 껍질, 1 = 거의 다 열림)", render: (get) => get(SHELL_PATH) },
           pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "C · 표면 곰보 · 진하기 (어두운 점; 색만, 0 = 없음)", render: (get) => get(SHELL_PATH) },
           pitCover: { value: DEFAULT_STUDY.pitCover, min: 0, max: 1, step: 0.01, label: "C · 곰보 · 양 (표면의 얼마나를 덮나)", render: (get) => get(SHELL_PATH) },
           pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "C · 곰보 · 크기 (월드)", render: (get) => get(SHELL_PATH) },
@@ -1779,6 +1785,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             ribCell: fu.ribCell,
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
+            holeShape: fu.holeShape as "voronoi" | "noise" | "round",
             pits: fu.pits,
             pitSize: fu.pitSize,
             pitJitter: fu.pitJitter,
@@ -1789,7 +1796,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
