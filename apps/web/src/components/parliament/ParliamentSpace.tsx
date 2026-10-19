@@ -153,7 +153,8 @@ const PAUSED_FUSE_PER_CALL = 12;
 const MODE_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.massMode";
 const FILL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.fill";
 const SHELL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.shell";
-const RESIN_MODE_PATH = "엉김 · 융합 · 레진.⑥ 레진 재질.resinMode";
+const RESIN_MODE_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.resinMode";
+const MASS_BODY_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.massBody";
 
 /** sRGB hex → linear RGB (the fused mass's vertex colours are linear). */
 function hexToLinear(hex: string): [number, number, number] {
@@ -228,6 +229,8 @@ interface ResinLook {
   /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
   opacity: number;
+  /** The fused mass before the resin: 1 = opaque stone, less = a translucent body. */
+  massOpacity: number;
   roughness: number;
   thickness: number;
   attenuationColor: string;
@@ -662,6 +665,13 @@ function SpaceWorld({
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
   const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
+  useEffect(() => {
+    // the mass as a translucent body: alpha, no depth write (what stands inside shows through)
+    stoneMat.transparent = resin.massOpacity < 1;
+    stoneMat.opacity = resin.massOpacity;
+    stoneMat.depthWrite = resin.massOpacity >= 1;
+    stoneMat.needsUpdate = true;
+  }, [stoneMat, resin.massOpacity]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
@@ -1679,19 +1689,22 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
-      "⑥ 레진 재질": folder(
+      "⑥ 재질: 덩어리 · 레진": folder(
         {
-          // two bodies: refraction (three.js transmission: the scene behind is re-rendered every frame — heavy) or a
-          // plain translucent body (alpha, no depth write: what stands inside shows through — light; the artist
-          // liked it in performance mode, 2026-10-19)
-          resinMode: { options: { "반투명 (가벼움 · 속의 부재가 비쳐 보임)": "alpha", "굴절 (무거움 · 유리처럼 뒤를 굴절)": "refract" }, value: "alpha" as "alpha" | "refract", label: "몸체" },
-          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "반투명 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
-          resinColor: { value: KIND_COLOR.slab, label: "색 (슬래브와 같은 회색)" },
-          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과", render: (get) => get(RESIN_MODE_PATH) === "refract" },
-          resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (서리 낀 정도)" },
-          thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "두께감" },
-          attenuationColor: { value: "#8a8b8c", label: "깊을수록 물드는 색 (무채색)" },
-          attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (짧을수록 무거움)" },
+          // the MASS (fused, not yet resin): opaque stone or a translucent body (alpha, no depth write — what stands
+          // inside shows through; the artist, 2026-10-19: the middle layers suit it)
+          massBody: { options: { "불투명 (돌)": "opaque", "반투명 (속의 부재가 비쳐 보임)": "alpha" }, value: "alpha" as "opaque" | "alpha", label: "덩어리 몸체 (융합 ~ 레진 전)" },
+          massOpacity: { value: 0.75, min: 0.1, max: 1, step: 0.05, label: "덩어리 · 불투명도", render: (get) => get(MASS_BODY_PATH) === "alpha" },
+          // the RESIN (the fossil layers): refraction (three.js transmission: the scene behind is re-rendered every
+          // frame — heavy, glass-like) or the same translucent body (light)
+          resinMode: { options: { "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가벼움)": "alpha" }, value: "refract" as "alpha" | "refract", label: "레진 몸체 (화석 층)" },
+          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
+          resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
+          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "레진 거칠기 (0 = 맑음, 1 = 서리 낀 유리)" },
+          thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "굴절 · 두께감 (굴절이 얼마나 휘는지)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          attenuationColor: { value: "#8a8b8c", label: "굴절 · 물드는 색 (무채색; 빛이 깊이 들어갈수록 이 색으로)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (월드; 빛이 몸체 속을 이만큼 지나면 '물드는 색'이 됨 — 짧을수록 두껍고 탁한 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
         },
         { collapsed: true },
       ),
@@ -1746,12 +1759,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       color: fu.resinColor,
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
       opacity: fu.resinOpacity,
+      massOpacity: fu.massBody === "alpha" ? fu.massOpacity : 1,
       roughness: fu.resinRoughness,
       thickness: fu.thickness,
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.resinMode, fu.resinOpacity, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.resinMode, fu.resinOpacity, fu.massBody, fu.massOpacity, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
