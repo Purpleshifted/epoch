@@ -11,7 +11,8 @@
  * crosses the distance, so the caches keep working while the camera moves a little.
  */
 
-import { foldWorld, latestS, withoutWear } from "./fold";
+import { withoutWear } from "./fold";
+import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
@@ -107,6 +108,12 @@ export interface LodConfig {
   camera: [number, number, number];
   /** Seeds and vegetation chunks within this distance get full detail. */
   near: number;
+  /**
+   * Seeds between `near` and this distance get the MIDDLE level: slat bundles thinned (half the slats, at most 16 per
+   * mass) and no drips — the texture of the bundles stays, at a fraction of the parts; beyond it, solid masses.
+   * Absent = no middle band (near → solid).
+   */
+  mid?: number;
   /** Least share of vegetation points far away. */
   farFactor: number;
 }
@@ -244,6 +251,8 @@ export class SpaceModel {
   private version = 0;
   private seeds: Seed[] = [];
   private seedsKey = "";
+  /** The fold as a state that grows with the events (foldState.ts), per fold config: a refold costs only what arrived. */
+  private foldState: { key: string; state: FoldState; fed: number } | null = null;
   private partCache = new Map<number, { key: string; parts: Box[] }>();
   private partsSig = "";
   /** Seeds by cell as last folded: kept through reset (a moved history window), see carrySeeds. */
@@ -302,6 +311,7 @@ export class SpaceModel {
     this.ids.clear();
     this.t = 0;
     this.version++;
+    this.foldState = null;
     this.partCache.clear();
     this.chunks.clear();
     this.drainKept = null;
@@ -316,8 +326,15 @@ export class SpaceModel {
     const key = `${this.version}:${JSON.stringify(fold)}`;
     if (key !== this.seedsKey) {
       this.seedsKey = key;
-      // fold without wear (this view is history); wear is applied to the parts instead
-      const fresh = this.events.length ? seedsFromSnapshot(foldWorld(this.events, latestS(this.events), withoutWear(fold))) : [];
+      // fold without wear (this view is history); wear is applied to the parts instead. The fold is a growing state:
+      // only the events that arrived since the last call are folded in (the same ground as foldWorld)
+      const cfg = withoutWear(fold);
+      const fKey = JSON.stringify(cfg);
+      if (!this.foldState || this.foldState.key !== fKey) this.foldState = { key: fKey, state: new FoldState(cfg), fed: 0 };
+      const fs = this.foldState;
+      for (let i = fs.fed; i < this.events.length; i++) fs.state.add(this.events[i]);
+      fs.fed = this.events.length;
+      const fresh = this.events.length ? seedsFromSnapshot(fs.state.snapshot(this.t)) : [];
       let cut = Infinity;
       for (const e of this.events) if (e.s < cut) cut = e.s;
       this.cutS = cut;
@@ -332,24 +349,34 @@ export class SpaceModel {
     const { box, lod } = input;
     const seeds = this.ensureSeeds(input.fold);
     const t = this.t;
-    /** The same config without slat bundles, for far seeds. */
+    /** The same config without slat bundles and drips, for far seeds. */
     const solid = (s: Seed): BoxConfig => {
       const rc = box.recipe ?? RECIPES[s.material];
-      return { ...box, recipe: { ...rc, slat: { ...rc.slat, enabled: false } } };
+      return { ...box, recipe: { ...rc, slat: { ...rc.slat, enabled: false }, drip: { ...rc.drip, perArea: 0, max: 0 } } };
+    };
+    /** The middle level: half the slats (at most 16 per mass), no drips — the bundles' texture at a fraction of the parts. */
+    const thinned = (s: Seed): BoxConfig => {
+      const rc = box.recipe ?? RECIPES[s.material];
+      return { ...box, recipe: { ...rc, slat: { ...rc.slat, density: rc.slat.density * 0.5, maxPerMass: Math.min(16, rc.slat.maxPerMass) }, drip: { ...rc.drip, perArea: 0, max: 0 } } };
     };
     const cfgKey = JSON.stringify(box);
 
-    // level per seed: far seeds are built without slats
+    // level per seed by its distance from the camera: 0 full, 1 thinned (within lod.mid), 2 solid
     let lodSig = 0;
+    const level = new Map<number, 0 | 1 | 2>();
     const far = new Set<number>();
+    const midR = Math.max(lod.near, lod.mid ?? lod.near);
     for (const s of seeds) {
       const yMid = ((s.t0 + s.t1) / 2 / box.secPerUnit) * box.unit;
-      if (dist3(lod.camera, s.x, yMid, s.z) > lod.near) {
-        far.add(s.id);
-        lodSig = (lodSig * 31 + s.id) % 1e9;
+      const d = dist3(lod.camera, s.x, yMid, s.z);
+      const lv = d <= lod.near ? 0 : d <= midR ? 1 : 2;
+      if (lv) {
+        level.set(s.id, lv);
+        lodSig = (lodSig * 31 + s.id * lv) % 1e9;
+        if (lv === 2) far.add(s.id);
       }
     }
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${far.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
 
@@ -357,13 +384,16 @@ export class SpaceModel {
     const built: Box[] = [];
     const live = new Set<number>();
     const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
-    for (const s of order) {
-      const isFar = far.has(s.id);
+    for (const s0 of order) {
+      // a building's mass grows with every sample: the parts follow it in steps of a quarter, so a living building is
+      // not rebuilt (every part regenerated) twice a second
+      const s: Seed = { ...s0, mass: Math.round(s0.mass * 4) / 4 };
+      const lv = level.get(s.id) ?? 0;
       const slots = occupiedSlots(s, box);
-      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${isFar}:${cfgKey}`;
+      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${lv}:${cfgKey}`;
       let hit = this.partCache.get(s.id);
       if (!hit || hit.key !== key) {
-        hit = { key, parts: boxesOfSeed(s, isFar ? solid(s) : box) };
+        hit = { key, parts: boxesOfSeed(s, lv === 2 ? solid(s) : lv === 1 ? thinned(s) : box) };
         this.partCache.set(s.id, hit);
       }
       live.add(s.id);

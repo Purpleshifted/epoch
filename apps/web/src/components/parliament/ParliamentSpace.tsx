@@ -122,6 +122,26 @@ const SPACE_BOXES = { ...DEFAULT_BOXES, secPerUnit: 20, width: 0.8, density: 1.4
 
 /** How often the view asks the worker (wall clock). */
 const TICK_MS = 500;
+
+/** Frames per second of this tab, once a second (0 while hidden). */
+function useFps(): number {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    let n = 0, t0 = performance.now(), raf = 0;
+    const tick = (now: number) => {
+      n++;
+      if (now - t0 >= 1000) {
+        setFps(Math.round((n * 1000) / (now - t0)));
+        n = 0;
+        t0 = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return fps;
+}
 /** Vegetation and plants are asked for every this-many ticks. */
 const NATURE_EVERY = 4;
 const DEG = Math.PI / 180;
@@ -511,6 +531,7 @@ function SpaceWorld({
   onStats,
   nature,
   lodNear,
+  lodMid,
   farFactor,
   weather,
   fuse,
@@ -533,6 +554,8 @@ function SpaceWorld({
   onStats: (s: Stats) => void;
   nature: NatureParams | null;
   lodNear: number;
+  /** Seeds between lodNear and this get thinned slat bundles; beyond, solid masses (spaceModel LodConfig.mid). */
+  lodMid: number;
   farFactor: number;
   weather: WeatherConfig;
   /** Old layers fused into one mass. */
@@ -581,7 +604,7 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
@@ -589,7 +612,7 @@ function SpaceWorld({
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const fibres = useRef<THREE.LineSegments>(null);
@@ -719,7 +742,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk } = live.current;
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     if (events.length < sent.current) {
@@ -736,7 +759,7 @@ function SpaceWorld({
 
     const o = controls.current;
     const cam: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
-    const lod = { camera: cam, near, farFactor: ff };
+    const lod = { camera: cam, near, mid, farFactor: ff };
     const id = ++seq.current;
     const withNature = !!nat && id % NATURE_EVERY === 1;
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
@@ -1657,6 +1680,7 @@ export default function ParliamentSpace() {
   const rnd = useControls(
     "렌더 · 성능",
     savable("렌더 · 성능", {
+      perfMode: { value: false, label: "성능 모드 (해상도 ↓ · AO 절반 · 그림자 끔 · 식생 점 ↓ · LOD 가까이)" },
       AO: folder({
         aoOn: { value: true, label: "켜기" },
         aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
@@ -1674,7 +1698,8 @@ export default function ParliamentSpace() {
         grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
       }),
       LOD: folder({
-        near: { value: 60, min: 5, max: 400, step: 5, label: "이 거리 안쪽만 막대 묶음 (월드)" },
+        near: { value: 40, min: 5, max: 400, step: 5, label: "이 거리 안쪽: 막대 묶음 · 드립 다 그림 (월드)" },
+        mid: { value: 90, min: 5, max: 600, step: 5, label: "이 거리까지: 막대 절반 · 드립 없음; 그 너머: 통짜 매스 (월드)" },
         farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율", render: () => !isV2 },
       }),
     }),
@@ -1682,6 +1707,16 @@ export default function ParliamentSpace() {
   );
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
+  // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
+  const perf = rnd.perfMode;
+  const dprMax = perf ? 1.25 : 2;
+  const aoHalfRes = perf || rnd.halfRes;
+  const aoQuality = perf ? ("performance" as const) : rnd.quality;
+  const shadowsOn = rnd.shadows && !perf;
+  const vegBudget = perf ? Math.min(veg.budget, 250000) : veg.budget;
+  const lodNear = perf ? Math.min(rnd.near, 25) : rnd.near;
+  const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
+  const fps = useFps();
   const natureParams = useMemo<NatureParams | null>(
     () =>
       veg.natureOn
@@ -1695,7 +1730,7 @@ export default function ParliamentSpace() {
             gatherDot: veg.gatherDot,
             window: veg.window,
             margin: veg.margin,
-            budget: veg.budget,
+            budget: vegBudget,
             burialSlots: veg.burialSlots,
             reclaim: veg.gatherOn,
             tauReclaimYears: veg.tauReclaimYears,
@@ -1705,7 +1740,7 @@ export default function ParliamentSpace() {
             density: isV2 ? { cut: veg.densityCut, fade: veg.densityFade } : null,
           }
         : null,
-    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, wlk.pathsOn, wlk.pathHole, wlk.pathBerm, wlk.pathEdge],
+    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, vegBudget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, wlk.pathsOn, wlk.pathHole, wlk.pathBerm, wlk.pathEdge],
   );
   const recipe = useMemo<Recipe>(
     () => ({
@@ -1734,10 +1769,10 @@ export default function ParliamentSpace() {
   return (
     <div className="relative h-full w-full" style={{ background: theme.bg }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, 2]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
+      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={rnd.shadows} />
+        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
@@ -1751,7 +1786,8 @@ export default function ParliamentSpace() {
           controls={controls}
           onStats={setStats}
           nature={natureParams}
-          lodNear={rnd.near}
+          lodNear={lodNear}
+          lodMid={lodMid}
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
@@ -1767,7 +1803,7 @@ export default function ParliamentSpace() {
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
-            {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={rnd.quality} halfRes={rnd.halfRes} color="black" />}
+            {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
           </EffectComposer>
@@ -1788,7 +1824,7 @@ export default function ParliamentSpace() {
         </div>
         <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
         <div>
-          LOD: {stats.farSeeds}/{stats.seeds} seeds far (no slats) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms
+          {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{perf ? " · PERF MODE" : ""}
         </div>
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
