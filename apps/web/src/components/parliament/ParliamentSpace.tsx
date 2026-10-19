@@ -155,6 +155,7 @@ const FILL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.fill";
 const SHELL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.shell";
 const RESIN_MODE_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.resinMode";
 const MASS_BODY_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.massBody";
+const ALL_RESIN_PATH = "엉김 · 융합 · 레진.① 언제: 부재의 부식 정도 (0 새것 … 1 사라짐).allResin";
 
 /** sRGB hex → linear RGB (the fused mass's vertex colours are linear). */
 function hexToLinear(hex: string): [number, number, number] {
@@ -1633,7 +1634,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김이 붙기 시작 (그 전엔 식생 점만 모임)" },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "부재가 덩어리로 녹기 시작" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)" },
-        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: isV2 ? "레진이 되는 층의 부식 정도 (융합이 끝나 가는 뒤; >1 = 레진 없음)" : "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)" },
+        // V2 (the artist, 2026-10-19): one body — everything fused is resin, no stone in between
+        allResin: { value: true, label: "레진 = 융합된 것 전부 (중간 몸체 없음)", render: () => isV2 },
+        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: isV2 ? "레진이 되는 층의 부식 정도 (융합이 끝나 가는 뒤; >1 = 레진 없음)" : "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: (get) => !isV2 || !get(ALL_RESIN_PATH) },
       }),
       "② 엉김: 부재에 붙는 작은 덩어리 (융합 전의 얇은 띠)": folder({
         // V2: off by default (the artist, 2026-10-19: the soil-coloured band before the resin is not wanted)
@@ -1693,8 +1696,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {
           // the MASS (fused, not yet resin): opaque stone or a translucent body (alpha, no depth write — what stands
           // inside shows through; the artist, 2026-10-19: the middle layers suit it)
-          massBody: { options: { "불투명 (돌)": "opaque", "반투명 (속의 부재가 비쳐 보임)": "alpha" }, value: "alpha" as "opaque" | "alpha", label: "덩어리 몸체 (융합 ~ 레진 전)" },
-          massOpacity: { value: 0.75, min: 0.1, max: 1, step: 0.05, label: "덩어리 · 불투명도", render: (get) => get(MASS_BODY_PATH) === "alpha" },
+          massBody: { options: { "불투명 (돌)": "opaque", "반투명 (속의 부재가 비쳐 보임)": "alpha" }, value: "alpha" as "opaque" | "alpha", label: "덩어리 몸체 (융합 ~ 레진 전)", render: (get) => !isV2 || !get(ALL_RESIN_PATH) },
+          massOpacity: { value: 0.75, min: 0.1, max: 1, step: 0.05, label: "덩어리 · 불투명도", render: (get) => (!isV2 || !get(ALL_RESIN_PATH)) && get(MASS_BODY_PATH) === "alpha" },
           // the RESIN (the fossil layers): refraction (three.js transmission: the scene behind is re-rendered every
           // frame — heavy, glass-like) or the same translucent body (light)
           resinMode: { options: { "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가벼움)": "alpha" }, value: "refract" as "alpha" | "refract", label: "레진 몸체 (화석 층)" },
@@ -1725,7 +1728,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       accretion: fu.accretion,
       accDepth: fu.accDepth,
       lump: fu.lump,
-      resinShare: fu.resinShare,
+      resinShare: isV2 && fu.allResin ? -1 : fu.resinShare, // −1: every fused face is resin
       sag: fu.sag,
       smooth: fu.smooth,
       poreSize: fu.poreSize,
@@ -1752,7 +1755,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -1877,7 +1880,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       rot: Math.round(rotOnsetSlots(weather)),
       acc: at(fuseCfg.accOnset),
       fuse: at(fuseCfg.fuseOnset),
-      resin: fuseCfg.resinShare <= 1 ? at(fuseCfg.resinShare) : null,
+      resin: fuseCfg.resinShare < 0 ? at(fuseCfg.fuseOnset) : fuseCfg.resinShare <= 1 ? at(fuseCfg.resinShare) : null,
     };
   }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
 
