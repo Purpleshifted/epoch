@@ -1136,9 +1136,29 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000, !lab);
   useKeepWindowControl(log, -2, !lab); // the shared history window (log.ts), the first folder
+  // the lab's test column: how the crowd that writes it is spread (the artist's player-page bot values by default)
+  const tc = useControls(
+    "테스트 기둥 (랩 · 이 탭만)",
+    savable("테스트 기둥 (랩 · 이 탭만)", {
+      tcMinutes: { value: 20, min: 5, max: 60, step: 5, label: "분량 (분)" },
+      tcBots: { value: 18, min: 2, max: 40, step: 1, label: "봇 수" },
+      tcGroups: { value: 5, min: 1, max: 10, step: 1, label: "무리 수" },
+      tcSpread: { value: 44, min: 0, max: 90, step: 1, label: "무리 간 거리 (월드; 멀수록 건물이 흩어짐)" },
+      tcTime: { value: 150, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s)" },
+      "다시 만들기": button(() => rebuildColumn.current()),
+    }),
+    { order: 0.5, render: () => lab },
+  );
+  const rebuildColumn = useRef(() => {});
+  useEffect(() => {
+    rebuildColumn.current = () => {
+      log.clear();
+      log.addMany(buildTestColumn({ seconds: tc.tcMinutes * 60, bots: tc.tcBots, flock: { groups: tc.tcGroups, spread: tc.tcSpread, timeSpread: tc.tcTime } }));
+    };
+  }, [log, tc.tcMinutes, tc.tcBots, tc.tcGroups, tc.tcSpread, tc.tcTime]);
   // the lab opens with a whole column in view
   useEffect(() => {
-    if (lab && log.size === 0) log.addMany(buildTestColumn());
+    if (lab && log.size === 0) rebuildColumn.current();
   }, [lab, log]);
   // the clock the view and its bots run on: the shared world clock, or the lab's own (this tab only)
   const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
@@ -1185,14 +1205,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       }),
       "데이터": folder(
         {
+          // the lab has its own column (the 테스트 기둥 group), not the shared storage
           ...(lab
-            ? {
-                // the lab: a fresh column (this tab only)
-                "테스트 기둥 다시 만들기 (봇 20분치 · 이 탭만)": button(() => {
-                  log.clear();
-                  log.addMany(buildTestColumn());
-                }),
-              }
+            ? {}
             : {
                 "기록 다시 읽기": button(() => log.addMany(loadEvents())),
                 "세계 지우기": button(() => {

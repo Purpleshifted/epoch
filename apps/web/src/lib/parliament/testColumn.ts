@@ -26,8 +26,10 @@ export interface TestColumnOptions {
 /** The crowd's events for `seconds` of world time (assigned times 0 … seconds). Pure. */
 export function buildTestColumn(opts: TestColumnOptions = {}): PEvent[] {
   const seconds = Math.max(60, Math.round(opts.seconds ?? keepWindowSec()));
-  const bots = Math.max(1, Math.round(opts.bots ?? 13));
-  const flock = opts.flock ?? { groups: 3, spread: 20, timeSpread: 60 };
+  // defaults as the artist runs the player page's bots (2026-10-19): 18 bots in 5 flocks 44 apart — buildings spread
+  // over the ground, not one clump (the fused mass of a clump is one blob; spread, the stages read per building)
+  const bots = Math.max(1, Math.round(opts.bots ?? 18));
+  const flock = opts.flock ?? { groups: 5, spread: 44, timeSpread: 150 };
   const period = Math.max(0.25, opts.sampleSec ?? 1);
   const start = 1_800_000_000_000;
   const out: PEvent[] = [];
