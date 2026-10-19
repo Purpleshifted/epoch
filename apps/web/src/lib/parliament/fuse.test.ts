@@ -222,6 +222,25 @@ describe("form study (V2): fill, shell", () => {
     expect(verts(pipes).some(([x, y, z]) => Math.abs(x - 3.6) < 0.5 && Math.abs(z - 3.6) < 0.5 && Math.abs(y - 5.5) < 0.6)).toBe(true);
   });
 
+  it("SIZE CURVES: by size, a small part fuses as its box and a large one as its frame; the shell's openings mix", () => {
+    const small = part({ x: 1, y: 5.5, z: 1, sx: 1, sy: 1, sz: 1, slot: 5 });
+    const big = part({ x: 4, y: 5.5, z: 4, sx: 3.2, sy: 3, sz: 3.2, slot: 5 });
+    const two = { ...base, parts: [small, big], decay: [1, 1], standing: [false, false], x0: -1, z0: -1, nx: 8, nz: 8, k0: 0, k1: 9 };
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const curve = { pipeSize: true, pipeSmall: 0, pipeLarge: 1, sizeSmall: 1.5, sizeLarge: 3, sizeJitter: 0 };
+    const m = fuseChunk({ ...two, cfg: { ...cfgOf(curve), ...flat } });
+    // the small box keeps the middle of its face, the big one's face is open (only its edges fused)
+    expect(verts(m).some(([x, y, z]) => Math.abs(x - 1) < 0.3 && Math.abs(y - 5.5) < 0.3 && z > 1.2)).toBe(true);
+    expect(verts(m).some(([x, y, z]) => Math.abs(x - 4) < 0.5 && Math.abs(y - 5.5) < 0.5 && z > 5.3)).toBe(false);
+    expect(verts(m).some(([x, y, z]) => Math.abs(x - 5.6) < 0.5 && Math.abs(z - 5.6) < 0.5 && Math.abs(y - 5.5) < 0.6)).toBe(true);
+    // the shell's openings by size: a valid mesh, different from both pure shapes
+    const shellOf = (holeShape: "voronoi" | "noise" | "size") => fuseChunk({ ...two, cfg: { ...cfgOf({ shell: true, ribOpen: 0.8, holeShape, holeVoronoiSmall: 0, holeVoronoiLarge: 1, sizeSmall: 1.5, sizeLarge: 3, sizeJitter: 0 }), ...flat } });
+    const mixed = shellOf("size");
+    expect(mixed.index.length).toBeGreaterThan(0);
+    expect(mixed.index.length).not.toBe(shellOf("voronoi").index.length);
+    expect(mixed.index.length).not.toBe(shellOf("noise").index.length);
+  });
+
   it("SPIKES: thin spikes of the same mass grow out of the surface, up to their length", () => {
     const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
     const plain = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, ...flat } });

@@ -153,6 +153,7 @@ const PAUSED_FUSE_PER_CALL = 12;
 const MODE_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.massMode";
 const FILL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.fill";
 const SHELL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.shell";
+const HOLE_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.holeShape";
 const RESIN_MODE_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.resinMode";
 const MASS_BODY_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.massBody";
 const ALL_RESIN_PATH = "엉김 · 융합 · 레진.① 언제: 부재의 부식 정도 (0 새것 … 1 사라짐).allResin";
@@ -1731,11 +1732,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             options: {
               "부재를 통째로 (감싸고 사이를 메움)": "wrap",
               "E 관 (multipipe): 부재의 모서리만 관으로, 방은 비움": "pipe",
+              "크기에 따라: 작은 부재는 통째로, 큰 부재는 관 (④-1 커브)": "size",
             },
-            value: "wrap" as "wrap" | "pipe",
+            value: "wrap" as "wrap" | "pipe" | "size",
             label: "부재가 녹는 꼴",
           },
-          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "E · 관 굵기 (월드; ③ 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(MODE_PATH) === "pipe" },
+          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "E · 관 굵기 (월드; ③ 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(MODE_PATH) !== "wrap" },
           fill: { value: DEFAULT_STUDY.fill, label: "+ B 판 사이 채우기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게" },
           fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "B · 채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(FILL_PATH) },
           fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "B · 판 가장자리에서 물러남 (월드)", render: (get) => get(FILL_PATH) },
@@ -1744,8 +1746,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "C · 껍질 두께 · 깊은 층 (복셀)", render: (get) => get(SHELL_PATH) },
           shellSplit: { value: DEFAULT_STUDY.shellSplit, min: 0.05, max: 1, step: 0.01, label: "C · 깊은 층으로 치는 부식 정도 (층의 나이)", render: (get) => get(SHELL_PATH) },
           holeShape: {
-            options: { "보로노이: 맞닿은 다각형 구멍, 사이에 리브 (뼈)": "voronoi", "노이즈: 둥글게 번지며 서로 이어지는 구멍 (벌레 먹은 듯)": "noise", "둥근 구멍: ③의 구형 공극을 껍질에": "round" },
-            value: DEFAULT_STUDY.holeShape as "voronoi" | "noise" | "round",
+            options: { "보로노이: 맞닿은 다각형 구멍, 사이에 리브 (뼈)": "voronoi", "노이즈: 둥글게 번지며 서로 이어지는 구멍 (벌레 먹은 듯)": "noise", "둥근 구멍: ③의 구형 공극을 껍질에": "round", "크기에 따라: 작은 부재는 노이즈, 큰 부재는 보로노이 (④-1 커브)": "size" },
+            value: DEFAULT_STUDY.holeShape as "voronoi" | "noise" | "round" | "size",
             label: "C · 구멍 모양",
             render: (get) => get(SHELL_PATH),
           },
@@ -1758,8 +1760,26 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 크기 지터 (0 = 다 같게)", render: (get) => get(SHELL_PATH) },
           pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "C · 곰보 · 가장자리 부드러움 (0.01 = 또렷한 점 … 0.4 = 번진 얼룩)", render: (get) => get(SHELL_PATH) },
           pitDepth: { value: DEFAULT_STUDY.pitDepth, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 파이는 깊이 (0 = 색만, 1 = 뚫림; 리브에서 떨어진 넓은 면에만 — 크기 0.5 이상이어야 격자에 잡힘)", render: (get) => get(SHELL_PATH) },
+          pitGather: { value: DEFAULT_STUDY.pitGather, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 몰림 (0 = 고르게, 1 = 어떤 면에는 몰리고 어떤 면은 맨살)", render: (get) => get(SHELL_PATH) },
+          pitPatch: { value: DEFAULT_STUDY.pitPatch, min: 0.5, max: 12, step: 0.5, label: "C · 곰보 · 몰리는 자리 크기 (월드)", render: (get) => get(SHELL_PATH) },
         },
         { render: () => isV2 },
+      ),
+      // SIZE CURVES (the artist, 2026-10-19: the look was growing uniform): a part's size, read on a band, decides
+      // how much of each feature it gets — the weights at the small end and at the large end
+      "④-1 크기 커브: 부재 크기에 따라 다르게 (획일화 막기)": folder(
+        {
+          sizeSmall: { value: DEFAULT_STUDY.sizeSmall, min: 0.3, max: 20, step: 0.1, label: "'작은 부재'로 치는 크기 (월드; 가장 긴 변이 이 아래면 0)" },
+          sizeLarge: { value: DEFAULT_STUDY.sizeLarge, min: 0.5, max: 40, step: 0.5, label: "'큰 부재'로 치는 크기 (월드; 이 위면 1; 사이는 커브)" },
+          sizeJitter: { value: DEFAULT_STUDY.sizeJitter, min: 0, max: 1, step: 0.05, label: "부재마다 크기 읽기의 흔들림 (0 = 크기 그대로, 1 = ⅓ … 3배; 같은 크기도 다르게)" },
+          pipeSmall: { value: DEFAULT_STUDY.pipeSmall, min: 0, max: 1, step: 0.05, label: "E 관 비율 · 작은 부재 (0 = 통째로, 1 = 관만; 사이 = 관 안에 너덜한 판)", render: (get) => get(MODE_PATH) === "size" },
+          pipeLarge: { value: DEFAULT_STUDY.pipeLarge, min: 0, max: 1, step: 0.05, label: "E 관 비율 · 큰 부재", render: (get) => get(MODE_PATH) === "size" },
+          holeVoronoiSmall: { value: DEFAULT_STUDY.holeVoronoiSmall, min: 0, max: 1, step: 0.05, label: "C 구멍 · 작은 부재 (0 = 노이즈, 1 = 보로노이)", render: (get) => get(SHELL_PATH) && get(HOLE_PATH) === "size" },
+          holeVoronoiLarge: { value: DEFAULT_STUDY.holeVoronoiLarge, min: 0, max: 1, step: 0.05, label: "C 구멍 · 큰 부재 (0 = 노이즈, 1 = 보로노이)", render: (get) => get(SHELL_PATH) && get(HOLE_PATH) === "size" },
+          pitSmall: { value: DEFAULT_STUDY.pitSmall, min: 0, max: 2, step: 0.05, label: "C 곰보 양 배율 · 작은 부재 (× 곰보 양)", render: (get) => get(SHELL_PATH) },
+          pitLarge: { value: DEFAULT_STUDY.pitLarge, min: 0, max: 2, step: 0.05, label: "C 곰보 양 배율 · 큰 부재", render: (get) => get(SHELL_PATH) },
+        },
+        { render: () => isV2, collapsed: true },
       ),
       "⑤ 계산 (보통은 그대로)": folder(
         {
@@ -1837,19 +1857,31 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             ribCell: fu.ribCell,
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
-            holeShape: fu.holeShape as "voronoi" | "noise" | "round",
+            holeShape: fu.holeShape as "voronoi" | "noise" | "round" | "size",
             pits: fu.pits,
             pitSize: fu.pitSize,
             pitJitter: fu.pitJitter,
             pitSoft: fu.pitSoft,
             pitCover: fu.pitCover,
             pitDepth: fu.pitDepth,
+            pitGather: fu.pitGather,
+            pitPatch: fu.pitPatch,
+            sizeSmall: fu.sizeSmall,
+            sizeLarge: fu.sizeLarge,
+            sizeJitter: fu.sizeJitter,
+            pipeSize: fu.massMode === "size",
+            pipeSmall: fu.pipeSmall,
+            pipeLarge: fu.pipeLarge,
+            holeVoronoiSmall: fu.holeVoronoiSmall,
+            holeVoronoiLarge: fu.holeVoronoiLarge,
+            pitSmall: fu.pitSmall,
+            pitLarge: fu.pitLarge,
             pipe: fu.massMode === "pipe",
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
