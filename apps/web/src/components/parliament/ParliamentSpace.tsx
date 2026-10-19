@@ -37,6 +37,7 @@ import {
   latestOf,
   latestS,
   loadEvents,
+  seedTestColumn,
   seedParliamentDemoIfRequested,
   type BoxConfig,
   type EventLog,
@@ -749,7 +750,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     if (events.length < sent.current) {
@@ -796,7 +797,7 @@ function SpaceWorld({
     }
     // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
     if (frozen || id % NATURE_EVERY === 1) {
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined };
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -1171,6 +1172,13 @@ export default function ParliamentSpace() {
       "데이터": folder(
         {
           "기록 다시 읽기": button(() => log.addMany(loadEvents())),
+          // WORK MODE: a whole column at once (every stage in view), replacing the shared world
+          "테스트 기둥 만들기 (봇 기록 창 분량 즉시 · 세계를 대체)": button(() => {
+            if (!window.confirm("Replace the shared world with a test column (a bot crowd's log for the whole history window, a new epoch)?")) return;
+            seedTestColumn();
+            log.clear();
+            log.addMany(loadEvents());
+          }),
           "세계 지우기": button(() => {
             if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
               clearWorld();
@@ -1568,7 +1576,7 @@ export default function ParliamentSpace() {
         accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김이 붙기 시작 (그 전엔 식생 점만 모임)" },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "부재가 덩어리로 녹기 시작" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)" },
-        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)" },
+        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: isV2 ? "레진이 되는 층의 부식 정도 (융합이 끝나 가는 뒤; >1 = 레진 없음)" : "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)" },
       }),
       "② 엉김: 부재에 붙는 작은 덩어리": folder({
         accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "양 (0 = 없음)" },

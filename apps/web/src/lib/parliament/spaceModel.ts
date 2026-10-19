@@ -19,7 +19,7 @@ import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedSha
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
-import type { FoldConfig, PEvent } from "./types";
+import { DEFAULT_FOLD, type FoldConfig, type PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
 import { NO_WALKWAYS, otherLineNear, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
 import { NO_DRAINAGE, drainage, pipeParts, waterDistance, waterField, type Drainage, type PipeParts, type PipeRun, type WaterConfig } from "./water";
@@ -145,6 +145,21 @@ export interface WeatherConfig {
 
 export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1, ageJitter: 0.5, gatherStart: 2, gatherRise: 8, rotDose: 12 };
 
+/**
+ * The typical corrosion (0 … 1) of the parts of slot k at the present tQ — a mid-thick exposed part's, on the parts'
+ * own clock (seeds.wearModel), without burial or vegetation: ONE clock for what the layers look like.
+ */
+export function layerDecayOf(tQ: number, spu: number, w: WeatherConfig, tauSlabYears: number): (k: number) => number {
+  const onset = rotOnsetSlots(w);
+  const tau = tauSlabYears * 0.75 * w.concreteLife;
+  const yNow = geoYears(tQ);
+  return (k: number) => {
+    const laid = Math.min(tQ, (k + 1 + onset) * spu);
+    const A = Math.max(0, yNow - geoYears(laid)) * w.timeScale;
+    return 1 - Math.exp(-A / tau);
+  };
+}
+
 /** The sediment clock of the view at its present (per slot, so it moves once a slot); null without strata. */
 function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
   if (!w.strata) return null;
@@ -239,6 +254,13 @@ export interface FuseInput {
   focusK?: number;
   /** Chunks (re)built per call (default FUSE_NEW_PER_CALL); the paused view asks for many at once. */
   perCall?: number;
+  /**
+   * V2: the layers' age for resin, darkening and voids is the parts' own corrosion clock (fuse.ts layerDecay), so the
+   * resin only comes after the fusion; absent = the sediment clock (V1, where the resin could begin above the mass).
+   */
+  oneClock?: boolean;
+  /** The fold's slab wear time (for the layers' corrosion clock); DEFAULT_FOLD's when absent. */
+  tauSlabYears?: number;
 }
 
 export interface PointsResult {
@@ -652,12 +674,11 @@ export class SpaceModel {
     // corrosion (a mid-thick part, exposed) is taken from its age; the points thin out as it nears fuseOnset and
     // there are none below. The most recent layers have the most.
     const fz = input.fuse;
+    const layerDecay = sediment ? layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears) : undefined;
     const living =
-      sediment && fz.enabled
+      layerDecay && fz.enabled
         ? (k: number) => {
-            const laid = Math.min(tQ, (k + 1 + rotOnsetSlots(input.weather)) * spu);
-            const A = Math.max(0, geoYears(tQ) - geoYears(laid)) * input.weather.timeScale;
-            const d = 1 - Math.exp(-A / (input.fold.tauSlabYears * 0.75 * input.weather.concreteLife));
+            const d = layerDecay(k);
             const t = Math.min(1, Math.max(0, (d - fz.fuseOnset * 0.4) / (fz.fuseOnset * 0.6)));
             return 1 - t * t * (3 - 2 * t);
           }
@@ -767,6 +788,8 @@ export class SpaceModel {
     }
     const u = box.unit;
     const kNow = Math.floor(this.t / box.secPerUnit);
+    // V2: one clock — the layers' age for the resin and the look of the old layers is the parts' corrosion
+    const layerDecay = input.oneClock ? layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears) : undefined;
     const kA = h ? h.k0 : 0;
     const kB = h ? h.k0 + h.nk - 1 : kNow;
     // extent: the vegetation's, or the parts' (cells)
@@ -881,6 +904,7 @@ export class SpaceModel {
         nz,
         unit: u,
         sediment: sed,
+        layerDecay,
         cfg: fuse,
       });
       this.fuseChunks.set(w.c0, { key: w.key, mesh });

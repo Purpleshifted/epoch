@@ -226,9 +226,9 @@ export interface FuseMesh {
 
 const EMPTY: FuseMesh = { position: new Float32Array(0), normal: new Float32Array(0), color: new Float32Array(0), index: new Uint32Array(0), resinStart: 0 };
 
-/** Whether slot k has become resin. */
-export function isResin(k: number, sed: Sediment, cfg: FuseConfig): boolean {
-  return cfg.enabled && cfg.resinShare <= 1 && sedimentShare(k, sed) >= cfg.resinShare;
+/** Whether slot k has become resin (on the layer's corrosion clock when given, else the sediment clock). */
+export function isResin(k: number, sed: Sediment, cfg: FuseConfig, layerDecay?: (k: number) => number): boolean {
+  return cfg.enabled && cfg.resinShare <= 1 && (layerDecay ? layerDecay(k) : sedimentShare(k, sed)) >= cfg.resinShare;
 }
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
@@ -420,6 +420,12 @@ export interface FuseChunkInput {
   nz: number;
   unit: number;
   sediment: Sediment;
+  /**
+   * ONE CLOCK (V2): the typical corrosion (0 … 1) of the parts of slot k — the layer's age on the parts' own clock.
+   * It decides the resin (resinShare) and the bottom-heaviness, darkening, voids and crispness of the layers, so the
+   * stages always come in order: gathering → growths → fusion → resin. Absent = the sediment clock (V1).
+   */
+  layerDecay?: (k: number) => number;
   cfg: FuseConfig;
 }
 
@@ -437,6 +443,8 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   if (!cfg.enabled || input.nx <= 0 || input.nz <= 0) return EMPTY;
   const vs = cfg.voxel;
   const iso0 = cfg.iso;
+  /** The age of a layer (0 … 1): the parts' corrosion clock when given, else the sediment clock. */
+  const layerAge = (k: number) => Math.max(0, Math.min(1, input.layerDecay ? input.layerDecay(k) : sedimentShare(k, sed)));
   const { below: pad, above: padTop } = fusePad(cfg);
   // global sample indices: X = round(x / vs) etc.
   const I0 = Math.floor((input.x0 * CELL_SIZE) / vs) - pad;
@@ -456,7 +464,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const rowQ = new Float32Array(ny);
   for (let j = 0; j < ny; j++) {
     const k = Math.floor(((J0 + j) * vs) / unit);
-    rowQ[j] = k < 0 ? 0 : sedimentShare(k, sed);
+    rowQ[j] = k < 0 ? 0 : layerAge(k);
   }
 
   const C = new Float32Array(n); // concrete turned to mass (its fused share)
@@ -807,7 +815,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     // the face goes to the resin group if its first vertex lies in a resin layer (a noisy boundary: the resin layer
     // does not start at one exact height)
     const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
-    const qa = sedimentShare(Math.floor(ay / unit), sed) + (noise3(ax * 0.5, ay * 0.5, az * 0.5, 41) - 0.5) * 0.3;
+    const qa = layerAge(Math.floor(ay / unit)) + (noise3(ax * 0.5, ay * 0.5, az * 0.5, 41) - 0.5) * 0.3;
     const to = cfg.resinShare <= 1 && qa >= cfg.resinShare ? resinInd : ind;
     if (quads[t + 4]) to.push(a, c, b, a, d, c);
     else to.push(a, b, c, a, c, d);
