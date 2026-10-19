@@ -829,12 +829,41 @@ export class SpaceModel {
     // (oldest-first starved the upper chunks — where the buildings are — while the lower ones kept changing)
     const focus = input.focusK ?? kNow;
     const dist = (w: Want) => Math.abs((w.c0 + w.c1) / 2 - focus);
-    const todo = wants.filter((w) => this.fuseChunks.get(w.c0)?.key !== w.key);
-    todo.sort((a, b) => Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || dist(a) - dist(b));
-    const fuseBuiltBefore = this.fuseBuilt;
-    const builtNow = new Set<number>();
+    const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
+    /** About to leave the history window: the two chunks just above the cut. */
+    const leaving = (w: Want) => w.c1 < floorK + 2 * NATURE_CHUNK;
+    // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
+    // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
+    // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,
+    // current or not: at a fast time rate (the world moving every tick) no mesh is ever current, and what is kept a
+    // little stale beats what vanishes with the cut
+    const doneK = kNow - Math.max(1, Math.round(rotOnsetSlots(input.weather))) - NATURE_CHUNK;
+    let bakedNow = 0;
+    if (this.partsFuseBuilt === this.fuseBuilt) {
+      for (const w of wants) {
+        const ch = this.fuseChunks.get(w.c0);
+        if (!ch) continue;
+        const fresh = ch.key === w.key;
+        if (!fresh && !leaving(w)) continue;
+        let done = fresh && w.c1 < doneK;
+        if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
+        if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
+        if (!leaving(w) && !done) continue;
+        const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
+        const shade = new Float32Array(boxes.length);
+        boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
+        const nat = this.chunks.get(w.c0);
+        this.baked.set(w.c0, { c0: w.c0, c1: w.c1, mesh: ch.mesh, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null });
+        this.fuseChunks.delete(w.c0);
+        this.chunks.delete(w.c0);
+        bakedNow++;
+      }
+    }
+    const todo = wants.filter((w) => !this.baked.has(w.c0) && this.fuseChunks.get(w.c0)?.key !== w.key);
+    // the chunks about to leave the window come first (so they are baked with a mesh as current as can be), then
+    // chunks with no mesh yet, then stale ones; each nearest to where the camera looks first
+    todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || dist(a) - dist(b));
     for (const w of todo.slice(0, FUSE_NEW_PER_CALL)) {
-      builtNow.add(w.c0);
       const mesh = fuseChunk({
         parts: w.ps.map((e) => e.b),
         decay: w.ps.map((e) => e.d),
@@ -856,29 +885,6 @@ export class SpaceModel {
       this.fuseBuilt++;
     }
     const pending = todo.length > FUSE_NEW_PER_CALL;
-    // BAKING: a chunk whose mesh is current and whose parts have been drawn against it (absorbed as far as it goes)
-    // is kept as it is from now on when it is done — about to leave the history window (the two chunks just above
-    // the cut), or every part in it fully decayed well below the present
-    const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
-    const doneK = kNow - Math.max(1, Math.round(rotOnsetSlots(input.weather))) - NATURE_CHUNK;
-    let bakedNow = 0;
-    for (const w of wants) {
-      const ch = this.fuseChunks.get(w.c0);
-      if (!ch || ch.key !== w.key || builtNow.has(w.c0) || this.partsFuseBuilt !== fuseBuiltBefore) continue;
-      const leaving = w.c1 < floorK + 2 * NATURE_CHUNK;
-      let done = w.c1 < doneK;
-      if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
-      if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
-      if (!leaving && !done) continue;
-      const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
-      const shade = new Float32Array(boxes.length);
-      boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
-      const nat = this.chunks.get(w.c0);
-      this.baked.set(w.c0, { c0: w.c0, c1: w.c1, mesh: ch.mesh, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null });
-      this.fuseChunks.delete(w.c0);
-      this.chunks.delete(w.c0);
-      bakedNow++;
-    }
     const out: FuseMesh[] = [...bakedMeshes];
     const keep = new Set<number>();
     for (const w of wants) {
