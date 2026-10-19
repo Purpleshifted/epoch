@@ -84,6 +84,8 @@ export interface FuseConfig {
   spikes: number;
   /** Longest spike (world); each spike has its own hashed length up to this. */
   spikeLen: number;
+  /** Colour of the growths (linear RGB); absent = the pale ochre-green default. */
+  growthColor?: [number, number, number];
   /** FORM STUDY (V2): other ways for the mass; absent = none (the mass wraps the parts). */
   study?: FuseStudy;
 }
@@ -211,8 +213,10 @@ export function accretionShare(decay: number, cfg: FuseConfig): number {
  */
 export function gatheringShare(decay: number, cfg: FuseConfig, pre = 0): number {
   const up = Math.max(pre, smoothRamp(decay, 0, cfg.accOnset));
-  if (!cfg.enabled || cfg.accretion <= 0) return up;
-  return up * (1 - smoothRamp(decay, cfg.accOnset, (cfg.accOnset + cfg.fuseOnset) / 2));
+  if (!cfg.enabled) return up;
+  // with growths: gone by halfway to the fusion; without (accretion 0): they stay until the fusion itself begins
+  const to = cfg.accretion > 0 ? (cfg.accOnset + cfg.fuseOnset) / 2 : cfg.fuseOnset;
+  return up * (1 - smoothRamp(decay, cfg.accOnset, to));
 }
 
 export interface FuseMesh {
@@ -443,6 +447,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   if (!cfg.enabled || input.nx <= 0 || input.nz <= 0) return EMPTY;
   const vs = cfg.voxel;
   const iso0 = cfg.iso;
+  const GROW = cfg.growthColor ?? GROWTH;
   /** The age of a layer (0 … 1): the parts' corrosion clock when given, else the sediment clock. */
   const layerAge = (k: number) => Math.max(0, Math.min(1, input.layerDecay ? input.layerDecay(k) : sedimentShare(k, sed)));
   const { below: pad, above: padTop } = fusePad(cfg);
@@ -768,7 +773,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         if (st?.shell && st.pits > 0) dark *= 1 - 0.7 * st.pits * smoothRamp(noise3(vx * 3.2, vy * 3.2, vz * 3.2, 83), 0.7, 0.78);
         for (let c = 0; c < 3; c++) {
           const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;
-          const growc = GROWTH[c] + (DULL_BROWN[c] - GROWTH[c]) * Math.min(1, q * 1.2);
+          const growc = GROW[c] + (DULL_BROWN[c] - GROW[c]) * Math.min(1, q * 1.2);
           col.push((fused * (1 - grow) + growc * grow) * dark * jit);
         }
       }

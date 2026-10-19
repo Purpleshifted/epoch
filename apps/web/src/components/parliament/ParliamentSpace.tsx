@@ -64,6 +64,7 @@ import {
   type FuseConfig,
   type FuseMesh,
   SpaceModel,
+  layerDecayOf,
   handleSpaceRequest,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
@@ -148,6 +149,17 @@ function useFps(): number {
 const NATURE_EVERY = 4;
 /** Paused (time rate 0): mass chunks rebuilt per request — a changed setting shows in one or two requests. */
 const PAUSED_FUSE_PER_CALL = 12;
+/** Leva paths in the mass-way folder (each way's own numbers show only for it). */
+const MODE_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.massMode";
+const FILL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.fill";
+const SHELL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.shell";
+
+/** sRGB hex → linear RGB (the fused mass's vertex colours are linear). */
+function hexToLinear(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return [lin(((n >> 16) & 255) / 255), lin(((n >> 8) & 255) / 255), lin((n & 255) / 255)];
+}
 const DEG = Math.PI / 180;
 const RC = RECIPES.concrete;
 const pair = (v: [number, number], f = 1): [number, number] => [v[0] * f, v[1] * f];
@@ -1221,7 +1233,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         { collapsed: true },
       ),
     }),
-    { order: 0 },
+    { order: lab ? 6 : 0, collapsed: lab },
   );
   const tAxis = useControls(
     "시간축",
@@ -1306,7 +1318,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         { collapsed: true },
       ),
     }),
-    { order: 3 },
+    { order: lab ? 5 : 3, collapsed: lab },
   );
   const wx = useControls(
     "풍화 · 지층",
@@ -1335,7 +1347,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     [],
     // V2: once, the saved values follow the defaults that fit the kept history (2026-10-11)
     isV2 ? [{ tag: "fit-history-2026-10-11", set: { rotDose: V2_ROT_DOSE, timeScale: V2_TIME_SCALE } }] : []),
-    { order: 7 },
+    { order: lab ? 3 : 7 },
   );
   const weather = useMemo<WeatherConfig>(
     () => ({
@@ -1378,7 +1390,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
     }),
-    { order: 6 },
+    { order: lab ? 4 : 6 },
   );
   // the PRESENT thickness (풍화 · 지층: the rot onset): layers within it still change, those below are kept
   const presentSlots = Math.max(1, Math.round(rotOnsetSlots(weather)));
@@ -1391,7 +1403,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const fold = useFoldControls(SPACE_FOLD, {
     folder: "생성 규칙 (회사원 시공간 밀집)",
     collapsed: true,
-    order: 2,
+    order: lab ? 8 : 2,
     flow: {
       path: `${WALK_GROUP}.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)`,
       order: 1,
@@ -1399,7 +1411,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     },
   });
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
-  const globalBots = useGlobalBots(log, fold, isV2, 1.5, lab ? { clock: clk, local: true } : undefined);
+  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, lab ? { clock: clk, local: true } : undefined);
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -1449,7 +1461,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       },
       ["길 · 다리"],
     ),
-    { order: 4, collapsed: true },
+    { order: 4, collapsed: true, render: () => !lab },
   );
   const walkView = useMemo<WalkConfig | null>(
     () =>
@@ -1551,7 +1563,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       },
       ["수로 (덮인 땅의 물)", "길 · 다리"],
     ),
-    { order: 5, collapsed: true },
+    { order: 5, collapsed: true, render: () => !lab },
   );
   const waterView = useMemo<WaterConfig | null>(
     () =>
@@ -1598,7 +1610,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
-  const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
+  const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
   const fu = useControls(
     "엉김 · 융합 · 레진",
     savable("엉김 · 융합 · 레진", {
@@ -1610,10 +1622,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)" },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: isV2 ? "레진이 되는 층의 부식 정도 (융합이 끝나 가는 뒤; >1 = 레진 없음)" : "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)" },
       }),
-      "② 엉김: 부재에 붙는 작은 덩어리": folder({
-        accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "양 (0 = 없음)" },
+      "② 엉김: 부재에 붙는 작은 덩어리 (융합 전의 얇은 띠)": folder({
+        // V2: off by default (the artist, 2026-10-19: the soil-coloured band before the resin is not wanted)
+        accretion: { value: isV2 ? 0 : DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "양 (0 = 없음 = 이 띠 없이 바로 융합)" },
         accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "두께 (월드)" },
         lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (월드; 클수록 굵은 몇 덩이)" },
+        growthColor: { value: "#ada585", label: "색 (이 띠의 흙색; 회색이면 #6e6e6e)" },
       }),
       "③ 덩어리: 녹은 부재들이 되는 것": folder({
         gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "이어 붙는 세기 (클수록 부재 사이가 메워져 한 덩어리 = 돌무덤; 1 = 부재 모양 거의 그대로)" },
@@ -1627,25 +1641,29 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         spikes: { value: DEFAULT_FUSE.spikes, min: 0, max: 1, step: 0.01, label: "가시: 표면에서 뻗어 나오는 양 (같은 재질; 0 = 없음)" },
         spikeLen: { value: DEFAULT_FUSE.spikeLen, min: 0.2, max: 4, step: 0.1, label: "가시: 가장 긴 길이 (월드)" },
       }),
-      "④ 형태 스터디 (V2 · 켜서 비교, 같이 켜도 됨)": folder(
+      // HOW a part turns into mass (one of two: as its box, or as tubes along its edges), and what is ADDED on top
+      // (both can be on): the rooms between the plates filled; the whole mass hollowed into a shell with ribbed
+      // openings. Each shows only its own numbers
+      "④ 덩어리 방식": folder(
         {
-          "B 판 사이 채우기": folder({
-            fill: { value: DEFAULT_STUDY.fill, label: "켜기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게 남음" },
-            fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)" },
-            fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)" },
-          }),
-          "C 껍질 · 리브": folder({
-            shell: { value: DEFAULT_STUDY.shell, label: "켜기: 속이 빈 껍질, 맞닿은 구멍 사이에 리브만 남음 (둥근 구멍 대신)" },
-            shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "껍질 두께 (복셀)" },
-            ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (월드)" },
-            ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (월드)" },
-            ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 구멍 비율 (오래된 층일수록 많이)" },
-            pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "표면 곰보 (어두운 점; 색만)" },
-          }),
-          "E 관 (multipipe)": folder({
-            pipe: { value: DEFAULT_STUDY.pipe, label: "켜기: 부재가 통째로가 아니라 모서리를 따라 관으로 녹음 — 관끼리 만나 이어지고 방은 비어 있음" },
-            pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "관 굵기 (월드; ③ 이어 붙는 세기를 1 근처로 내리면 관이 살아남)" },
-          }),
+          massMode: {
+            options: {
+              "부재를 통째로 (감싸고 사이를 메움)": "wrap",
+              "E 관 (multipipe): 부재의 모서리만 관으로, 방은 비움": "pipe",
+            },
+            value: "wrap" as "wrap" | "pipe",
+            label: "부재가 녹는 꼴",
+          },
+          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "E · 관 굵기 (월드; ③ 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(MODE_PATH) === "pipe" },
+          fill: { value: DEFAULT_STUDY.fill, label: "+ B 판 사이 채우기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게" },
+          fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "B · 채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(FILL_PATH) },
+          fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "B · 판 가장자리에서 물러남 (월드)", render: (get) => get(FILL_PATH) },
+          shell: { value: DEFAULT_STUDY.shell, label: "+ C 껍질 · 리브: 속을 비우고 구멍을 열어 그 사이 벽(리브)만 남김 (둥근 구멍 대신)" },
+          shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "C · 껍질 두께 (복셀)", render: (get) => get(SHELL_PATH) },
+          ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "C · 구멍 크기 (월드)", render: (get) => get(SHELL_PATH) },
+          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "C · 리브 굵기 = 구멍 사이 벽의 두께 (월드)", render: (get) => get(SHELL_PATH) },
+          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "C · 열리는 구멍 비율 (0 = 닫힌 껍질, 1 = 리브만)", render: (get) => get(SHELL_PATH) },
+          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "C · 표면 곰보 (어두운 점; 색만)", render: (get) => get(SHELL_PATH) },
         },
         { render: () => isV2 },
       ),
@@ -1669,8 +1687,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
-    }),
-    { order: 8 },
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }] : []),
+    { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
     () => ({
@@ -1696,6 +1714,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
+      growthColor: hexToLinear(fu.growthColor),
       study: isV2
         ? {
             fill: fu.fill,
@@ -1707,12 +1726,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
             pits: fu.pits,
-            pipe: fu.pipe,
+            pipe: fu.massMode === "pipe",
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipe, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -1815,6 +1834,26 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
   const spaceFold = useMemo(() => ({ ...fold, emptyGapSec: c.emptyGapSec }), [fold, c.emptyGapSec]);
+  // where the stages begin, in slots below the present (the readout): the same clocks the model uses
+  const depths = useMemo(() => {
+    if (!weather.strata || !c.wear || stats.t <= 0) return null;
+    const spu = boxCfg.secPerUnit;
+    const tQ = Math.floor(stats.t / spu) * spu;
+    const kNow = tQ / spu;
+    const age = isV2 ? layerDecayOf(tQ, spu, weather, fold.tauSlabYears) : null;
+    const at = (q: number): number | null => {
+      if (!age) return null;
+      for (let d = 0; d <= 400; d++) if (age(kNow - d) >= q) return d;
+      return null;
+    };
+    return {
+      gather: weather.gatherStart,
+      rot: Math.round(rotOnsetSlots(weather)),
+      acc: at(fuseCfg.accOnset),
+      fuse: at(fuseCfg.fuseOnset),
+      resin: fuseCfg.resinShare <= 1 ? at(fuseCfg.resinShare) : null,
+    };
+  }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
 
   return (
     <div className="relative h-full w-full" style={{ background: theme.bg }}>
@@ -1881,6 +1920,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         {globalBots > 0 && <div>bots: {globalBots} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
+        {depths && (
+          <div>
+            깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}
+          </div>
+        )}
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}
