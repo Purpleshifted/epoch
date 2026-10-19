@@ -144,6 +144,8 @@ function useFps(): number {
 }
 /** Vegetation and plants are asked for every this-many ticks. */
 const NATURE_EVERY = 4;
+/** Paused (time rate 0): mass chunks rebuilt per request — a changed setting shows in one or two requests. */
+const PAUSED_FUSE_PER_CALL = 12;
 const DEG = Math.PI / 180;
 const RC = RECIPES.concrete;
 const pair = (v: [number, number], f = 1): [number, number] => [v[0] * f, v[1] * f];
@@ -605,6 +607,8 @@ function SpaceWorld({
   const inFlight = useRef<{ id: number; at: number } | null>(null);
   /** The camera and focus the last request used; kept while time stands still (see the ticker). */
   const pinned = useRef<{ cam: [number, number, number]; focusK: number } | null>(null);
+  /** Paused: what the vegetation was last asked with (it is asked again only when this changes). */
+  const lastNatSig = useRef("");
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
@@ -770,7 +774,12 @@ function SpaceWorld({
     const { cam, focusK } = pinned.current;
     const lod = { camera: cam, near, mid, farFactor: ff };
     const id = ++seq.current;
-    const withNature = !!nat && id % NATURE_EVERY === 1;
+    // PAUSE MODE (time standing still): a changed setting should show at once — the mass is asked for on every tick
+    // and built many chunks at a time, the vegetation only when something it depends on changed (it is the heaviest
+    // part and most settings do not touch it)
+    const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
+    const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
+    if (withNature) lastNatSig.current = natSig;
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
     if (withNature && nat) {
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
@@ -785,9 +794,9 @@ function SpaceWorld({
         };
       }
     }
-    // the fused mass follows the vegetation's cadence (it is built from its history)
-    if (id % NATURE_EVERY === 1) {
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK };
+    // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
+    if (frozen || id % NATURE_EVERY === 1) {
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -1828,7 +1837,7 @@ export default function ParliamentSpace() {
         </div>
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
-        {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "time: standing still (rate 0)"}</div>}
+        {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         {globalBots > 0 && <div>bots: {globalBots} running from this view (global)</div>}
         {c.markers && (
           <div>

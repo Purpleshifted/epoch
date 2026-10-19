@@ -237,6 +237,8 @@ export interface FuseInput {
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
   focusK?: number;
+  /** Chunks (re)built per call (default FUSE_NEW_PER_CALL); the paused view asks for many at once. */
+  perCall?: number;
 }
 
 export interface PointsResult {
@@ -863,7 +865,8 @@ export class SpaceModel {
     // the chunks about to leave the window come first (so they are baked with a mesh as current as can be), then
     // chunks with no mesh yet, then stale ones; each nearest to where the camera looks first
     todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || dist(a) - dist(b));
-    for (const w of todo.slice(0, FUSE_NEW_PER_CALL)) {
+    const perCall = Math.max(1, input.perCall ?? FUSE_NEW_PER_CALL);
+    for (const w of todo.slice(0, perCall)) {
       const mesh = fuseChunk({
         parts: w.ps.map((e) => e.b),
         decay: w.ps.map((e) => e.d),
@@ -884,7 +887,7 @@ export class SpaceModel {
       for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
       this.fuseBuilt++;
     }
-    const pending = todo.length > FUSE_NEW_PER_CALL;
+    const pending = todo.length > perCall;
     const out: FuseMesh[] = [...bakedMeshes];
     const keep = new Set<number>();
     for (const w of wants) {
