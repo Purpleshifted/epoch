@@ -232,6 +232,8 @@ interface ResinLook {
   opacity: number;
   /** The fused mass before the resin: 1 = opaque stone, less = a translucent body. */
   massOpacity: number;
+  /** How much of the mass's shades (pits, stains, age) show in the resin: 0 = pure resin colour … 1 = all. */
+  shade: number;
   roughness: number;
   thickness: number;
   attenuationColor: string;
@@ -262,7 +264,26 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.transparent = r.transmission <= 0;
   m.opacity = r.transmission <= 0 ? r.opacity : 1;
   m.depthWrite = r.transmission > 0;
+  (m.userData.uShade as THREE.IUniform).value = r.shade;
   m.needsUpdate = true;
+}
+
+/**
+ * The resin's material: MeshPhysical whose vertex colours (the mass's stains, pits, darkening with age) are not
+ * multiplied in as they are — that made the glass dirty — but normalised by the concrete's base grey, so a plain
+ * surface leaves the resin colour as it is and only the deviations (pits, stains) show, by `shade` (0 = none).
+ */
+function makeResinMaterial(): THREE.MeshPhysicalMaterial {
+  const m = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true });
+  const uShade: THREE.IUniform = { value: 0.5 };
+  m.userData.uShade = uShade;
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uShade = uShade;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uShade;")
+      .replace("#include <color_fragment>", "#if defined( USE_COLOR )\n\tdiffuseColor.rgb *= mix( vec3( 1.0 ), clamp( vColor.rgb / 0.42, 0.0, 1.2 ), uShade );\n#endif");
+  };
+  return m;
 }
 
 /** Replaces the fused mesh's geometry (the old one is disposed). */
@@ -664,9 +685,7 @@ function SpaceWorld({
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
   const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
-  // vertex colours on the resin too: the mass's shades (stains, pits, darkening with age) show through the glass —
-  // without them nothing coloured in fuse.ts reached the resin layers
-  const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true }), []);
+  const resinMat = useMemo(() => makeResinMaterial(), []);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
   useEffect(() => {
     // the mass as a translucent body: alpha, no depth write (what stands inside shows through)
@@ -1710,7 +1729,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           // frame — heavy, glass-like) or the same translucent body (light)
           resinMode: { options: { "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가벼움)": "alpha" }, value: "refract" as "alpha" | "refract", label: "레진 몸체 (화석 층)" },
           resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
-          resinColor: { value: "#ffffff", label: "레진 색 (덩어리의 정점 색에 곱함; 흰색 = 덩어리 색 그대로)" },
+          resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
+          resinShade: { value: 0.5, min: 0, max: 1, step: 0.05, label: "레진에 비치는 덩어리 얼룩 · 곰보 (0 = 레진 색만, 1 = 다)" },
           transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
           resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "레진 거칠기 (0 = 맑음, 1 = 서리 낀 유리)" },
           thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "굴절 · 두께감 (굴절이 얼마나 휘는지)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
@@ -1719,7 +1739,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-vertex-colours-2026-10-19", set: { resinColor: "#ffffff" } }] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }] : []),
     { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
@@ -1777,12 +1797,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
       opacity: fu.resinOpacity,
       massOpacity: fu.massBody === "alpha" ? fu.massOpacity : 1,
+      shade: fu.resinShade,
       roughness: fu.resinRoughness,
       thickness: fu.thickness,
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.resinMode, fu.resinOpacity, fu.massBody, fu.massOpacity, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.resinMode, fu.resinOpacity, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
