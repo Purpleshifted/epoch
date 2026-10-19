@@ -159,7 +159,7 @@ describe("resin: the oldest layers become a translucent body", () => {
   });
 });
 
-describe("form study (V2): fill, shell, fibre", () => {
+describe("form study (V2): fill, shell", () => {
   // one building: a plinth, masses in slots 3–6 and a slab over them (a room of 4 slots)
   const bld: Box[] = [
     part({ kind: "plinth", x: 2, y: 2.85, z: 2, sx: 3.2, sy: 0.3, sz: 3.2, slot: 2 }),
@@ -207,20 +207,4 @@ describe("form study (V2): fill, shell, fibre", () => {
     expect(open.index.length).not.toBe(closed.index.length);
   });
 
-  it("D FIBRE: vertical lines hang below the mass; discs round the plates; nothing without the switch", () => {
-    expect(fuseChunk({ ...room, cfg: DEFAULT_FUSE }).lines.length).toBe(0);
-    const m = fuseChunk({ ...room, cfg: cfgOf({ fibre: true }) });
-    expect(m.lines.length).toBeGreaterThan(0);
-    expect(m.lines.length % 6).toBe(0);
-    let down = 0;
-    for (let i = 0; i < m.lines.length; i += 6) if (m.lines[i + 4] < m.lines[i + 1]) down++;
-    expect(down).toBeGreaterThan(m.lines.length / 6 / 2); // mostly hanging
-    // the disc reaches past the slab's edge
-    const past = (mm: FuseMesh) => verts(mm).some(([x, y]) => Math.abs(y - 7.05) < 0.5 && Math.abs(x - 2) > 1.8 + 0.3);
-    expect(past(m)).toBe(true);
-    expect(past(fuseChunk({ ...room, cfg: cfgOf({ fibre: true, disc: 0 }) }))).toBe(false);
-    // merged across chunks
-    const a = fuseChunk({ ...room, k1: 4, cfg: cfgOf({ fibre: true }) }), b = fuseChunk({ ...room, k0: 5, cfg: cfgOf({ fibre: true }) });
-    expect(mergeMeshes([a, b]).lines.length).toBe(a.lines.length + b.lines.length);
-  });
 });

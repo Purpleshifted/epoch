@@ -517,8 +517,8 @@ function mainThreadRunner(onResult: (r: SpaceResponse) => void): SpaceRunner {
  * The world of the timespace: parts (one InstancedMesh per kind), vegetation and plants on ruins. Everything is
  * computed in a Web Worker (space.worker.ts → lib/parliament/spaceModel.ts); this component only sends the new events
  * and a compute request every TICK_MS (wall clock, also in a hidden tab), and copies each result into its meshes.
- * Level of detail: seeds further than `lodNear` from the camera are built without slats; vegetation thins out with
- * distance down to `farFactor`.
+ * Level of detail: seeds within `lodNear` of the camera get every part, up to `lodMid` thinned slat bundles without
+ * drips, beyond that solid masses (spaceModel LodConfig); vegetation thins out with distance down to `farFactor`.
  */
 function SpaceWorld({
   log,
@@ -541,7 +541,6 @@ function SpaceWorld({
   noAxis,
   walk,
   walkLook,
-  fibreColor,
 }: {
   log: EventLog;
   fold: FoldConfig;
@@ -571,8 +570,6 @@ function SpaceWorld({
   /** V2: walkways between buildings (walkways.ts); null = none. */
   walk: WalkConfig | null;
   walkLook: WalkLook;
-  /** D FIBRE (form study): colour of the fibres and spines under the fused mass. */
-  fibreColor: string;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -600,6 +597,8 @@ function SpaceWorld({
   const worker = useRef<SpaceRunner | null>(null);
   const sent = useRef(0);
   const inFlight = useRef<{ id: number; at: number } | null>(null);
+  /** The camera and focus the last request used; kept while time stands still (see the ticker). */
+  const pinned = useRef<{ cam: [number, number, number]; focusK: number } | null>(null);
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
@@ -615,7 +614,6 @@ function SpaceWorld({
     live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
-  const fibres = useRef<THREE.LineSegments>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
   const pipeMats = useMemo(
     () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness) }),
@@ -700,7 +698,6 @@ function SpaceWorld({
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
-    if (r.fuse) setSegments(fibres.current, r.fuse.lines);
     if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
   };
 
@@ -758,13 +755,18 @@ function SpaceWorld({
     focusY.current = events.length ? ((meS ?? t) / cfg.secPerUnit) * cfg.unit : null;
 
     const o = controls.current;
-    const cam: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
+    // TIME STANDING STILL (rate 0): the camera the LOD and the vegetation window follow is pinned too, so moving the
+    // view does not rebuild anything — only a changed setting does (and chunks still catching up)
+    const frozen = timeRate() === 0;
+    const camNow: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
+    const focusNow = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
+    if (!frozen || !pinned.current) pinned.current = { cam: camNow, focusK: focusNow };
+    const { cam, focusK } = pinned.current;
     const lod = { camera: cam, near, mid, farFactor: ff };
     const id = ++seq.current;
     const withNature = !!nat && id % NATURE_EVERY === 1;
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
     if (withNature && nat) {
-      const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
       if (nat.reclaim) {
         req.reclaim = {
@@ -779,7 +781,6 @@ function SpaceWorld({
     }
     // the fused mass follows the vegetation's cadence (it is built from its history)
     if (id % NATURE_EVERY === 1) {
-      const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK };
     }
     inFlight.current = { id, at: now };
@@ -859,10 +860,6 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
-      <lineSegments ref={fibres} frustumCulled={false} visible={fuse.enabled}>
-        <bufferGeometry />
-        <lineBasicMaterial color={fibreColor} />
-      </lineSegments>
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>
@@ -1550,65 +1547,57 @@ export default function ParliamentSpace() {
   const fu = useControls(
     "엉김 · 융합 · 레진",
     savable("엉김 · 융합 · 레진", {
-      fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (마모 + 지층이 켜져 있어야 함)" },
-      "시기 (부재의 부식 정도: 0 새것 … 1 사라짐)": folder({
-        accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작 (그 전: 식생 점이 모임)" },
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "부재 자체가 덩어리가 되기 시작" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대(B: 판)까지 삼켜짐 (>1 = 끝까지)" },
-        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율, >1 = 끔)" },
+      fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
+      // what happens to a part is read off its corrosion (0 = new … 1 = gone): the SAME clock for every stage below
+      "① 언제: 부재의 부식 정도 (0 새것 … 1 사라짐)": folder({
+        accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김이 붙기 시작 (그 전엔 식생 점만 모임)" },
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "부재가 덩어리로 녹기 시작" },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)" },
+        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)" },
       }),
-      "형태 스터디 (V2: 켜서 비교, 섞어도 됨)": folder(
+      "② 엉김: 부재에 붙는 작은 덩어리": folder({
+        accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "양 (0 = 없음)" },
+        accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "두께 (월드)" },
+        lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (월드; 클수록 굵은 몇 덩이)" },
+      }),
+      "③ 덩어리: 녹은 부재들이 되는 것": folder({
+        gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "이어 붙는 세기 (클수록 부재 사이가 메워져 한 덩어리 = 돌무덤; 1 = 부재 모양 거의 그대로)" },
+        blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "메워지는 틈의 너비 (복셀; 0 = 안 메움)" },
+        sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 흘러내림 (0 = 없음)" },
+        scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 부스러짐 (0 = 매끈)" },
+        porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "둥근 구멍 양 (오래된 층일수록 많이; C 껍질을 켜면 꺼짐)" },
+        poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드)" },
+        skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)" },
+        skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)" },
+      }),
+      "④ 형태 스터디 (V2 · 켜서 비교, 같이 켜도 됨)": folder(
         {
-          "B 빈 곳 채우기": folder({
-            fill: { value: DEFAULT_STUDY.fill, label: "켜기: 판 사이 방을 위에서부터 채움, 판은 날카롭게" },
+          "B 판 사이 채우기": folder({
+            fill: { value: DEFAULT_STUDY.fill, label: "켜기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게 남음" },
             fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)" },
             fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)" },
           }),
           "C 껍질 · 리브": folder({
-            shell: { value: DEFAULT_STUDY.shell, label: "켜기: 속이 빈 껍질 + 맞닿은 구멍 (구형 공극 대신)" },
+            shell: { value: DEFAULT_STUDY.shell, label: "켜기: 속이 빈 껍질, 맞닿은 구멍 사이에 리브만 남음 (둥근 구멍 대신)" },
             shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "껍질 두께 (복셀)" },
-            ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (셀, 월드)" },
+            ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (월드)" },
             ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (월드)" },
-            ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 셀 비율 (오래된 층일수록 많이)" },
-            pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "표면 곰보 (색만)" },
-          }),
-          "D 섬유 · 원반": folder({
-            fibre: { value: DEFAULT_STUDY.fibre, label: "켜기: 판은 원반, 아래로 섬유, 젊은 가장자리는 가시 (처짐·흩어짐 대신)" },
-            fibreGap: { value: DEFAULT_STUDY.fibreGap, min: 0.15, max: 2, step: 0.05, label: "섬유 간격 (월드)" },
-            fibreLen: { value: DEFAULT_STUDY.fibreLen, min: 0.3, max: 6, step: 0.1, label: "가장 긴 섬유 (월드)" },
-            disc: { value: DEFAULT_STUDY.disc, min: 0, max: 1.5, step: 0.05, label: "원반이 판 밖으로 뻗는 정도 (0 = 원반 없음)" },
-            discThick: { value: DEFAULT_STUDY.discThick, min: 0, max: 1, step: 0.05, label: "원반 가운데 두께 (월드)" },
-            spineLen: { value: DEFAULT_STUDY.spineLen, min: 0, max: 3, step: 0.05, label: "가시 길이 (월드, 0 = 없음)" },
-            fibreColor: { value: "#a8a8a8", label: "섬유 · 가시 색 (무채색)" },
+            ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 구멍 비율 (오래된 층일수록 많이)" },
+            pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "표면 곰보 (어두운 점; 색만)" },
           }),
         },
         { render: () => isV2 },
       ),
-      "엉김 (부재에 붙는 덩어리)": folder({
-        accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "세기 (0 = 끔)" },
-        accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "최대 두께 (월드)" },
-        lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (클수록 큰 뭉치; B 방의 울퉁불퉁함도)" },
-      }),
-      "융합 덩어리 (기본 방식)": folder({
-        gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "부풀림 (가까운 부재끼리 붙는 세기; B: 방 밖에선 약하게)" },
-        blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "붙는 거리 (복셀)" },
-        skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 콘크리트 비율" },
-        skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대를 감싸는 두께 (1 = 다른 부재와 같게)" },
-        sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 처짐 (D 켜면 꺼짐)" },
-        scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 흩어짐 (D 켜면 꺼짐)" },
-        porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "구형 공극 양 (C 켜면 꺼짐)" },
-        poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "구형 공극 크기 (월드)" },
-      }),
-      "표면 계산": folder(
+      "⑤ 계산 (보통은 그대로)": folder(
         {
-          voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀, 작을수록 무거움)" },
-          iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "표면 문턱" },
-          smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 (횟수, 0 = 각진 복셀)" },
-          natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물 비중" },
+          voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "격자 간격 (월드; 작을수록 세밀하고 무거움)" },
+          iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 덩어리가 두꺼워지고 더 멀리 이어짐)" },
+          smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로)" },
+          natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
         },
         { collapsed: true },
       ),
-      "레진 재질": folder(
+      "⑥ 레진 재질": folder(
         {
           resinColor: { value: KIND_COLOR.slab, label: "색 (슬래브와 같은 회색)" },
           transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "투과" },
@@ -1655,16 +1644,10 @@ export default function ParliamentSpace() {
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
             pits: fu.pits,
-            fibre: fu.fibre,
-            fibreGap: fu.fibreGap,
-            fibreLen: fu.fibreLen,
-            disc: fu.disc,
-            discThick: fu.discThick,
-            spineLen: fu.spineLen,
           }
         : undefined,
     }),
-    [isV2, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.fibre, fu.fibreGap, fu.fibreLen, fu.disc, fu.discThick, fu.spineLen, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -1797,7 +1780,6 @@ export default function ParliamentSpace() {
           noAxis={isV2}
           walk={walkView}
           walkLook={walkLook}
-          fibreColor={fu.fibreColor}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />

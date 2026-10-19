@@ -883,7 +883,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   }
   if (m.fuse) {
     out.fuse = model.computeFuse(m.fuse);
-    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.index, out.fuse.lines]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   return { out, transfer: [...transfer] };
