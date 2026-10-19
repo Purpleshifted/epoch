@@ -20,7 +20,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
-import { Leva, button, folder, monitor, useControls } from "leva";
+import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
 import {
   DEFAULT_BOXES,
@@ -31,6 +31,7 @@ import {
   STEEL,
   clearWorld,
   MAX_TIME_RATE,
+  MIN_TIME_RATE,
   setTimeRate,
   timeRate,
   latestOf,
@@ -1164,13 +1165,18 @@ export default function ParliamentSpace() {
     {
       timeRate: {
         value: timeRate(),
-        min: 1,
+        min: MIN_TIME_RATE,
         max: MAX_TIME_RATE,
-        step: 1,
-        label: "시간 배율 (모든 탭 공유, 1 = 실제 속도)",
+        step: 0.1,
+        label: "시간 배율 (모든 탭 공유, 1 = 실제 속도, 0 = 정지)",
         onChange: (r: number) => setTimeRate(r),
         transient: false, // also returned, for the readout
       },
+      // quick presets for watching an iteration: stand still, slow motion, real time, fast
+      rates: buttonGroup({
+        label: "빠르게 고르기",
+        opts: Object.fromEntries([0, 0.2, 0.5, 1, 5, 20].map((r) => [r === 0 ? "정지" : `×${r}`, () => levaStore.setValueAtPath("시간축.timeRate", r, true)])),
+      }),
     },
     { order: 1 },
   );
@@ -1786,7 +1792,7 @@ export default function ParliamentSpace() {
         </div>
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
-        {clock.timeRate !== 1 && <div>time × {clock.timeRate} (1 step every {(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)</div>}
+        {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "time: standing still (rate 0)"}</div>}
         {globalBots > 0 && <div>bots: {globalBots} running from this view (global)</div>}
         {c.markers && (
           <div>
