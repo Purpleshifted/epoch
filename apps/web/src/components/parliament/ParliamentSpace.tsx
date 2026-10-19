@@ -66,6 +66,7 @@ import {
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { savable } from "./levaSave";
+import { useGlobalBots } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
 
 /** Background and ground grid per theme. */
@@ -1316,6 +1317,8 @@ export default function ParliamentSpace() {
       legacy: [`${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, "생성 규칙 (회사원 시공간 밀집)"],
     },
   });
+  // V2: bots run from here, without a player tab (useGlobalBots.ts)
+  const globalBots = useGlobalBots(log, fold, isV2);
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -1784,6 +1787,7 @@ export default function ParliamentSpace() {
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>time × {clock.timeRate} (1 step every {(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)</div>}
+        {globalBots > 0 && <div>bots: {globalBots} running from this view (global)</div>}
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}

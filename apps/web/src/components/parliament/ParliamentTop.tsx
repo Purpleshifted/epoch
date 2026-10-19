@@ -28,6 +28,8 @@ import {
 } from "@/lib/parliament";
 import { ArchitectureLayer, type ArchStyle } from "./Architecture";
 import { LEVA_THEME, useArchControls, useFoldControls, useFoldState, useKeepWindowControl, useWorld } from "./useWorld";
+import { useGlobalBots } from "./useGlobalBots";
+import { useParliamentVersion } from "./version";
 
 const BG = "#05060a";
 const PAPER = "#e9ebee";
@@ -115,6 +117,8 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
   const log = useWorld();
   useKeepWindowControl(log);
   const cfg = useFoldControls();
+  // V2: bots run from here too, without a player tab (useGlobalBots.ts)
+  useGlobalBots(log, cfg, useParliamentVersion() === "v2");
   const arch = useArchControls(mode === "top" ? 0.2 : 1.0, "photo");
   const snapRef = useRef<Snapshot | null>(null);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
