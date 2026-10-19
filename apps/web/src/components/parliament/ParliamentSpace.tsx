@@ -234,6 +234,8 @@ interface ResinLook {
   massOpacity: number;
   /** How much of the mass's shades (pits, stains, age) show in the resin: 0 = pure resin colour … 1 = all. */
   shade: number;
+  /** The glass body's Fresnel rim (0 = none): brightness added where the surface turns away from the eye. */
+  rim: number;
   roughness: number;
   thickness: number;
   attenuationColor: string;
@@ -265,6 +267,10 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.opacity = r.transmission <= 0 ? r.opacity : 1;
   m.depthWrite = r.transmission > 0;
   (m.userData.uShade as THREE.IUniform).value = r.shade;
+  (m.userData.uRim as THREE.IUniform).value = r.rim;
+  // the glass body: a clearcoat for the lights' highlights (cheap), no refraction
+  m.clearcoat = r.rim > 0 ? 0.6 : 0;
+  m.clearcoatRoughness = 0.35;
   m.needsUpdate = true;
 }
 
@@ -276,12 +282,21 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
 function makeResinMaterial(): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true });
   const uShade: THREE.IUniform = { value: 0.5 };
+  // the GLASS body (no refraction): a Fresnel rim — brighter and more opaque where the surface turns away from the
+  // eye, as glass does — on top of the translucent body; 0 = off
+  const uRim: THREE.IUniform = { value: 0 };
   m.userData.uShade = uShade;
+  m.userData.uRim = uRim;
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uShade = uShade;
+    shader.uniforms.uRim = uRim;
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float uShade;")
-      .replace("#include <color_fragment>", "#if defined( USE_COLOR )\n\tdiffuseColor.rgb *= mix( vec3( 1.0 ), clamp( vColor.rgb / 0.42, 0.0, 1.2 ), uShade );\n#endif");
+      .replace("#include <common>", "#include <common>\nuniform float uShade;\nuniform float uRim;")
+      .replace("#include <color_fragment>", "#if defined( USE_COLOR )\n\tdiffuseColor.rgb *= mix( vec3( 1.0 ), clamp( vColor.rgb / 0.42, 0.0, 1.2 ), uShade );\n#endif")
+      .replace(
+        "#include <dithering_fragment>",
+        "#include <dithering_fragment>\nif ( uRim > 0.0 ) {\n\tfloat fres = pow( 1.0 - saturate( dot( normalize( vViewPosition ), normal ) ), 3.0 );\n\tgl_FragColor.rgb += uRim * fres;\n\tgl_FragColor.a = max( gl_FragColor.a, fres * 0.9 );\n}",
+      );
   };
   return m;
 }
@@ -1761,8 +1776,15 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           massOpacity: { value: 0.75, min: 0.1, max: 1, step: 0.05, label: "덩어리 · 불투명도", render: (get) => (!isV2 || !get(ALL_RESIN_PATH)) && get(MASS_BODY_PATH) === "alpha" },
           // the RESIN (the fossil layers): refraction (three.js transmission: the scene behind is re-rendered every
           // frame — heavy, glass-like) or the same translucent body (light)
-          resinMode: { options: { "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가벼움)": "alpha" }, value: "refract" as "alpha" | "refract", label: "레진 몸체 (화석 층)" },
-          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
+          // the artist, 2026-10-19: the exhibition view turns slowly, it is not zoomed into — the light glass is the
+          // default (the refraction cost 1–16 fps on the lab column), the refraction stays as a choice
+          resinMode: {
+            options: { "유리 느낌 (가벼움: 반투명 + 가장자리 광택, 굴절 없음)": "glass", "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가장 가벼움, 광택 없음)": "alpha" },
+            value: "glass" as "alpha" | "refract" | "glass",
+            label: "레진 몸체 (화석 층)",
+          },
+          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도", render: (get) => get(RESIN_MODE_PATH) !== "refract" },
+          resinRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "유리 느낌 · 가장자리 광택 (프레넬)", render: (get) => get(RESIN_MODE_PATH) === "glass" },
           resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
           resinShade: { value: 0.5, min: 0, max: 1, step: 0.05, label: "레진에 비치는 덩어리 얼룩 · 곰보 (0 = 레진 색만, 1 = 다)" },
           transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
@@ -1773,7 +1795,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }] : []),
     { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
@@ -1834,12 +1856,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       opacity: fu.resinOpacity,
       massOpacity: fu.massBody === "alpha" ? fu.massOpacity : 1,
       shade: fu.resinShade,
+      rim: fu.resinMode === "glass" ? fu.resinRim : 0,
       roughness: fu.resinRoughness,
       thickness: fu.thickness,
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.resinMode, fu.resinOpacity, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.resinMode, fu.resinOpacity, fu.resinRim, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
