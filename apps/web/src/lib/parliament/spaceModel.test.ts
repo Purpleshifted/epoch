@@ -194,4 +194,43 @@ describe("SpaceModel: what the worker computes", () => {
     m.reset();
     expect(m.computeParts(parts())!.seeds).toBe(0);
   });
+
+  it("BAKING: the layers about to leave the history window are kept as they were — the mass below the cut stays", () => {
+    const long = runBots(8, 1500); // 75 slots
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5, gatherStart: 0, rotDose: 0 };
+    const pin = { ...parts(), weather };
+    const fin = { box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300 };
+    const m = new SpaceModel();
+    const settle = () => {
+      let mesh = null;
+      for (let i = 0; i < 80; i++) {
+        m.computeParts(pin);
+        const f = m.computeFuse(fin);
+        if (f) mesh = f;
+        else break;
+      }
+      return mesh!;
+    };
+    m.add(long);
+    const whole = settle();
+    const lowest = (mesh: { position: Float32Array }) => { let lo = Infinity; for (let i = 1; i < mesh.position.length; i += 3) lo = Math.min(lo, mesh.position[i]); return lo; };
+    expect(lowest(whole)).toBeLessThan(10);
+    // the window moves on: everything before 600 s (slot 30) is forgotten, as the view does it (reset + the rest)
+    m.reset();
+    m.add(long.filter((e) => e.s >= 600));
+    const after = settle();
+    expect(m.bakedChunks).toBeGreaterThan(0);
+    // the mass of the forgotten layers is still there (baked), and its parts are still drawn
+    expect(lowest(after)).toBeLessThan(10);
+    const r = m.computeParts({ ...pin, edges: true })!;
+    expect(r.baked).toBe(m.bakedChunks);
+    let low = 0;
+    for (let i = 0; i < r.counts.mass; i++) if (r.matrices.mass[i * 16 + 13] < 20) low++;
+    expect(low).toBeGreaterThan(0);
+    // and a cleared world (a new epoch, far earlier) lets them go
+    m.reset();
+    m.add(runBots(4, 60));
+    m.computeParts(pin);
+    expect(m.bakedChunks).toBe(0);
+  }, 120_000);
 });

@@ -178,6 +178,8 @@ export interface PartsResult {
   parts: number;
   /** Seeds built without slats (far). */
   farSeeds: number;
+  /** Chunks of slots kept as they were (baked). */
+  baked: number;
   /** Waterways flowing now. */
   /** Open streams now / pipe runs laid in all. */
   links: number;
@@ -244,6 +246,20 @@ export interface PointsResult {
 
 const dist3 = (a: [number, number, number], x: number, y: number, z: number) => Math.hypot(a[0] - x, a[1] - y, a[2] - z);
 
+/** A chunk of slots kept as it was (see SpaceModel.baked). */
+interface Baked {
+  c0: number;
+  c1: number;
+  mesh: FuseMesh;
+  boxes: Box[];
+  /** Grey shade per box (the part's weathering at the time of baking). */
+  shade: Float32Array;
+  nature: { pos: Float32Array; col: Float32Array } | null;
+}
+
+/** Decay (1 − survival) from which a part counts as done, for baking a chunk early. */
+const BAKE_DECAY = 0.98;
+
 export class SpaceModel {
   private events: PEvent[] = [];
   private ids = new Set<string>();
@@ -285,6 +301,18 @@ export class SpaceModel {
   private waterCfg: WaterConfig | null = null;
   private fuseSig = "";
   private fuseChunks = new Map<number, { key: string; mesh: FuseMesh }>();
+  /**
+   * BAKED chunks: layers that are done. Their mass, the parts still standing in them (with their last shade) and
+   * their vegetation points are kept as they were and never recomputed — through reset too (the history window
+   * moving on), so the past stays while the events below the window are forgotten. A chunk is baked when its slots
+   * are about to leave the history window (the two chunks just above the cut), or earlier when every part in it has
+   * fully decayed below the present. Only a cleared world (a new epoch) empties it.
+   */
+  private baked = new Map<number, Baked>();
+  /** The parts drawn by the last computeParts (after wear and absorption): what a baked chunk keeps of them. */
+  private shown: Box[] = [];
+  /** fuseBuilt as of the last computeParts: baking waits until the parts reflect every built chunk. */
+  private partsFuseBuilt = -1;
   private natureSig = "";
   private chunks = new Map<number, { key: string; pos: Float32Array; col: Float32Array }>();
   private reclaimSig = "";
@@ -299,9 +327,23 @@ export class SpaceModel {
       this.version++;
     }
     if (this.tBeforeReset > 0 && this.t > 0) {
-      if (this.t < this.tBeforeReset - 120) this.seedMemo.clear(); // a new world, not a moved window
+      if (this.t < this.tBeforeReset - 120) {
+        // a new world, not a moved window: nothing of the old one stays
+        this.seedMemo.clear();
+        this.baked.clear();
+      }
       this.tBeforeReset = 0;
     }
+  }
+
+  /** Whether slot k lies in a baked chunk. */
+  private isBaked(k: number): boolean {
+    return this.baked.has(Math.floor(k / NATURE_CHUNK) * NATURE_CHUNK);
+  }
+
+  /** How many chunks are baked (the view's readout). */
+  get bakedChunks(): number {
+    return this.baked.size;
   }
 
   /** Forgets every event (the world was cleared). */
@@ -376,7 +418,7 @@ export class SpaceModel {
         if (lv === 2) far.add(s.id);
       }
     }
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
 
@@ -397,8 +439,8 @@ export class SpaceModel {
         this.partCache.set(s.id, hit);
       }
       live.add(s.id);
-      // nothing below the history window (a carried seed still has its slots below it)
-      for (const b of hit.parts) if (b.slot >= floorK) built.push(b);
+      // nothing below the history window (a carried seed still has its slots below it), nothing in a baked chunk
+      for (const b of hit.parts) if (b.slot >= floorK && !this.isBaked(b.slot)) built.push(b);
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
     const w = input.weather;
@@ -483,26 +525,42 @@ export class SpaceModel {
       return f > 0 && partHash(b) < Math.min(1, f * 1.6);
     };
     const shown = worn.filter((b) => !absorbed(b));
+    this.shown = shown;
+    this.partsFuseBuilt = this.fuseBuilt; // the parts now reflect every mass chunk built so far
+    // the baked chunks' parts, as they were (their shade kept too)
+    const bakedBoxes: Box[] = [];
+    const bakedShade: number[] = [];
+    for (const bk of this.baked.values()) {
+      for (let i = 0; i < bk.boxes.length; i++) {
+        bakedBoxes.push(bk.boxes[i]);
+        bakedShade.push(bk.shade[i]);
+      }
+    }
+    const bakedOf = new Map<Box, number>();
+    bakedBoxes.forEach((b, i) => bakedOf.set(b, bakedShade[i]));
+    const all = bakedBoxes.length ? [...bakedBoxes, ...shown] : shown;
 
     const counts = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
-    for (const b of shown) counts[b.kind] = Math.min(PART_CAPACITY[b.kind], counts[b.kind] + 1);
+    for (const b of all) counts[b.kind] = Math.min(PART_CAPACITY[b.kind], counts[b.kind] + 1);
     const matrices = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 16)])) as Record<PartKind, Float32Array>;
     const colors = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 3)])) as Record<PartKind, Float32Array>;
     const fill = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
-    const edgeCount = input.edges ? Math.min(EDGE_CAP, shown.length) : 0;
+    const edgeCount = input.edges ? Math.min(EDGE_CAP, all.length) : 0;
     const edges = input.edges ? new Float32Array(edgeCount * 72) : null;
     let ei = 0;
     const m = new Float32Array(16);
     let minX = Infinity, minZ = Infinity, top = 0;
-    for (const b of shown) {
+    for (const b of all) {
       const k = b.kind;
       const i = fill[k];
       if (i >= counts[k]) continue;
       fill[k]++;
       writeMatrix(matrices[k], i * 16, b);
-      // weathering shows on the part itself: darker as it decays — grey only (human traces carry no colour)
-      const d = survival ? 1 - survival(b) : 0;
-      const g = (0.86 + 0.14 * b.tone) * (1 - 0.4 * d);
+      // weathering shows on the part itself: darker as it decays — grey only (human traces carry no colour);
+      // a baked part keeps the shade it had
+      const kept = bakedOf.get(b);
+      const d = kept === undefined && survival ? 1 - survival(b) : 0;
+      const g = kept ?? (0.86 + 0.14 * b.tone) * (1 - 0.4 * d);
       colors[k][i * 3] = g;
       colors[k][i * 3 + 1] = g;
       colors[k][i * 3 + 2] = g;
@@ -550,8 +608,9 @@ export class SpaceModel {
       colors,
       edges: edges ? edges.subarray(0, ei * 72) : null,
       seeds: seeds.length,
-      parts: shown.length,
+      parts: all.length,
       farSeeds: far.size,
+      baked: this.baked.size,
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
       pipes: pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, pipeDecay),
@@ -661,8 +720,11 @@ export class SpaceModel {
 
     const parts: { pos: Float32Array; col: Float32Array }[] = [];
     const keep = new Set<number>();
+    // the baked chunks' points, as they were (in and below the window)
+    for (const bk of this.baked.values()) if (bk.nature) parts.push(bk.nature);
     let li = 0;
     for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK, li++) {
+      if (this.baked.has(c0)) continue;
       const a = Math.max(c0, k0);
       const b = Math.min(c0 + NATURE_CHUNK - 1, k1);
       // V2: the same everywhere (absolute floor per slot); V1: fewer points far away
@@ -695,10 +757,11 @@ export class SpaceModel {
     const wm = this.wear;
     const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(input)}`;
     if (sig === this.fuseSig) return null;
+    const bakedMeshes = [...this.baked.values()].map((b) => b.mesh);
     if (!sed || !wm || !fuse.enabled || !this.built.length) {
       this.fuseSig = sig;
       this.fuseChunks.clear();
-      return mergeMeshes([]);
+      return mergeMeshes(fuse.enabled ? bakedMeshes : []);
     }
     const u = box.unit;
     const kNow = Math.floor(this.t / box.secPerUnit);
@@ -743,6 +806,7 @@ export class SpaceModel {
     type Want = { c0: number; c1: number; ps: P[]; key: string };
     const wants: Want[] = [];
     for (let c0 = Math.floor(kA / NATURE_CHUNK) * NATURE_CHUNK; c0 <= kB; c0 += NATURE_CHUNK) {
+      if (this.baked.has(c0)) continue; // done: kept as it was
       const c1 = c0 + NATURE_CHUNK - 1;
       const ps: P[] = [];
       let sum = 0;
@@ -767,7 +831,10 @@ export class SpaceModel {
     const dist = (w: Want) => Math.abs((w.c0 + w.c1) / 2 - focus);
     const todo = wants.filter((w) => this.fuseChunks.get(w.c0)?.key !== w.key);
     todo.sort((a, b) => Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || dist(a) - dist(b));
+    const fuseBuiltBefore = this.fuseBuilt;
+    const builtNow = new Set<number>();
     for (const w of todo.slice(0, FUSE_NEW_PER_CALL)) {
+      builtNow.add(w.c0);
       const mesh = fuseChunk({
         parts: w.ps.map((e) => e.b),
         decay: w.ps.map((e) => e.d),
@@ -789,15 +856,44 @@ export class SpaceModel {
       this.fuseBuilt++;
     }
     const pending = todo.length > FUSE_NEW_PER_CALL;
-    const out: FuseMesh[] = [];
+    // BAKING: a chunk whose mesh is current and whose parts have been drawn against it (absorbed as far as it goes)
+    // is kept as it is from now on when it is done — about to leave the history window (the two chunks just above
+    // the cut), or every part in it fully decayed well below the present
+    const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
+    const doneK = kNow - Math.max(1, Math.round(rotOnsetSlots(input.weather))) - NATURE_CHUNK;
+    let bakedNow = 0;
+    for (const w of wants) {
+      const ch = this.fuseChunks.get(w.c0);
+      if (!ch || ch.key !== w.key || builtNow.has(w.c0) || this.partsFuseBuilt !== fuseBuiltBefore) continue;
+      const leaving = w.c1 < floorK + 2 * NATURE_CHUNK;
+      let done = w.c1 < doneK;
+      if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
+      if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
+      if (!leaving && !done) continue;
+      const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
+      const shade = new Float32Array(boxes.length);
+      boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
+      const nat = this.chunks.get(w.c0);
+      this.baked.set(w.c0, { c0: w.c0, c1: w.c1, mesh: ch.mesh, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null });
+      this.fuseChunks.delete(w.c0);
+      this.chunks.delete(w.c0);
+      bakedNow++;
+    }
+    const out: FuseMesh[] = [...bakedMeshes];
     const keep = new Set<number>();
     for (const w of wants) {
+      if (this.baked.has(w.c0)) {
+        out.push(this.baked.get(w.c0)!.mesh);
+        continue;
+      }
       keep.add(w.c0);
       const ch = this.fuseChunks.get(w.c0); // fresh, or the stale one until its turn comes
       if (ch) out.push(ch.mesh);
     }
     for (const c of this.fuseChunks.keys()) if (!keep.has(c)) this.fuseChunks.delete(c);
-    if (!pending) this.fuseSig = sig;
+    // something was baked: the parts and points of those slots are now the baked ones (the next computeParts /
+    // computeNature see it through their signatures)
+    if (!pending && !bakedNow) this.fuseSig = sig;
     return mergeMeshes(out);
   }
 
