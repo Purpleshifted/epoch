@@ -149,14 +149,27 @@ function useFps(): number {
 const NATURE_EVERY = 4;
 /** Paused (time rate 0): mass chunks rebuilt per request — a changed setting shows in one or two requests. */
 const PAUSED_FUSE_PER_CALL = 12;
-/** Leva paths in the mass-way folder (each way's own numbers show only for it). */
-const MODE_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.massMode";
-const FILL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.fill";
-const SHELL_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.shell";
-const HOLE_PATH = "엉김 · 융합 · 레진.④ 덩어리 방식.holeShape";
-const RESIN_MODE_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.resinMode";
-const MASS_BODY_PATH = "엉김 · 융합 · 레진.⑥ 재질: 덩어리 · 레진.massBody";
-const ALL_RESIN_PATH = "엉김 · 융합 · 레진.① 언제: 부재의 부식 정도 (0 새것 … 1 사라짐).allResin";
+/** The fusion group and the Leva paths its `render` conditions read (a folder's name is part of the path). */
+const FU = "엉김 · 융합 · 레진";
+const FU_WHEN = "① 언제 (부재의 부식 정도: 0 새것 … 1 사라짐)";
+const FU_MASS = "② 덩어리 (녹은 부재들이 되는 것)";
+const FU_WAY = "③ 꼴 (부재가 녹는 꼴)";
+const FU_FOSSIL = "④ 화석화 (층의 나이: 젊음 = 건축 · 오래됨 = 화석)";
+const FU_HOLLOW = "⑤ 껍질 · 거품";
+const FU_PITS = "⑥ 곰보 (껍질 · 거품의 표면)";
+const FU_MAT = "⑦ 재질 (레진 = 융합된 것 전부)";
+const MODE_PATH = `${FU}.${FU_WAY}.massMode`;
+const FILL_PATH = `${FU}.${FU_WAY}.판 사이 채우기.fill`;
+const SHELL_PATH = `${FU}.${FU_HOLLOW}.shell`;
+const FOAM_PATH = `${FU}.${FU_HOLLOW}.foam`;
+const HOLE_PATH = `${FU}.${FU_HOLLOW}.holeShape`;
+const PITS_PATH = `${FU}.${FU_PITS}.pits`;
+const CAV_PATH = `${FU}.${FU_FOSSIL}.cavity`;
+const ACC_PATH = `${FU}.${FU_MASS}.고급.엉김 띠 (융합 전).accretion`;
+const SKEL_PATH = `${FU}.${FU_MASS}.고급.skeleton`;
+const SPIKES_PATH = `${FU}.${FU_MASS}.고급.spikes`;
+const RESIN_MODE_PATH = `${FU}.${FU_MAT}.resinMode`;
+const MASS_BODY_PATH = `${FU}.${FU_MAT}.고급.massBody`;
 
 /** sRGB hex → linear RGB (the fused mass's vertex colours are linear). */
 function hexToLinear(hex: string): [number, number, number] {
@@ -235,8 +248,12 @@ interface ResinLook {
   massOpacity: number;
   /** How much of the mass's shades (pits, stains, age) show in the resin: 0 = pure resin colour … 1 = all. */
   shade: number;
-  /** The glass body's Fresnel rim (0 = none): brightness added where the surface turns away from the eye. */
+  /** The frosted skin's Fresnel rim (0 = none): brightness added where the surface turns away from the eye. */
   rim: number;
+  /** How much a part right under the skin shows through it (darkening by the mesh's GHOST extra; 0 = none). */
+  ghost: number;
+  /** The frosted skin's own light (emissive, in the resin's colour; 0 = none). */
+  glow: number;
   roughness: number;
   thickness: number;
   attenuationColor: string;
@@ -271,10 +288,40 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.depthWrite = solid;
   (m.userData.uShade as THREE.IUniform).value = r.shade;
   (m.userData.uRim as THREE.IUniform).value = r.rim;
-  // the glass body: a clearcoat for the lights' highlights (cheap), no refraction
-  m.clearcoat = r.rim > 0 ? 0.6 : 0;
-  m.clearcoatRoughness = 0.35;
+  (m.userData.uGhost as THREE.IUniform).value = r.ghost;
+  // the frosted skin: a little of its own light (the AO otherwise weighs the opaque body down), a clearcoat for the
+  // lights' highlights (cheap), no refraction
+  m.emissive.set(r.color);
+  m.emissiveIntensity = r.glow;
+  m.clearcoat = r.rim > 0 ? 0.5 : 0;
+  m.clearcoatRoughness = 0.4;
   m.needsUpdate = true;
+}
+
+/**
+ * The fused mesh's per-vertex extras (FuseMesh.extra) in a material's shader: GHOST — a part right under the skin
+ * darkens it (ref 9649: the machine parts under the white skin), by `uGhost`; FLAT — a blocky vertex (the young
+ * layers' voxel steps, ref 9579) is shaded by its face, not by the smoothed vertex normal.
+ */
+function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, uGhost: THREE.IUniform): void {
+  shader.uniforms.uGhost = uGhost;
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", "#include <common>\nattribute vec2 fuseExtra;\nvarying vec2 vExtra;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvExtra = fuseExtra;");
+  shader.fragmentShader = shader.fragmentShader
+    .replace("#include <common>", "#include <common>\nuniform float uGhost;\nvarying vec2 vExtra;")
+    .replace(
+      "#include <normal_fragment_begin>",
+      "#include <normal_fragment_begin>\nif ( vExtra.y > 0.0 ) {\n\tvec3 fdx = dFdx( vViewPosition );\n\tvec3 fdy = dFdy( vViewPosition );\n\tnormal = normalize( mix( normal, normalize( cross( fdx, fdy ) ), vExtra.y ) );\n\tnonPerturbedNormal = normal;\n}",
+    )
+    .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uGhost * vExtra.x * 0.5;");
+}
+
+/** The fused stone's material (V1's mass before the resin; V2 draws everything as resin). */
+function makeStoneMaterial(uGhost: THREE.IUniform): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
+  m.onBeforeCompile = (shader) => patchFuseExtras(shader, uGhost);
+  return m;
 }
 
 /**
@@ -282,15 +329,17 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
  * multiplied in as they are — that made the glass dirty — but normalised by the concrete's base grey, so a plain
  * surface leaves the resin colour as it is and only the deviations (pits, stains) show, by `shade` (0 = none).
  */
-function makeResinMaterial(): THREE.MeshPhysicalMaterial {
+function makeResinMaterial(uGhost: THREE.IUniform): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true });
   const uShade: THREE.IUniform = { value: 0.5 };
-  // the GLASS body (no refraction): a Fresnel rim — brighter and more opaque where the surface turns away from the
-  // eye, as glass does — on top of the translucent body; 0 = off
+  // the FROSTED SKIN (no refraction): a Fresnel rim — brighter where the surface turns away from the eye, as glass
+  // does — on the opaque body; 0 = off
   const uRim: THREE.IUniform = { value: 0 };
   m.userData.uShade = uShade;
   m.userData.uRim = uRim;
+  m.userData.uGhost = uGhost;
   m.onBeforeCompile = (shader) => {
+    patchFuseExtras(shader, uGhost);
     shader.uniforms.uShade = uShade;
     shader.uniforms.uRim = uRim;
     shader.fragmentShader = shader.fragmentShader
@@ -311,6 +360,7 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
   g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(r.normal, 3));
   g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
+  g.setAttribute("fuseExtra", new THREE.BufferAttribute(r.extra, 2));
   g.setIndex(new THREE.BufferAttribute(r.index, 1));
   // group 0: opaque fused stone; group 1: resin (the oldest layers)
   g.addGroup(0, r.resinStart, 0);
@@ -709,8 +759,9 @@ function SpaceWorld({
       u.uGrain.value = walkLook.pipeGrain;
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
-  const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
-  const resinMat = useMemo(() => makeResinMaterial(), []);
+  const uGhost = useMemo<THREE.IUniform>(() => ({ value: 0 }), []);
+  const stoneMat = useMemo(() => makeStoneMaterial(uGhost), [uGhost]);
+  const resinMat = useMemo(() => makeResinMaterial(uGhost), [uGhost]);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
   useEffect(() => {
     // the mass as a translucent body: alpha, no depth write (what stands inside shows through)
@@ -1692,132 +1743,194 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   );
   const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
   const fu = useControls(
-    "엉김 · 융합 · 레진",
-    savable("엉김 · 융합 · 레진", {
+    FU,
+    savable(FU, {
       fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
-      // what happens to a part is read off its corrosion (0 = new … 1 = gone): the SAME clock for every stage below
-      "① 언제: 부재의 부식 정도 (0 새것 … 1 사라짐)": folder({
-        accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김이 붙기 시작 (그 전엔 식생 점만 모임)" },
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "부재가 덩어리로 녹기 시작" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)" },
-        // V2 (the artist, 2026-10-19): one body — everything fused is resin, no stone in between
-        allResin: { value: true, label: "레진 = 융합된 것 전부 (중간 몸체 없음)", render: () => isV2 },
-        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: isV2 ? "레진이 되는 층의 부식 정도 (융합이 끝나 가는 뒤; >1 = 레진 없음)" : "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: (get) => !isV2 || !get(ALL_RESIN_PATH) },
+      // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
+      [FU_WHEN]: folder({
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작" },
+        accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김 띠가 붙기 시작 (② 고급의 띠 양 > 0일 때)", render: (get) => get(ACC_PATH) > 0 },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
+        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
-      "② 엉김: 부재에 붙는 작은 덩어리 (융합 전의 얇은 띠)": folder({
-        // V2: off by default (the artist, 2026-10-19: the soil-coloured band before the resin is not wanted)
-        accretion: { value: isV2 ? 0 : DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "양 (0 = 없음 = 이 띠 없이 바로 융합)" },
-        accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "두께 (월드)" },
-        lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (월드; 클수록 굵은 몇 덩이)" },
-        growthColor: { value: "#ada585", label: "색 (이 띠의 흙색; 회색이면 #6e6e6e)" },
-      }),
-      "③ 덩어리: 녹은 부재들이 되는 것": folder({
-        gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "이어 붙는 세기 (클수록 부재 사이가 메워져 한 덩어리 = 돌무덤; 1 = 부재 모양 거의 그대로)" },
+      [FU_MASS]: folder({
+        gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "이어 붙는 세기 (클수록 부재 사이가 메워져 한 덩어리; 1 = 부재 모양 거의 그대로)" },
         blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "메워지는 틈의 너비 (복셀; 0 = 안 메움)" },
-        sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 흘러내림 (0 = 없음)" },
-        scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 부스러짐 (0 = 매끈)" },
-        porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "둥근 구멍 양 (오래된 층일수록 많이; C 껍질을 켜면 꺼짐)" },
-        poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드)" },
-        skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)" },
-        skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)" },
-        spikes: { value: DEFAULT_FUSE.spikes, min: 0, max: 1, step: 0.01, label: "가시: 표면에서 뻗어 나오는 양 (같은 재질; 0 = 없음)" },
-        spikeLen: { value: DEFAULT_FUSE.spikeLen, min: 0.2, max: 4, step: 0.1, label: "가시: 가장 긴 길이 (월드)" },
+        "고급": folder(
+          {
+            sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 흘러내림 (0 = 없음; 젊은 블로키 층은 안 흐름)" },
+            scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 부스러짐 (0 = 매끈)" },
+            porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "둥근 구멍 양 (오래된 층일수록 많이)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
+            poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드; 껍질 · 거품의 '둥근 구멍' 모양도 이 크기)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
+            skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)" },
+            skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)", render: (get) => get(SKEL_PATH) > 0 },
+            spikes: { value: DEFAULT_FUSE.spikes, min: 0, max: 1, step: 0.01, label: "가시: 표면에서 뻗어 나오는 양 (0 = 없음)" },
+            spikeLen: { value: DEFAULT_FUSE.spikeLen, min: 0.2, max: 4, step: 0.1, label: "가시: 가장 긴 길이 (월드)", render: (get) => get(SPIKES_PATH) > 0 },
+            // V2: off by default (the artist, 2026-10-19: the soil-coloured band before the resin is not wanted)
+            "엉김 띠 (융합 전)": folder(
+              {
+                accretion: { value: isV2 ? 0 : DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "양 (0 = 없음 = 이 띠 없이 바로 융합)" },
+                accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "두께 (월드)", render: (get) => get(ACC_PATH) > 0 },
+                lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (월드; 클수록 굵은 몇 덩이)", render: (get) => get(ACC_PATH) > 0 },
+                growthColor: { value: "#ada585", label: "색 (이 띠의 흙색; 회색이면 #6e6e6e)", render: (get) => get(ACC_PATH) > 0 },
+              },
+              { collapsed: true },
+            ),
+            "계산": folder(
+              {
+                voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "격자 간격 (월드; 작을수록 세밀하고 무거움)" },
+                iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
+                smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
+                natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
+              },
+              { collapsed: true },
+            ),
+          },
+          { collapsed: true },
+        ),
       }),
-      // HOW a part turns into mass (one of two: as its box, or as tubes along its edges), and what is ADDED on top
-      // (both can be on): the rooms between the plates filled; the whole mass hollowed into a shell with ribbed
-      // openings. Each shows only its own numbers
-      "④ 덩어리 방식": folder(
+      // HOW a part turns into mass: as its box, as tubes along its edges (multipipe), or by its size; plates can stay
+      // plates; what is added: the rooms between the plates filled
+      [FU_WAY]: folder(
         {
           massMode: {
             options: {
-              "부재를 통째로 (감싸고 사이를 메움)": "wrap",
-              "E 관 (multipipe): 부재의 모서리만 관으로, 방은 비움": "pipe",
-              "크기에 따라: 작은 부재는 통째로, 큰 부재는 관 (④-1 커브)": "size",
+              "통째로 (상자를 감싸고 사이를 메움)": "wrap",
+              "관 (모서리만 관으로, 방은 비움 — multipipe)": "pipe",
+              "크기에 따라 (작은 부재는 통째로, 큰 부재는 관)": "size",
             },
             value: "wrap" as "wrap" | "pipe" | "size",
             label: "부재가 녹는 꼴",
           },
-          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "E · 관 굵기 (월드; ③ 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(MODE_PATH) !== "wrap" },
-          fill: { value: DEFAULT_STUDY.fill, label: "+ B 판 사이 채우기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게" },
-          fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "B · 채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(FILL_PATH) },
-          fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "B · 판 가장자리에서 물러남 (월드)", render: (get) => get(FILL_PATH) },
-          shell: { value: DEFAULT_STUDY.shell, label: "+ C 껍질 · 리브: 속을 비우고 구멍을 열어 그 사이 벽(리브)만 남김 (둥근 구멍 대신)" },
-          shellThickYoung: { value: DEFAULT_STUDY.shellThickYoung, min: 1, max: 4, step: 1, label: "C · 껍질 두께 · 얕은 층 (복셀)", render: (get) => get(SHELL_PATH) },
-          shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "C · 껍질 두께 · 깊은 층 (복셀)", render: (get) => get(SHELL_PATH) },
-          shellSplit: { value: DEFAULT_STUDY.shellSplit, min: 0.05, max: 1, step: 0.01, label: "C · 깊은 층으로 치는 부식 정도 (층의 나이)", render: (get) => get(SHELL_PATH) },
-          holeShape: {
-            options: { "보로노이: 맞닿은 다각형 구멍, 사이에 리브 (뼈)": "voronoi", "노이즈: 둥글게 번지며 서로 이어지는 구멍 (벌레 먹은 듯)": "noise", "둥근 구멍: ③의 구형 공극을 껍질에": "round", "크기에 따라: 작은 부재는 노이즈, 큰 부재는 보로노이 (④-1 커브)": "size" },
-            value: DEFAULT_STUDY.holeShape as "voronoi" | "noise" | "round" | "size",
-            label: "C · 구멍 모양",
-            render: (get) => get(SHELL_PATH),
-          },
-          ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "C · 구멍 크기 (월드; 둥근 구멍은 ③의 크기를 씀)", render: (get) => get(SHELL_PATH) },
-          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "C · 리브 굵기 (보로노이: 구멍 사이 벽의 두께 · 노이즈: 가장자리 부드러움)", render: (get) => get(SHELL_PATH) },
-          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "C · 열리는 구멍 비율 (0 = 닫힌 껍질, 1 = 거의 다 열림)", render: (get) => get(SHELL_PATH) },
-          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "C · 표면 곰보 · 진하기 (어두운 점; 색만, 0 = 없음)", render: (get) => get(SHELL_PATH) },
-          pitCover: { value: DEFAULT_STUDY.pitCover, min: 0, max: 1, step: 0.01, label: "C · 곰보 · 양 (표면의 얼마나를 덮나)", render: (get) => get(SHELL_PATH) },
-          pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "C · 곰보 · 크기 (월드)", render: (get) => get(SHELL_PATH) },
-          pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 크기 지터 (0 = 다 같게)", render: (get) => get(SHELL_PATH) },
-          pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "C · 곰보 · 가장자리 부드러움 (0.01 = 또렷한 점 … 0.4 = 번진 얼룩)", render: (get) => get(SHELL_PATH) },
-          pitDepth: { value: DEFAULT_STUDY.pitDepth, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 파이는 깊이 (0 = 색만, 1 = 뚫림; 리브에서 떨어진 넓은 면에만 — 크기 0.5 이상이어야 격자에 잡힘)", render: (get) => get(SHELL_PATH) },
-          pitGather: { value: DEFAULT_STUDY.pitGather, min: 0, max: 1, step: 0.05, label: "C · 곰보 · 몰림 (0 = 고르게, 1 = 어떤 면에는 몰리고 어떤 면은 맨살)", render: (get) => get(SHELL_PATH) },
-          pitPatch: { value: DEFAULT_STUDY.pitPatch, min: 0.5, max: 12, step: 0.5, label: "C · 곰보 · 몰리는 자리 크기 (월드)", render: (get) => get(SHELL_PATH) },
+          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "관 굵기 (월드; ② 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(MODE_PATH) !== "wrap" },
+          pipeSmall: { value: DEFAULT_STUDY.pipeSmall, min: 0, max: 1, step: 0.05, label: "관 비율 · 작은 부재 (0 = 통째로, 1 = 관만; 사이 = 관 안에 너덜한 판)", render: (get) => get(MODE_PATH) === "size" },
+          pipeLarge: { value: DEFAULT_STUDY.pipeLarge, min: 0, max: 1, step: 0.05, label: "관 비율 · 큰 부재", render: (get) => get(MODE_PATH) === "size" },
+          platesStay: { value: DEFAULT_STUDY.platesStay, label: "판은 판으로 (슬래브 · 기단은 테두리만 관, 판은 남음)", render: (get) => get(MODE_PATH) !== "wrap" },
+          "고급": folder(
+            {
+              pipeThickLarge: { value: DEFAULT_STUDY.pipeThickLarge, min: 1, max: 4, step: 0.1, label: "관 굵기 · 큰 부재 배율 (큰 부재 = 굵은 뼈)", render: (get) => get(MODE_PATH) !== "wrap" },
+              pipeJoint: { value: DEFAULT_STUDY.pipeJoint, min: 0, max: 3, step: 0.1, label: "마디: 관이 만나는 모서리의 구 (관 굵기 배, 0 = 없음)", render: (get) => get(MODE_PATH) !== "wrap" },
+            },
+            { collapsed: true, render: (get) => get(MODE_PATH) !== "wrap" },
+          ),
+          // SIZE CURVES (the artist, 2026-10-19: the look was growing uniform): a part's size, read on this band,
+          // decides how much of each feature it gets (the pairs sit next to their feature)
+          "크기 띠": folder(
+            {
+              sizeSmall: { value: DEFAULT_STUDY.sizeSmall, min: 0.3, max: 20, step: 0.1, label: "'작은 부재'로 치는 크기 (월드; 가장 긴 변이 이 아래면 0)" },
+              sizeLarge: { value: DEFAULT_STUDY.sizeLarge, min: 0.5, max: 40, step: 0.5, label: "'큰 부재'로 치는 크기 (월드; 이 위면 1; 사이는 커브)" },
+              sizeJitter: { value: DEFAULT_STUDY.sizeJitter, min: 0, max: 1, step: 0.05, label: "부재마다 크기 읽기의 흔들림 (0 = 크기 그대로, 1 = ⅓ … 3배)" },
+            },
+            { collapsed: true },
+          ),
+          "판 사이 채우기": folder(
+            {
+              fill: { value: DEFAULT_STUDY.fill, label: "B 판 사이 채우기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게" },
+              fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(FILL_PATH) },
+              fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)", render: (get) => get(FILL_PATH) },
+            },
+            { collapsed: true },
+          ),
         },
         { render: () => isV2 },
       ),
-      // SIZE CURVES (the artist, 2026-10-19: the look was growing uniform): a part's size, read on a band, decides
-      // how much of each feature it gets — the weights at the small end and at the large end
-      "④-1 크기 커브: 부재 크기에 따라 다르게 (획일화 막기)": folder(
+      // FOSSIL CURVE (ref 9579, the artist 2026-10-19): the layer's age decides whether the mass is still
+      // architecture (the voxel steps of the parts' boxes) or a fossil (smooth, the rooms carved out, the frame
+      // embedded)
+      [FU_FOSSIL]: folder(
         {
-          sizeSmall: { value: DEFAULT_STUDY.sizeSmall, min: 0.3, max: 20, step: 0.1, label: "'작은 부재'로 치는 크기 (월드; 가장 긴 변이 이 아래면 0)" },
-          sizeLarge: { value: DEFAULT_STUDY.sizeLarge, min: 0.5, max: 40, step: 0.5, label: "'큰 부재'로 치는 크기 (월드; 이 위면 1; 사이는 커브)" },
-          sizeJitter: { value: DEFAULT_STUDY.sizeJitter, min: 0, max: 1, step: 0.05, label: "부재마다 크기 읽기의 흔들림 (0 = 크기 그대로, 1 = ⅓ … 3배; 같은 크기도 다르게)" },
-          pipeSmall: { value: DEFAULT_STUDY.pipeSmall, min: 0, max: 1, step: 0.05, label: "E 관 비율 · 작은 부재 (0 = 통째로, 1 = 관만; 사이 = 관 안에 너덜한 판)", render: (get) => get(MODE_PATH) === "size" },
-          pipeLarge: { value: DEFAULT_STUDY.pipeLarge, min: 0, max: 1, step: 0.05, label: "E 관 비율 · 큰 부재", render: (get) => get(MODE_PATH) === "size" },
-          holeVoronoiSmall: { value: DEFAULT_STUDY.holeVoronoiSmall, min: 0, max: 1, step: 0.05, label: "C 구멍 · 작은 부재 (0 = 노이즈, 1 = 보로노이)", render: (get) => get(SHELL_PATH) && get(HOLE_PATH) === "size" },
-          holeVoronoiLarge: { value: DEFAULT_STUDY.holeVoronoiLarge, min: 0, max: 1, step: 0.05, label: "C 구멍 · 큰 부재 (0 = 노이즈, 1 = 보로노이)", render: (get) => get(SHELL_PATH) && get(HOLE_PATH) === "size" },
-          pitSmall: { value: DEFAULT_STUDY.pitSmall, min: 0, max: 2, step: 0.05, label: "C 곰보 양 배율 · 작은 부재 (× 곰보 양)", render: (get) => get(SHELL_PATH) },
-          pitLarge: { value: DEFAULT_STUDY.pitLarge, min: 0, max: 2, step: 0.05, label: "C 곰보 양 배율 · 큰 부재", render: (get) => get(SHELL_PATH) },
+          fossilFrom: { value: DEFAULT_STUDY.fossilFrom, min: 0, max: 1, step: 0.01, label: "화석이 되기 시작하는 층의 나이 (부식 정도)" },
+          fossilTo: { value: DEFAULT_STUDY.fossilTo, min: 0.05, max: 1, step: 0.01, label: "다 화석이 되는 층의 나이" },
+          blocky: { value: isV2 ? 0.8 : 0, min: 0, max: 1, step: 0.05, label: "젊은 층의 블로키 (복셀 계단 = 건축; 0 = 다 둥글게)" },
+          cavity: { value: isV2 ? 0.7 : 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음)" },
+          cavityRound: { value: DEFAULT_STUDY.cavityRound, min: 1, max: 5, step: 1, label: "공동의 둥글기 (복셀)", render: (get) => get(CAV_PATH) > 0 },
+          pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "관 뼈대가 오래된 층에서 묻힘 (0 = 끝까지 뼈대, 1 = 다 묻힘)", render: (get) => get(MODE_PATH) !== "wrap" },
         },
-        { render: () => isV2, collapsed: true },
+        { render: () => isV2 },
       ),
-      "⑤ 계산 (보통은 그대로)": folder(
+      // HOLLOWING: a shell with openings (ribs between), or a foam carved through the volume (sponge bone)
+      [FU_HOLLOW]: folder(
         {
-          voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "격자 간격 (월드; 작을수록 세밀하고 무거움)" },
-          iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 덩어리가 두꺼워지고 더 멀리 이어짐)" },
-          smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로)" },
-          natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
-        },
-        { collapsed: true },
-      ),
-      "⑥ 재질: 덩어리 · 레진": folder(
-        {
-          // the MASS (fused, not yet resin): opaque stone or a translucent body (alpha, no depth write — what stands
-          // inside shows through; the artist, 2026-10-19: the middle layers suit it)
-          massBody: { options: { "불투명 (돌)": "opaque", "반투명 (속의 부재가 비쳐 보임)": "alpha" }, value: "alpha" as "opaque" | "alpha", label: "덩어리 몸체 (융합 ~ 레진 전)", render: (get) => !isV2 || !get(ALL_RESIN_PATH) },
-          massOpacity: { value: 0.75, min: 0.1, max: 1, step: 0.05, label: "덩어리 · 불투명도", render: (get) => (!isV2 || !get(ALL_RESIN_PATH)) && get(MASS_BODY_PATH) === "alpha" },
-          // the RESIN (the fossil layers): refraction (three.js transmission: the scene behind is re-rendered every
-          // frame — heavy, glass-like) or the same translucent body (light)
-          // the artist, 2026-10-19: the exhibition view turns slowly, it is not zoomed into — the light glass is the
-          // default (the refraction cost 1–16 fps on the lab column), the refraction stays as a choice
-          resinMode: {
-            options: { "유리 느낌 (가벼움: 불투명 몸체 + 가장자리 광택, 굴절 없음)": "glass", "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가장 가벼움, 광택 없음)": "alpha" },
-            value: "glass" as "alpha" | "refract" | "glass",
-            label: "레진 몸체 (화석 층)",
+          shell: { value: DEFAULT_STUDY.shell, label: "껍질: 속을 비우고 구멍을 엶 (구멍 사이 벽 = 리브)" },
+          foam: { value: DEFAULT_STUDY.foam, label: "거품: 속을 비우지 않고 셀을 부피째 공동으로 (해면뼈, 9579)" },
+          holeShape: {
+            options: { "보로노이: 맞닿은 다각형 구멍, 사이에 리브 (뼈)": "voronoi", "노이즈: 둥글게 번지며 서로 이어지는 구멍 (벌레 먹은 듯)": "noise", "둥근 구멍: 구형 공극 (② 고급의 크기)": "round", "크기에 따라: 작은 부재는 노이즈, 큰 부재는 보로노이": "size" },
+            value: DEFAULT_STUDY.holeShape as "voronoi" | "noise" | "round" | "size",
+            label: "구멍 모양",
+            render: (get) => get(SHELL_PATH) || get(FOAM_PATH),
           },
-          resinOpacity: { value: 1, min: 0.1, max: 1, step: 0.05, label: "레진 · 불투명도 (1 = 불투명 몸체; 낮추면 속의 부재가 비침)", render: (get) => get(RESIN_MODE_PATH) !== "refract" },
-          resinRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "유리 느낌 · 가장자리 광택 (프레넬)", render: (get) => get(RESIN_MODE_PATH) === "glass" },
-          resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
-          resinShade: { value: 0.5, min: 0, max: 1, step: 0.05, label: "레진에 비치는 덩어리 얼룩 · 곰보 (0 = 레진 색만, 1 = 다)" },
-          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
-          resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "레진 거칠기 (0 = 맑음, 1 = 서리 낀 유리)" },
-          thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "굴절 · 두께감 (굴절이 얼마나 휘는지)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
-          attenuationColor: { value: "#8a8b8c", label: "굴절 · 물드는 색 (무채색; 빛이 깊이 들어갈수록 이 색으로)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
-          attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (월드; 빛이 몸체 속을 이만큼 지나면 '물드는 색'이 됨 — 짧을수록 두껍고 탁한 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (월드)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (보로노이: 벽 두께 · 노이즈: 가장자리 부드러움)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 비율 (0 = 닫힘, 1 = 거의 다; 거품: 공동이 되는 셀의 몫)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          holeVoronoiSmall: { value: DEFAULT_STUDY.holeVoronoiSmall, min: 0, max: 1, step: 0.05, label: "보로노이 비율 · 작은 부재 (0 = 노이즈, 1 = 보로노이)", render: (get) => (get(SHELL_PATH) || get(FOAM_PATH)) && get(HOLE_PATH) === "size" },
+          holeVoronoiLarge: { value: DEFAULT_STUDY.holeVoronoiLarge, min: 0, max: 1, step: 0.05, label: "보로노이 비율 · 큰 부재", render: (get) => (get(SHELL_PATH) || get(FOAM_PATH)) && get(HOLE_PATH) === "size" },
+          "고급": folder(
+            {
+              ribLip: { value: DEFAULT_STUDY.ribLip, min: 0, max: 1.5, step: 0.05, label: "입술: 리브 · 구멍 테두리가 두꺼워지는 띠 (월드; 0 = 없음)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+              shellThickYoung: { value: DEFAULT_STUDY.shellThickYoung, min: 1, max: 4, step: 1, label: "껍질 두께 · 얕은 층 (복셀)", render: (get) => get(SHELL_PATH) },
+              shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "껍질 두께 · 깊은 층 (복셀)", render: (get) => get(SHELL_PATH) },
+              shellSplit: { value: DEFAULT_STUDY.shellSplit, min: 0.05, max: 1, step: 0.01, label: "깊은 층으로 치는 층의 나이", render: (get) => get(SHELL_PATH) },
+            },
+            { collapsed: true, render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ),
         },
-        { collapsed: true },
+        { render: () => isV2 },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }] : []),
+      [FU_PITS]: folder(
+        {
+          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "진하기 (어두운 점; 0 = 없음)" },
+          pitCover: { value: DEFAULT_STUDY.pitCover, min: 0, max: 1, step: 0.01, label: "양 (표면의 얼마나를 덮나)", render: (get) => get(PITS_PATH) > 0 },
+          pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "크기 (월드)", render: (get) => get(PITS_PATH) > 0 },
+          pitDepth: { value: DEFAULT_STUDY.pitDepth, min: 0, max: 1, step: 0.05, label: "파이는 깊이 (0 = 색만, 1 = 뚫림; 넓은 닫힌 면에만 — 크기 0.5 이상)", render: (get) => get(PITS_PATH) > 0 },
+          pitSmall: { value: DEFAULT_STUDY.pitSmall, min: 0, max: 2, step: 0.05, label: "양 배율 · 작은 부재", render: (get) => get(PITS_PATH) > 0 },
+          pitLarge: { value: DEFAULT_STUDY.pitLarge, min: 0, max: 2, step: 0.05, label: "양 배율 · 큰 부재", render: (get) => get(PITS_PATH) > 0 },
+          "고급": folder(
+            {
+              pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "크기 지터 (0 = 다 같게)" },
+              pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "가장자리 부드러움 (0.01 = 또렷한 점 … 0.4 = 번진 얼룩)" },
+              pitGather: { value: DEFAULT_STUDY.pitGather, min: 0, max: 1, step: 0.05, label: "몰림 (0 = 고르게, 1 = 어떤 면에는 몰리고 어떤 면은 맨살)" },
+              pitPatch: { value: DEFAULT_STUDY.pitPatch, min: 0.5, max: 12, step: 0.5, label: "몰리는 자리 크기 (월드)" },
+            },
+            { collapsed: true, render: (get) => get(PITS_PATH) > 0 },
+          ),
+        },
+        { collapsed: true, render: (get) => isV2 && (get(SHELL_PATH) || get(FOAM_PATH)) },
+      ),
+      // the RESIN (V2: everything fused): the FROSTED SKIN — an opaque matte body whose skin shows the parts right
+      // under it, lifted by a little glow (ref 9579: matte white + AO; 9649: the white skin over machine parts);
+      // the refraction (three.js transmission: the opaque scene re-rendered every frame, 1–16 fps) stays a choice
+      [FU_MAT]: folder(
+        {
+          resinMode: {
+            options: { "서리 피부 (불투명 무광 + 밑에 비치는 부재 + 속빛; 가벼움)": "frost", "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가벼움, 광택 없음)": "alpha" },
+            value: "frost" as "alpha" | "refract" | "frost",
+            label: "레진 몸체",
+          },
+          resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
+          resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (0 = 맑음, 1 = 서리)" },
+          resinShade: { value: 0.5, min: 0, max: 1, step: 0.05, label: "비치는 덩어리 얼룩 · 곰보 (0 = 레진 색만, 1 = 다)" },
+          resinGhost: { value: 0.6, min: 0, max: 1, step: 0.05, label: "밑에 비치는 부재 (피부 바로 아래의 부재가 어둡게 비침)" },
+          resinGlow: { value: 0.12, min: 0, max: 0.6, step: 0.01, label: "속빛 (자체 밝기; AO에 눌린 무거움을 덜어 줌)", render: (get) => get(RESIN_MODE_PATH) === "frost" },
+          resinRim: { value: 0.2, min: 0, max: 1, step: 0.05, label: "가장자리 광택 (프레넬)", render: (get) => get(RESIN_MODE_PATH) === "frost" },
+          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "굴절 · 두께감 (굴절이 얼마나 휘는지)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "반투명 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
+          "고급": folder(
+            {
+              attenuationColor: { value: "#8a8b8c", label: "굴절 · 물드는 색 (무채색; 빛이 깊이 들어갈수록 이 색으로)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "굴절 · 물드는 거리 (월드; 짧을수록 두껍고 탁한 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              transmissionScale: { value: 0.5, min: 0.25, max: 1, step: 0.25, label: "굴절 패스 해상도 (장면 재렌더 배율; 0.5 = 비용 ¼, 서리 낀 레진엔 티 안 남)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              pointsInRefraction: { value: false, label: "굴절에 식생 점 비침 (켜면 점 수십만 개를 매 프레임 다시 그림 — 무거움)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              // V1 only: the mass before the resin as its own body
+              massBody: { options: { "불투명 (돌)": "opaque", "반투명 (속의 부재가 비쳐 보임)": "alpha" }, value: "alpha" as "opaque" | "alpha", label: "덩어리 몸체 (융합 ~ 레진 전)", render: () => !isV2 },
+              massOpacity: { value: 0.75, min: 0.1, max: 1, step: 0.05, label: "덩어리 · 불투명도", render: (get) => !isV2 && get(MASS_BODY_PATH) === "alpha" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { collapsed: false },
+      ),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }] : []),
     { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
@@ -1834,7 +1947,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       accretion: fu.accretion,
       accDepth: fu.accDepth,
       lump: fu.lump,
-      resinShare: isV2 && fu.allResin ? -1 : fu.resinShare, // −1: every fused face is resin
+      resinShare: isV2 ? -1 : fu.resinShare, // V2: −1 = every fused face is resin (one body)
       sag: fu.sag,
       smooth: fu.smooth,
       poreSize: fu.poreSize,
@@ -1876,27 +1989,40 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             holeVoronoiLarge: fu.holeVoronoiLarge,
             pitSmall: fu.pitSmall,
             pitLarge: fu.pitLarge,
+            foam: fu.foam,
+            cavity: fu.cavity,
+            cavityRound: fu.cavityRound,
+            fossilFrom: fu.fossilFrom,
+            fossilTo: fu.fossilTo,
+            blocky: fu.blocky,
+            platesStay: fu.platesStay,
+            pipeThickLarge: fu.pipeThickLarge,
+            pipeJoint: fu.pipeJoint,
+            pipeFossil: fu.pipeFossil,
+            ribLip: fu.ribLip,
             pipe: fu.massMode === "pipe",
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.allResin, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
       color: fu.resinColor,
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
-      opacity: fu.resinOpacity,
-      massOpacity: fu.massBody === "alpha" ? fu.massOpacity : 1,
+      opacity: fu.resinMode === "alpha" ? fu.resinOpacity : 1,
+      massOpacity: !isV2 && fu.massBody === "alpha" ? fu.massOpacity : 1,
       shade: fu.resinShade,
-      rim: fu.resinMode === "glass" ? fu.resinRim : 0,
+      rim: fu.resinMode === "frost" ? fu.resinRim : 0,
+      ghost: fu.resinGhost,
+      glow: fu.resinMode === "frost" ? fu.resinGlow : 0,
       roughness: fu.resinRoughness,
       thickness: fu.thickness,
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.resinMode, fu.resinOpacity, fu.resinRim, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [isV2, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
@@ -1905,8 +2031,6 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       // the pixels: a 5K iMac at ×2 draws 15 M of them per frame, with the AO on every one — ×1.5 looks the same
       // at that density and costs half
       dprMax: { value: 1.5, min: 1, max: 2, step: 0.25, label: "해상도 상한 (화면 픽셀 배율; 2 = 레티나 전부, 1.5 권장)" },
-      transmissionScale: { value: 0.5, min: 0.25, max: 1, step: 0.25, label: "굴절 패스 해상도 (레진 굴절용 장면 재렌더 배율; 0.5 = 비용 ¼, 서리 낀 레진엔 티 안 남)" },
-      pointsInRefraction: { value: false, label: "굴절에 식생 점 비침 (켜면 굴절 패스가 식생 점 수십만 개를 매 프레임 다시 그림 — 무거움)" },
       AO: folder({
         aoOn: { value: true, label: "켜기" },
         aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
@@ -2022,7 +2146,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
-        <RendererTuning transmissionScale={perf ? Math.min(0.25, rnd.transmissionScale) : rnd.transmissionScale} />
+        <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
         <SpaceWorld
@@ -2037,7 +2161,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           nature={natureParams}
           lodNear={lodNear}
           lodMid={lodMid}
-          pointsInRefraction={rnd.pointsInRefraction && !perf}
+          pointsInRefraction={fu.pointsInRefraction && !perf}
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
