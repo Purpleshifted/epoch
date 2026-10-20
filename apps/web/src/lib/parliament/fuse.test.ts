@@ -172,7 +172,7 @@ describe("form study (V2): fill, shell", () => {
 
   it("all switches off = the mass as before (V1 stays the same)", () => {
     // (the extras differ: with a study the parts under the skin are read as ghost; the geometry is the same)
-    const strip = ({ extra: _e, ...rest }: FuseMesh) => rest;
+    const strip = (m: FuseMesh) => ({ position: m.position, normal: m.normal, color: m.color, index: m.index, resinStart: m.resinStart });
     expect(strip(fuseChunk({ ...room, cfg: cfgOf({}) }))).toEqual(strip(fuseChunk({ ...room, cfg: DEFAULT_FUSE })));
   });
 
@@ -268,6 +268,22 @@ describe("form study (V2): fill, shell", () => {
     expect(near(carved)).toBe(true);
     // the slab is still there (its top face)
     expect(verts(carved).some(([x, y, z]) => Math.abs(x - 2) < 0.4 && Math.abs(z - 2) < 0.4 && Math.abs(y - 7.2) < 0.5)).toBe(true);
+  });
+
+  it("ENVELOPE: the mass is cut at the building's outline — it no longer swells past the plates' footprint", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 4, blur: 3 };
+    const fusedAll = { ...room, decay: bld.map(() => 0.9) };
+    const swollen = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({}), ...flat } });
+    const cut = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({ envelope: 1 }), ...flat } });
+    // the slab's footprint ends at x = 3.8; the swelling reaches past it, the cut mass stops at the face
+    const maxX = (m: FuseMesh) => Math.max(...verts(m).map(([x]) => x));
+    expect(maxX(swollen)).toBeGreaterThan(4.2);
+    expect(maxX(cut)).toBeLessThanOrEqual(4.1);
+    expect(maxX(cut)).toBeLessThan(maxX(swollen) - 0.2);
+    expect(cut.index.length).toBeGreaterThan(0);
+    // the fossil border's noise: a valid mesh, different from the flat band
+    const noisy = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({ blocky: 1, fossilFrom: 0.2, fossilTo: 0.6, fossilNoise: 0.3 }), ...flat } });
+    expect(noisy.index.length).toBeGreaterThan(0);
   });
 
   it("FOAM: the cells are carved through the volume — an inner surface without hollowing", () => {

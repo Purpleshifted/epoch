@@ -189,6 +189,15 @@ export interface FuseStudy {
   pipeFossil: number;
   /** C: the lip — the ribs and opening rims thicken over this band (world; 0 = none). */
   ribLip: number;
+  /**
+   * ENVELOPE (refs 9706–9708, 9579; the artist 2026-10-20: "architecture, not potatoes"): the mass stays INSIDE the
+   * building's outline — the plates' footprints raised between consecutive plates, and every part's box a voxel
+   * wider — so the outer faces remain the building's planes and the organic matter is what is carved inside (and
+   * breaks out only where it reaches a face). 0 = the mass swells past its parts as before … 1 = cut at the outline.
+   */
+  envelope: number;
+  /** FOSSIL CURVE: noise mixed into the layer age it reads (in units of age), so the fossil's border is not a flat band. */
+  fossilNoise: number;
   /** E PIPES: a part fuses as tubes along its edges (its frame), not as its full box — tubes meet and merge like a
    *  multipipe over the building's wireframe; the rooms stay open. */
   pipe: boolean;
@@ -237,6 +246,8 @@ export const DEFAULT_STUDY: FuseStudy = {
   pipeJoint: 1.5,
   pipeFossil: 0,
   ribLip: 0,
+  envelope: 0,
+  fossilNoise: 0,
   pipe: false,
   pipeRadius: 0.3,
 };
@@ -608,8 +619,12 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const Praw = st ? new Float32Array(n) : null;
   /** FOSSIL CURVE: 0 = young (architecture) … 1 = fossil, of a layer age. */
   const fossilOf = (q: number): number => (st ? smoothRamp(q, st.fossilFrom ?? 0.3, Math.max((st.fossilFrom ?? 0.3) + 0.05, st.fossilTo ?? 0.8)) : 1);
+  const fossilNoise = st ? Math.max(0, st.fossilNoise ?? 0) : 0;
+  /** The fossil curve at a place: the layer age jittered by a slow noise, so the border wanders (cubes sink into bone). */
+  const fossilAt = (q: number, x: number, y: number, z: number): number => fossilOf(fossilNoise > 0 ? q + (noise3(x * 0.35, y * 0.35, z * 0.35, 43) - 0.5) * fossilNoise : q);
   /** How blocky a row is (young layers keep the voxel steps). */
   const youngOf = (j: number): number => (st ? (st.blocky ?? 0) * (1 - fossilOf(rowQ[j])) : 0);
+  const youngAt = (j: number, x: number, y: number, z: number): number => (st ? (st.blocky ?? 0) * (1 - fossilAt(rowQ[j], x, y, z)) : 0);
   /** A part's size reading on the band sizeSmall … sizeLarge, jittered per part. */
   const sizeT = (b: Box, hx: number, hy: number, hz: number): number => {
     if (!st) return 0;
@@ -671,7 +686,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       // and fibres; the artist 2026-10-19: architecture, not a wire ball)
       if (w > 0 && st?.platesStay && FRAME_KINDS.has(b.kind)) w = Math.min(w, PLATE_FRAME);
       // FOSSIL: in the old layers the frame is embedded again — the box fills in around the tubes
-      if (w > 0 && st && (st.pipeFossil ?? 0) > 0) w *= 1 - st.pipeFossil * fossilOf(layerAge(b.slot));
+      if (w > 0 && st && (st.pipeFossil ?? 0) > 0) w *= 1 - st.pipeFossil * fossilAt(layerAge(b.slot), b.x, b.y, b.z);
       if (st && w > 0) {
         // the part's twelve edges as tubes (its frame), the box itself left open (or drawn fainter: below); the big
         // parts' tubes are thicker (bones), and balls at the corners are the joints
@@ -770,6 +785,41 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     Rm = Float32Array.from(room);
     blur3(Rm, tmp, nx, ny, nz, Math.max(1, Math.round(st.cavityRound ?? 2)));
   }
+  // ENVELOPE: the building's outline — between two consecutive plates of one building the union of their footprints,
+  // and every part's box a voxel wider; softened by a voxel so the cut faces come out as planes
+  const env = st ? Math.max(0, Math.min(1, st.envelope ?? 0)) : 0;
+  let E: Float32Array | null = null;
+  if (env > 0 && st) {
+    E = new Float32Array(n);
+    const bySeed = new Map<number, number[]>();
+    for (let pi = 0; pi < input.parts.length; pi++) {
+      const b = input.parts[pi];
+      if (b.tilt) continue;
+      const l = bySeed.get(b.seed);
+      if (l) l.push(pi);
+      else bySeed.set(b.seed, [pi]);
+    }
+    for (const list of bySeed.values()) {
+      const plates = list.filter((pi) => FRAME_KINDS.has(input.parts[pi].kind)).sort((a, b) => input.parts[a].y - input.parts[b].y);
+      for (let t = 0; t + 1 < plates.length; t++) {
+        const lo = input.parts[plates[t]], hi = input.parts[plates[t + 1]];
+        const yb = lo.y - halfHeight(lo), yt = hi.y + halfHeight(hi);
+        if (yt - yb > (FILL_MAX_GAP + 1) * unit || yt < yLo || yb > yHi) continue;
+        const x0 = Math.min(lo.x - lo.sx / 2, hi.x - hi.sx / 2), x1 = Math.max(lo.x + lo.sx / 2, hi.x + hi.sx / 2);
+        const z0 = Math.min(lo.z - lo.sz / 2, hi.z - hi.sz / 2), z1 = Math.max(lo.z + lo.sz / 2, hi.z + hi.sz / 2);
+        fill(E, x0, x1, yb, yt, z0, z1, 1);
+      }
+      for (const pi of list) {
+        const b = input.parts[pi];
+        const hh = halfHeight(b);
+        // the plates ARE the outline (exact); the other parts may be coated half a voxel
+        const d = FRAME_KINDS.has(b.kind) ? 0 : vs * 0.5;
+        const hx = Math.max(b.sx, vs) / 2 + d, hz = Math.max(b.sz, vs) / 2 + d, hy = Math.max(2 * hh, vs) / 2 + d;
+        fill(E, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, 1);
+      }
+    }
+    blur3(E, tmp, nx, ny, nz, 1);
+  }
   // SAG: the mass hangs down — each row keeps a share of the row above it, more in some columns than others (drips);
   // the young (blocky) layers do not sag
   if (cfg.sag > 0.01) {
@@ -824,7 +874,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       // bottom-heavy; the young (blocky) layers hardly swell past their parts' boxes — architecture, not a blob
       const gain = cfg.gain * (0.55 + 0.9 * q) * (1 - 0.6 * young);
       const scat = cfg.scatter * (1 - q);
-      const hollow = Rm ? cav * fossilOf(q) : 0;
+      const yRow = (J0 + j) * vs;
       for (let i = 0; i < nx; i++) {
         const p = idx(i, j, k);
         // B: outside the rooms the mass hardly swells past its parts
@@ -832,10 +882,13 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         if (Fl && Fl[p] > f) f = Fl[p];
         // ROOMS → CAVITIES (ref 9579): in the old layers the room is carved out as a rounded cavity; the parts
         // themselves (Praw) are kept, so the plates and walls remain as membranes between the cavities
-        if (hollow > 0 && Rm && f > iso * 0.5) {
-          const h = hollow * smoothRamp(Rm![p], 0.12, 0.6) * (1 - Math.min(1, Praw![p] * 1.5));
+        if (Rm && cav > 0 && Rm[p] > 0.12 && f > iso * 0.5) {
+          const h = cav * fossilAt(q, (I0 + i) * vs, yRow, (K0 + k) * vs) * smoothRamp(Rm[p], 0.12, 0.6) * (1 - Math.min(1, Praw![p] * 1.5));
           if (h > 0) f -= h * (f - iso * 0.5 + 0.3);
         }
+        // ENVELOPE: outside the building's outline (mask < 0.5 = past a face) the mass is cut to air, however strong
+        // the field — so the outer faces come out as the building's planes, whatever swells inside
+        if (E && E[p] < 0.5) f += (Math.min(f, iso * (E[p] / 0.5)) - f) * env;
         if (f <= iso * 0.5 || (por <= 0 && scat <= 0)) {
           F[p] = f;
           continue;
@@ -994,7 +1047,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         }
         // BLOCKY (ref 9579): the young layers keep the voxel steps — the vertex sits at the cube's centre (the mesh
         // becomes the stepped voxel surface) and is not smoothed; the old layers melt
-        const bl = youngOf(Math.min(ny - 1, j));
+        const bl = youngAt(Math.min(ny - 1, j), (I0 + i + 0.5) * vs, (J0 + j + 0.5) * vs, (K0 + k + 0.5) * vs);
         const vx = (I0 + i + sx / cnt + (0.5 - sx / cnt) * bl) * vs, vy = (J0 + j + sy / cnt + (0.5 - sy / cnt) * bl) * vs, vz = (K0 + k + sz / cnt + (0.5 - sz / cnt) * bl) * vs;
         cubeVert[cidx(i, j, k)] = pos.length / 3;
         pos.push(vx, vy, vz);
