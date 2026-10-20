@@ -247,7 +247,11 @@ export function compile(graph)
 
     // Produce a topological sort of the graph
     let order = topoSort(graph);
-    console.log('num nodes in topo order: ', order.length);
+    // Log only occasionally to reduce console spam
+    if (!window._lastTopoLog || Date.now() - window._lastTopoLog > 5000) {
+      console.log('num nodes in topo order: ', order.length);
+      window._lastTopoLog = Date.now();
+    }
 
     /*
     for (let node of order)
@@ -480,6 +484,30 @@ export function compile(graph)
 
             addLine(
                 `let [${outName(nodeId, 0)}, ${outName(nodeId, 1)}] = ` +
+                `nodes[${nodeId}].update(time, ${inVal(node, 0)}, ${inVal(node, 1)})`
+            );
+
+            continue;
+        }
+
+        if (node.type == 'AI_Seq')
+        {
+            audioNodes[nodeId] = node;
+
+            addLine(
+                `let [${outName(nodeId, 0)}, ${outName(nodeId, 1)}] = ` +
+                `nodes[${nodeId}].update(time, ${inVal(node, 0)}, ${inVal(node, 1)})`
+            );
+
+            continue;
+        }
+
+        if (node.type == 'AI_Poly')
+        {
+            audioNodes[nodeId] = node;
+
+            addLine(
+                `let [${outName(nodeId, 0)}, ${outName(nodeId, 1)}, ${outName(nodeId, 2)}, ${outName(nodeId, 3)}, ${outName(nodeId, 4)}, ${outName(nodeId, 5)}, ${outName(nodeId, 6)}, ${outName(nodeId, 7)}] = ` +
                 `nodes[${nodeId}].update(time, ${inVal(node, 0)}, ${inVal(node, 1)})`
             );
 

@@ -23,6 +23,9 @@ import { RoleField, type ParliamentDebug } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
+import SoundButton from "./SoundButton";
+import NoiseCraftHost from "./NoiseCraftHost";
+import { usePerfMeter } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { useTilt, type TiltState } from "./useTilt";
@@ -343,8 +346,20 @@ export default function ParliamentScene() {
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
   const [debug, setDebug] = useState<ParliamentDebug | null>(null);
-  // V2: the headset sound (null in V1)
-  const sound = useSound();
+  // a kick for the Canvas's first measurement: in some embedded browser panes the ResizeObserver does not fire on the
+  // first layout and the scene's children never mount until a resize (seen in the desktop app's built-in browser) —
+  // once a second until the field reports its first fold, ten times at most
+  useEffect(() => {
+    let n = 0;
+    const id = setInterval(() => {
+      if ((window as unknown as { __parliament?: unknown }).__parliament || ++n > 10) {
+        clearInterval(id);
+        return;
+      }
+      window.dispatchEvent(new Event("resize"));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
   const isV2 = useParliamentVersion() === "v2";
   const v2 = () => isV2;
   // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
@@ -425,7 +440,16 @@ export default function ParliamentScene() {
   const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined, phoneMode);
   // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
   const role: RoleId = session.role ?? "worker";
-  const { cfg: natureCfg, pointSize, pathLine } = useNatureControls();
+  // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
+  const sound = useSound({ escMute: !withSession });
+  // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
+  const perf = usePerfMeter(!hideChrome);
+  // a mute never carries over to the next visitor (sound wiring)
+  useEffect(() => {
+    if (sound?.muted) sound.toggleMute();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.sessionNo]);
+  const { cfg: natureCfg, pointSize, pathDots, pathLine } = useNatureControls();
 
   useEffect(() => {
     if (hideChrome) return;
@@ -479,6 +503,7 @@ export default function ParliamentScene() {
           cfg={cfg}
           natureCfg={natureCfg}
           pointSize={pointSize}
+          pathDots={pathDots}
           pathLine={pathLine}
           offsetWindow={offsetWindow}
           botCount={botEnabled ? botCount : 0}
@@ -495,6 +520,10 @@ export default function ParliamentScene() {
       {withSession && !demo && (
         <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} />
       )}
+      {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
+      {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
+      {/* sound wiring: this window's ♪ switch — while LIVE only (the HUD owns the dark screens), top-right beside the HUD */}
+      {sound && !hideChrome && (!withSession || session.phase === "live") && <SoundButton sound={sound} corner={withSession ? "top-right" : "bottom"} />}
       {!locked && !hideChrome && !withSession && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="font-mono text-[11px] tracking-[0.35em] text-white/15">click to enter</p>
@@ -514,6 +543,12 @@ export default function ParliamentScene() {
             </div>
           )}
           {debug?.sound && <div>♪ {debug.sound}</div>}
+          {perf && (
+            <div>
+              ⏱ {perf.fps} fps · 가장 느린 프레임 {perf.p95Ms} ms · 50 ms 넘는 프레임 {perf.slowPerMin}/분{perf.heapMb ? ` · heap ${perf.heapMb} MB` : ""}
+              {perf.spans.length ? ` · 최대(ms/분) ${perf.spans.map((s) => `${s.name} ${s.maxMs}`).join(" · ")}` : ""}
+            </div>
+          )}
         </div>
       )}
     </div>

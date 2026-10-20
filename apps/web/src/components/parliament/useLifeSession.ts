@@ -272,6 +272,8 @@ export class SessionMachine {
       const k = e as KeyboardEvent;
       if (k.repeat || (k.target as HTMLElement | null)?.tagName === "INPUT") return;
       code = k.code;
+      // ESC is the sound's mute / the look-release key, never a session gesture (sound wiring)
+      if (code === "Escape") return;
     }
     const now = Date.now();
     if (now - this.lastGestureAt < GESTURE_GAP_MS) return;
@@ -440,12 +442,17 @@ const towards = (f: number, to: number, k: number) => f * Math.pow(to / Math.max
  */
 export function muffleSound(p: SoundParams, life: LifeSignal | undefined): SoundParams {
   if (!life) return p;
-  if (life.phase !== "live") return { ...p, master: 0 };
+  // ended: the engine plays the AFTERLIFE (nothing but the reverb of the last sound, from the master where it was)
+  // and fades itself (sound wiring, v4 A5d/A5g)
+  if (life.phase === "ended") return { ...p, dead: true };
+  if (life.phase !== "live") return { ...p, master: 0, dead: false };
+  // dying — the lifespan's last stretch, or X held to stop — is only this muffling (the artist, 10/18: simple, as before)
   const w = Math.max(life.warn, life.attempt ?? 0);
-  if (!(w > 0)) return p;
+  if (!(w > 0)) return { ...p, dead: false };
   const k = Math.pow(w, 0.7);
   return {
     ...p,
+    dead: false,
     master: p.master * (1 - 0.5 * w),
     lpOpen: towards(p.lpOpen, 220, k),
     lpSealed: Math.min(p.lpSealed, towards(p.lpSealed, 150, k)),

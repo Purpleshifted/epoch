@@ -14,6 +14,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { WORLD_SIZE, grassDensity, hash2, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
+import { markSpan } from "./usePerfMeter";
 
 const RADIUS = 22; // world units around the player (default; the view's `radius` knob)
 const MAX_POINTS = 240000;
@@ -22,6 +23,7 @@ const GREEN_FRESH = new THREE.Color(0x58c43c);
 const GREEN_DEEP = new THREE.Color(0x1f7a2e);
 const DRY = new THREE.Color(0xb59a45);
 const DUST = new THREE.Color(0x8a7a62);
+const PATH_LIGHT = new THREE.Color(0xc9c2b4);
 
 function dotTexture(): THREE.Texture {
   const c = document.createElement("canvas");
@@ -57,6 +59,7 @@ export function NatureCloud({
   cfg,
   pointSize = 0.11,
   view = DEFAULT_CLOUD_VIEW,
+  pathDots = 1,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   getStress: () => Map<string, number> | null;
@@ -65,6 +68,8 @@ export function NatureCloud({
   pointSize?: number;
   /** How far the cloud reaches and how it thins out there, and how tall it grows (the player's sense of scale). */
   view?: CloudView;
+  /** Dust points per trodden cell relative to the base (14 at a fully formed path). */
+  pathDots?: number;
 }) {
   const ref = useRef<THREE.Points>(null);
   const timer = useRef(10);
@@ -89,6 +94,7 @@ export function NatureCloud({
     if (timer.current < 0.25 && !jumped) return;
     timer.current = 0;
     laidAt.current = { x: p.x, z: p.z };
+    const tCloud = performance.now();
     const stress = getStress();
     const snap = getSnapshot();
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
@@ -141,13 +147,14 @@ export function NatureCloud({
           Cc[k * 3 + 2] = tmp.b;
           k++;
         }
-        if (pp > 0.05) {
-          const nd = Math.round(14 * pp);
+        if (pp > 0.05 && pathDots > 0) {
+          const nd = Math.round(14 * pp * pathDots);
           for (let i = 0; i < nd; i++) {
             P[k * 3] = (ix + hash2(wx, wz, 500 + i)) * CELL_SIZE;
             P[k * 3 + 1] = 0.015 + hash2(wx, wz, 600 + i) * 0.03;
             P[k * 3 + 2] = (iz + hash2(wx, wz, 700 + i)) * CELL_SIZE;
-            tmp.copy(DUST).multiplyScalar(0.75 + 0.5 * hash2(wx, wz, 800 + i));
+            // a formed path reads lighter (greyscale: a human trace)
+            tmp.copy(DUST).lerp(PATH_LIGHT, Math.min(1, pp * 0.8)).multiplyScalar(0.75 + 0.5 * hash2(wx, wz, 800 + i));
             Cc[k * 3] = tmp.r;
             Cc[k * 3 + 1] = tmp.g;
             Cc[k * 3 + 2] = tmp.b;
@@ -159,6 +166,7 @@ export function NatureCloud({
     geom.setDrawRange(0, k);
     pos.needsUpdate = true;
     col.needsUpdate = true;
+    markSpan("cloud", performance.now() - tCloud);
   });
 
   return (
