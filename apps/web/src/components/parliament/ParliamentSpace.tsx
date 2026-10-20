@@ -312,7 +312,7 @@ function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, uGhos
     .replace("#include <common>", "#include <common>\nuniform float uGhost;\nvarying vec2 vExtra;")
     .replace(
       "#include <normal_fragment_begin>",
-      "#include <normal_fragment_begin>\nif ( vExtra.y > 0.0 ) {\n\tvec3 fdx = dFdx( vViewPosition );\n\tvec3 fdy = dFdy( vViewPosition );\n\tnormal = normalize( mix( normal, normalize( cross( fdx, fdy ) ), vExtra.y ) );\n\tnonPerturbedNormal = normal;\n}",
+      "#include <normal_fragment_begin>\nfloat fuseFlat = smoothstep( 0.45, 0.9, vExtra.y );\nif ( fuseFlat > 0.0 ) {\n\tvec3 fdx = dFdx( vViewPosition );\n\tvec3 fdy = dFdy( vViewPosition );\n\tnormal = normalize( mix( normal, normalize( cross( fdx, fdy ) ), fuseFlat ) );\n\tnonPerturbedNormal = normal;\n}",
     )
     .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uGhost * vExtra.x * 0.5;");
 }
@@ -1841,8 +1841,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {
           fossilFrom: { value: DEFAULT_STUDY.fossilFrom, min: 0, max: 1, step: 0.01, label: "화석이 되기 시작하는 층의 나이 (부식 정도)" },
           fossilTo: { value: DEFAULT_STUDY.fossilTo, min: 0.05, max: 1, step: 0.01, label: "다 화석이 되는 층의 나이" },
-          blocky: { value: isV2 ? 0.8 : 0, min: 0, max: 1, step: 0.05, label: "젊은 층의 블로키 (복셀 계단 = 건축; 0 = 다 둥글게)" },
-          cavity: { value: isV2 ? 0.7 : 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음)" },
+          blocky: { value: 0, min: 0, max: 1, step: 0.05, label: "젊은 층의 블로키 (복셀 계단 = 건축; 0 = 다 둥글게 — 껍질 · 리브를 쓰면 0.3 아래로, 계단이 리브를 뭉갬)" },
+          cavity: { value: 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음; 9579 레시피 0.7–1)" },
           cavityRound: { value: DEFAULT_STUDY.cavityRound, min: 1, max: 5, step: 1, label: "공동의 둥글기 (복셀)", render: (get) => get(CAV_PATH) > 0 },
           pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "관 뼈대가 오래된 층에서 묻힘 (0 = 끝까지 뼈대, 1 = 다 묻힘)", render: (get) => get(MODE_PATH) !== "wrap" },
           // SUBTRACTIVE (refs 9706–9708, 9579; 2026-10-20): the outline stays the building's, the organic is inside
@@ -1933,7 +1933,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: false },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }] : []),
     { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
