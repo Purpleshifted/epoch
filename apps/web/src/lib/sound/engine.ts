@@ -21,7 +21,9 @@
 import { chordName, magentaChordName, type WorldKey } from "./harmony";
 import { Magenta } from "./magenta";
 import { makeMotif, midiToHz, realize, type Motif } from "./motif";
-import { barClock, lockOf, planBar, type BarPlan } from "./sequencer";
+import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
+import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
+import type { KnobSources } from "./noisecraftKnobs";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -52,6 +54,91 @@ export interface SoundParams {
   padLevel: number;
   /** Use the Magenta models for variation when they can be loaded. */
   magenta: boolean;
+  /**
+   * The instrument (v4 A2): "webaudio" = everything here; "noisecraft" = the artist's patch plays the harmony (root,
+   * colour, fifth, the chorale) on the MUSIC CLOCK this engine decides, and Web Audio keeps the motif, the others,
+   * the vegetation and the rooms (the bass and the pad here fall silent).
+   */
+  instrument: "webaudio" | "noisecraft" | "both";
+  /** How much the music clock tightens with the lock (0..0.3 of the bar length) — only with the patch playing. */
+  clockPull: number;
+  /** My motif comes round every this many bars (the artist: half as often). */
+  motifEvery: number;
+  /** How much of the motif's micro-tones is heard (0..1). */
+  microtone: number;
+  /** A bar-synced echo on my motif (0..1 send level). */
+  motifEcho: number;
+  // ── the motif's timbre (v4 A2f, the artist: fine controls; the preset = "a signal sent into space") ──
+  /** The oscillator of the voice. */
+  motifWave: "triangle" | "sine" | "sawtooth" | "square";
+  /** My register, in semitones (the others keep theirs). */
+  motifTranspose: number;
+  /** My motif's level (1 = as the others' reference). */
+  motifLevel: number;
+  /** The envelope: attack and decay (ms), sustain (0..1), release as a share of the note's length. */
+  motifAttackMs: number;
+  motifDecayMs: number;
+  motifSustain: number;
+  motifRelease: number;
+  /** The voice's low-pass (Hz), its resonance, and how far (octaves) it opens on the attack. */
+  motifCutoff: number;
+  motifQ: number;
+  motifFilterEnv: number;
+  /** Partials: an octave above and a fifth above (0..1). */
+  motifOctaveLevel: number;
+  motifFifthLevel: number;
+  /** A second oscillator detuned by this many cents (0 = none). */
+  motifDetune: number;
+  /** Vibrato depth (cents) and rate (Hz). */
+  motifVibrato: number;
+  motifVibratoHz: number;
+  /** A breath of noise on each note (0..1). */
+  motifBreath: number;
+  /** Tremolo depth (0..1) at the vibrato rate — the flutter of a transmission. */
+  motifTremolo: number;
+  /** How the tone is made: "subtractive" (the wave, its partials, the filter) or "fm" (a sine carrier bent by a modulator). */
+  motifSynth: "subtractive" | "fm";
+  /** FM: the modulator's ratio to the note, its depth (index) and how fast the depth settles (ms). */
+  fmRatio: number;
+  fmIndex: number;
+  fmDecayMs: number;
+  /** My motif an octave away now and then: one bar in this many (0 = never), up to this many octaves. */
+  motifOctaveEvery: number;
+  motifOctaveRange: number;
+  /** A building's tonality from its contributors (v4 A4): on/off, the ring outside its zone (world), the hysteresis. */
+  zoneTonality: boolean;
+  zoneRing: number;
+  zoneMargin: number;
+  /** Width of the ground's chord bands (cells): how far a walk goes before the chord moves on. */
+  bandCells: number;
+  /** The arrival cadence (v4 A4b): on/off, and how much the hall opens on it (0..1 of reverbMax). */
+  arrival: boolean;
+  arrivalHall: number;
+  /** The WAVE of an arrival (v4 A4c, the artist: "파도 효과"): a swell of filtered noise rising through the dominant bar and breaking on the tonic (0..1). */
+  arrivalWave: number;
+  /** The breath before the tonic: everything dips for this long (ms) right before the downbeat (0 = none). */
+  arrivalGapMs: number;
+  /** The path strength under my feet from which the heartbeat is heard (v4 A4d: 0.25 on the exact cell was too strict). */
+  bassFrom: number;
+  /** The session ended (muffleSound): the AFTERLIFE — nothing but the reverb of the last sound. The dying itself is only the
+   * muffling the session applies to these params (master, low-pass, the others, the vegetation) — the artist: simple. */
+  dead: boolean;
+  /** The afterlife's long room (s): the last sound rings out in it, a fade envelope over its second half. */
+  afterlifeTail: number;
+  /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
+  motifVerb: number;
+  /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
+  ncDull: number;
+  /** The patch's real-time knobs follow the interaction (noisecraftKnobs.ts, v4 A5a) and how far they depart from the artist's saved values (0..1). */
+  ncMap: boolean;
+  ncMapDepth: number;
+  /** The path's heartbeat: how far it spreads into the rooms (0..1) and the second beat's strength (0..1). */
+  bassSpread: number;
+  bassDub: number;
+  /** How much the voices (my motif, the others) dip on each heartbeat (0..1): the beat stands in front. */
+  bassDuck: number;
+  /** How much the heartbeat's pitch drops onto the root (0 = a pure thump, 1 = an electronic kick). */
+  bassDrop: number;
 }
 
 export const DEFAULT_SOUND: SoundParams = {
@@ -66,9 +153,58 @@ export const DEFAULT_SOUND: SoundParams = {
   hearRadius: 12,
   othersLevel: 0.7,
   botBlur: 0.6,
-  bassLevel: 0.6,
+  bassLevel: 0.9, // v4 A2d: the heartbeat in front (0.6 before)
   padLevel: 0.35,
-  magenta: true,
+  magenta: false, // the light version has no Magenta (the artist, v4 A1); tfjs shared the GPU with three.js
+  instrument: "both",
+  clockPull: 0.08,
+  motifEvery: 2,
+  microtone: 0.3,
+  motifEcho: 0.6, // the signal's repeats (0.35 before the radio preset)
+  // "a signal sent out into space" (the artist: Interstellar, 전파 보내는 느낌): a pure tone, a clean onset, long
+  // tails, two layers beating slowly, a flutter, a little static, a long open space
+  motifWave: "sine",
+  motifTranspose: 0,
+  motifLevel: 1,
+  motifAttackMs: 60,
+  motifDecayMs: 200,
+  motifSustain: 0.8,
+  motifRelease: 1.2,
+  motifCutoff: 6000,
+  motifQ: 0.7,
+  motifFilterEnv: 0,
+  motifOctaveLevel: 0.1,
+  motifFifthLevel: 0,
+  motifDetune: 4,
+  motifVibrato: 0,
+  motifVibratoHz: 5.5,
+  motifBreath: 0.15,
+  motifTremolo: 0.15,
+  motifVerb: 0.5,
+  motifSynth: "subtractive",
+  fmRatio: 2,
+  fmIndex: 2,
+  fmDecayMs: 300,
+  motifOctaveEvery: 3,
+  motifOctaveRange: 1,
+  zoneTonality: true,
+  zoneRing: 8, // 4 before A4b: at walking speed the ring went by in under a second
+  zoneMargin: 0.15,
+  bandCells: 12,
+  arrival: true,
+  arrivalHall: 0.7,
+  arrivalWave: 0.6,
+  arrivalGapMs: 120,
+  bassFrom: 0.15,
+  dead: false,
+  afterlifeTail: 5, // 10 before A5e: the artist found it too long
+  ncDull: 1,
+  ncMap: true,
+  ncMapDepth: 0.8,
+  bassSpread: 0.7, // v4 A2e: its own long dark room
+  bassDub: 0.45,
+  bassDuck: 0.35,
+  bassDrop: 0.3,
 };
 
 interface Voice {
@@ -85,6 +221,8 @@ const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
 const MAGENTA_AFTER_MS = 4000;
+/** The others heard at once (nearest first): an HRTF panner per bot was what lagged with a dozen bots (v4 A1). */
+const MAX_VOICES = 4;
 
 /** A room: exponentially decaying noise, with `taps` early reflections for hard surfaces. */
 function impulse(ctx: AudioContext, seconds: number, decay: number, taps = 0, bright = 1): AudioBuffer {
@@ -123,6 +261,10 @@ export interface SoundDebug {
   magenta: "off" | "loading" | "ready" | "failed";
   phrase: string | null;
   voices: number;
+  /** The NoiseCraft instrument's state (NoiseCraftHost), one phrase; empty without it. */
+  nc: string;
+  /** The building's tonality where I stand: "D Dorian · in" / "· ring", empty in the open. */
+  place: string;
 }
 
 export class SoundEngine {
@@ -134,6 +276,23 @@ export class SoundEngine {
   private noiseGain!: GainNode;
   private bassGain!: GainNode;
   private pad!: { oscs: OscillatorNode[]; gains: GainNode[]; level: GainNode };
+  /** My motif's bar-synced echo: send → delay (3/8 bar) → feedback, darkened → dry + hall. */
+  private echo!: { send: GainNode; delay: DelayNode; feedback: GainNode };
+  /** The long open space my motif is sent into (motifVerb). */
+  private space!: GainNode;
+  /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
+  private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
+  /** The path's heartbeat: a soft clip for weight, then dry, and the hall's room darkened by bassSpread. */
+  private bassSpread!: GainNode;
+  private noise!: AudioBuffer;
+  /** The wave: looped noise → a low-pass that rises → a level that swells, into dry and the hall. */
+  private wave!: { filter: BiquadFilterNode; gain: GainNode };
+  private afterlife: { at: number; until: number; feedUntil: number } | null = null;
+  /** The afterlife's long room (A5d): built with the graph for the tail's length, rebuilt at a death if the knob moved. */
+  private afterRoom: { send: GainNode; conv: ConvolverNode; seconds: number } | null = null;
+  private wasDead = false;
+  /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
+  private voiceBus!: GainNode;
   private me: Voice | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
@@ -152,6 +311,23 @@ export class SoundEngine {
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
+  /** The patch's clock when it carries the grid's phase: wall time of a bar's start (NoiseCraftDriver → setGridAnchor). */
+  private anchor: { bar: number; wallMs: number } | null = null;
+  /** Plans by bar, so the patch's driver and the scheduler share one plan per bar. */
+  private plans = new Map<number, BarPlan>();
+  /** What the NoiseCraft host reports (debug line). */
+  ncStatus = "";
+  /** The key of the building zone I am in (kept across bars for the hysteresis); null in the open. */
+  private zoneKey: WorldKey | null = null;
+  private placeLine = "";
+  /** Where I stood in a building's harmony at the last plan (the patch's knobs read it). */
+  private zone: "in" | "ring" | null = null;
+  /** The arrival cadence (sequencer.ts nextArrival) and the sealed slabs I have already seen near me. */
+  private arrivalState: ArrivalState = ARRIVAL_IDLE;
+  private seenSlabs: Set<string> | null = null;
+  /** 1 right after an arrival's tonic, fading: the hall stays open a moment. */
+  private arrivalGlow = 0;
+  private arrivalAt = 0;
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
@@ -168,13 +344,160 @@ export class SoundEngine {
       magenta: this.magentaState,
       phrase: this.phrase ? `${this.phrase.kind} @${this.phrase.from}` : null,
       voices: this.voices.size,
+      nc: this.ncStatus + (this.nc ? " → engine" : ""),
+      place: this.placeLine + (this.lastPlan?.arrival ? ` · 도착 ${this.lastPlan.arrival}` : ""),
     };
+  }
+
+  /** Where I stand in a building's harmony this bar (tonality.ts), or null in the open. */
+  private placeFor(sig: PersonalSignals): NonNullable<Parameters<typeof planBar>[0]["place"]> | null {
+    const p = this.params;
+    const b = sig.building;
+    const zone = p.zoneTonality && b ? zoneOf(b.dist, b.radius, p.zoneRing) : null;
+    this.zone = zone;
+    if (!b || !zone) {
+      this.zoneKey = null;
+      this.placeLine = "";
+      return null;
+    }
+    const key = bestKey(b.who, this.zoneKey, p.zoneMargin);
+    if (!key) {
+      this.zoneKey = null;
+      this.placeLine = "";
+      return null;
+    }
+    this.zoneKey = key;
+    this.placeLine = `${keyName(key)} · ${zone}`;
+    return { key, chord: zoneChord(key, zone), zone };
+  }
+
+  /** The latest signals (null before the first fold). */
+  get signals(): PersonalSignals | null {
+    return this.sig;
+  }
+
+  get currentParams(): SoundParams {
+    return this.params;
+  }
+
+  /**
+   * What the patch's real-time knobs follow (noisecraftKnobs.ts, v4 A5a): numbers this engine already has, 0 = idle.
+   * null = mapping off or nobody here yet (the knobs glide back to the artist's values).
+   */
+  knobSources(): KnobSources | null {
+    const sig = this.sig;
+    const p = this.params;
+    if (!sig || !p.ncMap) return null;
+    const t = this.ctx?.currentTime ?? 0;
+    const glow = this.ctx ? this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6) : 0;
+    return {
+      company: Math.min(1, sig.neighbours.length / 3),
+      zone: this.zone === "in" ? 1 : this.zone === "ring" ? 0.5 : 0,
+      space: Math.max(-1, Math.min(1, glow - sig.sealed)),
+      sealed: sig.sealed,
+      speed: Math.min(1, sig.speed / Math.max(0.1, p.speedMax)),
+      together: (sig.coBuilders?.length ?? 0) > 0 ? 1 : 0,
+    };
+  }
+
+  /**
+   * THE MUSIC CLOCK (v4 A2, the artist): seconds a bar, decided here from the Leva bar length and the interaction —
+   * the lock (a path, building together) tightens it by `clockPull`. The patch receives this value. With the Web
+   * Audio instrument alone the bar stays the Leva length (the epoch grid must not jump).
+   */
+  musicBarSec(): number {
+    const p = this.params;
+    if (p.instrument === "webaudio" || !this.sig) return p.barSec;
+    return p.barSec * (1 - p.clockPull * lockOf(this.sig));
+  }
+
+  /** The patch's clock carries the grid's phase: bar `bar` starts at `wallMs` (NoiseCraftDriver). */
+  setGridAnchor(bar: number, wallMs: number): void {
+    this.anchor = { bar, wallMs };
+  }
+
+  /**
+   * The NoiseCraft patch's output (out=parent: its MediaStream) into this engine: its own low-pass (the building's
+   * dullness by ncDull) → the master (level, mute, the lifespan's dulling). null = detach.
+   */
+  attachNoiseCraft(stream: MediaStream | null): void {
+    const ctx = this.ctx;
+    if (this.nc) {
+      try {
+        this.nc.source.disconnect();
+        this.nc.filter.disconnect();
+        this.nc.gain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.nc = null;
+    }
+    if (!stream || !ctx) return;
+    const source = ctx.createMediaStreamSource(stream);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = this.params.lpOpen;
+    filter.Q.value = 0.5;
+    const gain = ctx.createGain();
+    gain.gain.value = 1;
+    source.connect(filter).connect(gain).connect(this.master);
+    this.nc = { source, filter, gain };
+  }
+
+  get noiseCraftAttached(): boolean {
+    return !!this.nc;
+  }
+
+  /** The plan of bar `bar` (planned once, shared with the patch's driver); null before anyone is here. */
+  planFor(bar: number): BarPlan | null {
+    const sig = this.sig;
+    const key = this.key;
+    if (!sig || !key || !this.me || !this.myId || this.params.dead) return null;
+    const cached = this.plans.get(bar);
+    if (cached) return cached;
+    const p = this.params;
+    const lock = lockOf(sig);
+    this.lockedBars = lock >= 0.6 ? this.lockedBars + 1 : 0;
+    this.askMagenta(bar, sig, lock);
+    if (this.phrase && bar - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
+    // the arrival: the moment my own weight counts on a building others built (the artist: not nearness — real
+    // contribution); a building born under us while we stand together counts too
+    const near = sig.nearSlabs ?? [];
+    let born = false;
+    if (this.seenSlabs) for (const k of near) if (!this.seenSlabs.has(k)) born = true;
+    this.seenSlabs = new Set(near);
+    const together = (sig.coBuilders?.length ?? 0) > 0;
+    const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0);
+    this.arrivalState = step.state;
+    const arrival = p.arrival ? step.phase : null;
+    if (arrival === "tonic" && this.ctx) {
+      this.arrivalGlow = 1;
+      this.arrivalAt = this.ctx.currentTime;
+    }
+    const plan = planBar({
+      bar,
+      sig,
+      key,
+      place: this.placeFor(sig),
+      arrival,
+      me: this.me.motif,
+      others: this.motifs,
+      closeness: this.closeness,
+      phrase: this.phrase && bar - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
+      params: { barSec: this.musicBarSec(), speedMax: p.speedMax, bassFrom: p.bassFrom, motifEvery: p.motifEvery, microtone: p.microtone, motifOctaveEvery: p.motifOctaveEvery, motifOctaveRange: p.motifOctaveRange, bandCells: p.bandCells },
+    });
+    this.plans.set(bar, plan);
+    for (const k of this.plans.keys()) if (k < bar - 4) this.plans.delete(k);
+    this.lastPlan = plan;
+    return plan;
   }
 
   /** Builds the graph on first call; resumes the context. Must be called from a user gesture on mobile. */
   async start(): Promise<void> {
     if (!this.ctx) {
-      const ctx = new AudioContext();
+      // "playback": a larger output buffer — the artist heard glitches when the hall opened on an arrival; this piece
+      // needs headroom, not low latency (v4 A5)
+      const ctx = new AudioContext({ latencyHint: "playback" });
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = 0;
@@ -185,6 +508,9 @@ export class SoundEngine {
       this.dull.connect(this.master).connect(ctx.destination);
       this.dry = ctx.createGain();
       this.dry.connect(this.dull);
+      this.voiceBus = ctx.createGain();
+      this.voiceBus.gain.value = 1;
+      this.voiceBus.connect(this.dry);
       // three rooms
       const room = (seconds: number, decay: number, taps: number, bright: number, level: number) => {
         const g = ctx.createGain();
@@ -196,9 +522,21 @@ export class SoundEngine {
       };
       this.rooms = {
         open: room(1.2, 0.35, 0, 0.25, 0.12),
-        concrete: room(2.0, 0.6, 6, 0.9, 0),
-        hall: room(4.5, 1.6, 0, 0.5, 0),
+        concrete: room(1.6, 0.5, 6, 0.9, 0),
+        hall: room(2.4, 1.0, 0, 0.5, 0), // 4.5 s → 3 s (A1) → 2.4 s (A5): the convolver's cost is its length
       };
+      // the hall never sleeps: a whisper of noise keeps its convolver running, so opening it on an arrival does not
+      // start a cold convolution (the burst the artist heard as lag)
+      const keep = ctx.createBufferSource();
+      keep.buffer = noiseBuffer(ctx, 1);
+      keep.loop = true;
+      const keepGain = ctx.createGain();
+      keepGain.gain.value = 0.00002;
+      keep.connect(keepGain).connect(this.rooms.hall);
+      keep.start();
+      this.voiceBus.connect(this.rooms.open);
+      this.voiceBus.connect(this.rooms.concrete);
+      this.voiceBus.connect(this.rooms.hall);
       // the listener: at the origin, turned by the camera yaw (update())
       const L = ctx.listener;
       if (L.positionX) {
@@ -221,10 +559,42 @@ export class SoundEngine {
       this.noiseGain.gain.value = 0;
       noise.connect(bp).connect(this.noiseGain).connect(this.dry);
       noise.start();
-      // bass bus
+      // bass bus: the path's heartbeat → a soft clip (weight) → dry, and its own long dark room (bassSpread)
       this.bassGain = ctx.createGain();
       this.bassGain.gain.value = 1;
-      this.bassGain.connect(this.dry);
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(1024);
+      for (let i = 0; i < curve.length; i++) {
+        const x = (i / (curve.length - 1)) * 2 - 1;
+        curve[i] = Math.tanh(x * 1.3) / Math.tanh(1.3); // a gentle clip (1.6 crackled — the artist, A4c)
+      }
+      shaper.curve = curve;
+      shaper.oversample = "2x";
+      this.bassGain.connect(shaper).connect(this.dry);
+      // the beat spreads under everything: into the hall's room through a dark low-pass (no convolver of its own —
+      // every convolver is audio-thread work, and five of them crackled on the artist's machine)
+      this.bassSpread = ctx.createGain();
+      this.bassSpread.gain.value = 0;
+      const bassDark = ctx.createBiquadFilter();
+      bassDark.type = "lowpass";
+      bassDark.frequency.value = 500;
+      shaper.connect(this.bassSpread).connect(bassDark).connect(this.rooms.hall);
+      this.noise = noiseBuffer(ctx, 1);
+      // the wave (v4 A4c): looped noise, a low-pass the swell opens, a level that rises and breaks
+      const wn = ctx.createBufferSource();
+      wn.buffer = noiseBuffer(ctx, 3);
+      wn.loop = true;
+      const wf = ctx.createBiquadFilter();
+      wf.type = "lowpass";
+      wf.frequency.value = 300;
+      wf.Q.value = 0.8;
+      const wg = ctx.createGain();
+      wg.gain.value = 0;
+      wn.connect(wf).connect(wg);
+      wg.connect(this.dry); // dry only: the wave into the hall doubled the convolver's work at the arrival
+      wn.start();
+      this.wave = { filter: wf, gain: wg };
+      this.afterlifeRoom(this.params.afterlifeTail); // the afterlife's long room, ready (no cold start at a death)
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
       level.gain.value = 0;
@@ -244,6 +614,23 @@ export class SoundEngine {
         gains.push(g);
       }
       this.pad = { oscs, gains, level };
+      // my motif's echo (v4 A2: a body for the melody beside the patch): a dotted eighth of the bar, darkened
+      const send = ctx.createGain();
+      send.gain.value = 0;
+      const delay = ctx.createDelay(4);
+      delay.delayTime.value = this.params.barSec * 0.375;
+      const feedback = ctx.createGain();
+      feedback.gain.value = 0.3;
+      const dark = ctx.createBiquadFilter();
+      dark.type = "lowpass";
+      dark.frequency.value = 1800;
+      send.connect(delay).connect(dark).connect(feedback).connect(delay);
+      dark.connect(this.dry);
+      dark.connect(this.rooms.hall);
+      this.echo = { send, delay, feedback };
+      // the long open space the signal goes out into (a 4 s room, half bright), from my voice and its echo
+      this.space = room(2.4, 1.3, 0, 0.45, 0); // 4 s → 3.2 (A4c) → 2.4 s (A5)
+      dark.connect(this.space);
       this.lastUpdate = ctx.currentTime;
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
@@ -292,7 +679,7 @@ export class SoundEngine {
     let out: AudioNode = gain;
     if (spatial) {
       panner = ctx.createPanner();
-      panner.panningModel = "HRTF";
+      panner.panningModel = "equalpower"; // the nearest voice is switched to HRTF in update()
       panner.distanceModel = "inverse";
       panner.refDistance = 1.5;
       panner.rolloffFactor = 1;
@@ -301,10 +688,7 @@ export class SoundEngine {
       out = panner;
     }
     filt.connect(gain);
-    out.connect(this.dry);
-    out.connect(this.rooms.open);
-    out.connect(this.rooms.concrete);
-    out.connect(this.rooms.hall);
+    out.connect(this.voiceBus); // dry + the rooms, ducked by the heartbeat
     return { motif: this.motifOf(id), gain, filt, panner, blur, seen: ctx.currentTime, level: 0 };
   }
 
@@ -335,35 +719,58 @@ export class SoundEngine {
     const t = ctx.currentTime;
     const dt = Math.max(0, Math.min(2, t - this.lastUpdate));
     this.lastUpdate = t;
-    this.master.gain.setTargetAtTime(params.master, t, 0.3);
+    // the end of a life: the afterlife plays once and fades itself; a new life brings the master back
+    if (params.dead && !this.wasDead) this.startAfterlife(t);
+    if (!params.dead && this.wasDead) this.endAfterlife(t);
+    this.wasDead = params.dead;
+    if (this.afterlife && t > this.afterlife.until) this.afterlife = null;
+    if (!this.afterlife && !params.dead) this.master.gain.setTargetAtTime(params.master, t, 0.3);
+    this.echo.feedback.gain.setTargetAtTime(0.3, t, 0.5);
 
     if (!this.me || this.me.motif.id !== myId) {
       if (this.me) this.dropVoice("me", this.me);
       this.me = this.newVoice(myId, 0, false);
       this.me.gain.gain.setTargetAtTime(1, t, 0.5);
+      this.me.gain.connect(this.echo.send);
+      this.me.gain.connect(this.space);
     }
+    this.space.gain.setTargetAtTime(params.motifVerb * 0.5, t, 0.3);
+    // my motif's body: the echo follows the bar, the softness darkens the voice
+    this.echo.send.gain.setTargetAtTime(params.motifEcho * 0.6, t, 0.3);
+    this.echo.delay.delayTime.setTargetAtTime(this.musicBarSec() * 0.375, t, 0.2);
+    this.me.filt.frequency.setTargetAtTime(params.motifCutoff, t, 0.3);
+    this.me.filt.Q.setTargetAtTime(params.motifQ, t, 0.3);
     // the listener turns with the camera: forward = (sin yaw, 0, cos yaw) in world terms
     const L = ctx.listener;
     if (L.forwardX) {
       L.forwardX.setTargetAtTime(Math.sin(yaw), t, 0.05);
       L.forwardZ.setTargetAtTime(Math.cos(yaw), t, 0.05);
     }
-    // the dull: concrete nearby (log-interpolated cutoff)
+    // the dull: concrete nearby (log-interpolated cutoff); the patch gets its own share of it (ncDull)
     const cut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed);
     this.dull.frequency.setTargetAtTime(cut, t, 0.25);
+    if (this.nc) {
+      const ncCut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed * params.ncDull);
+      this.nc.filter.frequency.setTargetAtTime(ncCut, t, 0.25);
+    }
+    this.bassSpread.gain.setTargetAtTime(params.bassSpread, t, 0.3);
     // vegetation
     this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
     // rooms: open ground → concrete → the hall of building together
     const company = Math.min(1, sig.neighbours.length / 2);
-    const hall = params.reverbMax * sig.stay * company;
-    this.rooms.hall.gain.setTargetAtTime(hall, t, 0.8);
+    // the arrival opens the hall at once and lets it close over ~6 s
+    const glow = this.arrivalGlow * Math.exp(-(t - this.arrivalAt) / 6);
+    const hall = Math.max(params.reverbMax * sig.stay * company, params.reverbMax * params.arrivalHall * glow);
+    this.rooms.hall.gain.setTargetAtTime(hall, t, glow > 0.3 ? 0.15 : 0.8);
     this.rooms.concrete.gain.setTargetAtTime(0.35 * sig.sealed * (1 - hall), t, 0.4);
     this.rooms.open.gain.setTargetAtTime(0.12 * (1 - sig.sealed) * (1 - hall), t, 0.4);
 
-    // who is within earshot: a voice each, placed by HRTF; closeness accumulates while they are near
+    // who is within earshot: a voice each, the nearest MAX_VOICES only, with a level of detail in the panning
+    // (v4 A1): the nearest one is placed by HRTF (a convolution per panner), the others by equal-power panning;
+    // closeness accumulates while they are near
     const alive = new Set<string>();
-    for (const n of sig.neighbours) {
-      if (n.dist > params.hearRadius) continue;
+    const heard = sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES);
+    heard.forEach((n, rank) => {
       alive.add(n.o);
       let v = this.voices.get(n.o);
       if (!v) {
@@ -374,13 +781,15 @@ export class SoundEngine {
       v.level = params.othersLevel;
       v.gain.gain.setTargetAtTime(v.level, t, 0.4);
       if (v.panner) {
+        const model = rank === 0 ? "HRTF" : "equalpower";
+        if (v.panner.panningModel !== model) v.panner.panningModel = model;
         v.panner.positionX.setTargetAtTime(Math.sin(n.angle) * n.dist, t, 0.1);
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
       v.filt.frequency.setTargetAtTime(v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, 0.3);
       const near = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
-    }
+    });
     for (const [id, v] of this.voices) {
       if (alive.has(id)) continue;
       if (t - v.seen > OTHER_FADE_SEC) this.dropVoice(id, v);
@@ -395,64 +804,288 @@ export class SoundEngine {
     }
   }
 
-  // ── the instrument ──
-  private note(dest: AudioNode, freq: number, at: number, dur: number, vel: number, timbre: number, blur: number): void {
+  // ── the instrument: one note of a voice (mine or another's), shaped by the motif timbre knobs ──
+  private note(dest: AudioNode, freq0: number, at: number, dur: number, vel: number, timbre: number, blur: number, mine = false): void {
     const ctx = this.ctx!;
+    const p = this.params;
+    const freq = mine ? freq0 * Math.pow(2, p.motifTranspose / 12) : freq0;
+    const attack = Math.max(0.002, p.motifAttackMs / 1000);
+    const decay = Math.max(0.01, p.motifDecayMs / 1000);
+    const release = 0.15 + dur * p.motifRelease;
+    const peak = 0.22 * vel * (mine ? p.motifLevel : 1);
     const g = ctx.createGain();
-    g.connect(dest);
-    const peak = 0.22 * vel;
-    const release = 0.15 + dur * 0.4;
     g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(peak, at + 0.012);
-    g.gain.setTargetAtTime(peak * 0.55, at + 0.012, 0.09);
+    g.gain.linearRampToValueAtTime(peak, at + attack);
+    g.gain.setTargetAtTime(peak * p.motifSustain, at + attack, decay / 3);
     g.gain.setTargetAtTime(0, at + dur, release / 3);
     const end = at + dur + release + 0.3;
-    const o1 = ctx.createOscillator();
-    o1.type = blur > 0 ? "sine" : "triangle";
-    o1.frequency.value = freq;
+    // the note's own filter, opening on the attack (motifFilterEnv octaves) and settling on the voice's cutoff
+    let into: AudioNode = g;
+    if (p.motifFilterEnv > 0) {
+      const nf = ctx.createBiquadFilter();
+      nf.type = "lowpass";
+      nf.Q.value = p.motifQ;
+      const base = Math.min(16000, p.motifCutoff);
+      nf.frequency.setValueAtTime(Math.min(16000, base * Math.pow(2, p.motifFilterEnv)), at);
+      nf.frequency.exponentialRampToValueAtTime(base, at + attack + decay);
+      nf.connect(g);
+      into = nf;
+    }
+    g.connect(dest);
+    const started: OscillatorNode[] = [];
+    const osc = (type: OscillatorType, f: number, level: number, detune = 0): OscillatorNode | null => {
+      if (level <= 0) return null;
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      o.detune.value = detune;
+      const og = ctx.createGain();
+      og.gain.value = level;
+      o.connect(og).connect(into);
+      o.start(at);
+      o.stop(end);
+      started.push(o);
+      return o;
+    };
+    const wave: OscillatorType = blur > 0 ? "sine" : p.motifWave;
+    const fm = p.motifSynth === "fm" && blur === 0;
+    const o1 = osc(fm ? "sine" : wave, freq, 1, p.motifDetune > 0 ? -p.motifDetune / 2 : 0)!;
     if (blur > 0) {
       o1.detune.setValueAtTime((Math.random() * 2 - 1) * 25 * blur, at);
       o1.detune.linearRampToValueAtTime((Math.random() * 2 - 1) * 25 * blur, end);
     }
-    o1.connect(g);
-    o1.start(at);
-    o1.stop(end);
-    const o2 = ctx.createOscillator();
-    o2.type = "sine";
-    o2.frequency.value = freq * 2;
-    const g2 = ctx.createGain();
-    g2.gain.value = 0.35 * timbre * (1 - blur);
-    o2.connect(g2).connect(g);
-    o2.start(at);
-    o2.stop(end);
-    setTimeout(() => {
-      g.disconnect();
-      g2.disconnect();
-    }, (end - ctx.currentTime) * 1000 + 100);
+    if (fm) {
+      // a modulator bends the carrier's frequency; its depth (freq × index) settles to a fifth of itself
+      const mod = ctx.createOscillator();
+      mod.type = "sine";
+      mod.frequency.value = freq * p.fmRatio;
+      const depth = ctx.createGain();
+      const full = freq * p.fmIndex;
+      depth.gain.setValueAtTime(full, at);
+      depth.gain.setTargetAtTime(full * 0.2, at + attack, Math.max(0.01, p.fmDecayMs / 1000) / 3);
+      mod.connect(depth).connect(o1.frequency);
+      mod.start(at);
+      mod.stop(end);
+    } else {
+      if (p.motifDetune > 0 && blur === 0) osc(wave, freq, 0.5, p.motifDetune / 2);
+      osc("sine", freq * 2, p.motifOctaveLevel * (0.5 + 0.5 * timbre) * (1 - blur));
+      osc("sine", freq * 3, p.motifFifthLevel * 0.5 * (1 - blur));
+    }
+    // tremolo: the flutter of a transmission, on the note's gain
+    if (p.motifTremolo > 0 && blur === 0) {
+      const tlfo = ctx.createOscillator();
+      tlfo.type = "sine";
+      tlfo.frequency.value = p.motifVibratoHz;
+      const tg = ctx.createGain();
+      tg.gain.value = 0.5 * p.motifTremolo * peak;
+      tlfo.connect(tg).connect(g.gain);
+      tlfo.start(at);
+      tlfo.stop(end);
+    }
+    // vibrato: a slow sine on the detune of the oscillators
+    if (p.motifVibrato > 0 && blur === 0) {
+      const lfo = ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = p.motifVibratoHz;
+      const lg = ctx.createGain();
+      lg.gain.value = p.motifVibrato;
+      lfo.connect(lg);
+      for (const o of started) lg.connect(o.detune);
+      lfo.start(at);
+      lfo.stop(end);
+    }
+    // a breath: noise through a band around the note, with the note's envelope
+    if (p.motifBreath > 0 && blur === 0 && this.noise) {
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      n.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = Math.min(12000, freq * 2);
+      bp.Q.value = 2.5;
+      const ng = ctx.createGain();
+      ng.gain.value = 0.3 * p.motifBreath;
+      n.connect(bp).connect(ng).connect(into);
+      n.start(at);
+      n.stop(end);
+    }
+    setTimeout(() => g.disconnect(), (end - ctx.currentTime) * 1000 + 100);
   }
 
+  /**
+   * The path's HEARTBEAT (v4 A2c–e, the artist: heavy, not electronic, spreading): a lub and a softer dub 0.17 s
+   * later. Each: the root brought down into 40–80 Hz, a soft attack, a small drop (bassDrop), a long body; a sub an
+   * octave below with its own slower swell; a dark thump of noise for flesh. The bus clips softly and spreads into
+   * a long dark room of its own.
+   */
   private bassNote(pitch: number, at: number, level: number): void {
     const ctx = this.ctx!;
-    const g = ctx.createGain();
-    g.connect(this.bassGain);
-    const peak = 0.5 * level * this.params.bassLevel;
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(peak, at + 0.02);
-    g.gain.setTargetAtTime(0, at + 0.08, 0.18);
-    const o = ctx.createOscillator();
-    o.type = "sine";
-    const f = midiToHz(pitch);
-    o.frequency.setValueAtTime(f * 1.5, at);
-    o.frequency.exponentialRampToValueAtTime(f, at + 0.06);
-    o.connect(g);
-    o.start(at);
-    o.stop(at + 1.2);
-    setTimeout(() => g.disconnect(), (at + 1.2 - ctx.currentTime) * 1000 + 100);
+    let f = midiToHz(pitch);
+    while (f > 80) f /= 2;
+    while (f < 40) f *= 2;
+    const hit = (when: number, vel: number) => {
+      const g = ctx.createGain();
+      g.connect(this.bassGain);
+      const peak = 0.9 * vel * this.params.bassLevel;
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(peak, when + 0.025);
+      g.gain.setTargetAtTime(0, when + 0.1, 0.28);
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      const drop = 1 + 1.2 * this.params.bassDrop;
+      o.frequency.setValueAtTime(f * drop, when);
+      o.frequency.exponentialRampToValueAtTime(f, when + 0.07);
+      o.connect(g);
+      const sub = ctx.createOscillator();
+      sub.type = "sine";
+      sub.frequency.value = f / 2;
+      const sg = ctx.createGain();
+      sg.gain.setValueAtTime(0, when);
+      sg.gain.linearRampToValueAtTime(0.7, when + 0.04);
+      sg.gain.setTargetAtTime(0, when + 0.15, 0.35);
+      sub.connect(sg).connect(g);
+      // flesh: a dark burst of noise under the beat
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      const nf = ctx.createBiquadFilter();
+      nf.type = "lowpass";
+      nf.frequency.value = 220;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0, when);
+      ng.gain.linearRampToValueAtTime(0.9 * vel, when + 0.01);
+      ng.gain.setTargetAtTime(0, when + 0.04, 0.06);
+      n.connect(nf).connect(ng).connect(g);
+      n.start(when);
+      n.stop(when + 0.5);
+      // the beat in front: the voices dip for a moment — from wherever the gain is (a jump to 1 clicked)
+      const duck = this.params.bassDuck * vel;
+      if (duck > 0) {
+        this.voiceBus.gain.setTargetAtTime(1 - duck, when, 0.006);
+        this.voiceBus.gain.setTargetAtTime(1, when + 0.08, 0.15);
+      }
+      o.start(when);
+      sub.start(when);
+      o.stop(when + 1.2);
+      sub.stop(when + 1.2);
+      setTimeout(() => {
+        g.disconnect();
+        sg.disconnect();
+      }, (when + 1.2 - ctx.currentTime) * 1000 + 100);
+    };
+    hit(at, level);
+    if (this.params.bassDub > 0) hit(at + 0.17, level * this.params.bassDub);
   }
 
-  private setPad(pitches: number[], level: number, at: number): void {
+  /** True while the end's last sound is still being taken into the long room (the patch keeps playing that long, then stops). */
+  get inAfterlife(): boolean {
+    const a = this.afterlife;
+    return !!a && (this.ctx?.currentTime ?? 0) < a.feedUntil;
+  }
+
+  /**
+   * THE AFTERLIFE (v4 A4d → A5d, the artist: "잔향 말고는 아무것도 안 들리게"): after the end nothing is heard but the
+   * reverb. Every living source lets go within half a second (the voices, the pad, the heartbeat, the wave, the
+   * vegetation, the patch), and the LAST SOUND — the dry bus and the patch's stream, for a second — goes into a long dark room (`afterlifeTail` seconds) whose tail is all that remains; the
+   * master holds and, as the tail dies on its own, a slow safety fade closes it.
+   */
+  private startAfterlife(t: number): void {
+    const p = this.params;
+    const tail = Math.max(1, p.afterlifeTail);
+    const FEED = 1.0;
+    this.afterlife = { at: t, until: t + tail, feedUntil: t + FEED };
+    // the living sources let go (short releases, not chops — a chopped note reverberating sounded wrong)
+    this.voiceBus.gain.setTargetAtTime(0, t + 0.25, 0.15);
+    this.pad.level.gain.setTargetAtTime(0, t + 0.2, 0.25);
+    this.bassGain.gain.setTargetAtTime(0, t, 0.1);
+    this.wave.gain.gain.setTargetAtTime(0, t, 0.15);
+    this.noiseGain.gain.setTargetAtTime(0, t, 0.25);
+    // the last sound into the long room (the patch before its gain: it is not heard dry after the end)
+    const room = this.afterlifeRoom(tail);
+    if (this.nc) {
+      this.nc.filter.connect(room.send);
+      this.nc.gain.gain.setTargetAtTime(0, t + 0.25, 0.15);
+    }
+    room.send.gain.cancelScheduledValues(t);
+    room.send.gain.setTargetAtTime(1, t, 0.02);
+    room.send.gain.setTargetAtTime(0, t + FEED, 0.08);
+    // the master holds through the first half; then a FADE ENVELOPE lies over the tail's own decay (the artist: if
+    // the volume has not come down by then, overlap a fade) — a straight line to silence exactly at the tail's end
+    // …from WHERE IT IS (A5g): after the dying it is half, after an X hold it is whole — no jump either way
+    const cur = Math.max(0, Math.min(1, this.master.gain.value));
+    this.master.gain.cancelScheduledValues(t);
+    this.master.gain.setValueAtTime(cur, t);
+    this.master.gain.setValueAtTime(cur, t + tail * 0.5);
+    this.master.gain.linearRampToValueAtTime(0, t + tail);
+  }
+
+  /** A new life: the room's send closes, the living buses come back (the master follows the params again). */
+  private endAfterlife(t: number): void {
+    this.afterlife = null;
+    this.afterRoom?.send.gain.setTargetAtTime(0, t, 0.05);
+    this.voiceBus.gain.setTargetAtTime(1, t, 0.2);
+    this.bassGain.gain.setTargetAtTime(1, t, 0.2);
+    this.nc?.gain.gain.setTargetAtTime(1, t, 0.2);
+  }
+
+  /**
+   * The afterlife's long room: a dark impulse `seconds` long (about −26 dB at its end), fed by the dry bus (and the
+   * patch at the end) through a send that stays closed until the end; built with the graph (no cold start at a death), rebuilt
+   * when the knob has moved by more than a quarter second.
+   */
+  private afterlifeRoom(seconds: number): { send: GainNode; conv: ConvolverNode } {
+    const ctx = this.ctx!;
+    const sec = Math.max(1, Math.min(30, seconds));
+    if (this.afterRoom && Math.abs(this.afterRoom.seconds - sec) < 0.26) return this.afterRoom;
+    if (this.afterRoom) {
+      try {
+        this.dry.disconnect(this.afterRoom.send);
+        this.afterRoom.send.disconnect();
+        this.afterRoom.conv.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+    const send = ctx.createGain();
+    send.gain.value = 0;
+    const conv = ctx.createConvolver();
+    conv.normalize = true;
+    conv.buffer = impulse(ctx, sec, sec / 3.2, 0, 0.3); // a fuller tail (−26 dB at its end; the fade closes it)
+    send.connect(conv).connect(this.master);
+    this.dry.connect(send);
+    this.afterRoom = { send, conv, seconds: sec };
+    return this.afterRoom;
+  }
+
+  /** The wave rising through a bar: the low-pass opens 300 → 2400 Hz, the level swells (sin^1.5-ish by the ramps). */
+  private waveSwell(at: number, barSec: number, level: number): void {
+    const { filter, gain } = this.wave;
+    filter.frequency.cancelScheduledValues(at);
+    filter.frequency.setValueAtTime(300, at);
+    filter.frequency.exponentialRampToValueAtTime(2400, at + barSec);
+    gain.gain.cancelScheduledValues(at);
+    gain.gain.setValueAtTime(0.001, at);
+    gain.gain.exponentialRampToValueAtTime(0.35 * level, at + barSec * 0.7);
+    gain.gain.linearRampToValueAtTime(0.45 * level, at + barSec);
+  }
+
+  /** The wave breaking on the downbeat: a last push, then it falls back over ~3 s. */
+  private waveBreak(at: number, level: number): void {
+    const { filter, gain } = this.wave;
+    gain.gain.setTargetAtTime(0.5 * level, at, 0.03);
+    gain.gain.setTargetAtTime(0, at + 0.25, 1.0);
+    filter.frequency.setTargetAtTime(300, at + 0.25, 1.2);
+  }
+
+  /** The breath before the tonic: everything (the patch included, it is on the master) dips, then comes back on the downbeat. */
+  private breath(at: number, sec: number): void {
+    const m = this.params.master;
+    this.master.gain.setTargetAtTime(m * 0.08, at - sec, 0.02);
+    this.master.gain.setTargetAtTime(m, at, 0.04);
+  }
+
+  private setPad(pitches: number[], level: number, at: number, fast = false): void {
     const { oscs, gains, level: lv } = this.pad;
-    lv.gain.setTargetAtTime(level * this.params.padLevel * 0.25, at, 0.6);
+    lv.gain.setTargetAtTime(level * this.params.padLevel * 0.25, at, fast ? 0.12 : 0.6);
     for (let i = 0; i < oscs.length; i++) {
       const p = pitches[i];
       if (p == null) {
@@ -512,42 +1145,50 @@ export class SoundEngine {
     const ctx = this.ctx;
     const sig = this.sig;
     const key = this.key;
-    if (!ctx || !sig || !key || !this.me || ctx.state !== "running" || !this.epochMs) return;
+    // nobody here yet (a session before LIVE gives an empty id): nothing to plan, nothing to schedule
+    if (!ctx || !sig || !key || !this.me || !this.myId || ctx.state !== "running" || !this.epochMs) return;
+    if (this.afterlife || this.params.dead) return; // the afterlife rings on its own; nothing new is planned
     const p = this.params;
     const now = ctx.currentTime;
-    const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
+    const barSec = this.musicBarSec();
+    // the grid: the patch's clock carries the phase when it plays (anchor), else the epoch on the wall clock
+    const nc = p.instrument !== "webaudio";
+    const epoch = nc && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
+    const { bar, start } = barClock(epoch, Date.now(), now, barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
+    if (this.planned > bar + 1) {
+      // the grid moved back (the patch's clock took over from the epoch grid, or the other way round): the bars
+      // are numbered anew — plan from here, forget the plans of the old numbering
+      this.planned = bar;
+      this.plans.clear();
+    }
     const next = this.planned + 1;
-    const nextStart = start + (next - bar) * p.barSec;
+    const nextStart = start + (next - bar) * barSec;
     if (nextStart > now + LOOKAHEAD) return;
     this.planned = next;
 
-    const lock = lockOf(sig);
-    this.lockedBars = lock >= 0.6 ? this.lockedBars + 1 : 0;
-    this.askMagenta(next, sig, lock);
-    if (this.phrase && next - this.phrase.from >= CYCLES_PER_PHRASE + 2) this.phrase = null;
-
-    const plan = planBar({
-      bar: next,
-      sig,
-      key,
-      me: this.me.motif,
-      others: this.motifs,
-      closeness: this.closeness,
-      phrase: this.phrase && next - this.phrase.from < CYCLES_PER_PHRASE ? this.phrase : null,
-      params: { barSec: p.barSec, speedMax: p.speedMax, bassFrom: 0.25 },
-    });
-    this.lastPlan = plan;
+    const plan = this.planFor(next);
+    if (!plan) return;
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * p.barSec + human(), n.len * p.barSec, 1, this.me.motif.timbre, 0);
+    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
-      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * p.barSec + human() * 0.5, n.len * p.barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
+      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * barSec + human() * 0.5, n.len * barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
     }
-    for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * p.barSec, b.level);
-    this.setPad(plan.pad.pitches, plan.pad.level, nextStart);
+    // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a
+    // breath, then the tonic breaks — the contrast the hall alone could not give in a sound already wet
+    if (plan.arrival === "dominant" && p.arrivalWave > 0) this.waveSwell(nextStart, barSec, p.arrivalWave);
+    if (plan.arrival === "tonic") {
+      if (p.arrivalWave > 0) this.waveBreak(nextStart, p.arrivalWave);
+      if (p.arrivalGapMs > 0) this.breath(nextStart, p.arrivalGapMs / 1000);
+    }
+    // with the patch ALONE as the harmony its root and chord are its (a static machine, our gates): silent here;
+    // "both" (the artist: 병행) keeps the Web Audio bass and pad beside the patch
+    const alone = p.instrument === "noisecraft";
+    if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level);
+    this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level, nextStart, plan.arrival === "tonic");
   }
 }

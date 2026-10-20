@@ -1,0 +1,2624 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>NoiseCraft Individual Audio Workspace</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/public/style.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #111;
+        color: #eee;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .header {
+        padding: 12px 16px;
+        background: #1a1a1a;
+        border-bottom: 1px solid #333;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      button {
+        background: #333;
+        color: #fff;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      button:hover {
+        background: #3a3a3a;
+      }
+      button.danger {
+        background: #5a1a1a;
+      }
+      button.danger:hover {
+        background: #6a2a2a;
+      }
+      .status {
+        opacity: 0.8;
+        font-size: 12px;
+        color: #aaa;
+        margin-left: auto;
+      }
+      .main-content {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+      .left-panel {
+        width: 360px;
+        background: #1a1a1a;
+        border-right: 1px solid #333;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .left-panel-tabs {
+        display: flex;
+        background: #222;
+        border-bottom: 1px solid #333;
+      }
+      .tab {
+        flex: 1;
+        padding: 10px;
+        text-align: center;
+        cursor: pointer;
+        font-size: 12px;
+        border-right: 1px solid #333;
+        background: #222;
+        color: #aaa;
+      }
+      .tab.active {
+        background: #1a1a1a;
+        color: #fff;
+      }
+      .tab-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        display: none;
+        flex-direction: column;
+        gap: 16px;
+        position: relative;
+        z-index: 1;
+      }
+      .tab-content.active {
+        display: flex;
+      }
+      .panel-section {
+        background: #222;
+        padding: 12px;
+        border-radius: 6px;
+      }
+      .panel-section h3 {
+        font-size: 13px;
+        margin-bottom: 12px;
+        color: #fff;
+      }
+      .param-row {
+        display: flex;
+        justify-content: space-between;
+        margin: 6px 0;
+        font-size: 11px;
+      }
+      .param-label {
+        color: #aaa;
+      }
+      .param-value {
+        color: #fff;
+        font-weight: 500;
+        font-family: "Courier New", monospace;
+      }
+      .right-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #noisecraft-container {
+        flex: 1;
+        overflow: hidden;
+        min-height: 0; /* Allow flex item to shrink below content size */
+        position: relative;
+        background: #111;
+      }
+      #noisecraft-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: block; /* Ensure iframe is displayed */
+        min-height: 400px; /* Minimum visible height */
+      }
+      .slider-group {
+        margin: 12px 0;
+      }
+      .slider-label {
+        font-size: 11px;
+        color: #aaa;
+        margin-bottom: 6px;
+        display: flex;
+        justify-content: space-between;
+      }
+      input[type="range"] {
+        width: 100%;
+        accent-color: #4a9eff;
+      }
+      input[type="number"],
+      input[type="text"],
+      select {
+        background: #2a2a2a;
+        color: #fff;
+        border: 1px solid #444;
+        padding: 4px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        pointer-events: auto;
+        cursor: text;
+        border: 1px solid #444;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        width: 100%;
+      }
+      select {
+        cursor: pointer;
+      }
+      .info-text {
+        font-size: 10px;
+        color: #666;
+        line-height: 1.4;
+        margin-top: 8px;
+      }
+      .mapping-item {
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 12px;
+        position: relative;
+        z-index: 2;
+        pointer-events: auto;
+      }
+      .mapping-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .mapping-header h4 {
+        font-size: 12px;
+        color: #fff;
+      }
+      .mapping-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .control-row {
+        display: grid;
+        grid-template-columns: 80px 1fr;
+        gap: 8px;
+        align-items: center;
+        font-size: 11px;
+      }
+      .control-label {
+        color: #aaa;
+        text-align: right;
+      }
+      .stream-input-group {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .stream-input-group select,
+      .stream-input-group input {
+        flex: 1;
+        pointer-events: auto;
+        cursor: text;
+      }
+      .stream-input-group select {
+        cursor: pointer;
+      }
+      .mapping-controls input,
+      .mapping-controls select {
+        pointer-events: auto;
+        cursor: text;
+        background: #2a2a2a;
+        border: 1px solid #444;
+        color: #fff;
+        padding: 4px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+      }
+      .mapping-controls select {
+        cursor: pointer;
+      }
+      .mapping-controls input:hover,
+      .mapping-controls select:hover {
+        border-color: #555;
+      }
+      .mapping-controls input:focus,
+      .mapping-controls select:focus {
+        outline: none;
+        border-color: #4a8;
+      }
+      .operation-select {
+        width: 80px;
+      }
+      .add-stream-btn {
+        width: 100%;
+        margin-top: 8px;
+        padding: 6px;
+        font-size: 11px;
+      }
+      .remove-btn {
+        padding: 4px 8px;
+        font-size: 10px;
+        background: #5a1a1a;
+      }
+      .range-inputs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+      }
+      .add-mapping-btn {
+        width: 100%;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <button id="btn_start">▶ Start Audio</button>
+      <button id="btn_stop" style="display: none">⏹ Stop</button>
+      <div class="status" id="status">Loading...</div>
+    </div>
+
+    <div class="main-content">
+      <div class="left-panel">
+        <div class="left-panel-tabs">
+          <div class="tab active" data-tab="signals">Signals</div>
+          <div class="tab" data-tab="mappings">Mappings</div>
+        </div>
+
+        <div class="tab-content active" id="signals-tab">
+          <div class="panel-section">
+            <h3>Signal Streams - Particle 0</h3>
+            <div id="signal-info-0">
+              <div class="param-row">
+                <span class="param-label">Attraction:</span>
+                <span class="param-value" id="signal-attraction-0">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Velocity:</span>
+                <span class="param-value" id="signal-velocity-0">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Distance:</span>
+                <span class="param-value" id="signal-distance-0">∞</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Closing Speed:</span>
+                <span class="param-value" id="signal-closing-0">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Is Inner:</span>
+                <span class="param-value" id="signal-inner-0">false</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Is Outer:</span>
+                <span class="param-value" id="signal-outer-0">false</span>
+              </div>
+            </div>
+            <div class="scope-container" style="margin-top: 12px">
+              <canvas
+                id="scope-attraction-0"
+                width="320"
+                height="60"
+                style="
+                  width: 100%;
+                  height: 60px;
+                  background: #111;
+                  border: 1px solid #333;
+                  display: block;
+                  margin-bottom: 4px;
+                "
+              ></canvas>
+              <canvas
+                id="scope-velocity-0"
+                width="320"
+                height="60"
+                style="
+                  width: 100%;
+                  height: 60px;
+                  background: #111;
+                  border: 1px solid #333;
+                  display: block;
+                "
+              ></canvas>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Signal Streams - Particle 1</h3>
+            <div id="signal-info-1">
+              <div class="param-row">
+                <span class="param-label">Attraction:</span>
+                <span class="param-value" id="signal-attraction-1">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Velocity:</span>
+                <span class="param-value" id="signal-velocity-1">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Distance:</span>
+                <span class="param-value" id="signal-distance-1">∞</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Closing Speed:</span>
+                <span class="param-value" id="signal-closing-1">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Is Inner:</span>
+                <span class="param-value" id="signal-inner-1">false</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Is Outer:</span>
+                <span class="param-value" id="signal-outer-1">false</span>
+              </div>
+            </div>
+            <div class="scope-container" style="margin-top: 12px">
+              <canvas
+                id="scope-attraction-1"
+                width="320"
+                height="60"
+                style="
+                  width: 100%;
+                  height: 60px;
+                  background: #111;
+                  border: 1px solid #333;
+                  display: block;
+                  margin-bottom: 4px;
+                "
+              ></canvas>
+              <canvas
+                id="scope-velocity-1"
+                width="320"
+                height="60"
+                style="
+                  width: 100%;
+                  height: 60px;
+                  background: #111;
+                  border: 1px solid #333;
+                  display: block;
+                "
+              ></canvas>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Signal Streams - Particle 2</h3>
+            <div id="signal-info-2">
+              <div class="param-row">
+                <span class="param-label">Attraction:</span>
+                <span class="param-value" id="signal-attraction-2">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Velocity:</span>
+                <span class="param-value" id="signal-velocity-2">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Distance:</span>
+                <span class="param-value" id="signal-distance-2">∞</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Closing Speed:</span>
+                <span class="param-value" id="signal-closing-2">0.00</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Is Inner:</span>
+                <span class="param-value" id="signal-inner-2">false</span>
+              </div>
+              <div class="param-row">
+                <span class="param-label">Is Outer:</span>
+                <span class="param-value" id="signal-outer-2">false</span>
+              </div>
+            </div>
+            <div class="scope-container" style="margin-top: 12px">
+              <canvas
+                id="scope-attraction-2"
+                width="320"
+                height="60"
+                style="
+                  width: 100%;
+                  height: 60px;
+                  background: #111;
+                  border: 1px solid #333;
+                  display: block;
+                  margin-bottom: 4px;
+                "
+              ></canvas>
+              <canvas
+                id="scope-velocity-2"
+                width="320"
+                height="60"
+                style="
+                  width: 100%;
+                  height: 60px;
+                  background: #111;
+                  border: 1px solid #333;
+                  display: block;
+                "
+              ></canvas>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Interaction Radii</h3>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Inner (Distinct)</span>
+                <span class="param-value" id="inner-radius-value">80</span>
+              </div>
+              <input
+                type="range"
+                id="inner-radius"
+                min="40"
+                max="120"
+                value="80"
+              />
+            </div>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Outer (React)</span>
+                <span class="param-value" id="outer-radius-value">150</span>
+              </div>
+              <input
+                type="range"
+                id="outer-radius"
+                min="100"
+                max="250"
+                value="150"
+              />
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Gravitational Force</h3>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>G (Strength)</span>
+                <span class="param-value" id="g-value">100</span>
+              </div>
+              <input
+                type="range"
+                id="g-constant"
+                min="10"
+                max="500"
+                value="100"
+              />
+            </div>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Min Distance</span>
+                <span class="param-value" id="min-dist-value">10</span>
+              </div>
+              <input
+                type="range"
+                id="min-distance"
+                min="1"
+                max="50"
+                value="10"
+              />
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Particle Visualization (Global View)</h3>
+            <canvas
+              id="particle-canvas"
+              width="320"
+              height="320"
+              style="
+                width: 100%;
+                height: 320px;
+                background: #0a0a0a;
+                border: 1px solid #333;
+                display: block;
+                cursor: default;
+              "
+            ></canvas>
+            <div style="margin-top: 8px; font-size: 11px; color: #aaa">
+              <div>Particles: <span id="particle-count">3</span></div>
+              <div>Fixed view centered on center of mass</div>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Individual View (Moon 1)</h3>
+            <canvas
+              id="individual-canvas"
+              width="320"
+              height="320"
+              style="
+                width: 100%;
+                height: 320px;
+                background: #0a0a0a;
+                border: 1px solid #333;
+                display: block;
+                cursor: crosshair;
+              "
+            ></canvas>
+            <div style="margin-top: 8px; font-size: 11px; color: #aaa">
+              <div>Viewing from: <span id="viewed-particle">P1</span></div>
+              <div>Drag from center to control velocity</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="mappings-tab">
+          <div class="panel-section">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 12px;
+              "
+            >
+              <h3 style="margin: 0">Stream → Node Mappings</h3>
+              <div style="display: flex; gap: 8px">
+                <button
+                  id="export-mappings-btn"
+                  style="padding: 6px 12px; font-size: 11px"
+                >
+                  📥 Export
+                </button>
+                <label
+                  for="import-mappings-file"
+                  style="
+                    padding: 6px 12px;
+                    font-size: 11px;
+                    background: #333;
+                    color: #fff;
+                    border: 1px solid #444;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    display: inline-block;
+                  "
+                >
+                  📤 Import
+                  <input
+                    type="file"
+                    id="import-mappings-file"
+                    accept=".json"
+                    style="display: none"
+                  />
+                </label>
+              </div>
+            </div>
+            <div id="mappings-container"></div>
+            <button class="add-mapping-btn" id="add-mapping-btn">
+              + Add Mapping
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-panel">
+        <div id="noisecraft-container">
+          <iframe
+            id="noisecraft-iframe"
+            src="/public/embedded.html?src=/public/examples/indiv_audio_map_v2.ncft"
+          ></iframe>
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      // Import particle system module
+      // Import particle system module
+      import { VirtualParticle, SignalGenerator, ParticleSystem } from '/public/particle-system.js';
+      import { SequencerLogic, convertNotePatternToNoiseCraft, updateMonoSeqSequencer } from '/public/sequencer-logic.js';
+      import { generateHarmoniousPattern, generateHarmonizingPattern, generateChordPatterns, SCALES, CHORD_TONES, getRandomScale } from '/public/music-theory.js';
+      // Import new modular components
+      import { createPatternAssignmentManager } from '/public/pattern-assignment.js';
+      import { createMappingStorage } from '/public/mapping-storage.js';
+
+      // Prevent browser back navigation (swipe gestures) from reloading the page
+      // This fixes the issue where touchpad swipe-left gestures cause page reloads
+      (function preventBackNavigation() {
+        // Push a state to the history stack so we can intercept back navigation
+        history.pushState(null, null, location.href);
+
+        // Listen for popstate events (triggered by back/forward navigation or swipe gestures)
+        window.addEventListener('popstate', function(event) {
+          console.log('[Navigation] Back navigation detected, preventing reload...');
+          // Push the state back to prevent navigation
+          history.pushState(null, null, location.href);
+          // Optionally show a message to the user
+          const statusEl = document.getElementById('status');
+          if (statusEl) {
+            const originalText = statusEl.textContent;
+            statusEl.textContent = 'Back navigation prevented (use browser controls instead)';
+            statusEl.style.color = '#ffa';
+            setTimeout(() => {
+              statusEl.textContent = originalText;
+              statusEl.style.color = '';
+            }, 2000);
+          }
+        });
+
+        // Also prevent swipe gestures on touch devices
+        let touchStartX = 0;
+        let touchStartY = 0;
+        document.addEventListener('touchstart', function(e) {
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        document.addEventListener('touchmove', function(e) {
+          if (!touchStartX || !touchStartY) return;
+
+          const touchEndX = e.touches[0].clientX;
+          const touchEndY = e.touches[0].clientY;
+          const deltaX = touchEndX - touchStartX;
+          const deltaY = touchEndY - touchStartY;
+
+          // If horizontal swipe is much larger than vertical, prevent it
+          if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+            // This is a horizontal swipe - prevent default browser behavior
+            e.preventDefault();
+          }
+        }, { passive: false });
+
+        console.log('[Navigation] Back navigation prevention enabled');
+      })();
+
+      // Wrap main code in try-catch to catch initialization errors
+      try {
+
+      // Available streams
+      const AVAILABLE_STREAMS = [
+        "attraction",
+        "velocity",
+        "distance",
+        "closingSpeed",
+        "isInner",
+        "isOuter",
+      ];
+
+      // Interpolation modes
+      const INTERPOLATION_MODES = ["linear", "logarithmic", "exponential"];
+
+      // Mathematical operations
+      const OPERATIONS = [
+        { value: "none", label: "None" },
+        { value: "add", label: "Add (+)" },
+        { value: "subtract", label: "Subtract (-)" },
+        { value: "multiply", label: "Multiply (×)" },
+        { value: "divide", label: "Divide (÷)" },
+        { value: "min", label: "Min" },
+        { value: "max", label: "Max" },
+        { value: "average", label: "Average" },
+      ];
+
+      // Stream-to-Node Mapping Manager
+      class StreamNodeMapper {
+        constructor(storageKey = "noisecraftStreamMappings") {
+          this.storageKey = storageKey;
+          this.mappings = [];
+          this.loadMappings();
+        }
+
+        async loadMappings() {
+          // First try localStorage
+          const stored = localStorage.getItem(this.storageKey);
+          if (stored) {
+            try {
+              this.mappings = JSON.parse(stored);
+              if (this.mappings.length > 0) {
+                console.log(`[MappingStorage] Loaded ${this.mappings.length} mappings from localStorage`);
+                return;
+              }
+            } catch (e) {
+              console.warn("Failed to load mappings from storage", e);
+              this.mappings = [];
+            }
+          }
+
+          // If no mappings in localStorage, load default individual workspace mappings file
+          if (this.mappings.length === 0) {
+            try {
+              const response = await fetch('/public/individual-workspace-mappings.json');
+              if (response.ok) {
+                const defaultMappings = await response.json();
+                if (Array.isArray(defaultMappings) && defaultMappings.length > 0) {
+                  this.mappings = defaultMappings;
+                  this.saveToStorage();
+                  console.log(`[MappingStorage] Loaded ${this.mappings.length} default mappings from individual-workspace-mappings.json`);
+                }
+              }
+            } catch (e) {
+              console.warn("Failed to load default mappings file:", e);
+            }
+          }
+        }
+
+        loadFromStorage() {
+          // Deprecated: use loadMappings() instead
+          return this.loadMappings();
+        }
+
+        saveToStorage() {
+          localStorage.setItem(
+            this.storageKey,
+            JSON.stringify(this.mappings)
+          );
+        }
+
+        addMapping(mapping) {
+          const id = Date.now().toString();
+          this.mappings.push({ ...mapping, id });
+          this.saveToStorage();
+          return id;
+        }
+
+        removeMapping(id) {
+          this.mappings = this.mappings.filter((m) => m.id !== id);
+          this.saveToStorage();
+        }
+
+        updateMapping(id, updates) {
+          const index = this.mappings.findIndex((m) => m.id === id);
+          if (index !== -1) {
+            this.mappings[index] = { ...this.mappings[index], ...updates };
+            this.saveToStorage();
+          }
+        }
+
+        // Apply interpolation
+        interpolate(value, mode, inputMin, inputMax, outputMin, outputMax) {
+          // Clamp and normalize
+          const normalized = Math.max(
+            0,
+            Math.min(1, (value - inputMin) / (inputMax - inputMin || 1))
+          );
+          let transformed = normalized;
+
+          if (mode === "logarithmic") {
+            transformed = Math.log(normalized * 9 + 1) / Math.log(10);
+          } else if (mode === "exponential") {
+            transformed = (Math.pow(10, normalized) - 1) / 9;
+          }
+
+          return outputMin + transformed * (outputMax - outputMin);
+        }
+
+        // Compute final value for a mapping
+        computeMappingValue(mapping, signals) {
+          const streamValues = mapping.streams.map((streamConfig) => {
+            const streamValue = signals[streamConfig.stream];
+            if (streamValue === undefined || streamValue === null) return 0;
+
+            return this.interpolate(
+              streamValue,
+              streamConfig.interpolation || "linear",
+              streamConfig.inputMin || 0,
+              streamConfig.inputMax || 1,
+              streamConfig.outputMin || 0,
+              streamConfig.outputMax || 1
+            );
+          });
+
+          // Apply mathematical operations
+          if (streamValues.length === 0) return null;
+          if (streamValues.length === 1) return streamValues[0];
+
+          const op = mapping.operation || "none";
+
+          // If operation is "none", use only the first stream
+          if (op === "none") {
+            return streamValues[0];
+          }
+
+          // Apply operation to all streams
+          let result = streamValues[0];
+          for (let i = 1; i < streamValues.length; i++) {
+            const nextValue = streamValues[i];
+
+            if (op === "add") {
+              result += nextValue;
+            } else if (op === "subtract") {
+              result -= nextValue;
+            } else if (op === "multiply") {
+              result *= nextValue;
+            } else if (op === "divide") {
+              // Avoid division by zero
+              result = nextValue !== 0 ? result / nextValue : result;
+            } else if (op === "min") {
+              result = Math.min(result, nextValue);
+            } else if (op === "max") {
+              result = Math.max(result, nextValue);
+            } else if (op === "average") {
+              // Calculate running average correctly
+              result = (result * i + nextValue) / (i + 1);
+            }
+          }
+
+          // Debug logging for multiple stream operations
+          if (streamValues.length > 1 && op !== "none") {
+            console.log(`[StreamMapper] Operation: ${op}, Streams: ${streamValues.length}, Result: ${result.toFixed(4)}`);
+          }
+
+          return result;
+        }
+
+        // Generate all parameter updates from mappings
+        generateParams(signals) {
+          const params = [];
+          for (const mapping of this.mappings) {
+            if (!mapping.enabled) continue;
+
+            const value = this.computeMappingValue(mapping, signals);
+            if (value === null || value === undefined) continue;
+
+            params.push({
+              nodeId: String(mapping.nodeId),
+              paramName: mapping.paramName || "value",
+              value: Number(value),
+            });
+          }
+          return params;
+        }
+      }
+
+      // Create particle system (standalone module)
+      // Note: innerRadius/outerRadius are ONLY for signal generation (sound effects)
+      // Gravity works at ALL distances regardless of these radii
+      const particleSystem = new ParticleSystem({
+        innerRadius: 80,    // Distinct range: audio + visual feedback
+        outerRadius: 150,   // Outer range: audio cue only (orientation + distance)
+        G: 500,             // Realistic gravitational constant (reduced from 10000)
+        minDistance: 3,     // Minimum distance for numerical stability
+      });
+
+      // Current scale for music theory - MUST be defined before use
+      // Randomize scale selection for more variety in starting patterns
+      const availableScales = Object.keys(SCALES);
+      const randomScaleIndex = Math.floor(Math.random() * availableScales.length);
+      let currentScale = availableScales[randomScaleIndex];
+      console.log(`[Music Theory] Using scale: ${currentScale} (randomized for variety)`);
+
+      // Expose music theory functions globally for particle system
+      window.generateHarmoniousPattern = generateHarmoniousPattern;
+      window.generateHarmonizingPattern = generateHarmonizingPattern;
+
+      // Create a stable 3-body system: One central particle with 2 orbiting moons
+      // Using more realistic mass ratios so all particles stay visible
+      const centerX = 575;
+      const centerY = 525;
+
+      // Central particle - reduced mass so it moves more visibly
+      const centralMass = 100; // Reduced from 500 - allows visible interaction
+      const particle0 = particleSystem.addParticle(0, centerX, centerY, 0, centralMass);
+
+      // Generate initial harmonious triad chord
+      // Use C Major triad as default (most harmonious: C, E, G = notes 0, 4, 7)
+      // This creates a perfect major triad that sounds harmonious
+      const defaultTriad = 'C Major'; // [0, 4, 7] = C, E, G
+      const chordTones = CHORD_TONES[defaultTriad]; // [0, 4, 7]
+
+      console.log('Generating initial triad:', defaultTriad, 'with tones:', chordTones);
+
+      // Generate patterns directly for each chord tone to ensure proper triad
+      const createPatternFromNote = (noteIndex) => {
+        const pattern = new Array(12).fill(0);
+        pattern[noteIndex % 12] = 1;
+        return pattern;
+      };
+
+      particle0.sequencerPattern = createPatternFromNote(chordTones[0]); // C (root)
+
+      // Two "moon" particles with similar mass to central for visible interaction
+      const moonMass = 50; // Closer to central mass ratio
+      const moonDistance = 100; // Increased distance for better visibility
+      const particle1 = particleSystem.addParticle(1, centerX + moonDistance, centerY, 4, moonMass);
+      particle1.sequencerPattern = createPatternFromNote(chordTones[1]); // E (third)
+
+      const particle2 = particleSystem.addParticle(2, centerX, centerY - moonDistance, 7, moonMass);
+      particle2.sequencerPattern = createPatternFromNote(chordTones[2]); // G (fifth)
+
+      // Verify the triad was assigned correctly
+      const assignedNotes = {
+        particle0: particle0.sequencerPattern.findIndex(v => v === 1),
+        particle1: particle1.sequencerPattern.findIndex(v => v === 1),
+        particle2: particle2.sequencerPattern.findIndex(v => v === 1),
+      };
+      console.log('✓ Initial triad assigned:', assignedNotes);
+      console.log('  Expected:', chordTones);
+      console.log('  Match:',
+        assignedNotes.particle0 === chordTones[0] &&
+        assignedNotes.particle1 === chordTones[1] &&
+        assignedNotes.particle2 === chordTones[2] ? 'YES ✓' : 'NO ✗'
+      );
+
+      // Set velocities for stable orbital motion
+      // Central particle starts with small velocity (will move due to lighter mass)
+      particle0.velocity = { x: 0, y: 0 };
+
+      // Calculate orbital velocities for moons around central particle
+      // For circular orbit: v = sqrt(G*M_central/r)
+      // Using 70% of circular velocity for stable elliptical orbits (all particles visible)
+      const G = 500;
+      const centralMassForOrbit = centralMass;
+
+      // Moon 1: Orbital velocity (counter-clockwise)
+      const r1 = moonDistance;
+      const v1 = Math.sqrt(G * centralMassForOrbit / r1) * 0.7;
+      particle1.velocity = { x: 0, y: v1 }; // Tangential to orbit
+
+      // Moon 2: Orbital velocity (counter-clockwise, perpendicular to moon 1)
+      const r2 = moonDistance;
+      const v2 = Math.sqrt(G * centralMassForOrbit / r2) * 0.7;
+      particle2.velocity = { x: -v2, y: 0 }; // Tangential to orbit
+
+      // Get particles and signal generator for backward compatibility
+      const particles = particleSystem.getParticles();
+      const signalGenerator = particleSystem.signalGenerator;
+
+      // Initialize sequencer logic
+      const sequencerLogic = new SequencerLogic();
+
+      // Sequencer node IDs from indiv_audio_map_v2.ncft
+      const SEQUENCER_NODES = {
+        individual: {
+          bass: "211",      // MonoSeq "bass"
+          baritone: "212",  // MonoSeq "baritone"
+          tenor: "213"      // MonoSeq "tenor"
+        }
+      };
+
+      // Track previous inner particle state to detect changes
+      let previousInnerParticleIds = new Set();
+      let previousSequencerPattern = null;
+
+      // Debug: Verify particles are created and log note profiles
+      console.log(`Particle system initialized with ${particles.length} particles:`, particles);
+      console.log('Particle positions:', particles.map(p => ({ id: p.id, x: p.position.x, y: p.position.y })));
+      console.log('Particle note profiles:', {
+        0: particle0.sequencerPattern,
+        1: particle1.sequencerPattern,
+        2: particle2.sequencerPattern,
+        activeNotes: {
+          0: particle0.getActiveNoteIndex(),
+          1: particle1.getActiveNoteIndex(),
+          2: particle2.getActiveNoteIndex()
+        }
+      });
+
+      // Verify particle system is working
+      if (particles.length === 0) {
+        console.error("CRITICAL: No particles were created!");
+      } else {
+        console.log("✓ Particles initialized successfully, starting animation loop");
+      }
+
+      // Expose particle system globally for integration
+      window.particleSystem = particleSystem;
+      window.sequencerLogic = sequencerLogic;
+
+      // Audio localization helper - calculates panning/gain values based on particle proximity
+      // These values can be mapped to NoiseCraft nodes via stream mapping UI
+      window.audioLocalization = {
+        calculateLocalization: (selfParticle, otherParticles, config) => {
+          const results = {};
+
+          otherParticles.forEach(other => {
+            if (other.id === selfParticle.id) return;
+
+            const dx = other.position.x - selfParticle.position.x;
+            const dy = other.position.y - selfParticle.position.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            const isInDistinct = distance <= config.innerRadius;
+            const isInOuter = distance <= config.outerRadius && !isInDistinct;
+
+            if (isInDistinct || isInOuter) {
+              // Panning: -1 (left) to +1 (right) based on relative X position
+              const normalizedX = dx / config.outerRadius;
+              const pan = Math.max(-1, Math.min(1, normalizedX * 1.5));
+
+              // Gain: Distance-based attenuation
+              const normalizedDistance = distance / config.outerRadius;
+              const gain = Math.max(0.1, 1 - normalizedDistance * normalizedDistance);
+
+              // Calculate closing speed (velocity component towards self)
+              const relVx = other.velocity.x - selfParticle.velocity.x;
+              const relVy = other.velocity.y - selfParticle.velocity.y;
+              const dirX = distance > 0 ? dx / distance : 0;
+              const dirY = distance > 0 ? dy / distance : 0;
+              const closingSpeed = Math.max(0, relVx * dirX + relVy * dirY);
+
+              results[other.id] = {
+                pan,
+                gain: isInDistinct ? gain : gain * 0.5, // Lower gain in outer range
+                distance,
+                closingSpeed: Math.min(closingSpeed / 320, 1), // Normalized
+                isInDistinct: isInDistinct ? 1 : 0, // 1 or 0
+                isInOuter: isInOuter ? 1 : 0, // 1 or 0
+                isInOuter,
+              };
+            }
+          });
+
+          return results;
+        }
+      };
+
+      // Use separate storage key for individual workspace
+      const streamMapper = new StreamNodeMapper('noisecraftIndividualStreamMappings');
+
+      // Node Browser - Load nodes from individual audio map file
+      let availableNodes = [];
+      async function loadProjectNodes() {
+        try {
+          const response = await fetch(
+            "/examples/indiv_audio_map_v2.ncft"
+          );
+          const projectData = await response.json();
+          availableNodes = Object.entries(projectData.nodes || {}).map(
+            ([id, node]) => ({
+              id,
+              type: node.type || "Unknown",
+              name: node.name || node.type || "Unnamed",
+              params: node.params || {},
+            })
+          );
+          // Filter to only Const and Knob types (single-value nodes)
+          availableNodes = availableNodes.filter(
+            (n) => n.type === "Knob" || n.type === "Const"
+          );
+          populateNodeSelectors();
+        } catch (e) {
+          console.warn("Failed to load project nodes:", e);
+        }
+      }
+
+      function populateNodeSelectors() {
+        document.querySelectorAll(".mapping-node-select").forEach((select) => {
+          const currentValue = select
+            .closest(".mapping-item")
+            ?.querySelector(".mapping-node-id")?.value;
+          const currentOptions = Array.from(select.options).map((o) => o.value);
+
+          // Only populate if not already populated
+          if (currentOptions.length === 1 && currentOptions[0] === "") {
+            availableNodes.forEach((node) => {
+              const option = document.createElement("option");
+              option.value = node.id;
+              option.textContent = `${node.id}: ${node.name} (${node.type})`;
+              if (currentValue === node.id) option.selected = true;
+              select.appendChild(option);
+            });
+          }
+        });
+      }
+
+      // UI Elements
+      const statusEl = document.getElementById("status");
+      const btnStart = document.getElementById("btn_start");
+      const btnStop = document.getElementById("btn_stop");
+      const innerRadiusSlider = document.getElementById("inner-radius");
+      const outerRadiusSlider = document.getElementById("outer-radius");
+      const innerRadiusValue = document.getElementById("inner-radius-value");
+      const outerRadiusValue = document.getElementById("outer-radius-value");
+      const gSlider = document.getElementById("g-constant");
+      const gValue = document.getElementById("g-value");
+      const minDistSlider = document.getElementById("min-distance");
+      const minDistValue = document.getElementById("min-dist-value");
+
+      // Tab switching
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const targetTab = tab.dataset.tab;
+          document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+          document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
+          tab.classList.add("active");
+          document.getElementById(`${targetTab}-tab`).classList.add("active");
+        });
+      });
+
+      // Radius controls
+      innerRadiusSlider.addEventListener("input", (e) => {
+        const value = parseInt(e.target.value);
+        signalGenerator.innerRadius = value;
+        innerRadiusValue.textContent = value;
+      });
+
+      outerRadiusSlider.addEventListener("input", (e) => {
+        const value = parseInt(e.target.value);
+        signalGenerator.outerRadius = value;
+        outerRadiusValue.textContent = value;
+      });
+
+      gSlider.addEventListener("input", (e) => {
+        const value = parseInt(e.target.value);
+        signalGenerator.G = value;
+        gValue.textContent = value;
+      });
+
+      minDistSlider.addEventListener("input", (e) => {
+        const value = parseInt(e.target.value);
+        signalGenerator.minDistance = value;
+        minDistValue.textContent = value;
+      });
+
+      // Create mapping UI
+      function createMappingUI(mapping = null) {
+        const mappingId = mapping?.id || `mapping-${Date.now()}`;
+        const mappingDiv = document.createElement("div");
+        mappingDiv.className = "mapping-item";
+        mappingDiv.dataset.mappingId = mappingId;
+
+        const streams = mapping?.streams || [{ stream: "attraction", interpolation: "linear", inputMin: 0, inputMax: 1, outputMin: 0, outputMax: 1 }];
+
+        mappingDiv.innerHTML = `
+          <div class="mapping-header">
+            <h4>Node ${mapping?.nodeId || ""}</h4>
+            <div>
+              <input type="checkbox" ${mapping?.enabled !== false ? "checked" : ""} class="mapping-enabled" />
+              <button class="remove-btn danger" onclick="removeMapping('${mappingId}')">Remove</button>
+            </div>
+          </div>
+          <div class="mapping-controls">
+            <div class="control-row">
+              <span class="control-label">Node:</span>
+              <div style="display: flex; gap: 4px;">
+                <select class="mapping-node-select" style="flex: 1;">
+                  <option value="">-- Select Node --</option>
+                </select>
+                <input type="text" class="mapping-node-id" value="${mapping?.nodeId || ""}" placeholder="ID" style="width: 60px; font-size: 11px;" />
+                <button type="button" class="browse-node-btn" onclick="browseNodes('${mappingId}')" style="padding: 4px 8px; font-size: 10px;">Browse</button>
+              </div>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Param:</span>
+              <input type="text" class="mapping-param-name" value="${mapping?.paramName || "value"}" placeholder="value" />
+            </div>
+            <div class="control-row">
+              <span class="control-label">Operation:</span>
+              <select class="mapping-operation operation-select">
+                ${OPERATIONS.map(op => `<option value="${op.value}" ${mapping?.operation === op.value ? "selected" : ""}>${op.label}</option>`).join("")}
+              </select>
+            </div>
+            <div class="stream-inputs" data-streams-container>
+              ${streams.map((stream, idx) => `
+                <div class="stream-input-group" style="margin-bottom: 8px;">
+                  <select class="stream-select">
+                    ${AVAILABLE_STREAMS.map(s => `<option value="${s}" ${stream.stream === s ? "selected" : ""}>${s}</option>`).join("")}
+                  </select>
+                  <select class="stream-interpolation">
+                    ${INTERPOLATION_MODES.map(m => `<option value="${m}" ${stream.interpolation === m ? "selected" : ""}>${m}</option>`).join("")}
+                  </select>
+                  <div class="range-inputs">
+                    <input type="number" class="stream-input-min" placeholder="in min" step="0.01" value="${stream.inputMin || 0}" />
+                    <input type="number" class="stream-input-max" placeholder="in max" step="0.01" value="${stream.inputMax || 1}" />
+                  </div>
+                  <div class="range-inputs">
+                    <input type="number" class="stream-output-min" placeholder="out min" step="0.01" value="${stream.outputMin || 0}" />
+                    <input type="number" class="stream-output-max" placeholder="out max" step="0.01" value="${stream.outputMax || 1}" />
+                  </div>
+                  ${streams.length > 1 ? `<button class="remove-btn danger" onclick="removeStream(this)">×</button>` : ""}
+                </div>
+              `).join("")}
+            </div>
+            <button class="add-stream-btn" onclick="addStream(this)">+ Add Stream</button>
+          </div>
+        `;
+
+        return mappingDiv;
+      }
+
+      window.removeMapping = function(id) {
+        streamMapper.removeMapping(id);
+        document.querySelector(`[data-mapping-id="${id}"]`)?.remove();
+      };
+
+      window.addStream = function(btn) {
+        const container = btn.previousElementSibling;
+        const streamDiv = document.createElement("div");
+        streamDiv.className = "stream-input-group";
+        streamDiv.style.marginBottom = "8px";
+        streamDiv.innerHTML = `
+          <select class="stream-select">
+            ${AVAILABLE_STREAMS.map(s => `<option value="${s}">${s}</option>`).join("")}
+          </select>
+          <select class="stream-interpolation">
+            ${INTERPOLATION_MODES.map(m => `<option value="${m}">${m}</option>`).join("")}
+          </select>
+          <div class="range-inputs">
+            <input type="number" class="stream-input-min" placeholder="in min" step="0.01" value="0" />
+            <input type="number" class="stream-input-max" placeholder="in max" step="0.01" value="1" />
+          </div>
+          <div class="range-inputs">
+            <input type="number" class="stream-output-min" placeholder="out min" step="0.01" value="0" />
+            <input type="number" class="stream-output-max" placeholder="out max" step="0.01" value="1" />
+          </div>
+          <button class="remove-btn danger" onclick="removeStream(this)">×</button>
+        `;
+        container.appendChild(streamDiv);
+      };
+
+      window.removeStream = function(btn) {
+        btn.closest(".stream-input-group")?.remove();
+      };
+
+      window.browseNodes = function(mappingId) {
+        const mappingDiv = document.querySelector(`[data-mapping-id="${mappingId}"]`);
+        if (!mappingDiv) return;
+
+        // Enable browse mode - allows single-click node selection
+        const iframe = document.getElementById("noisecraft-iframe");
+        if (iframe && iframe.contentWindow) {
+          // Set browse mode in iframe
+          iframe.contentWindow.browseModeActive = true;
+          iframe.contentWindow.browseModeMappingId = mappingId;
+
+          // Update UI to show browse mode is active
+          const browseBtn = mappingDiv.querySelector(".browse-node-btn");
+          if (browseBtn) {
+            browseBtn.textContent = "Browse Mode Active - Click a node";
+            browseBtn.style.background = "#4a8";
+            browseBtn.disabled = true;
+          }
+
+          statusEl.textContent = "Browse mode active: Click a node in the NoiseCraft editor to select it";
+
+          // Disable browse mode after 30 seconds or when node is selected
+          setTimeout(() => {
+            if (iframe.contentWindow) {
+              iframe.contentWindow.browseModeActive = false;
+              iframe.contentWindow.browseModeMappingId = null;
+            }
+            if (browseBtn) {
+              browseBtn.textContent = "Browse";
+              browseBtn.style.background = "";
+              browseBtn.disabled = false;
+            }
+            if (statusEl.textContent.includes("Browse mode")) {
+              statusEl.textContent = "Ready. Click Start to begin.";
+            }
+          }, 30000);
+        }
+
+        // Show node browser modal or update selector
+        const nodeSelect = mappingDiv.querySelector(".mapping-node-select");
+        if (nodeSelect && nodeSelect.options.length === 1) {
+          populateNodeSelectors();
+        }
+        nodeSelect?.focus();
+      };
+
+      // Save mapping when changed
+      function attachMappingListeners(mappingDiv) {
+        const mappingId = mappingDiv.dataset.mappingId;
+        const nodeSelect = mappingDiv.querySelector(".mapping-node-select");
+        const nodeIdInput = mappingDiv.querySelector(".mapping-node-id");
+        const paramInput = mappingDiv.querySelector(".mapping-param-name");
+
+        // Node selector dropdown
+        if (nodeSelect) {
+          nodeSelect.addEventListener("change", (e) => {
+            const selectedId = e.target.value;
+            if (selectedId) {
+              nodeIdInput.value = selectedId;
+              const selectedNode = availableNodes.find(
+                (n) => n.id === selectedId
+              );
+              if (selectedNode) {
+                // Auto-set param name if it's a Knob
+                if (selectedNode.type === "Knob" && !paramInput.value) {
+                  paramInput.value = "value";
+                }
+                // Update header
+                const header = mappingDiv.querySelector("h4");
+                if (header) {
+                  header.textContent = `Node ${selectedId}: ${selectedNode.name}`;
+                }
+              }
+              saveMapping(mappingId);
+            }
+          });
+        }
+
+        // Sync text input to dropdown
+        if (nodeIdInput) {
+          nodeIdInput.addEventListener("input", (e) => {
+            const id = e.target.value;
+            if (nodeSelect) {
+              nodeSelect.value = id;
+              const selectedNode = availableNodes.find((n) => n.id === id);
+              if (selectedNode) {
+                const header = mappingDiv.querySelector("h4");
+                if (header) {
+                  header.textContent = `Node ${id}: ${selectedNode.name}`;
+                }
+              }
+            }
+            saveMapping(mappingId);
+          });
+        }
+
+        const inputs = mappingDiv.querySelectorAll("input, select");
+        inputs.forEach((input) => {
+          if (input !== nodeSelect && input !== nodeIdInput) {
+            input.addEventListener("change", () => {
+              saveMapping(mappingId);
+            });
+            input.addEventListener("input", () => {
+              saveMapping(mappingId);
+            });
+          }
+        });
+
+        // Populate node selector
+        if (nodeSelect) {
+          populateNodeSelectors();
+        }
+      }
+
+      function saveMapping(mappingId) {
+        const mappingDiv = document.querySelector(`[data-mapping-id="${mappingId}"]`);
+        if (!mappingDiv) return;
+
+        const nodeId = mappingDiv.querySelector(".mapping-node-id").value;
+        const paramName = mappingDiv.querySelector(".mapping-param-name").value;
+        const operation = mappingDiv.querySelector(".mapping-operation").value;
+        const enabled = mappingDiv.querySelector(".mapping-enabled").checked;
+
+        const streams = Array.from(mappingDiv.querySelectorAll(".stream-input-group")).map((group) => ({
+          stream: group.querySelector(".stream-select").value,
+          interpolation: group.querySelector(".stream-interpolation").value,
+          inputMin: parseFloat(group.querySelector(".stream-input-min").value) || 0,
+          inputMax: parseFloat(group.querySelector(".stream-input-max").value) || 1,
+          outputMin: parseFloat(group.querySelector(".stream-output-min").value) || 0,
+          outputMax: parseFloat(group.querySelector(".stream-output-max").value) || 1,
+        }));
+
+        if (!nodeId) return;
+
+        const existing = streamMapper.mappings.find((m) => m.id === mappingId);
+        if (existing) {
+          streamMapper.updateMapping(mappingId, {
+            nodeId,
+            paramName,
+            operation,
+            enabled,
+            streams,
+          });
+        } else {
+          streamMapper.addMapping({
+            nodeId,
+            paramName,
+            operation,
+            enabled,
+            streams,
+          });
+        }
+      }
+
+      function renderMappings() {
+        const container = document.getElementById("mappings-container");
+        container.innerHTML = "";
+        streamMapper.mappings.forEach((mapping) => {
+          const mappingDiv = createMappingUI(mapping);
+          container.appendChild(mappingDiv);
+          attachMappingListeners(mappingDiv);
+        });
+      }
+
+      document.getElementById("add-mapping-btn").addEventListener("click", () => {
+        const mappingId = streamMapper.addMapping({
+          nodeId: "",
+          paramName: "value",
+          operation: "none",
+          enabled: true,
+          streams: [
+            {
+              stream: "attraction",
+              interpolation: "linear",
+              inputMin: 0,
+              inputMax: 1,
+              outputMin: 0,
+              outputMax: 1,
+            },
+          ],
+        });
+        renderMappings();
+      });
+
+      // Export mappings to JSON file
+      document.getElementById("export-mappings-btn").addEventListener("click", () => {
+        try {
+          const mappings = streamMapper.mappings;
+          if (mappings.length === 0) {
+            alert("저장된 매핑이 없습니다.");
+            return;
+          }
+
+          const dataStr = JSON.stringify(mappings, null, 2);
+          const dataBlob = new Blob([dataStr], { type: "application/json" });
+          const url = URL.createObjectURL(dataBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `noisecraft-mappings-${new Date().toISOString().split('T')[0]}.json`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+
+          console.log(`✓ Exported ${mappings.length} mappings to file`);
+          statusEl.textContent = `Exported ${mappings.length} mappings`;
+        } catch (e) {
+          console.error("Failed to export mappings:", e);
+          alert("매핑 내보내기 실패: " + e.message);
+        }
+      });
+
+      // Import mappings from JSON file
+      document.getElementById("import-mappings-file").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const importedMappings = JSON.parse(event.target.result);
+
+            if (!Array.isArray(importedMappings)) {
+              throw new Error("Invalid file format: expected array of mappings");
+            }
+
+            // Validate mapping structure
+            const validMappings = importedMappings.filter(m => {
+              return m && typeof m === 'object' && m.nodeId !== undefined;
+            });
+
+            if (validMappings.length === 0) {
+              throw new Error("No valid mappings found in file");
+            }
+
+            // Replace current mappings with imported ones
+            streamMapper.mappings = validMappings;
+            streamMapper.saveToStorage();
+            renderMappings();
+
+            console.log(`✓ Imported ${validMappings.length} mappings from file`);
+            statusEl.textContent = `Imported ${validMappings.length} mappings`;
+
+            // Reset file input
+            e.target.value = '';
+          } catch (error) {
+            console.error("Failed to import mappings:", error);
+            alert("매핑 가져오기 실패: " + error.message);
+            e.target.value = '';
+          }
+        };
+
+        reader.onerror = () => {
+          console.error("Failed to read file");
+          alert("파일 읽기 실패");
+          e.target.value = '';
+        };
+
+        reader.readAsText(file);
+      });
+
+      // NoiseCraft integration - declare iframe and ready flag early
+      const iframe = document.getElementById("noisecraft-iframe");
+      if (!iframe) {
+        console.error("[Init] NoiseCraft iframe not found in DOM!");
+      } else {
+        console.log("[Init] NoiseCraft iframe found:", iframe);
+        console.log("[Init] Iframe src:", iframe.src);
+        console.log("[Init] Container dimensions:", {
+          width: iframe.offsetWidth,
+          height: iframe.offsetHeight,
+          parent: iframe.parentElement?.id
+        });
+      }
+      let noisecraftReady = false;
+
+      // Initialize animation variables early
+      let lastTime = Date.now();
+      let animationFrame = null;
+
+      // Initialize throttling variables
+      let lastSignalUpdate = 0;
+      let lastParamUpdate = 0;
+      const SIGNAL_UPDATE_INTERVAL = 16; // ~60fps for signal updates
+      const PARAM_UPDATE_INTERVAL = 33; // ~30fps for parameter updates (less critical)
+      const SEQUENCER_UPDATE_THROTTLE = 100; // Only update sequencers every 100ms max
+
+      // Parameter smoothing to prevent clicks/pops from rapid changes
+      const paramSmoothing = new Map(); // nodeId:paramName -> {current, target, smoothing}
+
+      // Different smoothing factors for different parameters
+      // Volume parameters need VERY slow smoothing to prevent clicks during buffering
+      const VOLUME_SMOOTHING_FACTOR = 0.015; // Extremely slow for volume (prevents clicks during buffering)
+      const REVERB_SMOOTHING_FACTOR = 0.025; // Slow for reverb
+      const DEFAULT_SMOOTHING_FACTOR = 0.1; // Default for other parameters
+
+      function smoothParameter(nodeId, paramName, targetValue) {
+        const key = `${nodeId}:${paramName}`;
+        let current = paramSmoothing.get(key);
+
+        // Initialize if not exists
+        if (!current) {
+          current = {
+            current: targetValue,
+            target: targetValue,
+            lastUpdate: Date.now()
+          };
+          paramSmoothing.set(key, current);
+          return targetValue; // Return immediately on first update
+        }
+
+        // Determine smoothing factor based on parameter type
+        let smoothingFactor = DEFAULT_SMOOTHING_FACTOR;
+        if (nodeId === "183" && paramName === "value") {
+          // Volume knob needs extremely slow smoothing to prevent clicks
+          smoothingFactor = VOLUME_SMOOTHING_FACTOR;
+        } else if (nodeId === "163" && paramName === "value") {
+          // Reverb needs slow smoothing
+          smoothingFactor = REVERB_SMOOTHING_FACTOR;
+        }
+
+        // Update target
+        current.target = targetValue;
+
+        // Calculate time-based smoothing for volume to prevent clicks during buffering
+        if (nodeId === "183" && paramName === "value") {
+          const now = Date.now();
+          const dt = Math.min((now - (current.lastUpdate || now)) / 1000, 0.1); // Cap dt at 100ms
+          current.lastUpdate = now;
+
+          // Use very slow exponential smoothing with time-based adjustment
+          const diff = current.target - current.current;
+
+          // Maximum change rate per second for volume (prevents sudden jumps)
+          const maxChangePerSecond = 0.002; // Very slow change rate
+          const maxChangeThisFrame = maxChangePerSecond * dt;
+
+          if (Math.abs(diff) > maxChangeThisFrame) {
+            // Clamp the change to prevent sudden jumps
+            current.current += diff > 0 ? maxChangeThisFrame : -maxChangeThisFrame;
+          } else {
+            // Use exponential smoothing for smaller changes
+            current.current += diff * smoothingFactor;
+          }
+        } else {
+          // Standard exponential smoothing for other parameters
+          const diff = current.target - current.current;
+          current.current += diff * smoothingFactor;
+        }
+
+        paramSmoothing.set(key, current);
+        return current.current;
+      }
+
+      function sendToNoiseCraft(params) {
+        // Debug logging to identify why params aren't being sent
+        if (!iframe) {
+          console.warn('[sendToNoiseCraft] Iframe not available');
+          return;
+        }
+        if (!noisecraftReady) {
+          console.warn('[sendToNoiseCraft] NoiseCraft not ready (noisecraftReady =', noisecraftReady, ')');
+          return;
+        }
+        if (!params.length) {
+          console.warn('[sendToNoiseCraft] No params to send. Mappings:', streamMapper.mappings.length,
+                       'Enabled:', streamMapper.mappings.filter(m => m.enabled).length);
+          return;
+        }
+
+        // Apply smoothing to all parameters to prevent clicks/pops
+        const smoothedParams = params.map(param => {
+          const smoothedValue = smoothParameter(param.nodeId, param.paramName, param.value);
+          return {
+            ...param,
+            value: smoothedValue
+          };
+        });
+
+        // Debug: Log first few params being sent (throttled to avoid spam)
+        if (!window._lastParamLogTime || Date.now() - window._lastParamLogTime > 2000) {
+          console.log('[sendToNoiseCraft] Sending', smoothedParams.length, 'params:',
+                     smoothedParams.slice(0, 3).map(p => `${p.nodeId}.${p.paramName}=${p.value.toFixed(3)}`));
+          window._lastParamLogTime = Date.now();
+        }
+
+        iframe.contentWindow?.postMessage(
+          { type: "noiseCraft:setParams", params: smoothedParams },
+          "*"
+        );
+      }
+
+      // Scope visualization data for all particles
+      const scopeData = {
+        0: { attraction: [], velocity: [], maxLength: 200 },
+        1: { attraction: [], velocity: [], maxLength: 200 },
+        2: { attraction: [], velocity: [], maxLength: 200 },
+      };
+
+      // Scope visualization functions
+      function drawScope(canvasId, data, label) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const width = canvas.width;
+        const height = canvas.height;
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, 0, width, height);
+
+        if (data.length < 2) return;
+
+        ctx.strokeStyle = "#4a8";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        const stepX = width / (data.length - 1);
+        const midY = height / 2;
+        const scaleY = height * 0.4;
+
+        data.forEach((value, i) => {
+          const x = i * stepX;
+          const y = midY - (value * scaleY);
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+
+        ctx.stroke();
+
+        // Draw center line
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, midY);
+        ctx.lineTo(width, midY);
+        ctx.stroke();
+
+        // Draw label
+        ctx.fillStyle = "#aaa";
+        ctx.font = "10px monospace";
+        ctx.fillText(label, 4, 12);
+      }
+
+      // Update animation loop - optimized with throttling
+      function update(dt) {
+        if (!particleSystem) {
+          console.error("Particle system not initialized!");
+          return;
+        }
+
+        // Update particle system (handles all physics) - always update for smooth physics
+        particleSystem.update(dt);
+
+        // Get fresh particles reference
+        const particles = particleSystem.getParticles();
+
+        if (!particles || particles.length === 0) {
+          console.warn("No particles found in system - particles:", particles);
+          // Draw empty canvas
+          const canvas = document.getElementById("particle-canvas");
+          if (canvas) {
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#0a0a0a";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#aaa";
+            ctx.font = "12px monospace";
+            ctx.fillText("No particles", 10, canvas.height / 2);
+          }
+          return;
+        }
+
+        const now = Date.now();
+
+        // Throttle signal generation and UI updates (60fps max)
+        if (now - lastSignalUpdate >= SIGNAL_UPDATE_INTERVAL) {
+          lastSignalUpdate = now;
+
+          // Generate signals for all particles and update UI
+          particles.forEach((particle) => {
+            const signals = particleSystem.generateSignals(particle.id);
+            if (signals) {
+              const pid = particle.id;
+
+              // Batch DOM updates
+              const attractionEl = document.getElementById(`signal-attraction-${pid}`);
+              const velocityEl = document.getElementById(`signal-velocity-${pid}`);
+              const distanceEl = document.getElementById(`signal-distance-${pid}`);
+              const closingEl = document.getElementById(`signal-closing-${pid}`);
+              const innerEl = document.getElementById(`signal-inner-${pid}`);
+              const outerEl = document.getElementById(`signal-outer-${pid}`);
+
+              if (attractionEl) attractionEl.textContent = signals.attraction.toFixed(3);
+              if (velocityEl) velocityEl.textContent = signals.velocity.toFixed(3);
+              if (distanceEl) {
+                distanceEl.textContent = signals.distance === Infinity
+                  ? "∞"
+                  : Math.round(signals.distance).toString();
+              }
+              if (closingEl) closingEl.textContent = signals.closingSpeed.toFixed(3);
+              if (innerEl) innerEl.textContent = signals.isInner.toString();
+              if (outerEl) outerEl.textContent = signals.isOuter.toString();
+
+              // Update scope data
+              scopeData[pid].attraction.push(signals.attraction);
+              scopeData[pid].velocity.push(signals.velocity);
+
+              if (scopeData[pid].attraction.length > scopeData[pid].maxLength) {
+                scopeData[pid].attraction.shift();
+              }
+              if (scopeData[pid].velocity.length > scopeData[pid].maxLength) {
+                scopeData[pid].velocity.shift();
+              }
+
+              // Draw scopes
+              drawScope(`scope-attraction-${pid}`, scopeData[pid].attraction, `Attraction: ${signals.attraction.toFixed(3)}`);
+              drawScope(`scope-velocity-${pid}`, scopeData[pid].velocity, `Velocity: ${signals.velocity.toFixed(3)}`);
+            }
+          });
+        }
+
+        // Draw particle visualizations (can run at full frame rate for smooth visuals)
+        drawParticles();
+        drawIndividualView();
+
+        // Throttle parameter updates (30fps max - audio params don't need 60fps)
+        if (now - lastParamUpdate >= PARAM_UPDATE_INTERVAL) {
+          lastParamUpdate = now;
+
+          // Generate parameters from mappings for all particles
+          // For now, use particle 0 for parameter mapping (individual audio control)
+          const signals0 = particleSystem.generateSignals(0);
+          if (signals0) {
+            const params = streamMapper.generateParams(signals0);
+
+            // Debug: Log params generation (throttled)
+            if (!window._lastParamGenLogTime || Date.now() - window._lastParamGenLogTime > 5000) {
+              console.log('[Update] Generated', params.length, 'params from',
+                         streamMapper.mappings.length, 'mappings',
+                         '(' + streamMapper.mappings.filter(m => m.enabled).length + ' enabled)');
+              if (params.length > 0) {
+                console.log('[Update] Sample params:', params.slice(0, 2));
+              }
+              window._lastParamGenLogTime = Date.now();
+            }
+
+            // Distance-based volume control: fade out other particles as they get far
+            // When particles are beyond outerRadius, only self is audible
+            const config = particleSystem.getConfig();
+            const outerRadius = config.outerRadius || 150;
+            const innerRadius = config.innerRadius || 80;
+
+            // Check if there are any particles within outer radius
+            const particles = particleSystem.getParticles();
+            const selfParticle = particles.find(p => p.id === 0);
+            let hasNearbyParticles = false;
+            let maxDistanceFactor = 0; // 0 = far away, 1 = close
+
+            if (selfParticle) {
+              for (const otherParticle of particles) {
+                if (otherParticle.id === 0) continue; // Skip self
+
+                const dx = otherParticle.position.x - selfParticle.position.x;
+                const dy = otherParticle.position.y - selfParticle.position.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance <= outerRadius) {
+                  hasNearbyParticles = true;
+                  // Calculate distance factor: 1 at inner radius, 0 at outer radius
+                  // Smooth fade-out beyond inner radius
+                  const distanceFactor = distance <= innerRadius
+                    ? 1.0
+                    : Math.max(0, 1 - ((distance - innerRadius) / (outerRadius - innerRadius)));
+                  maxDistanceFactor = Math.max(maxDistanceFactor, distanceFactor);
+                }
+              }
+            }
+
+            // Node 183 = "Vol CHORDS" - volume of other oscillators (bass, baritone, tenor)
+            // Fade out completely when no particles nearby (beyond outerRadius)
+            const chordVolumeKnob = params.find(p => p.nodeId === "183");
+            const baseVolume = 0.0015; // Base volume when particles are close
+            const targetVolume = hasNearbyParticles
+              ? baseVolume * maxDistanceFactor // Fade based on distance
+              : 0.0; // Complete silence when alone
+
+            if (!chordVolumeKnob) {
+              params.push({
+                nodeId: "183",
+                paramName: "value",
+                value: targetVolume
+              });
+            } else {
+              // Apply distance-based fade-out
+              chordVolumeKnob.value = Math.max(0, targetVolume);
+            }
+
+            // Node 163 = "REVERB WET" - reverb for outer particles
+            // Also fade reverb as particles get further away
+            const reverbWet = params.find(p => p.nodeId === "163");
+            const baseReverb = 1.2; // Base reverb when particles are close
+            const targetReverb = hasNearbyParticles
+              ? baseReverb * maxDistanceFactor // Fade based on distance
+              : 0.0; // No reverb when alone
+
+            if (!reverbWet) {
+              params.push({
+                nodeId: "163",
+                paramName: "value",
+                value: targetReverb
+              });
+            } else {
+              // Apply distance-based fade-out for reverb too
+              reverbWet.value = Math.max(0, Math.min(1.4, targetReverb));
+            }
+
+            sendToNoiseCraft(params);
+
+          // Store signals in global scope for sequencer logic access
+          if (!window.particleSignals) window.particleSignals = {};
+          window.particleSignals[0] = signals0;
+
+          // Update sequencer patterns when inner particles change
+          const currentInnerParticleIds = new Set(
+            signals0.innerParticles ? signals0.innerParticles.map(p => p.id) : []
+          );
+
+          // Check if inner particles changed
+          const innerParticlesChanged =
+            currentInnerParticleIds.size !== previousInnerParticleIds.size ||
+            [...currentInnerParticleIds].some(id => !previousInnerParticleIds.has(id)) ||
+            [...previousInnerParticleIds].some(id => !currentInnerParticleIds.has(id));
+
+          // ALWAYS update sequencer patterns, not just when innerParticles change
+          // This ensures baritone/tenor are cleared when particle becomes alone
+          if (iframe && iframe.contentWindow) {
+            const selfParticle = particles.find(p => p.id === 0);
+            if (selfParticle) {
+              // Convert innerParticles data to particle objects (may be empty array when alone)
+              const innerParticleObjects = signals0.innerParticles
+                ? signals0.innerParticles.map(pData =>
+                    particles.find(p => p.id === pData.id)
+                  ).filter(p => p !== undefined)
+                : [];
+
+              // Generate individual sequencer pattern
+              // When alone: only bass has note, baritone/tenor are all zeros
+              // When with inner particles: bass + baritone (+ tenor) have notes
+              const sequencerPattern = sequencerLogic.generateIndividualPattern(
+                selfParticle,
+                innerParticleObjects
+              );
+
+              // Check if pattern actually changed
+              const patternChanged = !previousSequencerPattern ||
+                JSON.stringify(sequencerPattern) !== JSON.stringify(previousSequencerPattern);
+
+              // Always update when pattern changes OR when inner particles change
+              // This ensures we clear baritone/tenor when particle becomes alone
+              if (patternChanged || innerParticlesChanged) {
+                const isAlone = innerParticleObjects.length === 0;
+                console.log(`[Sequencer] Updating patterns - ${isAlone ? 'ALONE (single tone)' : `CHORD (${innerParticleObjects.length + 1} notes)`}:`, sequencerPattern);
+
+                // Update each sequencer (bass, baritone, tenor) - optimized with requestAnimationFrame
+                // Use 4-step sequencers for faster cycling and more continuous sound
+                // IMPORTANT: Even if baritone/tenor are empty (all zeros), we must update them
+                // to ensure old notes are cleared when particle becomes alone
+                requestAnimationFrame(() => {
+                  updateMonoSeqSequencer(
+                    iframe.contentWindow,
+                    SEQUENCER_NODES.individual.bass,
+                    0, // pattern index
+                    sequencerPattern.bass,
+                    4  // numSteps: 4 steps for faster cycling
+                  );
+
+                  updateMonoSeqSequencer(
+                    iframe.contentWindow,
+                    SEQUENCER_NODES.individual.baritone,
+                    0,
+                    sequencerPattern.baritone, // Will be all zeros when alone
+                    4  // numSteps: 4 steps
+                  );
+
+                  updateMonoSeqSequencer(
+                    iframe.contentWindow,
+                    SEQUENCER_NODES.individual.tenor,
+                    0,
+                    sequencerPattern.tenor, // Will be all zeros when alone
+                    4  // numSteps: 4 steps
+                  );
+                });
+
+                previousSequencerPattern = JSON.parse(JSON.stringify(sequencerPattern));
+              }
+            }
+
+            previousInnerParticleIds = new Set(currentInnerParticleIds);
+          }
+          }
+        }
+      }
+
+      // Global view visualization - fixed bounds centered on center of mass
+      function drawParticles() {
+        const canvas = document.getElementById("particle-canvas");
+        if (!canvas || !particleSystem) return;
+        const particles = particleSystem.getParticles();
+        if (!particles || particles.length === 0) return;
+
+        const ctx = canvas.getContext("2d");
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Clear canvas
+        ctx.fillStyle = "#0a0a0a";
+        ctx.fillRect(0, 0, width, height);
+
+        // Calculate center of mass for stable reference
+        let totalMass = 0;
+        let cmX = 0, cmY = 0;
+        particles.forEach(p => {
+          totalMass += p.mass || 1;
+          cmX += (p.position.x * (p.mass || 1));
+          cmY += (p.position.y * (p.mass || 1));
+        });
+        cmX /= totalMass;
+        cmY /= totalMass;
+
+        // Fixed bounds centered on center of mass (±400px view range - large enough to keep all particles visible)
+        const viewRange = 400;
+        const minX = cmX - viewRange;
+        const maxX = cmX + viewRange;
+        const minY = cmY - viewRange;
+        const maxY = cmY + viewRange;
+
+        const rangeX = maxX - minX;
+        const rangeY = maxY - minY;
+        const scale = Math.min(width / rangeX, height / rangeY);
+
+        const config = particleSystem.getConfig();
+
+        // Draw grid center marker (center of mass)
+        const centerX = (cmX - minX) * scale;
+        const centerY = (cmY - minY) * scale;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(centerX - 10, centerY);
+        ctx.lineTo(centerX + 10, centerY);
+        ctx.moveTo(centerX, centerY - 10);
+        ctx.lineTo(centerX, centerY + 10);
+        ctx.stroke();
+
+        // Draw connections (forces between particles)
+        particles.forEach((p1, i) => {
+          particles.forEach((p2, j) => {
+            if (i < j) {
+              const dx = p2.position.x - p1.position.x;
+              const dy = p2.position.y - p1.position.y;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+
+              // Draw connection if within outer radius
+              if (distance <= config.outerRadius) {
+                const x1 = (p1.position.x - minX) * scale;
+                const y1 = (p1.position.y - minY) * scale;
+                const x2 = (p2.position.x - minX) * scale;
+                const y2 = (p2.position.y - minY) * scale;
+
+                // Color based on distance
+                const alpha = Math.max(0.1, 1 - distance / config.outerRadius);
+                ctx.strokeStyle = `rgba(100, 150, 255, ${alpha * 0.5})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+              }
+            }
+          });
+        });
+
+        // Draw particles
+        particles.forEach((p, i) => {
+          const x = (p.position.x - minX) * scale;
+          const y = (p.position.y - minY) * scale;
+
+          // Draw particle (larger for central heavy particle)
+          const radius = i === 0 ? 10 : 6;
+          ctx.fillStyle = i === 0 ? "#4a8" : i === 1 ? "#a84" : "#8a4";
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Draw velocity vector
+          ctx.strokeStyle = "#666";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + p.velocity.x * 2, y + p.velocity.y * 2);
+          ctx.stroke();
+
+          // Draw ID label
+          ctx.fillStyle = "#aaa";
+          ctx.font = "10px monospace";
+          ctx.fillText(`P${i}`, x + radius + 2, y - 8);
+        });
+      }
+
+      // Individual view visualization - perspective from one particle
+      let controlledParticleId = 1; // Default: moon 1
+      let isDragging = false;
+      let dragStartPos = null;
+
+      function drawIndividualView() {
+        const canvas = document.getElementById("individual-canvas");
+        if (!canvas || !particleSystem) return;
+        const particles = particleSystem.getParticles();
+        if (!particles || particles.length === 0) return;
+
+        const selfParticle = particles.find(p => p.id === controlledParticleId);
+        if (!selfParticle) return;
+
+        const ctx = canvas.getContext("2d");
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Clear canvas
+        ctx.fillStyle = "#0a0a0a";
+        ctx.fillRect(0, 0, width, height);
+
+        // Center view on the controlled particle
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const viewRange = 150; // View distance in world coordinates
+        const scale = Math.min(width, height) / (viewRange * 2);
+
+        const config = particleSystem.getConfig();
+
+        // Draw radius rings for visual reference
+        const innerRadiusPx = config.innerRadius * scale;
+        const outerRadiusPx = config.outerRadius * scale;
+
+        // Outer radius ring (audio cue range)
+        ctx.strokeStyle = "rgba(150, 150, 255, 0.2)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, outerRadiusPx, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner radius ring (distinct range)
+        ctx.strokeStyle = "rgba(100, 255, 100, 0.3)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, innerRadiusPx, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Draw center marker (self particle position) - always visible
+        ctx.fillStyle = "#a84";
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Add glowing outer ring for self particle
+        const gradient = ctx.createRadialGradient(centerX, centerY, 8, centerX, centerY, 15);
+        gradient.addColorStop(0, "rgba(170, 132, 68, 0.8)");
+        gradient.addColorStop(1, "rgba(170, 132, 68, 0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw other particles relative to self
+        particles.forEach((p, i) => {
+          if (p.id === controlledParticleId) return; // Skip self
+
+          const dx = p.position.x - selfParticle.position.x;
+          const dy = p.position.y - selfParticle.position.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          // Only draw if within view range
+          if (distance > viewRange) return;
+
+          const x = centerX + dx * scale;
+          const y = centerY + dy * scale;
+
+          const isInDistinct = distance <= config.innerRadius;
+          const isInOuter = distance <= config.outerRadius && !isInDistinct;
+
+          // Visual feedback: Glowing add layer when in outer range (overlapped area)
+          if (isInOuter) {
+            // Draw glowing overlay for outer range
+            const outerGradient = ctx.createRadialGradient(x, y, 5, x, y, 12);
+            outerGradient.addColorStop(0, `rgba(100, 150, 255, ${0.4 * (1 - distance / config.outerRadius)})`);
+            outerGradient.addColorStop(1, "rgba(100, 150, 255, 0)");
+            ctx.fillStyle = outerGradient;
+            ctx.beginPath();
+            ctx.arc(x, y, 12, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Draw connection line only in distinct range (visible connection)
+          if (isInDistinct) {
+            // Bright visible connection line for distinct range
+            ctx.strokeStyle = `rgba(100, 255, 100, ${0.8 * (1 - distance / config.innerRadius)})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          }
+
+          // Draw particle (only visible in distinct range, or with glow in outer range)
+          const radius = p.mass > 100 ? 8 : 5;
+          if (isInDistinct || isInOuter) {
+            ctx.fillStyle = p.id === 0 ? "#4a8" : "#8a4";
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Distinct range: add brighter outline
+            if (isInDistinct) {
+              ctx.strokeStyle = `rgba(100, 255, 100, 0.8)`;
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+
+            // Draw relative velocity vector
+            const relVx = p.velocity.x - selfParticle.velocity.x;
+            const relVy = p.velocity.y - selfParticle.velocity.y;
+            ctx.strokeStyle = "#666";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + relVx * 2, y + relVy * 2);
+            ctx.stroke();
+
+            // Draw ID label
+            ctx.fillStyle = "#aaa";
+            ctx.font = "10px monospace";
+            ctx.fillText(`P${i}`, x + radius + 2, y - 8);
+          }
+        });
+
+        // Draw drag preview if dragging
+        if (isDragging && dragStartPos) {
+          ctx.strokeStyle = "rgba(255, 200, 0, 0.5)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(dragStartPos.x, dragStartPos.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Draw velocity preview arrow
+          const dx = dragStartPos.x - centerX;
+          const dy = dragStartPos.y - centerY;
+          const angle = Math.atan2(dy, dx);
+          const length = Math.min(50, Math.sqrt(dx * dx + dy * dy));
+          const arrowX = centerX + Math.cos(angle) * length;
+          const arrowY = centerY + Math.sin(angle) * length;
+
+          ctx.fillStyle = "rgba(255, 200, 0, 0.3)";
+          ctx.beginPath();
+          ctx.moveTo(arrowX, arrowY);
+          ctx.lineTo(
+            arrowX - Math.cos(angle - Math.PI / 6) * 8,
+            arrowY - Math.sin(angle - Math.PI / 6) * 8
+          );
+          ctx.lineTo(
+            arrowX - Math.cos(angle + Math.PI / 6) * 8,
+            arrowY - Math.sin(angle + Math.PI / 6) * 8
+          );
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+
+      // Drag controls for individual view
+      function setupIndividualViewControls() {
+        const canvas = document.getElementById("individual-canvas");
+        if (!canvas || !particleSystem) return;
+
+        const MAX_VELOCITY = 100; // Maximum velocity from drag
+
+        canvas.addEventListener("mousedown", (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height / 2;
+
+          // Check if click is near center (within 20px)
+          const dx = x - centerX;
+          const dy = y - centerY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < 20) {
+            isDragging = true;
+            dragStartPos = { x, y };
+            canvas.style.cursor = "crosshair";
+          }
+        });
+
+        canvas.addEventListener("mousemove", (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height / 2;
+
+          if (isDragging) {
+            // Continuously update velocity based on cursor position relative to center
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx);
+
+            // Map distance to velocity (0 to MAX_VELOCITY)
+            // Use a portion of view range for max velocity (e.g., 70% for smoother control)
+            const viewRange = 150;
+            const maxControlRange = viewRange * 0.7;
+            const scale = MAX_VELOCITY / maxControlRange;
+            const velocity = Math.min(MAX_VELOCITY, distance * scale);
+
+            // Apply velocity to controlled particle continuously
+            const particles = particleSystem.getParticles();
+            const particle = particles.find(p => p.id === controlledParticleId);
+            if (particle) {
+              particle.velocity.x = Math.cos(angle) * velocity;
+              particle.velocity.y = Math.sin(angle) * velocity;
+            }
+
+            // Update drag position for visual feedback
+            dragStartPos = { x, y };
+          }
+        });
+
+        canvas.addEventListener("mouseup", (e) => {
+          if (!isDragging) return;
+
+          // Velocity is already set by mousemove, just clean up
+          isDragging = false;
+          dragStartPos = null;
+          canvas.style.cursor = "crosshair";
+        });
+
+        canvas.addEventListener("mouseleave", () => {
+          isDragging = false;
+          dragStartPos = null;
+          canvas.style.cursor = "crosshair";
+        });
+      }
+
+      function animate() {
+        const now = Date.now();
+        const dt = Math.min((now - lastTime) / 1000, 0.1);
+        lastTime = now;
+        update(dt);
+        animationFrame = requestAnimationFrame(animate);
+      }
+
+      // NoiseCraft iframe setup (iframe already declared above)
+      if (iframe) {
+        // Function to initialize NoiseCraft when iframe is ready
+        const initializeNoiseCraft = async () => {
+          try {
+            console.log('[Iframe] Initializing NoiseCraft...');
+            console.log('[Iframe] Iframe dimensions:', {
+              width: iframe.offsetWidth,
+              height: iframe.offsetHeight,
+              clientWidth: iframe.clientWidth,
+              clientHeight: iframe.clientHeight
+            });
+            statusEl.textContent = "Ready. Click Start to begin.";
+            noisecraftReady = true;
+            console.log('[Iframe] noisecraftReady set to true');
+            await loadProjectNodes();
+            renderMappings();
+
+            // Enable auto-save for indiv_audio_map_v2.ncft when iframe is ready
+            if (iframe.contentWindow) {
+              // Small delay to ensure iframe message handler is ready
+              setTimeout(() => {
+                iframe.contentWindow.postMessage({
+                  type: "noiseCraft:enableAutoSave",
+                  enabled: true,
+                  filename: "indiv_audio_map_v2.ncft"
+                }, "*");
+                console.log("Auto-save enabled for indiv_audio_map_v2.ncft");
+              }, 500);
+            }
+          } catch (err) {
+            console.error('[Iframe] Error during initialization:', err);
+            // Still set ready flag even if there's an error, so params can be sent
+            noisecraftReady = true;
+          }
+        };
+
+        // Add error handler for iframe loading
+        iframe.addEventListener("error", (e) => {
+          console.error('[Iframe] Error loading iframe:', e);
+        });
+
+        // Check if iframe is already loaded (might load before event listener is attached)
+        try {
+          if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+            console.log('[Iframe] Iframe already loaded, initializing immediately');
+            initializeNoiseCraft();
+          } else {
+            // Wait for load event
+            iframe.addEventListener("load", async () => {
+              console.log('[Iframe] Load event fired');
+              await initializeNoiseCraft();
+            });
+
+            // Fallback: if load event doesn't fire within 5 seconds, set ready anyway
+            setTimeout(() => {
+              if (!noisecraftReady) {
+                console.warn('[Iframe] Load event did not fire, setting ready flag anyway');
+                noisecraftReady = true;
+              }
+            }, 5000);
+          }
+        } catch (e) {
+          // Cross-origin or other error accessing contentDocument
+          console.warn('[Iframe] Cannot access contentDocument, using load event only:', e);
+          iframe.addEventListener("load", async () => {
+            console.log('[Iframe] Load event fired');
+            await initializeNoiseCraft();
+          });
+
+          // Fallback timeout
+          setTimeout(() => {
+            if (!noisecraftReady) {
+              console.warn('[Iframe] Load event did not fire, setting ready flag anyway');
+              noisecraftReady = true;
+            }
+          }, 5000);
+        }
+
+          // Enable auto-save for indiv_audio_map_v2.ncft when iframe is ready
+          if (iframe.contentWindow) {
+            // Small delay to ensure iframe message handler is ready
+            setTimeout(() => {
+              iframe.contentWindow.postMessage({
+                type: "noiseCraft:enableAutoSave",
+                enabled: true,
+                filename: "indiv_audio_map_v2.ncft"
+              }, "*");
+              console.log("Auto-save enabled for indiv_audio_map_v2.ncft");
+            }, 500);
+          }
+        });
+      } else {
+        console.error("NoiseCraft iframe not found!");
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "noiseCraft:audioState") {
+          if (event.data.status === "playing") {
+            btnStart.style.display = "none";
+            btnStop.style.display = "inline-block";
+            statusEl.textContent = "Playing";
+          } else if (event.data.status === "stopped") {
+            btnStart.style.display = "inline-block";
+            btnStop.style.display = "none";
+            statusEl.textContent = "Stopped";
+          }
+        } else if (event.data?.type === "noiseCraft:saveStatus") {
+          // Handle save status updates from iframe
+          if (event.data.status === "saved") {
+            console.log(`✓ Auto-saved ${event.data.filename}`);
+            // Optionally update UI to show save status
+          } else if (event.data.status === "error") {
+            const errorMsg = event.data.error || "Unknown error";
+            console.warn(`✗ Failed to save ${event.data.filename}:`, errorMsg);
+          }
+        } else if (event.data?.type === "noiseCraft:nodeSelection") {
+          // Handle node selection from NoiseCraft editor
+          console.log("Node selection received:", event.data);
+
+          // Extract data from event with safe defaults - declare all variables at once
+          const eventData = event.data || {};
+          const nodeIds = Array.isArray(eventData.nodeIds) ? eventData.nodeIds : [];
+          const nodeType = eventData.nodeType || null;
+          const nodeName = eventData.nodeName || null;
+
+          // Only allow Const and Knob nodes
+          if (nodeType && nodeType !== 'Const' && nodeType !== 'Knob') {
+            console.log(`Node type ${nodeType} is not selectable. Only Const and Knob nodes can be mapped.`);
+            return;
+          }
+
+          if (nodeIds.length > 0) {
+            const firstNodeId = String(nodeIds[0]);
+            const displayType = nodeType || 'unknown';
+            const displayName = nodeName || 'unnamed';
+            console.log(`Processing node selection: ID=${firstNodeId}, type=${displayType}, name=${displayName}`);
+
+            let selectedNode = availableNodes.find((n) => n.id === firstNodeId);
+
+            // If node not in availableNodes, create entry from selection data
+            if (!selectedNode && nodeType && (nodeType === 'Const' || nodeType === 'Knob')) {
+              selectedNode = {
+                id: firstNodeId,
+                type: nodeType,
+                name: nodeName || nodeType,
+                params: {},
+              };
+              console.log(`Created new node entry:`, selectedNode);
+            }
+
+            // Check if browse mode is active - ONLY process selection if browse mode is on
+            const iframe = document.getElementById("noisecraft-iframe");
+            let targetMappingId = null;
+            let browseModeWasActive = false;
+
+            if (iframe && iframe.contentWindow && iframe.contentWindow.browseModeMappingId) {
+              targetMappingId = iframe.contentWindow.browseModeMappingId;
+              browseModeWasActive = true;
+              console.log(`Browse mode active, target mapping: ${targetMappingId}`);
+              // Disable browse mode
+              iframe.contentWindow.browseModeActive = false;
+              iframe.contentWindow.browseModeMappingId = null;
+            } else {
+              // Browse mode is NOT active - ignore this selection
+              console.log(`Node selection ignored - browse mode is not active`);
+              return; // Exit early - don't update any mappings
+            }
+
+            // Only proceed if browse mode was active
+            if (!browseModeWasActive || !targetMappingId) {
+              console.log(`Skipping node selection - browse mode was not active`);
+              return;
+            }
+
+            // Find the target mapping (only the one specified by browse mode)
+            const targetMapping = document.querySelector(`[data-mapping-id="${targetMappingId}"]`);
+
+            if (targetMapping) {
+              const nodeSelect = targetMapping.querySelector(".mapping-node-select");
+              const nodeIdInput = targetMapping.querySelector(".mapping-node-id");
+              const header = targetMapping.querySelector("h4");
+
+              // Fill in node ID and name - do this first before any events
+              if (nodeIdInput) {
+                nodeIdInput.value = firstNodeId;
+              }
+              if (nodeSelect) {
+                nodeSelect.value = firstNodeId;
+              }
+              if (header) {
+                if (selectedNode) {
+                  header.textContent = `Node ${firstNodeId}: ${selectedNode.name}`;
+                } else {
+                  header.textContent = `Node ${firstNodeId}`;
+                }
+              }
+
+              // Force save the mapping immediately
+              const mappingId = targetMapping.dataset.mappingId;
+              if (mappingId) {
+                // Save directly
+                const enabled = targetMapping.querySelector(".mapping-enabled")?.checked !== false;
+                const paramName = targetMapping.querySelector(".mapping-param-name")?.value || "value";
+                const operation = targetMapping.querySelector(".mapping-operation")?.value || "none";
+                const streams = Array.from(targetMapping.querySelectorAll(".stream-input-group")).map((group) => ({
+                  stream: group.querySelector(".stream-select")?.value || "attraction",
+                  interpolation: group.querySelector(".stream-interpolation")?.value || "linear",
+                  inputMin: parseFloat(group.querySelector(".stream-input-min")?.value) || 0,
+                  inputMax: parseFloat(group.querySelector(".stream-input-max")?.value) || 1,
+                  outputMin: parseFloat(group.querySelector(".stream-output-min")?.value) || 0,
+                  outputMax: parseFloat(group.querySelector(".stream-output-max")?.value) || 1,
+                }));
+
+                streamMapper.updateMapping(mappingId, {
+                  nodeId: firstNodeId,
+                  paramName,
+                  operation,
+                  enabled,
+                  streams,
+                });
+              }
+
+              // Update browse button if it exists
+              const browseBtn = targetMapping.querySelector(".browse-node-btn");
+              if (browseBtn) {
+                browseBtn.textContent = "Browse";
+                browseBtn.style.background = "";
+                browseBtn.disabled = false;
+              }
+
+              // Trigger change event to update UI
+              if (nodeSelect) {
+                nodeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+              if (nodeIdInput) {
+                nodeIdInput.dispatchEvent(new Event("input", { bubbles: true }));
+              }
+            } else {
+              // Target mapping not found - this shouldn't happen if browse mode was active
+              console.warn(`Target mapping ${targetMappingId} not found, but browse mode was active`);
+              // Don't create a new mapping - user must click Browse button first
+            }
+
+            // Highlight in status
+            const nodeDisplayName = selectedNode ? ` (${selectedNode.name})` : "";
+            statusEl.textContent = `Selected node: ${firstNodeId}${nodeDisplayName}`;
+            setTimeout(() => {
+              if (statusEl.textContent.includes("Selected node")) {
+                statusEl.textContent = "Ready. Click Start to begin.";
+              }
+            }, 2000);
+          }
+        }
+      });
+
+      btnStart.addEventListener("click", () => {
+        iframe.contentWindow?.postMessage({ type: "noiseCraft:play" }, "*");
+      });
+
+      btnStop.addEventListener("click", () => {
+        iframe.contentWindow?.postMessage({ type: "noiseCraft:stop" }, "*");
+      });
+
+      // Setup individual view drag controls
+      setupIndividualViewControls();
+
+      // Start animation loop (variables already initialized above)
+      console.log("Starting animation loop...");
+      animate();
+
+      } catch (error) {
+        console.error("CRITICAL ERROR in script initialization:", error);
+        console.error("Stack trace:", error.stack);
+        // Show error to user
+        const statusEl = document.getElementById("status");
+        if (statusEl) {
+          statusEl.textContent = `Error: ${error.message}`;
+          statusEl.style.color = "#f44";
+        }
+        // Also log to console for debugging
+        console.error("Full error details:", error);
+      }
+    </script>
+  </body>
+</html>
