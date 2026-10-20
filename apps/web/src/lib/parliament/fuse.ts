@@ -159,6 +159,11 @@ export interface FuseStudy {
   pitSmall: number;
   pitLarge: number;
   /**
+   * C: how much the pits gather on the BROAD faces — the flat middles of the large closed cells, away from rims and
+   * curves (the artist, 2026-10-20: the reference's pores sit on the big smooth faces). 0 = anywhere … 1 = only there.
+   */
+  pitBroad: number;
+  /**
    * FOAM (ref 9579, the artist 2026-10-19): the cells are carved as cavities through the VOLUME, without hollowing —
    * sponge bone. ribOpen = the share of cells that are cavities; the hole shape and the pits apply as on the shell.
    */
@@ -235,6 +240,7 @@ export const DEFAULT_STUDY: FuseStudy = {
   holeVoronoiLarge: 1,
   pitSmall: 0.5,
   pitLarge: 1.3,
+  pitBroad: 0,
   foam: false,
   cavity: 0,
   cavityRound: 2,
@@ -997,6 +1003,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const pitPatch = Math.max(0.3, st?.pitPatch ?? 3);
   const pitShape = st?.holeShape ?? "voronoi";
   const voP = new Float64Array(3);
+  const broadM: number[] = []; // per vertex: how far into a broad closed cell (0 at the rim … 1 at its middle)
   const cornerF = new Float32Array(8);
   /** The parts' full-box value at a sample near the cube (i, j, k), `d` voxels inward along the outward normal. */
   const under = (i: number, j: number, k: number, ox: number, oy: number, oz: number, d: number): number => {
@@ -1055,8 +1062,12 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
             voronoi(vx, vy, vz, st.ribCell, 1.35, voP);
             const margin = (voP[1] - voP[0]) / 2, halfRib = st.ribWidth / 2;
             pitW = smoothRamp(margin, halfRib + st.pitSize * 0.5, halfRib + st.pitSize * 1.5);
-          } else pitW = 1;
-        }
+            broadM.push(smoothRamp(margin, halfRib + st.pitSize * 0.5, halfRib + Math.max(st.pitSize * 1.5, st.ribCell * 0.35)));
+          } else {
+            pitW = 1;
+            broadM.push(1);
+          }
+        } else broadM.push(0);
         ext.push(Math.min(1, ghost), bl, pitZ, pitW);
         // colour: the living growths (pale ochre-green, ref 9578) where they dominate; where the mass is fused concrete
         // or sediment, a dull mix of the concrete's grey and a low-saturation brown in streaks (ref 9570); all
@@ -1110,6 +1121,23 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const anyBlocky = wgt.some((w) => w < 1);
   if (cfg.smooth > 0 && NV > 0) taubin(P, quads, NV, Math.round(cfg.smooth), anyBlocky ? Float32Array.from(wgt) : undefined);
   if (cfg.smooth > 0 && NV > 0) faceNormals(P, quads, Nn);
+  // PITS ON THE BROAD FACES: the pits' coverage drawn toward the flat middles of the large faces — a vertex whose
+  // neighbours' normals agree with its own (flat) and that lies deep in a closed cell (broadM) keeps its pits; rims,
+  // ribs, edges and small curved bits lose them, by pitBroad
+  const pitBroad = pitsOn && st ? Math.max(0, Math.min(1, st.pitBroad ?? 0)) : 0;
+  if (pitBroad > 0 && NV > 0) {
+    const { start, list } = neighbours(quads, NV);
+    for (let v = 0; v < NV; v++) {
+      const a = start[v], b = start[v + 1];
+      let dot = 0;
+      for (let e = a; e < b; e++) {
+        const u = list[e] * 3;
+        dot += Nn[v * 3] * Nn[u] + Nn[v * 3 + 1] * Nn[u + 1] + Nn[v * 3 + 2] * Nn[u + 2];
+      }
+      const flat = b > a ? ramp(dot / (b - a), 0.9, 0.99) : 0;
+      ext[v * 4 + 2] *= 1 - pitBroad + pitBroad * flat * broadM[v];
+    }
+  }
 
   const ind: number[] = [];
   const resinInd: number[] = [];

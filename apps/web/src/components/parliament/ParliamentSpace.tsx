@@ -1977,6 +1977,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           pitDepth: { value: isV2 ? 0.6 : 0, min: 0, max: 1.5, step: 0.05, label: "파임 (음영으로 파인 깊이; 0 = 색만)", render: (get) => get(PITS_PATH) > 0 },
           pitSmall: { value: DEFAULT_STUDY.pitSmall, min: 0, max: 2, step: 0.05, label: "양 배율 · 작은 부재", render: (get) => get(PITS_PATH) > 0 },
           pitLarge: { value: DEFAULT_STUDY.pitLarge, min: 0, max: 2, step: 0.05, label: "양 배율 · 큰 부재", render: (get) => get(PITS_PATH) > 0 },
+          pitBroad: { value: isV2 ? 0.6 : 0, min: 0, max: 1, step: 0.05, label: "넓은 면에 몰림 (0 = 어디나 … 1 = 넓고 평평한 면의 가운데에만)", render: (get) => get(PITS_PATH) > 0 },
           "고급": folder(
             {
               pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "크기 지터 (0 = 다 같게 … 1 = ½ ~ 2배)" },
@@ -2082,6 +2083,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             holeVoronoiLarge: fu.holeVoronoiLarge,
             pitSmall: fu.pitSmall,
             pitLarge: fu.pitLarge,
+            pitBroad: fu.pitBroad,
             foam: fu.foam,
             cavity: fu.cavity,
             cavityRound: fu.cavityRound,
@@ -2100,7 +2102,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({

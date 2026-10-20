@@ -399,6 +399,19 @@ export class SpaceModel {
     }
   }
 
+  /**
+   * THE PRESENT FOLLOWS THE CLOCK (the artist, 2026-10-20: "the fossilisation does not progress"): the present was
+   * the latest event's time, so with nobody present (no bots, no player) a faster world clock aged nothing. Now the
+   * view tells the model the clock's present every request; the world ages whether or not anyone is in it (nothing
+   * new is built in empty time — only what stands corrodes, gathers vegetation and fuses).
+   */
+  setNow(s: number): void {
+    if (Number.isFinite(s) && s > this.t) {
+      this.t = s;
+      this.version++;
+    }
+  }
+
   /** Whether slot k lies in a baked chunk. */
   private isBaked(k: number): boolean {
     return this.baked.has(Math.floor(k / NATURE_CHUNK) * NATURE_CHUNK);
@@ -1047,7 +1060,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 /** What the view posts to the space worker. */
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean }
-  | { type: "compute"; id: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
+  | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
 
 /** What the space worker posts back for a compute request. */
 export interface SpaceResponse {
@@ -1072,6 +1085,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     return null;
   }
   const t0 = performance.now();
+  if (m.now !== undefined) model.setNow(m.now);
   const out: SpaceResponse = { type: "result", id: m.id, ms: 0 };
   const transfer = new Set<ArrayBuffer>();
   if (m.parts) {
