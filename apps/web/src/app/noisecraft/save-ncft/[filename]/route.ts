@@ -1,6 +1,6 @@
 /**
  * POST /noisecraft/save-ncft/<filename> — the NoiseCraft embed's save / auto-save endpoint (what its express
- * server used to provide), writing the patch into apps/web/noisecraft/examples/. Development only: the exhibition
+ * server used to provide), writing the patch into apps/web/public/noisecraft/examples/. Development only: the exhibition
  * build ships the patch files as they are.
  */
 

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DEAD_BAND, DEFAULT_SLEW, IDLE_SOURCES, KNOB_MAPS, KnobMapper, knobTarget, type KnobMap } from "./noisecraftKnobs";
 
 type Patch = { nodes: Record<string, { type: string; name?: string; params: { minVal?: number; maxVal?: number; value?: number } }> };
-const patch = JSON.parse(readFileSync(path.join(process.cwd(), "noisecraft/examples/nc_noise_patch.ncft"), "utf8")) as Patch;
+const patch = JSON.parse(readFileSync(path.join(process.cwd(), "public/noisecraft/examples/nc_noise_patch.ncft"), "utf8")) as Patch;
 
 describe("the table: every mapped knob exists in nc_noise_patch and stays inside its range", () => {
   it("names real Knob nodes with the patch's own ranges and rests", () => {
