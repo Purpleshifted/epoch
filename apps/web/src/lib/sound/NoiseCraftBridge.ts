@@ -2,7 +2,7 @@
  * sound/NoiseCraftBridge.ts — NoiseCraft in a hidden (or visible) iframe, umwelt's way (docs/sound-logic.md §8b).
  *
  * Ported from umwelt/src/audio/NoiseCraftBridge.ts. One bridge per page (singleton), one iframe: the embed
- * (`/noisecraft/public/embedded.html`, served statically by Next through apps/web/public/noisecraft → ../noisecraft)
+ * (`/noisecraft/public/embedded.html`, served statically by Next from apps/web/public/noisecraft/public — real files, no symlink: Vercel)
  * loads a patch from `/noisecraft/examples/<file>` with the full editor (`ui=full`), hidden off-screen when only the
  * sound is wanted, shown in a container on the manager page (/v2/sound). Protocol (postMessage, both ways):
  *   → noiseCraft:play / stop · setParams [{nodeId, paramName, value}] · setSequence {nodeId: moduleId, pitches, gates}

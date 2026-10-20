@@ -3,7 +3,7 @@
  * SoundBench — the NoiseCraft bench for ONE patch (/v2/sound/<patch>; v4 A2, A5n: the list is its own step at
  * /v2/sound). The artist's patch with its editor, driven by a staged scenario through the same driver the player
  * uses: what each voice receives, the music clock the patch follows, a log of the bars. Edits made in the editor
- * save into apps/web/noisecraft/examples (this app's folder); opening a patch here makes it the player's patch.
+ * save into apps/web/public/noisecraft/examples (this app's folder); opening a patch here makes it the player's patch.
  *
  * KNOB REGISTRATION (v4 A5f, the artist, the umwelt way without streams): the right panel's "노브 등록" box — click
  * the blank row to arm it, then press a Knob node in the editor and its number, name, range and value are written

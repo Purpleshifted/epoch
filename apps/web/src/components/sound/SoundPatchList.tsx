@@ -1,7 +1,7 @@
 "use client";
 /**
  * SoundPatchList (/v2/sound) — the NoiseCraft PATCH LIST (v4 A5n, the artist: the list and the patch are two steps). Every .ncft of
- * apps/web/noisecraft/examples: open one in the bench (/v2/sound/<patch>), duplicate it under a new name, rename it,
+ * apps/web/public/noisecraft/examples: open one in the bench (/v2/sound/<patch>), duplicate it under a new name, rename it,
  * or start an empty one. The patch the player plays (patchChoice.ts) is marked; opening a patch makes it that one.
  */
 
@@ -69,7 +69,7 @@ export default function SoundPatchList() {
           ← home
         </Link>
         <span className="text-white">NoiseCraft 패치</span>
-        <span className="text-white/40">{rows ? `${rows.length}개 · apps/web/noisecraft/examples` : "불러오는 중…"}</span>
+        <span className="text-white/40">{rows ? `${rows.length}개 · apps/web/public/noisecraft/examples` : "불러오는 중…"}</span>
         <button className="border border-white/30 px-2 py-0.5" onClick={() => void create()}>
           새 패치…
         </button>

@@ -1,6 +1,6 @@
 /**
  * sound/patchChoice.ts — which NoiseCraft patch plays (v4 A5l, the artist: "sound 들어가면 패치 고를 수 있게 — 나중에 롤
- * 별로 따로 패치를 두는 게 나을 수도"). The bench (/v2/sound) offers the .ncft files of apps/web/noisecraft/examples;
+ * 별로 따로 패치를 두는 게 나을 수도"). The bench (/v2/sound) offers the .ncft files of apps/web/public/noisecraft/examples;
  * the choice is kept in localStorage and the player (NoiseCraftHost) plays the same one. Client-safe (no fs).
  */
 
