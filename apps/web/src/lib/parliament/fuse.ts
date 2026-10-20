@@ -86,8 +86,35 @@ export interface FuseConfig {
   spikeLen: number;
   /** Colour of the growths (linear RGB); absent = the pale ochre-green default. */
   growthColor?: [number, number, number];
+  /**
+   * EXTERNAL PARTS (the artist, 2026-10-20): what joined the buildings fuses too — the water pipes and the walkways
+   * as tubes in the field with their own decay, so the mass crosses between buildings along them; and a share of
+   * the steel (columns, beams) stays as fossil instead of rusting away.
+   */
+  fusePipes: boolean;
+  fuseWalks: boolean;
+  /** A walkway's tube radius (world). */
+  walkRadius: number;
+  /** The share of the steel parts that fuse into the mass as fossils (0 = none: the steel rusts and falls). */
+  steelFossil: number;
   /** FORM STUDY (V2): other ways for the mass; absent = none (the mass wraps the parts). */
   study?: FuseStudy;
+}
+
+/** An external part that fuses (FuseChunkInput.tubes): a capsule with its own decay — a pipe, a walkway, a steel part. */
+export interface FuseTube {
+  x0: number;
+  y0: number;
+  z0: number;
+  x1: number;
+  y1: number;
+  z1: number;
+  r: number;
+  /** Decay 0 … 1 on its own clock. */
+  decay: number;
+  kind: "pipe" | "walk" | "steel";
+  /** The slot it belongs to. */
+  k: number;
 }
 
 /** The form study's switches and numbers (see the file header: B FILL, C SHELL). Both can be combined. */
@@ -290,6 +317,10 @@ export const DEFAULT_FUSE: FuseConfig = {
   skeletonWrap: 0.35,
   spikes: 0,
   spikeLen: 1.2,
+  fusePipes: true,
+  fuseWalks: true,
+  walkRadius: 0.15,
+  steelFossil: 0,
 };
 
 /** Concrete kinds that can be skeleton (the orthogonal frame: slabs, slat bundles and walls, plinths). */
@@ -564,6 +595,8 @@ export interface FuseChunkInput {
    * stages always come in order: gathering → growths → fusion → resin. Absent = the sediment clock (V1).
    */
   layerDecay?: (k: number) => number;
+  /** EXTERNAL PARTS that fuse too (pipes, walkways, fossil steel), as capsules with their own decay. */
+  tubes?: readonly FuseTube[];
   cfg: FuseConfig;
 }
 
@@ -703,6 +736,20 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       any = true;
     }
   }
+  // EXTERNAL PARTS: pipes, walkways and fossil steel as capsules with their own decay — the mass follows them between
+  // the buildings; a metal tube under the surface darkens the mass over it (Dk)
+  const Dk = input.tubes && input.tubes.length ? new Float32Array(n) : null;
+  if (input.tubes) for (const tb of input.tubes) {
+    const f = fusedShare(tb.decay, cfg);
+    if (f <= 0) continue;
+    const r = Math.max(vs * 0.6, tb.r);
+    if (Math.max(tb.y0, tb.y1) + r < yLo || Math.min(tb.y0, tb.y1) - r > yHi) continue;
+    tube(C, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r, f);
+    if (Praw) tube(Praw, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r, f);
+    if (Dk && tb.kind !== "walk") tube(Dk, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r + vs, 1);
+    if (T && st) tube(T, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r + (cfg.blur + 2) * vs, smoothRamp(2 * r, st.sizeSmall ?? 1.5, Math.max((st.sizeSmall ?? 1.5) + 0.1, st.sizeLarge ?? 8)));
+    any = true;
+  }
   if (!any) return EMPTY;
 
   // B FILL: the rooms between a building's plates. A room spans from the top of one plate to the underside of the next
@@ -804,6 +851,8 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         fill(E, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, 1);
       }
     }
+    // what joins the buildings is part of the outline too
+    if (input.tubes) for (const tb of input.tubes) tube(E, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, Math.max(vs * 0.6, tb.r) + vs, 1);
     blur3(E, tmp, nx, ny, nz, 1);
   }
   // SAG: the mass hangs down — each row keeps a share of the row above it, more in some columns than others (drips);
@@ -1005,13 +1054,14 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const voP = new Float64Array(3);
   const broadM: number[] = []; // per vertex: how far into a broad closed cell (0 at the rim … 1 at its middle)
   const cornerF = new Float32Array(8);
-  /** The parts' full-box value at a sample near the cube (i, j, k), `d` voxels inward along the outward normal. */
-  const under = (i: number, j: number, k: number, ox: number, oy: number, oz: number, d: number): number => {
-    if (!Praw) return 0;
+  /** A field's value at a sample near the cube (i, j, k), `d` voxels inward along the outward normal. */
+  const underIn = (arr: Float32Array, i: number, j: number, k: number, ox: number, oy: number, oz: number, d: number): number => {
     const ii = Math.round(i + 0.5 - ox * d), jj = Math.round(j + 0.5 - oy * d), kk = Math.round(k + 0.5 - oz * d);
     if (ii < 0 || jj < 0 || kk < 0 || ii >= nx || jj >= ny || kk >= nz) return 0;
-    return Praw[idx(ii, jj, kk)];
+    return arr[idx(ii, jj, kk)];
   };
+  /** The parts' full-box value near the cube (ghost). */
+  const under = (i: number, j: number, k: number, ox: number, oy: number, oz: number, d: number): number => (Praw ? underIn(Praw, i, j, k, ox, oy, oz, d) : 0);
   for (let k = 0; k < nz - 1; k++) {
     for (let j = 0; j < ny - 1; j++) {
       for (let i = 0; i < nx - 1; i++) {
@@ -1079,7 +1129,9 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         const jit = 0.88 + 0.24 * hash2(I0 + i, (J0 + j) * 7919 + K0 + k, 13);
         const streak = noise3(vx * 1.7, vy * 0.35, vz * 1.7, 31); // vertical stains
         const brown = Math.min(1, 0.25 + 0.55 * streak + 0.4 * (N[p] / tot));
-        const dark = 1 - 0.35 * q;
+        let dark = 1 - 0.35 * q;
+        // a metal tube (pipe, steel) right under the surface darkens the mass over it
+        if (Dk) dark *= 1 - 0.35 * Math.max(underIn(Dk, i, j, k, ox, oy, oz, 0), underIn(Dk, i, j, k, ox, oy, oz, 1));
         for (let c = 0; c < 3; c++) {
           const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;
           const growc = GROW[c] + (DULL_BROWN[c] - GROW[c]) * Math.min(1, q * 1.2);

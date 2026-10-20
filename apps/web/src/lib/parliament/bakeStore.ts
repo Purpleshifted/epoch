@@ -11,6 +11,10 @@
 
 import type { Box, WearBasis } from "./seeds";
 import type { NatureHistory } from "./natureHistory";
+import type { FuseTube } from "./fuse";
+
+/** An external part of a baked chunk, with what its decay is read from later (a steel part's wear basis and box). */
+export type BakedTube = FuseTube & { basis?: WearBasis | null; box?: Box };
 
 const DB = "parliament.baked";
 const STORE = "chunks";
@@ -28,6 +32,7 @@ export interface BakedRecord {
   basis: (WearBasis | null)[];
   decay: number[];
   standing: boolean[];
+  tubes: BakedTube[];
   history: NatureHistory | null;
   x0: number;
   z0: number;

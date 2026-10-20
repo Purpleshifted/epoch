@@ -330,6 +330,20 @@ describe("form study (V2): fill, shell", () => {
     expect(merged.extra.length).toBe(m.extra.length * 2);
   });
 
+  it("EXTERNAL TUBES: a pipe between two far parts carries the mass across the gap; a fresh one does not", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const two: Box[] = [part({ x: 0.5, y: 5.5, z: 2, sx: 1, sy: 1, sz: 1, slot: 5 }), part({ x: 6.5, y: 5.5, z: 2, sx: 1, sy: 1, sz: 1, slot: 5 })];
+    const base2 = { ...base, parts: two, decay: [1, 1], standing: [false, false], x0: -1, z0: -1, nx: 9, nz: 6, k0: 0, k1: 9 };
+    const pipe = { x0: 1, y0: 5.5, z0: 2, x1: 6, y1: 5.5, z1: 2, r: 0.3, decay: 1, kind: "pipe" as const, k: 5 };
+    const joined = fuseChunk({ ...base2, tubes: [pipe], cfg: { ...cfgOf({}), ...flat } });
+    const apart = fuseChunk({ ...base2, cfg: { ...cfgOf({}), ...flat } });
+    const fresh = fuseChunk({ ...base2, tubes: [{ ...pipe, decay: 0 }], cfg: { ...cfgOf({}), ...flat } });
+    const mid = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.abs(x - 3.5) < 0.6 && Math.abs(y - 5.5) < 0.8 && Math.abs(z - 2) < 0.8);
+    expect(mid(joined)).toBe(true);
+    expect(mid(apart)).toBe(false);
+    expect(mid(fresh)).toBe(false);
+  });
+
   it("SPIKES: thin spikes of the same mass grow out of the surface, up to their length", () => {
     const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
     const plain = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, ...flat } });

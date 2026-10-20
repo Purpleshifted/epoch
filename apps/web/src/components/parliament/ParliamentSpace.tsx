@@ -162,6 +162,7 @@ const FU_HOLLOW = "⑤ 껍질 · 거품";
 const FU_PITS = "⑥ 곰보 (껍질 · 거품의 표면)";
 const FU_MAT = "⑦ 재질 (레진 = 융합된 것 전부)";
 const MODE_PATH = `${FU}.${FU_WAY}.massMode`;
+const WALKS_PATH = `${FU}.${FU_WAY}.배관 · 다리 · 철골도 녹음.fuseWalks`;
 const FILL_PATH = `${FU}.${FU_WAY}.판 사이 채우기.fill`;
 const SHELL_PATH = `${FU}.${FU_HOLLOW}.shell`;
 const FOAM_PATH = `${FU}.${FU_HOLLOW}.foam`;
@@ -1910,6 +1911,16 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           ),
           // SIZE CURVES (the artist, 2026-10-19: the look was growing uniform): a part's size, read on this band,
           // decides how much of each feature it gets (the pairs sit next to their feature)
+          // EXTERNAL PARTS (the artist, 2026-10-20): what joined the buildings fuses too — the mass crosses along it
+          "배관 · 다리 · 철골도 녹음": folder(
+            {
+              fusePipes: { value: DEFAULT_FUSE.fusePipes, label: "배관이 덩어리에 들어감 (관 그대로, 자기 부식 시계)" },
+              fuseWalks: { value: DEFAULT_FUSE.fuseWalks, label: "다리가 덩어리에 들어감 (층의 나이로 늙음)" },
+              walkRadius: { value: DEFAULT_FUSE.walkRadius, min: 0.05, max: 0.6, step: 0.01, label: "다리 관 굵기 (월드)", render: (get) => get(WALKS_PATH) },
+              steelFossil: { value: isV2 ? 0.35 : 0, min: 0, max: 1, step: 0.05, label: "철골 중 화석으로 남는 비율 (0 = 철골은 녹슬어 사라짐; 가장 오래 버티는 것부터)" },
+            },
+            { collapsed: false },
+          ),
           "크기 띠": folder(
             {
               sizeSmall: { value: DEFAULT_STUDY.sizeSmall, min: 0.3, max: 20, step: 0.1, label: "'작은 부재'로 치는 크기 (월드; 가장 긴 변이 이 아래면 0)" },
@@ -2035,6 +2046,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const fuseCfg = useMemo<FuseConfig>(
     () => ({
       enabled: fu.fuseOn,
+      fusePipes: fu.fusePipes,
+      fuseWalks: fu.fuseWalks,
+      walkRadius: fu.walkRadius,
+      steelFossil: fu.steelFossil,
       accOnset: fu.accOnset,
       fuseOnset: fu.fuseOnset,
       voxel: fu.voxel,
@@ -2107,7 +2122,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
