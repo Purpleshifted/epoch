@@ -26,6 +26,8 @@ export interface MotifConfig {
   steps: number;
   /** Constant micro-tonal colour of a voice: ± this many cents. */
   colourCents: number;
+  /** How much of the micro-tones (colour + free wobble) is heard, 0..1 (v4 A2: less, so the motif sits with the patch). */
+  microtone: number;
   /** Extra wobble (cents) of a FREE voice (lock 0: alone, off any path), per note. */
   freeCents: number;
   /** Length (s) of one cycle at 60 BPM (see cycleSeconds). */
@@ -41,6 +43,7 @@ export const DEFAULT_MOTIF: MotifConfig = {
   notesMax: 5,
   steps: 8,
   colourCents: 12,
+  microtone: 1,
   freeCents: 35,
   cycleSec: 2,
   tempoRange: 1.33,
@@ -150,7 +153,7 @@ export function realize(m: Motif, key: WorldKey, chord: PlaceChord | null, lock:
     } else r();
     const wobble = (1 - lock) * cfg.freeCents * (r() * 2 - 1);
     const next = i + 1 < n ? m.onsets[i + 1] : m.steps;
-    return { at: m.onsets[i] / m.steps, len: ((next - m.onsets[i]) / m.steps) * 0.85, pitch, freq: midiToHz(pitch, m.colour + wobble), locked };
+    return { at: m.onsets[i] / m.steps, len: ((next - m.onsets[i]) / m.steps) * 0.85, pitch, freq: midiToHz(pitch, (m.colour + wobble) * cfg.microtone), locked };
   });
 }
 

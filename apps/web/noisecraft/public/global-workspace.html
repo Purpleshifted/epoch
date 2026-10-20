@@ -1,0 +1,3227 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>NoiseCraft Global Audio Workspace</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/public/style.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #111;
+        color: #eee;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .header {
+        padding: 12px 16px;
+        background: #1a1a1a;
+        border-bottom: 1px solid #333;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      button {
+        background: #333;
+        color: #fff;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      button:hover {
+        background: #3a3a3a;
+      }
+      button.danger {
+        background: #5a1a1a;
+      }
+      button.danger:hover {
+        background: #6a2a2a;
+      }
+      .status {
+        opacity: 0.8;
+        font-size: 12px;
+        color: #aaa;
+        margin-left: auto;
+      }
+      .main-content {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+      .left-panel {
+        width: 360px;
+        background: #1a1a1a;
+        border-right: 1px solid #333;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .left-panel-tabs {
+        display: flex;
+        background: #222;
+        border-bottom: 1px solid #333;
+      }
+      .tab {
+        flex: 1;
+        padding: 10px;
+        text-align: center;
+        cursor: pointer;
+        font-size: 12px;
+        border-right: 1px solid #333;
+        background: #222;
+        color: #aaa;
+      }
+      .tab.active {
+        background: #1a1a1a;
+        color: #fff;
+      }
+      .tab-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        display: none;
+        flex-direction: column;
+        gap: 16px;
+        position: relative;
+        z-index: 1;
+      }
+      .tab-content.active {
+        display: flex;
+      }
+      .panel-section {
+        background: #222;
+        padding: 12px;
+        border-radius: 6px;
+      }
+      .panel-section h3 {
+        font-size: 13px;
+        margin-bottom: 12px;
+        color: #fff;
+      }
+      .param-row {
+        display: flex;
+        justify-content: space-between;
+        margin: 6px 0;
+        font-size: 11px;
+      }
+      .param-label {
+        color: #aaa;
+      }
+      .param-value {
+        color: #fff;
+        font-weight: 500;
+        font-family: "Courier New", monospace;
+      }
+      .right-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #noisecraft-container {
+        flex: 1;
+        overflow: hidden;
+      }
+      #noisecraft-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+      .slider-group {
+        margin: 12px 0;
+      }
+      .slider-label {
+        font-size: 11px;
+        color: #aaa;
+        margin-bottom: 6px;
+        display: flex;
+        justify-content: space-between;
+      }
+      input[type="range"] {
+        width: 100%;
+        accent-color: #4a9eff;
+      }
+      input[type="number"],
+      input[type="text"],
+      select {
+        background: #2a2a2a;
+        color: #fff;
+        border: 1px solid #444;
+        padding: 4px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        pointer-events: auto;
+        cursor: text;
+        border: 1px solid #444;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        width: 100%;
+      }
+      select {
+        cursor: pointer;
+      }
+      .info-text {
+        font-size: 10px;
+        color: #666;
+        line-height: 1.4;
+        margin-top: 8px;
+      }
+      .mapping-item {
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 12px;
+        position: relative;
+        z-index: 2;
+        pointer-events: auto;
+      }
+      .mapping-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .mapping-header h4 {
+        font-size: 12px;
+        color: #fff;
+      }
+      .mapping-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .control-row {
+        display: grid;
+        grid-template-columns: 80px 1fr;
+        gap: 8px;
+        align-items: center;
+        font-size: 11px;
+      }
+      .control-label {
+        color: #aaa;
+        text-align: right;
+      }
+      .stream-input-group {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .stream-input-group select,
+      .stream-input-group input {
+        flex: 1;
+        pointer-events: auto;
+        cursor: text;
+      }
+      .stream-input-group select {
+        cursor: pointer;
+      }
+      .mapping-controls input,
+      .mapping-controls select {
+        pointer-events: auto;
+        cursor: text;
+        background: #2a2a2a;
+        border: 1px solid #444;
+        color: #fff;
+        padding: 4px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+      }
+      .mapping-controls select {
+        cursor: pointer;
+      }
+      .mapping-controls input:hover,
+      .mapping-controls select:hover {
+        border-color: #555;
+      }
+      .mapping-controls input:focus,
+      .mapping-controls select:focus {
+        outline: none;
+        border-color: #4a8;
+      }
+      .operation-select {
+        width: 80px;
+      }
+      .add-stream-btn {
+        width: 100%;
+        margin-top: 8px;
+        padding: 6px;
+        font-size: 11px;
+      }
+      .remove-btn {
+        padding: 4px 8px;
+        font-size: 10px;
+        background: #5a1a1a;
+      }
+      .range-inputs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+      }
+      .add-mapping-btn {
+        width: 100%;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <button id="btn_start">▶ Start Audio</button>
+      <button id="btn_stop" style="display: none">⏹ Stop</button>
+      <div class="status" id="status">Loading...</div>
+    </div>
+
+    <div class="main-content">
+      <div class="left-panel">
+        <div class="left-panel-tabs">
+          <div class="tab active" data-tab="signals">Signals</div>
+          <div class="tab" data-tab="mappings">Mappings</div>
+        </div>
+
+        <div class="tab-content active" id="signals-tab">
+          <div class="panel-section">
+            <h3>Particle Management</h3>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px">
+              <button
+                id="btn-add-particle"
+                style="flex: 1; padding: 8px; background: #4a8"
+              >
+                + Add Particle
+              </button>
+              <button
+                id="btn-remove-particle"
+                style="flex: 1; padding: 8px; background: #a84"
+              >
+                - Remove Particle
+              </button>
+            </div>
+            <div style="font-size: 11px; color: #aaa">
+              Particles: <span id="particle-count">1</span>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Global System Metrics</h3>
+            <div style="font-size: 11px; color: #aaa; line-height: 1.8">
+              <div>Entropy: <span id="system-entropy">0.00</span></div>
+              <div>
+                RMS Velocity: <span id="system-rms-velocity">0.00</span>
+              </div>
+              <div>Particles: <span id="global-particle-count">1</span></div>
+              <div>Clusters: <span id="cluster-count">0</span></div>
+              <div>In Inner: <span id="in-inner-number">0</span></div>
+              <div>In Inner Pulsar: <span id="in-inner-pulsar">0</span></div>
+              <div>Out Inner Pulsar: <span id="out-inner-pulsar">0</span></div>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Interaction Radii</h3>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Inner (Distinct)</span>
+                <span class="param-value" id="inner-radius-value">80</span>
+              </div>
+              <input
+                type="range"
+                id="inner-radius"
+                min="40"
+                max="120"
+                value="80"
+              />
+            </div>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Outer (React)</span>
+                <span class="param-value" id="outer-radius-value">150</span>
+              </div>
+              <input
+                type="range"
+                id="outer-radius"
+                min="100"
+                max="250"
+                value="150"
+              />
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3>Gravitational Force</h3>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>G (Strength)</span>
+                <span class="param-value" id="g-value">100</span>
+              </div>
+              <input
+                type="range"
+                id="g-constant"
+                min="10"
+                max="500"
+                value="100"
+              />
+            </div>
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Min Distance</span>
+                <span class="param-value" id="min-dist-value">10</span>
+              </div>
+              <input
+                type="range"
+                id="min-distance"
+                min="1"
+                max="50"
+                value="10"
+              />
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <!-- Particle visualization removed for performance -->
+            <div style="margin-top: 8px; font-size: 11px; color: #aaa">
+              <div>Particles: <span id="particle-count">3</span></div>
+              <div>Fixed view centered on center of mass</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="mappings-tab">
+          <div class="panel-section">
+            <h3>Stream → Node Mappings</h3>
+            <div id="mappings-container"></div>
+            <div style="display: flex; gap: 8px; margin-top: 8px">
+              <button class="add-mapping-btn" id="add-mapping-btn">
+                + Add Mapping
+              </button>
+              <button
+                class="add-mapping-btn"
+                id="export-mappings-btn"
+                style="flex: 1"
+              >
+                Export Mappings
+              </button>
+              <button
+                class="add-mapping-btn"
+                id="import-mappings-btn"
+                style="flex: 1"
+              >
+                Import Mappings
+              </button>
+              <input
+                type="file"
+                id="import-file-input"
+                accept=".json"
+                style="display: none"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-panel">
+        <div id="noisecraft-container">
+          <iframe
+            id="noisecraft-iframe"
+            src="/public/embedded.html?src=/public/examples/glb_audio_map.ncft"
+          ></iframe>
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      // Import particle system module
+      import {
+        VirtualParticle,
+        SignalGenerator,
+        ParticleSystem,
+      } from "/public/global-particle-system.js";
+      import {
+        SequencerLogic,
+        convertNotePatternToNoiseCraft,
+        updateMonoSeqSequencer,
+      } from "/public/sequencer-logic.js";
+      import { createParticlePatternPipeline } from "/public/particle-pattern-pipeline.js";
+      import {
+        processBackgroundAudio,
+        calculateLocalization,
+      } from "/public/background-audio-post-processing.js";
+      import {
+        SpatialAudioProcessor,
+        createSpatialProcessor,
+      } from "/public/spatial-audio-processor.js";
+      import {
+        generateHarmoniousPattern,
+        generateHarmonizingPattern,
+        generateChordPatterns,
+        SCALES,
+        CHORD_TONES,
+        getRandomScale,
+      } from "/public/music-theory.js";
+      // Import new modular components
+      import { createPatternAssignmentManager } from "/public/pattern-assignment.js";
+      import { createMappingStorage } from "/public/mapping-storage.js";
+      import { GlobalHarmonicPlacer } from "/public/harmonic-placer.js";
+
+      console.log("[Init] ===== SCRIPT STARTING =====");
+      console.log("[Init] All imports loaded successfully");
+
+      // Prevent browser back navigation (swipe gestures) from reloading the page
+      // This fixes the issue where touchpad swipe-left gestures cause page reloads
+      (function preventBackNavigation() {
+        // Push a state to the history stack so we can intercept back navigation
+        history.pushState(null, null, location.href);
+
+        // Listen for popstate events (triggered by back/forward navigation or swipe gestures)
+        window.addEventListener("popstate", function (event) {
+          console.log(
+            "[Navigation] Back navigation detected, preventing reload..."
+          );
+          // Push the state back to prevent navigation
+          history.pushState(null, null, location.href);
+          // Optionally show a message to the user
+          const statusEl = document.getElementById("status");
+          if (statusEl) {
+            const originalText = statusEl.textContent;
+            statusEl.textContent =
+              "Back navigation prevented (use browser controls instead)";
+            statusEl.style.color = "#ffa";
+            setTimeout(() => {
+              statusEl.textContent = originalText;
+              statusEl.style.color = "";
+            }, 2000);
+          }
+        });
+
+        // Also prevent swipe gestures on touch devices
+        let touchStartX = 0;
+        let touchStartY = 0;
+        document.addEventListener(
+          "touchstart",
+          function (e) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+          },
+          { passive: true }
+        );
+
+        document.addEventListener(
+          "touchmove",
+          function (e) {
+            if (!touchStartX || !touchStartY) return;
+
+            const touchEndX = e.touches[0].clientX;
+            const touchEndY = e.touches[0].clientY;
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+
+            // If horizontal swipe is much larger than vertical, prevent it
+            if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+              // This is a horizontal swipe - prevent default browser behavior
+              e.preventDefault();
+            }
+          },
+          { passive: false }
+        );
+
+        console.log("[Navigation] Back navigation prevention enabled");
+      })();
+
+      // Dummy storage fallback if mapping-storage.js is not available
+      function createDummyStorage() {
+        return {
+          loadMappings: () => [],
+          saveToLocalStorage: () => {},
+          loadFromLocalStorage: () => [],
+          exportAsJSON: () => {},
+          importFromJSON: () => Promise.resolve([]),
+          saveToProjectFile: (data, mappings) => data,
+          loadFromProjectFile: (data) => [],
+        };
+      }
+
+      // Wrap main code in try-catch to catch initialization errors
+      try {
+        console.log("[Init] Entering try block...");
+
+        console.log("[Init] Defining AVAILABLE_STREAMS...");
+        // Global streams (different from Individual)
+        const AVAILABLE_STREAMS = [
+          "entropy",
+          "rmsVelocity",
+          "particleCount",
+          "clusterCount",
+          "inInnerPulsar",
+          "outInnerPulsar",
+        ];
+
+        // Interpolation modes
+        const INTERPOLATION_MODES = ["linear", "logarithmic", "exponential"];
+
+        // Mathematical operations
+        const OPERATIONS = [
+          { value: "none", label: "None" },
+          { value: "add", label: "Add (+)" },
+          { value: "subtract", label: "Subtract (-)" },
+          { value: "multiply", label: "Multiply (×)" },
+          { value: "divide", label: "Divide (÷)" },
+          { value: "min", label: "Min" },
+          { value: "max", label: "Max" },
+          { value: "average", label: "Average" },
+        ];
+
+        console.log("[Init] Defining StreamNodeMapper class...");
+        // Stream-to-Node Mapping Manager (now uses MappingStorage module)
+        class StreamNodeMapper {
+          constructor(filename = "glb_audio_map.ncft") {
+            this.mappings = [];
+            this.filename = filename;
+            this.storage = createMappingStorage(filename);
+            this.loadMappings();
+          }
+
+          async loadMappings() {
+            try {
+              // First, try loading from dedicated mappings JSON file
+              try {
+                const mappingsResponse = await fetch(
+                  "/public/global-workspace-mappings.json"
+                );
+                if (mappingsResponse.ok) {
+                  const mappingsData = await mappingsResponse.json();
+                  if (Array.isArray(mappingsData) && mappingsData.length > 0) {
+                    this.mappings = mappingsData;
+                    console.log(
+                      `[MappingStorage] Loaded ${this.mappings.length} mappings from global-workspace-mappings.json`
+                    );
+                    return; // Successfully loaded, exit early
+                  }
+                }
+              } catch (e) {
+                console.warn(
+                  "[MappingStorage] Failed to load from global-workspace-mappings.json, trying other sources:",
+                  e
+                );
+              }
+
+              // Fallback: Try loading from project file
+              const response = await fetch(`/public/examples/${this.filename}`);
+              if (response.ok) {
+                const projectData = await response.json();
+                this.mappings = await this.storage.loadMappings(projectData);
+                if (this.mappings.length > 0) {
+                  console.log(
+                    `[MappingStorage] Loaded ${this.mappings.length} mappings from project file`
+                  );
+                  return; // Successfully loaded, exit early
+                }
+              }
+
+              // Final fallback: localStorage
+              this.mappings = this.storage.loadFromLocalStorage();
+              if (this.mappings.length > 0) {
+                console.log(
+                  `[MappingStorage] Loaded ${this.mappings.length} mappings from localStorage`
+                );
+              } else {
+                console.log(`[MappingStorage] No mappings found in any source`);
+              }
+            } catch (e) {
+              console.warn("Failed to load mappings, using localStorage:", e);
+              this.mappings = this.storage.loadFromLocalStorage();
+            }
+          }
+
+          saveToStorage() {
+            // Save to localStorage (always)
+            this.storage.saveToLocalStorage(this.mappings);
+          }
+
+          async saveToJSONFile() {
+            // Save mappings to global-workspace-mappings.json file on server
+            try {
+              const response = await fetch(
+                "/save-json/global-workspace-mappings.json",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify(this.mappings, null, 2),
+                }
+              );
+
+              if (response.ok) {
+                const result = await response.json();
+                console.log(
+                  `[StreamNodeMapper] Successfully saved ${this.mappings.length} mappings to global-workspace-mappings.json`
+                );
+                return true;
+              } else {
+                const error = await response.json();
+                console.error(
+                  "[StreamNodeMapper] Failed to save mappings:",
+                  error
+                );
+                return false;
+              }
+            } catch (e) {
+              console.error("[StreamNodeMapper] Error saving mappings:", e);
+              return false;
+            }
+          }
+
+          async saveToProjectFile(projectData) {
+            // Save mappings to project file metadata
+            const updatedProject = this.storage.saveToProjectFile(
+              projectData,
+              this.mappings
+            );
+            return updatedProject;
+          }
+
+          exportMappings() {
+            const filename = `mappings-${this.filename.replace(".ncft", "")}-${
+              new Date().toISOString().split("T")[0]
+            }.json`;
+            this.storage.exportAsJSON(this.mappings, filename);
+          }
+
+          async importMappings(file) {
+            try {
+              console.log(
+                `[StreamNodeMapper] Starting import for file: ${file.name}`
+              );
+              const imported = await this.storage.importFromJSON(file);
+              console.log(
+                `[StreamNodeMapper] Parsed ${
+                  imported?.length || 0
+                } mappings from file`
+              );
+
+              if (!Array.isArray(imported)) {
+                throw new Error("Imported data is not an array");
+              }
+
+              if (imported.length === 0) {
+                console.warn("[StreamNodeMapper] No mappings found in file");
+                return false;
+              }
+
+              // Validate each mapping has required fields
+              const validMappings = imported.filter((m) => {
+                const isValid =
+                  m &&
+                  typeof m === "object" &&
+                  "nodeId" in m &&
+                  "streams" in m &&
+                  Array.isArray(m.streams) &&
+                  m.streams.length > 0;
+                if (!isValid) {
+                  console.warn("[StreamNodeMapper] Invalid mapping found:", m);
+                }
+                return isValid;
+              });
+
+              if (validMappings.length === 0) {
+                throw new Error("No valid mappings found in file");
+              }
+
+              console.log(
+                `[StreamNodeMapper] ${validMappings.length} valid mappings out of ${imported.length}`
+              );
+              this.mappings = validMappings;
+              this.saveToStorage();
+              console.log(
+                `[StreamNodeMapper] Successfully imported and saved ${this.mappings.length} mappings`
+              );
+              console.log(`[StreamNodeMapper] Mappings:`, this.mappings);
+              return true;
+            } catch (e) {
+              console.error("[StreamNodeMapper] Failed to import mappings:", e);
+              console.error("[StreamNodeMapper] Error stack:", e.stack);
+              return false;
+            }
+          }
+
+          addMapping(mapping) {
+            const id = Date.now().toString();
+            this.mappings.push({ ...mapping, id });
+            this.saveToStorage();
+            return id;
+          }
+
+          removeMapping(id) {
+            this.mappings = this.mappings.filter((m) => m.id !== id);
+            this.saveToStorage();
+          }
+
+          updateMapping(id, updates) {
+            const index = this.mappings.findIndex((m) => m.id === id);
+            if (index !== -1) {
+              this.mappings[index] = { ...this.mappings[index], ...updates };
+              this.saveToStorage();
+            }
+          }
+
+          // Apply interpolation
+          interpolate(value, mode, inputMin, inputMax, outputMin, outputMax) {
+            // Clamp and normalize
+            const normalized = Math.max(
+              0,
+              Math.min(1, (value - inputMin) / (inputMax - inputMin || 1))
+            );
+            let transformed = normalized;
+
+            if (mode === "logarithmic") {
+              transformed = Math.log(normalized * 9 + 1) / Math.log(10);
+            } else if (mode === "exponential") {
+              transformed = (Math.pow(10, normalized) - 1) / 9;
+            }
+
+            return outputMin + transformed * (outputMax - outputMin);
+          }
+
+          // Compute final value for a mapping
+          computeMappingValue(mapping, signals) {
+            const streamValues = mapping.streams.map((streamConfig) => {
+              const streamValue = signals[streamConfig.stream];
+              if (streamValue === undefined || streamValue === null) return 0;
+
+              return this.interpolate(
+                streamValue,
+                streamConfig.interpolation || "linear",
+                streamConfig.inputMin || 0,
+                streamConfig.inputMax || 1,
+                streamConfig.outputMin || 0,
+                streamConfig.outputMax || 1
+              );
+            });
+
+            // Apply mathematical operations
+            if (streamValues.length === 0) return null;
+            if (streamValues.length === 1) return streamValues[0];
+
+            const op = mapping.operation || "none";
+
+            // If operation is "none", use only the first stream
+            if (op === "none") {
+              return streamValues[0];
+            }
+
+            // Apply operation to all streams
+            let result = streamValues[0];
+            for (let i = 1; i < streamValues.length; i++) {
+              const nextValue = streamValues[i];
+
+              if (op === "add") {
+                result += nextValue;
+              } else if (op === "subtract") {
+                result -= nextValue;
+              } else if (op === "multiply") {
+                result *= nextValue;
+              } else if (op === "divide") {
+                // Avoid division by zero
+                result = nextValue !== 0 ? result / nextValue : result;
+              } else if (op === "min") {
+                result = Math.min(result, nextValue);
+              } else if (op === "max") {
+                result = Math.max(result, nextValue);
+              } else if (op === "average") {
+                // Calculate running average correctly
+                result = (result * i + nextValue) / (i + 1);
+              }
+            }
+
+            // Debug logging for multiple stream operations
+            if (streamValues.length > 1 && op !== "none") {
+              console.log(
+                `[StreamMapper] Operation: ${op}, Streams: ${
+                  streamValues.length
+                }, Result: ${result.toFixed(4)}`
+              );
+            }
+
+            return result;
+          }
+
+          // Generate all parameter updates from mappings
+          generateParams(signals) {
+            const params = [];
+            for (const mapping of this.mappings) {
+              if (!mapping.enabled) continue;
+
+              const value = this.computeMappingValue(mapping, signals);
+              if (value === null || value === undefined) continue;
+
+              params.push({
+                nodeId: String(mapping.nodeId),
+                paramName: mapping.paramName || "value",
+                value: Number(value),
+              });
+            }
+            return params;
+          }
+        }
+
+        console.log("[Init] ===== STARTING PARTICLE INITIALIZATION =====");
+        // Create particle system (standalone module)
+        // Note: innerRadius/outerRadius are ONLY for signal generation (sound effects)
+        // Gravity works at ALL distances regardless of these radii
+        console.log("[Particle Init] Step 1: Creating ParticleSystem...");
+        let particleSystem;
+        try {
+          particleSystem = new ParticleSystem({
+            innerRadius: 80, // Distinct range: audio + visual feedback
+            outerRadius: 150, // Outer range: audio cue only (orientation + distance)
+            G: 500, // Realistic gravitational constant (reduced from 10000)
+            minDistance: 3, // Minimum distance for numerical stability
+          });
+          console.log(
+            "[Particle Init] ✓ ParticleSystem created:",
+            particleSystem
+          );
+          console.log(
+            "[Particle Init]   signalGenerator:",
+            particleSystem?.signalGenerator
+          );
+          console.log(
+            "[Particle Init]   signalGenerator.particles:",
+            particleSystem?.signalGenerator?.particles
+          );
+        } catch (e) {
+          console.error(
+            "[Particle Init] ✗ Failed to create ParticleSystem:",
+            e
+          );
+          throw e;
+        }
+
+        // Initialize modular pattern assignment manager
+        console.log("[Particle Init] Step 2: Creating pattern manager...");
+        let patternManager;
+        try {
+          patternManager = createPatternAssignmentManager({
+            mode: "individual",
+            key: "C",
+            scale: "major",
+          });
+          console.log("[Particle Init] ✓ Pattern manager created");
+        } catch (e) {
+          console.error(
+            "[Particle Init] ✗ Failed to create pattern manager:",
+            e
+          );
+          // Continue without pattern manager - particles can still be created
+        }
+
+        // Expose music theory functions globally for pattern manager fallback
+        window.generateHarmoniousPattern = generateHarmoniousPattern;
+        window.generateHarmonizingPattern = generateHarmonizingPattern;
+
+        // Current scale for music theory
+        const availableScales = Object.keys(SCALES);
+        const randomScaleIndex = Math.floor(
+          Math.random() * availableScales.length
+        );
+        let currentScale = availableScales[randomScaleIndex];
+        console.log(
+          `[Music Theory] Using scale: ${currentScale} (randomized for variety)`
+        );
+
+        // Initialize GlobalHarmonicPlacer for harmonic progression (before particle initialization)
+        const harmonicPlacer = new GlobalHarmonicPlacer("C", "major");
+
+        // Create a stable 3-body system: One central particle with 2 orbiting moons
+        // Using more realistic mass ratios so all particles stay visible
+        const centerX = 575;
+        const centerY = 525;
+
+        // Central particle - reduced mass so it moves more visibly
+        const centralMass = 100; // Reduced from 500 - allows visible interaction
+
+        console.log("[Particle Init] Step 3: Adding particles...");
+
+        // Start with a single particle with random note assignment
+        // All particles start with [0,0,...,0] pattern and get assigned when added
+        let particle0;
+        try {
+          // Generate random note for initial particle
+          const randomNote = Math.floor(Math.random() * 12);
+
+          console.log(
+            "[Particle Init]   Adding particle 0 with random note:",
+            randomNote
+          );
+          particle0 = particleSystem.addParticle(
+            0,
+            centerX,
+            centerY,
+            randomNote,
+            centralMass
+          );
+          console.log("[Particle Init]   ✓ Particle 0 added:", particle0);
+          console.log(
+            "[Particle Init]   Current particles:",
+            particleSystem.getParticles().length
+          );
+
+          // Initialize with empty pattern [0,0,...,0]
+          particle0.sequencerPattern = new Array(12).fill(0);
+          if (patternManager) {
+            patternManager.assignPattern(0, particle0.sequencerPattern);
+          }
+
+          // Assign initial particle to sequencer using harmonic progression
+          // Use tone property directly since pattern is [0,0,...,0]
+          const noteIndex =
+            particle0.tone !== undefined
+              ? particle0.tone % 12
+              : particle0.getActiveNoteIndex();
+          if (noteIndex >= 0 && noteIndex < 12 && harmonicPlacer) {
+            const position = harmonicPlacer.assignNewUser(noteIndex, 1, true);
+            if (position >= 0 && position < 36) {
+              const voiceIndex = Math.floor(position / 12);
+              const column = position % 12;
+              const voices = ["bass", "baritone", "tenor"];
+              const voice = voices[voiceIndex];
+
+              if (!window.globalParticleAssignments) {
+                window.globalParticleAssignments = {};
+              }
+              window.globalParticleAssignments[particle0.id] = {
+                voice,
+                column,
+              };
+              harmonicPlacer.addAssignment(noteIndex, position);
+
+              console.log(
+                `[Particle Init] Assigned initial particle (note: ${noteIndex}, tone: ${particle0.tone}) to ${voice} step ${column}`
+              );
+            }
+          }
+
+          console.log(
+            "[Particle Init] ✓ Initial particle added successfully with empty pattern"
+          );
+        } catch (e) {
+          console.error("[Particle Init] ✗ Failed to add particle:", e);
+          console.error("[Particle Init]   Error stack:", e.stack);
+          throw e;
+        }
+
+        // Set initial velocity
+        particle0.velocity = { x: 0, y: 0 };
+
+        // Get particles and signal generator for backward compatibility
+        const particles = particleSystem.getParticles();
+        const signalGenerator = particleSystem.signalGenerator;
+
+        // Global streams calculation functions
+        let previousInInnerState = new Map(); // particleId -> Set of neighborIds that are In Inner
+        let inInnerPulsarTimer = 0; // Timer for inInnerPulsar (0 when inactive)
+        let outInnerPulsarTimer = 0; // Timer for outInnerPulsar (0 when inactive)
+        const PULSAR_DURATION = 0.5; // Duration in seconds for pulsar signals
+
+        // Calculate Shannon entropy based on velocity diversity
+        function calculateEntropy(particles) {
+          if (!particles || particles.length === 0) return 0;
+
+          // Calculate velocity magnitudes
+          const velocities = particles.map((p) => {
+            return Math.sqrt(p.velocity.x ** 2 + p.velocity.y ** 2);
+          });
+
+          // Normalize velocities to 0-1 range (assuming max speed of ~100)
+          const maxSpeed = 100;
+          const normalized = velocities.map((v) => Math.min(v / maxSpeed, 1.0));
+
+          // Calculate Shannon entropy
+          const bins = 12;
+          const counts = new Array(bins).fill(0);
+          normalized.forEach((v) => {
+            const bin = Math.floor(v * bins);
+            counts[Math.min(bin, bins - 1)]++;
+          });
+
+          let entropy = 0;
+          counts.forEach((count) => {
+            if (count > 0) {
+              const p = count / particles.length;
+              entropy -= p * Math.log2(p);
+            }
+          });
+
+          return entropy;
+        }
+
+        // Calculate RMS (Root Mean Square) velocity
+        function calculateRMSVelocity(particles) {
+          if (!particles || particles.length === 0) return 0;
+
+          let sumSquared = 0;
+          particles.forEach((p) => {
+            const vx = p.velocity.x;
+            const vy = p.velocity.y;
+            sumSquared += vx * vx + vy * vy;
+          });
+
+          return Math.sqrt(sumSquared / particles.length);
+        }
+
+        // Calculate number of clusters using DFS
+        function calculateClusterCount(particles) {
+          if (!particles || particles.length === 0) return 0;
+          if (particles.length === 1) return 1;
+
+          const config = particleSystem.getConfig();
+          const innerRadius = config.innerRadius || 80;
+          const visited = new Set();
+          let clusterCount = 0;
+
+          function dfs(particleId, clusterSet) {
+            if (visited.has(particleId)) return;
+            visited.add(particleId);
+            clusterSet.add(particleId);
+
+            const particle = particles.find((p) => p.id === particleId);
+            if (!particle) return;
+
+            particles.forEach((other) => {
+              if (other.id !== particleId && !visited.has(other.id)) {
+                const dx = other.position.x - particle.position.x;
+                const dy = other.position.y - particle.position.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance <= innerRadius) {
+                  dfs(other.id, clusterSet);
+                }
+              }
+            });
+          }
+
+          particles.forEach((particle) => {
+            if (!visited.has(particle.id)) {
+              dfs(particle.id, new Set());
+              clusterCount++;
+            }
+          });
+
+          return clusterCount;
+        }
+
+        // Calculate In Inner state changes and update pulsars
+        function calculateInInnerPulsars(particles, dt) {
+          if (!particles || particles.length === 0) {
+            previousInInnerState.clear();
+            return { inInnerPulsar: 0, outInnerPulsar: 0 };
+          }
+
+          const config = particleSystem.getConfig();
+          const innerRadius = config.innerRadius || 80;
+          const currentInInnerState = new Map();
+
+          // Build current In Inner state
+          particles.forEach((particle) => {
+            const neighbors = new Set();
+            particles.forEach((other) => {
+              if (other.id !== particle.id) {
+                const dx = other.position.x - particle.position.x;
+                const dy = other.position.y - particle.position.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance <= innerRadius) {
+                  neighbors.add(other.id);
+                }
+              }
+            });
+            currentInInnerState.set(particle.id, neighbors);
+          });
+
+          // Detect changes: new connections (inInnerPulsar) and broken connections (outInnerPulsar)
+          let newConnections = false;
+          let brokenConnections = false;
+
+          particles.forEach((particle) => {
+            const prevNeighbors =
+              previousInInnerState.get(particle.id) || new Set();
+            const currNeighbors =
+              currentInInnerState.get(particle.id) || new Set();
+
+            // Check for new connections
+            currNeighbors.forEach((neighborId) => {
+              if (!prevNeighbors.has(neighborId)) {
+                newConnections = true;
+              }
+            });
+
+            // Check for broken connections
+            prevNeighbors.forEach((neighborId) => {
+              if (!currNeighbors.has(neighborId)) {
+                brokenConnections = true;
+              }
+            });
+          });
+
+          // Update pulsar timers
+          if (newConnections) {
+            inInnerPulsarTimer = PULSAR_DURATION;
+          } else if (inInnerPulsarTimer > 0) {
+            inInnerPulsarTimer = Math.max(0, inInnerPulsarTimer - dt);
+          }
+
+          if (brokenConnections) {
+            outInnerPulsarTimer = PULSAR_DURATION;
+          } else if (outInnerPulsarTimer > 0) {
+            outInnerPulsarTimer = Math.max(0, outInnerPulsarTimer - dt);
+          }
+
+          // Update previous state
+          previousInInnerState = new Map();
+          currentInInnerState.forEach((neighbors, particleId) => {
+            previousInInnerState.set(particleId, new Set(neighbors));
+          });
+
+          return {
+            inInnerPulsar: inInnerPulsarTimer > 0 ? 1 : 0,
+            outInnerPulsar: outInnerPulsarTimer > 0 ? 1 : 0,
+          };
+        }
+
+        // Initialize sequencer logic
+        const sequencerLogic = new SequencerLogic();
+
+        // Sequencer node IDs from glb_audio_map.ncft (12 columns per voice)
+        const SEQUENCER_NODES = {
+          global: {
+            bass: "211", // MonoSeq "bass" (12 columns)
+            baritone: "212", // MonoSeq "baritone" (12 columns)
+            tenor: "213", // MonoSeq "tenor" (12 columns)
+          },
+        };
+
+        // harmonicPlacer is already initialized above (before particle initialization)
+
+        // Particle management: Add/Remove functionality
+        let nextParticleId = 1; // Start from 1 since we have 0 as initial particle
+
+        function addNewParticle() {
+          const particles = particleSystem.getParticles();
+          if (particles.length >= 36) {
+            console.warn("[Particle] Maximum 36 particles reached");
+            return;
+          }
+
+          // Place new particle around center of mass
+          let totalMass = 0,
+            cmX = 575,
+            cmY = 525;
+          if (particles.length > 0) {
+            particles.forEach((p) => {
+              totalMass += p.mass || 1;
+              cmX += p.position.x * (p.mass || 1);
+              cmY += p.position.y * (p.mass || 1);
+            });
+            cmX /= totalMass;
+            cmY /= totalMass;
+          }
+
+          // Random position around center of mass
+          const angle = Math.random() * Math.PI * 2;
+          const radius = 80 + Math.random() * 60;
+          const x = cmX + Math.cos(angle) * radius;
+          const y = cmY + Math.sin(angle) * radius;
+
+          // Random note assignment (0-11)
+          const randomNote = Math.floor(Math.random() * 12);
+
+          // Add particle with standard mass
+          const newParticle = particleSystem.addParticle(
+            nextParticleId,
+            x,
+            y,
+            randomNote,
+            50
+          );
+
+          // Initialize particle with empty pattern [0,0,...,0]
+          // Pattern will be assigned to sequencer based on harmonic progression
+          newParticle.sequencerPattern = new Array(12).fill(0);
+
+          // Get all particles including the new one
+          const allParticles = particleSystem.getParticles();
+
+          // Assign global sequencer position using harmonic progression algorithm
+          // The harmonic placer will calculate the best position based on current harmonic context
+          // Use tone property directly since pattern is [0,0,...,0]
+          if (!harmonicPlacer) {
+            console.error("[Particle] harmonicPlacer is not available");
+            return;
+          }
+
+          const noteIndex =
+            newParticle.tone !== undefined
+              ? newParticle.tone % 12
+              : newParticle.getActiveNoteIndex();
+          if (noteIndex >= 0 && noteIndex < 12) {
+            try {
+              const position = harmonicPlacer.assignNewUser(
+                noteIndex,
+                allParticles.length,
+                true
+              );
+              if (position >= 0 && position < 36) {
+                const voiceIndex = Math.floor(position / 12);
+                const column = position % 12;
+                const voices = ["bass", "baritone", "tenor"];
+                const voice = voices[voiceIndex];
+
+                const globalAssignment = { voice, column };
+                if (!window.globalParticleAssignments) {
+                  window.globalParticleAssignments = {};
+                }
+                window.globalParticleAssignments[newParticle.id] =
+                  globalAssignment;
+
+                // Add assignment to harmonic placer
+                harmonicPlacer.addAssignment(noteIndex, position);
+
+                console.log(
+                  `[Particle] Assigned particle ${newParticle.id} (note: ${noteIndex}, tone: ${newParticle.tone}) to ${voice} step ${column}`
+                );
+              } else {
+                console.warn(
+                  `[Particle] Failed to assign position for particle ${newParticle.id}, position: ${position}`
+                );
+              }
+            } catch (e) {
+              console.error(
+                `[Particle] Error assigning position for particle ${newParticle.id}:`,
+                e
+              );
+              throw e; // Re-throw to be caught by outer try-catch
+            }
+          } else {
+            console.warn(
+              `[Particle] Invalid note index ${noteIndex} for particle ${newParticle.id} (tone: ${newParticle.tone})`
+            );
+          }
+
+          // Store pattern pipeline for later use (optional, for compatibility)
+          if (typeof createParticlePatternPipeline === "function") {
+            try {
+              const patternPipeline =
+                window.patternPipeline ||
+                createParticlePatternPipeline({
+                  mode: "global",
+                  harmonicPlacer: harmonicPlacer,
+                  patternManager: patternManager || null,
+                });
+              window.patternPipeline = patternPipeline;
+            } catch (e) {
+              console.warn("[Particle] Failed to create pattern pipeline:", e);
+              // Continue without pattern pipeline - not critical
+            }
+          }
+
+          nextParticleId++;
+
+          // Update sequencer pattern immediately when particle is added
+          if (iframe && iframe.contentWindow && allParticles.length > 0) {
+            // Force pattern update by resetting previousSequencerPattern
+            if (window.previousSequencerPattern !== undefined) {
+              window.previousSequencerPattern = null;
+            }
+
+            const globalPattern = sequencerLogic.generateGlobalPattern(
+              allParticles,
+              window.globalParticleAssignments,
+              harmonicPlacer,
+              true // verbose: log when particle is added
+            );
+            window.globalParticleAssignments = globalPattern.assignments || {};
+            patternPipeline.updateGlobalAssignments(
+              window.globalParticleAssignments
+            );
+
+            // Count active cells for logging
+            const bassActiveCells = globalPattern.bass.reduce(
+              (sum, step) =>
+                sum +
+                step.reduce(
+                  (stepSum, cell) => stepSum + (cell === 1 ? 1 : 0),
+                  0
+                ),
+              0
+            );
+            const baritoneActiveCells = globalPattern.baritone.reduce(
+              (sum, step) =>
+                sum +
+                step.reduce(
+                  (stepSum, cell) => stepSum + (cell === 1 ? 1 : 0),
+                  0
+                ),
+              0
+            );
+            const tenorActiveCells = globalPattern.tenor.reduce(
+              (sum, step) =>
+                sum +
+                step.reduce(
+                  (stepSum, cell) => stepSum + (cell === 1 ? 1 : 0),
+                  0
+                ),
+              0
+            );
+
+            console.log(
+              `[Global Sequencer] Particle ${newParticle.id} added (note: ${randomNote}), updating patterns:`,
+              {
+                totalParticles: allParticles.length,
+                bassCells: bassActiveCells,
+                baritoneCells: baritoneActiveCells,
+                tenorCells: tenorActiveCells,
+                assignment: globalAssignment,
+              }
+            );
+
+            requestAnimationFrame(() => {
+              updateMonoSeqSequencer(
+                iframe.contentWindow,
+                SEQUENCER_NODES.global.bass,
+                0,
+                globalPattern.bass,
+                12
+              );
+              updateMonoSeqSequencer(
+                iframe.contentWindow,
+                SEQUENCER_NODES.global.baritone,
+                0,
+                globalPattern.baritone,
+                12
+              );
+              updateMonoSeqSequencer(
+                iframe.contentWindow,
+                SEQUENCER_NODES.global.tenor,
+                0,
+                globalPattern.tenor,
+                12
+              );
+            });
+          }
+
+          // Update particle count display
+          const updatedParticles = particleSystem.getParticles();
+          const particleCountEl = document.getElementById("particle-count");
+          if (particleCountEl) {
+            particleCountEl.textContent = updatedParticles.length.toString();
+          }
+
+          console.log(
+            `[Particle] Added particle ${newParticle.id} with note ${randomNote}, total: ${updatedParticles.length}`
+          );
+        }
+
+        function removeLastParticle() {
+          const particles = particleSystem.getParticles();
+          if (particles.length <= 1) {
+            console.warn("[Particle] Cannot remove last particle");
+            return;
+          }
+
+          // Remove particle with highest ID (most recently added)
+          const sortedParticles = [...particles].sort((a, b) => b.id - a.id);
+          const particleToRemove = sortedParticles[0];
+          const removedId = particleToRemove.id;
+
+          particleSystem.removeParticle(removedId);
+
+          // Clean up assignment
+          if (window.globalParticleAssignments) {
+            delete window.globalParticleAssignments[removedId];
+          }
+
+          // Update sequencer pattern immediately
+          if (iframe && iframe.contentWindow) {
+            const allParticles = particleSystem.getParticles();
+            if (allParticles.length > 0) {
+              const globalPattern = sequencerLogic.generateGlobalPattern(
+                allParticles,
+                window.globalParticleAssignments || {},
+                harmonicPlacer
+              );
+              window.globalParticleAssignments =
+                globalPattern.assignments || {};
+              requestAnimationFrame(() => {
+                updateMonoSeqSequencer(
+                  iframe.contentWindow,
+                  SEQUENCER_NODES.global.bass,
+                  0,
+                  globalPattern.bass,
+                  12
+                );
+                updateMonoSeqSequencer(
+                  iframe.contentWindow,
+                  SEQUENCER_NODES.global.baritone,
+                  0,
+                  globalPattern.baritone,
+                  12
+                );
+                updateMonoSeqSequencer(
+                  iframe.contentWindow,
+                  SEQUENCER_NODES.global.tenor,
+                  0,
+                  globalPattern.tenor,
+                  12
+                );
+              });
+            }
+          }
+
+          // Update particle count display
+          const updatedParticles = particleSystem.getParticles();
+          const particleCountEl = document.getElementById("particle-count");
+          if (particleCountEl) {
+            particleCountEl.textContent = updatedParticles.length.toString();
+          }
+
+          console.log(
+            `[Particle] Removed particle ${removedId}, remaining: ${updatedParticles.length}`
+          );
+        }
+
+        // Track previous inner particle state to detect changes
+        let previousInnerParticleIds = new Set();
+        // Store previousSequencerPattern globally so it can be reset when particles are added
+        if (!window.previousSequencerPattern) {
+          window.previousSequencerPattern = null;
+        }
+        let previousSequencerPattern = window.previousSequencerPattern;
+
+        // Debug: Verify particles are created and log note profiles
+        console.log(
+          `Particle system initialized with ${particles.length} particles:`,
+          particles
+        );
+        console.log(
+          "Particle positions:",
+          particles.map((p) => ({ id: p.id, x: p.position.x, y: p.position.y }))
+        );
+        console.log("Particle note profiles:", {
+          0: particle0.sequencerPattern,
+          activeNotes: {
+            0: particle0.getActiveNoteIndex(),
+          },
+        });
+
+        // Verify particle system is working
+        if (particles.length === 0) {
+          console.error("CRITICAL: No particles were created!");
+          console.error("  particleSystem:", particleSystem);
+          console.error("  signalGenerator:", particleSystem?.signalGenerator);
+          console.error(
+            "  signalGenerator.particles:",
+            particleSystem?.signalGenerator?.particles
+          );
+          console.error("  getParticles() returned:", particles);
+
+          // Emergency reinitialize if needed
+          console.warn("⚠️ Attempting emergency particle reinitialization...");
+          try {
+            const randomNote = Math.floor(Math.random() * 12);
+            const emergency0 = particleSystem.addParticle(
+              0,
+              centerX,
+              centerY,
+              randomNote,
+              centralMass
+            );
+            emergency0.sequencerPattern = new Array(12).fill(0);
+            emergency0.velocity = { x: 0, y: 0 };
+            const emergencyParticles = particleSystem.getParticles();
+            console.log(
+              `Emergency reinit result: ${emergencyParticles.length} particles`
+            );
+          } catch (e) {
+            console.error("Emergency reinit failed:", e);
+          }
+        } else {
+          console.log(
+            "✓ Particles initialized successfully, starting animation loop"
+          );
+          // Double-check particles are accessible
+          const verifyParticles = particleSystem.getParticles();
+          if (verifyParticles.length !== particles.length) {
+            console.warn(
+              `⚠️ Particle count mismatch: initialized ${particles.length}, getParticles() returned ${verifyParticles.length}`
+            );
+          }
+        }
+
+        // Expose particle system globally for integration
+        window.particleSystem = particleSystem;
+        window.sequencerLogic = sequencerLogic;
+
+        // Audio localization helper - DEPRECATED: Use background-audio-post-processing.js module instead
+        // Kept for backwards compatibility only
+        window.audioLocalization = {
+          calculateLocalization: calculateLocalization,
+        };
+
+        // ===== SPATIAL AUDIO PROCESSOR (Web Audio API Post-Processing) =====
+        // Web Audio API를 사용한 정교한 spatialization 적용
+        // NoiseCraft 오디오 출력을 받아서 PannerNode로 공간 오디오 처리
+
+        let spatialProcessor = null;
+        // NoiseCraft integration - declare iframe early for audio stream access
+        const iframe = document.getElementById("noisecraft-iframe");
+
+        let spatialAudioContext = null;
+        let mediaStreamSource = null; // MediaStreamAudioSourceNode from NoiseCraft
+        let isSpatialAudioEnabled = false;
+
+        // Initialize Spatial Audio Processor when audio stream is available
+        function initializeSpatialProcessor(mediaStream, sampleRate) {
+          try {
+            // Create or reuse AudioContext
+            if (!spatialAudioContext) {
+              spatialAudioContext = new AudioContext({
+                latencyHint: "interactive",
+                sampleRate: sampleRate || 44100,
+              });
+            }
+
+            // Resume context if suspended (browser autoplay policy)
+            if (spatialAudioContext.state === "suspended") {
+              spatialAudioContext.resume();
+            }
+
+            // Create MediaStreamAudioSourceNode from the stream
+            if (mediaStreamSource) {
+              mediaStreamSource.disconnect();
+            }
+            mediaStreamSource =
+              spatialAudioContext.createMediaStreamSource(mediaStream);
+
+            // Create spatial processor
+            const config = particleSystem.getConfig();
+            spatialProcessor = createSpatialProcessor(spatialAudioContext, {
+              innerRadius: config.innerRadius || 80,
+              outerRadius: config.outerRadius || 150,
+            });
+
+            // Immediately set up audio processing pipeline
+            // This ensures audio plays even when no particles are nearby (self audio)
+            window.stereoPanner = spatialAudioContext.createStereoPanner();
+            window.distanceGain = spatialAudioContext.createGain();
+
+            // Create reverb effect for background audio (other users' sounds)
+            // Using delay-based reverb (ConvolverNode would require impulse response)
+            window.reverbGain = spatialAudioContext.createGain();
+            window.reverbDelay1 = spatialAudioContext.createDelay(0.1);
+            window.reverbDelay2 = spatialAudioContext.createDelay(0.08);
+            window.reverbDelay3 = spatialAudioContext.createDelay(0.06);
+            window.reverbFeedback1 = spatialAudioContext.createGain();
+            window.reverbFeedback2 = spatialAudioContext.createGain();
+            window.reverbFeedback3 = spatialAudioContext.createGain();
+            window.reverbMix = spatialAudioContext.createGain(); // Controls reverb wetness
+
+            // Set up reverb feedback loop
+            window.reverbFeedback1.gain.value = 0.3;
+            window.reverbFeedback2.gain.value = 0.25;
+            window.reverbFeedback3.gain.value = 0.2;
+            window.reverbMix.gain.value = 0; // Start with no reverb (self audio)
+
+            // Reverb routing: input -> delays -> feedback -> mix
+            window.reverbDelay1.delayTime.value = 0.05; // 50ms
+            window.reverbDelay2.delayTime.value = 0.035; // 35ms
+            window.reverbDelay3.delayTime.value = 0.025; // 25ms
+
+            // Route: NoiseCraft MediaStream -> StereoPanner -> [Dry + Reverb] -> Gain -> Destination
+            // Dry path (self audio): StereoPanner -> Gain
+            // Wet path (background audio): StereoPanner -> Reverb -> Mix -> Gain
+            mediaStreamSource.connect(window.stereoPanner);
+
+            // Dry signal (self audio - no reverb)
+            window.stereoPanner.connect(window.distanceGain);
+
+            // Wet signal (background audio - with reverb)
+            // Create parallel reverb processing
+            const reverbInput = spatialAudioContext.createGain();
+            window.stereoPanner.connect(reverbInput);
+            reverbInput.connect(window.reverbDelay1);
+            reverbInput.connect(window.reverbDelay2);
+            reverbInput.connect(window.reverbDelay3);
+
+            // Reverb feedback loops
+            window.reverbDelay1.connect(window.reverbFeedback1);
+            window.reverbDelay2.connect(window.reverbFeedback2);
+            window.reverbDelay3.connect(window.reverbFeedback3);
+            window.reverbFeedback1.connect(window.reverbDelay1);
+            window.reverbFeedback2.connect(window.reverbDelay2);
+            window.reverbFeedback3.connect(window.reverbDelay3);
+
+            // Reverb output to mix
+            window.reverbDelay1.connect(window.reverbMix);
+            window.reverbDelay2.connect(window.reverbMix);
+            window.reverbDelay3.connect(window.reverbMix);
+            window.reverbMix.connect(window.distanceGain);
+
+            // Final output
+            window.distanceGain.connect(spatialAudioContext.destination);
+
+            // Store reverb input for dynamic control
+            window.reverbInputGain = reverbInput;
+
+            // Initial settings: centered pan, full gain (self audio), no reverb
+            window.stereoPanner.pan.value = 0;
+            window.distanceGain.gain.value = 1.0; // Full volume for self audio
+            window.reverbInputGain.gain.value = 0; // No reverb initially (self audio)
+
+            isSpatialAudioEnabled = true;
+            console.log(
+              "[SpatialAudio] Processor initialized with MediaStream"
+            );
+            console.log(
+              "[SpatialAudio] Audio pipeline connected - self audio playing"
+            );
+            console.log(
+              "[SpatialAudio] Using background-audio-post-processing.js + spatial-audio-processor.js"
+            );
+
+            // Update listener position (self particle at origin)
+            if (spatialProcessor) {
+              spatialProcessor.updateListenerPosition({ x: 0, y: 0, z: 0 });
+            }
+
+            // Note: Self audio is now playing through the spatial pipeline
+            // updateSpatialAudioPositions will adjust pan/gain based on particle positions
+          } catch (err) {
+            console.error("[SpatialAudio] Failed to initialize:", err);
+            isSpatialAudioEnabled = false;
+          }
+        }
+
+        // Update spatial audio positions (called from background audio processing)
+        // This applies modular post-processing using Web Audio API for actual spatialization
+
+        // Listen for audio stream from NoiseCraft iframe
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "noiseCraft:audioStreamReady") {
+            console.log(
+              "[Main] Received audio stream ready notification from NoiseCraft"
+            );
+
+            // Access MediaStream directly from iframe window (MediaStream can't be transferred via postMessage)
+            if (iframe && iframe.contentWindow) {
+              try {
+                // Wait a bit for the stream to be set on the iframe window
+                setTimeout(() => {
+                  const iframeStream =
+                    iframe.contentWindow.noiseCraftMediaStream;
+                  const sampleRate =
+                    iframe.contentWindow.noiseCraftAudioContext?.sampleRate ||
+                    event.data.audioContextSampleRate ||
+                    44100;
+
+                  if (iframeStream) {
+                    console.log(
+                      "[Main] Successfully accessed MediaStream from iframe"
+                    );
+                    initializeSpatialProcessor(iframeStream, sampleRate);
+                  } else {
+                    console.warn(
+                      "[Main] MediaStream not found on iframe window, retrying..."
+                    );
+                    // Retry after a short delay
+                    setTimeout(() => {
+                      const retryStream =
+                        iframe.contentWindow.noiseCraftMediaStream;
+                      if (retryStream) {
+                        initializeSpatialProcessor(retryStream, sampleRate);
+                      } else {
+                        console.error(
+                          "[Main] Failed to access MediaStream from iframe"
+                        );
+                      }
+                    }, 500);
+                  }
+                }, 100);
+              } catch (err) {
+                console.error(
+                  "[Main] Error accessing iframe MediaStream:",
+                  err
+                );
+              }
+            }
+          } else if (event.data?.type === "noiseCraft:audioStreamStopped") {
+            console.log("[Main] Audio stream stopped");
+            if (mediaStreamSource) {
+              try {
+                mediaStreamSource.disconnect();
+              } catch (e) {}
+              mediaStreamSource = null;
+            }
+            if (window.stereoPanner) {
+              try {
+                window.stereoPanner.disconnect();
+              } catch (e) {}
+              window.stereoPanner = null;
+            }
+            if (window.distanceGain) {
+              try {
+                window.distanceGain.disconnect();
+              } catch (e) {}
+              window.distanceGain = null;
+            }
+            isSpatialAudioEnabled = false;
+          }
+        });
+
+        // Expose for debugging (global workspace doesn't use spatial audio)
+        window.spatialAudioProcessor = {
+          initialize: initializeSpatialProcessor,
+          update: () => {}, // No-op: global workspace doesn't use spatial audio
+          enabled: () => false, // Always disabled for global workspace
+          processor: () => null,
+          getState: () => ({
+            enabled: false,
+            hasPanner: false,
+            hasGain: false,
+            hasReverb: false,
+          }),
+        };
+
+        const streamMapper = new StreamNodeMapper("glb_audio_map.ncft");
+
+        // Node Browser - Load nodes from project file
+        let availableNodes = [];
+        async function loadProjectNodes() {
+          try {
+            const response = await fetch(
+              "/public/examples/falling_in_love_with_waterfalls (2).ncft"
+            );
+            const projectData = await response.json();
+            availableNodes = Object.entries(projectData.nodes || {}).map(
+              ([id, node]) => ({
+                id,
+                type: node.type || "Unknown",
+                name: node.name || node.type || "Unnamed",
+                params: node.params || {},
+              })
+            );
+            // Filter to only Const and Knob types (single-value nodes)
+            availableNodes = availableNodes.filter(
+              (n) => n.type === "Knob" || n.type === "Const"
+            );
+            populateNodeSelectors();
+          } catch (e) {
+            console.warn("Failed to load project nodes:", e);
+          }
+        }
+
+        function populateNodeSelectors() {
+          document
+            .querySelectorAll(".mapping-node-select")
+            .forEach((select) => {
+              const currentValue = select
+                .closest(".mapping-item")
+                ?.querySelector(".mapping-node-id")?.value;
+              const currentOptions = Array.from(select.options).map(
+                (o) => o.value
+              );
+
+              // Only populate if not already populated
+              if (currentOptions.length === 1 && currentOptions[0] === "") {
+                availableNodes.forEach((node) => {
+                  const option = document.createElement("option");
+                  option.value = node.id;
+                  option.textContent = `${node.id}: ${node.name} (${node.type})`;
+                  if (currentValue === node.id) option.selected = true;
+                  select.appendChild(option);
+                });
+              }
+            });
+        }
+
+        // UI Elements
+        const statusEl = document.getElementById("status");
+        const btnStart = document.getElementById("btn_start");
+        const btnStop = document.getElementById("btn_stop");
+        const innerRadiusSlider = document.getElementById("inner-radius");
+        const outerRadiusSlider = document.getElementById("outer-radius");
+        const innerRadiusValue = document.getElementById("inner-radius-value");
+        const outerRadiusValue = document.getElementById("outer-radius-value");
+        const gSlider = document.getElementById("g-constant");
+        const gValue = document.getElementById("g-value");
+        const minDistSlider = document.getElementById("min-distance");
+        const minDistValue = document.getElementById("min-dist-value");
+
+        // Tab switching
+        document.querySelectorAll(".tab").forEach((tab) => {
+          tab.addEventListener("click", () => {
+            const targetTab = tab.dataset.tab;
+            document
+              .querySelectorAll(".tab")
+              .forEach((t) => t.classList.remove("active"));
+            document
+              .querySelectorAll(".tab-content")
+              .forEach((c) => c.classList.remove("active"));
+            tab.classList.add("active");
+            document.getElementById(`${targetTab}-tab`).classList.add("active");
+          });
+        });
+
+        // Radius controls
+        innerRadiusSlider.addEventListener("input", (e) => {
+          const value = parseInt(e.target.value);
+          signalGenerator.innerRadius = value;
+          innerRadiusValue.textContent = value;
+        });
+
+        outerRadiusSlider.addEventListener("input", (e) => {
+          const value = parseInt(e.target.value);
+          signalGenerator.outerRadius = value;
+          outerRadiusValue.textContent = value;
+        });
+
+        gSlider.addEventListener("input", (e) => {
+          const value = parseInt(e.target.value);
+          signalGenerator.G = value;
+          gValue.textContent = value;
+        });
+
+        minDistSlider.addEventListener("input", (e) => {
+          const value = parseInt(e.target.value);
+          signalGenerator.minDistance = value;
+          minDistValue.textContent = value;
+        });
+
+        // Create mapping UI
+        function createMappingUI(mapping = null) {
+          const mappingId = mapping?.id || `mapping-${Date.now()}`;
+          const mappingDiv = document.createElement("div");
+          mappingDiv.className = "mapping-item";
+          mappingDiv.dataset.mappingId = mappingId;
+
+          const streams = mapping?.streams || [
+            {
+              stream: "attraction",
+              interpolation: "linear",
+              inputMin: 0,
+              inputMax: 1,
+              outputMin: 0,
+              outputMax: 1,
+            },
+          ];
+
+          mappingDiv.innerHTML = `
+          <div class="mapping-header">
+            <h4>Node ${mapping?.nodeId || ""}</h4>
+            <div>
+              <input type="checkbox" ${
+                mapping?.enabled !== false ? "checked" : ""
+              } class="mapping-enabled" />
+              <button class="remove-btn danger" onclick="removeMapping('${mappingId}')">Remove</button>
+            </div>
+          </div>
+          <div class="mapping-controls">
+            <div class="control-row">
+              <span class="control-label">Node:</span>
+              <div style="display: flex; gap: 4px;">
+                <select class="mapping-node-select" style="flex: 1;">
+                  <option value="">-- Select Node --</option>
+                </select>
+                <input type="text" class="mapping-node-id" value="${
+                  mapping?.nodeId || ""
+                }" placeholder="ID" style="width: 60px; font-size: 11px;" />
+                <button type="button" class="browse-node-btn" onclick="browseNodes('${mappingId}')" style="padding: 4px 8px; font-size: 10px;">Browse</button>
+              </div>
+            </div>
+            <div class="control-row">
+              <span class="control-label">Param:</span>
+              <input type="text" class="mapping-param-name" value="${
+                mapping?.paramName || "value"
+              }" placeholder="value" />
+            </div>
+            <div class="control-row">
+              <span class="control-label">Operation:</span>
+              <select class="mapping-operation operation-select">
+                ${OPERATIONS.map(
+                  (op) =>
+                    `<option value="${op.value}" ${
+                      mapping?.operation === op.value ? "selected" : ""
+                    }>${op.label}</option>`
+                ).join("")}
+              </select>
+            </div>
+            <div class="stream-inputs" data-streams-container>
+              ${streams
+                .map(
+                  (stream, idx) => `
+                <div class="stream-input-group" style="margin-bottom: 8px;">
+                  <select class="stream-select">
+                    ${AVAILABLE_STREAMS.map(
+                      (s) =>
+                        `<option value="${s}" ${
+                          stream.stream === s ? "selected" : ""
+                        }>${s}</option>`
+                    ).join("")}
+                  </select>
+                  <select class="stream-interpolation">
+                    ${INTERPOLATION_MODES.map(
+                      (m) =>
+                        `<option value="${m}" ${
+                          stream.interpolation === m ? "selected" : ""
+                        }>${m}</option>`
+                    ).join("")}
+                  </select>
+                  <div class="range-inputs">
+                    <input type="number" class="stream-input-min" placeholder="in min" step="0.01" value="${
+                      stream.inputMin || 0
+                    }" />
+                    <input type="number" class="stream-input-max" placeholder="in max" step="0.01" value="${
+                      stream.inputMax || 1
+                    }" />
+                  </div>
+                  <div class="range-inputs">
+                    <input type="number" class="stream-output-min" placeholder="out min" step="0.01" value="${
+                      stream.outputMin || 0
+                    }" />
+                    <input type="number" class="stream-output-max" placeholder="out max" step="0.01" value="${
+                      stream.outputMax || 1
+                    }" />
+                  </div>
+                  ${
+                    streams.length > 1
+                      ? `<button class="remove-btn danger" onclick="removeStream(this)">×</button>`
+                      : ""
+                  }
+                </div>
+              `
+                )
+                .join("")}
+            </div>
+            <button class="add-stream-btn" onclick="addStream(this)">+ Add Stream</button>
+          </div>
+        `;
+
+          return mappingDiv;
+        }
+
+        window.removeMapping = function (id) {
+          streamMapper.removeMapping(id);
+          document.querySelector(`[data-mapping-id="${id}"]`)?.remove();
+        };
+
+        window.addStream = function (btn) {
+          const container = btn.previousElementSibling;
+          const streamDiv = document.createElement("div");
+          streamDiv.className = "stream-input-group";
+          streamDiv.style.marginBottom = "8px";
+          streamDiv.innerHTML = `
+          <select class="stream-select">
+            ${AVAILABLE_STREAMS.map(
+              (s) => `<option value="${s}">${s}</option>`
+            ).join("")}
+          </select>
+          <select class="stream-interpolation">
+            ${INTERPOLATION_MODES.map(
+              (m) => `<option value="${m}">${m}</option>`
+            ).join("")}
+          </select>
+          <div class="range-inputs">
+            <input type="number" class="stream-input-min" placeholder="in min" step="0.01" value="0" />
+            <input type="number" class="stream-input-max" placeholder="in max" step="0.01" value="1" />
+          </div>
+          <div class="range-inputs">
+            <input type="number" class="stream-output-min" placeholder="out min" step="0.01" value="0" />
+            <input type="number" class="stream-output-max" placeholder="out max" step="0.01" value="1" />
+          </div>
+          <button class="remove-btn danger" onclick="removeStream(this)">×</button>
+        `;
+          container.appendChild(streamDiv);
+        };
+
+        window.removeStream = function (btn) {
+          btn.closest(".stream-input-group")?.remove();
+        };
+
+        window.browseNodes = function (mappingId) {
+          const mappingDiv = document.querySelector(
+            `[data-mapping-id="${mappingId}"]`
+          );
+          if (!mappingDiv) {
+            console.error(
+              `[Browse] Mapping div not found for ID: ${mappingId}`
+            );
+            return;
+          }
+
+          // Enable browse mode - allows single-click node selection
+          const iframe = document.getElementById("noisecraft-iframe");
+          if (iframe && iframe.contentWindow) {
+            // Set browse mode in iframe
+            iframe.contentWindow.browseModeActive = true;
+            iframe.contentWindow.browseModeMappingId = mappingId;
+
+            console.log(
+              `[Browse] Browse mode activated for mapping: ${mappingId}`
+            );
+
+            // Update UI to show browse mode is active
+            const browseBtn = mappingDiv.querySelector(".browse-node-btn");
+            if (browseBtn) {
+              browseBtn.textContent = "Browse Mode Active - Click a node";
+              browseBtn.style.background = "#4a8";
+              browseBtn.disabled = true;
+            }
+
+            statusEl.textContent =
+              "Browse mode active: Click a Const or Knob node in the NoiseCraft editor";
+
+            // Store timeout ID so we can clear it when node is selected
+            const timeoutId = setTimeout(() => {
+              if (iframe.contentWindow) {
+                iframe.contentWindow.browseModeActive = false;
+                iframe.contentWindow.browseModeMappingId = null;
+              }
+              if (browseBtn) {
+                browseBtn.textContent = "Browse";
+                browseBtn.style.background = "";
+                browseBtn.disabled = false;
+              }
+              if (statusEl.textContent.includes("Browse mode")) {
+                statusEl.textContent = "Ready. Click Start to begin.";
+              }
+              console.log(`[Browse] Browse mode timeout - deactivated`);
+            }, 30000);
+
+            // Store timeout ID for cleanup
+            iframe.contentWindow.browseModeTimeoutId = timeoutId;
+          } else {
+            console.error("[Browse] Iframe or contentWindow not available");
+          }
+
+          // Show node browser modal or update selector
+          const nodeSelect = mappingDiv.querySelector(".mapping-node-select");
+          if (nodeSelect && nodeSelect.options.length === 1) {
+            populateNodeSelectors();
+          }
+          nodeSelect?.focus();
+        };
+
+        // Save mapping when changed
+        function attachMappingListeners(mappingDiv) {
+          const mappingId = mappingDiv.dataset.mappingId;
+          const nodeSelect = mappingDiv.querySelector(".mapping-node-select");
+          const nodeIdInput = mappingDiv.querySelector(".mapping-node-id");
+          const paramInput = mappingDiv.querySelector(".mapping-param-name");
+
+          // Node selector dropdown
+          if (nodeSelect) {
+            nodeSelect.addEventListener("change", (e) => {
+              const selectedId = e.target.value;
+              if (selectedId) {
+                nodeIdInput.value = selectedId;
+                const selectedNode = availableNodes.find(
+                  (n) => n.id === selectedId
+                );
+                if (selectedNode) {
+                  // Auto-set param name if it's a Knob
+                  if (selectedNode.type === "Knob" && !paramInput.value) {
+                    paramInput.value = "value";
+                  }
+                  // Update header
+                  const header = mappingDiv.querySelector("h4");
+                  if (header) {
+                    header.textContent = `Node ${selectedId}: ${selectedNode.name}`;
+                  }
+                }
+                saveMapping(mappingId);
+              }
+            });
+          }
+
+          // Sync text input to dropdown
+          if (nodeIdInput) {
+            nodeIdInput.addEventListener("input", (e) => {
+              const id = e.target.value;
+              if (nodeSelect) {
+                nodeSelect.value = id;
+                const selectedNode = availableNodes.find((n) => n.id === id);
+                if (selectedNode) {
+                  const header = mappingDiv.querySelector("h4");
+                  if (header) {
+                    header.textContent = `Node ${id}: ${selectedNode.name}`;
+                  }
+                }
+              }
+              saveMapping(mappingId);
+            });
+          }
+
+          const inputs = mappingDiv.querySelectorAll("input, select");
+          inputs.forEach((input) => {
+            if (input !== nodeSelect && input !== nodeIdInput) {
+              input.addEventListener("change", () => {
+                saveMapping(mappingId);
+              });
+              input.addEventListener("input", () => {
+                saveMapping(mappingId);
+              });
+            }
+          });
+
+          // Populate node selector
+          if (nodeSelect) {
+            populateNodeSelectors();
+          }
+        }
+
+        function saveMapping(mappingId) {
+          const mappingDiv = document.querySelector(
+            `[data-mapping-id="${mappingId}"]`
+          );
+          if (!mappingDiv) return;
+
+          const nodeId = mappingDiv.querySelector(".mapping-node-id").value;
+          const paramName = mappingDiv.querySelector(
+            ".mapping-param-name"
+          ).value;
+          const operation =
+            mappingDiv.querySelector(".mapping-operation").value;
+          const enabled = mappingDiv.querySelector(".mapping-enabled").checked;
+
+          const streams = Array.from(
+            mappingDiv.querySelectorAll(".stream-input-group")
+          ).map((group) => ({
+            stream: group.querySelector(".stream-select").value,
+            interpolation: group.querySelector(".stream-interpolation").value,
+            inputMin:
+              parseFloat(group.querySelector(".stream-input-min").value) || 0,
+            inputMax:
+              parseFloat(group.querySelector(".stream-input-max").value) || 1,
+            outputMin:
+              parseFloat(group.querySelector(".stream-output-min").value) || 0,
+            outputMax:
+              parseFloat(group.querySelector(".stream-output-max").value) || 1,
+          }));
+
+          if (!nodeId) return;
+
+          const existing = streamMapper.mappings.find(
+            (m) => m.id === mappingId
+          );
+          if (existing) {
+            streamMapper.updateMapping(mappingId, {
+              nodeId,
+              paramName,
+              operation,
+              enabled,
+              streams,
+            });
+          } else {
+            streamMapper.addMapping({
+              nodeId,
+              paramName,
+              operation,
+              enabled,
+              streams,
+            });
+          }
+        }
+
+        function renderMappings() {
+          const container = document.getElementById("mappings-container");
+          if (!container) {
+            console.error("[renderMappings] Container not found!");
+            return;
+          }
+          container.innerHTML = "";
+          console.log(
+            `[renderMappings] Rendering ${streamMapper.mappings.length} mappings`
+          );
+          if (streamMapper.mappings.length === 0) {
+            console.warn("[renderMappings] No mappings to render!");
+            return;
+          }
+          streamMapper.mappings.forEach((mapping, index) => {
+            console.log(
+              `[renderMappings] Rendering mapping ${index + 1}:`,
+              mapping
+            );
+            const mappingDiv = createMappingUI(mapping);
+            if (mappingDiv) {
+              container.appendChild(mappingDiv);
+              attachMappingListeners(mappingDiv);
+            } else {
+              console.error(
+                `[renderMappings] createMappingUI returned null for mapping ${
+                  index + 1
+                }`
+              );
+            }
+          });
+          console.log(
+            `[renderMappings] Completed rendering ${container.children.length} mapping elements`
+          );
+        }
+
+        document
+          .getElementById("add-mapping-btn")
+          .addEventListener("click", () => {
+            const mappingId = streamMapper.addMapping({
+              nodeId: "",
+              paramName: "value",
+              operation: "none",
+              enabled: true,
+              streams: [
+                {
+                  stream: "attraction",
+                  interpolation: "linear",
+                  inputMin: 0,
+                  inputMax: 1,
+                  outputMin: 0,
+                  outputMax: 1,
+                },
+              ],
+            });
+            renderMappings();
+          });
+
+        // Export mappings button
+        document
+          .getElementById("export-mappings-btn")
+          .addEventListener("click", () => {
+            streamMapper.exportMappings();
+            statusEl.textContent = `Exported ${streamMapper.mappings.length} mappings`;
+            setTimeout(() => {
+              if (statusEl.textContent.includes("Exported")) {
+                statusEl.textContent = "Ready. Click Start to begin.";
+              }
+            }, 2000);
+          });
+
+        // Import mappings button
+        const importFileInput = document.getElementById("import-file-input");
+        document
+          .getElementById("import-mappings-btn")
+          .addEventListener("click", () => {
+            importFileInput.click();
+          });
+
+        importFileInput.addEventListener("change", async (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            try {
+              console.log(`[Import] Attempting to import file: ${file.name}`);
+              const success = await streamMapper.importMappings(file);
+              if (success) {
+                renderMappings();
+                statusEl.textContent = `Imported ${streamMapper.mappings.length} mappings`;
+                console.log(
+                  `[Import] Successfully imported ${streamMapper.mappings.length} mappings`
+                );
+                setTimeout(() => {
+                  if (statusEl.textContent.includes("Imported")) {
+                    statusEl.textContent = "Ready. Click Start to begin.";
+                  }
+                }, 2000);
+              } else {
+                statusEl.textContent = "Failed to import mappings";
+                console.error("[Import] Import returned false");
+                setTimeout(() => {
+                  if (statusEl.textContent.includes("Failed")) {
+                    statusEl.textContent = "Ready. Click Start to begin.";
+                  }
+                }, 3000);
+              }
+            } catch (error) {
+              console.error("[Import] Error importing mappings:", error);
+              statusEl.textContent = `Import failed: ${
+                error.message || "Unknown error"
+              }`;
+              setTimeout(() => {
+                if (statusEl.textContent.includes("Import failed")) {
+                  statusEl.textContent = "Ready. Click Start to begin.";
+                }
+              }, 3000);
+            }
+          }
+          // Reset file input to allow selecting the same file again
+          importFileInput.value = "";
+        });
+
+        // NoiseCraft integration - ready flag (iframe already declared above)
+        let noisecraftReady = false;
+
+        // Initialize animation variables early
+        let lastTime = Date.now();
+        let animationFrame = null;
+
+        // Initialize throttling variables
+        let lastSignalUpdate = 0;
+        let lastParamUpdate = 0;
+        const SIGNAL_UPDATE_INTERVAL = 16; // ~60fps for signal updates
+        const PARAM_UPDATE_INTERVAL = 33; // ~30fps for parameter updates (less critical)
+        const SEQUENCER_UPDATE_THROTTLE = 100; // Only update sequencers every 100ms max
+
+        // Parameter smoothing to prevent clicks/pops from rapid changes
+        const paramSmoothing = new Map(); // nodeId:paramName -> {current, target, smoothing}
+        const SMOOTHING_FACTOR = 0.1; // Lower = smoother but slower response (0.1 = ~90ms smoothing)
+
+        function smoothParameter(
+          nodeId,
+          paramName,
+          targetValue,
+          smoothingFactor = SMOOTHING_FACTOR
+        ) {
+          const key = `${nodeId}:${paramName}`;
+          const current = paramSmoothing.get(key) || {
+            current: targetValue,
+            target: targetValue,
+          };
+
+          // Update target
+          current.target = targetValue;
+
+          // Smooth towards target using exponential smoothing
+          const diff = current.target - current.current;
+          current.current += diff * smoothingFactor;
+
+          paramSmoothing.set(key, current);
+          return current.current;
+        }
+
+        function sendToNoiseCraft(params) {
+          if (!iframe || !noisecraftReady || !params.length) return;
+
+          // Apply smoothing to all parameters to prevent clicks/pops
+          const smoothedParams = params.map((param) => {
+            const smoothedValue = smoothParameter(
+              param.nodeId,
+              param.paramName,
+              param.value
+            );
+            return {
+              ...param,
+              value: smoothedValue,
+            };
+          });
+
+          iframe.contentWindow?.postMessage(
+            { type: "noiseCraft:setParams", params: smoothedParams },
+            "*"
+          );
+        }
+
+        // Scope visualization data for all particles
+        const scopeData = {
+          0: { attraction: [], velocity: [], maxLength: 200 },
+          1: { attraction: [], velocity: [], maxLength: 200 },
+          2: { attraction: [], velocity: [], maxLength: 200 },
+        };
+
+        // Scope visualization functions
+        function drawScope(canvasId, data, label) {
+          const canvas = document.getElementById(canvasId);
+          if (!canvas) return;
+          const ctx = canvas.getContext("2d");
+          const width = canvas.width;
+          const height = canvas.height;
+
+          ctx.clearRect(0, 0, width, height);
+          ctx.fillStyle = "#222";
+          ctx.fillRect(0, 0, width, height);
+
+          if (data.length < 2) return;
+
+          ctx.strokeStyle = "#4a8";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+
+          const stepX = width / (data.length - 1);
+          const midY = height / 2;
+          const scaleY = height * 0.4;
+
+          data.forEach((value, i) => {
+            const x = i * stepX;
+            const y = midY - value * scaleY;
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          });
+
+          ctx.stroke();
+
+          // Draw center line
+          ctx.strokeStyle = "#444";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, midY);
+          ctx.lineTo(width, midY);
+          ctx.stroke();
+
+          // Draw label
+          ctx.fillStyle = "#aaa";
+          ctx.font = "10px monospace";
+          ctx.fillText(label, 4, 12);
+        }
+
+        // Update animation loop - optimized with throttling
+        function update(dt) {
+          try {
+            if (!particleSystem) {
+              console.error("Particle system not initialized!");
+              return;
+            }
+
+            // Update particle system (handles all physics) - always update for smooth physics
+            particleSystem.update(dt);
+
+            // Get fresh particles reference
+            const particles = particleSystem.getParticles();
+
+            if (!particles || particles.length === 0) {
+              // Log detailed debug info when particles disappear
+              console.error("⚠️ No particles found in system!");
+              console.error("  particleSystem:", particleSystem);
+              console.error(
+                "  signalGenerator:",
+                particleSystem?.signalGenerator
+              );
+              console.error(
+                "  signalGenerator.particles:",
+                particleSystem?.signalGenerator?.particles
+              );
+              console.error("  getParticles() returned:", particles);
+
+              // Try to reinitialize particles if they're missing
+              if (
+                particleSystem &&
+                particleSystem.signalGenerator &&
+                (!particleSystem.signalGenerator.particles ||
+                  particleSystem.signalGenerator.particles.length === 0)
+              ) {
+                console.warn("⚠️ Attempting to reinitialize particles...");
+                // Don't reinitialize here - let the user know there's a problem
+              }
+
+              // Draw empty canvas
+              const canvas = document.getElementById("particle-canvas");
+              if (canvas) {
+                const ctx = canvas.getContext("2d");
+                ctx.fillStyle = "#0a0a0a";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#f44";
+                ctx.font = "14px monospace";
+                ctx.fillText("No particles detected", 10, canvas.height / 2);
+                ctx.fillStyle = "#aaa";
+                ctx.font = "10px monospace";
+                ctx.fillText(
+                  "Check console for details",
+                  10,
+                  canvas.height / 2 + 20
+                );
+              }
+              return;
+            }
+
+            const now = Date.now();
+
+            // Throttle signal generation and UI updates (60fps max)
+            if (now - lastSignalUpdate >= SIGNAL_UPDATE_INTERVAL) {
+              lastSignalUpdate = now;
+
+              // Global workspace: Calculate and display global metrics
+              const entropy = calculateEntropy(particles);
+              const rmsVelocity = calculateRMSVelocity(particles);
+              const clusterCount = calculateClusterCount(particles);
+              const pulsars = calculateInInnerPulsars(particles, dt);
+
+              // Count In Inner connections
+              let inInnerNumber = 0;
+              const config = particleSystem.getConfig();
+              const innerRadius = config.innerRadius || 80;
+              particles.forEach((p) => {
+                particles.forEach((other) => {
+                  if (other.id !== p.id) {
+                    const dx = other.position.x - p.position.x;
+                    const dy = other.position.y - p.position.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance <= innerRadius) {
+                      inInnerNumber++;
+                    }
+                  }
+                });
+              });
+              inInnerNumber = Math.floor(inInnerNumber / 2); // Each connection counted twice
+
+              // Update UI
+              const entropyEl = document.getElementById("system-entropy");
+              const rmsEl = document.getElementById("system-rms-velocity");
+              const clusterEl = document.getElementById("cluster-count");
+              const inInnerEl = document.getElementById("in-inner-number");
+              const pulsarInEl = document.getElementById("in-inner-pulsar");
+              const pulsarOutEl = document.getElementById("out-inner-pulsar");
+
+              if (entropyEl) entropyEl.textContent = entropy.toFixed(2);
+              if (rmsEl) rmsEl.textContent = rmsVelocity.toFixed(2);
+              if (clusterEl) clusterEl.textContent = clusterCount.toString();
+              if (inInnerEl) inInnerEl.textContent = inInnerNumber.toString();
+              if (pulsarInEl)
+                pulsarInEl.textContent = pulsars.inInnerPulsar.toString();
+              if (pulsarOutEl)
+                pulsarOutEl.textContent = pulsars.outInnerPulsar.toString();
+            }
+
+            // Particle visualization removed for performance
+
+            // Throttle parameter updates (30fps max - audio params don't need 60fps)
+            if (now - lastParamUpdate >= PARAM_UPDATE_INTERVAL) {
+              lastParamUpdate = now;
+
+              // Global workspace: Use global streams for parameter mapping
+              const entropy = calculateEntropy(particles);
+              const rmsVelocity = calculateRMSVelocity(particles);
+              const particleCount = particles.length;
+              const clusterCount = calculateClusterCount(particles);
+              const pulsars = calculateInInnerPulsars(particles, dt);
+
+              const globalSignals = {
+                entropy: entropy,
+                rmsVelocity: rmsVelocity,
+                particleCount: particleCount,
+                clusterCount: clusterCount,
+                inInnerPulsar: pulsars.inInnerPulsar,
+                outInnerPulsar: pulsars.outInnerPulsar,
+              };
+
+              const params = streamMapper.generateParams(globalSignals);
+              sendToNoiseCraft(params);
+
+              // Update Global sequencer pattern
+              if (iframe && iframe.contentWindow && particles.length > 0) {
+                if (!window.globalParticleAssignments) {
+                  window.globalParticleAssignments = {};
+                }
+
+                // Use pattern pipeline to ensure all particles have assignments
+                const patternPipeline =
+                  window.patternPipeline ||
+                  createParticlePatternPipeline({
+                    mode: "global",
+                    harmonicPlacer: harmonicPlacer,
+                    patternManager: patternManager,
+                  });
+
+                // Assign global positions for any particles that don't have them yet
+                particles.forEach((particle) => {
+                  if (!window.globalParticleAssignments[particle.id]) {
+                    const assignment =
+                      patternPipeline.assignGlobalPositionToParticle(
+                        particle,
+                        particles.length
+                      );
+                    if (assignment) {
+                      window.globalParticleAssignments[particle.id] =
+                        assignment;
+                    }
+                  }
+                });
+
+                const globalPattern = sequencerLogic.generateGlobalPattern(
+                  particles,
+                  window.globalParticleAssignments,
+                  harmonicPlacer,
+                  false // verbose: don't log during regular updates
+                );
+                window.globalParticleAssignments =
+                  globalPattern.assignments || {};
+                patternPipeline.updateGlobalAssignments(
+                  window.globalParticleAssignments
+                );
+
+                const patternKey = JSON.stringify({
+                  bass: globalPattern.bass.map((step) => step.join(",")),
+                  baritone: globalPattern.baritone.map((step) =>
+                    step.join(",")
+                  ),
+                  tenor: globalPattern.tenor.map((step) => step.join(",")),
+                });
+
+                // Update patternKey reference from global
+                previousSequencerPattern = window.previousSequencerPattern;
+
+                if (
+                  !previousSequencerPattern ||
+                  previousSequencerPattern !== patternKey
+                ) {
+                  // Only log warnings if patterns are empty, not regular updates
+                  const bassActiveCells = globalPattern.bass.reduce(
+                    (sum, step) =>
+                      sum +
+                      step.reduce(
+                        (stepSum, cell) => stepSum + (cell === 1 ? 1 : 0),
+                        0
+                      ),
+                    0
+                  );
+                  const baritoneActiveCells = globalPattern.baritone.reduce(
+                    (sum, step) =>
+                      sum +
+                      step.reduce(
+                        (stepSum, cell) => stepSum + (cell === 1 ? 1 : 0),
+                        0
+                      ),
+                    0
+                  );
+                  const tenorActiveCells = globalPattern.tenor.reduce(
+                    (sum, step) =>
+                      sum +
+                      step.reduce(
+                        (stepSum, cell) => stepSum + (cell === 1 ? 1 : 0),
+                        0
+                      ),
+                    0
+                  );
+
+                  if (
+                    bassActiveCells === 0 &&
+                    baritoneActiveCells === 0 &&
+                    tenorActiveCells === 0
+                  ) {
+                    const totalActiveNotes = particles.filter(
+                      (p) => p.getActiveNoteIndex() >= 0
+                    ).length;
+                    console.warn(
+                      `[Global Sequencer] ⚠️ All patterns are empty! Total particles: ${totalActiveNotes}`
+                    );
+                  }
+
+                  requestAnimationFrame(() => {
+                    updateMonoSeqSequencer(
+                      iframe.contentWindow,
+                      SEQUENCER_NODES.global.bass,
+                      0,
+                      globalPattern.bass,
+                      12
+                    );
+                    updateMonoSeqSequencer(
+                      iframe.contentWindow,
+                      SEQUENCER_NODES.global.baritone,
+                      0,
+                      globalPattern.baritone,
+                      12
+                    );
+                    updateMonoSeqSequencer(
+                      iframe.contentWindow,
+                      SEQUENCER_NODES.global.tenor,
+                      0,
+                      globalPattern.tenor,
+                      12
+                    );
+                  });
+
+                  // Update both local and global references
+                  previousSequencerPattern = patternKey;
+                  window.previousSequencerPattern = patternKey;
+                }
+              }
+            }
+          } catch (updateError) {
+            console.error("Update loop error:", updateError);
+            console.error("Stack:", updateError.stack);
+          }
+        }
+
+        // Global view visualization - fixed bounds centered on center of mass
+        // Particle visualization function removed for performance
+
+        function animate() {
+          try {
+            const now = Date.now();
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+            update(dt);
+            animationFrame = requestAnimationFrame(animate);
+          } catch (error) {
+            console.error("Animation loop error:", error);
+            console.error("Stack:", error.stack);
+            // Restart animation loop after error
+            setTimeout(() => {
+              animationFrame = requestAnimationFrame(animate);
+            }, 100);
+          }
+        }
+
+        // NoiseCraft iframe setup (iframe already declared above)
+        if (iframe) {
+          iframe.addEventListener("load", async () => {
+            statusEl.textContent = "Ready. Click Start to begin.";
+            noisecraftReady = true;
+            await loadProjectNodes();
+
+            // Load mappings from project file (if embedded) or localStorage
+            await streamMapper.loadMappings();
+            renderMappings();
+
+            // Enable auto-save for global patch when iframe is ready
+            if (iframe.contentWindow) {
+              // Small delay to ensure iframe message handler is ready
+              setTimeout(() => {
+                iframe.contentWindow.postMessage(
+                  {
+                    type: "noiseCraft:enableAutoSave",
+                    enabled: true,
+                    filename: "glb_audio_map.ncft",
+                  },
+                  "*"
+                );
+                console.log("Auto-save enabled for glb_audio_map.ncft");
+              }, 500);
+            }
+          });
+        } else {
+          console.error("NoiseCraft iframe not found!");
+        }
+
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "noiseCraft:audioState") {
+            if (event.data.status === "playing") {
+              btnStart.style.display = "none";
+              btnStop.style.display = "inline-block";
+              statusEl.textContent = "Playing";
+            } else if (event.data.status === "stopped") {
+              btnStart.style.display = "inline-block";
+              btnStop.style.display = "none";
+              statusEl.textContent = "Stopped";
+            }
+          } else if (event.data?.type === "noiseCraft:saveStatus") {
+            // Handle save status updates from iframe
+            if (event.data.status === "saved") {
+              console.log(`✓ Auto-saved ${event.data.filename}`);
+              // When project is saved, we should embed mappings into it
+              // Note: Mappings are loaded from project file on load, so they persist
+              // Save mappings to localStorage as backup
+              streamMapper.saveToStorage();
+            } else if (event.data.status === "error") {
+              const errorMsg = event.data.error || "Unknown error";
+              console.warn(
+                `✗ Failed to save ${event.data.filename}:`,
+                errorMsg
+              );
+            }
+          } else if (event.data?.type === "noiseCraft:requestMappings") {
+            // Send current mappings to iframe for embedding in project
+            iframe.contentWindow.postMessage(
+              {
+                type: "noiseCraft:mappings",
+                mappings: streamMapper.mappings,
+              },
+              "*"
+            );
+          } else if (event.data?.type === "noiseCraft:projectLoaded") {
+            // Project loaded, try to load mappings from it
+            if (event.data.projectData) {
+              const projectMappings = streamMapper.storage.loadFromProjectFile(
+                event.data.projectData
+              );
+              if (projectMappings && projectMappings.length > 0) {
+                streamMapper.mappings = projectMappings;
+                renderMappings();
+                console.log(
+                  `Loaded ${projectMappings.length} mappings from project file`
+                );
+              }
+            }
+
+            // Update sequencer pattern for initial particle when project is loaded
+            if (iframe && iframe.contentWindow && particleSystem) {
+              const particles = particleSystem.getParticles();
+              if (particles.length > 0 && window.globalParticleAssignments) {
+                setTimeout(() => {
+                  const globalPattern = sequencerLogic.generateGlobalPattern(
+                    particles,
+                    window.globalParticleAssignments,
+                    harmonicPlacer,
+                    true // verbose: log initial pattern
+                  );
+                  requestAnimationFrame(() => {
+                    updateMonoSeqSequencer(
+                      iframe.contentWindow,
+                      SEQUENCER_NODES.global.bass,
+                      0,
+                      globalPattern.bass,
+                      12
+                    );
+                    updateMonoSeqSequencer(
+                      iframe.contentWindow,
+                      SEQUENCER_NODES.global.baritone,
+                      0,
+                      globalPattern.baritone,
+                      12
+                    );
+                    updateMonoSeqSequencer(
+                      iframe.contentWindow,
+                      SEQUENCER_NODES.global.tenor,
+                      0,
+                      globalPattern.tenor,
+                      12
+                    );
+                  });
+                }, 500); // Small delay to ensure iframe is fully ready
+              }
+            }
+          } else if (event.data?.type === "noiseCraft:nodeSelection") {
+            // Handle node selection from NoiseCraft editor
+            console.log("Node selection received:", event.data);
+
+            // Extract data from event with safe defaults - declare all variables at once
+            const eventData = event.data || {};
+            const nodeIds = Array.isArray(eventData.nodeIds)
+              ? eventData.nodeIds
+              : [];
+            const nodeType = eventData.nodeType || null;
+            const nodeName = eventData.nodeName || null;
+
+            // Only allow Const and Knob nodes
+            if (nodeType && nodeType !== "Const" && nodeType !== "Knob") {
+              console.log(
+                `Node type ${nodeType} is not selectable. Only Const and Knob nodes can be mapped.`
+              );
+              return;
+            }
+
+            if (nodeIds.length > 0) {
+              const firstNodeId = String(nodeIds[0]);
+              const displayType = nodeType || "unknown";
+              const displayName = nodeName || "unnamed";
+              console.log(
+                `Processing node selection: ID=${firstNodeId}, type=${displayType}, name=${displayName}`
+              );
+
+              let selectedNode = availableNodes.find(
+                (n) => n.id === firstNodeId
+              );
+
+              // If node not in availableNodes, create entry from selection data
+              if (
+                !selectedNode &&
+                nodeType &&
+                (nodeType === "Const" || nodeType === "Knob")
+              ) {
+                selectedNode = {
+                  id: firstNodeId,
+                  type: nodeType,
+                  name: nodeName || nodeType,
+                  params: {},
+                };
+                console.log(`Created new node entry:`, selectedNode);
+              }
+
+              // Check if browse mode is active - ONLY process selection if browse mode is on
+              const iframe = document.getElementById("noisecraft-iframe");
+              let targetMappingId = null;
+              let browseModeWasActive = false;
+
+              if (
+                iframe &&
+                iframe.contentWindow &&
+                iframe.contentWindow.browseModeMappingId
+              ) {
+                targetMappingId = iframe.contentWindow.browseModeMappingId;
+                browseModeWasActive = true;
+                console.log(
+                  `[Browse] Browse mode active, target mapping: ${targetMappingId}`
+                );
+
+                // Clear timeout
+                if (iframe.contentWindow.browseModeTimeoutId) {
+                  clearTimeout(iframe.contentWindow.browseModeTimeoutId);
+                  iframe.contentWindow.browseModeTimeoutId = null;
+                }
+
+                // Disable browse mode
+                iframe.contentWindow.browseModeActive = false;
+                iframe.contentWindow.browseModeMappingId = null;
+
+                // Update UI to show browse mode is disabled
+                const mappingDiv = document.querySelector(
+                  `[data-mapping-id="${targetMappingId}"]`
+                );
+                if (mappingDiv) {
+                  const browseBtn =
+                    mappingDiv.querySelector(".browse-node-btn");
+                  if (browseBtn) {
+                    browseBtn.textContent = "Browse";
+                    browseBtn.style.background = "";
+                    browseBtn.disabled = false;
+                  }
+                }
+              } else {
+                // Browse mode is NOT active - ignore this selection
+                console.log(
+                  `[Browse] Node selection ignored - browse mode is not active`
+                );
+                return; // Exit early - don't update any mappings
+              }
+
+              // Only proceed if browse mode was active
+              if (!browseModeWasActive || !targetMappingId) {
+                console.log(
+                  `[Browse] Skipping node selection - browse mode was not active`
+                );
+                return;
+              }
+
+              // Find the target mapping (only the one specified by browse mode)
+              const targetMapping = document.querySelector(
+                `[data-mapping-id="${targetMappingId}"]`
+              );
+
+              if (targetMapping) {
+                const nodeSelect = targetMapping.querySelector(
+                  ".mapping-node-select"
+                );
+                const nodeIdInput =
+                  targetMapping.querySelector(".mapping-node-id");
+                const header = targetMapping.querySelector("h4");
+
+                // Fill in node ID and name - do this first before any events
+                if (nodeIdInput) {
+                  nodeIdInput.value = firstNodeId;
+                }
+                if (nodeSelect) {
+                  nodeSelect.value = firstNodeId;
+                }
+                if (header) {
+                  if (selectedNode) {
+                    header.textContent = `Node ${firstNodeId}: ${selectedNode.name}`;
+                  } else {
+                    header.textContent = `Node ${firstNodeId}`;
+                  }
+                }
+
+                // Force save the mapping immediately
+                const mappingId = targetMapping.dataset.mappingId;
+                if (mappingId) {
+                  // Save directly
+                  const enabled =
+                    targetMapping.querySelector(".mapping-enabled")?.checked !==
+                    false;
+                  const paramName =
+                    targetMapping.querySelector(".mapping-param-name")?.value ||
+                    "value";
+                  const operation =
+                    targetMapping.querySelector(".mapping-operation")?.value ||
+                    "none";
+                  const streams = Array.from(
+                    targetMapping.querySelectorAll(".stream-input-group")
+                  ).map((group) => ({
+                    stream:
+                      group.querySelector(".stream-select")?.value ||
+                      "attraction",
+                    interpolation:
+                      group.querySelector(".stream-interpolation")?.value ||
+                      "linear",
+                    inputMin:
+                      parseFloat(
+                        group.querySelector(".stream-input-min")?.value
+                      ) || 0,
+                    inputMax:
+                      parseFloat(
+                        group.querySelector(".stream-input-max")?.value
+                      ) || 1,
+                    outputMin:
+                      parseFloat(
+                        group.querySelector(".stream-output-min")?.value
+                      ) || 0,
+                    outputMax:
+                      parseFloat(
+                        group.querySelector(".stream-output-max")?.value
+                      ) || 1,
+                  }));
+
+                  streamMapper.updateMapping(mappingId, {
+                    nodeId: firstNodeId,
+                    paramName,
+                    operation,
+                    enabled,
+                    streams,
+                  });
+                }
+
+                // Update browse button if it exists
+                const browseBtn =
+                  targetMapping.querySelector(".browse-node-btn");
+                if (browseBtn) {
+                  browseBtn.textContent = "Browse";
+                  browseBtn.style.background = "";
+                  browseBtn.disabled = false;
+                }
+
+                // Trigger change event to update UI
+                if (nodeSelect) {
+                  nodeSelect.dispatchEvent(
+                    new Event("change", { bubbles: true })
+                  );
+                }
+                if (nodeIdInput) {
+                  nodeIdInput.dispatchEvent(
+                    new Event("input", { bubbles: true })
+                  );
+                }
+              } else {
+                // Target mapping not found - this shouldn't happen if browse mode was active
+                console.warn(
+                  `Target mapping ${targetMappingId} not found, but browse mode was active`
+                );
+                // Don't create a new mapping - user must click Browse button first
+              }
+
+              // Highlight in status
+              const nodeDisplayName = selectedNode
+                ? ` (${selectedNode.name})`
+                : "";
+              statusEl.textContent = `Selected node: ${firstNodeId}${nodeDisplayName}`;
+              setTimeout(() => {
+                if (statusEl.textContent.includes("Selected node")) {
+                  statusEl.textContent = "Ready. Click Start to begin.";
+                }
+              }, 2000);
+            }
+          }
+        });
+
+        // Add event listeners for particle management buttons
+        const btnAddParticle = document.getElementById("btn-add-particle");
+        const btnRemoveParticle = document.getElementById(
+          "btn-remove-particle"
+        );
+        if (btnAddParticle) {
+          btnAddParticle.addEventListener("click", () => {
+            console.log("[Button] Add particle clicked");
+            try {
+              addNewParticle();
+            } catch (error) {
+              console.error("[Button] Error adding particle:", error);
+              console.error("[Button] Error stack:", error.stack);
+              console.error("[Button] Error details:", {
+                message: error.message,
+                name: error.name,
+                particleSystem: !!particleSystem,
+                harmonicPlacer: !!harmonicPlacer,
+                iframe: !!iframe,
+              });
+            }
+          });
+        } else {
+          console.warn("[Button] btn-add-particle not found in DOM");
+        }
+        if (btnRemoveParticle) {
+          btnRemoveParticle.addEventListener("click", () => {
+            console.log("[Button] Remove particle clicked");
+            try {
+              removeLastParticle();
+            } catch (error) {
+              console.error("[Button] Error removing particle:", error);
+            }
+          });
+        } else {
+          console.warn("[Button] btn-remove-particle not found in DOM");
+        }
+
+        btnStart.addEventListener("click", () => {
+          iframe.contentWindow?.postMessage({ type: "noiseCraft:play" }, "*");
+        });
+
+        btnStop.addEventListener("click", () => {
+          iframe.contentWindow?.postMessage({ type: "noiseCraft:stop" }, "*");
+        });
+
+        // Ctrl+S (or Cmd+S on Mac) to save mappings
+        document.addEventListener("keydown", async (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+            e.preventDefault(); // Prevent browser's default save dialog
+
+            // Check if we're in a text input/textarea (don't override normal text saving)
+            const activeElement = document.activeElement;
+            if (
+              activeElement &&
+              (activeElement.tagName === "INPUT" ||
+                activeElement.tagName === "TEXTAREA")
+            ) {
+              // If user is typing in an input, don't save mappings
+              return;
+            }
+
+            console.log("[Save] Ctrl+S pressed, saving mappings...");
+            const success = await streamMapper.saveToJSONFile();
+
+            if (success) {
+              const statusEl = document.getElementById("status");
+              if (statusEl) {
+                statusEl.textContent = `✓ Saved ${streamMapper.mappings.length} mappings to global-workspace-mappings.json`;
+                setTimeout(() => {
+                  if (statusEl.textContent.includes("Saved")) {
+                    statusEl.textContent = "Ready. Click Start to begin.";
+                  }
+                }, 2000);
+              }
+            } else {
+              const statusEl = document.getElementById("status");
+              if (statusEl) {
+                statusEl.textContent = "✗ Failed to save mappings";
+                setTimeout(() => {
+                  if (statusEl.textContent.includes("Failed")) {
+                    statusEl.textContent = "Ready. Click Start to begin.";
+                  }
+                }, 2000);
+              }
+            }
+          }
+        });
+
+        // Start animation loop (variables already initialized above)
+        console.log("Starting animation loop...");
+
+        // Verify particle system before starting animation
+        const initialParticles = particleSystem.getParticles();
+        if (!initialParticles || initialParticles.length === 0) {
+          console.error(
+            "CRITICAL: Particle system is empty before animation start!"
+          );
+          console.error("Particle system:", particleSystem);
+          console.error("Signal generator:", particleSystem.signalGenerator);
+          console.error(
+            "Signal generator particles:",
+            particleSystem.signalGenerator?.particles
+          );
+        } else {
+          console.log(
+            `✓ Animation starting with ${initialParticles.length} particles`
+          );
+        }
+
+        animate();
+      } catch (error) {
+        console.error("CRITICAL ERROR in script initialization:", error);
+        console.error("Stack trace:", error.stack);
+        const statusEl = document.getElementById("status");
+        if (statusEl) {
+          statusEl.textContent = `Error: ${error.message}`;
+          statusEl.style.color = "#f44";
+        }
+      }
+    </script>
+  </body>
+</html>

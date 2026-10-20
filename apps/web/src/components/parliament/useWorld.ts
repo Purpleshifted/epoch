@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { folder, useControls } from "leva";
 import { savable } from "./levaSave";
+import { markSpan } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import {
   DEFAULT_COLLAGE,
@@ -53,8 +54,10 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
       }
       epoch = now;
       // the history window moved on (a new player session): forget what is now too old
+      const tLoad = performance.now();
       log.dropBefore(keepFromS());
       log.addMany(loadEvents());
+      markSpan("load", performance.now() - tLoad);
     };
     sync();
     const poll = setInterval(sync, pollMs);
@@ -253,7 +256,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
 }
 
 /** Leva knobs of the vegetation point cloud (placeholder formulas, see lib/parliament/nature.ts). */
-export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolean } = {}): { cfg: NatureConfig; pointSize: number; pathLine: number } {
+export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolean } = {}): { cfg: NatureConfig; pointSize: number; pathDots: number; pathLine: number } {
   const rules = {
     lingerRadius: { value: DEFAULT_NATURE.lingerRadius, min: 1, max: 10, step: 0.25, label: "머문 회사원의 영향 반경" },
     dose: { value: DEFAULT_NATURE.dose, min: 0.01, max: 1, step: 0.01, label: "초당 훼손량 (중심)" },
@@ -266,6 +269,7 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
     pointsPerCell: { value: DEFAULT_NATURE.pointsPerCell, min: 4, max: 80, step: 1, label: "셀당 최대 점 수" },
     pointSize: { value: 0.11, min: 0.03, max: 0.4, step: 0.01, label: "점 크기" },
     pathLine: { value: 1, min: 0, max: 1, step: 0.05, label: "길의 선 밝기 (흰 선; 0 = 선 없음)" },
+    pathDots: { value: 0, min: 0, max: 8, step: 0.5, label: "길의 점 (배율; 선 대신·함께)" },
   };
   const natureRoot = place.folder ?? "자연 (초목 point cloud)";
   const c = useControls(natureRoot, savable(natureRoot, place.rulesOnly ? rules : { ...rules, ...drawing }), {
@@ -275,12 +279,13 @@ export function useNatureControls(place: ControlPlacement & { rulesOnly?: boolea
   const { lingerRadius, dose, recoverSec, pathBite, sealedLeft } = c;
   const pointsPerCell = c.pointsPerCell ?? DEFAULT_NATURE.pointsPerCell;
   const pointSize = c.pointSize ?? 0.11;
+  const pathDots = c.pathDots ?? 0;
   const pathLine = c.pathLine ?? 1;
   const cfg = useMemo(
     () => ({ lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell }),
     [lingerRadius, dose, recoverSec, pathBite, sealedLeft, pointsPerCell],
   );
-  return { cfg, pointSize, pathLine };
+  return { cfg, pointSize, pathDots, pathLine };
 }
 
 /** Leva knobs of how concrete is drawn in Top / Side. */

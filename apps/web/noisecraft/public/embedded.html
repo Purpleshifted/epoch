@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>NoiseCraft Embedded</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/public/style.css" />
+    <link rel="stylesheet" href="./style.css" />
     <style>
       * {
         margin: 0;
@@ -12,7 +12,7 @@
         box-sizing: border-box;
       }
       body {
-        background: transparent;
+        background: #111;
         color: #eee;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         display: flex;
@@ -24,9 +24,9 @@
         display: flex;
         gap: 8px;
         align-items: center;
-        padding: 8px 10px;
-        background: rgba(0, 0, 0, 0.4);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 12px 16px;
+        background: #1a1a1a;
+        border-bottom: 1px solid #333;
         flex-shrink: 0;
       }
       .status {
@@ -34,35 +34,21 @@
         font-size: 13px;
       }
       button {
-        background: rgba(255, 255, 255, 0.08);
+        background: #333;
         color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        border-radius: 9999px;
-        padding: 6px 12px;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 8px 12px;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 13px;
       }
       button:hover {
-        background: rgba(255, 255, 255, 0.18);
-      }
-      /* Start/Stop 버튼을 흰색 계열, 반투명 캡슐로 통일 (붉은색 강조 제거) */
-      #btn_start,
-      #btn_stop {
-        background: rgba(255, 255, 255, 0.08) !important;
-        border-color: rgba(255, 255, 255, 0.45) !important;
-        color: #fff !important;
-        width: auto;
-        min-width: 72px;
-      }
-      #btn_start:hover,
-      #btn_stop:hover {
-        background: rgba(255, 255, 255, 0.22) !important;
+        background: #3a3a3a;
       }
       #editor_div {
         flex: 1;
         position: relative;
         overflow: scroll;
-        background: transparent;
       }
       #graph_div {
         position: absolute;
@@ -73,8 +59,7 @@
         position: absolute;
         top: 0px;
         left: 0px;
-        z-index: 0;
-        pointer-events: none;
+        z-index: -2;
         overflow: visible;
       }
       #graph_bg_text {
@@ -97,13 +82,39 @@
         pointer-events: none;
         z-index: 10;
       }
+
+      /* --- Minimal UI: only show audio controls --- */
+      body.minimal {
+        justify-content: center;
+        align-items: center;
+      }
+      body.minimal .wrap {
+        display: flex !important;
+        border: none;
+        background: transparent;
+        padding: 0;
+      }
+      body.minimal .status {
+        display: none !important;
+      }
+      /* Keep editor DOM for existing logic, but hide it visually */
+      body.minimal #editor_div {
+        position: absolute !important;
+        left: -99999px !important;
+        top: -99999px !important;
+        width: 1px !important;
+        height: 1px !important;
+        overflow: hidden !important;
+      }
     </style>
   </head>
   <body>
-    <div class="wrap" id="toolbar">
+    <div class="wrap">
+      <!-- Play buttons hidden - controlled by parent test-workspace.html -->
       <button id="btn_start">Start Audio</button>
       <button id="btn_stop" style="display: none">Stop</button>
-      <div class="status" id="status"></div>
+      <!--      <button id="btn_open">Open Project</button>-->
+      <div class="status" id="status">Idle</div>
     </div>
     <div id="editor_div">
       <div id="graph_div"></div>
@@ -126,27 +137,43 @@
     />
 
     <script type="module">
-      import { Model, SetParam, Play, Stop } from "/public/model.js";
-      import { AudioView } from "/public/audioview.js";
-      import { Editor } from "/public/editor.js";
-
-      const urlForEmbed = new URL(window.location.href);
-      const editorMode = urlForEmbed.searchParams.get("editor") || "";
-      const isEmbedded = window.self !== window.top && editorMode !== "full";
-      if (isEmbedded) {
-        // 임베디드 모드에서는 패널(에디터)을 숨기고 버튼 영역만 딱 맞게 보이도록 레이아웃 축소
-        document.addEventListener("DOMContentLoaded", () => {
-          const editorDiv = document.getElementById("editor_div");
-          if (editorDiv) editorDiv.style.display = "none";
-          document.body.style.display = "block";
-          document.body.style.height = "auto";
-        });
+      // Default to minimal UI (audio buttons only).
+      // If you ever need the full embedded editor for debugging, append:
+      //   ?ui=full
+      // Also respect parent-driven flags:
+      //   ?editor=full   (used by /mobile/debug)
+      //   ?view=mobile-debug
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        const ui = qs.get("ui");
+        const editor = qs.get("editor");
+        const view = qs.get("view");
+        const wantsFull =
+          ui === "full" || editor === "full" || view === "mobile-debug";
+        if (!wantsFull) {
+          document.body.classList.add("minimal");
+        }
+      } catch (e) {
+        document.body.classList.add("minimal");
       }
+
+      import {
+        Model,
+        SetParam,
+        Play,
+        Stop,
+        ToggleCell,
+        SetSequence,
+        SetPatternData,
+        ClockPulse,
+      } from "./model.js";
+      import { AudioView } from "./audioview.js";
+      import { Editor } from "./editor.js";
 
       // 1) 프로젝트(JSON) 준비
       // - 아래 기본 패치는 Knob -> Sine(freq) -> AudioOut 스테레오 라우팅입니다.
       // - 본인이 가진 JSON(프로젝트 스냅샷)을 붙여넣거나, URL 파라미터 src로 가져올 수 있습니다.
-      //   예) /public/embedded.html?src=/public/examples/saw_synth_stereo_delay.ncft
+      //   예) ./embedded.html?src=./examples/saw_synth_stereo_delay.ncft
       const defaultProject = {
         title: "Intersection Audio Patch",
         nodes: {
@@ -374,10 +401,19 @@
         ).toString();
       };
 
+      // Track if we've already loaded the project to prevent reloads
+      let projectLoaded = false;
+
       async function loadProjectFromSrc(src) {
-        // Use cache-busting for .ncft files to ensure we get the latest saved version
-        const cacheBuster = src.includes(".ncft") ? `?t=${Date.now()}` : "";
-        const url = src + cacheBuster;
+        // Use cache-busting ONLY on initial load, not on subsequent loads
+        // This prevents iframe from reloading when file is saved
+        const cleanSrc = src.split("?")[0];
+        // Only use cache-busting if this is the first load
+        const cacheBuster =
+          !projectLoaded && cleanSrc.includes(".ncft")
+            ? `?t=${Date.now()}`
+            : "";
+        const url = cleanSrc + cacheBuster;
         const resp = await fetch(url, {
           cache: "no-store",
           headers: {
@@ -405,23 +441,23 @@
         return JSON.parse(data);
       }
 
+      const DEFAULT_PATCH_SRC = "./examples/indiv_audio_map_v2.ncft";
+
       async function loadInitialProject() {
         const url = new URL(window.location.href);
         const src = url.searchParams.get("src");
         const projectId = url.searchParams.get("project");
-        const fallbackSrc = url.searchParams.get("fallbackSrc");
 
         try {
           if (src) {
-            // Check if this is a file we auto-save to (indiv_audio_map.ncft)
+            // Check if this is a file we auto-save to (indiv_audio_map_v2.ncft)
             // If so, try to fetch with cache-busting to get the latest version
-            if (src.includes("indiv_audio_map.ncft")) {
+            if (src.includes("indiv_audio_map_v2.ncft")) {
               try {
-                const latest = await loadProjectFromSrc(
-                  src + "?t=" + Date.now()
-                );
+                // loadProjectFromSrc already handles cache-busting, no need to add ?t= again
+                const latest = await loadProjectFromSrc(src);
                 console.log(
-                  "[Load] Loaded latest indiv_audio_map.ncft from server"
+                  "[Load] Loaded latest indiv_audio_map_v2.ncft from server"
                 );
                 return latest;
               } catch (e) {
@@ -445,14 +481,9 @@
         }
 
         try {
-          if (fallbackSrc) {
-            return await loadProjectFromSrc(fallbackSrc);
-          }
-          // Intersection 프로젝트 기본 패치: chord_spatial
-          const DEFAULT_PATCH_SRC = "/public/examples/chord_spatial.ncft";
           return await loadProjectFromSrc(DEFAULT_PATCH_SRC);
         } catch (e) {
-          console.warn("Failed to load default chord_spatial patch:", e);
+          console.warn("Failed to load default Falling Waterfalls patch:", e);
         }
 
         return defaultProject;
@@ -462,6 +493,107 @@
       const model = new Model();
       const audioView = new AudioView(model);
       const editor = new Editor(model);
+      // A HIDDEN instrument (the player tab's iframe, ?view=hidden) needs no editor view: otherwise 48 clock
+      // pulses a second and the bars' sequences kept redrawing a DOM nobody sees (parliament: the lag)
+      const hiddenView = new URLSearchParams(window.location.search).get("view") === "hidden";
+      if (hiddenView) {
+        // quiet: the embed's console chatter (thousands of lines a minute) is main-thread work nobody reads
+        console.log = () => {};
+        console.info = () => {};
+        console.debug = () => {};
+        model.views = model.views.filter((v) => v !== editor);
+        // the editor's ClockOut node was what forwarded the clock to the parent: a tiny view does it instead
+        model.addView({
+          update(state, action) {
+            if (action instanceof ClockPulse) {
+              window.parent.postMessage({ type: "noiseCraft:clockPulse", nodeId: action.nodeId, pulseTime: action.time, sendTime: performance.now() }, "*");
+            }
+          },
+        });
+      }
+
+      // Expose AudioWorkletNode to parent window for spatial audio processing
+      let mediaStreamDestination = null;
+      let audioWorkletNode = null;
+
+      // Hook into AudioView to expose audio nodes for spatial processing
+      const originalPlayAudio = audioView.playAudio.bind(audioView);
+      audioView.playAudio = async function (state) {
+        await originalPlayAudio(state);
+
+        // Create MediaStreamDestination to capture audio for spatial processing
+        if (
+          audioView.audioCtx &&
+          audioView.audioWorklet &&
+          !mediaStreamDestination
+        ) {
+          try {
+            mediaStreamDestination =
+              audioView.audioCtx.createMediaStreamDestination();
+            audioWorkletNode = audioView.audioWorklet;
+
+            // Connect AudioWorklet to BOTH destination and MediaStreamDestination
+            // - destination: For self audio (only if NOT headless)
+            // - MediaStreamDestination: For spatial processing in parent window
+            audioWorkletNode.disconnect();
+            
+            const url = new URL(window.location.href);
+            const uiMode = url.searchParams.get("ui");
+            // out=parent (parliament): the parent's engine takes the MediaStream into its own bus (rooms, filters,
+            // vegetation roughness, the glue) — so the embed must not also play to its own output
+            const outParent = url.searchParams.get("out") === "parent";
+            if (uiMode !== "minimal" && !outParent) {
+              audioWorkletNode.connect(audioView.audioCtx.destination); 
+            }
+            
+            audioWorkletNode.connect(mediaStreamDestination); // For spatial processing
+
+            // Expose MediaStreamDestination to parent window for direct access
+            // MediaStream objects cannot be transferred via postMessage reliably
+            // Instead, expose it on the window object for parent to access
+            window.noiseCraftMediaStream = mediaStreamDestination.stream;
+            window.noiseCraftAudioContext = audioView.audioCtx;
+
+            // Notify parent that stream is ready (parent will access it directly)
+            notifyParent({
+              type: "noiseCraft:audioStreamReady",
+              audioContextSampleRate: audioView.audioCtx.sampleRate,
+            });
+
+            console.log(
+              "[NoiseCraft] Audio stream ready for spatial processing"
+            );
+            console.log(
+              "[NoiseCraft] MediaStream available at window.noiseCraftMediaStream"
+            );
+          } catch (err) {
+            console.warn(
+              "[NoiseCraft] Failed to create MediaStreamDestination:",
+              err
+            );
+          }
+        }
+      };
+
+      const originalStopAudio = audioView.stopAudio.bind(audioView);
+      audioView.stopAudio = function () {
+        if (mediaStreamDestination) {
+          try {
+            if (audioWorkletNode) {
+              audioWorkletNode.disconnect(mediaStreamDestination);
+            }
+          } catch (e) {
+            // Ignore
+          }
+          mediaStreamDestination = null;
+          audioWorkletNode = null;
+
+          notifyParent({
+            type: "noiseCraft:audioStreamStopped",
+          });
+        }
+        originalStopAudio();
+      };
 
       // Hook into node selection to notify parent window
       const originalSelectNodes = editor.selectNodes.bind(editor);
@@ -536,11 +668,11 @@
 
               // Verify the filename matches what we're trying to save
               if (
-                filename !== "indiv_audio_map.ncft" &&
+                filename !== "indiv_audio_map_v2.ncft" &&
                 filename.endsWith(".ncft")
               ) {
                 console.warn(
-                  `[Save] Saving to ${filename}, but expected indiv_audio_map.ncft`
+                  `[Save] Saving to ${filename}, but expected indiv_audio_map_v2.ncft`
                 );
               }
             } catch (e) {
@@ -550,9 +682,9 @@
             }
 
             console.log(
-              `[Save] Sending POST request to /save-ncft/${filename}`
+              `[Save] Sending POST request to /noisecraft/save-ncft/${filename}`
             );
-            const response = await fetch(`/save-ncft/${filename}`, {
+            const response = await fetch(`/noisecraft/save-ncft/${filename}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ data: formatted }),
@@ -647,7 +779,9 @@
         try {
           updateCount++;
           const actionType = action?.constructor?.name || "Unknown";
-          if (updateCount % 100 === 0) {
+          // a hidden instrument has no scopes to feed: the worklet's sample stream (thousands a second) stops here
+          if (hiddenView && actionType === "SendSamples") return undefined;
+          if (!hiddenView && updateCount % 100 === 0) {
             const now = Date.now();
             const elapsed = now - lastUpdateTime;
             console.log(
@@ -661,7 +795,30 @@
           const result = originalModelUpdate(action);
 
           // Auto-save after state changes (debounced)
-          if (autoSaveEnabled && autoSaveFilename && action) {
+          // Exclude programmatic updates to prevent reload loops:
+          // - SetParam with paramName "value": stream updates from mappings
+          // - SetCurStep: sequencer playback updates (not user-initiated)
+          // Note: ToggleCell from external updates (via postMessage) don't go through model.update,
+          // so they won't trigger auto-save. User-initiated ToggleCell (clicking sequencer)
+          // should be saved, so we include it here.
+          const isStreamParamUpdate =
+            actionType === "SetParam" && action?.paramName === "value";
+          const isProgrammaticUpdate =
+            isStreamParamUpdate ||
+            actionType === "SetCurStep" ||
+            actionType === "SetSequence" || // the bridge's bars
+            actionType === "SetPatternData" || // the bridge's rhythm
+            actionType === "SetPattern" ||
+            actionType === "ClockPulse" ||
+            actionType === "Play" || // the bridge's play / stop
+            actionType === "Stop";
+
+          if (
+            autoSaveEnabled &&
+            autoSaveFilename &&
+            action &&
+            !isProgrammaticUpdate
+          ) {
             if (saveDebounceTimer) {
               clearTimeout(saveDebounceTimer);
             }
@@ -693,6 +850,14 @@
       const originalUpdate = editor.update.bind(editor);
       editor.update = function (newState, action) {
         editorUpdateCount++;
+        if (!newState || !newState.nodes) {
+          console.warn(
+            `[Editor.update] Skipping update #${editorUpdateCount}: invalid state`,
+            newState,
+            action
+          );
+          return;
+        }
         try {
           originalUpdate(newState, action);
         } catch (err) {
@@ -932,10 +1097,10 @@
               return;
             }
             model.load(state);
-            // Ensure editor is updated after state is loaded
+            // Ensure editor is updated after state is loaded (not for a hidden instrument: no DOM to build)
             setTimeout(() => {
               try {
-                if (editor && model.state) {
+                if (!hiddenView && editor && model.state) {
                   editor.update(model.state, null);
                 }
               } catch (err) {
@@ -975,34 +1140,36 @@
 
       // Helper function to sync button states with model.playing
       const syncButtonStates = () => {
-        if (!statusEl) return;
-        const playing = model.playing;
-        if (btnStart && btnStop) {
-          if (playing) {
-            btnStart.style.display = "none";
-            btnStop.style.display = "inline-block";
-          } else {
-            btnStart.style.display = "inline-block";
-            btnStop.style.display = "none";
-          }
-        }
-        // 패널(에디터)는 임베디드일 땐 항상 숨긴다
-        if (!isEmbedded) {
-          const editorDiv = document.getElementById("editor_div");
-          if (editorDiv) {
-            editorDiv.style.display = "block";
-          }
+        if (!btnStart || !btnStop || !statusEl) return;
+        if (model.playing) {
+          btnStart.style.display = "none";
+          btnStop.style.display = "inline-block";
+          statusEl.textContent = "Playing";
         } else {
-          const editorDiv = document.getElementById("editor_div");
-          if (editorDiv) {
-            editorDiv.style.display = "none";
-          }
+          btnStart.style.display = "inline-block";
+          btnStop.style.display = "none";
+          statusEl.textContent = "Stopped";
         }
-        statusEl.textContent = playing ? "Playing" : "Stopped";
       };
 
       const ensurePlaying = (customStatus) => {
-        if (!statusEl) return;
+        if (!btnStart || !btnStop || !statusEl) return;
+        // Guard: project/state not ready yet (prevents null.nodes crash)
+        const hasState = !!model?.state;
+        const hasNodes = !!model?.state?.nodes;
+        const nodeCount = hasNodes ? Object.keys(model.state.nodes).length : 0;
+        if (!hasState || !hasNodes || nodeCount === 0) {
+          console.warn(
+            "[Embedded] Refusing to start audio: project not ready",
+            {
+              hasState,
+              hasNodes,
+              nodeCount,
+            }
+          );
+          statusEl.textContent = "Loading patch…";
+          return;
+        }
         // Don't start if already playing
         if (model.playing) {
           console.log("Already playing, skipping start");
@@ -1025,21 +1192,6 @@
         }
       };
 
-      if (btnStart) {
-        btnStart.addEventListener("click", () => ensurePlaying());
-      }
-      if (btnStop) {
-        btnStop.addEventListener("click", () => {
-          try {
-            app.stop();
-            syncButtonStates();
-            notifyParent({ type: "noiseCraft:audioState", status: "stopped" });
-          } catch (err) {
-            console.warn("Failed to stop audio", err);
-          }
-        });
-      }
-
       const handleExternalMessage = (event) => {
         const data = event.data;
         if (!data || typeof data !== "object") return;
@@ -1049,9 +1201,22 @@
           autoSaveEnabled = data.enabled !== false;
           autoSaveFilename = data.filename || null;
           if (autoSaveEnabled && autoSaveFilename) {
-            console.log(`[Auto-save] Enabled for ${autoSaveFilename}`);
+            console.log(`[Auto-save] ✓ Enabled for ${autoSaveFilename}`);
+            console.log(
+              `[Auto-save] Editor changes will be automatically saved (debounced: ${SAVE_DEBOUNCE_MS}ms)`
+            );
+            // Notify parent that auto-save is enabled
+            notifyParent({
+              type: "noiseCraft:autoSaveStatus",
+              enabled: true,
+              filename: autoSaveFilename,
+            });
           } else {
             console.log(`[Auto-save] Disabled`);
+            notifyParent({
+              type: "noiseCraft:autoSaveStatus",
+              enabled: false,
+            });
           }
           return;
         }
@@ -1069,21 +1234,154 @@
           data.type === "noiseCraft:setParams" &&
           Array.isArray(data.params)
         ) {
+          // Check if project is fully loaded before processing params
+          const hasModel = !!app.model;
+          const hasState = !!app.model?.state;
+          const hasNodes = !!app.model?.state?.nodes;
+          const nodeCount = hasNodes
+            ? Object.keys(app.model.state.nodes).length
+            : 0;
+
+          if (!hasModel || !hasState || !hasNodes || nodeCount === 0) {
+            // Project not loaded yet, skip parameter updates
+            if (!window._projectNotLoadedWarning) {
+              console.warn(
+                `[Embedded] Project not fully loaded yet, skipping ${data.params.length} param updates. Model: ${hasModel}, State: ${hasState}, Nodes: ${hasNodes}, Count: ${nodeCount}`
+              );
+              window._projectNotLoadedWarning = true;
+              // Reset warning after 5 seconds to allow retry
+              setTimeout(() => {
+                window._projectNotLoadedWarning = false;
+              }, 5000);
+            }
+            return;
+          }
+
           try {
-            console.log("[Embedded] received params", data.params);
+            // Throttle logging to avoid spam
+            if (
+              !window._lastEmbeddedParamLog ||
+              Date.now() - window._lastEmbeddedParamLog > 2000
+            ) {
+              console.log(
+                "[Embedded] received params",
+                data.params.length,
+                "params:",
+                data.params
+                  .slice(0, 3)
+                  .map(
+                    (p) => `${p.nodeId}.${p.paramName}=${p.value?.toFixed(3)}`
+                  )
+              );
+              window._lastEmbeddedParamLog = Date.now();
+            }
           } catch (e) {}
+          let updatedCount = 0;
+          let skippedCount = 0;
           data.params.forEach((param) => {
-            if (!param || param.value === undefined) return;
+            if (!param || param.value === undefined) {
+              skippedCount++;
+              return;
+            }
             const nodeId = param.nodeId ?? param.id;
-            if (nodeId === undefined) return;
+            if (nodeId === undefined) {
+              skippedCount++;
+              return;
+            }
             const paramName = param.paramName ?? "value";
             const id = String(nodeId);
             const node = app.model?.state?.nodes?.[id];
-            if (!node || !node.params || !(paramName in node.params)) {
+            if (!node) {
+              // Log missing nodes (throttled) with more details
+              if (!window._missingNodes) window._missingNodes = new Set();
+              if (!window._missingNodes.has(id)) {
+                const allNodeIds = Object.keys(app.model?.state?.nodes || {});
+                const sampleNodes = allNodeIds.slice(0, 10).map((nid) => {
+                  const n = app.model?.state?.nodes?.[nid];
+                  return `${nid}(${n?.type || "?"})`;
+                });
+                console.warn(
+                  `[Embedded] Node ${id} not found in model. Total nodes: ${allNodeIds.length}`
+                );
+                console.warn(
+                  `[Embedded] Sample node IDs: ${sampleNodes.join(", ")}${
+                    allNodeIds.length > 10 ? "..." : ""
+                  }`
+                );
+                console.warn(`[Embedded] Model state:`, {
+                  hasModel: !!app.model,
+                  hasState: !!app.model?.state,
+                  hasNodes: !!app.model?.state?.nodes,
+                  nodeCount: allNodeIds.length,
+                });
+                window._missingNodes.add(id);
+
+                // If this keeps happening, it might indicate the project hasn't loaded yet
+                // or the mapping file references nodes that don't exist in the project
+                if (window._missingNodes.size > 5) {
+                  console.error(
+                    `[Embedded] ⚠️ Multiple nodes missing (${window._missingNodes.size}). This might indicate:`
+                  );
+                  console.error(`[Embedded] 1. Project not fully loaded yet`);
+                  console.error(
+                    `[Embedded] 2. Mapping file references wrong node IDs`
+                  );
+                  console.error(`[Embedded] 3. Project file mismatch`);
+                }
+              }
+              skippedCount++;
               return;
             }
+            if (!node.params || !(paramName in node.params)) {
+              // Log missing params (throttled)
+              if (!window._missingParams) window._missingParams = new Set();
+              const key = `${id}.${paramName}`;
+              if (!window._missingParams.has(key)) {
+                console.warn(
+                  `[Embedded] Param ${paramName} not found in node ${id} (type: ${node.type})`
+                );
+                console.warn(
+                  `[Embedded] Available params:`,
+                  Object.keys(node.params || {})
+                );
+                window._missingParams.add(key);
+              }
+              skippedCount++;
+              return;
+            }
+            const oldValue = node.params[paramName];
+            // updateParam calls model.update which triggers model.broadcast
+            // This automatically calls editor.update, which updates the UI
             app.updateParam(id, paramName, Number(param.value));
+            updatedCount++;
+
+            // Log value changes for first few updates (throttled)
+            if (
+              updatedCount <= 3 &&
+              (!window._lastValueLog ||
+                Date.now() - window._lastValueLog > 1000)
+            ) {
+              console.log(
+                `[Embedded] Updated ${id}.${paramName}: ${oldValue?.toFixed(
+                  3
+                )} → ${param.value.toFixed(3)}`
+              );
+              window._lastValueLog = Date.now();
+            }
           });
+
+          // Log summary (throttled)
+          if (
+            !window._lastSummaryLog ||
+            Date.now() - window._lastSummaryLog > 3000
+          ) {
+            if (updatedCount > 0 || skippedCount > 0) {
+              console.log(
+                `[Embedded] Params update: ${updatedCount} updated, ${skippedCount} skipped`
+              );
+            }
+            window._lastSummaryLog = Date.now();
+          }
         } else if (data.type === "noiseCraft:toggleCell") {
           // Support for pattern cell updates (for tone assignment)
           const { nodeId, patIdx, stepIdx, rowIdx, value } = data;
@@ -1095,31 +1393,70 @@
           ) {
             try {
               const node = app.model?.state?.nodes?.[String(nodeId)];
+              if (!node) {
+                if (
+                  !window._lastToggleCellWarning ||
+                  Date.now() - window._lastToggleCellWarning > 5000
+                ) {
+                  console.warn(
+                    `[Embedded] Node ${nodeId} not found for toggleCell`
+                  );
+                  window._lastToggleCellWarning = Date.now();
+                }
+                return;
+              }
+
               if (
-                node &&
                 node.patterns &&
                 node.patterns[patIdx] &&
                 node.patterns[patIdx][stepIdx]
               ) {
-                // For MonoSeq, clear all rows first, then set the target row
-                if (node.type === "MonoSeq") {
-                  const numRows = node.patterns[patIdx][stepIdx].length;
-                  for (let i = 0; i < numRows; i++) {
-                    node.patterns[patIdx][stepIdx][i] = 0;
-                  }
-                }
-                // Set the target row
+                const stepArr = node.patterns[patIdx][stepIdx];
                 const targetValue = value !== undefined ? value : 1;
-                node.patterns[patIdx][stepIdx][rowIdx] = targetValue;
-                // Broadcast the change
-                app.model?.broadcast(app.model.state, {
-                  type: "toggleCell",
-                  nodeId: String(nodeId),
+
+                // Skip no-op updates to reduce UI/audio churn
+                const curVal = stepArr[rowIdx];
+                if (targetValue === 0 && curVal === 0) {
+                  return;
+                }
+                if (node.type === "MonoSeq" && targetValue === 1) {
+                  const alreadyMono =
+                    curVal === 1 &&
+                    stepArr.every((v, i) => (i === rowIdx ? v === 1 : v === 0));
+                  if (alreadyMono) {
+                    return;
+                  }
+                } else if (curVal === targetValue) {
+                  return;
+                }
+
+                // Apply the state change directly (do NOT call model.update; avoids autosave/undo)
+                // For MonoSeq, ensure monophonic constraint when setting a 1
+                if (node.type === "MonoSeq" && targetValue === 1) {
+                  for (let i = 0; i < stepArr.length; i++) stepArr[i] = 0;
+                }
+                stepArr[rowIdx] = targetValue;
+
+                // Broadcast as a real Action instance so Editor/AudioView can do incremental updates.
+                // (Plain objects fail `instanceof` checks and cause full UI rebuild + recompile.)
+                const action = new ToggleCell(
+                  String(nodeId),
                   patIdx,
                   stepIdx,
-                  rowIdx,
-                  value: targetValue,
-                });
+                  rowIdx
+                );
+                action.value = targetValue; // Editor/AudioView expect this for efficient updates
+                app.model?.broadcast(app.model.state, action);
+              } else {
+                if (
+                  !window._lastToggleCellPatternWarning ||
+                  Date.now() - window._lastToggleCellPatternWarning > 5000
+                ) {
+                  console.warn(
+                    `[Embedded] Pattern not found for node ${nodeId}, patIdx ${patIdx}, stepIdx ${stepIdx}`
+                  );
+                  window._lastToggleCellPatternWarning = Date.now();
+                }
               }
             } catch (e) {
               console.warn("Failed to toggle cell:", e);
@@ -1140,6 +1477,54 @@
             syncButtonStates();
             notifyParent({ type: "noiseCraft:audioState", status: "stopped" });
           }, 10);
+        } else if (data.type === "noiseCraft:setSequence") {
+          if (app.model && app.audioView) {
+            // nodeId is a MODULE id (parliament / me / n1… / bass / pad); AI_Seq / AI_Poly nodes that chose it take
+            // the pitches and gates; a GateSeq NAMED after it takes the rhythm alone (row = voice, gate0 = voice 0)
+            const { nodeId, pitches, gates } = data;
+            let matched = false;
+            const unbound = [];
+            for (const [id, nodeState] of Object.entries(app.model.state.nodes)) {
+              const t = nodeState.type;
+              if (t === "AI_Seq" || t === "AI_Poly") {
+                if (nodeState.params.moduleId == nodeId) {
+                  matched = true;
+                  app.model.update(new SetSequence(id, pitches, gates));
+                } else if (!nodeState.params.moduleId) {
+                  unbound.push(id);
+                }
+              } else if (t === "GateSeq" && nodeState.name === nodeId && Array.isArray(gates)) {
+                matched = true;
+                const grid = nodeState.patterns[nodeState.curPattern];
+                const rows = nodeState.numRows;
+                const next = [];
+                for (let step = 0; step < grid.length; step++) {
+                  const g = gates.length ? gates[step % gates.length] : 0;
+                  const row = new Array(rows).fill(0);
+                  for (let v = 0; v < rows; v++) {
+                    const gv = Array.isArray(g) ? (g[v] ?? 0) : (v === 0 ? g : 0);
+                    row[rows - 1 - v] = gv > 0 ? 1 : 0; // internal row 0 is the top row = the last output
+                  }
+                  next.push(row);
+                }
+                app.model.update(new SetPatternData(id, nodeState.curPattern, next));
+              }
+            }
+            // umwelt's fallback, narrowed: receivers with NO module chosen follow "parliament" (their voice param
+            // picks the part) — never a receiver bound to another module, which the old fallback overwrote
+            if (!matched && nodeId === "parliament") {
+              for (const id of unbound) app.model.update(new SetSequence(id, pitches, gates));
+            }
+          }
+        } else if (data.type === "noiseCraft:updateModules") {
+          window._musicModules = data.modules;
+          window.dispatchEvent(new Event('musicModulesUpdated'));
+        } else if (data.type === "noiseCraft:redraw") {
+          // Force redraw edges and SVG
+          if (app.editor) {
+            console.log("Forcing editor redraw");
+            app.editor.resize();
+          }
         }
       };
       window.addEventListener("message", handleExternalMessage);
@@ -1147,6 +1532,33 @@
       // 3) 초기 프로젝트 로드
       const initialState = await loadInitialProject();
       app.setState(initialState);
+      projectLoaded = true; // Mark as loaded to prevent cache-busting on subsequent loads
+
+      // Wait for model state to be fully initialized
+      // This ensures nodes are available before parameter updates are processed
+      let stateCheckAttempts = 0;
+      const maxStateCheckAttempts = 50; // 5 seconds max wait
+      const checkStateReady = setInterval(() => {
+        stateCheckAttempts++;
+        const hasModel = !!app.model;
+        const hasState = !!app.model?.state;
+        const hasNodes = !!app.model?.state?.nodes;
+        const nodeCount = hasNodes
+          ? Object.keys(app.model.state.nodes).length
+          : 0;
+
+        if (hasModel && hasState && hasNodes && nodeCount > 0) {
+          console.log(
+            `[Embedded] Project fully loaded: ${nodeCount} nodes available`
+          );
+          clearInterval(checkStateReady);
+        } else if (stateCheckAttempts >= maxStateCheckAttempts) {
+          console.warn(
+            `[Embedded] Project state check timeout after ${maxStateCheckAttempts} attempts`
+          );
+          clearInterval(checkStateReady);
+        }
+      }, 100);
 
       // Extract and set filename from URL for save functionality
       const loadUrl = new URL(window.location.href);
@@ -1161,14 +1573,14 @@
         }
       }
 
-      // Update background text visibility (임베디드일 때도 내부 레이아웃은 유지하되 표시만 제어)
+      // Update background text visibility
       const graphBgText = document.getElementById("graph_bg_text");
-      if (graphBgText) {
-        if (initialState && Object.keys(initialState.nodes || {}).length > 0) {
-          graphBgText.style.display = "none";
-        } else {
-          graphBgText.style.display = "block";
-        }
+      if (
+        graphBgText &&
+        initialState &&
+        Object.keys(initialState.nodes || {}).length > 0
+      ) {
+        graphBgText.style.display = "none";
       }
 
       // Update project title
@@ -1179,7 +1591,7 @@
 
       // Ensure edges are visible after load - force editor update after everything is laid out
       setTimeout(() => {
-        if (editor && editor.model && editor.model.state) {
+        if (!hiddenView && editor && editor.model && editor.model.state) {
           // Force a complete re-render of the editor to ensure edges are created
           editor.update(editor.model.state, null);
 
@@ -1206,7 +1618,7 @@
         }
       }, 500);
 
-      statusEl.textContent = "";
+      statusEl.textContent = "Project loaded. Click Start to begin audio.";
       notifyParent({
         type: "noiseCraft:projectLoaded",
         title: initialState?.title || null,
@@ -1379,7 +1791,7 @@
 
             // Try to extract filename from src URL parameter
             if (src) {
-              // Match filename pattern: /examples/filename.ncft or /public/examples/filename.ncft
+              // Match filename pattern: /examples/filename.ncft or ./examples/filename.ncft
               const match = src.match(/([^\/]+\.ncft)(?:\?|$)/);
               if (match) {
                 filename = match[1];
@@ -1401,7 +1813,7 @@
                       .toLowerCase()
                       .replace(/[^a-z0-9.]/gi, "_") + ".ncft";
                 } else {
-                  filename = "indiv_audio_map.ncft"; // Default for this workspace
+                  filename = "indiv_audio_map_v2.ncft"; // Default for this workspace
                 }
                 console.log(`[Save] Using fallback filename: ${filename}`);
               }

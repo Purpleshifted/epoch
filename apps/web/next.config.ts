@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   // 프로덕션 단일 컨테이너 배포를 위한 standalone 출력
@@ -10,6 +11,9 @@ const nextConfig: NextConfig = {
 
   env: {
     NEXT_PUBLIC_ENABLE_PROFILER_IN_DEV: "false",
+    // sound: the NoiseCraft patch files of THIS app (the /noisecraft/* routes), whatever the server's cwd is — never
+    // another worktree's folder
+    NOISECRAFT_EXAMPLES_DIR: path.join(import.meta.dirname, "noisecraft", "examples"),
   },
 };
 

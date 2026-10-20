@@ -66,3 +66,41 @@ describe("signals: what the player hears, from the same log", () => {
     expect(personalSignals({ ...base, me: me(10, 0), snap }).sealed).toBe(0);
   });
 });
+
+describe("buildings (v4 A4): sealed slabs that touch, their zone, who built them", () => {
+  it("joins touching slabs into one building, sums the builders, grows the zone with the mass", async () => {
+    const { buildingAround, buildingsOf, ZONE_BASE, ZONE_PER_SQRT_MASS } = await import("./signals");
+    const slab = (cx: number, cz: number, raw: number, who: { o: string; amount: number }[]) => ({ key: `${cx},${cz}`, x: (cx + 0.5) * 1.2, z: (cz + 0.5) * 1.2, h: raw, raw, foot: 1, bornS: 0, lastS: 10, who: who.map((w) => ({ ...w, first: 0, last: 10 })) });
+    const slabs = [slab(0, 0, 2, [{ o: "a", amount: 5 }]), slab(1, 0, 3, [{ o: "a", amount: 4 }, { o: "b", amount: 6 }]), slab(1, 1, 1, [{ o: "b", amount: 2 }]), slab(10, 10, 4, [{ o: "c", amount: 9 }]), slab(5, 5, 0.05, [{ o: "d", amount: 1 }])];
+    const bs = buildingsOf(slabs as never);
+    expect(bs).toHaveLength(2); // the low slab at (5,5) is not sealed
+    const big = bs.find((b) => b.id === "0,0")!;
+    expect(big.mass).toBe(6);
+    expect(big.who).toEqual([{ o: "b", amount: 8 }, { o: "a", amount: 9 }].sort((p, q) => q.amount - p.amount));
+    expect(big.radius).toBeCloseTo(ZONE_BASE + ZONE_PER_SQRT_MASS * Math.sqrt(6));
+    const near = buildingAround(slabs as never, 1.5, 0.5);
+    expect(near?.id).toBe("0,0");
+    expect(near!.dist).toBeLessThan(2);
+    expect(buildingAround(slabs as never, 60, 60)).toBeNull();
+  });
+});
+
+describe("v4 A4d: the path under the feet within a radius; whom I really build with", () => {
+  it("a path cell beside me counts (fading with distance); my weight on a slab names its other builders", async () => {
+    const { personalSignals, DEFAULT_SIGNALS } = await import("./signals");
+    const { DEFAULT_NATURE } = await import("@/lib/parliament");
+    const me = { id: "v_me", x: 0.6, z: 0.6, vx: 0, vz: 0 };
+    const path = (cx: number, cz: number, p: number) => ({ key: `${cx},${cz}`, x: (cx + 0.5) * 1.2, z: (cz + 0.5) * 1.2, p, visits: 5 });
+    const slab = (cx: number, cz: number, raw: number, who: { o: string; amount: number }[]) => ({ key: `${cx},${cz}`, x: (cx + 0.5) * 1.2, z: (cz + 0.5) * 1.2, h: raw, raw, foot: 1, bornS: 0, lastS: 10, who: who.map((w) => ({ ...w, first: 0, last: 10 })) });
+    const base = { me, events: [], sNow: 100, stress: null, natureCfg: DEFAULT_NATURE, cfg: DEFAULT_SIGNALS };
+    expect(personalSignals({ ...base, snap: { slabs: [], paths: [path(1, 0, 0.8)] } }).pathP).toBeCloseTo(0.8 * (1 - 0.5 * (1.2 / 2.5)), 3);
+    expect(personalSignals({ ...base, snap: { slabs: [], paths: [path(0, 0, 0.8)] } }).pathP).toBeCloseTo(0.8, 6);
+    expect(personalSignals({ ...base, snap: { slabs: [], paths: [path(5, 0, 0.8)] } }).pathP).toBe(0);
+    const s1 = personalSignals({ ...base, snap: { slabs: [slab(0, 0, 2, [{ o: "bot1", amount: 9 }, { o: "v_me", amount: 2.5 }, { o: "bot2", amount: 4 }])], paths: [] } as never });
+    expect(s1.coBuilders).toEqual(["bot1", "bot2"]);
+    expect(s1.myBuild).toBeCloseTo(2.5);
+    const s2 = personalSignals({ ...base, snap: { slabs: [slab(0, 0, 2, [{ o: "bot1", amount: 9 }, { o: "v_me", amount: 0.4 }])], paths: [] } as never });
+    expect(s2.coBuilders).toEqual([]);
+    expect(s2.myBuild).toBe(0);
+  });
+});
