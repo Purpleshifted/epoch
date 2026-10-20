@@ -18,7 +18,8 @@ import { geoYears } from "@/lib/stratum/geoClock";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
-import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
+import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, survivalFromBasis, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed, type WearBasis, type WearConfig } from "./seeds";
+import { bakedKey, clearBaked, loadBaked, saveBaked } from "./bakeStore";
 import { DEFAULT_FOLD, type FoldConfig, type PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
 import { NO_WALKWAYS, otherLineNear, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
@@ -277,6 +278,16 @@ interface Baked {
   c0: number;
   c1: number;
   mesh: FuseMesh;
+  /** Whether `mesh` has been built from `src` at all (a chunk restored from disk starts without one). */
+  rendered: boolean;
+  /**
+   * THE PAST KEEPS AGEING (the artist, 2026-10-20: baked layers are final only once fossilised): until every part
+   * is fully decayed and the layers' age is complete, the chunk's parts are read again from their wear basis at
+   * the present and the chunk rendered again, a step at a time; then it is final and never touched.
+   */
+  final: boolean;
+  /** The present (session s) the parts' decay was last read at. */
+  agedT: number;
   boxes: Box[];
   /** Grey shade per box (the part's weathering at the time of baking). */
   shade: Float32Array;
@@ -288,6 +299,8 @@ interface Baked {
    */
   src: {
     parts: Box[];
+    /** Per part: what its decay at any later time is read from (null = frozen at `decay`). */
+    basis: (WearBasis | null)[];
     decay: number[];
     standing: boolean[];
     skeleton: boolean[];
@@ -298,9 +311,8 @@ interface Baked {
     nz: number;
     unit: number;
     sediment: NonNullable<ReturnType<typeof sedimentOf>>;
-    /** The layers' age per slot from `ageK0` (clamped outside), or null for the sediment clock. */
-    age: Float32Array | null;
-    ageK0: number;
+    /** When the chunk was baked (session s). */
+    t0: number;
     cfgKey: string;
   };
 }
@@ -315,6 +327,11 @@ function sliceHistory(h: NatureHistory, k0: number, k1: number): NatureHistory {
 
 /** Decay (1 − survival) from which a part counts as done, for baking a chunk early. */
 const BAKE_DECAY = 0.98;
+/** World seconds between two readings of a baked chunk's ageing. */
+const AGE_STEP_S = 30;
+const quant20 = (v: number) => Math.round(v * 20) / 20;
+/** The key by which a drawn box is matched to its part (restored boxes are copies, not the same objects). */
+const boxKey = (b: Box) => `${b.kind}:${b.slot}:${b.x.toFixed(2)}:${b.y.toFixed(2)}:${b.z.toFixed(2)}`;
 
 export class SpaceModel {
   private events: PEvent[] = [];
@@ -333,6 +350,10 @@ export class SpaceModel {
   private tBeforeReset = 0;
   /** The decay each part had in the fused mass as last drawn (computeFuse): it is absorbed only as far as that. */
   private fusedAt = new WeakMap<Box, number>();
+  /** The wear config the parts were last worn with (the baked layers age by it). */
+  private wearCfg: WearConfig | null = null;
+  /** The world epoch the baked layers are kept under on disk (bakeStore); null = not kept (the lab). */
+  private epoch: string | null = null;
   /** Counts mass chunks built, so the parts follow what the mass has taken. */
   private fuseBuilt = 0;
   /** The earliest event's time (the history window's cut); parts below it are not drawn. */
@@ -340,7 +361,7 @@ export class SpaceModel {
   private built: Box[] = [];
   private worn: Box[] = [];
   /** The weathering of the last computed parts (null without wear). */
-  private wear: { age: (b: Box) => number; survival: (b: Box) => number } | null = null;
+  private wear: ReturnType<typeof wearModel> | null = null;
   /** How much vegetation has gathered on a part (strata only): it gathers before (and so causes) its rot. */
   private gatherOf: ((b: Box) => number) | null = null;
   private history: NatureHistory | null = null;
@@ -410,6 +431,128 @@ export class SpaceModel {
       this.t = s;
       this.version++;
     }
+  }
+
+  /**
+   * THE PAST ON DISK: the epoch the baked layers are kept under (bakeStore). Set from the view with the events; a
+   * change of epoch (the world cleared) forgets the old epoch's layers on disk and loads the new one's, which are
+   * rendered again, a few per call, with the current look.
+   */
+  setEpoch(epoch: string | null): void {
+    if (epoch === this.epoch) return;
+    const old = this.epoch;
+    this.epoch = epoch;
+    if (old) {
+      this.baked.clear();
+      void clearBaked(old);
+    }
+    if (!epoch) return;
+    void loadBaked(epoch).then((recs) => {
+      if (this.epoch !== epoch) return;
+      let n = 0;
+      for (const r of recs) {
+        if (this.baked.has(r.c0)) continue;
+        this.baked.set(r.c0, {
+          c0: r.c0,
+          c1: r.c1,
+          mesh: mergeMeshes([]),
+          rendered: false,
+          final: r.final,
+          agedT: r.t0,
+          boxes: r.boxes,
+          shade: r.shade,
+          nature: r.nature,
+          src: { parts: r.parts, basis: r.basis, decay: r.decay, standing: r.standing, skeleton: r.parts.map(() => false), history: r.history, x0: r.x0, z0: r.z0, nx: r.nx, nz: r.nz, unit: r.unit, sediment: r.sediment, t0: r.t0, cfgKey: "" },
+        });
+        n++;
+      }
+      if (n) this.version++;
+    });
+  }
+
+  /** Writes a baked chunk to disk (when an epoch is set). */
+  private persist(bk: Baked): void {
+    if (!this.epoch) return;
+    const s = bk.src;
+    void saveBaked({ key: bakedKey(this.epoch, bk.c0), epoch: this.epoch, c0: bk.c0, c1: bk.c1, final: bk.final, t0: s.t0, parts: s.parts, basis: s.basis, decay: s.decay, standing: s.standing, history: s.history, x0: s.x0, z0: s.z0, nx: s.nx, nz: s.nz, unit: s.unit, sediment: s.sediment, boxes: bk.boxes, shade: bk.shade, nature: bk.nature });
+  }
+
+  /** How many baked chunks still age, how many are final, and the mean decay of the ageing ones' parts (readout, tests). */
+  get bakedAgeing(): { ageing: number; final: number; meanDecay: number } {
+    let ageing = 0, final = 0, sum = 0, n = 0;
+    for (const bk of this.baked.values()) {
+      if (bk.final) final++;
+      else {
+        ageing++;
+        for (const d of bk.src.decay) {
+          sum += d;
+          n++;
+        }
+      }
+    }
+    return { ageing, final, meanDecay: n ? sum / n : 0 };
+  }
+
+  /** Renders a baked chunk from its material with the current look and clock. */
+  private renderBaked(bk: Baked, fuse: FuseConfig, layerDecay: ((k: number) => number) | undefined): void {
+    const s = bk.src;
+    bk.mesh = fuseChunk({ parts: s.parts, decay: s.decay, standing: s.standing, skeleton: s.skeleton, history: s.history, k0: bk.c0, k1: bk.c1, x0: s.x0, z0: s.z0, nx: s.nx, nz: s.nz, unit: s.unit, sediment: s.sediment, layerDecay, cfg: fuse });
+    bk.rendered = true;
+    s.cfgKey = JSON.stringify(fuse);
+  }
+
+  /**
+   * Reads a baked chunk's parts again at the present (their wear basis under the current wear config): the decay
+   * moves on, the skeleton and the drawn boxes follow, the chunk is rendered again, and it is final once every part
+   * of its own slots is fully decayed and the layers' age is complete. True when something changed.
+   */
+  private ageBaked(bk: Baked, fuse: FuseConfig, layerDecay: ((k: number) => number) | undefined): boolean {
+    const s = bk.src;
+    const cfg = this.wearCfg;
+    bk.agedT = this.t;
+    if (!cfg) return false;
+    let changed = false;
+    const dOf = new Map<string, number>();
+    for (let i = 0; i < s.parts.length; i++) {
+      const bs = s.basis[i];
+      if (!bs) continue;
+      const d = quant20(1 - survivalFromBasis(s.parts[i], bs, this.t, cfg));
+      if (d !== s.decay[i]) {
+        s.decay[i] = d;
+        changed = true;
+      }
+      s.skeleton[i] = isSkeleton(s.parts[i], d, fuse);
+      dOf.set(boxKey(s.parts[i]), d);
+    }
+    if (!changed) return false;
+    // the drawn boxes follow: absorbed into the mass as the live ones are (seeds that keep their form stay), shaded
+    const keep: Box[] = [];
+    const shade: number[] = [];
+    for (let i = 0; i < bk.boxes.length; i++) {
+      const b = bk.boxes[i];
+      const d = dOf.get(boxKey(b));
+      if (d !== undefined) {
+        const f = fusedShare(d, fuse);
+        if (!STEEL_KINDS.has(b.kind) && !isSkeleton(b, d, fuse) && f > 0 && partHash(b) < Math.min(1, f * 1.6)) continue;
+        keep.push(b);
+        shade.push((0.86 + 0.14 * b.tone) * (1 - 0.4 * d));
+      } else {
+        keep.push(b);
+        shade.push(bk.shade[i]);
+      }
+    }
+    bk.boxes = keep;
+    bk.shade = Float32Array.from(shade);
+    this.renderBaked(bk, fuse, layerDecay);
+    let done = true;
+    for (let i = 0; i < s.parts.length && done; i++) {
+      const b = s.parts[i];
+      if (b.slot >= bk.c0 && b.slot <= bk.c1 && s.basis[i] && s.decay[i] < BAKE_DECAY) done = false;
+    }
+    if (done && layerDecay && layerDecay(bk.c1) < 0.99) done = false;
+    bk.final = done;
+    this.persist(bk);
+    return true;
   }
 
   /** Whether slot k lies in a baked chunk. */
@@ -583,6 +726,7 @@ export class SpaceModel {
     const worn = wm ? wearParts(built, seeds, t, wearCfg, wm) : built;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
     this.wear = wm;
+    this.wearCfg = wearCfg;
     // vegetation gathering on a part (0 … 1), by its depth below the present and the density around it
     const kNow = t / box.secPerUnit;
     this.gatherOf = w.strata ? (b: Box) => gatherAmount(kNow - (b.slot + 1), wearCfg) * gatherDensity(b, wearCfg) : null;
@@ -930,15 +1074,12 @@ export class SpaceModel {
         const shade = new Float32Array(boxes.length);
         boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
         const nat = this.chunks.get(w.c0);
-        // what the chunk was made from, so a paused view can render it again with another look
+        // what the chunk was made from — its material: rendered again with another look (a paused view), and read
+        // again at a later present (the past keeps ageing until it is a fossil)
         const ageK0 = w.c0 - padSlots - 3, ageK1 = w.c1 + padSlots + 8;
-        let age: Float32Array | null = null;
-        if (layerDecay) {
-          age = new Float32Array(ageK1 - ageK0 + 1);
-          for (let k = ageK0; k <= ageK1; k++) age[k - ageK0] = layerDecay(k);
-        }
         const src: Baked["src"] = {
           parts: w.ps.map((e) => e.b),
+          basis: w.ps.map((e) => wm.basis(e.b)),
           decay: w.ps.map((e) => e.d),
           standing: w.ps.map((e) => e.up),
           skeleton: w.ps.map((e) => e.sk),
@@ -949,11 +1090,12 @@ export class SpaceModel {
           nz,
           unit: u,
           sediment: sed,
-          age,
-          ageK0,
+          t0: this.t,
           cfgKey: JSON.stringify(fuse),
         };
-        this.baked.set(w.c0, { c0: w.c0, c1: w.c1, mesh: ch.mesh, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null, src });
+        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: false, agedT: this.t, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null, src };
+        this.baked.set(w.c0, bk);
+        this.persist(bk);
         this.fuseChunks.delete(w.c0);
         this.chunks.delete(w.c0);
         bakedNow++;
@@ -994,20 +1136,30 @@ export class SpaceModel {
     let pending = todo.length > perCall;
     // WORK MODE (rebake): the baked layers rendered again with the current look, within what is left of this call's
     // budget — the world below stays, its rendering follows the settings
-    if (input.rebake) {
-      const cfgKey = JSON.stringify(fuse);
-      let budget = Math.max(1, perCall - Math.min(todo.length, perCall));
+    let budget = Math.max(1, perCall - Math.min(todo.length, perCall));
+    const cfgKey = JSON.stringify(fuse);
+    for (const bk of this.baked.values()) {
+      // restored from disk (no mesh yet), or a paused view with a changed look: rendered again from its material
+      if (bk.rendered && (!input.rebake || bk.src.cfgKey === cfgKey)) continue;
+      if (budget <= 0) {
+        pending = true;
+        break;
+      }
+      this.renderBaked(bk, fuse, layerDecay);
+      budget--;
+    }
+    // THE PAST KEEPS AGEING: one baked chunk per call, the one longest unread, once the present has moved on a step
+    if (budget > 0 && this.wearCfg) {
+      let pick: Baked | null = null;
+      let more = 0;
       for (const bk of this.baked.values()) {
-        if (bk.src.cfgKey === cfgKey) continue;
-        if (budget <= 0) {
-          pending = true;
-          break;
-        }
-        const s = bk.src;
-        const ageOf = s.age ? (k: number) => s.age![Math.max(0, Math.min(s.age!.length - 1, k - s.ageK0))] : undefined;
-        bk.mesh = fuseChunk({ parts: s.parts, decay: s.decay, standing: s.standing, skeleton: s.skeleton, history: s.history, k0: bk.c0, k1: bk.c1, x0: s.x0, z0: s.z0, nx: s.nx, nz: s.nz, unit: s.unit, sediment: s.sediment, layerDecay: ageOf, cfg: fuse });
-        s.cfgKey = cfgKey;
-        budget--;
+        if (bk.final || !bk.rendered || this.t - bk.agedT < AGE_STEP_S) continue;
+        more++;
+        if (!pick || bk.agedT < pick.agedT) pick = bk;
+      }
+      if (pick) {
+        this.ageBaked(pick, fuse, layerDecay);
+        if (more > 1) pending = true;
       }
     }
     const out: FuseMesh[] = [...this.baked.values()].map((b) => b.mesh);
@@ -1059,7 +1211,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 
 /** What the view posts to the space worker. */
 export type SpaceRequest =
-  | { type: "events"; add: PEvent[]; reset?: boolean }
+  | { type: "events"; add: PEvent[]; reset?: boolean; epoch?: string | null }
   | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
 
 /** What the space worker posts back for a compute request. */
@@ -1080,6 +1232,7 @@ export interface SpaceResponse {
  */
 export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: SpaceResponse; transfer: ArrayBuffer[] } | null {
   if (m.type === "events") {
+    if (m.epoch !== undefined) model.setEpoch(m.epoch);
     if (m.reset) model.reset();
     model.add(m.add);
     return null;

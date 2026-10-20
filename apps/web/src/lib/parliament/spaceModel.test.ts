@@ -243,6 +243,24 @@ describe("SpaceModel: what the worker computes", () => {
     expect(re).not.toBeNull();
     expect(lowest(re!)).toBeLessThan(10); // still there
     expect(re!.position.length).not.toBe(before); // and drawn differently
+    // THE PAST KEEPS AGEING: the baked chunks are not final; as the present moves on, their parts' decay is read
+    // again from the wear basis and grows, until the chunk is a fossil and final
+    const age0 = m.bakedAgeing;
+    expect(age0.ageing).toBeGreaterThan(0);
+    expect(age0.final).toBe(0);
+    m.setNow(1500 + 20_000);
+    for (let i = 0; i < 40; i++) {
+      m.computeParts(pin);
+      m.computeFuse(fin);
+    }
+    const age1 = m.bakedAgeing;
+    expect(age1.meanDecay + (age1.final > 0 ? 1 : 0)).toBeGreaterThan(age0.meanDecay);
+    m.setNow(1500 + 2_000_000);
+    for (let i = 0; i < 60; i++) {
+      m.computeParts(pin);
+      m.computeFuse(fin);
+    }
+    expect(m.bakedAgeing.final).toBeGreaterThan(0);
     // and a cleared world (a new epoch, far earlier) lets them go
     m.reset();
     m.add(runBots(4, 60));

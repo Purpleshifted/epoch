@@ -30,6 +30,7 @@ import {
   RECIPES,
   STEEL,
   clearWorld,
+  currentEpochKey,
   MAX_TIME_RATE,
   MIN_TIME_RATE,
   getEpochMs,
@@ -806,6 +807,7 @@ function SpaceWorld({
   const inFlight = useRef<{ id: number; at: number } | null>(null);
   /** The lab's present: the log's end when first seen, moved on by the lab's own clock since. */
   const labAnchor = useRef<{ ms: number; s: number } | null>(null);
+  const lastEpoch = useRef<string | null | undefined>(undefined);
   /** The camera and focus the last request used; kept while time stands still (see the ticker). */
   const pinned = useRef<{ cam: [number, number, number]; focusK: number } | null>(null);
   /** Paused: what the vegetation was last asked with (it is asked again only when this changes). */
@@ -968,12 +970,15 @@ function SpaceWorld({
     const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
+    // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
+    const epoch = local ? null : currentEpochKey();
     if (events.length < sent.current) {
-      w.post({ type: "events", add: events, reset: true });
+      w.post({ type: "events", add: events, reset: true, epoch });
       labAnchor.current = null;
     } else if (events.length > sent.current) {
-      w.post({ type: "events", add: events.slice(sent.current) });
-    }
+      w.post({ type: "events", add: events.slice(sent.current), epoch });
+    } else if (epoch !== lastEpoch.current) w.post({ type: "events", add: [], epoch });
+    lastEpoch.current = epoch;
     sent.current = events.length;
     // THE PRESENT FOLLOWS THE CLOCK: the world's "now" in session seconds — shared: the world clock against the
     // shared epoch; lab: the column's end moved on by the lab's own clock (so the time rate ages the world even
