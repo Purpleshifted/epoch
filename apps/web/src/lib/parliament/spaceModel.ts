@@ -356,7 +356,14 @@ export class SpaceModel {
   private nearWater: ((ix: number, iz: number, k: number) => number) | null = null;
   private waterCfg: WaterConfig | null = null;
   private fuseSig = "";
-  private fuseChunks = new Map<number, { key: string; mesh: FuseMesh }>();
+  /** Per chunk: its latest mesh, the key it was built for, and WHEN (this.fuseBuilt at the time) — for the round robin. */
+  private fuseChunks = new Map<number, { key: string; mesh: FuseMesh; built: number }>();
+  /** How many chunk builds ago the least recently built kept chunk was built (0 = none kept): the round robin's lag. */
+  get fuseMaxLag(): number {
+    let lag = 0;
+    for (const ch of this.fuseChunks.values()) lag = Math.max(lag, this.fuseBuilt - ch.built);
+    return lag;
+  }
   /**
    * BAKED chunks: layers that are done. Their mass, the parts still standing in them (with their last shade) and
    * their vegetation points are kept as they were and never recomputed — through reset too (the history window
@@ -941,8 +948,13 @@ export class SpaceModel {
     }
     const todo = wants.filter((w) => !this.baked.has(w.c0) && this.fuseChunks.get(w.c0)?.key !== w.key);
     // the chunks about to leave the window come first (so they are baked with a mesh as current as can be), then
-    // chunks with no mesh yet, then stale ones; each nearest to where the camera looks first
-    todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || dist(a) - dist(b));
+    // chunks with no mesh yet, then the stale ones LEAST RECENTLY BUILT first (a round robin), nearest to where the
+    // camera looks as the tie-break. With time running, every chunk whose parts corrode is stale on every call;
+    // nearest-first then fed the two chunks by the focus forever and starved the fusing band below — in the shared
+    // view the mass showed only once a chunk left the window and was baked (the artist, 2026-10-20: "the lab's look
+    // does not appear in the global view however fast time runs")
+    const builtAt = (w: Want) => this.fuseChunks.get(w.c0)?.built ?? -1;
+    todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || builtAt(a) - builtAt(b) || dist(a) - dist(b));
     const perCall = Math.max(1, input.perCall ?? FUSE_NEW_PER_CALL);
     for (const w of todo.slice(0, perCall)) {
       const mesh = fuseChunk({
@@ -962,9 +974,9 @@ export class SpaceModel {
         layerDecay,
         cfg: fuse,
       });
-      this.fuseChunks.set(w.c0, { key: w.key, mesh });
-      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
       this.fuseBuilt++;
+      this.fuseChunks.set(w.c0, { key: w.key, mesh, built: this.fuseBuilt });
+      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
     }
     let pending = todo.length > perCall;
     // WORK MODE (rebake): the baked layers rendered again with the current look, within what is left of this call's

@@ -123,6 +123,10 @@ describe("SpaceModel: what the worker computes", () => {
     const top = Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit;
     // the chunks where the camera looks (the present, up with the buildings) are built, not only the oldest ones
     expect(ys.some((y) => y > top * 0.75)).toBe(true);
+    // ROUND ROBIN: no kept chunk is left stale for longer than one turn of all the chunks (nearest-first fed the two
+    // chunks by the focus forever and starved the fusing band: a lag of tens of builds)
+    const chunks = Math.ceil((last / DEFAULT_BOXES.secPerUnit + 10) / 10);
+    expect(m.fuseMaxLag).toBeLessThanOrEqual(chunks + 2);
   }, 300_000);
 
   it("bots' buildings seal the ground: their water drains away (streams and/or pipes), drawn as wetland", () => {
