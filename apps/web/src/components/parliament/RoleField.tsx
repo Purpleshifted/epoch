@@ -61,6 +61,7 @@ import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useSowState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
+import { markSpan } from "./usePerfMeter";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
@@ -109,6 +110,7 @@ export function RoleField({
   cfg,
   natureCfg,
   pointSize,
+  pathDots = 1,
   pathLine = 1,
   offsetWindow,
   botCount,
@@ -126,6 +128,8 @@ export function RoleField({
   cfg: FoldConfig;
   natureCfg: NatureConfig;
   pointSize: number;
+  /** How many dust points a trodden cell gets (× the base 14 at full strength); the artist wanted the paths visible. */
+  pathDots?: number;
   /** Brightness of the path LINES (PathLines; 0 = none, 1 = white). */
   pathLine?: number;
   offsetWindow: number;
@@ -276,7 +280,9 @@ export function RoleField({
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && nBots > 0 && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
       const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
+      const tBot = performance.now();
       const snapAll = theFold.at(tSess); // the whole world: what the bots walk on
+      markSpan("bot-fold", performance.now() - tBot);
       const level = new Map<string, number>();
       for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
       const built = new Set<string>();
@@ -333,7 +339,9 @@ export function RoleField({
       lastSaveMs.current = wall;
       if (pending.current.length) {
         // false = this tab's epoch has ended; useWorld's poll makes it join the new one
+        const tSave = performance.now();
         saveMerged(pending.current, epochMs.current);
+        markSpan("save", performance.now() - tSave);
         pending.current = [];
       }
     }
@@ -350,6 +358,7 @@ export function RoleField({
     if (foldTimer.current >= FOLD_EVERY) {
       foldTimer.current = 0;
       const events = log.all();
+      const tFold = performance.now();
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       sown.current = sowAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
@@ -360,6 +369,7 @@ export function RoleField({
         for (const sl of snap.current.slabs) if (sl.h >= SEAL_H) sealed.add(sl.key);
         cells.current = { paths, sealed };
       }
+      markSpan("fold", performance.now() - tFold);
       if (witnessRef) {
         witnessRef.current = observe({
           me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
@@ -372,6 +382,7 @@ export function RoleField({
       }
       // the headset: what I hear, folded from the same events
       let soundLine: string | undefined;
+      const tSound = performance.now();
       if (sound) {
         if (!tonal.current || tonal.current.epochMs !== epochMs.current) tonal.current = { epochMs: epochMs.current, key: worldKey(String(epochMs.current)) };
         const sig = personalSignals({
@@ -396,8 +407,9 @@ export function RoleField({
         );
         const d = sound.engine.debug;
         const k = tonal.current.key;
-        soundLine = `${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.phrase ? " · " + d.phrase : ""}`;
+        soundLine = `${sound.status} · ${KEY_NAMES[k.root]} ${k.mode.name} · bar ${d.bar} ${d.chord} · lock ${d.lock.toFixed(2)} · ×${d.density}${d.answer ? " · answer" : ""} · near ${sig.neighbours.length} · path ${sig.pathP.toFixed(2)} stay ${sig.stay.toFixed(2)} sealed ${sig.sealed.toFixed(2)} · magenta ${d.magenta}${d.place ? " · 건물 " + d.place : ""}${d.phrase ? " · " + d.phrase : ""}${d.nc ? " · " + d.nc : ""}${present ? "" : ` · 세션 ${lifeRef!.current.phase} (무음)`}`;
       }
+      if (sound) markSpan("sound", performance.now() - tSound);
       (window as unknown as { __parliament?: ParliamentDebug }).__parliament = {
         role,
         s: +sMe.toFixed(1),
@@ -428,6 +440,7 @@ export function RoleField({
         getSnapshot={() => snap.current}
         cfg={natureCfg}
         pointSize={pointSize}
+        pathDots={pathDots}
       />
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
     </>
