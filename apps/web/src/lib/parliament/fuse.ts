@@ -118,7 +118,11 @@ export interface FuseStudy {
    * soft their edge is). "round": the round voids of ③ (poreSize), on the shell.
    */
   holeShape: "voronoi" | "noise" | "round" | "size";
-  /** C: dark pits on the surface — how dark (0 = none). */
+  /**
+   * C: PITS — small round pores scattered over the shell's surfaces (refs 9664, 9665), drawn by the MATERIAL: a
+   * jittered scatter of spheres of varied size cut into the shading (a concave dent by normal, a shadow by colour),
+   * so they are round, irregular and carved at any size — the voxel grid never sees them. Here: how dark (0 = none).
+   */
   pits: number;
   /** C: size of a pit (world). */
   pitSize: number;
@@ -128,11 +132,7 @@ export interface FuseStudy {
   pitSoft: number;
   /** C: how much of the surface the pits cover (0 … 1). */
   pitCover: number;
-  /**
-   * C: how deep the pits are CARVED into the shell (0 = colour only … 1 = through). Carved only on the broad closed
-   * faces (inside a closed Voronoi cell, away from the ribs): small pores on the large surfaces, as on bone or coral
-   * (the artist, 2026-10-19: decoration that reads as biogenic).
-   */
+  /** C: how deep the pits read (the dent's shading; 0 = colour only). Only on the broad faces, away from the ribs. */
   pitDepth: number;
   /** C: how much the pits GATHER in patches (0 = evenly over the surface … 1 = all in patches, bare between). */
   pitGather: number;
@@ -346,8 +346,9 @@ export interface FuseMesh {
   position: Float32Array;
   normal: Float32Array;
   color: Float32Array;
-  /** Per vertex (2): x = GHOST, how much a part lies right under the surface (the skin shows it); y = FLAT, how
-   *  blocky the vertex is (the shader flattens its shading). */
+  /** Per vertex (4): x = GHOST, how much a part lies right under the surface (the skin shows it); y = FLAT, how
+   *  blocky the vertex is (the shader flattens its shading); z = PITS, the pits' coverage here (× by the part's
+   *  size, gathered in patches); w = how far from the ribs (0 on a rib: no pit across it). */
   extra: Float32Array;
   /** Opaque faces first, then the resin faces from `resinStart` on. */
   index: Uint32Array;
@@ -631,27 +632,6 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const u = hash2(Math.round(b.x * 10), Math.round(b.z * 10) * 131 + Math.round(b.y * 10), 71);
     const size = 2 * Math.max(hx, hy, hz) * Math.exp((u - 0.5) * 2.2 * (st.sizeJitter ?? 0));
     return smoothRamp(size, st.sizeSmall ?? 1.5, Math.max((st.sizeSmall ?? 1.5) + 0.1, st.sizeLarge ?? 8));
-  };
-  const patch = Math.max(0.3, st?.pitPatch ?? 3);
-  /**
-   * C: the pits' pattern (0 … 1 how much a point is in a pit): dots of a size drifting from place to place. The
-   * coverage varies by the part's size (pitSmall … pitLarge) and gathers in patches (pitGather).
-   */
-  const pitAt = (x: number, y: number, z: number, p = -1): number => {
-    if (!st) return 0;
-    const drift = (noise3(x * 0.5, y * 0.5, z * 0.5, 85) - 0.5) * 1.6 * st.pitJitter; // −0.8 … 0.8
-    const f = 1 / (Math.max(0.05, st.pitSize) * Math.max(0.3, 1 + drift));
-    const n = noise3(x * f, y * f, z * f, 83);
-    let cover = st.pitCover;
-    if (T && p >= 0) cover *= (st.pitSmall ?? 1) + ((st.pitLarge ?? 1) - (st.pitSmall ?? 1)) * T[p];
-    const gather = st.pitGather ?? 0;
-    if (gather > 0) {
-      // patches: where a slow noise runs high the pits double, where it runs low they thin out (the mean is kept)
-      const g = smoothRamp(noise3(x / patch, y / patch, z / patch, 89), 0.42, 0.62);
-      cover *= 1 - gather + gather * 2 * g;
-    }
-    const edge = 0.95 - 0.6 * Math.max(0, Math.min(1, cover)); // coverage: where the noise crosses
-    return smoothRamp(n, edge - st.pitSoft, edge + st.pitSoft);
   };
   /** A capsule of radius r along the segment (x0,y0,z0)→(x1,y1,z1), written as max(v) into `arr`. */
   const tube = (arr: Float32Array, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r: number, v: number) => {
@@ -938,29 +918,27 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const shape = st.holeShape ?? "voronoi";
     const nf = 1 / Math.max(0.2, st.ribCell); // noise openings: one feature per ribCell
     const soft = Math.max(0.02, st.ribWidth * 0.5);
-    const pitDepth = Math.max(0, Math.min(1, st.pitDepth ?? 0));
     // "size": the openings follow the Voronoi cells on the large elements and the noise on the small ones (or as the
     // curve says) — the mix is read per sample from the fused part's size, switched over a short band
     const hvS = st.holeVoronoiSmall ?? 0, hvL = st.holeVoronoiLarge ?? 1;
     const voronoiMix = (p: number): number => (shape === "voronoi" ? 1 : shape === "noise" ? 0 : smoothRamp(hvS + (hvL - hvS) * (T ? T[p] : 0), 0.35, 0.65));
     for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) {
       const open = st.ribOpen * (0.35 + 0.65 * rowQ[j]);
-      if (open <= 0 && pitDepth <= 0) continue;
+      if (open <= 0) continue;
       for (let i = 0; i < nx; i++) {
         const p = idx(i, j, k);
         if (F[p] <= iso - 0.25) continue;
         const x = (I0 + i) * vs, y = (J0 + j) * vs, z = (K0 + k) * vs;
         let carve = 0;
-        const pit = pitDepth > 0 ? pitDepth * pitAt(x, y, z, p) : 0;
         if (shape === "round") {
-          carve = Math.max(smoothRamp(voids(x, y, z, cfg.poreSize), 0, 0.35) * Math.min(1, open * 1.5), pit);
+          carve = smoothRamp(voids(x, y, z, cfg.poreSize), 0, 0.35) * Math.min(1, open * 1.5);
         } else {
           const m = voronoiMix(p);
           let byNoise = 0, byCells = 0;
           if (m < 1) {
             // open where the noise runs high: the share `open` of the surface, edges softened over ribWidth
             const nz = noise3(x * nf, y * nf * 0.8, z * nf, 87);
-            byNoise = Math.max(smoothRamp(nz, 1 - open - soft, 1 - open + soft), pit);
+            byNoise = smoothRamp(nz, 1 - open - soft, 1 - open + soft);
           }
           if (m > 0) {
             voronoi(x, y, z, st.ribCell, 1.35, vo);
@@ -968,8 +946,6 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
             // LIP: the rib and the opening's rim thicken (bone: the edge of a hole rolls over)
             if (lip > 0 && margin < half + lip) F[p] += 0.6 * m * (1 - ramp(margin, half, half + lip));
             if (vo[2] < open) byCells = smoothRamp(margin, half, half + vs);
-            // CARVED PITS: on the broad face of a closed cell, away from the ribs — pores on the large surfaces
-            else if (pit > 0 && margin > half + st.pitSize * 0.5) byCells = pit;
           }
           carve = byCells * m + byNoise * (1 - m);
         }
@@ -1013,8 +989,14 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const pos: number[] = [];
   const nor: number[] = [];
   const col: number[] = [];
-  const ext: number[] = []; // per vertex: ghost, flat
+  const ext: number[] = []; // per vertex: ghost, flat, pits, rib distance
   const wgt: number[] = []; // per vertex: smoothing weight (0 = blocky)
+  // PITS (drawn by the material): per vertex how much of the pits' coverage applies — by the part's size, gathered
+  // in patches — and how far from the ribs (none across them)
+  const pitsOn = !!st && (st.shell || st.foam) && st.pits > 0;
+  const pitPatch = Math.max(0.3, st?.pitPatch ?? 3);
+  const pitShape = st?.holeShape ?? "voronoi";
+  const voP = new Float64Array(3);
   const cornerF = new Float32Array(8);
   /** The parts' full-box value at a sample near the cube (i, j, k), `d` voxels inward along the outward normal. */
   const under = (i: number, j: number, k: number, ox: number, oy: number, oz: number, d: number): number => {
@@ -1061,7 +1043,21 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         nor.push(ox, oy, oz);
         // GHOST: a part right under the skin shows through it (ref 9649: the machine parts under the white skin)
         const ghost = Praw ? Math.max(under(i, j, k, ox, oy, oz, 0), under(i, j, k, ox, oy, oz, 1), 0.6 * under(i, j, k, ox, oy, oz, 2)) : 0;
-        ext.push(Math.min(1, ghost), bl);
+        let pitZ = 0, pitW = 0;
+        if (pitsOn && st) {
+          const tS = T ? T[idx(i, j, k)] : 0;
+          const sizeMul = (st.pitSmall ?? 1) + ((st.pitLarge ?? 1) - (st.pitSmall ?? 1)) * tS;
+          const gather = st.pitGather ?? 0;
+          // patches: where a slow noise runs high the pits double, where it runs low they thin out (the mean is kept)
+          const g = gather > 0 ? 1 - gather + gather * 2 * smoothRamp(noise3(vx / pitPatch, vy / pitPatch, vz / pitPatch, 89), 0.42, 0.62) : 1;
+          pitZ = Math.max(0, Math.min(2, sizeMul * g));
+          if (pitShape === "voronoi" || pitShape === "size") {
+            voronoi(vx, vy, vz, st.ribCell, 1.35, voP);
+            const margin = (voP[1] - voP[0]) / 2, halfRib = st.ribWidth / 2;
+            pitW = smoothRamp(margin, halfRib + st.pitSize * 0.5, halfRib + st.pitSize * 1.5);
+          } else pitW = 1;
+        }
+        ext.push(Math.min(1, ghost), bl, pitZ, pitW);
         // colour: the living growths (pale ochre-green, ref 9578) where they dominate; where the mass is fused concrete
         // or sediment, a dull mix of the concrete's grey and a low-saturation brown in streaks (ref 9570); all
         // darkening with age. Nothing bright survives fusion.
@@ -1072,9 +1068,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         const jit = 0.88 + 0.24 * hash2(I0 + i, (J0 + j) * 7919 + K0 + k, 13);
         const streak = noise3(vx * 1.7, vy * 0.35, vz * 1.7, 31); // vertical stains
         const brown = Math.min(1, 0.25 + 0.55 * streak + 0.4 * (N[p] / tot));
-        let dark = 1 - 0.35 * q;
-        // C: dark pits on the shell (colour): soft-edged dots of a size that drifts from place to place
-        if (st && (st.shell || st.foam) && st.pits > 0) dark *= 1 - 0.7 * st.pits * pitAt(vx, vy, vz, idx(i, j, k));
+        const dark = 1 - 0.35 * q;
         for (let c = 0; c < 3; c++) {
           const fused = CONCRETE[c] + (DULL_BROWN[c] - CONCRETE[c]) * brown;
           const growc = GROW[c] + (DULL_BROWN[c] - GROW[c]) * Math.min(1, q * 1.2);
@@ -1144,13 +1138,13 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
     ni += p.index.length;
     nr += p.index.length - p.resinStart;
   }
-  const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 2), index: new Uint32Array(ni), resinStart: ni - nr };
+  const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 4), index: new Uint32Array(ni), resinStart: ni - nr };
   let ov = 0, oo = 0, or = ni - nr;
   for (const p of parts) {
     out.position.set(p.position, ov);
     out.normal.set(p.normal, ov);
     out.color.set(p.color, ov);
-    out.extra.set(p.extra, (ov / 3) * 2);
+    out.extra.set(p.extra, (ov / 3) * 4);
     const base = ov / 3;
     for (let i = 0; i < p.index.length; i++) {
       if (i < p.resinStart) out.index[oo++] = p.index[i] + base;

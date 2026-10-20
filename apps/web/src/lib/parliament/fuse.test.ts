@@ -251,7 +251,7 @@ describe("form study (V2): fill, shell", () => {
     expect(young.index.length).toBeGreaterThan(0);
     const centred = (c: number) => Math.abs(c / vs - 0.5 - Math.round(c / vs - 0.5)) < 1e-3;
     expect(verts(young).every(([x, y, z]) => centred(x) && centred(y) && centred(z))).toBe(true);
-    expect(Array.from(young.extra).filter((_, i) => i % 2 === 1).every((f) => f === 1)).toBe(true);
+    expect(Array.from(young.extra).filter((_, i) => i % 4 === 1).every((f) => f === 1)).toBe(true);
     // everything fossilised: the same mesh as without the blocky setting
     const old = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...cfgOf({ blocky: 1, fossilFrom: 0, fossilTo: 0.01 }), ...flat } });
     expect(old.position).toEqual(fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...cfgOf({}), ...flat } }).position);
@@ -319,9 +319,13 @@ describe("form study (V2): fill, shell", () => {
 
   it("EXTRAS: two numbers per vertex in 0 … 1; a bare part's surface reads as ghost", () => {
     const m = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: cfgOf({}) });
-    expect(m.extra.length).toBe((m.position.length / 3) * 2);
-    expect(Array.from(m.extra).every((v) => v >= 0 && v <= 1)).toBe(true);
-    expect(Array.from(m.extra).some((v, i) => i % 2 === 0 && v > 0.5)).toBe(true);
+    expect(m.extra.length).toBe((m.position.length / 3) * 4);
+    expect(Array.from(m.extra).every((v) => v >= 0 && v <= 2)).toBe(true);
+    expect(Array.from(m.extra).some((v, i) => i % 4 === 0 && v > 0.5)).toBe(true);
+    // the pits' per-vertex weights: on a shell with pits, some vertices allow them (coverage > 0, away from the ribs)
+    const shelled = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: cfgOf({ shell: true, pits: 0.5 }) });
+    expect(Array.from(shelled.extra).some((v, i) => i % 4 === 2 && v > 0)).toBe(true);
+    expect(Array.from(shelled.extra).some((v, i) => i % 4 === 3 && v > 0.5)).toBe(true);
     const merged = mergeMeshes([m, m]);
     expect(merged.extra.length).toBe(m.extra.length * 2);
   });

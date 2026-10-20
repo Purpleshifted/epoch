@@ -32,9 +32,11 @@ import {
   clearWorld,
   MAX_TIME_RATE,
   MIN_TIME_RATE,
+  getEpochMs,
   latestOf,
   latestS,
   loadEvents,
+  sessionSeconds,
   buildTestColumn,
   makeLocalClock,
   sharedClock,
@@ -254,6 +256,8 @@ interface ResinLook {
   ghost: number;
   /** The frosted skin's own light (emissive, in the resin's colour; 0 = none). */
   glow: number;
+  /** The shell's pits, drawn by the material (see fuse.ts FuseStudy.pits): shadow, coverage, size (world), size jitter, rim softness, dent depth. */
+  pits: { dark: number; cover: number; size: number; jitter: number; soft: number; depth: number };
   roughness: number;
   thickness: number;
   attenuationColor: string;
@@ -288,7 +292,14 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.depthWrite = solid;
   (m.userData.uShade as THREE.IUniform).value = r.shade;
   (m.userData.uRim as THREE.IUniform).value = r.rim;
-  (m.userData.uGhost as THREE.IUniform).value = r.ghost;
+  const u = m.userData.fuseU as FuseUniforms;
+  u.uGhost.value = r.ghost;
+  u.uPitDark.value = r.pits.dark;
+  u.uPitCover.value = r.pits.cover;
+  u.uPitSize.value = r.pits.size;
+  u.uPitJitter.value = r.pits.jitter;
+  u.uPitSoft.value = r.pits.soft;
+  u.uPitDepth.value = r.pits.depth;
   // the frosted skin: a little of its own light (the AO otherwise weighs the opaque body down), a clearcoat for the
   // lights' highlights (cheap), no refraction
   m.emissive.set(r.color);
@@ -298,29 +309,94 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.needsUpdate = true;
 }
 
+/** The uniforms both fused materials share (the stone's and the resin's): the skin's ghost and the shell's pits. */
+interface FuseUniforms {
+  uGhost: THREE.IUniform;
+  uPitDark: THREE.IUniform;
+  uPitCover: THREE.IUniform;
+  uPitSize: THREE.IUniform;
+  uPitJitter: THREE.IUniform;
+  uPitSoft: THREE.IUniform;
+  uPitDepth: THREE.IUniform;
+}
+function makeFuseUniforms(): FuseUniforms {
+  return { uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 } };
+}
+
+/**
+ * The PITS of the shell (refs 9664, 9665: small round pores scattered over a smooth surface, of varied size, denser
+ * here than there, each clearly cut in): a jittered scatter of spheres in world space — one or none per cell of
+ * 2.2 pit diameters, its centre jittered, its radius ×½ … ×2 — cut into the SHADING: where the surface lies inside a
+ * sphere the normal tilts toward its centre (a concave dent) and the colour darkens (its shadow). Nothing is carved
+ * from the voxel grid (0.4): the pores are round and carved at any size, and the surface between them stays smooth.
+ * Returns (d / r², depth 0 … 1) of the deepest sphere at p.
+ */
+const FUSE_PITS_GLSL = [
+  "float fuseHash( vec3 p ) { p = fract( p * 0.1031 + vec3( 0.11, 0.37, 0.73 ) ); p += dot( p, p.yzx + 19.19 ); return fract( ( p.x + p.y ) * p.z ); }",
+  "vec4 fusePits( vec3 p, float size, float jitter, float cover ) {",
+  "\tfloat s = size * 2.2;",
+  "\tvec3 base = floor( p / s - 0.5 );",
+  "\tfloat best = 0.0;",
+  "\tvec3 g = vec3( 0.0 );",
+  "\tfor ( int dz = 0; dz <= 1; dz++ ) for ( int dy = 0; dy <= 1; dy++ ) for ( int dx = 0; dx <= 1; dx++ ) {",
+  "\t\tvec3 q = base + vec3( float( dx ), float( dy ), float( dz ) );",
+  "\t\tif ( fuseHash( q ) > cover ) continue;",
+  "\t\tvec3 c = ( q + 0.15 + 0.7 * vec3( fuseHash( q + 7.1 ), fuseHash( q + 13.3 ), fuseHash( q + 29.7 ) ) ) * s;",
+  "\t\tfloat r = size * 0.5 * exp2( ( fuseHash( q + 41.2 ) - 0.5 ) * 2.0 * jitter );",
+  "\t\tvec3 d = p - c;",
+  "\t\tfloat dd = dot( d, d );",
+  "\t\tif ( dd < r * r ) { float dent = 1.0 - dd / ( r * r ); if ( dent > best ) { best = dent; g = d / ( r * r ); } }",
+  "\t}",
+  "\treturn vec4( g, best );",
+  "}",
+].join("\n");
+
 /**
  * The fused mesh's per-vertex extras (FuseMesh.extra) in a material's shader: GHOST — a part right under the skin
  * darkens it (ref 9649: the machine parts under the white skin), by `uGhost`; FLAT — a blocky vertex (the young
- * layers' voxel steps, ref 9579) is shaded by its face, not by the smoothed vertex normal.
+ * layers' voxel steps, ref 9579) is shaded by its face, not by the smoothed vertex normal; PITS — the shell's pores
+ * (FUSE_PITS_GLSL) where the vertex allows them (z = coverage here, w = away from the ribs).
  */
-function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, uGhost: THREE.IUniform): void {
-  shader.uniforms.uGhost = uGhost;
+function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: FuseUniforms): void {
+  Object.assign(shader.uniforms, u);
   shader.vertexShader = shader.vertexShader
-    .replace("#include <common>", "#include <common>\nattribute vec2 fuseExtra;\nvarying vec2 vExtra;")
-    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvExtra = fuseExtra;");
+    .replace("#include <common>", "#include <common>\nattribute vec4 fuseExtra;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvExtra = fuseExtra;\nvFusePos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
   shader.fragmentShader = shader.fragmentShader
-    .replace("#include <common>", "#include <common>\nuniform float uGhost;\nvarying vec2 vExtra;")
+    .replace(
+      "#include <common>",
+      "#include <common>\nuniform float uGhost;\nuniform float uPitDark;\nuniform float uPitCover;\nuniform float uPitSize;\nuniform float uPitJitter;\nuniform float uPitSoft;\nuniform float uPitDepth;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;\n" + FUSE_PITS_GLSL,
+    )
     .replace(
       "#include <normal_fragment_begin>",
-      "#include <normal_fragment_begin>\nfloat fuseFlat = smoothstep( 0.45, 0.9, vExtra.y );\nif ( fuseFlat > 0.0 ) {\n\tvec3 fdx = dFdx( vViewPosition );\n\tvec3 fdy = dFdy( vViewPosition );\n\tnormal = normalize( mix( normal, normalize( cross( fdx, fdy ) ), fuseFlat ) );\n\tnonPerturbedNormal = normal;\n}",
+      [
+        "#include <normal_fragment_begin>",
+        "float fuseFlat = smoothstep( 0.45, 0.9, vExtra.y );",
+        "if ( fuseFlat > 0.0 ) {",
+        "\tvec3 fdx = dFdx( vViewPosition );",
+        "\tvec3 fdy = dFdy( vViewPosition );",
+        "\tnormal = normalize( mix( normal, normalize( cross( fdx, fdy ) ), fuseFlat ) );",
+        "}",
+        "if ( uPitDark + uPitDepth > 0.0 && vExtra.z * vExtra.w > 0.001 ) {",
+        "\tvec4 pf = fusePits( vFusePos, uPitSize, uPitJitter, uPitCover * vExtra.z );",
+        "\tif ( pf.w > 0.0 ) {",
+        "\t\tfloat dent = smoothstep( 0.0, max( 0.02, uPitSoft * 2.0 ), pf.w ) * vExtra.w;",
+        "\t\tvec3 gt = pf.xyz - normal * dot( pf.xyz, normal );",
+        "\t\tnormal = normalize( normal - uPitDepth * 2.0 * uPitSize * gt * dent );",
+        "\t\tdiffuseColor.rgb *= 1.0 - uPitDark * ( 0.35 + 0.65 * pf.w ) * dent;",
+        "\t}",
+        "}",
+        "nonPerturbedNormal = normal;",
+      ].join("\n"),
     )
     .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uGhost * vExtra.x * 0.5;");
 }
 
 /** The fused stone's material (V1's mass before the resin; V2 draws everything as resin). */
-function makeStoneMaterial(uGhost: THREE.IUniform): THREE.MeshStandardMaterial {
+function makeStoneMaterial(u: FuseUniforms): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
-  m.onBeforeCompile = (shader) => patchFuseExtras(shader, uGhost);
+  m.userData.fuseU = u;
+  m.onBeforeCompile = (shader) => patchFuseExtras(shader, u);
   return m;
 }
 
@@ -329,7 +405,7 @@ function makeStoneMaterial(uGhost: THREE.IUniform): THREE.MeshStandardMaterial {
  * multiplied in as they are — that made the glass dirty — but normalised by the concrete's base grey, so a plain
  * surface leaves the resin colour as it is and only the deviations (pits, stains) show, by `shade` (0 = none).
  */
-function makeResinMaterial(uGhost: THREE.IUniform): THREE.MeshPhysicalMaterial {
+function makeResinMaterial(u: FuseUniforms): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true });
   const uShade: THREE.IUniform = { value: 0.5 };
   // the FROSTED SKIN (no refraction): a Fresnel rim — brighter where the surface turns away from the eye, as glass
@@ -337,9 +413,9 @@ function makeResinMaterial(uGhost: THREE.IUniform): THREE.MeshPhysicalMaterial {
   const uRim: THREE.IUniform = { value: 0 };
   m.userData.uShade = uShade;
   m.userData.uRim = uRim;
-  m.userData.uGhost = uGhost;
+  m.userData.fuseU = u;
   m.onBeforeCompile = (shader) => {
-    patchFuseExtras(shader, uGhost);
+    patchFuseExtras(shader, u);
     shader.uniforms.uShade = uShade;
     shader.uniforms.uRim = uRim;
     shader.fragmentShader = shader.fragmentShader
@@ -360,7 +436,7 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
   g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(r.normal, 3));
   g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
-  g.setAttribute("fuseExtra", new THREE.BufferAttribute(r.extra, 2));
+  g.setAttribute("fuseExtra", new THREE.BufferAttribute(r.extra, 4));
   g.setIndex(new THREE.BufferAttribute(r.index, 1));
   // group 0: opaque fused stone; group 1: resin (the oldest layers)
   g.addGroup(0, r.resinStart, 0);
@@ -661,10 +737,13 @@ function SpaceWorld({
   walk,
   walkLook,
   clock,
+  local,
 }: {
   log: EventLog;
   /** The clock this view runs on (rate 0 = paused: the view is pinned and settings apply at once). */
   clock: Clock;
+  /** A world of this tab only (the lab): its present is the log's end moved on by `clock`, not the shared epoch's. */
+  local: boolean;
   fold: FoldConfig;
   boxCfg: BoxConfig;
   showEdges: boolean;
@@ -725,6 +804,8 @@ function SpaceWorld({
   const worker = useRef<SpaceRunner | null>(null);
   const sent = useRef(0);
   const inFlight = useRef<{ id: number; at: number } | null>(null);
+  /** The lab's present: the log's end when first seen, moved on by the lab's own clock since. */
+  const labAnchor = useRef<{ ms: number; s: number } | null>(null);
   /** The camera and focus the last request used; kept while time stands still (see the ticker). */
   const pinned = useRef<{ cam: [number, number, number]; focusK: number } | null>(null);
   /** Paused: what the vegetation was last asked with (it is asked again only when this changes). */
@@ -759,9 +840,9 @@ function SpaceWorld({
       u.uGrain.value = walkLook.pipeGrain;
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
-  const uGhost = useMemo<THREE.IUniform>(() => ({ value: 0 }), []);
-  const stoneMat = useMemo(() => makeStoneMaterial(uGhost), [uGhost]);
-  const resinMat = useMemo(() => makeResinMaterial(uGhost), [uGhost]);
+  const fuseU = useMemo<FuseUniforms>(() => makeFuseUniforms(), []);
+  const stoneMat = useMemo(() => makeStoneMaterial(fuseU), [fuseU]);
+  const resinMat = useMemo(() => makeResinMaterial(fuseU), [fuseU]);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
   useEffect(() => {
     // the mass as a translucent body: alpha, no depth write (what stands inside shows through)
@@ -889,10 +970,19 @@ function SpaceWorld({
     const events = log.all();
     if (events.length < sent.current) {
       w.post({ type: "events", add: events, reset: true });
+      labAnchor.current = null;
     } else if (events.length > sent.current) {
       w.post({ type: "events", add: events.slice(sent.current) });
     }
     sent.current = events.length;
+    // THE PRESENT FOLLOWS THE CLOCK: the world's "now" in session seconds — shared: the world clock against the
+    // shared epoch; lab: the column's end moved on by the lab's own clock (so the time rate ages the world even
+    // with nobody in it; the model takes the later of this and its latest event)
+    let nowS: number | undefined;
+    if (local) {
+      if (!labAnchor.current) labAnchor.current = { ms: clock.now(), s: latestS(events) };
+      nowS = labAnchor.current.s + (clock.now() - labAnchor.current.ms) / 1000;
+    } else nowS = sessionSeconds(clock.now(), getEpochMs(), 0);
 
     const meS = latestOf(events, typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY));
     const t = latestS(events);
@@ -915,7 +1005,7 @@ function SpaceWorld({
     const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
     if (withNature && nat) {
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
       if (nat.reclaim) {
@@ -1881,16 +1971,16 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       ),
       [FU_PITS]: folder(
         {
-          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "진하기 (어두운 점; 0 = 없음)" },
-          pitCover: { value: DEFAULT_STUDY.pitCover, min: 0, max: 1, step: 0.01, label: "양 (표면의 얼마나를 덮나)", render: (get) => get(PITS_PATH) > 0 },
-          pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "크기 (월드)", render: (get) => get(PITS_PATH) > 0 },
-          pitDepth: { value: DEFAULT_STUDY.pitDepth, min: 0, max: 1, step: 0.05, label: "파이는 깊이 (0 = 색만, 1 = 뚫림; 넓은 닫힌 면에만 — 크기 0.5 이상)", render: (get) => get(PITS_PATH) > 0 },
+          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "그늘 (곰보 속의 어둠; 0 = 없음 = 곰보 끔)" },
+          pitCover: { value: DEFAULT_STUDY.pitCover, min: 0, max: 1, step: 0.01, label: "양 (칸마다 곰보가 있을 확률; 1 = 빽빽)", render: (get) => get(PITS_PATH) > 0 },
+          pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "크기 (지름, 월드; 격자와 무관)", render: (get) => get(PITS_PATH) > 0 },
+          pitDepth: { value: isV2 ? 0.6 : 0, min: 0, max: 1.5, step: 0.05, label: "파임 (음영으로 파인 깊이; 0 = 색만)", render: (get) => get(PITS_PATH) > 0 },
           pitSmall: { value: DEFAULT_STUDY.pitSmall, min: 0, max: 2, step: 0.05, label: "양 배율 · 작은 부재", render: (get) => get(PITS_PATH) > 0 },
           pitLarge: { value: DEFAULT_STUDY.pitLarge, min: 0, max: 2, step: 0.05, label: "양 배율 · 큰 부재", render: (get) => get(PITS_PATH) > 0 },
           "고급": folder(
             {
-              pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "크기 지터 (0 = 다 같게)" },
-              pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "가장자리 부드러움 (0.01 = 또렷한 점 … 0.4 = 번진 얼룩)" },
+              pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "크기 지터 (0 = 다 같게 … 1 = ½ ~ 2배)" },
+              pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "테두리 부드러움 (0.01 = 또렷한 구멍 … 0.4 = 번진 자국)" },
               pitGather: { value: DEFAULT_STUDY.pitGather, min: 0, max: 1, step: 0.05, label: "몰림 (0 = 고르게, 1 = 어떤 면에는 몰리고 어떤 면은 맨살)" },
               pitPatch: { value: DEFAULT_STUDY.pitPatch, min: 0.5, max: 12, step: 0.5, label: "몰리는 자리 크기 (월드)" },
             },
@@ -2022,12 +2112,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       rim: fu.resinMode === "frost" ? fu.resinRim : 0,
       ghost: fu.resinGhost,
       glow: fu.resinMode === "frost" ? fu.resinGlow : 0,
+      pits: { dark: fu.shell || fu.foam ? fu.pits : 0, cover: fu.pitCover, size: fu.pitSize, jitter: fu.pitJitter, soft: fu.pitSoft, depth: fu.shell || fu.foam ? fu.pitDepth : 0 },
       roughness: fu.resinRoughness,
       thickness: fu.thickness,
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [isV2, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
@@ -2177,6 +2268,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           walk={walkView}
           walkLook={walkLook}
           clock={clk}
+          local={lab}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
