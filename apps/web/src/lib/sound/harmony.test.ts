@@ -38,16 +38,16 @@ describe("harmony: one tonal field per epoch, a chord per place", () => {
 
   it("placeChord names and classes follow the key", () => {
     const k = { root: 9, mode: MODES[2], degrees: [0, 3, 4, 5] }; // A Aeolian
-    const c0 = placeChord(k, 0, 0, { ...DEFAULT_HARMONY, bands: 4 });
+    const c0 = placeChord(k, 0, 0, { ...DEFAULT_HARMONY, bandCells: 4, bands: 4 });
     expect(c0.rootClass).toBe(9);
     expect(chordName(k, c0)).toBe("Am7");
-    const c1 = placeChord(k, CELL_SIZE * 4, 0, { ...DEFAULT_HARMONY, bands: 4 });
+    const c1 = placeChord(k, CELL_SIZE * 4, 0, { ...DEFAULT_HARMONY, bandCells: 4, bands: 4 });
     expect(chordName(k, c1)).toBe("Dm7"); // iv7 of A minor
     const d = { root: 2, mode: MODES[5], degrees: [6] }; // D Ionian, vii
-    const c6 = placeChord(d, 0, 0, { ...DEFAULT_HARMONY, bands: 1 });
+    const c6 = placeChord(d, 0, 0, { ...DEFAULT_HARMONY, bandCells: 4, bands: 1 });
     expect(chordName(d, c6)).toBe("Dbm7b5");
     expect(magentaChordName(chordName(d, c6))).toBe("Dbm");
-    expect(chordName(d, placeChord(d, 0, 0, { ...DEFAULT_HARMONY, bands: 1, chordSize: 3 }))).toBe("Dbdim");
+    expect(chordName(d, placeChord(d, 0, 0, { ...DEFAULT_HARMONY, bandCells: 4, bands: 1, chordSize: 3 }))).toBe("Dbdim");
   });
 
   it("degreePitch and snapToClasses", () => {

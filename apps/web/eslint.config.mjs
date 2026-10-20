@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // Ignore backend workspaces
     "realtime/**",
     "noisecraft/**",
+    "public/noisecraft/**", // the NoiseCraft fork's runtime (served as static files)
   ]),
 ]);
 

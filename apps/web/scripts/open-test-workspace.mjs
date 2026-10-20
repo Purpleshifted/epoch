@@ -18,6 +18,8 @@ import http from "http";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_DIR = join(__dirname, "..");
+// the fork's express server (server.js) stays in apps/web/noisecraft; its public/ and examples/ moved to
+// apps/web/public/noisecraft (2026-10-20) — this legacy script needs them linked back to run
 const NOISECRAFT_DIR = join(PROJECT_DIR, "noisecraft");
 
 const NOISECRAFT_PORT = process.env.NOISECRAFT_PORT || process.env.HTTP_PORT_NO || 7773;

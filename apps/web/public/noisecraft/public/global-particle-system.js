@@ -42,9 +42,15 @@ export class VirtualParticle {
   
   /**
    * Get the active note index (0-based)
+   * If pattern is empty [0,0,...,0], use tone property as fallback
    */
   getActiveNoteIndex() {
-    return this.sequencerPattern.findIndex(val => val === 1);
+    const patternIndex = this.sequencerPattern.findIndex(val => val === 1);
+    if (patternIndex >= 0) {
+      return patternIndex;
+    }
+    // Fallback to tone property if pattern is empty
+    return this.tone % 12;
   }
 
   update(dt) {
@@ -348,7 +354,12 @@ export class SignalGenerator {
 
   // Add a particle
   addParticle(particle) {
+    if (!particle) {
+      console.error("[SignalGenerator] Cannot add null/undefined particle");
+      return;
+    }
     this.particles.push(particle);
+    console.log(`[SignalGenerator] Particle ${particle.id} added to array, total: ${this.particles.length}`);
   }
 
   // Remove a particle by ID
@@ -384,9 +395,15 @@ export class ParticleSystem {
   // Add a particle
   // Default mass is 100 for stronger gravitational interaction
   addParticle(id, x, y, tone = 0, mass = 100) {
-    const particle = new VirtualParticle(id, x, y, tone, mass);
-    this.signalGenerator.addParticle(particle);
-    return particle;
+    try {
+      const particle = new VirtualParticle(id, x, y, tone, mass);
+      this.signalGenerator.addParticle(particle);
+      console.log(`[ParticleSystem] Added particle ${id} at (${x}, ${y}), total particles: ${this.signalGenerator.particles.length}`);
+      return particle;
+    } catch (e) {
+      console.error(`[ParticleSystem] Failed to add particle ${id}:`, e);
+      throw e;
+    }
   }
 
   // Remove a particle
@@ -399,11 +416,9 @@ export class ParticleSystem {
     return this.signalGenerator.getParticles();
   }
 
-  // Update particle positions with gravitational forces
-  // Uses Velocity-Verlet integration (symplectic, energy-conserving)
-  // This is the standard method for N-body gravitational simulations
-  // Gravity is applied to ALL particles regardless of distance
-  // The innerRadius/outerRadius are only for signal generation, not gravity
+  // Update particle positions with attraction-based velocity (no gravity)
+  // Uses attraction signal to update velocity, then applies velocity to position
+  // Gravity is removed - only attraction and velocity are used
   update(dt) {
     const particles = this.signalGenerator.getParticles();
     
@@ -411,65 +426,56 @@ export class ParticleSystem {
     const maxDt = 0.01; // Maximum 10ms per step
     const safeDt = Math.min(dt, maxDt);
     
-    // STEP 1: Calculate accelerations at current positions
-    const accelerations = particles.map((p1, i) => {
-      let accelX = 0;
-      let accelY = 0;
+    // Calculate attraction-based velocity changes for each particle
+    particles.forEach((p1, i) => {
+      let velocityChangeX = 0;
+      let velocityChangeY = 0;
 
-      // Apply gravitational force from ALL other particles (not just nearest)
-      // Gravity works at infinite distance - no distance cutoff
+      // Apply attraction from other particles (within outer radius for efficiency)
       particles.forEach((p2, j) => {
         if (i === j) return;
-        const grav = this.signalGenerator.calculateGravitationalForce(p1, p2);
         
-        // Physics: F = G * m1 * m2 / r^2
-        // Acceleration: a = F / m1 = G * m2 / r^2
-        const accelMagnitude = grav.force / p1.mass;
+        const interaction = this.signalGenerator.calculateInteraction(p1, p2);
         
-        // Accumulate acceleration components (vectors add up)
-        accelX += grav.direction.x * accelMagnitude;
-        accelY += grav.direction.y * accelMagnitude;
+        // Only apply attraction if within outer radius (for performance)
+        if (interaction.distance <= this.signalGenerator.outerRadius * 2) {
+          // Use attraction signal (0-1) to calculate velocity change
+          // Stronger attraction = stronger pull towards other particle
+          const attractionStrength = interaction.attraction * 50; // Scale factor for attraction
+          
+          // Direction towards other particle
+          const dx = p2.position.x - p1.position.x;
+          const dy = p2.position.y - p1.position.y;
+          const distance = interaction.distance;
+          
+          if (distance > 0) {
+            const dirX = dx / distance;
+            const dirY = dy / distance;
+            
+            // Velocity change proportional to attraction
+            velocityChangeX += dirX * attractionStrength * safeDt;
+            velocityChangeY += dirY * attractionStrength * safeDt;
+          }
+        }
       });
 
-      return { x: accelX, y: accelY };
-    });
-
-    // STEP 2: Velocity-Verlet integration (symplectic, energy-conserving)
-    // This is the proper method for gravitational N-body simulations
-    particles.forEach((p1, i) => {
-      const accel = accelerations[i];
+      // Apply velocity damping to prevent infinite acceleration
+      const damping = 0.95; // Slight damping to prevent runaway velocities
+      p1.velocity.x = (p1.velocity.x + velocityChangeX) * damping;
+      p1.velocity.y = (p1.velocity.y + velocityChangeY) * damping;
       
-      // Update position using current velocity and acceleration
-      // x(t+dt) = x(t) + v(t)*dt + 0.5*a(t)*dt^2
-      const halfDtSquared = 0.5 * safeDt * safeDt;
-      p1.position.x += p1.velocity.x * safeDt + accel.x * halfDtSquared;
-      p1.position.y += p1.velocity.y * safeDt + accel.y * halfDtSquared;
-    });
-    
-    // STEP 3: Calculate new accelerations at new positions
-    const newAccelerations = particles.map((p1, i) => {
-      let accelX = 0;
-      let accelY = 0;
-
-      particles.forEach((p2, j) => {
-        if (i === j) return;
-        const grav = this.signalGenerator.calculateGravitationalForce(p1, p2);
-        const accelMagnitude = grav.force / p1.mass;
-        accelX += grav.direction.x * accelMagnitude;
-        accelY += grav.direction.y * accelMagnitude;
-      });
-
-      return { x: accelX, y: accelY };
-    });
-    
-    // STEP 4: Update velocities using average of old and new accelerations
-    // v(t+dt) = v(t) + 0.5*(a(t) + a(t+dt))*dt
-    particles.forEach((p1, i) => {
-      const oldAccel = accelerations[i];
-      const newAccel = newAccelerations[i];
+      // Limit maximum velocity
+      const maxVelocity = 200;
+      const currentSpeed = Math.sqrt(p1.velocity.x ** 2 + p1.velocity.y ** 2);
+      if (currentSpeed > maxVelocity) {
+        const scale = maxVelocity / currentSpeed;
+        p1.velocity.x *= scale;
+        p1.velocity.y *= scale;
+      }
       
-      p1.velocity.x += 0.5 * (oldAccel.x + newAccel.x) * safeDt;
-      p1.velocity.y += 0.5 * (oldAccel.y + newAccel.y) * safeDt;
+      // Update position using velocity
+      p1.position.x += p1.velocity.x * safeDt;
+      p1.position.y += p1.velocity.y * safeDt;
     });
   }
 

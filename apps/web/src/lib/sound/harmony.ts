@@ -67,7 +67,7 @@ export interface HarmonyConfig {
 export const DEFAULT_HARMONY: HarmonyConfig = {
   modes: [2, 3, 4, 5],
   bands: 16,
-  bandCells: 4,
+  bandCells: 12, // 4 before v4 A4b: at walking speed a band went by in under a bar, chords blurred (the artist)
   chordSize: 4,
 };
 
