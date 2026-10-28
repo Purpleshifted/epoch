@@ -1279,6 +1279,7 @@ function Markers({
   secPerUnit,
   unit,
   holdSec,
+  labels,
   onActive,
   onMe,
 }: {
@@ -1286,6 +1287,8 @@ function Markers({
   secPerUnit: number;
   unit: number;
   holdSec: number;
+  /** The name over each marker ("me · worker", a bot's id, "visitor"); off on the exhibition wall (no text at all). */
+  labels: boolean;
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
 }) {
@@ -1354,11 +1357,13 @@ function Markers({
               <ringGeometry args={[0.35, 0.5, 24]} />
               <meshBasicMaterial color={color} transparent opacity={0.7} />
             </mesh>
-            <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
-              <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
-                {m.kind === "me" ? (m.stale ? "me (silent)" : "me") : m.kind === "bot" ? m.id : "visitor"} · {m.role}
-              </div>
-            </Html>
+            {labels && (
+              <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
+                <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
+                  {m.kind === "me" ? (m.stale ? "me (silent)" : "me") : m.kind === "bot" ? m.id : "visitor"} · {m.role}
+                </div>
+              </Html>
+            )}
           </group>
         );
       })}
@@ -2306,10 +2311,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>
+      {/* THE WALL (ui=0, the exhibition): no text at all — the readout and the markers' names are debugging (the artist,
+          2026-10-28); the TEST entry (no ui parameter) keeps them */}
+      {!hideUi && (
       <div className={`pointer-events-none absolute bottom-3 left-3 select-none font-mono text-[10px] leading-4 ${theme.text}`}>
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
@@ -2347,6 +2355,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
