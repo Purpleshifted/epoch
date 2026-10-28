@@ -105,6 +105,8 @@ export function NatureCloud({
   const geom = useMemo(() => makeGeom(MAX_POINTS), []);
   const nearGeom = useMemo(() => makeGeom(NEAR_MAX), []);
   const tmp = useMemo(() => new THREE.Color(), []);
+  /** The path strengths and sealed cells of the latest snapshot — built once per snapshot, not once per pass. */
+  const derived = useRef<{ snap: Snapshot | null; pathAt: Map<string, number>; sealed: Set<string> }>({ snap: null, pathAt: new Map(), sealed: new Set() });
 
   useEffect(
     () => () => {
@@ -134,11 +136,15 @@ export function NatureCloud({
     const P = pos.array as Float32Array;
     const Cc = col.array as Float32Array;
 
-    const pathAt = new Map<string, number>();
-    const sealed = new Set<string>();
-    if (snap) {
-      for (const q of snap.paths) pathAt.set(q.key, q.p);
-      for (const s of snap.slabs) if (s.h >= 0.15) sealed.add(s.key);
+    let { pathAt, sealed } = derived.current;
+    if (derived.current.snap !== snap) {
+      pathAt = new Map<string, number>();
+      sealed = new Set<string>();
+      if (snap) {
+        for (const q of snap.paths) pathAt.set(q.key, q.p);
+        for (const s of snap.slabs) if (s.h >= 0.15) sealed.add(s.key);
+      }
+      derived.current = { snap, pathAt, sealed };
     }
 
     const cx0 = Math.floor(p.x / CELL_SIZE);

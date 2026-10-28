@@ -4,7 +4,7 @@
  * 2026-10-28; Leva 개인뷰 비주얼 › 표식). Each thing has a shape of its own, tall enough to fill the view; greys only
  * (human traces). The lists are renewed with the fold (RoleField, 0.5 s); the heights that follow the eye are set
  * every frame from the camera.
- *   OtherDots      a glowing point (core + halo, additive) at eye height for every being within the view
+ *   OtherDots      a glowing point (core + halo, additive) on the ground for every being within the view
  *   ConcreteLines  a vertical line from the ground up through the frame on every sealed slab cell
  * (the paths as floating curves / ribbons were dropped by the artist on 2026-10-28; they stay on the ground)
  */
@@ -49,14 +49,15 @@ function glowTexture(): THREE.Texture {
 }
 
 /**
- * A GLOWING point at eye height for every other being: two additive soft sprites — a core and a wide faint halo —
- * so the light bleeds without a bloom pass. The scene's fog takes them with distance (knob: or not, so the far
- * ones stay as a faint light in the haze); an optional pulse breathes the size.
+ * A GLOWING point on the ground for every other being (the artist, 2026-10-28: at the grid's height, not the eye):
+ * two additive soft sprites — a core and a wide faint halo — so the light bleeds without a bloom pass. The scene's
+ * fog takes them with distance (knob: or not, so the far ones stay as a faint light in the haze); an optional pulse
+ * breathes the size.
  */
 export function OtherDots({
   getMarks,
   size = 0.5,
-  eyeOffset = 0,
+  height = 0.02,
   bright = 0.8,
   halo = 4,
   haloStrength = 0.35,
@@ -65,7 +66,8 @@ export function OtherDots({
 }: {
   getMarks: () => MarksData | null;
   size?: number;
-  eyeOffset?: number;
+  /** World height of the lights (0 = the grid). */
+  height?: number;
   bright?: number;
   /** Halo size as a multiple of the core; 0 = core only. */
   halo?: number;
@@ -92,8 +94,7 @@ export function OtherDots({
     [geom, haloGeom, tex],
   );
   useFrame((state, dt) => {
-    // the lights float at the eye: the camera's height, offset by the knob
-    if (group.current) group.current.position.y = state.camera.position.y + eyeOffset;
+    if (group.current) group.current.position.y = height;
     // the breath
     const k = pulseHz > 0 ? 1 + 0.25 * Math.sin(state.clock.elapsedTime * pulseHz * Math.PI * 2) : 1;
     if (coreMat.current) coreMat.current.size = size * k;

@@ -5,7 +5,7 @@
  * (docs/session-logic.md §12). The pixel feel stays in the TEXT; the 3D is free of it (2026-10-28).
  *   footprint   the end screen's footprint map (FootprintMap)
  *   grass       how the grass reacts to the walker at once (NatureCloud GrassReaction) and how thick it stands
- *   marks       the others as glowing points at eye height, the concrete as vertical lines (Marks.tsx,
+ *   marks       the others as glowing points on the ground, the concrete as vertical lines (Marks.tsx,
  *               lib/parliament/marks.ts); the paths stay on the ground (PathLines)
  */
 
@@ -30,7 +30,7 @@ export interface GrassVisual {
 }
 
 export interface MarksVisual {
-  others: { on: boolean; size: number; eyeOffset: number; bright: number; recentSec: number; halo: number; haloStrength: number; fog: boolean; pulseHz: number };
+  others: { on: boolean; size: number; height: number; bright: number; recentSec: number; halo: number; haloStrength: number; fog: boolean; pulseHz: number };
   concrete: { on: boolean; height: number; bright: number; radius: number };
   on: boolean;
 }
@@ -66,12 +66,12 @@ export function usePersonalVisuals(): PersonalVisuals {
         nearRadius: { value: 3.5, min: 1.5, max: 8, step: 0.5, label: "근접 반경 (월드)", render: v2 },
         mineGain: { value: 2, min: 1, max: 6, step: 0.5, label: "A3: 내 스트레스 배율", render: v2 },
       }),
-      "타인 — 시야 높이의 빛점 (glow)": folder({
+      "타인 — 땅 위의 빛점 (glow)": folder({
         othersOn: { value: true, label: "켜기", render: v2 },
         otherSize: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "심 크기 (월드, 거리로 줄어듦)", render: v2 },
         otherHalo: { value: 4, min: 0, max: 12, step: 0.5, label: "후광 크기 (심의 배수; 0 = 없음)", render: v2 },
         otherHaloStrength: { value: 0.35, min: 0, max: 1, step: 0.05, label: "후광 세기", render: v2 },
-        otherEye: { value: 0, min: -4, max: 4, step: 0.1, label: "높이 — 시야 기준 (+위 / −아래)", render: v2 },
+        otherHeight: { value: 0.02, min: 0, max: 6, step: 0.05, label: "높이 (월드; 0 = 격자와 같은 높이)", render: v2 },
         otherBright: { value: 0.8, min: 0.1, max: 1.5, step: 0.05, label: "밝기", render: v2 },
         otherFog: { value: true, label: "안개를 받음 (끄면 멀리서도 희미하게 빛남)", render: v2 },
         otherPulse: { value: 0, min: 0, max: 3, step: 0.1, label: "맥동 (Hz; 0 = 고정)", render: v2 },
@@ -92,11 +92,11 @@ export function usePersonalVisuals(): PersonalVisuals {
   );
   const marks = useMemo<MarksVisual>(
     () => ({
-      others: { on: c.othersOn, size: c.otherSize, eyeOffset: c.otherEye, bright: c.otherBright, recentSec: c.otherRecent, halo: c.otherHalo, haloStrength: c.otherHaloStrength, fog: c.otherFog, pulseHz: c.otherPulse },
+      others: { on: c.othersOn, size: c.otherSize, height: c.otherHeight, bright: c.otherBright, recentSec: c.otherRecent, halo: c.otherHalo, haloStrength: c.otherHaloStrength, fog: c.otherFog, pulseHz: c.otherPulse },
       concrete: { on: c.concreteOn, height: c.concreteHeight, bright: c.concreteBright, radius: c.concreteRadius },
       on: c.othersOn || c.concreteOn,
     }),
-    [c.othersOn, c.otherSize, c.otherEye, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius],
+    [c.othersOn, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius],
   );
   return { footprint: c.footprint, grass, marks };
 }

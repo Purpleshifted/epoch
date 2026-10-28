@@ -155,6 +155,8 @@ export interface LedgerInputs {
   flow: FlowConfig | null;
   /** Others within the presence radius now. */
   nearCount: number;
+  /** The trail so far (every fold, finer than the ledger's own readings); absent = the ledger keeps its own. */
+  trail?: readonly { x: number; z: number; t: number }[];
   cfg?: LedgerConfig;
   prev: Ledger | null;
 }
@@ -273,8 +275,12 @@ export function ledgerAt(inp: LedgerInputs): Ledger {
     const a = mine[i - 1], b = mine[i];
     if (b.s - a.s <= MAX_STEP_SEC) walkedM += wrapDist(a.x, a.z, b.x, b.z);
   }
-  const trail = prev ? prev.trail.slice() : [];
-  trail.push({ x: me.x, z: me.z, t });
+  let trail: { x: number; z: number; t: number }[];
+  if (inp.trail) trail = inp.trail.slice();
+  else {
+    trail = prev ? prev.trail.slice() : [];
+    trail.push({ x: me.x, z: me.z, t });
+  }
   const alone = inp.nearCount === 0 ? { since: prev?.alone.since ?? t, longest: prev?.alone.longest ?? 0 } : { since: null, longest: prev?.alone.longest ?? 0 };
   if (alone.since !== null) alone.longest = Math.max(alone.longest, t - alone.since);
   return {

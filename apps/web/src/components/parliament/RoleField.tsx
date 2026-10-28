@@ -66,6 +66,8 @@ import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
+/** V2: how often the ledger reads the WHOLE world (its totals and my far slabs); the drawing reads a region. */
+const LEDGER_EVERY = 2;
 const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
 const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
 const KEEP_EVERY_MS = 30_000; // how often (world time) the history window moves on (older events are dropped everywhere)
@@ -164,6 +166,9 @@ export function RoleField({
   const lastKeepMs = useRef(0);
   const lastKeepWall = useRef(0);
   const foldTimer = useRef(10);
+  const ledgerTimer = useRef(10);
+  /** My trail at the fold's cadence (the footprint map draws it; the ledger itself reads the world less often). */
+  const trail = useRef<{ x: number; z: number; t: number }[]>([]);
   // the ticker reads the latest Leva values through this ref
   const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold });
   // V2: what bots walk on — trodden ground (G per cell) and the cells buildings stand on; refreshed every few seconds
@@ -324,9 +329,10 @@ export function RoleField({
       foldTimer.current = 0;
       const events = log.all();
       const tFold = performance.now();
-      // the whole world (the ledger needs its totals; the drawing and the sound pick what is near them)
-      snap.current = fold.at(sMe);
-      stress.current = stressAt(sMe);
+      // the region the drawing, the sound and the marks read (the fold itself is always the whole world)
+      const readR = Math.max(VIEW_RADIUS, marks?.concrete.on ? marks.concrete.radius : 0);
+      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
+      stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       markSpan("fold", performance.now() - tFold);
       if (witnessRef) {
         witnessRef.current = observe({
@@ -337,8 +343,12 @@ export function RoleField({
           t: lifeRef?.current.t ?? 0,
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
-        // the ledger of this life: only while LIVE (after the end it keeps the life's last reading)
-        if (ledgerRef && lifeRef?.current.phase === "live") {
+        // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
+        // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
+        ledgerTimer.current += FOLD_EVERY;
+        if (ledgerRef && lifeRef?.current.phase === "live") trail.current.push({ x: p.x, z: p.z, t: lifeRef.current.t });
+        if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= LEDGER_EVERY) {
+          ledgerTimer.current = 0;
           const tLed = performance.now();
           const obs = witnessRef.current;
           ledgerRef.current = ledgerAt({
@@ -346,11 +356,12 @@ export function RoleField({
             mine: myEvents.current,
             sNow: sMe,
             t: lifeRef.current.t,
-            snap: snap.current,
-            stress: stress.current,
+            snap: fold.at(sMe),
+            stress: stressAt(sMe),
             natureCfg,
             flow: cfg.flow?.enabled ? cfg.flow : null,
             nearCount: obs.others.filter((o) => o.dist <= cfg.radius).length,
+            trail: trail.current,
             cfg: ledgerCfg,
             prev: ledgerRef.current,
           });
@@ -444,7 +455,7 @@ export function RoleField({
         <OtherDots
           getMarks={() => marksRef.current}
           size={marks.others.size}
-          eyeOffset={marks.others.eyeOffset}
+          height={marks.others.height}
           bright={marks.others.bright}
           halo={marks.others.halo}
           haloStrength={marks.others.haloStrength}
