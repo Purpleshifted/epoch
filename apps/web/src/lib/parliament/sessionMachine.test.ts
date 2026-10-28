@@ -110,6 +110,27 @@ describe("stopping living (worker)", () => {
     expect(m.view.endedBy).toBe("self");
     expect(FAIL_MSG_SEC).toBeGreaterThan(0);
   });
+  it("the sound's hold releases as an envelope after a failed hold, while the dark cuts hard", () => {
+    const m = make();
+    live(m);
+    step(m, (HINT_AFTER_SEC + 1) * 1000);
+    m.holdKey(key("KeyX"));
+    step(m, 600);
+    expect(m.lifeRef.current.attempt).toBeGreaterThan(0.5);
+    expect(m.lifeRef.current.attemptSound).toBeCloseTo(m.lifeRef.current.attempt, 2);
+    step(m, 600); // the hold completes and fails (p = 0)
+    expect(m.view.attemptFailed).toBe(true);
+    expect(m.lifeRef.current.attempt).toBe(0);
+    const a = m.lifeRef.current.attemptSound;
+    expect(a).toBeGreaterThan(0.5);
+    step(m, 700);
+    const b = m.lifeRef.current.attemptSound;
+    expect(b).toBeLessThan(a);
+    expect(b).toBeGreaterThan(0.1);
+    step(m, 3000);
+    expect(m.lifeRef.current.attemptSound).toBe(0);
+    m.releaseKey(key("KeyX", "keyup"));
+  });
   it("is withdrawn in the last seconds of the life, which then ends by itself", () => {
     const m = make({ ...CFG, selfP: 1 });
     live(m);

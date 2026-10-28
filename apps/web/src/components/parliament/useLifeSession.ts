@@ -61,7 +61,16 @@ export interface LifeSignal {
   warn: number;
   /** 0 … 1 while X is held to stop living (the dark, the sound and the dead controls follow it); 0 otherwise. */
   attempt: number;
+  /**
+   * The same hold for the SOUND: it rises with `attempt` but, when the hold is let go or fails, it RELEASES over
+   * ATTEMPT_RELEASE_SEC instead of jumping back (the artist, 2026-10-28: the sudden swell after a failed hold was a
+   * pop — put an envelope on it). The dark still cuts hard.
+   */
+  attemptSound: number;
 }
+
+/** e-folding time (s) of the sound's release after a hold to stop living. */
+export const ATTEMPT_RELEASE_SEC = 0.7;
 
 export interface SessionView {
   phase: SessionPhase;
@@ -122,7 +131,7 @@ function onPanel(e: Event): boolean {
 
 export class SessionMachine {
   view: SessionView = { ...FRESH, phase: "live", sessionNo: 0 };
-  readonly lifeRef: { current: LifeSignal } = { current: { phase: "live", t: 0, warn: 0, attempt: 0 } };
+  readonly lifeRef: { current: LifeSignal } = { current: { phase: "live", t: 0, warn: 0, attempt: 0, attemptSound: 0 } };
   cfg: LifeConfig;
   lang: Lang = "ko";
   /** How many others are near the visitor right now (the record's NEAR radius); 0 when unknown. */
@@ -174,7 +183,7 @@ export class SessionMachine {
   private next(phase: "idle" | "notice" | "live") {
     this.holding = false;
     this.failedUntil = 0;
-    this.lifeRef.current = { phase, t: 0, warn: 0, attempt: 0 };
+    this.lifeRef.current = { phase, t: 0, warn: 0, attempt: 0, attemptSound: 0 };
     this.set({ ...FRESH, phase, phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
     if (phase === "live") this.begin();
   }
@@ -183,7 +192,7 @@ export class SessionMachine {
   private begin() {
     this.lived = 0;
     this.lastTick = Date.now();
-    this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0 };
+    this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0, attemptSound: 0 };
     this.enter("live");
   }
 
@@ -191,7 +200,7 @@ export class SessionMachine {
   setEnabled(on: boolean) {
     if (on === this.enabled && this.view.sessionNo > 0) return;
     this.enabled = on;
-    this.lifeRef.current = { phase: on ? "idle" : "live", t: 0, warn: 0, attempt: 0 };
+    this.lifeRef.current = { phase: on ? "idle" : "live", t: 0, warn: 0, attempt: 0, attemptSound: 0 };
     this.set({ ...FRESH, phase: on ? "idle" : "live", phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
   }
 
@@ -227,7 +236,7 @@ export class SessionMachine {
   endHold = () => {
     if (!this.holding) return;
     this.holding = false;
-    this.lifeRef.current = { ...this.lifeRef.current, attempt: 0 };
+    this.lifeRef.current = { ...this.lifeRef.current, attempt: 0 }; // attemptSound releases on the next ticks
     if (this.view.attempt !== 0) this.set({ attempt: 0 });
   };
 
@@ -284,7 +293,8 @@ export class SessionMachine {
     const v = this.view;
     if (v.phase === "live") {
       // the lifespan clock: wall time × rate (rate > 1 only for testing the end)
-      this.lived += (Math.max(0, now - this.lastTick) / 1000) * Math.max(0, this.cfg.rate ?? 1);
+      const dtWall = Math.max(0, now - this.lastTick) / 1000;
+      this.lived += dtWall * Math.max(0, this.cfg.rate ?? 1);
       this.lastTick = now;
       const t = this.lived;
       const st = lifeAt(t, this.cfg);
@@ -307,7 +317,9 @@ export class SessionMachine {
           tried = 1;
         }
       }
-      this.lifeRef.current = { phase: "live", t, warn: st.warn, attempt };
+      // the sound's hold: up with the hold, down as a release (an envelope, not a jump)
+      const attemptSound = Math.max(attempt, this.lifeRef.current.attemptSound * Math.exp(-dtWall / ATTEMPT_RELEASE_SEC));
+      this.lifeRef.current = { phase: "live", t, warn: st.warn, attempt, attemptSound: attemptSound < 0.005 ? 0 : attemptSound };
       if (st.over) {
         this.end("lifespan", t);
         return;
@@ -333,7 +345,7 @@ export class SessionMachine {
     this.holding = false;
     this.endAt = Date.now();
     if (typeof document !== "undefined" && document.pointerLockElement) document.exitPointerLock();
-    this.lifeRef.current = { phase: "ended", t, warn: 1, attempt: 0 };
+    this.lifeRef.current = { phase: "ended", t, warn: 1, attempt: 0, attemptSound: 0 };
     this.enter("ended", { endedBy: by, attempt: 0, stopOn: false, stopHint: false, attemptFailed: false });
   }
 
@@ -394,7 +406,8 @@ export function muffleSound(p: SoundParams, life: LifeSignal | undefined): Sound
   if (life.phase === "ended") return { ...p, dead: true };
   if (life.phase !== "live") return { ...p, master: 0, dead: false };
   // dying — the lifespan's last stretch, or X held to stop — is only this muffling (the artist, 10/18: simple, as before)
-  const w = Math.max(life.warn, life.attempt ?? 0);
+  // the hold's share is the RELEASED one (attemptSound): no swell back when a hold fails or is let go
+  const w = Math.max(life.warn, life.attemptSound ?? life.attempt ?? 0);
   if (!(w > 0)) return { ...p, dead: false };
   const k = Math.pow(w, 0.7);
   return {
