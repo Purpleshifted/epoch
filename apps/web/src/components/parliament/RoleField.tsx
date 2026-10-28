@@ -56,7 +56,7 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { ConcreteLines, OtherBoxes, PathCurves, type MarksData } from "./Marks";
+import { ConcreteLines, OtherDots, PathCurves, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -441,10 +441,11 @@ export function RoleField({
         getMine={() => mineMap.current}
         grass={grassReaction}
       />
-      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {marks?.others.on && <OtherBoxes getMarks={() => marksRef.current} size={marks.others.size} eyeOffset={marks.others.eyeOffset} bright={marks.others.bright} />}
+      {/* the ground's path lines step back when the curves are on (the knob 바닥의 길 선) */}
+      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine * (marks?.paths.on ? marks.paths.groundLine : 1)} radius={VIEW_RADIUS} />
+      {marks?.others.on && <OtherDots getMarks={() => marksRef.current} size={marks.others.size} eyeOffset={marks.others.eyeOffset} bright={marks.others.bright} />}
       {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
-      {marks?.paths.on && <PathCurves getMarks={() => marksRef.current} drop={marks.paths.drop} bright={marks.paths.bright} />}
+      {marks?.paths.on && <PathCurves getMarks={() => marksRef.current} playerPosRef={playerPosRef} drop={marks.paths.drop} bright={marks.paths.bright} sheet={marks.paths.sheet} />}
     </>
   );
 }

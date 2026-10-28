@@ -5,8 +5,8 @@
  * (docs/session-logic.md §12). The pixel feel stays in the TEXT; the 3D is free of it (2026-10-28).
  *   footprint   the end screen's footprint map (FootprintMap)
  *   grass       how the grass reacts to the walker at once (NatureCloud GrassReaction) and how thick it stands
- *   marks       the others as boxes at eye height, the concrete as vertical lines, the paths as horizontal curves
- *               a little below the eye (Marks.tsx, lib/parliament/marks.ts)
+ *   marks       the others as square dots at eye height, the concrete as vertical lines, the paths as horizontal
+ *               curves on a faint layer sheet a little below the eye (Marks.tsx, lib/parliament/marks.ts)
  */
 
 import { useMemo } from "react";
@@ -32,7 +32,7 @@ export interface GrassVisual {
 export interface MarksVisual {
   others: { on: boolean; size: number; eyeOffset: number; bright: number; recentSec: number };
   concrete: { on: boolean; height: number; bright: number; radius: number };
-  paths: { on: boolean; drop: number; bright: number; radius: number; per: number };
+  paths: { on: boolean; drop: number; bright: number; radius: number; per: number; sheet: number; groundLine: number };
   on: boolean;
 }
 
@@ -67,9 +67,9 @@ export function usePersonalVisuals(): PersonalVisuals {
         nearRadius: { value: 3.5, min: 1.5, max: 8, step: 0.5, label: "근접 반경 (월드)", render: v2 },
         mineGain: { value: 2, min: 1, max: 6, step: 0.5, label: "A3: 내 스트레스 배율", render: v2 },
       }),
-      "타인 — 시야 높이 상자": folder({
+      "타인 — 시야 높이 네모 점": folder({
         othersOn: { value: true, label: "켜기", render: v2 },
-        otherSize: { value: 0.6, min: 0.1, max: 3, step: 0.05, label: "상자 크기 (월드)", render: v2 },
+        otherSize: { value: 0.5, min: 0.05, max: 3, step: 0.05, label: "점 크기 (월드, 거리로 줄어듦)", render: v2 },
         otherEye: { value: 0, min: -4, max: 4, step: 0.1, label: "높이 — 시야 기준 (+위 / −아래)", render: v2 },
         otherBright: { value: 0.8, min: 0.1, max: 1, step: 0.05, label: "밝기", render: v2 },
         otherRecent: { value: 10, min: 1, max: 60, step: 1, label: "흐려지는 시간 (s, 마지막 표본 뒤)", render: v2 },
@@ -86,6 +86,8 @@ export function usePersonalVisuals(): PersonalVisuals {
         pathBright: { value: 0.9, min: 0.1, max: 1, step: 0.05, label: "밝기", render: v2 },
         pathRadius: { value: 30, min: 6, max: 80, step: 1, label: "보이는 반경 (월드)", render: v2 },
         pathPer: { value: 4, min: 1, max: 8, step: 1, label: "곡선 부드러움 (칸당 표본)", render: v2 },
+        pathSheet: { value: 0.12, min: 0, max: 0.6, step: 0.01, label: "레이어 판 투명도 (0 = 없음)", render: v2 },
+        groundLine: { value: 0.3, min: 0, max: 1, step: 0.05, label: "바닥의 길 선 (배율; 곡선과 헷갈리면 0)", render: v2 },
       }),
     }),
     { collapsed: false, order: 1 },
@@ -98,10 +100,10 @@ export function usePersonalVisuals(): PersonalVisuals {
     () => ({
       others: { on: c.othersOn, size: c.otherSize, eyeOffset: c.otherEye, bright: c.otherBright, recentSec: c.otherRecent },
       concrete: { on: c.concreteOn, height: c.concreteHeight, bright: c.concreteBright, radius: c.concreteRadius },
-      paths: { on: c.pathsOn, drop: c.pathDrop, bright: c.pathBright, radius: c.pathRadius, per: c.pathPer },
+      paths: { on: c.pathsOn, drop: c.pathDrop, bright: c.pathBright, radius: c.pathRadius, per: c.pathPer, sheet: c.pathSheet, groundLine: c.groundLine },
       on: c.othersOn || c.concreteOn || c.pathsOn,
     }),
-    [c.othersOn, c.otherSize, c.otherEye, c.otherBright, c.otherRecent, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.pathsOn, c.pathDrop, c.pathBright, c.pathRadius, c.pathPer],
+    [c.othersOn, c.otherSize, c.otherEye, c.otherBright, c.otherRecent, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.pathsOn, c.pathDrop, c.pathBright, c.pathRadius, c.pathPer, c.pathSheet, c.groundLine],
   );
   return { footprint: c.footprint, grass, marks };
 }
