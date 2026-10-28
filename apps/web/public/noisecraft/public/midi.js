@@ -7,9 +7,37 @@ class MIDI extends Eventable
         super();
 
         this.midiAccess = null;
+        this.asked = false;
 
-        // Try to get MIDI access
-        this.getMIDIAccess();
+        // NOT asked at load (2026-10-28, the exhibition): Chrome shows a "allow MIDI devices?" prompt on
+        // requestMIDIAccess, which the visitors' screens (the player and the wall run this editor hidden) must
+        // never see. Access is asked only when something actually listens to MIDI (a MidiIn node, a knob mapped
+        // or being learned) — see on() — and never in a hidden instrument (?view=hidden) or with ?midi=0.
+    }
+
+    // Whether this page may ask for MIDI at all
+    static allowed()
+    {
+        try
+        {
+            const q = new URLSearchParams(window.location.search);
+            return q.get('view') !== 'hidden' && q.get('midi') !== '0';
+        }
+        catch (e)
+        {
+            return false;
+        }
+    }
+
+    // The first MIDI listener asks for access (once)
+    on(eventName, handler)
+    {
+        super.on(eventName, handler);
+        if (eventName === 'midimessage' && !this.asked && MIDI.allowed())
+        {
+            this.asked = true;
+            this.getMIDIAccess().catch((e) => console.warn('MIDI access not granted:', e && e.message));
+        }
     }
 
     // Try to get MIDI access from the browser
