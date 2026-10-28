@@ -12,7 +12,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import type { ConcreteLine, OtherMark } from "@/lib/parliament";
+import { CELL_SIZE } from "@/lib/stratum/field";
+import { hash2, type ConcreteLine, type OtherMark } from "@/lib/parliament";
 
 export interface MarksData {
   others: OtherMark[];
@@ -48,11 +49,22 @@ function glowTexture(): THREE.Texture {
   return t;
 }
 
+/** A hash of an id in 0 … 1 (to stagger the others' moves). */
+function idHash(o: string): number {
+  let h = 0;
+  for (let i = 0; i < o.length; i++) h = (Math.imul(h, 31) + o.charCodeAt(i)) | 0;
+  return hash2(h, 7, 3);
+}
+
 /**
  * A GLOWING point on the ground for every other being (the artist, 2026-10-28: at the grid's height, not the eye):
  * two additive soft sprites — a core and a wide faint halo — so the light bleeds without a bloom pass. The scene's
  * fog takes them with distance (knob: or not, so the far ones stay as a faint light in the haze); an optional pulse
  * breathes the size.
+ *
+ * Their PLACE moves only now and then (the artist: they must not look busy): each light holds a cell of the grid
+ * and, every `holdSec` (staggered by id), jumps to the centre of the cell the being is in now — no gliding, a hard
+ * cut like the rest of the frame. A being that left the view keeps its light until its next move.
  */
 export function OtherDots({
   getMarks,
@@ -63,12 +75,18 @@ export function OtherDots({
   haloStrength = 0.35,
   fog = true,
   pulseHz = 0,
+  holdSec = 4,
+  snap = true,
 }: {
   getMarks: () => MarksData | null;
   size?: number;
   /** World height of the lights (0 = the grid). */
   height?: number;
   bright?: number;
+  /** Seconds a light holds its place before it may move to the being's present cell (staggered ±25 % by id). */
+  holdSec?: number;
+  /** Whether the light sits at the centre of a grid cell (or exactly where the being is). */
+  snap?: boolean;
   /** Halo size as a multiple of the core; 0 = core only. */
   halo?: number;
   /** Halo brightness relative to the core. */
@@ -85,6 +103,8 @@ export function OtherDots({
   const geom = useMemo(() => lineGeom(MAX_OTHERS), []);
   const haloGeom = useMemo(() => lineGeom(MAX_OTHERS), []);
   const timer = useRef(10);
+  /** Each being's held place: where its light stands and when it may next move (frame-clock seconds). */
+  const held = useRef(new Map<string, { x: number; z: number; next: number; bright: number; moving: boolean; seen: number }>());
   useEffect(
     () => () => {
       geom.dispose();
@@ -102,8 +122,30 @@ export function OtherDots({
     timer.current += dt;
     if (timer.current < REFRESH) return;
     timer.current = 0;
+    const now = state.clock.elapsedTime;
     const list = getMarks()?.others ?? [];
-    const n = Math.min(MAX_OTHERS, list.length);
+    const H = held.current;
+    // where each light stands: a new being takes its place at once; a known one only when its hold is over
+    for (const o of list) {
+      const place = snap ? { x: (Math.floor(o.x / CELL_SIZE) + 0.5) * CELL_SIZE, z: (Math.floor(o.z / CELL_SIZE) + 0.5) * CELL_SIZE } : { x: o.x, z: o.z };
+      const h = H.get(o.o);
+      const wait = holdSec * (0.75 + 0.5 * idHash(o.o));
+      if (!h) H.set(o.o, { ...place, next: now + wait, bright: o.bright, moving: o.moving, seen: now });
+      else {
+        h.seen = now;
+        h.bright = o.bright;
+        h.moving = o.moving;
+        if (now >= h.next) {
+          h.x = place.x;
+          h.z = place.z;
+          h.next = now + wait;
+        }
+      }
+    }
+    // a light whose being is gone from the view goes out at its next move
+    for (const [id, h] of H) if (now - h.seen > REFRESH * 1.5 && now >= h.next) H.delete(id);
+    const shown = [...H.values()].slice(0, MAX_OTHERS);
+    const n = shown.length;
     for (const [g, gain] of [
       [geom, 1],
       [haloGeom, haloStrength],
@@ -112,11 +154,11 @@ export function OtherDots({
       const col = g.getAttribute("color") as THREE.BufferAttribute;
       const P = pos.array as Float32Array, C = col.array as Float32Array;
       for (let i = 0; i < n; i++) {
-        const o = list[i];
-        P[i * 3] = o.x;
+        const h = shown[i];
+        P[i * 3] = h.x;
         P[i * 3 + 1] = 0;
-        P[i * 3 + 2] = o.z;
-        C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = gain * bright * (0.35 + 0.65 * o.bright);
+        P[i * 3 + 2] = h.z;
+        C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = gain * bright * (0.35 + 0.65 * h.bright);
       }
       g.setDrawRange(0, n);
       pos.needsUpdate = true;

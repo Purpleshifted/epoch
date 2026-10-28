@@ -461,6 +461,8 @@ export function RoleField({
           haloStrength={marks.others.haloStrength}
           fog={marks.others.fog}
           pulseHz={marks.others.pulseHz}
+          holdSec={marks.others.holdSec}
+          snap={marks.others.snap}
         />
       )}
       {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}

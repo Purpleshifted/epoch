@@ -16,6 +16,8 @@ import type { Slab } from "./types";
 import { nearestImage, wrapDist } from "./world";
 
 export interface OtherMark {
+  /** Their id (the drawing holds each one's place between its rare moves). */
+  o: string;
   x: number;
   z: number;
   /** 0 … 1 (fades with the age of the sample). */
@@ -28,7 +30,7 @@ export function otherMarks(far: readonly Other[], me: { x: number; z: number }, 
   const out: OtherMark[] = [];
   for (const o of far) {
     if (o.dist > radius) continue;
-    out.push({ x: nearestImage(o.x, me.x), z: nearestImage(o.z, me.z), bright: Math.exp(-o.ageSec / Math.max(0.1, recentSec)), moving: o.moving });
+    out.push({ o: o.o, x: nearestImage(o.x, me.x), z: nearestImage(o.z, me.z), bright: Math.exp(-o.ageSec / Math.max(0.1, recentSec)), moving: o.moving });
   }
   return out;
 }

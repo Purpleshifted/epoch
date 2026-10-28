@@ -30,7 +30,7 @@ export interface GrassVisual {
 }
 
 export interface MarksVisual {
-  others: { on: boolean; size: number; height: number; bright: number; recentSec: number; halo: number; haloStrength: number; fog: boolean; pulseHz: number };
+  others: { on: boolean; size: number; height: number; bright: number; recentSec: number; halo: number; haloStrength: number; fog: boolean; pulseHz: number; holdSec: number; snap: boolean };
   concrete: { on: boolean; height: number; bright: number; radius: number };
   on: boolean;
 }
@@ -75,6 +75,8 @@ export function usePersonalVisuals(): PersonalVisuals {
         otherBright: { value: 0.8, min: 0.1, max: 1.5, step: 0.05, label: "밝기", render: v2 },
         otherFog: { value: true, label: "안개를 받음 (끄면 멀리서도 희미하게 빛남)", render: v2 },
         otherPulse: { value: 0, min: 0, max: 3, step: 0.1, label: "맥동 (Hz; 0 = 고정)", render: v2 },
+        otherHold: { value: 4, min: 0.5, max: 20, step: 0.5, label: "자리 옮기는 간격 (s; 타인마다 ±25 % 어긋남)", render: v2 },
+        otherSnap: { value: true, label: "격자 칸 가운데에 맞춤", render: v2 },
         otherRecent: { value: 10, min: 1, max: 60, step: 1, label: "흐려지는 시간 (s, 마지막 표본 뒤)", render: v2 },
       }),
       "콘크리트 — 세로선": folder({
@@ -92,11 +94,11 @@ export function usePersonalVisuals(): PersonalVisuals {
   );
   const marks = useMemo<MarksVisual>(
     () => ({
-      others: { on: c.othersOn, size: c.otherSize, height: c.otherHeight, bright: c.otherBright, recentSec: c.otherRecent, halo: c.otherHalo, haloStrength: c.otherHaloStrength, fog: c.otherFog, pulseHz: c.otherPulse },
+      others: { on: c.othersOn, size: c.otherSize, height: c.otherHeight, bright: c.otherBright, recentSec: c.otherRecent, halo: c.otherHalo, haloStrength: c.otherHaloStrength, fog: c.otherFog, pulseHz: c.otherPulse, holdSec: c.otherHold, snap: c.otherSnap },
       concrete: { on: c.concreteOn, height: c.concreteHeight, bright: c.concreteBright, radius: c.concreteRadius },
       on: c.othersOn || c.concreteOn,
     }),
-    [c.othersOn, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius],
+    [c.othersOn, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius],
   );
   return { footprint: c.footprint, grass, marks };
 }
