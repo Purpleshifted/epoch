@@ -1,13 +1,12 @@
 /**
  * parliament/script.ts — everything the player view SAYS to the visitor (V2): the title screen, the notices before a
- * life, the consent, the headset, the choice, the verdict after the slot, the hints, the end screen. Two languages.
- * The machine log (witness.ts) stays in English upper case in both: it is the apparatus's raw output; this is the
- * apparatus speaking.
+ * life, the consent, the headset, the hints, the end screen. Two languages. The machine log (witness.ts) stays in
+ * English upper case in both: it is the apparatus's raw output; this is the apparatus speaking.
  *
  * Register (docs/session-logic.md §8): an apparatus that allots and records lives — whose it is, it does not say.
  * No first person, no exclamation marks, formal declaratives, at most three lines a screen, numbers and states
- * rather than adjectives. The humour is in the arrangement (a choice with only yes; a choice received but not
- * applied; the requested role next to the cause of death) and is never explained.
+ * rather than adjectives. The humour is in the arrangement (a consent with only yes; a life that begins the moment
+ * the headset is on) and is never explained. The notices are the artist's own words (2026-10-20).
  */
 
 import type { CauseId } from "./intake";
@@ -28,7 +27,7 @@ export function asLang(v: string | null | undefined, fallback: Lang = DEFAULT_LA
  */
 export const TITLE: Record<Lang, string> = { ko: "발견된 인류", en: "" };
 
-/** The roles as the apparatus names them when speaking (the slot and the log keep session.ts ROLE_TAG). */
+/** The roles as the apparatus names them when speaking (the English log keeps session.ts ROLE_TAG). */
 export const ROLE_NAME: Record<Lang, Record<RoleId, string>> = {
   ko: { worker: "회사원", cat: "길고양이", car: "자동차", tree: "나무", shepherd: "양치기", wolf: "늑대", warrior: "전사" },
   en: { worker: "Worker", cat: "Street cat", car: "Car", tree: "Tree", shepherd: "Shepherd", wolf: "Wolf", warrior: "Warrior" },
@@ -89,16 +88,12 @@ export interface Script {
   consent: { question: string; yes: string; no: string; noNote: string };
   headset: string[];
   headsetTouch: string[];
-  choose: { question: string };
-  draw: { assigning: string };
-  verdict: { requested: string; assigned: string; lucky: string; received: string; cannotHelp: string; controls: string; controlsTouch: string };
-  live: { look: string; stop: (holdSec: number) => string; stopTouch: (holdSec: number) => string };
+  /** `controls`: how to walk, shown faintly for the first seconds of the life (the life begins right after the headset). */
+  live: { look: string; controls: string; controlsTouch: string; stop: (holdSec: number) => string; stopTouch: (holdSec: number) => string };
   attempt: { failed: string };
   ended: {
     title: string;
     cause: string;
-    role: string;
-    requested: string;
     present: string;
     still: string;
     near: string;
@@ -119,32 +114,26 @@ export const SCRIPT: Record<Lang, Script> = {
   ko: {
     idle: { press: "아무 키나 누르세요", pressTouch: "화면을 누르세요", duration: (min) => `한 번의 삶 · 약 ${min}분` },
     notice: [
-      ["인류는 멸망했습니다.", "먼 미래, 지구 밖에서 온 고고학자들이 인류세를 연구하고 있습니다."],
-      ["벽의 창 너머에 그들의 작업이 보입니다.", "남은 흔적으로 인간의 서식지를 재구성하는 중입니다."],
-      ["당신은 지금 그 흔적을 남기며 살고 있습니다.", "당신의 삶은 미래의 풍경에 영향을 줄 수도 있고,", "주지 않을 수도 있습니다."],
-      ["태어난 이상 살아가야 합니다."],
+      ["인류는 멸망했습니다.", "먼 미래, 지구에 도착한 외계의 고고학자들이 인류세를 연구하고 있습니다."],
+      ["그들에게 주어진 단서는 지층 속 흔적들입니다.", "벽의 창 너머로 미래의 모습이 보입니다."],
+      ["눈 앞의 화면으로 돌아오세요.", "당신은 현재 그 흔적을 남기며 살고 있습니다."],
+      ["당신의 삶은 미래의 풍경에 영향을 줄 수도 있고,", "주지 않을 수도 있습니다."],
+      ["다만 태어난 이상 살아가야 합니다."],
     ],
     consent: { question: "속절없이 존재하시겠습니까?", yes: "예", no: "아니요", noNote: "선택할 수 없습니다" },
     headset: ["헤드셋을 착용하세요.", "착용했으면 아무 키나 누르세요."],
     headsetTouch: ["이어폰을 착용하세요.", "착용했으면 화면을 누르세요."],
-    choose: { question: "어떤 것으로 살겠습니까?" },
-    draw: { assigning: "배정 중" },
-    verdict: {
-      requested: "요청",
-      assigned: "배정",
-      lucky: "운이 좋습니다.",
-      received: "선택은 접수되었습니다. 반영되지는 않았습니다.",
-      cannotHelp: "어쩔 수 없습니다.",
-      controls: "클릭한 뒤 W A S D 걷기 · 마우스 둘러보기",
+    live: {
+      look: "화면을 클릭하세요",
+      controls: "W A S D 걷기 · 마우스 둘러보기",
       controlsTouch: "누르는 동안 걷고, 떼면 머뭅니다 · 끌면 돕니다",
+      stop: (s) => `그만 살기: X 키를 ${s}초 동안 누르세요`,
+      stopTouch: (s) => `그만 살기 — ${s}초 길게 누르기`,
     },
-    live: { look: "화면을 클릭하세요", stop: (s) => `그만 살기: X 키를 ${s}초 동안 누르세요`, stopTouch: (s) => `그만 살기 — ${s}초 길게 누르기` },
     attempt: { failed: "저런. 그만 살기에 실패했습니다. 삶은 계속됩니다." },
     ended: {
       title: "삶이 끝났습니다.",
       cause: "사인",
-      role: "역할",
-      requested: "요청",
       present: "생존",
       still: "머묾",
       near: "가까이",
@@ -161,27 +150,19 @@ export const SCRIPT: Record<Lang, Script> = {
   en: {
     idle: { press: "Press any key", pressTouch: "Tap the screen", duration: (min) => `One life · about ${min} min` },
     notice: [
-      ["Humanity is extinct.", "In the far future, archaeologists from beyond Earth are studying the Anthropocene."],
-      ["Through the window in the wall, their work can be seen.", "They are reconstructing the human habitat from what was left."],
-      ["You are living now, leaving those traces.", "Your life may affect what the Anthropocene looks like,", "or it may not."],
-      ["Having been born, you have to live."],
+      ["Humanity is extinct.", "In the far future, archaeologists from elsewhere have reached Earth and are studying the Anthropocene."],
+      ["Their only clues are the traces in the strata.", "Through the window in the wall, the future can be seen."],
+      ["Come back to the screen in front of you.", "You are living now, leaving those traces."],
+      ["Your life may affect what that future looks like,", "or it may not."],
+      ["Still, having been born, you have to live."],
     ],
     consent: { question: "Will you exist regardless?", yes: "Yes", no: "No", noNote: "not available" },
     headset: ["Put on the headset.", "Press any key once it is on."],
     headsetTouch: ["Put on the earphones.", "Tap the screen once they are on."],
-    choose: { question: "What will you live as?" },
-    draw: { assigning: "Assigning" },
-    verdict: {
-      requested: "Requested",
-      assigned: "Assigned",
-      lucky: "You are lucky.",
-      received: "Your choice was received. It was not applied.",
-      cannotHelp: "It cannot be helped.",
-      controls: "click, then W A S D walk · mouse look",
-      controlsTouch: "Hold to walk, let go to stay · drag to turn",
-    },
     live: {
       look: "Click the screen",
+      controls: "W A S D walk · mouse look",
+      controlsTouch: "Hold to walk, let go to stay · drag to turn",
       stop: (s) => `Stop living: hold X for ${s} second${s === 1 ? "" : "s"}`,
       stopTouch: (s) => `Stop living — hold ${s} second${s === 1 ? "" : "s"}`,
     },
@@ -189,8 +170,6 @@ export const SCRIPT: Record<Lang, Script> = {
     ended: {
       title: "Life has ended.",
       cause: "Cause",
-      role: "Role",
-      requested: "requested",
       present: "Present",
       still: "Still",
       near: "Near",

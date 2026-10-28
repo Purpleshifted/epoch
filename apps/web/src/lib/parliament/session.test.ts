@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WITNESS,
-  ROLE_TAG,
-  SESSION_ROLES,
   WitnessLog,
-  assignRole,
   bearingOf,
   blinkAt,
   fmtClock,
@@ -12,56 +9,9 @@ import {
   lifeAt,
   nameOf,
   observe,
-  planReel,
-  reelAt,
-  reelDuration,
   type Observation,
   type PEvent,
 } from "./index";
-
-describe("assignRole", () => {
-  it("covers every session role uniformly and stays in range at the edges", () => {
-    expect(assignRole(0)).toBe(SESSION_ROLES[0]);
-    expect(assignRole(0.999999)).toBe(SESSION_ROLES[SESSION_ROLES.length - 1]);
-    expect(assignRole(1)).toBe(SESSION_ROLES[SESSION_ROLES.length - 1]);
-    const seen = new Set(Array.from({ length: 40 }, (_, i) => assignRole(i / 40)));
-    expect([...seen].sort()).toEqual([...SESSION_ROLES].sort());
-  });
-});
-
-describe("the role slot", () => {
-  it("stops on the drawn role, whatever it is", () => {
-    for (const r of SESSION_ROLES) {
-      const plan = planReel(r);
-      expect(plan.labels[plan.labels.length - 1]).toBe(ROLE_TAG[r]);
-      const end = reelAt(plan, reelDuration(plan) + 0.01);
-      expect(end.label).toBe(ROLE_TAG[r]);
-      expect(end.settled).toBe(true);
-      expect(end.lit).toBe(true);
-    }
-  });
-  it("runs through the roles in strip order, fast at first and slower towards the stop", () => {
-    const plan = planReel("car");
-    for (let k = 1; k < plan.labels.length; k++) expect(plan.labels[k]).not.toBe(plan.labels[k - 1]);
-    // how long each label stays up
-    const dwell = new Map<number, number>();
-    for (let t = 0; t < plan.stopAt; t += 0.005) {
-      const i = reelAt(plan, t).index;
-      dwell.set(i, (dwell.get(i) ?? 0) + 0.005);
-    }
-    const first = dwell.get(1) ?? 0;
-    const late = dwell.get(plan.labels.length - 2) ?? 0;
-    expect(late).toBeGreaterThan(first * 4);
-  });
-  it("blinks after the stop, then holds", () => {
-    const plan = planReel("tree");
-    const lit: boolean[] = [];
-    for (let t = plan.stopAt + 0.01; t < plan.stopAt + plan.flashSec; t += 0.02) lit.push(reelAt(plan, t).lit);
-    expect(lit).toContain(true);
-    expect(lit).toContain(false);
-    expect(reelAt(plan, plan.stopAt + 0.01).settled).toBe(false);
-  });
-});
 
 describe("the lifespan", () => {
   const cfg = { lifeSec: 100, warnSec: 20, endHoldSec: 5 };

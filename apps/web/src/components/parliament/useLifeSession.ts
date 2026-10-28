@@ -2,10 +2,9 @@
 /**
  * useLifeSession — one visitor's session in the player view (V2; lib/parliament/session.ts and intake.ts have the rules):
  *   IDLE     → (any gesture)  NOTICE: the frame, a few pages; a gesture turns a page once all its lines are up
- *   NOTICE   → CONSENT (a question with only yes) → HEADSET → CHOOSE (four roles: 1–4, arrows + Enter, or a click)
- *   CHOOSE   → DRAW: the role slot spins and stops on a role drawn at random — the choice is not looked at
- *   DRAW     → VERDICT: requested / assigned, for a few seconds
- *   VERDICT  → LIVE: the lifespan runs (wall clock: it is the visitor's real time, not the world clock)
+ *   NOTICE   → CONSENT (a question with only yes) → HEADSET
+ *   HEADSET  → LIVE at once (2026-10-20: no choice of role, no slot, no verdict — every visitor is the worker): the
+ *              lifespan runs (wall clock: it is the visitor's real time, not the world clock)
  *   LIVE     → ENDED: the visitor is taken off the ground; the end screen (with the cause of death) stays
  *   LIVE, worker only, from hintAfterSec on and not in the last stopLastSec (a banner says so now and then): X held
  *              for holdSec is an attempt to
@@ -13,11 +12,11 @@
  *              the sound closes while it is held; at the end luck decides (selfP, less with every other being near —
  *              selfChance): ENDED by "self", or a failed line
  *              (and X works again at once, line or no line). Let go early and nothing happens.
- *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or straight to CHOOSE when SPACE
+ *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or straight into LIVE when SPACE
  *              comes within QUICK_RESTART_SEC of the end (the same visitor again: the next life starts at once) —
  *              or (END_RETURN_SEC later) IDLE: `sessionNo` goes up, so the player parts remount as a NEW visitor
  *              (new id, new time slot)
- *   NOTICE … CHOOSE → (IDLE_AFTER_SEC without input) IDLE: the visitor left before living; nothing was recorded
+ *   NOTICE … HEADSET → (IDLE_AFTER_SEC without input) IDLE: the visitor left before living; nothing was recorded
  *
  * The machine is a small store outside React (SessionMachine); the per-frame values (phase, seconds into the
  * session, warning level) are in `lifeRef`, read by the controller, the cursor and RoleField without re-rendering.
@@ -39,35 +38,24 @@ import {
   IDLE_AFTER_SEC,
   SCRIPT,
   quickRestart,
-  SESSION_ROLES,
-  VERDICT_SEC,
-  assignRole,
   attemptEnd,
   hintUp,
   holdProgress,
   isStopKey,
   lifeAt,
-  moveCursor,
   pageDone,
-  planReel,
-  reelDuration,
-  roleForKey,
   selfChance,
   stopAllowed,
-  verdictOf,
   type EndedBy,
   type Lang,
   type LifeConfig,
-  type ReelPlan,
-  type RoleId,
   type SessionPhase,
-  type Verdict,
 } from "@/lib/parliament";
 import type { SoundParams } from "@/lib/sound";
 
 export interface LifeSignal {
   phase: SessionPhase;
-  /** Seconds since the role was fixed (LIVE / ENDED), 0 before. */
+  /** Seconds since the life began (LIVE / ENDED), 0 before. */
   t: number;
   /** 0 … 1 over the last warnSec of the lifespan. */
   warn: number;
@@ -77,26 +65,14 @@ export interface LifeSignal {
 
 export interface SessionView {
   phase: SessionPhase;
-  /** The role of this session (null before the draw). */
-  role: RoleId | null;
-  /** The reel of this session's draw (null before the draw). */
-  reel: ReelPlan | null;
-  /** Wall ms when the draw started. */
-  drawAt: number;
   /** Goes up by one for every new visitor. */
   sessionNo: number;
   /** ENDED, and endHoldSec have passed: SPACE starts the next session. */
   restartReady: boolean;
-  /** The role the visitor asked for on the choice screen (null: not asked). The slot does not look at it. */
-  wanted: RoleId | null;
   /** NOTICE: which page. */
   page: number;
   /** Wall ms the current phase (or notice page) began: its lines come on from then. */
   phaseAt: number;
-  /** CHOOSE: the highlighted role (index into SESSION_ROLES; -1 = none). */
-  cursor: number;
-  /** VERDICT and after: whether the slot happened to agree with the choice. */
-  verdict: Verdict | null;
   /** ENDED: how the life ended. */
   endedBy: EndedBy | null;
   /** LIVE: how far the hold to stop living has got (0 … 1). */
@@ -115,8 +91,6 @@ export interface SessionView {
 
 export interface LifeSession extends SessionView {
   lifeRef: { readonly current: LifeSignal };
-  /** CHOOSE: pick a role (the buttons on the screen; the keys go through the machine itself). */
-  choose: (role: RoleId) => void;
   /** LIVE: start / stop holding to stop living (the X key on a keyboard; a long press on a phone). */
   beginHold: () => void;
   endHold: () => void;
@@ -125,18 +99,12 @@ export interface LifeSession extends SessionView {
 const TICK_MS = 100;
 
 /** The phases before the life in which a visitor who walks away is forgotten (back to the title screen). */
-const WAITING: readonly SessionPhase[] = ["notice", "consent", "headset", "choose"];
+const WAITING: readonly SessionPhase[] = ["notice", "consent", "headset"];
 
 const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
-  role: null,
-  reel: null,
-  drawAt: 0,
   restartReady: false,
-  wanted: null,
   page: 0,
   phaseAt: 0,
-  cursor: -1,
-  verdict: null,
   endedBy: null,
   attempt: 0,
   stopOn: false,
@@ -156,7 +124,6 @@ export class SessionMachine {
   view: SessionView = { ...FRESH, phase: "live", sessionNo: 0 };
   readonly lifeRef: { current: LifeSignal } = { current: { phase: "live", t: 0, warn: 0, attempt: 0 } };
   cfg: LifeConfig;
-  fixedRole: RoleId | null = null;
   lang: Lang = "ko";
   /** How many others are near the visitor right now (the record's NEAR radius); 0 when unknown. */
   getNear: () => number = () => 0;
@@ -180,9 +147,8 @@ export class SessionMachine {
     this.rng = rng;
   }
 
-  configure(cfg: LifeConfig, fixedRole: RoleId | null, lang: Lang, getNear?: () => number) {
+  configure(cfg: LifeConfig, lang: Lang, getNear?: () => number) {
     this.cfg = cfg;
-    this.fixedRole = fixedRole;
     this.lang = lang;
     if (getNear) this.getNear = getNear;
   }
@@ -204,12 +170,21 @@ export class SessionMachine {
     this.set({ ...patch, phase, phaseAt: Date.now() });
   }
 
-  /** A new visitor: everything fresh, `sessionNo` up, starting at `phase`. */
-  private next(phase: "idle" | "notice" | "choose") {
+  /** A new visitor: everything fresh, `sessionNo` up, starting at `phase` (`live`: the same visitor again, at once). */
+  private next(phase: "idle" | "notice" | "live") {
     this.holding = false;
     this.failedUntil = 0;
     this.lifeRef.current = { phase, t: 0, warn: 0, attempt: 0 };
     this.set({ ...FRESH, phase, phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
+    if (phase === "live") this.begin();
+  }
+
+  /** The life begins: the lifespan clock starts from zero (after the headset, or on a quick restart). */
+  private begin() {
+    this.lived = 0;
+    this.lastTick = Date.now();
+    this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0 };
+    this.enter("live");
   }
 
   /** Switched on: wait for the next visitor. Off (V1, Leva): always live, no lifespan. */
@@ -220,32 +195,24 @@ export class SessionMachine {
     this.set({ ...FRESH, phase: on ? "idle" : "live", phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
   }
 
-  /** CHOOSE → DRAW: the choice is kept to be shown, the role is drawn regardless of it. */
-  choose = (wanted: RoleId) => {
-    if (!this.enabled || this.view.phase !== "choose") return;
-    const role = this.fixedRole ?? assignRole(Math.random());
-    this.lifeRef.current = { phase: "draw", t: 0, warn: 0, attempt: 0 };
-    this.enter("draw", { wanted, role, reel: planReel(role), drawAt: Date.now(), verdict: null });
-  };
-
   /** The stop-living rule from the config (Leva), with intake.ts's defaults. */
   private stopRule() {
     return { afterSec: this.cfg.hintAfterSec ?? HINT_AFTER_SEC, lastSec: this.cfg.stopLastSec ?? STOP_LAST_SEC };
   }
 
-  /** B — X pressed while live: a worker within the rule's window starts holding to stop living (line or no line). */
+  /** B — X pressed while live: within the rule's window it starts holding to stop living (line or no line). */
   holdKey = (e: KeyboardEvent) => {
     if (!isStopKey(e.code) || e.repeat || onPanel(e)) return;
     if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
     this.beginHold();
   };
 
-  /** Start holding to stop living (a worker within the rule's window; otherwise nothing). */
+  /** Start holding to stop living (within the rule's window; otherwise nothing). */
   beginHold = () => {
     if (!this.enabled) return;
     const v = this.view;
     const t = this.lifeRef.current.t;
-    if (v.phase !== "live" || this.holding || !stopAllowed(v.role, t, lifeAt(t, this.cfg).left, this.stopRule())) return;
+    if (v.phase !== "live" || this.holding || !stopAllowed("worker", t, lifeAt(t, this.cfg).left, this.stopRule())) return;
     this.holding = true;
     this.holdStart = Date.now();
   };
@@ -297,44 +264,25 @@ export class SessionMachine {
         this.enter("headset");
         return;
       case "headset":
-        this.enter("choose", { cursor: -1 });
+        // the headset is on: the life begins at once (the worker)
+        this.begin();
         return;
-      case "choose": {
-        if (e.type !== "keydown") return; // clicks go to the buttons (choose)
-        const r = roleForKey(code);
-        if (r) return this.choose(r);
-        if (code === "ArrowLeft" || code === "ArrowRight") {
-          this.set({ cursor: moveCursor(v.cursor, code === "ArrowLeft" ? -1 : 1, SESSION_ROLES.length) });
-          return;
-        }
-        if ((code === "Enter" || code === "Space") && v.cursor >= 0) this.choose(SESSION_ROLES[v.cursor]);
-        return;
-      }
       case "ended":
         // SPACE — or a tap / click (a phone has no keys) — once the end screen has held; soon after the end it is the
-        // same visitor again: the next life starts at once (the choice, then the slot)
-        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt) ? "choose" : "notice");
+        // same visitor again: the next life starts at once, without the notices
+        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt) ? "live" : "notice");
         return;
       default:
-        return; // draw, verdict, live: the screen runs on its own (the controls are the Controller's)
+        return; // live: the screen runs on its own (the controls are the Controller's)
     }
   };
 
-  /** The clock: DRAW → VERDICT → LIVE → ENDED (→ ready for SPACE → back to the title); the waiting timeouts. */
+  /** The clock: LIVE → ENDED (→ ready for SPACE → back to the title); the waiting timeouts. */
   tick = () => {
     if (!this.enabled) return;
     const now = Date.now();
     const v = this.view;
-    if (v.phase === "draw") {
-      if (v.reel && v.role && now - v.drawAt >= reelDuration(v.reel) * 1000) this.enter("verdict", { verdict: verdictOf(v.wanted, v.role) });
-    } else if (v.phase === "verdict") {
-      if (now - v.phaseAt >= VERDICT_SEC * 1000) {
-        this.lived = 0;
-        this.lastTick = now;
-        this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0 };
-        this.enter("live");
-      }
-    } else if (v.phase === "live") {
+    if (v.phase === "live") {
       // the lifespan clock: wall time × rate (rate > 1 only for testing the end)
       this.lived += (Math.max(0, now - this.lastTick) / 1000) * Math.max(0, this.cfg.rate ?? 1);
       this.lastTick = now;
@@ -365,7 +313,7 @@ export class SessionMachine {
         return;
       }
       const rule = this.stopRule();
-      const stopOn = stopAllowed(v.role, t, st.left, rule);
+      const stopOn = stopAllowed("worker", t, st.left, rule);
       const stopHint = stopOn && !this.holding && hintUp(t, rule.afterSec, this.cfg.hintPeriodSec ?? HINT_PERIOD_SEC, this.cfg.hintShowSec ?? HINT_SHOW_SEC);
       const attemptFailed = now < this.failedUntil;
       if (tried || attempt !== v.attempt || stopOn !== v.stopOn || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
@@ -376,7 +324,7 @@ export class SessionMachine {
       if (!v.restartReady && held >= Math.max(0, this.cfg.endHoldSec) * 1000) this.set({ restartReady: true });
       else if (v.restartReady && held >= (Math.max(0, this.cfg.endHoldSec) + END_RETURN_SEC) * 1000) this.next("idle");
     } else if (WAITING.includes(v.phase)) {
-      if (now - this.lastInputAt >= IDLE_AFTER_SEC * 1000) this.enter("idle", { wanted: null, page: 0, cursor: -1 });
+      if (now - this.lastInputAt >= IDLE_AFTER_SEC * 1000) this.enter("idle", { page: 0 });
     }
   };
 
@@ -411,16 +359,15 @@ export class SessionMachine {
 }
 
 /**
- * @param enabled  false (V1, or switched off in Leva): always LIVE with `fixedRole` (or worker), no lifespan
- * @param fixedRole  a role to give every session instead of drawing one (null = random)
+ * @param enabled  false (V1, or switched off in Leva): always LIVE, no lifespan
  * @param lang  the language the apparatus speaks (how many lines each notice page has)
  * @param getNear  how many others are near right now (for the chance of stopping living); absent = alone
  */
-export function useLifeSession(enabled: boolean, cfg: LifeConfig, fixedRole: RoleId | null, lang: Lang = "ko", getNear?: () => number): LifeSession {
+export function useLifeSession(enabled: boolean, cfg: LifeConfig, lang: Lang = "ko", getNear?: () => number): LifeSession {
   const [m] = useState(() => new SessionMachine(cfg));
   useEffect(() => {
-    m.configure(cfg, fixedRole, lang, getNear);
-  }, [m, cfg, fixedRole, lang, getNear]);
+    m.configure(cfg, lang, getNear);
+  }, [m, cfg, lang, getNear]);
   useEffect(() => {
     m.setEnabled(enabled);
   }, [m, enabled]);
@@ -429,7 +376,7 @@ export function useLifeSession(enabled: boolean, cfg: LifeConfig, fixedRole: Rol
     return () => m.stop();
   }, [m]);
   const view = useSyncExternalStore(m.subscribe, m.get, m.get);
-  return { ...view, role: enabled ? view.role : fixedRole ?? "worker", lifeRef: m.lifeRef, choose: m.choose, beginHold: m.beginHold, endHold: m.endHold };
+  return { ...view, lifeRef: m.lifeRef, beginHold: m.beginHold, endHold: m.endHold };
 }
 
 /** Log-interpolate a frequency towards `to` by k (0 … 1). */
@@ -438,7 +385,7 @@ const towards = (f: number, to: number, k: number) => f * Math.pow(to / Math.max
 /**
  * The headset near the end: the low-pass closes (as if through a wall), the others fade first, then everything.
  * The same closing while X is held to stop living (over the hold, all the way). Silent whenever the session is not
- * live: before the role is drawn, while it is drawn, and after the end.
+ * live: before the life (the title, the notices, the consent, the headset) and after the end.
  */
 export function muffleSound(p: SoundParams, life: LifeSignal | undefined): SoundParams {
   if (!life) return p;

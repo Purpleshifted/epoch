@@ -1,13 +1,13 @@
 /**
- * parliament/intake.ts — the frame around one life in the player view (V2): the steps before the role is drawn (the
- * notices, a consent with only yes, the headset, a choice the slot then ignores), the verdict after the draw, the ways
- * a life ends, and the cause of death written on the end screen.
+ * parliament/intake.ts — the frame around one life in the player view (V2): the steps before the life (the notices, a
+ * consent with only yes, the headset — then the life begins at once, as the worker), the ways a life ends, and the
+ * cause of death written on the end screen. (2026-10-20: the choice of role, the slot and the verdict were taken out;
+ * every visitor is the worker.)
  *
  * Pure: functions of elapsed seconds, key codes and the session's record. The state machine is
  * components/parliament/useLifeSession.ts; the words are script.ts; the rules are in docs/session-logic.md.
  */
 
-import { SESSION_ROLES } from "./session";
 import type { RoleId } from "./types";
 import type { Surface } from "./witness";
 
@@ -15,31 +15,20 @@ import type { Surface } from "./witness";
 
 /** A notice page's lines come on one after another, this many seconds apart (hard cuts, no typing effect). */
 export const NOTICE_LINE_SEC = 0.9;
-/** The verdict (requested / assigned) stays this long before the life begins. */
-export const VERDICT_SEC = 4;
-/** No input for this long before the life (notices, consent, headset, choice): back to the title screen. */
+/** No input for this long before the life (notices, consent, headset): back to the title screen. */
 export const IDLE_AFTER_SEC = 45;
 /** The end screen, once SPACE is allowed, returns to the title screen by itself after this long. */
 export const END_RETURN_SEC = 90;
-/** SPACE this soon after the end is the same visitor again: the next life starts at once, at the choice. */
+/** SPACE this soon after the end is the same visitor again: the next life starts at once (no notices). */
 export const QUICK_RESTART_SEC = 20;
 /** Two gestures closer than this count as one (a tap fires pointerdown and touchend; a held key repeats). */
 export const GESTURE_GAP_MS = 300;
 
-// ── the steps before the draw ────────────────────────────────────────────────
+// ── the steps before the life ────────────────────────────────────────────────
 
-export const INTAKE_PHASES = ["notice", "consent", "headset", "choose"] as const;
-export type IntakePhase = (typeof INTAKE_PHASES)[number];
-
-/** A restart this soon after the end (wall ms) skips the notices, the consent and the headset: straight to the choice. */
+/** A restart this soon after the end (wall ms) skips the notices, the consent and the headset: straight into the life. */
 export function quickRestart(nowMs: number, endedAtMs: number, withinSec = QUICK_RESTART_SEC): boolean {
   return endedAtMs > 0 && nowMs - endedAtMs <= withinSec * 1000;
-}
-
-/** The step after `p`; after the choice comes the draw. */
-export function nextIntake(p: IntakePhase): IntakePhase | "draw" {
-  const i = INTAKE_PHASES.indexOf(p);
-  return i < 0 || i === INTAKE_PHASES.length - 1 ? "draw" : INTAKE_PHASES[i + 1];
 }
 
 /** How many of a page's `total` lines are up `elapsedSec` after the page began (the first at once). */
@@ -52,30 +41,6 @@ export function linesShown(total: number, elapsedSec: number, lineSec = NOTICE_L
 /** All of a page's lines are up: a gesture may turn the page. */
 export function pageDone(total: number, elapsedSec: number, lineSec = NOTICE_LINE_SEC): boolean {
   return linesShown(total, elapsedSec, lineSec) >= total;
-}
-
-/** The role a key chooses on the choice screen: 1 … 4 (main row or numpad) in the order of the roles; null = none. */
-export function roleForKey(code: string, roles: readonly RoleId[] = SESSION_ROLES): RoleId | null {
-  const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
-  if (!m) return null;
-  const i = Number(m[1]) - 1;
-  return i < roles.length ? roles[i] : null;
-}
-
-/** Move the highlight on the choice screen; from nothing highlighted (-1), right goes to the first, left to the last. */
-export function moveCursor(cursor: number, dir: -1 | 1, n: number): number {
-  if (n <= 0) return -1;
-  if (cursor < 0) return dir > 0 ? 0 : n - 1;
-  return (((cursor + dir) % n) + n) % n;
-}
-
-// ── the verdict ──────────────────────────────────────────────────────────────
-
-export type Verdict = "lucky" | "unlucky";
-
-/** The slot does not look at the choice: the verdict only says whether it happened to agree. */
-export function verdictOf(wanted: RoleId | null, drawn: RoleId): Verdict {
-  return wanted !== null && wanted === drawn ? "lucky" : "unlucky";
 }
 
 // ── how a life ends ──────────────────────────────────────────────────────────
@@ -165,7 +130,8 @@ export type CauseId =
   | "withered"
   | "blight";
 
-/** The causes each role can die of (the end screen's words are in script.ts). */
+/** The causes each role can die of (the end screen's words are in script.ts). The visitor is always the worker; the
+ * other rows stay for the bots' roles and as the artist's table. */
 export const CAUSES_OF: Record<RoleId, readonly CauseId[]> = {
   worker: ["suicide", "overwork", "lonely", "traffic", "illness", "cardiac"],
   cat: ["roadkill", "starved", "cold", "captured", "illness"],

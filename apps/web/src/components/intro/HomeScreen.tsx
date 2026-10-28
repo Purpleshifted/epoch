@@ -59,7 +59,7 @@ export default function HomeScreen() {
           note="with Leva"
           entries={[
             { href: "/v2/global/space", name: "Global", sub: "3D timespace · top ↗ /v2/global/top · side ↗ /v2/global/side" },
-            { href: "/v2/mobile", name: "Personal", sub: "player · worker by default during the sound tests" },
+            { href: "/v2/mobile", name: "Personal", sub: "player · the worker's life (no role choice since 10/20)" },
             { href: "/v2/sound", name: "Sound", sub: "NoiseCraft bench · patches · knob registration" },
           ]}
         />

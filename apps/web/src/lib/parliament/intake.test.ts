@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   CAUSES_OF,
   CAUSE_NAME,
-  INTAKE_PHASES,
   LANGS,
   NOTICE_LINE_SEC,
   ROLE_NAME,
@@ -21,12 +20,8 @@ import {
   isStopKey,
   stopAllowed,
   linesShown,
-  moveCursor,
-  nextIntake,
   pageDone,
   quickRestart,
-  roleForKey,
-  verdictOf,
   type LifeRecord,
   type RoleId,
   type Surface,
@@ -43,14 +38,7 @@ const rec = (over: Partial<LifeRecord> = {}): LifeRecord => ({
   ...over,
 });
 
-describe("the steps before the draw", () => {
-  it("go notice → consent → headset → choose → draw", () => {
-    expect(INTAKE_PHASES).toEqual(["notice", "consent", "headset", "choose"]);
-    expect(nextIntake("notice")).toBe("consent");
-    expect(nextIntake("consent")).toBe("headset");
-    expect(nextIntake("headset")).toBe("choose");
-    expect(nextIntake("choose")).toBe("draw");
-  });
+describe("the steps before the life", () => {
   it("are skipped for the same visitor starting again soon after the end", () => {
     expect(quickRestart(5_000, 1_000)).toBe(true);
     expect(quickRestart(21_000, 1_000)).toBe(true);
@@ -65,28 +53,6 @@ describe("the steps before the draw", () => {
     expect(pageDone(3, NOTICE_LINE_SEC * 1.9)).toBe(false);
     expect(pageDone(3, NOTICE_LINE_SEC * 2)).toBe(true);
     expect(pageDone(1, 0)).toBe(true);
-  });
-  it("map the number keys to the roles in order, on both rows", () => {
-    expect(roleForKey("Digit1")).toBe(SESSION_ROLES[0]);
-    expect(roleForKey("Numpad4")).toBe(SESSION_ROLES[3]);
-    expect(roleForKey("Digit5")).toBeNull();
-    expect(roleForKey("KeyW")).toBeNull();
-    expect(roleForKey("Space")).toBeNull();
-  });
-  it("move the highlight around the four choices and start from either end", () => {
-    expect(moveCursor(-1, 1, 4)).toBe(0);
-    expect(moveCursor(-1, -1, 4)).toBe(3);
-    expect(moveCursor(3, 1, 4)).toBe(0);
-    expect(moveCursor(0, -1, 4)).toBe(3);
-    expect(moveCursor(1, 1, 4)).toBe(2);
-  });
-});
-
-describe("the verdict", () => {
-  it("is lucky only when the slot happened to agree", () => {
-    expect(verdictOf("tree", "tree")).toBe("lucky");
-    expect(verdictOf("tree", "car")).toBe("unlucky");
-    expect(verdictOf(null, "car")).toBe("unlucky");
   });
 });
 
@@ -196,6 +162,10 @@ describe("the script", () => {
       for (const page of s.notice) expect(page.length).toBeGreaterThan(0);
       for (const page of s.notice) expect(page.length).toBeLessThanOrEqual(3);
       expect(s.headset.length).toBeLessThanOrEqual(3);
+      expect(s.headsetTouch.length).toBeLessThanOrEqual(3);
+      // how to walk is said in the first seconds of the life (there is no verdict screen to say it on)
+      expect(s.live.controls).toBeTruthy();
+      expect(s.live.controlsTouch).toBeTruthy();
       // the apparatus does not exclaim
       const all = JSON.stringify(s);
       expect(all).not.toContain("!");

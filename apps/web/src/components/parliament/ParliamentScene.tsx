@@ -8,9 +8,10 @@
  * go stays; stopping living is a button (SessionHud); tap to go on. Tilt walking (useTilt) is an option in Leva.
  *
  * V2: a visitor's SESSION (useLifeSession, lib/parliament/session.ts + intake.ts): the title screen, the notices, a
- * consent with only yes, the headset, a choice of role the slot then ignores, the verdict; then the lifespan runs,
- * near its end the cursor blinks fast, the sound goes dull and the controls stop answering; at the end the visitor is
- * removed, the cause of death is written, and the next one starts afresh. The HUD (SessionHud) says it all in dry
+ * consent with only yes, the headset — then the life begins at once, always as the worker (2026-10-20: no choice of
+ * role, no slot, no verdict); the lifespan runs, near its end the cursor blinks fast, the sound goes dull and the
+ * controls stop answering; at the end the visitor is removed, the cause of death is written, and the next one starts
+ * afresh. The HUD (SessionHud) says it all in dry
  * text (lib/parliament/script.ts, Korean or English: ?lang= first, then the Leva knob).
  */
 
@@ -33,7 +34,6 @@ import { usePageLock } from "./usePageLock";
 import { SessionHud } from "./SessionHud";
 import {
   DEFAULT_LIFE,
-  DRAW_DEFAULT,
   HINT_AFTER_SEC,
   HINT_PERIOD_SEC,
   HINT_SHOW_SEC,
@@ -46,7 +46,6 @@ import {
   hindrance,
   seedParliamentDemoIfRequested,
   ROLE_IMPLEMENTED,
-  SESSION_ROLES,
   wrapCoord,
   type Lang,
   type Observation,
@@ -82,14 +81,6 @@ const ROLE_OPTIONS: Record<string, RoleId> = {
   "나무 (tree) — 효과 미구현": "tree",
 };
 
-/** V2: the session roles; "random" = drawn by the slot at every session. */
-const V2_ROLE_OPTIONS: Record<string, RoleId | "random"> = {
-  "랜덤 (슬롯)": "random",
-  "회사원 (worker)": "worker",
-  "길고양이 (street cat) — 효과 미구현": "cat",
-  "자동차 (car) — 효과 미구현": "car",
-  "나무 (tree) — 효과 미구현": "tree",
-};
 const V2_BOT_OPTIONS: Record<string, RoleId | "mixed"> = {
   "회사원 (worker)": "worker",
   "섞어서 (worker · cat · car · tree 차례로)": "mixed",
@@ -312,15 +303,6 @@ export default function ParliamentScene() {
   const hideChrome = demo || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ui") === "0");
   // the language the apparatus speaks: ?lang=ko|en on the exhibition URL wins over the Leva knob
   const [langParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null));
-  // ?role=worker (or cat / car / tree) on a test link: every draw lands on that role, over the Leva choice
-  // test links: ?role=worker / cat / car / tree fixes the draw, ?role=random draws at random; without it the draw
-  // follows DRAW_DEFAULT (session.ts — the worker during the test period), then the Leva choice
-  const [roleParam] = useState<RoleId | "random" | null>(() => {
-    if (typeof window === "undefined") return null;
-    const r = new URLSearchParams(window.location.search).get("role");
-    if (r === "random") return "random";
-    return r && (SESSION_ROLES as readonly string[]).includes(r) ? (r as RoleId) : null;
-  });
   const [locked, setLocked] = useState(false);
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
@@ -351,9 +333,8 @@ export default function ParliamentScene() {
       "역할 (Role)": folder(
         savable("역할 (Role)", {
         session: { value: true, label: "세션 (슬롯 · 수명 · 퇴장)", render: v2 },
-        role: isV2
-          ? { options: V2_ROLE_OPTIONS, value: "random" as RoleId | "random", label: "배정 (랜덤 = 슬롯)" }
-          : { options: ROLE_OPTIONS, value: "worker" as RoleId | "random", label: "내 역할" },
+        // V1 only: V2 visitors are always the worker (2026-10-20)
+        role: { options: ROLE_OPTIONS, value: "worker" as RoleId, label: "내 역할", render: () => !isV2 },
         lang: { options: { 한국어: "ko", English: "en" } as Record<string, Lang>, value: "ko" as Lang, label: "안내 언어 (?lang= 이 우선)", render: v2 },
         phoneMode: { options: PHONE_MODE_OPTIONS, value: "touch" as "touch" | "tilt", label: "폰 조작", render: v2 },
         helpLine: { value: false, label: "자살일 때 상담전화 한 줄", render: v2 },
@@ -403,13 +384,12 @@ export default function ParliamentScene() {
   // stopping living less likely (intake.ts selfChance)
   const nearRadius = cfg.radius;
   const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
-  const fixedRole: RoleId | null =
-    roleParam === "random" ? null : roleParam ?? (roleChoice !== "random" ? roleChoice : DRAW_DEFAULT);
-  const session = useLifeSession(withSession, lifeCfg, fixedRole, lang, getNear);
+  const session = useLifeSession(withSession, lifeCfg, lang, getNear);
   // a phone: a finger walks by default; its tilt walks instead in tilt mode (useTilt; nothing on the iMac)
   const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined, phoneMode);
-  // the role the visitor leaves traces as (before the draw — IDLE — they leave nothing, see RoleField)
-  const role: RoleId = session.role ?? "worker";
+  // the role the visitor leaves traces as: in V2 always the worker (before the life — IDLE — they leave nothing, see
+  // RoleField); V1 takes the Leva knob
+  const role: RoleId = isV2 ? "worker" : roleChoice;
   // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
   const sound = useSound({ escMute: !withSession });
   // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
