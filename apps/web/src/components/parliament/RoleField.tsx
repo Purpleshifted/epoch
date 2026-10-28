@@ -38,7 +38,9 @@ import {
   sessionSeconds,
   SESSION_ROLES,
   StressState,
-  stakesOf,
+  concreteLines,
+  otherMarks,
+  pathChains,
   wrapCoord,
   type Actor,
   type Flock,
@@ -48,21 +50,20 @@ import {
   type NatureConfig,
   type Observation,
   type PEvent,
-  type Stake,
   type RoleId,
   type Snapshot,
   worldNow,
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { Stakes } from "./Stakes";
+import { ConcreteLines, OtherBoxes, PathCurves, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 import { markSpan } from "./usePerfMeter";
-import type { GrassVisual, StakesVisual } from "./usePersonalVisuals";
+import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
@@ -111,7 +112,7 @@ export function RoleField({
   ledgerRef,
   ledgerCfg,
   grass,
-  stakes,
+  marks,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -141,8 +142,8 @@ export function RoleField({
   ledgerCfg?: LedgerConfig;
   /** V2: how the grass reacts to the walker at once (Leva 개인뷰 비주얼; NatureCloud). */
   grass?: GrassVisual;
-  /** V2: the stakes in the ground (Leva 개인뷰 비주얼; lib/parliament/stakes.ts, Stakes). */
-  stakes?: StakesVisual;
+  /** V2: the marks in the frame — others, concrete, paths (Leva 개인뷰 비주얼; lib/parliament/marks.ts, Marks.tsx). */
+  marks?: MarksVisual;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -183,8 +184,8 @@ export function RoleField({
   const quickTimer = useRef(0);
   const quickSeq = useRef(0);
   const mineMap = useRef<Map<string, number> | null>(null);
-  // the stakes (markers in the ground), renewed with the fold from the record's far list and the snapshot
-  const stakesRef = useRef<Stake[] | null>(null);
+  // the marks (others, concrete, paths), renewed with the fold from the record's far list and the snapshot
+  const marksRef = useRef<MarksData | null>(null);
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
@@ -357,8 +358,16 @@ export function RoleField({
           ledgerMs.current = performance.now() - tLed;
           markSpan("ledger", ledgerMs.current);
         }
-        // the stakes: others within the view, path junctions, building centres (stakes.ts)
-        stakesRef.current = stakes?.on ? stakesOf({ me: { x: p.x, z: p.z }, far: witnessRef.current.far, snap: snap.current, radius: VIEW_RADIUS, cfg: stakes.cfg }) : null;
+        // the marks: others within the view, the sealed cells, the path chains (marks.ts)
+        if (marks?.on) {
+          const tMk = performance.now();
+          marksRef.current = {
+            others: marks.others.on ? otherMarks(witnessRef.current.far, p, VIEW_RADIUS, marks.others.recentSec) : [],
+            concrete: marks.concrete.on ? concreteLines(snap.current.slabs, p, marks.concrete.radius, SEAL_H) : [],
+            chains: marks.paths.on ? pathChains(snap.current.paths, p, marks.paths.radius, 0.08, marks.paths.per) : [],
+          };
+          markSpan("marks", performance.now() - tMk);
+        } else marksRef.current = null;
         // A3: the walker's own folded stress per cell, from the ledger
         if (grass?.mode === "mine" && ledgerRef?.current) {
           const m = new Map<string, number>();
@@ -415,7 +424,7 @@ export function RoleField({
     }
   });
 
-  const grassReaction: GrassReaction | undefined = grass ? { mode: grass.mode, nearRadius: grass.nearRadius, nearEvery: grass.nearEvery, mineGain: grass.mineGain } : undefined;
+  const grassReaction: GrassReaction | undefined = grass ? { mode: grass.mode, nearRadius: grass.nearRadius, nearEvery: grass.nearEvery, mineGain: grass.mineGain, thick: grass.thick } : undefined;
   // Concrete (slabs) is a trace fossil: it is not felt within one visitor's life, so the player
   // view draws only what one life can feel: the point-cloud ground (worn by workers, with dust
   // where a path has formed). Slabs appear in the Top and Side views.
@@ -433,7 +442,9 @@ export function RoleField({
         grass={grassReaction}
       />
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {stakes?.on && <Stakes getStakes={() => stakesRef.current} width={stakes.width} blinkHz={stakes.blinkHz} />}
+      {marks?.others.on && <OtherBoxes getMarks={() => marksRef.current} size={marks.others.size} eyeOffset={marks.others.eyeOffset} bright={marks.others.bright} />}
+      {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
+      {marks?.paths.on && <PathCurves getMarks={() => marksRef.current} drop={marks.paths.drop} bright={marks.paths.bright} />}
     </>
   );
 }

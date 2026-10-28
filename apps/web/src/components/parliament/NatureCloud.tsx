@@ -16,6 +16,7 @@
  *   A2 flatten  … and the points there lie down and dry at once (then thin out as before)
  *   A3 mine     … and the walker's own folded stress (the ledger's, `getMine`) is raised by `mineGain`; the
  *               others' cells are untouched
+ * `thick` (2026-10-28): the points' vertical spread × thick, denser low down — the grass stands as a layer.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -45,6 +46,8 @@ export interface GrassReaction {
   nearEvery: number;
   /** A3: the walker's own folded stress × this. */
   mineGain: number;
+  /** The vertical spread of the points (1 = the old spread; more = the grass stands thicker, denser low down). */
+  thick: number;
 }
 
 function dotTexture(): THREE.Texture {
@@ -124,6 +127,8 @@ export function NatureCloud({
     const quick = mode !== "off" ? (getQuick?.() ?? null) : null;
     const mine = mode === "mine" ? (getMine?.() ?? null) : null;
     const gain = grass?.mineGain ?? 1;
+    const thick = grass?.thick ?? 1;
+    const bend = 1 + 0.6 * Math.max(0, thick - 1); // h^bend: with more thickness, more of the points stay low
     const pos = g.getAttribute("position") as THREE.BufferAttribute;
     const col = g.getAttribute("color") as THREE.BufferAttribute;
     const P = pos.array as Float32Array;
@@ -164,7 +169,7 @@ export function NatureCloud({
           const u = hash2(wx, wz, 200 + i);
           const v = hash2(wx, wz, 300 + i);
           const h = hash2(wx, wz, 400 + i);
-          const y = (0.02 + h * (0.12 + 0.3 * G) * (1 - 0.6 * worn)) * (1 - 0.9 * flat);
+          const y = (0.02 + Math.pow(h, bend) * thick * (0.12 + 0.3 * G) * (1 - 0.6 * worn)) * (1 - 0.9 * flat);
           P[k * 3] = (ix + u) * CELL_SIZE;
           P[k * 3 + 1] = y;
           P[k * 3 + 2] = (iz + v) * CELL_SIZE;

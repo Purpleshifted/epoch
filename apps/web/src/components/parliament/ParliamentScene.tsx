@@ -368,7 +368,7 @@ export default function ParliamentScene() {
         botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s, 나 기준 ±절반에서 랜덤)" },
       }),
       "화면": folder({
-        pixelDpr: { value: 1, min: 0.15, max: 1, step: 0.05, label: "해상도 (1 = 픽셀 아님, 작을수록 거칠게)" },
+        pixelDpr: { value: 1, min: 0.15, max: 2, step: 0.05, label: "해상도 (1 = 1x · 2 = 레티나 · 1 미만은 거칠게)" },
         camDist: { value: 7, min: 2, max: 20, step: 0.5 },
         camLerp: { value: 0.07, min: 0.01, max: 0.3, step: 0.01, label: "카메라 부드러움" },
         viscosity: { value: 0.72, min: 0, max: 1, step: 0.01, label: "점성" },
@@ -428,8 +428,9 @@ export default function ParliamentScene() {
       <Canvas
         camera={{ position: [0, 4.5, 7], fov: 60 }}
         dpr={pixelDpr}
-        gl={{ antialias: false, alpha: false, preserveDrawingBuffer: true }}
-        style={{ background: FOG_COLOR, imageRendering: "pixelated" }}
+        gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
+        // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
+        style={{ background: FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
         <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />
         <ambientLight intensity={0.35} />
@@ -467,7 +468,7 @@ export default function ParliamentScene() {
           witnessRef={withSession ? witnessRef : undefined}
           ledgerRef={withSession ? ledgerRef : undefined}
           grass={isV2 ? visuals.grass : undefined}
-          stakes={isV2 ? visuals.stakes : undefined}
+          marks={isV2 ? visuals.marks : undefined}
         />
       </Canvas>
 
