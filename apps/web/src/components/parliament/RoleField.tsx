@@ -440,7 +440,18 @@ export function RoleField({
         grass={grassReaction}
       />
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {marks?.others.on && <OtherDots getMarks={() => marksRef.current} size={marks.others.size} eyeOffset={marks.others.eyeOffset} bright={marks.others.bright} />}
+      {marks?.others.on && (
+        <OtherDots
+          getMarks={() => marksRef.current}
+          size={marks.others.size}
+          eyeOffset={marks.others.eyeOffset}
+          bright={marks.others.bright}
+          halo={marks.others.halo}
+          haloStrength={marks.others.haloStrength}
+          fog={marks.others.fog}
+          pulseHz={marks.others.pulseHz}
+        />
+      )}
       {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
     </>
   );
