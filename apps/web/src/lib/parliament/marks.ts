@@ -6,7 +6,8 @@
  *   others    a box at eye height for every being within the view (brightness fades with the age of their sample)
  *   concrete  a VERTICAL LINE from the ground up through the frame on every sealed slab cell
  *   paths     the path cells joined into CHAINS (where routes meet, the chains meet) and smoothed into curves
- *             (Catmull-Rom), to float a little below eye height as HORIZONTAL CURVES
+ *             (Catmull-Rom), to float a little below eye height as HORIZONTAL CURVES — drawn as flat RIBBONS
+ *             (ribbonEdges) so they have a body of their own, unlike the ground's one-pixel lines
  *
  * Everything is placed at the image nearest the viewer (the world wraps, world.ts).
  */
@@ -166,4 +167,27 @@ export function pathChains(paths: readonly PathCell[], me: { x: number; z: numbe
     }
   }
   return chains;
+}
+
+/**
+ * The two edges of a flat ribbon of `width` along a curve: each point offset left and right along the normal of the
+ * curve there (the average of the neighbouring segments' directions). A curve of one point gets no edges.
+ */
+export function ribbonEdges(pts: readonly [number, number][], width: number): { left: [number, number][]; right: [number, number][] } {
+  const n = pts.length;
+  const left: [number, number][] = [], right: [number, number][] = [];
+  if (n < 2) return { left, right };
+  const h = width / 2;
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    let dx = b[0] - a[0], dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz) || 1;
+    dx /= len;
+    dz /= len;
+    // the normal in the ground plane: the direction turned a quarter
+    const nx = -dz, nz = dx;
+    left.push([pts[i][0] + nx * h, pts[i][1] + nz * h]);
+    right.push([pts[i][0] - nx * h, pts[i][1] - nz * h]);
+  }
+  return { left, right };
 }

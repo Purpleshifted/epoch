@@ -445,7 +445,7 @@ export function RoleField({
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine * (marks?.paths.on ? marks.paths.groundLine : 1)} radius={VIEW_RADIUS} />
       {marks?.others.on && <OtherDots getMarks={() => marksRef.current} size={marks.others.size} eyeOffset={marks.others.eyeOffset} bright={marks.others.bright} />}
       {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
-      {marks?.paths.on && <PathCurves getMarks={() => marksRef.current} playerPosRef={playerPosRef} drop={marks.paths.drop} bright={marks.paths.bright} sheet={marks.paths.sheet} />}
+      {marks?.paths.on && <PathCurves getMarks={() => marksRef.current} drop={marks.paths.drop} bright={marks.paths.bright} width={marks.paths.width} opacity={marks.paths.opacity} />}
     </>
   );
 }

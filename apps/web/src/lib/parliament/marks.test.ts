@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { WORLD_HALF, catmullRom, concreteLines, otherMarks, pathChains, type Other, type PathCell, type Slab } from "./index";
+import { WORLD_HALF, catmullRom, concreteLines, otherMarks, pathChains, ribbonEdges, type Other, type PathCell, type Slab } from "./index";
 
 const centre = (cx: number, cz: number): [number, number] => [(cx + 0.5) * CELL_SIZE, (cz + 0.5) * CELL_SIZE];
 const path = (cx: number, cz: number, p = 0.6): PathCell => ({ key: `${cx},${cz}`, x: centre(cx, cz)[0], z: centre(cx, cz)[1], p, visits: 10 });
@@ -59,5 +59,21 @@ describe("the marks", () => {
     // a weak cell breaks a chain in two; cells beyond the radius are not part of it
     expect(pathChains([...line.filter((q) => q.key !== "0,0"), path(0, 0, 0.1)], me, 30, 0.3, 2).length).toBe(2);
     expect(pathChains(line, me, 2, 0.3, 2)[0].pts.length).toBeLessThan(one[0].pts.length);
+  });
+
+  it("ribbon edges: a constant width either side of the curve, square to it", () => {
+    const line: [number, number][] = [[0, 0], [1, 0], [2, 0], [3, 0]];
+    const r = ribbonEdges(line, 0.4);
+    expect(r.left.length).toBe(4);
+    for (let i = 0; i < 4; i++) {
+      expect(Math.abs(r.left[i][1])).toBeCloseTo(0.2);
+      expect(Math.abs(r.right[i][1])).toBeCloseTo(0.2);
+      expect(r.left[i][1]).toBeCloseTo(-r.right[i][1]);
+      expect(r.left[i][0]).toBeCloseTo(i);
+    }
+    const bend = ribbonEdges([[0, 0], [1, 0], [1, 1]], 0.2);
+    const d = Math.hypot(bend.left[1][0] - bend.right[1][0], bend.left[1][1] - bend.right[1][1]);
+    expect(d).toBeCloseTo(0.2);
+    expect(ribbonEdges([[1, 1]], 0.4).left.length).toBe(0);
   });
 });
