@@ -25,3 +25,4 @@ export * from "./world";
 export * from "./foldState";
 export * from "./ledger";
 export * from "./footprint";
+export * from "./stakes";

@@ -467,6 +467,7 @@ export default function ParliamentScene() {
           witnessRef={withSession ? witnessRef : undefined}
           ledgerRef={withSession ? ledgerRef : undefined}
           grass={isV2 ? visuals.grass : undefined}
+          stakes={isV2 ? visuals.stakes : undefined}
         />
       </Canvas>
 

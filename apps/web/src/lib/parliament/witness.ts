@@ -93,6 +93,9 @@ export interface NearItemArgs {
 export interface Other {
   o: string;
   r: RoleId;
+  /** Where their latest sample is (canonical world coordinates). */
+  x: number;
+  z: number;
   /** World distance. */
   dist: number;
   /** 8-point compass bearing from the visitor (+z = N, +x = E). */
@@ -201,7 +204,7 @@ export function observe(inp: ObserveInputs): Observation {
     const p = prev.get(e.o);
     const ds = p ? e.s - p.s : 0;
     const v = p && ds > 0 ? wrapDist(e.x, e.z, p.x, p.z) / ds : 0;
-    const o: Other = { o: e.o, r: e.r, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed, ageSec: Math.max(0, sNow - e.s) };
+    const o: Other = { o: e.o, r: e.r, x: e.x, z: e.z, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed, ageSec: Math.max(0, sNow - e.s) };
     far.push(o);
     if (dist <= watch) others.push(o);
   }

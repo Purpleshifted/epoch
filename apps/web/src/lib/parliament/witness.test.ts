@@ -28,6 +28,7 @@ describe("the witness: a record of who is near", () => {
     expect(obs.others[0]).toMatchObject({ moving: false, bearing: "E", ageSec: 0 });
     expect(obs.others[1]).toMatchObject({ moving: true, r: "car", bearing: "N" });
     expect(obs.far.map((o) => o.o)).toEqual(["bot1", "bot2", "bot3"]); // the view (24) holds bot3 too
+    expect(obs.far[2]).toMatchObject({ x: 20, z: 0, dist: 20 });
     expect(obs.surface).toBe("trodden");
     expect(obs.moving).toBe(false);
   });
@@ -35,7 +36,7 @@ describe("the witness: a record of who is near", () => {
   it("the log: near, a state that holds, gone with how long — the English record as it always read", () => {
     const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1 });
     const o = (t: number, others: Other[], moving = false): Observation => ({ t, moving, speed: moving ? 2 : 0, surface: "open", others, far: others });
-    const bot = (dist: number, moving: boolean): Other => ({ o: "bot1", r: "worker", dist, bearing: "E", moving, ageSec: 0 });
+    const bot = (dist: number, moving: boolean): Other => ({ o: "bot1", r: "worker", x: dist, z: 0, dist, bearing: "E", moving, ageSec: 0 });
     expect(en(log.push(o(0, [])))).toEqual(["T+00:00  YOU  STATIONARY · OPEN GROUND"]);
     expect(log.push(o(1, [bot(3.5, true)]))).toEqual([]); // inside the watch radius, not yet near
     expect(en(log.push(o(2, [bot(2, true)])))).toEqual(["T+00:02  WORKER #01  NEAR · 2.0 M E · MOVING"]);

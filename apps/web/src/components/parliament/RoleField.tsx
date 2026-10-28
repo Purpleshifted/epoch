@@ -38,6 +38,7 @@ import {
   sessionSeconds,
   SESSION_ROLES,
   StressState,
+  stakesOf,
   wrapCoord,
   type Actor,
   type Flock,
@@ -47,19 +48,21 @@ import {
   type NatureConfig,
   type Observation,
   type PEvent,
+  type Stake,
   type RoleId,
   type Snapshot,
   worldNow,
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
+import { Stakes } from "./Stakes";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 import { markSpan } from "./usePerfMeter";
-import type { GrassVisual } from "./usePersonalVisuals";
+import type { GrassVisual, StakesVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
@@ -108,6 +111,7 @@ export function RoleField({
   ledgerRef,
   ledgerCfg,
   grass,
+  stakes,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -137,6 +141,8 @@ export function RoleField({
   ledgerCfg?: LedgerConfig;
   /** V2: how the grass reacts to the walker at once (Leva 개인뷰 비주얼; NatureCloud). */
   grass?: GrassVisual;
+  /** V2: the stakes in the ground (Leva 개인뷰 비주얼; lib/parliament/stakes.ts, Stakes). */
+  stakes?: StakesVisual;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -177,6 +183,8 @@ export function RoleField({
   const quickTimer = useRef(0);
   const quickSeq = useRef(0);
   const mineMap = useRef<Map<string, number> | null>(null);
+  // the stakes (markers in the ground), renewed with the fold from the record's far list and the snapshot
+  const stakesRef = useRef<Stake[] | null>(null);
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
@@ -349,6 +357,8 @@ export function RoleField({
           ledgerMs.current = performance.now() - tLed;
           markSpan("ledger", ledgerMs.current);
         }
+        // the stakes: others within the view, path junctions, building centres (stakes.ts)
+        stakesRef.current = stakes?.on ? stakesOf({ me: { x: p.x, z: p.z }, far: witnessRef.current.far, snap: snap.current, radius: VIEW_RADIUS, cfg: stakes.cfg }) : null;
         // A3: the walker's own folded stress per cell, from the ledger
         if (grass?.mode === "mine" && ledgerRef?.current) {
           const m = new Map<string, number>();
@@ -423,6 +433,7 @@ export function RoleField({
         grass={grassReaction}
       />
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
+      {stakes?.on && <Stakes getStakes={() => stakesRef.current} width={stakes.width} blinkHz={stakes.blinkHz} />}
     </>
   );
 }
