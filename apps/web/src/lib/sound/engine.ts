@@ -999,15 +999,17 @@ export class SoundEngine {
     this.bassGain.gain.setTargetAtTime(0, t, 0.1);
     this.wave.gain.gain.setTargetAtTime(0, t, 0.15);
     this.noiseGain.gain.setTargetAtTime(0, t, 0.25);
-    // the last sound into the long room (the patch before its gain: it is not heard dry after the end)
+    // the last sound into the long room. The patch goes in AFTER its gain (its fader), and that gain closes over the
+    // feed second rather than in a quarter of it: tapped before the fader and closed early, the patch arrived in
+    // the room at full level while its dry path vanished — a brief jump at the end (the artist, 2026-10-28)
     const room = this.afterlifeRoom(tail);
     if (this.nc) {
-      this.nc.filter.connect(room.send);
-      this.nc.gain.gain.setTargetAtTime(0, t + 0.25, 0.15);
+      this.nc.gain.connect(room.send);
+      this.nc.gain.gain.setTargetAtTime(0, t + 0.4, 0.3);
     }
     room.send.gain.cancelScheduledValues(t);
-    room.send.gain.setTargetAtTime(1, t, 0.02);
-    room.send.gain.setTargetAtTime(0, t + FEED, 0.08);
+    room.send.gain.setTargetAtTime(1, t, 0.2);
+    room.send.gain.setTargetAtTime(0, t + FEED, 0.3);
     // the master holds through the first half; then a FADE ENVELOPE lies over the tail's own decay (the artist: if
     // the volume has not come down by then, overlap a fade) — a straight line to silence exactly at the tail's end
     // …from WHERE IT IS (A5g): after the dying it is half, after an X hold it is whole — no jump either way
@@ -1022,6 +1024,14 @@ export class SoundEngine {
   private endAfterlife(t: number): void {
     this.afterlife = null;
     this.afterRoom?.send.gain.setTargetAtTime(0, t, 0.05);
+    // the patch leaves the room (it was joined to the send at the death); its dry path stays
+    if (this.nc && this.afterRoom) {
+      try {
+        this.nc.gain.disconnect(this.afterRoom.send);
+      } catch {
+        /* not joined */
+      }
+    }
     this.voiceBus.gain.setTargetAtTime(1, t, 0.2);
     this.bassGain.gain.setTargetAtTime(1, t, 0.2);
     this.nc?.gain.gain.setTargetAtTime(1, t, 0.2);
