@@ -19,10 +19,10 @@
 | 결정 | 담당 | 상태 |
 |---|---|---|
 | 모든 관객 = 회사원, 역할 고르기 제거 | 개인뷰 비주얼 관리 세션(진행 중, 미커밋) | 확정. `DRAW_DEFAULT`는 그 작업과 함께 사라짐. role-controls(+5)는 11월 main에 넣지 않음(다른 역할은 봇 전용) |
-| fusion → main | 세션 관리 | 확정. main 후보 **8b4245d**(로컬, 미푸시) = fusion 8afdf98 + MIDI 수정 c8e28a1 + 벽 텍스트 제거 bac7060; 세 커밋 모두 Vercel 프리뷰 success, 충돌 없음, 416 테스트 통과. **푸시 보류**: main 푸시 = 프로덕션 배포라 작가가 **세션 관리 챗에 직접 "main에 push해"**라고 써야 함(다른 세션이 전한 OK로는 권한 검사가 막음). 홈 TEST에 Lab 포함. tsc의 globals.css 타입 오류 1개는 로컬 .next 부재 탓 |
+| fusion → main | 세션 관리 | 확정. main 후보 **8b4245d**(로컬, 미푸시) = fusion 8afdf98 + MIDI 수정 c8e28a1 + 벽 텍스트 제거 bac7060; 세 커밋 모두 Vercel 프리뷰 success, 충돌 없음, 416 테스트 통과. 작가 허락(10/28, 전시 체크리스트 챗, 원문 "퓨전허락 직접 하라고 전달해")을 세션 관리에 원문 그대로 전달. 세션 관리의 권한 검사가 전달된 허락을 받지 않으면 작가가 세션 관리 챗에 직접 써야 함. 홈 TEST에 Lab 포함. tsc의 globals.css 타입 오류 1개는 로컬 .next 부재 탓 |
 | 11월에 서버(S1) 가능한지 | 현황·배포·서버가 판단 | **가능** — 겹 A(기록 보존) → B(읽기), 5~7일, 켤지는 11/7 리허설에서 (§3a). 세션을 열지는 작가가 정함 |
 | 벽(글로벌) 뷰의 텍스트 전부 제거 | 엉김/융합 비주얼 세션 | **완료** feature/fusion bac7060(10/28): `ui=0`이면 왼쪽 아래 readout 블록과 마커 이름 라벨을 렌더하지 않음(구체·선·링 유지), `/v2/global/space?ui=0`의 body 텍스트 길이 0 확인; TEST 진입·LAB은 readout 유지. 세션 관리가 fusion 머지에 같이 태움 |
-| 글로벌 사운드(lf 노이즈) 폴리싱 | 사운드 작업 제안 세션 | 작가에게 "lf 노이즈"가 무엇인지 확인 중. 후보 (A) 10/14 창고 브랜치 feature/sound의 GlobalSound — 모두의 모티프를 2옥타브 아래 톱니로 420 Hz 저역통과·홀·포화에 넣은 저역 노이즈 지형 + 리듬 틱, `app/v2/global/layout.tsx`에서 마운트(ParliamentSpace.tsx 안 건드림); (B) umwelt 원본 global_audio NoiseCraft 패치. 답을 받으면 퓨전 텍스트 커밋이 main에 들어간 뒤 main을 합치고 시작. (원래 메모: 벽 뷰에 소리 코드는 어느 브랜치에도 없음(sound-logic §10 = 계획, A10 스피커). 패치 `umwelt_global_audio.ncft` 등은 있음 → 어느 소리를 뜻하는지 그 세션에서 작가에게 확인 뒤, 벽 창이 NoiseCraftHost로 패치 하나 재생 + fold 값 몇 개를 노브로. 퓨전의 텍스트 커밋 뒤 main을 받고 ParliamentSpace.tsx를 만짐) |
+| 글로벌 사운드(lf 노이즈) 폴리싱 | 사운드 작업 제안 세션 | **작가 답(10/28): "일단 지금 저역 노이즈 예전버전인 거고" = 후보 (A)** — 사운드 세션에 전달, main이 8b4245d로 움직인 뒤 main을 합치고 시작. 후보 (A) 10/14 창고 브랜치 feature/sound의 GlobalSound — 모두의 모티프를 2옥타브 아래 톱니로 420 Hz 저역통과·홀·포화에 넣은 저역 노이즈 지형 + 리듬 틱, `app/v2/global/layout.tsx`에서 마운트(ParliamentSpace.tsx 안 건드림); (B) umwelt 원본 global_audio NoiseCraft 패치. 답을 받으면 퓨전 텍스트 커밋이 main에 들어간 뒤 main을 합치고 시작. (원래 메모: 벽 뷰에 소리 코드는 어느 브랜치에도 없음(sound-logic §10 = 계획, A10 스피커). 패치 `umwelt_global_audio.ncft` 등은 있음 → 어느 소리를 뜻하는지 그 세션에서 작가에게 확인 뒤, 벽 창이 NoiseCraftHost로 패치 하나 재생 + fold 값 몇 개를 노브로. 퓨전의 텍스트 커밋 뒤 main을 받고 ParliamentSpace.tsx를 만짐) |
 
 ### 아직 정해야 하는 것
 
@@ -91,6 +91,7 @@
 
 ## 변경 기록
 
+- 2026-10-28 작가: 글로벌 사운드 = 예전 버전 저역 노이즈(A); 퓨전 푸시 허락을 체크리스트 챗에서 줌(세션 관리에 원문 전달).
 - 2026-10-28 세션 관리: main 후보 8b4245d = fusion + MIDI c8e28a1 + 벽 텍스트 bac7060, 푸시는 작가의 직접 지시(세션 관리 챗) 대기.
 - 2026-10-28 사운드 세션: MIDI 팝업 제거 c8e28a1(sound-v4); 글로벌 사운드는 후보 A(창고의 GlobalSound)/B(umwelt 패치) 중 작가 확인 대기.
 - 2026-10-28 배포 세션 판단: 11월 서버 가능(겹 A→B, 11/4~5 완료, 11/7 리허설에서 켤지 결정); 작가가 Postgres 스토어를 직접 만들어야 함.
