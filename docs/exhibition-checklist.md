@@ -22,7 +22,7 @@
 | fusion → main | 세션 관리 | 확정, 머지 절차 시작(10/28) |
 | 11월에 서버(S1) 가능한지 | 현황·배포·서버가 판단 | **가능** — 겹 A(기록 보존) → B(읽기), 5~7일, 켤지는 11/7 리허설에서 (§3a). 세션을 열지는 작가가 정함 |
 | 벽(글로벌) 뷰의 텍스트 전부 제거 | 엉김/융합 비주얼 세션 | **완료** feature/fusion bac7060(10/28): `ui=0`이면 왼쪽 아래 readout 블록과 마커 이름 라벨을 렌더하지 않음(구체·선·링 유지), `/v2/global/space?ui=0`의 body 텍스트 길이 0 확인; TEST 진입·LAB은 readout 유지. 세션 관리가 fusion 머지에 같이 태움 |
-| 글로벌 사운드(lf 노이즈) 폴리싱 | 사운드 작업 제안 세션 | 보냄. 벽 뷰에 소리 코드는 어느 브랜치에도 없음(sound-logic §10 = 계획, A10 스피커). 패치 `umwelt_global_audio.ncft` 등은 있음 → 어느 소리를 뜻하는지 그 세션에서 작가에게 확인 뒤, 벽 창이 NoiseCraftHost로 패치 하나 재생 + fold 값 몇 개를 노브로. 퓨전의 텍스트 커밋 뒤 main을 받고 ParliamentSpace.tsx를 만짐 |
+| 글로벌 사운드(lf 노이즈) 폴리싱 | 사운드 작업 제안 세션 | 작가에게 "lf 노이즈"가 무엇인지 확인 중. 후보 (A) 10/14 창고 브랜치 feature/sound의 GlobalSound — 모두의 모티프를 2옥타브 아래 톱니로 420 Hz 저역통과·홀·포화에 넣은 저역 노이즈 지형 + 리듬 틱, `app/v2/global/layout.tsx`에서 마운트(ParliamentSpace.tsx 안 건드림); (B) umwelt 원본 global_audio NoiseCraft 패치. 답을 받으면 퓨전 텍스트 커밋이 main에 들어간 뒤 main을 합치고 시작. (원래 메모: 벽 뷰에 소리 코드는 어느 브랜치에도 없음(sound-logic §10 = 계획, A10 스피커). 패치 `umwelt_global_audio.ncft` 등은 있음 → 어느 소리를 뜻하는지 그 세션에서 작가에게 확인 뒤, 벽 창이 NoiseCraftHost로 패치 하나 재생 + fold 값 몇 개를 노브로. 퓨전의 텍스트 커밋 뒤 main을 받고 ParliamentSpace.tsx를 만짐) |
 
 ### 아직 정해야 하는 것
 
@@ -42,9 +42,9 @@
 - [ ] 글로벌 사운드 (사운드 세션, feature/sound-v4; main을 먼저 받은 뒤).
 - [ ] 개인뷰 세션의 변경(안내 문구 4장, 회사원 고정, 삶 요약·브로드캐스트 문구) 커밋 → main.
 - [ ] `DRAW_DEFAULT`(`lib/parliament/session.ts`): 개인뷰 세션의 회사원 고정 작업과 함께 삭제됨 — 그 커밋이 main에 들어갔는지 확인.
-- [ ] NoiseCraft `midi.js`의 `requestMIDIAccess()`가 `/v2/mobile` 로드 때 "MIDI 기기 허용?" 팝업을 띄움(프로덕션 콘솔 에러도 이것 하나) → 플레이어·벽 페이지에서 MIDI 요청을 빼기(사운드 세션에 보냄, 10/28). 못 빼면 당일 "차단" 한 번.
+- [x] NoiseCraft MIDI 팝업 — **feature/sound-v4 c8e28a1**(10/28, main에서 fast-forward 뒤 1커밋): 로드 때 묻지 않고 MIDI를 실제로 듣는 노드가 생길 때만 한 번; 숨은 악기(`?view=hidden` = 플레이어·벽)와 `?midi=0`에선 절대 묻지 않음(node로 확인: 숨은 악기 0회). embed 기본 패치 404도 고침. 바뀐 파일은 `apps/web/public/noisecraft/public/{midi.js,embedded.html}` + 문서뿐이라 퓨전과 안 겹침. **main에 올리는 것은 작가 말이 있을 때.**
 - [ ] 홈 TEST › Personal 부제 "worker by default during the sound tests" 문구 정리.
-- [ ] (선택) `embedded.html` 기본 패치 `indiv_audio_map_v2.ncft` 404 — 콘솔 소음뿐.
+- [x] `embedded.html` 기본 패치 404 — c8e28a1에서 함께 고침.
 - [ ] 세계 시계 배속(Leva 시간 배율, localStorage로 창끼리 공유)이 1인지.
 - [ ] 기록 보존: 서버 겹 A가 들어가면 그것이 답. 안 들어가면 벽 뷰(또는 Leva)에 이벤트 로그 JSON 내려받기 버튼(미구현, 반나절).
 - [ ] 세션 관리가 11월 버전을 main에 합치고 태그 `exhibit-2026-11`. 배포본에서 NoiseCraft 패치 저장은 원래 안 됨(읽기 전용 fs) — 전시에 영향 없음.
@@ -91,6 +91,7 @@
 
 ## 변경 기록
 
+- 2026-10-28 사운드 세션: MIDI 팝업 제거 c8e28a1(sound-v4); 글로벌 사운드는 후보 A(창고의 GlobalSound)/B(umwelt 패치) 중 작가 확인 대기.
 - 2026-10-28 배포 세션 판단: 11월 서버 가능(겹 A→B, 11/4~5 완료, 11/7 리허설에서 켤지 결정); 작가가 Postgres 스토어를 직접 만들어야 함.
 - 2026-10-28 작가 결정: 회사원 확정·역할 고르기 제거(개인뷰 세션), 퓨전 → main(세션 관리), 벽 텍스트 제거(퓨전 세션), 글로벌 사운드(사운드 세션), 서버 가능성 확인(배포 세션 판단 중). role-controls는 11월 보류.
 - 2026-10-28 초안. 세션 관리: 작가가 "main에 넣자"고 한 것 중 안 들어간 것은 없음; fusion·session-life·role-controls·visual·개인뷰가 미결정. 현황·배포·서버: 11월 localStorage only 확정, S1 미착수, 전용 별칭 + 태그로 전시 빌드 고정, 12월 서버는 11/12–14 착수.
