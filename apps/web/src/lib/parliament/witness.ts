@@ -1,23 +1,94 @@
 /**
- * parliament/witness.ts — what the player view SAYS about the visitor's situation: a dry machine record of who is
- * near, what they and the visitor are doing, and what the ground underfoot is.
+ * parliament/witness.ts — what the player view SAYS about the visitor's situation: a machine record of who is near,
+ * what they and the visitor are doing, what the ground underfoot is — and, since 2026-10-20, what the visitor's life
+ * is doing to the ground (the ledger's lines, ledger.ts: pressed grass, worn ground, paths, concrete shares).
  *
- * On purpose it only states facts (distances, durations, states) and never their consequence: that the visitor's
- * staying with others is pouring concrete, or that their walking is wearing a path, is only seen in the global
- * view. Here it is meant not to land; there it lands (docs/direction-2026-10-10.md §1).
+ * The record is STRUCTURED: every line is a LogEntry { t, key, args, level }, worded by the apparatus in the chosen
+ * language (script.ts LOG · formatEntry — English upper case, or Korean). The level says how much it matters on the
+ * screen: 0 a fact (grey), 1 notable (white), 2 important (yellow). Until 2026-10-20 the record stated facts only and
+ * never their consequence (docs/direction-2026-10-10.md §1); the artist withdrew that rule for the personal view.
  *
  *   observe()      one reading from the event log and the fold snapshot (pure)
- *   WitnessLog     turns the readings into log lines: someone came near / left (with how long they were near),
- *                  the visitor or someone near started / stopped moving, the surface changed. Every change has to
- *                  hold for `settleSec` before it is written, so a tap on a key does not make a line.
+ *   WitnessLog     turns the readings into entries: someone came near / left (with how long they were near), the
+ *                  visitor or someone near started / stopped moving, the surface changed. Every change has to hold
+ *                  for `settleSec` before it is written, so a tap on a key does not make a line. `note()` takes the
+ *                  ledger's entries into the same record.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { ROLE_TAG, fmtClock } from "./session";
+import { ROLE_TAG } from "./session";
 import type { PEvent, RoleId, Snapshot } from "./types";
 import { wrapDelta, wrapDist } from "./world";
 
 export type Surface = "open" | "trodden" | "sealed";
+
+/** Someone in the record: their id and role (named by script.ts nameIn / nameOf). */
+export interface Who {
+  o: string;
+  r: RoleId;
+}
+
+export type LogKey =
+  | "you.state"
+  | "you.moving"
+  | "surface"
+  | "near"
+  | "other.moving"
+  | "gone"
+  | "attempt.tried"
+  | "attempt.failed"
+  | "grass.pressed"
+  | "grass.recovered"
+  | "ground.worn"
+  | "ground.prePath"
+  | "path.formed"
+  | "concrete.share"
+  | "sealed.under"
+  | "alone.long";
+
+/** 0 a fact · 1 notable · 2 important (how the HUD colours the line). */
+export type LogLevel = 0 | 1 | 2;
+
+export interface LogArgs {
+  who?: Who;
+  moving?: boolean;
+  surface?: Surface;
+  dist?: number;
+  bearing?: string;
+  forSec?: number;
+  near?: number;
+  n?: number;
+  pct?: number;
+  sec?: number;
+  with?: Who[];
+  /** Session seconds something was born (concrete). */
+  at?: number;
+}
+
+export interface LogEntry {
+  /** Session seconds. */
+  t: number;
+  key: LogKey;
+  args: LogArgs;
+  level: LogLevel;
+}
+
+/** The visitor's state now (the status line). */
+export interface StatusArgs {
+  moving: boolean;
+  forSec: number;
+  surface: Surface;
+  near: number;
+}
+
+/** One of the others near now (the near list). */
+export interface NearItemArgs {
+  who: Who;
+  dist: number;
+  bearing: string;
+  moving: boolean;
+  forSec: number;
+}
 
 export interface Other {
   o: string;
@@ -27,6 +98,8 @@ export interface Other {
   /** 8-point compass bearing from the visitor (+z = N, +x = E). */
   bearing: string;
   moving: boolean;
+  /** How old their latest sample is (s). */
+  ageSec: number;
 }
 
 export interface Observation {
@@ -38,11 +111,8 @@ export interface Observation {
   surface: Surface;
   /** Everyone whose latest sample is within `watchRadius`, nearest first. */
   others: Other[];
-  /**
-   * The buildings my own weight has counted on (sealed slabs within 2 × nearRadius whose `who` has me): the slab,
-   * its height in storeys, my weight, and the others who built it (sound wiring, v4 A4d).
-   */
-  builds: { key: string; storeys: number; mine: number; others: string[] }[];
+  /** Everyone within `farRadius` (the view), nearest first — for the markers on the ground (stakes). */
+  far: Other[];
 }
 
 export interface WitnessConfig {
@@ -62,6 +132,8 @@ export interface WitnessConfig {
   settleSec: number;
   /** Lines kept. */
   keep: number;
+  /** World radius of `far` (the player's view). */
+  farRadius: number;
 }
 
 export const DEFAULT_WITNESS: WitnessConfig = {
@@ -72,7 +144,8 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   trodden: 0.3,
   sealedH: 0.15,
   settleSec: 1.5,
-  keep: 6,
+  keep: 5,
+  farRadius: 24,
 };
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -119,36 +192,34 @@ export function observe(inp: ObserveInputs): Observation {
     }
   }
   const others: Other[] = [];
+  const far: Other[] = [];
+  const byDist = (a: Other, b: Other) => a.dist - b.dist || (a.o < b.o ? -1 : 1);
   for (const e of last.values()) {
     const dx = wrapDelta(e.x - me.x), dz = wrapDelta(e.z - me.z);
     const dist = Math.hypot(dx, dz);
-    if (dist > watch) continue;
+    if (dist > cfg.farRadius) continue;
     const p = prev.get(e.o);
     const ds = p ? e.s - p.s : 0;
     const v = p && ds > 0 ? wrapDist(e.x, e.z, p.x, p.z) / ds : 0;
-    others.push({ o: e.o, r: e.r, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed });
+    const o: Other = { o: e.o, r: e.r, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed, ageSec: Math.max(0, sNow - e.s) };
+    far.push(o);
+    if (dist <= watch) others.push(o);
   }
-  others.sort((a, b) => a.dist - b.dist || (a.o < b.o ? -1 : 1));
+  others.sort(byDist);
+  far.sort(byDist);
 
   const key = `${Math.floor(me.x / CELL_SIZE)},${Math.floor(me.z / CELL_SIZE)}`;
   let surface: Surface = "open";
-  const builds: Observation["builds"] = [];
   if (snap) {
     if (snap.slabs.some((s) => s.key === key && s.h >= cfg.sealedH)) surface = "sealed";
     else if (snap.paths.some((p) => p.key === key && p.p >= cfg.trodden)) surface = "trodden";
-    for (const s of snap.slabs) {
-      if (s.h < cfg.sealedH || wrapDist(s.x, s.z, me.x, me.z) > 2 * cfg.nearRadius) continue;
-      const mine = s.who?.find((w) => w.o === me.id)?.amount ?? 0;
-      if (mine <= 0) continue;
-      builds.push({ key: s.key, storeys: Math.floor(s.raw), mine, others: (s.who ?? []).filter((w) => w.o !== me.id && w.amount > 0).map((w) => w.o) });
-    }
   }
   const speed = Math.hypot(me.vx, me.vz);
-  return { t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, builds };
+  return { t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, far };
 }
 
 /** A state that is only taken over once a new value has held for `settleSec`. */
-class Settled<T> {
+export class Settled<T> {
   value: T;
   /** When `value` was taken over. */
   since: number;
@@ -187,18 +258,15 @@ interface NearState {
   lastBearing: string;
 }
 
-const SURFACE_WORD: Record<Surface, string> = { open: "OPEN GROUND", trodden: "TRODDEN GROUND", sealed: "SEALED GROUND" };
-
 export class WitnessLog {
   readonly cfg: WitnessConfig;
-  lines: string[] = [];
+  /** The record, oldest first (at most `keep`). */
+  entries: LogEntry[] = [];
   private moving: Settled<boolean> | null = null;
   private surface: Settled<Surface> | null = null;
   private near = new Map<string, NearState>();
   private last: Observation | null = null;
-  /** The buildings I have been written down as building: slab key → storeys last written. */
-  private built = new Map<string, number>();
-  /** Roles seen for ids (for the names in the building lines); unknown ids are workers (the bots mostly are). */
+  /** Roles seen for ids (to name whom I built with); unknown ids are workers (the bots mostly are). */
   private roles = new Map<string, RoleId>();
   /** Totals over the session (for the end screen). */
   private totals = { stillSec: 0, nearSec: 0, met: new Set<string>(), metByRole: new Map<RoleId, number>(), attempts: 0 };
@@ -207,29 +275,34 @@ export class WitnessLog {
     this.cfg = cfg;
   }
 
-  private write(t: number, text: string) {
-    this.lines.push(`T+${fmtClock(t)}  ${text}`);
-    if (this.lines.length > this.cfg.keep) this.lines.splice(0, this.lines.length - this.cfg.keep);
+  private write(t: number, key: LogKey, args: LogArgs, level: LogLevel): LogEntry {
+    const e: LogEntry = { t, key, args, level };
+    this.entries.push(e);
+    if (this.entries.length > this.cfg.keep) this.entries.splice(0, this.entries.length - this.cfg.keep);
+    return e;
   }
+
+  /** The ledger's line (ledger.ts), into the same record. */
+  note(e: LogEntry): void {
+    this.write(e.t, e.key, e.args, e.level);
+  }
+
+  /** The role last seen for an id (the bots' ids carry their role in every sample); a worker when unknown. */
+  roleOf = (o: string): RoleId => this.roles.get(o) ?? "worker";
 
   /**
-   * A worker tried to stop living and it failed (a success ends the session instead): two flat lines, one more try;
-   * `near` = how many others were around then (company makes it less likely — the record only states the number).
+   * The visitor tried to stop living and it failed (a success ends the session instead): two flat lines, one more
+   * try; `near` = how many others were around then (company makes it less likely — the record only states the number).
    */
-  attempt(t: number, near = 0): string[] {
+  attempt(t: number, near = 0): LogEntry[] {
     this.totals.attempts += 1;
-    this.write(t, `YOU  TRIED TO STOP LIVING${near > 0 ? ` · NEAR ${near}` : ""}`);
-    this.write(t, "YOU  FAILED");
-    return this.lines.slice(-2);
+    return [this.write(t, "attempt.tried", { near }, 1), this.write(t, "attempt.failed", {}, 1)];
   }
 
-  /** Feed one observation; returns the lines written by it. */
-  push(obs: Observation): string[] {
-    const written: string[] = [];
-    const w = (text: string) => {
-      this.write(obs.t, text);
-      written.push(this.lines[this.lines.length - 1]);
-    };
+  /** Feed one observation; returns the entries written by it. */
+  push(obs: Observation): LogEntry[] {
+    const written: LogEntry[] = [];
+    const w = (key: LogKey, args: LogArgs, level: LogLevel = 0) => written.push(this.write(obs.t, key, args, level));
     const { settleSec, nearRadius } = this.cfg;
 
     if (this.last && this.moving) {
@@ -241,14 +314,15 @@ export class WitnessLog {
     if (!this.moving || !this.surface) {
       this.moving = new Settled(obs.moving, obs.t);
       this.surface = new Settled(obs.surface, obs.t);
-      w(`YOU  ${obs.moving ? "MOVING" : "STATIONARY"} · ${SURFACE_WORD[obs.surface]}`);
+      w("you.state", { moving: obs.moving, surface: obs.surface });
     } else {
-      if (this.moving.feed(obs.moving, obs.t, settleSec)) w(`YOU  ${obs.moving ? "MOVING" : "STATIONARY"}`);
-      if (this.surface.feed(obs.surface, obs.t, settleSec)) w(`SURFACE  ${SURFACE_WORD[obs.surface]}`);
+      if (this.moving.feed(obs.moving, obs.t, settleSec)) w("you.moving", { moving: obs.moving });
+      if (this.surface.feed(obs.surface, obs.t, settleSec)) w("surface", { surface: obs.surface });
     }
 
     // who came near / left
     const seen = new Set<string>();
+    for (const o of obs.far) this.roles.set(o.o, o.r);
     for (const o of obs.others) {
       seen.add(o.o);
       const st = this.near.get(o.o);
@@ -257,43 +331,27 @@ export class WitnessLog {
           if (!this.totals.met.has(o.o)) this.totals.metByRole.set(o.r, (this.totals.metByRole.get(o.r) ?? 0) + 1);
           this.totals.met.add(o.o);
           this.near.set(o.o, { r: o.r, since: obs.t, moving: new Settled(o.moving, obs.t), lastDist: o.dist, lastBearing: o.bearing });
-          w(`${nameOf(o.o, o.r)}  NEAR · ${o.dist.toFixed(1)} M ${o.bearing} · ${o.moving ? "MOVING" : "STATIONARY"}`);
+          w("near", { who: { o: o.o, r: o.r }, dist: o.dist, bearing: o.bearing, moving: o.moving });
         }
         continue;
       }
       st.lastDist = o.dist;
       st.lastBearing = o.bearing;
-      if (st.moving.feed(o.moving, obs.t, settleSec)) w(`${nameOf(o.o, st.r)}  ${o.moving ? "MOVING" : "STATIONARY"} · ${o.dist.toFixed(1)} M ${o.bearing}`);
+      if (st.moving.feed(o.moving, obs.t, settleSec)) w("other.moving", { who: { o: o.o, r: st.r }, moving: o.moving, dist: o.dist, bearing: o.bearing });
     }
     for (const [o, st] of this.near) {
       if (seen.has(o)) continue;
       this.near.delete(o);
-      w(`${nameOf(o, st.r)}  GONE · NEAR FOR ${fmtClock(obs.t - st.since)}`);
-    }
-    // building: only when my own weight has counted on a building (the artist: not "near", but really building it)
-    for (const o of obs.others) this.roles.set(o.o, o.r);
-    for (const b of obs.builds) {
-      if (b.mine < 2) continue; // a passing sample is not building
-      const names = b.others.map((o) => nameOf(o, this.roles.get(o) ?? "worker")).slice(0, 3).join(" · ");
-      const prev = this.built.get(b.key);
-      if (prev === undefined) {
-        this.built.set(b.key, b.storeys);
-        w(names ? `YOU  BUILDING WITH ${names}` : "YOU  BUILDING · ALONE ON THEIR WORK");
-      } else if (b.storeys > prev) {
-        this.built.set(b.key, b.storeys);
-        w(`BUILDING  STOREY ${b.storeys}${names ? ` · WITH ${names}` : ""}`);
-      }
+      w("gone", { who: { o, r: st.r }, forSec: obs.t - st.since });
     }
     this.last = obs;
     return written;
   }
 
-  /** The visitor's state now, in one line. */
-  status(): string {
-    if (!this.last || !this.moving || !this.surface) return "";
-    const o = this.last;
-    const mv = `${this.moving.value ? "MOVING" : "STATIONARY"} ${fmtClock(o.t - this.moving.since)}`;
-    return `YOU  ${mv} · ${SURFACE_WORD[this.surface.value]} · NEAR ${this.near.size}`;
+  /** The visitor's state now (null before the first reading). */
+  status(): StatusArgs | null {
+    if (!this.last || !this.moving || !this.surface) return null;
+    return { moving: this.moving.value, forSec: this.last.t - this.moving.since, surface: this.surface.value, near: this.near.size };
   }
 
   /**
@@ -313,13 +371,11 @@ export class WitnessLog {
     };
   }
 
-  /** The others near now, one short entry each, nearest first. */
-  nearNow(): string[] {
-    const out: string[] = [];
+  /** The others near now, nearest first. */
+  nearNow(): NearItemArgs[] {
+    const out: NearItemArgs[] = [];
     const list = [...this.near.entries()].sort((a, b) => a[1].lastDist - b[1].lastDist);
-    for (const [o, st] of list) {
-      out.push(`${nameOf(o, st.r)} ${st.lastDist.toFixed(1)} M ${st.lastBearing} · ${st.moving.value ? "MOVING" : "STATIONARY"} · ${fmtClock((this.last?.t ?? 0) - st.since)}`);
-    }
+    for (const [o, st] of list) out.push({ who: { o, r: st.r }, dist: st.lastDist, bearing: st.lastBearing, moving: st.moving.value, forSec: (this.last?.t ?? 0) - st.since });
     return out;
   }
 }

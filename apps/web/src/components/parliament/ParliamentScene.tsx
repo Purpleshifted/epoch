@@ -48,6 +48,7 @@ import {
   ROLE_IMPLEMENTED,
   wrapCoord,
   type Lang,
+  type Ledger,
   type Observation,
   type RoleId,
 } from "@/lib/parliament";
@@ -326,6 +327,8 @@ export default function ParliamentScene() {
   // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
   usePageLock(isV2);
   const witnessRef = useRef<Observation | null>(null);
+  // V2: the ledger of this life (lib/parliament/ledger.ts) — written by RoleField, read by the HUD
+  const ledgerRef = useRef<Ledger | null>(null);
 
   const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
@@ -459,11 +462,12 @@ export default function ParliamentScene() {
           playerYawRef={playerYawRef}
           lifeRef={withSession ? session.lifeRef : undefined}
           witnessRef={withSession ? witnessRef : undefined}
+          ledgerRef={withSession ? ledgerRef : undefined}
         />
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
@@ -485,6 +489,7 @@ export default function ParliamentScene() {
               {ROLE_IMPLEMENTED[debug.role] ? "" : " (no effect yet)"}
               {withSession ? ` · ${session.phase}` : ""} · s={debug.s} (offset {debug.offset}) · ({debug.x}, {debug.z}) · events {debug.events} · slabs {debug.slabs} · paths {debug.paths}
               {debug.fold ? ` · ${debug.fold}` : ""}
+              {debug.ledger ? ` · ${debug.ledger}` : ""}
             </div>
           )}
           {debug?.sound && <div>♪ {debug.sound}</div>}

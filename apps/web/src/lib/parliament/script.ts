@@ -10,7 +10,9 @@
  */
 
 import type { CauseId } from "./intake";
+import { fmtClock } from "./session";
 import type { RoleId } from "./types";
+import { nameOf, type LogArgs, type LogEntry, type LogKey, type NearItemArgs, type StatusArgs, type Surface, type Who } from "./witness";
 
 export type Lang = "ko" | "en";
 export const LANGS: readonly Lang[] = ["ko", "en"];
@@ -190,3 +192,109 @@ export function titleFor(lang: Lang): { main: string; sub: string | null } {
   if (lang === "en") return { main: TITLE.en || TITLE.ko, sub: null };
   return { main: TITLE.ko, sub: TITLE.en || null };
 }
+
+// ── the record's words (witness.ts entries, ledger.ts lines) ─────────────────
+//
+// One record, in the chosen language. English is the machine's upper case (byte for byte what the record said before
+// 2026-10-20); Korean is the apparatus's voice: no subject on the visitor's own lines (the others are named, so a line
+// without a name is about you), "당신" only where it stands against the others (your share of the concrete).
+// Levels (witness.ts LogLevel): 0 a fact, 1 notable, 2 important — the HUD colours them grey / white / yellow.
+// The artist edits the Korean here; the rule stays: at most two short lines, no "!" (intake.test.ts).
+
+export type NameFn = (w: Who) => string;
+
+/** How the apparatus names someone when speaking: ko "회사원 #03" / "회사원 AB12C"; en the machine tag (nameOf). */
+export function nameIn(lang: Lang, o: string, r: RoleId): string {
+  if (lang === "en") return nameOf(o, r);
+  const role = ROLE_NAME.ko[r] ?? r;
+  if (o.startsWith("bot")) return `${role} #${o.slice(3).padStart(2, "0")}`;
+  return `${role} ${o.replace(/^v_/, "").toUpperCase()}`;
+}
+
+const SURFACE_EN: Record<Surface, string> = { open: "OPEN GROUND", trodden: "TRODDEN GROUND", sealed: "SEALED GROUND" };
+const SURFACE_KO: Record<Surface, string> = { open: "열린 땅", trodden: "다져진 땅", sealed: "봉인된 땅" };
+const COMPASS_KO: Record<string, string> = { N: "북", NE: "북동", E: "동", SE: "남동", S: "남", SW: "남서", W: "서", NW: "북서" };
+const mvEn = (m?: boolean) => (m ? "MOVING" : "STATIONARY");
+const mvKo = (m?: boolean) => (m ? "이동 중" : "머묾");
+const d1 = (v?: number) => (v ?? 0).toFixed(1);
+const sfEn = (s?: Surface) => SURFACE_EN[s ?? "open"];
+const sfKo = (s?: Surface) => SURFACE_KO[s ?? "open"];
+const koBearing = (b?: string) => COMPASS_KO[b ?? "N"] ?? b ?? "";
+const listOf = (w: Who[] | undefined, name: NameFn, sep: string) => (w ?? []).slice(0, 3).map(name).join(sep);
+
+export interface LogTemplates {
+  line: Record<LogKey, (a: LogArgs, name: NameFn) => string>;
+  status: (a: StatusArgs) => string;
+  nearItem: (a: NearItemArgs, name: NameFn) => string;
+}
+
+export const LOG: Record<Lang, LogTemplates> = {
+  ko: {
+    line: {
+      "you.state": (a) => `${mvKo(a.moving)} · ${sfKo(a.surface)}`,
+      "you.moving": (a) => mvKo(a.moving),
+      surface: (a) => `지면  ${sfKo(a.surface)}`,
+      near: (a, name) => `${name(a.who!)}  가까이 · ${d1(a.dist)} m ${koBearing(a.bearing)} · ${mvKo(a.moving)}`,
+      "other.moving": (a, name) => `${name(a.who!)}  ${mvKo(a.moving)} · ${d1(a.dist)} m ${koBearing(a.bearing)}`,
+      gone: (a, name) => `${name(a.who!)}  떠남 · ${fmtClock(a.forSec ?? 0)} 동안 가까이`,
+      "attempt.tried": (a) => `그만 살기 시도${(a.near ?? 0) > 0 ? ` · 가까이 ${a.near}` : ""}`,
+      "attempt.failed": () => "실패",
+      // the ledger (후보 — 작가가 고침): ① 발밑의 풀이 눌렸습니다. ② 지나온 자리의 풀이 누웠습니다. ③ 풀  눌림 n칸 분
+      "grass.pressed": (a) => `풀 ${a.n}칸 분이 눌렸습니다.`,
+      // ① 떠난 자리의 풀이 절반 넘게 돌아왔습니다. ② 풀  회복 n %
+      "grass.recovered": (a) => `떠난 자리의 풀 ${a.pct} %가 돌아왔습니다.`,
+      // ① 걸은 자리가 다져지고 있습니다. ② 땅  다져짐 n칸
+      "ground.worn": (a) => `걸은 자리 ${a.n}칸이 다져지고 있습니다.`,
+      // ① 앞서 다져진 길입니다. ② 다져진 땅 · 앞서 n번 지나감
+      "ground.prePath": (a) => `앞서 다져진 길입니다 · ${a.n}번 지나감`,
+      // ① 걸은 자리 n칸이 길이 되었습니다. ② 밟은 자리가 길이 되었습니다. ③ 길  생김 · n칸
+      // (혼자 2분을 왕복해도 길은 생기므로 "혼자 낸 길은 아닙니다"는 늘 참이 아님)
+      "path.formed": (a) => `걸은 자리 ${a.n}칸이 길이 되었습니다.`,
+      // ① 머문 자리에 콘크리트가 생겼습니다. 당신의 몫 n %. ② 회사원 #03·#07과 머문 자리에 콘크리트. 당신의 몫 n %
+      // ③ 함께 머문 셋이 바닥을 굳혔습니다. 당신의 몫 n %.
+      "concrete.share": (a, name) => {
+        const w = listOf(a.with, name, "·");
+        return w ? `${w}과 머문 자리에 콘크리트가 생겼습니다. 당신의 몫 ${a.pct} %.` : `머문 자리에 콘크리트가 생겼습니다. 당신의 몫 ${a.pct} %.`;
+      },
+      // ① 이 아래의 풀은 n %만 남았습니다. ② 발밑은 콘크리트입니다. 풀 n %.
+      "sealed.under": (a) => `발밑은 콘크리트입니다. 이 아래의 풀은 ${a.pct} %만 남았습니다.`,
+      // ① 혼자서는 아무것도 지어지지 않습니다. ② n초째 가까이 아무도 없습니다.
+      "alone.long": (a) => `${a.sec}초째 가까이 아무도 없습니다. 혼자서는 아무것도 지어지지 않습니다.`,
+    },
+    status: (a) => `${mvKo(a.moving)} ${fmtClock(a.forSec)} · ${sfKo(a.surface)} · 가까이 ${a.near}`,
+    nearItem: (a, name) => `${name(a.who)} ${d1(a.dist)} m ${koBearing(a.bearing)} · ${mvKo(a.moving)} · ${fmtClock(a.forSec)}`,
+  },
+  en: {
+    line: {
+      "you.state": (a) => `YOU  ${mvEn(a.moving)} · ${sfEn(a.surface)}`,
+      "you.moving": (a) => `YOU  ${mvEn(a.moving)}`,
+      surface: (a) => `SURFACE  ${sfEn(a.surface)}`,
+      near: (a, name) => `${name(a.who!)}  NEAR · ${d1(a.dist)} M ${a.bearing} · ${mvEn(a.moving)}`,
+      "other.moving": (a, name) => `${name(a.who!)}  ${mvEn(a.moving)} · ${d1(a.dist)} M ${a.bearing}`,
+      gone: (a, name) => `${name(a.who!)}  GONE · NEAR FOR ${fmtClock(a.forSec ?? 0)}`,
+      "attempt.tried": (a) => `YOU  TRIED TO STOP LIVING${(a.near ?? 0) > 0 ? ` · NEAR ${a.near}` : ""}`,
+      "attempt.failed": () => "YOU  FAILED",
+      "grass.pressed": (a) => `GRASS  PRESSED · ${a.n} CELLS`,
+      "grass.recovered": (a) => `GRASS  RECOVERED · ${a.pct} %`,
+      "ground.worn": (a) => `GROUND  WORN · ${a.n} CELLS`,
+      "ground.prePath": (a) => `TRODDEN  BEFORE YOU · ${a.n} PASSES`,
+      "path.formed": (a) => `PATH  FORMED · ${a.n} CELLS`,
+      "concrete.share": (a, name) => {
+        const w = listOf(a.with, name, " ");
+        return w ? `CONCRETE  WITH ${w} · YOUR SHARE ${a.pct} %` : `CONCRETE  YOUR SHARE ${a.pct} %`;
+      },
+      "sealed.under": (a) => `SEALED  GRASS BELOW ${a.pct} %`,
+      "alone.long": (a) => `ALONE  ${a.sec} S · NOTHING SETS`,
+    },
+    status: (a) => `YOU  ${mvEn(a.moving)} ${fmtClock(a.forSec)} · ${sfEn(a.surface)} · NEAR ${a.near}`,
+    nearItem: (a, name) => `${name(a.who)} ${d1(a.dist)} M ${a.bearing} · ${mvEn(a.moving)} · ${fmtClock(a.forSec)}`,
+  },
+};
+
+/** One record line in the chosen language: the `T+mm:ss` prefix (machine face) and the text (apparatus face). */
+export function formatEntry(e: LogEntry, lang: Lang): { prefix: string; text: string } {
+  const name: NameFn = (w) => nameIn(lang, w.o, w.r);
+  return { prefix: `T+${fmtClock(e.t)}`, text: LOG[lang].line[e.key](e.args, name) };
+}
+export const formatStatus = (a: StatusArgs, lang: Lang): string => LOG[lang].status(a);
+export const formatNearItem = (a: NearItemArgs, lang: Lang): string => LOG[lang].nearItem(a, (w) => nameIn(lang, w.o, w.r));

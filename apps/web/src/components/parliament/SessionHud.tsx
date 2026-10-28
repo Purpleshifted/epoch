@@ -3,10 +3,12 @@
  * SessionHud — what the player view says (V2), in a retro terminal face, greys only:
  *   - before the life: the title screen, the notices, a consent with only yes, the headset (intake.ts); the life
  *     begins the moment the headset is on (2026-10-20: no choice of role, no slot, no verdict — always the worker)
- *   - while live: how to walk, faintly, for the first seconds; the dry record (lib/parliament/witness.ts); a banner
- *     now and then saying how to stop living, the dark that comes up while X is held, and the line when it fails
+ *   - while live: how to walk, faintly, for the first seconds; the record (lib/parliament/witness.ts) in the chosen
+ *     language — facts and, since 2026-10-20, what the life does to the ground (lib/parliament/ledger.ts: pressed
+ *     grass, worn ground, paths, concrete shares), the important lines in yellow; a banner now and then saying how to
+ *     stop living, the dark that comes up while X is held, and the line when it fails
  *   - at the end: the cause of death (intake.ts, from the record) and the totals
- * The words are lib/parliament/script.ts (ko / en); the machine log stays English. VT323 has no Hangul, so the
+ * The words are lib/parliament/script.ts (ko / en), the record's too (LOG · formatEntry). VT323 has no Hangul, so the
  * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
  */
 
@@ -15,18 +17,26 @@ import { useEffect, useRef, useState } from "react";
 import {
   CAUSE_NAME,
   HOLD_SEC,
+  LedgerWatch,
   NOTICE_LINE_SEC,
   SCRIPT,
   WitnessLog,
   causeOfDeath,
   fmtClock,
+  formatEntry,
+  formatNearItem,
+  formatStatus,
   linesShown,
   pageDone,
   titleFor,
   type Lang,
+  type Ledger,
+  type LogEntry,
+  type NearItemArgs,
   type Observation,
   type RoleId,
   type SessionPhase,
+  type StatusArgs,
   type Surface,
 } from "@/lib/parliament";
 import type { LifeSession } from "./useLifeSession";
@@ -44,9 +54,11 @@ const DARK: Record<SessionPhase, number> = { idle: 0.94, notice: 0.94, consent: 
 const ANIMATED: readonly SessionPhase[] = ["notice", "headset"];
 
 interface WitnessView {
-  lines: string[];
-  status: string;
-  near: string[];
+  entries: LogEntry[];
+  status: StatusArgs | null;
+  near: NearItemArgs[];
+  /** The ledger's last reading (null before the first). */
+  ledger: Ledger | null;
   /** Totals so far (the end screen shows the last ones). */
   t: number;
   stillSec: number;
@@ -59,7 +71,7 @@ interface WitnessView {
   controls: boolean;
 }
 
-const EMPTY: WitnessView = { lines: [], status: "", near: [], t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, controls: false };
+const EMPTY: WitnessView = { entries: [], status: null, near: [], ledger: null, t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, controls: false };
 
 /** A block in the middle of the screen. */
 function Centre({ className = "", children }: { className?: string; children: React.ReactNode }) {
@@ -87,6 +99,7 @@ function Lines({ lines, since, lineSec = NOTICE_LINE_SEC, className = "" }: { li
 export function SessionHud({
   session,
   witnessRef,
+  ledgerRef,
   locked,
   lifeSec,
   lang = "ko",
@@ -97,6 +110,8 @@ export function SessionHud({
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
+  /** The ledger of this life (RoleField writes it while live; the end screen reads its last reading). */
+  ledgerRef: React.MutableRefObject<Ledger | null>;
   /** Pointer lock (desktop): a "click the screen" banner while live and unlocked (the controls are dead until then). */
   locked: boolean;
   /** The lifespan (s): what the end screen says the visitor was present for. */
@@ -116,6 +131,7 @@ export function SessionHud({
   const S = SCRIPT[lang];
   const say = lang === "ko" ? "hud-ko" : "";
   const [log] = useState(() => new WitnessLog());
+  const [watch] = useState(() => new LedgerWatch());
   const lastObs = useRef<Observation | null>(null);
   /** Wall ms the pointer was locked (0 = not locked): the hands reach the keys only then. */
   const lockedAt = useRef(0);
@@ -146,11 +162,14 @@ export function SessionHud({
       if (!obs || obs === lastObs.current) return;
       lastObs.current = obs;
       log.push(obs);
+      // the ledger's lines go into the same record
+      const L = ledgerRef.current;
+      if (L) for (const e of watch.feed(L, obs.surface, log.roleOf)) log.note(e);
       const controls = coarse ? obs.t < CONTROLS_SEC : locked && Date.now() - lockedAt.current < CONTROLS_SEC * 1000;
-      setRec({ lines: [...log.lines], status: log.status(), near: log.nearNow(), t: obs.t, ...log.summary(), controls });
+      setRec({ entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), controls });
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [phase, witnessRef, log, locked, coarse]);
+  }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse]);
 
   // a failed attempt to stop living goes into the record as two flat lines
   const seenAttempts = useRef(0);
@@ -158,7 +177,7 @@ export function SessionHud({
     if (attempts <= seenAttempts.current) return;
     seenAttempts.current = attempts;
     log.attempt(session.lifeRef.current.t, session.lastAttemptNear);
-    setRec((r) => ({ ...r, lines: [...log.lines], ...log.summary() }));
+    setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary() }));
   }, [attempts, log, session.lifeRef, session.lastAttemptNear]);
 
   const since = Math.max(0, (now - phaseAt) / 1000);
@@ -273,21 +292,32 @@ export function SessionHud({
           <div className="w-full max-w-[30rem]">
             {phase === "live" && (
               <div className="text-[15px] leading-[1.15] tracking-[0.04em]">
-                {rec.lines.map((l, i) => (
-                  <div key={`${i}:${l}`} className="truncate" style={{ opacity: 0.18 + (0.4 * (i + 1)) / Math.max(1, rec.lines.length) }}>
-                    {l}
-                  </div>
-                ))}
+                {/* the record: the T+ prefix in the machine face, the words in the apparatus's language; the level says
+                    how much a line matters — 0 the grey gradient, 1 white, 2 yellow */}
+                {rec.entries.map((e, i) => {
+                  const { prefix, text } = formatEntry(e, lang);
+                  const dim = 0.18 + (0.4 * (i + 1)) / Math.max(1, rec.entries.length);
+                  return (
+                    <div
+                      key={`${i}:${e.t}:${e.key}`}
+                      className={`line-clamp-2 ${e.level === 2 ? "text-yellow-300" : ""}`}
+                      style={{ opacity: e.level > 0 ? Math.max(dim, 0.9) : dim }}
+                    >
+                      <span className="whitespace-pre">{prefix}  </span>
+                      <span className={say}>{text}</span>
+                    </div>
+                  );
+                })}
                 {rec.near.length > 0 && (
-                  <div className="mt-2 text-white/55">
+                  <div className={`${say} mt-2 text-white/55`}>
                     {rec.near.slice(0, 4).map((n) => (
-                      <div key={n} className="truncate">
-                        · {n}
+                      <div key={n.who.o} className="truncate">
+                        · {formatNearItem(n, lang)}
                       </div>
                     ))}
                   </div>
                 )}
-                {rec.status && <div className="mt-2 truncate text-white/80">{rec.status}</div>}
+                {rec.status && <div className={`${say} mt-2 truncate text-white/80`}>{formatStatus(rec.status, lang)}</div>}
               </div>
             )}
           </div>

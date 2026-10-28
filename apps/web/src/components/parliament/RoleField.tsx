@@ -13,7 +13,9 @@
  * to freeze then, and no concrete was ever generated. Only the fold and drawing stay in useFrame.
  *
  * V2 session (useLifeSession): the visitor only leaves presence while their session is LIVE; near the end the
- * headset goes dull (muffleSound); after every fold a dry reading of who is near is put in `witnessRef` (HUD).
+ * headset goes dull (muffleSound); after every fold a dry reading of who is near is put in `witnessRef` (HUD), and
+ * the LEDGER of this life (lib/parliament/ledger.ts: what my own samples did to the ground) in `ledgerRef`. The fold
+ * is read for the whole world (the region only chose what was read; the ledger needs the world's totals).
  */
 
 import { useEffect, useRef } from "react";
@@ -24,6 +26,7 @@ import {
   SEAL_H,
   botActor,
   DEFAULT_WITNESS,
+  ledgerAt,
   botPlan,
   dueSamples,
   steerBot,
@@ -38,6 +41,8 @@ import {
   type Actor,
   type Flock,
   type FoldConfig,
+  type Ledger,
+  type LedgerConfig,
   type NatureConfig,
   type Observation,
   type PEvent,
@@ -72,6 +77,8 @@ export interface ParliamentDebug {
   sound?: string;
   /** The growing fold's state (foldState.ts stats), one line. */
   fold?: string;
+  /** V2: the ledger's size and cost, one line. */
+  ledger?: string;
   /** Where the player stands (canonical world coordinates). */
   x?: number;
   z?: number;
@@ -96,6 +103,8 @@ export function RoleField({
   playerYawRef,
   lifeRef,
   witnessRef,
+  ledgerRef,
+  ledgerCfg,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -120,6 +129,9 @@ export function RoleField({
   lifeRef?: { readonly current: LifeSignal };
   /** V2: a dry reading of the visitor's situation, renewed after every fold (lib/parliament/witness.ts). */
   witnessRef?: React.MutableRefObject<Observation | null>;
+  /** V2: the ledger of this life (lib/parliament/ledger.ts), renewed after every fold while LIVE, kept after the end. */
+  ledgerRef?: React.MutableRefObject<Ledger | null>;
+  ledgerCfg?: LedgerConfig;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -131,6 +143,9 @@ export function RoleField({
   const fold = useFoldState(log, cfg);
   const stressAt = useStressState(log, natureCfg);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
+  /** My own samples, in time order (what the ledger reads; a life is a few hundred). */
+  const myEvents = useRef<PEvent[]>([]);
+  const ledgerMs = useRef(0);
   const seq = useRef(0);
   const lastSampleMs = useRef(0);
   const botStartMs = useRef(0);
@@ -154,6 +169,7 @@ export function RoleField({
 
   useEffect(() => {
     epochMs.current = getEpochMs();
+    if (ledgerRef) ledgerRef.current = null; // a new life, a new ledger
     me.current = {
       id: "v_" + Math.random().toString(36).slice(2, 7),
       offset: pickOffset(Math.random(), offsetWindow),
@@ -186,6 +202,7 @@ export function RoleField({
     const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
     log.add(e);
     pending.current.push(e);
+    if (o === me.current.id) myEvents.current.push(e);
   };
 
   // ── emit presence and mirror to localStorage: world clock (worldClock.ts, may run faster than the wall clock) for
@@ -266,8 +283,9 @@ export function RoleField({
       foldTimer.current = 0;
       const events = log.all();
       const tFold = performance.now();
-      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
-      stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      // the whole world (the ledger needs its totals; the drawing and the sound pick what is near them)
+      snap.current = fold.at(sMe);
+      stress.current = stressAt(sMe);
       markSpan("fold", performance.now() - tFold);
       if (witnessRef) {
         witnessRef.current = observe({
@@ -276,8 +294,28 @@ export function RoleField({
           sNow: sMe,
           snap: snap.current,
           t: lifeRef?.current.t ?? 0,
-          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius },
+          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
+        // the ledger of this life: only while LIVE (after the end it keeps the life's last reading)
+        if (ledgerRef && lifeRef?.current.phase === "live") {
+          const tLed = performance.now();
+          const obs = witnessRef.current;
+          ledgerRef.current = ledgerAt({
+            me: { id: me.current.id, x: p.x, z: p.z },
+            mine: myEvents.current,
+            sNow: sMe,
+            t: lifeRef.current.t,
+            snap: snap.current,
+            stress: stress.current,
+            natureCfg,
+            flow: cfg.flow?.enabled ? cfg.flow : null,
+            nearCount: obs.others.filter((o) => o.dist <= cfg.radius).length,
+            cfg: ledgerCfg,
+            prev: ledgerRef.current,
+          });
+          ledgerMs.current = performance.now() - tLed;
+          markSpan("ledger", ledgerMs.current);
+        }
       }
       // the headset: what I hear, folded from the same events
       let soundLine: string | undefined;
@@ -323,6 +361,7 @@ export function RoleField({
           const st = fold.stats();
           return st ? `fold: cells ${st.cells} · tail ${st.tail} · rebuilds ${st.rebuilds}` : undefined;
         })(),
+        ledger: ledgerRef?.current ? `ledger: ${ledgerRef.current.cells.size} cells · ${ledgerMs.current.toFixed(1)} ms` : undefined,
       };
     }
   });

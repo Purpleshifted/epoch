@@ -3,6 +3,7 @@ import {
   CAUSES_OF,
   CAUSE_NAME,
   LANGS,
+  LOG,
   NOTICE_LINE_SEC,
   ROLE_NAME,
   SCRIPT,
@@ -169,6 +170,23 @@ describe("the script", () => {
       // the apparatus does not exclaim
       const all = JSON.stringify(s);
       expect(all).not.toContain("!");
+    }
+  });
+  it("words the record the same way in both languages: every key, at most two short lines, no exclamation", () => {
+    expect(Object.keys(LOG.ko.line).sort()).toEqual(Object.keys(LOG.en.line).sort());
+    const who = { o: "bot3", r: "worker" as const };
+    const sample = { who, moving: true, surface: "trodden" as const, dist: 2.1, bearing: "NE", forSec: 41, near: 2, n: 7, pct: 23, sec: 60, with: [who, { o: "v_ab12c", r: "cat" as const }], at: 72 };
+    for (const lang of LANGS) {
+      const name = (w: { o: string; r: string }) => `${w.r} ${w.o}`;
+      for (const key of Object.keys(LOG[lang].line) as (keyof typeof LOG.ko.line)[]) {
+        const text = LOG[lang].line[key](sample, name);
+        expect(text.length).toBeGreaterThan(0);
+        expect(text).not.toContain("!");
+        expect(text).not.toContain("\n");
+        if (lang === "ko") expect(text.length).toBeLessThanOrEqual(60); // two rows of the record at most
+      }
+      expect(LOG[lang].status({ moving: false, forSec: 12, surface: "open", near: 2 })).not.toContain("!");
+      expect(LOG[lang].nearItem({ who, dist: 2, bearing: "E", moving: false, forSec: 3 }, name)).toContain("bot3");
     }
   });
 });

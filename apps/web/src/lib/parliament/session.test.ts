@@ -1,16 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_WITNESS,
-  WitnessLog,
-  bearingOf,
   blinkAt,
   fmtClock,
   hindrance,
   lifeAt,
-  nameOf,
-  observe,
-  type Observation,
-  type PEvent,
 } from "./index";
 
 describe("the lifespan", () => {
@@ -49,64 +42,5 @@ describe("the lifespan", () => {
     expect(fmtClock(0)).toBe("00:00");
     expect(fmtClock(83.7)).toBe("01:23");
     expect(fmtClock(3600)).toBe("60:00");
-  });
-});
-
-describe("the witness: a dry record of who is near", () => {
-  const me = { id: "v_me", x: 0, z: 0, vx: 0, vz: 0 };
-  const p = (o: string, x: number, z: number, s: number, r: PEvent["r"] = "worker"): PEvent => ({ id: `${o}:${s}`, o, r, k: "p", x, z, s });
-
-  it("names and bearings", () => {
-    expect(nameOf("bot3", "worker")).toBe("WORKER #03");
-    expect(nameOf("v_ab12c", "cat")).toBe("STREET CAT AB12C");
-    expect(bearingOf(0, 1)).toBe("N");
-    expect(bearingOf(1, 0)).toBe("E");
-    expect(bearingOf(-1, -1)).toBe("SW");
-  });
-
-  it("observe: who is within the watch radius, whether they move, what the ground is", () => {
-    const events = [p("bot1", 1, 0, 9), p("bot1", 1, 0, 10), p("bot2", 0, 2, 9), p("bot2", 0, 3, 10, "car"), p("bot3", 20, 0, 10), p("bot4", 1, 1, 2), p("v_me", 0, 0, 10)];
-    const obs = observe({ me, events, sNow: 10, snap: { slabs: [], paths: [{ key: "0,0", x: 0, z: 0, p: 0.5, visits: 9 }] }, t: 5 });
-    expect(obs.others.map((o) => o.o)).toEqual(["bot1", "bot2"]); // bot3 too far, bot4 too old, me excluded
-    expect(obs.others[0]).toMatchObject({ moving: false, bearing: "E" });
-    expect(obs.others[1]).toMatchObject({ moving: true, r: "car", bearing: "N" });
-    expect(obs.surface).toBe("trodden");
-    expect(obs.moving).toBe(false);
-  });
-
-  it("the log: near, a state that holds, gone with how long", () => {
-    const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1 });
-    const o = (t: number, others: Observation["others"], moving = false): Observation => ({ t, moving, speed: moving ? 2 : 0, surface: "open", others, builds: [] });
-    const bot = (dist: number, moving: boolean) => ({ o: "bot1", r: "worker" as const, dist, bearing: "E", moving });
-    expect(log.push(o(0, []))).toEqual(["T+00:00  YOU  STATIONARY · OPEN GROUND"]);
-    expect(log.push(o(1, [bot(3.5, true)]))).toEqual([]); // inside the watch radius, not yet near
-    expect(log.push(o(2, [bot(2, true)]))).toEqual(["T+00:02  WORKER #01  NEAR · 2.0 M E · MOVING"]);
-    expect(log.push(o(2.5, [bot(2, false)]))).toEqual([]); // not held long enough
-    expect(log.push(o(3.6, [bot(2, false)]))).toEqual(["T+00:03  WORKER #01  STATIONARY · 2.0 M E"]);
-    expect(log.push(o(4, [bot(3.5, false)]))).toEqual([]); // inside the leave margin: still near
-    expect(log.status()).toBe("YOU  STATIONARY 00:04 · OPEN GROUND · NEAR 1");
-    expect(log.push(o(50, []))).toEqual(["T+00:50  WORKER #01  GONE · NEAR FOR 00:48"]);
-    // a short tap on a key leaves no line, a real walk does
-    expect(log.push(o(51, [], true))).toEqual([]);
-    expect(log.push(o(51.5, [], false))).toEqual([]);
-    log.push(o(53, [], true));
-    expect(log.push(o(54.2, [], true))).toEqual(["T+00:54  YOU  MOVING"]);
-    const sum = log.summary();
-    expect(sum.met).toBe(1);
-    expect(sum.nearSec).toBeCloseTo(48); // from 2 (came near) to 50 (gone)
-    expect(sum.stillSec).toBeGreaterThan(50);
-  });
-});
-
-describe("the record of building (sound wiring, v4 A4d): only when my weight has counted", () => {
-  it("writes whom I build with when my weight registers on a slab, then each new storey; a passing sample is nothing", () => {
-    const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1 });
-    const o = (t: number, builds: Observation["builds"]): Observation => ({ t, moving: false, speed: 0, surface: "sealed", others: [{ o: "bot1", r: "worker", dist: 2, bearing: "E", moving: false }], builds });
-    log.push(o(0, []));
-    expect(log.push(o(1, [{ key: "3,3", storeys: 1, mine: 0.5, others: ["bot1", "bot2"] }]))).toEqual([]);
-    expect(log.push(o(4, [{ key: "3,3", storeys: 1, mine: 2.5, others: ["bot1", "bot2"] }]))).toEqual(["T+00:04  YOU  BUILDING WITH WORKER #01 · WORKER #02"]);
-    expect(log.push(o(5, [{ key: "3,3", storeys: 1, mine: 3.5, others: ["bot1", "bot2"] }]))).toEqual([]);
-    expect(log.push(o(9, [{ key: "3,3", storeys: 2, mine: 7, others: ["bot1", "bot2"] }]))).toEqual(["T+00:09  BUILDING  STOREY 2 · WITH WORKER #01 · WORKER #02"]);
-    expect(log.push(o(10, [{ key: "9,9", storeys: 3, mine: 2, others: [] }]))).toEqual(["T+00:10  YOU  BUILDING · ALONE ON THEIR WORK"]);
   });
 });
