@@ -37,6 +37,7 @@ import {
   observe,
   sessionSeconds,
   SESSION_ROLES,
+  StressState,
   wrapCoord,
   type Actor,
   type Flock,
@@ -51,13 +52,14 @@ import {
   worldNow,
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
-import { NatureCloud } from "./NatureCloud";
+import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 import { markSpan } from "./usePerfMeter";
+import type { GrassVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
@@ -105,6 +107,7 @@ export function RoleField({
   witnessRef,
   ledgerRef,
   ledgerCfg,
+  grass,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -132,6 +135,8 @@ export function RoleField({
   /** V2: the ledger of this life (lib/parliament/ledger.ts), renewed after every fold while LIVE, kept after the end. */
   ledgerRef?: React.MutableRefObject<Ledger | null>;
   ledgerCfg?: LedgerConfig;
+  /** V2: how the grass reacts to the walker at once (Leva 개인뷰 비주얼; NatureCloud). */
+  grass?: GrassVisual;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -164,6 +169,14 @@ export function RoleField({
   }, [role, botCount, botRole, botFlock, cfg, fold]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
+  // the grass reaction (NatureCloud): the walker's own recent trail as a second, visual-only stress state, fed from
+  // the player's position every `nearEvery` seconds (not from the sampled events), and the walker's own folded
+  // stress from the ledger (A3)
+  const quick = useRef<StressState | null>(null);
+  const quickMap = useRef<Map<string, number> | null>(null);
+  const quickTimer = useRef(0);
+  const quickSeq = useRef(0);
+  const mineMap = useRef<Map<string, number> | null>(null);
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
@@ -277,6 +290,26 @@ export function RoleField({
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
     const p = playerPosRef.current;
 
+    // ── the grass reaction's quick stress: where the walker IS, every nearEvery seconds, while live ──
+    if (grass && grass.mode !== "off" && (!lifeRef || lifeRef.current.phase === "live")) {
+      quickTimer.current += dt;
+      if (quickTimer.current >= grass.nearEvery) {
+        quickTimer.current = 0;
+        const q = quick.current;
+        const dose = grass.dose * grass.nearEvery; // per feed, so `dose` reads per second at the centre
+        if (!q || q.cfg.dose !== dose || q.cfg.lingerRadius !== grass.reactRadius || q.cfg.recoverSec !== natureCfg.recoverSec) {
+          quick.current = new StressState({ ...natureCfg, dose, lingerRadius: grass.reactRadius });
+        }
+        const qs = quick.current!;
+        qs.add({ id: `q:${quickSeq.current++}`, o: me.current.id, r: "worker", k: "p", x: p.x, z: p.z, s: sMe });
+        if (quickSeq.current % 200 === 0) qs.dropBefore(sMe - 8 * natureCfg.recoverSec);
+        quickMap.current = qs.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      }
+    } else if (quickMap.current) {
+      quickMap.current = null;
+      quick.current = null;
+    }
+
     // ── fold what this visitor can see at their own time ──
     foldTimer.current += dt;
     if (foldTimer.current >= FOLD_EVERY) {
@@ -316,6 +349,12 @@ export function RoleField({
           ledgerMs.current = performance.now() - tLed;
           markSpan("ledger", ledgerMs.current);
         }
+        // A3: the walker's own folded stress per cell, from the ledger
+        if (grass?.mode === "mine" && ledgerRef?.current) {
+          const m = new Map<string, number>();
+          for (const c of ledgerRef.current.cells.values()) if (c.s > 0) m.set(c.key, c.s);
+          mineMap.current = m;
+        } else mineMap.current = null;
       }
       // the headset: what I hear, folded from the same events
       let soundLine: string | undefined;
@@ -366,6 +405,7 @@ export function RoleField({
     }
   });
 
+  const grassReaction: GrassReaction | undefined = grass ? { mode: grass.mode, nearRadius: grass.nearRadius, nearEvery: grass.nearEvery, mineGain: grass.mineGain } : undefined;
   // Concrete (slabs) is a trace fossil: it is not felt within one visitor's life, so the player
   // view draws only what one life can feel: the point-cloud ground (worn by workers, with dust
   // where a path has formed). Slabs appear in the Top and Side views.
@@ -378,6 +418,9 @@ export function RoleField({
         cfg={natureCfg}
         pointSize={pointSize}
         pathDots={pathDots}
+        getQuick={() => quickMap.current}
+        getMine={() => mineMap.current}
+        grass={grassReaction}
       />
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
     </>
