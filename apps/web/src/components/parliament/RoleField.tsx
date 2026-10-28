@@ -40,7 +40,6 @@ import {
   StressState,
   concreteLines,
   otherMarks,
-  pathChains,
   wrapCoord,
   type Actor,
   type Flock,
@@ -56,7 +55,7 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { ConcreteLines, OtherDots, PathCurves, type MarksData } from "./Marks";
+import { ConcreteLines, OtherDots, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -358,13 +357,12 @@ export function RoleField({
           ledgerMs.current = performance.now() - tLed;
           markSpan("ledger", ledgerMs.current);
         }
-        // the marks: others within the view, the sealed cells, the path chains (marks.ts)
+        // the marks: others within the view, the sealed cells (marks.ts)
         if (marks?.on) {
           const tMk = performance.now();
           marksRef.current = {
             others: marks.others.on ? otherMarks(witnessRef.current.far, p, VIEW_RADIUS, marks.others.recentSec) : [],
             concrete: marks.concrete.on ? concreteLines(snap.current.slabs, p, marks.concrete.radius, SEAL_H) : [],
-            chains: marks.paths.on ? pathChains(snap.current.paths, p, marks.paths.radius, 0.08, marks.paths.per) : [],
           };
           markSpan("marks", performance.now() - tMk);
         } else marksRef.current = null;
@@ -441,11 +439,9 @@ export function RoleField({
         getMine={() => mineMap.current}
         grass={grassReaction}
       />
-      {/* the ground's path lines step back when the curves are on (the knob 바닥의 길 선) */}
-      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine * (marks?.paths.on ? marks.paths.groundLine : 1)} radius={VIEW_RADIUS} />
+      <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
       {marks?.others.on && <OtherDots getMarks={() => marksRef.current} size={marks.others.size} eyeOffset={marks.others.eyeOffset} bright={marks.others.bright} />}
       {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
-      {marks?.paths.on && <PathCurves getMarks={() => marksRef.current} drop={marks.paths.drop} bright={marks.paths.bright} width={marks.paths.width} opacity={marks.paths.opacity} />}
     </>
   );
 }
