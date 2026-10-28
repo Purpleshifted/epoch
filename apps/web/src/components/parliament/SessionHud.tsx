@@ -7,7 +7,8 @@
  *     language — facts and, since 2026-10-20, what the life does to the ground (lib/parliament/ledger.ts: pressed
  *     grass, worn ground, paths, concrete shares), the important lines in yellow; a banner now and then saying how to
  *     stop living, the dark that comes up while X is held, and the line when it fails
- *   - at the end: the cause of death (intake.ts, from the record) and the totals
+ *   - at the end: the cause of death (intake.ts, from the record), the totals, the ledger's rows as shares and
+ *     percentages (ledger.ts ledgerSummary) and, behind a knob, the footprint map (FootprintMap)
  * The words are lib/parliament/script.ts (ko / en), the record's too (LOG · formatEntry). VT323 has no Hangul, so the
  * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
  */
@@ -26,6 +27,7 @@ import {
   formatEntry,
   formatNearItem,
   formatStatus,
+  ledgerSummary,
   linesShown,
   pageDone,
   titleFor,
@@ -39,6 +41,7 @@ import {
   type StatusArgs,
   type Surface,
 } from "@/lib/parliament";
+import { FootprintMap } from "./FootprintMap";
 import type { LifeSession } from "./useLifeSession";
 
 const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
@@ -107,6 +110,7 @@ export function SessionHud({
   holdSec = HOLD_SEC,
   noticeLineSec = NOTICE_LINE_SEC,
   coarse = false,
+  footprint = true,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -126,6 +130,8 @@ export function SessionHud({
   noticeLineSec?: number;
   /** A phone-like device: the lines say tap / tilt / hold instead of keys, click and mouse; no pointer lock. */
   coarse?: boolean;
+  /** The end screen's footprint map (Leva 개인뷰 비주얼). */
+  footprint?: boolean;
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
@@ -189,6 +195,7 @@ export function SessionHud({
       ? causeOfDeath("worker", { lifeSec, stillSec: rec.stillSec, nearSec: rec.nearSec, met: rec.met, metByRole: rec.metByRole, surface: rec.surface, endedBy }, u)
       : null;
   const title = titleFor(lang);
+  const sum = phase === "ended" && rec.ledger ? ledgerSummary(rec.ledger) : null;
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
@@ -345,7 +352,29 @@ export function SessionHud({
                 <div>{S.ended.tried(rec.attempts)}</div>
               </>
             )}
+            {/* what the life did to the ground (the ledger), as shares and percentages */}
+            {sum && sum.empty && <div className="col-span-2 mt-3 text-white/60">{S.ended.nothing}</div>}
+            {sum && !sum.empty && (
+              <>
+                <div className="mt-3 text-white/45">{S.ended.grass}</div>
+                <div className="mt-3">{S.ended.grassRow(sum)}</div>
+                <div className="text-white/45">{S.ended.ground}</div>
+                <div>{S.ended.groundRow(sum)}</div>
+                <div className="text-white/45">{S.ended.concrete}</div>
+                <div>{S.ended.concreteRow(sum)}</div>
+                <div className="text-white/45">{S.ended.world}</div>
+                <div>{S.ended.worldRow(sum)}</div>
+                <div className="text-white/45">{S.ended.water}</div>
+                <div className="text-white/45">{S.ended.waterRow}</div>
+              </>
+            )}
           </div>
+          {/* the footprint: this life from above, the first time (Leva 개인뷰 비주얼 › 퇴장 화면 발자국 지도) */}
+          {footprint && rec.ledger && (
+            <div className="mt-4">
+              <FootprintMap ledger={rec.ledger} size={160} />
+            </div>
+          )}
           <div className="pt-5 text-white/35">{S.ended.kept}</div>
           <div className="text-white/35">{S.ended.read}</div>
           {helpLine && cause === "suicide" && <div className="pt-3 text-white/35">{S.ended.help}</div>}

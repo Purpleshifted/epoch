@@ -31,6 +31,7 @@ import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
+import { usePersonalVisuals } from "./usePersonalVisuals";
 import { SessionHud } from "./SessionHud";
 import {
   DEFAULT_LIFE,
@@ -403,6 +404,8 @@ export default function ParliamentScene() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.sessionNo]);
   const { cfg: natureCfg, pointSize, pathDots, pathLine } = useNatureControls();
+  // V2: what the player view adds so the visitor's effect on the ground lands (Leva 개인뷰 비주얼)
+  const visuals = usePersonalVisuals();
 
   useEffect(() => {
     if (hideChrome) return;
@@ -467,7 +470,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

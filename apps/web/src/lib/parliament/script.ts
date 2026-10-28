@@ -10,6 +10,7 @@
  */
 
 import type { CauseId } from "./intake";
+import type { LedgerSummary } from "./ledger";
 import { fmtClock } from "./session";
 import type { RoleId } from "./types";
 import { nameOf, type LogArgs, type LogEntry, type LogKey, type NearItemArgs, type StatusArgs, type Surface, type Who } from "./witness";
@@ -103,6 +104,18 @@ export interface Script {
     /** Only when there were attempts to stop living: the label, and "n tried". */
     stop: string;
     tried: (n: number) => string;
+    /** The ledger's rows (ledger.ts ledgerSummary): the labels and what each row reads; `nothing` when all are empty. */
+    grass: string;
+    ground: string;
+    concrete: string;
+    world: string;
+    water: string;
+    grassRow: (s: LedgerSummary) => string;
+    groundRow: (s: LedgerSummary) => string;
+    concreteRow: (s: LedgerSummary) => string;
+    worldRow: (s: LedgerSummary) => string;
+    waterRow: string;
+    nothing: string;
     kept: string;
     read: string;
     next: string;
@@ -142,6 +155,20 @@ export const SCRIPT: Record<Lang, Script> = {
       metUnit: "만남",
       stop: "그만 살기",
       tried: (n) => `${n}회 시도 · 실패`,
+      grass: "풀",
+      ground: "길",
+      concrete: "콘크리트",
+      world: "세계",
+      water: "물",
+      grassRow: (s) =>
+        s.pressed < 0.05 ? "눌린 풀 없음" : `눌림 ${s.pressed}칸 분 · ${s.recoveredPct ?? "—"} % 회복${s.under > 0 ? ` · 길·콘크리트 아래 ${s.under}칸 분` : ""}`,
+      groundRow: (s) =>
+        s.trodden === 0 ? "걸은 땅 없음" : `걸은 땅 ${s.trodden}칸 · ${s.walkedM} m · ${s.newPathPct} %가 길이 됨${s.prePathPct > 0 ? ` · 앞서 다져진 길 ${s.prePathPct} %` : ""}`,
+      concreteRow: (s) => (s.slabs === 0 ? "없음 · 혼자서는 지어지지 않습니다" : `${s.slabs}칸 · 당신의 몫 ${s.sharePct} % · ${s.withN}명과 함께`),
+      worldRow: (s) =>
+        s.worldPathPct === null && s.worldSlabPct === null ? "—" : `길의 ${s.worldPathPct ?? "—"} %를 밟음 · 콘크리트의 ${s.worldSlabPct ?? "—"} %에 몫`,
+      waterRow: "—",
+      nothing: "남긴 것이 없습니다.",
       kept: "기록은 남습니다.",
       read: "흔적은 벽의 창에서 읽힐 수도, 읽히지 않을 수도 있습니다.",
       next: "SPACE — 다음 삶",
@@ -178,6 +205,20 @@ export const SCRIPT: Record<Lang, Script> = {
       metUnit: "met",
       stop: "Stop living",
       tried: (n) => `tried ${n}× · failed`,
+      grass: "Grass",
+      ground: "Ground",
+      concrete: "Concrete",
+      world: "World",
+      water: "Water",
+      grassRow: (s) =>
+        s.pressed < 0.05 ? "none pressed" : `pressed ${s.pressed} cells · ${s.recoveredPct ?? "—"} % back${s.under > 0 ? ` · under paths and concrete ${s.under} cells` : ""}`,
+      groundRow: (s) =>
+        s.trodden === 0 ? "none trodden" : `trodden ${s.trodden} cells · ${s.walkedM} m · ${s.newPathPct} % became paths${s.prePathPct > 0 ? ` · ${s.prePathPct} % were paths before you` : ""}`,
+      concreteRow: (s) => (s.slabs === 0 ? "none · nothing sets alone" : `${s.slabs} cells · your share ${s.sharePct} % · with ${s.withN} others`),
+      worldRow: (s) =>
+        s.worldPathPct === null && s.worldSlabPct === null ? "—" : `${s.worldPathPct ?? "—"} % of its paths trodden · a share in ${s.worldSlabPct ?? "—"} % of its concrete`,
+      waterRow: "—",
+      nothing: "Nothing was left.",
       kept: "The record is kept.",
       read: "The traces may be read through the window in the wall, or they may not.",
       next: "SPACE — next life",

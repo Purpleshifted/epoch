@@ -187,6 +187,19 @@ describe("the script", () => {
       }
       expect(LOG[lang].status({ moving: false, forSec: 12, surface: "open", near: 2 })).not.toContain("!");
       expect(LOG[lang].nearItem({ who, dist: 2, bearing: "E", moving: false, forSec: 3 }, name)).toContain("bot3");
+      // the end screen's rows, full and empty
+      const full = { pressed: 19.2, recoveredPct: 63, under: 2.1, trodden: 41, walkedM: 120, newPathPct: 17, prePathPct: 30, slabs: 1, sharePct: 23, withN: 2, worldPathPct: 4.2, worldSlabPct: 3.1, empty: false };
+      const none = { pressed: 0, recoveredPct: null, under: 0, trodden: 0, walkedM: 0, newPathPct: 0, prePathPct: 0, slabs: 0, sharePct: 0, withN: 0, worldPathPct: null, worldSlabPct: null, empty: true };
+      const e = SCRIPT[lang].ended;
+      for (const sum of [full, none]) {
+        for (const row of [e.grassRow(sum), e.groundRow(sum), e.concreteRow(sum), e.worldRow(sum)]) {
+          expect(row.length).toBeGreaterThan(0);
+          expect(row).not.toContain("!");
+        }
+      }
+      expect(e.grassRow(full)).toContain("63");
+      expect(e.concreteRow(full)).toContain("23");
+      expect(e.worldRow(none)).toBe("—");
     }
   });
 });
