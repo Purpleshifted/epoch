@@ -159,7 +159,7 @@ describe("resin: the oldest layers become a translucent body", () => {
   });
 });
 
-describe("form study (V2): fill, shell, fibre", () => {
+describe("form study (V2): fill, shell", () => {
   // one building: a plinth, masses in slots 3–6 and a slab over them (a room of 4 slots)
   const bld: Box[] = [
     part({ kind: "plinth", x: 2, y: 2.85, z: 2, sx: 3.2, sy: 0.3, sz: 3.2, slot: 2 }),
@@ -171,7 +171,9 @@ describe("form study (V2): fill, shell, fibre", () => {
   const room = { ...base, parts: bld, decay, standing: bld.map(() => true), x0: -1, z0: -1, nx: 6, nz: 6, k0: 0, k1: 9 };
 
   it("all switches off = the mass as before (V1 stays the same)", () => {
-    expect(fuseChunk({ ...room, cfg: cfgOf({}) })).toEqual(fuseChunk({ ...room, cfg: DEFAULT_FUSE }));
+    // (the extras differ: with a study the parts under the skin are read as ghost; the geometry is the same)
+    const strip = (m: FuseMesh) => ({ position: m.position, normal: m.normal, color: m.color, index: m.index, resinStart: m.resinStart });
+    expect(strip(fuseChunk({ ...room, cfg: cfgOf({}) }))).toEqual(strip(fuseChunk({ ...room, cfg: DEFAULT_FUSE })));
   });
 
   it("B FILL: the plates are the frame; the mass fills the room below the slab, inside its footprint", () => {
@@ -207,20 +209,148 @@ describe("form study (V2): fill, shell, fibre", () => {
     expect(open.index.length).not.toBe(closed.index.length);
   });
 
-  it("D FIBRE: vertical lines hang below the mass; discs round the plates; nothing without the switch", () => {
-    expect(fuseChunk({ ...room, cfg: DEFAULT_FUSE }).lines.length).toBe(0);
-    const m = fuseChunk({ ...room, cfg: cfgOf({ fibre: true }) });
-    expect(m.lines.length).toBeGreaterThan(0);
-    expect(m.lines.length % 6).toBe(0);
-    let down = 0;
-    for (let i = 0; i < m.lines.length; i += 6) if (m.lines[i + 4] < m.lines[i + 1]) down++;
-    expect(down).toBeGreaterThan(m.lines.length / 6 / 2); // mostly hanging
-    // the disc reaches past the slab's edge
-    const past = (mm: FuseMesh) => verts(mm).some(([x, y]) => Math.abs(y - 7.05) < 0.5 && Math.abs(x - 2) > 1.8 + 0.3);
-    expect(past(m)).toBe(true);
-    expect(past(fuseChunk({ ...room, cfg: cfgOf({ fibre: true, disc: 0 }) }))).toBe(false);
-    // merged across chunks
-    const a = fuseChunk({ ...room, k1: 4, cfg: cfgOf({ fibre: true }) }), b = fuseChunk({ ...room, k0: 5, cfg: cfgOf({ fibre: true }) });
-    expect(mergeMeshes([a, b]).lines.length).toBe(a.lines.length + b.lines.length);
+  it("E PIPES: a part fuses as tubes along its edges — the middle of a big box stays open", () => {
+    const big: Box[] = [part({ x: 2, y: 5.5, z: 2, sx: 3.2, sy: 3, sz: 3.2, slot: 5 })];
+    const one = { ...base, parts: big, decay: [1], standing: [false], k0: 0, k1: 9 };
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const full = fuseChunk({ ...one, cfg: { ...DEFAULT_FUSE, ...flat } });
+    const pipes = fuseChunk({ ...one, cfg: { ...cfgOf({ pipe: true, pipeRadius: 0.3 }), ...flat } });
+    expect(pipes.index.length).toBeGreaterThan(0);
+    // a vertex on the middle of a face of the box exists for the full box, not for the tubes (the face is open)
+    const faceMid = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.abs(x - 2) < 0.5 && Math.abs(y - 5.5) < 0.5 && z > 3.3);
+    expect(faceMid(full)).toBe(true);
+    expect(faceMid(pipes)).toBe(false);
+    // and the tubes run along the edges: a vertex near a vertical edge, halfway up
+    expect(verts(pipes).some(([x, y, z]) => Math.abs(x - 3.6) < 0.5 && Math.abs(z - 3.6) < 0.5 && Math.abs(y - 5.5) < 0.6)).toBe(true);
+  });
+
+  it("SIZE CURVES: by size, a small part fuses as its box and a large one as its frame; the shell's openings mix", () => {
+    const small = part({ x: 1, y: 5.5, z: 1, sx: 1, sy: 1, sz: 1, slot: 5 });
+    const big = part({ x: 4, y: 5.5, z: 4, sx: 3.2, sy: 3, sz: 3.2, slot: 5 });
+    const two = { ...base, parts: [small, big], decay: [1, 1], standing: [false, false], x0: -1, z0: -1, nx: 8, nz: 8, k0: 0, k1: 9 };
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const curve = { pipeSize: true, pipeSmall: 0, pipeLarge: 1, sizeSmall: 1.5, sizeLarge: 3, sizeJitter: 0, pipeThickLarge: 1, pipeJoint: 0 };
+    const m = fuseChunk({ ...two, cfg: { ...cfgOf(curve), ...flat } });
+    // the small box keeps the middle of its face, the big one's face is open (only its edges fused)
+    expect(verts(m).some(([x, y, z]) => Math.abs(x - 1) < 0.3 && Math.abs(y - 5.5) < 0.3 && z > 1.2)).toBe(true);
+    expect(verts(m).some(([x, y, z]) => Math.abs(x - 4) < 0.5 && Math.abs(y - 5.5) < 0.5 && z > 5.3)).toBe(false);
+    expect(verts(m).some(([x, y, z]) => Math.abs(x - 5.6) < 0.5 && Math.abs(z - 5.6) < 0.5 && Math.abs(y - 5.5) < 0.6)).toBe(true);
+    // the shell's openings by size: a valid mesh, different from both pure shapes
+    const shellOf = (holeShape: "voronoi" | "noise" | "size") => fuseChunk({ ...two, cfg: { ...cfgOf({ shell: true, ribOpen: 0.8, holeShape, holeVoronoiSmall: 0, holeVoronoiLarge: 1, sizeSmall: 1.5, sizeLarge: 3, sizeJitter: 0 }), ...flat } });
+    const mixed = shellOf("size");
+    expect(mixed.index.length).toBeGreaterThan(0);
+    expect(mixed.index.length).not.toBe(shellOf("voronoi").index.length);
+    expect(mixed.index.length).not.toBe(shellOf("noise").index.length);
+  });
+
+  it("FOSSIL CURVE · BLOCKY: the young layers keep the voxel steps (vertices at the cells' centres, unsmoothed); the old ones melt as before", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0 };
+    const vs = DEFAULT_FUSE.voxel;
+    // nothing fossilised yet (the curve starts above every layer age): every vertex sits at a cell centre
+    const young = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...cfgOf({ blocky: 1, fossilFrom: 2, fossilTo: 3 }), ...flat } });
+    expect(young.index.length).toBeGreaterThan(0);
+    const centred = (c: number) => Math.abs(c / vs - 0.5 - Math.round(c / vs - 0.5)) < 1e-3;
+    expect(verts(young).every(([x, y, z]) => centred(x) && centred(y) && centred(z))).toBe(true);
+    expect(Array.from(young.extra).filter((_, i) => i % 4 === 1).every((f) => f === 1)).toBe(true);
+    // everything fossilised: the same mesh as without the blocky setting
+    const old = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...cfgOf({ blocky: 1, fossilFrom: 0, fossilTo: 0.01 }), ...flat } });
+    expect(old.position).toEqual(fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...cfgOf({}), ...flat } }).position);
+  });
+
+  it("ROOMS → CAVITIES: in a fossil layer the filled room is carved out again; the plate stays as a membrane", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0 };
+    const fusedAll = { ...room, decay: bld.map(() => 0.9) }; // the plates have fused too: they are the membranes
+    const filled = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({ fill: true, fillAmount: 1.5 }), ...flat } });
+    const carved = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({ fill: true, fillAmount: 1.5, cavity: 1, fossilFrom: 0, fossilTo: 0.01 }), ...flat } });
+    // just under the slab, inside the footprint and away from the masses: solid fill before, a cavity ceiling after
+    const near = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.hypot(x - 2, y - 6.7, z - 3.1) < 0.3);
+    expect(near(filled)).toBe(false);
+    expect(near(carved)).toBe(true);
+    // the slab is still there (its top face)
+    expect(verts(carved).some(([x, y, z]) => Math.abs(x - 2) < 0.4 && Math.abs(z - 2) < 0.4 && Math.abs(y - 7.2) < 0.5)).toBe(true);
+  });
+
+  it("ENVELOPE: the mass is cut at the building's outline — it no longer swells past the plates' footprint", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 4, blur: 3 };
+    const fusedAll = { ...room, decay: bld.map(() => 0.9) };
+    const swollen = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({}), ...flat } });
+    const cut = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({ envelope: 1 }), ...flat } });
+    // the slab's footprint ends at x = 3.8; the swelling reaches past it, the cut mass stops at the face
+    const maxX = (m: FuseMesh) => Math.max(...verts(m).map(([x]) => x));
+    expect(maxX(swollen)).toBeGreaterThan(4.2);
+    expect(maxX(cut)).toBeLessThanOrEqual(4.1);
+    expect(maxX(cut)).toBeLessThan(maxX(swollen) - 0.2);
+    expect(cut.index.length).toBeGreaterThan(0);
+    // the fossil border's noise: a valid mesh, different from the flat band
+    const noisy = fuseChunk({ ...fusedAll, cfg: { ...cfgOf({ blocky: 1, fossilFrom: 0.2, fossilTo: 0.6, fossilNoise: 0.3 }), ...flat } });
+    expect(noisy.index.length).toBeGreaterThan(0);
+  });
+
+  it("FOAM: the cells are carved through the volume — an inner surface without hollowing", () => {
+    const big: Box[] = [];
+    for (let k = 3; k <= 8; k++) big.push(part({ x: 2, y: k + 0.5, z: 2, sx: 3.2, sy: 1, sz: 3.2, slot: k }));
+    const block = { ...base, parts: big, decay: big.map(() => 1), standing: big.map(() => false), k0: 0, k1: 9 };
+    const flat = { sag: 0, scatter: 0, porosity: 0 };
+    const solid = fuseChunk({ ...block, cfg: { ...cfgOf({}), ...flat } });
+    const foam = fuseChunk({ ...block, cfg: { ...cfgOf({ foam: true, ribOpen: 1, ribCell: 1.2 }), ...flat } });
+    const inner = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.abs(x - 2) < 1.2 && Math.abs(z - 2) < 1.2 && y > 4.5 && y < 7.5);
+    expect(inner(solid)).toBe(false);
+    expect(inner(foam)).toBe(true);
+  });
+
+  it("E: a plate stays a plate (its rim as tubes), and the joints are balls at the corners", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const slab: Box[] = [part({ kind: "slab", x: 2, y: 5.5, z: 2, sx: 3.2, sy: 0.1, sz: 3.2, slot: 5 })];
+    const one = { ...base, parts: slab, decay: [1], standing: [false], k0: 0, k1: 9 };
+    const plate = fuseChunk({ ...one, cfg: { ...cfgOf({ pipe: true, platesStay: true, pipeJoint: 0 }), ...flat } });
+    const rim = fuseChunk({ ...one, cfg: { ...cfgOf({ pipe: true, platesStay: false, pipeJoint: 0 }), ...flat } });
+    const top = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.abs(x - 2) < 0.4 && Math.abs(z - 2) < 0.4 && Math.abs(y - 5.7) < 0.4);
+    expect(top(plate)).toBe(true);
+    expect(top(rim)).toBe(false);
+    const big: Box[] = [part({ x: 2, y: 5.5, z: 2, sx: 3.2, sy: 3, sz: 3.2, slot: 5 })];
+    const box = { ...base, parts: big, decay: [1], standing: [false], k0: 0, k1: 9 };
+    const joints = fuseChunk({ ...box, cfg: { ...cfgOf({ pipe: true, pipeRadius: 0.3, pipeThickLarge: 1, pipeJoint: 3 }), ...flat } });
+    const bare = fuseChunk({ ...box, cfg: { ...cfgOf({ pipe: true, pipeRadius: 0.3, pipeThickLarge: 1, pipeJoint: 0 }), ...flat } });
+    // a ball at the corner (radius 0.9) reaches further out than the tubes (0.3) do
+    const bulge = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.hypot(x - 3.6, y - 7, z - 3.6) < 1.4 && x > 4.2);
+    expect(bulge(joints)).toBe(true);
+    expect(bulge(bare)).toBe(false);
+  });
+
+  it("EXTRAS: two numbers per vertex in 0 … 1; a bare part's surface reads as ghost", () => {
+    const m = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: cfgOf({}) });
+    expect(m.extra.length).toBe((m.position.length / 3) * 4);
+    expect(Array.from(m.extra).every((v) => v >= 0 && v <= 2)).toBe(true);
+    expect(Array.from(m.extra).some((v, i) => i % 4 === 0 && v > 0.5)).toBe(true);
+    // the pits' per-vertex weights: on a shell with pits, some vertices allow them (coverage > 0, away from the ribs)
+    const shelled = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: cfgOf({ shell: true, pits: 0.5 }) });
+    expect(Array.from(shelled.extra).some((v, i) => i % 4 === 2 && v > 0)).toBe(true);
+    expect(Array.from(shelled.extra).some((v, i) => i % 4 === 3 && v > 0.5)).toBe(true);
+    const merged = mergeMeshes([m, m]);
+    expect(merged.extra.length).toBe(m.extra.length * 2);
+  });
+
+  it("EXTERNAL TUBES: a pipe between two far parts carries the mass across the gap; a fresh one does not", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const two: Box[] = [part({ x: 0.5, y: 5.5, z: 2, sx: 1, sy: 1, sz: 1, slot: 5 }), part({ x: 6.5, y: 5.5, z: 2, sx: 1, sy: 1, sz: 1, slot: 5 })];
+    const base2 = { ...base, parts: two, decay: [1, 1], standing: [false, false], x0: -1, z0: -1, nx: 9, nz: 6, k0: 0, k1: 9 };
+    const pipe = { x0: 1, y0: 5.5, z0: 2, x1: 6, y1: 5.5, z1: 2, r: 0.3, decay: 1, kind: "pipe" as const, k: 5 };
+    const joined = fuseChunk({ ...base2, tubes: [pipe], cfg: { ...cfgOf({}), ...flat } });
+    const apart = fuseChunk({ ...base2, cfg: { ...cfgOf({}), ...flat } });
+    const fresh = fuseChunk({ ...base2, tubes: [{ ...pipe, decay: 0 }], cfg: { ...cfgOf({}), ...flat } });
+    const mid = (m: FuseMesh) => verts(m).some(([x, y, z]) => Math.abs(x - 3.5) < 0.6 && Math.abs(y - 5.5) < 0.8 && Math.abs(z - 2) < 0.8);
+    expect(mid(joined)).toBe(true);
+    expect(mid(apart)).toBe(false);
+    expect(mid(fresh)).toBe(false);
+  });
+
+  it("SPIKES: thin spikes of the same mass grow out of the surface, up to their length", () => {
+    const flat = { sag: 0, scatter: 0, porosity: 0, gain: 1, blur: 0, smooth: 0 };
+    const plain = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, ...flat } });
+    const spiky = fuseChunk({ ...decayed, k0: 0, k1: 9, cfg: { ...DEFAULT_FUSE, ...flat, spikes: 1, spikeLen: 1.5 } });
+    const reach = (m: FuseMesh) => Math.max(...verts(m).map(([x, y, z]) => nearest(x, y, z)));
+    expect(spiky.position.length).toBeGreaterThan(plain.position.length);
+    expect(reach(spiky)).toBeGreaterThan(reach(plain) + 0.4);
+    expect(reach(spiky)).toBeLessThanOrEqual(1.5 + 2 * DEFAULT_FUSE.voxel);
   });
 });
