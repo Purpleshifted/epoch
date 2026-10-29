@@ -2262,7 +2262,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
 
   return (
-    <div className="relative h-full w-full" style={{ background: theme.bg }}>
+    // the wall (ui=0) shows no cursor either: nothing on it but the strata
+    <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
       <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
         <color attach="background" args={[theme.bg]} />
