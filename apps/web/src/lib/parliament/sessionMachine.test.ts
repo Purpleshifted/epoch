@@ -26,12 +26,12 @@ function press(m: SessionMachine, code: string) {
 
 function make(cfg: LifeConfig = CFG, rng: () => number = Math.random, getNear?: () => number): SessionMachine {
   const m = new SessionMachine(cfg, rng);
-  m.configure(cfg, "worker", "ko", getNear);
+  m.configure(cfg, "ko", getNear);
   m.setEnabled(true);
   return m;
 }
 
-/** From the title screen into a life (the role fixed to worker). */
+/** From the title screen into a life (the headset is on: the life begins at once). */
 function live(m: SessionMachine) {
   press(m, "Enter"); // idle → notice
   for (const page of SCRIPT.ko.notice) {
@@ -42,13 +42,7 @@ function live(m: SessionMachine) {
   press(m, "Enter");
   expect(m.view.phase).toBe("headset");
   press(m, "Enter");
-  expect(m.view.phase).toBe("choose");
-  press(m, "Digit4"); // asks for the tree; the role is fixed to worker
-  expect(m.view.phase).toBe("draw");
-  expect(m.view.wanted).toBe("tree");
-  step(m, 8000);
   expect(m.view.phase).toBe("live");
-  expect(m.view.verdict).toBe("unlucky");
 }
 
 /** Hold X for a full hold. */
@@ -108,13 +102,34 @@ describe("stopping living (worker)", () => {
     expect(m.view.attempts).toBe(2);
     expect(m.view.attemptFailed).toBe(true);
     // … and at p = 1 it ends the life, line or no line
-    m.configure({ ...CFG, selfP: 1 }, "worker", "ko");
+    m.configure({ ...CFG, selfP: 1 }, "ko");
     step(m, 500);
     expect(m.view.attemptFailed).toBe(true);
     hold(m);
     expect(m.view.phase).toBe("ended");
     expect(m.view.endedBy).toBe("self");
     expect(FAIL_MSG_SEC).toBeGreaterThan(0);
+  });
+  it("the sound's hold releases as an envelope after a failed hold, while the dark cuts hard", () => {
+    const m = make();
+    live(m);
+    step(m, (HINT_AFTER_SEC + 1) * 1000);
+    m.holdKey(key("KeyX"));
+    step(m, 600);
+    expect(m.lifeRef.current.attempt).toBeGreaterThan(0.5);
+    expect(m.lifeRef.current.attemptSound).toBeCloseTo(m.lifeRef.current.attempt, 2);
+    step(m, 600); // the hold completes and fails (p = 0)
+    expect(m.view.attemptFailed).toBe(true);
+    expect(m.lifeRef.current.attempt).toBe(0);
+    const a = m.lifeRef.current.attemptSound;
+    expect(a).toBeGreaterThan(0.5);
+    step(m, 700);
+    const b = m.lifeRef.current.attemptSound;
+    expect(b).toBeLessThan(a);
+    expect(b).toBeGreaterThan(0.1);
+    step(m, 3000);
+    expect(m.lifeRef.current.attemptSound).toBe(0);
+    m.releaseKey(key("KeyX", "keyup"));
   });
   it("is withdrawn in the last seconds of the life, which then ends by itself", () => {
     const m = make({ ...CFG, selfP: 1 });
@@ -154,19 +169,10 @@ describe("stopping living (worker)", () => {
     expect(m.view.phase).toBe("ended");
     expect(m.view.endedBy).toBe("self");
   });
-  it("is not offered to a cat", () => {
-    const m = make({ ...CFG, selfP: 1 });
-    m.configure({ ...CFG, selfP: 1 }, "cat", "ko");
-    live(m);
-    step(m, (HINT_AFTER_SEC + 1) * 1000);
-    expect(m.view.stopHint).toBe(false);
-    hold(m);
-    expect(m.view.phase).toBe("live");
-  });
 });
 
 describe("the end and the restart", () => {
-  it("SPACE soon after the end goes straight to the choice; later it is a new visitor with the notices", () => {
+  it("SPACE soon after the end goes straight into the next life; later it is a new visitor with the notices", () => {
     const m = make();
     live(m);
     const no = m.view.sessionNo;
@@ -175,10 +181,10 @@ describe("the end and the restart", () => {
     step(m, 1100);
     expect(m.view.restartReady).toBe(true);
     press(m, "Space");
-    expect(m.view.phase).toBe("choose");
+    expect(m.view.phase).toBe("live");
     expect(m.view.sessionNo).toBe(no + 1);
-    press(m, "Digit1");
-    step(m, 8000 + 61_000 + 1100);
+    expect(m.lifeRef.current.t).toBe(0); // the lifespan starts afresh
+    step(m, 61_000 + 1100);
     expect(m.view.phase).toBe("ended");
     step(m, 25_000);
     press(m, "Space");
@@ -197,6 +203,6 @@ describe("the end and the restart", () => {
     step(m, 1100);
     vi.advanceTimersByTime(350);
     m.gesture(tap());
-    expect(m.view.phase).toBe("choose");
+    expect(m.view.phase).toBe("live");
   });
 });

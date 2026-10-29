@@ -398,6 +398,8 @@ A0 세션 연동(이 절) → A1 가볍게(Magenta 기본 끔, 이웃 캡 4, HRT
 
 ## 12. 변경 이력
 
+- **2026-10-28 (전시 전 필수)** — NoiseCraft가 로드 때 `requestMIDIAccess()`를 불러 Chrome이 "MIDI 기기 허용?" 팝업을 띄울 수 있었다(현황·배포·서버 지적). 이제 MIDI는 무언가 MIDI를 들을 때(MidiIn 노드, 매핑·학습 중인 노브)만 한 번 묻고, 숨은 악기(`?view=hidden` — 플레이어·벽)와 `?midi=0`에서는 절대 묻지 않는다(`public/noisecraft/public/midi.js`). embed의 기본 패치 경로도 커밋된 패치로(`/noisecraft/examples/nc_noise_patch.ncft`; 전엔 없는 파일을 잘못된 상대경로로 가리켜 404).
+
 - **2026-10-20 (배포 수정)** — `apps/web/public/noisecraft`가 `../noisecraft`로 가는 심볼릭 링크였는데 Vercel 빌드가 이걸 복사하지 못해 7e09070(A2) 이후 프리뷰가 전부 실패했다(`ENOENT: mkdir '/vercel/output/static/noisecraft'`). 포크의 `public/`과 `examples/`를 **실제 파일로** `apps/web/public/noisecraft/{public,examples}`로 옮겼다 — URL은 그대로(`/noisecraft/public/embedded.html`, `/noisecraft/examples/*.ncft`). 패치 파일의 자리 = `apps/web/public/noisecraft/examples`(벤치 저장도 여기). 포크의 서버 코드(server.js 등)는 `apps/web/noisecraft`에 남음.
 
 - **2026-10-18 밤 (v4 A5n)** — /v2/sound = 패치 목록(열기·복제·이름·새 패치, ★ 플레이어), /v2/sound/<패치> = 벤치(클라이언트 전용); 하이드레이션 경고 제거.

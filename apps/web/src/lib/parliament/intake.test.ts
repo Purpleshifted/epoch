@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CAUSES_OF,
   CAUSE_NAME,
-  INTAKE_PHASES,
   LANGS,
+  LOG,
   NOTICE_LINE_SEC,
   ROLE_NAME,
   SCRIPT,
@@ -21,12 +21,8 @@ import {
   isStopKey,
   stopAllowed,
   linesShown,
-  moveCursor,
-  nextIntake,
   pageDone,
   quickRestart,
-  roleForKey,
-  verdictOf,
   type LifeRecord,
   type RoleId,
   type Surface,
@@ -43,14 +39,7 @@ const rec = (over: Partial<LifeRecord> = {}): LifeRecord => ({
   ...over,
 });
 
-describe("the steps before the draw", () => {
-  it("go notice → consent → headset → choose → draw", () => {
-    expect(INTAKE_PHASES).toEqual(["notice", "consent", "headset", "choose"]);
-    expect(nextIntake("notice")).toBe("consent");
-    expect(nextIntake("consent")).toBe("headset");
-    expect(nextIntake("headset")).toBe("choose");
-    expect(nextIntake("choose")).toBe("draw");
-  });
+describe("the steps before the life", () => {
   it("are skipped for the same visitor starting again soon after the end", () => {
     expect(quickRestart(5_000, 1_000)).toBe(true);
     expect(quickRestart(21_000, 1_000)).toBe(true);
@@ -65,28 +54,6 @@ describe("the steps before the draw", () => {
     expect(pageDone(3, NOTICE_LINE_SEC * 1.9)).toBe(false);
     expect(pageDone(3, NOTICE_LINE_SEC * 2)).toBe(true);
     expect(pageDone(1, 0)).toBe(true);
-  });
-  it("map the number keys to the roles in order, on both rows", () => {
-    expect(roleForKey("Digit1")).toBe(SESSION_ROLES[0]);
-    expect(roleForKey("Numpad4")).toBe(SESSION_ROLES[3]);
-    expect(roleForKey("Digit5")).toBeNull();
-    expect(roleForKey("KeyW")).toBeNull();
-    expect(roleForKey("Space")).toBeNull();
-  });
-  it("move the highlight around the four choices and start from either end", () => {
-    expect(moveCursor(-1, 1, 4)).toBe(0);
-    expect(moveCursor(-1, -1, 4)).toBe(3);
-    expect(moveCursor(3, 1, 4)).toBe(0);
-    expect(moveCursor(0, -1, 4)).toBe(3);
-    expect(moveCursor(1, 1, 4)).toBe(2);
-  });
-});
-
-describe("the verdict", () => {
-  it("is lucky only when the slot happened to agree", () => {
-    expect(verdictOf("tree", "tree")).toBe("lucky");
-    expect(verdictOf("tree", "car")).toBe("unlucky");
-    expect(verdictOf(null, "car")).toBe("unlucky");
   });
 });
 
@@ -196,9 +163,43 @@ describe("the script", () => {
       for (const page of s.notice) expect(page.length).toBeGreaterThan(0);
       for (const page of s.notice) expect(page.length).toBeLessThanOrEqual(3);
       expect(s.headset.length).toBeLessThanOrEqual(3);
+      expect(s.headsetTouch.length).toBeLessThanOrEqual(3);
+      // how to walk is said in the first seconds of the life (there is no verdict screen to say it on)
+      expect(s.live.controls).toBeTruthy();
+      expect(s.live.controlsTouch).toBeTruthy();
       // the apparatus does not exclaim
       const all = JSON.stringify(s);
       expect(all).not.toContain("!");
+    }
+  });
+  it("words the record the same way in both languages: every key, at most two short lines, no exclamation", () => {
+    expect(Object.keys(LOG.ko.line).sort()).toEqual(Object.keys(LOG.en.line).sort());
+    const who = { o: "bot3", r: "worker" as const };
+    const sample = { who, moving: true, surface: "trodden" as const, dist: 2.1, bearing: "NE", forSec: 41, near: 2, n: 7, pct: 23, sec: 60, with: [who, { o: "v_ab12c", r: "cat" as const }], at: 72 };
+    for (const lang of LANGS) {
+      const name = (w: { o: string; r: string }) => `${w.r} ${w.o}`;
+      for (const key of Object.keys(LOG[lang].line) as (keyof typeof LOG.ko.line)[]) {
+        const text = LOG[lang].line[key](sample, name);
+        expect(text.length).toBeGreaterThan(0);
+        expect(text).not.toContain("!");
+        expect(text).not.toContain("\n");
+        if (lang === "ko") expect(text.length).toBeLessThanOrEqual(60); // two rows of the record at most
+      }
+      expect(LOG[lang].status({ moving: false, forSec: 12, surface: "open", near: 2 })).not.toContain("!");
+      expect(LOG[lang].nearItem({ who, dist: 2, bearing: "E", moving: false, forSec: 3 }, name)).toContain("bot3");
+      // the end screen's rows, full and empty
+      const full = { pressed: 19.2, recoveredPct: 63, under: 2.1, trodden: 41, walkedM: 120, newPathPct: 17, prePathPct: 30, slabs: 1, sharePct: 23, withN: 2, worldPathPct: 4.2, worldSlabPct: 3.1, empty: false };
+      const none = { pressed: 0, recoveredPct: null, under: 0, trodden: 0, walkedM: 0, newPathPct: 0, prePathPct: 0, slabs: 0, sharePct: 0, withN: 0, worldPathPct: null, worldSlabPct: null, empty: true };
+      const e = SCRIPT[lang].ended;
+      for (const sum of [full, none]) {
+        for (const row of [e.grassRow(sum), e.groundRow(sum), e.concreteRow(sum), e.worldRow(sum)]) {
+          expect(row.length).toBeGreaterThan(0);
+          expect(row).not.toContain("!");
+        }
+      }
+      expect(e.grassRow(full)).toContain("63");
+      expect(e.concreteRow(full)).toContain("23");
+      expect(e.worldRow(none)).toBe("—");
     }
   });
 });
