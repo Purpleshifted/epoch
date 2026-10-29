@@ -75,6 +75,7 @@ import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindow
 import { savable } from "./levaSave";
 import { useGlobalBots } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
+import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 
 /** Background and ground grid per theme. */
 const THEMES = {
@@ -1412,6 +1413,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
+  useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
   const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);

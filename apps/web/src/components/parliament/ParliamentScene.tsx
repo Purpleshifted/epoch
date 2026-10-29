@@ -33,6 +33,7 @@ import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
 import { SessionHud } from "./SessionHud";
+import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 import {
   DEFAULT_LIFE,
   HINT_AFTER_SEC,
@@ -303,6 +304,7 @@ function FollowGrid({ playerPosRef, size }: { playerPosRef: React.MutableRefObje
 export default function ParliamentScene() {
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const hideChrome = demo || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("ui") === "0");
+  useReloadOnContextLoss(hideChrome && !demo);
   // the language the apparatus speaks: ?lang=ko|en on the exhibition URL wins over the Leva knob
   const [langParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null));
   const [locked, setLocked] = useState(false);
