@@ -156,7 +156,12 @@ function softClip(drive: number): Float32Array<ArrayBuffer> {
   return curve;
 }
 
-const LOOKAHEAD = 0.3;
+/**
+ * How far ahead bars are planned (s). Generous on purpose: the wall's main thread can stall for hundreds of ms (a big
+ * frame, a fold), and a bar not yet planned when its start passes is lost — the room went "plays, then cuts"
+ * (2026-10-29). Notes already scheduled on the audio clock play through any stall.
+ */
+const LOOKAHEAD = 1.5;
 const TICK_MS = 80;
 
 export class GlobalEngine {
@@ -369,10 +374,19 @@ export class GlobalEngine {
     const now = ctx.currentTime;
     const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
     if (this.planned < bar) this.planned = bar;
-    const next = this.planned + 1;
-    const nextStart = start + (next - bar) * p.barSec;
-    if (nextStart > now + LOOKAHEAD) return;
-    this.planned = next;
+    // every bar that starts within the lookahead, in order (after a stall there can be more than one)
+    for (;;) {
+      const next = this.planned + 1;
+      const nextStart = start + (next - bar) * p.barSec;
+      if (nextStart > now + LOOKAHEAD) return;
+      this.planned = next;
+      this.planBar(next, nextStart);
+    }
+  }
+
+  /** All voices of bar `next`, starting at `nextStart` on the audio clock. */
+  private planBar(next: number, nextStart: number): void {
+    const p = this.params;
     const down = 12 * p.octavesDown;
     for (const pr of this.present) {
       const m = this.motifOf(pr.o);

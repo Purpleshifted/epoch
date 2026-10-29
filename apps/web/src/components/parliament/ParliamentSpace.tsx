@@ -527,6 +527,18 @@ function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: numb
   return m;
 }
 
+/**
+ * Uploads only the first `n` items of an instanced attribute. With n = 0 nothing is uploaded: an update range of length
+ * 0 reaches WebGL2's bufferSubData as "to the end", i.e. the WHOLE capacity — the empty wall sent ~35 MB to the GPU twice
+ * a second this way, and the main thread stalled on it for as long as the GPU took to draw the frame (2026-10-29).
+ */
+function uploadFirst(attr: THREE.BufferAttribute, n: number): void {
+  if (n <= 0) return;
+  attr.clearUpdateRanges();
+  attr.addUpdateRange(0, n * attr.itemSize);
+  attr.needsUpdate = true;
+}
+
 function setDecay(mesh: THREE.InstancedMesh | null, src: Float32Array, stride: number, count: number): void {
   if (!mesh) return;
   let attr = mesh.geometry.getAttribute("aDecay") as THREE.InstancedBufferAttribute | undefined;
@@ -535,7 +547,7 @@ function setDecay(mesh: THREE.InstancedMesh | null, src: Float32Array, stride: n
     mesh.geometry.setAttribute("aDecay", attr);
   }
   for (let i = 0; i < count; i++) attr.array[i] = src[i * stride + stride - 1];
-  attr.needsUpdate = true;
+  uploadFirst(attr, count);
 }
 const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3(), _q = new THREE.Quaternion(), _sc = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3();
@@ -558,7 +570,7 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
       elbow.setMatrixAt(i, _m);
     }
     elbow.count = n;
-    elbow.instanceMatrix.needsUpdate = true;
+    uploadFirst(elbow.instanceMatrix, n);
     setDecay(elbow, p.elbows, 11, n);
   }
   if (cyl) {
@@ -574,7 +586,7 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
       cyl.setMatrixAt(i, _m.compose(_mid, _q, _sc));
     }
     cyl.count = n;
-    cyl.instanceMatrix.needsUpdate = true;
+    uploadFirst(cyl.instanceMatrix, n);
     setDecay(cyl, p.cylinders, 8, n);
   }
 }
@@ -678,11 +690,7 @@ function setGatherings(g: THREE.InstancedBufferGeometry | null, r: PointsResult)
   const n = Math.min(r.position.length / 3, GATHER_CAPACITY);
   (at.center.array as Float32Array).set(r.position.subarray(0, n * 3));
   (at.color.array as Float32Array).set(r.color.subarray(0, n * 3));
-  for (const a of [at.center, at.color]) {
-    a.clearUpdateRanges();
-    a.addUpdateRange(0, n * 3);
-    a.needsUpdate = true;
-  }
+  for (const a of [at.center, at.color]) uploadFirst(a, n);
   g.instanceCount = n;
 }
 
@@ -878,14 +886,10 @@ function SpaceWorld({
         if (!mesh) continue;
         const n = p.counts[kind];
         (mesh.instanceMatrix.array as Float32Array).set(p.matrices[kind]);
-        mesh.instanceMatrix.clearUpdateRanges();
-        mesh.instanceMatrix.addUpdateRange(0, n * 16);
-        mesh.instanceMatrix.needsUpdate = true;
+        uploadFirst(mesh.instanceMatrix, n);
         if (mesh.instanceColor) {
           (mesh.instanceColor.array as Float32Array).set(p.colors[kind]);
-          mesh.instanceColor.clearUpdateRanges();
-          mesh.instanceColor.addUpdateRange(0, n * 3);
-          mesh.instanceColor.needsUpdate = true;
+          uploadFirst(mesh.instanceColor, n);
         }
         mesh.count = n;
       }
@@ -2182,10 +2186,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
   const perf = rnd.perfMode;
-  const dprMax = perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
+  // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
+  // ×1.5 a full-screen wall is 3000×1700 and the GPU falls behind; the main thread then stalls (twice a second, when the
+  // worker's new buffers are uploaded) until the frame is done, which starved the room's sound (2026-10-29)
+  const wall = hideUi && !lab;
+  const dprMax = wall ? 1 : perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
   const aoHalfRes = perf || rnd.halfRes;
   const aoQuality = perf ? ("performance" as const) : rnd.quality;
-  const shadowsOn = rnd.shadows && !perf;
+  const shadowsOn = rnd.shadows && !perf && !wall;
   const vegBudget = perf ? Math.min(veg.budget, 250000) : veg.budget;
   const lodNear = perf ? Math.min(rnd.near, 25) : rnd.near;
   const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
@@ -2265,7 +2273,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
+      <Canvas shadows={wall ? false : "percentage"} dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} />
