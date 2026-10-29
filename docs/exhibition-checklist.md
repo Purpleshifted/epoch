@@ -8,13 +8,13 @@
 
 | # | 상태 (10/29 저녁) |
 |---|---|
-| 1 DB 서버 | **스토어 생김**: 작가가 Vercel 대시보드에서 Neon Postgres `neon-copper-river`를 만들어 anthropocene에 연결(11:52), 배포 세션이 `select now()` 확인(PostgreSQL 18), 접속 주소는 Vercel env var에 자동. 구현은 **동기화 서버 세션**(체크리스트 챗의 카드, 겹 A → B → 프리셋) — 작가가 카드를 누르면 시작 |
+| 1 DB 서버 | **스토어 생김**: 작가가 Vercel 대시보드에서 Neon Postgres `neon-copper-river`를 만들어 anthropocene에 연결(11:52), 배포 세션이 `select now()` 확인(PostgreSQL 18), 접속 주소는 Vercel env var에 자동. 구현은 **동기화 서버 세션**(체크리스트 챗의 카드, 겹 A → B → 프리셋) — 작가가 카드를 누르면 시작. 세션 관리가 브랜치 `feature/sync-server` 9512e71(= B + routes 31b800b + docs/sync-server.md 596b136)과 워크트리 `.claude/worktrees/sync-server`(node_modules·.env.local 복사, `web-sync` :3009)를 준비해 둠 |
 | 2 홈 라우팅 | **됨**: feature/exhibition-routes f8e1292 (B 위) — 홈에 EXHIBITION(Global·Personal)/REHEARSAL(Global·Personal·Management)만, `/exhibition/global` → `/v2/global/space?ui=0`(새 창), `/exhibition/personal` → `/v2/mobile?ui=0&lang=ko`, `/rehearsal/*` → 같은 페이지에 Leva, `/rehearsal/management` = 사운드 벤치·랩·top/side·V1·legacy. 테스트 421, 프리뷰 success |
-| 3 Leva 공유 | **같은 기기면 됨**(전시·리허설이 같은 페이지라 levaSave 키가 같음). **다른 기기(맥북 → 아이맥)면 서버 프리셋 필요** → 동기화 서버 세션의 세 번째 겹(`presets` 테이블, Rehearsal Leva에 "클라우드에 저장", Exhibition은 열릴 때 받음, 후퇴 localStorage → 기본값). **작가가 리허설 기기를 알려줘야 함** |
+| 3 Leva 공유 | **같은 기기면 됨**(전시·리허설이 같은 페이지라 levaSave 키가 같음). **다른 기기(맥북 → 아이맥)면 서버 프리셋 필요** → 동기화 서버 세션의 세 번째 겹(`presets` 테이블, Rehearsal Leva에 "클라우드에 저장", Exhibition은 열릴 때 받음, 후퇴 localStorage → 기본값). **답(10/29, 세션 관리 확인): 조정은 맥북, 전시는 아이맥 → 프리셋 DB 공유가 11월 필수** |
 | 4 전시 글로벌 글자 0 | **됨**: bac7060(텍스트) + f8e1292(커서 숨김, Leva 숨김) |
 | 5 글로벌 사운드 어디서 | sound-v4 47816b7만: 로컬 :3003 `/v2/global/space`, 또는 프리뷰 anthropocene-63dlmxm5q-…vercel.app(Vercel 로그인). **안 들렸던 이유**: 페이지를 한 번 클릭해야 시작 + 그 origin의 세계가 비어 있으면 거의 무음 → 같은 origin에서 `/v2/mobile?demo=1`을 먼저 열어 세계를 채우고 벽을 열어 클릭. 그래도 안 들리면 사운드 세션 |
 
-**main 순서(세션 관리 제안, 동의)**: B 6c2d0d1 → exhibition-routes f8e1292 → (작가 청취 뒤) 글로벌 사운드 47816b7. 셋 다 작가의 직접 지시로만 올린다.
+**main 순서(세션 관리 제안, 동의)**: B 6c2d0d1 → exhibition-routes 31b800b(f8e1292 + 짧은 주소가 쿼리를 보존, 프리뷰 pending) → (작가 청취 뒤) 글로벌 사운드 47816b7. 셋 다 작가의 직접 지시로만 올린다.
 
 ## 0a. 10/29 아침 상태
 
@@ -117,7 +117,7 @@
 
 작가가 각 세션의 개발 서버에서 직접 보고 듣는 항목. 체크 표시는 아티팩트 페이지 "서버별 확인 목록"(https://claude.ai/artifact/8WaiAaKgaK9SYUZqnSyjdf)에 남는다(이 절은 같은 데이터의 글 버전). localhost 주소는 그 세션의 서버가 켜져 있을 때만 열린다.
 
-### 프로덕션 (전시 주소) — `anthropocene-mu.vercel.app` · 현황·배포·서버 · main 380e9f0 → B 6c2d0d1 → exhibition-routes f8e1292 → (청취 뒤) 글로벌 사운드 47816b7 · 상태: 푸시 대기
+### 프로덕션 (전시 주소) — `anthropocene-mu.vercel.app` · 현황·배포·서버 · main 380e9f0 → B 6c2d0d1 → exhibition-routes 31b800b → (청취 뒤) 글로벌 사운드 47816b7 · 상태: 푸시 대기
 
 작가가 고른 순서대로 main에 올라간 뒤 확인. B = 퓨전 + MIDI + 벽 텍스트 제거 + 개인뷰. exhibition-routes = 홈에 EXHIBITION(Global · Personal) / REHEARSAL(Global · Personal · Management) 버튼만, 짧은 주소, 벽 커서 숨김. 두 창은 같은 크롬, 탭이 아닌 창. Claude 세션은 벽을 ?sound=0으로 연다.
 
@@ -136,7 +136,7 @@
 - [ ] 홈에 EXHIBITION(Global · Personal)과 REHEARSAL(Global · Personal · Management) 버튼만 있다. Global은 새 창으로 열린다 _(routes 푸시 뒤)_
 - [ ] 전시 벽(/exhibition/global)에 글자가 하나도 없고 Leva·디버그 줄·커서도 없다 _(routes 푸시 뒤)_
 - [ ] 리허설 벽(/rehearsal/global)에서 Leva 값을 저장하면 같은 브라우저의 전시 벽이 그 값으로 뜬다 (경로가 같아 저장 키가 같음) _(routes 푸시 뒤)_
-- [ ] 맥북에서 조정한 Leva 값을 아이맥에서도 쓰려면: 프리셋 내보내기/서버 저장이 필요 (리허설 기기 = 전시 기기면 불필요) _(결정)_
+- [ ] 조정은 맥북, 전시는 아이맥 → Leva 값은 서버 프리셋으로 공유(동기화 서버 세션의 세 번째 겹). 리허설 페이지의 '클라우드에 저장' → 전시 페이지가 열릴 때 받음 _(서버 세션 뒤)_
 - [ ] /rehearsal/management에 사운드 벤치 · 랩 · top/side · V1 · legacy가 모여 있다 (DB 관리는 다음) _(routes 푸시 뒤)_
 
 ### 개인 뷰 — 회사원 고정, 장부, 표식 — `:3007` · 개인뷰 비주얼 관리 (web-personal) · claude/personal-view-visual-management-ec285d · main 위 15커밋 (1109d74) · 상태: 작가 테스트 중
@@ -233,17 +233,19 @@
 - [ ] 학교 맥이 재부팅 때 초기화되는지 확인 (되면 기록 보존 = 서버 겹 A 또는 내려받기 버튼)
 - [ ] 아이맥 기종과 그래픽 (이 Mac에 관하여) 받아 적기
 
-### 보류 · 선택 · 다음 — `:3005 · :3001 · :3006 · :3008` · 역할 컨트롤 · 비주얼 · 론칭 · 동기화 서버 · role-controls +5 · visual +1 · launch +0 · sync-server (카드) · 상태: 11월 보류
+### 보류 · 선택 · 다음 — `:3005 · :3001 · :3006 · :3009` · 역할 컨트롤 · 비주얼 · 론칭 · 동기화 서버 · role-controls +5 · visual +1 · launch +0 · feature/sync-server 9512e71 (워크트리 준비됨, 카드) · 상태: 11월 보류
 
-역할 컨트롤은 회사원 고정으로 11월 보류. 비주얼의 스케일 노브는 기본값 그대로라 무해. 론칭 브랜치는 main과 같음. 동기화 서버는 카드를 시작하면 :3008.
+역할 컨트롤은 회사원 고정으로 11월 보류. 비주얼의 스케일 노브는 기본값 그대로라 무해. 론칭 브랜치는 main과 같음. 동기화 서버는 카드를 누르면 준비된 워크트리(:3009)에서 시작.
 
 - [ ] 동기화 서버 겹 A: 플래그를 켠 배포에서 산 삶이 Postgres에 남고, 플래그가 없으면 네트워크 요청 0 _(세션 시작 뒤)_
 - [ ] 동기화 서버 겹 B: localStorage를 비운 다른 기계가 서버 세계(20분 창)를 보여준다 _(세션 시작 뒤)_
 - [ ] (선택) :3001 플레이어 뷰 스케일 노브 — 기본값이 그대로인지
 - [ ] 제목 결정: 작업 제목 '발견된 인류', 영문 제목(TITLE.en) 비어 있음
+- [ ] 프리셋 공유: 맥북 /rehearsal/global에서 '클라우드에 저장'한 Leva 값이 아이맥 /exhibition/global을 열 때 적용된다 _(세션 시작 뒤)_
 
 ## 변경 기록
 
+- 2026-10-29 밤: feature/sync-server 9512e71 + 워크트리 준비(세션 관리), 리허설 = 맥북 → 프리셋 공유 필수, routes 31b800b; 카드 갱신.
 - 2026-10-29 저녁: 작가의 최종 할 일 5개(§0b) — Neon 스토어 생김, 홈 라우팅 f8e1292, 글자 0 완료, Leva 공유는 기기에 달림, 사운드 듣는 법. 동기화 서버 카드 재제안(프리셋 포함).
 - 2026-10-29 퓨전 세션의 벽 성능 권장(전시 프리셋)과 기존 측정 → §0a·§6.
 - 2026-10-29 후보 B 프리뷰 success(통합 9ea928b); 작가 선택 대기.
