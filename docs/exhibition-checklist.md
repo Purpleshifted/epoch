@@ -2,6 +2,20 @@
 
 살아있는 문서 (2026-10-28 시작, "전시 마무리 작업 체크리스트" 세션). 세션 관리·현황·배포·서버 세션의 답(10/28)을 모아 정리했다. 바뀌면 같은 커밋에서 고친다. 기준: GitHub `main` 380e9f0 (10/20, 사운드 v4 통합) = 프로덕션 https://anthropocene-mu.vercel.app.
 
+## 0b. 작가의 10/29 최종 할 일 (현황·배포·서버 챗, 11:40)
+
+원문: "지금 최종적으로 교내 전시 전까지 할 거: 1. vercel 엑세스 허용해뒀으니 db 서버 파고 연결할 것 2. 홈화면에 exhibition에 해당하는 global/personal, rehearsal에 해당하는 global/personal/management 버튼만 남겨서 라우팅하기 3. rehearsal에서 leva 미세조정 만드는 건 exhibition에도 동기화 되어있도록 4. exhibition에 해당하는 global에서는 화면의 레바, 디버그용 ui 포함 모든 텍스트가 아예 안 보이도록 5. 글로벌 사운드는 지금 어디서 들을 수 있는 건지 알려줘"
+
+| # | 상태 (10/29 저녁) |
+|---|---|
+| 1 DB 서버 | **스토어 생김**: 작가가 Vercel 대시보드에서 Neon Postgres `neon-copper-river`를 만들어 anthropocene에 연결(11:52), 배포 세션이 `select now()` 확인(PostgreSQL 18), 접속 주소는 Vercel env var에 자동. 구현은 **동기화 서버 세션**(체크리스트 챗의 카드, 겹 A → B → 프리셋) — 작가가 카드를 누르면 시작 |
+| 2 홈 라우팅 | **됨**: feature/exhibition-routes f8e1292 (B 위) — 홈에 EXHIBITION(Global·Personal)/REHEARSAL(Global·Personal·Management)만, `/exhibition/global` → `/v2/global/space?ui=0`(새 창), `/exhibition/personal` → `/v2/mobile?ui=0&lang=ko`, `/rehearsal/*` → 같은 페이지에 Leva, `/rehearsal/management` = 사운드 벤치·랩·top/side·V1·legacy. 테스트 421, 프리뷰 success |
+| 3 Leva 공유 | **같은 기기면 됨**(전시·리허설이 같은 페이지라 levaSave 키가 같음). **다른 기기(맥북 → 아이맥)면 서버 프리셋 필요** → 동기화 서버 세션의 세 번째 겹(`presets` 테이블, Rehearsal Leva에 "클라우드에 저장", Exhibition은 열릴 때 받음, 후퇴 localStorage → 기본값). **작가가 리허설 기기를 알려줘야 함** |
+| 4 전시 글로벌 글자 0 | **됨**: bac7060(텍스트) + f8e1292(커서 숨김, Leva 숨김) |
+| 5 글로벌 사운드 어디서 | sound-v4 47816b7만: 로컬 :3003 `/v2/global/space`, 또는 프리뷰 anthropocene-63dlmxm5q-…vercel.app(Vercel 로그인). **안 들렸던 이유**: 페이지를 한 번 클릭해야 시작 + 그 origin의 세계가 비어 있으면 거의 무음 → 같은 origin에서 `/v2/mobile?demo=1`을 먼저 열어 세계를 채우고 벽을 열어 클릭. 그래도 안 들리면 사운드 세션 |
+
+**main 순서(세션 관리 제안, 동의)**: B 6c2d0d1 → exhibition-routes f8e1292 → (작가 청취 뒤) 글로벌 사운드 47816b7. 셋 다 작가의 직접 지시로만 올린다.
+
 ## 0a. 10/29 아침 상태
 
 - main은 아직 380e9f0. **main 후보 둘**(세션 관리, 로컬, 푸시 없음): **A = 8b4245d** (퓨전 bac7060 + MIDI c8e28a1 + 벽 텍스트) · **B = 6c2d0d1** (A + 개인뷰 1109d74; 충돌 두 개 해결 — index.ts는 양쪽 export 모두, HomeScreen은 TEST Lab 유지 + Personal 부제는 개인뷰 쪽; DRAW_DEFAULT 완전 삭제; 테스트 421개 통과, 로컬 next build 성공; **Vercel 프리뷰 success** — 통합 브랜치 9ea928b(트리 = B)의 프리뷰 anthropocene-4i7f8gxc0-hesse-parks-projects.vercel.app, Vercel 로그인 필요). 선택지 셋째: 둘 다 **+ 글로벌 사운드 47816b7**(사운드 세션, 충돌 없음, main에 들어가면 벽에서 소리가 기본으로 켜짐 — 작가 청취 뒤). **푸시는 작가의 직접 지시 대기**(세션 관리 챗에 한 줄, 또는 체크리스트 챗에서 "B로/A만 여기서 푸시").
@@ -103,20 +117,27 @@
 
 작가가 각 세션의 개발 서버에서 직접 보고 듣는 항목. 체크 표시는 아티팩트 페이지 "서버별 확인 목록"(https://claude.ai/artifact/8WaiAaKgaK9SYUZqnSyjdf)에 남는다(이 절은 같은 데이터의 글 버전). localhost 주소는 그 세션의 서버가 켜져 있을 때만 열린다.
 
-### 프로덕션 (전시 주소) — `anthropocene-mu.vercel.app` · 현황·배포·서버 · main 380e9f0 → 후보 A 8b4245d 또는 B 6c2d0d1 (+ 글로벌 사운드 47816b7 선택) · 상태: 푸시 대기
+### 프로덕션 (전시 주소) — `anthropocene-mu.vercel.app` · 현황·배포·서버 · main 380e9f0 → B 6c2d0d1 → exhibition-routes f8e1292 → (청취 뒤) 글로벌 사운드 47816b7 · 상태: 푸시 대기
 
-작가가 고른 후보가 main에 올라간 뒤 다시 확인. A = 퓨전 + MIDI + 벽 텍스트 제거, B = A + 개인뷰(회사원 고정, 장부, 표식). 두 창은 같은 크롬, 탭이 아닌 창. Claude 세션은 벽을 ?sound=0으로 연다.
+작가가 고른 순서대로 main에 올라간 뒤 확인. B = 퓨전 + MIDI + 벽 텍스트 제거 + 개인뷰. exhibition-routes = 홈에 EXHIBITION(Global · Personal) / REHEARSAL(Global · Personal · Management) 버튼만, 짧은 주소, 벽 커서 숨김. 두 창은 같은 크롬, 탭이 아닌 창. Claude 세션은 벽을 ?sound=0으로 연다.
 
-- 개인 뷰: `https://anthropocene-mu.vercel.app/v2/mobile?ui=0&lang=ko`
-- 벽: `https://anthropocene-mu.vercel.app/v2/global/space?ui=0`
+- 전시 개인 뷰: `https://anthropocene-mu.vercel.app/exhibition/personal`
+- 전시 벽: `https://anthropocene-mu.vercel.app/exhibition/global`
+- 리허설 개인 뷰 (Leva): `https://anthropocene-mu.vercel.app/rehearsal/personal`
+- 리허설 벽 (Leva): `https://anthropocene-mu.vercel.app/rehearsal/global`
+- 관리: `https://anthropocene-mu.vercel.app/rehearsal/management`
 
 - [ ] 개인 뷰를 열 때 "MIDI 기기 허용?" 팝업이 뜨지 않는다 _(푸시 뒤)_
-- [ ] 벽(ui=0)에 글자가 하나도 없다 — 왼쪽 아래 통계, 마커 이름 모두 없음 _(푸시 뒤)_
 - [ ] 벽에 퓨전 질감(녹아 붙은 덩어리, 핏, 레진 몸)이 보인다 _(푸시 뒤)_
 - [ ] 개인 뷰에서 걸으면 벽에 1~3초 안에 나타난다 (창 두 개, 같은 크롬)
 - [ ] 폰: 누르는 동안 걷기 · 끌면 돌기 · 위 버튼 길게 눌러 그만 살기
 - [ ] ?lang=ko / ?lang=en 전환이 되고, 한글 픽셀 서체(Neo둥근모)가 보인다
 - [ ] 개인 뷰가 회사원 고정 흐름(안내 5장 → 동의 → 헤드셋 → 삶)이고 역할 고르기가 없다 _(B 푸시 뒤)_
+- [ ] 홈에 EXHIBITION(Global · Personal)과 REHEARSAL(Global · Personal · Management) 버튼만 있다. Global은 새 창으로 열린다 _(routes 푸시 뒤)_
+- [ ] 전시 벽(/exhibition/global)에 글자가 하나도 없고 Leva·디버그 줄·커서도 없다 _(routes 푸시 뒤)_
+- [ ] 리허설 벽(/rehearsal/global)에서 Leva 값을 저장하면 같은 브라우저의 전시 벽이 그 값으로 뜬다 (경로가 같아 저장 키가 같음) _(routes 푸시 뒤)_
+- [ ] 맥북에서 조정한 Leva 값을 아이맥에서도 쓰려면: 프리셋 내보내기/서버 저장이 필요 (리허설 기기 = 전시 기기면 불필요) _(결정)_
+- [ ] /rehearsal/management에 사운드 벤치 · 랩 · top/side · V1 · legacy가 모여 있다 (DB 관리는 다음) _(routes 푸시 뒤)_
 
 ### 개인 뷰 — 회사원 고정, 장부, 표식 — `:3007` · 개인뷰 비주얼 관리 (web-personal) · claude/personal-view-visual-management-ec285d · main 위 15커밋 (1109d74) · 상태: 작가 테스트 중
 
@@ -223,6 +244,7 @@
 
 ## 변경 기록
 
+- 2026-10-29 저녁: 작가의 최종 할 일 5개(§0b) — Neon 스토어 생김, 홈 라우팅 f8e1292, 글자 0 완료, Leva 공유는 기기에 달림, 사운드 듣는 법. 동기화 서버 카드 재제안(프리셋 포함).
 - 2026-10-29 퓨전 세션의 벽 성능 권장(전시 프리셋)과 기존 측정 → §0a·§6.
 - 2026-10-29 후보 B 프리뷰 success(통합 9ea928b); 작가 선택 대기.
 - 2026-10-29 main 후보 B(6c2d0d1 = A + 개인뷰) 준비; 글로벌 사운드 1단계 47816b7(sound-v4); 소리 규칙 ?sound=0; 벽 fps 경고.
