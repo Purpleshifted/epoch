@@ -290,6 +290,8 @@ export class SoundEngine {
   private afterlife: { at: number; until: number; feedUntil: number } | null = null;
   /** The afterlife's long room (A5d): built with the graph for the tail's length, rebuilt at a death if the knob moved. */
   private afterRoom: { send: GainNode; conv: ConvolverNode; seconds: number } | null = null;
+  /** The NoiseCraft patch's own feed into the afterlife room (its fader for the end), joined at a death. */
+  private ncFeed: GainNode | null = null;
   private wasDead = false;
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
@@ -999,14 +1001,23 @@ export class SoundEngine {
     this.bassGain.gain.setTargetAtTime(0, t, 0.1);
     this.wave.gain.gain.setTargetAtTime(0, t, 0.15);
     this.noiseGain.gain.setTargetAtTime(0, t, 0.25);
-    // the last sound into the long room (the patch before its gain: it is not heard dry after the end)
+    // the last sound into the long room. The patch has a FADER of its own for the end (the artist, 2026-10-28:
+    // tapped straight into the room it jumped; closed with its dry gain it left no reverb): a feed gain into the
+    // room's convolver that comes up as the dry path goes down (a crossfade, the loudness held), stays open for
+    // NC_FEED seconds so the room is full of it, then closes slowly — the tail is what remains
     const room = this.afterlifeRoom(tail);
-    if (this.nc) {
-      this.nc.filter.connect(room.send);
-      this.nc.gain.gain.setTargetAtTime(0, t + 0.25, 0.15);
+    if (this.nc && this.ctx) {
+      const NC_FEED = 1.5;
+      const feed = this.ctx.createGain();
+      feed.gain.value = 0;
+      this.nc.filter.connect(feed).connect(room.conv);
+      feed.gain.setTargetAtTime(1, t, 0.4);
+      feed.gain.setTargetAtTime(0, t + NC_FEED, 0.5);
+      this.nc.gain.gain.setTargetAtTime(0, t + 0.1, 0.4);
+      this.ncFeed = feed;
     }
     room.send.gain.cancelScheduledValues(t);
-    room.send.gain.setTargetAtTime(1, t, 0.02);
+    room.send.gain.setTargetAtTime(1, t, 0.05);
     room.send.gain.setTargetAtTime(0, t + FEED, 0.08);
     // the master holds through the first half; then a FADE ENVELOPE lies over the tail's own decay (the artist: if
     // the volume has not come down by then, overlap a fade) — a straight line to silence exactly at the tail's end
@@ -1022,6 +1033,16 @@ export class SoundEngine {
   private endAfterlife(t: number): void {
     this.afterlife = null;
     this.afterRoom?.send.gain.setTargetAtTime(0, t, 0.05);
+    // the patch's feed into the room goes (its dry path stays and comes back)
+    if (this.ncFeed) {
+      try {
+        this.nc?.filter.disconnect(this.ncFeed);
+        this.ncFeed.disconnect();
+      } catch {
+        /* already gone */
+      }
+      this.ncFeed = null;
+    }
     this.voiceBus.gain.setTargetAtTime(1, t, 0.2);
     this.bassGain.gain.setTargetAtTime(1, t, 0.2);
     this.nc?.gain.gain.setTargetAtTime(1, t, 0.2);
