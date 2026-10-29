@@ -14,7 +14,7 @@
 | 4 전시 글로벌 글자 0 | **됨**: bac7060(텍스트) + f8e1292(커서 숨김, Leva 숨김) |
 | 5 글로벌 사운드 어디서 | sound-v4 47816b7만: 로컬 :3003 `/v2/global/space`, 또는 프리뷰 anthropocene-63dlmxm5q-…vercel.app(Vercel 로그인). **안 들렸던 이유**: 페이지를 한 번 클릭해야 시작 + 그 origin의 세계가 비어 있으면 거의 무음 → 같은 origin에서 `/v2/mobile?demo=1`을 먼저 열어 세계를 채우고 벽을 열어 클릭. 그래도 안 들리면 사운드 세션 |
 
-**main 순서(세션 관리 제안, 동의)**: B 6c2d0d1 → exhibition-routes 31b800b(f8e1292 + 짧은 주소가 쿼리를 보존, 프리뷰 pending) → (작가 청취 뒤) 글로벌 사운드 47816b7. 셋 다 작가의 직접 지시로만 올린다.
+**main 순서(세션 관리 제안, 동의)**: B 6c2d0d1 → exhibition-routes 31b800b(f8e1292 + 짧은 주소가 쿼리를 보존, **프리뷰 success** anthropocene-rjr6uz89s-…, Vercel 로그인) → (작가 청취 뒤) 글로벌 사운드 47816b7. 셋 다 작가의 직접 지시로만 올린다.
 
 ## 0a. 10/29 아침 상태
 
