@@ -43,6 +43,8 @@ export interface GlobalParams {
   /** The noise bed: level per person present, and its ceiling. */
   bedPer: number;
   bedMax: number;
+  /** The bed's floor when nobody is there (0 = an empty world is silent — the design so far; the artist decides by ear). */
+  bedFloor: number;
   /** Stereo spread of the clumps (0 = mono, 1 = full). */
   spread: number;
   /** Saturation drive (1 = none). */
@@ -61,6 +63,7 @@ export const DEFAULT_GLOBAL: GlobalParams = {
   tickLevel: 0.35,
   bedPer: 0.01,
   bedMax: 0.12,
+  bedFloor: 0,
   spread: 0.8,
   drive: 2.5,
   windowSec: 600,
@@ -284,7 +287,7 @@ export class GlobalEngine {
     this.lp.frequency.setTargetAtTime(params.cutoff * (1 + 0.6 * moving), t, 1.5);
     this.hallSend.gain.setTargetAtTime(params.hall, t, 1.0);
     // the bed of low noise: a faint floor that thickens with the crowd, never a rumble
-    this.bed.gain.setTargetAtTime(Math.min(params.bedMax, present.length * params.bedPer), t, 2.0);
+    this.bed.gain.setTargetAtTime(Math.max(params.bedFloor, Math.min(params.bedMax, present.length * params.bedPer)), t, 2.0);
     if (Math.abs(params.drive - this.drive) > 0.05) {
       this.shaper.curve = softClip(params.drive);
       this.drive = params.drive;

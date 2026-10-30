@@ -4,8 +4,10 @@
  * present (lib/sound/global.ts; brought back from the warehouse for the November show, docs/sound-logic.md §10b).
  * Mounted by app/v2/global/layout.tsx so the views themselves stay untouched.
  *
- * - Starts on the first click or key on the page (browsers block sound before a gesture). ESC mutes this window.
+ * - Starts on the first click or key on the page (browsers block sound before a gesture). ESC mutes this window —
+ *   NOT on the exhibition wall (?ui=0): there ESC only leaves full screen, it must never silence the room unseen.
  * - On by default: the exhibition wall has no panel (?ui=0) — then there is no status line either.
+ * - An empty world is silent by default (nobody present = no voices, no bed); `빈 세계의 바닥` keeps a floor of noise.
  * - ?sound=0 turns it off entirely (for checks in a Claude browser: no sound through the artist's speakers).
  * - The buildings come from the growing fold (useFoldState): cheap every few seconds, unlike a full fold.
  */
@@ -35,6 +37,7 @@ export default function GlobalSound() {
       cutoff: { value: DEFAULT_GLOBAL.cutoff, min: 80, max: 2000, step: 10, label: "저역통과 (Hz) — 걷는 사람이 많으면 조금 열림" },
       bedPer: { value: DEFAULT_GLOBAL.bedPer, min: 0, max: 0.05, step: 0.001, label: "노이즈 바닥: 한 사람당" },
       bedMax: { value: DEFAULT_GLOBAL.bedMax, min: 0, max: 0.6, step: 0.01, label: "노이즈 바닥: 최대" },
+      bedFloor: { value: DEFAULT_GLOBAL.bedFloor, min: 0, max: 0.2, step: 0.005, label: "빈 세계의 바닥 (아무도 없을 때도 남는 노이즈, 0 = 무음)" },
       perVoice: { value: DEFAULT_GLOBAL.perVoice, min: 0, max: 0.4, step: 0.005, label: "한 사람의 낮은 목소리" },
       octavesDown: { value: DEFAULT_GLOBAL.octavesDown, min: 0, max: 4, step: 1, label: "목소리를 내리는 옥타브" },
       tickLevel: { value: DEFAULT_GLOBAL.tickLevel, min: 0, max: 1, step: 0.01, label: "리듬 흔적 (틱)" },
@@ -46,10 +49,10 @@ export default function GlobalSound() {
     }),
     { collapsed: true, order: 5 },
   ) as unknown as GlobalParams & { on: boolean };
-  const { on, master, cutoff, bedPer, bedMax, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec } = c;
+  const { on, master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec } = c;
   const params = useMemo<GlobalParams>(
-    () => ({ master, cutoff, bedPer, bedMax, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec }),
-    [master, cutoff, bedPer, bedMax, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec],
+    () => ({ master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec }),
+    [master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec],
   );
 
   const log = useWorld(undefined, 3000);
@@ -70,7 +73,8 @@ export default function GlobalSound() {
       if (onRef.current && !muted.current) engine.start().catch(() => {});
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // the exhibition wall: ESC leaves full screen and nothing else (a mute there would be invisible)
+      if (e.key === "Escape" && !bare) {
         muted.current = !muted.current;
         if (muted.current) engine.stop();
         else if (onRef.current) engine.start().catch(() => {});
@@ -85,7 +89,7 @@ export default function GlobalSound() {
       window.removeEventListener("keydown", onKey);
       engine.dispose();
     };
-  }, [engine]);
+  }, [engine, bare]);
 
   useEffect(() => {
     if (!engine) return;
@@ -99,7 +103,11 @@ export default function GlobalSound() {
     if (!engine) return;
     const id = setInterval(() => {
       const epoch = Number(currentEpochKey() ?? 0);
-      if (!epoch) return;
+      if (!epoch) {
+        // no world yet (a fresh origin): nobody to hear — only the empty world's floor, if any
+        engine.update([], [], 0, params);
+        return;
+      }
       const events = log.all();
       const now = Date.now();
       if (events.length && now - buildings.current.at > 4000 && buildings.current.version !== log.version) {
