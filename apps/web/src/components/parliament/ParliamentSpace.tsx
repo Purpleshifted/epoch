@@ -1610,11 +1610,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     savable("전시 카메라", {
       camTurnSec: { value: 180, min: 0, max: 900, step: 5, label: "한 바퀴 (초 · 0 = 멈춤)" },
       camDir: { options: { "한쪽": 1, "반대쪽": -1 }, value: 1, label: "도는 방향" },
-      camDist: { value: 28.5, min: 4, max: 200, step: 0.5, label: "거리" },
-      camPolar: { value: 74, min: 1, max: 179, step: 1, label: "높이 각 (0 = 바로 위 · 90 = 지평선)" },
+      // DEFAULT FRAMING (the fusion session, 2026-10-30): the fused mass, resin and fossils begin 45–54 slots below the
+      // present (45+ world down); aimed at the present from 28.5 away the 40° view showed ±10 world and the fossil band
+      // never. Target 25 below the present, 75 away at 58°: the present near the top edge, the band near the bottom.
+      camDist: { value: 75, min: 4, max: 200, step: 0.5, label: "거리" },
+      camPolar: { value: 58, min: 1, max: 179, step: 1, label: "높이 각 (0 = 바로 위 · 90 = 지평선)" },
       camAzimuth: { value: 36, min: 0, max: 360, step: 1, label: "시작 방향 (도)" },
       camLook: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
-      camLift: { value: 0, min: -30, max: 30, step: 0.5, label: "초점 높이 (시간축 위에 더함)" },
+      camLift: { value: -25, min: -60, max: 30, step: 0.5, label: "초점 높이 (시간축 위에 더함 · 음수 = 아래)" },
       "현재 시점 가져오기 (그다음 save)": button(() => capturePose.current()),
       camFollow: { options: { "자동 (내가 조용하면 최신)": "auto", "나 (개인 탭)": "me", "최신 (봇 포함)": "latest" }, value: "auto" as FollowWho, label: "따라갈 대상" },
       camQuietSec: { value: 30, min: 5, max: 600, step: 5, label: "자동: 내가 이만큼 조용하면 최신으로 (초)" },
@@ -1649,7 +1652,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       set("camPolar", Math.round(THREE.MathUtils.clamp(Math.acos(dy / r) / DEG, 1, 179)));
       set("camAzimuth", Math.round((((Math.atan2(dx, dz) / DEG) % 360) + 360) % 360) % 360);
       set("camLook", [THREE.MathUtils.clamp(half(o.target.x), -100, 100), THREE.MathUtils.clamp(half(o.target.z), -100, 100)]);
-      set("camLift", THREE.MathUtils.clamp(half(o.target.y - focusRef.current), -30, 30));
+      set("camLift", THREE.MathUtils.clamp(half(o.target.y - focusRef.current), -60, 30));
     };
   }, []);
   const tAxis = useControls(
