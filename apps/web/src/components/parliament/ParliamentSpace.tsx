@@ -733,6 +733,8 @@ function SpaceWorld({
   wear,
   follow,
   followLift,
+  followWho,
+  quietSec,
   controls,
   onStats,
   nature,
@@ -764,6 +766,11 @@ function SpaceWorld({
   follow: boolean;
   /** Added to the followed height (the exhibition camera's "초점 높이"): the view looks a little above or below the present. */
   followLift: number;
+  /** Whom the present follows: the player tab's own owner ("me"), the latest event of anybody (bots included), or
+   * "auto" — me unless me has been quiet for `quietSec` exhibition seconds (the wall with only bots running, and a
+   * stale me id left in storage, used to stand still at me's last moment — the artist, 2026-10-30). */
+  followWho: FollowWho;
+  quietSec: number;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
   nature: NatureParams | null;
@@ -1000,8 +1007,11 @@ function SpaceWorld({
 
     const meS = latestOf(events, typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY));
     const t = latestS(events);
-    focus.current = { focusS: meS ?? t, focusIsMe: meS !== null };
-    focusY.current = events.length ? ((meS ?? t) / cfg.secPerUnit) * cfg.unit : null;
+    const meQuiet = meS !== null && nowS !== undefined && nowS - meS > quietSec;
+    const useMe = meS !== null && followWho !== "latest" && !(followWho === "auto" && meQuiet);
+    const focusS = useMe && meS !== null ? meS : t;
+    focus.current = { focusS, focusIsMe: useMe };
+    focusY.current = events.length ? (focusS / cfg.secPerUnit) * cfg.unit : null;
 
     const o = controls.current;
     // TIME STANDING STILL (rate 0): the camera the LOD and the vegetation window follow is pinned too, so moving the
@@ -1191,6 +1201,21 @@ function FocusFollow({
   return null;
 }
 
+/** Whom the present follows — see SpaceWorld's `followWho`. */
+type FollowWho = "auto" | "me" | "latest";
+
+/** The sun's slow drift on the exhibition wall — see Sun. */
+interface SunDrift {
+  /** Minutes for one turn of the azimuth (0 = fixed). */
+  turnMin: number;
+  dir: 1 | -1;
+  /** The elevation swings ± this many degrees around the slider's value … */
+  swingDeg: number;
+  /** … once per this many minutes. */
+  swingMin: number;
+  active: boolean;
+}
+
 /** What the exhibition camera is set to: a point on a sphere around where it looks. */
 interface StagePose {
   /** Distance from the target (world). */
@@ -1304,6 +1329,7 @@ function Sun({
   intensity,
   softness,
   shadows,
+  drift,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   azimuth: number;
@@ -1311,15 +1337,23 @@ function Sun({
   intensity: number;
   softness: number;
   shadows: boolean;
+  drift: SunDrift;
 }) {
   const light = useRef<THREE.DirectionalLight>(null);
   const extent = 35;
-  useFrame(() => {
+  // THE SUN'S DAY (the artist, 2026-10-30): on the wall the azimuth turns and the elevation swings slowly around the
+  // sliders' values, by the clock (a stall moves it at most 0.1 s worth), from the "전시 카메라" values
+  const driftT = useRef(0);
+  useFrame((_, dt) => {
     const l = light.current;
     const t = controls.current?.target;
     if (!l || !t) return;
-    const az = azimuth * DEG;
-    const el = elevation * DEG;
+    if (drift.active) driftT.current += Math.min(dt, 0.1);
+    const s = driftT.current;
+    const turn = drift.active && drift.turnMin > 0 ? (drift.dir * 360 * s) / (drift.turnMin * 60) : 0;
+    const swing = drift.active && drift.swingDeg > 0 && drift.swingMin > 0 ? drift.swingDeg * Math.sin((2 * Math.PI * s) / (drift.swingMin * 60)) : 0;
+    const az = (azimuth + turn) * DEG;
+    const el = THREE.MathUtils.clamp(elevation + swing, 2, 89) * DEG;
     const d = 80;
     l.position.set(t.x + Math.cos(el) * Math.cos(az) * d, t.y + Math.sin(el) * d, t.z + Math.cos(el) * Math.sin(az) * d);
     l.target.position.set(t.x, t.y, t.z);
@@ -1582,6 +1616,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       camLook: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
       camLift: { value: 0, min: -30, max: 30, step: 0.5, label: "초점 높이 (시간축 위에 더함)" },
       "현재 시점 가져오기 (그다음 save)": button(() => capturePose.current()),
+      camFollow: { options: { "자동 (내가 조용하면 최신)": "auto", "나 (개인 탭)": "me", "최신 (봇 포함)": "latest" }, value: "auto" as FollowWho, label: "따라갈 대상" },
+      camQuietSec: { value: 30, min: 5, max: 600, step: 5, label: "자동: 내가 이만큼 조용하면 최신으로 (초)" },
+      "해 (자동 운행)": folder({
+        sunTurnMin: { value: 90, min: 0, max: 480, step: 1, label: "해 방위 한 바퀴 (분 · 0 = 고정)" },
+        sunDir: { options: { "한쪽": 1, "반대쪽": -1 }, value: 1, label: "해 도는 방향" },
+        sunSwing: { value: 10, min: 0, max: 60, step: 1, label: "해 고도 흔들림 (± ° · 0 = 고정)" },
+        sunSwingMin: { value: 30, min: 1, max: 480, step: 1, label: "해 고도 한 주기 (분)" },
+      }),
     }),
     { order: 1, collapsed: lab },
   );
@@ -2415,7 +2457,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       <Canvas shadows={wall ? false : "percentage"} dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} />
+        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
@@ -2428,6 +2470,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           wear={c.wear}
           follow={c.follow}
           followLift={cam.camLift}
+          followWho={cam.camFollow as FollowWho}
+          quietSec={cam.camQuietSec}
           controls={controls}
           onStats={setStats}
           nature={natureParams}
