@@ -732,6 +732,7 @@ function SpaceWorld({
   showEdges,
   wear,
   follow,
+  followLift,
   controls,
   onStats,
   nature,
@@ -761,6 +762,8 @@ function SpaceWorld({
   /** Wear the parts to the present (the fold's slab wear); off = everything as built. */
   wear: boolean;
   follow: boolean;
+  /** Added to the followed height (the exhibition camera's "초점 높이"): the view looks a little above or below the present. */
+  followLift: number;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
   nature: NatureParams | null;
@@ -1043,7 +1046,7 @@ function SpaceWorld({
   useFrame((state, dt) => {
     const c = controls.current;
     if (!c || focusY.current === null || !(follow || !snapped.current)) return;
-    const want = Math.max(0, focusY.current);
+    const want = Math.max(0, focusY.current + followLift);
     const far = Math.abs(want - c.target.y) > FOLLOW_SNAP;
     const d = !snapped.current || far ? want - c.target.y : (want - c.target.y) * Math.min(1, dt * 1.5);
     snapped.current = true;
@@ -1184,6 +1187,95 @@ function FocusFollow({
     const goal = want.current ?? (t ? new THREE.Vector3(t.x, t.y, t.z) : null);
     if (!goal) return;
     target.lerp(goal, 1 - Math.exp(-dt * speed));
+  });
+  return null;
+}
+
+/** What the exhibition camera is set to: a point on a sphere around where it looks. */
+interface StagePose {
+  /** Distance from the target (world). */
+  dist: number;
+  /** Angle from straight above, degrees: 0 = looking down, 90 = at the horizon. */
+  polar: number;
+  /** Direction around the target, degrees (where the turn starts). */
+  azimuth: number;
+  /** Where it looks, x and z (y is the time axis, followed). */
+  look: [number, number];
+}
+
+/** The parts of OrbitControls' event API the stage camera listens to (a drag on the rehearsal wall pauses the turn). */
+interface OrbitEvents {
+  addEventListener?: (type: string, fn: () => void) => void;
+  removeEventListener?: (type: string, fn: () => void) => void;
+}
+
+/**
+ * THE EXHIBITION CAMERA. The wall is a landscape: nobody steers it, it turns slowly around the strata (the artist,
+ * 2026-10-30). The pose comes from the "전시 카메라" Leva group — set on the rehearsal wall (same page, so the same saved
+ * values) and read by the exhibition wall; `turnSec` is one turn in seconds (0 = still). The turn is driven here by the
+ * clock, not by OrbitControls' autoRotate, which moves a fixed angle per FRAME (a 40 fps wall would turn slower than the
+ * 60 fps rehearsal). A drag on the rehearsal wall pauses the turn until the pointer is up; the time-axis follow
+ * (SpaceWorld) keeps moving the target and the camera together along y underneath.
+ */
+function StageCamera({
+  controls,
+  pose,
+  turnSec,
+  dir,
+  maxPolarDeg,
+  active,
+}: {
+  controls: React.MutableRefObject<Orbit | null>;
+  pose: StagePose;
+  turnSec: number;
+  dir: 1 | -1;
+  maxPolarDeg: number;
+  /** Off in the lab, which has its own column to look at. */
+  active: boolean;
+}) {
+  const dragging = useRef(false);
+  useEffect(() => {
+    const o = controls.current as (Orbit & OrbitEvents) | null;
+    if (!o?.addEventListener) return;
+    const start = () => void (dragging.current = true);
+    const end = () => void (dragging.current = false);
+    o.addEventListener("start", start);
+    o.addEventListener("end", end);
+    return () => {
+      o.removeEventListener?.("start", start);
+      o.removeEventListener?.("end", end);
+    };
+  }, [controls]);
+  // the pose, applied once at mount and whenever a value changes: the camera put on its sphere around the target
+  const [lookX, lookZ] = pose.look;
+  useEffect(() => {
+    if (!active) return;
+    const o = controls.current;
+    if (!o) return;
+    const polar = THREE.MathUtils.clamp(pose.polar, 0.5, maxPolarDeg) * DEG;
+    const az = pose.azimuth * DEG;
+    const r = Math.max(1, pose.dist);
+    o.target.x = lookX;
+    o.target.z = lookZ;
+    o.object.position.x = o.target.x + r * Math.sin(polar) * Math.sin(az);
+    o.object.position.y = o.target.y + r * Math.cos(polar);
+    o.object.position.z = o.target.z + r * Math.sin(polar) * Math.cos(az);
+    o.update();
+  }, [active, controls, pose.dist, pose.polar, pose.azimuth, lookX, lookZ, maxPolarDeg]);
+  // the turn: the camera moved around the vertical axis through the target by the time passed (a stall moves it at
+  // most 0.1 s worth, so the landscape never jumps)
+  useFrame((_, dt) => {
+    if (!active || turnSec <= 0 || dragging.current) return;
+    const o = controls.current;
+    if (!o) return;
+    const a = (dir * 2 * Math.PI * Math.min(dt, 0.1)) / turnSec;
+    const dx = o.object.position.x - o.target.x;
+    const dz = o.object.position.z - o.target.z;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    o.object.position.x = o.target.x + dx * c + dz * s;
+    o.object.position.z = o.target.z + dz * c - dx * s;
+    o.update();
   });
   return null;
 }
@@ -1473,6 +1565,49 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     }),
     { order: lab ? 6 : 0, collapsed: lab },
   );
+  // ── 전시 카메라: the wall is a landscape nobody steers; it turns slowly (the artist, 2026-10-30) — see StageCamera.
+  // Saved on the rehearsal wall, read by the exhibition wall (same page → same storage key). Keys are stable on purpose:
+  // the planned server presets (MacBook → iMac) carry these same names. ──
+  const capturePose = useRef(() => {});
+  const cam = useControls(
+    "전시 카메라",
+    savable("전시 카메라", {
+      camTurnSec: { value: 180, min: 0, max: 900, step: 5, label: "한 바퀴 (초 · 0 = 멈춤)" },
+      camDir: { options: { "한쪽": 1, "반대쪽": -1 }, value: 1, label: "도는 방향" },
+      camDist: { value: 28.5, min: 4, max: 200, step: 0.5, label: "거리" },
+      camPolar: { value: 74, min: 1, max: 179, step: 1, label: "높이 각 (0 = 바로 위 · 90 = 지평선)" },
+      camAzimuth: { value: 36, min: 0, max: 360, step: 1, label: "시작 방향 (도)" },
+      camLook: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+      camLift: { value: 0, min: -30, max: 30, step: 0.5, label: "초점 높이 (시간축 위에 더함)" },
+      "현재 시점 가져오기 (그다음 save)": button(() => capturePose.current()),
+    }),
+    { order: 1, collapsed: lab },
+  );
+  // the button: the view as it is now (after dragging / zooming on the rehearsal wall) put into the values above
+  useEffect(() => {
+    capturePose.current = () => {
+      const o = controls.current;
+      if (!o) return;
+      const dx = o.object.position.x - o.target.x;
+      const dy = o.object.position.y - o.target.y;
+      const dz = o.object.position.z - o.target.z;
+      const r = Math.hypot(dx, dy, dz);
+      if (r < 1e-3) return;
+      const half = (x: number) => Math.round(x * 2) / 2;
+      const set = (k: string, val: unknown) => {
+        try {
+          levaStore.setValueAtPath(`전시 카메라.${k}`, val, true);
+        } catch {
+          /* the group is not mounted */
+        }
+      };
+      set("camDist", THREE.MathUtils.clamp(half(r), 4, 200));
+      set("camPolar", Math.round(THREE.MathUtils.clamp(Math.acos(dy / r) / DEG, 1, 179)));
+      set("camAzimuth", Math.round((((Math.atan2(dx, dz) / DEG) % 360) + 360) % 360) % 360);
+      set("camLook", [THREE.MathUtils.clamp(half(o.target.x), -100, 100), THREE.MathUtils.clamp(half(o.target.z), -100, 100)]);
+      set("camLift", THREE.MathUtils.clamp(half(o.target.y - focusRef.current), -30, 30));
+    };
+  }, []);
   const tAxis = useControls(
     "시간축",
     savable("시간축", {
@@ -2290,6 +2425,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           showEdges={c.showEdges}
           wear={c.wear}
           follow={c.follow}
+          followLift={cam.camLift}
           controls={controls}
           onStats={setStats}
           nature={natureParams}
@@ -2308,8 +2444,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           clock={clk}
           local={lab}
         />
-        <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
-        <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
+        {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
+        <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} />
+        <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
+        <StageCamera controls={controls} pose={{ dist: cam.camDist, polar: cam.camPolar, azimuth: cam.camAzimuth, look: cam.camLook }} turnSec={cam.camTurnSec} dir={cam.camDir as 1 | -1} maxPolarDeg={isV2 ? 179.5 : 89.8} active={!lab} />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
