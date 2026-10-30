@@ -43,6 +43,8 @@ export interface GlobalParams {
   /** The noise bed: level per person present, and its ceiling. */
   bedPer: number;
   bedMax: number;
+  /** The bed's floor when nobody is there (0 = an empty world is silent — the design so far; the artist decides by ear). */
+  bedFloor: number;
   /** Stereo spread of the clumps (0 = mono, 1 = full). */
   spread: number;
   /** Saturation drive (1 = none). */
@@ -61,6 +63,7 @@ export const DEFAULT_GLOBAL: GlobalParams = {
   tickLevel: 0.35,
   bedPer: 0.01,
   bedMax: 0.12,
+  bedFloor: 0,
   spread: 0.8,
   drive: 2.5,
   windowSec: 600,
@@ -156,7 +159,12 @@ function softClip(drive: number): Float32Array<ArrayBuffer> {
   return curve;
 }
 
-const LOOKAHEAD = 0.3;
+/**
+ * How far ahead bars are planned (s). Generous on purpose: the wall's main thread can stall for hundreds of ms (a big
+ * frame, a fold), and a bar not yet planned when its start passes is lost — the room went "plays, then cuts"
+ * (2026-10-29). Notes already scheduled on the audio clock play through any stall.
+ */
+const LOOKAHEAD = 1.5;
 const TICK_MS = 80;
 
 export class GlobalEngine {
@@ -279,7 +287,7 @@ export class GlobalEngine {
     this.lp.frequency.setTargetAtTime(params.cutoff * (1 + 0.6 * moving), t, 1.5);
     this.hallSend.gain.setTargetAtTime(params.hall, t, 1.0);
     // the bed of low noise: a faint floor that thickens with the crowd, never a rumble
-    this.bed.gain.setTargetAtTime(Math.min(params.bedMax, present.length * params.bedPer), t, 2.0);
+    this.bed.gain.setTargetAtTime(Math.max(params.bedFloor, Math.min(params.bedMax, present.length * params.bedPer)), t, 2.0);
     if (Math.abs(params.drive - this.drive) > 0.05) {
       this.shaper.curve = softClip(params.drive);
       this.drive = params.drive;
@@ -369,10 +377,19 @@ export class GlobalEngine {
     const now = ctx.currentTime;
     const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
     if (this.planned < bar) this.planned = bar;
-    const next = this.planned + 1;
-    const nextStart = start + (next - bar) * p.barSec;
-    if (nextStart > now + LOOKAHEAD) return;
-    this.planned = next;
+    // every bar that starts within the lookahead, in order (after a stall there can be more than one)
+    for (;;) {
+      const next = this.planned + 1;
+      const nextStart = start + (next - bar) * p.barSec;
+      if (nextStart > now + LOOKAHEAD) return;
+      this.planned = next;
+      this.planBar(next, nextStart);
+    }
+  }
+
+  /** All voices of bar `next`, starting at `nextStart` on the audio clock. */
+  private planBar(next: number, nextStart: number): void {
+    const p = this.params;
     const down = 12 * p.octavesDown;
     for (const pr of this.present) {
       const m = this.motifOf(pr.o);
