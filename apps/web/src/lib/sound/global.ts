@@ -161,12 +161,48 @@ function softClip(drive: number): Float32Array<ArrayBuffer> {
 }
 
 /**
- * How far ahead bars are planned (s). Generous on purpose: the wall's main thread can stall for hundreds of ms (a big
- * frame, a fold), and a bar not yet planned when its start passes is lost — the room went "plays, then cuts"
- * (2026-10-29). Notes already scheduled on the audio clock play through any stall.
+ * How far ahead bars are planned (s). Generous on purpose: the wall's main thread stalls (a big frame, a fold — up to
+ * ~2 s measured with 22 bots, 2026-10-30), and a bar not planned when its start passes is lost — the room went "plays,
+ * then cuts". Notes already scheduled on the audio clock play through any stall. 0.3 → 1.5 s (10/29) → 3.5 s (10/30).
+ * The cost: a change in who is present is heard a few seconds late, which a landscape of noise does not mind.
  */
-const LOOKAHEAD = 1.5;
+const LOOKAHEAD = 3.5;
+/** People planned per tick: a bar is planned in small slices, never as one long task (34 voices took up to 0.7 s). */
+const VOICES_PER_SLICE = 6;
+/** A bar still unfinished this close to its start is finished at once, whatever it costs. */
+const MUST_FINISH = 0.5;
 const TICK_MS = 80;
+/** A person's channel is dropped after this many bars without them. */
+const CHANNEL_IDLE_BARS = 8;
+
+/** One person's place in the room: a panner for their voice and one for their ticks, reused bar after bar. */
+interface Channel {
+  voice: StereoPannerNode;
+  tick: StereoPannerNode;
+  seenBar: number;
+}
+
+/** A bar being planned, a few people per tick. */
+interface PendingBar {
+  bar: number;
+  start: number;
+  people: Presence[];
+  i: number;
+}
+
+/** How the planning keeps up (for measuring: window.__globalSound.stats). */
+export interface GlobalStats {
+  /** Bars fully planned. */
+  bars: number;
+  /** Bars lost: their start passed before they were planned (a stall longer than the lookahead). */
+  lateBars: number;
+  /** The smallest lead (s) a bar had left when its planning finished. */
+  minLeadSec: number;
+  /** The longest / the mean planning slice (ms of main thread per tick). */
+  maxSliceMs: number;
+  meanSliceMs: number;
+  channels: number;
+}
 
 export class GlobalEngine {
   private ctx: AudioContext | null = null;
@@ -190,6 +226,21 @@ export class GlobalEngine {
   private drive = DEFAULT_GLOBAL.drive;
   private timer: ReturnType<typeof setInterval> | null = null;
   private planned = -1;
+  private pending: PendingBar[] = [];
+  private channels = new Map<string, Channel>();
+  private homeKeys = new Map<string, WorldKey>();
+  private slices = { n: 0, sumMs: 0 };
+  private _stats: GlobalStats = { bars: 0, lateBars: 0, minLeadSec: Infinity, maxSliceMs: 0, meanSliceMs: 0, channels: 0 };
+  /** Runs everything but plays nothing (?sound=mute: measuring in a Claude browser without the artist's speakers). */
+  private readonly silent: boolean;
+
+  constructor(opts: { silent?: boolean } = {}) {
+    this.silent = !!opts.silent;
+  }
+
+  get stats(): GlobalStats {
+    return { ...this._stats, meanSliceMs: this.slices.n ? this.slices.sumMs / this.slices.n : 0, channels: this.channels.size };
+  }
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running" && this.timer !== null;
@@ -255,7 +306,7 @@ export class GlobalEngine {
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
-    this.master.gain.setTargetAtTime(this.params.master, this.ctx.currentTime, 1.5);
+    this.master.gain.setTargetAtTime(this.silent ? 0 : this.params.master, this.ctx.currentTime, 1.5);
   }
 
   stop(): void {
@@ -288,6 +339,21 @@ export class GlobalEngine {
       this.epochMs = epochMs;
       this.motifs.clear();
       this.buildingKeys.clear();
+      this.homeKeys.clear();
+      this.pending = [];
+    }
+    // each building's key once a second here (bestKey over its contributors), not per person per bar
+    for (const b of buildings) {
+      const k = bestKey(b.who, this.buildingKeys.get(b.id) ?? null, 0.15);
+      if (k) this.buildingKeys.set(b.id, k);
+    }
+    // the channels of people gone for a while
+    for (const [o, ch] of this.channels) {
+      if (ch.seenBar < this.planned - CHANNEL_IDLE_BARS) {
+        ch.voice.disconnect();
+        ch.tick.disconnect();
+        this.channels.delete(o);
+      }
     }
     let ext = 10;
     for (const p of present) ext = Math.max(ext, Math.abs(p.x), Math.abs(p.bx ?? 0));
@@ -295,7 +361,7 @@ export class GlobalEngine {
     const ctx = this.ctx;
     if (!ctx || !this.timer) return;
     const t = ctx.currentTime;
-    this.master.gain.setTargetAtTime(params.master, t, 1.0);
+    this.master.gain.setTargetAtTime(this.silent ? 0 : params.master, t, 1.0);
     const moving = present.length ? present.filter((p) => p.speed > 0.5).length / present.length : 0;
     this.lp.frequency.setTargetAtTime(params.cutoff * (1 + 0.6 * moving), t, 1.5);
     this.hallSend.gain.setTargetAtTime(params.hall, t, 1.0);
@@ -318,29 +384,39 @@ export class GlobalEngine {
 
   /** In a building's zone: the building's key (as the headset hears it there); else the person's home key. */
   private keyOf(p: Presence): WorldKey {
-    const b = p.building ? this.buildings.get(p.building) : undefined;
-    if (b) {
-      const k = bestKey(b.who, this.buildingKeys.get(b.id) ?? null, 0.15);
-      if (k) {
-        this.buildingKeys.set(b.id, k);
-        return k;
-      }
+    const k = p.building ? this.buildingKeys.get(p.building) : undefined;
+    if (k) return k;
+    let h = this.homeKeys.get(p.o);
+    if (!h) {
+      h = homeKey(p.o);
+      this.homeKeys.set(p.o, h);
     }
-    return homeKey(p.o);
+    return h;
   }
 
-  private voiceNote(freq: number, at: number, dur: number, level: number, pan: number): void {
+  /** The person's channel (made once, reused): voices into the low-pass and the hall, ticks into the tick bus. */
+  private channelOf(o: string, bar: number): Channel {
+    let ch = this.channels.get(o);
+    if (!ch) {
+      const ctx = this.ctx!;
+      const voice = ctx.createStereoPanner();
+      voice.connect(this.lp);
+      voice.connect(this.hallSend);
+      const tick = ctx.createStereoPanner();
+      tick.connect(this.tickBus);
+      ch = { voice, tick, seenBar: bar };
+      this.channels.set(o, ch);
+    }
+    ch.seenBar = bar;
+    return ch;
+  }
+
+  private voiceNote(freq: number, at: number, dur: number, level: number, out: AudioNode): void {
     const ctx = this.ctx!;
     const g = ctx.createGain();
-    const pn = ctx.createStereoPanner();
-    pn.pan.value = pan;
-    g.connect(pn);
-    pn.connect(this.lp);
-    pn.connect(this.hallSend);
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(level, at + 0.15);
     g.gain.setTargetAtTime(0, at + dur, 0.6);
-    const end = at + dur + 2.5;
     const o = ctx.createOscillator();
     o.type = "sawtooth";
     o.frequency.value = freq;
@@ -348,22 +424,16 @@ export class GlobalEngine {
     const f = ctx.createBiquadFilter();
     f.type = "lowpass";
     f.frequency.value = freq * 3;
-    o.connect(f).connect(g);
+    o.connect(f).connect(g).connect(out);
+    o.onended = () => g.disconnect(); // no timer per note: the chain is let go when the oscillator ends
     o.start(at);
-    o.stop(end);
-    setTimeout(() => {
-      g.disconnect();
-      pn.disconnect();
-    }, (end - ctx.currentTime) * 1000 + 100);
+    o.stop(at + dur + 2.5);
   }
 
-  /** A rhythm trace: a short burst of noise around `freq`, panned. */
-  private tickNote(freq: number, at: number, level: number, pan: number): void {
+  /** A rhythm trace: a short burst of noise around `freq`. */
+  private tickNote(freq: number, at: number, level: number, out: AudioNode): void {
     const ctx = this.ctx!;
     const g = ctx.createGain();
-    const pn = ctx.createStereoPanner();
-    pn.pan.value = pan;
-    g.connect(pn).connect(this.tickBus);
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(level, at + 0.004);
     g.gain.setTargetAtTime(0, at + 0.01, 0.045);
@@ -374,13 +444,10 @@ export class GlobalEngine {
     bp.type = "bandpass";
     bp.frequency.value = freq;
     bp.Q.value = 2.5;
-    src.connect(bp).connect(g);
+    src.connect(bp).connect(g).connect(out);
+    src.onended = () => g.disconnect();
     src.start(at);
     src.stop(at + 0.4);
-    setTimeout(() => {
-      g.disconnect();
-      pn.disconnect();
-    }, (at + 0.4 - ctx.currentTime) * 1000 + 100);
   }
 
   private tick(): void {
@@ -389,34 +456,65 @@ export class GlobalEngine {
     const p = this.params;
     const now = ctx.currentTime;
     const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
-    if (this.planned < bar) this.planned = bar;
-    // every bar that starts within the lookahead, in order (after a stall there can be more than one)
+    // bars that started before they were even queued are lost (a stall longer than the lookahead)
+    if (this.planned < 0) this.planned = bar;
+    else if (this.planned < bar) {
+      this._stats.lateBars += bar - this.planned;
+      this.planned = bar;
+    }
+    // queue every bar that starts within the lookahead, in order, with who is present now
     for (;;) {
       const next = this.planned + 1;
       const nextStart = start + (next - bar) * p.barSec;
-      if (nextStart > now + LOOKAHEAD) return;
+      if (nextStart > now + LOOKAHEAD) break;
       this.planned = next;
-      this.planBar(next, nextStart);
+      this.pending.push({ bar: next, start: nextStart, people: this.present.slice(), i: 0 });
     }
+    // plan a few people per tick; a bar close to its start is finished at once
+    if (!this.pending.length) return;
+    const t0 = performance.now();
+    let budget = VOICES_PER_SLICE;
+    while (this.pending.length) {
+      const pb = this.pending[0];
+      const lead = pb.start - ctx.currentTime;
+      if (lead <= 0) {
+        this._stats.lateBars++;
+        this.pending.shift();
+        continue;
+      }
+      const urgent = lead < MUST_FINISH;
+      while (pb.i < pb.people.length && (budget > 0 || urgent)) {
+        this.planVoice(pb.people[pb.i], pb.bar, pb.start);
+        pb.i++;
+        budget--;
+      }
+      if (pb.i < pb.people.length) break;
+      this.pending.shift();
+      this._stats.bars++;
+      this._stats.minLeadSec = Math.min(this._stats.minLeadSec, pb.start - ctx.currentTime);
+      if (budget <= 0) break;
+    }
+    const ms = performance.now() - t0;
+    this.slices.n++;
+    this.slices.sumMs += ms;
+    this._stats.maxSliceMs = Math.max(this._stats.maxSliceMs, ms);
   }
 
-  /** All voices of bar `next`, starting at `nextStart` on the audio clock. */
-  private planBar(next: number, nextStart: number): void {
+  /** One person's notes and ticks for bar `bar`, starting at `barStart` on the audio clock. */
+  private planVoice(pr: Presence, bar: number, barStart: number): void {
     const p = this.params;
+    const ch = this.channelOf(pr.o, bar);
+    ch.voice.pan.setTargetAtTime(panOf(pr, this.extent, p.spread), barStart, 0.3);
+    ch.tick.pan.setTargetAtTime(panOf(pr, this.extent, p.spread), barStart, 0.3);
+    const m = this.motifOf(pr.o);
+    const w = 0.3 + 0.7 * pr.weight;
     const down = 12 * p.octavesDown;
-    for (const pr of this.present) {
-      const m = this.motifOf(pr.o);
-      const key = this.keyOf(pr);
-      const pan = panOf(pr, this.extent, p.spread);
-      const w = 0.3 + 0.7 * pr.weight;
-      // the mass: everybody, every bar, pushed down, in their key (or their building's)
-      const notes = realize(m, key, null, 0, next);
-      for (const n of notes) this.voiceNote(midiToHz(n.pitch - down, m.colour), nextStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, pan);
-      // the traces: their rhythm cell, every bar when walking, every other bar when still
-      if (pr.speed > 0.5 || next % 2 === 0) {
-        const f = midiToHz(m.base - 12);
-        for (const on of m.onsets) this.tickNote(f, nextStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, pan);
-      }
+    // the mass: everybody, every bar, pushed down, in their key (or their building's)
+    for (const n of realize(m, this.keyOf(pr), null, 0, bar)) this.voiceNote(midiToHz(n.pitch - down, m.colour), barStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, ch.voice);
+    // the traces: their rhythm cell, every bar when walking, every other bar when still
+    if (pr.speed > 0.5 || bar % 2 === 0) {
+      const f = midiToHz(m.base - 12);
+      for (const on of m.onsets) this.tickNote(f, barStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, ch.tick);
     }
   }
 }
