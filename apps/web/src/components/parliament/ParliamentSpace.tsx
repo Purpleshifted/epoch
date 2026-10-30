@@ -1446,8 +1446,10 @@ function Markers({
               <sphereGeometry args={[big, 16, 12]} />
               <meshBasicMaterial color={color} depthTest={false} transparent opacity={m.stale ? 0.4 : 0.95} />
             </mesh>
-            <mesh position={[m.x, y / 2, m.z]}>
-              <cylinderGeometry args={[0.03, 0.03, Math.max(y, 0.001), 6]} />
+            {/* a unit cylinder scaled to the height: the height in `args` would make r3f build (and throw away) a new
+                geometry every time a marker's time moved — with 22 bots, ~22 geometries a second (2026-10-30) */}
+            <mesh position={[m.x, y / 2, m.z]} scale={[1, Math.max(y, 0.001), 1]}>
+              <cylinderGeometry args={[0.03, 0.03, 1, 6]} />
               <meshBasicMaterial color={color} transparent opacity={0.5} />
             </mesh>
             <mesh position={[m.x, 0.02, m.z]} rotation={[-Math.PI / 2, 0, 0]}>
