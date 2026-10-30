@@ -6,8 +6,18 @@
  */
 
 import { buttonGroup, levaStore } from "leva";
+import exhibitionPreset from "@/presets/exhibition.json";
 
 const PREFIX = "parliament.leva";
+
+/**
+ * THE BUNDLED EXHIBITION PRESET (the artist, 2026-10-30): the Leva values tuned on the Vercel preview, carried in the
+ * code so the exhibition machine starts from them without a server — a page's group whose storage key
+ * (`parliament.leva:<path>:<group>`) has nothing saved in localStorage takes the preset's object under the same key.
+ * Anything saved on the machine wins (the rehearsal wall can still overwrite). Filled from a JSON the artist exports
+ * on /rehearsal/management (exportSettings) and pastes to the sessions; empty = plain defaults.
+ */
+const PRESET: Record<string, Record<string, unknown>> = exhibitionPreset as Record<string, Record<string, unknown>>;
 /** Read once per page load and storage key (the schema is rebuilt every render; Leva only reads it at mount). */
 const cache = new Map<string, Record<string, unknown> | null>();
 
@@ -43,8 +53,54 @@ function load(key: string): Record<string, unknown> | null {
   } catch {
     v = null;
   }
+  // nothing saved here: the bundled exhibition preset, if it has this page's group
+  if (!v && isObj(PRESET[key])) v = { ...PRESET[key] };
   cache.set(key, v);
   return v;
+}
+
+/**
+ * Every saved Leva group on this machine (all pages), the bundled preset underneath, as one JSON object keyed by
+ * storage key — what the artist copies from the machine where the values were tuned.
+ */
+export function exportSettings(): string {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [k, v] of Object.entries(PRESET)) if (isObj(v)) out[k] = v;
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k || !k.startsWith(`${PREFIX}:`) || k.includes(":migrated:")) continue;
+      const raw = window.localStorage.getItem(k);
+      if (!raw) continue;
+      try {
+        const v = JSON.parse(raw) as unknown;
+        if (isObj(v)) out[k] = v;
+      } catch {
+        /* not a group */
+      }
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return JSON.stringify(out, null, 2);
+}
+
+/**
+ * The reverse: a JSON from exportSettings pasted on another machine — every `parliament.leva:…` group in it is saved
+ * here (replacing what was saved under that key). Returns how many groups were written; throws on bad JSON. Pages
+ * read saved values at load, so reload them afterwards.
+ */
+export function importSettings(json: string): number {
+  const data = JSON.parse(json) as unknown;
+  if (!isObj(data)) throw new Error("not an object");
+  let n = 0;
+  for (const [k, v] of Object.entries(data)) {
+    if (!k.startsWith(`${PREFIX}:`) || !isObj(v)) continue;
+    window.localStorage.setItem(k, JSON.stringify(v));
+    cache.delete(k);
+    n++;
+  }
+  return n;
 }
 
 type Item = Record<string, unknown>;

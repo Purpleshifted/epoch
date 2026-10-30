@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { EntryGroup } from "./EntryGroup";
+import SettingsTransfer from "./SettingsTransfer";
 
 /**
  * /rehearsal/management (the artist, 2026-10-29): the tools around the work, kept off the home page — added here like
@@ -28,6 +29,9 @@ export default function ManagementScreen() {
             { href: "/v2/global/side", name: "Side", sub: "the strata in section" },
           ]}
         />
+        <div className="border-t border-white/10 pt-6">
+          <SettingsTransfer />
+        </div>
         <div className="border-t border-white/10 pt-6">
           <EntryGroup
             title="OLD"
