@@ -8,7 +8,8 @@
  *   NOT on the exhibition wall (?ui=0): there ESC only leaves full screen, it must never silence the room unseen.
  * - On by default: the exhibition wall has no panel (?ui=0) — then there is no status line either.
  * - An empty world is silent by default (nobody present = no voices, no bed); `빈 세계의 바닥` keeps a floor of noise.
- * - ?sound=0 turns it off entirely (for checks in a Claude browser: no sound through the artist's speakers).
+ * - ?sound=0 turns it off entirely (for checks in a Claude browser: no sound through the artist's speakers);
+ *   ?sound=mute runs everything silently (to measure the planning: window.__globalSound.stats).
  * - The buildings come from the growing fold (useFoldState): cheap every few seconds, unlike a full fold.
  */
 
@@ -28,6 +29,7 @@ function urlFlag(name: string): string | null {
 
 export default function GlobalSound() {
   const [off] = useState(() => urlFlag("sound") === "0");
+  const [silent] = useState(() => urlFlag("sound") === "mute");
   const [bare] = useState(() => urlFlag("ui") === "0" || urlFlag("demo") === "1");
   const c = useControls(
     ROOT,
@@ -58,7 +60,7 @@ export default function GlobalSound() {
   const log = useWorld(undefined, 3000);
   const foldCfg = useMemo(() => withoutWear(DEFAULT_FOLD), []);
   const fold = useFoldState(log, foldCfg);
-  const engine = useMemo(() => (!off && typeof window !== "undefined" ? new GlobalEngine() : null), [off]);
+  const engine = useMemo(() => (!off && typeof window !== "undefined" ? new GlobalEngine({ silent }) : null), [off, silent]);
   const onRef = useRef(on);
   useEffect(() => {
     onRef.current = on;
@@ -118,10 +120,10 @@ export default function GlobalSound() {
       if (bare) return;
       const d = engine.debug;
       const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : engine.running ? "재생 중" : "클릭하면 시작";
-      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar} · → ${engine.output}`);
+      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar}${engine.stats.lateBars ? ` · 빠진 마디 ${engine.stats.lateBars}` : ""} · → ${engine.output}${silent ? " · 무음 측정" : ""}`);
     }, 1000);
     return () => clearInterval(id);
-  }, [engine, log, fold, params, bare]);
+  }, [engine, log, fold, params, bare, silent]);
 
   if (!engine || bare) return null;
   return <div className="pointer-events-none fixed bottom-4 right-4 z-50 select-none font-mono text-[10px] text-black/45 mix-blend-difference">{status}</div>;
