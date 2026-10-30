@@ -123,6 +123,10 @@ describe("SpaceModel: what the worker computes", () => {
     const top = Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit;
     // the chunks where the camera looks (the present, up with the buildings) are built, not only the oldest ones
     expect(ys.some((y) => y > top * 0.75)).toBe(true);
+    // ROUND ROBIN: no kept chunk is left stale for longer than one turn of all the chunks (nearest-first fed the two
+    // chunks by the focus forever and starved the fusing band: a lag of tens of builds)
+    const chunks = Math.ceil((last / DEFAULT_BOXES.secPerUnit + 10) / 10);
+    expect(m.fuseMaxLag).toBeLessThanOrEqual(chunks + 2);
   }, 300_000);
 
   it("bots' buildings seal the ground: their water drains away (streams and/or pipes), drawn as wetland", () => {
@@ -194,4 +198,73 @@ describe("SpaceModel: what the worker computes", () => {
     m.reset();
     expect(m.computeParts(parts())!.seeds).toBe(0);
   });
+
+  it("BAKING: the layers about to leave the history window are kept as they were — the mass below the cut stays", () => {
+    const long = runBots(8, 1500); // 75 slots
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5, gatherStart: 0, rotDose: 0 };
+    const pin = { ...parts(), weather };
+    const fin = { box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300 };
+    const m = new SpaceModel();
+    const settle = () => {
+      let mesh = null;
+      for (let i = 0; i < 80; i++) {
+        m.computeParts(pin);
+        const f = m.computeFuse(fin);
+        if (f) mesh = f;
+        else break;
+      }
+      return mesh!;
+    };
+    m.add(long);
+    const whole = settle();
+    const lowest = (mesh: { position: Float32Array }) => { let lo = Infinity; for (let i = 1; i < mesh.position.length; i += 3) lo = Math.min(lo, mesh.position[i]); return lo; };
+    expect(lowest(whole)).toBeLessThan(10);
+    // the window moves on: everything before 600 s (slot 30) is forgotten, as the view does it (reset + the rest)
+    m.reset();
+    m.add(long.filter((e) => e.s >= 600));
+    const after = settle();
+    expect(m.bakedChunks).toBeGreaterThan(0);
+    // the mass of the forgotten layers is still there (baked), and its parts are still drawn
+    expect(lowest(after)).toBeLessThan(10);
+    const r = m.computeParts({ ...pin, edges: true })!;
+    expect(r.baked).toBe(m.bakedChunks);
+    let low = 0;
+    for (let i = 0; i < r.counts.mass; i++) if (r.matrices.mass[i * 16 + 13] < 20) low++;
+    expect(low).toBeGreaterThan(0);
+    // WORK MODE: a paused view with a changed look renders the baked layers again (the world below unchanged)
+    const before = after.position.length;
+    let re = null;
+    for (let i = 0; i < 20; i++) {
+      m.computeParts({ ...pin, fuse: { ...DEFAULT_FUSE, gain: 1, blur: 0 } });
+      const f = m.computeFuse({ ...fin, fuse: { ...DEFAULT_FUSE, gain: 1, blur: 0 }, rebake: true, perCall: 12 });
+      if (f) re = f;
+      else break;
+    }
+    expect(re).not.toBeNull();
+    expect(lowest(re!)).toBeLessThan(10); // still there
+    expect(re!.position.length).not.toBe(before); // and drawn differently
+    // THE PAST KEEPS AGEING: the baked chunks are not final; as the present moves on, their parts' decay is read
+    // again from the wear basis and grows, until the chunk is a fossil and final
+    const age0 = m.bakedAgeing;
+    expect(age0.ageing).toBeGreaterThan(0);
+    expect(age0.final).toBe(0);
+    m.setNow(1500 + 20_000);
+    for (let i = 0; i < 40; i++) {
+      m.computeParts(pin);
+      m.computeFuse(fin);
+    }
+    const age1 = m.bakedAgeing;
+    expect(age1.meanDecay + (age1.final > 0 ? 1 : 0)).toBeGreaterThan(age0.meanDecay);
+    m.setNow(1500 + 2_000_000);
+    for (let i = 0; i < 60; i++) {
+      m.computeParts(pin);
+      m.computeFuse(fin);
+    }
+    expect(m.bakedAgeing.final).toBeGreaterThan(0);
+    // and a cleared world (a new epoch, far earlier) lets them go
+    m.reset();
+    m.add(runBots(4, 60));
+    m.computeParts(pin);
+    expect(m.bakedChunks).toBe(0);
+  }, 180_000);
 });

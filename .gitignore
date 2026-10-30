@@ -32,3 +32,6 @@ yarn-error.log*
 /visual_reference_images/
 .vercel
 .env*
+
+# Claude Code local config and session worktrees (per-folder, not shared)
+.claude/

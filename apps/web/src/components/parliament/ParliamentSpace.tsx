@@ -20,7 +20,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
-import { Leva, button, folder, monitor, useControls } from "leva";
+import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
 import {
   DEFAULT_BOXES,
@@ -30,12 +30,18 @@ import {
   RECIPES,
   STEEL,
   clearWorld,
+  currentEpochKey,
   MAX_TIME_RATE,
-  setTimeRate,
-  timeRate,
+  MIN_TIME_RATE,
+  getEpochMs,
   latestOf,
   latestS,
   loadEvents,
+  sessionSeconds,
+  buildTestColumn,
+  makeLocalClock,
+  sharedClock,
+  type Clock,
   seedParliamentDemoIfRequested,
   type BoxConfig,
   type EventLog,
@@ -61,12 +67,15 @@ import {
   type FuseConfig,
   type FuseMesh,
   SpaceModel,
+  layerDecayOf,
   handleSpaceRequest,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { savable } from "./levaSave";
+import { useGlobalBots } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
+import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 
 /** Background and ground grid per theme. */
 const THEMES = {
@@ -120,8 +129,59 @@ const SPACE_BOXES = { ...DEFAULT_BOXES, secPerUnit: 20, width: 0.8, density: 1.4
 
 /** How often the view asks the worker (wall clock). */
 const TICK_MS = 500;
+
+/** Frames per second of this tab, once a second (0 while hidden). */
+function useFps(): number {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    let n = 0, t0 = performance.now(), raf = 0;
+    const tick = (now: number) => {
+      n++;
+      if (now - t0 >= 1000) {
+        setFps(Math.round((n * 1000) / (now - t0)));
+        n = 0;
+        t0 = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return fps;
+}
 /** Vegetation and plants are asked for every this-many ticks. */
 const NATURE_EVERY = 4;
+/** Paused (time rate 0): mass chunks rebuilt per request — a changed setting shows in one or two requests. */
+const PAUSED_FUSE_PER_CALL = 12;
+/** The fusion group and the Leva paths its `render` conditions read (a folder's name is part of the path). */
+const FU = "엉김 · 융합 · 레진";
+const FU_WHEN = "① 언제 (부재의 부식 정도: 0 새것 … 1 사라짐)";
+const FU_MASS = "② 덩어리 (녹은 부재들이 되는 것)";
+const FU_WAY = "③ 꼴 (부재가 녹는 꼴)";
+const FU_FOSSIL = "④ 화석화 (층의 나이: 젊음 = 건축 · 오래됨 = 화석)";
+const FU_HOLLOW = "⑤ 껍질 · 거품";
+const FU_PITS = "⑥ 곰보 (껍질 · 거품의 표면)";
+const FU_MAT = "⑦ 재질 (레진 = 융합된 것 전부)";
+const MODE_PATH = `${FU}.${FU_WAY}.massMode`;
+const WALKS_PATH = `${FU}.${FU_WAY}.배관 · 다리 · 철골도 녹음.fuseWalks`;
+const FILL_PATH = `${FU}.${FU_WAY}.판 사이 채우기.fill`;
+const SHELL_PATH = `${FU}.${FU_HOLLOW}.shell`;
+const FOAM_PATH = `${FU}.${FU_HOLLOW}.foam`;
+const HOLE_PATH = `${FU}.${FU_HOLLOW}.holeShape`;
+const PITS_PATH = `${FU}.${FU_PITS}.pits`;
+const CAV_PATH = `${FU}.${FU_FOSSIL}.cavity`;
+const ACC_PATH = `${FU}.${FU_MASS}.고급.엉김 띠 (융합 전).accretion`;
+const SKEL_PATH = `${FU}.${FU_MASS}.고급.skeleton`;
+const SPIKES_PATH = `${FU}.${FU_MASS}.고급.spikes`;
+const RESIN_MODE_PATH = `${FU}.${FU_MAT}.resinMode`;
+const MASS_BODY_PATH = `${FU}.${FU_MAT}.고급.massBody`;
+
+/** sRGB hex → linear RGB (the fused mass's vertex colours are linear). */
+function hexToLinear(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return [lin(((n >> 16) & 255) / 255), lin(((n >> 8) & 255) / 255), lin((n & 255) / 255)];
+}
 const DEG = Math.PI / 180;
 const RC = RECIPES.concrete;
 const pair = (v: [number, number], f = 1): [number, number] => [v[0] * f, v[1] * f];
@@ -141,6 +201,8 @@ interface Stats {
   focusIsMe: boolean;
   /** Seeds built without slats (level of detail). */
   farSeeds: number;
+  /** Chunks of slots baked (kept as they were, below the history window too). */
+  baked: number;
   /** Waterways flowing now. */
   links: number;
   pipeRuns: number;
@@ -184,7 +246,21 @@ interface NatureParams {
 /** The resin body of the oldest layers: transmissive, darkening with thickness (Beer–Lambert attenuation). */
 interface ResinLook {
   color: string;
+  /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
+  opacity: number;
+  /** The fused mass before the resin: 1 = opaque stone, less = a translucent body. */
+  massOpacity: number;
+  /** How much of the mass's shades (pits, stains, age) show in the resin: 0 = pure resin colour … 1 = all. */
+  shade: number;
+  /** The frosted skin's Fresnel rim (0 = none): brightness added where the surface turns away from the eye. */
+  rim: number;
+  /** How much a part right under the skin shows through it (darkening by the mesh's GHOST extra; 0 = none). */
+  ghost: number;
+  /** The frosted skin's own light (emissive, in the resin's colour; 0 = none). */
+  glow: number;
+  /** The shell's pits, drawn by the material (see fuse.ts FuseStudy.pits): shadow, coverage, size (world), size jitter, rim softness, dent depth. */
+  pits: { dark: number; cover: number; size: number; jitter: number; soft: number; depth: number };
   roughness: number;
   thickness: number;
   attenuationColor: string;
@@ -211,7 +287,149 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   m.ior = 1.5;
   m.attenuationColor.set(r.attenuationColor);
   m.attenuationDistance = r.attenuationDistance;
+  // transmission 0 (the glass / alpha body, also performance mode): no refraction pass — a solid body at opacity 1
+  // (the artist, 2026-10-19: the translucent body was too see-through, opaque fits the intent), alpha below it
+  const solid = r.transmission > 0 || r.opacity >= 1;
+  m.transparent = !solid;
+  m.opacity = solid ? 1 : r.opacity;
+  m.depthWrite = solid;
+  (m.userData.uShade as THREE.IUniform).value = r.shade;
+  (m.userData.uRim as THREE.IUniform).value = r.rim;
+  const u = m.userData.fuseU as FuseUniforms;
+  u.uGhost.value = r.ghost;
+  u.uPitDark.value = r.pits.dark;
+  u.uPitCover.value = r.pits.cover;
+  u.uPitSize.value = r.pits.size;
+  u.uPitJitter.value = r.pits.jitter;
+  u.uPitSoft.value = r.pits.soft;
+  u.uPitDepth.value = r.pits.depth;
+  // the frosted skin: a little of its own light (the AO otherwise weighs the opaque body down), a clearcoat for the
+  // lights' highlights (cheap), no refraction
+  m.emissive.set(r.color);
+  m.emissiveIntensity = r.glow;
+  m.clearcoat = r.rim > 0 ? 0.5 : 0;
+  m.clearcoatRoughness = 0.4;
   m.needsUpdate = true;
+}
+
+/** The uniforms both fused materials share (the stone's and the resin's): the skin's ghost and the shell's pits. */
+interface FuseUniforms {
+  uGhost: THREE.IUniform;
+  uPitDark: THREE.IUniform;
+  uPitCover: THREE.IUniform;
+  uPitSize: THREE.IUniform;
+  uPitJitter: THREE.IUniform;
+  uPitSoft: THREE.IUniform;
+  uPitDepth: THREE.IUniform;
+}
+function makeFuseUniforms(): FuseUniforms {
+  return { uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 } };
+}
+
+/**
+ * The PITS of the shell (refs 9664, 9665: small round pores scattered over a smooth surface, of varied size, denser
+ * here than there, each clearly cut in): a jittered scatter of spheres in world space — one or none per cell of
+ * 2.2 pit diameters, its centre jittered, its radius ×½ … ×2 — cut into the SHADING: where the surface lies inside a
+ * sphere the normal tilts toward its centre (a concave dent) and the colour darkens (its shadow). Nothing is carved
+ * from the voxel grid (0.4): the pores are round and carved at any size, and the surface between them stays smooth.
+ * Returns (d / r², depth 0 … 1) of the deepest sphere at p.
+ */
+const FUSE_PITS_GLSL = [
+  "float fuseHash( vec3 p ) { p = fract( p * 0.1031 + vec3( 0.11, 0.37, 0.73 ) ); p += dot( p, p.yzx + 19.19 ); return fract( ( p.x + p.y ) * p.z ); }",
+  "vec4 fusePits( vec3 p, float size, float jitter, float cover ) {",
+  "\tfloat s = size * 2.2;",
+  "\tvec3 base = floor( p / s - 0.5 );",
+  "\tfloat best = 0.0;",
+  "\tvec3 g = vec3( 0.0 );",
+  "\tfor ( int dz = 0; dz <= 1; dz++ ) for ( int dy = 0; dy <= 1; dy++ ) for ( int dx = 0; dx <= 1; dx++ ) {",
+  "\t\tvec3 q = base + vec3( float( dx ), float( dy ), float( dz ) );",
+  "\t\tif ( fuseHash( q ) > cover ) continue;",
+  "\t\tvec3 c = ( q + 0.15 + 0.7 * vec3( fuseHash( q + 7.1 ), fuseHash( q + 13.3 ), fuseHash( q + 29.7 ) ) ) * s;",
+  "\t\tfloat r = size * 0.5 * exp2( ( fuseHash( q + 41.2 ) - 0.5 ) * 2.0 * jitter );",
+  "\t\tvec3 d = p - c;",
+  "\t\tfloat dd = dot( d, d );",
+  "\t\tif ( dd < r * r ) { float dent = 1.0 - dd / ( r * r ); if ( dent > best ) { best = dent; g = d / ( r * r ); } }",
+  "\t}",
+  "\treturn vec4( g, best );",
+  "}",
+].join("\n");
+
+/**
+ * The fused mesh's per-vertex extras (FuseMesh.extra) in a material's shader: GHOST — a part right under the skin
+ * darkens it (ref 9649: the machine parts under the white skin), by `uGhost`; FLAT — a blocky vertex (the young
+ * layers' voxel steps, ref 9579) is shaded by its face, not by the smoothed vertex normal; PITS — the shell's pores
+ * (FUSE_PITS_GLSL) where the vertex allows them (z = coverage here, w = away from the ribs).
+ */
+function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: FuseUniforms): void {
+  Object.assign(shader.uniforms, u);
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", "#include <common>\nattribute vec4 fuseExtra;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvExtra = fuseExtra;\nvFusePos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      "#include <common>",
+      "#include <common>\nuniform float uGhost;\nuniform float uPitDark;\nuniform float uPitCover;\nuniform float uPitSize;\nuniform float uPitJitter;\nuniform float uPitSoft;\nuniform float uPitDepth;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;\n" + FUSE_PITS_GLSL,
+    )
+    .replace(
+      "#include <normal_fragment_begin>",
+      [
+        "#include <normal_fragment_begin>",
+        "float fuseFlat = smoothstep( 0.45, 0.9, vExtra.y );",
+        "if ( fuseFlat > 0.0 ) {",
+        "\tvec3 fdx = dFdx( vViewPosition );",
+        "\tvec3 fdy = dFdy( vViewPosition );",
+        "\tnormal = normalize( mix( normal, normalize( cross( fdx, fdy ) ), fuseFlat ) );",
+        "}",
+        "if ( uPitDark + uPitDepth > 0.0 && vExtra.z * vExtra.w > 0.001 ) {",
+        "\tvec4 pf = fusePits( vFusePos, uPitSize, uPitJitter, uPitCover * vExtra.z );",
+        "\tif ( pf.w > 0.0 ) {",
+        "\t\tfloat dent = smoothstep( 0.0, max( 0.02, uPitSoft * 2.0 ), pf.w ) * vExtra.w;",
+        "\t\tvec3 gt = pf.xyz - normal * dot( pf.xyz, normal );",
+        "\t\tnormal = normalize( normal - uPitDepth * 2.0 * uPitSize * gt * dent );",
+        "\t\tdiffuseColor.rgb *= 1.0 - uPitDark * ( 0.35 + 0.65 * pf.w ) * dent;",
+        "\t}",
+        "}",
+        "nonPerturbedNormal = normal;",
+      ].join("\n"),
+    )
+    .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uGhost * vExtra.x * 0.5;");
+}
+
+/** The fused stone's material (V1's mass before the resin; V2 draws everything as resin). */
+function makeStoneMaterial(u: FuseUniforms): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
+  m.userData.fuseU = u;
+  m.onBeforeCompile = (shader) => patchFuseExtras(shader, u);
+  return m;
+}
+
+/**
+ * The resin's material: MeshPhysical whose vertex colours (the mass's stains, pits, darkening with age) are not
+ * multiplied in as they are — that made the glass dirty — but normalised by the concrete's base grey, so a plain
+ * surface leaves the resin colour as it is and only the deviations (pits, stains) show, by `shade` (0 = none).
+ */
+function makeResinMaterial(u: FuseUniforms): THREE.MeshPhysicalMaterial {
+  const m = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true });
+  const uShade: THREE.IUniform = { value: 0.5 };
+  // the FROSTED SKIN (no refraction): a Fresnel rim — brighter where the surface turns away from the eye, as glass
+  // does — on the opaque body; 0 = off
+  const uRim: THREE.IUniform = { value: 0 };
+  m.userData.uShade = uShade;
+  m.userData.uRim = uRim;
+  m.userData.fuseU = u;
+  m.onBeforeCompile = (shader) => {
+    patchFuseExtras(shader, u);
+    shader.uniforms.uShade = uShade;
+    shader.uniforms.uRim = uRim;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uShade;\nuniform float uRim;")
+      .replace("#include <color_fragment>", "#if defined( USE_COLOR )\n\tdiffuseColor.rgb *= mix( vec3( 1.0 ), clamp( vColor.rgb / 0.42, 0.0, 1.2 ), uShade );\n#endif")
+      .replace(
+        "#include <dithering_fragment>",
+        "#include <dithering_fragment>\nif ( uRim > 0.0 ) {\n\tfloat fres = pow( 1.0 - saturate( dot( normalize( vViewPosition ), normal ) ), 3.0 );\n\tgl_FragColor.rgb += uRim * fres;\n\tgl_FragColor.a = max( gl_FragColor.a, fres * 0.9 );\n}",
+      );
+  };
+  return m;
 }
 
 /** Replaces the fused mesh's geometry (the old one is disposed). */
@@ -221,6 +439,7 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
   g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(r.normal, 3));
   g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
+  g.setAttribute("fuseExtra", new THREE.BufferAttribute(r.extra, 4));
   g.setIndex(new THREE.BufferAttribute(r.index, 1));
   // group 0: opaque fused stone; group 1: resin (the oldest layers)
   g.addGroup(0, r.resinStart, 0);
@@ -309,6 +528,18 @@ function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: numb
   return m;
 }
 
+/**
+ * Uploads only the first `n` items of an instanced attribute. With n = 0 nothing is uploaded: an update range of length
+ * 0 reaches WebGL2's bufferSubData as "to the end", i.e. the WHOLE capacity — the empty wall sent ~35 MB to the GPU twice
+ * a second this way, and the main thread stalled on it for as long as the GPU took to draw the frame (2026-10-29).
+ */
+function uploadFirst(attr: THREE.BufferAttribute, n: number): void {
+  if (n <= 0) return;
+  attr.clearUpdateRanges();
+  attr.addUpdateRange(0, n * attr.itemSize);
+  attr.needsUpdate = true;
+}
+
 function setDecay(mesh: THREE.InstancedMesh | null, src: Float32Array, stride: number, count: number): void {
   if (!mesh) return;
   let attr = mesh.geometry.getAttribute("aDecay") as THREE.InstancedBufferAttribute | undefined;
@@ -317,7 +548,7 @@ function setDecay(mesh: THREE.InstancedMesh | null, src: Float32Array, stride: n
     mesh.geometry.setAttribute("aDecay", attr);
   }
   for (let i = 0; i < count; i++) attr.array[i] = src[i * stride + stride - 1];
-  attr.needsUpdate = true;
+  uploadFirst(attr, count);
 }
 const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3(), _q = new THREE.Quaternion(), _sc = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3();
@@ -340,7 +571,7 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
       elbow.setMatrixAt(i, _m);
     }
     elbow.count = n;
-    elbow.instanceMatrix.needsUpdate = true;
+    uploadFirst(elbow.instanceMatrix, n);
     setDecay(elbow, p.elbows, 11, n);
   }
   if (cyl) {
@@ -356,7 +587,7 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
       cyl.setMatrixAt(i, _m.compose(_mid, _q, _sc));
     }
     cyl.count = n;
-    cyl.instanceMatrix.needsUpdate = true;
+    uploadFirst(cyl.instanceMatrix, n);
     setDecay(cyl, p.cylinders, 8, n);
   }
 }
@@ -460,11 +691,7 @@ function setGatherings(g: THREE.InstancedBufferGeometry | null, r: PointsResult)
   const n = Math.min(r.position.length / 3, GATHER_CAPACITY);
   (at.center.array as Float32Array).set(r.position.subarray(0, n * 3));
   (at.color.array as Float32Array).set(r.color.subarray(0, n * 3));
-  for (const a of [at.center, at.color]) {
-    a.clearUpdateRanges();
-    a.addUpdateRange(0, n * 3);
-    a.needsUpdate = true;
-  }
+  for (const a of [at.center, at.color]) uploadFirst(a, n);
   g.instanceCount = n;
 }
 
@@ -495,8 +722,8 @@ function mainThreadRunner(onResult: (r: SpaceResponse) => void): SpaceRunner {
  * The world of the timespace: parts (one InstancedMesh per kind), vegetation and plants on ruins. Everything is
  * computed in a Web Worker (space.worker.ts → lib/parliament/spaceModel.ts); this component only sends the new events
  * and a compute request every TICK_MS (wall clock, also in a hidden tab), and copies each result into its meshes.
- * Level of detail: seeds further than `lodNear` from the camera are built without slats; vegetation thins out with
- * distance down to `farFactor`.
+ * Level of detail: seeds within `lodNear` of the camera get every part, up to `lodMid` thinned slat bundles without
+ * drips, beyond that solid masses (spaceModel LodConfig); vegetation thins out with distance down to `farFactor`.
  */
 function SpaceWorld({
   log,
@@ -509,6 +736,8 @@ function SpaceWorld({
   onStats,
   nature,
   lodNear,
+  lodMid,
+  pointsInRefraction,
   farFactor,
   weather,
   fuse,
@@ -518,9 +747,14 @@ function SpaceWorld({
   noAxis,
   walk,
   walkLook,
-  fibreColor,
+  clock,
+  local,
 }: {
   log: EventLog;
+  /** The clock this view runs on (rate 0 = paused: the view is pinned and settings apply at once). */
+  clock: Clock;
+  /** A world of this tab only (the lab): its present is the log's end moved on by `clock`, not the shared epoch's. */
+  local: boolean;
   fold: FoldConfig;
   boxCfg: BoxConfig;
   showEdges: boolean;
@@ -531,6 +765,14 @@ function SpaceWorld({
   onStats: (s: Stats) => void;
   nature: NatureParams | null;
   lodNear: number;
+  /** Seeds between lodNear and this get thinned slat bundles; beyond, solid masses (spaceModel LodConfig.mid). */
+  lodMid: number;
+  /**
+   * Whether the vegetation points are drawn into the resin's refraction (they are the bulk of what the transmission
+   * pass re-renders every frame). Off: the points are drawn as transparent (after the resin, not through it) and the
+   * refraction pass costs a fraction.
+   */
+  pointsInRefraction: boolean;
   farFactor: number;
   weather: WeatherConfig;
   /** Old layers fused into one mass. */
@@ -546,8 +788,6 @@ function SpaceWorld({
   /** V2: walkways between buildings (walkways.ts); null = none. */
   walk: WalkConfig | null;
   walkLook: WalkLook;
-  /** D FIBRE (form study): colour of the fibres and spines under the fused mass. */
-  fibreColor: string;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const edges = useRef<THREE.LineSegments>(null);
@@ -575,11 +815,18 @@ function SpaceWorld({
   const worker = useRef<SpaceRunner | null>(null);
   const sent = useRef(0);
   const inFlight = useRef<{ id: number; at: number } | null>(null);
+  /** The lab's present: the log's end when first seen, moved on by the lab's own clock since. */
+  const labAnchor = useRef<{ ms: number; s: number } | null>(null);
+  const lastEpoch = useRef<string | null | undefined>(undefined);
+  /** The camera and focus the last request used; kept while time stands still (see the ticker). */
+  const pinned = useRef<{ cam: [number, number, number]; focusK: number } | null>(null);
+  /** Paused: what the vegetation was last asked with (it is asked again only when this changes). */
+  const lastNatSig = useRef("");
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
@@ -587,10 +834,9 @@ function SpaceWorld({
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, farFactor, weather, fuse, water, noAxis, walk, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
-  const fibres = useRef<THREE.LineSegments>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
   const pipeMats = useMemo(
     () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness) }),
@@ -606,11 +852,26 @@ function SpaceWorld({
       u.uGrain.value = walkLook.pipeGrain;
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
-  const stoneMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), []);
-  const resinMat = useMemo(() => new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0 }), []);
+  const fuseU = useMemo<FuseUniforms>(() => makeFuseUniforms(), []);
+  const stoneMat = useMemo(() => makeStoneMaterial(fuseU), [fuseU]);
+  const resinMat = useMemo(() => makeResinMaterial(fuseU), [fuseU]);
   useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
+  useEffect(() => {
+    // the mass as a translucent body: alpha, no depth write (what stands inside shows through)
+    stoneMat.transparent = resin.massOpacity < 1;
+    stoneMat.opacity = resin.massOpacity;
+    stoneMat.depthWrite = resin.massOpacity >= 1;
+    stoneMat.needsUpdate = true;
+  }, [stoneMat, resin.massOpacity]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
+  useEffect(() => {
+    // transparent points are left out of the transmission pass (three.js re-renders only the opaque objects into it)
+    for (const m of [natureMat, gatherMat]) {
+      m.transparent = !pointsInRefraction;
+      m.needsUpdate = true;
+    }
+  }, [natureMat, gatherMat, pointsInRefraction]);
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
     applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
@@ -626,14 +887,10 @@ function SpaceWorld({
         if (!mesh) continue;
         const n = p.counts[kind];
         (mesh.instanceMatrix.array as Float32Array).set(p.matrices[kind]);
-        mesh.instanceMatrix.clearUpdateRanges();
-        mesh.instanceMatrix.addUpdateRange(0, n * 16);
-        mesh.instanceMatrix.needsUpdate = true;
+        uploadFirst(mesh.instanceMatrix, n);
         if (mesh.instanceColor) {
           (mesh.instanceColor.array as Float32Array).set(p.colors[kind]);
-          mesh.instanceColor.clearUpdateRanges();
-          mesh.instanceColor.addUpdateRange(0, n * 3);
-          mesh.instanceColor.needsUpdate = true;
+          uploadFirst(mesh.instanceColor, n);
         }
         mesh.count = n;
       }
@@ -667,7 +924,7 @@ function SpaceWorld({
       setWalkEnds(endKept.current, p.walk.keptEnds);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
-      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
@@ -675,7 +932,6 @@ function SpaceWorld({
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
-    if (r.fuse) setSegments(fibres.current, r.fuse.lines);
     if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
   };
 
@@ -717,15 +973,27 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk } = live.current;
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
+    // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
+    const epoch = local ? null : currentEpochKey();
     if (events.length < sent.current) {
-      w.post({ type: "events", add: events, reset: true });
+      w.post({ type: "events", add: events, reset: true, epoch });
+      labAnchor.current = null;
     } else if (events.length > sent.current) {
-      w.post({ type: "events", add: events.slice(sent.current) });
-    }
+      w.post({ type: "events", add: events.slice(sent.current), epoch });
+    } else if (epoch !== lastEpoch.current) w.post({ type: "events", add: [], epoch });
+    lastEpoch.current = epoch;
     sent.current = events.length;
+    // THE PRESENT FOLLOWS THE CLOCK: the world's "now" in session seconds — shared: the world clock against the
+    // shared epoch; lab: the column's end moved on by the lab's own clock (so the time rate ages the world even
+    // with nobody in it; the model takes the later of this and its latest event)
+    let nowS: number | undefined;
+    if (local) {
+      if (!labAnchor.current) labAnchor.current = { ms: clock.now(), s: latestS(events) };
+      nowS = labAnchor.current.s + (clock.now() - labAnchor.current.ms) / 1000;
+    } else nowS = sessionSeconds(clock.now(), getEpochMs(), 0);
 
     const meS = latestOf(events, typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY));
     const t = latestS(events);
@@ -733,13 +1001,23 @@ function SpaceWorld({
     focusY.current = events.length ? ((meS ?? t) / cfg.secPerUnit) * cfg.unit : null;
 
     const o = controls.current;
-    const cam: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
-    const lod = { camera: cam, near, farFactor: ff };
+    // TIME STANDING STILL (rate 0): the camera the LOD and the vegetation window follow is pinned too, so moving the
+    // view does not rebuild anything — only a changed setting does (and chunks still catching up)
+    const frozen = clock.rate() === 0;
+    const camNow: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
+    const focusNow = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
+    if (!frozen || !pinned.current) pinned.current = { cam: camNow, focusK: focusNow };
+    const { cam, focusK } = pinned.current;
+    const lod = { camera: cam, near, mid, farFactor: ff };
     const id = ++seq.current;
-    const withNature = !!nat && id % NATURE_EVERY === 1;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
+    // PAUSE MODE (time standing still): a changed setting should show at once — the mass is asked for on every tick
+    // and built many chunks at a time, the vegetation only when something it depends on changed (it is the heaviest
+    // part and most settings do not touch it)
+    const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
+    const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
+    if (withNature) lastNatSig.current = natSig;
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
     if (withNature && nat) {
-      const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
       if (nat.reclaim) {
         req.reclaim = {
@@ -752,10 +1030,9 @@ function SpaceWorld({
         };
       }
     }
-    // the fused mass follows the vegetation's cadence (it is built from its history)
-    if (id % NATURE_EVERY === 1) {
-      const focusK = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK };
+    // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
+    if (frozen || id % NATURE_EVERY === 1) {
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -834,10 +1111,6 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
-      <lineSegments ref={fibres} frustumCulled={false} visible={fuse.enabled}>
-        <bufferGeometry />
-        <lineBasicMaterial color={fibreColor} />
-      </lineSegments>
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>
@@ -919,6 +1192,19 @@ function FocusFollow({
  * The shadow-casting sun. The scene climbs the time axis, so the light (and its shadow camera) follows the orbit
  * target every frame at a fixed direction; the shadow box covers ±`extent` around it.
  */
+/**
+ * Renderer settings that are not props of anything: the resolution of the TRANSMISSION pass (the resin's refraction
+ * re-renders the opaque scene into a texture every frame — at half resolution that pass costs a quarter, and the
+ * frosted resin shows no difference).
+ */
+function RendererTuning({ transmissionScale }: { transmissionScale: number }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    gl.transmissionResolutionScale = transmissionScale;
+  }, [gl, transmissionScale]);
+  return null;
+}
+
 function Sun({
   controls,
   azimuth,
@@ -998,6 +1284,7 @@ function Markers({
   secPerUnit,
   unit,
   holdSec,
+  labels,
   onActive,
   onMe,
 }: {
@@ -1005,6 +1292,8 @@ function Markers({
   secPerUnit: number;
   unit: number;
   holdSec: number;
+  /** The name over each marker ("me · worker", a bot's id, "visitor"); off on the exhibition wall (no text at all). */
+  labels: boolean;
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
 }) {
@@ -1073,11 +1362,13 @@ function Markers({
               <ringGeometry args={[0.35, 0.5, 24]} />
               <meshBasicMaterial color={color} transparent opacity={0.7} />
             </mesh>
-            <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
-              <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
-                {m.kind === "me" ? (m.stale ? "me (silent)" : "me") : m.kind === "bot" ? m.id : "visitor"} · {m.role}
-              </div>
-            </Html>
+            {labels && (
+              <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
+                <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
+                  {m.kind === "me" ? (m.stale ? "me (silent)" : "me") : m.kind === "bot" ? m.id : "visitor"} · {m.role}
+                </div>
+              </Html>
+            )}
           </group>
         );
       })}
@@ -1085,15 +1376,46 @@ function Markers({
   );
 }
 
-export default function ParliamentSpace() {
+/**
+ * `lab`: the WORK ROOM (/v2/global/lab) — a world of this tab only (a test column on opening, never the shared
+ * storage), its own clock (paused at first), no history window; the same Leva, saved under the shared view's key.
+ */
+export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {}) {
   const isV2 = useParliamentVersion() === "v2";
   const [demo] = useState(() => seedParliamentDemoIfRequested());
-  const log = useWorld(undefined, 1000);
-  useKeepWindowControl(log); // the shared history window (log.ts), the first folder
+  const log = useWorld(undefined, 1000, !lab);
+  useKeepWindowControl(log, -2, !lab); // the shared history window (log.ts), the first folder
+  // the lab's test column: how the crowd that writes it is spread (the artist's player-page bot values by default)
+  const tc = useControls(
+    "테스트 기둥 (랩 · 이 탭만)",
+    savable("테스트 기둥 (랩 · 이 탭만)", {
+      tcMinutes: { value: 20, min: 5, max: 60, step: 5, label: "분량 (분)" },
+      tcBots: { value: 18, min: 2, max: 40, step: 1, label: "봇 수" },
+      tcGroups: { value: 5, min: 1, max: 10, step: 1, label: "무리 수" },
+      tcSpread: { value: 44, min: 0, max: 90, step: 1, label: "무리 간 거리 (월드; 멀수록 건물이 흩어짐)" },
+      tcTime: { value: 150, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s)" },
+      "다시 만들기": button(() => rebuildColumn.current()),
+    }),
+    { order: 0.5, render: () => lab },
+  );
+  const rebuildColumn = useRef(() => {});
+  useEffect(() => {
+    rebuildColumn.current = () => {
+      log.clear();
+      log.addMany(buildTestColumn({ seconds: tc.tcMinutes * 60, bots: tc.tcBots, flock: { groups: tc.tcGroups, spread: tc.tcSpread, timeSpread: tc.tcTime } }));
+    };
+  }, [log, tc.tcMinutes, tc.tcBots, tc.tcGroups, tc.tcSpread, tc.tcTime]);
+  // the lab opens with a whole column in view
+  useEffect(() => {
+    if (lab && log.size === 0) rebuildColumn.current();
+  }, [lab, log]);
+  // the clock the view and its bots run on: the shared world clock, or the lab's own (this tab only)
+  const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
+  useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -1133,18 +1455,23 @@ export default function ParliamentSpace() {
       }),
       "데이터": folder(
         {
-          "기록 다시 읽기": button(() => log.addMany(loadEvents())),
-          "세계 지우기": button(() => {
-            if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
-              clearWorld();
-              log.clear();
-            }
-          }),
+          // the lab has its own column (the 테스트 기둥 group), not the shared storage
+          ...(lab
+            ? {}
+            : {
+                "기록 다시 읽기": button(() => log.addMany(loadEvents())),
+                "세계 지우기": button(() => {
+                  if (window.confirm("Empty the shared world (all events) and start a new epoch? Open player tabs follow.")) {
+                    clearWorld();
+                    log.clear();
+                  }
+                }),
+              }),
         },
         { collapsed: true },
       ),
     }),
-    { order: 0 },
+    { order: lab ? 6 : 0, collapsed: lab },
   );
   const tAxis = useControls(
     "시간축",
@@ -1162,14 +1489,19 @@ export default function ParliamentSpace() {
     "시간축",
     {
       timeRate: {
-        value: timeRate(),
-        min: 1,
+        value: clk.rate(),
+        min: lab ? MIN_TIME_RATE : 0.2, // standing still only in the lab (the shared clock stops every tab)
         max: MAX_TIME_RATE,
-        step: 1,
-        label: "시간 배율 (모든 탭 공유, 1 = 실제 속도)",
-        onChange: (r: number) => setTimeRate(r),
+        step: 0.1,
+        label: lab ? "시간 배율 (이 탭만, 0 = 정지 · 작업 모드)" : "시간 배율 (모든 탭 공유, 1 = 실제 속도)",
+        onChange: (r: number) => clk.setRate(r),
         transient: false, // also returned, for the readout
       },
+      // quick presets for watching an iteration: stand still (lab), slow motion, real time, fast
+      rates: buttonGroup({
+        label: "빠르게 고르기",
+        opts: Object.fromEntries((lab ? [0, 0.2, 0.5, 1, 5, 20] : [0.2, 0.5, 1, 5, 20]).map((r) => [r === 0 ? "정지" : `×${r}`, () => levaStore.setValueAtPath("시간축.timeRate", r, true)])),
+      }),
     },
     { order: 1 },
   );
@@ -1224,7 +1556,7 @@ export default function ParliamentSpace() {
         { collapsed: true },
       ),
     }),
-    { order: 3 },
+    { order: lab ? 5 : 3, collapsed: lab },
   );
   const wx = useControls(
     "풍화 · 지층",
@@ -1253,7 +1585,7 @@ export default function ParliamentSpace() {
     [],
     // V2: once, the saved values follow the defaults that fit the kept history (2026-10-11)
     isV2 ? [{ tag: "fit-history-2026-10-11", set: { rotDose: V2_ROT_DOSE, timeScale: V2_TIME_SCALE } }] : []),
-    { order: 7 },
+    { order: lab ? 3 : 7 },
   );
   const weather = useMemo<WeatherConfig>(
     () => ({
@@ -1296,7 +1628,7 @@ export default function ParliamentSpace() {
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
     }),
-    { order: 6 },
+    { order: lab ? 4 : 6 },
   );
   // the PRESENT thickness (풍화 · 지층: the rot onset): layers within it still change, those below are kept
   const presentSlots = Math.max(1, Math.round(rotOnsetSlots(weather)));
@@ -1309,13 +1641,15 @@ export default function ParliamentSpace() {
   const fold = useFoldControls(SPACE_FOLD, {
     folder: "생성 규칙 (회사원 시공간 밀집)",
     collapsed: true,
-    order: 2,
+    order: lab ? 8 : 2,
     flow: {
       path: `${WALK_GROUP}.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)`,
       order: 1,
       legacy: [`${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, "생성 규칙 (회사원 시공간 밀집)"],
     },
   });
+  // V2: bots run from here, without a player tab (useGlobalBots.ts)
+  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, lab ? { clock: clk, local: true } : undefined);
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -1365,7 +1699,7 @@ export default function ParliamentSpace() {
       },
       ["길 · 다리"],
     ),
-    { order: 4, collapsed: true },
+    { order: 4, collapsed: true, render: () => !lab },
   );
   const walkView = useMemo<WalkConfig | null>(
     () =>
@@ -1467,7 +1801,7 @@ export default function ParliamentSpace() {
       },
       ["수로 (덮인 땅의 물)", "길 · 다리"],
     ),
-    { order: 5, collapsed: true },
+    { order: 5, collapsed: true, render: () => !lab },
   );
   const waterView = useMemo<WaterConfig | null>(
     () =>
@@ -1514,85 +1848,219 @@ export default function ParliamentSpace() {
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
-  const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: 6.5 });
+  const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
   const fu = useControls(
-    "엉김 · 융합 · 레진",
-    savable("엉김 · 융합 · 레진", {
-      fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (마모 + 지층이 켜져 있어야 함)" },
-      "시기 (부재의 부식 정도: 0 새것 … 1 사라짐)": folder({
-        accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "덩어리가 붙기 시작 (그 전: 식생 점이 모임)" },
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "부재 자체가 덩어리가 되기 시작" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대(B: 판)까지 삼켜짐 (>1 = 끝까지)" },
-        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율, >1 = 끔)" },
+    FU,
+    savable(FU, {
+      fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
+      // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
+      [FU_WHEN]: folder({
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작" },
+        accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김 띠가 붙기 시작 (② 고급의 띠 양 > 0일 때)", render: (get) => get(ACC_PATH) > 0 },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
+        resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
-      "형태 스터디 (V2: 켜서 비교, 섞어도 됨)": folder(
+      [FU_MASS]: folder({
+        gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "이어 붙는 세기 (클수록 부재 사이가 메워져 한 덩어리; 1 = 부재 모양 거의 그대로)" },
+        blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "메워지는 틈의 너비 (복셀; 0 = 안 메움)" },
+        "고급": folder(
+          {
+            sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 흘러내림 (0 = 없음; 젊은 블로키 층은 안 흐름)" },
+            scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 부스러짐 (0 = 매끈)" },
+            porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "둥근 구멍 양 (오래된 층일수록 많이)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
+            poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드; 껍질 · 거품의 '둥근 구멍' 모양도 이 크기)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
+            skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)" },
+            skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)", render: (get) => get(SKEL_PATH) > 0 },
+            spikes: { value: DEFAULT_FUSE.spikes, min: 0, max: 1, step: 0.01, label: "가시: 표면에서 뻗어 나오는 양 (0 = 없음)" },
+            spikeLen: { value: DEFAULT_FUSE.spikeLen, min: 0.2, max: 4, step: 0.1, label: "가시: 가장 긴 길이 (월드)", render: (get) => get(SPIKES_PATH) > 0 },
+            // V2: off by default (the artist, 2026-10-19: the soil-coloured band before the resin is not wanted)
+            "엉김 띠 (융합 전)": folder(
+              {
+                accretion: { value: isV2 ? 0 : DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "양 (0 = 없음 = 이 띠 없이 바로 융합)" },
+                accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "두께 (월드)", render: (get) => get(ACC_PATH) > 0 },
+                lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (월드; 클수록 굵은 몇 덩이)", render: (get) => get(ACC_PATH) > 0 },
+                growthColor: { value: "#ada585", label: "색 (이 띠의 흙색; 회색이면 #6e6e6e)", render: (get) => get(ACC_PATH) > 0 },
+              },
+              { collapsed: true },
+            ),
+            "계산": folder(
+              {
+                voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "격자 간격 (월드; 작을수록 세밀하고 무거움)" },
+                iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
+                smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
+                natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
+              },
+              { collapsed: true },
+            ),
+          },
+          { collapsed: true },
+        ),
+      }),
+      // HOW a part turns into mass: as its box, as tubes along its edges (multipipe), or by its size; plates can stay
+      // plates; what is added: the rooms between the plates filled
+      [FU_WAY]: folder(
         {
-          "B 빈 곳 채우기": folder({
-            fill: { value: DEFAULT_STUDY.fill, label: "켜기: 판 사이 방을 위에서부터 채움, 판은 날카롭게" },
-            fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)" },
-            fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)" },
-          }),
-          "C 껍질 · 리브": folder({
-            shell: { value: DEFAULT_STUDY.shell, label: "켜기: 속이 빈 껍질 + 맞닿은 구멍 (구형 공극 대신)" },
-            shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "껍질 두께 (복셀)" },
-            ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (셀, 월드)" },
-            ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (월드)" },
-            ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 셀 비율 (오래된 층일수록 많이)" },
-            pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "표면 곰보 (색만)" },
-          }),
-          "D 섬유 · 원반": folder({
-            fibre: { value: DEFAULT_STUDY.fibre, label: "켜기: 판은 원반, 아래로 섬유, 젊은 가장자리는 가시 (처짐·흩어짐 대신)" },
-            fibreGap: { value: DEFAULT_STUDY.fibreGap, min: 0.15, max: 2, step: 0.05, label: "섬유 간격 (월드)" },
-            fibreLen: { value: DEFAULT_STUDY.fibreLen, min: 0.3, max: 6, step: 0.1, label: "가장 긴 섬유 (월드)" },
-            disc: { value: DEFAULT_STUDY.disc, min: 0, max: 1.5, step: 0.05, label: "원반이 판 밖으로 뻗는 정도 (0 = 원반 없음)" },
-            discThick: { value: DEFAULT_STUDY.discThick, min: 0, max: 1, step: 0.05, label: "원반 가운데 두께 (월드)" },
-            spineLen: { value: DEFAULT_STUDY.spineLen, min: 0, max: 3, step: 0.05, label: "가시 길이 (월드, 0 = 없음)" },
-            fibreColor: { value: "#a8a8a8", label: "섬유 · 가시 색 (무채색)" },
-          }),
+          massMode: {
+            options: {
+              "통째로 (상자를 감싸고 사이를 메움)": "wrap",
+              "관 (모서리만 관으로, 방은 비움 — multipipe)": "pipe",
+              "크기에 따라 (작은 부재는 통째로, 큰 부재는 관)": "size",
+            },
+            value: "wrap" as "wrap" | "pipe" | "size",
+            label: "부재가 녹는 꼴",
+          },
+          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "관 굵기 (월드; ② 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(MODE_PATH) !== "wrap" },
+          pipeSmall: { value: DEFAULT_STUDY.pipeSmall, min: 0, max: 1, step: 0.05, label: "관 비율 · 작은 부재 (0 = 통째로, 1 = 관만; 사이 = 관 안에 너덜한 판)", render: (get) => get(MODE_PATH) === "size" },
+          pipeLarge: { value: DEFAULT_STUDY.pipeLarge, min: 0, max: 1, step: 0.05, label: "관 비율 · 큰 부재", render: (get) => get(MODE_PATH) === "size" },
+          platesStay: { value: DEFAULT_STUDY.platesStay, label: "판은 판으로 (슬래브 · 기단은 테두리만 관, 판은 남음)", render: (get) => get(MODE_PATH) !== "wrap" },
+          "고급": folder(
+            {
+              pipeThickLarge: { value: DEFAULT_STUDY.pipeThickLarge, min: 1, max: 4, step: 0.1, label: "관 굵기 · 큰 부재 배율 (큰 부재 = 굵은 뼈)", render: (get) => get(MODE_PATH) !== "wrap" },
+              pipeJoint: { value: DEFAULT_STUDY.pipeJoint, min: 0, max: 3, step: 0.1, label: "마디: 관이 만나는 모서리의 구 (관 굵기 배, 0 = 없음)", render: (get) => get(MODE_PATH) !== "wrap" },
+            },
+            { collapsed: true, render: (get) => get(MODE_PATH) !== "wrap" },
+          ),
+          // SIZE CURVES (the artist, 2026-10-19: the look was growing uniform): a part's size, read on this band,
+          // decides how much of each feature it gets (the pairs sit next to their feature)
+          // EXTERNAL PARTS (the artist, 2026-10-20): what joined the buildings fuses too — the mass crosses along it
+          "배관 · 다리 · 철골도 녹음": folder(
+            {
+              fusePipes: { value: DEFAULT_FUSE.fusePipes, label: "배관이 덩어리에 들어감 (관 그대로, 자기 부식 시계)" },
+              fuseWalks: { value: DEFAULT_FUSE.fuseWalks, label: "다리가 덩어리에 들어감 (층의 나이로 늙음)" },
+              walkRadius: { value: DEFAULT_FUSE.walkRadius, min: 0.05, max: 0.6, step: 0.01, label: "다리 관 굵기 (월드)", render: (get) => get(WALKS_PATH) },
+              steelFossil: { value: isV2 ? 0.35 : 0, min: 0, max: 1, step: 0.05, label: "철골 중 화석으로 남는 비율 (0 = 철골은 녹슬어 사라짐; 가장 오래 버티는 것부터)" },
+            },
+            { collapsed: false },
+          ),
+          "크기 띠": folder(
+            {
+              sizeSmall: { value: DEFAULT_STUDY.sizeSmall, min: 0.3, max: 20, step: 0.1, label: "'작은 부재'로 치는 크기 (월드; 가장 긴 변이 이 아래면 0)" },
+              sizeLarge: { value: DEFAULT_STUDY.sizeLarge, min: 0.5, max: 40, step: 0.5, label: "'큰 부재'로 치는 크기 (월드; 이 위면 1; 사이는 커브)" },
+              sizeJitter: { value: DEFAULT_STUDY.sizeJitter, min: 0, max: 1, step: 0.05, label: "부재마다 크기 읽기의 흔들림 (0 = 크기 그대로, 1 = ⅓ … 3배)" },
+            },
+            { collapsed: true },
+          ),
+          "판 사이 채우기": folder(
+            {
+              fill: { value: DEFAULT_STUDY.fill, label: "B 판 사이 채우기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게" },
+              fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(FILL_PATH) },
+              fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)", render: (get) => get(FILL_PATH) },
+            },
+            { collapsed: true },
+          ),
         },
         { render: () => isV2 },
       ),
-      "엉김 (부재에 붙는 덩어리)": folder({
-        accretion: { value: DEFAULT_FUSE.accretion, min: 0, max: 3, step: 0.05, label: "세기 (0 = 끔)" },
-        accDepth: { value: DEFAULT_FUSE.accDepth, min: 0.1, max: 4, step: 0.05, label: "최대 두께 (월드)" },
-        lump: { value: DEFAULT_FUSE.lump, min: 0.2, max: 4, step: 0.05, label: "뭉치 크기 (클수록 큰 뭉치; B 방의 울퉁불퉁함도)" },
-      }),
-      "융합 덩어리 (기본 방식)": folder({
-        gain: { value: DEFAULT_FUSE.gain, min: 0.5, max: 8, step: 0.1, label: "부풀림 (가까운 부재끼리 붙는 세기; B: 방 밖에선 약하게)" },
-        blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "붙는 거리 (복셀)" },
-        skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 콘크리트 비율" },
-        skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대를 감싸는 두께 (1 = 다른 부재와 같게)" },
-        sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 처짐 (D 켜면 꺼짐)" },
-        scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 흩어짐 (D 켜면 꺼짐)" },
-        porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "구형 공극 양 (C 켜면 꺼짐)" },
-        poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "구형 공극 크기 (월드)" },
-      }),
-      "표면 계산": folder(
+      // FOSSIL CURVE (ref 9579, the artist 2026-10-19): the layer's age decides whether the mass is still
+      // architecture (the voxel steps of the parts' boxes) or a fossil (smooth, the rooms carved out, the frame
+      // embedded)
+      [FU_FOSSIL]: folder(
         {
-          voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "해상도 (복셀, 작을수록 무거움)" },
-          iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "표면 문턱" },
-          smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 (횟수, 0 = 각진 복셀)" },
-          natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물 비중" },
+          fossilFrom: { value: DEFAULT_STUDY.fossilFrom, min: 0, max: 1, step: 0.01, label: "화석이 되기 시작하는 층의 나이 (부식 정도)" },
+          fossilTo: { value: DEFAULT_STUDY.fossilTo, min: 0.05, max: 1, step: 0.01, label: "다 화석이 되는 층의 나이" },
+          blocky: { value: 0, min: 0, max: 1, step: 0.05, label: "젊은 층의 블로키 (복셀 계단 = 건축; 0 = 다 둥글게 — 껍질 · 리브를 쓰면 0.3 아래로, 계단이 리브를 뭉갬)" },
+          cavity: { value: 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음; 9579 레시피 0.7–1)" },
+          cavityRound: { value: DEFAULT_STUDY.cavityRound, min: 1, max: 5, step: 1, label: "공동의 둥글기 (복셀)", render: (get) => get(CAV_PATH) > 0 },
+          pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "관 뼈대가 오래된 층에서 묻힘 (0 = 끝까지 뼈대, 1 = 다 묻힘)", render: (get) => get(MODE_PATH) !== "wrap" },
+          // SUBTRACTIVE (refs 9706–9708, 9579; 2026-10-20): the outline stays the building's, the organic is inside
+          envelope: { value: 0, min: 0, max: 1, step: 0.05, label: "겉면은 건물 윤곽대로 (0 = 부재 밖으로 부풀림 … 1 = 윤곽에서 잘라냄; 유기물은 안에서 — 방 채움 · 방 → 공동 · 거품)" },
+          fossilNoise: { value: isV2 ? 0.15 : 0, min: 0, max: 0.6, step: 0.01, label: "화석화 경계의 흔들림 (나이 단위; 0 = 평평한 띠)" },
         },
-        { collapsed: true },
+        { render: () => isV2 },
       ),
-      "레진 재질": folder(
+      // HOLLOWING: a shell with openings (ribs between), or a foam carved through the volume (sponge bone)
+      [FU_HOLLOW]: folder(
         {
-          resinColor: { value: KIND_COLOR.slab, label: "색 (슬래브와 같은 회색)" },
-          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "투과" },
-          resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (서리 낀 정도)" },
-          thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "두께감" },
-          attenuationColor: { value: "#8a8b8c", label: "깊을수록 물드는 색 (무채색)" },
-          attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "물드는 거리 (짧을수록 무거움)" },
+          shell: { value: DEFAULT_STUDY.shell, label: "껍질: 속을 비우고 구멍을 엶 (구멍 사이 벽 = 리브)" },
+          foam: { value: DEFAULT_STUDY.foam, label: "거품: 속을 비우지 않고 셀을 부피째 공동으로 (해면뼈, 9579)" },
+          holeShape: {
+            options: { "보로노이: 맞닿은 다각형 구멍, 사이에 리브 (뼈)": "voronoi", "노이즈: 둥글게 번지며 서로 이어지는 구멍 (벌레 먹은 듯)": "noise", "둥근 구멍: 구형 공극 (② 고급의 크기)": "round", "크기에 따라: 작은 부재는 노이즈, 큰 부재는 보로노이": "size" },
+            value: DEFAULT_STUDY.holeShape as "voronoi" | "noise" | "round" | "size",
+            label: "구멍 모양",
+            render: (get) => get(SHELL_PATH) || get(FOAM_PATH),
+          },
+          ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (월드)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (보로노이: 벽 두께 · 노이즈: 가장자리 부드러움)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 비율 (0 = 닫힘, 1 = 거의 다; 거품: 공동이 되는 셀의 몫)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          holeVoronoiSmall: { value: DEFAULT_STUDY.holeVoronoiSmall, min: 0, max: 1, step: 0.05, label: "보로노이 비율 · 작은 부재 (0 = 노이즈, 1 = 보로노이)", render: (get) => (get(SHELL_PATH) || get(FOAM_PATH)) && get(HOLE_PATH) === "size" },
+          holeVoronoiLarge: { value: DEFAULT_STUDY.holeVoronoiLarge, min: 0, max: 1, step: 0.05, label: "보로노이 비율 · 큰 부재", render: (get) => (get(SHELL_PATH) || get(FOAM_PATH)) && get(HOLE_PATH) === "size" },
+          "고급": folder(
+            {
+              ribLip: { value: DEFAULT_STUDY.ribLip, min: 0, max: 1.5, step: 0.05, label: "입술: 리브 · 구멍 테두리가 두꺼워지는 띠 (월드; 0 = 없음)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+              shellThickYoung: { value: DEFAULT_STUDY.shellThickYoung, min: 1, max: 4, step: 1, label: "껍질 두께 · 얕은 층 (복셀)", render: (get) => get(SHELL_PATH) },
+              shellThick: { value: DEFAULT_STUDY.shellThick, min: 1, max: 4, step: 1, label: "껍질 두께 · 깊은 층 (복셀)", render: (get) => get(SHELL_PATH) },
+              shellSplit: { value: DEFAULT_STUDY.shellSplit, min: 0.05, max: 1, step: 0.01, label: "깊은 층으로 치는 층의 나이", render: (get) => get(SHELL_PATH) },
+            },
+            { collapsed: true, render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ),
         },
-        { collapsed: true },
+        { render: () => isV2 },
       ),
-    }),
-    { order: 8 },
+      [FU_PITS]: folder(
+        {
+          pits: { value: DEFAULT_STUDY.pits, min: 0, max: 1, step: 0.05, label: "그늘 (곰보 속의 어둠; 0 = 없음 = 곰보 끔)" },
+          pitCover: { value: DEFAULT_STUDY.pitCover, min: 0, max: 1, step: 0.01, label: "양 (칸마다 곰보가 있을 확률; 1 = 빽빽)", render: (get) => get(PITS_PATH) > 0 },
+          pitSize: { value: DEFAULT_STUDY.pitSize, min: 0.05, max: 2, step: 0.01, label: "크기 (지름, 월드; 격자와 무관)", render: (get) => get(PITS_PATH) > 0 },
+          pitDepth: { value: isV2 ? 0.6 : 0, min: 0, max: 1.5, step: 0.05, label: "파임 (음영으로 파인 깊이; 0 = 색만)", render: (get) => get(PITS_PATH) > 0 },
+          pitSmall: { value: DEFAULT_STUDY.pitSmall, min: 0, max: 2, step: 0.05, label: "양 배율 · 작은 부재", render: (get) => get(PITS_PATH) > 0 },
+          pitLarge: { value: DEFAULT_STUDY.pitLarge, min: 0, max: 2, step: 0.05, label: "양 배율 · 큰 부재", render: (get) => get(PITS_PATH) > 0 },
+          pitBroad: { value: isV2 ? 0.6 : 0, min: 0, max: 1, step: 0.05, label: "넓은 면에 몰림 (0 = 어디나 … 1 = 넓고 평평한 면의 가운데에만)", render: (get) => get(PITS_PATH) > 0 },
+          "고급": folder(
+            {
+              pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "크기 지터 (0 = 다 같게 … 1 = ½ ~ 2배)" },
+              pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "테두리 부드러움 (0.01 = 또렷한 구멍 … 0.4 = 번진 자국)" },
+              pitGather: { value: DEFAULT_STUDY.pitGather, min: 0, max: 1, step: 0.05, label: "몰림 (0 = 고르게, 1 = 어떤 면에는 몰리고 어떤 면은 맨살)" },
+              pitPatch: { value: DEFAULT_STUDY.pitPatch, min: 0.5, max: 12, step: 0.5, label: "몰리는 자리 크기 (월드)" },
+            },
+            { collapsed: true, render: (get) => get(PITS_PATH) > 0 },
+          ),
+        },
+        { collapsed: true, render: (get) => isV2 && (get(SHELL_PATH) || get(FOAM_PATH)) },
+      ),
+      // the RESIN (V2: everything fused): the FROSTED SKIN — an opaque matte body whose skin shows the parts right
+      // under it, lifted by a little glow (ref 9579: matte white + AO; 9649: the white skin over machine parts);
+      // the refraction (three.js transmission: the opaque scene re-rendered every frame, 1–16 fps) stays a choice
+      [FU_MAT]: folder(
+        {
+          resinMode: {
+            options: { "서리 피부 (불투명 무광 + 밑에 비치는 부재 + 속빛; 가벼움)": "frost", "굴절 (유리처럼 뒤를 굴절 · 무거움)": "refract", "반투명 (가벼움, 광택 없음)": "alpha" },
+            value: "frost" as "alpha" | "refract" | "frost",
+            label: "레진 몸체",
+          },
+          resinColor: { value: KIND_COLOR.slab, label: "레진 색 (슬래브와 같은 회색)" },
+          resinRoughness: { value: 0.45, min: 0, max: 1, step: 0.01, label: "거칠기 (0 = 맑음, 1 = 서리)" },
+          resinShade: { value: 0.5, min: 0, max: 1, step: 0.05, label: "비치는 덩어리 얼룩 · 곰보 (0 = 레진 색만, 1 = 다)" },
+          resinGhost: { value: 0.6, min: 0, max: 1, step: 0.05, label: "밑에 비치는 부재 (피부 바로 아래의 부재가 어둡게 비침)" },
+          resinGlow: { value: 0.12, min: 0, max: 0.6, step: 0.01, label: "속빛 (자체 밝기; AO에 눌린 무거움을 덜어 줌)", render: (get) => get(RESIN_MODE_PATH) === "frost" },
+          resinRim: { value: 0.2, min: 0, max: 1, step: 0.05, label: "가장자리 광택 (프레넬)", render: (get) => get(RESIN_MODE_PATH) === "frost" },
+          transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "굴절 · 두께감 (굴절이 얼마나 휘는지)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+          resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "반투명 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
+          "고급": folder(
+            {
+              attenuationColor: { value: "#8a8b8c", label: "굴절 · 물드는 색 (무채색; 빛이 깊이 들어갈수록 이 색으로)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              attenuationDistance: { value: 2.5, min: 0.1, max: 30, step: 0.1, label: "굴절 · 물드는 거리 (월드; 짧을수록 두껍고 탁한 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              transmissionScale: { value: 0.5, min: 0.25, max: 1, step: 0.25, label: "굴절 패스 해상도 (장면 재렌더 배율; 0.5 = 비용 ¼, 서리 낀 레진엔 티 안 남)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              pointsInRefraction: { value: false, label: "굴절에 식생 점 비침 (켜면 점 수십만 개를 매 프레임 다시 그림 — 무거움)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
+              // V1 only: the mass before the resin as its own body
+              massBody: { options: { "불투명 (돌)": "opaque", "반투명 (속의 부재가 비쳐 보임)": "alpha" }, value: "alpha" as "opaque" | "alpha", label: "덩어리 몸체 (융합 ~ 레진 전)", render: () => !isV2 },
+              massOpacity: { value: 0.75, min: 0.1, max: 1, step: 0.05, label: "덩어리 · 불투명도", render: (get) => !isV2 && get(MASS_BODY_PATH) === "alpha" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { collapsed: false },
+      ),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }] : []),
+    { order: lab ? 2 : 8 },
   );
   const fuseCfg = useMemo<FuseConfig>(
     () => ({
       enabled: fu.fuseOn,
+      fusePipes: fu.fusePipes,
+      fuseWalks: fu.fuseWalks,
+      walkRadius: fu.walkRadius,
+      steelFossil: fu.steelFossil,
       accOnset: fu.accOnset,
       fuseOnset: fu.fuseOnset,
       voxel: fu.voxel,
@@ -1604,7 +2072,7 @@ export default function ParliamentSpace() {
       accretion: fu.accretion,
       accDepth: fu.accDepth,
       lump: fu.lump,
-      resinShare: fu.resinShare,
+      resinShare: isV2 ? -1 : fu.resinShare, // V2: −1 = every fused face is resin (one body)
       sag: fu.sag,
       smooth: fu.smooth,
       poreSize: fu.poreSize,
@@ -1612,6 +2080,9 @@ export default function ParliamentSpace() {
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
       skeletonWrap: fu.skeletonWrap,
+      spikes: fu.spikes,
+      spikeLen: fu.spikeLen,
+      growthColor: hexToLinear(fu.growthColor),
       study: isV2
         ? {
             fill: fu.fill,
@@ -1619,42 +2090,83 @@ export default function ParliamentSpace() {
             fillInset: fu.fillInset,
             shell: fu.shell,
             shellThick: fu.shellThick,
+            shellThickYoung: fu.shellThickYoung,
+            shellSplit: fu.shellSplit,
             ribCell: fu.ribCell,
             ribWidth: fu.ribWidth,
             ribOpen: fu.ribOpen,
+            holeShape: fu.holeShape as "voronoi" | "noise" | "round" | "size",
             pits: fu.pits,
-            fibre: fu.fibre,
-            fibreGap: fu.fibreGap,
-            fibreLen: fu.fibreLen,
-            disc: fu.disc,
-            discThick: fu.discThick,
-            spineLen: fu.spineLen,
+            pitSize: fu.pitSize,
+            pitJitter: fu.pitJitter,
+            pitSoft: fu.pitSoft,
+            pitCover: fu.pitCover,
+            pitDepth: fu.pitDepth,
+            pitGather: fu.pitGather,
+            pitPatch: fu.pitPatch,
+            sizeSmall: fu.sizeSmall,
+            sizeLarge: fu.sizeLarge,
+            sizeJitter: fu.sizeJitter,
+            pipeSize: fu.massMode === "size",
+            pipeSmall: fu.pipeSmall,
+            pipeLarge: fu.pipeLarge,
+            holeVoronoiSmall: fu.holeVoronoiSmall,
+            holeVoronoiLarge: fu.holeVoronoiLarge,
+            pitSmall: fu.pitSmall,
+            pitLarge: fu.pitLarge,
+            pitBroad: fu.pitBroad,
+            foam: fu.foam,
+            cavity: fu.cavity,
+            cavityRound: fu.cavityRound,
+            fossilFrom: fu.fossilFrom,
+            fossilTo: fu.fossilTo,
+            blocky: fu.blocky,
+            platesStay: fu.platesStay,
+            pipeThickLarge: fu.pipeThickLarge,
+            pipeJoint: fu.pipeJoint,
+            pipeFossil: fu.pipeFossil,
+            ribLip: fu.ribLip,
+            envelope: fu.envelope,
+            fossilNoise: fu.fossilNoise,
+            pipe: fu.massMode === "pipe",
+            pipeRadius: fu.pipeRadius,
           }
         : undefined,
     }),
-    [isV2, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.pits, fu.fibre, fu.fibreGap, fu.fibreLen, fu.disc, fu.discThick, fu.spineLen, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
       color: fu.resinColor,
-      transmission: fu.transmission,
+      transmission: fu.resinMode === "refract" ? fu.transmission : 0,
+      opacity: fu.resinMode === "alpha" ? fu.resinOpacity : 1,
+      massOpacity: !isV2 && fu.massBody === "alpha" ? fu.massOpacity : 1,
+      shade: fu.resinShade,
+      rim: fu.resinMode === "frost" ? fu.resinRim : 0,
+      ghost: fu.resinGhost,
+      glow: fu.resinMode === "frost" ? fu.resinGlow : 0,
+      pits: { dark: fu.shell || fu.foam ? fu.pits : 0, cover: fu.pitCover, size: fu.pitSize, jitter: fu.pitJitter, soft: fu.pitSoft, depth: fu.shell || fu.foam ? fu.pitDepth : 0 },
       roughness: fu.resinRoughness,
       thickness: fu.thickness,
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
     savable("렌더 · 성능", {
+      perfMode: { value: false, label: "성능 모드 (해상도 ↓ · AO 절반 · 그림자 끔 · 식생 점 ↓ · LOD 가까이)" },
+      // the pixels: a 5K iMac at ×2 draws 15 M of them per frame, with the AO on every one — ×1.5 looks the same
+      // at that density and costs half
+      dprMax: { value: 1.5, min: 1, max: 2, step: 0.25, label: "해상도 상한 (화면 픽셀 배율; 2 = 레티나 전부, 1.5 권장)" },
       AO: folder({
         aoOn: { value: true, label: "켜기" },
         aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
         distanceFalloff: { value: 1, min: 0.05, max: 4, step: 0.05, label: "거리 감쇠" },
         aoIntensity: { value: 3, min: 0, max: 12, step: 0.1, label: "세기" },
         quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
-        halfRes: { value: false, label: "절반 해상도" },
+        halfRes: { value: true, label: "절반 해상도 (거의 티 안 남, 비용은 ¼)" },
       }),
       "빛": folder({
         shadows: { value: true, label: "그림자" },
@@ -1665,7 +2177,8 @@ export default function ParliamentSpace() {
         grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
       }),
       LOD: folder({
-        near: { value: 60, min: 5, max: 400, step: 5, label: "이 거리 안쪽만 막대 묶음 (월드)" },
+        near: { value: 40, min: 5, max: 400, step: 5, label: "이 거리 안쪽: 막대 묶음 · 드립 다 그림 (월드)" },
+        mid: { value: 90, min: 5, max: 600, step: 5, label: "이 거리까지: 막대 절반 · 드립 없음; 그 너머: 통짜 매스 (월드)" },
         farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율", render: () => !isV2 },
       }),
     }),
@@ -1673,6 +2186,22 @@ export default function ParliamentSpace() {
   );
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
+  // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
+  const perf = rnd.perfMode;
+  // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
+  // ×1.5 a full-screen wall is 3000×1700 and the GPU falls behind; the main thread then stalls (twice a second, when the
+  // worker's new buffers are uploaded) until the frame is done, which starved the room's sound (2026-10-29)
+  const wall = hideUi && !lab;
+  const dprMax = wall ? 1 : perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
+  const aoHalfRes = perf || rnd.halfRes;
+  const aoQuality = perf ? ("performance" as const) : rnd.quality;
+  const shadowsOn = rnd.shadows && !perf && !wall;
+  const vegBudget = perf ? Math.min(veg.budget, 250000) : veg.budget;
+  const lodNear = perf ? Math.min(rnd.near, 25) : rnd.near;
+  const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
+  // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
+  const resinView = useMemo<ResinLook>(() => (perf ? { ...resinLook, transmission: 0 } : resinLook), [perf, resinLook]);
+  const fps = useFps();
   const natureParams = useMemo<NatureParams | null>(
     () =>
       veg.natureOn
@@ -1686,7 +2215,7 @@ export default function ParliamentSpace() {
             gatherDot: veg.gatherDot,
             window: veg.window,
             margin: veg.margin,
-            budget: veg.budget,
+            budget: vegBudget,
             burialSlots: veg.burialSlots,
             reclaim: veg.gatherOn,
             tauReclaimYears: veg.tauReclaimYears,
@@ -1696,7 +2225,7 @@ export default function ParliamentSpace() {
             density: isV2 ? { cut: veg.densityCut, fade: veg.densityFade } : null,
           }
         : null,
-    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.budget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, wlk.pathsOn, wlk.pathHole, wlk.pathBerm, wlk.pathEdge],
+    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, vegBudget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, wlk.pathsOn, wlk.pathHole, wlk.pathBerm, wlk.pathEdge],
   );
   const recipe = useMemo<Recipe>(
     () => ({
@@ -1721,15 +2250,37 @@ export default function ParliamentSpace() {
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
   const spaceFold = useMemo(() => ({ ...fold, emptyGapSec: c.emptyGapSec }), [fold, c.emptyGapSec]);
+  // where the stages begin, in slots below the present (the readout): the same clocks the model uses
+  const depths = useMemo(() => {
+    if (!weather.strata || !c.wear || stats.t <= 0) return null;
+    const spu = boxCfg.secPerUnit;
+    const tQ = Math.floor(stats.t / spu) * spu;
+    const kNow = tQ / spu;
+    const age = isV2 ? layerDecayOf(tQ, spu, weather, fold.tauSlabYears) : null;
+    const at = (q: number): number | null => {
+      if (!age) return null;
+      for (let d = 0; d <= 400; d++) if (age(kNow - d) >= q) return d;
+      return null;
+    };
+    return {
+      gather: weather.gatherStart,
+      rot: Math.round(rotOnsetSlots(weather)),
+      acc: at(fuseCfg.accOnset),
+      fuse: at(fuseCfg.fuseOnset),
+      resin: fuseCfg.resinShare < 0 ? at(fuseCfg.fuseOnset) : fuseCfg.resinShare <= 1 ? at(fuseCfg.resinShare) : null,
+    };
+  }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
 
   return (
-    <div className="relative h-full w-full" style={{ background: theme.bg }}>
+    // the wall (ui=0) shows no cursor either: nothing on it but the strata
+    <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, 2]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
+      <Canvas shadows={wall ? false : "percentage"} dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={rnd.shadows} />
+        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
+        <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
         <SpaceWorld
@@ -1742,23 +2293,26 @@ export default function ParliamentSpace() {
           controls={controls}
           onStats={setStats}
           nature={natureParams}
-          lodNear={rnd.near}
+          lodNear={lodNear}
+          lodMid={lodMid}
+          pointsInRefraction={fu.pointsInRefraction && !perf}
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
-          resin={resinLook}
+          resin={resinView}
           water={waterView}
           nearFade={v.nearFade}
           noAxis={isV2}
           walk={walkView}
           walkLook={walkLook}
-          fibreColor={fu.fibreColor}
+          clock={clk}
+          local={lab}
         />
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
-            {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={rnd.quality} halfRes={rnd.halfRes} color="black" />}
+            {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
           </EffectComposer>
@@ -1768,10 +2322,13 @@ export default function ParliamentSpace() {
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>
+      {/* THE WALL (ui=0, the exhibition): no text at all — the readout and the markers' names are debugging (the artist,
+          2026-10-28); the TEST entry (no ui parameter) keeps them */}
+      {!hideUi && (
       <div className={`pointer-events-none absolute bottom-3 left-3 select-none font-mono text-[10px] leading-4 ${theme.text}`}>
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
@@ -1779,11 +2336,18 @@ export default function ParliamentSpace() {
         </div>
         <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
         <div>
-          LOD: {stats.farSeeds}/{stats.seeds} seeds far (no slats) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms
+          {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · baked {stats.baked} chunk(s) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{perf ? " · PERF MODE" : ""}
         </div>
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
-        {clock.timeRate !== 1 && <div>time × {clock.timeRate} (1 step every {(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)</div>}
+        {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
+        {globalBots > 0 && <div>bots: {globalBots} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
+        {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
+        {depths && (
+          <div>
+            깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}
+          </div>
+        )}
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}
@@ -1802,6 +2366,7 @@ export default function ParliamentSpace() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

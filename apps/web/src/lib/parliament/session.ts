@@ -3,14 +3,13 @@
  * may stay, and how the end makes itself felt.
  *
  *   IDLE      nobody has touched the screen yet: the ground runs on (bots), the visitor leaves nothing
- *   NOTICE … CHOOSE   the frame before a life (intake.ts): what this is, a consent with only yes, the headset, a choice
- *   DRAW      the role slot spins through the roles and stops on the one drawn at random (`reelAt`) — the choice
- *             made before is not looked at (intake.ts `verdictOf` only says whether it happened to agree)
- *   VERDICT   requested / assigned, for a few seconds
- *   LIVE      the lifespan runs; in its last `warnSec` the cursor blinks faster, the sound goes dull and the
- *             controls stop answering properly (`lifeAt`, `hindrance`)
+ *   NOTICE … HEADSET   the frame before a life (intake.ts): what this is, a consent with only yes, the headset
+ *   LIVE      the life begins at once after the headset — every visitor is the worker (2026-10-20: the choice, the
+ *             slot and the verdict were taken out; only the worker has an effect on the ground). The lifespan runs;
+ *             in its last `warnSec` the cursor blinks faster, the sound goes dull and the controls stop answering
+ *             properly (`lifeAt`, `hindrance`)
  *   ENDED     the lifespan is over: the visitor is taken off the ground, a dry end screen; SPACE starts the next
- *             session (a new visitor and a new draw)
+ *             session (a new visitor)
  *
  * Pure: everything is a function of the elapsed seconds (and a few random numbers drawn once per session).
  */
@@ -19,12 +18,12 @@ import { hash2 } from "./nature";
 import type { RoleId } from "./types";
 
 /**
- * IDLE → the steps before the draw (intake.ts: NOTICE → CONSENT → HEADSET → CHOOSE) → DRAW → VERDICT → LIVE → ENDED.
+ * IDLE → the steps before the life (intake.ts: NOTICE → CONSENT → HEADSET) → LIVE → ENDED.
  * The visitor is only present (traces, sound, controls) while LIVE; every other phase is dark and silent.
  */
-export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "choose" | "draw" | "verdict" | "live" | "ended";
+export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "live" | "ended";
 
-/** The roles a session can be given (V2). */
+/** The roles of the V2 world: the visitor is always the worker; the bots take these in turn ("섞어서"). */
 export const SESSION_ROLES: readonly RoleId[] = ["worker", "cat", "car", "tree"];
 
 /** How a role is written on screen (machine text, upper case). */
@@ -37,76 +36,6 @@ export const ROLE_TAG: Record<RoleId, string> = {
   wolf: "WOLF",
   warrior: "WARRIOR",
 };
-
-/**
- * TEST PERIOD (2026-10-17): every draw lands on this role unless the URL says otherwise (?role=random draws at
- * random, ?role=cat … fixes another). Set it to null for the exhibition: then the slot draws at random by default.
- */
-export const DRAW_DEFAULT: RoleId | null = "worker";
-
-/** u in [0,1) → one of `roles`, uniformly. */
-export function assignRole(u: number, roles: readonly RoleId[] = SESSION_ROLES): RoleId {
-  const n = roles.length;
-  return roles[Math.min(n - 1, Math.max(0, Math.floor(u * n)))];
-}
-
-// ── the role slot ────────────────────────────────────────────────────────────
-
-export interface ReelPlan {
-  /** The labels the reel passes, in order; the last one is the drawn role. */
-  labels: string[];
-  /** Seconds the reel runs (it decelerates over all of it). */
-  spinSec: number;
-  /** When the last label comes up (s). */
-  stopAt: number;
-  /** After the stop, the label blinks this long (s), then holds. */
-  flashSec: number;
-}
-
-/** Ease-out the reel follows: position (in labels) at t / spinSec. */
-const reelPos = (f: number, last: number) => last * (1 - Math.pow(1 - Math.min(1, Math.max(0, f)), 3));
-
-/**
- * A reel that runs through `roles` in a fixed order (like the strip of a slot machine), fast at first, slowing down,
- * and stops on `target` (drawn beforehand with assignRole). `frames` labels pass in all (more = faster at the start).
- */
-export function planReel(target: RoleId, roles: readonly RoleId[] = SESSION_ROLES, spinSec = 3.2, frames = 26, flashSec = 0.7): ReelPlan {
-  const n = roles.length;
-  const ti = Math.max(0, roles.indexOf(target));
-  const N = Math.max(2, Math.round(frames));
-  // start so that frame N-1 lands on the target
-  const start = (((ti - (N - 1)) % n) + n) % n;
-  const labels: string[] = [];
-  for (let k = 0; k < N; k++) labels.push(ROLE_TAG[roles[(start + k) % n]]);
-  // the last label comes up where the (rounded) position reaches N-1: (1-f)^3 = 0.5 / (N-1)
-  const stopAt = spinSec * (1 - Math.cbrt(0.5 / (N - 1)));
-  return { labels, spinSec, stopAt, flashSec };
-}
-
-export interface ReelState {
-  label: string;
-  /** Index into plan.labels. */
-  index: number;
-  /** The reel has stopped on the drawn role. */
-  stopped: boolean;
-  /** Stopped, blinking finished: the role is fixed. */
-  settled: boolean;
-  /** Whether the label is lit (it blinks three times right after the stop). */
-  lit: boolean;
-}
-
-export function reelAt(plan: ReelPlan, tSec: number): ReelState {
-  const last = plan.labels.length - 1;
-  const index = Math.min(last, Math.round(reelPos(tSec / plan.spinSec, last)));
-  const stopped = index === last;
-  const since = tSec - plan.stopAt;
-  const settled = stopped && since >= plan.flashSec;
-  const lit = !stopped || settled || Math.floor((Math.max(0, since) / plan.flashSec) * 6) % 2 === 1;
-  return { label: plan.labels[index], index, stopped, settled, lit };
-}
-
-/** Total seconds of the draw (spin + blink). */
-export const reelDuration = (plan: ReelPlan) => plan.stopAt + plan.flashSec;
 
 // ── the lifespan ─────────────────────────────────────────────────────────────
 
