@@ -41,7 +41,7 @@ export default function GlobalSound() {
       perVoice: { value: DEFAULT_GLOBAL.perVoice, min: 0, max: 0.4, step: 0.005, label: "한 사람의 낮은 목소리" },
       octavesDown: { value: DEFAULT_GLOBAL.octavesDown, min: 0, max: 4, step: 1, label: "목소리를 내리는 옥타브" },
       tickLevel: { value: DEFAULT_GLOBAL.tickLevel, min: 0, max: 1, step: 0.01, label: "리듬 흔적 (틱)" },
-      hall: { value: DEFAULT_GLOBAL.hall, min: 0, max: 1, step: 0.01, label: "홀 (8 s)" },
+      hall: { value: DEFAULT_GLOBAL.hall, min: 0, max: 1, step: 0.01, label: "홀 (5 s)" },
       drive: { value: DEFAULT_GLOBAL.drive, min: 1, max: 8, step: 0.1, label: "포화 (1 = 없음)" },
       spread: { value: DEFAULT_GLOBAL.spread, min: 0, max: 1, step: 0.05, label: "좌우 퍼짐 (건물 = 덩어리)" },
       barSec: { value: DEFAULT_GLOBAL.barSec, min: 1, max: 4, step: 0.1, label: "한 마디 (s) — 헤드셋과 같은 그리드" },
@@ -118,7 +118,7 @@ export default function GlobalSound() {
       if (bare) return;
       const d = engine.debug;
       const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : engine.running ? "재생 중" : "클릭하면 시작";
-      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar}`);
+      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar} · → ${engine.output}`);
     }, 1000);
     return () => clearInterval(id);
   }, [engine, log, fold, params, bare]);

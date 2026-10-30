@@ -73,6 +73,9 @@ export default function SoundPatchList() {
         <button className="border border-white/30 px-2 py-0.5" onClick={() => void create()}>
           새 패치…
         </button>
+        <Link href="/v2/sound/output" className="border border-white/30 px-2 py-0.5">
+          출력 장치 (헤드셋 · 스피커)…
+        </Link>
         {msg && <span className="text-amber-200/80">{msg}</span>}
       </div>
       <div className="mb-2 text-white/35">열면 벤치로 들어가고, 그 패치가 플레이어의 패치가 됩니다 (★). 편집은 자동저장.</div>

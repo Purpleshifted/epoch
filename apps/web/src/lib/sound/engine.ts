@@ -24,6 +24,7 @@ import { makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { KnobSources } from "./noisecraftKnobs";
+import { applyOutput, makeLimiter, onOutputChange } from "./output";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -270,6 +271,8 @@ export interface SoundDebug {
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  private outputLine = "기본 출력";
+  private offOutput: (() => void) | null = null;
   private dull!: BiquadFilterNode;
   private dry!: GainNode;
   private rooms!: { open: GainNode; concrete: GainNode; hall: GainNode };
@@ -507,7 +510,11 @@ export class SoundEngine {
       this.dull.type = "lowpass";
       this.dull.frequency.value = this.params.lpOpen;
       this.dull.Q.value = 0.5;
-      this.dull.connect(this.master).connect(ctx.destination);
+      // the limiter before the device (§10c): with the room's speakers in the same Chrome the two summed and clipped
+      this.dull.connect(this.master).connect(makeLimiter(ctx)).connect(ctx.destination);
+      // the headset's own output device, chosen on /v2/sound/output (the default when none)
+      void applyOutput(ctx, "headset").then((s) => (this.outputLine = s));
+      this.offOutput = onOutputChange("headset", () => void applyOutput(ctx, "headset").then((s) => (this.outputLine = s)));
       this.dry = ctx.createGain();
       this.dry.connect(this.dull);
       this.voiceBus = ctx.createGain();
@@ -655,10 +662,17 @@ export class SoundEngine {
 
   dispose(): void {
     this.stop();
+    this.offOutput?.();
+    this.offOutput = null;
     this.ctx?.close().catch(() => {});
     this.ctx = null;
     this.voices.clear();
     this.me = null;
+  }
+
+  /** Where this engine plays (output.ts): the chosen device's label, or the default. */
+  get output(): string {
+    return this.outputLine;
   }
 
   private motifOf(id: string): Motif {

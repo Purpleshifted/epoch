@@ -25,6 +25,7 @@ import { makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { barClock } from "./sequencer";
 import { buildingsOf, type BuildingSignal } from "./signals";
 import { bestKey, homeKey } from "./tonality";
+import { applyOutput, makeLimiter, onOutputChange } from "./output";
 import { wrapDist, type PEvent, type Slab } from "@/lib/parliament";
 
 export interface GlobalParams {
@@ -54,7 +55,7 @@ export interface GlobalParams {
 }
 
 export const DEFAULT_GLOBAL: GlobalParams = {
-  master: 0.5,
+  master: 0.35, // 0.5 until 10/30: with the headset in the same Chrome the sum clipped (now also a limiter)
   barSec: 2,
   octavesDown: 2,
   cutoff: 420,
@@ -170,6 +171,8 @@ const TICK_MS = 80;
 export class GlobalEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  private outputLine = "기본 출력";
+  private offOutput: (() => void) | null = null;
   private lp!: BiquadFilterNode;
   private shaper!: WaveShaperNode;
   private hallSend!: GainNode;
@@ -215,11 +218,14 @@ export class GlobalEngine {
       this.lp.type = "lowpass";
       this.lp.frequency.value = this.params.cutoff;
       this.lp.Q.value = 0.7;
-      this.lp.connect(this.shaper).connect(this.master).connect(ctx.destination);
+      this.lp.connect(this.shaper).connect(this.master).connect(makeLimiter(ctx)).connect(ctx.destination);
+      // the speakers' own output device, chosen on /v2/sound/output (the default when none)
+      void applyOutput(ctx, "speakers").then((s) => (this.outputLine = s));
+      this.offOutput = onOutputChange("speakers", () => void applyOutput(ctx, "speakers").then((s) => (this.outputLine = s)));
       this.hallSend = ctx.createGain();
       this.hallSend.gain.value = this.params.hall;
       const hall = ctx.createConvolver();
-      hall.buffer = impulse(ctx, 8, 2.8);
+      hall.buffer = impulse(ctx, 5, 2.0); // 8 s / 2.8 until 10/30: the iMac runs the headset's rooms too (a convolver costs its length)
       this.hallSend.connect(hall).connect(this.lp);
       // the rhythm traces: their own, gentler low-pass straight into the saturation (they must stay audible)
       this.tickBus = ctx.createBiquadFilter();
@@ -262,8 +268,15 @@ export class GlobalEngine {
 
   dispose(): void {
     this.stop();
+    this.offOutput?.();
+    this.offOutput = null;
     this.ctx?.close().catch(() => {});
     this.ctx = null;
+  }
+
+  /** Where this engine plays (output.ts). */
+  get output(): string {
+    return this.outputLine;
   }
 
   /** Every second or so: who is present (presences()), the buildings, the epoch (grid), the knobs. */
