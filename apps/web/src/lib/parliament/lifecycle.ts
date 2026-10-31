@@ -10,7 +10,12 @@
  *             (fixed per epoch, 30–60 m out)
  *   LIFE      a lifespan from three bands of [lifeMinSec, lifeMaxSec] — short (first quarter), middle (the half
  *             between), long (last quarter) — with the artist's shares (default 20 / 40 / 40 %: 1–1.5, 1.5–2.5,
- *             2.5–3 min), uniform inside a band. A bot dies where it stands, like a visitor.
+ *             2.5–3 min), uniform inside a band.
+ *   LEAVING   most walk OUT at the end (`leaveShare`): they set off for a door (their own if they came in by one, else
+ *             the nearest) when what is left of their life is about the walk there (at most `leaveSec` before the
+ *             end), so they reach it as their life ends — and are gone there. The ways
+ *             between the doors and the places inside are walked again and again, and become paths (the artist,
+ *             2026-10-31: "이러니깐 길이 잘 안 생기네"). The others die where they stand, like a visitor.
  *   CONDUCT   the life of the personal view's worker: LOOK about (a slow turning walk), GO somewhere (along the
  *             caller's route: the trodden ground, round the buildings), STAY (stands, swaying a little), again. In
  *             the last warnSec it slows as a visitor's controls do (the same warn curve).
@@ -67,6 +72,11 @@ export interface LifecycleConfig {
   speed: number;
   /** The last seconds of a life, in which it slows. */
   warnSec: number;
+  /** Share of the bots that walk out through a door at the end (the rest die where they stand). */
+  leaveShare: number;
+  /** They set off for the door when what is left of their life is about the walk there — at most this long before the
+   *  end (s); reaching the door ends the life. */
+  leaveSec: number;
   memory: { staySec: number; mergeR: number; halfLifeSec: number; forgetSec: number };
 }
 
@@ -86,6 +96,8 @@ export const DEFAULT_LIFECYCLE: LifecycleConfig = {
   timeSpreadSec: 10,
   speed: 2.2,
   warnSec: 40,
+  leaveShare: 0.8,
+  leaveSec: 45,
   memory: { staySec: 8, mergeR: 1.5, halfLifeSec: 300, forgetSec: 600 },
 };
 
@@ -131,6 +143,11 @@ export interface Visitor {
   sinceMs: number;
   /** Its own places this life. */
   stops: [number, number][];
+  /** It will walk out at the end (drawn at birth), and is on its way out now. */
+  leaves: boolean;
+  leaving: boolean;
+  /** The door it came in by (−1: it began at the origin). */
+  door: number;
   /** Draws made so far. */
   k: number;
 }
@@ -262,17 +279,22 @@ function bornAt(sec: number, j: number, wallMs: number, epochMs: number, cfg: Li
     untilMs: wallMs,
     sinceMs: wallMs,
     stops: [],
+    leaves: false,
+    leaving: false,
+    door: -1,
     k: 0,
   };
   v.lifeMs = lifeFromBands(draw(v, epochMs, 1), draw(v, epochMs, 2), cfg) * 1000;
   v.off = draw(v, epochMs, 3) * Math.max(0, cfg.timeSpreadSec);
   v.ch = characterOf(v, epochMs, cfg);
+  v.leaves = draw(v, epochMs, 10) < cfg.leaveShare;
   let x: number, z: number;
   if (at) [x, z] = [at[0] + (draw(v, epochMs, 4) - 0.5) * 2, at[1] + (draw(v, epochMs, 5) - 0.5) * 2];
   else if (draw(v, epochMs, 6) < cfg.originShare) [x, z] = [(draw(v, epochMs, 4) - 0.5) * 4, (draw(v, epochMs, 5) - 0.5) * 4];
   else {
     const doors = doorsOf(epochMs);
-    const d = doors[Math.min(3, Math.floor(draw(v, epochMs, 7) * 4))];
+    v.door = Math.min(3, Math.floor(draw(v, epochMs, 7) * 4));
+    const d = doors[v.door];
     [x, z] = [d[0] + (draw(v, epochMs, 4) - 0.5) * 3, d[1] + (draw(v, epochMs, 5) - 0.5) * 3];
   }
   v.x = v.ex = wrapCoord(x);
@@ -462,9 +484,25 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
   // MOVE
   let routes = 0;
   const maxRoutes = Math.max(1, inp.maxRoutes ?? 2);
+  const doors = doorsOf(epochMs);
   for (const v of st.present) {
     // the end draws near: it slows as a visitor's controls do (session.ts lifeAt warn)
     const left = (v.lifeMs - (wallMs - v.bornMs)) / 1000;
+    // LEAVING: time to walk out — to its own door, else the nearest — when the life left is about the walk there
+    // (the way round is ~1.3 × the straight line; the end's slowing adds a little)
+    if (v.leaves && !v.leaving && left <= cfg.leaveSec && routes < maxRoutes) {
+      let d = v.door >= 0 ? doors[v.door] : doors[0];
+      if (v.door < 0) for (const c of doors) if (wrapDist(v.x, v.z, c[0], c[1]) < wrapDist(v.x, v.z, d[0], d[1])) d = c;
+      const walk = (wrapDist(v.x, v.z, d[0], d[1]) * 1.3) / Math.max(0.3, cfg.speed * v.ch.speed * 0.8) + 2;
+      if (left <= walk) {
+        const bx = nearestImage(d[0], v.x), bz = nearestImage(d[1], v.z);
+        v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz) : [v.x, v.z, bx, bz];
+        v.along = 0;
+        v.mode = "go";
+        v.leaving = true;
+        routes++;
+      }
+    }
     const t = cfg.warnSec > 0 ? Math.max(0, Math.min(1, 1 - left / cfg.warnSec)) : 0;
     const speed = cfg.speed * v.ch.speed * (1 - 0.6 * t * t);
     if (v.mode === "go") {
@@ -474,6 +512,11 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
       if (v.along >= L) {
         v.x = wrapCoord(route[route.length - 2]);
         v.z = wrapCoord(route[route.length - 1]);
+        // out through the door: the life ends here (it is gone at the next step)
+        if (v.leaving) {
+          v.lifeMs = Math.min(v.lifeMs, wallMs - v.bornMs);
+          continue;
+        }
         if (next(v, st, inp, wallMs, cfg, routes < maxRoutes)) routes++;
       } else {
         const [x, z] = pointAlong(route, v.along);
@@ -518,6 +561,6 @@ export function readLifecycle(raw: unknown, epochMs: number): LifecycleState | n
   if (!raw || typeof raw !== "object") return null;
   const s = raw as LifecycleState;
   if (s.epochMs !== epochMs || !Array.isArray(s.present) || !Array.isArray(s.places) || typeof s.lastMs !== "number" || typeof s.lastSec !== "number") return null;
-  for (const v of s.present) if (typeof v?.id !== "string" || typeof v.x !== "number" || typeof v.lifeMs !== "number" || !v.ch) return null;
+  for (const v of s.present) if (typeof v?.id !== "string" || typeof v.x !== "number" || typeof v.lifeMs !== "number" || !v.ch || typeof v.leaves !== "boolean") return null;
   return s;
 }

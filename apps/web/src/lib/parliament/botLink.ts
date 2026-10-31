@@ -13,7 +13,7 @@
  *   wave     minutes                        session: one busy ↔ quiet swing
  *   life     a-b (minutes)                  session: shortest and longest life, e.g. 1-3
  *   bands    s-m-l                          session: shares of the short / middle / long lives, e.g. 20-40-40
- *   follow · revisit · origin · group · spread    session: the propensities, as in Leva
+ *   follow · revisit · origin · group · spread · leave    session: the propensities, as in Leva
  *   auto     0 | 1                          session: lower the most-at-once with the frame rate
  *   rate     number                         the world clock (×); in the lab this tab only, on a shared wall until
  *                                           the tab is closed (then ×1 again — a link must not leave the
@@ -77,6 +77,7 @@ export function parseBotLink(search: string): BotLink {
   set("lcOrigin", num(q.get("origin"), 0, 1));
   set("lcGroup", num(q.get("group"), 0, 1));
   set("lcSpread", num(q.get("spread"), 0, 2));
+  set("lcLeave", num(q.get("leave"), 0, 1));
   const auto = q.get("auto");
   if (auto === "0" || auto === "1") values.lcAuto = auto === "1";
   return { values, rate: num(q.get("rate"), 0, 40) };

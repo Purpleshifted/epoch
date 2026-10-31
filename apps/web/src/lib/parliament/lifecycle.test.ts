@@ -138,8 +138,8 @@ describe("lifecycle: how long they live", () => {
     expect(onlyShort).toBeLessThanOrEqual(90);
   });
 
-  it("everyone dies at the end of their span, where they stand, and leaves the world", () => {
-    const { born, died, st } = run(900);
+  it("those who do not walk out die at the end of their span, where they stand", () => {
+    const { born, died, st } = run(900, { ...DEFAULT_LIFECYCLE, leaveShare: 0 });
     expect(died.length).toBeGreaterThan(10);
     const life = new Map(born.map((b) => [b.id, b.lifeMs]));
     for (const d of died) {
@@ -147,6 +147,34 @@ describe("lifecycle: how long they live", () => {
       expect(d.ageMs - life.get(d.id)!).toBeLessThan(1000);
     }
     for (const v of st.present) expect(v.lifeMs).toBeGreaterThanOrEqual(60_000);
+  });
+});
+
+describe("lifecycle: walking out", () => {
+  it("most set off for a door near the end and are gone when they reach it", () => {
+    const cfg = { ...DEFAULT_LIFECYCLE, leaveShare: 1, maxPresent: 999 };
+    let st = initLifecycle(EPOCH, EPOCH, cfg);
+    const doors = doorsOf(EPOCH);
+    let atDoor = 0, early = 0, total = 0;
+    for (let i = 1; i <= 1800; i++) {
+      const r = stepLifecycle(st, EPOCH + i * 1000, {}, cfg);
+      for (const v of r.departures) {
+        total++;
+        if (doors.some((d) => wrapDist(d[0], d[1], v.x, v.z) <= 1)) atDoor++;
+        // they reach the door about as their life ends: not long before it
+        if (EPOCH + i * 1000 - v.bornMs < v.lifeMs - 15_000) early++;
+      }
+      st = r.state;
+    }
+    expect(total).toBeGreaterThan(30);
+    expect(atDoor / total).toBeGreaterThan(0.6); // the rest ran out of life on the way
+    expect(early / total).toBeLessThan(0.1);
+  });
+
+  it("leaveShare 0: nobody walks out", () => {
+    const cfg = { ...DEFAULT_LIFECYCLE, leaveShare: 0 };
+    const { st } = run(600, cfg);
+    for (const v of st.present) expect(v.leaving).toBe(false);
   });
 });
 
