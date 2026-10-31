@@ -195,7 +195,7 @@ export const DEFAULT_SOUND: SoundParams = {
   arrival: true,
   arrivalHall: 0.7,
   arrivalWave: 0.6,
-  arrivalGapMs: 120,
+  arrivalGapMs: 0, // 120 until 10/31 — the artist heard the breath as the sound being eaten at the wave's peak (measured: master 0.5 → 0.04 for 120 ms)
   bassFrom: 0.15,
   dead: false,
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
@@ -271,6 +271,9 @@ export interface SoundDebug {
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  private limiter!: DynamicsCompressorNode;
+  /** A test hook (window.__soundEngine.forceArrival()): the next bar begins an arrival cadence as if I had just started building with others. */
+  private forceTogether = false;
   private outputLine = "기본 출력";
   private offOutput: (() => void) | null = null;
   private dull!: BiquadFilterNode;
@@ -381,6 +384,19 @@ export class SoundEngine {
     return this.sig;
   }
 
+  /** Test hook: the next bar starts an arrival cadence (dominant, then the tonic with the wave and the breath). */
+  forceArrival(): void {
+    this.arrivalState = { ...ARRIVAL_IDLE };
+    this.forceTogether = true;
+  }
+
+  /** Test hook: what the mix is doing right now (gains as automated, the limiter's reduction in dB). */
+  get probe(): { t: number; master: number; voiceBus: number; limiterDb: number; wave: number } | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.limiter) return null;
+    return { t: ctx.currentTime, master: this.master.gain.value, voiceBus: this.voiceBus.gain.value, limiterDb: this.limiter.reduction, wave: this.wave?.gain.gain.value ?? 0 };
+  }
+
   get currentParams(): SoundParams {
     return this.params;
   }
@@ -471,8 +487,9 @@ export class SoundEngine {
     let born = false;
     if (this.seenSlabs) for (const k of near) if (!this.seenSlabs.has(k)) born = true;
     this.seenSlabs = new Set(near);
-    const together = (sig.coBuilders?.length ?? 0) > 0;
+    const together = this.forceTogether || (sig.coBuilders?.length ?? 0) > 0;
     const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0);
+    if (this.forceTogether && step.phase === "dominant") this.forceTogether = false;
     this.arrivalState = step.state;
     const arrival = p.arrival ? step.phase : null;
     if (arrival === "tonic" && this.ctx) {
@@ -511,7 +528,8 @@ export class SoundEngine {
       this.dull.frequency.value = this.params.lpOpen;
       this.dull.Q.value = 0.5;
       // the limiter before the device (§10c): with the room's speakers in the same Chrome the two summed and clipped
-      this.dull.connect(this.master).connect(makeLimiter(ctx)).connect(ctx.destination);
+      this.limiter = makeLimiter(ctx);
+      this.dull.connect(this.master).connect(this.limiter).connect(ctx.destination);
       // the headset's own output device, chosen on /v2/sound/output (the default when none)
       void applyOutput(ctx, "headset").then((s) => (this.outputLine = s));
       this.offOutput = onOutputChange("headset", () => void applyOutput(ctx, "headset").then((s) => (this.outputLine = s)));
@@ -934,7 +952,7 @@ export class SoundEngine {
    * octave below with its own slower swell; a dark thump of noise for flesh. The bus clips softly and spreads into
    * a long dark room of its own.
    */
-  private bassNote(pitch: number, at: number, level: number): void {
+  private bassNote(pitch: number, at: number, level: number, duckScale = 1): void {
     const ctx = this.ctx!;
     let f = midiToHz(pitch);
     while (f > 80) f /= 2;
@@ -974,7 +992,7 @@ export class SoundEngine {
       n.start(when);
       n.stop(when + 0.5);
       // the beat in front: the voices dip for a moment — from wherever the gain is (a jump to 1 clicked)
-      const duck = this.params.bassDuck * vel;
+      const duck = this.params.bassDuck * vel * duckScale;
       if (duck > 0) {
         this.voiceBus.gain.setTargetAtTime(1 - duck, when, 0.006);
         this.voiceBus.gain.setTargetAtTime(1, when + 0.08, 0.15);
@@ -1223,7 +1241,9 @@ export class SoundEngine {
     // with the patch ALONE as the harmony its root and chord are its (a static machine, our gates): silent here;
     // "both" (the artist: 병행) keeps the Web Audio bass and pad beside the patch
     const alone = p.instrument === "noisecraft";
-    if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level);
+    // the arrival's tonic bar: the heartbeat must not duck the voices on the downbeat they bloom on (10/31: with the
+    // breath it read as the sound being eaten at the wave's peak)
+    if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level, plan.arrival === "tonic" && b.at < 0.05 ? 0 : 1);
     this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level, nextStart, plan.arrival === "tonic");
   }
 }
