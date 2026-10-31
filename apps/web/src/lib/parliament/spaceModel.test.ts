@@ -267,4 +267,42 @@ describe("SpaceModel: what the worker computes", () => {
     m.computeParts(pin);
     expect(m.bakedChunks).toBe(0);
   }, 180_000);
+
+  it("THE FOSSILS STAY: a window move while the present runs ahead of the last event, a bulk drop of old events, and the vegetation window passing a chunk — none of them loses the mass below", () => {
+    const long = runBots(8, 1500); // 75 slots
+    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5, gatherStart: 0, rotDose: 0 };
+    const pin = { ...parts(), weather };
+    const fin = { box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300 };
+    const lowest = (mesh: { position: Float32Array }) => { let lo = Infinity; for (let i = 1; i < mesh.position.length; i += 3) lo = Math.min(lo, mesh.position[i]); return lo; };
+    const m = new SpaceModel();
+    const settle = () => {
+      let mesh = null;
+      for (let i = 0; i < 80; i++) {
+        m.computeParts(pin);
+        const f = m.computeFuse(fin);
+        if (f) mesh = f;
+        else break;
+      }
+      return mesh!;
+    };
+    m.add(long);
+    expect(lowest(settle())).toBeLessThan(10);
+    // 1. the present runs 10 minutes ahead of the last event (nobody there), then the window moves on a little:
+    //    a moved window, not a new world — the baked layers stay
+    m.setNow(1500 + 600);
+    settle();
+    const bakedBefore = m.bakedChunks;
+    m.reset();
+    m.add(long.filter((e) => e.s >= 300));
+    m.setNow(1500 + 600);
+    settle();
+    expect(m.bakedChunks).toBeGreaterThanOrEqual(bakedBefore);
+    // 2. a BULK drop (a visitor's tab moved the window by 50 slots at once): what was below is kept — baked, or an
+    //    orphan with its last mesh — not gone
+    m.reset();
+    m.add(long.filter((e) => e.s >= 1300));
+    const after = settle();
+    expect(lowest(after)).toBeLessThan(10);
+    expect(m.bakedChunks).toBeGreaterThan(0);
+  }, 300_000);
 });

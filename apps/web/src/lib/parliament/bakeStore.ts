@@ -11,7 +11,7 @@
 
 import type { Box, WearBasis } from "./seeds";
 import type { NatureHistory } from "./natureHistory";
-import type { FuseTube } from "./fuse";
+import type { FuseMesh, FuseTube } from "./fuse";
 
 /** An external part of a baked chunk, with what its decay is read from later (a steel part's wear basis and box). */
 export type BakedTube = FuseTube & { basis?: WearBasis | null; box?: Box };
@@ -43,6 +43,8 @@ export interface BakedRecord {
   boxes: Box[];
   shade: Float32Array;
   nature: { pos: Float32Array; col: Float32Array } | null;
+  /** An orphan chunk's last mesh (kept as it is; no material to rebuild from). */
+  mesh?: FuseMesh;
 }
 
 export const bakedKey = (epoch: string, c0: number): string => `${epoch}:${c0}`;
