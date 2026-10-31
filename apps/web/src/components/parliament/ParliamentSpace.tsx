@@ -209,6 +209,8 @@ interface Stats {
   focusIsMe: boolean;
   /** Seeds built without slats (level of detail). */
   farSeeds: number;
+  /** how far the computed present lies behind the latest event (s): the compute cannot keep up when > a slot */
+  lagS: number;
   /** Chunks of slots baked (kept as they were, below the history window too). */
   baked: number;
   /** Waterways flowing now. */
@@ -954,7 +956,7 @@ function SpaceWorld({
       setWalkEnds(endKept.current, p.walk.keptEnds);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
-      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", ...focus.current };
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
@@ -1029,7 +1031,11 @@ function SpaceWorld({
     const t = latestS(events);
     const meQuiet = meS !== null && nowS !== undefined && nowS - meS > quietSec;
     const useMe = meS !== null && followWho !== "latest" && !(followWho === "auto" && meQuiet);
-    const focusS = useMe && meS !== null ? meS : t;
+    // THE VIEW FOLLOWS THE COMPUTED WORLD, not the clock: a heavy world's compute can take longer than a tick, and the
+    // latest event then lies above everything built — the camera must not leave the world behind (2026-10-31)
+    const modelT = last.current?.t;
+    const wantS = useMe && meS !== null ? meS : t;
+    const focusS = modelT !== undefined && modelT > 0 ? Math.min(wantS, modelT + 2 * cfg.secPerUnit) : wantS;
     focus.current = { focusS, focusIsMe: useMe };
     focusY.current = events.length ? (focusS / cfg.secPerUnit) * cfg.unit : null;
 
@@ -1657,7 +1663,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
   const camLink = useRef<CamLink>({ lift: null, focusY: null });
   const shotLine = useRef<HTMLDivElement | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -2730,6 +2736,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
+          {stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
         <div ref={shotLine} />
