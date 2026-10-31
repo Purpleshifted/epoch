@@ -1018,7 +1018,11 @@ function SpaceWorld({
     // view does not rebuild anything — only a changed setting does (and chunks still catching up)
     const frozen = clock.rate() === 0;
     const camNow: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
-    const focusNow = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
+    // the vegetation window (and the fused mass) sit around the PRESENT, not around where the camera looks: the
+    // exhibition camera aims `followLift` below the present (−25 by default, to frame the fossil band), and with the
+    // orbit target as the reference the window slid 25 world down and vegetation grew on old layers (the artist,
+    // 2026-10-31)
+    const focusNow = (o ? Math.max(0, o.target.y - followLift) : 0) / cfg.unit;
     if (!frozen || !pinned.current) pinned.current = { cam: camNow, focusK: focusNow };
     const { cam, focusK } = pinned.current;
     const lod = { camera: cam, near, mid, farFactor: ff };
