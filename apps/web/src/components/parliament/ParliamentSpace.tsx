@@ -73,6 +73,7 @@ import {
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { savable } from "./levaSave";
+import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botReadout, useGlobalBots } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
@@ -216,6 +217,15 @@ interface Orbit {
   target: { x: number; y: number; z: number };
   object: { position: { x: number; y: number; z: number } };
   update: () => void;
+}
+
+/**
+ * What the exhibition camera and the time-axis follow share, frame to frame (docs/camera-motion.md §5): the auto run
+ * writes the lift it wants (null = the "초점 높이" slider stands), the follow writes the focus's height it moves to.
+ */
+interface CamLink {
+  lift: number | null;
+  focusY: number | null;
 }
 
 /** What the view asks the worker for vegetation (null = vegetation off). */
@@ -733,6 +743,7 @@ function SpaceWorld({
   wear,
   follow,
   followLift,
+  link,
   followWho,
   quietSec,
   controls,
@@ -766,6 +777,8 @@ function SpaceWorld({
   follow: boolean;
   /** Added to the followed height (the exhibition camera's "초점 높이"): the view looks a little above or below the present. */
   followLift: number;
+  /** The exhibition camera's auto run: its lift replaces `followLift` while it runs; the focus height goes back to it. */
+  link?: React.MutableRefObject<CamLink>;
   /** Whom the present follows: the player tab's own owner ("me"), the latest event of anybody (bots included), or
    * "auto" — me unless me has been quiet for `quietSec` exhibition seconds (the wall with only bots running, and a
    * stale me id left in storage, used to stand still at me's last moment — the artist, 2026-10-30). */
@@ -1054,9 +1067,10 @@ function SpaceWorld({
   // follow the player's present: the view moves along the time axis, keeping the viewer's own orbit.
   // The first focus (and any jump further than FOLLOW_SNAP) is immediate, so an old epoch is never out of view.
   useFrame((state, dt) => {
+    if (link) link.current.focusY = focusY.current;
     const c = controls.current;
     if (!c || focusY.current === null || !(follow || !snapped.current)) return;
-    const want = Math.max(0, focusY.current + followLift);
+    const want = Math.max(0, focusY.current + (link?.current.lift ?? followLift));
     const far = Math.abs(want - c.target.y) > FOLLOW_SNAP;
     const d = !snapped.current || far ? want - c.target.y : (want - c.target.y) * Math.min(1, dt * 1.5);
     snapped.current = true;
@@ -1249,6 +1263,9 @@ function StageCamera({
   dir,
   maxPolarDeg,
   active,
+  auto,
+  link,
+  status,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   pose: StagePose;
@@ -1257,13 +1274,24 @@ function StageCamera({
   maxPolarDeg: number;
   /** Off in the lab, which has its own column to look at. */
   active: boolean;
+  /** THE AUTO RUN (docs/camera-motion.md): the shot sequence to play by the clock, or null = the pose above, turning. */
+  auto: ShotSequence | null;
+  /** Shared with SpaceWorld's follow: the lift the run wants goes out, the focus's height comes back. */
+  link: React.MutableRefObject<CamLink>;
+  /** A line of the rehearsal wall's readout: which shot is on (null on the exhibition wall, which shows no text). */
+  status: React.MutableRefObject<HTMLDivElement | null>;
 }) {
   const dragging = useRef(false);
+  /** The next auto frame eases in from where the camera is (a drag ended, a stall, the run switched on). */
+  const resync = useRef(false);
   useEffect(() => {
     const o = controls.current as (Orbit & OrbitEvents) | null;
     if (!o?.addEventListener) return;
     const start = () => void (dragging.current = true);
-    const end = () => void (dragging.current = false);
+    const end = () => {
+      dragging.current = false;
+      resync.current = true;
+    };
     o.addEventListener("start", start);
     o.addEventListener("end", end);
     return () => {
@@ -1273,8 +1301,9 @@ function StageCamera({
   }, [controls]);
   // the pose, applied once at mount and whenever a value changes: the camera put on its sphere around the target
   const [lookX, lookZ] = pose.look;
+  const autoOn = auto !== null;
   useEffect(() => {
-    if (!active) return;
+    if (!active || autoOn) return; // the auto run places the camera itself; switched off, the pose below comes back
     const o = controls.current;
     if (!o) return;
     const polar = THREE.MathUtils.clamp(pose.polar, 0.5, maxPolarDeg) * DEG;
@@ -1286,23 +1315,93 @@ function StageCamera({
     o.object.position.y = o.target.y + r * Math.cos(polar);
     o.object.position.z = o.target.z + r * Math.sin(polar) * Math.cos(az);
     o.update();
-  }, [active, controls, pose.dist, pose.polar, pose.azimuth, lookX, lookZ, maxPolarDeg]);
+  }, [active, autoOn, controls, pose.dist, pose.polar, pose.azimuth, lookX, lookZ, maxPolarDeg]);
+  // THE AUTO RUN: the driver (lib/parliament/cameraShots.ts) says where the camera is this frame — the clock's shot,
+  // blended, plus whatever difference is still settling after a drag or a stall — and it is put on its sphere around
+  // the followed target (SpaceWorld moves target.y underneath and reads the lift back through `link`). Nothing is
+  // allocated per frame: the input and the driver's results are objects kept here.
+  const driver = useRef<ShotDriver | null>(null);
+  const camState = useRef<CameraState>({ dist: 1, polar: 90, az: 0, lookX: 0, lookZ: 0, lift: 0 });
+  const stepIn = useRef<StepInput | null>(null);
+  const wasAuto = useRef(false);
+  const statusSec = useRef(-1);
   // the turn: the camera moved around the vertical axis through the target by the time passed (a stall moves it at
   // most 0.1 s worth, so the landscape never jumps)
   useFrame((_, dt) => {
-    if (!active || turnSec <= 0 || dragging.current) return;
+    if (!active) return;
     const o = controls.current;
     if (!o) return;
-    const a = (dir * 2 * Math.PI * Math.min(dt, 0.1)) / turnSec;
-    const dx = o.object.position.x - o.target.x;
-    const dz = o.object.position.z - o.target.z;
-    const c = Math.cos(a);
-    const s = Math.sin(a);
-    o.object.position.x = o.target.x + dx * c + dz * s;
-    o.object.position.z = o.target.z + dz * c - dx * s;
+    if (!auto) {
+      if (wasAuto.current) {
+        wasAuto.current = false;
+        link.current.lift = null; // the follow reads the slider again; the pose effect above puts the camera back
+        if (status.current) status.current.textContent = "";
+      }
+      if (turnSec <= 0 || dragging.current) return;
+      const a = (dir * 2 * Math.PI * Math.min(dt, 0.1)) / turnSec;
+      const dx = o.object.position.x - o.target.x;
+      const dz = o.object.position.z - o.target.z;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      o.object.position.x = o.target.x + dx * c + dz * s;
+      o.object.position.z = o.target.z + dz * c - dx * s;
+      o.update();
+      return;
+    }
+    let d = driver.current;
+    if (!d) {
+      d = driver.current = createShotDriver();
+      // readable from DevTools / a headless check, like `__perfSpans`: the driver (what the run shows this frame) and
+      // the controls (where the camera actually is)
+      const w = window as unknown as { __stageCam?: ShotDriver; __stageControls?: Orbit | null };
+      w.__stageCam = d;
+      w.__stageControls = o;
+    }
+    if (!wasAuto.current) {
+      wasAuto.current = true;
+      if (d.primed) resync.current = true; // switched on again: ease in from where the camera is
+    }
+    if (dragging.current) {
+      resync.current = true; // the pointer steers (rehearsal wall); when it lets go we ease back to the run
+      return;
+    }
+    if (dt > STALL_SEC) resync.current = true;
+    const focusY = link.current.focusY;
+    const inp =
+      stepIn.current ?? (stepIn.current = { seq: auto, t: 0, dt: 0, turnSec, dir, azOffset: pose.azimuth, focusY, maxPolar: maxPolarDeg, resyncFrom: null });
+    inp.seq = auto;
+    inp.t = clockSec(Date.now());
+    inp.dt = dt;
+    inp.turnSec = turnSec;
+    inp.dir = dir;
+    inp.azOffset = pose.azimuth;
+    inp.focusY = focusY;
+    inp.maxPolar = maxPolarDeg;
+    inp.resyncFrom = null;
+    if (resync.current) {
+      resync.current = false;
+      inp.resyncFrom = cameraStateOf(o.object.position, o.target, focusY, d.want.lift, camState.current);
+    }
+    const s = stepShotDriver(d, inp);
+    o.target.x = s.lookX;
+    o.target.z = s.lookZ;
+    link.current.lift = s.lift;
+    placeCamera(o.target, s.dist, s.polar, s.az, o.object.position);
     o.update();
+    if (status.current) {
+      const sec = Math.ceil(d.cursor.left);
+      if (sec !== statusSec.current) {
+        statusSec.current = sec;
+        status.current.textContent = shotStatus(auto, d);
+      }
+    }
   });
   return null;
+}
+
+/** A shot of the auto run from its Leva values (null = switched off). */
+function shotFrom(id: number, on: boolean, dist: number, polar: number, look: [number, number], lift: number, holdSec: number, turn: number): Shot | null {
+  return on ? { id, dist, polar, lookX: look[0], lookZ: look[1], lift, holdSec, turn } : null;
 }
 
 /**
@@ -1543,6 +1642,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const hideUi = demo || params.get("ui") === "0";
   useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
+  /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
+  const camLink = useRef<CamLink>({ lift: null, focusY: null });
+  const shotLine = useRef<HTMLDivElement | null>(null);
   const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
@@ -1619,6 +1721,77 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       camLook: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
       camLift: { value: -25, min: -60, max: 30, step: 0.5, label: "초점 높이 (시간축 위에 더함 · 음수 = 아래)" },
       "현재 시점 가져오기 (그다음 save)": button(() => capturePose.current()),
+      // THE AUTO RUN (the artist, 2026-10-31: not one fixed angle — the whole fossil, the view from above…): the pose
+      // above is the base shot; these are the others, cycled by the clock — docs/camera-motion.md. Off by default: the
+      // wall starts to move only once this is switched on and saved on the rehearsal wall.
+      "자동 운행 (샷)": folder(
+        {
+          camAuto: { value: false, label: "켜기 (켜고 save → 전시 벽이 돈다)" },
+          camFadeSec: { value: 12, min: 3, max: 60, step: 1, label: "전환 (초)" },
+          camHoldSec: { value: 90, min: 10, max: 900, step: 5, label: "기본 샷 머무는 초" },
+          "샷 1 · 화석 전체뷰": folder(
+            {
+              camShot1On: { value: true, label: "켜기" },
+              camShot1Dist: { value: 140, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot1Polar: { value: 72, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot1Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot1Lift: { value: -48, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot1HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot1Turn: { value: 1, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 2 · 위에서 내려다봄": folder(
+            {
+              camShot2On: { value: true, label: "켜기" },
+              camShot2Dist: { value: 60, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot2Polar: { value: 12, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot2Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot2Lift: { value: 0, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot2HoldSec: { value: 45, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot2Turn: { value: 0.5, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 3 · 현재 가까이": folder(
+            {
+              camShot3On: { value: true, label: "켜기" },
+              camShot3Dist: { value: 30, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot3Polar: { value: 62, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot3Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot3Lift: { value: 1, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot3HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot3Turn: { value: 0.7, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 4": folder(
+            {
+              camShot4On: { value: false, label: "켜기" },
+              camShot4Dist: { value: 75, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot4Polar: { value: 58, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot4Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot4Lift: { value: -25, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot4HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot4Turn: { value: 1, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 5": folder(
+            {
+              camShot5On: { value: false, label: "켜기" },
+              camShot5Dist: { value: 75, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot5Polar: { value: 58, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot5Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot5Lift: { value: -25, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot5HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot5Turn: { value: 1, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { collapsed: true },
+      ),
       camFollow: { options: { "자동 (내가 조용하면 최신)": "auto", "나 (개인 탭)": "me", "최신 (봇 포함)": "latest" }, value: "auto" as FollowWho, label: "따라갈 대상" },
       camQuietSec: { value: 30, min: 5, max: 600, step: 5, label: "자동: 내가 이만큼 조용하면 최신으로 (초)" },
       "해 (자동 운행)": folder({
@@ -1655,6 +1828,18 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       set("camLift", THREE.MathUtils.clamp(half(o.target.y - focusRef.current), -60, 30));
     };
   }, []);
+  // the shot sequence the auto run plays (docs/camera-motion.md §1): the pose above as the base, then the enabled shots
+  const shotSeq: ShotSequence = {
+    base: { id: 0, dist: cam.camDist, polar: cam.camPolar, lookX: cam.camLook[0], lookZ: cam.camLook[1], lift: cam.camLift, turn: 1, holdSec: cam.camHoldSec },
+    shots: [
+      shotFrom(1, cam.camShot1On, cam.camShot1Dist, cam.camShot1Polar, cam.camShot1Look, cam.camShot1Lift, cam.camShot1HoldSec, cam.camShot1Turn),
+      shotFrom(2, cam.camShot2On, cam.camShot2Dist, cam.camShot2Polar, cam.camShot2Look, cam.camShot2Lift, cam.camShot2HoldSec, cam.camShot2Turn),
+      shotFrom(3, cam.camShot3On, cam.camShot3Dist, cam.camShot3Polar, cam.camShot3Look, cam.camShot3Lift, cam.camShot3HoldSec, cam.camShot3Turn),
+      shotFrom(4, cam.camShot4On, cam.camShot4Dist, cam.camShot4Polar, cam.camShot4Look, cam.camShot4Lift, cam.camShot4HoldSec, cam.camShot4Turn),
+      shotFrom(5, cam.camShot5On, cam.camShot5Dist, cam.camShot5Polar, cam.camShot5Look, cam.camShot5Lift, cam.camShot5HoldSec, cam.camShot5Turn),
+    ].filter((s): s is Shot => s !== null),
+    fadeSec: cam.camFadeSec,
+  };
   const tAxis = useControls(
     "시간축",
     savable("시간축", {
@@ -2475,6 +2660,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           wear={c.wear}
           follow={c.follow}
           followLift={cam.camLift}
+          link={camLink}
           followWho={cam.camFollow as FollowWho}
           quietSec={cam.camQuietSec}
           controls={controls}
@@ -2498,7 +2684,17 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
         <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
-        <StageCamera controls={controls} pose={{ dist: cam.camDist, polar: cam.camPolar, azimuth: cam.camAzimuth, look: cam.camLook }} turnSec={cam.camTurnSec} dir={cam.camDir as 1 | -1} maxPolarDeg={isV2 ? 179.5 : 89.8} active={!lab} />
+        <StageCamera
+          controls={controls}
+          pose={{ dist: cam.camDist, polar: cam.camPolar, azimuth: cam.camAzimuth, look: cam.camLook }}
+          turnSec={cam.camTurnSec}
+          dir={cam.camDir as 1 | -1}
+          maxPolarDeg={isV2 ? 179.5 : 89.8}
+          active={!lab}
+          auto={cam.camAuto ? shotSeq : null}
+          link={camLink}
+          status={shotLine}
+        />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
@@ -2523,6 +2719,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
         </div>
+        {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
+        <div ref={shotLine} />
         <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
         <div>
           {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · baked {stats.baked} chunk(s) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{perf ? " · PERF MODE" : ""}
