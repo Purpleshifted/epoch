@@ -26,6 +26,7 @@ import { savable } from "./levaSave";
 import { useSound } from "./useSound";
 import SoundButton from "./SoundButton";
 import NoiseCraftHost from "./NoiseCraftHost";
+import AfterglowSound from "@/components/sound/AfterglowSound";
 import { usePerfMeter } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
@@ -479,6 +480,7 @@ export default function ParliamentScene() {
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
+      {sound && withSession && <AfterglowSound sound={sound} />}
       {/* sound wiring: this window's ♪ switch — while LIVE only (the HUD owns the dark screens), top-right beside the HUD */}
       {sound && !hideChrome && (!withSession || session.phase === "live") && <SoundButton sound={sound} corner={withSession ? "top-right" : "bottom"} />}
       {!locked && !hideChrome && !withSession && (

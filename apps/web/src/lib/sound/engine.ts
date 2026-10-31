@@ -131,6 +131,8 @@ export interface SoundParams {
   dead: boolean;
   /** The afterlife's long room (s): the last sound rings out in it, a fade envelope over its second half. */
   afterlifeTail: number;
+  /** After the afterlife: the room's speakers' sound, faintly, in the headset (0 = none) — so the sound met on taking the headset off is already known. */
+  afterglow: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -200,13 +202,14 @@ export const DEFAULT_SOUND: SoundParams = {
   arrival: true,
   arrivalHall: 0.7,
   arrivalWave: 0.6,
-  waveVerb: 0.5,
-  grassVerb: 0.3,
+  waveVerb: 0.7,
+  grassVerb: 0.5,
   waveHit: 0.8,
   arrivalGapMs: 0, // 120 until 10/31 — the artist heard the breath as the sound being eaten at the wave's peak (measured: master 0.5 → 0.04 for 120 ms)
   bassFrom: 0.15,
   dead: false,
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
+  afterglow: 0.12,
   ncDull: 1,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -565,7 +568,7 @@ export class SoundEngine {
         open: room(1.2, 0.35, 0, 0.25, 0.12),
         concrete: room(1.6, 0.5, 6, 0.9, 0),
         // the hall is the ARRIVAL's opening: it must not be dulled by the concrete the arrival happens on (10/31)
-        hall: room(2.4, 1.0, 0, 0.5, 0, true), // 4.5 s → 3 s (A1) → 2.4 s (A5): the convolver's cost is its length
+        hall: room(3.2, 1.3, 0, 0.5, 0, true), // 4.5 s → 3 s (A1) → 2.4 s (A5) → 3.2 s (10/31: too dry); the convolver's cost is its length
       };
       // the hall never sleeps: a whisper of noise keeps its convolver running, so opening it on an arrival does not
       // start a cold convolution (the burst the artist heard as lag)
@@ -624,7 +627,9 @@ export class SoundEngine {
       const bassDark = ctx.createBiquadFilter();
       bassDark.type = "lowpass";
       bassDark.frequency.value = 500;
-      shaper.connect(this.bassSpread).connect(bassDark).connect(this.rooms.hall);
+      // into the hall's CONVOLVER itself, not its gated send (the gate is shut except at an arrival — the heartbeat's
+      // spread was dry nearly always; the artist, 10/31: "리버브 부족")
+      shaper.connect(this.bassSpread).connect(bassDark).connect(this.hallConv);
       this.noise = noiseBuffer(ctx, 1);
       // the wave (v4 A4c): looped noise, a low-pass the swell opens, a level that rises and breaks
       const wn = ctx.createBufferSource();
@@ -1044,6 +1049,11 @@ export class SoundEngine {
   }
 
   /** True while the end's last sound is still being taken into the long room (the patch keeps playing that long, then stops). */
+  /** The session ended and the afterlife's tail has run out: silence — the afterglow's cue (AfterglowSound). */
+  get afterlifeOver(): boolean {
+    return this.params.dead && !this.afterlife;
+  }
+
   get inAfterlife(): boolean {
     const a = this.afterlife;
     return !!a && (this.ctx?.currentTime ?? 0) < a.feedUntil;
