@@ -14,10 +14,14 @@
  *   RESIDENT  the old crowd: `botCount` bots always there, in flocks (bots.ts botActor).
  *
  * Only ONE emitter should run per browser: a player tab with its bots on, or one global view with this on.
+ *
+ * LINK (lib/parliament/botLink.ts): `?bots=session&max=24&rate=4` on the wall's address sets the group's knobs when
+ * the view opens, as if turned by hand (nothing saved). `rate` sets the world clock — the lab's own; on a shared wall
+ * only until the tab is closed (then ×1 again).
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useControls } from "leva";
+import { levaStore, useControls } from "leva";
 import {
   DEFAULT_LIFECYCLE,
   SEAL_H,
@@ -32,6 +36,7 @@ import {
   latestS,
   lifecycleActor,
   nextMaxPresent,
+  parseBotLink,
   readLifecycle,
   saveMerged,
   sharedClock,
@@ -148,6 +153,39 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     }),
     [b.lcGapSec, b.lcQuiet, b.lcWaveMin, b.lcMax, b.lcLifeMin, b.lcLifeMax, b.lcShort, b.lcMiddle, b.lcLong, b.lcGroup, b.lcOrigin, b.lcFollow, b.lcRevisit, b.lcSpread],
   );
+  // LINK: the address's query turns the knobs once, when the view opens (the controls exist by then: retried briefly)
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined") return;
+    const link = parseBotLink(window.location.search);
+    const keys = Object.keys(link.values);
+    if (!keys.length && link.rate === undefined) return;
+    let tries = 0;
+    let timer = 0;
+    const apply = () => {
+      const data = levaStore.getData() as Record<string, unknown>;
+      if (!data[`${GROUP}.botOn`] && tries++ < 20) {
+        timer = window.setTimeout(apply, 150);
+        return;
+      }
+      for (const k of keys) if (data[`${GROUP}.${k}`]) levaStore.setValueAtPath(`${GROUP}.${k}`, link.values[k], true);
+      if (link.rate !== undefined) {
+        // the view's time axis knob when there is one (it moves the clock), else the clock itself
+        if (data["시간축.timeRate"]) levaStore.setValueAtPath("시간축.timeRate", link.rate, true);
+        else clock.setRate(link.rate);
+      }
+    };
+    timer = window.setTimeout(apply, 0);
+    // a shared wall must not stay fast after the link's tab is gone
+    const back = () => {
+      if (!local && link.rate !== undefined && link.rate !== 1) clock.setRate(1);
+    };
+    window.addEventListener("pagehide", back);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pagehide", back);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // the ground the bots walk on, folded as it grows (the whole world)
   const fold = useFoldState(log, cfg, BOT_FOLD_OPTS);
 

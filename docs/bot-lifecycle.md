@@ -192,3 +192,29 @@
   - 테스트 17개 (`lifecycle.test.ts`): 붐빔 ↔ 한산 비율, 한 시간 평균 도착, 동시 최대, 동행 자리, 원점·문 비율, 수명 구간 비율, 수명 끝에 떠남, 결정성, 원환·시각 폭, 성격 변주(변주 0 = 같음), 경로 상한, 관객에게 감, 벽 규칙 30분에 건물 터 여럿·길·기억, 따라가기와 콘크리트 양, 저장, 늦은 걸음.
 - 벽 (`components/parliament/useGlobalBots.ts`, Leva `봇 (글로벌에서 돌리기)`): **봇 방식** 세션(기본) / 상주(기존 그대로). 세션 노브: 붐빌 때 간격 · 한산 비율 · 주기 · 동시 최대 · 성능 따라 줄이기 · 수명 최소·최대 · 짧은/중간/긴 삶 비율 · 동행 · 원점 비율 · 따라가기 · 재방문 · 변주 폭. `savable` (→ save 하면 서버 프리셋). 상태는 localStorage(`anthropocene:parliament:lifecycle:v1`, 5초마다)에 남아 새로고침해도 같은 봇이 이어짐 (10분 넘게 비면 새로). 지금 관객(봇이 아닌 id, 최근 표본)은 따라가기 후보. 콘솔 `window.__lifecycle` = {present, maxPresent, arrived, departed, turnedAway, places, slowPerMin}.
 - 남은 것: 종료 사건(`k = "x"`)은 역할 컨트롤 규칙이 main에 오면 (`departures`가 이미 나옴). 2단계 측정(동시 8/16/24 × 30분 → 부재·fps·건물 터, 소리 페이드).
+
+## 10. 링크 하나로 확인 (2026-10-31, `lib/parliament/botLink.ts`)
+
+벽 주소 뒤에 붙이면, 벽이 열릴 때 Leva `봇 (글로벌에서 돌리기)`의 값을 손으로 돌린 것처럼 바꾼다 (패널에 보이고, save 전엔 저장 안 됨). 리허설·전시·미리보기·랩 주소 모두.
+
+| 쿼리 | 값 | 뜻 |
+|---|---|---|
+| `bots` | `session` · `resident` · `off` | 봇 켬 + 방식 (off = 끔) |
+| `max` | 숫자 | 세션: 동시 최대 · 상주: 봇 수 |
+| `gap` | 초 | 세션: 붐빌 때 평균 도착 간격 |
+| `quiet` | 0–1 | 세션: 한산할 때 도착 (붐빌 때의 몇 배) |
+| `wave` | 분 | 세션: 붐빔↔한산 주기 |
+| `life` | `1-3` (분) | 세션: 수명 최소·최대 |
+| `bands` | `20-40-40` | 세션: 짧은·중간·긴 삶 비율 |
+| `follow` `revisit` `origin` `group` `spread` | 0–1 (spread 0–2) | 세션: 따라가기 · 재방문 · 원점 비율 · 동행 · 변주 폭 |
+| `auto` | `0` · `1` | 세션: 성능 따라 동시 최대 줄이기 |
+| `rate` | 숫자 | 세계 시계 배율. 랩은 그 탭만; **공유 벽은 그 탭을 닫으면 ×1로 돌아감** (링크가 전시를 빠르게 남겨 두지 않게) |
+
+예 (소리 끄고 보려면 `sound=0`도):
+- 기본 확인: `/rehearsal/global?bots=session`
+- 붐비게, 빨리: `/rehearsal/global?bots=session&max=24&gap=8&rate=4`
+- 짧은 삶 위주: `/rehearsal/global?bots=session&bands=60-30-10`
+- 비교: `/rehearsal/global?bots=resident&max=12`
+- 자기 세계에서 빨리 감기: `/v2/global/lab?bots=session&rate=20`
+
+확인(:3004, 소리 끔): 링크로 봇 켬·세션·동시 최대 24·수명 1–2분·시간 ×4가 Leva에 들어가고, 25 s 만에 30명 도착·13명 퇴장·머문 자리 16곳; 페이지를 떠나자 배율 ×1. 리다이렉트(`/rehearsal/global` → `/v2/global/space`)가 쿼리를 그대로 넘김.
