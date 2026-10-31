@@ -1327,6 +1327,16 @@ export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean; epoch?: string | null }
   | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
 
+/**
+ * Two compute requests as one (the worker coalesces what queued up behind a long compute): the newer request's
+ * clock and parts, with the vegetation / fuse / reclaim work the older one asked for and the newer did not — those
+ * come only every NATURE_EVERY ticks and must not be lost with the request that carried them.
+ */
+export function mergeComputeRequests<T extends Extract<SpaceRequest, { type: "compute" }>>(prev: T | null, next: T): T {
+  if (!prev) return next;
+  return { ...next, nature: next.nature ?? prev.nature, reclaim: next.reclaim ?? prev.reclaim, fuse: next.fuse ?? prev.fuse };
+}
+
 /** What the space worker posts back for a compute request. */
 export interface SpaceResponse {
   type: "result";
