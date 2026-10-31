@@ -14,7 +14,7 @@
 import { withoutWear } from "./fold";
 import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { geoYears } from "@/lib/stratum/geoClock";
+import { geoAge } from "@/lib/stratum/geoClock";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -153,10 +153,9 @@ export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, s
 export function layerDecayOf(tQ: number, spu: number, w: WeatherConfig, tauSlabYears: number): (k: number) => number {
   const onset = rotOnsetSlots(w);
   const tau = tauSlabYears * 0.75 * w.concreteLife;
-  const yNow = geoYears(tQ);
   return (k: number) => {
     const laid = Math.min(tQ, (k + 1 + onset) * spu);
-    const A = Math.max(0, yNow - geoYears(laid)) * w.timeScale;
+    const A = geoAge(tQ, laid) * w.timeScale;
     return 1 - Math.exp(-A / tau);
   };
 }
@@ -511,7 +510,7 @@ export class SpaceModel {
     const wc = this.waterCfg, spu = this.wearCfg?.secPerUnit ?? 0;
     if (!wc || !w.strata || wc.pipeLife <= 0 || !(spu > 0)) return 0;
     const laid = Math.min(this.t, (k + 1 + this.presentSlots) * spu);
-    const A = Math.max(0, geoYears(this.t) - geoYears(laid)) * w.timeScale;
+    const A = geoAge(this.t, laid) * w.timeScale;
     return 1 - Math.exp(-A / (this.foldTau * w.steelLife * wc.pipeLife));
   }
 
@@ -801,7 +800,7 @@ export class SpaceModel {
     const pipeDecay = (k: number): number => {
       if (!input.wear || !w.strata || input.water.pipeLife <= 0) return 0;
       const laid = Math.min(t, (k + 1 + presentSlots) * box.secPerUnit);
-      const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
+      const A = geoAge(t, laid) * w.timeScale;
       return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.steelLife * input.water.pipeLife));
     };
     const worn = wm ? wearParts(built, seeds, t, wearCfg, wm) : built;
@@ -899,7 +898,7 @@ export class SpaceModel {
       const decayOf = (k: number): number => {
         if (!input.wear || !w.strata || life <= 0) return 0;
         const laid = Math.min(t, (k + 1 + presentSlots) * box.secPerUnit);
-        const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
+        const A = geoAge(t, laid) * w.timeScale;
         return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.concreteLife * life));
       };
       return { anchored, decayOf };

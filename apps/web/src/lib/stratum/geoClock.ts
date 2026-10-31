@@ -31,6 +31,17 @@ export function geoYears(elapsedSeconds: number, cfg: GeoClockConfig = DEFAULT_C
   return Math.pow(1 + t, a) - 1;
 }
 
+/**
+ * The simulated AGE of a thing deposited at `then`, seen at `now`: the compression runs on the thing's OWN elapsed
+ * time, not on the world's. `geoYears(now) − geoYears(then)` grew without bound as the world got older (the curve is
+ * superlinear in absolute time): a building raised on the second day melted minutes after it was built, and a clock
+ * left running overnight turned the world into a fourteen-day-old fossil bed. With its own clock every thing lives
+ * the same life whenever it was made (the artist, 2026-10-31: "from a certain moment they are just preserved").
+ */
+export function geoAge(now: number, then: number, cfg: GeoClockConfig = DEFAULT_CLOCK): number {
+  return geoYears(Math.max(0, now - then), cfg);
+}
+
 /** Depth in the stratum column for a given simulated age: log10 of years (>= 0). */
 export function depthOfYears(years: number): number {
   return Math.log10(1 + Math.max(0, years));

@@ -42,7 +42,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { geoYears } from "@/lib/stratum/geoClock";
+import { geoAge } from "@/lib/stratum/geoClock";
 import { hash2 } from "./nature";
 import type { Contributor, RoleId, Slab, Snapshot } from "./types";
 
@@ -663,7 +663,7 @@ export function wearFactor(b: Box, cfg: Pick<WearConfig, "steelLife" | "concrete
 }
 
 export function seedAgeYears(seed: Seed, tNow: number): number {
-  return Math.max(0, geoYears(Math.max(tNow, seed.t1)) - geoYears(seed.t1));
+  return geoAge(tNow, seed.t1);
 }
 
 /**
@@ -674,7 +674,7 @@ export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow:
   const scale = cfg.timeScale ?? 1;
   if (cfg.secPerUnit && cfg.secPerUnit > 0) {
     const laid = Math.min(tNow, (b.slot + 1 + rotOnsetSlots(cfg, gatherDensity(b, cfg))) * cfg.secPerUnit);
-    return Math.max(0, geoYears(tNow) - geoYears(laid)) * scale;
+    return geoAge(tNow, laid) * scale;
   }
   return (seedAge.get(b.seed) ?? 0) * scale;
 }
@@ -718,8 +718,9 @@ export interface WearBasis {
 /** The age (model years) of a part with this basis at time t under the wear config (timeScale, buriedSlow). */
 export function ageFromBasis(bs: WearBasis, t: number, cfg: Pick<WearConfig, "timeScale" | "buriedSlow">): number {
   const slow = Math.max(1, cfg.buriedSlow ?? 1);
-  const exposed = Math.max(0, geoYears(Math.min(t, bs.cover)) - geoYears(bs.laid)) * bs.k;
-  const buried = Number.isFinite(bs.cover) ? Math.max(0, geoYears(t) - geoYears(bs.cover)) / slow : 0;
+  // on the part's own clock: its years run from `laid`, the covered years are what came after `cover` on that run
+  const exposed = geoAge(Math.min(t, bs.cover), bs.laid) * bs.k;
+  const buried = Number.isFinite(bs.cover) ? Math.max(0, geoAge(t, bs.laid) - geoAge(bs.cover, bs.laid)) / slow : 0;
   return (exposed + buried) * (cfg.timeScale ?? 1) * bs.spread;
 }
 
@@ -742,7 +743,6 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
   const cover = cfg.coverSlots ?? 0;
   const slow = Math.max(1, cfg.buriedSlow ?? 1);
   const accel = cfg.natureAccel ?? 0;
-  const yNow = geoYears(tNow);
   const jit = cfg.ageJitter ?? 0;
   const spread = (b: Box) => (jit > 0 ? Math.max(0, 1 + jit * (hash2(Math.round(b.x * 733) ^ b.seed, Math.round(b.y * 739) ^ Math.round(b.z * 743), 29) - 0.5) * 2) : 1);
   // a part's age is asked for many times per compute (wear, survival, absorption, fusion, gathering): once each
@@ -762,8 +762,9 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
     const laid = Math.min(tNow, (b.slot + 1 + rotOnsetSlots(cfg, gatherDensity(b, cfg))) * spu);
     const top = topSlot.get(b.seed) ?? b.slot;
     const tCover = cover > 0 && top >= b.slot + cover ? Math.min(tNow, Math.max(laid, (b.slot + cover + 1) * spu)) : tNow;
-    const exposed = Math.max(0, geoYears(tCover) - geoYears(laid)) * (1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0) + (cfg.water ? cfg.water(b) : 0));
-    const buried = Math.max(0, yNow - geoYears(tCover)) / slow;
+    // on the part's OWN clock (geoAge): the same life whenever it was built
+    const exposed = geoAge(tCover, laid) * (1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0) + (cfg.water ? cfg.water(b) : 0));
+    const buried = Math.max(0, geoAge(tNow, laid) - geoAge(tCover, laid)) / slow;
     return (exposed + buried) * (cfg.timeScale ?? 1);
   };
   const survival = (b: Box) => {
