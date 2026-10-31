@@ -31,7 +31,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { geoYears } from "@/lib/stratum/geoClock";
+import { geoAge } from "@/lib/stratum/geoClock";
 import { FOLD_EPS, FOLD_MIN_ALPHA, FOLD_MIN_FOOT, rawHeightOf, type Region } from "./fold";
 import { MAX_STEP_SEC, flowP, stayShareOf, treadCells, type FlowConfig } from "./flow";
 import type { NatureConfig } from "./nature";
@@ -670,13 +670,12 @@ export class FoldState {
   private read(sView: number, region?: Region): Snapshot {
     const cfg = this.cfg;
     const flow = this.flow;
-    const yView = geoYears(sView);
     const slabs: Slab[] = [];
     const paths: PathCell[] = [];
     const readCell = (c: Cell) => {
       if (c.nuc >= 0) {
         const lastS = c.s[c.s.length - 1];
-        const age = Math.max(0, yView - geoYears(lastS));
+        const age = geoAge(sView, lastS);
         const foot = Math.exp(-age / cfg.tauFootprintYears);
         if (foot >= FOLD_MIN_FOOT) {
           const raw = rawHeightOf(c.mass, cfg);
@@ -703,7 +702,7 @@ export class FoldState {
           if (p >= FOLD_MIN_ALPHA) paths.push({ key: c.key, x: c.x, z: c.z, p, visits: c.pn });
         }
       } else if (c.vn > 0) {
-        const age = Math.max(0, yView - geoYears(c.vLast));
+        const age = geoAge(sView, c.vLast);
         const p = (1 - Math.exp(-c.vn / cfg.pathVisits)) * Math.exp(-age / cfg.tauPathYears);
         if (p >= FOLD_MIN_ALPHA) paths.push({ key: c.key, x: c.x, z: c.z, p, visits: c.vn });
       }

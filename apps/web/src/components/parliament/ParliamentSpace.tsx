@@ -154,6 +154,13 @@ function useFps(): number {
 const NATURE_EVERY = 4;
 /** Paused (time rate 0): mass chunks rebuilt per request — a changed setting shows in one or two requests. */
 const PAUSED_FUSE_PER_CALL = 12;
+/**
+ * How far past the last event the clock may carry the present (session s): the world keeps ageing with nobody in it,
+ * but a clock left at ×20 overnight no longer turns it into a fourteen-day-old fossil bed — the geological clock is
+ * superlinear in session time, and at such ages a building melted eleven slots after it was built (the artist,
+ * 2026-10-31: "buildings appear and vanish in real time").
+ */
+const IDLE_AGE_MAX_S = 2 * 3600;
 /** The fusion group and the Leva paths its `render` conditions read (a folder's name is part of the path). */
 const FU = "엉김 · 융합 · 레진";
 const FU_WHEN = "① 언제 (부재의 부식 정도: 0 새것 … 1 사라짐)";
@@ -1016,7 +1023,7 @@ function SpaceWorld({
     if (local) {
       if (!labAnchor.current) labAnchor.current = { ms: clock.now(), s: latestS(events) };
       nowS = labAnchor.current.s + (clock.now() - labAnchor.current.ms) / 1000;
-    } else nowS = sessionSeconds(clock.now(), getEpochMs(), 0);
+    } else nowS = Math.min(sessionSeconds(clock.now(), getEpochMs(), 0), latestS(events) + IDLE_AGE_MAX_S);
 
     const meS = latestOf(events, typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY));
     const t = latestS(events);
@@ -1640,6 +1647,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
+  // THE WALL opens at real speed: the shared rate is saved per origin, and a ×20 left behind from a rehearsal would
+  // run the exhibition's world away (2026-10-31)
+  useEffect(() => {
+    if (hideUi && !lab && clk.rate() !== 1) clk.setRate(1);
+  }, [hideUi, lab, clk]);
   useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
   /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */

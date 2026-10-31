@@ -19,7 +19,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { geoYears } from "@/lib/stratum/geoClock";
+import { geoAge } from "@/lib/stratum/geoClock";
 import { cellKey, flowLevel, flowP, flowTracks, seedsInUse, stayShares } from "./flow";
 import { grassDensity, hash2, type NatureConfig } from "./nature";
 import { partAgeYears, seedAgeYears, type Box, type Seed } from "./seeds";
@@ -75,7 +75,7 @@ function sealsAt(seed: Seed, t: number, tauSlabYears: number): boolean {
     if (a > t) break;
     last = Math.max(last, Math.min(b, t));
   }
-  const age = Math.max(0, geoYears(t) - geoYears(last));
+  const age = geoAge(t, last);
   return seed.mass * Math.exp(-age / tauSlabYears) >= SEAL_H;
 }
 
@@ -184,7 +184,6 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
     }
     if (!emit) continue;
 
-    const yEnd = geoYears(tEnd);
     const base = (k - k0) * nc2;
     for (let j = 0; j < nz; j++) {
       for (let i = 0; i < nx; i++) {
@@ -194,7 +193,7 @@ export function natureHistory(input: NatureHistoryInput): NatureHistory {
           p = flowP(flowLevel(tread.get(cellKey(x0 + i, z0 + j)), tEnd, flow.tauSec), flow);
           if (p < MIN_PATH) p = 0;
         } else if (visitsN[c] > 0) {
-          p = (1 - Math.exp(-visitsN[c] / fold.pathVisits)) * Math.exp(-Math.max(0, yEnd - geoYears(visitsLast[c])) / fold.tauPathYears);
+          p = (1 - Math.exp(-visitsN[c] / fold.pathVisits)) * Math.exp(-geoAge(tEnd, visitsLast[c]) / fold.tauPathYears);
           if (p < MIN_PATH) p = 0;
         }
         const list = sealers.get(c);
@@ -285,7 +284,7 @@ export interface NaturePointOptions {
 /** The sediment share of slot k (0 fresh … 1 fully turned to sediment). */
 export function sedimentShare(k: number, sed: NonNullable<NaturePointOptions["sediment"]>): number {
   const laid = Math.min(sed.tNow, (k + 1 + (sed.graceSlots ?? 0)) * sed.secPerUnit);
-  const A = Math.max(0, geoYears(sed.tNow) - geoYears(laid)) * sed.timeScale;
+  const A = geoAge(sed.tNow, laid) * sed.timeScale;
   return 1 - Math.exp(-A / sed.tauYears);
 }
 

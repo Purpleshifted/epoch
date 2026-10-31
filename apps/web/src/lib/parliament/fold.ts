@@ -17,7 +17,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { geoYears } from "@/lib/stratum/geoClock";
+import { geoAge } from "@/lib/stratum/geoClock";
 import { flowLevel, flowP, flowTracks, inUseAt, stayShares, type Track } from "./flow";
 import { DEFAULT_FOLD, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 import { wrapCell, wrapDist } from "./world";
@@ -63,7 +63,6 @@ export function foldWorld(
   }
   vis.sort((a, b) => a.s - b.s || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)); // ties by id: same float sums in every view
 
-  const yView = geoYears(sView);
   // numeric cell keys while splatting (every event touches ~(2·radius/cell)² cells); the "cx,cz" string only per slab
   const cells = new Map<number, Acc>();
   const n = Math.ceil(cfg.radius / CELL_SIZE);
@@ -185,7 +184,7 @@ export function foldWorld(
       if (s[k] - cur[1] > cfg.emptyGapSec) spans.push([s[k], s[k]]);
       else cur[1] = s[k];
     }
-    const age = Math.max(0, yView - geoYears(lastS));
+    const age = geoAge(sView, lastS);
     const foot = Math.exp(-age / cfg.tauFootprintYears);
     if (foot < MIN_FOOT) continue;
     const h = raw * Math.exp(-age / cfg.tauSlabYears);
@@ -223,7 +222,7 @@ export function foldWorld(
 
   // desire paths: formed by repeated entries, worn away once nobody walks them
   for (const [key, v] of visits) {
-    const age = Math.max(0, yView - geoYears(v.lastS));
+    const age = geoAge(sView, v.lastS);
     const p = (1 - Math.exp(-v.n / cfg.pathVisits)) * Math.exp(-age / cfg.tauPathYears);
     if (p < MIN_ALPHA) continue;
     paths.push({ key, x: v.x, z: v.z, p, visits: v.n });
