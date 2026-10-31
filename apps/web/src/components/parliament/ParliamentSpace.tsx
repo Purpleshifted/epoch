@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
+import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
@@ -764,6 +765,7 @@ function SpaceWorld({
   farFactor,
   weather,
   fuse,
+  immutable,
   resin,
   water,
   nearFade,
@@ -809,6 +811,8 @@ function SpaceWorld({
   weather: WeatherConfig;
   /** Old layers fused into one mass. */
   fuse: FuseConfig;
+  /** V2: the immutable layer begins this many slots below the present (baked as it is, final). */
+  immutable: number;
   /** Look of the resin (oldest) layers. */
   resin: ResinLook;
   /** Waterways between buildings the same people built (null = off). */
@@ -858,7 +862,7 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
@@ -866,7 +870,7 @@ function SpaceWorld({
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
@@ -1005,7 +1009,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, immutable, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
@@ -1075,7 +1079,12 @@ function SpaceWorld({
     }
     // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
     if (frozen || id % NATURE_EVERY === 1) {
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen };
+      // the history window must reach below the immutable line (plus two chunks), or a layer would be cut before it is baked
+      if (oneClk && !local) {
+        const need = (immutable + 20) * cfg.secPerUnit;
+        if (keepWindowSec() < need) setKeepWindowSec(need);
+      }
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk ? immutable : undefined };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -2244,6 +2253,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
+        // THREE BANDS (the artist, 2026-10-31 night): the present (풍화 · 지층 › 현재 두께), the layer where the processes
+        // run, and from here down the immutable layer — baked as it is, never computed again
+        immutable: { value: 60, min: 10, max: 300, step: 5, label: "완전불변 층 (현재에서 ↓단; 그 아래는 그때 모습으로 굳어 다시 계산하지 않음)", render: () => isV2 },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작" },
         accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김 띠가 붙기 시작 (② 고급의 띠 양 > 0일 때)", render: (get) => get(ACC_PATH) > 0 },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
@@ -2694,6 +2706,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
+          immutable={fu.immutable}
           resin={resinView}
           water={waterView}
           nearFade={v.nearFade}
@@ -2755,7 +2768,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {depths && (
           <div>
-            깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}
+            깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}{isV2 ? ` · 불변 ${fu.immutable}+` : ""}
           </div>
         )}
         {c.markers && (

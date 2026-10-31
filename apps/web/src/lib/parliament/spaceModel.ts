@@ -249,6 +249,13 @@ export interface FuseInput {
   box: BoxConfig;
   weather: WeatherConfig;
   fuse: FuseConfig;
+  /**
+   * THE IMMUTABLE LAYER (the artist, 2026-10-31 night): three bands — the present (the top slots), the layer where the
+   * processes run (gathering → rot → fusion → resin, on the clock), and from `immutable` slots below the present
+   * down, nothing changes: a chunk whose top crosses that line is baked as it is then (rendered once from its
+   * material if its mesh is stale) and final. Nothing else is ever baked. Absent = V1 (baked at the window's cut).
+   */
+  immutable?: number;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
@@ -1141,7 +1148,8 @@ export class SpaceModel {
     /** About to leave the history window: the two chunks just above the cut. */
     // … and so are the chunks about to fall below the vegetation window (kA, which follows the focus): a live chunk
     // outside it is not asked for any more, and would vanish with its mass
-    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
+    const immK = input.immutable !== undefined ? kNow - input.immutable : -Infinity;
+    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA, immK) + 2 * NATURE_CHUNK;
     // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
     // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
     // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,
@@ -1154,11 +1162,19 @@ export class SpaceModel {
         const ch = this.fuseChunks.get(w.c0);
         if (!ch) continue;
         const fresh = ch.key === w.key;
-        if (!fresh && !leaving(w)) continue;
-        let done = fresh && w.c1 < doneK;
-        if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
-        if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
-        if (!leaving(w) && !done) continue;
+        let done: boolean;
+        if (input.immutable !== undefined) {
+          // THE IMMUTABLE LAYER: baked once its top lies below the line, as it is then; nothing else, ever
+          done = w.c1 < immK;
+        } else {
+          // V1: about to leave the history window, or every part fully decayed well below the present
+          if (!fresh && !leaving(w)) continue;
+          done = fresh && w.c1 < doneK;
+          if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
+          if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
+          if (!leaving(w) && !done) continue;
+        }
+        if (!done) continue;
         const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
         const shade = new Float32Array(boxes.length);
         boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
@@ -1182,7 +1198,9 @@ export class SpaceModel {
           t0: this.t,
           cfgKey: JSON.stringify(fuse),
         };
-        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: false, agedT: this.t, boxes, shade, nature: null, src };
+        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: input.immutable !== undefined, agedT: this.t, boxes, shade, nature: null, src };
+        // below the immutable line the mesh must be the chunk's final look: rendered once from its material if stale
+        if (input.immutable !== undefined && !fresh) this.renderBaked(bk, fuse, layerDecay);
         this.baked.set(w.c0, bk);
         this.persist(bk);
         this.fuseChunks.delete(w.c0);
