@@ -69,6 +69,7 @@ import {
   SpaceModel,
   depthDecayOf,
   layerDecayOf,
+  NATURE_CHUNK,
   handleSpaceRequest,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
@@ -771,6 +772,7 @@ function SpaceWorld({
   nearFade,
   noAxis,
   walk,
+  summon,
   walkLook,
   clock,
   local,
@@ -811,6 +813,8 @@ function SpaceWorld({
   weather: WeatherConfig;
   /** Old layers fused into one mass. */
   fuse: FuseConfig;
+  /** The baked layers' meshes only within this many slots of where the camera looks (0 = all). */
+  summon: number;
   /** Look of the resin (oldest) layers. */
   resin: ResinLook;
   /** Waterways between buildings the same people built (null = off). */
@@ -860,7 +864,7 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, summon, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
@@ -868,7 +872,7 @@ function SpaceWorld({
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, water, noAxis, walk, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, summon, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
@@ -1007,7 +1011,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, summon, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
@@ -1077,7 +1081,9 @@ function SpaceWorld({
     }
     // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
     if (frozen || id % NATURE_EVERY === 1) {
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen };
+      // summoning: the slot the camera actually looks at (the orbit target), quantised to a chunk so a drifting camera does not ask again every tick
+      const camK = o ? Math.round(o.target.y / cfg.unit / NATURE_CHUNK) * NATURE_CHUNK : undefined;
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, summon: oneClk ? summon : 0, camK };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -2249,8 +2255,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         // BY DEPTH (V2 default, the artist 2026-10-31): the stages follow the layer's depth below the present, not the
         // parts' corrosion (burial slowed covered parts so much under the own clock that the mass never came)
         fuseBy: { options: { "깊이 (현재에서 몇 단 아래인가)": "depth", "부재의 부식 시계": "clock" }, value: isV2 ? "depth" : "clock", label: "융합 기준", render: () => isV2 },
-        fuseStart: { value: 21, min: 2, max: 150, step: 1, label: "융합 시작 (현재에서 ↓단)", render: (get) => isV2 && get(FUSE_BY_PATH) === "depth" },
-        fuseEnd: { value: 60, min: 4, max: 300, step: 1, label: "다 굳음 (↓단; 그 아래는 구워져 저장)", render: (get) => isV2 && get(FUSE_BY_PATH) === "depth" },
+        fuseStart: { value: 10, min: 2, max: 150, step: 1, label: "융합 시작 (현재에서 ↓단)", render: (get) => isV2 && get(FUSE_BY_PATH) === "depth" },
+        fuseEnd: { value: 45, min: 4, max: 300, step: 1, label: "거의 다 굳음 (↓단; 98 % — 그 아래는 구워져 저장)", render: (get) => isV2 && get(FUSE_BY_PATH) === "depth" },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작", render: (get) => !isV2 || get(FUSE_BY_PATH) !== "depth" },
         accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김 띠가 붙기 시작 (② 고급의 띠 양 > 0일 때)", render: (get) => get(ACC_PATH) > 0 },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
@@ -2285,6 +2291,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
                 iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
                 smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
                 natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
+                summon: { value: 150, min: 0, max: 600, step: 10, label: "구운 층 소환 거리 (카메라가 보는 곳에서 ±단; 0 = 전부 늘 올림)", render: () => isV2 },
               },
               { collapsed: true },
             ),
@@ -2702,6 +2709,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
+          summon={fu.summon}
           resin={resinView}
           water={waterView}
           nearFade={v.nearFade}

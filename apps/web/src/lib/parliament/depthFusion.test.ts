@@ -9,15 +9,16 @@ import { depthDecayOf, effDecay, fusedShare, type FuseConfig } from "./fuse";
 describe("fusion by depth", () => {
   const cfg = { ...DEFAULT_FUSE, byDepth: { start: 21, end: 60 } };
 
-  it("the depth's decay runs 0 → fuseOnset above the start, fuseOnset → 1 from the start to the end", () => {
+  it("the depth's decay runs 0 → fuseOnset above the start, then rises fast to ~1 at the end", () => {
     const d = depthDecayOf(100, cfg)!;
     expect(d(100)).toBe(0);
     expect(d(100 - 10)).toBeCloseTo(cfg.fuseOnset * (10 / 21), 6);
     expect(d(100 - 21)).toBeCloseTo(cfg.fuseOnset, 6);
     expect(fusedShare(d(100 - 21), cfg)).toBe(0);
     expect(fusedShare(d(100 - 40), cfg)).toBeGreaterThan(0.3);
-    expect(d(100 - 60)).toBeCloseTo(1, 6);
-    expect(d(100 - 200)).toBeCloseTo(1, 6);
+    expect(fusedShare(d(100 - 30), cfg)).toBeGreaterThan(0.5); // fast: half the mass a quarter of the way
+    expect(d(100 - 60)).toBeGreaterThan(0.97);
+    expect(d(100 - 200)).toBeCloseTo(1, 3);
     expect(depthDecayOf(100, DEFAULT_FUSE)).toBeUndefined();
   });
 
@@ -29,7 +30,7 @@ describe("fusion by depth", () => {
   it("a part's effective decay is the further of its own and the depth's", () => {
     const d = depthDecayOf(100, cfg);
     expect(effDecay(0.05, 100 - 40, d)).toBeCloseTo(d!(60), 9);
-    expect(effDecay(0.9, 100 - 40, d)).toBe(0.9);
+    expect(effDecay(0.95, 100 - 40, d)).toBe(0.95);
     expect(effDecay(0.05, 100 - 40, undefined)).toBe(0.05);
   });
 

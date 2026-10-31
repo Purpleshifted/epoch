@@ -248,6 +248,12 @@ export interface FuseInput {
   box: BoxConfig;
   weather: WeatherConfig;
   fuse: FuseConfig;
+  /**
+   * SUMMONING (the artist's design, 2026-10-31): the baked layers' meshes are sent only while the camera looks within
+   * `summon` slots of them (camK = the slot the camera looks at); 0 / absent = all of them, always.
+   */
+  summon?: number;
+  camK?: number;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
@@ -473,7 +479,7 @@ export class SpaceModel {
           agedT: r.t0,
           boxes: r.boxes,
           shade: r.shade,
-          nature: r.nature,
+          nature: null,
           src: { parts: r.parts, basis: r.basis, decay: r.decay, standing: r.standing, skeleton: r.parts.map(() => false), tubes: r.tubes ?? [], history: r.history, x0: r.x0, z0: r.z0, nx: r.nx, nz: r.nz, unit: r.unit, sediment: r.sediment, t0: r.t0, cfgKey: "", mesh: r.mesh },
         });
         n++;
@@ -1022,7 +1028,8 @@ export class SpaceModel {
     const parts: { pos: Float32Array; col: Float32Array }[] = [];
     const keep = new Set<number>();
     // the baked chunks' points, as they were (in and below the window)
-    for (const bk of this.baked.values()) if (bk.nature) parts.push(bk.nature);
+    // the baked chunks draw NO vegetation: below the surface there is none (the artist, 2026-10-31: a chunk baked
+    // alive left its points as a second band of greenery deep in the column)
     let li = 0;
     for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK, li++) {
       if (this.baked.has(c0)) continue;
@@ -1056,9 +1063,14 @@ export class SpaceModel {
     const sed = sedimentOf(this.t, box, input.weather);
     const h = this.history;
     const wm = this.wear;
-    const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(input)}`;
+    // the summoned set changes the result, the camera's exact slot does not
+    const summoned = (bk: Baked) => !input.summon || input.camK === undefined || Math.abs((bk.c0 + bk.c1) / 2 - input.camK) <= input.summon;
+    const summonKey = input.summon ? [...this.baked.values()].filter(summoned).map((b) => b.c0).join(",") : "all";
+    const { camK: _ck, ...sigInput } = input;
+    void _ck;
+    const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(sigInput)}:${summonKey}`;
     if (sig === this.fuseSig) return null;
-    const bakedMeshes = [...this.baked.values()].map((b) => b.mesh);
+    const bakedMeshes = [...this.baked.values()].filter(summoned).map((b) => b.mesh);
     if (!sed || !wm || !fuse.enabled || !this.built.length) {
       this.fuseSig = sig;
       this.fuseChunks.clear();
@@ -1093,12 +1105,19 @@ export class SpaceModel {
     const q20 = (v: number) => Math.round(v * 20) / 20;
     type P = { b: Box; d: number; up: boolean; sk: boolean };
     const bySlot = new Map<number, P[]>();
+    // every part, corroding or not: the MATERIAL of a chunk baked before it has fused (leaving the window) must hold
+    // them all, or the mass can never grow there later (2026-10-31 night: chunks baked young kept only the parts
+    // already fusing — their boxes were absorbed as they aged, but no mass came: a layer of bare steel)
+    const allBySlot = new Map<number, P[]>();
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       const d = q20(effDecay(1 - wm.survival(b), b.slot, depthD));
+      const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse) };
+      const la = allBySlot.get(b.slot);
+      if (la) la.push(e);
+      else allBySlot.set(b.slot, [e]);
       // not corroding yet: nothing grows on it (B FILL: the plates are kept, they bound the rooms of the parts below)
       if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
-      const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse) };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
       else bySlot.set(b.slot, [e]);
@@ -1141,7 +1160,9 @@ export class SpaceModel {
     /** About to leave the history window: the two chunks just above the cut. */
     // … and so are the chunks about to fall below the vegetation window (kA, which follows the focus): a live chunk
     // outside it is not asked for any more, and would vanish with its mass
-    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
+    // … but not while the world is young (the window starts at slot 0): the first two chunks were baked before they
+    // had fused and then crawled on one ageing step at a time (the artist, 2026-10-31 night)
+    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA > 0 ? kA : -Infinity) + 2 * NATURE_CHUNK;
     // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
     // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
     // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,
@@ -1162,16 +1183,17 @@ export class SpaceModel {
         const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
         const shade = new Float32Array(boxes.length);
         boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
-        const nat = this.chunks.get(w.c0);
         // what the chunk was made from — its material: rendered again with another look (a paused view), and read
         // again at a later present (the past keeps ageing until it is a fossil)
         const ageK0 = w.c0 - padSlots - 3, ageK1 = w.c1 + padSlots + 8;
+        const mat: P[] = [];
+        for (let k = ageK0; k <= ageK1; k++) for (const e of allBySlot.get(k) ?? []) mat.push(e);
         const src: Baked["src"] = {
-          parts: w.ps.map((e) => e.b),
-          basis: w.ps.map((e) => wm.basis(e.b)),
-          decay: w.ps.map((e) => e.d),
-          standing: w.ps.map((e) => e.up),
-          skeleton: w.ps.map((e) => e.sk),
+          parts: mat.map((e) => e.b),
+          basis: mat.map((e) => wm.basis(e.b)),
+          decay: mat.map((e) => e.d),
+          standing: mat.map((e) => e.up),
+          skeleton: mat.map((e) => e.sk),
           tubes: w.tubes,
           history: h ? sliceHistory(h, ageK0, ageK1) : null,
           x0,
@@ -1183,7 +1205,9 @@ export class SpaceModel {
           t0: this.t,
           cfgKey: JSON.stringify(fuse),
         };
-        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: false, agedT: this.t, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null, src };
+        // BY DEPTH: a chunk whose top lies below the end of the fusion is complete — final at once, nothing to age
+        const finalNow = !!fuse.byDepth && w.c1 < kNow - fuse.byDepth.end;
+        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: finalNow, agedT: this.t, boxes, shade, nature: null, src };
         this.baked.set(w.c0, bk);
         this.persist(bk);
         this.fuseChunks.delete(w.c0);
@@ -1254,7 +1278,7 @@ export class SpaceModel {
         if (more > 1) pending = true;
       }
     }
-    const out: FuseMesh[] = [...this.baked.values()].map((b) => b.mesh);
+    const out: FuseMesh[] = [...this.baked.values()].filter(summoned).map((b) => b.mesh);
     const keep = new Set<number>();
     for (const w of wants) {
       if (this.baked.has(w.c0)) continue;

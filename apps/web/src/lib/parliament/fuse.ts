@@ -370,7 +370,8 @@ export function fusedShare(decay: number, cfg: FuseConfig): number {
 /**
  * The decay a layer `k` has by its depth below the present `kNow` (cfg.byDepth), or undefined under the clock alone.
  * Above the start the pre-stages (gathering, growths) come in proportion to the depth; from the start the mass
- * grows smoothly to complete at the end.
+ * rises FAST and levels off — the shape of the world clock's curve in a world a few hours old, which the artist
+ * approved (21 slots down 0.63, 30 down 0.83, 45 down 0.95): 98 % at the end, not a slow S-curve.
  */
 export function depthDecayOf(kNow: number, cfg: FuseConfig): ((k: number) => number) | undefined {
   const bd = cfg.byDepth;
@@ -381,8 +382,8 @@ export function depthDecayOf(kNow: number, cfg: FuseConfig): ((k: number) => num
     const depth = kNow - k;
     if (depth <= 0) return 0;
     if (depth < start) return cfg.fuseOnset * (depth / start);
-    const u = Math.min(1, (depth - start) / span);
-    return cfg.fuseOnset + (1 - cfg.fuseOnset) * u * u * (3 - 2 * u);
+    const u = (depth - start) / span;
+    return cfg.fuseOnset + (1 - cfg.fuseOnset) * (1 - Math.exp(-4 * u));
   };
 }
 
