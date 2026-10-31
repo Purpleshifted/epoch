@@ -6,8 +6,8 @@
  * Headphones off, looking at the wall: the same motifs that were vivid in the headset are all here at once, folded
  * into a landscape of low noise with traces of everybody's rhythm in it:
  *
- *   MASS      everybody present in the recent window plays their motif every bar, two octaves down, as a low
- *             sawtooth into one low-pass, a long hall and a soft saturation. Each voice is in ITS OWN home key
+ *   MASS      the heaviest presences play their motif every bar, two octaves down, as a low sawtooth into one
+ *             low-pass, a short synthetic room and a soft saturation. Each voice is in ITS OWN home key
  *             (tonality.ts homeKey) unless the person stands in a building's zone — then in the building's key, the
  *             same one the headset hears there (bestKey over its contributors). Polytonal in the open, one key per
  *             building.
@@ -67,7 +67,7 @@ export const DEFAULT_GLOBAL: GlobalParams = {
   bedFloor: 0,
   drive: 2.5,
   windowSec: 600,
-  maxVoices: 8, // 14 until 10/31 — the artist: light, no heavy spatial sound
+  maxVoices: 6, // 14 → 8 → 6 (10/31 — the artist: as light as possible)
 };
 
 export interface Presence {
@@ -130,19 +130,6 @@ export function globalBuildings(slabs: readonly Slab[]): BuildingSignal[] {
   return buildingsOf(slabs);
 }
 
-function impulse(ctx: AudioContext, seconds: number, decay: number): AudioBuffer {
-  const n = Math.floor(ctx.sampleRate * seconds);
-  const buf = ctx.createBuffer(2, n, ctx.sampleRate);
-  for (let c = 0; c < 2; c++) {
-    const d = buf.getChannelData(c);
-    let lp = 0;
-    for (let i = 0; i < n; i++) {
-      lp += (Math.random() * 2 - 1 - lp) * 0.2;
-      d[i] = lp * Math.exp(-i / ctx.sampleRate / decay);
-    }
-  }
-  return buf;
-}
 
 function softClip(drive: number): Float32Array<ArrayBuffer> {
   const n = 1024;
@@ -174,7 +161,7 @@ const CHANNEL_IDLE_BARS = 8;
  * outstanding notes. Beyond these nothing new is scheduled (counted in stats.shed); the music thins, never stalls.
  */
 const MAX_LIVE_VOICES = 200; // 8 voices at a 2 s bar keep ~120 alive (3.5 s of them not yet started): room above that, a wall below the runaway
-const MAX_LIVE_TICKS = 60;
+const MAX_LIVE_TICKS = 40;
 /** A note's tail after its length (s): the gain is at ~14 % by then; shorter tails = fewer live chains. */
 const VOICE_TAIL = 1.2;
 
@@ -293,9 +280,25 @@ export class GlobalEngine {
       this.offOutput = onOutputChange("speakers", () => void applyOutput(ctx, "speakers").then((s) => (this.outputLine = s)));
       this.hallSend = ctx.createGain();
       this.hallSend.gain.value = this.params.hall;
-      const hall = ctx.createConvolver();
-      hall.buffer = impulse(ctx, 2.5, 1.0); // 8 s (10/14) → 5 s (10/30) → 2.5 s (10/31, the artist: light); a convolver costs its length
-      this.hallSend.connect(hall).connect(this.lp);
+      // the room: no convolver any more (8 s → 5 → 2.5 s → none, 10/31, the artist: as light as possible) — two
+      // cross-fed delays with a low-pass in the loop, a diffuse tail of about a second, six nodes in all
+      const dA = ctx.createDelay(0.5);
+      dA.delayTime.value = 0.071;
+      const dB = ctx.createDelay(0.5);
+      dB.delayTime.value = 0.113;
+      const rlp = ctx.createBiquadFilter();
+      rlp.type = "lowpass";
+      rlp.frequency.value = 900;
+      const fb = ctx.createGain();
+      fb.gain.value = 0.55;
+      this.hallSend.connect(dA);
+      this.hallSend.connect(dB);
+      dA.connect(rlp);
+      dB.connect(rlp);
+      rlp.connect(fb);
+      fb.connect(dA);
+      fb.connect(dB);
+      rlp.connect(this.lp);
       // the rhythm traces: their own, gentler low-pass straight into the saturation (they must stay audible)
       this.tickBus = ctx.createBiquadFilter();
       this.tickBus.type = "lowpass";
@@ -551,7 +554,7 @@ export class GlobalEngine {
     const down = 12 * p.octavesDown;
     // the mass: the heaviest, every bar, pushed down, in their key (or their building's)
     if (withVoice) for (const n of realize(m, this.keyOf(pr), null, 0, bar)) this.voiceNote(midiToHz(n.pitch - down, m.colour), barStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, ch.filter);
-    // the traces: their rhythm cell, every bar when walking, every other bar when still
-    if (pr.speed > 0.5 || bar % 2 === 0) for (const on of m.onsets) this.tickNote(barStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, ch.tickFilter);
+    // the traces: everybody's rhythm cell every other bar (the walking came every bar until 10/31)
+    if (bar % 2 === 0) for (const on of m.onsets) this.tickNote(barStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, ch.tickFilter);
   }
 }
