@@ -290,7 +290,9 @@ export class GlobalEngine {
       rlp.type = "lowpass";
       rlp.frequency.value = 900;
       const fb = ctx.createGain();
-      fb.gain.value = 0.55;
+      // the two delays are SUMMED into the low-pass and the sum goes back into BOTH: the loop gain is twice this
+      // (0.55 howled on 10/31 — loop gain 1.1); 0.28 → 0.56, a tail of about a second
+      fb.gain.value = 0.28;
       this.hallSend.connect(dA);
       this.hallSend.connect(dB);
       dA.connect(rlp);
