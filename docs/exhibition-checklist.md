@@ -2,6 +2,12 @@
 
 살아있는 문서 (2026-10-28 시작, "전시 마무리 작업 체크리스트" 세션). 세션 관리·현황·배포·서버 세션의 답(10/28)을 모아 정리했다. 바뀌면 같은 커밋에서 고친다. 기준: GitHub `main` 380e9f0 (10/20, 사운드 v4 통합) = 프로덕션 https://anthropocene-mu.vercel.app.
 
+## 0e. 11/1 — main 되돌림(임시), 다음 목표 = feature/fusion
+
+- **프로덕션 = 세션 봇 이전 버전(임시)**: 작가 지시로 세션 관리가 origin/main = 통합 = **ffaa01a**(트리 = 36bc747; 세션 봇·카메라 자동 운행·자기 시계·식생 창·요청 합치기 이전)로 되돌림, 프로덕션 bmdc6lz92(01:26).
+- **작가의 최신 뜻**: feature/fusion(**e4e9280** = 5522a95 + 융합 10커밋) 상태로 올리되, **오래 돌리면 건물이 없어지는 버그를 먼저** — 융합 세션이 고치는 중.
+- **규칙(세션 관리, 모든 세션)**: 그때까지 **origin/main을 머지하지 말 것** — ffaa01a를 합치면 그 뒤 작업이 지워진다. 체크리스트 세션이 현황·배포·서버에 전달.
+
 ## 0d. 10/31 — main = 003f677 (프로덕션), 정책 변경
 
 - **세션 관리가 작가의 직접 지시로 main을 003f677(통합과 같음)로 push** → 프로덕션 배포 성공(anthropocene-f66m1jaui). 확인(체크리스트 세션): anthropocene-mu.vercel.app 200, /exhibition/global → /v2/global/space?ui=0, 홈에 REHEARSAL, `/api/presets` server:true(저장값 아직 없음). 10/28–30에 나온 것 전부가 전시 주소에 있다: 후보 B(퓨전·MIDI·벽 텍스트 제거·개인뷰), 전시·리허설 라우팅, 벽 성능(35 MB 업로드 수정·dpr 1·마커 지오메트리)·자동 새로고침·전시 카메라(따라갈 대상·해 운행·화석 띠 프레이밍), 소리(ESC·바닥·리미터·출력 분리·선계획 3.5 s), 번들·서버 프리셋.
@@ -149,13 +155,13 @@
 - 사인 LLM (`/api/cause`, 론칭 D단계, `ANTHROPIC_API_KEY`).
 - 자동차 유해 융합·시추공 비주얼(role-controls가 main에 들어가야 함), 세계 크기(WORLD_CELLS), 플레이어 뷰 스케일 기본값, 길고양이·나무·자동차 역할(모두 회사원으로 가면 보류).
 
-## 6. 서버별 작가 확인 목록 (10/31)
+## 6. 서버별 작가 확인 목록 (11/01)
 
 작가가 각 세션의 개발 서버에서 직접 보고 듣는 항목. 체크 표시는 아티팩트 페이지 "서버별 확인 목록"(https://claude.ai/artifact/8WaiAaKgaK9SYUZqnSyjdf)에 남는다(이 절은 같은 데이터의 글 버전). localhost 주소는 그 세션의 서버가 켜져 있을 때만 열린다.
 
-### 프로덕션 (전시 주소) — `anthropocene-mu.vercel.app` · 현황·배포·서버 · main 0a5b246 = 통합 (10/31 프로덕션: B + routes + wall-perf 성능·카메라 + 사운드 acc2c8a까지 + 번들·서버 프리셋) · 상태: 배포됨 — 이제 통합에 넣은 것은 main에도 바로 올라감
+### 프로덕션 (전시 주소) — `anthropocene-mu.vercel.app` · 현황·배포·서버 · main ffaa01a = 세션 봇 이전 버전(임시, 11/1 되돌림; 트리 = 36bc747) · 다음 = feature/fusion e4e9280 (오래 돌리면 건물 없어지는 버그 수정 뒤) · 상태: 프로덕션 = 세션 봇 이전 버전 (임시)
 
-10/31부터 프로덕션 = 통합. 작가 결정 "배포랑 동시에 수정하자": 통합에 넣고 확인한 sha를 세션 관리가 main에도 바로 올린다. 전시 주소에서 확인. 두 창은 같은 크롬, 탭이 아닌 창. Claude 세션은 벽을 ?sound=0으로 연다. 서버 프리셋은 Vercel 주소에서 save해야 DB에 간다(:3000은 DB 없음).
+11/1 작가 지시로 main을 세션 봇·카메라 자동 운행·자기 시계·식생 창 이전(ffaa01a)으로 되돌림. 작가의 최신 뜻: feature/fusion(e4e9280 = 5522a95 + 융합 10커밋) 상태로 올리되, 오래 돌리면 건물이 없어지는 버그를 먼저 고친다(융합 세션 작업 중). 그때까지 어느 세션도 origin/main을 머지하지 말 것(ffaa01a를 합치면 작업이 지워짐). 10/31부터 프로덕션 = 통합. 작가 결정 "배포랑 동시에 수정하자": 통합에 넣고 확인한 sha를 세션 관리가 main에도 바로 올린다. 전시 주소에서 확인. 두 창은 같은 크롬, 탭이 아닌 창. Claude 세션은 벽을 ?sound=0으로 연다. 서버 프리셋은 Vercel 주소에서 save해야 DB에 간다(:3000은 DB 없음).
 
 - 통합 브랜치 프리뷰 (고정 주소, 푸시마다 최신 · Vercel 로그인): `https://anthropocene-git-feature-parliament-5d12f5-hesse-parks-projects.vercel.app/`
 - 프리뷰 벽: `https://anthropocene-git-feature-parliament-5d12f5-hesse-parks-projects.vercel.app/exhibition/global`
@@ -298,6 +304,7 @@
 
 ## 변경 기록
 
+- 2026-11-01: §0e — main 되돌림(ffaa01a, 세션 봇 이전, 임시), 다음 = feature/fusion e4e9280(건물 사라짐 버그 수정 뒤), 규칙 "origin/main 머지 금지".
 - 2026-10-31 (7): 식생 창 수정이 main에(a2a4fb8, 샷 lift까지 반영).
 - 2026-10-31 (6): main 82a1b45까지 들어간 것 정리(가벼운 사운드·화석 유지·세션 봇·카메라 자동 샷); d2773af 대기.
 - 2026-10-31 (5): 배포 세션 d2773af — 식생 창을 현재 기준으로(camLift 분리); 머지·main 요청.
