@@ -24,6 +24,7 @@ import { makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { KnobSources } from "./noisecraftKnobs";
+import { applyOutput, makeLimiter, onOutputChange } from "./output";
 import type { PersonalSignals } from "./signals";
 import { CYCLES_PER_PHRASE, PHRASE_STEPS, STEPS_PER_CYCLE, cycleToSteps, type Phrase } from "./variation";
 
@@ -116,6 +117,11 @@ export interface SoundParams {
   arrivalHall: number;
   /** The WAVE of an arrival (v4 A4c, the artist: "파도 효과"): a swell of filtered noise rising through the dominant bar and breaking on the tonic (0..1). */
   arrivalWave: number;
+  /** The wave's and the vegetation's share into the hall's reverb (0..1): dry noise was too dry (10/31, the artist). */
+  waveVerb: number;
+  grassVerb: number;
+  /** The wave's HIT on the downbeat (0..1): after the crest hangs for a moment, a burst with a low thump — the reference's wave crested and struck. */
+  waveHit: number;
   /** The breath before the tonic: everything dips for this long (ms) right before the downbeat (0 = none). */
   arrivalGapMs: number;
   /** The path strength under my feet from which the heartbeat is heard (v4 A4d: 0.25 on the exact cell was too strict). */
@@ -125,6 +131,8 @@ export interface SoundParams {
   dead: boolean;
   /** The afterlife's long room (s): the last sound rings out in it, a fade envelope over its second half. */
   afterlifeTail: number;
+  /** After the afterlife: the room's speakers' sound, faintly, in the headset (0 = none) — so the sound met on taking the headset off is already known. */
+  afterglow: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -194,10 +202,14 @@ export const DEFAULT_SOUND: SoundParams = {
   arrival: true,
   arrivalHall: 0.7,
   arrivalWave: 0.6,
-  arrivalGapMs: 120,
+  waveVerb: 0.7,
+  grassVerb: 0.5,
+  waveHit: 0.8,
+  arrivalGapMs: 0, // 120 until 10/31 — the artist heard the breath as the sound being eaten at the wave's peak (measured: master 0.5 → 0.04 for 120 ms)
   bassFrom: 0.15,
   dead: false,
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
+  afterglow: 0.12,
   ncDull: 1,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -270,6 +282,13 @@ export interface SoundDebug {
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  private limiter!: DynamicsCompressorNode;
+  /** The limiter's reduction (dB), held and released at 2 dB/s, for the status line. */
+  private limHold = 0;
+  /** A test hook (window.__soundEngine.forceArrival()): the next bar begins an arrival cadence as if I had just started building with others. */
+  private forceTogether = false;
+  private outputLine = "기본 출력";
+  private offOutput: (() => void) | null = null;
   private dull!: BiquadFilterNode;
   private dry!: GainNode;
   private rooms!: { open: GainNode; concrete: GainNode; hall: GainNode };
@@ -286,10 +305,15 @@ export class SoundEngine {
   private bassSpread!: GainNode;
   private noise!: AudioBuffer;
   /** The wave: looped noise → a low-pass that rises → a level that swells, into dry and the hall. */
-  private wave!: { filter: BiquadFilterNode; gain: GainNode };
+  private wave!: { filter: BiquadFilterNode; gain: GainNode; send: GainNode };
+  /** The hall's convolver itself (the arrival's room, not dulled): the wave and the vegetation send into it directly. */
+  private hallConv!: ConvolverNode;
+  private grassSend!: GainNode;
   private afterlife: { at: number; until: number; feedUntil: number } | null = null;
   /** The afterlife's long room (A5d): built with the graph for the tail's length, rebuilt at a death if the knob moved. */
   private afterRoom: { send: GainNode; conv: ConvolverNode; seconds: number } | null = null;
+  /** The NoiseCraft patch's own feed into the afterlife room (its fader for the end), joined at a death. */
+  private ncFeed: GainNode | null = null;
   private wasDead = false;
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
@@ -374,6 +398,19 @@ export class SoundEngine {
   /** The latest signals (null before the first fold). */
   get signals(): PersonalSignals | null {
     return this.sig;
+  }
+
+  /** Test hook: the next bar starts an arrival cadence (dominant, then the tonic with the wave and the breath). */
+  forceArrival(): void {
+    this.arrivalState = { ...ARRIVAL_IDLE };
+    this.forceTogether = true;
+  }
+
+  /** Test hook: what the mix is doing right now (gains as automated, the limiter's reduction in dB). */
+  get probe(): { t: number; master: number; voiceBus: number; limiterDb: number; wave: number } | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.limiter) return null;
+    return { t: ctx.currentTime, master: this.master.gain.value, voiceBus: this.voiceBus.gain.value, limiterDb: this.limiter.reduction, wave: this.wave?.gain.gain.value ?? 0 };
   }
 
   get currentParams(): SoundParams {
@@ -466,8 +503,9 @@ export class SoundEngine {
     let born = false;
     if (this.seenSlabs) for (const k of near) if (!this.seenSlabs.has(k)) born = true;
     this.seenSlabs = new Set(near);
-    const together = (sig.coBuilders?.length ?? 0) > 0;
+    const together = this.forceTogether || (sig.coBuilders?.length ?? 0) > 0;
     const step = nextArrival(this.arrivalState, bar, together, born && sig.stay > 0.5 && sig.neighbours.length > 0);
+    if (this.forceTogether && step.phase === "dominant") this.forceTogether = false;
     this.arrivalState = step.state;
     const arrival = p.arrival ? step.phase : null;
     if (arrival === "tonic" && this.ctx) {
@@ -505,25 +543,32 @@ export class SoundEngine {
       this.dull.type = "lowpass";
       this.dull.frequency.value = this.params.lpOpen;
       this.dull.Q.value = 0.5;
-      this.dull.connect(this.master).connect(ctx.destination);
+      // the limiter before the device (§10c): with the room's speakers in the same Chrome the two summed and clipped
+      this.limiter = makeLimiter(ctx);
+      this.dull.connect(this.master).connect(this.limiter).connect(ctx.destination);
+      // the headset's own output device, chosen on /v2/sound/output (the default when none)
+      void applyOutput(ctx, "headset").then((s) => (this.outputLine = s));
+      this.offOutput = onOutputChange("headset", () => void applyOutput(ctx, "headset").then((s) => (this.outputLine = s)));
       this.dry = ctx.createGain();
       this.dry.connect(this.dull);
       this.voiceBus = ctx.createGain();
       this.voiceBus.gain.value = 1;
       this.voiceBus.connect(this.dry);
       // three rooms
-      const room = (seconds: number, decay: number, taps: number, bright: number, level: number) => {
+      const room = (seconds: number, decay: number, taps: number, bright: number, level: number, bypassDull = false) => {
         const g = ctx.createGain();
         g.gain.value = level;
         const v = ctx.createConvolver();
         v.buffer = impulse(ctx, seconds, decay, taps, bright);
-        g.connect(v).connect(this.dull);
+        g.connect(v).connect(bypassDull ? this.master : this.dull);
+        if (bypassDull) this.hallConv = v;
         return g;
       };
       this.rooms = {
         open: room(1.2, 0.35, 0, 0.25, 0.12),
         concrete: room(1.6, 0.5, 6, 0.9, 0),
-        hall: room(2.4, 1.0, 0, 0.5, 0), // 4.5 s → 3 s (A1) → 2.4 s (A5): the convolver's cost is its length
+        // the hall is the ARRIVAL's opening: it must not be dulled by the concrete the arrival happens on (10/31)
+        hall: room(3.2, 1.3, 0, 0.5, 0, true), // 4.5 s → 3 s (A1) → 2.4 s (A5) → 3.2 s (10/31: too dry); the convolver's cost is its length
       };
       // the hall never sleeps: a whisper of noise keeps its convolver running, so opening it on an arrival does not
       // start a cold convolution (the burst the artist heard as lag)
@@ -558,6 +603,10 @@ export class SoundEngine {
       this.noiseGain = ctx.createGain();
       this.noiseGain.gain.value = 0;
       noise.connect(bp).connect(this.noiseGain).connect(this.dry);
+      // the vegetation into the hall's reverb too (10/31, the artist: too dry)
+      this.grassSend = ctx.createGain();
+      this.grassSend.gain.value = this.params.grassVerb;
+      this.noiseGain.connect(this.grassSend).connect(this.hallConv);
       noise.start();
       // bass bus: the path's heartbeat → a soft clip (weight) → dry, and its own long dark room (bassSpread)
       this.bassGain = ctx.createGain();
@@ -578,7 +627,9 @@ export class SoundEngine {
       const bassDark = ctx.createBiquadFilter();
       bassDark.type = "lowpass";
       bassDark.frequency.value = 500;
-      shaper.connect(this.bassSpread).connect(bassDark).connect(this.rooms.hall);
+      // into the hall's CONVOLVER itself, not its gated send (the gate is shut except at an arrival — the heartbeat's
+      // spread was dry nearly always; the artist, 10/31: "리버브 부족")
+      shaper.connect(this.bassSpread).connect(bassDark).connect(this.hallConv);
       this.noise = noiseBuffer(ctx, 1);
       // the wave (v4 A4c): looped noise, a low-pass the swell opens, a level that rises and breaks
       const wn = ctx.createBufferSource();
@@ -591,9 +642,15 @@ export class SoundEngine {
       const wg = ctx.createGain();
       wg.gain.value = 0;
       wn.connect(wf).connect(wg);
-      wg.connect(this.dry); // dry only: the wave into the hall doubled the convolver's work at the arrival
+      // the wave opens 300 → 2400 Hz, but the dry bus is dulled to ~750 Hz on concrete, where arrivals happen — the
+      // artist heard the wave "pressed" (10/31): it goes straight to the master, around the building's dullness
+      wg.connect(this.master);
+      // …and into the hall's reverb (the convolver itself, open whatever the arrival's hall gain): dry noise was too dry
+      const ws = ctx.createGain();
+      ws.gain.value = this.params.waveVerb;
+      wg.connect(ws).connect(this.hallConv);
       wn.start();
-      this.wave = { filter: wf, gain: wg };
+      this.wave = { filter: wf, gain: wg, send: ws };
       this.afterlifeRoom(this.params.afterlifeTail); // the afterlife's long room, ready (no cold start at a death)
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
@@ -653,10 +710,22 @@ export class SoundEngine {
 
   dispose(): void {
     this.stop();
+    this.offOutput?.();
+    this.offOutput = null;
     this.ctx?.close().catch(() => {});
     this.ctx = null;
     this.voices.clear();
     this.me = null;
+  }
+
+  /** Where this engine plays (output.ts): the chosen device's label, or the default. */
+  get output(): string {
+    return this.outputLine;
+  }
+
+  /** How much the limiter has been pressing lately (dB, ≤ 0). */
+  get limiterDb(): number {
+    return this.limHold;
   }
 
   private motifOf(id: string): Motif {
@@ -719,6 +788,7 @@ export class SoundEngine {
     const t = ctx.currentTime;
     const dt = Math.max(0, Math.min(2, t - this.lastUpdate));
     this.lastUpdate = t;
+    this.limHold = Math.min(this.limiter.reduction, this.limHold + 2 * dt);
     // the end of a life: the afterlife plays once and fades itself; a new life brings the master back
     if (params.dead && !this.wasDead) this.startAfterlife(t);
     if (!params.dead && this.wasDead) this.endAfterlife(t);
@@ -756,6 +826,8 @@ export class SoundEngine {
     this.bassSpread.gain.setTargetAtTime(params.bassSpread, t, 0.3);
     // vegetation
     this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
+    this.grassSend.gain.setTargetAtTime(params.grassVerb, t, 0.5);
+    this.wave.send.gain.setTargetAtTime(params.waveVerb, t, 0.5);
     // rooms: open ground → concrete → the hall of building together
     const company = Math.min(1, sig.neighbours.length / 2);
     // the arrival opens the hall at once and lets it close over ~6 s
@@ -918,7 +990,7 @@ export class SoundEngine {
    * octave below with its own slower swell; a dark thump of noise for flesh. The bus clips softly and spreads into
    * a long dark room of its own.
    */
-  private bassNote(pitch: number, at: number, level: number): void {
+  private bassNote(pitch: number, at: number, level: number, duckScale = 1): void {
     const ctx = this.ctx!;
     let f = midiToHz(pitch);
     while (f > 80) f /= 2;
@@ -958,7 +1030,7 @@ export class SoundEngine {
       n.start(when);
       n.stop(when + 0.5);
       // the beat in front: the voices dip for a moment — from wherever the gain is (a jump to 1 clicked)
-      const duck = this.params.bassDuck * vel;
+      const duck = this.params.bassDuck * vel * duckScale;
       if (duck > 0) {
         this.voiceBus.gain.setTargetAtTime(1 - duck, when, 0.006);
         this.voiceBus.gain.setTargetAtTime(1, when + 0.08, 0.15);
@@ -977,6 +1049,11 @@ export class SoundEngine {
   }
 
   /** True while the end's last sound is still being taken into the long room (the patch keeps playing that long, then stops). */
+  /** The session ended and the afterlife's tail has run out: silence — the afterglow's cue (AfterglowSound). */
+  get afterlifeOver(): boolean {
+    return this.params.dead && !this.afterlife;
+  }
+
   get inAfterlife(): boolean {
     const a = this.afterlife;
     return !!a && (this.ctx?.currentTime ?? 0) < a.feedUntil;
@@ -999,22 +1076,32 @@ export class SoundEngine {
     this.bassGain.gain.setTargetAtTime(0, t, 0.1);
     this.wave.gain.gain.setTargetAtTime(0, t, 0.15);
     this.noiseGain.gain.setTargetAtTime(0, t, 0.25);
-    // the last sound into the long room (the patch before its gain: it is not heard dry after the end)
+    // the last sound into the long room. The patch has a FADER of its own for the end (the artist, 2026-10-28:
+    // tapped straight into the room it jumped; closed with its dry gain it left no reverb): a feed gain into the
+    // room's convolver that comes up as the dry path goes down (a crossfade, the loudness held), stays open for
+    // NC_FEED seconds so the room is full of it, then closes slowly — the tail is what remains
     const room = this.afterlifeRoom(tail);
-    if (this.nc) {
-      this.nc.filter.connect(room.send);
-      this.nc.gain.gain.setTargetAtTime(0, t + 0.25, 0.15);
+    if (this.nc && this.ctx) {
+      const NC_FEED = 1.5;
+      const feed = this.ctx.createGain();
+      feed.gain.value = 0;
+      this.nc.filter.connect(feed).connect(room.conv);
+      feed.gain.setTargetAtTime(0.6, t, 0.6); // 1 in 0.4 s until 10/31: the room came in louder than the pressed dry — a jump
+      feed.gain.setTargetAtTime(0, t + NC_FEED, 0.5);
+      this.nc.gain.gain.setTargetAtTime(0, t + 0.1, 0.4);
+      this.ncFeed = feed;
     }
+    // the room's send comes up gently and only halfway (1 in 50 ms until 10/31: the reverb of the last second arrived
+    // louder than the dry the dying had pressed down — the artist heard the end JUMP instead of sinking away)
     room.send.gain.cancelScheduledValues(t);
-    room.send.gain.setTargetAtTime(1, t, 0.02);
-    room.send.gain.setTargetAtTime(0, t + FEED, 0.08);
-    // the master holds through the first half; then a FADE ENVELOPE lies over the tail's own decay (the artist: if
-    // the volume has not come down by then, overlap a fade) — a straight line to silence exactly at the tail's end
-    // …from WHERE IT IS (A5g): after the dying it is half, after an X hold it is whole — no jump either way
+    room.send.gain.setTargetAtTime(0.5, t, 0.3);
+    room.send.gain.setTargetAtTime(0, t + FEED, 0.15);
+    // the master keeps sinking from WHERE IT IS (after the dying: half; after an X hold: whole), never holds, never
+    // rises: to a third by mid-tail, to silence at the tail's end (the artist: "점점 눌리다가 아예 사라져야")
     const cur = Math.max(0, Math.min(1, this.master.gain.value));
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setValueAtTime(cur, t);
-    this.master.gain.setValueAtTime(cur, t + tail * 0.5);
+    this.master.gain.linearRampToValueAtTime(cur * 0.3, t + tail * 0.5);
     this.master.gain.linearRampToValueAtTime(0, t + tail);
   }
 
@@ -1022,6 +1109,16 @@ export class SoundEngine {
   private endAfterlife(t: number): void {
     this.afterlife = null;
     this.afterRoom?.send.gain.setTargetAtTime(0, t, 0.05);
+    // the patch's feed into the room goes (its dry path stays and comes back)
+    if (this.ncFeed) {
+      try {
+        this.nc?.filter.disconnect(this.ncFeed);
+        this.ncFeed.disconnect();
+      } catch {
+        /* already gone */
+      }
+      this.ncFeed = null;
+    }
     this.voiceBus.gain.setTargetAtTime(1, t, 0.2);
     this.bassGain.gain.setTargetAtTime(1, t, 0.2);
     this.nc?.gain.gain.setTargetAtTime(1, t, 0.2);
@@ -1057,23 +1154,55 @@ export class SoundEngine {
   }
 
   /** The wave rising through a bar: the low-pass opens 300 → 2400 Hz, the level swells (sin^1.5-ish by the ramps). */
+  /**
+   * The wave rising through the dominant bar: the low-pass opens 300 → 2400 Hz, the level swells to a CREST, and in the
+   * bar's last tenth the crest HANGS (the wave itself dips, nothing else) before the hit on the downbeat (10/31, the
+   * artist: the reference's wave crested and struck; ours only swirled).
+   */
   private waveSwell(at: number, barSec: number, level: number): void {
     const { filter, gain } = this.wave;
+    const hit = this.params.waveHit;
     filter.frequency.cancelScheduledValues(at);
     filter.frequency.setValueAtTime(300, at);
-    filter.frequency.exponentialRampToValueAtTime(2400, at + barSec);
+    filter.frequency.exponentialRampToValueAtTime(2400, at + barSec * 0.85);
     gain.gain.cancelScheduledValues(at);
     gain.gain.setValueAtTime(0.001, at);
     gain.gain.exponentialRampToValueAtTime(0.35 * level, at + barSec * 0.7);
-    gain.gain.linearRampToValueAtTime(0.45 * level, at + barSec);
+    gain.gain.linearRampToValueAtTime(0.45 * level, at + barSec * 0.86);
+    // the crest hangs: the wave alone falls to a quarter for the last tenth of the bar, the more the harder the hit
+    gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.75 * hit), at + barSec * 0.95);
+    gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.75 * hit), at + barSec);
   }
 
-  /** The wave breaking on the downbeat: a last push, then it falls back over ~3 s. */
+  /** The wave striking on the downbeat: a burst that snaps open with a low thump under it, then it falls back over ~3 s. */
   private waveBreak(at: number, level: number): void {
+    const ctx = this.ctx!;
     const { filter, gain } = this.wave;
-    gain.gain.setTargetAtTime(0.5 * level, at, 0.03);
+    const hit = this.params.waveHit;
+    gain.gain.cancelScheduledValues(at);
+    gain.gain.setValueAtTime(0.45 * level * (1 - 0.75 * hit), at);
+    gain.gain.linearRampToValueAtTime((0.5 + 0.5 * hit) * level, at + 0.012);
     gain.gain.setTargetAtTime(0, at + 0.25, 1.0);
+    filter.frequency.cancelScheduledValues(at);
+    filter.frequency.setValueAtTime(2400 + 2000 * hit, at);
     filter.frequency.setTargetAtTime(300, at + 0.25, 1.2);
+    if (hit > 0) {
+      // the thump: one low sine under the strike, into the master and the hall
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.setValueAtTime(70, at);
+      o.frequency.exponentialRampToValueAtTime(42, at + 0.25);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(0.6 * level * hit, at + 0.01);
+      g.gain.setTargetAtTime(0, at + 0.08, 0.12);
+      o.connect(g);
+      g.connect(this.master);
+      g.connect(this.hallConv);
+      o.onended = () => g.disconnect();
+      o.start(at);
+      o.stop(at + 0.7);
+    }
   }
 
   /** The breath before the tonic: everything (the patch included, it is on the master) dips, then comes back on the downbeat. */
@@ -1188,7 +1317,9 @@ export class SoundEngine {
     // with the patch ALONE as the harmony its root and chord are its (a static machine, our gates): silent here;
     // "both" (the artist: 병행) keeps the Web Audio bass and pad beside the patch
     const alone = p.instrument === "noisecraft";
-    if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level);
+    // the arrival's tonic bar: the heartbeat must not duck the voices on the downbeat they bloom on (10/31: with the
+    // breath it read as the sound being eaten at the wave's peak)
+    if (!alone) for (const b of plan.bass) this.bassNote(b.pitch, nextStart + b.at * barSec, b.level, plan.arrival === "tonic" && b.at < 0.05 ? 0 : 1);
     this.setPad(plan.pad.pitches, alone ? 0 : plan.pad.level, nextStart, plan.arrival === "tonic");
   }
 }

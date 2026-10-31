@@ -16,7 +16,11 @@
  *             provisional, exactly as the batch fold's are for its latest seconds.
  *   LATE      a sample that arrives behind F (a new owner whose assigned time is behind, a tab catching up after a
  *             freeze) makes the state rebuild itself once from its own timelines. The viewer's time going backwards
- *             (a new session, a horizon knob) does the same.
+ *             (a new session, a horizon knob) does the same. `lateMarginSec` holds F that much further back, so an
+ *             owner who joins a little behind the others (a resident born at −30 s, population.ts) is not late.
+ *   REGION    a snapshot that reads only a region replays only the tail samples that can reach it (a cell's state
+ *             is made of what was splatted and trodden into THAT cell): the player's ground costs what is near.
+ *             `{ tail: false }` reads the settled state alone (what the bots walk on: seconds behind, cheap).
  *   FORGET    dropBefore(cut) prunes the timelines as log.ts does and replays only the cells it touched. (The one
  *             known difference to the batch fold: on a pruned log it recomputes the stay shares of the first staySec
  *             after the cut without their look-back; the state keeps the shares it had — a 20-minute-old second.)
@@ -201,7 +205,19 @@ function restore(c: Cell, k: Checkpoint): void {
 export interface FoldStateOptions {
   /** An owner whose latest sample arrived more than this many snapshots ago no longer holds the frontier back. */
   inactiveTicks?: number;
+  /** The settled frontier is held this many seconds further back (a new owner up to this far behind is not late). */
+  lateMarginSec?: number;
 }
+
+/** How a snapshot is read. */
+export interface SnapshotOptions {
+  /** false: the settled state only, without replaying the tail (up to ~staySec + lateMarginSec behind the viewer). */
+  tail?: boolean;
+}
+
+/** A tail sample is replayed for a region when it, or the sample before it, lies within the region's reach plus this
+ *  (a tread runs between the two; no step in MAX_STEP_SEC is longer). */
+const TREAD_REACH = 10;
 
 export interface FoldStateStats {
   cells: number;
@@ -224,6 +240,7 @@ export class FoldState {
   private late = false;
   private tick = 0;
   private readonly inactiveTicks: number;
+  private readonly lateMargin: number;
   readonly stats: FoldStateStats = { cells: 0, owners: 0, samples: 0, frontier: -Infinity, tail: 0, rebuilds: 0 };
   /** Latest assigned time among the samples added (0 when empty), like fold.ts latestS. */
   latestS = 0;
@@ -233,6 +250,7 @@ export class FoldState {
     opts: FoldStateOptions = {},
   ) {
     this.inactiveTicks = opts.inactiveTicks ?? 20;
+    this.lateMargin = Math.max(0, opts.lateMarginSec ?? 0);
   }
 
   private get flow(): FlowConfig | null {
@@ -582,7 +600,7 @@ export class FoldState {
       const last = L.s[L.s.length - 1];
       if (last < minLast) minLast = last;
     }
-    const F = Math.max(this.F, minLast - look);
+    const F = Math.max(this.F, minLast - look - this.lateMargin);
     if (F <= this.F && this.F !== -Infinity) return;
     const refs: Ref[] = [];
     for (const L of this.lines.values()) {
@@ -603,20 +621,31 @@ export class FoldState {
    * What is on the ground at the viewer's time `sView` — the cells within `region` (centre + radius; absent = the
    * whole world). Same output as foldWorld over the same events.
    */
-  snapshot(sView: number, region?: Region): Snapshot {
+  snapshot(sView: number, region?: Region, opts: SnapshotOptions = {}): Snapshot {
     this.tick++;
     if (this.late || sView < this.sView) this.rebuild();
     this.sView = sView;
     this.settle(sView);
+    if (opts.tail === false) {
+      this.stats.tail = 0;
+      this.stats.cells = this.cells.size;
+      this.stats.owners = this.lines.size;
+      this.stats.frontier = this.F;
+      return this.read(sView, region);
+    }
 
-    // the tail: everything after the frontier up to the viewer's time, replayed on top and taken off again
+    // the tail: everything after the frontier up to the viewer's time, replayed on top and taken off again — for a
+    // region (V2) only what can reach it: the stay shares of every tail sample, the splats and treads of those near
     const flow = this.flow;
     const refs: Ref[] = [];
     const lineCp = new Map<Line, number>();
+    const reach = region && flow ? region.r + this.cfg.radius + CELL_SIZE * 2 + TREAD_REACH : Infinity;
+    const near = (L: Line, k: number) =>
+      reach === Infinity || wrapDist(L.x[k], L.z[k], region!.x, region!.z) <= reach || (k > 0 && wrapDist(L.x[k - 1], L.z[k - 1], region!.x, region!.z) <= reach);
     for (const L of this.lines.values()) {
       for (let k = L.settled; k < L.s.length && L.s[k] <= sView; k++) {
         if (flow) L.stay[k] = this.stayOf(L, k, sView, flow);
-        refs.push({ L, i: k, s: L.s[k], id: L.id[k] });
+        if (near(L, k)) refs.push({ L, i: k, s: L.s[k], id: L.id[k] });
       }
       if (!flow) lineCp.set(L, L.lastCell);
     }

@@ -73,8 +73,10 @@ import {
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { savable } from "./levaSave";
+import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { useGlobalBots } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
+import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 
 /** Background and ground grid per theme. */
 const THEMES = {
@@ -222,6 +224,15 @@ interface Orbit {
   target: { x: number; y: number; z: number };
   object: { position: { x: number; y: number; z: number } };
   update: () => void;
+}
+
+/**
+ * What the exhibition camera and the time-axis follow share, frame to frame (docs/camera-motion.md §5): the auto run
+ * writes the lift it wants (null = the "초점 높이" slider stands), the follow writes the focus's height it moves to.
+ */
+interface CamLink {
+  lift: number | null;
+  focusY: number | null;
 }
 
 /** What the view asks the worker for vegetation (null = vegetation off). */
@@ -534,6 +545,18 @@ function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: numb
   return m;
 }
 
+/**
+ * Uploads only the first `n` items of an instanced attribute. With n = 0 nothing is uploaded: an update range of length
+ * 0 reaches WebGL2's bufferSubData as "to the end", i.e. the WHOLE capacity — the empty wall sent ~35 MB to the GPU twice
+ * a second this way, and the main thread stalled on it for as long as the GPU took to draw the frame (2026-10-29).
+ */
+function uploadFirst(attr: THREE.BufferAttribute, n: number): void {
+  if (n <= 0) return;
+  attr.clearUpdateRanges();
+  attr.addUpdateRange(0, n * attr.itemSize);
+  attr.needsUpdate = true;
+}
+
 function setDecay(mesh: THREE.InstancedMesh | null, src: Float32Array, stride: number, count: number): void {
   if (!mesh) return;
   let attr = mesh.geometry.getAttribute("aDecay") as THREE.InstancedBufferAttribute | undefined;
@@ -542,7 +565,7 @@ function setDecay(mesh: THREE.InstancedMesh | null, src: Float32Array, stride: n
     mesh.geometry.setAttribute("aDecay", attr);
   }
   for (let i = 0; i < count; i++) attr.array[i] = src[i * stride + stride - 1];
-  attr.needsUpdate = true;
+  uploadFirst(attr, count);
 }
 const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3(), _q = new THREE.Quaternion(), _sc = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _n = new THREE.Vector3();
@@ -565,7 +588,7 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
       elbow.setMatrixAt(i, _m);
     }
     elbow.count = n;
-    elbow.instanceMatrix.needsUpdate = true;
+    uploadFirst(elbow.instanceMatrix, n);
     setDecay(elbow, p.elbows, 11, n);
   }
   if (cyl) {
@@ -581,7 +604,7 @@ function setPipeParts(cyl: THREE.InstancedMesh | null, elbow: THREE.InstancedMes
       cyl.setMatrixAt(i, _m.compose(_mid, _q, _sc));
     }
     cyl.count = n;
-    cyl.instanceMatrix.needsUpdate = true;
+    uploadFirst(cyl.instanceMatrix, n);
     setDecay(cyl, p.cylinders, 8, n);
   }
 }
@@ -685,11 +708,7 @@ function setGatherings(g: THREE.InstancedBufferGeometry | null, r: PointsResult)
   const n = Math.min(r.position.length / 3, GATHER_CAPACITY);
   (at.center.array as Float32Array).set(r.position.subarray(0, n * 3));
   (at.color.array as Float32Array).set(r.color.subarray(0, n * 3));
-  for (const a of [at.center, at.color]) {
-    a.clearUpdateRanges();
-    a.addUpdateRange(0, n * 3);
-    a.needsUpdate = true;
-  }
+  for (const a of [at.center, at.color]) uploadFirst(a, n);
   g.instanceCount = n;
 }
 
@@ -730,6 +749,10 @@ function SpaceWorld({
   showEdges,
   wear,
   follow,
+  followLift,
+  link,
+  followWho,
+  quietSec,
   controls,
   onStats,
   nature,
@@ -759,6 +782,15 @@ function SpaceWorld({
   /** Wear the parts to the present (the fold's slab wear); off = everything as built. */
   wear: boolean;
   follow: boolean;
+  /** Added to the followed height (the exhibition camera's "초점 높이"): the view looks a little above or below the present. */
+  followLift: number;
+  /** The exhibition camera's auto run: its lift replaces `followLift` while it runs; the focus height goes back to it. */
+  link?: React.MutableRefObject<CamLink>;
+  /** Whom the present follows: the player tab's own owner ("me"), the latest event of anybody (bots included), or
+   * "auto" — me unless me has been quiet for `quietSec` exhibition seconds (the wall with only bots running, and a
+   * stale me id left in storage, used to stand still at me's last moment — the artist, 2026-10-30). */
+  followWho: FollowWho;
+  quietSec: number;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
   nature: NatureParams | null;
@@ -885,14 +917,10 @@ function SpaceWorld({
         if (!mesh) continue;
         const n = p.counts[kind];
         (mesh.instanceMatrix.array as Float32Array).set(p.matrices[kind]);
-        mesh.instanceMatrix.clearUpdateRanges();
-        mesh.instanceMatrix.addUpdateRange(0, n * 16);
-        mesh.instanceMatrix.needsUpdate = true;
+        uploadFirst(mesh.instanceMatrix, n);
         if (mesh.instanceColor) {
           (mesh.instanceColor.array as Float32Array).set(p.colors[kind]);
-          mesh.instanceColor.clearUpdateRanges();
-          mesh.instanceColor.addUpdateRange(0, n * 3);
-          mesh.instanceColor.needsUpdate = true;
+          uploadFirst(mesh.instanceColor, n);
         }
         mesh.count = n;
       }
@@ -999,8 +1027,11 @@ function SpaceWorld({
 
     const meS = latestOf(events, typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY));
     const t = latestS(events);
-    focus.current = { focusS: meS ?? t, focusIsMe: meS !== null };
-    focusY.current = events.length ? ((meS ?? t) / cfg.secPerUnit) * cfg.unit : null;
+    const meQuiet = meS !== null && nowS !== undefined && nowS - meS > quietSec;
+    const useMe = meS !== null && followWho !== "latest" && !(followWho === "auto" && meQuiet);
+    const focusS = useMe && meS !== null ? meS : t;
+    focus.current = { focusS, focusIsMe: useMe };
+    focusY.current = events.length ? (focusS / cfg.secPerUnit) * cfg.unit : null;
 
     const o = controls.current;
     // TIME STANDING STILL (rate 0): the camera the LOD and the vegetation window follow is pinned too, so moving the
@@ -1043,9 +1074,10 @@ function SpaceWorld({
   // follow the player's present: the view moves along the time axis, keeping the viewer's own orbit.
   // The first focus (and any jump further than FOLLOW_SNAP) is immediate, so an old epoch is never out of view.
   useFrame((state, dt) => {
+    if (link) link.current.focusY = focusY.current;
     const c = controls.current;
     if (!c || focusY.current === null || !(follow || !snapped.current)) return;
-    const want = Math.max(0, focusY.current);
+    const want = Math.max(0, focusY.current + (link?.current.lift ?? followLift));
     const far = Math.abs(want - c.target.y) > FOLLOW_SNAP;
     const d = !snapped.current || far ? want - c.target.y : (want - c.target.y) * Math.min(1, dt * 1.5);
     snapped.current = true;
@@ -1190,6 +1222,195 @@ function FocusFollow({
   return null;
 }
 
+/** Whom the present follows — see SpaceWorld's `followWho`. */
+type FollowWho = "auto" | "me" | "latest";
+
+/** The sun's slow drift on the exhibition wall — see Sun. */
+interface SunDrift {
+  /** Minutes for one turn of the azimuth (0 = fixed). */
+  turnMin: number;
+  dir: 1 | -1;
+  /** The elevation swings ± this many degrees around the slider's value … */
+  swingDeg: number;
+  /** … once per this many minutes. */
+  swingMin: number;
+  active: boolean;
+}
+
+/** What the exhibition camera is set to: a point on a sphere around where it looks. */
+interface StagePose {
+  /** Distance from the target (world). */
+  dist: number;
+  /** Angle from straight above, degrees: 0 = looking down, 90 = at the horizon. */
+  polar: number;
+  /** Direction around the target, degrees (where the turn starts). */
+  azimuth: number;
+  /** Where it looks, x and z (y is the time axis, followed). */
+  look: [number, number];
+}
+
+/** The parts of OrbitControls' event API the stage camera listens to (a drag on the rehearsal wall pauses the turn). */
+interface OrbitEvents {
+  addEventListener?: (type: string, fn: () => void) => void;
+  removeEventListener?: (type: string, fn: () => void) => void;
+}
+
+/**
+ * THE EXHIBITION CAMERA. The wall is a landscape: nobody steers it, it turns slowly around the strata (the artist,
+ * 2026-10-30). The pose comes from the "전시 카메라" Leva group — set on the rehearsal wall (same page, so the same saved
+ * values) and read by the exhibition wall; `turnSec` is one turn in seconds (0 = still). The turn is driven here by the
+ * clock, not by OrbitControls' autoRotate, which moves a fixed angle per FRAME (a 40 fps wall would turn slower than the
+ * 60 fps rehearsal). A drag on the rehearsal wall pauses the turn until the pointer is up; the time-axis follow
+ * (SpaceWorld) keeps moving the target and the camera together along y underneath.
+ */
+function StageCamera({
+  controls,
+  pose,
+  turnSec,
+  dir,
+  maxPolarDeg,
+  active,
+  auto,
+  link,
+  status,
+}: {
+  controls: React.MutableRefObject<Orbit | null>;
+  pose: StagePose;
+  turnSec: number;
+  dir: 1 | -1;
+  maxPolarDeg: number;
+  /** Off in the lab, which has its own column to look at. */
+  active: boolean;
+  /** THE AUTO RUN (docs/camera-motion.md): the shot sequence to play by the clock, or null = the pose above, turning. */
+  auto: ShotSequence | null;
+  /** Shared with SpaceWorld's follow: the lift the run wants goes out, the focus's height comes back. */
+  link: React.MutableRefObject<CamLink>;
+  /** A line of the rehearsal wall's readout: which shot is on (null on the exhibition wall, which shows no text). */
+  status: React.MutableRefObject<HTMLDivElement | null>;
+}) {
+  const dragging = useRef(false);
+  /** The next auto frame eases in from where the camera is (a drag ended, a stall, the run switched on). */
+  const resync = useRef(false);
+  useEffect(() => {
+    const o = controls.current as (Orbit & OrbitEvents) | null;
+    if (!o?.addEventListener) return;
+    const start = () => void (dragging.current = true);
+    const end = () => {
+      dragging.current = false;
+      resync.current = true;
+    };
+    o.addEventListener("start", start);
+    o.addEventListener("end", end);
+    return () => {
+      o.removeEventListener?.("start", start);
+      o.removeEventListener?.("end", end);
+    };
+  }, [controls]);
+  // the pose, applied once at mount and whenever a value changes: the camera put on its sphere around the target
+  const [lookX, lookZ] = pose.look;
+  const autoOn = auto !== null;
+  useEffect(() => {
+    if (!active || autoOn) return; // the auto run places the camera itself; switched off, the pose below comes back
+    const o = controls.current;
+    if (!o) return;
+    const polar = THREE.MathUtils.clamp(pose.polar, 0.5, maxPolarDeg) * DEG;
+    const az = pose.azimuth * DEG;
+    const r = Math.max(1, pose.dist);
+    o.target.x = lookX;
+    o.target.z = lookZ;
+    o.object.position.x = o.target.x + r * Math.sin(polar) * Math.sin(az);
+    o.object.position.y = o.target.y + r * Math.cos(polar);
+    o.object.position.z = o.target.z + r * Math.sin(polar) * Math.cos(az);
+    o.update();
+  }, [active, autoOn, controls, pose.dist, pose.polar, pose.azimuth, lookX, lookZ, maxPolarDeg]);
+  // THE AUTO RUN: the driver (lib/parliament/cameraShots.ts) says where the camera is this frame — the clock's shot,
+  // blended, plus whatever difference is still settling after a drag or a stall — and it is put on its sphere around
+  // the followed target (SpaceWorld moves target.y underneath and reads the lift back through `link`). Nothing is
+  // allocated per frame: the input and the driver's results are objects kept here.
+  const driver = useRef<ShotDriver | null>(null);
+  const camState = useRef<CameraState>({ dist: 1, polar: 90, az: 0, lookX: 0, lookZ: 0, lift: 0 });
+  const stepIn = useRef<StepInput | null>(null);
+  const wasAuto = useRef(false);
+  const statusSec = useRef(-1);
+  // the turn: the camera moved around the vertical axis through the target by the time passed (a stall moves it at
+  // most 0.1 s worth, so the landscape never jumps)
+  useFrame((_, dt) => {
+    if (!active) return;
+    const o = controls.current;
+    if (!o) return;
+    if (!auto) {
+      if (wasAuto.current) {
+        wasAuto.current = false;
+        link.current.lift = null; // the follow reads the slider again; the pose effect above puts the camera back
+        if (status.current) status.current.textContent = "";
+      }
+      if (turnSec <= 0 || dragging.current) return;
+      const a = (dir * 2 * Math.PI * Math.min(dt, 0.1)) / turnSec;
+      const dx = o.object.position.x - o.target.x;
+      const dz = o.object.position.z - o.target.z;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      o.object.position.x = o.target.x + dx * c + dz * s;
+      o.object.position.z = o.target.z + dz * c - dx * s;
+      o.update();
+      return;
+    }
+    let d = driver.current;
+    if (!d) {
+      d = driver.current = createShotDriver();
+      // readable from DevTools / a headless check, like `__perfSpans`: the driver (what the run shows this frame) and
+      // the controls (where the camera actually is)
+      const w = window as unknown as { __stageCam?: ShotDriver; __stageControls?: Orbit | null };
+      w.__stageCam = d;
+      w.__stageControls = o;
+    }
+    if (!wasAuto.current) {
+      wasAuto.current = true;
+      if (d.primed) resync.current = true; // switched on again: ease in from where the camera is
+    }
+    if (dragging.current) {
+      resync.current = true; // the pointer steers (rehearsal wall); when it lets go we ease back to the run
+      return;
+    }
+    if (dt > STALL_SEC) resync.current = true;
+    const focusY = link.current.focusY;
+    const inp =
+      stepIn.current ?? (stepIn.current = { seq: auto, t: 0, dt: 0, turnSec, dir, azOffset: pose.azimuth, focusY, maxPolar: maxPolarDeg, resyncFrom: null });
+    inp.seq = auto;
+    inp.t = clockSec(Date.now());
+    inp.dt = dt;
+    inp.turnSec = turnSec;
+    inp.dir = dir;
+    inp.azOffset = pose.azimuth;
+    inp.focusY = focusY;
+    inp.maxPolar = maxPolarDeg;
+    inp.resyncFrom = null;
+    if (resync.current) {
+      resync.current = false;
+      inp.resyncFrom = cameraStateOf(o.object.position, o.target, focusY, d.want.lift, camState.current);
+    }
+    const s = stepShotDriver(d, inp);
+    o.target.x = s.lookX;
+    o.target.z = s.lookZ;
+    link.current.lift = s.lift;
+    placeCamera(o.target, s.dist, s.polar, s.az, o.object.position);
+    o.update();
+    if (status.current) {
+      const sec = Math.ceil(d.cursor.left);
+      if (sec !== statusSec.current) {
+        statusSec.current = sec;
+        status.current.textContent = shotStatus(auto, d);
+      }
+    }
+  });
+  return null;
+}
+
+/** A shot of the auto run from its Leva values (null = switched off). */
+function shotFrom(id: number, on: boolean, dist: number, polar: number, look: [number, number], lift: number, holdSec: number, turn: number): Shot | null {
+  return on ? { id, dist, polar, lookX: look[0], lookZ: look[1], lift, holdSec, turn } : null;
+}
+
 /**
  * The shadow-casting sun. The scene climbs the time axis, so the light (and its shadow camera) follows the orbit
  * target every frame at a fixed direction; the shadow box covers ±`extent` around it.
@@ -1214,6 +1435,7 @@ function Sun({
   intensity,
   softness,
   shadows,
+  drift,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   azimuth: number;
@@ -1221,15 +1443,23 @@ function Sun({
   intensity: number;
   softness: number;
   shadows: boolean;
+  drift: SunDrift;
 }) {
   const light = useRef<THREE.DirectionalLight>(null);
   const extent = 35;
-  useFrame(() => {
+  // THE SUN'S DAY (the artist, 2026-10-30): on the wall the azimuth turns and the elevation swings slowly around the
+  // sliders' values, by the clock (a stall moves it at most 0.1 s worth), from the "전시 카메라" values
+  const driftT = useRef(0);
+  useFrame((_, dt) => {
     const l = light.current;
     const t = controls.current?.target;
     if (!l || !t) return;
-    const az = azimuth * DEG;
-    const el = elevation * DEG;
+    if (drift.active) driftT.current += Math.min(dt, 0.1);
+    const s = driftT.current;
+    const turn = drift.active && drift.turnMin > 0 ? (drift.dir * 360 * s) / (drift.turnMin * 60) : 0;
+    const swing = drift.active && drift.swingDeg > 0 && drift.swingMin > 0 ? drift.swingDeg * Math.sin((2 * Math.PI * s) / (drift.swingMin * 60)) : 0;
+    const az = (azimuth + turn) * DEG;
+    const el = THREE.MathUtils.clamp(elevation + swing, 2, 89) * DEG;
     const d = 80;
     l.position.set(t.x + Math.cos(el) * Math.cos(az) * d, t.y + Math.sin(el) * d, t.z + Math.cos(el) * Math.sin(az) * d);
     l.target.position.set(t.x, t.y, t.z);
@@ -1356,8 +1586,10 @@ function Markers({
               <sphereGeometry args={[big, 16, 12]} />
               <meshBasicMaterial color={color} depthTest={false} transparent opacity={m.stale ? 0.4 : 0.95} />
             </mesh>
-            <mesh position={[m.x, y / 2, m.z]}>
-              <cylinderGeometry args={[0.03, 0.03, Math.max(y, 0.001), 6]} />
+            {/* a unit cylinder scaled to the height: the height in `args` would make r3f build (and throw away) a new
+                geometry every time a marker's time moved — with 22 bots, ~22 geometries a second (2026-10-30) */}
+            <mesh position={[m.x, y / 2, m.z]} scale={[1, Math.max(y, 0.001), 1]}>
+              <cylinderGeometry args={[0.03, 0.03, 1, 6]} />
               <meshBasicMaterial color={color} transparent opacity={0.5} />
             </mesh>
             <mesh position={[m.x, 0.02, m.z]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -1420,7 +1652,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   useEffect(() => {
     if (hideUi && !lab && clk.rate() !== 1) clk.setRate(1);
   }, [hideUi, lab, clk]);
+  useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
+  /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
+  const camLink = useRef<CamLink>({ lift: null, focusY: null });
+  const shotLine = useRef<HTMLDivElement | null>(null);
   const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
@@ -1479,6 +1715,143 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     }),
     { order: lab ? 6 : 0, collapsed: lab },
   );
+  // ── 전시 카메라: the wall is a landscape nobody steers; it turns slowly (the artist, 2026-10-30) — see StageCamera.
+  // Saved on the rehearsal wall, read by the exhibition wall (same page → same storage key). Keys are stable on purpose:
+  // the planned server presets (MacBook → iMac) carry these same names. ──
+  const capturePose = useRef(() => {});
+  const cam = useControls(
+    "전시 카메라",
+    savable("전시 카메라", {
+      camTurnSec: { value: 180, min: 0, max: 900, step: 5, label: "한 바퀴 (초 · 0 = 멈춤)" },
+      camDir: { options: { "한쪽": 1, "반대쪽": -1 }, value: 1, label: "도는 방향" },
+      // DEFAULT FRAMING (the fusion session, 2026-10-30): the fused mass, resin and fossils begin 45–54 slots below the
+      // present (45+ world down); aimed at the present from 28.5 away the 40° view showed ±10 world and the fossil band
+      // never. Target 25 below the present, 75 away at 58°: the present near the top edge, the band near the bottom.
+      camDist: { value: 75, min: 4, max: 200, step: 0.5, label: "거리" },
+      camPolar: { value: 58, min: 1, max: 179, step: 1, label: "높이 각 (0 = 바로 위 · 90 = 지평선)" },
+      camAzimuth: { value: 36, min: 0, max: 360, step: 1, label: "시작 방향 (도)" },
+      camLook: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+      camLift: { value: -25, min: -60, max: 30, step: 0.5, label: "초점 높이 (시간축 위에 더함 · 음수 = 아래)" },
+      "현재 시점 가져오기 (그다음 save)": button(() => capturePose.current()),
+      // THE AUTO RUN (the artist, 2026-10-31: not one fixed angle — the whole fossil, the view from above…): the pose
+      // above is the base shot; these are the others, cycled by the clock — docs/camera-motion.md. Off by default: the
+      // wall starts to move only once this is switched on and saved on the rehearsal wall.
+      "자동 운행 (샷)": folder(
+        {
+          camAuto: { value: false, label: "켜기 (켜고 save → 전시 벽이 돈다)" },
+          camFadeSec: { value: 12, min: 3, max: 60, step: 1, label: "전환 (초)" },
+          camHoldSec: { value: 90, min: 10, max: 900, step: 5, label: "기본 샷 머무는 초" },
+          "샷 1 · 화석 전체뷰": folder(
+            {
+              camShot1On: { value: true, label: "켜기" },
+              camShot1Dist: { value: 140, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot1Polar: { value: 72, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot1Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot1Lift: { value: -48, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot1HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot1Turn: { value: 1, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 2 · 위에서 내려다봄": folder(
+            {
+              camShot2On: { value: true, label: "켜기" },
+              camShot2Dist: { value: 60, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot2Polar: { value: 12, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot2Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot2Lift: { value: 0, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot2HoldSec: { value: 45, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot2Turn: { value: 0.5, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 3 · 현재 가까이": folder(
+            {
+              camShot3On: { value: true, label: "켜기" },
+              camShot3Dist: { value: 30, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot3Polar: { value: 62, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot3Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot3Lift: { value: 1, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot3HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot3Turn: { value: 0.7, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 4": folder(
+            {
+              camShot4On: { value: false, label: "켜기" },
+              camShot4Dist: { value: 75, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot4Polar: { value: 58, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot4Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot4Lift: { value: -25, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot4HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot4Turn: { value: 1, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+          "샷 5": folder(
+            {
+              camShot5On: { value: false, label: "켜기" },
+              camShot5Dist: { value: 75, min: 4, max: 200, step: 0.5, label: "거리" },
+              camShot5Polar: { value: 58, min: 1, max: 179, step: 1, label: "높이 각" },
+              camShot5Look: { value: [0, 0] as [number, number], min: -100, max: 100, step: 0.5, label: "바라보는 자리 (x · z)" },
+              camShot5Lift: { value: -25, min: -120, max: 30, step: 0.5, label: "초점 높이" },
+              camShot5HoldSec: { value: 60, min: 10, max: 900, step: 5, label: "머무는 초" },
+              camShot5Turn: { value: 1, min: 0, max: 2, step: 0.1, label: "자전 배율" },
+            },
+            { collapsed: true },
+          ),
+        },
+        { collapsed: true },
+      ),
+      camFollow: { options: { "자동 (내가 조용하면 최신)": "auto", "나 (개인 탭)": "me", "최신 (봇 포함)": "latest" }, value: "auto" as FollowWho, label: "따라갈 대상" },
+      camQuietSec: { value: 30, min: 5, max: 600, step: 5, label: "자동: 내가 이만큼 조용하면 최신으로 (초)" },
+      "해 (자동 운행)": folder({
+        sunTurnMin: { value: 90, min: 0, max: 480, step: 1, label: "해 방위 한 바퀴 (분 · 0 = 고정)" },
+        sunDir: { options: { "한쪽": 1, "반대쪽": -1 }, value: 1, label: "해 도는 방향" },
+        sunSwing: { value: 10, min: 0, max: 60, step: 1, label: "해 고도 흔들림 (± ° · 0 = 고정)" },
+        sunSwingMin: { value: 30, min: 1, max: 480, step: 1, label: "해 고도 한 주기 (분)" },
+      }),
+    }),
+    { order: 1, collapsed: lab },
+  );
+  // the button: the view as it is now (after dragging / zooming on the rehearsal wall) put into the values above
+  useEffect(() => {
+    capturePose.current = () => {
+      const o = controls.current;
+      if (!o) return;
+      const dx = o.object.position.x - o.target.x;
+      const dy = o.object.position.y - o.target.y;
+      const dz = o.object.position.z - o.target.z;
+      const r = Math.hypot(dx, dy, dz);
+      if (r < 1e-3) return;
+      const half = (x: number) => Math.round(x * 2) / 2;
+      const set = (k: string, val: unknown) => {
+        try {
+          levaStore.setValueAtPath(`전시 카메라.${k}`, val, true);
+        } catch {
+          /* the group is not mounted */
+        }
+      };
+      set("camDist", THREE.MathUtils.clamp(half(r), 4, 200));
+      set("camPolar", Math.round(THREE.MathUtils.clamp(Math.acos(dy / r) / DEG, 1, 179)));
+      set("camAzimuth", Math.round((((Math.atan2(dx, dz) / DEG) % 360) + 360) % 360) % 360);
+      set("camLook", [THREE.MathUtils.clamp(half(o.target.x), -100, 100), THREE.MathUtils.clamp(half(o.target.z), -100, 100)]);
+      set("camLift", THREE.MathUtils.clamp(half(o.target.y - focusRef.current), -60, 30));
+    };
+  }, []);
+  // the shot sequence the auto run plays (docs/camera-motion.md §1): the pose above as the base, then the enabled shots
+  const shotSeq: ShotSequence = {
+    base: { id: 0, dist: cam.camDist, polar: cam.camPolar, lookX: cam.camLook[0], lookZ: cam.camLook[1], lift: cam.camLift, turn: 1, holdSec: cam.camHoldSec },
+    shots: [
+      shotFrom(1, cam.camShot1On, cam.camShot1Dist, cam.camShot1Polar, cam.camShot1Look, cam.camShot1Lift, cam.camShot1HoldSec, cam.camShot1Turn),
+      shotFrom(2, cam.camShot2On, cam.camShot2Dist, cam.camShot2Polar, cam.camShot2Look, cam.camShot2Lift, cam.camShot2HoldSec, cam.camShot2Turn),
+      shotFrom(3, cam.camShot3On, cam.camShot3Dist, cam.camShot3Polar, cam.camShot3Look, cam.camShot3Lift, cam.camShot3HoldSec, cam.camShot3Turn),
+      shotFrom(4, cam.camShot4On, cam.camShot4Dist, cam.camShot4Polar, cam.camShot4Look, cam.camShot4Lift, cam.camShot4HoldSec, cam.camShot4Turn),
+      shotFrom(5, cam.camShot5On, cam.camShot5Dist, cam.camShot5Polar, cam.camShot5Look, cam.camShot5Lift, cam.camShot5HoldSec, cam.camShot5Turn),
+    ].filter((s): s is Shot => s !== null),
+    fadeSec: cam.camFadeSec,
+  };
   const tAxis = useControls(
     "시간축",
     savable("시간축", {
@@ -2194,6 +2567,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
   const perf = rnd.perfMode;
+  // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
+  // ×1.5 a full-screen wall is 3000×1700 and the GPU falls behind; the main thread then stalls (twice a second, when the
+  // worker's new buffers are uploaded) until the frame is done, which starved the room's sound (2026-10-29)
+  const wall = hideUi && !lab;
+  // The exhibition wall follows the rehearsal wall's 렌더링 group (the artist, 2026-10-31: "리허설보다 글로벌 해상도가 훅
+  // 떨어진다"); the forced dpr 1 / no shadows of 10/29 is gone now that the per-tick full-buffer uploads are fixed.
   const dprMax = perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
   const aoHalfRes = perf || rnd.halfRes;
   const aoQuality = perf ? ("performance" as const) : rnd.quality;
@@ -2274,12 +2653,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
 
   return (
-    <div className="relative h-full w-full" style={{ background: theme.bg }}>
+    // the wall (ui=0) shows no cursor either: nothing on it but the strata
+    <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: true }}>
+      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} />
+        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
@@ -2291,6 +2671,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           showEdges={c.showEdges}
           wear={c.wear}
           follow={c.follow}
+          followLift={cam.camLift}
+          link={camLink}
+          followWho={cam.camFollow as FollowWho}
+          quietSec={cam.camQuietSec}
           controls={controls}
           onStats={setStats}
           nature={natureParams}
@@ -2309,8 +2693,20 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           clock={clk}
           local={lab}
         />
-        <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus} speed={v.focusSpeed} resetTick={focusResets} />
-        <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} />
+        {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
+        <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} />
+        <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
+        <StageCamera
+          controls={controls}
+          pose={{ dist: cam.camDist, polar: cam.camPolar, azimuth: cam.camAzimuth, look: cam.camLook }}
+          turnSec={cam.camTurnSec}
+          dir={cam.camDir as 1 | -1}
+          maxPolarDeg={isV2 ? 179.5 : 89.8}
+          active={!lab}
+          auto={cam.camAuto ? shotSeq : null}
+          link={camLink}
+          status={shotLine}
+        />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
@@ -2335,6 +2731,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
         </div>
+        {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
+        <div ref={shotLine} />
         <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
         <div>
           {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · baked {stats.baked} chunk(s) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{perf ? " · PERF MODE" : ""}

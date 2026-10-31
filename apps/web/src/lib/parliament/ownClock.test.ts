@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { geoAge, geoYears } from "@/lib/stratum/geoClock";
 import { DEFAULT_FOLD, DEFAULT_WEATHER } from "./index";
+import { DEFAULT_BOXES } from "./seeds";
 import { layerDecayOf } from "./spaceModel";
 import { sedimentShare } from "./natureHistory";
 
@@ -20,7 +21,7 @@ describe("own clock: the same life whenever a thing was made", () => {
   });
 
   it("a layer's corrosion (the one clock of the resin) is the same on day 1 and day 3", () => {
-    const spu = DEFAULT_FOLD.secPerUnit ?? 20;
+    const spu = DEFAULT_BOXES.secPerUnit;
     const d1 = layerDecayOf(1200, spu, DEFAULT_WEATHER, DEFAULT_FOLD.tauSlabYears)(0);
     const kDay3 = (3 * DAY) / spu;
     const d3 = layerDecayOf(3 * DAY + 1200, spu, DEFAULT_WEATHER, DEFAULT_FOLD.tauSlabYears)(kDay3);

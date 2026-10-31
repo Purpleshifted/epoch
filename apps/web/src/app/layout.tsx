@@ -18,14 +18,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://intersection.local/visual"),
   title: {
-    default: "Intersection",
-    template: "%s · Intersection",
+    default: "Stratum of the Anthropocene",
+    template: "%s · Stratum of the Anthropocene",
   },
-  description:
-    "인터섹션(agar.io 기반 실험)의 Next.js 마이그레이션 베이스. 개인/글로벌 뷰 라우팅만 우선 구성했습니다.",
-  applicationName: "Intersection",
+  description: "인류세의 지층 — 관객의 삶이 남긴 흔적이 미래의 지층으로 쌓이는 웹 작품.",
+  applicationName: "Stratum of the Anthropocene",
   icons: {
     icon: "/globe.svg",
   },
