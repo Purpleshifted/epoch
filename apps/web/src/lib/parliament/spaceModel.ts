@@ -1222,6 +1222,10 @@ export class SpaceModel {
         // BY DEPTH: a chunk whose top lies below the end of the fusion is complete — final at once, nothing to age
         const finalNow = !!fuse.byDepth && w.c1 < kNow - fuse.byDepth.end;
         const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: finalNow, agedT: this.t, boxes, shade, nature: null, src };
+        // a LEAVING chunk may carry a STALE mesh — at a fast rate every chunk is stale, built when it was shallow and
+        // barely fused — and sealing that as final left next to nothing below the cut (the artist, 2026-10-31 night:
+        // "nothing remains"): rendered once from its material, at its present depth, before it is kept
+        if (!fresh) this.renderBaked(bk, fuse, layerDecay);
         this.baked.set(w.c0, bk);
         this.persist(bk);
         this.fuseChunks.delete(w.c0);
