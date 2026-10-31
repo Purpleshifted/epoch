@@ -366,7 +366,13 @@ export class SpaceModel {
   /** The latest time before the last reset: a world that starts again far earlier is a new world (memo cleared). */
   private tBeforeReset = 0;
   /** The decay each part had in the fused mass as last drawn (computeFuse): it is absorbed only as far as that. */
-  private fusedAt = new WeakMap<Box, number>();
+  /**
+   * By the part's STABLE key (boxKey), not its object: a seed's parts are regenerated whenever its key changes (mass
+   * grown a quarter, a slot added, the LOD level flipped as the camera moves) and an identity map forgot every
+   * absorbed part — they popped back until the chunk's next rebuild (the artist, 2026-10-31 night: parts in and
+   * below the present appearing and vanishing)
+   */
+  private fusedAt = new Map<string, number>();
   /** The wear config the parts were last worn with (the baked layers age by it). */
   private wearCfg: WearConfig | null = null;
   /** For the pipes' corrosion in the fuse (computeParts' present thickness and slab wear; the water config is kept below). */
@@ -664,6 +670,7 @@ export class SpaceModel {
     this.version++;
     this.foldState = null;
     this.partCache.clear();
+    this.fusedAt.clear();
     this.chunks.clear();
     this.drainKept = null;
     this.walkKept = null;
@@ -835,7 +842,7 @@ export class SpaceModel {
       const d = effDecay(1 - survival(b), b.slot, depthD);
       if (isSkeleton(b, d, fu)) return false;
       // only as far as the mass that takes its place is already drawn (it is built a few chunks at a time)
-      const f = fusedShare(Math.min(d, this.fusedAt.get(b) ?? 0), fu);
+      const f = fusedShare(Math.min(d, this.fusedAt.get(boxKey(b)) ?? 0), fu);
       return f > 0 && partHash(b) < Math.min(1, f * 1.6);
     };
     const shown = worn.filter((b) => !absorbed(b));
@@ -1253,8 +1260,8 @@ export class SpaceModel {
       });
       this.fuseBuilt++;
       this.fuseChunks.set(w.c0, { key: w.key, mesh, built: this.fuseBuilt });
-      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
-      for (const tb of w.tubes) if (tb.box && tb.k >= w.c0 && tb.k <= w.c1) this.fusedAt.set(tb.box, tb.decay);
+      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(boxKey(e.b), e.d);
+      for (const tb of w.tubes) if (tb.box && tb.k >= w.c0 && tb.k <= w.c1) this.fusedAt.set(boxKey(tb.box), tb.decay);
     }
     let pending = todo.length > perCall;
     // WORK MODE (rebake): the baked layers rendered again with the current look, within what is left of this call's

@@ -2295,7 +2295,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
                 iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
                 smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
                 natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
-                bake: { value: false, label: "옛 층 굽기 (기록 창 밖의 층을 구워 보존 · 저장; 끄면 기록 창만 남고 창 밖은 사라짐)", render: () => isV2 },
+                bake: { value: true, label: "옛 층 굽기 (기록 창 밖의 층을 구워 보존 · 저장; 끄면 기록 창만 남고 창 밖은 사라짐)", render: () => isV2 },
                 summon: { value: 0, min: 0, max: 600, step: 10, label: "구운 층 소환 거리 (카메라가 보는 곳에서 ±단; 0 = 전부 늘 올림)", render: (get) => isV2 && get(BAKE_PATH) },
               },
               { collapsed: true },
