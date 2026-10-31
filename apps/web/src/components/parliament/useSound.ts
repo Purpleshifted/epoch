@@ -202,7 +202,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     if (!engine) return;
     const id = setInterval(() => {
       const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (♪ 버튼)" : engine.running ? "재생 중" : "클릭하면 시작";
-      setStatus(`♪ 헤드셋 (모바일 뷰) · ${why}${engine.running ? ` · → ${engine.output}` : ""}`);
+      setStatus(`♪ 헤드셋 (모바일 뷰) · ${why}${engine.running ? ` · → ${engine.output}` : ""}${engine.limiterDb < -1 ? ` · 리미터 ${engine.limiterDb.toFixed(1)} dB` : ""}`);
     }, 1000);
     return () => clearInterval(id);
   }, [engine]);

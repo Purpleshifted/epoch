@@ -272,6 +272,8 @@ export class SoundEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private limiter!: DynamicsCompressorNode;
+  /** The limiter's reduction (dB), held and released at 2 dB/s, for the status line. */
+  private limHold = 0;
   /** A test hook (window.__soundEngine.forceArrival()): the next bar begins an arrival cadence as if I had just started building with others. */
   private forceTogether = false;
   private outputLine = "기본 출력";
@@ -539,18 +541,19 @@ export class SoundEngine {
       this.voiceBus.gain.value = 1;
       this.voiceBus.connect(this.dry);
       // three rooms
-      const room = (seconds: number, decay: number, taps: number, bright: number, level: number) => {
+      const room = (seconds: number, decay: number, taps: number, bright: number, level: number, bypassDull = false) => {
         const g = ctx.createGain();
         g.gain.value = level;
         const v = ctx.createConvolver();
         v.buffer = impulse(ctx, seconds, decay, taps, bright);
-        g.connect(v).connect(this.dull);
+        g.connect(v).connect(bypassDull ? this.master : this.dull);
         return g;
       };
       this.rooms = {
         open: room(1.2, 0.35, 0, 0.25, 0.12),
         concrete: room(1.6, 0.5, 6, 0.9, 0),
-        hall: room(2.4, 1.0, 0, 0.5, 0), // 4.5 s → 3 s (A1) → 2.4 s (A5): the convolver's cost is its length
+        // the hall is the ARRIVAL's opening: it must not be dulled by the concrete the arrival happens on (10/31)
+        hall: room(2.4, 1.0, 0, 0.5, 0, true), // 4.5 s → 3 s (A1) → 2.4 s (A5): the convolver's cost is its length
       };
       // the hall never sleeps: a whisper of noise keeps its convolver running, so opening it on an arrival does not
       // start a cold convolution (the burst the artist heard as lag)
@@ -618,7 +621,9 @@ export class SoundEngine {
       const wg = ctx.createGain();
       wg.gain.value = 0;
       wn.connect(wf).connect(wg);
-      wg.connect(this.dry); // dry only: the wave into the hall doubled the convolver's work at the arrival
+      // the wave opens 300 → 2400 Hz, but the dry bus is dulled to ~750 Hz on concrete, where arrivals happen — the
+      // artist heard the wave "pressed" (10/31): it goes straight to the master, around the building's dullness
+      wg.connect(this.master);
       wn.start();
       this.wave = { filter: wf, gain: wg };
       this.afterlifeRoom(this.params.afterlifeTail); // the afterlife's long room, ready (no cold start at a death)
@@ -693,6 +698,11 @@ export class SoundEngine {
     return this.outputLine;
   }
 
+  /** How much the limiter has been pressing lately (dB, ≤ 0). */
+  get limiterDb(): number {
+    return this.limHold;
+  }
+
   private motifOf(id: string): Motif {
     let m = this.motifs.get(id);
     if (!m) {
@@ -753,6 +763,7 @@ export class SoundEngine {
     const t = ctx.currentTime;
     const dt = Math.max(0, Math.min(2, t - this.lastUpdate));
     this.lastUpdate = t;
+    this.limHold = Math.min(this.limiter.reduction, this.limHold + 2 * dt);
     // the end of a life: the afterlife plays once and fades itself; a new life brings the master back
     if (params.dead && !this.wasDead) this.startAfterlife(t);
     if (!params.dead && this.wasDead) this.endAfterlife(t);

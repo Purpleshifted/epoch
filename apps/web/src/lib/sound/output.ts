@@ -111,10 +111,10 @@ export function onOutputChange(role: OutputRole, cb: () => void): () => void {
   return () => window.removeEventListener("storage", h);
 }
 
-/** The limiter after a master: −3 dB ceiling, hard ratio, fast attack — the sum never clips. */
+/** The limiter after a master: a −1 dB ceiling (−3 until 10/31: it pressed the mix), hard ratio, fast attack — the sum never clips. */
 export function makeLimiter(ctx: BaseAudioContext): DynamicsCompressorNode {
   const l = ctx.createDynamicsCompressor();
-  l.threshold.value = -3;
+  l.threshold.value = -1;
   l.knee.value = 0;
   l.ratio.value = 20;
   l.attack.value = 0.003;
