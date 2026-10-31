@@ -14,7 +14,7 @@
 import { withoutWear } from "./fold";
 import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { geoAge } from "@/lib/stratum/geoClock";
+import { geoYears } from "@/lib/stratum/geoClock";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -153,9 +153,10 @@ export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, s
 export function layerDecayOf(tQ: number, spu: number, w: WeatherConfig, tauSlabYears: number): (k: number) => number {
   const onset = rotOnsetSlots(w);
   const tau = tauSlabYears * 0.75 * w.concreteLife;
+  const yNow = geoYears(tQ);
   return (k: number) => {
     const laid = Math.min(tQ, (k + 1 + onset) * spu);
-    const A = geoAge(tQ, laid) * w.timeScale;
+    const A = Math.max(0, yNow - geoYears(laid)) * w.timeScale;
     return 1 - Math.exp(-A / tau);
   };
 }
@@ -248,6 +249,13 @@ export interface FuseInput {
   box: BoxConfig;
   weather: WeatherConfig;
   fuse: FuseConfig;
+  /**
+   * THE IMMUTABLE LAYER (the artist, 2026-10-31 night): three bands — the present (the top slots), the layer where the
+   * processes run (gathering → rot → fusion → resin, on the clock), and from `immutable` slots below the present
+   * down, nothing changes: a chunk whose top crosses that line is baked as it is then (rendered once from its
+   * material if its mesh is stale) and final. Nothing else is ever baked. Absent = V1 (baked at the window's cut).
+   */
+  immutable?: number;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
@@ -473,7 +481,7 @@ export class SpaceModel {
           agedT: r.t0,
           boxes: r.boxes,
           shade: r.shade,
-          nature: r.nature,
+          nature: null,
           src: { parts: r.parts, basis: r.basis, decay: r.decay, standing: r.standing, skeleton: r.parts.map(() => false), tubes: r.tubes ?? [], history: r.history, x0: r.x0, z0: r.z0, nx: r.nx, nz: r.nz, unit: r.unit, sediment: r.sediment, t0: r.t0, cfgKey: "", mesh: r.mesh },
         });
         n++;
@@ -510,7 +518,7 @@ export class SpaceModel {
     const wc = this.waterCfg, spu = this.wearCfg?.secPerUnit ?? 0;
     if (!wc || !w.strata || wc.pipeLife <= 0 || !(spu > 0)) return 0;
     const laid = Math.min(this.t, (k + 1 + this.presentSlots) * spu);
-    const A = geoAge(this.t, laid) * w.timeScale;
+    const A = Math.max(0, geoYears(this.t) - geoYears(laid)) * w.timeScale;
     return 1 - Math.exp(-A / (this.foldTau * w.steelLife * wc.pipeLife));
   }
 
@@ -800,7 +808,7 @@ export class SpaceModel {
     const pipeDecay = (k: number): number => {
       if (!input.wear || !w.strata || input.water.pipeLife <= 0) return 0;
       const laid = Math.min(t, (k + 1 + presentSlots) * box.secPerUnit);
-      const A = geoAge(t, laid) * w.timeScale;
+      const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
       return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.steelLife * input.water.pipeLife));
     };
     const worn = wm ? wearParts(built, seeds, t, wearCfg, wm) : built;
@@ -898,7 +906,7 @@ export class SpaceModel {
       const decayOf = (k: number): number => {
         if (!input.wear || !w.strata || life <= 0) return 0;
         const laid = Math.min(t, (k + 1 + presentSlots) * box.secPerUnit);
-        const A = geoAge(t, laid) * w.timeScale;
+        const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
         return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.concreteLife * life));
       };
       return { anchored, decayOf };
@@ -1021,7 +1029,8 @@ export class SpaceModel {
     const parts: { pos: Float32Array; col: Float32Array }[] = [];
     const keep = new Set<number>();
     // the baked chunks' points, as they were (in and below the window)
-    for (const bk of this.baked.values()) if (bk.nature) parts.push(bk.nature);
+    // the baked chunks draw NO vegetation: below the surface there is none (the artist, 2026-10-31: a chunk baked
+    // alive left its points as a second band of greenery deep in the column)
     let li = 0;
     for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK, li++) {
       if (this.baked.has(c0)) continue;
@@ -1139,7 +1148,13 @@ export class SpaceModel {
     /** About to leave the history window: the two chunks just above the cut. */
     // … and so are the chunks about to fall below the vegetation window (kA, which follows the focus): a live chunk
     // outside it is not asked for any more, and would vanish with its mass
-    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
+    const immK = input.immutable !== undefined ? kNow - input.immutable : -Infinity;
+    // (the immutable line is only WHERE a chunk is baked — not a build priority: giving the chunks above it the first
+    // turn starved the band where the fusion shows, 2026-10-31 night)
+    // V2: the chunks that have just crossed the immutable line come first — built fresh, baked on the next call, gone
+    // from the list. (With the window's cut as the criterion they were first forever: not bakeable above the line,
+    // stale every slot, and the band where the fusion shows never got a turn — the artist, 2026-11-01)
+    const leaving = input.immutable !== undefined ? (w: Want) => w.c1 < immK : (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
     // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
     // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
     // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,
@@ -1152,15 +1167,20 @@ export class SpaceModel {
         const ch = this.fuseChunks.get(w.c0);
         if (!ch) continue;
         const fresh = ch.key === w.key;
-        if (!fresh && !leaving(w)) continue;
-        let done = fresh && w.c1 < doneK;
-        if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
-        if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
-        if (!leaving(w) && !done) continue;
+        if (input.immutable !== undefined) {
+          // THE IMMUTABLE LAYER: baked once its top lies below the line, as it is then; nothing else, ever
+          if (w.c1 >= immK) continue;
+        } else {
+          // V1: about to leave the history window, or every part fully decayed well below the present
+          if (!fresh && !leaving(w)) continue;
+          let done = fresh && w.c1 < doneK;
+          if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
+          if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
+          if (!leaving(w) && !done) continue;
+        }
         const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
         const shade = new Float32Array(boxes.length);
         boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
-        const nat = this.chunks.get(w.c0);
         // what the chunk was made from — its material: rendered again with another look (a paused view), and read
         // again at a later present (the past keeps ageing until it is a fossil)
         const ageK0 = w.c0 - padSlots - 3, ageK1 = w.c1 + padSlots + 8;
@@ -1181,7 +1201,9 @@ export class SpaceModel {
           t0: this.t,
           cfgKey: JSON.stringify(fuse),
         };
-        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: false, agedT: this.t, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null, src };
+        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: input.immutable !== undefined, agedT: this.t, boxes, shade, nature: null, src };
+        // below the immutable line the mesh must be the chunk's final look: rendered once from its material if stale
+        if (input.immutable !== undefined && !fresh) this.renderBaked(bk, fuse, layerDecay);
         this.baked.set(w.c0, bk);
         this.persist(bk);
         this.fuseChunks.delete(w.c0);
