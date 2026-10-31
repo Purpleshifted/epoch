@@ -52,6 +52,8 @@ export interface GlobalParams {
   drive: number;
   /** Presence counted over this window (exhibition seconds) before the latest time. */
   windowSec: number;
+  /** The heaviest presences that get a voice each bar (everybody keeps their ticks): the render thread's budget. */
+  maxVoices: number;
 }
 
 export const DEFAULT_GLOBAL: GlobalParams = {
@@ -68,6 +70,7 @@ export const DEFAULT_GLOBAL: GlobalParams = {
   spread: 0.8,
   drive: 2.5,
   windowSec: 600,
+  maxVoices: 14,
 };
 
 export interface Presence {
@@ -174,9 +177,20 @@ const MUST_FINISH = 0.5;
 const TICK_MS = 80;
 /** A person's channel is dropped after this many bars without them. */
 const CHANNEL_IDLE_BARS = 8;
+/**
+ * Hard caps on what is alive on the render thread (2026-10-31): on the artist's loaded machine the wall's audio
+ * clock fell to 0.28× real time and notes piled up (2673 chains alive) — a loop: more nodes, slower clock, more
+ * outstanding notes. Beyond these nothing new is scheduled (counted in stats.shed); the music thins, never stalls.
+ */
+const MAX_LIVE_VOICES = 360; // 15 voices at a 2 s bar keep ~230 alive (3.5 s of them not yet started): room above that, a wall below the runaway
+const MAX_LIVE_TICKS = 120;
+/** A note's tail after its length (s): the gain is at ~5 % by then; shorter tails = fewer live chains. */
+const VOICE_TAIL = 1.8;
 
 /** One person's place in the room: a panner for their voice and one for their ticks, reused bar after bar. */
 interface Channel {
+  /** The voice's colour: one low-pass per person at three times their register (was one per note). */
+  filter: BiquadFilterNode;
   voice: StereoPannerNode;
   tick: StereoPannerNode;
   seenBar: number;
@@ -186,7 +200,10 @@ interface Channel {
 interface PendingBar {
   bar: number;
   start: number;
+  /** Heaviest first (presences() sorts them). */
   people: Presence[];
+  /** How many of them get a voice this bar. */
+  voices: number;
   i: number;
 }
 
@@ -202,6 +219,16 @@ export interface GlobalStats {
   maxSliceMs: number;
   meanSliceMs: number;
   channels: number;
+  /** Audio nodes alive now: voice chains (osc + filter + gain) and tick chains (buffer + filter + gain) — the render thread's load. */
+  liveVoices: number;
+  liveTicks: number;
+  /** Notes and ticks scheduled in total. */
+  notes: number;
+  ticks: number;
+  /** Notes and ticks NOT scheduled because the caps were reached. */
+  shed: number;
+  /** The audio clock's speed against the wall clock over the last seconds (1 = healthy; below ~0.9 the render thread is starved). */
+  clockSpeed: number;
 }
 
 export class GlobalEngine {
@@ -230,7 +257,8 @@ export class GlobalEngine {
   private channels = new Map<string, Channel>();
   private homeKeys = new Map<string, WorldKey>();
   private slices = { n: 0, sumMs: 0 };
-  private _stats: GlobalStats = { bars: 0, lateBars: 0, minLeadSec: Infinity, maxSliceMs: 0, meanSliceMs: 0, channels: 0 };
+  private _stats: GlobalStats = { bars: 0, lateBars: 0, minLeadSec: Infinity, maxSliceMs: 0, meanSliceMs: 0, channels: 0, liveVoices: 0, liveTicks: 0, notes: 0, ticks: 0, shed: 0, clockSpeed: 1 };
+  private clockRef: { ctx: number; wall: number } | null = null;
   /** Runs everything but plays nothing (?sound=mute: measuring in a Claude browser without the artist's speakers). */
   private readonly silent: boolean;
 
@@ -350,6 +378,7 @@ export class GlobalEngine {
     // the channels of people gone for a while
     for (const [o, ch] of this.channels) {
       if (ch.seenBar < this.planned - CHANNEL_IDLE_BARS) {
+        ch.filter.disconnect();
         ch.voice.disconnect();
         ch.tick.disconnect();
         this.channels.delete(o);
@@ -402,9 +431,13 @@ export class GlobalEngine {
       const voice = ctx.createStereoPanner();
       voice.connect(this.lp);
       voice.connect(this.hallSend);
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = Math.min(2000, 3 * midiToHz(this.motifOf(o).base - 12 * this.params.octavesDown));
+      filter.connect(voice);
       const tick = ctx.createStereoPanner();
       tick.connect(this.tickBus);
-      ch = { voice, tick, seenBar: bar };
+      ch = { filter, voice, tick, seenBar: bar };
       this.channels.set(o, ch);
     }
     ch.seenBar = bar;
@@ -412,6 +445,10 @@ export class GlobalEngine {
   }
 
   private voiceNote(freq: number, at: number, dur: number, level: number, out: AudioNode): void {
+    if (this._stats.liveVoices >= MAX_LIVE_VOICES) {
+      this._stats.shed++;
+      return;
+    }
     const ctx = this.ctx!;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, at);
@@ -421,17 +458,23 @@ export class GlobalEngine {
     o.type = "sawtooth";
     o.frequency.value = freq;
     o.detune.value = (Math.random() * 2 - 1) * 12;
-    const f = ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = freq * 3;
-    o.connect(f).connect(g).connect(out);
-    o.onended = () => g.disconnect(); // no timer per note: the chain is let go when the oscillator ends
+    o.connect(g).connect(out); // two nodes a note; the colour (low-pass) is the person's channel
+    this._stats.notes++;
+    this._stats.liveVoices++;
+    o.onended = () => {
+      g.disconnect(); // no timer per note: the chain is let go when the oscillator ends
+      this._stats.liveVoices--;
+    };
     o.start(at);
-    o.stop(at + dur + 2.5);
+    o.stop(at + dur + VOICE_TAIL);
   }
 
   /** A rhythm trace: a short burst of noise around `freq`. */
   private tickNote(freq: number, at: number, level: number, out: AudioNode): void {
+    if (this._stats.liveTicks >= MAX_LIVE_TICKS) {
+      this._stats.shed++;
+      return;
+    }
     const ctx = this.ctx!;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, at);
@@ -445,7 +488,12 @@ export class GlobalEngine {
     bp.frequency.value = freq;
     bp.Q.value = 2.5;
     src.connect(bp).connect(g).connect(out);
-    src.onended = () => g.disconnect();
+    this._stats.ticks++;
+    this._stats.liveTicks++;
+    src.onended = () => {
+      g.disconnect();
+      this._stats.liveTicks--;
+    };
     src.start(at);
     src.stop(at + 0.4);
   }
@@ -455,6 +503,14 @@ export class GlobalEngine {
     if (!ctx || ctx.state !== "running" || !this.epochMs) return;
     const p = this.params;
     const now = ctx.currentTime;
+    // the audio clock against the wall clock: a starved render thread shows here before anything is heard
+    const wall = performance.now();
+    if (!this.clockRef) this.clockRef = { ctx: now, wall };
+    else if (wall - this.clockRef.wall >= 2000) {
+      const speed = (now - this.clockRef.ctx) / ((wall - this.clockRef.wall) / 1000);
+      this._stats.clockSpeed = +(this._stats.clockSpeed * 0.5 + speed * 0.5).toFixed(3);
+      this.clockRef = { ctx: now, wall };
+    }
     const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
     // bars that started before they were even queued are lost (a stall longer than the lookahead)
     if (this.planned < 0) this.planned = bar;
@@ -468,7 +524,9 @@ export class GlobalEngine {
       const nextStart = start + (next - bar) * p.barSec;
       if (nextStart > now + LOOKAHEAD) break;
       this.planned = next;
-      this.pending.push({ bar: next, start: nextStart, people: this.present.slice(), i: 0 });
+      // the heaviest presences get a voice (the budget shrinks while the clock is slow); everybody gets their ticks
+      const budget = Math.max(2, Math.round(p.maxVoices * Math.max(0.4, Math.min(1, this._stats.clockSpeed))));
+      this.pending.push({ bar: next, start: nextStart, people: this.present.slice(), voices: Math.min(budget, this.present.length), i: 0 });
     }
     // plan a few people per tick; a bar close to its start is finished at once
     if (!this.pending.length) return;
@@ -484,7 +542,7 @@ export class GlobalEngine {
       }
       const urgent = lead < MUST_FINISH;
       while (pb.i < pb.people.length && (budget > 0 || urgent)) {
-        this.planVoice(pb.people[pb.i], pb.bar, pb.start);
+        this.planVoice(pb.people[pb.i], pb.bar, pb.start, pb.i < pb.voices);
         pb.i++;
         budget--;
       }
@@ -500,8 +558,8 @@ export class GlobalEngine {
     this._stats.maxSliceMs = Math.max(this._stats.maxSliceMs, ms);
   }
 
-  /** One person's notes and ticks for bar `bar`, starting at `barStart` on the audio clock. */
-  private planVoice(pr: Presence, bar: number, barStart: number): void {
+  /** One person's notes (if within the voice budget) and ticks for bar `bar`, starting at `barStart` on the audio clock. */
+  private planVoice(pr: Presence, bar: number, barStart: number, withVoice: boolean): void {
     const p = this.params;
     const ch = this.channelOf(pr.o, bar);
     ch.voice.pan.setTargetAtTime(panOf(pr, this.extent, p.spread), barStart, 0.3);
@@ -509,8 +567,8 @@ export class GlobalEngine {
     const m = this.motifOf(pr.o);
     const w = 0.3 + 0.7 * pr.weight;
     const down = 12 * p.octavesDown;
-    // the mass: everybody, every bar, pushed down, in their key (or their building's)
-    for (const n of realize(m, this.keyOf(pr), null, 0, bar)) this.voiceNote(midiToHz(n.pitch - down, m.colour), barStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, ch.voice);
+    // the mass: the heaviest, every bar, pushed down, in their key (or their building's)
+    if (withVoice) for (const n of realize(m, this.keyOf(pr), null, 0, bar)) this.voiceNote(midiToHz(n.pitch - down, m.colour), barStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, ch.filter);
     // the traces: their rhythm cell, every bar when walking, every other bar when still
     if (pr.speed > 0.5 || bar % 2 === 0) {
       const f = midiToHz(m.base - 12);

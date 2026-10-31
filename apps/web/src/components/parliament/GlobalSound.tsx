@@ -48,13 +48,14 @@ export default function GlobalSound() {
       spread: { value: DEFAULT_GLOBAL.spread, min: 0, max: 1, step: 0.05, label: "좌우 퍼짐 (건물 = 덩어리)" },
       barSec: { value: DEFAULT_GLOBAL.barSec, min: 1, max: 4, step: 0.1, label: "한 마디 (s) — 헤드셋과 같은 그리드" },
       windowSec: { value: DEFAULT_GLOBAL.windowSec, min: 60, max: 3600, step: 30, label: "있다고 치는 시간 창 (s)" },
+      maxVoices: { value: DEFAULT_GLOBAL.maxVoices, min: 2, max: 40, step: 1, label: "목소리를 내는 사람 수 (무거운 순; 틱은 모두) — 오디오 스레드 예산" },
     }),
     { collapsed: true, order: 5 },
   ) as unknown as GlobalParams & { on: boolean };
-  const { on, master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec } = c;
+  const { on, master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec, maxVoices } = c;
   const params = useMemo<GlobalParams>(
-    () => ({ master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec }),
-    [master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec],
+    () => ({ master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec, maxVoices }),
+    [master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, spread, barSec, windowSec, maxVoices],
   );
 
   const log = useWorld(undefined, 3000);
@@ -120,7 +121,7 @@ export default function GlobalSound() {
       if (bare) return;
       const d = engine.debug;
       const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : engine.running ? "재생 중" : "클릭하면 시작";
-      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar}${engine.stats.lateBars ? ` · 빠진 마디 ${engine.stats.lateBars}` : ""} · → ${engine.output}${silent ? " · 무음 측정" : ""}`);
+      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar}${engine.stats.lateBars ? ` · 빠진 마디 ${engine.stats.lateBars}` : ""}${engine.stats.clockSpeed < 0.95 ? ` · 오디오 클럭 ${engine.stats.clockSpeed.toFixed(2)}× (느림)` : ""}${engine.stats.shed ? ` · 덜어냄 ${engine.stats.shed}` : ""} · → ${engine.output}${silent ? " · 무음 측정" : ""}`);
     }, 1000);
     return () => clearInterval(id);
   }, [engine, log, fold, params, bare, silent]);
