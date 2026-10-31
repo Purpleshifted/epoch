@@ -43,7 +43,7 @@ export default function GlobalSound() {
       perVoice: { value: DEFAULT_GLOBAL.perVoice, min: 0, max: 0.4, step: 0.005, label: "한 사람의 낮은 목소리" },
       octavesDown: { value: DEFAULT_GLOBAL.octavesDown, min: 0, max: 4, step: 1, label: "목소리를 내리는 옥타브" },
       tickLevel: { value: DEFAULT_GLOBAL.tickLevel, min: 0, max: 1, step: 0.01, label: "리듬 흔적 (틱)" },
-      hall: { value: DEFAULT_GLOBAL.hall, min: 0, max: 1, step: 0.01, label: "홀 (2.5 s)" },
+      hall: { value: DEFAULT_GLOBAL.hall, min: 0, max: 1, step: 0.01, label: "방 (짧은 합성 잔향, ~1 s)" },
       drive: { value: DEFAULT_GLOBAL.drive, min: 1, max: 8, step: 0.1, label: "포화 (1 = 없음)" },
       barSec: { value: DEFAULT_GLOBAL.barSec, min: 1, max: 4, step: 0.1, label: "한 마디 (s) — 헤드셋과 같은 그리드" },
       windowSec: { value: DEFAULT_GLOBAL.windowSec, min: 60, max: 3600, step: 30, label: "있다고 치는 시간 창 (s)" },
