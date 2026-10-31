@@ -15,7 +15,7 @@ import { withoutWear } from "./fold";
 import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoAge } from "@/lib/stratum/geoClock";
-import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, depthDecayOf, effDecay, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, survivalFromBasis, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed, type WearBasis, type WearConfig } from "./seeds";
@@ -593,7 +593,7 @@ export class SpaceModel {
     for (let i = 0; i < s.parts.length; i++) {
       const bs = s.basis[i];
       if (!bs) continue;
-      const d = quant20(1 - survivalFromBasis(s.parts[i], bs, this.t, cfg));
+      const d = quant20(effDecay(1 - survivalFromBasis(s.parts[i], bs, this.t, cfg), s.parts[i].slot, fuse.byDepth ? layerDecay : undefined));
       if (d !== s.decay[i]) {
         s.decay[i] = d;
         changed = true;
@@ -816,10 +816,11 @@ export class SpaceModel {
     // a part being fused is absorbed into the mass, little by little (by a fixed hash): the mass takes its place.
     // Steel stays (it sticks out of the mass), and so does the skeleton until late (its form kept inside the mass).
     const fu = input.fuse;
+    const depthD = depthDecayOf(Math.floor(t / box.secPerUnit), fu);
     const absorbed = (b: Box) => {
       // the steel stays out of the mass (it rusts and falls) — but for the share that fuses as fossil
       if (!survival || !fu.enabled || !w.strata || (STEEL_KINDS.has(b.kind) && !(fu.steelFossil > 0 && partHash(b) < fu.steelFossil))) return false;
-      const d = 1 - survival(b);
+      const d = effDecay(1 - survival(b), b.slot, depthD);
       if (isSkeleton(b, d, fu)) return false;
       // only as far as the mass that takes its place is already drawn (it is built a few chunks at a time)
       const f = fusedShare(Math.min(d, this.fusedAt.get(b) ?? 0), fu);
@@ -951,7 +952,7 @@ export class SpaceModel {
     // corrosion (a mid-thick part, exposed) is taken from its age; the points thin out as it nears fuseOnset and
     // there are none below. The most recent layers have the most.
     const fz = input.fuse;
-    const layerDecay = sediment ? layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears) : undefined;
+    const layerDecay = sediment ? (depthDecayOf(Math.floor(tQ / spu), fz) ?? layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears)) : undefined;
     const living =
       layerDecay && fz.enabled
         ? (k: number) => {
@@ -1066,7 +1067,8 @@ export class SpaceModel {
     const u = box.unit;
     const kNow = Math.floor(this.t / box.secPerUnit);
     // V2: one clock — the layers' age for the resin and the look of the old layers is the parts' corrosion
-    const layerDecay = input.oneClock ? layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears) : undefined;
+    const depthD = depthDecayOf(kNow, fuse);
+    const layerDecay = input.oneClock ? (depthD ?? layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears)) : undefined;
     const kA = h ? h.k0 : 0;
     const kB = h ? h.k0 + h.nk - 1 : kNow;
     // extent: the vegetation's, or the parts' (cells)
@@ -1093,7 +1095,7 @@ export class SpaceModel {
     const bySlot = new Map<number, P[]>();
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
-      const d = q20(1 - wm.survival(b));
+      const d = q20(effDecay(1 - wm.survival(b), b.slot, depthD));
       // not corroding yet: nothing grows on it (B FILL: the plates are kept, they bound the rooms of the parts below)
       if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
       const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse) };
@@ -1155,7 +1157,7 @@ export class SpaceModel {
         if (!fresh && !leaving(w)) continue;
         let done = fresh && w.c1 < doneK;
         if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
-        if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
+        if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && effDecay(1 - wm.survival(b), b.slot, depthD) < BAKE_DECAY) { done = false; break; }
         if (!leaving(w) && !done) continue;
         const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
         const shade = new Float32Array(boxes.length);
@@ -1299,7 +1301,8 @@ export class SpaceModel {
     const fu = input.fuse;
     // plants gather first (their own process, from gatherStart below the present), and the part rots under them
     const pre = this.gatherOf;
-    const gathering = wm && fu ? (b: Box) => gatheringShare(1 - wm.survival(b), fu, pre ? pre(b) : 0) : undefined;
+    const depthD = fu && input.secPerUnit ? depthDecayOf(Math.floor(this.t / input.secPerUnit), fu) : undefined;
+    const gathering = wm && fu ? (b: Box) => gatheringShare(effDecay(1 - wm.survival(b), b.slot, depthD), fu, pre ? pre(b) : 0) : undefined;
     const { fuse: _f, ...cfg } = input;
     void _f;
     const np = reclaimPoints(this.built, this.worn, this.seeds, this.t, { ...cfg, gathering });

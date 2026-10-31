@@ -67,6 +67,7 @@ import {
   type FuseConfig,
   type FuseMesh,
   SpaceModel,
+  depthDecayOf,
   layerDecayOf,
   handleSpaceRequest,
 } from "@/lib/parliament";
@@ -179,6 +180,7 @@ const HOLE_PATH = `${FU}.${FU_HOLLOW}.holeShape`;
 const PITS_PATH = `${FU}.${FU_PITS}.pits`;
 const CAV_PATH = `${FU}.${FU_FOSSIL}.cavity`;
 const ACC_PATH = `${FU}.${FU_MASS}.고급.엉김 띠 (융합 전).accretion`;
+const FUSE_BY_PATH = `${FU}.${FU_WHEN}.fuseBy`;
 const SKEL_PATH = `${FU}.${FU_MASS}.고급.skeleton`;
 const SPIKES_PATH = `${FU}.${FU_MASS}.고급.spikes`;
 const RESIN_MODE_PATH = `${FU}.${FU_MAT}.resinMode`;
@@ -2240,7 +2242,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작" },
+        // BY DEPTH (V2 default, the artist 2026-10-31): the stages follow the layer's depth below the present, not the
+        // parts' corrosion (burial slowed covered parts so much under the own clock that the mass never came)
+        fuseBy: { options: { "깊이 (현재에서 몇 단 아래인가)": "depth", "부재의 부식 시계": "clock" }, value: isV2 ? "depth" : "clock", label: "융합 기준", render: () => isV2 },
+        fuseStart: { value: 21, min: 2, max: 150, step: 1, label: "융합 시작 (현재에서 ↓단)", render: (get) => isV2 && get(FUSE_BY_PATH) === "depth" },
+        fuseEnd: { value: 60, min: 4, max: 300, step: 1, label: "다 굳음 (↓단; 그 아래는 구워져 저장)", render: (get) => isV2 && get(FUSE_BY_PATH) === "depth" },
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작", render: (get) => !isV2 || get(FUSE_BY_PATH) !== "depth" },
         accOnset: { value: DEFAULT_FUSE.accOnset, min: 0, max: 0.9, step: 0.01, label: "엉김 띠가 붙기 시작 (② 고급의 띠 양 > 0일 때)", render: (get) => get(ACC_PATH) > 0 },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜짐 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
@@ -2448,6 +2455,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       steelFossil: fu.steelFossil,
       accOnset: fu.accOnset,
       fuseOnset: fu.fuseOnset,
+      byDepth: isV2 && fu.fuseBy === "depth" ? { start: fu.fuseStart, end: Math.max(fu.fuseStart + 1, fu.fuseEnd) } : null,
       voxel: fu.voxel,
       blur: fu.blur,
       gain: fu.gain,
@@ -2518,7 +2526,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.growthColor, fu.fuseOn, fu.accOnset, fu.fuseOnset, fu.fuseBy, fu.fuseStart, fu.fuseEnd, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.accretion, fu.accDepth, fu.lump, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -2643,7 +2651,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     const spu = boxCfg.secPerUnit;
     const tQ = Math.floor(stats.t / spu) * spu;
     const kNow = tQ / spu;
-    const age = isV2 ? layerDecayOf(tQ, spu, weather, fold.tauSlabYears) : null;
+    const age = isV2 ? (depthDecayOf(kNow, fuseCfg) ?? layerDecayOf(tQ, spu, weather, fold.tauSlabYears)) : null;
     const at = (q: number): number | null => {
       if (!age) return null;
       for (let d = 0; d <= 400; d++) if (age(kNow - d) >= q) return d;
@@ -2656,7 +2664,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       fuse: at(fuseCfg.fuseOnset),
       resin: fuseCfg.resinShare < 0 ? at(fuseCfg.fuseOnset) : fuseCfg.resinShare <= 1 ? at(fuseCfg.resinShare) : null,
     };
-  }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
+  }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
 
   return (
     // the wall (ui=0) shows no cursor either: nothing on it but the strata

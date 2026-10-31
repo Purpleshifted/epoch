@@ -46,6 +46,14 @@ export interface FuseConfig {
   accOnset: number;
   /** Decay at which the part itself begins to turn into mass. */
   fuseOnset: number;
+  /**
+   * FUSION BY DEPTH (V2, 2026-10-31): the stages follow a layer's DEPTH below the present, in slots — the mass begins
+   * `start` slots down and is complete at `end`, whatever the parts' own corrosion (under the own clock the burial
+   * slowed covered parts so much that the mass never came; the artist's intent from the start: "from a certain layer
+   * down it fuses, below that it is baked and stored"). A part's effective decay is the further of its corrosion and
+   * the depth's (effDecay). null = the corrosion clock alone (V1).
+   */
+  byDepth?: { start: number; end: number } | null;
   /** Voxel spacing (world). */
   voxel: number;
   /** Box-blur radius in voxels: how far apart decaying pieces still cling together. */
@@ -357,6 +365,30 @@ const smoothRamp = (x: number, a: number, b: number) => {
 export function fusedShare(decay: number, cfg: FuseConfig): number {
   if (!cfg.enabled) return 0;
   return ramp(decay, cfg.fuseOnset, 1);
+}
+
+/**
+ * The decay a layer `k` has by its depth below the present `kNow` (cfg.byDepth), or undefined under the clock alone.
+ * Above the start the pre-stages (gathering, growths) come in proportion to the depth; from the start the mass
+ * grows smoothly to complete at the end.
+ */
+export function depthDecayOf(kNow: number, cfg: FuseConfig): ((k: number) => number) | undefined {
+  const bd = cfg.byDepth;
+  if (!bd) return undefined;
+  const start = Math.max(1, bd.start);
+  const span = Math.max(1, bd.end - bd.start);
+  return (k: number) => {
+    const depth = kNow - k;
+    if (depth <= 0) return 0;
+    if (depth < start) return cfg.fuseOnset * (depth / start);
+    const u = Math.min(1, (depth - start) / span);
+    return cfg.fuseOnset + (1 - cfg.fuseOnset) * u * u * (3 - 2 * u);
+  };
+}
+
+/** A part's effective decay at slot `k`: its own corrosion or the depth's, whichever is further. */
+export function effDecay(d: number, k: number, depth: ((k: number) => number) | undefined): number {
+  return depth ? Math.max(d, depth(k)) : d;
 }
 
 /** How far the growths on a part have come (0 none … 1 full), from its decay. */
