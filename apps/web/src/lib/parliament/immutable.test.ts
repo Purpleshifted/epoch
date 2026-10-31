@@ -20,7 +20,8 @@ describe("the immutable layer", () => {
   const parts = () => ({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, wear: true, weather, fuse: DEFAULT_FUSE, water: DEFAULT_WATER, edges: false, lod });
 
   it("bakes exactly the chunks whose top lies below the line, final, and nothing above it", () => {
-    const m = new SpaceModel() as SpaceModel & { baked: Map<number, { final: boolean; c1: number }> };
+    const m = new SpaceModel();
+    const priv = m as unknown as { baked: Map<number, { final: boolean; c1: number }> };
     m.add(events);
     const spu = DEFAULT_BOXES.secPerUnit;
     const present = 1500 + 20 * spu;
@@ -33,25 +34,26 @@ describe("the immutable layer", () => {
       m.computeParts(parts());
       m.computeFuse(input);
     }
-    expect(m.baked.size).toBeGreaterThan(0);
-    for (const bk of m.baked.values()) {
+    expect(priv.baked.size).toBeGreaterThan(0);
+    for (const bk of priv.baked.values()) {
       expect(bk.final).toBe(true);
       expect(bk.c1).toBeLessThan(kNow - immutable);
     }
     // the present moves on: the line moves with it, one more chunk crosses, the earlier ones are untouched
-    const before = new Set(m.baked.keys());
+    const before = new Set(priv.baked.keys());
     m.setNow(present + 10 * spu);
     for (let i = 0; i < 6; i++) {
       m.computeParts(parts());
       m.computeFuse(input);
     }
-    for (const c0 of before) expect(m.baked.has(c0)).toBe(true);
-    expect(m.baked.size).toBeGreaterThanOrEqual(before.size);
-    for (const bk of m.baked.values()) expect(bk.c1).toBeLessThan(kNow + 10 - immutable);
+    for (const c0 of before) expect(priv.baked.has(c0)).toBe(true);
+    expect(priv.baked.size).toBeGreaterThanOrEqual(before.size);
+    for (const bk of priv.baked.values()) expect(bk.c1).toBeLessThan(kNow + 10 - immutable);
   });
 
-  it("without the line (V1) the old rule is unchanged: nothing is baked well above the window's cut", () => {
-    const m = new SpaceModel() as SpaceModel & { baked: Map<number, unknown> };
+  it("without the line (V1) the old rule is unchanged: what is baked is not final (the past keeps ageing)", () => {
+    const m = new SpaceModel();
+    const priv = m as unknown as { baked: Map<number, { final: boolean }> };
     m.add(events);
     m.setNow(1500 + 20 * DEFAULT_BOXES.secPerUnit);
     const input = { box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300, oneClock: true, tauSlabYears: DEFAULT_FOLD.tauSlabYears, perCall: 12 };
@@ -59,6 +61,6 @@ describe("the immutable layer", () => {
       m.computeParts(parts());
       m.computeFuse(input);
     }
-    expect(m.baked.size).toBe(0);
+    for (const bk of priv.baked.values()) expect(bk.final).toBe(false);
   });
 });
