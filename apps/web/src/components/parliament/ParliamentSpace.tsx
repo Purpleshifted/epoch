@@ -182,6 +182,7 @@ const PITS_PATH = `${FU}.${FU_PITS}.pits`;
 const CAV_PATH = `${FU}.${FU_FOSSIL}.cavity`;
 const ACC_PATH = `${FU}.${FU_MASS}.고급.엉김 띠 (융합 전).accretion`;
 const FUSE_BY_PATH = `${FU}.${FU_WHEN}.fuseBy`;
+const BAKE_PATH = `${FU}.${FU_MASS}.고급.계산.bake`;
 const SKEL_PATH = `${FU}.${FU_MASS}.고급.skeleton`;
 const SPIKES_PATH = `${FU}.${FU_MASS}.고급.spikes`;
 const RESIN_MODE_PATH = `${FU}.${FU_MAT}.resinMode`;
@@ -773,6 +774,7 @@ function SpaceWorld({
   noAxis,
   walk,
   summon,
+  bake,
   walkLook,
   clock,
   local,
@@ -815,6 +817,8 @@ function SpaceWorld({
   fuse: FuseConfig;
   /** The baked layers' meshes only within this many slots of where the camera looks (0 = all). */
   summon: number;
+  /** Whether layers leaving the history window are baked and kept (false = the window alone). */
+  bake: boolean;
   /** Look of the resin (oldest) layers. */
   resin: ResinLook;
   /** Waterways between buildings the same people built (null = off). */
@@ -864,7 +868,7 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, summon, water, noAxis, walk, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, summon, bake, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
@@ -872,7 +876,7 @@ function SpaceWorld({
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, summon, water, noAxis, walk, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, summon, bake, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
@@ -1011,7 +1015,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, summon, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, summon, bake, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
@@ -1083,7 +1087,7 @@ function SpaceWorld({
     if (frozen || id % NATURE_EVERY === 1) {
       // summoning: the slot the camera actually looks at (the orbit target), quantised to a chunk so a drifting camera does not ask again every tick
       const camK = o ? Math.round(o.target.y / cfg.unit / NATURE_CHUNK) * NATURE_CHUNK : undefined;
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, summon: oneClk ? summon : 0, camK };
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, summon: oneClk ? summon : 0, camK, bake: oneClk ? bake : true };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -2291,7 +2295,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
                 iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
                 smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
                 natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
-                summon: { value: 150, min: 0, max: 600, step: 10, label: "구운 층 소환 거리 (카메라가 보는 곳에서 ±단; 0 = 전부 늘 올림)", render: () => isV2 },
+                bake: { value: false, label: "옛 층 굽기 (기록 창 밖의 층을 구워 보존 · 저장; 끄면 기록 창만 남고 창 밖은 사라짐)", render: () => isV2 },
+                summon: { value: 0, min: 0, max: 600, step: 10, label: "구운 층 소환 거리 (카메라가 보는 곳에서 ±단; 0 = 전부 늘 올림)", render: (get) => isV2 && get(BAKE_PATH) },
               },
               { collapsed: true },
             ),
@@ -2710,6 +2715,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           weather={weather}
           fuse={fuseCfg}
           summon={fu.summon}
+          bake={fu.bake}
           resin={resinView}
           water={waterView}
           nearFade={v.nearFade}

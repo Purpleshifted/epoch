@@ -254,6 +254,12 @@ export interface FuseInput {
    */
   summon?: number;
   camK?: number;
+  /**
+   * BAKING on/off (the artist, 2026-10-31 night: "take the bake out, keep the latest 30 minutes, see whether it
+   * fossilises at all"): false = no chunk is ever baked or kept — the world is the history window alone, what
+   * leaves it is gone; any baked chunks (loaded from disk) are dropped. Absent = on (V1).
+   */
+  bake?: boolean;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
@@ -1070,6 +1076,7 @@ export class SpaceModel {
     void _ck;
     const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(sigInput)}:${summonKey}`;
     if (sig === this.fuseSig) return null;
+    if (input.bake === false && this.baked.size) this.baked.clear();
     const bakedMeshes = [...this.baked.values()].filter(summoned).map((b) => b.mesh);
     if (!sed || !wm || !fuse.enabled || !this.built.length) {
       this.fuseSig = sig;
@@ -1170,7 +1177,7 @@ export class SpaceModel {
     // little stale beats what vanishes with the cut
     const doneK = kNow - Math.max(1, Math.round(rotOnsetSlots(input.weather))) - NATURE_CHUNK;
     let bakedNow = 0;
-    if (this.partsFuseBuilt === this.fuseBuilt) {
+    if (input.bake !== false && this.partsFuseBuilt === this.fuseBuilt) {
       for (const w of wants) {
         const ch = this.fuseChunks.get(w.c0);
         if (!ch) continue;
@@ -1293,7 +1300,7 @@ export class SpaceModel {
       // ORPHAN: a chunk with a mesh that is no longer asked for — its parts went with a bulk window move, or the
       // window moved past it before it was baked — keeps its last mesh for good rather than vanishing (the artist,
       // 2026-10-31: "the fossils vanish after a while"); no material, so it neither ages nor re-renders
-      if (ch.mesh.index.length === 0 || this.baked.has(c)) continue;
+      if (input.bake === false || ch.mesh.index.length === 0 || this.baked.has(c)) continue;
       const bk: Baked = {
         c0: c,
         c1: c + NATURE_CHUNK - 1,
