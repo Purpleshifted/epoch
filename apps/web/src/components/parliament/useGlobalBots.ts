@@ -69,9 +69,15 @@ const BOT_GROUND_EVERY_MS = 5000;
 export const LS_LIFECYCLE_KEY = "anthropocene:parliament:lifecycle:v1";
 const LIFECYCLE_SAVE_MS = 5000;
 const STALE_MS = 10 * 60_000;
-/** SESSION: how often the most at once is reconsidered from the frame rate, and its floor. */
+/**
+ * SESSION: how often the most at once is reconsidered from the frame rate, its floor, and what counts as a slow frame:
+ * a STALL (over 100 ms), not merely a frame under 20 fps — the wall's own drawing runs at 20–40 fps whatever the bots
+ * do, and counting frames over 50 ms took the bots down to the floor within minutes (the artist, 2026-10-31: "길이 잘
+ * 안 생기네").
+ */
 const CAPACITY_EVERY_MS = 20_000;
-const AUTO_MIN = 4;
+const AUTO_MIN = 8;
+const STALL_MS = 100;
 /** SESSION: someone who is not a bot, seen in the last this many seconds, is a visitor the bots may go to. */
 const VISITOR_RECENT_SEC = 4;
 /** The bots' fold: someone who joins up to this far behind the others in assigned time is not late (no rebuild). */
@@ -96,6 +102,14 @@ const GROUP = "봇 (글로벌에서 돌리기)";
  * The bots' Leva group and emitter for a global view. `enabled` false (V1) renders nothing and emits nothing.
  * Returns how many bots are there now (0 = off), for the view's readout.
  */
+/** The session bots as one line for the view's readout (null when they are not running here). */
+export function botReadout(): string | null {
+  if (typeof window === "undefined") return null;
+  const l = (window as unknown as { __lifecycle?: { present: number; maxPresent: number; arrived: number; departed: number; places: number; slowPerMin: number } }).__lifecycle;
+  if (!l) return null;
+  return `bots (session): ${l.present} now / max ${l.maxPresent} · arrived ${l.arrived} · left ${l.departed} · places ${l.places} · stalls ${l.slowPerMin}/min`;
+}
+
 export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, order = 1.5, opts?: { clock?: Clock; local?: boolean }): number {
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
@@ -111,7 +125,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       lcQuiet: { value: DEFAULT_LIFECYCLE.quietShare, min: 0, max: 1, step: 0.05, label: "세션 › 한산할 때 도착 (붐빌 때의 몇 배)", render: show },
       lcWaveMin: { value: DEFAULT_LIFECYCLE.wavePeriodSec / 60, min: 1, max: 120, step: 1, label: "세션 › 붐빔↔한산 주기 (분)", render: show },
       lcMax: { value: DEFAULT_LIFECYCLE.maxPresent, min: 0, max: 40, step: 1, label: "세션 › 동시 최대", render: show },
-      lcAuto: { value: true, label: "세션 › 동시 최대를 성능 따라 줄이기 (50 ms 넘는 프레임/분)", render: show },
+      lcAuto: { value: true, label: "세션 › 동시 최대를 성능 따라 줄이기 (100 ms 넘는 멈춤/분, 바닥 8)", render: show },
       lcLifeMin: { value: DEFAULT_LIFECYCLE.lifeMinSec / 60, min: 0.25, max: 10, step: 0.25, label: "세션 › 수명 최소 (분)", render: show },
       lcLifeMax: { value: DEFAULT_LIFECYCLE.lifeMaxSec / 60, min: 0.25, max: 10, step: 0.25, label: "세션 › 수명 최대 (분)", render: show },
       lcShort: { value: DEFAULT_LIFECYCLE.bands.short, min: 0, max: 100, step: 5, label: "세션 › 짧은 삶 비율 (앞 1/4 구간)", render: show },
@@ -122,6 +136,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       lcFollow: { value: DEFAULT_LIFECYCLE.follow, min: 0, max: 1, step: 0.05, label: "세션 › 남이 머문 자리 따라가기 (평균)", render: show },
       lcRevisit: { value: DEFAULT_LIFECYCLE.revisit, min: 0, max: 1, step: 0.05, label: "세션 › 내 자리 다시 가기 (평균)", render: show },
       lcSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "세션 › 변주 폭 (0 = 모두 같은 봇)", render: show },
+      lcLeave: { value: DEFAULT_LIFECYCLE.leaveShare, min: 0, max: 1, step: 0.05, label: "세션 › 끝에 문으로 걸어 나가는 비율 (나머지는 선 자리에서)", render: show },
       // RESIDENT (the old crowd)
       botCount: { value: 12, min: 1, max: 30, step: 1, label: "상주 › 봇 수", render: show },
       botRole: { options: BOT_OPTIONS, value: "worker" as RoleId | "mixed", label: "상주 › 봇 역할", render: show },
@@ -150,8 +165,9 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       follow: b.lcFollow,
       revisit: b.lcRevisit,
       spread: b.lcSpread,
+      leaveShare: b.lcLeave,
     }),
-    [b.lcGapSec, b.lcQuiet, b.lcWaveMin, b.lcMax, b.lcLifeMin, b.lcLifeMax, b.lcShort, b.lcMiddle, b.lcLong, b.lcGroup, b.lcOrigin, b.lcFollow, b.lcRevisit, b.lcSpread],
+    [b.lcGapSec, b.lcQuiet, b.lcWaveMin, b.lcMax, b.lcLifeMin, b.lcLifeMax, b.lcShort, b.lcMiddle, b.lcLong, b.lcGroup, b.lcOrigin, b.lcFollow, b.lcRevisit, b.lcSpread, b.lcLeave],
   );
   // LINK: the address's query turns the knobs once, when the view opens (the controls exist by then: retried briefly)
   useEffect(() => {
@@ -219,7 +235,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     let raf = 0;
     let last = performance.now();
     const frame = (t: number) => {
-      if (t - last > 50) slow.current.push(Date.now());
+      if (t - last > STALL_MS) slow.current.push(Date.now());
       last = t;
       lastFrame.current = Date.now();
       raf = requestAnimationFrame(frame);
@@ -241,6 +257,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       botStartMs.current = 0;
       lastSampleMs.current = 0;
       visitors.current = null;
+      delete (window as unknown as { __lifecycle?: unknown }).__lifecycle;
     }
   }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
 
