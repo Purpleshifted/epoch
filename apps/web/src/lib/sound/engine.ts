@@ -1076,21 +1076,22 @@ export class SoundEngine {
       const feed = this.ctx.createGain();
       feed.gain.value = 0;
       this.nc.filter.connect(feed).connect(room.conv);
-      feed.gain.setTargetAtTime(1, t, 0.4);
+      feed.gain.setTargetAtTime(0.6, t, 0.6); // 1 in 0.4 s until 10/31: the room came in louder than the pressed dry — a jump
       feed.gain.setTargetAtTime(0, t + NC_FEED, 0.5);
       this.nc.gain.gain.setTargetAtTime(0, t + 0.1, 0.4);
       this.ncFeed = feed;
     }
+    // the room's send comes up gently and only halfway (1 in 50 ms until 10/31: the reverb of the last second arrived
+    // louder than the dry the dying had pressed down — the artist heard the end JUMP instead of sinking away)
     room.send.gain.cancelScheduledValues(t);
-    room.send.gain.setTargetAtTime(1, t, 0.05);
-    room.send.gain.setTargetAtTime(0, t + FEED, 0.08);
-    // the master holds through the first half; then a FADE ENVELOPE lies over the tail's own decay (the artist: if
-    // the volume has not come down by then, overlap a fade) — a straight line to silence exactly at the tail's end
-    // …from WHERE IT IS (A5g): after the dying it is half, after an X hold it is whole — no jump either way
+    room.send.gain.setTargetAtTime(0.5, t, 0.3);
+    room.send.gain.setTargetAtTime(0, t + FEED, 0.15);
+    // the master keeps sinking from WHERE IT IS (after the dying: half; after an X hold: whole), never holds, never
+    // rises: to a third by mid-tail, to silence at the tail's end (the artist: "점점 눌리다가 아예 사라져야")
     const cur = Math.max(0, Math.min(1, this.master.gain.value));
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setValueAtTime(cur, t);
-    this.master.gain.setValueAtTime(cur, t + tail * 0.5);
+    this.master.gain.linearRampToValueAtTime(cur * 0.3, t + tail * 0.5);
     this.master.gain.linearRampToValueAtTime(0, t + tail);
   }
 
