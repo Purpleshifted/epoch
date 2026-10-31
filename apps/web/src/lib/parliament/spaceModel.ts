@@ -1151,7 +1151,10 @@ export class SpaceModel {
     const immK = input.immutable !== undefined ? kNow - input.immutable : -Infinity;
     // (the immutable line is only WHERE a chunk is baked — not a build priority: giving the chunks above it the first
     // turn starved the band where the fusion shows, 2026-10-31 night)
-    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
+    // V2: the chunks that have just crossed the immutable line come first — built fresh, baked on the next call, gone
+    // from the list. (With the window's cut as the criterion they were first forever: not bakeable above the line,
+    // stale every slot, and the band where the fusion shows never got a turn — the artist, 2026-11-01)
+    const leaving = input.immutable !== undefined ? (w: Want) => w.c1 < immK : (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
     // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
     // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
     // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,

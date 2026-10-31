@@ -1081,7 +1081,7 @@ function SpaceWorld({
     if (frozen || id % NATURE_EVERY === 1) {
       // the history window must reach below the immutable line (plus two chunks), or a layer would be cut before it is baked
       if (oneClk && !local) {
-        const need = (immutable + 10) * cfg.secPerUnit;
+        const need = (immutable + 20) * cfg.secPerUnit;
         if (keepWindowSec() < need) setKeepWindowSec(need);
       }
       req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk ? immutable : undefined };
