@@ -15,7 +15,7 @@ describe("botLink: one link opens a wall with its bots running", () => {
   });
 
   it("every session knob, clamped to the Leva ranges", () => {
-    const { values } = parseBotLink("gap=8&quiet=0.5&wave=20&life=3-1&bands=10-30-60&follow=0.9&revisit=0.1&origin=1&group=0&spread=3&auto=0");
+    const { values } = parseBotLink("gap=8&quiet=0.5&wave=20&life=3-1&bands=10-30-60&follow=0.9&revisit=0.1&origin=1&group=0&spread=3&leave=0.4&auto=0");
     expect(values).toEqual({
       lcGapSec: 8,
       lcQuiet: 0.5,
@@ -30,6 +30,7 @@ describe("botLink: one link opens a wall with its bots running", () => {
       lcOrigin: 1,
       lcGroup: 0,
       lcSpread: 2,
+      lcLeave: 0.4,
       lcAuto: false,
     });
   });

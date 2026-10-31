@@ -75,7 +75,7 @@ import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { savable } from "./levaSave";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
-import { useGlobalBots } from "./useGlobalBots";
+import { botReadout, useGlobalBots } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 
@@ -1046,7 +1046,11 @@ function SpaceWorld({
     // view does not rebuild anything — only a changed setting does (and chunks still catching up)
     const frozen = clock.rate() === 0;
     const camNow: [number, number, number] = o ? [o.object.position.x, o.object.position.y, o.object.position.z] : [0, 0, 0];
-    const focusNow = (o ? Math.max(0, o.target.y) : 0) / cfg.unit;
+    // the vegetation window (and the fused mass) sit around the PRESENT, not around where the camera looks: the
+    // exhibition camera aims `followLift` below the present (−25 by default, to frame the fossil band), and with the
+    // orbit target as the reference the window slid 25 world down and vegetation grew on old layers (the artist,
+    // 2026-10-31)
+    const focusNow = (o ? Math.max(0, o.target.y - (link?.current.lift ?? followLift)) : 0) / cfg.unit; // the lift in effect: the auto run's shot or the base pose
     if (!frozen || !pinned.current) pinned.current = { cam: camNow, focusK: focusNow };
     const { cam, focusK } = pinned.current;
     const lod = { camera: cam, near, mid, farFactor: ff };
@@ -2755,7 +2759,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
-        {globalBots > 0 && <div>bots: {globalBots} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
+        {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {depths && (
           <div>
