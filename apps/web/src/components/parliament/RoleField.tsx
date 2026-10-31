@@ -13,11 +13,9 @@
  * to freeze then, and no concrete was ever generated. Only the fold and drawing stay in useFrame.
  *
  * V2 session (useLifeSession): the visitor only leaves presence while their session is LIVE; near the end the
- * headset goes dull (muffleSound); after every fold a dry reading of who is near is put in `witnessRef` (HUD).
- *
- * V2 residents (`resident`, lib/parliament/population.ts): instead of the debug bots, the world's resident population
- * — always there, each with its own lifespan and generation, going where others are and building with them. It is
- * stepped on every presence sample; its size follows the frame rate (slow frames counted here, in useFrame).
+ * headset goes dull (muffleSound); after every fold a dry reading of who is near is put in `witnessRef` (HUD), and
+ * the LEDGER of this life (lib/parliament/ledger.ts: what my own samples did to the ground) in `ledgerRef`. The fold
+ * is read for the whole world (the region only chose what was read; the ledger needs the world's totals).
  */
 
 import { useEffect, useRef } from "react";
@@ -28,6 +26,7 @@ import {
   SEAL_H,
   botActor,
   DEFAULT_WITNESS,
+  ledgerAt,
   botPlan,
   dueSamples,
   steerBot,
@@ -38,17 +37,15 @@ import {
   observe,
   sessionSeconds,
   SESSION_ROLES,
+  StressState,
+  concreteLines,
+  otherMarks,
   wrapCoord,
-  wrapCell,
-  flowRoute,
-  nextCapacity,
-  residentActor,
-  stepPopulation,
   type Actor,
-  type PopulationConfig,
-  type Site,
   type Flock,
   type FoldConfig,
+  type Ledger,
+  type LedgerConfig,
   type NatureConfig,
   type Observation,
   type PEvent,
@@ -56,19 +53,21 @@ import {
   type Snapshot,
   worldNow,
 } from "@/lib/parliament";
-import { CELL_SIZE } from "@/lib/stratum/field";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
-import { NatureCloud } from "./NatureCloud";
+import { NatureCloud, type GrassReaction } from "./NatureCloud";
+import { ConcreteLines, OtherDots, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
-import { keepResidents, residentsOf } from "./residents";
 import { markSpan } from "./usePerfMeter";
+import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
+/** V2: how often the ledger reads the WHOLE world (its totals and my far slabs); the drawing reads a region. */
+const LEDGER_EVERY = 2;
 const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
 const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
 const KEEP_EVERY_MS = 30_000; // how often (world time) the history window moves on (older events are dropped everywhere)
@@ -85,33 +84,22 @@ export interface ParliamentDebug {
   sound?: string;
   /** The growing fold's state (foldState.ts stats), one line. */
   fold?: string;
+  /** V2: the ledger's size and cost, one line. */
+  ledger?: string;
   /** Where the player stands (canonical world coordinates). */
   x?: number;
   z?: number;
-  /** V2 residents: how many, of how many the frame rate allows, births so far, slow frames per minute. */
-  pop?: string;
 }
 
 /** V2: how often the ground the bots walk on (trodden paths, buildings) is refolded. */
 const BOT_GROUND_EVERY_MS = 5000;
 
-/** V2: the resident population as the page runs it (ParliamentScene's Leva folder). */
-export interface ResidentSetup {
-  cfg: PopulationConfig;
-  /** The size follows the frame rate (min … max); false = `fixed`. */
-  auto: boolean;
-  fixed: number;
-}
 /**
- * The player's growing fold: the settled frontier held 35 s further back, so a resident born up to ±30 s around the
- * visitor's time (population.ts) never arrives "late" (which would make the whole fold rebuild itself).
+ * The player's growing fold: the settled frontier held 35 s further back, so someone who joins up to that far behind
+ * the others in assigned time (a bot of the wall, born ±30 s around now) is not "late" — which would make the whole
+ * fold rebuild itself (foldState.ts lateMarginSec).
  */
 const PLAYER_FOLD_OPTS = { lateMarginSec: 35 };
-
-/** How often (wall) the size is reconsidered from the slow frames of the last minute. */
-const CAPACITY_EVERY_MS = 20_000;
-/** Most buildings in use offered to the residents as places to go. */
-const MAX_BUILDING_SITES = 40;
 
 export function RoleField({
   playerPosRef,
@@ -129,7 +117,10 @@ export function RoleField({
   playerYawRef,
   lifeRef,
   witnessRef,
-  resident = null,
+  ledgerRef,
+  ledgerCfg,
+  grass,
+  marks,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -154,8 +145,13 @@ export function RoleField({
   lifeRef?: { readonly current: LifeSignal };
   /** V2: a dry reading of the visitor's situation, renewed after every fold (lib/parliament/witness.ts). */
   witnessRef?: React.MutableRefObject<Observation | null>;
-  /** V2: the resident population (replaces the debug bots); null = the debug bots (V1, or switched off). */
-  resident?: ResidentSetup | null;
+  /** V2: the ledger of this life (lib/parliament/ledger.ts), renewed after every fold while LIVE, kept after the end. */
+  ledgerRef?: React.MutableRefObject<Ledger | null>;
+  ledgerCfg?: LedgerConfig;
+  /** V2: how the grass reacts to the walker at once (Leva 개인뷰 비주얼; NatureCloud). */
+  grass?: GrassVisual;
+  /** V2: the marks in the frame — others, concrete, paths (Leva 개인뷰 비주얼; lib/parliament/marks.ts, Marks.tsx). */
+  marks?: MarksVisual;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -167,6 +163,9 @@ export function RoleField({
   const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
   const stressAt = useStressState(log, natureCfg);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
+  /** My own samples, in time order (what the ledger reads; a life is a few hundred). */
+  const myEvents = useRef<PEvent[]>([]);
+  const ledgerMs = useRef(0);
   const seq = useRef(0);
   const lastSampleMs = useRef(0);
   const botStartMs = useRef(0);
@@ -174,28 +173,36 @@ export function RoleField({
   const lastKeepMs = useRef(0);
   const lastKeepWall = useRef(0);
   const foldTimer = useRef(10);
+  const ledgerTimer = useRef(10);
+  /** My trail at the fold's cadence (the footprint map draws it; the ledger itself reads the world less often). */
+  const trail = useRef<{ x: number; z: number; t: number }[]>([]);
   // the ticker reads the latest Leva values through this ref
-  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold, resident });
-  // V2 residents: wall times of the frames longer than 50 ms in the last minute (useFrame), the last frame, and when the
-  // size was last reconsidered
-  const slowFrames = useRef<number[]>([]);
-  const lastFrameWall = useRef(0);
-  const lastCapacityWall = useRef(0);
-  const popLine = useRef<string | undefined>(undefined);
+  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold });
   // V2: what bots walk on — trodden ground (G per cell) and the cells buildings stand on; refreshed every few seconds
   const botGround = useRef<{ at: number; level: Map<string, number>; built: Set<string> } | null>(null);
   // V2: each migration's route, chosen once (on the ground as it was) and kept until it is over
   const botRoutes = useRef(new Map<string, number[]>());
   useEffect(() => {
-    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold, resident };
-  }, [role, botCount, botRole, botFlock, cfg, fold, resident]);
+    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold };
+  }, [role, botCount, botRole, botFlock, cfg, fold]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
+  // the grass reaction (NatureCloud): the walker's own recent trail as a second, visual-only stress state, fed from
+  // the player's position every `nearEvery` seconds (not from the sampled events), and the walker's own folded
+  // stress from the ledger (A3)
+  const quick = useRef<StressState | null>(null);
+  const quickMap = useRef<Map<string, number> | null>(null);
+  const quickTimer = useRef(0);
+  const quickSeq = useRef(0);
+  const mineMap = useRef<Map<string, number> | null>(null);
+  // the marks (others, concrete, paths), renewed with the fold from the record's far list and the snapshot
+  const marksRef = useRef<MarksData | null>(null);
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
   useEffect(() => {
     epochMs.current = getEpochMs();
+    if (ledgerRef) ledgerRef.current = null; // a new life, a new ledger
     me.current = {
       id: "v_" + Math.random().toString(36).slice(2, 7),
       offset: pickOffset(Math.random(), offsetWindow),
@@ -228,6 +235,7 @@ export function RoleField({
     const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
     log.add(e);
     pending.current.push(e);
+    if (o === me.current.id) myEvents.current.push(e);
   };
 
   // ── emit presence and mirror to localStorage: world clock (worldClock.ts, may run faster than the wall clock) for
@@ -236,13 +244,10 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const now = worldNow();
     const wall = Date.now();
-    const { role: myRole, botCount: debugBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold, resident: res } = live.current;
-    // V2 residents replace the debug bots
-    const nBots = res ? 0 : debugBots;
-    const needGround = nBots > 0 || !!res;
+    const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold } = live.current;
     // V2: bots walk where others walked (bundling) and around buildings (detour)
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
-    if (flow && needGround && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
+    if (flow && nBots > 0 && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
       const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
       // the whole world, settled part only (cheap; seconds behind): what the bots walk on
       const tBot = performance.now();
@@ -255,7 +260,7 @@ export function RoleField({
       // buildings in use now (a ruin — nobody around for longer than emptyGapSec — can be crossed)
       for (const sl of snapAll.slabs) if (sl.h >= SEAL_H && settledTo - sl.lastS <= foldCfg.emptyGapSec) built.add(sl.key);
       botGround.current = { at: wall, level, built };
-      if (botRoutes.current.size > Math.max(8, nBots * 4)) botRoutes.current.clear(); // old migrations
+      if (botRoutes.current.size > nBots * 4) botRoutes.current.clear(); // old migrations
     }
     const ground = flow ? botGround.current : null;
     const steer = (a: Actor, i: number, w: number): Actor => {
@@ -272,60 +277,15 @@ export function RoleField({
     else if (botStartMs.current === 0) botStartMs.current = now;
     const p = playerPosRef.current;
 
-    // V2 residents: the population at the first due sample, the places others are (the visitor, buildings in use), the way
-    // a resident goes (the trodden ground, round the buildings; the cells wrap round the torus)
-    let pop = res && due.length ? residentsOf(epochMs.current, due[0] - period, res.auto ? Math.round((res.cfg.min + res.cfg.max) / 2) : res.fixed, res.cfg, me.current.offset) : null;
-    const present = !lifeRef || lifeRef.current.phase === "live";
-    const sites: Site[] = [];
-    if (pop) {
-      if (present) sites.push({ x: p.x, z: p.z, w: 3, person: true });
-      if (ground) {
-        let k = 0;
-        for (const key of ground.built) {
-          if (k++ >= MAX_BUILDING_SITES) break;
-          const [ci, cj] = key.split(",").map(Number);
-          sites.push({ x: (ci + 0.5) * CELL_SIZE, z: (cj + 0.5) * CELL_SIZE, w: 1.5, person: false });
-        }
-      }
-    }
-    const level = ground ? (key: string) => {
-      const [ci, cj] = key.split(",").map(Number);
-      return ground.level.get(`${wrapCell(ci)},${wrapCell(cj)}`) ?? 0;
-    } : null;
-    const built = ground ? (key: string) => {
-      const [ci, cj] = key.split(",").map(Number);
-      return ground.built.has(`${wrapCell(ci)},${wrapCell(cj)}`);
-    } : null;
-    const planRoute = flow && level && built ? (ax: number, az: number, bx: number, bz: number) => flowRoute(ax, az, bx, bz, { level, built }, flow) : undefined;
-
     for (const w of due) {
       const actors: Actor[] = [];
-      if (pop && res) {
-        // the population one step on; the dead leave where they stood (their END event, k = "x", comes with the role
-        // controls: docs/session-logic.md §2b)
-        const step = stepPopulation(pop, w, { sites, planRoute, refOffset: me.current.offset }, res.cfg);
-        pop = step.state;
-        for (const r of pop.residents) actors.push(residentActor(r, w, epochMs.current));
-      }
       // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled;
       // V2: and only while their session is live (before the role is drawn, and after the end, they leave nothing)
+      const present = !lifeRef || lifeRef.current.phase === "live";
       if (present && now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
       for (let i = 0; i < nBots; i++) actors.push(steer(botActor(i, theirRole === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock), i, w));
       for (const a of actors) emit(a.o, a.r, "p", a.x, a.z, a.s);
     }
-    if (pop && res) {
-      // the size: from the frame rate of the last minute (only while frames are drawn — a hidden tab says nothing)
-      if (!res.auto) pop = { ...pop, capacity: res.fixed };
-      else if (wall - lastCapacityWall.current >= CAPACITY_EVERY_MS) {
-        lastCapacityWall.current = wall;
-        const cut = wall - 60_000;
-        slowFrames.current = slowFrames.current.filter((t) => t >= cut);
-        if (wall - lastFrameWall.current < 2000) pop = { ...pop, capacity: nextCapacity(pop.capacity, slowFrames.current.length, res.cfg) };
-      }
-      keepResidents(pop, now);
-      const staying = pop.residents.filter((r) => r.mode === "stay").length;
-      popLine.current = `residents ${pop.residents.length}/${pop.capacity}${res.auto ? " auto" : ""} · staying ${staying} · born ${pop.nextN} · slow ${slowFrames.current.length}/min`;
-    } else popLine.current = undefined;
 
     // the history window rolls on: only the last KEEP_WINDOW_SEC before now are kept (performance, for now)
     // (in world time, but at most every KEEP_MIN_WALL_MS of wall time when the clock runs fast)
@@ -347,14 +307,30 @@ export function RoleField({
   });
 
   useFrame((_, delta) => {
-    // V2 residents: the frame rate decides how many there are (frames longer than 50 ms, per minute)
-    const wallNow = Date.now();
-    if (delta > 0.05) slowFrames.current.push(wallNow);
-    lastFrameWall.current = wallNow;
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
     const p = playerPosRef.current;
+
+    // ── the grass reaction's quick stress: where the walker IS, every nearEvery seconds, while live ──
+    if (grass && grass.mode !== "off" && (!lifeRef || lifeRef.current.phase === "live")) {
+      quickTimer.current += dt;
+      if (quickTimer.current >= grass.nearEvery) {
+        quickTimer.current = 0;
+        const q = quick.current;
+        const dose = grass.dose * grass.nearEvery; // per feed, so `dose` reads per second at the centre
+        if (!q || q.cfg.dose !== dose || q.cfg.lingerRadius !== grass.reactRadius || q.cfg.recoverSec !== natureCfg.recoverSec) {
+          quick.current = new StressState({ ...natureCfg, dose, lingerRadius: grass.reactRadius });
+        }
+        const qs = quick.current!;
+        qs.add({ id: `q:${quickSeq.current++}`, o: me.current.id, r: "worker", k: "p", x: p.x, z: p.z, s: sMe });
+        if (quickSeq.current % 200 === 0) qs.dropBefore(sMe - 8 * natureCfg.recoverSec);
+        quickMap.current = qs.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      }
+    } else if (quickMap.current) {
+      quickMap.current = null;
+      quick.current = null;
+    }
 
     // ── fold what this visitor can see at their own time ──
     foldTimer.current += dt;
@@ -362,7 +338,9 @@ export function RoleField({
       foldTimer.current = 0;
       const events = log.all();
       const tFold = performance.now();
-      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
+      // the region the drawing, the sound and the marks read (the fold itself is always the whole world)
+      const readR = Math.max(VIEW_RADIUS, marks?.concrete.on ? marks.concrete.radius : 0);
+      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       markSpan("fold", performance.now() - tFold);
       if (witnessRef) {
@@ -372,8 +350,48 @@ export function RoleField({
           sNow: sMe,
           snap: snap.current,
           t: lifeRef?.current.t ?? 0,
-          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius },
+          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
+        // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
+        // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
+        ledgerTimer.current += FOLD_EVERY;
+        if (ledgerRef && lifeRef?.current.phase === "live") trail.current.push({ x: p.x, z: p.z, t: lifeRef.current.t });
+        if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= LEDGER_EVERY) {
+          ledgerTimer.current = 0;
+          const tLed = performance.now();
+          const obs = witnessRef.current;
+          ledgerRef.current = ledgerAt({
+            me: { id: me.current.id, x: p.x, z: p.z },
+            mine: myEvents.current,
+            sNow: sMe,
+            t: lifeRef.current.t,
+            snap: fold.at(sMe),
+            stress: stressAt(sMe),
+            natureCfg,
+            flow: cfg.flow?.enabled ? cfg.flow : null,
+            nearCount: obs.others.filter((o) => o.dist <= cfg.radius).length,
+            trail: trail.current,
+            cfg: ledgerCfg,
+            prev: ledgerRef.current,
+          });
+          ledgerMs.current = performance.now() - tLed;
+          markSpan("ledger", ledgerMs.current);
+        }
+        // the marks: others within the view, the sealed cells (marks.ts)
+        if (marks?.on) {
+          const tMk = performance.now();
+          marksRef.current = {
+            others: marks.others.on ? otherMarks(witnessRef.current.far, p, VIEW_RADIUS, marks.others.recentSec) : [],
+            concrete: marks.concrete.on ? concreteLines(snap.current.slabs, p, marks.concrete.radius, SEAL_H) : [],
+          };
+          markSpan("marks", performance.now() - tMk);
+        } else marksRef.current = null;
+        // A3: the walker's own folded stress per cell, from the ledger
+        if (grass?.mode === "mine" && ledgerRef?.current) {
+          const m = new Map<string, number>();
+          for (const c of ledgerRef.current.cells.values()) if (c.s > 0) m.set(c.key, c.s);
+          mineMap.current = m;
+        } else mineMap.current = null;
       }
       // the headset: what I hear, folded from the same events
       let soundLine: string | undefined;
@@ -415,15 +433,16 @@ export function RoleField({
         slabs: snap.current.slabs.length,
         paths: snap.current.paths.length,
         sound: soundLine,
-        pop: popLine.current,
         fold: (() => {
           const st = fold.stats();
           return st ? `fold: cells ${st.cells} · tail ${st.tail} · rebuilds ${st.rebuilds}` : undefined;
         })(),
+        ledger: ledgerRef?.current ? `ledger: ${ledgerRef.current.cells.size} cells · ${ledgerMs.current.toFixed(1)} ms` : undefined,
       };
     }
   });
 
+  const grassReaction: GrassReaction | undefined = grass ? { mode: grass.mode, nearRadius: grass.nearRadius, nearEvery: grass.nearEvery, mineGain: grass.mineGain, thick: grass.thick } : undefined;
   // Concrete (slabs) is a trace fossil: it is not felt within one visitor's life, so the player
   // view draws only what one life can feel: the point-cloud ground (worn by workers, with dust
   // where a path has formed). Slabs appear in the Top and Side views.
@@ -436,8 +455,26 @@ export function RoleField({
         cfg={natureCfg}
         pointSize={pointSize}
         pathDots={pathDots}
+        getQuick={() => quickMap.current}
+        getMine={() => mineMap.current}
+        grass={grassReaction}
       />
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
+      {marks?.others.on && (
+        <OtherDots
+          getMarks={() => marksRef.current}
+          size={marks.others.size}
+          height={marks.others.height}
+          bright={marks.others.bright}
+          halo={marks.others.halo}
+          haloStrength={marks.others.haloStrength}
+          fog={marks.others.fog}
+          pulseHz={marks.others.pulseHz}
+          holdSec={marks.others.holdSec}
+          snap={marks.others.snap}
+        />
+      )}
+      {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
     </>
   );
 }

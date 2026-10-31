@@ -441,7 +441,8 @@
         return JSON.parse(data);
       }
 
-      const DEFAULT_PATCH_SRC = "./examples/indiv_audio_map_v2.ncft";
+      // the patches live at /noisecraft/examples/ (not ./examples/ beside this page); a committed one (2026-10-28)
+      const DEFAULT_PATCH_SRC = "/noisecraft/examples/nc_noise_patch.ncft";
 
       async function loadInitialProject() {
         const url = new URL(window.location.href);

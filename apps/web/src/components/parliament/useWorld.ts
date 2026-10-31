@@ -43,9 +43,10 @@ export const LEVA_THEME = { sizes: { rootWidth: "460px", controlWidth: "150px" }
  * When the epoch changes (clear world here or in another tab, or older code resetting the shared epoch key), the
  * world this tab holds has ended: the log is emptied and `onCleared` lets a player tab join the new epoch.
  */
-export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
+export function useWorld(onCleared?: () => void, pollMs = 3000, shared = true): EventLog {
   const log = useMemo(() => new EventLog(), []);
   useEffect(() => {
+    if (!shared) return; // a world of this tab only (the lab): nothing read from or written to the shared storage
     let epoch = currentEpochKey();
     const sync = () => {
       const now = currentEpochKey();
@@ -87,11 +88,12 @@ export function useWorld(onCleared?: () => void, pollMs = 3000): EventLog {
  * shared setting — every player tab applies it within 30 s; this view applies it at once (the cutoff is set from the
  * latest event, and this log forgets). Short while working on something else, so little data gathers.
  */
-export function useKeepWindowControl(log: EventLog, order = -2): void {
+export function useKeepWindowControl(log: EventLog, order = -2, enabled = true): void {
   useControls(
     "세계 (모든 창 공유)",
     {
       keepMin: {
+        render: () => enabled,
         value: Math.max(1, Math.round(keepWindowSec() / 60)),
         min: 1,
         max: 120,

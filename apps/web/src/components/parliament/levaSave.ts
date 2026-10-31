@@ -6,13 +6,29 @@
  */
 
 import { buttonGroup, levaStore } from "leva";
+import exhibitionPreset from "@/presets/exhibition.json";
 
 const PREFIX = "parliament.leva";
+
+/**
+ * THE BUNDLED EXHIBITION PRESET (the artist, 2026-10-30): the Leva values tuned on the Vercel preview, carried in the
+ * code so the exhibition machine starts from them without a server — a page's group whose storage key
+ * (`parliament.leva:<path>:<group>`) has nothing saved in localStorage takes the preset's object under the same key.
+ * Anything saved on the machine wins (the rehearsal wall can still overwrite). Filled from a JSON the artist exports
+ * on /rehearsal/management (exportSettings) and pastes to the sessions; empty = plain defaults.
+ */
+const PRESET: Record<string, Record<string, unknown>> = exhibitionPreset as Record<string, Record<string, unknown>>;
 /** Read once per page load and storage key (the schema is rebuilt every render; Leva only reads it at mount). */
 const cache = new Map<string, Record<string, unknown> | null>();
 
+/** A page whose saved values another page shares (the lab tunes the shared global view's): set before Leva mounts. */
+let pageOverride: string | null = null;
+export function setLevaPage(path: string | null): void {
+  pageOverride = path;
+}
+
 function storageKey(root: string): string {
-  const page = typeof window === "undefined" ? "" : window.location.pathname;
+  const page = pageOverride ?? (typeof window === "undefined" ? "" : window.location.pathname);
   return `${PREFIX}:${page}:${root}`;
 }
 
@@ -37,8 +53,54 @@ function load(key: string): Record<string, unknown> | null {
   } catch {
     v = null;
   }
+  // nothing saved here: the bundled exhibition preset, if it has this page's group
+  if (!v && isObj(PRESET[key])) v = { ...PRESET[key] };
   cache.set(key, v);
   return v;
+}
+
+/**
+ * Every saved Leva group on this machine (all pages), the bundled preset underneath, as one JSON object keyed by
+ * storage key — what the artist copies from the machine where the values were tuned.
+ */
+export function exportSettings(): string {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [k, v] of Object.entries(PRESET)) if (isObj(v)) out[k] = v;
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k || !k.startsWith(`${PREFIX}:`) || k.includes(":migrated:")) continue;
+      const raw = window.localStorage.getItem(k);
+      if (!raw) continue;
+      try {
+        const v = JSON.parse(raw) as unknown;
+        if (isObj(v)) out[k] = v;
+      } catch {
+        /* not a group */
+      }
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return JSON.stringify(out, null, 2);
+}
+
+/**
+ * The reverse: a JSON from exportSettings pasted on another machine — every `parliament.leva:…` group in it is saved
+ * here (replacing what was saved under that key). Returns how many groups were written; throws on bad JSON. Pages
+ * read saved values at load, so reload them afterwards.
+ */
+export function importSettings(json: string): number {
+  const data = JSON.parse(json) as unknown;
+  if (!isObj(data)) throw new Error("not an object");
+  let n = 0;
+  for (const [k, v] of Object.entries(data)) {
+    if (!k.startsWith(`${PREFIX}:`) || !isObj(v)) continue;
+    window.localStorage.setItem(k, JSON.stringify(v));
+    cache.delete(k);
+    n++;
+  }
+  return n;
 }
 
 type Item = Record<string, unknown>;
@@ -123,10 +185,12 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
         }
         try {
           window.localStorage.setItem(key, JSON.stringify(values));
+          window.localStorage.setItem(`${key}:savedAt`, String(Date.now()));
           cache.set(key, values);
         } catch {
           /* storage full or blocked */
         }
+        void pushPreset(key, values);
       },
       reload: () => {
         let saved: Record<string, unknown> | null = null;
@@ -149,4 +213,93 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
     },
   });
   return out as S;
+}
+
+// ── THE SERVER (the artist, 2026-10-30): "save in Leva should send the value to the DB, and the exhibition should use
+// the latest save". Every save also goes to /api/presets (same deployment, Neon Postgres — lib/presets/db.ts), and
+// a page asks the server once before its Leva mounts (ServerPresetsGate): a group the server saved later than this
+// browser did replaces the browser's copy. Order: server's latest > this browser's save > bundled preset > defaults.
+// No server (no DATABASE_URL, offline, slow): nothing changes, nothing waits longer than PRESET_FETCH_MS. ──
+
+const PRESET_FETCH_MS = 1200;
+
+/** A line the artist sees after a save: "서버 저장됨" / "서버 저장 실패" — a small overlay, gone after a moment. */
+function showNote(text: string, ok: boolean): void {
+  try {
+    const id = "leva-save-note";
+    let el = document.getElementById(id);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = id;
+      el.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:9999;font:10px ui-monospace,monospace;padding:4px 8px;border-radius:3px;pointer-events:none;transition:opacity .4s";
+      document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.style.background = ok ? "rgba(40,120,60,.85)" : "rgba(140,50,40,.85)";
+    el.style.color = "#fff";
+    el.style.opacity = "1";
+    const mine = Symbol();
+    (el as unknown as { tag: symbol }).tag = mine;
+    setTimeout(() => {
+      if ((el as unknown as { tag: symbol }).tag === mine) el!.style.opacity = "0";
+    }, 2500);
+  } catch {
+    /* no document */
+  }
+}
+
+/** One saved group to the server; the note says whether it got there. */
+export async function pushPreset(key: string, values: Record<string, unknown>): Promise<boolean> {
+  try {
+    const r = await fetch("/api/presets", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, json: values }) });
+    if (r.status === 503) {
+      showNote("저장됨 (이 브라우저만 · 서버 없음)", true);
+      return false;
+    }
+    if (!r.ok) throw new Error(String(r.status));
+    const { preset } = (await r.json()) as { preset: { updatedAt: number } };
+    try {
+      window.localStorage.setItem(`${key}:savedAt`, String(preset.updatedAt));
+    } catch {
+      /* fine */
+    }
+    showNote("저장됨 · 서버에도 (전시가 이 값을 씀)", true);
+    return true;
+  } catch {
+    showNote("저장됨 (이 브라우저만) · 서버 저장 실패", false);
+    return false;
+  }
+}
+
+/**
+ * The server's groups for `page`, written into this browser where the server's save is newer than the browser's
+ * (a browser copy without a date counts as older). Resolves with the keys that changed; [] when the server has
+ * nothing newer, could not be reached, or took longer than PRESET_FETCH_MS. Call before Leva mounts.
+ */
+export async function pullPresets(page: string): Promise<string[]> {
+  const changed: string[] = [];
+  if (typeof window === "undefined") return changed;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), PRESET_FETCH_MS);
+  try {
+    const r = await fetch(`/api/presets?page=${encodeURIComponent(page)}`, { signal: ctl.signal, cache: "no-store" });
+    if (!r.ok) return changed;
+    const { presets } = (await r.json()) as { presets: Record<string, { json: Record<string, unknown>; updatedAt: number }> };
+    for (const [key, p] of Object.entries(presets ?? {})) {
+      if (!key.startsWith(`${PREFIX}:`) || !isObj(p?.json)) continue;
+      const localAt = Number(window.localStorage.getItem(`${key}:savedAt`) ?? 0);
+      if (!(p.updatedAt > localAt)) continue;
+      const before = window.localStorage.getItem(key);
+      const after = JSON.stringify(p.json);
+      window.localStorage.setItem(key, after);
+      window.localStorage.setItem(`${key}:savedAt`, String(p.updatedAt));
+      cache.delete(key);
+      if (before !== after) changed.push(key);
+    }
+  } catch {
+    /* offline, slow, or no server: this browser's values stand */
+  } finally {
+    clearTimeout(timer);
+  }
+  return changed;
 }

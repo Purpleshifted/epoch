@@ -25,5 +25,16 @@ describe("world clock: a shared time rate, never jumping", () => {
     setTimeRate(1);
     vi.advanceTimersByTime(1000);
     expect(worldNow()).toBe(t0 + 11_000); // the 10 s gained stay; real time again
+    // slow motion and standing still
+    setTimeRate(0.5);
+    vi.advanceTimersByTime(2000);
+    expect(worldNow()).toBe(t0 + 12_000);
+    setTimeRate(0);
+    expect(timeRate()).toBe(0);
+    vi.advanceTimersByTime(5000);
+    expect(worldNow()).toBe(t0 + 12_000);
+    setTimeRate(1);
+    vi.advanceTimersByTime(1000);
+    expect(worldNow()).toBe(t0 + 13_000);
   });
 });

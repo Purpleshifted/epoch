@@ -700,7 +700,38 @@ export function partAgeYears(b: Box, seedAge: ReadonlyMap<number, number>, tNow:
  * survival probability P = e^(−A / (tau · f)). wearParts decides removal with it; decay = 1 − P drives what grows on
  * and what becomes of a part (fuse.ts).
  */
-export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig): { age: (b: Box) => number; survival: (b: Box) => number } {
+/**
+ * A part's wear BASIS: what its age at any later time is computed from — for the baked layers, which keep ageing
+ * after their events are gone from the history window (spaceModel.ts).
+ */
+export interface WearBasis {
+  /** When the part begins to weather (session s: the end of its slot plus the rot onset). */
+  laid: number;
+  /** When its building's upper layers cover it and slow its weathering (session s; Infinity = never covered). */
+  cover: number;
+  /** Exposure factor while uncovered: 1 + vegetation acceleration + water corrosion, as at the time of baking. */
+  k: number;
+  /** The part's own age error (ageJitter), fixed per part. */
+  spread: number;
+}
+
+/** The age (model years) of a part with this basis at time t under the wear config (timeScale, buriedSlow). */
+export function ageFromBasis(bs: WearBasis, t: number, cfg: Pick<WearConfig, "timeScale" | "buriedSlow">): number {
+  const slow = Math.max(1, cfg.buriedSlow ?? 1);
+  const exposed = Math.max(0, geoYears(Math.min(t, bs.cover)) - geoYears(bs.laid)) * bs.k;
+  const buried = Number.isFinite(bs.cover) ? Math.max(0, geoYears(t) - geoYears(bs.cover)) / slow : 0;
+  return (exposed + buried) * (cfg.timeScale ?? 1) * bs.spread;
+}
+
+/** The survival (1 = whole … 0 = gone) of a part with this basis at time t. */
+export function survivalFromBasis(b: Box, bs: WearBasis, t: number, cfg: WearConfig): number {
+  const A = ageFromBasis(bs, t, cfg);
+  if (A <= 0) return 1;
+  const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b, cfg);
+  return Math.exp(-A / tau);
+}
+
+export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig): { age: (b: Box) => number; survival: (b: Box) => number; basis: (b: Box) => WearBasis | null } {
   const ages = new Map<number, number>();
   const topSlot = new Map<number, number>();
   for (const s of seeds) {
@@ -741,7 +772,17 @@ export function wearModel(seeds: readonly Seed[], tNow: number, cfg: WearConfig)
     const tau = FOUNDATION.has(b.kind) || b.kind === "plinth" ? cfg.tauFootprintYears : cfg.tauSlabYears * wearFactor(b, cfg);
     return Math.exp(-A / tau);
   };
-  return { age, survival };
+  /** The part's wear basis (null without strata: nothing is baked then). */
+  const basis = (b: Box): WearBasis | null => {
+    if (!(spu > 0)) return null;
+    const laid = (b.slot + 1 + rotOnsetSlots(cfg, gatherDensity(b, cfg))) * spu;
+    const simple = cover <= 0 && !(accel > 0 && cfg.veg) && !cfg.water;
+    const top = topSlot.get(b.seed) ?? b.slot;
+    const coverAt = !simple && cover > 0 && top >= b.slot + cover ? Math.max(laid, (b.slot + cover + 1) * spu) : Infinity;
+    const k = simple ? 1 : 1 + (accel > 0 && cfg.veg ? accel * cfg.veg(b) : 0) + (cfg.water ? cfg.water(b) : 0);
+    return { laid, cover: coverAt, k, spread: spread(b) };
+  };
+  return { age, survival, basis };
 }
 
 export function wearParts(parts: readonly Box[], seeds: readonly Seed[], tNow: number, cfg: WearConfig, model?: ReturnType<typeof wearModel>): Box[] {

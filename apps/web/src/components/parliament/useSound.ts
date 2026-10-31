@@ -80,7 +80,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       arrival: { value: DEFAULT_SOUND.arrival, label: "도착의 종지 — 같이 짓기 시작 · 건물 탄생 때 도미넌트 → 으뜸", render: v2 },
       arrivalHall: { value: DEFAULT_SOUND.arrivalHall, min: 0, max: 1, step: 0.05, label: "도착 때 홀이 열리는 정도", render: v2 },
       arrivalWave: { value: DEFAULT_SOUND.arrivalWave, min: 0, max: 1, step: 0.05, label: "도착의 파도 — 도미넌트 마디에 밀려와 으뜸에서 부서짐", render: v2 },
-      arrivalGapMs: { value: DEFAULT_SOUND.arrivalGapMs, min: 0, max: 400, step: 10, label: "으뜸 직전의 숨 (ms, 전부 잠깐 비움)", render: v2 },
+      arrivalGapMs: { value: DEFAULT_SOUND.arrivalGapMs, min: 0, max: 400, step: 10, label: "으뜸 직전의 숨 (ms, 전부 잠깐 비움 — 0 = 없음; 파도 정점에서 먹히는 느낌의 원인이었음)", render: v2 },
       afterlifeTail: { value: DEFAULT_SOUND.afterlifeTail, min: 1, max: 30, step: 0.5, label: "죽음의 잔향 (s) — 끝난 뒤 들리는 유일한 것; 뒤 절반에 페이드가 겹침", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
@@ -136,6 +136,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       { tag: "v4-a2e-heartbeat2", set: { bassSpread: 0.7, bassDub: 0.45 } }, // heavier, spreading
       { tag: "v4-a4b-scale", set: { zoneRing: 8 } }, // the harmony's scale widened (the artist: changes too fine to feel)
       { tag: "v4-a5e-tail-5", set: { afterlifeTail: 5 } }, // the artist: 10 s was too long
+      { tag: "v4-a5p-no-breath", set: { arrivalGapMs: 0 } }, // the artist (10/31): the breath at the wave's peak = the sound eaten
       // the artist: the motif as a signal sent into space (Interstellar, 전파) — the preset on top of saved values once
       { tag: "v4-a2f-radio", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),
@@ -201,7 +202,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     if (!engine) return;
     const id = setInterval(() => {
       const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (♪ 버튼)" : engine.running ? "재생 중" : "클릭하면 시작";
-      setStatus(`♪ 헤드셋 (모바일 뷰) · ${why}`);
+      setStatus(`♪ 헤드셋 (모바일 뷰) · ${why}${engine.running ? ` · → ${engine.output}` : ""}`);
     }, 1000);
     return () => clearInterval(id);
   }, [engine]);
