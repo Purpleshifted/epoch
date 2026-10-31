@@ -14,7 +14,7 @@
  *   BED       a floor of low-passed noise that thickens with the crowd.
  *   TRACES    every person's rhythm cell as a soft tick on the shared grid (a short burst of noise around their
  *             register): the moving every bar, the still every other bar.
- *   CLUMPS    voices and ticks are panned by WHERE the person is (their x, or the building's x).
+ *   (no spatialisation — the artist, 2026-10-31: "글로벌 사운드가 엄청 입체음향 들어가고 무거워질 필요가 전혀 없으니")
  *   BREATH    the share of people walking opens the low-pass a little; a still crowd is duller.
  *
  * Nothing is interactive here. Same log, same motifs (motif.ts), same grid (sequencer.ts barClock).
@@ -46,8 +46,6 @@ export interface GlobalParams {
   bedMax: number;
   /** The bed's floor when nobody is there (0 = an empty world is silent — the design so far; the artist decides by ear). */
   bedFloor: number;
-  /** Stereo spread of the clumps (0 = mono, 1 = full). */
-  spread: number;
   /** Saturation drive (1 = none). */
   drive: number;
   /** Presence counted over this window (exhibition seconds) before the latest time. */
@@ -67,10 +65,9 @@ export const DEFAULT_GLOBAL: GlobalParams = {
   bedPer: 0.01,
   bedMax: 0.12,
   bedFloor: 0,
-  spread: 0.8,
   drive: 2.5,
   windowSec: 600,
-  maxVoices: 14,
+  maxVoices: 8, // 14 until 10/31 — the artist: light, no heavy spatial sound
 };
 
 export interface Presence {
@@ -133,12 +130,6 @@ export function globalBuildings(slabs: readonly Slab[]): BuildingSignal[] {
   return buildingsOf(slabs);
 }
 
-/** Where a presence sits in the stereo field: by its building's x, else its own; `extent` world units = full pan. */
-export function panOf(p: Presence, extent: number, spread: number): number {
-  const x = p.building != null && p.bx != null ? p.bx : p.x;
-  return Math.max(-1, Math.min(1, x / Math.max(1, extent))) * spread;
-}
-
 function impulse(ctx: AudioContext, seconds: number, decay: number): AudioBuffer {
   const n = Math.floor(ctx.sampleRate * seconds);
   const buf = ctx.createBuffer(2, n, ctx.sampleRate);
@@ -182,17 +173,17 @@ const CHANNEL_IDLE_BARS = 8;
  * clock fell to 0.28× real time and notes piled up (2673 chains alive) — a loop: more nodes, slower clock, more
  * outstanding notes. Beyond these nothing new is scheduled (counted in stats.shed); the music thins, never stalls.
  */
-const MAX_LIVE_VOICES = 360; // 15 voices at a 2 s bar keep ~230 alive (3.5 s of them not yet started): room above that, a wall below the runaway
-const MAX_LIVE_TICKS = 120;
-/** A note's tail after its length (s): the gain is at ~5 % by then; shorter tails = fewer live chains. */
-const VOICE_TAIL = 1.8;
+const MAX_LIVE_VOICES = 200; // 8 voices at a 2 s bar keep ~120 alive (3.5 s of them not yet started): room above that, a wall below the runaway
+const MAX_LIVE_TICKS = 60;
+/** A note's tail after its length (s): the gain is at ~14 % by then; shorter tails = fewer live chains. */
+const VOICE_TAIL = 1.2;
 
-/** One person's place in the room: a panner for their voice and one for their ticks, reused bar after bar. */
+/** One person's colour in the room, reused bar after bar: a low-pass for their voice, a band-pass for their ticks. */
 interface Channel {
   /** The voice's colour: one low-pass per person at three times their register (was one per note). */
   filter: BiquadFilterNode;
-  voice: StereoPannerNode;
-  tick: StereoPannerNode;
+  /** The tick's colour: one band-pass per person around their register (was one per tick). */
+  tickFilter: BiquadFilterNode;
   seenBar: number;
 }
 
@@ -247,7 +238,6 @@ export class GlobalEngine {
   private buildingKeys = new Map<string, WorldKey>();
   private buildings = new Map<string, BuildingSignal>();
   private present: Presence[] = [];
-  private extent = 20;
   private epochMs = 0;
   private params: GlobalParams = DEFAULT_GLOBAL;
   private drive = DEFAULT_GLOBAL.drive;
@@ -304,7 +294,7 @@ export class GlobalEngine {
       this.hallSend = ctx.createGain();
       this.hallSend.gain.value = this.params.hall;
       const hall = ctx.createConvolver();
-      hall.buffer = impulse(ctx, 5, 2.0); // 8 s / 2.8 until 10/30: the iMac runs the headset's rooms too (a convolver costs its length)
+      hall.buffer = impulse(ctx, 2.5, 1.0); // 8 s (10/14) → 5 s (10/30) → 2.5 s (10/31, the artist: light); a convolver costs its length
       this.hallSend.connect(hall).connect(this.lp);
       // the rhythm traces: their own, gentler low-pass straight into the saturation (they must stay audible)
       this.tickBus = ctx.createBiquadFilter();
@@ -379,14 +369,10 @@ export class GlobalEngine {
     for (const [o, ch] of this.channels) {
       if (ch.seenBar < this.planned - CHANNEL_IDLE_BARS) {
         ch.filter.disconnect();
-        ch.voice.disconnect();
-        ch.tick.disconnect();
+        ch.tickFilter.disconnect();
         this.channels.delete(o);
       }
     }
-    let ext = 10;
-    for (const p of present) ext = Math.max(ext, Math.abs(p.x), Math.abs(p.bx ?? 0));
-    this.extent = ext;
     const ctx = this.ctx;
     if (!ctx || !this.timer) return;
     const t = ctx.currentTime;
@@ -423,21 +409,23 @@ export class GlobalEngine {
     return h;
   }
 
-  /** The person's channel (made once, reused): voices into the low-pass and the hall, ticks into the tick bus. */
+  /** The person's channel (made once, reused): the voice's low-pass into the mass and the hall, the tick's band-pass into the tick bus. */
   private channelOf(o: string, bar: number): Channel {
     let ch = this.channels.get(o);
     if (!ch) {
       const ctx = this.ctx!;
-      const voice = ctx.createStereoPanner();
-      voice.connect(this.lp);
-      voice.connect(this.hallSend);
+      const m = this.motifOf(o);
       const filter = ctx.createBiquadFilter();
       filter.type = "lowpass";
-      filter.frequency.value = Math.min(2000, 3 * midiToHz(this.motifOf(o).base - 12 * this.params.octavesDown));
-      filter.connect(voice);
-      const tick = ctx.createStereoPanner();
-      tick.connect(this.tickBus);
-      ch = { filter, voice, tick, seenBar: bar };
+      filter.frequency.value = Math.min(2000, 3 * midiToHz(m.base - 12 * this.params.octavesDown));
+      filter.connect(this.lp);
+      filter.connect(this.hallSend);
+      const tickFilter = ctx.createBiquadFilter();
+      tickFilter.type = "bandpass";
+      tickFilter.frequency.value = midiToHz(m.base - 12);
+      tickFilter.Q.value = 2.5;
+      tickFilter.connect(this.tickBus);
+      ch = { filter, tickFilter, seenBar: bar };
       this.channels.set(o, ch);
     }
     ch.seenBar = bar;
@@ -469,8 +457,8 @@ export class GlobalEngine {
     o.stop(at + dur + VOICE_TAIL);
   }
 
-  /** A rhythm trace: a short burst of noise around `freq`. */
-  private tickNote(freq: number, at: number, level: number, out: AudioNode): void {
+  /** A rhythm trace: a short burst of noise, coloured by the person's band-pass (`out`). */
+  private tickNote(at: number, level: number, out: AudioNode): void {
     if (this._stats.liveTicks >= MAX_LIVE_TICKS) {
       this._stats.shed++;
       return;
@@ -483,11 +471,7 @@ export class GlobalEngine {
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
     src.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.frequency.value = freq;
-    bp.Q.value = 2.5;
-    src.connect(bp).connect(g).connect(out);
+    src.connect(g).connect(out); // two nodes a tick
     this._stats.ticks++;
     this._stats.liveTicks++;
     src.onended = () => {
@@ -562,17 +546,12 @@ export class GlobalEngine {
   private planVoice(pr: Presence, bar: number, barStart: number, withVoice: boolean): void {
     const p = this.params;
     const ch = this.channelOf(pr.o, bar);
-    ch.voice.pan.setTargetAtTime(panOf(pr, this.extent, p.spread), barStart, 0.3);
-    ch.tick.pan.setTargetAtTime(panOf(pr, this.extent, p.spread), barStart, 0.3);
     const m = this.motifOf(pr.o);
     const w = 0.3 + 0.7 * pr.weight;
     const down = 12 * p.octavesDown;
     // the mass: the heaviest, every bar, pushed down, in their key (or their building's)
     if (withVoice) for (const n of realize(m, this.keyOf(pr), null, 0, bar)) this.voiceNote(midiToHz(n.pitch - down, m.colour), barStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, ch.filter);
     // the traces: their rhythm cell, every bar when walking, every other bar when still
-    if (pr.speed > 0.5 || bar % 2 === 0) {
-      const f = midiToHz(m.base - 12);
-      for (const on of m.onsets) this.tickNote(f, barStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, ch.tick);
-    }
+    if (pr.speed > 0.5 || bar % 2 === 0) for (const on of m.onsets) this.tickNote(barStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, ch.tickFilter);
   }
 }
