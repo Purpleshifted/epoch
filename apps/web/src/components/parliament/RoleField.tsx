@@ -94,6 +94,13 @@ export interface ParliamentDebug {
 /** V2: how often the ground the bots walk on (trodden paths, buildings) is refolded. */
 const BOT_GROUND_EVERY_MS = 5000;
 
+/**
+ * The player's growing fold: the settled frontier held 35 s further back, so someone who joins up to that far behind
+ * the others in assigned time (a bot of the wall, born ±30 s around now) is not "late" — which would make the whole
+ * fold rebuild itself (foldState.ts lateMarginSec).
+ */
+const PLAYER_FOLD_OPTS = { lateMarginSec: 35 };
+
 export function RoleField({
   playerPosRef,
   role,
@@ -153,7 +160,7 @@ export function RoleField({
   });
   const epochMs = useRef(0);
   // the ground, folded as it grows (foldState.ts): the whole world is folded, the region only chooses what is read
-  const fold = useFoldState(log, cfg);
+  const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
   const stressAt = useStressState(log, natureCfg);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
   /** My own samples, in time order (what the ledger reads; a life is a few hundred). */
@@ -242,14 +249,16 @@ export function RoleField({
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && nBots > 0 && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {
       const tSess = sessionSeconds(now, epochMs.current, me.current.offset);
+      // the whole world, settled part only (cheap; seconds behind): what the bots walk on
       const tBot = performance.now();
-      const snapAll = theFold.at(tSess); // the whole world: what the bots walk on
+      const snapAll = theFold.at(tSess, undefined, { tail: false });
       markSpan("bot-fold", performance.now() - tBot);
+      const settledTo = Math.min(tSess, theFold.stats()?.frontier ?? tSess);
       const level = new Map<string, number>();
       for (const pc of snapAll.paths) level.set(pc.key, -flow.unit * Math.log(1 - Math.min(0.999, pc.p)));
       const built = new Set<string>();
       // buildings in use now (a ruin — nobody around for longer than emptyGapSec — can be crossed)
-      for (const sl of snapAll.slabs) if (sl.h >= SEAL_H && tSess - sl.lastS <= foldCfg.emptyGapSec) built.add(sl.key);
+      for (const sl of snapAll.slabs) if (sl.h >= SEAL_H && settledTo - sl.lastS <= foldCfg.emptyGapSec) built.add(sl.key);
       botGround.current = { at: wall, level, built };
       if (botRoutes.current.size > nBots * 4) botRoutes.current.clear(); // old migrations
     }
