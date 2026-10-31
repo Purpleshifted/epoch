@@ -7,7 +7,7 @@
  * flowing while they are in the ground.
  */
 
-import { secondsForYears } from "@/lib/stratum/geoClock";
+import { geoYears, secondsForYears } from "@/lib/stratum/geoClock";
 
 /** Width (s) of the window an arriving visitor's offset is drawn from. */
 export const OFFSET_WINDOW_SEC = 120;
@@ -24,10 +24,8 @@ export function sessionSeconds(nowMs: number, epochMs: number, offsetSec: number
 
 /**
  * The assigned time that lies `horizonYears` model years after the latest event: the "future"
- * the Top view shows, in which slabs have worn away and only the footprints are left. Every thing ages on its
- * OWN clock (geoAge, 2026-10-31), so the horizon is the latest event moved on by the seconds in which a thing
- * laid then becomes `horizonYears` old; everything older is older still.
+ * the Top view shows, in which slabs have worn away and only the footprints are left.
  */
 export function horizonSeconds(latestS: number, horizonYears: number): number {
-  return Math.max(0, latestS) + secondsForYears(Math.max(0, horizonYears));
+  return secondsForYears(geoYears(Math.max(0, latestS)) + Math.max(0, horizonYears));
 }
