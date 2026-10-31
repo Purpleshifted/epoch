@@ -2374,10 +2374,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // ×1.5 a full-screen wall is 3000×1700 and the GPU falls behind; the main thread then stalls (twice a second, when the
   // worker's new buffers are uploaded) until the frame is done, which starved the room's sound (2026-10-29)
   const wall = hideUi && !lab;
-  const dprMax = wall ? 1 : perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
+  // The exhibition wall follows the rehearsal wall's 렌더링 group (the artist, 2026-10-31: "리허설보다 글로벌 해상도가 훅
+  // 떨어진다"); the forced dpr 1 / no shadows of 10/29 is gone now that the per-tick full-buffer uploads are fixed.
+  const dprMax = perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
   const aoHalfRes = perf || rnd.halfRes;
   const aoQuality = perf ? ("performance" as const) : rnd.quality;
-  const shadowsOn = rnd.shadows && !perf && !wall;
+  const shadowsOn = rnd.shadows && !perf;
   const vegBudget = perf ? Math.min(veg.budget, 250000) : veg.budget;
   const lodNear = perf ? Math.min(rnd.near, 25) : rnd.near;
   const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
@@ -2457,7 +2459,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows={wall ? false : "percentage"} dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
+      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />

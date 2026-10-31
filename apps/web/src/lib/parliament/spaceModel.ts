@@ -316,6 +316,8 @@ interface Baked {
     /** When the chunk was baked (session s). */
     t0: number;
     cfgKey: string;
+    /** An ORPHAN's last mesh (no material to rebuild from): kept and stored as it is. */
+    mesh?: FuseMesh;
   };
 }
 
@@ -339,6 +341,8 @@ export class SpaceModel {
   private events: PEvent[] = [];
   private ids = new Set<string>();
   private t = 0;
+  /** The latest event's time (the present `t` may run ahead of it by the clock). */
+  private latestEvent = 0;
   private version = 0;
   private seeds: Seed[] = [];
   private seedsKey = "";
@@ -413,10 +417,14 @@ export class SpaceModel {
       this.ids.add(e.id);
       this.events.push(e);
       if (e.s > this.t) this.t = e.s;
+      if (e.s > this.latestEvent) this.latestEvent = e.s;
       this.version++;
     }
-    if (this.tBeforeReset > 0 && this.t > 0) {
-      if (this.t < this.tBeforeReset - 120) {
+    // a new world is told from a moved window by the EVENTS' time, never by the present: the present follows the
+    // clock and may be minutes ahead of the last event (nobody there) — comparing it cleared the baked layers at the
+    // next window move ("the fossils vanish after a while", the artist 2026-10-31)
+    if (this.tBeforeReset > 0 && this.latestEvent > 0) {
+      if (this.latestEvent < this.tBeforeReset - 120) {
         // a new world, not a moved window: nothing of the old one stays
         this.seedMemo.clear();
         this.baked.clear();
@@ -467,7 +475,7 @@ export class SpaceModel {
           boxes: r.boxes,
           shade: r.shade,
           nature: r.nature,
-          src: { parts: r.parts, basis: r.basis, decay: r.decay, standing: r.standing, skeleton: r.parts.map(() => false), tubes: r.tubes ?? [], history: r.history, x0: r.x0, z0: r.z0, nx: r.nx, nz: r.nz, unit: r.unit, sediment: r.sediment, t0: r.t0, cfgKey: "" },
+          src: { parts: r.parts, basis: r.basis, decay: r.decay, standing: r.standing, skeleton: r.parts.map(() => false), tubes: r.tubes ?? [], history: r.history, x0: r.x0, z0: r.z0, nx: r.nx, nz: r.nz, unit: r.unit, sediment: r.sediment, t0: r.t0, cfgKey: "", mesh: r.mesh },
         });
         n++;
       }
@@ -479,7 +487,7 @@ export class SpaceModel {
   private persist(bk: Baked): void {
     if (!this.epoch) return;
     const s = bk.src;
-    void saveBaked({ key: bakedKey(this.epoch, bk.c0), epoch: this.epoch, c0: bk.c0, c1: bk.c1, final: bk.final, t0: s.t0, parts: s.parts, basis: s.basis, decay: s.decay, standing: s.standing, tubes: s.tubes, history: s.history, x0: s.x0, z0: s.z0, nx: s.nx, nz: s.nz, unit: s.unit, sediment: s.sediment, boxes: bk.boxes, shade: bk.shade, nature: bk.nature });
+    void saveBaked({ key: bakedKey(this.epoch, bk.c0), epoch: this.epoch, c0: bk.c0, c1: bk.c1, final: bk.final, t0: s.t0, parts: s.parts, basis: s.basis, decay: s.decay, standing: s.standing, tubes: s.tubes, history: s.history, x0: s.x0, z0: s.z0, nx: s.nx, nz: s.nz, unit: s.unit, sediment: s.sediment, boxes: bk.boxes, shade: bk.shade, nature: bk.nature, mesh: s.mesh });
   }
 
   /** How many baked chunks still age, how many are final, and the mean decay of the ageing ones' parts (readout, tests). */
@@ -552,6 +560,12 @@ export class SpaceModel {
   /** Renders a baked chunk from its material with the current look and clock. */
   private renderBaked(bk: Baked, fuse: FuseConfig, layerDecay: ((k: number) => number) | undefined): void {
     const s = bk.src;
+    if (s.mesh) {
+      bk.mesh = s.mesh;
+      bk.rendered = true;
+      s.cfgKey = JSON.stringify(fuse);
+      return;
+    }
     bk.mesh = fuseChunk({ parts: s.parts, decay: s.decay, standing: s.standing, skeleton: s.skeleton, tubes: s.tubes, history: s.history, k0: bk.c0, k1: bk.c1, x0: s.x0, z0: s.z0, nx: s.nx, nz: s.nz, unit: s.unit, sediment: s.sediment, layerDecay, cfg: fuse });
     bk.rendered = true;
     s.cfgKey = JSON.stringify(fuse);
@@ -631,10 +645,11 @@ export class SpaceModel {
 
   /** Forgets every event (the world was cleared). */
   reset(): void {
-    this.tBeforeReset = Math.max(this.tBeforeReset, this.t);
+    this.tBeforeReset = Math.max(this.tBeforeReset, this.latestEvent);
     this.events = [];
     this.ids.clear();
     this.t = 0;
+    this.latestEvent = 0;
     this.version++;
     this.foldState = null;
     this.partCache.clear();
@@ -1123,7 +1138,9 @@ export class SpaceModel {
     const dist = (w: Want) => Math.abs((w.c0 + w.c1) / 2 - focus);
     const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
     /** About to leave the history window: the two chunks just above the cut. */
-    const leaving = (w: Want) => w.c1 < floorK + 2 * NATURE_CHUNK;
+    // … and so are the chunks about to fall below the vegetation window (kA, which follows the focus): a live chunk
+    // outside it is not asked for any more, and would vanish with its mass
+    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
     // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
     // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
     // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,
@@ -1227,7 +1244,7 @@ export class SpaceModel {
       let pick: Baked | null = null;
       let more = 0;
       for (const bk of this.baked.values()) {
-        if (bk.final || !bk.rendered || this.t - bk.agedT < AGE_STEP_S) continue;
+        if (bk.final || !bk.rendered || bk.src.mesh || this.t - bk.agedT < AGE_STEP_S) continue;
         more++;
         if (!pick || bk.agedT < pick.agedT) pick = bk;
       }
@@ -1244,7 +1261,30 @@ export class SpaceModel {
       const ch = this.fuseChunks.get(w.c0); // fresh, or the stale one until its turn comes
       if (ch) out.push(ch.mesh);
     }
-    for (const c of this.fuseChunks.keys()) if (!keep.has(c)) this.fuseChunks.delete(c);
+    for (const c of this.fuseChunks.keys()) {
+      if (keep.has(c)) continue;
+      const ch = this.fuseChunks.get(c)!;
+      this.fuseChunks.delete(c);
+      // ORPHAN: a chunk with a mesh that is no longer asked for — its parts went with a bulk window move, or the
+      // window moved past it before it was baked — keeps its last mesh for good rather than vanishing (the artist,
+      // 2026-10-31: "the fossils vanish after a while"); no material, so it neither ages nor re-renders
+      if (ch.mesh.index.length === 0 || this.baked.has(c)) continue;
+      const bk: Baked = {
+        c0: c,
+        c1: c + NATURE_CHUNK - 1,
+        mesh: ch.mesh,
+        rendered: true,
+        final: true,
+        agedT: this.t,
+        boxes: [],
+        shade: new Float32Array(0),
+        nature: null,
+        src: { parts: [], basis: [], decay: [], standing: [], skeleton: [], tubes: [], history: null, x0, z0, nx, nz, unit: u, sediment: sed, t0: this.t, cfgKey: JSON.stringify(fuse), mesh: ch.mesh },
+      };
+      this.baked.set(c, bk);
+      out.push(ch.mesh);
+      this.persist(bk);
+    }
     // something was baked: the parts and points of those slots are now the baked ones (the next computeParts /
     // computeNature see it through their signatures)
     if (!pending && !bakedNow) this.fuseSig = sig;
