@@ -25,7 +25,7 @@ import { makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { barClock } from "./sequencer";
 import { buildingsOf, type BuildingSignal } from "./signals";
 import { bestKey, homeKey } from "./tonality";
-import { applyOutput, makeLimiter, onOutputChange } from "./output";
+import { applyOutput, makeLimiter, onOutputChange, type OutputRole } from "./output";
 import { wrapDist, type PEvent, type Slab } from "@/lib/parliament";
 
 export interface GlobalParams {
@@ -238,9 +238,12 @@ export class GlobalEngine {
   private clockRef: { ctx: number; wall: number } | null = null;
   /** Runs everything but plays nothing (?sound=mute: measuring in a Claude browser without the artist's speakers). */
   private readonly silent: boolean;
+  /** Which output this engine plays on (output.ts): the room's speakers, or the headset for the afterglow. */
+  private readonly role: OutputRole;
 
-  constructor(opts: { silent?: boolean } = {}) {
+  constructor(opts: { silent?: boolean; role?: OutputRole } = {}) {
     this.silent = !!opts.silent;
+    this.role = opts.role ?? "speakers";
   }
 
   get stats(): GlobalStats {
@@ -276,8 +279,8 @@ export class GlobalEngine {
       this.lp.Q.value = 0.7;
       this.lp.connect(this.shaper).connect(this.master).connect(makeLimiter(ctx)).connect(ctx.destination);
       // the speakers' own output device, chosen on /v2/sound/output (the default when none)
-      void applyOutput(ctx, "speakers").then((s) => (this.outputLine = s));
-      this.offOutput = onOutputChange("speakers", () => void applyOutput(ctx, "speakers").then((s) => (this.outputLine = s)));
+      void applyOutput(ctx, this.role).then((s) => (this.outputLine = s));
+      this.offOutput = onOutputChange(this.role, () => void applyOutput(ctx, this.role).then((s) => (this.outputLine = s)));
       this.hallSend = ctx.createGain();
       this.hallSend.gain.value = this.params.hall;
       // the room: no convolver any more (8 s → 5 → 2.5 s → none, 10/31, the artist: as light as possible) — two
