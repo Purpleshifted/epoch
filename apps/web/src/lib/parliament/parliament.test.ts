@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { geoYears } from "@/lib/stratum/geoClock";
+import { geoAge } from "@/lib/stratum/geoClock";
 import {
   DEFAULT_FOLD,
   DEMO_END_SEC,
@@ -124,7 +124,7 @@ describe("clock", () => {
     const s = 100;
     expect(horizonSeconds(s, 0)).toBeCloseTo(s, 4);
     const h = horizonSeconds(s, 3000);
-    expect(geoYears(h) - geoYears(s)).toBeCloseTo(3000, 2);
+    expect(geoAge(h, s)).toBeCloseTo(3000, 2);
   });
 });
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { EventLog, KEEP_WINDOW_SEC, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_KEEP_WINDOW_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, getEpochMs, keepFromS, keepWindowSec, loadEvents, saveMerged, setKeepFrom, setKeepWindowSec, type PEvent } from "./index";
+import { EventLog, KEEP_WINDOW_SEC, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_EVENTS_TOKEN_KEY, LS_KEEP_FROM_KEY, MAX_EVENTS, eventsWrittenHere, LS_KEEP_WINDOW_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, getEpochMs, keepFromS, keepWindowSec, loadEvents, saveMerged, setKeepFrom, setKeepWindowSec, type PEvent } from "./index";
 
 class MemoryStorage {
   private m = new Map<string, string>();
@@ -89,5 +89,59 @@ describe("history window: a shared setting of the browser", () => {
     expect(keepFromS()).toBe(4700);
     setKeepWindowSec(0); // nonsense clears the setting
     expect(keepWindowSec()).toBe(KEEP_WINDOW_SEC);
+  });
+});
+
+describe("log: saving appends to what this tab wrote (no re-reading, no re-serializing everything)", () => {
+  it("one writer: the stored log is every event, sorted by assigned time, whatever order they came in", () => {
+    const epoch = getEpochMs();
+    saveMerged([ev("a", 5), ev("b", 3)], epoch);
+    saveMerged([ev("c", 4), ev("a", 6), ev("b", 3)], epoch); // b:3 again: kept once
+    saveMerged([ev("d", 1)], epoch);
+    const raw = JSON.parse(localStorage.getItem(LS_EVENTS_KEY)!) as PEvent[];
+    expect(raw.map((e) => e.id)).toEqual(["d:1", "b:3", "c:4", "a:5", "a:6"]);
+    expect(eventsWrittenHere()).toBe(true);
+  });
+
+  it("someone else wrote in between: their events are merged, and the next poll is told to read", () => {
+    const epoch = getEpochMs();
+    saveMerged([ev("me", 1)], epoch);
+    eventsWrittenHere();
+    // another tab (its own token) adds its events
+    const stored = JSON.parse(localStorage.getItem(LS_EVENTS_KEY)!) as PEvent[];
+    localStorage.setItem(LS_EVENTS_KEY, JSON.stringify([...stored, ev("other", 2)]));
+    localStorage.setItem(LS_EVENTS_TOKEN_KEY, "someone-else");
+    expect(eventsWrittenHere()).toBe(false);
+    saveMerged([ev("me", 3)], epoch);
+    expect(loadEvents().map((e) => e.id)).toEqual(["me:1", "other:2", "me:3"]);
+    expect(eventsWrittenHere()).toBe(false); // once: the poll reads what came from the other tab
+    expect(eventsWrittenHere()).toBe(true);
+  });
+
+  it("the history window moves on: the head is forgotten in the stored log too", () => {
+    const epoch = getEpochMs();
+    saveMerged([ev("a", 10), ev("a", 20), ev("a", 30)], epoch);
+    localStorage.setItem(LS_KEEP_FROM_KEY, "15");
+    saveMerged([ev("a", 40)], epoch);
+    expect(loadEvents().map((e) => e.s)).toEqual([20, 30, 40]);
+  });
+
+  it("keeps the latest MAX_EVENTS by assigned time", () => {
+    const epoch = getEpochMs();
+    const many: PEvent[] = [];
+    for (let i = 0; i < MAX_EVENTS + 50; i++) many.push(ev("bot", i));
+    saveMerged(many, epoch);
+    const got = loadEvents();
+    expect(got.length).toBe(MAX_EVENTS);
+    expect(got[0].s).toBe(50);
+  });
+
+  it("clear world starts over: nothing of the old cache comes back", () => {
+    const epoch = getEpochMs();
+    saveMerged([ev("old", 1)], epoch);
+    clearWorld();
+    const next = getEpochMs();
+    saveMerged([ev("new", 2)], next);
+    expect(loadEvents().map((e) => e.o)).toEqual(["new"]);
   });
 });
