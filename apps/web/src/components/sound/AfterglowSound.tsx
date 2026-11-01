@@ -10,7 +10,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFoldState, useWorld } from "@/components/parliament/useWorld";
+import { useFoldState } from "@/components/parliament/useWorld";
+import { useRoomLog } from "./useRoomLog";
 import type { SoundSetup } from "@/components/parliament/useSound";
 import { DEFAULT_FOLD, currentEpochKey, hasWorldMirror, latestS, withoutWear } from "@/lib/parliament";
 import { ScoreFeed, attachScoreFeed } from "@/lib/parliament/serverWorld";
@@ -37,8 +38,8 @@ async function wallSoundParams(): Promise<GlobalParams> {
 
 export default function AfterglowSound({ sound }: { sound: SoundSetup }) {
   const [feed] = useState(() => (hasWorldMirror() ? new ScoreFeed() : null));
-  const worldLog = useWorld(undefined, 3000, !feed);
-  const log = feed ? feed.log : worldLog;
+  const roomLog = useRoomLog(3000, !feed); // everybody, including what this tab wrote (useRoomLog.ts)
+  const log = feed ? feed.log : roomLog;
   const foldCfg = useMemo(() => withoutWear(DEFAULT_FOLD), []);
   const fold = useFoldState(log, foldCfg);
   const engine = useMemo(() => new GlobalEngine({ role: "headset" }), []);

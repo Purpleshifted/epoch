@@ -16,7 +16,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useControls } from "leva";
 import { savable } from "./levaSave";
-import { useFoldState, useWorld } from "./useWorld";
+import { useFoldState } from "./useWorld";
+import { useRoomLog } from "@/components/sound/useRoomLog";
 import { DEFAULT_FOLD, currentEpochKey, hasWorldMirror, latestS, withoutWear } from "@/lib/parliament";
 import { ScoreFeed, attachScoreFeed } from "@/lib/parliament/serverWorld";
 import { DEFAULT_GLOBAL, GlobalEngine, globalBuildings, presences, type GlobalParams } from "@/lib/sound/global";
@@ -61,8 +62,8 @@ export default function GlobalSound() {
 
   // the shared world: the music is written from the server's chunks alone, so every wall plays the same (score.ts)
   const [feed] = useState(() => (hasWorldMirror() ? new ScoreFeed() : null));
-  const worldLog = useWorld(undefined, 3000, !feed);
-  const log = feed ? feed.log : worldLog;
+  const roomLog = useRoomLog(3000, !feed); // everybody, including what this tab wrote (useRoomLog.ts)
+  const log = feed ? feed.log : roomLog;
   const foldCfg = useMemo(() => withoutWear(DEFAULT_FOLD), []);
   const fold = useFoldState(log, foldCfg);
   const engine = useMemo(() => (!off && typeof window !== "undefined" ? new GlobalEngine({ silent }) : null), [off, silent]);
