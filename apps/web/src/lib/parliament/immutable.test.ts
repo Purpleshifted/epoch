@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_WATER, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, type PEvent } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, SpaceModel, botActor, dueSamples, type PEvent } from "./index";
 
 /**
  * THE THREE BANDS (the artist, 2026-10-31 night): the present, the layer where the processes run, and from the
@@ -88,6 +88,41 @@ describe("the immutable layer", () => {
     }
     expect(priv.baked.size).toBe(0);
   });
+
+  it("BAKING OFF: no chunk is built first forever — the oldest-built goes next (round robin)", () => {
+    const m = new SpaceModel();
+    const priv = m as unknown as { fuseChunks: Map<number, { built: number }>; fuseBuilt: number };
+    m.add(events);
+    const spu = DEFAULT_BOXES.secPerUnit;
+    let now = 1500 + 20 * spu;
+    const input = { box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300, oneClock: true, tauSlabYears: DEFAULT_FOLD.tauSlabYears, bake: false };
+    // the present moves a slot per call, so every chunk whose parts corrode is stale every call
+    for (let i = 0; i < 20; i++) {
+      now += spu;
+      m.setNow(now);
+      m.computeParts(parts());
+      m.computeFuse(input);
+    }
+    // round robin: no kept chunk is more than one turn of all the chunks behind
+    let lag = 0;
+    for (const ch of priv.fuseChunks.values()) lag = Math.max(lag, priv.fuseBuilt - ch.built);
+    expect(priv.fuseChunks.size).toBeGreaterThan(2);
+    expect(lag).toBeLessThanOrEqual(priv.fuseChunks.size + 2);
+  }, 600_000);
+
+  it("STEADY: a part's corrosion does not depend on the vegetation history or on the camera (LOD)", () => {
+    const run = (camera: [number, number, number], near: number, withNature: boolean) => {
+      const m = new SpaceModel();
+      m.add(events);
+      m.setNow(1500 + 20 * DEFAULT_BOXES.secPerUnit);
+      if (withNature) m.computeNature({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 120, focusK: 60, margin: 4, budget: 1e7, burialSlots: 0, lod: { camera, near: 1e9, farFactor: 1 } });
+      m.computeParts({ ...parts(), lod: { camera, near, mid: near, farFactor: 1 }, steady: true });
+      const priv = m as unknown as { built: { slot: number }[]; wear: { survival: (b: unknown) => number } };
+      return priv.built.map((b) => `${b.slot}:${(1 - priv.wear.survival(b)).toFixed(4)}`).sort().join("|");
+    };
+    const a = run([0, 0, 0], Infinity, false);
+    expect(run([0, 500, 900], Infinity, true)).toBe(a);
+  }, 600_000);
 
   it("without the line (V1) the old rule is unchanged: what is baked is not final (the past keeps ageing)", () => {
     const m = new SpaceModel();

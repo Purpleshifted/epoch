@@ -213,6 +213,9 @@ interface Stats {
   farSeeds: number;
   /** how far the computed present lies behind the latest event (s): the compute cannot keep up when > a slot */
   lagS: number;
+  /** The fused mass as last received: triangles in all, and in the resin part (0 = the mesh came empty). */
+  fuseTris: number;
+  fuseResin: number;
   /** Chunks of slots baked (kept as they were, below the history window too). */
   baked: number;
   /** Waterways flowing now. */
@@ -865,6 +868,7 @@ function SpaceWorld({
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
+  const fuseStats = useRef({ fuseTris: 0, fuseResin: 0 });
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
@@ -964,7 +968,7 @@ function SpaceWorld({
       setWalkEnds(endKept.current, p.walk.keptEnds);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
-      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...focus.current };
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
@@ -972,7 +976,9 @@ function SpaceWorld({
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
-    if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
+    // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
+    if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
+    if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms });
   };
 
   useEffect(() => {
@@ -1056,10 +1062,13 @@ function SpaceWorld({
     // exhibition camera aims `followLift` below the present (−25 by default, to frame the fossil band), and with the
     // orbit target as the reference the window slid 25 world down and vegetation grew on old layers (the artist,
     // 2026-10-31)
-    const focusNow = (o ? Math.max(0, o.target.y - (link?.current.lift ?? followLift)) : 0) / cfg.unit; // the lift in effect: the auto run's shot or the base pose
+    // V2 (steady): the windows sit at the PRESENT itself — the camera has no say in what is computed
+    const focusNow = oneClk ? t / cfg.secPerUnit : (o ? Math.max(0, o.target.y - (link?.current.lift ?? followLift)) : 0) / cfg.unit; // the lift in effect: the auto run's shot or the base pose
     if (!frozen || !pinned.current) pinned.current = { cam: camNow, focusK: focusNow };
     const { cam, focusK } = pinned.current;
-    const lod = { camera: cam, near, mid, farFactor: ff };
+    // V2 (steady): every seed with all its parts (no LOD): the parts' shapes, lives and the fused mass do not change as
+    // the camera moves; the vegetation keeps its own density floor (it does not thin by distance in V2 either)
+    const lod = oneClk ? { camera: cam, near: Infinity, mid: Infinity, farFactor: 1 } : { camera: cam, near, mid, farFactor: ff };
     const id = ++seq.current;
     // PAUSE MODE (time standing still): a changed setting should show at once — the mass is asked for on every tick
     // and built many chunks at a time, the vegetation only when something it depends on changed (it is the heaviest
@@ -1067,7 +1076,7 @@ function SpaceWorld({
     const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk } };
     if (withNature && nat) {
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
       if (nat.reclaim) {
@@ -1680,7 +1689,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
   const camLink = useRef<CamLink>({ lift: null, focusY: null });
   const shotLine = useRef<HTMLDivElement | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, fuseTris: 0, fuseResin: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -2762,7 +2771,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
-          {stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
+          {` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
         <div ref={shotLine} />

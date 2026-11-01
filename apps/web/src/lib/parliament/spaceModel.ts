@@ -172,6 +172,13 @@ export interface PartsInput {
   fold: FoldConfig;
   box: BoxConfig;
   wear: boolean;
+  /**
+   * STEADY CORROSION (V2, the artist 2026-11-01 evening: "leave the camera, the LOD and the vegetation out"): a part's
+   * corrosion does not read the vegetation history (which follows the view's window) — its rot onset is the full-density
+   * one and the vegetation does not hasten it. The view also sends full-detail parts (no LOD) and a window anchored at the
+   * present (not the camera), so the same part has the same corrosion wherever the camera is.
+   */
+  steady?: boolean;
   weather: WeatherConfig;
   /** Layers old enough are fused into one mesh (computeFuse); their parts dissolve here. */
   fuse: FuseConfig;
@@ -797,7 +804,7 @@ export class SpaceModel {
     const w = input.weather;
     // vegetation around a part: the last vegetation history (if the view draws vegetation), at the part's cell and slot
     const h = this.history;
-    const veg = h ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
+    const veg = h && !input.steady ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
     // waterways between buildings the same people built: nearness per (cell, slot) over the whole history
     this.waterCfg = input.water;
     // the PRESENT thickness (the slots above the rot onset): water and walkways laid there still change
@@ -1201,7 +1208,14 @@ export class SpaceModel {
     // V2: the chunks that have just crossed the immutable line come first — built fresh, baked on the next call, gone
     // from the list. (With the window's cut as the criterion they were first forever: not bakeable above the line,
     // stale every slot, and the band where the fusion shows never got a turn — the artist, 2026-11-01)
-    const leaving = input.immutable !== undefined ? (w: Want) => w.c1 < immK : (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
+    // BAKING OFF: nothing leaves the list by being baked, so nothing may be "first" — a chunk first forever starved the
+    // band and its mass ended flat at a chunk boundary (the artist, 2026-11-01 evening: "the tops are cut sharp")
+    const leaving =
+      input.bake === false
+        ? () => false
+        : input.immutable !== undefined
+          ? (w: Want) => w.c1 < immK
+          : (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
     // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
     // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
     // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,
