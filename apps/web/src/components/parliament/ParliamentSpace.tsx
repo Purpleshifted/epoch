@@ -37,7 +37,6 @@ import {
   MIN_TIME_RATE,
   getEpochMs,
   latestOf,
-  dandelionsIn,
   latestS,
   loadEvents,
   sessionSeconds,
@@ -47,7 +46,6 @@ import {
   type Clock,
   seedParliamentDemoIfRequested,
   type BoxConfig,
-  type Dandelion,
   type EventLog,
   type FoldConfig,
   type NatureConfig,
@@ -1541,25 +1539,6 @@ interface MeStatus {
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
 
 /**
- * What the answers left (lib/parliament/dandelion.ts) at the height of their time, in the main scene: the masses hide them
- * when they cover them. Aged by the newest sample in the log (the wall's present).
- */
-function WallDandelions({ log, secPerUnit, unit, size }: { log: EventLog; secPerUnit: number; unit: number; size: number }) {
-  const heads = useRef<Dandelion[]>([]);
-  const now = useRef(0);
-  const timer = useRef(10);
-  useFrame((_, dt) => {
-    timer.current += dt;
-    if (timer.current < 1) return;
-    timer.current = 0;
-    const events = log.all();
-    heads.current = dandelionsIn(events);
-    now.current = heads.current.length ? latestS(events) : 0;
-  });
-  return <Dandelions getHeads={() => heads.current} ageOf={(d) => now.current - d.s} footOf={(d) => [d.x, (d.s / secPerUnit) * unit, d.z]} size={size} dot={0.14} />;
-}
-
-/**
  * Live markers: the latest presence sample of each owner, as a sphere at (x, time, z) with a thin line down to
  * the ground. "me" is the player tab on this browser (id written to localStorage by RoleField). An owner stays
  * visible while its newest sample keeps advancing; `holdSec` of silence hides it — except "me", which is always
@@ -1739,9 +1718,34 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       "가장 최근으로": button(() => jump(Math.max(0, topRef.current - 6))),
       markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
-      seedsOn: { value: true, label: "응답의 홀씨" },
-      seedSize: { value: 1.2, min: 0.3, max: 6, step: 0.1, label: "응답의 홀씨: 크기" },
       showEdges: { value: false, label: "모서리 선" },
+      "응답의 홀씨": folder({
+        seedsOn: { value: true, label: "켜기" },
+        seedHead: { value: 5, min: 0.5, max: 20, step: 0.5, label: "처음 크기 (월드)" },
+        seedDot: { value: 0.3, min: 0.05, max: 2, step: 0.05, label: "씨앗 점 크기 (월드)" },
+        seedThrough: { value: 0.3, min: 0, max: 1, step: 0.05, label: "덩어리 너머로 비침 (0 = 가려짐)" },
+        "가루": folder({
+          seedDust: { value: 260, min: 0, max: 800, step: 10, label: "양 (한 송이당 점 수)" },
+          seedDustReach: { value: 30, min: 2, max: 80, step: 1, label: "날아가는 거리 (월드)" },
+          seedDustSec: { value: 40, min: 3, max: 120, step: 1, label: "날리는 시간 (s)" },
+          seedDustDot: { value: 0.15, min: 0.03, max: 2, step: 0.01, label: "점 크기 (월드)" },
+        }),
+        "줄어듦 · 화석화": folder({
+          seedSettle: { value: 0.55, min: 0.1, max: 1, step: 0.05, label: "가루가 다 날린 뒤 크기 (처음의 ×)" },
+          seedSettleSec: { value: 12, min: 1, max: 60, step: 1, label: "줄어드는 시간 (s)" },
+          seedFossil: { value: 45, min: 5, max: 120, step: 1, label: "화석화되는 깊이 (현재에서 ↓단)" },
+          seedFossilSpread: { value: 6, min: 0, max: 30, step: 1, label: "그 깊이의 홀씨마다 차이 (±단)" },
+          seedKeep: { value: 0.35, min: 0, max: 1, step: 0.05, label: "화석으로 남는 비율 (나머지는 사라짐)" },
+        }),
+        "지터 (0 = 모두 같음, 1 = ⅓배~3배)": folder({
+          seedJitSize: { value: 0.35, min: 0, max: 1, step: 0.05, label: "송이 크기" },
+          seedJitShape: { value: 0.3, min: 0, max: 1, step: 0.05, label: "줄기·살 길이" },
+          seedJitDot: { value: 0.4, min: 0, max: 1, step: 0.05, label: "씨앗·가루 점 크기" },
+          seedJitCount: { value: 0.5, min: 0, max: 1, step: 0.05, label: "가루 양" },
+          seedJitReach: { value: 0.4, min: 0, max: 1, step: 0.05, label: "가루 거리" },
+          seedJitSec: { value: 0.3, min: 0, max: 1, step: 0.05, label: "가루 시간" },
+        }),
+      }),
       "초점 · 시야": folder({
         dof: { value: false, label: "초점 흐림 (피사계 심도)" },
         clickFocus: { value: true, label: "클릭한 곳에 초점 (끄면 화면 중앙)" },
@@ -2731,7 +2735,24 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
-        {v.seedsOn && <WallDandelions log={log} secPerUnit={c.secPerUnit} unit={c.unit} size={v.seedSize} />}
+        {v.seedsOn && (
+          <Dandelions
+            log={log}
+            secPerUnit={c.secPerUnit}
+            unit={c.unit}
+            look={{
+              size: v.seedHead,
+              dot: v.seedDot,
+              through: v.seedThrough,
+              dustCount: v.seedDust,
+              dustReach: v.seedDustReach,
+              dustSec: v.seedDustSec,
+              dustDot: v.seedDustDot,
+              life: { settle: v.seedSettle, settleSec: v.seedSettleSec, fossilDepth: v.seedFossil, fossilSpread: v.seedFossilSpread, keep: v.seedKeep },
+              jitter: { size: v.seedJitSize, shape: v.seedJitShape, dot: v.seedJitDot, dustCount: v.seedJitCount, dustReach: v.seedJitReach, dustSec: v.seedJitSec },
+            }}
+          />
+        )}
         <SpaceWorld
           log={log}
           fold={spaceFold}

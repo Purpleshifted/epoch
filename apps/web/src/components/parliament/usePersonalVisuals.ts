@@ -46,7 +46,7 @@ export interface GrassVisual {
 export interface MarksVisual {
   others: { on: boolean; size: number; height: number; bright: number; recentSec: number; halo: number; haloStrength: number; fog: boolean; pulseHz: number; holdSec: number; snap: boolean; square: boolean };
   concrete: { on: boolean; height: number; bright: number; radius: number; style: ConcreteStyle; outlineScale: number };
-  seeds: { on: boolean; size: number; dot: number };
+  burst: { on: boolean; count: number; reach: number; lifeSec: number; dot: number };
   on: boolean;
 }
 
@@ -101,10 +101,12 @@ export function usePersonalVisuals(): PersonalVisuals {
         outlineScale: { value: 1, min: 0.25, max: 6, step: 0.25, label: "외곽선: 높이 × 슬래브", render: v2 },
         otherSquare: { value: 0.8, min: 0.2, max: 2, step: 0.05, label: "타인 네모 크기", render: v2 },
       }),
-      "응답의 홀씨": folder({
-        seedsOn: { value: true, label: "켜기", render: v2 },
-        seedSize: { value: 1, min: 0.3, max: 4, step: 0.1, label: "크기", render: v2 },
-        seedDot: { value: 0.1, min: 0.02, max: 0.5, step: 0.01, label: "씨앗 점 크기 (월드)", render: v2 },
+      "응답의 터짐": folder({
+        burstOn: { value: true, label: "켜기", render: v2 },
+        burstCount: { value: 70, min: 5, max: 400, step: 5, label: "점 수", render: v2 },
+        burstReach: { value: 2.6, min: 0.3, max: 10, step: 0.1, label: "퍼지는 거리 (월드)", render: v2 },
+        burstLife: { value: 1.2, min: 0.2, max: 5, step: 0.1, label: "지속 (s)", render: v2 },
+        burstDot: { value: 0.07, min: 0.02, max: 0.4, step: 0.01, label: "점 크기 (월드)", render: v2 },
       }),
       "풀 (식생)": folder({
         grassThick: { value: 2, min: 1, max: 6, step: 0.25, label: "두께 — 세로 분포 배율 (1 = 예전)", render: v2 },
@@ -173,10 +175,10 @@ export function usePersonalVisuals(): PersonalVisuals {
         square: brutal,
       },
       concrete: { on: c.concreteOn, height: c.concreteHeight, bright: brutal ? 1 : c.concreteBright, radius: c.concreteRadius, style: brutal ? c.concreteStyle : "lines", outlineScale: c.outlineScale },
-      seeds: { on: c.seedsOn, size: c.seedSize, dot: c.seedDot },
+      burst: { on: c.burstOn, count: c.burstCount, reach: c.burstReach, lifeSec: c.burstLife, dot: c.burstDot },
       on: c.othersOn || c.concreteOn,
     }),
-    [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.seedsOn, c.seedSize, c.seedDot],
+    [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
   return { look: c.look, footprint: c.footprint, grass, marks };
 }

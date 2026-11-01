@@ -8,6 +8,7 @@
  *                  brutal version, a hard white square blinking the being's own rhythm, like the visitor's own
  *   ConcreteLines  a vertical line from the ground up through the frame on every sealed slab cell
  *   ConcreteOutline a brutal version: the building as a line drawing, its edges and the joints between its cells
+ *   AnswerBurst    the answer: a burst of hard white points, gone in a moment
  * (the paths as floating curves / ribbons were dropped by the artist on 2026-10-28; they stay on the ground)
  */
 
@@ -15,7 +16,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { hash2, outlineSegments, rhythmOf, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
+import { hash2, outlineSegments, rhythmOf, scatterPoints, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
 
 export interface MarksData {
   others: OtherMark[];
@@ -25,6 +26,7 @@ export interface MarksData {
 const MAX_OTHERS = 128;
 const MAX_CONCRETE = 6000;
 const MAX_OUTLINE_SEGS = 24000;
+const MAX_BURST = 400;
 const REFRESH = 0.5;
 /** A square whose melody rests on this step is not off: it stays as a dark grey square. */
 const SQUARE_REST = 0.22;
@@ -277,5 +279,43 @@ export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => Marks
     <lineSegments geometry={geom} frustumCulled={false}>
       <lineBasicMaterial vertexColors fog={false} />
     </lineSegments>
+  );
+}
+
+/** One answer's burst: where it went off, and when (performance.now()). */
+export interface BurstAt {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  atMs: number;
+}
+
+/**
+ * The answer in the player's frame (the artist, 2026-11-01): hard white square points thrown from where the visitor stands,
+ * each simply gone at a time of its own. Nothing stays; what stays is on the wall (Dandelions).
+ */
+export function AnswerBurst({ getBurst, count, reach, lifeSec, dot }: { getBurst: () => BurstAt | null; count: number; reach: number; lifeSec: number; dot: number }) {
+  const geom = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_BURST * 3), 3));
+    g.setDrawRange(0, 0);
+    return g;
+  }, []);
+  const shown = useRef(0);
+  useEffect(() => () => geom.dispose(), [geom]);
+  useFrame(() => {
+    const b = getBurst();
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
+    const n = b ? scatterPoints(b.id, (performance.now() - b.atMs) / 1000, b.x, b.y, b.z, { count, reach, lifeSec, wind: 0, rise: reach * 0.1, waver: 0, from: 0 }, { pos: pos.array as Float32Array }) : 0;
+    if (n === 0 && shown.current === 0) return;
+    shown.current = n;
+    geom.setDrawRange(0, n);
+    pos.needsUpdate = true;
+  });
+  return (
+    <points geometry={geom} frustumCulled={false} renderOrder={5}>
+      <pointsMaterial color="#ffffff" size={dot} sizeAttenuation fog={false} depthTest={false} toneMapped={false} />
+    </points>
   );
 }

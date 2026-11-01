@@ -42,7 +42,6 @@ import {
   aliveOwners,
   concreteLines,
   dandelionsIn,
-  nearestImage,
   wordSpots,
   type Dandelion,
   type WordSpot,
@@ -63,8 +62,7 @@ import {
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { Dandelions } from "./Dandelions";
-import { ConcreteLines, ConcreteOutline, OtherDots, type MarksData } from "./Marks";
+import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -75,6 +73,7 @@ import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
+const BURST_Y = 0.2; // an answer's burst goes off at the height of the visitor's own square
 /** Someone who has sent nothing new for this long (wall ms) is not here (the log reaches other tabs in about a second). */
 const ALIVE_HOLD_MS = 6000;
 /** V2: how often the ledger reads the WHOLE world (its totals and my far slabs); the drawing reads a region. */
@@ -211,12 +210,12 @@ export function RoleField({
   const mineMap = useRef<Map<string, number> | null>(null);
   // the marks (others, concrete, paths), renewed with the fold from the record's far list and the snapshot
   const marksRef = useRef<MarksData | null>(null);
-  // the seed heads the answers left (dandelion.ts) and the time they are aged by; where others' words can be found
+  // the seed heads the answers left (dandelion.ts, drawn on the wall only): where others' words can be found
   const heads = useRef<Dandelion[]>([]);
-  const headClock = useRef(0);
   const wordsRef = useRef<WordSpot[]>([]);
-  // answers already turned into a seed head (the count lives in ParliamentScene, across lives)
+  // answers already turned into a seed head (the count lives in ParliamentScene, across lives), and the last one's burst here
   const answered = useRef(answers?.current ?? 0);
+  const burst = useRef<BurstAt | null>(null);
   // who has been sending samples (aliveOwners)
   const seenOwners = useRef(new Map<string, { s: number; at: number }>());
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
@@ -347,10 +346,11 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
-    headClock.current = sMe;
     if (answers && answers.current > answered.current) {
       answered.current = answers.current;
-      emit(me.current.id, "tree", "s", playerPosRef.current.x, playerPosRef.current.z, sMe);
+      const { x, z } = playerPosRef.current;
+      emit(me.current.id, "tree", "s", x, z, sMe);
+      burst.current = { id: `${me.current.id}:${answers.current}`, x, y: BURST_Y, z, atMs: performance.now() };
     }
     const p = playerPosRef.current;
 
@@ -525,18 +525,7 @@ export function RoleField({
         />
       )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {marks?.seeds.on && (
-        <Dandelions
-          getHeads={() => heads.current}
-          ageOf={(d) => headClock.current - d.s}
-          footOf={(d) => {
-            const c = playerPosRef.current;
-            return [nearestImage(d.x, c.x), 0.01, nearestImage(d.z, c.z)];
-          }}
-          size={marks.seeds.size}
-          dot={marks.seeds.dot}
-        />
-      )}
+      {marks?.burst.on && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}
