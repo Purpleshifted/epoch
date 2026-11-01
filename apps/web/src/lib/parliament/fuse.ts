@@ -52,6 +52,8 @@ export interface FuseConfig {
    * building's mass or slots change (V1).
    */
   freezeSlots?: number;
+  /** The corrosion at which the fused mass is full (fusedShare reaches 1); default 1. */
+  fuseFull?: number;
   /** Voxel spacing (world). */
   voxel: number;
   /** Box-blur radius in voxels: how far apart decaying pieces still cling together. */
@@ -362,7 +364,9 @@ const smoothRamp = (x: number, a: number, b: number) => {
 /** How much of a part has itself turned into mass, from its decay (1 − survival). */
 export function fusedShare(decay: number, cfg: FuseConfig): number {
   if (!cfg.enabled) return 0;
-  return ramp(decay, cfg.fuseOnset, 1);
+  // the mass is full at fuseFull (default 1: it fills slowly all the way); lower, it rises right past the threshold —
+  // where the gathered vegetation leaves — instead of appearing only far below it (the artist, 2026-11-01: "cut flat")
+  return ramp(decay, cfg.fuseOnset, Math.max(cfg.fuseOnset + 0.01, Math.min(1, cfg.fuseFull ?? 1)));
 }
 
 /** How far the growths on a part have come (0 none … 1 full), from its decay. */

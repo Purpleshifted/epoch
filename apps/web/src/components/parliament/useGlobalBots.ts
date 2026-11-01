@@ -115,43 +115,48 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   const clock = opts?.clock ?? sharedClock;
   const local = !!opts?.local;
   const show = () => enabled;
+  // RESIDENT ONLY (the artist, 2026-11-01: the session bots are not used — the fusion never formed from their short,
+  // gapped visits): the mode is fixed to resident and the session knobs are hidden; the session code stays (its own
+  // session's), its saved values are kept
+  const showSession = () => false;
+  const showResident = () => enabled;
   const b = useControls(
     GROUP,
     savable(GROUP, {
       botOn: { value: false, label: "봇 활성화 (플레이어 탭 없이; 플레이어 탭의 봇과 같이 켜지 말 것)", render: show },
-      botMode: { options: MODE_OPTIONS, value: "session" as "session" | "resident", label: "봇 방식", render: show },
+      botMode: { options: MODE_OPTIONS, value: "resident" as "session" | "resident", label: "봇 방식", render: () => false },
       // SESSION (docs/bot-lifecycle.md)
-      lcGapSec: { value: DEFAULT_LIFECYCLE.meanGapSec, min: 3, max: 120, step: 1, label: "세션 › 붐빌 때 평균 도착 간격 (s)", render: show },
-      lcQuiet: { value: DEFAULT_LIFECYCLE.quietShare, min: 0, max: 1, step: 0.05, label: "세션 › 한산할 때 도착 (붐빌 때의 몇 배)", render: show },
-      lcWaveMin: { value: DEFAULT_LIFECYCLE.wavePeriodSec / 60, min: 1, max: 120, step: 1, label: "세션 › 붐빔↔한산 주기 (분)", render: show },
-      lcMax: { value: DEFAULT_LIFECYCLE.maxPresent, min: 0, max: 40, step: 1, label: "세션 › 동시 최대", render: show },
-      lcAuto: { value: true, label: "세션 › 동시 최대를 성능 따라 줄이기 (100 ms 넘는 멈춤/분, 바닥 8)", render: show },
-      lcLifeMin: { value: DEFAULT_LIFECYCLE.lifeMinSec / 60, min: 0.25, max: 10, step: 0.25, label: "세션 › 수명 최소 (분)", render: show },
-      lcLifeMax: { value: DEFAULT_LIFECYCLE.lifeMaxSec / 60, min: 0.25, max: 10, step: 0.25, label: "세션 › 수명 최대 (분)", render: show },
-      lcShort: { value: DEFAULT_LIFECYCLE.bands.short, min: 0, max: 100, step: 5, label: "세션 › 짧은 삶 비율 (앞 1/4 구간)", render: show },
-      lcMiddle: { value: DEFAULT_LIFECYCLE.bands.middle, min: 0, max: 100, step: 5, label: "세션 › 중간 삶 비율 (가운데 1/2)", render: show },
-      lcLong: { value: DEFAULT_LIFECYCLE.bands.long, min: 0, max: 100, step: 5, label: "세션 › 긴 삶 비율 (뒤 1/4)", render: show },
-      lcGroup: { value: DEFAULT_LIFECYCLE.groupP, min: 0, max: 1, step: 0.05, label: "세션 › 동행 도착 확률", render: show },
-      lcOrigin: { value: DEFAULT_LIFECYCLE.originShare, min: 0, max: 1, step: 0.05, label: "세션 › 원점에서 시작하는 비율 (나머지는 문 네 곳)", render: show },
-      lcFollow: { value: DEFAULT_LIFECYCLE.follow, min: 0, max: 1, step: 0.05, label: "세션 › 남이 머문 자리 따라가기 (평균)", render: show },
-      lcRevisit: { value: DEFAULT_LIFECYCLE.revisit, min: 0, max: 1, step: 0.05, label: "세션 › 내 자리 다시 가기 (평균)", render: show },
-      lcSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "세션 › 변주 폭 (0 = 모두 같은 봇)", render: show },
-      lcLeave: { value: DEFAULT_LIFECYCLE.leaveShare, min: 0, max: 1, step: 0.05, label: "세션 › 끝에 문으로 걸어 나가는 비율 (나머지는 선 자리에서)", render: show },
+      lcGapSec: { value: DEFAULT_LIFECYCLE.meanGapSec, min: 3, max: 120, step: 1, label: "세션 › 붐빌 때 평균 도착 간격 (s)", render: showSession },
+      lcQuiet: { value: DEFAULT_LIFECYCLE.quietShare, min: 0, max: 1, step: 0.05, label: "세션 › 한산할 때 도착 (붐빌 때의 몇 배)", render: showSession },
+      lcWaveMin: { value: DEFAULT_LIFECYCLE.wavePeriodSec / 60, min: 1, max: 120, step: 1, label: "세션 › 붐빔↔한산 주기 (분)", render: showSession },
+      lcMax: { value: DEFAULT_LIFECYCLE.maxPresent, min: 0, max: 40, step: 1, label: "세션 › 동시 최대", render: showSession },
+      lcAuto: { value: true, label: "세션 › 동시 최대를 성능 따라 줄이기 (100 ms 넘는 멈춤/분, 바닥 8)", render: showSession },
+      lcLifeMin: { value: DEFAULT_LIFECYCLE.lifeMinSec / 60, min: 0.25, max: 10, step: 0.25, label: "세션 › 수명 최소 (분)", render: showSession },
+      lcLifeMax: { value: DEFAULT_LIFECYCLE.lifeMaxSec / 60, min: 0.25, max: 10, step: 0.25, label: "세션 › 수명 최대 (분)", render: showSession },
+      lcShort: { value: DEFAULT_LIFECYCLE.bands.short, min: 0, max: 100, step: 5, label: "세션 › 짧은 삶 비율 (앞 1/4 구간)", render: showSession },
+      lcMiddle: { value: DEFAULT_LIFECYCLE.bands.middle, min: 0, max: 100, step: 5, label: "세션 › 중간 삶 비율 (가운데 1/2)", render: showSession },
+      lcLong: { value: DEFAULT_LIFECYCLE.bands.long, min: 0, max: 100, step: 5, label: "세션 › 긴 삶 비율 (뒤 1/4)", render: showSession },
+      lcGroup: { value: DEFAULT_LIFECYCLE.groupP, min: 0, max: 1, step: 0.05, label: "세션 › 동행 도착 확률", render: showSession },
+      lcOrigin: { value: DEFAULT_LIFECYCLE.originShare, min: 0, max: 1, step: 0.05, label: "세션 › 원점에서 시작하는 비율 (나머지는 문 네 곳)", render: showSession },
+      lcFollow: { value: DEFAULT_LIFECYCLE.follow, min: 0, max: 1, step: 0.05, label: "세션 › 남이 머문 자리 따라가기 (평균)", render: showSession },
+      lcRevisit: { value: DEFAULT_LIFECYCLE.revisit, min: 0, max: 1, step: 0.05, label: "세션 › 내 자리 다시 가기 (평균)", render: showSession },
+      lcSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "세션 › 변주 폭 (0 = 모두 같은 봇)", render: showSession },
+      lcLeave: { value: DEFAULT_LIFECYCLE.leaveShare, min: 0, max: 1, step: 0.05, label: "세션 › 끝에 문으로 걸어 나가는 비율 (나머지는 선 자리에서)", render: showSession },
       // RESIDENT (the old crowd)
-      botCount: { value: 12, min: 1, max: 30, step: 1, label: "상주 › 봇 수", render: show },
-      botRole: { options: BOT_OPTIONS, value: "worker" as RoleId | "mixed", label: "상주 › 봇 역할", render: show },
-      botGroups: { value: 4, min: 1, max: 10, step: 1, label: "상주 › 봇 무리 수 (무리당 3명 이상이어야 콘크리트)", render: show },
-      botSpread: { value: 14, min: 0, max: 60, step: 1, label: "상주 › 무리 간 거리 (월드)", render: show },
-      botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "상주 › 봇 시각 폭 (s, 지금 기준 ±절반에서 랜덤)", render: show },
+      botCount: { value: 12, min: 1, max: 30, step: 1, label: "상주 › 봇 수", render: showResident },
+      botRole: { options: BOT_OPTIONS, value: "worker" as RoleId | "mixed", label: "상주 › 봇 역할", render: showResident },
+      botGroups: { value: 4, min: 1, max: 10, step: 1, label: "상주 › 봇 무리 수 (무리당 3명 이상이어야 콘크리트)", render: showResident },
+      botSpread: { value: 14, min: 0, max: 60, step: 1, label: "상주 › 무리 간 거리 (월드)", render: showResident },
+      botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "상주 › 봇 시각 폭 (s, 지금 기준 ±절반에서 랜덤)", render: showResident },
       // MOVING FLOCKS × FLOCK CHARACTER (the artist, 2026-11-01): 0 = the old fixed crowd
-      botStayMin: { value: 0, min: 0, max: 30, step: 0.5, label: "상주 › 무리가 한 자리에 머무는 시간 (분; 0 = 자리 고정)", render: show },
-      botCharacter: { value: 0, min: 0, max: 1, step: 0.05, label: "상주 › 무리 성격 차이 (0 = 모두 같음; 모임 · 걷기 · 머무는 시간이 무리마다 다름)", render: show },
-      botOverlapSec: { value: 60, min: 0, max: 300, step: 5, label: "상주 › 자리 옮길 때 겹치는 시간 (초; 봇이 하나씩 떠남)", render: show },
+      botStayMin: { value: 0, min: 0, max: 30, step: 0.5, label: "상주 › 무리가 한 자리에 머무는 시간 (분; 0 = 자리 고정)", render: showResident },
+      botCharacter: { value: 0, min: 0, max: 1, step: 0.05, label: "상주 › 무리 성격 차이 (0 = 모두 같음; 모임 · 걷기 · 머무는 시간이 무리마다 다름)", render: showResident },
+      botOverlapSec: { value: 60, min: 0, max: 300, step: 5, label: "상주 › 자리 옮길 때 겹치는 시간 (초; 봇이 하나씩 떠남)", render: showResident },
     }),
     { order, collapsed: !enabled },
   );
   const on = enabled && b.botOn;
-  const session = b.botMode !== "resident";
+  const session = false;
   const nBots = on && !session ? b.botCount : 0;
   const flock = useMemo<Flock>(
     () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
