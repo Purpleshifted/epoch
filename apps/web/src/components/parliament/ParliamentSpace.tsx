@@ -1519,11 +1519,36 @@ function shotFrom(id: number, on: boolean, dist: number, polar: number, look: [n
  * re-renders the opaque scene into a texture every frame — at half resolution that pass costs a quarter, and the
  * frosted resin shows no difference).
  */
+interface PostComposer {
+  outputBuffer: THREE.WebGLRenderTarget;
+  passes: { name: string }[];
+  removePass(pass: unknown): void;
+}
+
 function RendererTuning({ transmissionScale }: { transmissionScale: number }) {
   const gl = useThree((s) => s.gl);
   useEffect(() => {
     gl.transmissionResolutionScale = transmissionScale;
   }, [gl, transmissionScale]);
+  return null;
+}
+
+/**
+ * The post steps as the library builds them: the AO's result is copied into a second 8× buffer, the grain is drawn back
+ * into the scene's 8× buffer, each is resolved, and a last pass copies to the screen. Only the scene needs the samples
+ * (its edges are decided there); with this on, the steps after it use a plain buffer and the grain goes to the screen.
+ */
+function PostTrim({ composer, on }: { composer: React.RefObject<PostComposer | null>; on: boolean }) {
+  useFrame(() => {
+    const c = composer.current;
+    if (!on || !c) return;
+    if (c.outputBuffer.samples > 0) {
+      c.outputBuffer.samples = 0;
+      c.outputBuffer.dispose();
+    }
+    const n = c.passes.length;
+    if (n >= 4 && c.passes[n - 1].name === "CopyPass" && c.passes[n - 2].name === "EffectPass") c.removePass(c.passes[n - 1]);
+  });
   return null;
 }
 
@@ -2677,6 +2702,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       // the multisampled post buffers and their resolves: on a 2160×4320 wall 7 → 11 fps without them; 4 samples save
       // nothing, only none does (measured 2026-11-01, M2)
       msaa: { options: [8, 0] as const, value: 8 as const, label: "후처리 계단 현상 제거 샘플 (8 = 지금; 0이면 큰 화면에서 훨씬 빠름)" },
+      postLight: { value: false, label: "후처리 복사 가볍게 (장면의 계단 제거는 그대로; 끔 = 지금)" },
       "빛": folder({
         shadows: { value: true, label: "그림자" },
         // the shadow map draws the whole scene again; it changes only with the sun's drift and the worker's results
@@ -2697,6 +2723,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   );
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
   const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
+  const postComposer = useRef<PostComposer | null>(null);
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
   const perf = rnd.perfMode;
   // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
@@ -2847,8 +2874,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           link={camLink}
           status={shotLine}
         />
+        <PostTrim composer={postComposer} on={rnd.postLight} />
         {composerOn && (
-          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.msaa}`} multisampling={rnd.msaa}>
+          <EffectComposer ref={postComposer as never} key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.msaa}:${rnd.postLight}`} multisampling={rnd.msaa}>
             {rnd.aoOn && <N8AO ref={(p: unknown) => setAoGlass(p, rnd.aoGlass)} aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
