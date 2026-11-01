@@ -1527,6 +1527,14 @@ function RendererTuning({ transmissionScale }: { transmissionScale: number }) {
   return null;
 }
 
+/** Whether the AO pass renders the transparent objects apart (N8AO detects them by itself; off = it never does). */
+function setAoGlass(pass: unknown, on: boolean): void {
+  const p = pass as { autoDetectTransparency: boolean; configuration: { transparencyAware: boolean } } | null;
+  if (!p) return;
+  p.autoDetectTransparency = on;
+  if (!on) p.configuration.transparencyAware = false;
+}
+
 function Sun({
   controls,
   azimuth,
@@ -1534,6 +1542,7 @@ function Sun({
   intensity,
   softness,
   shadows,
+  shadowHz,
   drift,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
@@ -1542,6 +1551,8 @@ function Sun({
   intensity: number;
   softness: number;
   shadows: boolean;
+  /** Shadow map redraws per second; 0 = every frame. */
+  shadowHz: number;
   drift: SunDrift;
 }) {
   const light = useRef<THREE.DirectionalLight>(null);
@@ -1549,10 +1560,19 @@ function Sun({
   // THE SUN'S DAY (the artist, 2026-10-30): on the wall the azimuth turns and the elevation swings slowly around the
   // sliders' values, by the clock (a stall moves it at most 0.1 s worth), from the "전시 카메라" values
   const driftT = useRef(0);
+  const sinceShadow = useRef(Infinity);
   useFrame((_, dt) => {
     const l = light.current;
     const t = controls.current?.target;
     if (!l || !t) return;
+    l.shadow.autoUpdate = shadowHz <= 0;
+    if (shadowHz > 0) {
+      sinceShadow.current += dt;
+      if (sinceShadow.current >= 1 / shadowHz) {
+        sinceShadow.current = 0;
+        l.shadow.needsUpdate = true;
+      }
+    }
     if (drift.active) driftT.current += Math.min(dt, 0.1);
     const s = driftT.current;
     const turn = drift.active && drift.turnMin > 0 ? (drift.dir * 360 * s) / (drift.turnMin * 60) : 0;
@@ -2650,9 +2670,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         aoIntensity: { value: 3, min: 0, max: 12, step: 0.1, label: "세기" },
         quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
         halfRes: { value: true, label: "절반 해상도 (거의 티 안 남, 비용은 ¼)" },
+        // N8AO re-renders every transparent object twice more each frame to keep the AO off them (6 M triangles a frame
+        // in a 40-minute world, about a quarter of them these passes — measured 2026-11-01)
+        aoGlass: { value: true, label: "투명한 것 따로 계산 (끄면 장면을 덜 그림; 켜짐 = 지금)" },
       }),
       "빛": folder({
         shadows: { value: true, label: "그림자" },
+        // the shadow map draws the whole scene again; it changes only with the sun's drift and the worker's results
+        shadowHz: { value: 0, min: 0, max: 30, step: 1, label: "그림자 갱신 (초당 횟수; 0 = 매 프레임 = 지금)" },
         azimuth: { value: 35, min: 0, max: 360, step: 1, label: "해 방위 (°)" },
         elevation: { value: 55, min: 5, max: 89, step: 1, label: "해 고도 (°)" },
         sunIntensity: { value: 1.4, min: 0, max: 4, step: 0.05, label: "해 세기 (그림자 대비)" },
@@ -2769,7 +2794,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
+        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} shadowHz={rnd.shadowHz} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
@@ -2821,7 +2846,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
-            {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
+            {rnd.aoOn && <N8AO ref={(p: unknown) => setAoGlass(p, rnd.aoGlass)} aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
           </EffectComposer>
