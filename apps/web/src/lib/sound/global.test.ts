@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PEvent } from "@/lib/parliament";
-import { presences } from "./global";
+import { DEFAULT_GLOBAL, GlobalEngine, presences } from "./global";
 import type { BuildingSignal } from "./signals";
 
 const ev = (o: string, s: number, x = 0, z = 0): PEvent => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x, z, s });
@@ -28,5 +28,25 @@ describe("global: who is present, by weight, where, how fast, in which building'
     expect(s.speed).toBe(0);
     expect(s.building).toBe("4,4");
     expect(s.bx).toBe(5);
+  });
+});
+
+describe("global: a new world (epoch)", () => {
+  it("plans bars again soon after the epoch changes, however old the last world was", () => {
+    const engine = new GlobalEngine({ silent: true });
+    // the planner needs only a running clock (nobody present: no audio nodes)
+    const inner = engine as unknown as { ctx: { state: string; currentTime: number }; tick(): void };
+    inner.ctx = { state: "running", currentTime: 100 };
+    const now = Date.now();
+    engine.update([], [], now - 3_600_000, DEFAULT_GLOBAL); // a world an hour old
+    inner.tick();
+    expect(engine.debug.bar).toBeGreaterThan(1000);
+    engine.update([], [], now, DEFAULT_GLOBAL); // the world is cleared
+    expect(engine.debug.bar).toBe(-1);
+    inner.tick();
+    expect(engine.debug.bar).toBeGreaterThanOrEqual(0);
+    expect(engine.debug.bar).toBeLessThan(5); // not an hour's bars away
+    expect(engine.stats.lateBars).toBe(0);
+    inner.ctx = null as unknown as typeof inner.ctx; // nothing to close
   });
 });

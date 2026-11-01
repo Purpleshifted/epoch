@@ -367,6 +367,7 @@ export class GlobalEngine {
       this.buildingKeys.clear();
       this.homeKeys.clear();
       this.pending = [];
+      this.planned = -1; // bars count from the new epoch: the old count would hold every bar back until it was reached
     }
     // each building's key once a second here (bestKey over its contributors), not per person per bar
     for (const b of buildings) {
