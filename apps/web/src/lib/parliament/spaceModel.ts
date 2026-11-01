@@ -172,6 +172,14 @@ export interface PartsInput {
   fold: FoldConfig;
   box: BoxConfig;
   wear: boolean;
+  /**
+   * STEADY CORROSION (V2, the artist 2026-11-01 evening): the view sends full-detail parts (no LOD) and a vegetation
+   * window anchored at the present (not the camera), so the same part has the same corrosion wherever the camera is.
+   * The vegetation stays in the clock (its density spreads the rot onset building by building — without it every part
+   * fused at the same depth and the band became one flat-topped block); anchored at the present it no longer moves
+   * with the camera.
+   */
+  steady?: boolean;
   weather: WeatherConfig;
   /** Layers old enough are fused into one mesh (computeFuse); their parts dissolve here. */
   fuse: FuseConfig;
@@ -249,6 +257,27 @@ export interface FuseInput {
   box: BoxConfig;
   weather: WeatherConfig;
   fuse: FuseConfig;
+  /**
+   * THE IMMUTABLE LAYER (the artist, 2026-10-31 night): three bands — the present (the top slots), the layer where the
+   * processes run (gathering → rot → fusion → resin, on the clock), and from `immutable` slots below the present
+   * down, nothing changes: a chunk whose top crosses that line is baked as it is then (rendered once from its
+   * material if its mesh is stale) and final. Nothing else is ever baked. Absent = V1 (baked at the window's cut).
+   */
+  immutable?: number;
+  /**
+   * The view has CAUGHT UP with its clock (its last result is within a couple of slots of the latest event). A chunk
+   * is baked below the immutable line only then: baking is final, and while the worker lags behind a fast rate (×20)
+   * a chunk's inputs are not yet what the world has become (the artist, 2026-11-01: "I only need to be sure that
+   * piling up at ×20 and then going back to ×1 is safe"). Absent = caught up.
+   */
+  caughtUp?: boolean;
+  /**
+   * BAKING OFF (the artist, 2026-11-01 16:45: "take the bake out for now — only what happened in the last twenty
+   * minutes"): false = no chunk is ever baked, kept, aged or stored; the immutable line, the caught-up rule and the
+   * orphan rule are all inactive; the world is the history window alone and what leaves it is gone; baked chunks
+   * loaded from disk are dropped. Absent = on (V1).
+   */
+  bake?: boolean;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
@@ -349,6 +378,8 @@ export class SpaceModel {
   /** The fold as a state that grows with the events (foldState.ts), per fold config: a refold costs only what arrived. */
   private foldState: { key: string; state: FoldState; fed: number } | null = null;
   private partCache = new Map<number, { key: string; parts: Box[] }>();
+  /** FROZEN PARTS per building and slot (fuse.freezeSlots): once a slot is that deep, its parts are kept as they were. */
+  private frozen = new Map<number, Map<number, Box[]>>();
   private partsSig = "";
   /** Seeds by cell as last folded: kept through reset (a moved history window), see carrySeeds. */
   private seedMemo = new Map<string, Seed>();
@@ -404,6 +435,90 @@ export class SpaceModel {
   private baked = new Map<number, Baked>();
   /** The parts drawn by the last computeParts (after wear and absorption): what a baked chunk keeps of them. */
   private shown: Box[] = [];
+  /**
+   * ONE CLOCK (the artist, 2026-11-01: "the fossilised layer and the layer where the buildings vanish drift apart,
+   * and the fossil is cut off flat"): a layer's age for the resin, the voids and the fossil curve is read off the
+   * parts actually lying in that slot (their mean corrosion, smoothed over the neighbouring slots), not off a
+   * typical exposed part on the layer clock — covered parts corrode slower, and the two clocks drifted apart as the
+   * world aged. Slots without parts fall back to the formula.
+   */
+  private layerClockOf(formula: (k: number) => number): (k: number) => number {
+    const wm = this.wear;
+    if (!wm) return formula;
+    const sum = new Map<number, number>();
+    const n = new Map<number, number>();
+    for (const b of this.built) {
+      if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue;
+      sum.set(b.slot, (sum.get(b.slot) ?? 0) + 1 - wm.survival(b));
+      n.set(b.slot, (n.get(b.slot) ?? 0) + 1);
+    }
+    const cache = new Map<number, number>();
+    return (k: number) => {
+      const c = cache.get(k);
+      if (c !== undefined) return c;
+      let s = 0, m = 0;
+      for (let j = k - 1; j <= k + 1; j++) {
+        const nj = n.get(j);
+        if (nj) { s += sum.get(j)!; m += nj; }
+      }
+      const v = m > 0 ? s / m : formula(k);
+      cache.set(k, v);
+      return v;
+    };
+  }
+
+  /**
+   * A chunk's mass in TILES across the ground (TILE cells each, the parts within the tile ± MARGIN): the flocks spread
+   * over the world and one grid for the whole ground passed fuseChunk's size limit (an empty mesh — the artist,
+   * 2026-11-01: "the bots move differently, but the fossil visual is gone"). Each tile keeps only its own faces (as the
+   * chunk keeps only its own rows), so the tiles join without a seam; tiles without parts cost nothing.
+   */
+  private fuseTiled(
+    w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: BakedTube[]; x0: number; z0: number; nx: number; nz: number },
+    h: NatureHistory | null,
+    u: number,
+    sed: NonNullable<ReturnType<typeof sedimentOf>>,
+    layerDecay: ((k: number) => number) | undefined,
+    fuse: FuseConfig,
+  ): FuseMesh {
+    const TILE = 24, MARGIN = 4;
+    const meshes: FuseMesh[] = [];
+    const cellOf = (v: number) => Math.floor(v / CELL);
+    for (let tz = w.z0; tz < w.z0 + w.nz; tz += TILE) {
+      for (let tx = w.x0; tx < w.x0 + w.nx; tx += TILE) {
+        const ax = tx - MARGIN, bx = tx + TILE + MARGIN, az = tz - MARGIN, bz = tz + TILE + MARGIN;
+        const ps = w.ps.filter(({ b }) => {
+          const r = Math.max(b.sx, b.sy, b.sz) / 2;
+          return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
+        });
+        const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
+        if (!ps.length && !tubes.length) continue; // empty ground costs nothing
+        meshes.push(
+          fuseChunk({
+            parts: ps.map((e) => e.b),
+            decay: ps.map((e) => e.d),
+            standing: ps.map((e) => e.up),
+            skeleton: ps.map((e) => e.sk),
+            tubes,
+            history: h,
+            k0: w.c0,
+            k1: w.c1,
+            x0: ax,
+            z0: az,
+            nx: bx - ax,
+            nz: bz - az,
+            own: { x0: tx, x1: tx + TILE, z0: tz, z1: tz + TILE },
+            unit: u,
+            sediment: sed,
+            layerDecay,
+            cfg: fuse,
+          }),
+        );
+      }
+    }
+    return mergeMeshes(meshes);
+  }
+
   /** fuseBuilt as of the last computeParts: baking waits until the parts reflect every built chunk. */
   private partsFuseBuilt = -1;
   private natureSig = "";
@@ -474,7 +589,7 @@ export class SpaceModel {
           agedT: r.t0,
           boxes: r.boxes,
           shade: r.shade,
-          nature: r.nature,
+          nature: null,
           src: { parts: r.parts, basis: r.basis, decay: r.decay, standing: r.standing, skeleton: r.parts.map(() => false), tubes: r.tubes ?? [], history: r.history, x0: r.x0, z0: r.z0, nx: r.nx, nz: r.nz, unit: r.unit, sediment: r.sediment, t0: r.t0, cfgKey: "", mesh: r.mesh },
         });
         n++;
@@ -653,6 +768,7 @@ export class SpaceModel {
     this.version++;
     this.foldState = null;
     this.partCache.clear();
+    this.frozen.clear();
     this.chunks.clear();
     this.drainKept = null;
     this.walkKept = null;
@@ -737,10 +853,41 @@ export class SpaceModel {
         this.partCache.set(s.id, hit);
       }
       live.add(s.id);
+      // FROZEN below the line: a building whose mass grew a quarter, or that gained a slot, is regenerated whole — but its
+      // parts deeper than freezeSlots keep the shape (and the identity) they had, so the layers below do not reshuffle,
+      // their fused chunks are not invalidated and absorbed parts do not pop back
+      let parts = hit.parts;
+      const fz = input.fuse.freezeSlots;
+      if (fz !== undefined && fz >= 0) {
+        const kFreeze = Math.floor(t / box.secPerUnit) - fz;
+        let mine = this.frozen.get(s.id);
+        if (!mine) this.frozen.set(s.id, (mine = new Map()));
+        const fresh = new Map<number, Box[]>();
+        for (const b of hit.parts) {
+          const l = fresh.get(b.slot);
+          if (l) l.push(b);
+          else fresh.set(b.slot, [b]);
+        }
+        const out: Box[] = [];
+        const slotsAll = new Set<number>([...fresh.keys(), ...mine.keys()]);
+        for (const k of slotsAll) {
+          if (k <= kFreeze) {
+            let kept = mine.get(k);
+            if (!kept) mine.set(k, (kept = fresh.get(k) ?? []));
+            for (const b of kept) out.push(b);
+          } else {
+            for (const b of fresh.get(k) ?? []) out.push(b);
+          }
+        }
+        // what fell below the history window is not kept
+        for (const k of mine.keys()) if (k < floorK) mine.delete(k);
+        parts = out;
+      }
       // nothing below the history window (a carried seed still has its slots below it), nothing in a baked chunk
-      for (const b of hit.parts) if (b.slot >= floorK && !this.isBaked(b.slot)) built.push(b);
+      for (const b of parts) if (b.slot >= floorK && !this.isBaked(b.slot)) built.push(b);
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
+    for (const id of this.frozen.keys()) if (!live.has(id)) this.frozen.delete(id);
     const w = input.weather;
     // vegetation around a part: the last vegetation history (if the view draws vegetation), at the part's cell and slot
     const h = this.history;
@@ -952,7 +1099,7 @@ export class SpaceModel {
     // corrosion (a mid-thick part, exposed) is taken from its age; the points thin out as it nears fuseOnset and
     // there are none below. The most recent layers have the most.
     const fz = input.fuse;
-    const layerDecay = sediment ? layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears) : undefined;
+    const layerDecay = sediment ? this.layerClockOf(layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears)) : undefined;
     const living =
       layerDecay && fz.enabled
         ? (k: number) => {
@@ -1022,7 +1169,8 @@ export class SpaceModel {
     const parts: { pos: Float32Array; col: Float32Array }[] = [];
     const keep = new Set<number>();
     // the baked chunks' points, as they were (in and below the window)
-    for (const bk of this.baked.values()) if (bk.nature) parts.push(bk.nature);
+    // the baked chunks draw NO vegetation: below the surface there is none (the artist, 2026-10-31: a chunk baked
+    // alive left its points as a second band of greenery deep in the column)
     let li = 0;
     for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK, li++) {
       if (this.baked.has(c0)) continue;
@@ -1058,6 +1206,7 @@ export class SpaceModel {
     const wm = this.wear;
     const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(input)}`;
     if (sig === this.fuseSig) return null;
+    if (input.bake === false && this.baked.size) this.baked.clear();
     const bakedMeshes = [...this.baked.values()].map((b) => b.mesh);
     if (!sed || !wm || !fuse.enabled || !this.built.length) {
       this.fuseSig = sig;
@@ -1067,7 +1216,7 @@ export class SpaceModel {
     const u = box.unit;
     const kNow = Math.floor(this.t / box.secPerUnit);
     // V2: one clock — the layers' age for the resin and the look of the old layers is the parts' corrosion
-    const layerDecay = input.oneClock ? layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears) : undefined;
+    const layerDecay = input.oneClock ? this.layerClockOf(layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears)) : undefined;
     const kA = h ? h.k0 : 0;
     const kB = h ? h.k0 + h.nk - 1 : kNow;
     // extent: the vegetation's, or the parts' (cells)
@@ -1106,7 +1255,29 @@ export class SpaceModel {
     const padSlots = Math.ceil((Math.max(pad.above, pad.below) * fuse.voxel + fuse.accDepth) / u) + 1 + (fuse.study?.fill ? FILL_MAX_GAP : 0);
     // the age clock in the keys moves once per chunk of slots (it only tints and pits), not every slot
     const clockKey = Math.floor(sed.tNow / (box.secPerUnit * NATURE_CHUNK));
-    type Want = { c0: number; c1: number; ps: P[]; tubes: BakedTube[]; key: string };
+    // each chunk's grid covers ITS parts (± a margin), not the whole ground: as the flocks moved over the world the
+    // ground grew wider and every chunk's grid passed fuseChunk's size limit — an empty mesh everywhere (the artist,
+    // 2026-11-01: "the bots move differently, but the fossil visual is gone")
+    type Want = { c0: number; c1: number; ps: P[]; tubes: BakedTube[]; key: string; x0: number; z0: number; nx: number; nz: number };
+    const MARGIN = 3; // cells: the blur, the sag and the shell reach a little beyond the parts
+    const extentOf = (ps: P[], tubes: BakedTube[]) => {
+      let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+      for (const { b: p } of ps) {
+        const r = Math.max(p.sx, p.sy, p.sz) / 2;
+        a = Math.min(a, p.x - r);
+        b = Math.max(b, p.x + r);
+        c = Math.min(c, p.z - r);
+        d = Math.max(d, p.z + r);
+      }
+      for (const t of tubes) {
+        a = Math.min(a, t.x0 - t.r, t.x1 - t.r);
+        b = Math.max(b, t.x0 + t.r, t.x1 + t.r);
+        c = Math.min(c, t.z0 - t.r, t.z1 - t.r);
+        d = Math.max(d, t.z0 + t.r, t.z1 + t.r);
+      }
+      const ex0 = Math.floor(a / CELL) - MARGIN, ez0 = Math.floor(c / CELL) - MARGIN;
+      return { x0: ex0, z0: ez0, nx: Math.ceil(b / CELL) + MARGIN - ex0, nz: Math.ceil(d / CELL) + MARGIN - ez0 };
+    };
     const wants: Want[] = [];
     for (let c0 = Math.floor(kA / NATURE_CHUNK) * NATURE_CHUNK; c0 <= kB; c0 += NATURE_CHUNK) {
       if (this.baked.has(c0)) continue; // done: kept as it was
@@ -1130,7 +1301,8 @@ export class SpaceModel {
         const off = (k - h.k0) * h.nx * h.nz;
         for (let i = 0; i < h.nx * h.nz; i++) vs += h.V[off + i] * ((i % 13) + 1);
       }
-      wants.push({ c0, c1, ps, tubes, key: `${ps.length}:${tubes.length}:${tsum.toFixed(2)}:${sum.toFixed(3)}:${vs.toFixed(3)}:${clockKey}:${JSON.stringify(fuse)}:${input.tauReclaimYears}:${x0},${z0},${nx},${nz}` });
+      const ex = extentOf(ps, tubes);
+      wants.push({ c0, c1, ps, tubes, ...ex, key: `${ps.length}:${tubes.length}:${tsum.toFixed(2)}:${sum.toFixed(3)}:${vs.toFixed(3)}:${clockKey}:${JSON.stringify(fuse)}:${input.tauReclaimYears}:${ex.x0},${ex.z0},${ex.nx},${ex.nz}` });
     }
     // build order: chunks with no mesh yet first, then stale ones; each nearest to where the camera looks first
     // (oldest-first starved the upper chunks — where the buildings are — while the lower ones kept changing)
@@ -1140,7 +1312,20 @@ export class SpaceModel {
     /** About to leave the history window: the two chunks just above the cut. */
     // … and so are the chunks about to fall below the vegetation window (kA, which follows the focus): a live chunk
     // outside it is not asked for any more, and would vanish with its mass
-    const leaving = (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
+    const immK = input.immutable !== undefined ? kNow - input.immutable : -Infinity;
+    // (the immutable line is only WHERE a chunk is baked — not a build priority: giving the chunks above it the first
+    // turn starved the band where the fusion shows, 2026-10-31 night)
+    // V2: the chunks that have just crossed the immutable line come first — built fresh, baked on the next call, gone
+    // from the list. (With the window's cut as the criterion they were first forever: not bakeable above the line,
+    // stale every slot, and the band where the fusion shows never got a turn — the artist, 2026-11-01)
+    // BAKING OFF: nothing leaves the list by being baked, so nothing may be "first" — a chunk first forever starved the
+    // band and its mass ended flat at a chunk boundary (the artist, 2026-11-01 evening: "the tops are cut sharp")
+    const leaving =
+      input.bake === false
+        ? () => false
+        : input.immutable !== undefined
+          ? (w: Want) => w.c1 < immK
+          : (w: Want) => w.c1 < Math.max(floorK, kA) + 2 * NATURE_CHUNK;
     // BAKING (before building): a chunk with a mesh from an earlier call, whose parts have since been drawn against it
     // (absorbed as far as it goes), is kept as it is from now on when it is done — about to leave the history window,
     // or every part in it fully decayed well below the present. A leaving chunk is kept with the latest mesh it has,
@@ -1148,20 +1333,25 @@ export class SpaceModel {
     // little stale beats what vanishes with the cut
     const doneK = kNow - Math.max(1, Math.round(rotOnsetSlots(input.weather))) - NATURE_CHUNK;
     let bakedNow = 0;
-    if (this.partsFuseBuilt === this.fuseBuilt) {
+    if (input.bake !== false && this.partsFuseBuilt === this.fuseBuilt) {
       for (const w of wants) {
         const ch = this.fuseChunks.get(w.c0);
         if (!ch) continue;
         const fresh = ch.key === w.key;
-        if (!fresh && !leaving(w)) continue;
-        let done = fresh && w.c1 < doneK;
-        if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
-        if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
-        if (!leaving(w) && !done) continue;
+        if (input.immutable !== undefined) {
+          // THE IMMUTABLE LAYER: baked once its top lies below the line, as it is then; nothing else, ever
+          if (w.c1 >= immK || input.caughtUp === false) continue;
+        } else {
+          // V1: about to leave the history window, or every part fully decayed well below the present
+          if (!fresh && !leaving(w)) continue;
+          let done = fresh && w.c1 < doneK;
+          if (done) for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1 && e.d < BAKE_DECAY) { done = false; break; }
+          if (done) for (const b of this.built) if (b.slot >= w.c0 && b.slot <= w.c1 && 1 - wm.survival(b) < BAKE_DECAY) { done = false; break; }
+          if (!leaving(w) && !done) continue;
+        }
         const boxes = this.shown.filter((b) => b.slot >= w.c0 && b.slot <= w.c1);
         const shade = new Float32Array(boxes.length);
         boxes.forEach((b, i) => { shade[i] = (0.86 + 0.14 * b.tone) * (1 - 0.4 * (1 - wm.survival(b))); });
-        const nat = this.chunks.get(w.c0);
         // what the chunk was made from — its material: rendered again with another look (a paused view), and read
         // again at a later present (the past keeps ageing until it is a fossil)
         const ageK0 = w.c0 - padSlots - 3, ageK1 = w.c1 + padSlots + 8;
@@ -1173,16 +1363,18 @@ export class SpaceModel {
           skeleton: w.ps.map((e) => e.sk),
           tubes: w.tubes,
           history: h ? sliceHistory(h, ageK0, ageK1) : null,
-          x0,
-          z0,
-          nx,
-          nz,
+          x0: w.x0,
+          z0: w.z0,
+          nx: w.nx,
+          nz: w.nz,
           unit: u,
           sediment: sed,
           t0: this.t,
           cfgKey: JSON.stringify(fuse),
         };
-        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: false, agedT: this.t, boxes, shade, nature: nat ? { pos: nat.pos, col: nat.col } : null, src };
+        const bk: Baked = { c0: w.c0, c1: w.c1, mesh: ch.mesh, rendered: true, final: input.immutable !== undefined, agedT: this.t, boxes, shade, nature: null, src };
+        // below the immutable line the mesh must be the chunk's final look: rendered once from its material if stale
+        if (input.immutable !== undefined && !fresh) this.renderBaked(bk, fuse, layerDecay);
         this.baked.set(w.c0, bk);
         this.persist(bk);
         this.fuseChunks.delete(w.c0);
@@ -1201,24 +1393,7 @@ export class SpaceModel {
     todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || builtAt(a) - builtAt(b) || dist(a) - dist(b));
     const perCall = Math.max(1, input.perCall ?? FUSE_NEW_PER_CALL);
     for (const w of todo.slice(0, perCall)) {
-      const mesh = fuseChunk({
-        parts: w.ps.map((e) => e.b),
-        decay: w.ps.map((e) => e.d),
-        standing: w.ps.map((e) => e.up),
-        skeleton: w.ps.map((e) => e.sk),
-        tubes: w.tubes,
-        history: h,
-        k0: w.c0,
-        k1: w.c1,
-        x0,
-        z0,
-        nx,
-        nz,
-        unit: u,
-        sediment: sed,
-        layerDecay,
-        cfg: fuse,
-      });
+      const mesh = this.fuseTiled(w, h, u, sed, layerDecay, fuse);
       this.fuseBuilt++;
       this.fuseChunks.set(w.c0, { key: w.key, mesh, built: this.fuseBuilt });
       for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
@@ -1268,7 +1443,7 @@ export class SpaceModel {
       // ORPHAN: a chunk with a mesh that is no longer asked for — its parts went with a bulk window move, or the
       // window moved past it before it was baked — keeps its last mesh for good rather than vanishing (the artist,
       // 2026-10-31: "the fossils vanish after a while"); no material, so it neither ages nor re-renders
-      if (ch.mesh.index.length === 0 || this.baked.has(c)) continue;
+      if (input.bake === false || ch.mesh.index.length === 0 || this.baked.has(c)) continue;
       const bk: Baked = {
         c0: c,
         c1: c + NATURE_CHUNK - 1,
@@ -1327,6 +1502,16 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean; epoch?: string | null }
   | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
+
+/**
+ * Two compute requests as one (the worker coalesces what queued up behind a long compute): the newer request's
+ * clock and parts, with the vegetation / fuse / reclaim work the older one asked for and the newer did not — those
+ * come only every NATURE_EVERY ticks and must not be lost with the request that carried them.
+ */
+export function mergeComputeRequests<T extends Extract<SpaceRequest, { type: "compute" }>>(prev: T | null, next: T): T {
+  if (!prev) return next;
+  return { ...next, nature: next.nature ?? prev.nature, reclaim: next.reclaim ?? prev.reclaim, fuse: next.fuse ?? prev.fuse };
+}
 
 /** What the space worker posts back for a compute request. */
 export interface SpaceResponse {

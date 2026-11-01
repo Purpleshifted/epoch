@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FOLD, MAX_CATCH_UP, botActor, dueSamples, flockCentre, foldWorld, latestS, seedsFromSnapshot, type Flock, type PEvent } from "./index";
+import { DEFAULT_FOLD, MAX_CATCH_UP, botActor, botPlan, dueSamples, flockCentre, foldWorld, latestS, seedsFromSnapshot, type Flock, type PEvent } from "./index";
 
 describe("dueSamples: the wall-clock sampler", () => {
   it("nothing is due before one period has passed", () => {
@@ -156,5 +156,32 @@ describe("bot motion: walk and stand, wander, move between flocks", () => {
       }
     }
     expect(moved).toBeGreaterThan(2);
+  });
+});
+
+describe("moving flocks × flock character (2026-11-01)", () => {
+  const start = 1_800_000_000_000;
+  const base = { groups: 4, spread: 30, timeSpread: 60 };
+  it("with the defaults (stay 0, character 0) the bots walk exactly as before", () => {
+    for (const t of [0, 90_000, 400_000, 1_300_000]) for (let i = 0; i < 8; i++) {
+      expect(botPlan(i, start + t, start, start, 0, { ...base, stayMin: 0, character: 0, overlapSec: 60 })).toEqual(botPlan(i, start + t, start, start, 0, base));
+    }
+  });
+  it("a moving flock goes to new places over time, its bots leaving one by one", () => {
+    const fl = { ...base, stayMin: 3, overlapSec: 60 };
+    const at = (i: number, t: number) => { const p = botPlan(i, start + t, start, start, 0, fl); return [p.bx, p.bz]; };
+    // flock 0 (bots 0, 4) is somewhere else after a few stays
+    const places = new Set<string>();
+    for (let m = 0; m < 30; m += 1) places.add(at(0, m * 60_000).map((v) => Math.round(v)).join(","));
+    expect(places.size).toBeGreaterThan(3);
+  });
+  it("flock character makes some flocks keep close and some wander wide", () => {
+    const spread = (g: number, c: number) => {
+      let r = 0;
+      for (let t = 0; t < 600_000; t += 7_000) { const p = botPlan(g, start + t, start, start, 0, { ...base, character: c }); r = Math.max(r, Math.hypot(p.ox, p.oz)); }
+      return r;
+    };
+    const rs = [0, 1, 2, 3].map((g) => spread(g, 1));
+    expect(Math.max(...rs) / Math.min(...rs)).toBeGreaterThan(1.5);
   });
 });
