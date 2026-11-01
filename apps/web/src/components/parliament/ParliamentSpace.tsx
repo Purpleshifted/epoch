@@ -213,6 +213,9 @@ interface Stats {
   farSeeds: number;
   /** how far the computed present lies behind the latest event (s): the compute cannot keep up when > a slot */
   lagS: number;
+  /** The fused mass as last received: triangles in all, and in the resin part (0 = the mesh came empty). */
+  fuseTris: number;
+  fuseResin: number;
   /** Chunks of slots baked (kept as they were, below the history window too). */
   baked: number;
   /** Waterways flowing now. */
@@ -865,6 +868,7 @@ function SpaceWorld({
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
+  const fuseStats = useRef({ fuseTris: 0, fuseResin: 0 });
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
@@ -964,7 +968,7 @@ function SpaceWorld({
       setWalkEnds(endKept.current, p.walk.keptEnds);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
-      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...focus.current };
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
@@ -972,7 +976,9 @@ function SpaceWorld({
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
-    if (last.current) report({ ...last.current, ...focus.current, workerMs: r.ms });
+    // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
+    if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
+    if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms });
   };
 
   useEffect(() => {
@@ -1056,10 +1062,13 @@ function SpaceWorld({
     // exhibition camera aims `followLift` below the present (−25 by default, to frame the fossil band), and with the
     // orbit target as the reference the window slid 25 world down and vegetation grew on old layers (the artist,
     // 2026-10-31)
-    const focusNow = (o ? Math.max(0, o.target.y - (link?.current.lift ?? followLift)) : 0) / cfg.unit; // the lift in effect: the auto run's shot or the base pose
+    // V2 (steady): the windows sit at the PRESENT itself — the camera has no say in what is computed
+    const focusNow = oneClk ? t / cfg.secPerUnit : (o ? Math.max(0, o.target.y - (link?.current.lift ?? followLift)) : 0) / cfg.unit; // the lift in effect: the auto run's shot or the base pose
     if (!frozen || !pinned.current) pinned.current = { cam: camNow, focusK: focusNow };
     const { cam, focusK } = pinned.current;
-    const lod = { camera: cam, near, mid, farFactor: ff };
+    // V2 (steady): every seed with all its parts (no LOD): the parts' shapes, lives and the fused mass do not change as
+    // the camera moves; the vegetation keeps its own density floor (it does not thin by distance in V2 either)
+    const lod = oneClk ? { camera: cam, near: Infinity, mid: Infinity, farFactor: 1 } : { camera: cam, near, mid, farFactor: ff };
     const id = ++seq.current;
     // PAUSE MODE (time standing still): a changed setting should show at once — the mass is asked for on every tick
     // and built many chunks at a time, the vegetation only when something it depends on changed (it is the heaviest
@@ -1067,7 +1076,7 @@ function SpaceWorld({
     const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk } };
     if (withNature && nat) {
       req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
       if (nat.reclaim) {
@@ -1680,7 +1689,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
   const camLink = useRef<CamLink>({ lift: null, focusY: null });
   const shotLine = useRef<HTMLDivElement | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, fuseTris: 0, fuseResin: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -2267,6 +2276,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         // BAKING OFF by default (the artist, 2026-11-01 16:45): the world is the history window alone (세계 › 시간 범위,
         // 20 min = 60 slots); below it nothing is kept. On: the immutable layer below, baked as it is, stored
         bake: { value: false, label: "옛 층 굽기 (끄면 기록 창 20분만 남고 창 밖은 사라짐; 켜면 완전불변 층을 구워 보존)", render: () => isV2 },
+        freezeSlots: { value: 4, min: 0, max: 30, step: 1, label: "부재 모양 고정 (현재에서 ↓단; 그 아래 부재는 처음 지어진 모양 그대로)", render: () => isV2 },
         immutable: { value: 60, min: 10, max: 300, step: 5, label: "완전불변 층 (현재에서 ↓단; 그 아래는 그때 모습으로 굳어 다시 계산하지 않음)", render: (get) => isV2 && get(BAKE_PATH) },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
@@ -2466,6 +2476,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       steelFossil: fu.steelFossil,
       accOnset: DEFAULT_FUSE.accOnset,
       fuseOnset: fu.fuseOnset,
+      freezeSlots: isV2 ? fu.freezeSlots : undefined,
       voxel: fu.voxel,
       blur: fu.blur,
       gain: fu.gain,
@@ -2536,7 +2547,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -2762,7 +2773,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
-          {stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
+          {` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
         <div ref={shotLine} />

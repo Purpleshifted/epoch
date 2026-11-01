@@ -46,6 +46,12 @@ export interface FuseConfig {
   accOnset: number;
   /** Decay at which the part itself begins to turn into mass. */
   fuseOnset: number;
+  /**
+   * V2: a building's parts in slots at least this many below the present keep the shape they were first built with
+   * (the artist, 2026-11-01 evening: "from 4 slots down the parts should not change"). Absent = regenerated whenever the
+   * building's mass or slots change (V1).
+   */
+  freezeSlots?: number;
   /** Voxel spacing (world). */
   voxel: number;
   /** Box-blur radius in voxels: how far apart decaying pieces still cling together. */
