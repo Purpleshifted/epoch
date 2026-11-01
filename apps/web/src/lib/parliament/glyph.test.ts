@@ -80,6 +80,10 @@ describe("the left words", () => {
     expect(leftWords(walked, "v_me", 100)).toEqual([{ o: "v_old", x: 45, z: 0 }]);
   });
 
+  it("someone still here has left nothing yet", () => {
+    expect(leftWords(stay("v_old", 5, 0, 30), "v_me", 100, undefined, new Set(["v_old"]))).toEqual([]);
+  });
+
   it("the future of this viewer is invisible", () => {
     expect(leftWords(stay("v_old", 5, 50, 80), "v_me", 40)).toEqual([]);
   });

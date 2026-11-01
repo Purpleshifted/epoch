@@ -83,7 +83,7 @@ export interface Script {
   headsetTouch: string[];
   /** `controls`: how to walk, shown faintly for the first seconds of the life (the life begins right after the headset). */
   /** `mine`: the word beside the visitor's own melody, written down, on the name screen and above the record. */
-  live: { look: string; controls: string; controlsTouch: string; mine: string; answer: string; answerTouch: string; stop: (holdSec: number) => string; stopTouch: (holdSec: number) => string };
+  live: { look: string; controls: string; controlsTouch: string; mine: string; enter: string; answer: string; answerTouch: string; stop: (holdSec: number) => string; stopTouch: (holdSec: number) => string };
   attempt: { failed: string };
   /**
    * The end screen is one being's record card, in the voice of a specimen looked at from the future (the words while
@@ -136,6 +136,7 @@ export const SCRIPT: Record<Lang, Script> = {
       controls: "W A S D 걷기 · 마우스 둘러보기",
       controlsTouch: "누르는 동안 걷고, 떼면 머뭅니다 · 끌면 돕니다",
       mine: "이름:",
+      enter: "살아가기",
       answer: "SPACE — 응답",
       answerTouch: "응답",
       stop: (s) => `그만 살기: X 키를 ${s}초 동안 누르세요`,
@@ -188,6 +189,7 @@ export const SCRIPT: Record<Lang, Script> = {
       controls: "W A S D walk · mouse look",
       controlsTouch: "Hold to walk, let go to stay · drag to turn",
       mine: "Name:",
+      enter: "Live",
       answer: "SPACE — answer",
       answerTouch: "Answer",
       stop: (s) => `Stop living: hold X for ${s} second${s === 1 ? "" : "s"}`,

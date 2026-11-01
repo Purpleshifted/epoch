@@ -17,10 +17,13 @@ import { VT323 } from "next/font/google";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CAUSE_NAME,
+  GLYPH_COLS,
   HOLD_SEC,
   LedgerWatch,
+  NAME_GAP_SEC,
   NOTICE_LINE_SEC,
   SCRIPT,
+  STEP_MS,
   WitnessLog,
   causeOfDeath,
   fmtClock,
@@ -50,6 +53,9 @@ import type { LifeSession } from "./useLifeSession";
 const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
 
 const POLL_MS = 250;
+/** One round of the name's melody and its gap (a bar of 8 steps); the keys count this long after the name comes up. */
+const NAME_LOOP_MS = STEP_MS * GLYPH_COLS + NAME_GAP_SEC * 1000;
+const NAME_KEY_AFTER_MS = 500;
 /** How far into the dying (session.ts warn) someone near is said to keep watch. */
 const WATCH_FROM_WARN = 0.5;
 /** How long (s) the line saying how to walk stays up at the start of a life. */
@@ -222,6 +228,23 @@ export function SessionHud({
     return () => clearInterval(id);
   }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef]);
 
+  // 살아가기: into the world, taking the pointer on the way (a click or a key is what the browser wants for that); the
+  // keys count only once the name has been up a moment, so a key pressed for the headset does not go straight through
+  const enterWorld = useCallback(() => {
+    session.beginLife();
+    if (coarse) return;
+    const c = document.querySelector("canvas");
+    if (c && typeof c.requestPointerLock === "function") void Promise.resolve(c.requestPointerLock()).catch(() => {});
+  }, [session, coarse]);
+  useEffect(() => {
+    if (phase !== "name") return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.code === "Enter" || e.code === "Space") && !e.repeat && Date.now() - phaseAt > NAME_KEY_AFTER_MS) enterWorld();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, phaseAt, enterWorld]);
+
   // someone asked: SPACE answers
   const answer = useCallback(() => {
     const me = witnessRef.current?.me;
@@ -309,10 +332,16 @@ export function SessionHud({
         </Centre>
       )}
 
-      {/* the name: the melody the visitor is given, written down, its notes coming on as it sounds (RoleField → engine) */}
+      {/* the name: the melody the visitor is given, written down, its notes coming on as it sounds (RoleField → engine),
+          over and over; 살아가기 is the way into the world */}
       {phase === "name" && witnessRef.current && (
-        <Centre className={`${say} flex items-center justify-center gap-3 text-[26px] text-white`}>
-          {S.live.mine} (<Glyph dots={glyphOf(witnessRef.current.me)} cell={8} playFrom={phaseAt + 100} />)
+        <Centre className={`${say} text-center`}>
+          <div className="flex items-center justify-center gap-3 text-[26px] text-white">
+            {S.live.mine} (<Glyph dots={glyphOf(witnessRef.current.me)} cell={8} playFrom={phaseAt + 100} playEvery={NAME_LOOP_MS} />)
+          </div>
+          <button type="button" onClick={enterWorld} className="pointer-events-auto mt-10 border border-white/50 px-6 py-2 text-[20px] text-white/90 outline-none hover:bg-white hover:text-black">
+            {S.live.enter}
+          </button>
         </Centre>
       )}
 

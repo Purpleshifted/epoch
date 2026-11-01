@@ -29,7 +29,6 @@ import {
   FAIL_MSG_SEC,
   GESTURE_GAP_MS,
   HINT_AFTER_SEC,
-  NAME_SEC,
   HINT_PERIOD_SEC,
   HINT_SHOW_SEC,
   HOLD_SEC,
@@ -101,6 +100,8 @@ export interface SessionView {
 
 export interface LifeSession extends SessionView {
   lifeRef: { readonly current: LifeSignal };
+  /** NAME: the visitor goes on into the life. */
+  beginLife: () => void;
   /** LIVE: start / stop holding to stop living (the X key on a keyboard; a long press on a phone). */
   beginHold: () => void;
   endHold: () => void;
@@ -109,7 +110,7 @@ export interface LifeSession extends SessionView {
 const TICK_MS = 100;
 
 /** The phases before the life in which a visitor who walks away is forgotten (back to the title screen). */
-const WAITING: readonly SessionPhase[] = ["notice", "consent", "headset"];
+const WAITING: readonly SessionPhase[] = ["notice", "consent", "headset", "name"];
 
 const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   restartReady: false,
@@ -188,7 +189,12 @@ export class SessionMachine {
     this.set({ ...FRESH, phase, phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
   }
 
-  /** The life begins: the lifespan clock starts from zero (when the name has been given). */
+  /** 살아가기: from the name into the life. */
+  beginLife = () => {
+    if (this.view.phase === "name") this.begin();
+  };
+
+  /** The life begins: the lifespan clock starts from zero. */
   private begin() {
     this.lived = 0;
     this.lastTick = Date.now();
@@ -273,7 +279,7 @@ export class SessionMachine {
         this.enter("headset");
         return;
       case "headset":
-        // the headset is on: the name, and the life begins by itself after it
+        // the headset is on: the name; the life begins when the visitor presses 살아가기 (beginLife)
         this.enter("name");
         return;
       case "ended":
@@ -331,8 +337,6 @@ export class SessionMachine {
       if (tried || attempt !== v.attempt || stopOn !== v.stopOn || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
         this.set({ attempt, stopOn, stopHint, attemptFailed, attempts: v.attempts + tried, lastAttemptNear: near });
       }
-    } else if (v.phase === "name") {
-      if (now - v.phaseAt >= (this.cfg.nameSec ?? NAME_SEC) * 1000) this.begin();
     } else if (v.phase === "ended") {
       const held = now - this.endAt;
       if (!v.restartReady && held >= Math.max(0, this.cfg.endHoldSec) * 1000) this.set({ restartReady: true });
@@ -390,7 +394,7 @@ export function useLifeSession(enabled: boolean, cfg: LifeConfig, lang: Lang = "
     return () => m.stop();
   }, [m]);
   const view = useSyncExternalStore(m.subscribe, m.get, m.get);
-  return { ...view, lifeRef: m.lifeRef, beginHold: m.beginHold, endHold: m.endHold };
+  return { ...view, lifeRef: m.lifeRef, beginLife: m.beginLife, beginHold: m.beginHold, endHold: m.endHold };
 }
 
 /** Log-interpolate a frequency towards `to` by k (0 … 1). */

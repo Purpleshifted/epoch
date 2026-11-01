@@ -15,8 +15,8 @@ import type { Surface } from "./witness";
 
 /** A notice page's lines come on one after another, this many seconds apart (hard cuts, no typing effect). */
 export const NOTICE_LINE_SEC = 0.9;
-/** The name stays up this long before the life begins: the melody (one bar, 2 s) and its tail. */
-export const NAME_SEC = 3.5;
+/** The name's melody repeats after this many seconds of silence, until the visitor goes on. */
+export const NAME_GAP_SEC = 1;
 /** No input for this long before the life (notices, consent, headset): back to the title screen. */
 export const IDLE_AFTER_SEC = 45;
 /** The end screen, once SPACE is allowed, returns to the title screen by itself after this long. */

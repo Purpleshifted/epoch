@@ -4,8 +4,9 @@
  *
  *   IDLE      nobody has touched the screen yet: the ground runs on (bots), the visitor leaves nothing
  *   NOTICE … HEADSET   the frame before a life (intake.ts): what this is, a consent with only yes, the headset
- *   NAME      the visitor is given their name, the melody written down, and hears it once alone (a few seconds, by itself)
- *   LIVE      the life begins by itself after the name — every visitor is the worker (2026-10-20: the choice, the
+ *   NAME      the visitor is given their name, the melody written down, and hears it alone, over and over, until they
+ *             press 살아가기
+ *   LIVE      the life begins there — every visitor is the worker (2026-10-20: the choice, the
  *             slot and the verdict were taken out; only the worker has an effect on the ground). The lifespan runs;
  *             in its last `warnSec` the cursor blinks faster, the sound goes dull and the controls stop answering
  *             properly (`lifeAt`, `hindrance`)
@@ -44,8 +45,6 @@ export interface LifeConfig {
   selfNearFactor?: number;
   /** The notices before a life: seconds between one line coming on and the next (intake.ts NOTICE_LINE_SEC). */
   noticeLineSec?: number;
-  /** How long the name stays up before the life begins (intake.ts NAME_SEC). */
-  nameSec?: number;
   /** Stopping living (intake.ts has the defaults): how long X is held … */
   holdSec?: number;
   /** … from how many seconds into the life it is on offer (and the first banner comes) … */

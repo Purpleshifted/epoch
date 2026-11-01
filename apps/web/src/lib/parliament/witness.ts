@@ -205,18 +205,46 @@ export interface ObserveInputs {
   t: number;
   /** The words the ended lives left (leftWords.ts). */
   words?: readonly LeftWord[];
+  /** Who is here now, whatever their assigned time (aliveOwners); absent = the last recentSec of mine. */
+  alive?: ReadonlySet<string>;
   cfg?: WitnessConfig;
+}
+
+/**
+ * Who is HERE now: everyone whose newest sample is still advancing, and whose assigned time is within `slotSec` of mine
+ * (the artist, 2026-11-01). Every visitor lives in a time slot of their own, up to the assignment window apart, so "the
+ * last few seconds of my time" left most people invisible for a whole life (19 resident bots: 0.56 on average, none for
+ * 76 % of visitors). `seen` is kept by the caller: each owner's newest sample and the wall ms it advanced; owners already
+ * in the log at the first look count as silent until they send a new one (a life that is over stays over).
+ */
+export function aliveOwners(events: readonly PEvent[], meId: string, seen: Map<string, { s: number; at: number }>, nowMs: number, holdMs: number, sNow: number, slotSec: number): Set<string> {
+  const first = seen.size === 0;
+  const latest = new Map<string, number>();
+  for (const e of events) {
+    if (e.k !== "p" || e.o === meId) continue;
+    const l = latest.get(e.o);
+    if (l === undefined || e.s > l) latest.set(e.o, e.s);
+  }
+  const alive = new Set<string>();
+  for (const [o, s] of latest) {
+    const prev = seen.get(o);
+    const cur = !prev || s > prev.s ? { s, at: first && !prev ? -Infinity : nowMs } : prev;
+    seen.set(o, cur);
+    if (nowMs - cur.at <= holdMs && Math.abs(s - sNow) <= slotSec) alive.add(o);
+  }
+  return alive;
 }
 
 export function observe(inp: ObserveInputs): Observation {
   const cfg = inp.cfg ?? DEFAULT_WITNESS;
-  const { me, events, sNow, snap } = inp;
+  const { me, events, sNow, snap, alive } = inp;
   const watch = cfg.nearRadius * cfg.leaveFactor;
-  // the two latest samples of everyone else (not from the future, not too old)
+  // the two latest samples of everyone here (alive), or else of everyone not from the future and not too old
   const last = new Map<string, PEvent>();
   const prev = new Map<string, PEvent>();
   for (const e of events) {
-    if (e.k !== "p" || e.o === me.id || e.s > sNow || e.s < sNow - cfg.recentSec) continue;
+    if (e.k !== "p" || e.o === me.id) continue;
+    if (alive ? !alive.has(e.o) : e.s > sNow || e.s < sNow - cfg.recentSec) continue;
     const l = last.get(e.o);
     if (!l || e.s > l.s) {
       if (l) prev.set(e.o, l);
@@ -236,7 +264,7 @@ export function observe(inp: ObserveInputs): Observation {
     const p = prev.get(e.o);
     const ds = p ? e.s - p.s : 0;
     const v = p && ds > 0 ? wrapDist(e.x, e.z, p.x, p.z) / ds : 0;
-    const o: Other = { o: e.o, r: e.r, x: e.x, z: e.z, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed, ageSec: Math.max(0, sNow - e.s) };
+    const o: Other = { o: e.o, r: e.r, x: e.x, z: e.z, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed, ageSec: alive ? 0 : Math.max(0, sNow - e.s) };
     far.push(o);
     if (dist <= watch) others.push(o);
   }

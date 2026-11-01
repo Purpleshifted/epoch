@@ -318,6 +318,8 @@ export class SoundEngine {
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
   private me: Voice | null = null;
+  /** The name's melody on its way to the limiter (announce). */
+  private nameOut: GainNode | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
   private closeness = new Map<string, number>();
@@ -729,22 +731,33 @@ export class SoundEngine {
   }
 
   /**
-   * The name (before a life): the visitor's melody once, alone, straight to the limiter — the master is shut until the
-   * life begins, `level` is what it will open to. In the world's key, every note in tune. Nothing when the engine is not
-   * running (sound off, muted).
+   * The name (before a life): the visitor's melody, alone, straight to the limiter — the master is shut until the life
+   * begins, `level` is what it will open to. In the world's key, every note in tune. Nothing when the engine is not
+   * running (sound off, muted). The caller repeats it; hushName() ends it when the life begins.
    */
   announce(id: string, key: WorldKey, level: number): void {
     const ctx = this.ctx;
     if (!ctx || !this.timer) return;
     const p = this.params;
-    const out = ctx.createGain();
-    out.gain.value = Math.max(level, 0.0001);
-    out.connect(this.limiter);
+    if (!this.nameOut) {
+      this.nameOut = ctx.createGain();
+      this.nameOut.connect(this.limiter);
+    }
+    this.nameOut.gain.value = Math.max(level, 0.0001);
     const m = this.motifOf(id);
     const at = ctx.currentTime + 0.1;
     const notes = realize(m, key, null, 1, 0);
-    for (const n of notes) this.note(out, n.freq, at + n.at * p.barSec, n.len * p.barSec, 1, m.timbre, 0, true);
-    setTimeout(() => out.disconnect(), (p.barSec + 4) * 1000);
+    for (const n of notes) this.note(this.nameOut, n.freq, at + n.at * p.barSec, n.len * p.barSec, 1, m.timbre, 0, true);
+  }
+
+  /** The life begins: what is still sounding of the name fades at once. */
+  hushName(): void {
+    const ctx = this.ctx;
+    const out = this.nameOut;
+    if (!ctx || !out) return;
+    this.nameOut = null;
+    out.gain.setTargetAtTime(0, ctx.currentTime, 0.06);
+    setTimeout(() => out.disconnect(), 800);
   }
 
   private motifOf(id: string): Motif {

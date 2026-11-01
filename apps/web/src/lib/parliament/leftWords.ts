@@ -28,10 +28,10 @@ export interface LeftWordConfig {
 
 export const DEFAULT_LEFT_WORDS: LeftWordConfig = { goneSec: 10, stayRadius: 1.5, minStaySec: 5 };
 
-export function leftWords(events: readonly PEvent[], meId: string, sNow: number, cfg: LeftWordConfig = DEFAULT_LEFT_WORDS): LeftWord[] {
+export function leftWords(events: readonly PEvent[], meId: string, sNow: number, cfg: LeftWordConfig = DEFAULT_LEFT_WORDS, alive?: ReadonlySet<string>): LeftWord[] {
   const byOwner = new Map<string, PEvent[]>();
   for (const e of events) {
-    if (e.k !== "p" || e.o === meId || e.s > sNow || e.o.startsWith("bot")) continue;
+    if (e.k !== "p" || e.o === meId || e.s > sNow || e.o.startsWith("bot") || alive?.has(e.o)) continue;
     const list = byOwner.get(e.o);
     if (list) list.push(e);
     else byOwner.set(e.o, [e]);

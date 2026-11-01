@@ -3,7 +3,7 @@
  * script.ts in the voice of a field note.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WITNESS, WitnessLog, bearingOf, formatEntry, formatStatus, glyphOf, observe, type LogEntry, type Observation, type Other, type PEvent } from "./index";
+import { DEFAULT_WITNESS, WitnessLog, bearingOf, aliveOwners, formatEntry, formatStatus, glyphOf, observe, type LogEntry, type Observation, type Other, type PEvent } from "./index";
 
 const me = { id: "v_me", x: 0, z: 0, vx: 0, vz: 0 };
 const p = (o: string, x: number, z: number, s: number, r: PEvent["r"] = "worker"): PEvent => ({ id: `${o}:${s}`, o, r, k: "p", x, z, s });
@@ -30,6 +30,19 @@ describe("the witness: a record of who is near", () => {
     expect(obs.surface).toBe("trodden");
     expect(obs.moving).toBe(false);
     expect(obs.wordsNear).toEqual(["v_old"]);
+  });
+
+  it("who is here: anyone still sending within the assignment window, whatever time slot they live in", () => {
+    const seen = new Map<string, { s: number; at: number }>();
+    const log = [p("v_gone", 2, 0, 500), p("bot1", 1, 0, 900)];
+    expect(aliveOwners(log, "v_me", seen, 0, 6000, 1000, 120).size).toBe(0); // at the first look nobody has moved yet
+    const later = [...log, p("bot1", 1, 0, 901), p("bot2", 2, 0, 1050), p("bot9", 3, 0, 1300), p("v_me", 0, 0, 1000)];
+    expect([...aliveOwners(later, "v_me", seen, 1000, 6000, 1000, 120)].sort()).toEqual(["bot1", "bot2"]); // bot1 is behind me, bot2 ahead, bot9 outside the window
+    expect([...aliveOwners(later, "v_me", seen, 8000, 6000, 1000, 120)]).toEqual([]); // silent for too long
+    // and observe sees them there, however far their time is from mine
+    const obs = observe({ me, events: later, sNow: 1000, snap: null, t: 5, alive: new Set(["bot1", "bot2"]) });
+    expect(obs.others.map((o) => o.o)).toEqual(["bot1", "bot2"]);
+    expect(obs.others[0].ageSec).toBe(0);
   });
 
   it("the log: near with their melody, gone with how long, a state that holds", () => {

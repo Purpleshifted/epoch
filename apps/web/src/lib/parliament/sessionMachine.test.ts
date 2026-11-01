@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionMachine } from "@/components/parliament/useLifeSession";
-import { FAIL_MSG_SEC, HINT_AFTER_SEC, NAME_SEC, NOTICE_LINE_SEC, SCRIPT, STOP_LAST_SEC, type LifeConfig } from "./index";
+import { FAIL_MSG_SEC, HINT_AFTER_SEC, NOTICE_LINE_SEC, SCRIPT, STOP_LAST_SEC, type LifeConfig } from "./index";
 
 const key = (code: string, type: "keydown" | "keyup" = "keydown") => ({ type, code, repeat: false, target: null }) as unknown as KeyboardEvent;
 
@@ -31,7 +31,7 @@ function make(cfg: LifeConfig = CFG, rng: () => number = Math.random, getNear?: 
   return m;
 }
 
-/** From the title screen into a life (the headset on, the name, and the life begins by itself). */
+/** From the title screen into a life (the headset on, the name, 살아가기). */
 function live(m: SessionMachine) {
   press(m, "Enter"); // idle → notice
   for (const page of SCRIPT.ko.notice) {
@@ -43,9 +43,10 @@ function live(m: SessionMachine) {
   expect(m.view.phase).toBe("headset");
   press(m, "Enter");
   expect(m.view.phase).toBe("name");
-  press(m, "Enter"); // a key does not hurry the name
+  press(m, "KeyA"); // only 살아가기 goes on
+  step(m, 8000); // the name waits
   expect(m.view.phase).toBe("name");
-  step(m, NAME_SEC * 1000 + 100);
+  m.beginLife();
   expect(m.view.phase).toBe("live");
 }
 
@@ -79,6 +80,17 @@ describe("the frame before a life", () => {
   });
   it("runs through to the life", () => {
     live(make());
+  });
+  it("a visitor who walks away from the name is forgotten", () => {
+    const m = make();
+    press(m, "Enter");
+    press(m, "Enter");
+    press(m, "Enter");
+    press(m, "Enter");
+    press(m, "Enter");
+    expect(m.view.phase).toBe("name");
+    step(m, 46_000);
+    expect(m.view.phase).toBe("idle");
   });
 });
 
@@ -187,9 +199,9 @@ describe("the end and the restart", () => {
     press(m, "Space");
     expect(m.view.phase).toBe("name");
     expect(m.view.sessionNo).toBe(no + 1);
-    step(m, NAME_SEC * 1000 + 100);
+    m.beginLife();
     expect(m.view.phase).toBe("live");
-    expect(m.lifeRef.current.t).toBeLessThan(1); // the lifespan starts afresh
+    expect(m.lifeRef.current.t).toBe(0); // the lifespan starts afresh
     step(m, 61_000 + 1100);
     expect(m.view.phase).toBe("ended");
     step(m, 25_000);

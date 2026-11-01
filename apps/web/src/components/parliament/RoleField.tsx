@@ -38,6 +38,8 @@ import {
   sessionSeconds,
   SESSION_ROLES,
   StressState,
+  NAME_GAP_SEC,
+  aliveOwners,
   concreteLines,
   leftWords,
   otherMarks,
@@ -70,6 +72,8 @@ import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
+/** Someone who has sent nothing new for this long (wall ms) is not here (the log reaches other tabs in about a second). */
+const ALIVE_HOLD_MS = 6000;
 /** V2: how often the ledger reads the WHOLE world (its totals and my far slabs); the drawing reads a region. */
 const LEDGER_EVERY = 2;
 const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
@@ -203,6 +207,8 @@ export function RoleField({
   const marksRef = useRef<MarksData | null>(null);
   // the words the ended lives left (leftWords.ts), read from the log at the ledger's cadence
   const wordsRef = useRef<LeftWord[]>([]);
+  // who has been sending samples (aliveOwners)
+  const seenOwners = useRef(new Map<string, { s: number; at: number }>());
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
@@ -312,12 +318,19 @@ export function RoleField({
     }
   });
 
-  // the name comes up: the visitor's melody, once
-  const announced = useRef(false);
+  // the name is up: the visitor's melody, with a gap, over and over; it stops when the life begins
+  const nameDue = useRef<number | null>(null);
   useFrame(() => {
-    if (announced.current || lifeRef?.current.phase !== "name" || !sound || !tonal.current) return;
-    announced.current = true;
+    if (!sound) return;
+    if (lifeRef?.current.phase !== "name") {
+      if (nameDue.current !== null) sound.engine.hushName();
+      nameDue.current = null;
+      return;
+    }
+    const now = performance.now();
+    if (!tonal.current || (nameDue.current !== null && now < nameDue.current)) return;
     sound.engine.announce(me.current.id, tonal.current.key, sound.params.master);
+    nameDue.current = now + (sound.params.barSec + NAME_GAP_SEC) * 1000;
   });
 
   useFrame((_, delta) => {
@@ -354,6 +367,8 @@ export function RoleField({
       const tFold = performance.now();
       // the region the drawing, the sound and the marks read (the fold itself is always the whole world)
       const readR = Math.max(VIEW_RADIUS, marks?.concrete.on ? marks.concrete.radius : 0);
+      // who is here now: everyone within the assignment window, whatever time slot they live in
+      const alive = aliveOwners(events, me.current.id, seenOwners.current, performance.now(), ALIVE_HOLD_MS, sMe, Math.max(offsetWindow, DEFAULT_WITNESS.recentSec));
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       markSpan("fold", performance.now() - tFold);
@@ -365,6 +380,7 @@ export function RoleField({
           snap: snap.current,
           t: lifeRef?.current.t ?? 0,
           words: wordsRef.current,
+          alive,
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
@@ -374,7 +390,7 @@ export function RoleField({
         if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= LEDGER_EVERY) {
           ledgerTimer.current = 0;
           const tLed = performance.now();
-          wordsRef.current = leftWords(events, me.current.id, sMe);
+          wordsRef.current = leftWords(events, me.current.id, sMe, undefined, alive);
           const obs = witnessRef.current;
           ledgerRef.current = ledgerAt({
             me: { id: me.current.id, x: p.x, z: p.z },
@@ -423,6 +439,7 @@ export function RoleField({
           stress: stress.current,
           natureCfg,
           cfg: sound.sigCfg,
+          alive,
         });
         // V2 session: the visitor's motif is only given once their role is fixed (LIVE); before that the engine hears
         // nobody (no id → no motif of mine, no voices of others) and is silent (muffleSound)

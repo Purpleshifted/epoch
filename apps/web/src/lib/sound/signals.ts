@@ -169,6 +169,8 @@ export interface SignalInputs {
   stress: Map<string, number> | null;
   natureCfg: NatureConfig;
   cfg?: SignalConfig;
+  /** Who is here now, whatever their assigned time (parliament/witness.ts aliveOwners); absent = the last recentSec of mine. */
+  alive?: ReadonlySet<string>;
 }
 
 export const isBotId = (o: string) => o.startsWith("bot");
@@ -182,20 +184,21 @@ export function personalSignals(inp: SignalInputs): PersonalSignals {
   const cfg = inp.cfg ?? DEFAULT_SIGNALS;
   const { me, events, sNow, snap, stress, natureCfg } = inp;
 
-  // who is within earshot: the latest sample of every other person in the last recentSec (not from the future)
+  // who is within earshot: the latest sample of everyone here now (inp.alive), or else of every other person in the last
+  // recentSec (not from the future)
   const latest = new Map<string, PEvent>();
   let farthest = 0;
   for (const e of events) {
-    if (e.k !== "p" || e.s > sNow) continue;
+    if (e.k !== "p") continue;
     if (e.o === me.id) {
       // STAY: how far I got from where I am now over the last staySec
-      if (e.s >= sNow - cfg.staySec) {
+      if (e.s <= sNow && e.s >= sNow - cfg.staySec) {
         const d = wrapDist(e.x, e.z, me.x, me.z);
         if (d > farthest) farthest = d;
       }
       continue;
     }
-    if (e.s < sNow - cfg.recentSec) continue;
+    if (inp.alive ? !inp.alive.has(e.o) : e.s > sNow || e.s < sNow - cfg.recentSec) continue;
     const l = latest.get(e.o);
     if (!l || e.s > l.s) latest.set(e.o, e);
   }
