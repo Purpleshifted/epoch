@@ -15,18 +15,20 @@ import type { Surface } from "./witness";
 
 /** A notice page's lines come on one after another, this many seconds apart (hard cuts, no typing effect). */
 export const NOTICE_LINE_SEC = 0.9;
+/** The name stays up this long before the life begins: the melody (one bar, 2 s) and its tail. */
+export const NAME_SEC = 3.5;
 /** No input for this long before the life (notices, consent, headset): back to the title screen. */
 export const IDLE_AFTER_SEC = 45;
 /** The end screen, once SPACE is allowed, returns to the title screen by itself after this long. */
 export const END_RETURN_SEC = 90;
-/** SPACE this soon after the end is the same visitor again: the next life starts at once (no notices). */
+/** SPACE this soon after the end is the same visitor again: the next life starts from its name (no notices). */
 export const QUICK_RESTART_SEC = 20;
 /** Two gestures closer than this count as one (a tap fires pointerdown and touchend; a held key repeats). */
 export const GESTURE_GAP_MS = 300;
 
 // ── the steps before the life ────────────────────────────────────────────────
 
-/** A restart this soon after the end (wall ms) skips the notices, the consent and the headset: straight into the life. */
+/** A restart this soon after the end (wall ms) skips the notices, the consent and the headset: a new name, then the life. */
 export function quickRestart(nowMs: number, endedAtMs: number, withinSec = QUICK_RESTART_SEC): boolean {
   return endedAtMs > 0 && nowMs - endedAtMs <= withinSec * 1000;
 }

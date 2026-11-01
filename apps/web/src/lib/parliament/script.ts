@@ -8,11 +8,10 @@
  * the headset is on) and is never explained. The notices are the artist's own words (2026-10-20).
  */
 
-import { individualNo } from "./glyph";
 import type { CauseId } from "./intake";
 import type { LedgerSummary } from "./ledger";
 import { fmtClock } from "./session";
-import type { LogArgs, LogEntry, LogKey, StatusArgs, Surface, Who } from "./witness";
+import type { LogArgs, LogEntry, LogKey, StatusArgs, Surface } from "./witness";
 
 export type Lang = "ko" | "en";
 export const LANGS: readonly Lang[] = ["ko", "en"];
@@ -83,8 +82,8 @@ export interface Script {
   headset: string[];
   headsetTouch: string[];
   /** `controls`: how to walk, shown faintly for the first seconds of the life (the life begins right after the headset). */
-  /** `mine`: the word beside the visitor's own melody, written down above the record: it is their name. */
-  live: { look: string; controls: string; controlsTouch: string; mine: string; stop: (holdSec: number) => string; stopTouch: (holdSec: number) => string };
+  /** `mine`: the word beside the visitor's own melody, written down, on the name screen and above the record. */
+  live: { look: string; controls: string; controlsTouch: string; mine: string; answer: string; answerTouch: string; stop: (holdSec: number) => string; stopTouch: (holdSec: number) => string };
   attempt: { failed: string };
   /**
    * The end screen is one being's record card, in the voice of a specimen looked at from the future (the words while
@@ -101,7 +100,8 @@ export interface Script {
     /** `sec`: how long the being stayed with others who stayed. */
     groupRow: (n: number, sec?: number) => string;
     word: string;
-    wordRow: (n: number) => string;
+    /** `n`: the times the being answered (each leaves a new word); `asked`: the times it was called. */
+    wordRow: (n: number, asked?: number) => string;
     found: string;
     foundRow: (no: string, more: number) => string;
     built: string;
@@ -127,14 +127,8 @@ export interface Script {
 export const SCRIPT: Record<Lang, Script> = {
   ko: {
     idle: { press: "아무 키나 누르세요", pressTouch: "화면을 누르세요", duration: (min) => `한 번의 삶 · 약 ${min}분` },
-    notice: [
-      ["인류는 멸망했습니다.", "먼 미래, 지구에 도착한 외계의 고고학자들이 인류세를 연구하고 있습니다."],
-      ["그들에게 주어진 단서는 지층 속 흔적들입니다.", "벽의 창 너머로 미래의 모습이 보입니다."],
-      ["눈 앞의 화면으로 돌아오세요.", "당신은 현재 그 흔적을 남기며 살고 있습니다."],
-      ["당신의 삶은 미래의 풍경에 영향을 줄 수도 있고,", "주지 않을 수도 있습니다."],
-      ["다만 태어난 이상 살아가야 합니다."],
-    ],
-    consent: { question: "속절없이 존재하시겠습니까?", yes: "예", no: "아니요", noNote: "선택할 수 없습니다" },
+    notice: [["미래의 고고학자들이 멸망한 인류를 발굴 중입니다.", "무엇을 남기시겠습니까?"]],
+    consent: { question: "태어나시겠습니까?", yes: "예", no: "아니요", noNote: "선택할 수 없습니다" },
     headset: ["헤드셋을 착용하세요.", "착용했으면 아무 키나 누르세요."],
     headsetTouch: ["이어폰을 착용하세요.", "착용했으면 화면을 누르세요."],
     live: {
@@ -142,6 +136,8 @@ export const SCRIPT: Record<Lang, Script> = {
       controls: "W A S D 걷기 · 마우스 둘러보기",
       controlsTouch: "누르는 동안 걷고, 떼면 머뭅니다 · 끌면 돕니다",
       mine: "이름:",
+      answer: "SPACE — 응답",
+      answerTouch: "응답",
       stop: (s) => `그만 살기: X 키를 ${s}초 동안 누르세요`,
       stopTouch: (s) => `그만 살기 — ${s}초 길게 누르기`,
     },
@@ -154,7 +150,7 @@ export const SCRIPT: Record<Lang, Script> = {
       group: "군집",
       groupRow: (n, sec = 0) => (n === 0 ? "타 개체와 집단생활 관찰되지 않음" : `${n}개체와 집단생활${sec >= 1 ? ` · 공동 체류 ${fmtClock(sec)}` : ""}`),
       word: "어휘 변화",
-      wordRow: (n) => (n === 0 ? "관찰되지 않음" : n === 1 ? "접촉 후 새로운 어휘 발생" : `접촉 후 새로운 어휘 ${n}종 발생`),
+      wordRow: (n, asked = 0) => `${n === 0 ? "관찰되지 않음" : n === 1 ? "접촉 후 새로운 어휘 발생" : `접촉 후 새로운 어휘 ${n}종 발생`}${asked > 0 ? ` · 호출 ${asked}회 · 응답 ${n}회` : ""}`,
       found: "발견",
       foundRow: (no, more) => `개체 ${no}${josaIGa(no)} 남긴 말${more > 0 ? ` 외 ${more}건` : ""}`,
       built: "구조물",
@@ -183,14 +179,8 @@ export const SCRIPT: Record<Lang, Script> = {
   },
   en: {
     idle: { press: "Press any key", pressTouch: "Tap the screen", duration: (min) => `One life · about ${min} min` },
-    notice: [
-      ["Humanity is extinct.", "In the far future, archaeologists from elsewhere have reached Earth and are studying the Anthropocene."],
-      ["Their only clues are the traces in the strata.", "Through the window in the wall, the future can be seen."],
-      ["Come back to the screen in front of you.", "You are living now, leaving those traces."],
-      ["Your life may affect what that future looks like,", "or it may not."],
-      ["Still, having been born, you have to live."],
-    ],
-    consent: { question: "Will you exist regardless?", yes: "Yes", no: "No", noNote: "not available" },
+    notice: [["Future archaeologists are excavating extinct humanity.", "What will you leave?"]],
+    consent: { question: "Will you be born?", yes: "Yes", no: "No", noNote: "not available" },
     headset: ["Put on the headset.", "Press any key once it is on."],
     headsetTouch: ["Put on the earphones.", "Tap the screen once they are on."],
     live: {
@@ -198,6 +188,8 @@ export const SCRIPT: Record<Lang, Script> = {
       controls: "W A S D walk · mouse look",
       controlsTouch: "Hold to walk, let go to stay · drag to turn",
       mine: "Name:",
+      answer: "SPACE — answer",
+      answerTouch: "Answer",
       stop: (s) => `Stop living: hold X for ${s} second${s === 1 ? "" : "s"}`,
       stopTouch: (s) => `Stop living — hold ${s} second${s === 1 ? "" : "s"}`,
     },
@@ -210,7 +202,7 @@ export const SCRIPT: Record<Lang, Script> = {
       group: "Group",
       groupRow: (n, sec = 0) => (n === 0 ? "no group life observed" : `group life with ${n} individuals${sec >= 1 ? ` · stayed together ${fmtClock(sec)}` : ""}`),
       word: "Vocabulary",
-      wordRow: (n) => (n === 0 ? "no change observed" : n === 1 ? "a new word after contact" : `${n} new words after contact`),
+      wordRow: (n, asked = 0) => `${n === 0 ? "no change observed" : n === 1 ? "a new word after contact" : `${n} new words after contact`}${asked > 0 ? ` · called ${asked}× · answered ${n}×` : ""}`,
       found: "Found",
       foundRow: (no, more) => `a word left by individual ${no}${more > 0 ? ` and ${more} more` : ""}`,
       built: "Structure",
@@ -250,14 +242,8 @@ export function titleFor(lang: Lang): { main: string; sub: string | null } {
 // What is said WHILE living: plain words that anyone follows at a glance, about what is happening now (the artist,
 // 2026-11-01). The end screen's card (SCRIPT.ended) is the other voice: a specimen looked at from the future.
 // Levels (witness.ts LogLevel): 0 a fact, 1 notable, 2 important — the HUD draws them grey / white / white on black.
+// `{}` in a line is where the melody it speaks of is drawn (Glyph): beings have no other name while living.
 // The artist edits the words here; the rule stays: at most two short lines, no "!" (intake.test.ts).
-
-export type NameFn = (w: Who) => string;
-
-/** How someone is called when it matters who it was: four digits from the id, bots and visitors alike. */
-export function nameIn(_lang: Lang, o: string): string {
-  return individualNo(o);
-}
 
 /** The subject particle after a number read digit by digit (…2 이, …4 사, …5 오, …9 구 end in a vowel). */
 function josaIGa(no: string): string {
@@ -277,7 +263,7 @@ const secEn = (v?: number): string => {
 };
 
 export interface LogTemplates {
-  line: Record<LogKey, (a: LogArgs, name: NameFn) => string>;
+  line: Record<LogKey, (a: LogArgs) => string>;
   status: (a: StatusArgs) => string;
 }
 
@@ -292,14 +278,14 @@ export const LOG: Record<Lang, LogTemplates> = {
       },
       "you.moving": (a) => (a.moving ? "걷기 시작합니다." : "멈춰 섭니다."),
       surface: (a) => (a.surface === "trodden" ? "누군가 다져 놓은 길입니다." : a.surface === "sealed" ? "콘크리트 위입니다." : "풀밭으로 나왔습니다."),
-      near: () => "누군가 곁에 왔습니다.",
-      gone: (a) => `곁에 있던 이가 떠났습니다 · ${secKo(a.forSec)} 함께`,
-      "word.new": () => "누군가 말을 겁니다:",
-      "word.found": (a, name) => {
-        const who = name(a.who!);
-        return `${who}${josaIGa(who)} 남긴 말 발견:`;
-      },
+      near: () => "({}) 접근",
+      gone: (a) => `({}) 떠남 · ${secKo(a.forSec)} 함께`,
+      "word.new": () => "누군가 말을 겁니다: ({}?)",
+      "word.asked": (a) => ["({}?)", "곁에서 묻습니다: ({}?)", "({}...?)", "다시 묻습니다: ({}?)"][(a.n ?? 0) % 4],
+      "word.answered": () => "응답했습니다: ({})",
+      "word.found": () => "({})가 남긴 말 발견",
       dying: () => "죽어가고 있습니다...",
+      "dying.watched": () => "({})가 당신의 마지막을 지킵니다...",
       "ensemble.start": () => "합주 중… 함께 집을 짓습니다.",
       "ensemble.end": (a) => `합주가 끝났습니다 · ${secKo(a.forSec)}`,
       "attempt.tried": () => "그만 살기를 시도했습니다.",
@@ -320,11 +306,14 @@ export const LOG: Record<Lang, LogTemplates> = {
       "you.state": (a) => `${a.moving ? "Walking" : "Standing"} on ${WHERE_EN[a.surface ?? "open"]}.`,
       "you.moving": (a) => (a.moving ? "You start walking." : "You stop."),
       surface: (a) => (a.surface === "trodden" ? "A path someone trod." : a.surface === "sealed" ? "On concrete." : "Out on the grass."),
-      near: () => "Someone came near.",
-      gone: (a) => `Someone left · together ${secEn(a.forSec)}`,
-      "word.new": () => "Someone speaks to you:",
-      "word.found": (a, name) => `A word left by ${name(a.who!)} found:`,
+      near: () => "({}) comes near",
+      gone: (a) => `({}) leaves · together ${secEn(a.forSec)}`,
+      "word.new": () => "Someone speaks to you: ({}?)",
+      "word.asked": (a) => ["({}?)", "Asked beside you: ({}?)", "({}...?)", "Asked again: ({}?)"][(a.n ?? 0) % 4],
+      "word.answered": () => "You answered: ({})",
+      "word.found": () => "A word left by ({}) found",
       dying: () => "You are dying...",
+      "dying.watched": () => "({}) keeps watch over your last moments...",
       "ensemble.start": () => "In ensemble… building a house together.",
       "ensemble.end": (a) => `The ensemble is over · ${secEn(a.forSec)}`,
       "attempt.tried": () => "You tried to stop living.",
@@ -344,7 +333,6 @@ export const LOG: Record<Lang, LogTemplates> = {
 
 /** One record line in the chosen language: the `T+mm:ss` prefix (machine face) and the text (apparatus face). */
 export function formatEntry(e: LogEntry, lang: Lang): { prefix: string; text: string } {
-  const name: NameFn = (w) => nameIn(lang, w.o);
-  return { prefix: `T+${fmtClock(e.t)}`, text: LOG[lang].line[e.key](e.args, name) };
+  return { prefix: `T+${fmtClock(e.t)}`, text: LOG[lang].line[e.key](e.args) };
 }
 export const formatStatus = (a: StatusArgs, lang: Lang): string => LOG[lang].status(a);

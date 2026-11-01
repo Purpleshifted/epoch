@@ -728,6 +728,25 @@ export class SoundEngine {
     return this.limHold;
   }
 
+  /**
+   * The name (before a life): the visitor's melody once, alone, straight to the limiter — the master is shut until the
+   * life begins, `level` is what it will open to. In the world's key, every note in tune. Nothing when the engine is not
+   * running (sound off, muted).
+   */
+  announce(id: string, key: WorldKey, level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.timer) return;
+    const p = this.params;
+    const out = ctx.createGain();
+    out.gain.value = Math.max(level, 0.0001);
+    out.connect(this.limiter);
+    const m = this.motifOf(id);
+    const at = ctx.currentTime + 0.1;
+    const notes = realize(m, key, null, 1, 0);
+    for (const n of notes) this.note(out, n.freq, at + n.at * p.barSec, n.len * p.barSec, 1, m.timbre, 0, true);
+    setTimeout(() => out.disconnect(), (p.barSec + 4) * 1000);
+  }
+
   private motifOf(id: string): Motif {
     let m = this.motifs.get(id);
     if (!m) {

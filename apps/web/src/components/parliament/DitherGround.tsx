@@ -1,10 +1,11 @@
 "use client";
 /**
- * DitherGround — the brutal version of the grass (Leva 개인뷰 비주얼; docs/session-logic.md §12): no points, a flat field
- * in one colour and black. Every cell around the walker takes the density NatureCloud would give it (nature.ts
- * grassDensity, with the quick stress of the walker's own trail), and an ordered dither in screen pixels turns that
- * density into how much of the cell is lit: where the walker goes the field goes black at once. It ends in a hard
- * circle: no fog, no fade. Far cheaper than the cloud: a small texture instead of tens of thousands of points.
+ * DitherGround — the brutal versions of the grass (Leva 개인뷰 비주얼; docs/session-logic.md §12): no points, a field in
+ * one colour. Every cell around the walker takes the density NatureCloud would give it (nature.ts grassDensity, with the
+ * quick stress of the walker's own trail). With `dither` an ordered dither in screen pixels turns the density into how
+ * much of the cell is lit; without it (the default since the artist found the dither hard on the eyes) the density is
+ * simply how bright the field is, smooth from cell to cell. Where the walker goes the field goes dark at once. It ends in
+ * a hard circle: no fog, no fade. Far cheaper than the cloud: a small texture instead of tens of thousands of points.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -32,6 +33,7 @@ uniform vec2 uCentre;
 uniform float uRadius;
 uniform float uPx;
 uniform vec3 uColor;
+uniform float uDither;
 varying vec2 vXZ;
 float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
@@ -39,6 +41,10 @@ float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
 void main() {
   if (distance(vXZ, uCentre) > uRadius) discard;
   float g = texture2D(uG, (vXZ - uOrigin) / uSpan).r;
+  if (uDither < 0.5) {
+    gl_FragColor = vec4(uColor * g, 1.0);
+    return;
+  }
   if (g <= bayer8(floor(gl_FragCoord.xy / uPx))) discard;
   gl_FragColor = vec4(uColor, 1.0);
 }`;
@@ -51,7 +57,8 @@ export function DitherGround({
   cfg,
   radius = 22,
   pixel = 2,
-  color = "#33ff33",
+  dither = false,
+  color = "#2f8f3f",
   density = 1,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
@@ -64,6 +71,8 @@ export function DitherGround({
   radius?: number;
   /** Size of a dither dot in CSS pixels. */
   pixel?: number;
+  /** Two values in dots (true), or the density as a smooth brightness (false). */
+  dither?: boolean;
   color?: string;
   /** Multiplies the density before it is dithered. */
   density?: number;
@@ -96,6 +105,7 @@ export function DitherGround({
           uRadius: { value: radius },
           uPx: { value: pixel },
           uColor: { value: new THREE.Color(color) },
+          uDither: { value: dither ? 1 : 0 },
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,6 +128,12 @@ export function DitherGround({
     u.uRadius.value = radius;
     u.uPx.value = pixel * gl.getPixelRatio();
     (u.uColor.value as THREE.Color).set(color);
+    u.uDither.value = dither ? 1 : 0;
+    const filter = dither ? THREE.NearestFilter : THREE.LinearFilter;
+    if (tex.magFilter !== filter) {
+      tex.magFilter = tex.minFilter = filter;
+      tex.needsUpdate = true;
+    }
     timer.current += dt;
     const jumped = Number.isFinite(laidAt.current.x) && Math.hypot(p.x - laidAt.current.x, p.z - laidAt.current.z) > WORLD_SIZE / 4;
     if (timer.current < REFRESH && !jumped) return;

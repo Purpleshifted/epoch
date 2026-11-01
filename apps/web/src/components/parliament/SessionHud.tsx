@@ -1,8 +1,8 @@
 "use client";
 /**
  * SessionHud — what the player view says (V2), in a retro terminal face, greys only:
- *   - before the life: the title screen, the notices, a consent with only yes, the headset (intake.ts); the life
- *     begins the moment the headset is on (2026-10-20: no choice of role, no slot, no verdict — always the worker)
+ *   - before the life: the title screen, the notice, a consent with only yes, the headset, the name (intake.ts); the
+ *     life begins by itself after the name (2026-10-20: no choice of role, no slot, no verdict — always the worker)
  *   - while live: how to walk, faintly, for the first seconds; the record (lib/parliament/witness.ts) on a solid black
  *     block, in plain words in the chosen language: the visitor's own melody written down (Glyph), who comes and goes,
  *     what the life does to the ground (lib/parliament/ledger.ts), the important lines reversed, black on white;
@@ -14,7 +14,7 @@
  */
 
 import { VT323 } from "next/font/google";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CAUSE_NAME,
   HOLD_SEC,
@@ -46,16 +46,19 @@ import {
 } from "@/lib/parliament";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
+import { hudFontClass, type HudFont } from "./hudFonts";
 import type { LifeSession } from "./useLifeSession";
 
 const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
 
 const POLL_MS = 250;
+/** How far into the dying (session.ts warn) someone near is said to keep watch. */
+const WATCH_FROM_WARN = 0.5;
 /** How long (s) the line saying how to walk stays up at the start of a life. */
 const CONTROLS_SEC = 10;
 
 /** How dark the screen is in each phase (0 = the world, 1 = black). */
-const DARK: Record<SessionPhase, number> = { idle: 0.94, notice: 0.94, consent: 0.94, headset: 0.94, live: 0, ended: 1 };
+const DARK: Record<SessionPhase, number> = { idle: 0.94, notice: 0.94, consent: 0.94, headset: 0.94, name: 0.94, live: 0, ended: 1 };
 
 /** The phases whose text comes on line by line: the HUD follows the frame clock then. */
 const ANIMATED: readonly SessionPhase[] = ["notice", "headset"];
@@ -80,16 +83,34 @@ interface WitnessView {
   newWords: GlyphDot[][];
   found: string[];
   ensembleSec: number;
+  asked: number;
+  /** Someone's question is open: the visitor can answer it. */
+  asking: boolean;
   /** The end is making itself felt (the last warnSec of the lifespan). */
   dying: boolean;
   /** The line saying how to walk is up (the first seconds of the life; on a desktop counted from the pointer lock). */
   controls: boolean;
 }
 
-const EMPTY: WitnessView = { me: "", entries: [], status: null, near: [], ledger: null, t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, group: [], newWords: [], found: [], ensembleSec: 0, dying: false, controls: false };
+const EMPTY: WitnessView = { me: "", entries: [], status: null, near: [], ledger: null, t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, group: [], newWords: [], found: [], ensembleSec: 0, asked: 0, asking: false, dying: false, controls: false };
 
 /** How a record line reads by its level (witness.ts LogLevel): grey, white, reversed. */
 const LEVEL_CLASS = ["text-[#8c8c8c]", "text-white", "bg-white text-black"];
+
+/** A line of the record: the `{}`s in its words are where the melody is drawn. */
+function RecordWords({ text, dots, className = "" }: { text: string; dots?: readonly GlyphDot[]; className?: string }) {
+  const parts = text.split("{}");
+  return (
+    <span className={`flex min-w-0 items-center gap-[2px] ${className}`}>
+      {parts.map((part, i) => (
+        <span key={i} className="contents">
+          {part && <span className="whitespace-pre">{part}</span>}
+          {i < parts.length - 1 && dots && <Glyph dots={dots} cell={3} />}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /** One row of the record card: its label and what it reads. */
 function CardRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -136,6 +157,7 @@ export function SessionHud({
   noticeLineSec = NOTICE_LINE_SEC,
   coarse = false,
   footprint = true,
+  fonts = { say: "neodgm", card: "neodgm" },
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -157,10 +179,13 @@ export function SessionHud({
   coarse?: boolean;
   /** The end screen's footprint map (Leva 개인뷰 비주얼). */
   footprint?: boolean;
+  /** The face of what is said (notices, the record) and of the end screen's card (Leva 개인뷰 비주얼 › 글꼴). */
+  fonts?: { say: HudFont; card: HudFont };
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
-  const say = lang === "ko" ? "hud-ko" : "";
+  const say = hudFontClass(fonts.say, lang);
+  const cardFont = hudFontClass(fonts.card, lang);
   const [log] = useState(() => new WitnessLog());
   const [watch] = useState(() => new LedgerWatch());
   const lastObs = useRef<Observation | null>(null);
@@ -196,13 +221,30 @@ export function SessionHud({
       // the ledger's lines go into the same record
       const L = ledgerRef.current;
       if (L) for (const e of watch.feed(L, obs.surface, log.roleOf)) log.note(e);
-      const dying = session.lifeRef.current.warn > 0;
+      const warn = session.lifeRef.current.warn;
+      const dying = warn > 0;
       if (dying) log.dying(obs.t);
+      if (warn >= WATCH_FROM_WARN) log.keptWatch(obs.t);
       const controls = coarse ? obs.t < CONTROLS_SEC : locked && Date.now() - lockedAt.current < CONTROLS_SEC * 1000;
-      setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), dying, controls });
+      setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), dying, controls });
     }, POLL_MS);
     return () => clearInterval(id);
   }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef]);
+
+  // someone asked: SPACE answers
+  const answer = useCallback(() => {
+    const me = witnessRef.current?.me;
+    if (!me || !log.answer(session.lifeRef.current.t, me)) return;
+    setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary(), asking: false }));
+  }, [log, session.lifeRef, witnessRef]);
+  useEffect(() => {
+    if (phase !== "live") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) answer();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, answer]);
 
   // a failed attempt to stop living goes into the record as two flat lines
   const seenAttempts = useRef(0);
@@ -276,6 +318,13 @@ export function SessionHud({
         </Centre>
       )}
 
+      {/* the name: the melody the visitor is given, written down, its notes coming on as it sounds (RoleField → engine) */}
+      {phase === "name" && witnessRef.current && (
+        <Centre className={`${say} flex items-center justify-center gap-3 text-[26px] text-white`}>
+          {S.live.mine} (<Glyph dots={glyphOf(witnessRef.current.me)} cell={8} playFrom={phaseAt + 100} />)
+        </Centre>
+      )}
+
       {/* live, before the pointer is locked */}
       {phase === "live" && !coarse && !locked && !attemptFailed && (
         <Centre className={`${say} flex justify-center text-center`}>
@@ -329,8 +378,10 @@ export function SessionHud({
             {rec.me && (
               <div className="flex items-center gap-3 border-b border-white px-3 py-2 text-white">
                 <div className={`${say} shrink-0`}>{S.live.mine}</div>
-                <Glyph dots={glyphOf(rec.me)} cell={5} live />
-                {rec.status && <div className={`${say} ml-auto truncate ${rec.dying ? "text-white" : "text-[#8c8c8c]"}`}>{rec.dying ? LOG[lang].line.dying({}, () => "") : formatStatus(rec.status, lang)}</div>}
+                <span className="flex shrink-0 items-center gap-[2px]">
+                  (<Glyph dots={rec.newWords[rec.newWords.length - 1] ?? glyphOf(rec.me)} cell={4} live />)
+                </span>
+                {rec.status && <div className={`${say} ml-auto truncate ${rec.dying ? "text-white" : "text-[#8c8c8c]"}`}>{rec.dying ? LOG[lang].line.dying({}) : formatStatus(rec.status, lang)}</div>}
               </div>
             )}
             <div className="min-h-[6.5rem] px-3 py-2">
@@ -339,25 +390,24 @@ export function SessionHud({
                 return (
                   <div key={`${i}:${e.t}:${e.key}`} className={`flex items-center gap-2 ${LEVEL_CLASS[e.level]}`}>
                     <span className="shrink-0 whitespace-pre">{prefix}</span>
-                    <span className={`${say} truncate`}>{text}</span>
-                    {e.args.dots &&
-                      (e.key === "word.new" || e.key === "word.found" ? (
-                        <span className="flex shrink-0 items-center gap-1">
-                          (<Glyph dots={e.args.dots} cell={3} />
-                          {e.key === "word.new" ? "?)" : ")"}
-                        </span>
-                      ) : (
-                        <Glyph dots={e.args.dots} cell={2} />
-                      ))}
+                    <RecordWords text={text} dots={e.args.dots} className={say} />
                   </div>
                 );
               })}
             </div>
-            {rec.near.length > 0 && (
+            {(rec.near.length > 0 || rec.asking) && (
               <div className="flex items-center gap-2 border-t border-white px-3 py-1.5 text-white">
                 {rec.near.slice(0, 8).map((n) => (
                   <Glyph key={n.who.o} dots={glyphOf(n.who.o)} cell={3} />
                 ))}
+                {rec.asking &&
+                  (coarse ? (
+                    <button type="button" onClick={answer} className={`${say} pointer-events-auto ml-auto border border-white px-3 py-0.5`}>
+                      {S.live.answerTouch}
+                    </button>
+                  ) : (
+                    <span className={`${say} hud-blink ml-auto`}>{S.live.answer}</span>
+                  ))}
               </div>
             )}
           </div>
@@ -367,7 +417,7 @@ export function SessionHud({
       {/* the end: the being's record card, with the footprint (Leva 개인뷰 비주얼 › 퇴장 화면 발자국 지도) */}
       {phase === "ended" && cause && (
         <div className="absolute inset-0 flex items-center justify-center overflow-hidden px-6">
-          <div className={`${say} w-full max-w-[46rem] text-[17px] leading-[1.3] tracking-[0.03em]`}>
+          <div className={`${cardFont} w-full max-w-[46rem] text-[17px] leading-[1.3] tracking-[0.03em]`}>
             <div className="mb-3 text-[24px] text-white">{S.ended.title}</div>
             <div className="flex flex-wrap items-stretch border border-white">
               <div className="min-w-[20rem] flex-1">
@@ -380,7 +430,7 @@ export function SessionHud({
                 <CardRow label={S.ended.own}>{rec.me && <Glyph dots={glyphOf(rec.me)} cell={5} />}</CardRow>
                 <CardRow label={S.ended.group}>{S.ended.groupRow(rec.group.length, rec.ensembleSec)}</CardRow>
                 <CardRow label={S.ended.word}>
-                  <span>{S.ended.wordRow(rec.newWords.length)}</span>
+                  <span>{S.ended.wordRow(rec.newWords.length, rec.asked)}</span>
                   {rec.newWords.length > 0 && <Glyph dots={rec.newWords[rec.newWords.length - 1]} cell={4} />}
                 </CardRow>
                 {rec.found.length > 0 && (

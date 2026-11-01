@@ -12,12 +12,13 @@
 
 import { useMemo } from "react";
 import { folder, useControls } from "leva";
+import { HUD_FONT_OPTIONS, type HudFont } from "./hudFonts";
 import type { GrassMode } from "./NatureCloud";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 
 export type Look = "brutal" | "soft";
-export type GrassStyle = "dither" | "squares" | "dots";
+export type GrassStyle = "field" | "dither" | "squares" | "dots";
 export type ConcreteStyle = "lines" | "outline";
 
 export interface GrassVisual {
@@ -32,7 +33,7 @@ export interface GrassVisual {
   mineGain: number;
   /** The vertical spread of the grass points (1 = the old spread). */
   thick: number;
-  /** How it is drawn: a dithered field, hard square points, or the old soft dots. */
+  /** How it is drawn: a plain field (no pixels), a dithered field, hard square points, or the old soft dots. */
   style: GrassStyle;
   color: string;
   /** Dither: the size of a dot (CSS px), the density ×, and the radius of the lit circle (world). */
@@ -53,6 +54,7 @@ export interface MarksVisual {
 export interface PersonalVisuals {
   look: Look;
   footprint: boolean;
+  fonts: { say: HudFont; card: HudFont };
   grass: GrassVisual;
   marks: MarksVisual;
 }
@@ -72,6 +74,7 @@ const GRASS_OPTIONS: Record<string, GrassMode> = {
 };
 
 const GRASS_STYLES: Record<string, GrassStyle> = {
+  "면 — 픽셀 없이 밀도만큼 밝은 초록": "field",
   "디더 면 — 땅 전체가 초록·검정 두 값": "dither",
   "네모 점 — 점구름, 단색, 각진 점": "squares",
 };
@@ -90,15 +93,19 @@ export function usePersonalVisuals(): PersonalVisuals {
       look: { options: LOOK_OPTIONS, value: "brutal" as Look, label: "판", render: v2 },
       footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
       "브루털": folder({
-        grassStyle: { options: GRASS_STYLES, value: "dither" as GrassStyle, label: "풀", render: v2 },
-        grassColor: { value: "#33ff33", label: "풀 색", render: v2 },
+        grassStyle: { options: GRASS_STYLES, value: "field" as GrassStyle, label: "풀", render: v2 },
+        grassColor: { value: "#2f8f3f", label: "풀 색", render: v2 },
         ditherPx: { value: 2, min: 1, max: 8, step: 1, label: "디더: 점 크기 (px)", render: v2 },
-        grassDensity: { value: 1, min: 0.2, max: 2.5, step: 0.05, label: "디더: 밀도 ×", render: v2 },
-        grassRadius: { value: 22, min: 8, max: 40, step: 1, label: "디더: 보이는 원 반경 (월드)", render: v2 },
+        grassDensity: { value: 1, min: 0.2, max: 2.5, step: 0.05, label: "면·디더: 밀도 ×", render: v2 },
+        grassRadius: { value: 22, min: 8, max: 40, step: 1, label: "면·디더: 보이는 원 반경 (월드)", render: v2 },
         squareSize: { value: 0.16, min: 0.04, max: 0.6, step: 0.01, label: "네모 점: 크기", render: v2 },
         concreteStyle: { options: CONCRETE_STYLES, value: "outline" as ConcreteStyle, label: "콘크리트", render: v2 },
         outlineScale: { value: 1, min: 0.25, max: 6, step: 0.25, label: "외곽선: 높이 × 슬래브", render: v2 },
         otherSquare: { value: 0.8, min: 0.2, max: 2, step: 0.05, label: "타인 네모 크기", render: v2 },
+      }),
+      글꼴: folder({
+        fontSay: { options: HUD_FONT_OPTIONS, value: "neodgm" as HudFont, label: "안내·기록", render: v2 },
+        fontCard: { options: HUD_FONT_OPTIONS, value: "neodgm" as HudFont, label: "기록표", render: v2 },
       }),
       "남긴 말": folder({
         wordsOn: { value: true, label: "땅의 판 켜기", render: v2 },
@@ -176,5 +183,6 @@ export function usePersonalVisuals(): PersonalVisuals {
     }),
     [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.wordsOn, c.wordCell],
   );
-  return { look: c.look, footprint: c.footprint, grass, marks };
+  const fonts = useMemo(() => ({ say: c.fontSay, card: c.fontCard }), [c.fontSay, c.fontCard]);
+  return { look: c.look, footprint: c.footprint, fonts, grass, marks };
 }

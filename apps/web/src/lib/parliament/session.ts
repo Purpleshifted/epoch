@@ -4,7 +4,8 @@
  *
  *   IDLE      nobody has touched the screen yet: the ground runs on (bots), the visitor leaves nothing
  *   NOTICE … HEADSET   the frame before a life (intake.ts): what this is, a consent with only yes, the headset
- *   LIVE      the life begins at once after the headset — every visitor is the worker (2026-10-20: the choice, the
+ *   NAME      the visitor is given their name, the melody written down, and hears it once alone (a few seconds, by itself)
+ *   LIVE      the life begins by itself after the name — every visitor is the worker (2026-10-20: the choice, the
  *             slot and the verdict were taken out; only the worker has an effect on the ground). The lifespan runs;
  *             in its last `warnSec` the cursor blinks faster, the sound goes dull and the controls stop answering
  *             properly (`lifeAt`, `hindrance`)
@@ -18,10 +19,10 @@ import { hash2 } from "./nature";
 import type { RoleId } from "./types";
 
 /**
- * IDLE → the steps before the life (intake.ts: NOTICE → CONSENT → HEADSET) → LIVE → ENDED.
+ * IDLE → the steps before the life (intake.ts: NOTICE → CONSENT → HEADSET → NAME) → LIVE → ENDED.
  * The visitor is only present (traces, sound, controls) while LIVE; every other phase is dark and silent.
  */
-export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "live" | "ended";
+export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "name" | "live" | "ended";
 
 /** The roles of the V2 world: the visitor is always the worker; the bots take these in turn ("섞어서"). */
 export const SESSION_ROLES: readonly RoleId[] = ["worker", "cat", "car", "tree"];
@@ -43,6 +44,8 @@ export interface LifeConfig {
   selfNearFactor?: number;
   /** The notices before a life: seconds between one line coming on and the next (intake.ts NOTICE_LINE_SEC). */
   noticeLineSec?: number;
+  /** How long the name stays up before the life begins (intake.ts NAME_SEC). */
+  nameSec?: number;
   /** Stopping living (intake.ts has the defaults): how long X is held … */
   holdSec?: number;
   /** … from how many seconds into the life it is on offer (and the first banner comes) … */

@@ -175,9 +175,8 @@ describe("the script", () => {
     const who = { o: "bot3", r: "worker" as const };
     const sample = { who, moving: true, surface: "trodden" as const, dist: 2.1, bearing: "NE", forSec: 41, near: 2, n: 7, pct: 23, sec: 60, with: [who, { o: "v_ab12c", r: "cat" as const }], at: 72 };
     for (const lang of LANGS) {
-      const name = (w: { o: string; r: string }) => `${w.r} ${w.o}`;
       for (const key of Object.keys(LOG[lang].line) as (keyof typeof LOG.ko.line)[]) {
-        const text = LOG[lang].line[key](sample, name);
+        const text = LOG[lang].line[key](sample);
         expect(text.length).toBeGreaterThan(0);
         expect(text).not.toContain("!");
         expect(text).not.toContain("\n");
@@ -188,7 +187,7 @@ describe("the script", () => {
       const full = { pressed: 19.2, recovered: true, trodden: 41, walkedM: 120, newPaths: 7, prePaths: 12, slabs: 16, with: ["bot1", "bot2", "bot3"] };
       const none = { pressed: 0, recovered: false, trodden: 0, walkedM: 0, newPaths: 0, prePaths: 0, slabs: 0, with: [] };
       const e = SCRIPT[lang].ended;
-      const rows = [e.groupRow(0), e.groupRow(6), e.groupRow(6, 24), e.wordRow(0), e.wordRow(1), e.wordRow(3), e.foundRow("0412", 0), e.foundRow("0412", 2), e.builtRow(0, 0, 0), e.builtRow(16, 3, 1), e.movedRow(full, 40), e.movedRow(none, 0), e.movedRow(null, 0), e.vegRow(full), e.vegRow(none), e.vegRow(null)];
+      const rows = [e.groupRow(0), e.groupRow(6), e.groupRow(6, 24), e.wordRow(0), e.wordRow(1), e.wordRow(3), e.wordRow(0, 4), e.wordRow(2, 4), e.foundRow("0412", 0), e.foundRow("0412", 2), e.builtRow(0, 0, 0), e.builtRow(16, 3, 1), e.movedRow(full, 40), e.movedRow(none, 0), e.movedRow(null, 0), e.vegRow(full), e.vegRow(none), e.vegRow(null)];
       for (const row of rows) {
         expect(row.length).toBeGreaterThan(0);
         expect(row).not.toContain("!");
@@ -197,6 +196,7 @@ describe("the script", () => {
     }
     expect(SCRIPT.ko.ended.groupRow(0)).toBe("타 개체와 집단생활 관찰되지 않음");
     expect(SCRIPT.ko.ended.wordRow(1)).toBe("접촉 후 새로운 어휘 발생");
+    expect(SCRIPT.ko.ended.wordRow(0, 4)).toBe("관찰되지 않음 · 호출 4회 · 응답 0회");
     expect(SCRIPT.ko.ended.groupRow(6, 24)).toBe("6개체와 집단생활 · 공동 체류 00:24");
     expect(SCRIPT.ko.ended.foundRow("0412", 0)).toBe("개체 0412가 남긴 말");
     expect(SCRIPT.ko.ended.foundRow("0413", 0)).toBe("개체 0413이 남긴 말");

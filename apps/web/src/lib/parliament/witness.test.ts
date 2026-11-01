@@ -3,7 +3,7 @@
  * script.ts in the voice of a field note.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WITNESS, WitnessLog, bearingOf, formatEntry, formatStatus, glyphOf, individualNo, nameIn, observe, type LogEntry, type Observation, type Other, type PEvent } from "./index";
+import { DEFAULT_WITNESS, WitnessLog, bearingOf, formatEntry, formatStatus, glyphOf, observe, type LogEntry, type Observation, type Other, type PEvent } from "./index";
 
 const me = { id: "v_me", x: 0, z: 0, vx: 0, vz: 0 };
 const p = (o: string, x: number, z: number, s: number, r: PEvent["r"] = "worker"): PEvent => ({ id: `${o}:${s}`, o, r, k: "p", x, z, s });
@@ -12,8 +12,7 @@ const obsAt = (t: number, others: Other[], moving = false, wordsNear: string[] =
 const bot = (dist: number, o = "bot1"): Other => ({ o, r: "worker", x: dist, z: 0, dist, bearing: "E", moving: false, ageSec: 0 });
 
 describe("the witness: a record of who is near", () => {
-  it("names and bearings", () => {
-    expect(nameIn("ko", "bot3")).toBe(individualNo("bot3"));
+  it("bearings", () => {
     expect(bearingOf(0, 1)).toBe("N");
     expect(bearingOf(1, 0)).toBe("E");
     expect(bearingOf(-1, -1)).toBe("SW");
@@ -38,7 +37,7 @@ describe("the witness: a record of who is near", () => {
     expect(en(log.push(obsAt(0, [])))).toEqual(["T+00:00  Standing on grass."]);
     expect(log.push(obsAt(1, [bot(3.5)]))).toEqual([]); // inside the watch radius, not yet near
     const came = log.push(obsAt(2, [bot(2)]));
-    expect(en(came)).toEqual(["T+00:02  Someone came near."]);
+    expect(en(came)).toEqual(["T+00:02  ({}) comes near"]);
     expect(came[0].args.dots).toEqual(glyphOf("bot1"));
     expect(log.push(obsAt(4, [bot(3.5)]))).toEqual([]); // inside the leave margin: still near
     expect(formatStatus(log.status()!, "en")).toBe("Staying 00:04 · grass · 1 near");
@@ -47,7 +46,7 @@ describe("the witness: a record of who is near", () => {
     expect(log.push(obsAt(10, []))).toEqual([]);
     expect(log.push(obsAt(10.5, [bot(2)]))).toEqual([]);
     expect(log.push(obsAt(50, []))).toEqual([]);
-    expect(en(log.push(obsAt(51, [])))).toEqual(["T+00:51  Someone left · together 48 s"]);
+    expect(en(log.push(obsAt(51, [])))).toEqual(["T+00:51  ({}) leaves · together 48 s"]);
     // a short tap on a key leaves no line, a real walk does
     expect(log.push(obsAt(51.2, [], true))).toEqual([]);
     expect(log.push(obsAt(51.5, [], false))).toEqual([]);
@@ -76,12 +75,10 @@ describe("the witness: a record of who is near", () => {
     expect(first.map((e) => e.key)).toEqual(["word.new"]); // only one of the two now
     expect(first[0].level).toBe(2);
     expect(first[0].args.dots).toEqual(glyphOf(first[0].args.who!.o)); // what is heard is theirs
-    expect(formatEntry(first[0], "ko").text).toBe("누군가 말을 겁니다:");
+    expect(formatEntry(first[0], "ko").text).toBe("누군가 말을 겁니다: ({}?)");
     expect(log.push(obsAt(8, [bot(2), bot(2, "bot2")]))).toEqual([]); // the gap
     const second = log.push(obsAt(20, [bot(2), bot(2, "bot2")]));
     expect(second.map((e) => e.key)).toEqual(["word.new"]);
-    expect(log.push(obsAt(40, [bot(2), bot(2, "bot2")]))).toEqual([]); // both have spoken
-    expect(log.summary().newWords.length).toBe(2);
   });
 
   it("the ensemble: I stay with someone who stays, for a moment; it ends when either moves on", () => {
@@ -109,6 +106,37 @@ describe("the witness: a record of who is near", () => {
     for (const t of [1, 3, 5, 7, 9]) expect(alone.push(obsAt(t, [walker])).some((e) => e.key === "ensemble.start")).toBe(false);
   });
 
+  it("someone asks now and then; an open question can be answered once, and that is what leaves a new word", () => {
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, wordAfterSec: 6, askEverySec: 16, askOpenSec: 7 });
+    log.push(obsAt(0, []));
+    log.push(obsAt(1, [bot(2)]));
+    expect(log.asking()).toBe(false);
+    expect(log.answer(2, "v_me")).toBeNull(); // nobody asked
+    expect(log.push(obsAt(7, [bot(2)])).map((e) => e.key)).toContain("word.new");
+    expect(log.asking()).toBe(true);
+    const answered = log.answer(8, "v_me")!;
+    expect(formatEntry(answered, "ko").text).toBe("응답했습니다: ({})");
+    expect(answered.args.dots?.length).toBeGreaterThan(0);
+    expect(log.asking()).toBe(false);
+    expect(log.answer(8.5, "v_me")).toBeNull(); // once
+    expect(log.summary().newWords.length).toBe(1);
+    // the next question comes later, and goes away unanswered
+    expect(log.push(obsAt(20, [bot(2)])).some((e) => e.key === "word.asked")).toBe(false);
+    const asked = log.push(obsAt(24, [bot(2)])).find((e) => e.key === "word.asked")!;
+    expect(asked.level).toBe(2);
+    expect(formatEntry(asked, "ko").text).toContain("{}");
+    expect(asked.args.dots).not.toEqual(glyphOf("bot1")); // their melody gone strange
+    expect(log.asking()).toBe(true);
+    log.push(obsAt(32, [bot(2)]));
+    expect(log.asking()).toBe(false);
+    expect(log.summary().newWords.length).toBe(1);
+    expect(log.summary().asked).toBe(2);
+    // nobody near, nobody asks
+    const alone = new WitnessLog();
+    alone.push(obsAt(0, []));
+    expect(alone.push(obsAt(60, [])).some((e) => e.key === "word.asked")).toBe(false);
+  });
+
   it("dying: one line, however often it is said", () => {
     const log = new WitnessLog();
     log.push(obsAt(0, []));
@@ -120,23 +148,38 @@ describe("the witness: a record of who is near", () => {
     expect(formatEntry(lines[0], "ko").text).toBe("죽어가고 있습니다...");
   });
 
+  it("whoever is near at the end keeps watch: one line, the one near for longest; nobody near, no line", () => {
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, wordAfterSec: 1000 });
+    log.push(obsAt(0, []));
+    log.keptWatch(1);
+    expect(log.entries.some((e) => e.key === "dying.watched")).toBe(false);
+    log.push(obsAt(2, [bot(2)]));
+    log.push(obsAt(5, [bot(2), bot(2, "bot2")]));
+    log.keptWatch(6);
+    log.keptWatch(7);
+    const lines = log.entries.filter((e) => e.key === "dying.watched");
+    expect(lines.length).toBe(1);
+    expect(lines[0].args.dots).toEqual(glyphOf("bot1"));
+    expect(formatEntry(lines[0], "ko").text).toBe("({})가 당신의 마지막을 지킵니다...");
+  });
+
   it("a left word: found once, with the melody of the one who left it", () => {
     const log = new WitnessLog({ ...DEFAULT_WITNESS, wordGapSec: 12 });
     log.push(obsAt(0, []));
     const found = log.push(obsAt(1, [], false, ["v_old"]));
     expect(found.map((e) => e.key)).toEqual(["word.found"]);
     expect(found[0].args.dots).toEqual(glyphOf("v_old"));
-    expect(formatEntry(found[0], "en").text).toBe(`A word left by ${individualNo("v_old")} found:`);
-    expect(formatEntry(found[0], "ko").text).toMatch(/^\d{4}[이가] 남긴 말 발견:$/);
+    expect(formatEntry(found[0], "en").text).toBe("A word left by ({}) found");
+    expect(formatEntry(found[0], "ko").text).toBe("({})가 남긴 말 발견");
     expect(log.push(obsAt(30, [], false, ["v_old"]))).toEqual([]); // once a life
     expect(log.summary().found).toEqual(["v_old"]);
   });
 
-  it("while living the words are plain: no numbers to read, no percentages, nobody's id unless a word was found", () => {
+  it("while living the words are plain: no numbers to read, no percentages, nobody called anything but their melody", () => {
     const near: LogEntry = { t: 2, key: "near", args: { who: { o: "bot1", r: "worker" }, dist: 2, bearing: "E", moving: true }, level: 0 };
-    expect(formatEntry(near, "ko")).toEqual({ prefix: "T+00:02", text: "누군가 곁에 왔습니다." });
+    expect(formatEntry(near, "ko")).toEqual({ prefix: "T+00:02", text: "({}) 접근" });
     expect(formatEntry({ t: 0, key: "you.state", args: { moving: false, surface: "open" }, level: 0 }, "ko").text).toBe("풀밭에 서 있습니다.");
-    expect(formatEntry({ t: 0, key: "gone", args: { who: { o: "bot1", r: "worker" }, forSec: 72 }, level: 0 }, "ko").text).toBe("곁에 있던 이가 떠났습니다 · 1분 12초 함께");
+    expect(formatEntry({ t: 0, key: "gone", args: { who: { o: "bot1", r: "worker" }, forSec: 72 }, level: 0 }, "ko").text).toBe("({}) 떠남 · 1분 12초 함께");
     const share: LogEntry = { t: 72, key: "concrete.share", args: { n: 1, pct: 23, with: [{ o: "bot3", r: "worker" }, { o: "bot7", r: "worker" }] }, level: 2 };
     expect(formatEntry(share, "ko").text).toBe("집이 올라갑니다 · 3명이 함께");
     expect(formatEntry(share, "en").text).toBe("A house goes up · 3 together");

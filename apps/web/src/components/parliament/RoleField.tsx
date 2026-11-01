@@ -312,6 +312,14 @@ export function RoleField({
     }
   });
 
+  // the name comes up: the visitor's melody, once
+  const announced = useRef(false);
+  useFrame(() => {
+    if (announced.current || lifeRef?.current.phase !== "name" || !sound || !tonal.current) return;
+    announced.current = true;
+    sound.engine.announce(me.current.id, tonal.current.key, sound.params.master);
+  });
+
   useFrame((_, delta) => {
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
@@ -457,7 +465,7 @@ export function RoleField({
   // where a path has formed). Slabs appear in the Top and Side views.
   return (
     <>
-      {grass?.style === "dither" ? (
+      {grass?.style === "dither" || grass?.style === "field" ? (
         <DitherGround
           playerPosRef={playerPosRef}
           getStress={() => stress.current}
@@ -466,6 +474,7 @@ export function RoleField({
           cfg={natureCfg}
           radius={grass.radius}
           pixel={grass.ditherPx}
+          dither={grass.style === "dither"}
           color={grass.color}
           density={grass.density}
         />
