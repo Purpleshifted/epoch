@@ -123,7 +123,11 @@ export function importSettings(json: string): number {
   for (const [k, v] of Object.entries(data)) {
     if (!k.startsWith(`${PREFIX}:`) || !isObj(v)) continue;
     window.localStorage.setItem(k, JSON.stringify(v));
+    // an import is a SAVE: dated now and sent to this site's server — otherwise the next page load pulled the server's
+    // older save over it (the server's date was newer than an undated browser copy) and the import was lost
+    window.localStorage.setItem(`${k}:savedAt`, String(Date.now()));
     cache.delete(k);
+    void pushPreset(k, v);
     n++;
   }
   return n;
