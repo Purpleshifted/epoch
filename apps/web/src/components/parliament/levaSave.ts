@@ -11,6 +11,32 @@ import exhibitionPreset from "@/presets/exhibition.json";
 const PREFIX = "parliament.leva";
 
 /**
+ * MEASUREMENT SWITCH (2026-11-01, the reset): `?presets=default` makes this tab use the code's defaults alone — the
+ * server's and this browser's saved values are ignored and nothing is saved or pulled. The readout names the source
+ * of the values in use (presetSource).
+ */
+export function presetsDefault(): boolean {
+  try {
+    return typeof window !== "undefined" && new URLSearchParams(window.location.search).get("presets") === "default";
+  } catch {
+    return false;
+  }
+}
+
+let serverPresetAt = 0;
+let serverPresetSeen = false;
+
+/** Where this tab's Leva values come from: "default" (the switch), "server HH:MM" (the newest server save), or "local". */
+export function presetSource(): string {
+  if (presetsDefault()) return "default";
+  if (serverPresetSeen && serverPresetAt > 0) {
+    const d = new Date(serverPresetAt);
+    return `server ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  return "local";
+}
+
+/**
  * THE BUNDLED EXHIBITION PRESET (the artist, 2026-10-30): the Leva values tuned on the Vercel preview, carried in the
  * code so the exhibition machine starts from them without a server — a page's group whose storage key
  * (`parliament.leva:<path>:<group>`) has nothing saved in localStorage takes the preset's object under the same key.
@@ -167,13 +193,18 @@ function migrateSaved(key: string, m: SavedMigration): void {
 export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = [], migrations: readonly SavedMigration[] = []): S {
   if (typeof window === "undefined") return schema;
   const key = storageKey(root);
-  for (const m of migrations) migrateSaved(key, m);
+  const defaultsOnly = presetsDefault();
+  if (!defaultsOnly) for (const m of migrations) migrateSaved(key, m);
   const paths = new Map<string, string>();
-  const out = inject(schema as Item, root, loadWithLegacy(root, legacy), paths);
+  const out = inject(schema as Item, root, defaultsOnly ? null : loadWithLegacy(root, legacy), paths);
   out["__save"] = buttonGroup({
     label: null,
     opts: {
       save: (get) => {
+        if (defaultsOnly) {
+          showNote("기본값 모드 (?presets=default): 저장하지 않음", false);
+          return;
+        }
         const values: Record<string, unknown> = {};
         for (const [k, path] of paths) {
           try {
@@ -278,7 +309,7 @@ export async function pushPreset(key: string, values: Record<string, unknown>): 
  */
 export async function pullPresets(page: string): Promise<string[]> {
   const changed: string[] = [];
-  if (typeof window === "undefined") return changed;
+  if (typeof window === "undefined" || presetsDefault()) return changed;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), PRESET_FETCH_MS);
   try {
@@ -287,6 +318,8 @@ export async function pullPresets(page: string): Promise<string[]> {
     const { presets } = (await r.json()) as { presets: Record<string, { json: Record<string, unknown>; updatedAt: number }> };
     for (const [key, p] of Object.entries(presets ?? {})) {
       if (!key.startsWith(`${PREFIX}:`) || !isObj(p?.json)) continue;
+      serverPresetSeen = true;
+      if (p.updatedAt > serverPresetAt) serverPresetAt = p.updatedAt;
       const localAt = Number(window.localStorage.getItem(`${key}:savedAt`) ?? 0);
       if (!(p.updatedAt > localAt)) continue;
       const before = window.localStorage.getItem(key);
