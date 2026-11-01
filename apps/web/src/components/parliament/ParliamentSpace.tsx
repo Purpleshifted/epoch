@@ -479,8 +479,11 @@ function setFusedChunks(
   byC0: Map<number, THREE.Mesh>,
   delta: { set: { c0: number; mesh: FuseMesh }[]; drop: number[] } | null | undefined,
   mats: THREE.Material[],
+  // the renderer's own Mesh class: the app and @react-three/fiber resolve two copies of three (0.181 / 0.186), and a
+  // Mesh made with the app's copy has a Matrix4 the renderer cannot use ("determinantAffine is not a function")
+  MeshCtor: typeof THREE.Mesh | null,
 ): void {
-  if (!group || !delta) return;
+  if (!group || !delta || !MeshCtor) return;
   for (const c0 of delta.drop) {
     const m = byC0.get(c0);
     if (!m) continue;
@@ -491,7 +494,7 @@ function setFusedChunks(
   for (const { c0, mesh } of delta.set) {
     let m = byC0.get(c0);
     if (!m) {
-      m = new THREE.Mesh(new THREE.BufferGeometry(), mats);
+      m = new MeshCtor(new THREE.BufferGeometry(), mats);
       m.frustumCulled = false;
       m.castShadow = true;
       m.receiveShadow = true;
@@ -1029,7 +1032,7 @@ function SpaceWorld({
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
-    setFusedChunks(fusedGroup.current, fusedByC0.current, r.fuseChunks, fusedMats);
+    setFusedChunks(fusedGroup.current, fusedByC0.current, r.fuseChunks, fusedMats, (fused.current?.constructor as typeof THREE.Mesh | undefined) ?? null);
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     if (r.fuseChunks) {
