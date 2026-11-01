@@ -127,7 +127,7 @@ export interface Script {
 export const SCRIPT: Record<Lang, Script> = {
   ko: {
     idle: { press: "아무 키나 누르세요", pressTouch: "화면을 누르세요", duration: (min) => `한 번의 삶 · 약 ${min}분` },
-    notice: [["미래의 고고학자들이 멸망한 인류를 발굴 중입니다.", "무엇을 남기시겠습니까?"]],
+    notice: [["미래의 고고학자들이 멸망한 인류를 발굴 중입니다."], ["현재의 당신은 무엇을 남기시겠습니까?"]],
     consent: { question: "태어나시겠습니까?", yes: "예", no: "아니요", noNote: "선택할 수 없습니다" },
     headset: ["헤드셋을 착용하세요.", "착용했으면 아무 키나 누르세요."],
     headsetTouch: ["이어폰을 착용하세요.", "착용했으면 화면을 누르세요."],
@@ -179,7 +179,7 @@ export const SCRIPT: Record<Lang, Script> = {
   },
   en: {
     idle: { press: "Press any key", pressTouch: "Tap the screen", duration: (min) => `One life · about ${min} min` },
-    notice: [["Future archaeologists are excavating extinct humanity.", "What will you leave?"]],
+    notice: [["Future archaeologists are excavating extinct humanity."], ["You, in the present: what will you leave?"]],
     consent: { question: "Will you be born?", yes: "Yes", no: "No", noNote: "not available" },
     headset: ["Put on the headset.", "Press any key once it is on."],
     headsetTouch: ["Put on the earphones.", "Tap the screen once they are on."],

@@ -65,13 +65,13 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("the frame before a life", () => {
-  it("goes on from a notice only once its lines are up, and goes back to the title when nobody presses anything", () => {
+  it("turns the notice's pages, then the consent, and goes back to the title when nobody presses anything", () => {
     const m = make();
     press(m, "Enter");
     expect(m.view.phase).toBe("notice");
-    press(m, "Enter"); // too early: the second line is not up yet
-    expect(m.view.phase).toBe("notice");
-    step(m, 700);
+    expect(m.view.page).toBe(0);
+    press(m, "Enter");
+    expect(m.view.page).toBe(1);
     press(m, "Enter");
     expect(m.view.phase).toBe("consent");
     step(m, 46_000);
