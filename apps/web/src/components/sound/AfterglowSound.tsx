@@ -7,7 +7,8 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useFoldState, useWorld } from "@/components/parliament/useWorld";
+import { useFoldState } from "@/components/parliament/useWorld";
+import { useRoomLog } from "./useRoomLog";
 import type { SoundSetup } from "@/components/parliament/useSound";
 import { DEFAULT_FOLD, currentEpochKey, latestS, withoutWear } from "@/lib/parliament";
 import { DEFAULT_GLOBAL, GlobalEngine, globalBuildings, presences } from "@/lib/sound/global";
@@ -16,7 +17,7 @@ import { DEFAULT_GLOBAL, GlobalEngine, globalBuildings, presences } from "@/lib/
 const RISE_SEC = 8;
 
 export default function AfterglowSound({ sound }: { sound: SoundSetup }) {
-  const log = useWorld(undefined, 3000);
+  const log = useRoomLog(3000); // everybody, including what this tab wrote (useRoomLog.ts)
   const foldCfg = useMemo(() => withoutWear(DEFAULT_FOLD), []);
   const fold = useFoldState(log, foldCfg);
   const engine = useMemo(() => new GlobalEngine({ role: "headset" }), []);

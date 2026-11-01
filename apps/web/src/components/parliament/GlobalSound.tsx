@@ -16,7 +16,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useControls } from "leva";
 import { savable } from "./levaSave";
-import { useFoldState, useWorld } from "./useWorld";
+import { useFoldState } from "./useWorld";
+import { useRoomLog } from "@/components/sound/useRoomLog";
 import { DEFAULT_FOLD, currentEpochKey, latestS, withoutWear } from "@/lib/parliament";
 import { DEFAULT_GLOBAL, GlobalEngine, globalBuildings, presences, type GlobalParams } from "@/lib/sound/global";
 
@@ -57,7 +58,7 @@ export default function GlobalSound() {
     [master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, barSec, windowSec, maxVoices],
   );
 
-  const log = useWorld(undefined, 3000);
+  const log = useRoomLog(3000); // everybody, including what this tab wrote (useRoomLog.ts)
   const foldCfg = useMemo(() => withoutWear(DEFAULT_FOLD), []);
   const fold = useFoldState(log, foldCfg);
   const engine = useMemo(() => (!off && typeof window !== "undefined" ? new GlobalEngine({ silent }) : null), [off, silent]);
