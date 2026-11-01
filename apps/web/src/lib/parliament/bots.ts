@@ -51,6 +51,21 @@ export interface Flock {
    * the bots are switched on — the same rule for all of them. Absent = the old fixed −20 … +4 s pattern.
    */
   timeSpread?: number;
+  /**
+   * MOVING FLOCKS (the artist, 2026-11-01 evening): each flock stays at a place this many minutes on average, then the
+   * whole flock moves to a new place — the bots leaving one by one over `overlapSec`, so the old place and the new one
+   * are both in use for a while (a building still counts its visitors of the last minutes). 0 / absent = the flocks keep
+   * their places (the old behaviour).
+   */
+  stayMin?: number;
+  /** Seconds over which a flock's bots leave for the new place (staggered). */
+  overlapSec?: number;
+  /**
+   * FLOCK CHARACTER (0 = all the same, the old behaviour … 1 = very different): per flock, by its own hash, how close
+   * the bots keep (wander radius ×0.4 … ×1.8), how much they walk, and — with moving flocks — how long it stays at a
+   * place (×0.5 … ×2): a close, staying flock builds a tall narrow tower; a loose, restless one leaves wide low ones.
+   */
+  character?: number;
 }
 
 export const ONE_FLOCK: Flock = { groups: 1, spread: 0 };
@@ -104,19 +119,51 @@ export interface BotPlan {
   s: number;
 }
 
+/** A flock's character (Flock.character): multipliers on the wander radius and the stay, a shift of the walking share. */
+function flockCharacter(g: number, c: number): { r: number; walk: number; stay: number } {
+  if (!(c > 0)) return { r: 1, walk: 0, stay: 1 };
+  return { r: 1 + c * (hash2(g, 1, 131) * 1.4 - 0.6), walk: c * (hash2(g, 2, 131) - 0.5) * 0.4, stay: 1 + c * (hash2(g, 3, 131) * 1.5 - 0.5) };
+}
+
+/**
+ * Centre of flock g at `sec` for a bot that leaves `delay` seconds after the flock's move begins (Flock.stayMin): the
+ * flock's n-th place is drawn from its own hash within the spread; between places the bot walks over in ~12 s.
+ * Without stayMin it is flockCentre (fixed places).
+ */
+function flockPlace(g: number, groups: number, flock: Flock, sec: number, delay: number): [number, number] {
+  const stayMin = flock.stayMin ?? 0;
+  if (!(stayMin > 0) || !(flock.spread > 0)) return flockCentre(g, groups, flock.spread, sec);
+  const stay = stayMin * 60 * flockCharacter(g, flock.character ?? 0).stay;
+  const u = sec - delay + hash2(g, 4, 131) * stay;
+  const n = Math.floor(u / stay);
+  const place = (k: number): [number, number] => {
+    if (k <= 0) return flockCentre(g, groups, flock.spread, sec);
+    const a = hash2(g * 977 + k, 5, 131) * Math.PI * 2;
+    const r = flock.spread * Math.sqrt(hash2(g * 977 + k, 6, 131));
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  };
+  const [ax, az] = place(n - 1), [bx, bz] = place(n);
+  const tr = Math.min(1, Math.max(0, (u - n * stay) / 12));
+  const m = tr * tr * (3 - 2 * tr);
+  return [ax + (bx - ax) * m, az + (bz - az) * m];
+}
+
 export function botPlan(i: number, wallMs: number, startMs: number, epochMs: number, playerOffset: number, flock: Flock = ONE_FLOCK): BotPlan {
   const groups = Math.max(1, Math.round(flock.groups));
   const sec = Math.max(0, (wallMs - startMs) / 1000);
-  // character
-  const wanderR = 1.5 + 2.5 * hash2(i, 1, 91);
-  const walkShare = 0.45 + 0.35 * hash2(i, 2, 91);
+  const ch = flockCharacter(i % groups, flock.character ?? 0);
+  // character (its own, then its flock's)
+  const wanderR = (1.5 + 2.5 * hash2(i, 1, 91)) * ch.r;
+  const walkShare = Math.max(0.15, Math.min(0.9, 0.45 + 0.35 * hash2(i, 2, 91) + ch.walk));
   const segLen = 6 + 18 * hash2(i, 3, 91);
   const period = 60 + 120 * hash2(i, 4, 91);
   // flock of an epoch: mostly its own, sometimes another
   const flockOf = (ep: number) => (ep < 0 || hash2(i, ep, 97) < 0.65 ? i % groups : Math.floor(hash2(i, ep, 101) * groups) % groups);
   const ep = Math.floor(sec / period);
-  const [ax, az] = flockCentre(flockOf(ep - 1), groups, flock.spread, sec);
-  const [bx, bz] = flockCentre(flockOf(ep), groups, flock.spread, sec);
+  // with moving flocks each bot leaves for the new place a little later than the last (staggered over overlapSec)
+  const delay = (flock.stayMin ?? 0) > 0 ? hash2(i, 7, 131) * Math.max(0, flock.overlapSec ?? 60) : 0;
+  const [ax, az] = flockPlace(flockOf(ep - 1), groups, flock, sec, delay);
+  const [bx, bz] = flockPlace(flockOf(ep), groups, flock, sec, delay);
   const tr = Math.min(1, (sec - ep * period) / 12);
   const m = ep === 0 ? 1 : tr * tr * (3 - 2 * tr);
   // its own path, advanced only while walking

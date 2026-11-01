@@ -143,13 +143,20 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       botGroups: { value: 4, min: 1, max: 10, step: 1, label: "상주 › 봇 무리 수 (무리당 3명 이상이어야 콘크리트)", render: show },
       botSpread: { value: 14, min: 0, max: 60, step: 1, label: "상주 › 무리 간 거리 (월드)", render: show },
       botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "상주 › 봇 시각 폭 (s, 지금 기준 ±절반에서 랜덤)", render: show },
+      // MOVING FLOCKS × FLOCK CHARACTER (the artist, 2026-11-01): 0 = the old fixed crowd
+      botStayMin: { value: 0, min: 0, max: 30, step: 0.5, label: "상주 › 무리가 한 자리에 머무는 시간 (분; 0 = 자리 고정)", render: show },
+      botCharacter: { value: 0, min: 0, max: 1, step: 0.05, label: "상주 › 무리 성격 차이 (0 = 모두 같음; 모임 · 걷기 · 머무는 시간이 무리마다 다름)", render: show },
+      botOverlapSec: { value: 60, min: 0, max: 300, step: 5, label: "상주 › 자리 옮길 때 겹치는 시간 (초; 봇이 하나씩 떠남)", render: show },
     }),
     { order, collapsed: !enabled },
   );
   const on = enabled && b.botOn;
   const session = b.botMode !== "resident";
   const nBots = on && !session ? b.botCount : 0;
-  const flock = useMemo<Flock>(() => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread }), [b.botGroups, b.botSpread, b.botTimeSpread]);
+  const flock = useMemo<Flock>(
+    () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
+    [b.botGroups, b.botSpread, b.botTimeSpread, b.botStayMin, b.botOverlapSec, b.botCharacter],
+  );
   const lc = useMemo<LifecycleConfig>(
     () => ({
       ...DEFAULT_LIFECYCLE,
