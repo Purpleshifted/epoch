@@ -181,6 +181,7 @@ const PITS_PATH = `${FU}.${FU_PITS}.pits`;
 const CAV_PATH = `${FU}.${FU_FOSSIL}.cavity`;
 const ACC_PATH = `${FU}.${FU_MASS}.고급.엉김 띠 (융합 전).accretion`;
 const SKEL_PATH = `${FU}.${FU_MASS}.고급.skeleton`;
+const BAKE_PATH = `${FU}.${FU_WHEN}.bake`;
 const SPIKES_PATH = `${FU}.${FU_MASS}.고급.spikes`;
 const RESIN_MODE_PATH = `${FU}.${FU_MAT}.resinMode`;
 const MASS_BODY_PATH = `${FU}.${FU_MAT}.고급.massBody`;
@@ -766,6 +767,7 @@ function SpaceWorld({
   weather,
   fuse,
   immutable,
+  bake,
   resin,
   water,
   nearFade,
@@ -813,6 +815,8 @@ function SpaceWorld({
   fuse: FuseConfig;
   /** V2: the immutable layer begins this many slots below the present (baked as it is, final). */
   immutable: number;
+  /** V2: whether anything is baked at all (false = the history window alone). */
+  bake: boolean;
   /** Look of the resin (oldest) layers. */
   resin: ResinLook;
   /** Waterways between buildings the same people built (null = off). */
@@ -862,7 +866,7 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, water, noAxis, walk, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
@@ -870,7 +874,7 @@ function SpaceWorld({
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, water, noAxis, walk, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
@@ -1009,7 +1013,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, immutable, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, immutable, bake, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
@@ -1080,11 +1084,11 @@ function SpaceWorld({
     // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
     if (frozen || id % NATURE_EVERY === 1) {
       // the history window must reach below the immutable line (plus two chunks), or a layer would be cut before it is baked
-      if (oneClk && !local) {
+      if (oneClk && bake && !local) {
         const need = (immutable + 20) * cfg.secPerUnit;
         if (keepWindowSec() < need) setKeepWindowSec(need);
       }
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk ? immutable : undefined, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
+      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -2260,7 +2264,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         // run, and from here down the immutable layer — baked as it is, never computed again
         // 현재 층 = 풍화 · 지층 › 현재 두께 (맨 위 N단, 아직 짓는 중). 작용 층 = 그 아래 … 완전불변 층까지: 식생이 모이고
         // (풍화 · 지층 › 식생 모임 · 부패 시작 양) → 부식이 자라 → 아래 문턱에서 덩어리가 됨 → 레진. 완전불변 층 = 그때 모습으로 굳음.
-        immutable: { value: 60, min: 10, max: 300, step: 5, label: "완전불변 층 (현재에서 ↓단; 그 아래는 그때 모습으로 굳어 다시 계산하지 않음)", render: () => isV2 },
+        // BAKING OFF by default (the artist, 2026-11-01 16:45): the world is the history window alone (세계 › 시간 범위,
+        // 20 min = 60 slots); below it nothing is kept. On: the immutable layer below, baked as it is, stored
+        bake: { value: false, label: "옛 층 굽기 (끄면 기록 창 20분만 남고 창 밖은 사라짐; 켜면 완전불변 층을 구워 보존)", render: () => isV2 },
+        immutable: { value: 60, min: 10, max: 300, step: 5, label: "완전불변 층 (현재에서 ↓단; 그 아래는 그때 모습으로 굳어 다시 계산하지 않음)", render: (get) => isV2 && get(BAKE_PATH) },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
@@ -2708,6 +2715,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           weather={weather}
           fuse={fuseCfg}
           immutable={fu.immutable}
+          bake={fu.bake}
           resin={resinView}
           water={waterView}
           nearFade={v.nearFade}
@@ -2770,7 +2778,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {depths && (
           <div>
-            깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}{isV2 ? ` · 불변 ${fu.immutable}+` : ""}
+            깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}{isV2 ? (fu.bake ? ` · 불변 ${fu.immutable}+` : " · 굽기 없음 (창 20분)") : ""}
           </div>
         )}
         {c.markers && (
