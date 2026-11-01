@@ -51,6 +51,24 @@ describe("the immutable layer", () => {
     for (const bk of priv.baked.values()) expect(bk.c1).toBeLessThan(kNow + 10 - immutable);
   });
 
+  it("nothing is baked while the view has not caught up with its clock (a fast rate); it is once it has", () => {
+    const m = new SpaceModel();
+    const priv = m as unknown as { baked: Map<number, unknown> };
+    m.add(events);
+    m.setNow(1500 + 20 * DEFAULT_BOXES.secPerUnit);
+    const input = { box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300, oneClock: true, tauSlabYears: DEFAULT_FOLD.tauSlabYears, perCall: 12, immutable: 15 };
+    for (let i = 0; i < 6; i++) {
+      m.computeParts(parts());
+      m.computeFuse({ ...input, caughtUp: false });
+    }
+    expect(priv.baked.size).toBe(0);
+    for (let i = 0; i < 6; i++) {
+      m.computeParts(parts());
+      m.computeFuse({ ...input, caughtUp: true });
+    }
+    expect(priv.baked.size).toBeGreaterThan(0);
+  });
+
   it("without the line (V1) the old rule is unchanged: what is baked is not final (the past keeps ageing)", () => {
     const m = new SpaceModel();
     const priv = m as unknown as { baked: Map<number, { final: boolean }> };

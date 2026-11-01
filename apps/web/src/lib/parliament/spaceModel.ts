@@ -256,6 +256,13 @@ export interface FuseInput {
    * material if its mesh is stale) and final. Nothing else is ever baked. Absent = V1 (baked at the window's cut).
    */
   immutable?: number;
+  /**
+   * The view has CAUGHT UP with its clock (its last result is within a couple of slots of the latest event). A chunk
+   * is baked below the immutable line only then: baking is final, and while the worker lags behind a fast rate (×20)
+   * a chunk's inputs are not yet what the world has become (the artist, 2026-11-01: "I only need to be sure that
+   * piling up at ×20 and then going back to ×1 is safe"). Absent = caught up.
+   */
+  caughtUp?: boolean;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
@@ -1201,7 +1208,7 @@ export class SpaceModel {
         const fresh = ch.key === w.key;
         if (input.immutable !== undefined) {
           // THE IMMUTABLE LAYER: baked once its top lies below the line, as it is then; nothing else, ever
-          if (w.c1 >= immK) continue;
+          if (w.c1 >= immK || input.caughtUp === false) continue;
         } else {
           // V1: about to leave the history window, or every part fully decayed well below the present
           if (!fresh && !leaving(w)) continue;
