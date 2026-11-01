@@ -73,7 +73,7 @@ import {
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
-import { savable } from "./levaSave";
+import { presetSource, savable } from "./levaSave";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botReadout, useGlobalBots } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
@@ -1860,8 +1860,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     };
   }, []);
   // the shot sequence the auto run plays (docs/camera-motion.md §1): the pose above as the base, then the enabled shots
+  // MEASUREMENT SWITCH `?cam=band` (2026-11-01, the reset): a fixed framing that shows the fusion band whatever the
+  // saved camera says — focus 45 slots below the present, polar 62°, distance 120, no auto run, no turn
+  const camView = params.get("cam") === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 } : cam;
   const shotSeq: ShotSequence = {
-    base: { id: 0, dist: cam.camDist, polar: cam.camPolar, lookX: cam.camLook[0], lookZ: cam.camLook[1], lift: cam.camLift, turn: 1, holdSec: cam.camHoldSec },
+    base: { id: 0, dist: camView.camDist, polar: camView.camPolar, lookX: camView.camLook[0], lookZ: camView.camLook[1], lift: camView.camLift, turn: 1, holdSec: camView.camHoldSec },
     shots: [
       shotFrom(1, cam.camShot1On, cam.camShot1Dist, cam.camShot1Polar, cam.camShot1Look, cam.camShot1Lift, cam.camShot1HoldSec, cam.camShot1Turn),
       shotFrom(2, cam.camShot2On, cam.camShot2Dist, cam.camShot2Polar, cam.camShot2Look, cam.camShot2Lift, cam.camShot2HoldSec, cam.camShot2Turn),
@@ -2645,6 +2648,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
   const spaceFold = useMemo(() => ({ ...fold, emptyGapSec: c.emptyGapSec }), [fold, c.emptyGapSec]);
+  // whether a Leva value of the groups that shape the world changed after the page settled (the readout's "tab-modified")
+  const mountedAt = useRef(Date.now());
+  const [tabModified, setTabModified] = useState(false);
+  useEffect(() => {
+    if (Date.now() - mountedAt.current > 4000) setTabModified(true);
+  }, [fu, weather, boxCfg, fold, c.wear]);
   // where the stages begin, in slots below the present (the readout): the same clocks the model uses
   const depths = useMemo(() => {
     if (!weather.strata || !c.wear || stats.t <= 0) return null;
@@ -2685,7 +2694,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           showEdges={c.showEdges}
           wear={c.wear}
           follow={c.follow}
-          followLift={cam.camLift}
+          followLift={camView.camLift}
           link={camLink}
           followWho={cam.camFollow as FollowWho}
           quietSec={cam.camQuietSec}
@@ -2713,12 +2722,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
         <StageCamera
           controls={controls}
-          pose={{ dist: cam.camDist, polar: cam.camPolar, azimuth: cam.camAzimuth, look: cam.camLook }}
+          pose={{ dist: camView.camDist, polar: camView.camPolar, azimuth: camView.camAzimuth, look: camView.camLook }}
           turnSec={cam.camTurnSec}
           dir={cam.camDir as 1 | -1}
           maxPolarDeg={isV2 ? 179.5 : 89.8}
           active={!lab}
-          auto={cam.camAuto ? shotSeq : null}
+          auto={camView.camAuto ? shotSeq : null}
           link={camLink}
           status={shotLine}
         />
@@ -2756,6 +2765,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
+        <div>preset: {presetSource()}{tabModified ? " · tab-modified" : ""}{params.get("cam") === "band" ? " · cam=band" : ""}</div>
         {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {depths && (
