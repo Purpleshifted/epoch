@@ -350,7 +350,7 @@ export class WitnessLog {
     return this.write(t, "word.answered", { who, dots }, 1);
   }
 
-  /** The end has begun to make itself felt (session.ts warn): one line, and the status says so from here on. */
+  /** The end has begun to make itself felt (session.ts warn): one line. */
   dying(t: number): void {
     if (this.isDying) return;
     this.isDying = true;

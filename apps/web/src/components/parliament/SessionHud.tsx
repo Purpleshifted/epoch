@@ -18,7 +18,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CAUSE_NAME,
   HOLD_SEC,
-  LOG,
   LedgerWatch,
   NOTICE_LINE_SEC,
   SCRIPT,
@@ -46,7 +45,6 @@ import {
 } from "@/lib/parliament";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
-import { hudFontClass, type HudFont } from "./hudFonts";
 import type { LifeSession } from "./useLifeSession";
 
 const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
@@ -86,13 +84,11 @@ interface WitnessView {
   asked: number;
   /** Someone's question is open: the visitor can answer it. */
   asking: boolean;
-  /** The end is making itself felt (the last warnSec of the lifespan). */
-  dying: boolean;
   /** The line saying how to walk is up (the first seconds of the life; on a desktop counted from the pointer lock). */
   controls: boolean;
 }
 
-const EMPTY: WitnessView = { me: "", entries: [], status: null, near: [], ledger: null, t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, group: [], newWords: [], found: [], ensembleSec: 0, asked: 0, asking: false, dying: false, controls: false };
+const EMPTY: WitnessView = { me: "", entries: [], status: null, near: [], ledger: null, t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, group: [], newWords: [], found: [], ensembleSec: 0, asked: 0, asking: false, controls: false };
 
 /** How a record line reads by its level (witness.ts LogLevel): grey, white, reversed. */
 const LEVEL_CLASS = ["text-[#8c8c8c]", "text-white", "bg-white text-black"];
@@ -157,7 +153,6 @@ export function SessionHud({
   noticeLineSec = NOTICE_LINE_SEC,
   coarse = false,
   footprint = true,
-  fonts = { say: "neodgm", card: "neodgm" },
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -179,13 +174,10 @@ export function SessionHud({
   coarse?: boolean;
   /** The end screen's footprint map (Leva 개인뷰 비주얼). */
   footprint?: boolean;
-  /** The face of what is said (notices, the record) and of the end screen's card (Leva 개인뷰 비주얼 › 글꼴). */
-  fonts?: { say: HudFont; card: HudFont };
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
-  const say = hudFontClass(fonts.say, lang);
-  const cardFont = hudFontClass(fonts.card, lang);
+  const say = lang === "ko" ? "hud-ko" : "";
   const [log] = useState(() => new WitnessLog());
   const [watch] = useState(() => new LedgerWatch());
   const lastObs = useRef<Observation | null>(null);
@@ -222,11 +214,10 @@ export function SessionHud({
       const L = ledgerRef.current;
       if (L) for (const e of watch.feed(L, obs.surface, log.roleOf)) log.note(e);
       const warn = session.lifeRef.current.warn;
-      const dying = warn > 0;
-      if (dying) log.dying(obs.t);
+      if (warn > 0) log.dying(obs.t);
       if (warn >= WATCH_FROM_WARN) log.keptWatch(obs.t);
       const controls = coarse ? obs.t < CONTROLS_SEC : locked && Date.now() - lockedAt.current < CONTROLS_SEC * 1000;
-      setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), dying, controls });
+      setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), controls });
     }, POLL_MS);
     return () => clearInterval(id);
   }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef]);
@@ -381,7 +372,7 @@ export function SessionHud({
                 <span className="flex shrink-0 items-center gap-[2px]">
                   (<Glyph dots={rec.newWords[rec.newWords.length - 1] ?? glyphOf(rec.me)} cell={4} live />)
                 </span>
-                {rec.status && <div className={`${say} ml-auto truncate ${rec.dying ? "text-white" : "text-[#8c8c8c]"}`}>{rec.dying ? LOG[lang].line.dying({}) : formatStatus(rec.status, lang)}</div>}
+                {rec.status && <div className={`${say} ml-auto truncate text-[#8c8c8c]`}>{formatStatus(rec.status, lang)}</div>}
               </div>
             )}
             <div className="min-h-[6.5rem] px-3 py-2">
@@ -417,7 +408,7 @@ export function SessionHud({
       {/* the end: the being's record card, with the footprint (Leva 개인뷰 비주얼 › 퇴장 화면 발자국 지도) */}
       {phase === "ended" && cause && (
         <div className="absolute inset-0 flex items-center justify-center overflow-hidden px-6">
-          <div className={`${cardFont} w-full max-w-[46rem] text-[17px] leading-[1.3] tracking-[0.03em]`}>
+          <div className={`${say} w-full max-w-[46rem] text-[17px] leading-[1.3] tracking-[0.03em]`}>
             <div className="mb-3 text-[24px] text-white">{S.ended.title}</div>
             <div className="flex flex-wrap items-stretch border border-white">
               <div className="min-w-[20rem] flex-1">

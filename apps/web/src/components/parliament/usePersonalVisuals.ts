@@ -12,7 +12,6 @@
 
 import { useMemo } from "react";
 import { folder, useControls } from "leva";
-import { HUD_FONT_OPTIONS, type HudFont } from "./hudFonts";
 import type { GrassMode } from "./NatureCloud";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
@@ -54,7 +53,6 @@ export interface MarksVisual {
 export interface PersonalVisuals {
   look: Look;
   footprint: boolean;
-  fonts: { say: HudFont; card: HudFont };
   grass: GrassVisual;
   marks: MarksVisual;
 }
@@ -102,10 +100,6 @@ export function usePersonalVisuals(): PersonalVisuals {
         concreteStyle: { options: CONCRETE_STYLES, value: "outline" as ConcreteStyle, label: "콘크리트", render: v2 },
         outlineScale: { value: 1, min: 0.25, max: 6, step: 0.25, label: "외곽선: 높이 × 슬래브", render: v2 },
         otherSquare: { value: 0.8, min: 0.2, max: 2, step: 0.05, label: "타인 네모 크기", render: v2 },
-      }),
-      글꼴: folder({
-        fontSay: { options: HUD_FONT_OPTIONS, value: "neodgm" as HudFont, label: "안내·기록", render: v2 },
-        fontCard: { options: HUD_FONT_OPTIONS, value: "neodgm" as HudFont, label: "기록표", render: v2 },
       }),
       "남긴 말": folder({
         wordsOn: { value: true, label: "땅의 판 켜기", render: v2 },
@@ -183,6 +177,5 @@ export function usePersonalVisuals(): PersonalVisuals {
     }),
     [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.wordsOn, c.wordCell],
   );
-  const fonts = useMemo(() => ({ say: c.fontSay, card: c.fontCard }), [c.fontSay, c.fontCard]);
-  return { look: c.look, footprint: c.footprint, fonts, grass, marks };
+  return { look: c.look, footprint: c.footprint, grass, marks };
 }
