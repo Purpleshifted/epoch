@@ -411,6 +411,38 @@ export class SpaceModel {
   private baked = new Map<number, Baked>();
   /** The parts drawn by the last computeParts (after wear and absorption): what a baked chunk keeps of them. */
   private shown: Box[] = [];
+  /**
+   * ONE CLOCK (the artist, 2026-11-01: "the fossilised layer and the layer where the buildings vanish drift apart,
+   * and the fossil is cut off flat"): a layer's age for the resin, the voids and the fossil curve is read off the
+   * parts actually lying in that slot (their mean corrosion, smoothed over the neighbouring slots), not off a
+   * typical exposed part on the layer clock — covered parts corrode slower, and the two clocks drifted apart as the
+   * world aged. Slots without parts fall back to the formula.
+   */
+  private layerClockOf(formula: (k: number) => number): (k: number) => number {
+    const wm = this.wear;
+    if (!wm) return formula;
+    const sum = new Map<number, number>();
+    const n = new Map<number, number>();
+    for (const b of this.built) {
+      if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue;
+      sum.set(b.slot, (sum.get(b.slot) ?? 0) + 1 - wm.survival(b));
+      n.set(b.slot, (n.get(b.slot) ?? 0) + 1);
+    }
+    const cache = new Map<number, number>();
+    return (k: number) => {
+      const c = cache.get(k);
+      if (c !== undefined) return c;
+      let s = 0, m = 0;
+      for (let j = k - 1; j <= k + 1; j++) {
+        const nj = n.get(j);
+        if (nj) { s += sum.get(j)!; m += nj; }
+      }
+      const v = m > 0 ? s / m : formula(k);
+      cache.set(k, v);
+      return v;
+    };
+  }
+
   /** fuseBuilt as of the last computeParts: baking waits until the parts reflect every built chunk. */
   private partsFuseBuilt = -1;
   private natureSig = "";
@@ -959,7 +991,7 @@ export class SpaceModel {
     // corrosion (a mid-thick part, exposed) is taken from its age; the points thin out as it nears fuseOnset and
     // there are none below. The most recent layers have the most.
     const fz = input.fuse;
-    const layerDecay = sediment ? layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears) : undefined;
+    const layerDecay = sediment ? this.layerClockOf(layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears)) : undefined;
     const living =
       layerDecay && fz.enabled
         ? (k: number) => {
@@ -1075,7 +1107,7 @@ export class SpaceModel {
     const u = box.unit;
     const kNow = Math.floor(this.t / box.secPerUnit);
     // V2: one clock — the layers' age for the resin and the look of the old layers is the parts' corrosion
-    const layerDecay = input.oneClock ? layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears) : undefined;
+    const layerDecay = input.oneClock ? this.layerClockOf(layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears)) : undefined;
     const kA = h ? h.k0 : 0;
     const kB = h ? h.k0 + h.nk - 1 : kNow;
     // extent: the vegetation's, or the parts' (cells)
