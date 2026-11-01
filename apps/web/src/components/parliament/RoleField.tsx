@@ -111,6 +111,13 @@ const BOT_GROUND_EVERY_MS = 5000;
  */
 const PLAYER_FOLD_OPTS = { lateMarginSec: 35 };
 
+/** Who a life's visitor is. */
+export interface Visitor {
+  /** The session (useLifeSession's sessionNo) they belong to. */
+  no: number;
+  id: string;
+}
+
 export function RoleField({
   playerPosRef,
   role,
@@ -132,6 +139,8 @@ export function RoleField({
   grass,
   marks,
   answers,
+  sessionNo = 0,
+  visitorRef,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -163,6 +172,9 @@ export function RoleField({
   grass?: GrassVisual;
   /** V2: the marks in the frame — others, concrete, paths (Leva 개인뷰 비주얼; lib/parliament/marks.ts, Marks.tsx). */
   marks?: MarksVisual;
+  /** Which life this is, and where to say who its visitor is (the name screen). */
+  sessionNo?: number;
+  visitorRef?: React.MutableRefObject<Visitor | null>;
   /** How many answers the visitor has given (SessionHud): each leaves a seed head where they stand. */
   answers?: React.MutableRefObject<number>;
 }) {
@@ -229,6 +241,7 @@ export function RoleField({
       offset: pickOffset(Math.random(), offsetWindow),
       tag: Math.random().toString(36).slice(2, 6),
     };
+    if (visitorRef) visitorRef.current = { no: sessionNo, id: me.current.id };
     try {
       localStorage.setItem(LS_PARLIAMENT_ME_KEY, me.current.id);
     } catch {

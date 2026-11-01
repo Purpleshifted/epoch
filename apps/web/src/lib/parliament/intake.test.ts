@@ -41,9 +41,10 @@ const rec = (over: Partial<LifeRecord> = {}): LifeRecord => ({
 describe("the steps before the life", () => {
   it("are skipped for the same visitor starting again soon after the end", () => {
     expect(quickRestart(5_000, 1_000)).toBe(true);
-    expect(quickRestart(21_000, 1_000)).toBe(true);
-    expect(quickRestart(21_001, 1_000)).toBe(false);
+    expect(quickRestart(9_000, 1_000)).toBe(true);
+    expect(quickRestart(9_001, 1_000)).toBe(false);
     expect(quickRestart(5_000, 0)).toBe(false);
+    expect(quickRestart(21_000, 1_000, 20)).toBe(true);
   });
   it("show a page's lines one after another and only let the page turn once all are up", () => {
     expect(linesShown(3, 0)).toBe(1);

@@ -12,8 +12,8 @@
  *              the sound closes while it is held; at the end luck decides (selfP, less with every other being near —
  *              selfChance): ENDED by "self", or a failed line
  *              (and X works again at once, line or no line). Let go early and nothing happens.
- *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or straight into LIVE when SPACE
- *              comes within QUICK_RESTART_SEC of the end (the same visitor again: the next life starts at once) —
+ *   ENDED    → (SPACE, once endHoldSec have passed) NOTICE of the next session — or NAME when SPACE comes within
+ *              QUICK_RESTART_SEC of the end (the same visitor again: no notices, but a new name to go on from) —
  *              or (END_RETURN_SEC later) IDLE: `sessionNo` goes up, so the player parts remount as a NEW visitor
  *              (new id, new time slot)
  *   NOTICE … HEADSET → (IDLE_AFTER_SEC without input) IDLE: the visitor left before living; nothing was recorded
@@ -37,6 +37,7 @@ import {
   STOP_LAST_SEC,
   IDLE_AFTER_SEC,
   SCRIPT,
+  QUICK_RESTART_SEC,
   quickRestart,
   attemptEnd,
   hintUp,
@@ -285,7 +286,7 @@ export class SessionMachine {
       case "ended":
         // SPACE — or a tap / click (a phone has no keys) — once the end screen has held; soon after the end it is the
         // same visitor again: the next life starts from its name, without the notices
-        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt) ? "name" : "notice");
+        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt, this.cfg.quickRestartSec ?? QUICK_RESTART_SEC) ? "name" : "notice");
         return;
       default:
         return; // live: the screen runs on its own (the controls are the Controller's)

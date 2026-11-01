@@ -37,6 +37,8 @@ export interface LifeConfig {
   warnSec: number;
   /** Seconds the end screen stays before SPACE starts the next session. */
   endHoldSec: number;
+  /** SPACE within this many seconds of the end: the same visitor again, no notices (default intake.ts QUICK_RESTART_SEC). */
+  quickRestartSec?: number;
   /** How fast the lifespan runs against the wall clock (1 = real time; more = for testing the end). */
   rate?: number;
   /** The chance that a worker's attempt to stop living (intake.ts) succeeds — alone … */

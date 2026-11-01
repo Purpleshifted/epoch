@@ -21,8 +21,8 @@ export const NAME_GAP_SEC = 1;
 export const IDLE_AFTER_SEC = 45;
 /** The end screen, once SPACE is allowed, returns to the title screen by itself after this long. */
 export const END_RETURN_SEC = 90;
-/** SPACE this soon after the end is the same visitor again: the next life starts from its name (no notices). */
-export const QUICK_RESTART_SEC = 20;
+/** SPACE this soon after the end is the same visitor again: the next life starts from its name (no notices). Later, the notices again (the artist, 2026-11-02). */
+export const QUICK_RESTART_SEC = 8;
 /** Two gestures closer than this count as one (a tap fires pointerdown and touchend; a held key repeats). */
 export const GESTURE_GAP_MS = 300;
 

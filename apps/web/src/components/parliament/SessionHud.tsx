@@ -46,6 +46,7 @@ import {
   type StatusArgs,
   type Surface,
 } from "@/lib/parliament";
+import type { Visitor } from "./RoleField";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
 import type { LifeSession } from "./useLifeSession";
@@ -55,7 +56,7 @@ const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
 const POLL_MS = 250;
 /** One round of the name's melody and its gap (a bar of 8 steps); the keys count this long after the name comes up. */
 const NAME_LOOP_MS = STEP_MS * GLYPH_COLS + NAME_GAP_SEC * 1000;
-const NAME_KEY_AFTER_MS = 500;
+const NAME_KEY_AFTER_MS = NAME_LOOP_MS;
 /** How far into the dying (session.ts warn) someone near is said to keep watch. */
 const WATCH_FROM_WARN = 0.5;
 /** How long (s) the line saying how to walk stays up at the start of a life. */
@@ -65,7 +66,7 @@ const CONTROLS_SEC = 10;
 const DARK: Record<SessionPhase, number> = { idle: 0.94, notice: 0.94, consent: 0.94, headset: 0.94, name: 0.94, live: 0, ended: 1 };
 
 /** The phases whose text comes on line by line: the HUD follows the frame clock then. */
-const ANIMATED: readonly SessionPhase[] = ["notice", "headset"];
+const ANIMATED: readonly SessionPhase[] = ["notice", "headset", "name"];
 
 interface WitnessView {
   /** The visitor's own id (empty before the first reading). */
@@ -150,6 +151,7 @@ function Lines({ lines, since, lineSec = NOTICE_LINE_SEC, className = "" }: { li
 export function SessionHud({
   session,
   witnessRef,
+  visitorRef,
   ledgerRef,
   locked,
   lifeSec,
@@ -163,6 +165,8 @@ export function SessionHud({
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
+  /** Who this life's visitor is (RoleField): their name. After a life the last reading in witnessRef is still the last visitor's. */
+  visitorRef: React.MutableRefObject<Visitor | null>;
   /** The ledger of this life (RoleField writes it while live; the end screen reads its last reading). */
   ledgerRef: React.MutableRefObject<Ledger | null>;
   /** Pointer lock (desktop): a "click the screen" banner while live and unlocked (the controls are dead until then). */
@@ -338,10 +342,10 @@ export function SessionHud({
 
       {/* the name: the melody the visitor is given, written down, its notes coming on as it sounds (RoleField → engine),
           over and over; 살아가기 is the way into the world */}
-      {phase === "name" && witnessRef.current && (
+      {phase === "name" && visitorRef.current?.no === session.sessionNo && (
         <Centre className={`${say} text-center`}>
           <div className="flex items-center justify-center gap-3 text-[26px] text-white">
-            {S.live.mine} (<Glyph dots={glyphOf(witnessRef.current.me)} cell={8} playFrom={phaseAt + 100} playEvery={NAME_LOOP_MS} />)
+            {S.live.mine} (<Glyph dots={glyphOf(visitorRef.current.id)} cell={8} playFrom={phaseAt + 100} playEvery={NAME_LOOP_MS} />)
           </div>
           <button type="button" onClick={enterWorld} className="pointer-events-auto mt-10 border border-white/50 px-6 py-2 text-[20px] text-white/90 outline-none hover:bg-white hover:text-black">
             {S.live.enter}
