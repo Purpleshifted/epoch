@@ -83,6 +83,7 @@ export function NatureCloud({
   getQuick,
   getMine,
   grass,
+  flat,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
   getStress: () => Map<string, number> | null;
@@ -96,7 +97,10 @@ export function NatureCloud({
   /** The walker's own folded stress per cell (the ledger's); null = none. */
   getMine?: () => Map<string, number> | null;
   grass?: GrassReaction;
+  /** Brutal version (Leva 개인뷰 비주얼): every grass point this one colour, a hard square with no soft edge. */
+  flat?: string;
 }) {
+  const flatColor = useMemo(() => (flat ? new THREE.Color(flat) : null), [flat]);
   const timer = useRef(10);
   const nearTimer = useRef(10);
   /** Where the cloud was last laid out: a jump of more than a quarter world = the player wrapped round the edge. */
@@ -179,7 +183,8 @@ export function NatureCloud({
           P[k * 3] = (ix + u) * CELL_SIZE;
           P[k * 3 + 1] = y;
           P[k * 3 + 2] = (iz + v) * CELL_SIZE;
-          tmp.copy(GREEN_DEEP).lerp(GREEN_FRESH, h).lerp(DRY, Math.min(1, worn * 1.3 + (1 - G) * 0.25 + flat));
+          if (flatColor) tmp.copy(flatColor);
+          else tmp.copy(GREEN_DEEP).lerp(GREEN_FRESH, h).lerp(DRY, Math.min(1, worn * 1.3 + (1 - G) * 0.25 + flat));
           Cc[k * 3] = tmp.r;
           Cc[k * 3 + 1] = tmp.g;
           Cc[k * 3 + 2] = tmp.b;
@@ -234,12 +239,11 @@ export function NatureCloud({
 
   return (
     <>
-      <points geometry={geom} frustumCulled={false}>
-        <pointsMaterial size={pointSize} sizeAttenuation vertexColors map={tex} alphaTest={0.3} transparent depthWrite />
-      </points>
-      <points geometry={nearGeom} frustumCulled={false}>
-        <pointsMaterial size={pointSize} sizeAttenuation vertexColors map={tex} alphaTest={0.3} transparent depthWrite />
-      </points>
+      {[geom, nearGeom].map((g, i) => (
+        <points key={`${i}-${flat ? "flat" : "soft"}`} geometry={g} frustumCulled={false}>
+          {flat ? <pointsMaterial size={pointSize} sizeAttenuation vertexColors /> : <pointsMaterial size={pointSize} sizeAttenuation vertexColors map={tex} alphaTest={0.3} transparent depthWrite />}
+        </points>
+      ))}
     </>
   );
 }

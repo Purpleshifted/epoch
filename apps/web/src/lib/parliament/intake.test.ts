@@ -5,7 +5,6 @@ import {
   LANGS,
   LOG,
   NOTICE_LINE_SEC,
-  ROLE_NAME,
   SCRIPT,
   SESSION_ROLES,
   HINT_AFTER_SEC,
@@ -148,7 +147,6 @@ describe("the cause of death", () => {
     }
     for (const lang of LANGS) {
       for (const r of SESSION_ROLES) {
-        expect(ROLE_NAME[lang][r]).toBeTruthy();
         for (const c of CAUSES_OF[r]) expect(CAUSE_NAME[lang][c]).toBeTruthy();
       }
     }
@@ -185,21 +183,23 @@ describe("the script", () => {
         expect(text).not.toContain("\n");
         if (lang === "ko") expect(text.length).toBeLessThanOrEqual(60); // two rows of the record at most
       }
-      expect(LOG[lang].status({ moving: false, forSec: 12, surface: "open", near: 2 })).not.toContain("!");
-      expect(LOG[lang].nearItem({ who, dist: 2, bearing: "E", moving: false, forSec: 3 }, name)).toContain("bot3");
-      // the end screen's rows, full and empty
-      const full = { pressed: 19.2, recoveredPct: 63, under: 2.1, trodden: 41, walkedM: 120, newPathPct: 17, prePathPct: 30, slabs: 1, sharePct: 23, withN: 2, worldPathPct: 4.2, worldSlabPct: 3.1, empty: false };
-      const none = { pressed: 0, recoveredPct: null, under: 0, trodden: 0, walkedM: 0, newPathPct: 0, prePathPct: 0, slabs: 0, sharePct: 0, withN: 0, worldPathPct: null, worldSlabPct: null, empty: true };
+      expect(LOG[lang].status({ moving: false, together: true, forSec: 12, surface: "open", near: 2 })).not.toContain("!");
+      // the end screen's rows, full and empty: never a percentage
+      const full = { pressed: 19.2, recovered: true, trodden: 41, walkedM: 120, newPaths: 7, prePaths: 12, slabs: 16, with: ["bot1", "bot2", "bot3"] };
+      const none = { pressed: 0, recovered: false, trodden: 0, walkedM: 0, newPaths: 0, prePaths: 0, slabs: 0, with: [] };
       const e = SCRIPT[lang].ended;
-      for (const sum of [full, none]) {
-        for (const row of [e.grassRow(sum), e.groundRow(sum), e.concreteRow(sum), e.worldRow(sum)]) {
-          expect(row.length).toBeGreaterThan(0);
-          expect(row).not.toContain("!");
-        }
+      const rows = [e.groupRow(0), e.groupRow(6), e.groupRow(6, 24), e.wordRow(0), e.wordRow(1), e.wordRow(3), e.foundRow("0412", 0), e.foundRow("0412", 2), e.builtRow(0, 0, 0), e.builtRow(16, 3, 1), e.movedRow(full, 40), e.movedRow(none, 0), e.movedRow(null, 0), e.vegRow(full), e.vegRow(none), e.vegRow(null)];
+      for (const row of rows) {
+        expect(row.length).toBeGreaterThan(0);
+        expect(row).not.toContain("!");
+        expect(row).not.toContain("%");
       }
-      expect(e.grassRow(full)).toContain("63");
-      expect(e.concreteRow(full)).toContain("23");
-      expect(e.worldRow(none)).toBe("—");
     }
+    expect(SCRIPT.ko.ended.groupRow(0)).toBe("타 개체와 집단생활 관찰되지 않음");
+    expect(SCRIPT.ko.ended.wordRow(1)).toBe("접촉 후 새로운 어휘 발생");
+    expect(SCRIPT.ko.ended.groupRow(6, 24)).toBe("6개체와 집단생활 · 공동 체류 00:24");
+    expect(SCRIPT.ko.ended.foundRow("0412", 0)).toBe("개체 0412가 남긴 말");
+    expect(SCRIPT.ko.ended.foundRow("0413", 0)).toBe("개체 0413이 남긴 말");
+    expect(SCRIPT.ko.ended.builtRow(16, 11, 5)).toBe("콘크리트 16칸 · 같은 층에서 어휘 11종 출토 · 이 중 5종은 접촉 흔적 없음");
   });
 });

@@ -47,6 +47,7 @@ import {
   TILT_TURN_RATE,
   asLang,
   hindrance,
+  rhythmOf,
   seedParliamentDemoIfRequested,
   ROLE_IMPLEMENTED,
   wrapCoord,
@@ -122,6 +123,7 @@ function Controller({
   lifeRef,
   tiltRef,
   coarse = false,
+  getRhythm,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -136,6 +138,8 @@ function Controller({
   tiltRef?: React.MutableRefObject<TiltState>;
   /** A phone-like device: no pointer lock, no keys — a finger on the screen walks, dragging turns. */
   coarse?: boolean;
+  /** The visitor's square blinks their melody (lib/parliament/glyph.ts). */
+  getRhythm?: () => boolean[] | null;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -284,7 +288,7 @@ function Controller({
 
   return (
     <group ref={group}>
-      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} />
+      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />
     </group>
   );
 }
@@ -409,6 +413,8 @@ export default function ParliamentScene() {
   const { cfg: natureCfg, pointSize, pathDots, pathLine } = useNatureControls();
   // V2: what the player view adds so the visitor's effect on the ground lands (Leva 개인뷰 비주얼)
   const visuals = usePersonalVisuals();
+  const brutal = isV2 && visuals.look === "brutal";
+  const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
 
   useEffect(() => {
     if (hideChrome) return;
@@ -433,13 +439,14 @@ export default function ParliamentScene() {
         dpr={pixelDpr}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
-        style={{ background: FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
+        style={{ background: brutal ? "#000" : FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
-        <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />
+        <color attach="background" args={[brutal ? "#000000" : FOG_COLOR]} />
+        {!brutal && <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />}
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
         {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
-        <FollowGrid playerPosRef={playerPosRef} size={grid} />
+        {!brutal && <FollowGrid playerPosRef={playerPosRef} size={grid} />}
         <Controller
           key={`controller-${session.sessionNo}`}
           playerPosRef={playerPosRef}
@@ -451,6 +458,7 @@ export default function ParliamentScene() {
           lifeRef={withSession ? session.lifeRef : undefined}
           tiltRef={tiltRef}
           coarse={coarse}
+          getRhythm={withSession ? getRhythm : undefined}
         />
         <RoleField
           key={`field-${session.sessionNo}`}

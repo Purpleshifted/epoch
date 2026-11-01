@@ -64,8 +64,7 @@ describe("the ledger of one life", () => {
     expect(l.grass.recovered / l.grass.pressed).toBeGreaterThan(0.9);
     expect(l.trail.length).toBe(3);
     expect(l.walkedM).toBeLessThan(2);
-    expect(ledgerSummary(l)).toMatchObject({ recoveredPct: expect.any(Number), trodden: 0, slabs: 0, empty: false });
-    expect(ledgerSummary(l).recoveredPct).toBeGreaterThan(90);
+    expect(ledgerSummary(l)).toMatchObject({ recovered: true, trodden: 0, slabs: 0 });
   });
 
   it("walking a line that two others keep up: a path that was there before me; walking it with them from the start: a new path", () => {
@@ -85,8 +84,7 @@ describe("the ledger of one life", () => {
     expect(l.grass.underPaths).toBeGreaterThan(0);
     expect(l.alone.since).toBeNull();
     const sum = ledgerSummary(l);
-    expect(sum.prePathPct).toBeGreaterThan(sum.newPathPct);
-    expect(sum.worldPathPct).toBeGreaterThan(0);
+    expect(sum.prePaths).toBeGreaterThan(sum.newPaths);
     // pacing a line of my own for two minutes: the cells were open when I first trod them, and they become a path
     const own = shuttle(ME, 30, 50, -20, 0, 120);
     let e = read(null, own, 10, 0, 0);
@@ -114,15 +112,23 @@ describe("the ledger of one life", () => {
     expect(l.grass.underSlabs).toBeGreaterThan(0);
     expect(l.world.slabCells).toBeGreaterThanOrEqual(1);
     const sum = ledgerSummary(l);
-    expect(sum.sharePct).toBeGreaterThanOrEqual(28);
-    expect(sum.withN).toBe(2);
-    expect(sum.worldSlabPct).toBe(100);
+    expect(sum.slabs).toBeGreaterThanOrEqual(1);
+    expect([...sum.with].sort()).toEqual(["bot1", "bot2"]);
+  });
+
+  it("only passing by a building: a trace in it, but it is not mine", () => {
+    const others = ["bot1", "bot2", "bot3"].flatMap((o, i) => stand(o, 0.3 + i * 0.1, 0.3, 0, 40));
+    const all = [...others, ...stand(ME, 0.3, 0.3, 40, 41)];
+    const snap = foldWorld(sorted(all), 41, V2);
+    expect(snap.slabs.some((s) => s.who?.some((w) => w.o === ME && w.amount > 0 && w.amount < DEFAULT_LEDGER.mineFrom))).toBe(true);
+    let l = read(null, all, 41, 40, 3);
+    l = read(l, all, 43, 40, 3);
+    expect(l.concrete.cells).toBe(0);
   });
 
   it("an empty life", () => {
     const l = read(null, [], 1, 0, 0);
-    expect(ledgerSummary(l).empty).toBe(true);
-    expect(ledgerSummary(l).worldPathPct).toBeNull();
+    expect(ledgerSummary(l)).toMatchObject({ pressed: 0, recovered: false, trodden: 0, walkedM: 0, slabs: 0, with: [] });
   });
 });
 

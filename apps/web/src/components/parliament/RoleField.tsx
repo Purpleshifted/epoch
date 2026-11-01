@@ -39,7 +39,10 @@ import {
   SESSION_ROLES,
   StressState,
   concreteLines,
+  leftWords,
   otherMarks,
+  wordMarks,
+  type LeftWord,
   wrapCoord,
   type Actor,
   type Flock,
@@ -54,8 +57,9 @@ import {
   worldNow,
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
+import { DitherGround } from "./DitherGround";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { ConcreteLines, OtherDots, type MarksData } from "./Marks";
+import { ConcreteLines, ConcreteOutline, OtherDots, WordPlates, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -197,6 +201,8 @@ export function RoleField({
   const mineMap = useRef<Map<string, number> | null>(null);
   // the marks (others, concrete, paths), renewed with the fold from the record's far list and the snapshot
   const marksRef = useRef<MarksData | null>(null);
+  // the words the ended lives left (leftWords.ts), read from the log at the ledger's cadence
+  const wordsRef = useRef<LeftWord[]>([]);
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
@@ -350,6 +356,7 @@ export function RoleField({
           sNow: sMe,
           snap: snap.current,
           t: lifeRef?.current.t ?? 0,
+          words: wordsRef.current,
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
@@ -359,6 +366,7 @@ export function RoleField({
         if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= LEDGER_EVERY) {
           ledgerTimer.current = 0;
           const tLed = performance.now();
+          wordsRef.current = leftWords(events, me.current.id, sMe);
           const obs = witnessRef.current;
           ledgerRef.current = ledgerAt({
             me: { id: me.current.id, x: p.x, z: p.z },
@@ -383,6 +391,7 @@ export function RoleField({
           marksRef.current = {
             others: marks.others.on ? otherMarks(witnessRef.current.far, p, VIEW_RADIUS, marks.others.recentSec) : [],
             concrete: marks.concrete.on ? concreteLines(snap.current.slabs, p, marks.concrete.radius, SEAL_H) : [],
+            words: marks.words.on ? wordMarks(wordsRef.current, p, VIEW_RADIUS) : [],
           };
           markSpan("marks", performance.now() - tMk);
         } else marksRef.current = null;
@@ -448,18 +457,34 @@ export function RoleField({
   // where a path has formed). Slabs appear in the Top and Side views.
   return (
     <>
-      <NatureCloud
-        playerPosRef={playerPosRef}
-        getStress={() => stress.current}
-        getSnapshot={() => snap.current}
-        cfg={natureCfg}
-        pointSize={pointSize}
-        pathDots={pathDots}
-        getQuick={() => quickMap.current}
-        getMine={() => mineMap.current}
-        grass={grassReaction}
-      />
+      {grass?.style === "dither" ? (
+        <DitherGround
+          playerPosRef={playerPosRef}
+          getStress={() => stress.current}
+          getSnapshot={() => snap.current}
+          getQuick={() => quickMap.current}
+          cfg={natureCfg}
+          radius={grass.radius}
+          pixel={grass.ditherPx}
+          color={grass.color}
+          density={grass.density}
+        />
+      ) : (
+        <NatureCloud
+          playerPosRef={playerPosRef}
+          getStress={() => stress.current}
+          getSnapshot={() => snap.current}
+          cfg={natureCfg}
+          pointSize={grass?.style === "squares" ? grass.squareSize : pointSize}
+          pathDots={pathDots}
+          getQuick={() => quickMap.current}
+          getMine={() => mineMap.current}
+          grass={grassReaction}
+          flat={grass?.style === "squares" ? grass.color : undefined}
+        />
+      )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
+      {marks?.words.on && <WordPlates getMarks={() => marksRef.current} cell={marks.words.cell} />}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}
@@ -472,9 +497,11 @@ export function RoleField({
           pulseHz={marks.others.pulseHz}
           holdSec={marks.others.holdSec}
           snap={marks.others.snap}
+          square={marks.others.square}
         />
       )}
-      {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
+      {marks?.concrete.on && marks.concrete.style === "lines" && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
+      {marks?.concrete.on && marks.concrete.style === "outline" && <ConcreteOutline getMarks={() => marksRef.current} scale={marks.concrete.outlineScale} />}
     </>
   );
 }

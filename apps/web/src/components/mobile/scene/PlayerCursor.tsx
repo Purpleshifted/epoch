@@ -4,13 +4,16 @@
  * One flat palette square drawn through the shared pixel pipeline (ground/pixelPoints.ts), so it
  * is pixel-snapped like the sprites. `lifeFrac` (0 = just arrived … 1 = lifespan used up) speeds
  * up the blink. V2: `getWarn` (0 … 1 over the last seconds of the lifespan, lib/parliament/session.ts) makes it
- * blink fast and short, like a warning; it is read every frame, so it changes without re-rendering.
+ * blink fast and short, like a warning; it is read every frame, so it changes without re-rendering. With `getRhythm`
+ * (2026-11-01) it blinks the visitor's own melody (lib/parliament/glyph.ts), in the bar every square keeps; near the
+ * end that rhythm runs faster and faster.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { PointBuffer, makePixelMaterial } from "@/components/ground/pixelPoints";
+import { GLYPH_COLS, STEP_MS, stepAt } from "@/lib/parliament/glyph";
 import { blinkAt } from "@/lib/parliament/session";
 
 export function PlayerCursor({
@@ -19,6 +22,7 @@ export function PlayerCursor({
   blinkHz = 1.2,
   lifeFrac = 0,
   getWarn,
+  getRhythm,
 }: {
   position: [number, number, number];
   /** World units of the block. */
@@ -26,11 +30,19 @@ export function PlayerCursor({
   blinkHz?: number;
   lifeFrac?: number;
   getWarn?: () => number;
+  /** Which of the bar's steps the visitor's melody sounds on (null until it is known). */
+  getRhythm?: () => boolean[] | null;
 }) {
   const buf = useMemo(() => new PointBuffer(1), []);
-  const material = useMemo(() => makePixelMaterial({ size, snap: 1 }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const material = useMemo(() => {
+    const m = makePixelMaterial({ size, snap: 1 });
+    m.depthTest = false; // nothing in the frame hides the visitor
+    return m;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const t = useRef(0);
   const phase = useRef(0);
+  /** Steps the rhythm has run ahead of the bar near the end. */
+  const ahead = useRef(0);
 
   useEffect(() => {
     // flat squares are drawn at 0.45x the size scale, hence 1 / 0.45: the block is `size` wide
@@ -47,6 +59,14 @@ export function PlayerCursor({
     t.current += delta;
     material.uniforms.uCamConst.value =
       state.gl.domElement.height / (2 * Math.tan(((state.camera as THREE.PerspectiveCamera).fov * Math.PI) / 360));
+    const rhythm = getRhythm?.();
+    if (rhythm) {
+      const warn = getWarn?.() ?? 0;
+      ahead.current += (Math.min(delta, 0.1) * 1000 * 8 * warn) / STEP_MS;
+      const step = (stepAt(performance.now()) + Math.floor(ahead.current)) % GLYPH_COLS;
+      buf.draw(rhythm[step] ? 1 : 0);
+      return;
+    }
     if (getWarn) {
       // the frequency changes while it blinks: integrate the phase, so a faster blink does not jump
       const { hz, duty } = blinkAt(getWarn(), blinkHz);
@@ -60,7 +80,7 @@ export function PlayerCursor({
 
   return (
     <group position={position}>
-      <points geometry={buf.geometry} material={material} frustumCulled={false} />
+      <points geometry={buf.geometry} material={material} frustumCulled={false} renderOrder={11} />
     </group>
   );
 }

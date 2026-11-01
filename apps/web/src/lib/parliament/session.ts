@@ -26,17 +26,6 @@ export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "live" | 
 /** The roles of the V2 world: the visitor is always the worker; the bots take these in turn ("섞어서"). */
 export const SESSION_ROLES: readonly RoleId[] = ["worker", "cat", "car", "tree"];
 
-/** How a role is written on screen (machine text, upper case). */
-export const ROLE_TAG: Record<RoleId, string> = {
-  worker: "WORKER",
-  cat: "STREET CAT",
-  car: "CAR",
-  tree: "TREE",
-  shepherd: "SHEPHERD",
-  wolf: "WOLF",
-  warrior: "WARRIOR",
-};
-
 // ── the lifespan ─────────────────────────────────────────────────────────────
 
 export interface LifeConfig {
