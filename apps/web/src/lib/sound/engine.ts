@@ -149,26 +149,27 @@ export interface SoundParams {
   bassDrop: number;
 }
 
+/** The artist's mix, as saved on :3003 (2026-11-01: "제일 최근에 열어본 3003 사운드를 디폴트로"). */
 export const DEFAULT_SOUND: SoundParams = {
-  master: 0.6,
+  master: 0.5,
   barSec: 2,
   speedMax: 7,
-  jitterMax: 0.03,
-  reverbMax: 0.6,
-  lpOpen: 8000,
-  lpSealed: 600,
-  noiseMax: 0.25,
-  hearRadius: 12,
-  othersLevel: 0.7,
-  botBlur: 0.6,
-  bassLevel: 0.9, // v4 A2d: the heartbeat in front (0.6 before)
-  padLevel: 0.35,
+  jitterMax: 0.04,
+  reverbMax: 0.99,
+  lpOpen: 5900,
+  lpSealed: 750,
+  noiseMax: 0.16,
+  hearRadius: 17.5,
+  othersLevel: 0.19,
+  botBlur: 0.79,
+  bassLevel: 0.6, // v4 A2d: the heartbeat in front (0.6 before)
+  padLevel: 0.62,
   magenta: false, // the light version has no Magenta (the artist, v4 A1); tfjs shared the GPU with three.js
   instrument: "both",
   clockPull: 0.08,
-  motifEvery: 2,
-  microtone: 0.3,
-  motifEcho: 0.6, // the signal's repeats (0.35 before the radio preset)
+  motifEvery: 1.9,
+  microtone: 0.5,
+  motifEcho: 0.5, // the signal's repeats (0.35 before the radio preset)
   // "a signal sent out into space" (the artist: Interstellar, 전파 보내는 느낌): a pure tone, a clean onset, long
   // tails, two layers beating slowly, a flutter, a little static, a long open space
   motifWave: "sine",
@@ -194,13 +195,13 @@ export const DEFAULT_SOUND: SoundParams = {
   fmIndex: 2,
   fmDecayMs: 300,
   motifOctaveEvery: 3,
-  motifOctaveRange: 1,
+  motifOctaveRange: 2,
   zoneTonality: true,
   zoneRing: 8, // 4 before A4b: at walking speed the ring went by in under a second
   zoneMargin: 0.15,
   bandCells: 12,
   arrival: true,
-  arrivalHall: 0.7,
+  arrivalHall: 1,
   arrivalWave: 0.6,
   waveVerb: 0.85,
   grassVerb: 0.5,
@@ -210,12 +211,12 @@ export const DEFAULT_SOUND: SoundParams = {
   dead: false,
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
   afterglow: 0.12,
-  ncDull: 1,
+  ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
-  bassSpread: 0.7, // v4 A2e: its own long dark room
-  bassDub: 0.45,
-  bassDuck: 0.35,
+  bassSpread: 0.8, // v4 A2e: its own long dark room
+  bassDub: 0.75,
+  bassDuck: 0.3,
   bassDrop: 0.3,
 };
 
