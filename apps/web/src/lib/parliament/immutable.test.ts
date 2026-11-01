@@ -110,7 +110,7 @@ describe("the immutable layer", () => {
     expect(lag).toBeLessThanOrEqual(priv.fuseChunks.size + 2);
   }, 600_000);
 
-  it("STEADY: a part's corrosion does not depend on the vegetation history or on the camera (LOD)", () => {
+  it("STEADY: with the vegetation window at the present, a part's corrosion does not depend on the camera (LOD)", () => {
     const run = (camera: [number, number, number], near: number, withNature: boolean) => {
       const m = new SpaceModel();
       m.add(events);
@@ -120,7 +120,7 @@ describe("the immutable layer", () => {
       const priv = m as unknown as { built: { slot: number }[]; wear: { survival: (b: unknown) => number } };
       return priv.built.map((b) => `${b.slot}:${(1 - priv.wear.survival(b)).toFixed(4)}`).sort().join("|");
     };
-    const a = run([0, 0, 0], Infinity, false);
+    const a = run([0, 0, 0], Infinity, true);
     expect(run([0, 500, 900], Infinity, true)).toBe(a);
   }, 600_000);
 

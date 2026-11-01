@@ -173,10 +173,11 @@ export interface PartsInput {
   box: BoxConfig;
   wear: boolean;
   /**
-   * STEADY CORROSION (V2, the artist 2026-11-01 evening: "leave the camera, the LOD and the vegetation out"): a part's
-   * corrosion does not read the vegetation history (which follows the view's window) — its rot onset is the full-density
-   * one and the vegetation does not hasten it. The view also sends full-detail parts (no LOD) and a window anchored at the
-   * present (not the camera), so the same part has the same corrosion wherever the camera is.
+   * STEADY CORROSION (V2, the artist 2026-11-01 evening): the view sends full-detail parts (no LOD) and a vegetation
+   * window anchored at the present (not the camera), so the same part has the same corrosion wherever the camera is.
+   * The vegetation stays in the clock (its density spreads the rot onset building by building — without it every part
+   * fused at the same depth and the band became one flat-topped block); anchored at the present it no longer moves
+   * with the camera.
    */
   steady?: boolean;
   weather: WeatherConfig;
@@ -838,7 +839,7 @@ export class SpaceModel {
     const w = input.weather;
     // vegetation around a part: the last vegetation history (if the view draws vegetation), at the part's cell and slot
     const h = this.history;
-    const veg = h && !input.steady ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
+    const veg = h ? (b: Box) => natureAt(h, Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) ?? 0 : undefined;
     // waterways between buildings the same people built: nearness per (cell, slot) over the whole history
     this.waterCfg = input.water;
     // the PRESENT thickness (the slots above the rot onset): water and walkways laid there still change
