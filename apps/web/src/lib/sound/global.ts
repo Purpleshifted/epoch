@@ -18,15 +18,17 @@
  *   BREATH    the share of people walking opens the low-pass a little; a still crowd is duller.
  *
  * Nothing is interactive here. Same log, same motifs (motif.ts), same grid (sequencer.ts barClock).
+ *
+ * In the shared world (setScore, score.ts) each bar's people come from a score that is the same on every wall.
  */
 
 import type { WorldKey } from "./harmony";
-import { makeMotif, midiToHz, realize, type Motif } from "./motif";
+import { hashString, makeMotif, midiToHz, realize, type Motif } from "./motif";
 import { barClock } from "./sequencer";
 import { buildingsOf, type BuildingSignal } from "./signals";
 import { bestKey, homeKey } from "./tonality";
 import { applyOutput, makeLimiter, onOutputChange, type OutputRole } from "./output";
-import { wrapDist, type PEvent, type Slab } from "@/lib/parliament";
+import { wallNow, wrapDist, type PEvent, type Slab } from "@/lib/parliament";
 
 export interface GlobalParams {
   master: number;
@@ -122,7 +124,31 @@ export function presences(events: readonly PEvent[], windowSec: number, building
     }
     out.push({ o, weight: Math.min(1, r.n / cap), x: last.x, z: last.z, speed, building, bx });
   }
-  return out.sort((a, b) => b.weight - a.weight);
+  // the heaviest first; equal weights in the order of their names, so the voices do not depend on who was seen first
+  return out.sort((a, b) => b.weight - a.weight || a.o.localeCompare(b.o, "en", { numeric: true }));
+}
+
+/** One bar of the shared world's score (score.ts). */
+export interface ScoreBar {
+  people: Presence[];
+  buildings: readonly BuildingSignal[];
+}
+
+/** A bar's music as a number: two walls playing the same score write the same one (window.__globalSound.scoreLog). */
+export function scoreSignature(people: readonly Presence[], keyOf: (p: Presence) => WorldKey): number {
+  return hashString(
+    people
+      .map((p) => {
+        const k = keyOf(p);
+        return `${p.o}|${p.weight.toFixed(4)}|${p.building ?? ""}|${k.root}:${k.mode.intervals.join(",")}`;
+      })
+      .join(";"),
+  );
+}
+
+/** A note's few cents off, the same on every wall (the score's: the plain engine draws it). */
+export function scoreDetune(o: string, bar: number, note: number): number {
+  return (hashString(`${o}#${bar}#${note}`) / 0xffffffff - 0.5) * 24;
 }
 
 /** The buildings of a snapshot's slabs (signals.ts buildingsOf), for presences(). */
@@ -164,6 +190,15 @@ const MAX_LIVE_VOICES = 200; // 8 voices at a 2 s bar keep ~120 alive (3.5 s of 
 const MAX_LIVE_TICKS = 40;
 /** A note's tail after its length (s): the gain is at ~14 % by then; shorter tails = fewer live chains. */
 const VOICE_TAIL = 1.2;
+/** The shared world: a building's key is reconsidered on these bars, from its contributors alone (no memory of earlier keys). */
+const KEY_EVERY_BARS = 16;
+/**
+ * The shared world: a bar waits for its chunks until this long before its start (s), then is written from what is here.
+ * A wall on a slow connection is a little behind the others for a bar rather than silent.
+ */
+const SCORE_WAIT_LEAD = 1.2;
+/** How many bars of signatures are kept for comparing walls. */
+const SCORE_LOG_BARS = 400;
 
 /** One person's colour in the room, reused bar after bar: a low-pass for their voice, a band-pass for their ticks. */
 interface Channel {
@@ -183,6 +218,8 @@ interface PendingBar {
   /** How many of them get a voice this bar. */
   voices: number;
   i: number;
+  /** The shared world: the buildings' keys as they were when this bar was written. */
+  keys?: ReadonlyMap<string, WorldKey>;
 }
 
 /** How the planning keeps up (for measuring: window.__globalSound.stats). */
@@ -236,6 +273,14 @@ export class GlobalEngine {
   private slices = { n: 0, sumMs: 0 };
   private _stats: GlobalStats = { bars: 0, lateBars: 0, minLeadSec: Infinity, maxSliceMs: 0, meanSliceMs: 0, channels: 0, liveVoices: 0, liveTicks: 0, notes: 0, ticks: 0, shed: 0, clockSpeed: 1 };
   private clockRef: { ctx: number; wall: number } | null = null;
+  /** The shared world: where each bar's people come from (null: whoever `update` said last). */
+  private score: ((bar: number) => ScoreBar) | null = null;
+  /** Whether a bar's material has arrived. */
+  private scoreReady: ((bar: number) => boolean) | null = null;
+  /** Bar → scoreSignature, for comparing walls (scored bars only). */
+  readonly scoreLog = new Map<number, number>();
+  private tickBar = -1;
+  private ticksThisBar = 0;
   /** Runs everything but plays nothing (?sound=mute: measuring in a Claude browser without the artist's speakers). */
   private readonly silent: boolean;
   /** Which output this engine plays on (output.ts): the room's speakers, or the headset for the afterglow. */
@@ -356,6 +401,12 @@ export class GlobalEngine {
     return this.outputLine;
   }
 
+  /** The shared world: each bar's people from this score, written when the bar is queued. */
+  setScore(score: ((bar: number) => ScoreBar) | null, ready: ((bar: number) => boolean) | null = null): void {
+    this.score = score;
+    this.scoreReady = ready;
+  }
+
   /** Every second or so: who is present (presences()), the buildings, the epoch (grid), the knobs. */
   update(present: Presence[], buildings: readonly BuildingSignal[], epochMs: number, params: GlobalParams): void {
     this.present = present;
@@ -367,6 +418,7 @@ export class GlobalEngine {
       this.buildingKeys.clear();
       this.homeKeys.clear();
       this.pending = [];
+      this.planned = -1; // bars count from the new epoch: the old count would hold every bar back until it was reached
     }
     // each building's key once a second here (bestKey over its contributors), not per person per bar
     for (const b of buildings) {
@@ -405,9 +457,21 @@ export class GlobalEngine {
     return m;
   }
 
+  /** The shared world: the buildings' keys for bar `bar`, with no memory that depends on when this page was opened. */
+  private keysFor(bar: number, buildings: readonly BuildingSignal[]): ReadonlyMap<string, WorldKey> {
+    const renew = bar % KEY_EVERY_BARS === 0;
+    const next = new Map<string, WorldKey>();
+    for (const b of buildings) {
+      const k = (renew ? undefined : this.buildingKeys.get(b.id)) ?? bestKey(b.who, null);
+      if (k) next.set(b.id, k);
+    }
+    this.buildingKeys = next;
+    return next;
+  }
+
   /** In a building's zone: the building's key (as the headset hears it there); else the person's home key. */
-  private keyOf(p: Presence): WorldKey {
-    const k = p.building ? this.buildingKeys.get(p.building) : undefined;
+  private keyOf(p: Presence, keys: ReadonlyMap<string, WorldKey> = this.buildingKeys): WorldKey {
+    const k = p.building ? keys.get(p.building) : undefined;
     if (k) return k;
     let h = this.homeKeys.get(p.o);
     if (!h) {
@@ -440,7 +504,7 @@ export class GlobalEngine {
     return ch;
   }
 
-  private voiceNote(freq: number, at: number, dur: number, level: number, out: AudioNode): void {
+  private voiceNote(freq: number, at: number, dur: number, level: number, out: AudioNode, detune = (Math.random() * 2 - 1) * 12): void {
     if (this._stats.liveVoices >= MAX_LIVE_VOICES) {
       this._stats.shed++;
       return;
@@ -453,7 +517,7 @@ export class GlobalEngine {
     const o = ctx.createOscillator();
     o.type = "sawtooth";
     o.frequency.value = freq;
-    o.detune.value = (Math.random() * 2 - 1) * 12;
+    o.detune.value = detune;
     o.connect(g).connect(out); // two nodes a note; the colour (low-pass) is the person's channel
     this._stats.notes++;
     this._stats.liveVoices++;
@@ -465,12 +529,24 @@ export class GlobalEngine {
     o.stop(at + dur + VOICE_TAIL);
   }
 
-  /** A rhythm trace: a short burst of noise, coloured by the person's band-pass (`out`). */
-  private tickNote(at: number, level: number, out: AudioNode): void {
-    if (this._stats.liveTicks >= MAX_LIVE_TICKS) {
+  /**
+   * A rhythm trace: a short burst of noise, coloured by the person's band-pass (`out`). The cap counts what is alive on
+   * this machine, which differs from wall to wall; a scored bar has a budget of its own instead (`bar`, its ticks come
+   * every other bar), with the heaviest people first, so every wall drops the same ones. The hard cap stays above it.
+   */
+  private tickNote(at: number, level: number, out: AudioNode, bar?: number): void {
+    if (bar !== undefined) {
+      if (bar !== this.tickBar) {
+        this.tickBar = bar;
+        this.ticksThisBar = 0;
+      }
+    }
+    const over = bar !== undefined ? this.ticksThisBar >= MAX_LIVE_TICKS || this._stats.liveTicks >= 2 * MAX_LIVE_TICKS : this._stats.liveTicks >= MAX_LIVE_TICKS;
+    if (over) {
       this._stats.shed++;
       return;
     }
+    this.ticksThisBar++;
     const ctx = this.ctx!;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, at);
@@ -503,7 +579,10 @@ export class GlobalEngine {
       this._stats.clockSpeed = +(this._stats.clockSpeed * 0.5 + speed * 0.5).toFixed(3);
       this.clockRef = { ctx: now, wall };
     }
-    const { bar, start } = barClock(this.epochMs, Date.now(), now, p.barSec);
+    const clock = barClock(this.epochMs, wallNow(), now, p.barSec);
+    const { bar } = clock;
+    // the shared world: on the beat as it leaves the speakers, whatever this machine's output delay
+    const start = this.score ? clock.start - (ctx.outputLatency || 0) : clock.start;
     // bars that started before they were even queued are lost (a stall longer than the lookahead)
     if (this.planned < 0) this.planned = bar;
     else if (this.planned < bar) {
@@ -515,10 +594,18 @@ export class GlobalEngine {
       const next = this.planned + 1;
       const nextStart = start + (next - bar) * p.barSec;
       if (nextStart > now + LOOKAHEAD) break;
+      if (this.scoreReady && !this.scoreReady(next) && nextStart - now > SCORE_WAIT_LEAD) break;
       this.planned = next;
       // the heaviest presences get a voice (the budget shrinks while the clock is slow); everybody gets their ticks
       const budget = Math.max(2, Math.round(p.maxVoices * Math.max(0.4, Math.min(1, this._stats.clockSpeed))));
-      this.pending.push({ bar: next, start: nextStart, people: this.present.slice(), voices: Math.min(budget, this.present.length), i: 0 });
+      const scored = this.score ? this.score(next) : null;
+      const people = scored ? scored.people : this.present;
+      const keys = scored ? this.keysFor(next, scored.buildings) : undefined;
+      if (keys) {
+        this.scoreLog.set(next, scoreSignature(people.slice(0, p.maxVoices), (pr) => this.keyOf(pr, keys)));
+        this.scoreLog.delete(next - SCORE_LOG_BARS);
+      }
+      this.pending.push({ bar: next, start: nextStart, people: people.slice(), voices: Math.min(budget, people.length), i: 0, keys });
     }
     // plan a few people per tick; a bar close to its start is finished at once
     if (!this.pending.length) return;
@@ -534,7 +621,7 @@ export class GlobalEngine {
       }
       const urgent = lead < MUST_FINISH;
       while (pb.i < pb.people.length && (budget > 0 || urgent)) {
-        this.planVoice(pb.people[pb.i], pb.bar, pb.start, pb.i < pb.voices);
+        this.planVoice(pb.people[pb.i], pb.bar, pb.start, pb.i < pb.voices, pb.keys);
         pb.i++;
         budget--;
       }
@@ -551,15 +638,15 @@ export class GlobalEngine {
   }
 
   /** One person's notes (if within the voice budget) and ticks for bar `bar`, starting at `barStart` on the audio clock. */
-  private planVoice(pr: Presence, bar: number, barStart: number, withVoice: boolean): void {
+  private planVoice(pr: Presence, bar: number, barStart: number, withVoice: boolean, keys?: ReadonlyMap<string, WorldKey>): void {
     const p = this.params;
     const ch = this.channelOf(pr.o, bar);
     const m = this.motifOf(pr.o);
     const w = 0.3 + 0.7 * pr.weight;
     const down = 12 * p.octavesDown;
     // the mass: the heaviest, every bar, pushed down, in their key (or their building's)
-    if (withVoice) for (const n of realize(m, this.keyOf(pr), null, 0, bar)) this.voiceNote(midiToHz(n.pitch - down, m.colour), barStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, ch.filter);
+    if (withVoice) realize(m, this.keyOf(pr, keys), null, 0, bar).forEach((n, i) => this.voiceNote(midiToHz(n.pitch - down, m.colour), barStart + n.at * p.barSec, n.len * p.barSec * 1.6, p.perVoice * w, ch.filter, keys ? scoreDetune(pr.o, bar, i) : undefined));
     // the traces: everybody's rhythm cell every other bar (the walking came every bar until 10/31)
-    if (bar % 2 === 0) for (const on of m.onsets) this.tickNote(barStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, ch.tickFilter);
+    if (bar % 2 === 0) for (const on of m.onsets) this.tickNote(barStart + (on / m.steps) * p.barSec, p.tickLevel * w * 0.5, ch.tickFilter, keys ? bar : undefined);
   }
 }

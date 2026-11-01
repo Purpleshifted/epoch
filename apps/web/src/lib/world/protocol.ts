@@ -21,8 +21,11 @@ export const MAX_POST_BYTES = 512 * 1024;
 /** One page of the window read: below the function's 4.5 MB, cut at a chunk's edge. */
 export const WINDOW_PAGE_ROWS = 800;
 export const WINDOW_PAGE_BYTES = 3 * 1024 * 1024;
-/** The bot host's lease: 12 s + the 5 s between looks at it stays under `emptyGapSec` (20 s), so a handover leaves no empty time. */
-export const HOST_LEASE_MS = 12_000;
+/**
+ * The bot host's lease. A lost host: 10 s + the 5 s between looks at it + the first sample stays under `emptyGapSec`
+ * (20 s), so a handover leaves no empty time (12 s measured 18 s, too close).
+ */
+export const HOST_LEASE_MS = 10_000;
 /** The history window (log.ts KEEP_WINDOW_SEC is the same default) and the most any wall may raise it to. */
 export const DEFAULT_KEEP_WINDOW_SEC = 20 * 60;
 export const MAX_KEEP_WINDOW_SEC = 2 * 60 * 60;

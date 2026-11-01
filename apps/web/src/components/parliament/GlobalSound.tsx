@@ -17,8 +17,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useControls } from "leva";
 import { savable } from "./levaSave";
 import { useFoldState, useWorld } from "./useWorld";
-import { DEFAULT_FOLD, currentEpochKey, latestS, withoutWear } from "@/lib/parliament";
+import { DEFAULT_FOLD, currentEpochKey, hasWorldMirror, latestS, withoutWear } from "@/lib/parliament";
+import { ScoreFeed, attachScoreFeed } from "@/lib/parliament/serverWorld";
 import { DEFAULT_GLOBAL, GlobalEngine, globalBuildings, presences, type GlobalParams } from "@/lib/sound/global";
+import { BarScore } from "@/lib/sound/score";
 
 const ROOT = "소리 (V2 · 스피커)";
 
@@ -57,7 +59,10 @@ export default function GlobalSound() {
     [master, cutoff, bedPer, bedMax, bedFloor, perVoice, octavesDown, tickLevel, hall, drive, barSec, windowSec, maxVoices],
   );
 
-  const log = useWorld(undefined, 3000);
+  // the shared world: the music is written from the server's chunks alone, so every wall plays the same (score.ts)
+  const [feed] = useState(() => (hasWorldMirror() ? new ScoreFeed() : null));
+  const worldLog = useWorld(undefined, 3000, !feed);
+  const log = feed ? feed.log : worldLog;
   const foldCfg = useMemo(() => withoutWear(DEFAULT_FOLD), []);
   const fold = useFoldState(log, foldCfg);
   const engine = useMemo(() => (!off && typeof window !== "undefined" ? new GlobalEngine({ silent }) : null), [off, silent]);
@@ -65,6 +70,23 @@ export default function GlobalSound() {
   useEffect(() => {
     onRef.current = on;
   }, [on]);
+  const paramsRef = useRef(params);
+  useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
+  const score = useMemo(() => (feed ? new BarScore(feed, (s) => fold.at(s).slabs) : null), [feed, fold]);
+  useEffect(() => {
+    if (!engine || !feed || !score) return;
+    const detach = attachScoreFeed(feed);
+    engine.setScore(
+      (bar) => score.at(bar, Number(currentEpochKey() ?? 0), paramsRef.current.barSec, paramsRef.current.windowSec),
+      (bar) => score.ready(bar, Number(currentEpochKey() ?? 0), paramsRef.current.barSec),
+    );
+    return () => {
+      engine.setScore(null);
+      detach();
+    };
+  }, [engine, feed, score]);
 
   const muted = useRef(false);
   const [status, setStatus] = useState("♪ 스피커 (글로벌 뷰) · 클릭하면 시작");
@@ -112,18 +134,26 @@ export default function GlobalSound() {
       }
       const events = log.all();
       const now = Date.now();
-      if (events.length && now - buildings.current.at > 4000 && buildings.current.version !== log.version) {
-        buildings.current = { at: now, version: log.version, list: globalBuildings(fold.at(latestS(events)).slabs) };
+      let buildingCount: number;
+      if (score) {
+        // who is heard comes from the score, bar by bar; this only keeps the knobs, the epoch and the bed of noise current
+        engine.update(score.last, [], epoch, params);
+        buildingCount = score.buildingCount;
+      } else {
+        if (events.length && now - buildings.current.at > 4000 && buildings.current.version !== log.version) {
+          buildings.current = { at: now, version: log.version, list: globalBuildings(fold.at(latestS(events)).slabs) };
+        }
+        const list = buildings.current.list;
+        engine.update(presences(events, params.windowSec, list), list, epoch, params);
+        buildingCount = list.length;
       }
-      const list = buildings.current.list;
-      engine.update(presences(events, params.windowSec, list), list, epoch, params);
       if (bare) return;
       const d = engine.debug;
       const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : engine.running ? "재생 중" : "클릭하면 시작";
-      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar}${engine.stats.lateBars ? ` · 빠진 마디 ${engine.stats.lateBars}` : ""}${engine.stats.clockSpeed < 0.95 ? ` · 오디오 클럭 ${engine.stats.clockSpeed.toFixed(2)}× (느림)` : ""}${engine.stats.shed ? ` · 덜어냄 ${engine.stats.shed}` : ""} · → ${engine.output}${silent ? " · 무음 측정" : ""}`);
+      setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${buildingCount} · bar ${d.bar}${engine.stats.lateBars ? ` · 빠진 마디 ${engine.stats.lateBars}` : ""}${engine.stats.clockSpeed < 0.95 ? ` · 오디오 클럭 ${engine.stats.clockSpeed.toFixed(2)}× (느림)` : ""}${engine.stats.shed ? ` · 덜어냄 ${engine.stats.shed}` : ""} · → ${engine.output}${silent ? " · 무음 측정" : ""}`);
     }, 1000);
     return () => clearInterval(id);
-  }, [engine, log, fold, params, bare, silent]);
+  }, [engine, log, fold, params, bare, silent, score]);
 
   if (!engine || bare) return null;
   return <div className="pointer-events-none fixed bottom-4 right-4 z-50 select-none font-mono text-[10px] text-black/45 mix-blend-difference">{status}</div>;

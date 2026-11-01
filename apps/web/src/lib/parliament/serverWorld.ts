@@ -38,13 +38,15 @@ const READ_MARGIN_MS = 150;
 const REQUEST_TIMEOUT_MS = 8000;
 /** The most events kept waiting for the server: about 25 minutes of a full world. */
 const MAX_OUTBOX = 30_000;
-/** The bot host looks at its lease this often (the lease itself is 12 s: protocol.ts). */
+/** The bot host looks at its lease this often (the lease itself: protocol.ts HOST_LEASE_MS). */
 const HOST_EVERY_MS = 5000;
 /**
  * With no answer from the server for this long, a wall with bots on runs them itself: the exhibition must go on with
  * the network down. Should two walls end up doing so, their events carry the same ids and only one of each is kept.
  */
 const OFFLINE_BOTS_AFTER_MS = 15_000;
+/** The most chunks a sound's feed holds back: minutes, far more than any bar waits for. */
+const MAX_FEED_QUEUE = 120;
 
 const LS_OFFSET_KEY = "anthropocene:world:clock-offset:v1";
 const LS_ADMIN_KEY = "anthropocene:world:admin:v1";
@@ -155,11 +157,43 @@ export interface WorldStatus {
   host: "here" | "other" | "none";
 }
 
+/**
+ * A log that is given the server's chunks only when asked, up to a chunk: what a bar of the shared world's music is
+ * written from (sound/score.ts). Unlike the views' logs it never sees this tab's own events before they come back, nor
+ * anything from this browser's storage, so it holds the same on every wall at the same chunk.
+ */
+export class ScoreFeed {
+  readonly log = new EventLog();
+  /** The newest chunk read from the server, empty ones included: what a bar may be written from is known to be here. */
+  readTo = -Infinity;
+  private queue: { chunk: number; events: readonly PEvent[] }[] = [];
+
+  push(chunk: number, events: readonly PEvent[]): void {
+    if (events.length) this.queue.push({ chunk, events });
+    // a sound that has not started (no gesture yet, or the afterglow waiting for a life to end) asks for nothing:
+    // what no bar can still be held back from goes in, or this would grow for as long as the tab stays open
+    if (this.queue.length > MAX_FEED_QUEUE) this.advanceTo(this.queue[this.queue.length - MAX_FEED_QUEUE].chunk);
+  }
+
+  advanceTo(chunk: number): void {
+    let n = 0;
+    while (n < this.queue.length && this.queue[n].chunk <= chunk) this.log.addMany(this.queue[n++].events);
+    if (n) this.queue.splice(0, n);
+  }
+
+  clear(): void {
+    this.queue = [];
+    this.readTo = -Infinity;
+    this.log.clear();
+  }
+}
+
 export class WorldAgent {
   /** Everything of the current window this tab knows of the server: a log attached later starts from it. */
   readonly log = new EventLog();
   private state: WorldState | null = null;
   private readonly logs = new Set<EventLog>();
+  private readonly feeds = new Set<ScoreFeed>();
   private outbox: PEvent[] = [];
   private mirrorQueue: PEvent[] = [];
   /** The newest chunk handed on; null until the window has been read. */
@@ -215,6 +249,16 @@ export class WorldAgent {
     this.logs.add(log);
     return () => {
       this.logs.delete(log);
+    };
+  }
+
+  /** A feed for this tab's sound: what is known now counts as already played, and every chunk read goes in. */
+  attachFeed(feed: ScoreFeed): () => void {
+    feed.log.addMany(this.log.all());
+    if (this.cursor !== null) feed.readTo = this.cursor;
+    this.feeds.add(feed);
+    return () => {
+      this.feeds.delete(feed);
     };
   }
 
@@ -395,6 +439,7 @@ export class WorldAgent {
       this.mirrorQueue = [];
       this.log.clear();
       for (const l of this.logs) l.clear();
+      for (const f of this.feeds) f.clear();
       this.botStart = null;
       this.nextHost = 0; // the new epoch's bots start from the server's say, at the next look
     }
@@ -421,6 +466,7 @@ export class WorldAgent {
       /* storage unavailable */
     }
     this.log.dropBefore(cut);
+    for (const f of this.feeds) f.log.dropBefore(cut);
   }
 
   private async flush(t: number): Promise<void> {
@@ -459,10 +505,11 @@ export class WorldAgent {
     this.mirrorQueue = [];
   }
 
-  private deliver(events: readonly PEvent[]): void {
+  private deliver(events: readonly PEvent[], chunk: number): void {
     if (!events.length) return;
     this.log.addMany(events);
     for (const l of this.logs) l.addMany(events);
+    for (const f of this.feeds) f.push(chunk, events);
     for (const e of events) this.mirrorQueue.push(e);
   }
 
@@ -481,14 +528,15 @@ export class WorldAgent {
         if (a.ended) {
           this.apply(a.state);
         } else if (this.state?.epochMs === st.epochMs) {
-          this.deliver(a.events);
           if (this.windowCursor === 0) this.windowTo = a.to;
+          this.deliver(a.events, this.windowTo);
           if (a.next !== null) {
             this.windowCursor = a.next;
           } else {
             this.needWindow = false;
             this.windowCursor = 0;
             this.cursor = this.windowTo;
+            for (const f of this.feeds) f.readTo = this.windowTo;
           }
         }
       } else {
@@ -496,8 +544,9 @@ export class WorldAgent {
         const to = Math.min(target, from + MAX_RANGE_CHUNKS - 1);
         const a = await this.net.range(st.epochMs, from, to);
         if (!a.early && this.state?.epochMs === st.epochMs) {
-          this.deliver(a.events);
+          this.deliver(a.events, to);
           this.cursor = to;
+          for (const f of this.feeds) f.readTo = to;
         }
       }
       this.contact();
@@ -576,6 +625,11 @@ export async function startServerWorld(timeoutMs = 2500): Promise<void> {
 export function attachToServerWorld(log: EventLog): () => void {
   if (!agent) return () => {};
   return agent.attach(log);
+}
+
+/** Connects a sound's feed to the server; returns how to let go. */
+export function attachScoreFeed(feed: ScoreFeed): () => void {
+  return agent ? agent.attachFeed(feed) : () => {};
 }
 
 /** Asks to run the bots from this tab, or stops asking. A phone never hosts: it is locked or pocketed at any moment. */
