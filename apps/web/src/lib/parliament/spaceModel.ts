@@ -263,6 +263,13 @@ export interface FuseInput {
    * piling up at ×20 and then going back to ×1 is safe"). Absent = caught up.
    */
   caughtUp?: boolean;
+  /**
+   * BAKING OFF (the artist, 2026-11-01 16:45: "take the bake out for now — only what happened in the last twenty
+   * minutes"): false = no chunk is ever baked, kept, aged or stored; the immutable line, the caught-up rule and the
+   * orphan rule are all inactive; the world is the history window alone and what leaves it is gone; baked chunks
+   * loaded from disk are dropped. Absent = on (V1).
+   */
+  bake?: boolean;
   /** Model years after which (1 − 1/e of) a part is overgrown (accretion). */
   tauReclaimYears: number;
   /** The slot the camera looks at: chunks near it are built first (default: the present). */
@@ -1105,6 +1112,7 @@ export class SpaceModel {
     const wm = this.wear;
     const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(input)}`;
     if (sig === this.fuseSig) return null;
+    if (input.bake === false && this.baked.size) this.baked.clear();
     const bakedMeshes = [...this.baked.values()].map((b) => b.mesh);
     if (!sed || !wm || !fuse.enabled || !this.built.length) {
       this.fuseSig = sig;
@@ -1201,7 +1209,7 @@ export class SpaceModel {
     // little stale beats what vanishes with the cut
     const doneK = kNow - Math.max(1, Math.round(rotOnsetSlots(input.weather))) - NATURE_CHUNK;
     let bakedNow = 0;
-    if (this.partsFuseBuilt === this.fuseBuilt) {
+    if (input.bake !== false && this.partsFuseBuilt === this.fuseBuilt) {
       for (const w of wants) {
         const ch = this.fuseChunks.get(w.c0);
         if (!ch) continue;
@@ -1328,7 +1336,7 @@ export class SpaceModel {
       // ORPHAN: a chunk with a mesh that is no longer asked for — its parts went with a bulk window move, or the
       // window moved past it before it was baked — keeps its last mesh for good rather than vanishing (the artist,
       // 2026-10-31: "the fossils vanish after a while"); no material, so it neither ages nor re-renders
-      if (ch.mesh.index.length === 0 || this.baked.has(c)) continue;
+      if (input.bake === false || ch.mesh.index.length === 0 || this.baked.has(c)) continue;
       const bk: Baked = {
         c0: c,
         c1: c + NATURE_CHUNK - 1,

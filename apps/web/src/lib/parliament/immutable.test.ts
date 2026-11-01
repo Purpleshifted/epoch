@@ -69,6 +69,26 @@ describe("the immutable layer", () => {
     expect(priv.baked.size).toBeGreaterThan(0);
   });
 
+  it("BAKING OFF: nothing is ever baked, whatever the line says, and chunks already baked are dropped", () => {
+    const m = new SpaceModel();
+    const priv = m as unknown as { baked: Map<number, unknown> };
+    m.add(events);
+    m.setNow(1500 + 20 * DEFAULT_BOXES.secPerUnit);
+    const on = { box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300, oneClock: true, tauSlabYears: DEFAULT_FOLD.tauSlabYears, perCall: 12, immutable: 15 };
+    for (let i = 0; i < 6; i++) {
+      m.computeParts(parts());
+      m.computeFuse(on);
+    }
+    expect(priv.baked.size).toBeGreaterThan(0);
+    // switched off: the baked chunks go, and nothing is baked again
+    m.setNow(1500 + 40 * DEFAULT_BOXES.secPerUnit);
+    for (let i = 0; i < 6; i++) {
+      m.computeParts(parts());
+      m.computeFuse({ ...on, bake: false });
+    }
+    expect(priv.baked.size).toBe(0);
+  });
+
   it("without the line (V1) the old rule is unchanged: what is baked is not final (the past keeps ageing)", () => {
     const m = new SpaceModel();
     const priv = m as unknown as { baked: Map<number, { final: boolean }> };
