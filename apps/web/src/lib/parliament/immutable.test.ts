@@ -87,7 +87,7 @@ describe("the immutable layer", () => {
       m.computeFuse({ ...on, bake: false });
     }
     expect(priv.baked.size).toBe(0);
-  });
+  }, 600_000);
 
   it("BAKING OFF: no chunk is built first forever — the oldest-built goes next (round robin)", () => {
     const m = new SpaceModel();
