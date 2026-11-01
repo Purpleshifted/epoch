@@ -97,7 +97,7 @@ function isEvent(e: unknown): e is PEvent {
     typeof o.x === "number" &&
     typeof o.z === "number" &&
     typeof o.s === "number" &&
-    o.k === "p" &&
+    (o.k === "p" || o.k === "s") &&
     typeof o.r === "string" &&
     (ROLES as readonly string[]).includes(o.r as RoleId)
   );

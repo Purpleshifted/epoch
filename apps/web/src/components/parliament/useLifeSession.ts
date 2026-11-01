@@ -100,6 +100,8 @@ export interface SessionView {
 
 export interface LifeSession extends SessionView {
   lifeRef: { readonly current: LifeSignal };
+  /** NAME: the visitor goes on into the life. */
+  beginLife: () => void;
   /** LIVE: start / stop holding to stop living (the X key on a keyboard; a long press on a phone). */
   beginHold: () => void;
   endHold: () => void;
@@ -108,7 +110,7 @@ export interface LifeSession extends SessionView {
 const TICK_MS = 100;
 
 /** The phases before the life in which a visitor who walks away is forgotten (back to the title screen). */
-const WAITING: readonly SessionPhase[] = ["notice", "consent", "headset"];
+const WAITING: readonly SessionPhase[] = ["notice", "consent", "headset", "name"];
 
 const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   restartReady: false,
@@ -179,16 +181,20 @@ export class SessionMachine {
     this.set({ ...patch, phase, phaseAt: Date.now() });
   }
 
-  /** A new visitor: everything fresh, `sessionNo` up, starting at `phase` (`live`: the same visitor again, at once). */
-  private next(phase: "idle" | "notice" | "live") {
+  /** A new visitor: everything fresh, `sessionNo` up, starting at `phase` (`name`: the same visitor again, a new life). */
+  private next(phase: "idle" | "notice" | "name") {
     this.holding = false;
     this.failedUntil = 0;
     this.lifeRef.current = { phase, t: 0, warn: 0, attempt: 0, attemptSound: 0 };
     this.set({ ...FRESH, phase, phaseAt: Date.now(), sessionNo: this.view.sessionNo + 1 });
-    if (phase === "live") this.begin();
   }
 
-  /** The life begins: the lifespan clock starts from zero (after the headset, or on a quick restart). */
+  /** 살아가기: from the name into the life. */
+  beginLife = () => {
+    if (this.view.phase === "name") this.begin();
+  };
+
+  /** The life begins: the lifespan clock starts from zero. */
   private begin() {
     this.lived = 0;
     this.lastTick = Date.now();
@@ -273,13 +279,13 @@ export class SessionMachine {
         this.enter("headset");
         return;
       case "headset":
-        // the headset is on: the life begins at once (the worker)
-        this.begin();
+        // the headset is on: the name; the life begins when the visitor presses 살아가기 (beginLife)
+        this.enter("name");
         return;
       case "ended":
         // SPACE — or a tap / click (a phone has no keys) — once the end screen has held; soon after the end it is the
-        // same visitor again: the next life starts at once, without the notices
-        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt) ? "live" : "notice");
+        // same visitor again: the next life starts from its name, without the notices
+        if (v.restartReady && (code === "Space" || e.type !== "keydown")) this.next(quickRestart(now, this.endAt) ? "name" : "notice");
         return;
       default:
         return; // live: the screen runs on its own (the controls are the Controller's)
@@ -388,7 +394,7 @@ export function useLifeSession(enabled: boolean, cfg: LifeConfig, lang: Lang = "
     return () => m.stop();
   }, [m]);
   const view = useSyncExternalStore(m.subscribe, m.get, m.get);
-  return { ...view, lifeRef: m.lifeRef, beginHold: m.beginHold, endHold: m.endHold };
+  return { ...view, lifeRef: m.lifeRef, beginLife: m.beginLife, beginHold: m.beginHold, endHold: m.endHold };
 }
 
 /** Log-interpolate a frequency towards `to` by k (0 … 1). */

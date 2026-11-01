@@ -47,6 +47,7 @@ import {
   TILT_TURN_RATE,
   asLang,
   hindrance,
+  rhythmOf,
   seedParliamentDemoIfRequested,
   ROLE_IMPLEMENTED,
   wrapCoord,
@@ -55,6 +56,7 @@ import {
   type Observation,
   type RoleId,
 } from "@/lib/parliament";
+import { announcePersonalOpen } from "@/lib/sound/personalOpen";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -122,6 +124,7 @@ function Controller({
   lifeRef,
   tiltRef,
   coarse = false,
+  getRhythm,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -136,6 +139,8 @@ function Controller({
   tiltRef?: React.MutableRefObject<TiltState>;
   /** A phone-like device: no pointer lock, no keys — a finger on the screen walks, dragging turns. */
   coarse?: boolean;
+  /** The visitor's square blinks their melody (lib/parliament/glyph.ts). */
+  getRhythm?: () => boolean[] | null;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -284,7 +289,7 @@ function Controller({
 
   return (
     <group ref={group}>
-      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} />
+      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />
     </group>
   );
 }
@@ -327,6 +332,12 @@ export default function ParliamentScene() {
     return () => clearInterval(id);
   }, []);
   const isV2 = useParliamentVersion() === "v2";
+  useEffect(() => (isV2 ? announcePersonalOpen() : undefined), [isV2]);
+  // an answer (SessionHud) leaves a seed head where the visitor stands (RoleField)
+  const answers = useRef(0);
+  const onAnswer = useCallback(() => {
+    answers.current++;
+  }, []);
   const v2 = () => isV2;
   // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
   usePageLock(isV2);
@@ -409,6 +420,8 @@ export default function ParliamentScene() {
   const { cfg: natureCfg, pointSize, pathDots, pathLine } = useNatureControls();
   // V2: what the player view adds so the visitor's effect on the ground lands (Leva 개인뷰 비주얼)
   const visuals = usePersonalVisuals();
+  const brutal = isV2 && visuals.look === "brutal";
+  const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
 
   useEffect(() => {
     if (hideChrome) return;
@@ -433,13 +446,14 @@ export default function ParliamentScene() {
         dpr={pixelDpr}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
-        style={{ background: FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
+        style={{ background: brutal ? "#000" : FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
-        <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />
+        <color attach="background" args={[brutal ? "#000000" : FOG_COLOR]} />
+        {!brutal && <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />}
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
         {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
-        <FollowGrid playerPosRef={playerPosRef} size={grid} />
+        {!brutal && <FollowGrid playerPosRef={playerPosRef} size={grid} />}
         <Controller
           key={`controller-${session.sessionNo}`}
           playerPosRef={playerPosRef}
@@ -451,6 +465,7 @@ export default function ParliamentScene() {
           lifeRef={withSession ? session.lifeRef : undefined}
           tiltRef={tiltRef}
           coarse={coarse}
+          getRhythm={withSession ? getRhythm : undefined}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -472,11 +487,12 @@ export default function ParliamentScene() {
           ledgerRef={withSession ? ledgerRef : undefined}
           grass={isV2 ? visuals.grass : undefined}
           marks={isV2 ? visuals.marks : undefined}
+          answers={answers}
         />
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

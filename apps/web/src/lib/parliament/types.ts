@@ -30,13 +30,14 @@ export const ROLE_IMPLEMENTED: Record<RoleId, boolean> = {
 /**
  * One spacetime event. Compact on purpose: the log is mirrored into localStorage.
  *   k = "p": presence sample (the visitor stood or walked here; stands for `sampleSec` seconds)
+ *   k = "s": a seed head an answer left here (dandelion.ts; role "tree", so nothing counts it as presence)
  */
 export interface PEvent {
   id: string;
   /** Visitor (or bot) id. */
   o: string;
   r: RoleId;
-  k: "p";
+  k: "p" | "s";
   x: number;
   z: number;
   /** Assigned exhibition seconds of the actor when the event happened. */

@@ -4,7 +4,9 @@
  *
  *   IDLE      nobody has touched the screen yet: the ground runs on (bots), the visitor leaves nothing
  *   NOTICE … HEADSET   the frame before a life (intake.ts): what this is, a consent with only yes, the headset
- *   LIVE      the life begins at once after the headset — every visitor is the worker (2026-10-20: the choice, the
+ *   NAME      the visitor is given their name, the melody written down, and hears it alone, over and over, until they
+ *             press 살아가기
+ *   LIVE      the life begins there — every visitor is the worker (2026-10-20: the choice, the
  *             slot and the verdict were taken out; only the worker has an effect on the ground). The lifespan runs;
  *             in its last `warnSec` the cursor blinks faster, the sound goes dull and the controls stop answering
  *             properly (`lifeAt`, `hindrance`)
@@ -18,24 +20,13 @@ import { hash2 } from "./nature";
 import type { RoleId } from "./types";
 
 /**
- * IDLE → the steps before the life (intake.ts: NOTICE → CONSENT → HEADSET) → LIVE → ENDED.
+ * IDLE → the steps before the life (intake.ts: NOTICE → CONSENT → HEADSET → NAME) → LIVE → ENDED.
  * The visitor is only present (traces, sound, controls) while LIVE; every other phase is dark and silent.
  */
-export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "live" | "ended";
+export type SessionPhase = "idle" | "notice" | "consent" | "headset" | "name" | "live" | "ended";
 
 /** The roles of the V2 world: the visitor is always the worker; the bots take these in turn ("섞어서"). */
 export const SESSION_ROLES: readonly RoleId[] = ["worker", "cat", "car", "tree"];
-
-/** How a role is written on screen (machine text, upper case). */
-export const ROLE_TAG: Record<RoleId, string> = {
-  worker: "WORKER",
-  cat: "STREET CAT",
-  car: "CAR",
-  tree: "TREE",
-  shepherd: "SHEPHERD",
-  wolf: "WOLF",
-  warrior: "WARRIOR",
-};
 
 // ── the lifespan ─────────────────────────────────────────────────────────────
 

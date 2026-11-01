@@ -38,7 +38,13 @@ import {
   sessionSeconds,
   SESSION_ROLES,
   StressState,
+  NAME_GAP_SEC,
+  aliveOwners,
   concreteLines,
+  dandelionsIn,
+  wordSpots,
+  type Dandelion,
+  type WordSpot,
   otherMarks,
   wrapCoord,
   type Actor,
@@ -54,8 +60,9 @@ import {
   worldNow,
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
+import { DitherGround } from "./DitherGround";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { ConcreteLines, OtherDots, type MarksData } from "./Marks";
+import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -66,6 +73,9 @@ import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
+const BURST_Y = 0.2; // an answer's burst goes off at the height of the visitor's own square
+/** Someone who has sent nothing new for this long (wall ms) is not here (the log reaches other tabs in about a second). */
+const ALIVE_HOLD_MS = 6000;
 /** V2: how often the ledger reads the WHOLE world (its totals and my far slabs); the drawing reads a region. */
 const LEDGER_EVERY = 2;
 const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
@@ -121,6 +131,7 @@ export function RoleField({
   ledgerCfg,
   grass,
   marks,
+  answers,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -152,6 +163,8 @@ export function RoleField({
   grass?: GrassVisual;
   /** V2: the marks in the frame — others, concrete, paths (Leva 개인뷰 비주얼; lib/parliament/marks.ts, Marks.tsx). */
   marks?: MarksVisual;
+  /** How many answers the visitor has given (SessionHud): each leaves a seed head where they stand. */
+  answers?: React.MutableRefObject<number>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -197,6 +210,14 @@ export function RoleField({
   const mineMap = useRef<Map<string, number> | null>(null);
   // the marks (others, concrete, paths), renewed with the fold from the record's far list and the snapshot
   const marksRef = useRef<MarksData | null>(null);
+  // the seed heads the answers left (dandelion.ts, drawn on the wall only): where others' words can be found
+  const heads = useRef<Dandelion[]>([]);
+  const wordsRef = useRef<WordSpot[]>([]);
+  // answers already turned into a seed head (the count lives in ParliamentScene, across lives), and the last one's burst here
+  const answered = useRef(answers?.current ?? 0);
+  const burst = useRef<BurstAt | null>(null);
+  // who has been sending samples (aliveOwners)
+  const seenOwners = useRef(new Map<string, { s: number; at: number }>());
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
 
@@ -235,7 +256,7 @@ export function RoleField({
     const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
     log.add(e);
     pending.current.push(e);
-    if (o === me.current.id) myEvents.current.push(e);
+    if (o === me.current.id && k === "p") myEvents.current.push(e);
   };
 
   // ── emit presence and mirror to localStorage: world clock (worldClock.ts, may run faster than the wall clock) for
@@ -306,10 +327,31 @@ export function RoleField({
     }
   });
 
+  // the name is up: the visitor's melody, with a gap, over and over; it stops when the life begins
+  const nameDue = useRef<number | null>(null);
+  useFrame(() => {
+    if (!sound) return;
+    if (lifeRef?.current.phase !== "name") {
+      if (nameDue.current !== null) sound.engine.hushName();
+      nameDue.current = null;
+      return;
+    }
+    const now = performance.now();
+    if (!tonal.current || (nameDue.current !== null && now < nameDue.current)) return;
+    sound.engine.announce(me.current.id, tonal.current.key, sound.params.master);
+    nameDue.current = now + (sound.params.barSec + NAME_GAP_SEC) * 1000;
+  });
+
   useFrame((_, delta) => {
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
+    if (answers && answers.current > answered.current) {
+      answered.current = answers.current;
+      const { x, z } = playerPosRef.current;
+      emit(me.current.id, "tree", "s", x, z, sMe);
+      burst.current = { id: `${me.current.id}:${answers.current}`, x, y: BURST_Y, z, atMs: performance.now() };
+    }
     const p = playerPosRef.current;
 
     // ── the grass reaction's quick stress: where the walker IS, every nearEvery seconds, while live ──
@@ -340,6 +382,9 @@ export function RoleField({
       const tFold = performance.now();
       // the region the drawing, the sound and the marks read (the fold itself is always the whole world)
       const readR = Math.max(VIEW_RADIUS, marks?.concrete.on ? marks.concrete.radius : 0);
+      // who is here now: everyone within the assignment window, whatever time slot they live in
+      heads.current = dandelionsIn(events);
+      const alive = aliveOwners(events, me.current.id, seenOwners.current, performance.now(), ALIVE_HOLD_MS, sMe, Math.max(offsetWindow, DEFAULT_WITNESS.recentSec));
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       markSpan("fold", performance.now() - tFold);
@@ -350,6 +395,8 @@ export function RoleField({
           sNow: sMe,
           snap: snap.current,
           t: lifeRef?.current.t ?? 0,
+          words: wordsRef.current,
+          alive,
           cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
         });
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
@@ -359,6 +406,7 @@ export function RoleField({
         if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= LEDGER_EVERY) {
           ledgerTimer.current = 0;
           const tLed = performance.now();
+          wordsRef.current = wordSpots(heads.current, me.current.id, sMe);
           const obs = witnessRef.current;
           ledgerRef.current = ledgerAt({
             me: { id: me.current.id, x: p.x, z: p.z },
@@ -406,6 +454,7 @@ export function RoleField({
           stress: stress.current,
           natureCfg,
           cfg: sound.sigCfg,
+          alive,
         });
         // V2 session: the visitor's motif is only given once their role is fixed (LIVE); before that the engine hears
         // nobody (no id → no motif of mine, no voices of others) and is silent (muffleSound)
@@ -448,18 +497,35 @@ export function RoleField({
   // where a path has formed). Slabs appear in the Top and Side views.
   return (
     <>
-      <NatureCloud
-        playerPosRef={playerPosRef}
-        getStress={() => stress.current}
-        getSnapshot={() => snap.current}
-        cfg={natureCfg}
-        pointSize={pointSize}
-        pathDots={pathDots}
-        getQuick={() => quickMap.current}
-        getMine={() => mineMap.current}
-        grass={grassReaction}
-      />
+      {grass?.style === "dither" || grass?.style === "field" ? (
+        <DitherGround
+          playerPosRef={playerPosRef}
+          getStress={() => stress.current}
+          getSnapshot={() => snap.current}
+          getQuick={() => quickMap.current}
+          cfg={natureCfg}
+          radius={grass.radius}
+          pixel={grass.ditherPx}
+          dither={grass.style === "dither"}
+          color={grass.color}
+          density={grass.density}
+        />
+      ) : (
+        <NatureCloud
+          playerPosRef={playerPosRef}
+          getStress={() => stress.current}
+          getSnapshot={() => snap.current}
+          cfg={natureCfg}
+          pointSize={grass?.style === "squares" ? grass.squareSize : pointSize}
+          pathDots={pathDots}
+          getQuick={() => quickMap.current}
+          getMine={() => mineMap.current}
+          grass={grassReaction}
+          flat={grass?.style === "squares" ? grass.color : undefined}
+        />
+      )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
+      {marks?.burst.on && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}
@@ -472,9 +538,11 @@ export function RoleField({
           pulseHz={marks.others.pulseHz}
           holdSec={marks.others.holdSec}
           snap={marks.others.snap}
+          square={marks.others.square}
         />
       )}
-      {marks?.concrete.on && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
+      {marks?.concrete.on && marks.concrete.style === "lines" && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
+      {marks?.concrete.on && marks.concrete.style === "outline" && <ConcreteOutline getMarks={() => marksRef.current} scale={marks.concrete.outlineScale} />}
     </>
   );
 }

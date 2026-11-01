@@ -11,6 +11,8 @@
  * - ?sound=0 turns it off entirely (for checks in a Claude browser: no sound through the artist's speakers);
  *   ?sound=mute runs everything silently (to measure the planning: window.__globalSound.stats).
  * - The buildings come from the growing fold (useFoldState): cheap every few seconds, unlike a full fold.
+ * - While a personal view is open in this browser the test wall is silent (working with the two side by side: its sound
+ *   collides with the headset's; lib/sound/personalOpen.ts). The exhibition wall (?ui=0) plays on: there both belong.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +22,7 @@ import { useFoldState } from "./useWorld";
 import { useRoomLog } from "@/components/sound/useRoomLog";
 import { DEFAULT_FOLD, currentEpochKey, latestS, withoutWear } from "@/lib/parliament";
 import { DEFAULT_GLOBAL, GlobalEngine, globalBuildings, presences, type GlobalParams } from "@/lib/sound/global";
+import { watchPersonalOpen } from "@/lib/sound/personalOpen";
 
 const ROOT = "소리 (V2 · 스피커)";
 
@@ -68,26 +71,36 @@ export default function GlobalSound() {
   }, [on]);
 
   const muted = useRef(false);
+  /** A personal view is open beside this test wall: silent (never on the exhibition wall). */
+  const yielding = useRef(false);
   const [status, setStatus] = useState("♪ 스피커 (글로벌 뷰) · 클릭하면 시작");
   useEffect(() => {
     if (!engine) return;
     (window as unknown as { __globalSound?: GlobalEngine }).__globalSound = engine;
     const start = () => {
-      if (onRef.current && !muted.current) engine.start().catch(() => {});
+      if (onRef.current && !muted.current && !yielding.current) engine.start().catch(() => {});
     };
     const onKey = (e: KeyboardEvent) => {
       // the exhibition wall: ESC leaves full screen and nothing else (a mute there would be invisible)
       if (e.key === "Escape" && !bare) {
         muted.current = !muted.current;
         if (muted.current) engine.stop();
-        else if (onRef.current) engine.start().catch(() => {});
+        else start();
         return;
       }
       start();
     };
     window.addEventListener("pointerdown", start);
     window.addEventListener("keydown", onKey);
+    const unwatch = bare
+      ? () => {}
+      : watchPersonalOpen((open) => {
+          yielding.current = open;
+          if (open) engine.stop();
+          else start();
+        });
     return () => {
+      unwatch();
       window.removeEventListener("pointerdown", start);
       window.removeEventListener("keydown", onKey);
       engine.dispose();
@@ -96,7 +109,7 @@ export default function GlobalSound() {
 
   useEffect(() => {
     if (!engine) return;
-    if (on && !muted.current) engine.start().catch(() => {}); // a no-op until a gesture has unlocked the audio
+    if (on && !muted.current && !yielding.current) engine.start().catch(() => {}); // a no-op until a gesture has unlocked the audio
     else engine.stop();
   }, [engine, on]);
 
@@ -120,7 +133,7 @@ export default function GlobalSound() {
       engine.update(presences(events, params.windowSec, list), list, epoch, params);
       if (bare) return;
       const d = engine.debug;
-      const why = !onRef.current ? "꺼짐 (Leva)" : muted.current ? "음소거 (ESC)" : engine.running ? "재생 중" : "클릭하면 시작";
+      const why = !onRef.current ? "꺼짐 (Leva)" : yielding.current ? "꺼짐 (개인뷰가 열려 있음)" : muted.current ? "음소거 (ESC)" : engine.running ? "재생 중" : "클릭하면 시작";
       setStatus(`♪ 스피커 (글로벌 뷰) · ${why} · ${d.voices}명 (건물에 ${d.atBuildings} · 걷는 중 ${d.moving}) · 건물 ${list.length} · bar ${d.bar}${engine.stats.lateBars ? ` · 빠진 마디 ${engine.stats.lateBars}` : ""}${engine.stats.clockSpeed < 0.95 ? ` · 오디오 클럭 ${engine.stats.clockSpeed.toFixed(2)}× (느림)` : ""}${engine.stats.shed ? ` · 덜어냄 ${engine.stats.shed}` : ""} · → ${engine.output}${silent ? " · 무음 측정" : ""}`);
     }, 1000);
     return () => clearInterval(id);
