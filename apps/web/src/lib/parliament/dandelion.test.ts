@@ -3,10 +3,11 @@
  * where its word is found.
  */
 import { describe, expect, it } from "vitest";
-import { NO_JITTER, SEEDS_PER_HEAD, STEM, dandelionShape, dandelionsIn, headScale, headVariation, scatterPoints, wordSpots, type Dandelion, type HeadDraw, type HeadLife, type PEvent, type Scatter } from "./index";
+import { MAX_SPOKES, NO_JITTER, dandelionShape, dandelionsIn, headState, headVariation, scatterEndSec, scatterPoints, wordSpots, type Dandelion, type HeadDraw, type HeadLife, type PEvent, type Scatter } from "./index";
 
 const head: Dandelion = { id: "v_a:t:1", o: "v_a", x: 10, z: -4, s: 100 };
-const whole: HeadDraw = { size: 1, stem: 1, shape: 0, dot: 0.2, dotJitter: 0 };
+const SPOKES = 24;
+const whole: HeadDraw = { stem: 0.9, radius: 0.55, spokes: SPOKES, keepSpokes: 1, dome: 0, shape: 0, dot: 0.2, dotJitter: 0 };
 const shape = (h: HeadDraw = whole) => {
   const lines: number[] = [], dots: number[] = [], sizes: number[] = [];
   const cy = dandelionShape(head.id, head.x, 5, head.z, h, lines, dots, sizes);
@@ -33,9 +34,9 @@ describe("the dandelion", () => {
   });
 
   it("stands whole, a stem and all its spokes with a seed on each, the same for the same event", () => {
-    expect(shape().spokes).toBe(SEEDS_PER_HEAD);
-    expect(shape().seeds).toBe(SEEDS_PER_HEAD);
-    expect(shape().cy).toBeCloseTo(5 + STEM);
+    expect(shape().spokes).toBe(SPOKES);
+    expect(shape().seeds).toBe(SPOKES);
+    expect(shape().cy).toBeCloseTo(5.9);
     expect(shape()).toEqual(shape());
     expect(new Set(shape().sizes).size).toBe(1);
   });
@@ -44,7 +45,18 @@ describe("the dandelion", () => {
     const rough = shape({ ...whole, shape: 0.6, dotJitter: 0.6 });
     expect(new Set(rough.sizes).size).toBeGreaterThan(5);
     expect(rough.dots).not.toEqual(shape().dots);
-    expect(shape({ ...whole, stem: 2 }).cy).toBeCloseTo(5 + 2 * STEM);
+    expect(shape({ ...whole, stem: 2 }).cy).toBeCloseTo(7);
+  });
+
+  it("has as many spokes as asked within its buffers, loses some when told, and can gather at the top", () => {
+    expect(shape({ ...whole, spokes: 8 }).spokes).toBe(8);
+    expect(shape({ ...whole, spokes: 1000 }).spokes).toBe(MAX_SPOKES);
+    const few = shape({ ...whole, keepSpokes: 0.5 }).spokes;
+    expect(few).toBeGreaterThan(4);
+    expect(few).toBeLessThan(SPOKES - 4);
+    expect(shape({ ...whole, keepSpokes: 0 }).spokes).toBe(0);
+    const dome = shape({ ...whole, dome: 1 });
+    for (let i = 1; i < dome.dots.length; i += 3) expect(dome.dots[i]).toBeGreaterThanOrEqual(dome.cy - 1e-9);
   });
 
   it("offers others' words at the head and where the wind has carried them, never my own", () => {
@@ -59,7 +71,8 @@ describe("the dandelion", () => {
 });
 
 describe("a head's life", () => {
-  const life: HeadLife = { settle: 0.5, settleSec: 10, fossilDepth: 45, fossilSpread: 0, keep: 0.4 };
+  const life: HeadLife = { growSec: 0, settle: 0.5, settleSec: 10, fossilDepth: 45, fossilSpread: 0, keep: 0.4, goneSteps: 3, fossilScale: 1, fossilLight: 1, fossilSpokes: 1 };
+  const headScale = (v: Parameters<typeof headState>[0], since: number | null, depth: number, dust: number, c: HeadLife) => headState(v, since, depth, dust, c).scale;
   const stays = { ...headVariation("x", NO_JITTER), fate: 0.1, early: 0 };
   const goes = { ...stays, fate: 0.9 };
   const DUST = 40;
@@ -88,6 +101,17 @@ describe("a head's life", () => {
     expect(headScale(stays, null, 400, DUST, life)).toBe(0.5);
   });
 
+  it("grows in when told, and what stays can turn smaller, darker and thinner as it fossilises", () => {
+    expect(headScale(stays, 0, 0, DUST, { ...life, growSec: 2 })).toBe(0);
+    expect(headScale(stays, 1, 0, DUST, { ...life, growSec: 2 })).toBeCloseTo(0.5);
+    expect(headScale(stays, 2, 0, DUST, { ...life, growSec: 2 })).toBe(1);
+    const c = { ...life, fossilScale: 0.5, fossilLight: 0.25, fossilSpokes: 0.5 };
+    expect(headState(stays, null, 44, DUST, c)).toEqual({ scale: 0.5, light: 1, spokes: 1 });
+    expect(headState(stays, null, 400, DUST, c)).toEqual({ scale: 0.25, light: 0.25, spokes: 0.5 });
+    expect(headState(goes, null, 46.5, DUST, { ...life, goneSteps: 3 }).scale).toBeCloseTo(0.25);
+    expect(headState(goes, null, 46.5, DUST, { ...life, goneSteps: 6 }).scale).toBeCloseTo(0.375);
+  });
+
   it("the keep share decides how many stay, over many heads", () => {
     const share = (keep: number) => {
       let n = 0;
@@ -112,15 +136,17 @@ describe("a head's life", () => {
 describe("the jitter", () => {
   it("nothing varies at zero; at one, the multipliers stay within a third to three times", () => {
     const v = headVariation(head.id, NO_JITTER);
-    for (const m of [v.size, v.stem, v.dustCount, v.dustReach, v.dustSec]) expect(m).toBe(1);
-    const full = { size: 1, shape: 1, dot: 1, dustCount: 1, dustReach: 1, dustSec: 1 };
+    for (const m of [v.size, v.stem, v.spokes, v.light, v.dustCount, v.dustReach, v.dustSec]) expect(m).toBe(1);
+    const full = { size: 1, shape: 1, dot: 1, spokes: 1, light: 1, dustCount: 1, dustReach: 1, dustSec: 1 };
     const seen = new Set<number>();
     for (let i = 0; i < 50; i++) {
       const w = headVariation(`h${i}`, full);
-      for (const m of [w.size, w.stem, w.dustCount, w.dustReach, w.dustSec]) {
+      for (const m of [w.size, w.stem, w.spokes, w.dustCount, w.dustReach, w.dustSec]) {
         expect(m).toBeGreaterThanOrEqual(1 / 3);
         expect(m).toBeLessThanOrEqual(3);
       }
+      expect(w.light).toBeGreaterThanOrEqual(0);
+      expect(w.light).toBeLessThanOrEqual(1);
       seen.add(w.size);
     }
     expect(seen.size).toBeGreaterThan(40);
@@ -176,6 +202,30 @@ describe("a scatter", () => {
     };
     expect(meanLength({ ...plain, wind: 0.9 })).toBeGreaterThan(0.8);
     expect(meanLength(plain)).toBeLessThan(0.4);
+  });
+
+  it("thrown slowly, it starts with few and lasts longer", () => {
+    const slow = { ...plain, emit: 1 };
+    expect(scatterEndSec(plain)).toBe(plain.lifeSec);
+    expect(scatterEndSec(slow)).toBe(2 * plain.lifeSec);
+    expect(thrown(0.5, slow).n).toBeLessThan(plain.count / 4);
+    expect(thrown(plain.lifeSec + 1, slow).n).toBeGreaterThan(0);
+    expect(thrown(scatterEndSec(slow), slow).n).toBe(0);
+  });
+
+  it("a harder burst is farther sooner; a given heading takes the wind that way", () => {
+    const meanDist = (burst: number) => {
+      const { n, pos } = thrown(1, { ...plain, burst });
+      let d = 0;
+      for (let i = 0; i < n; i++) d += distOf(pos, i);
+      return d / n;
+    };
+    expect(meanDist(5)).toBeGreaterThan(meanDist(1));
+    const { n, pos } = thrown(1, { ...plain, wind: 1, heading: 0, headingSpread: 0 });
+    for (let i = 0; i < n; i++) {
+      expect(pos[i * 3]).toBeGreaterThan(0);
+      expect(pos[i * 3 + 2]).toBeCloseTo(0, 5);
+    }
   });
 
   it("appends after what is already written and stops when the buffer is full", () => {

@@ -29,12 +29,8 @@ export interface WordSpot {
   z: number;
 }
 
-export const SEEDS_PER_HEAD = 24;
-/** From the foot to the middle of the ball, and from there to a seed, at size 1. */
-export const STEM = 0.9;
-export const SPOKE = 0.55;
-/** A head that does not stay is gone within this many steps below where it fossilises. */
-const FOSSIL_GONE_STEPS = 3;
+/** The most spokes a head can have (the wall's buffers are sized by it). */
+export const MAX_SPOKES = 64;
 /** The places the wind carries a head's word to: when each is reached (s after the answer) and how far it is (world). */
 const LANDINGS = 6;
 const LAND_MIN = 18;
@@ -63,17 +59,24 @@ export interface SeedJitter {
   shape: number;
   /** Each seed and each grain of powder. */
   dot: number;
+  /** How many spokes a head has. */
+  spokes: number;
+  /** How bright a head is: 0: all full … 1: from black to full. */
+  light: number;
   dustCount: number;
   dustReach: number;
   dustSec: number;
 }
 
-export const NO_JITTER: SeedJitter = { size: 0, shape: 0, dot: 0, dustCount: 0, dustReach: 0, dustSec: 0 };
+export const NO_JITTER: SeedJitter = { size: 0, shape: 0, dot: 0, spokes: 0, light: 0, dustCount: 0, dustReach: 0, dustSec: 0 };
 
 /** One head's own share of the jitter (multipliers), and what decides its end. */
 export interface HeadVariation {
   size: number;
   stem: number;
+  spokes: number;
+  /** 0 … 1. */
+  light: number;
   dustCount: number;
   dustReach: number;
   dustSec: number;
@@ -88,6 +91,8 @@ export function headVariation(id: string, j: SeedJitter): HeadVariation {
   return {
     size: spread(j.size, r()),
     stem: spread(j.shape, r()),
+    spokes: spread(j.spokes, r()),
+    light: 1 - j.light * r(),
     dustCount: spread(j.dustCount, r()),
     dustReach: spread(j.dustReach, r()),
     dustSec: spread(j.dustSec, r()),
@@ -98,32 +103,58 @@ export function headVariation(id: string, j: SeedJitter): HeadVariation {
 
 /** A head's life on the wall. */
 export interface HeadLife {
+  /** How long a new head takes to grow to its full size (s; 0: there at once). */
+  growSec: number;
   /** What it shrinks to once its powder has flown (× its size), and how long that takes (s). */
   settle: number;
   settleSec: number;
   /** How far below the present (steps) it fossilises, and how much that differs between heads (steps, ±). */
   fossilDepth: number;
   fossilSpread: number;
-  /** The share of the heads that stay when they fossilise. */
+  /** The share of the heads that stay when they fossilise; how many steps the change takes. */
   keep: number;
+  goneSteps: number;
+  /** What the ones that stay become: their size and brightness (× what they were), and the share of their spokes left. */
+  fossilScale: number;
+  fossilLight: number;
+  fossilSpokes: number;
+}
+
+/** A head now: its size (×; 0: gone), its brightness (×) and the share of its spokes left. */
+export interface HeadState {
+  scale: number;
+  light: number;
+  spokes: number;
 }
 
 /**
- * How large a head is now (× its size; 0: gone). `sinceBornSec`: since the wall first read it (null: it was there already,
- * so it has long settled); `depth`: its steps below the present; `dustSec`: how long its own powder flies.
+ * A head's state now. `sinceBornSec`: since the wall first read it (null: it was there already, so it has long settled);
+ * `depth`: its steps below the present; `dustEndSec`: when its own powder has all flown.
  */
-export function headScale(v: HeadVariation, sinceBornSec: number | null, depth: number, dustSec: number, c: HeadLife): number {
+export function headState(v: HeadVariation, sinceBornSec: number | null, depth: number, dustEndSec: number, c: HeadLife): HeadState {
   let scale = c.settle;
-  if (sinceBornSec !== null && sinceBornSec < dustSec + c.settleSec) scale = 1 + (c.settle - 1) * ease(clamp01((sinceBornSec - dustSec) / Math.max(0.01, c.settleSec)));
-  if (v.fate < c.keep) return scale;
-  return scale * clamp01(1 - (depth - (c.fossilDepth + c.fossilSpread * v.early)) / FOSSIL_GONE_STEPS);
+  if (sinceBornSec !== null) {
+    if (sinceBornSec < dustEndSec + c.settleSec) scale = 1 + (c.settle - 1) * ease(clamp01((sinceBornSec - dustEndSec) / Math.max(0.01, c.settleSec)));
+    if (c.growSec > 0) scale *= ease(clamp01(sinceBornSec / c.growSec));
+  }
+  const t = clamp01((depth - (c.fossilDepth + c.fossilSpread * v.early)) / Math.max(0.01, c.goneSteps));
+  if (v.fate >= c.keep) return { scale: scale * (1 - t), light: 1, spokes: 1 };
+  return { scale: scale * (1 + (c.fossilScale - 1) * t), light: 1 + (c.fossilLight - 1) * t, spokes: 1 + (c.fossilSpokes - 1) * t };
 }
 
-/** What a head is drawn at: its world size, its stem's and spokes' jitter, its seeds' world size and their jitter. */
+/** What a head is drawn at. */
 export interface HeadDraw {
-  size: number;
+  /** The stem's length and the ball's radius (world). */
   stem: number;
+  radius: number;
+  /** How many spokes, and the share of them still there. */
+  spokes: number;
+  keepSpokes: number;
+  /** Where they gather: 0: all over the ball … 1: the upper half only. */
+  dome: number;
+  /** The jitter of each spoke's length. */
   shape: number;
+  /** A seed's world size and its jitter. */
   dot: number;
   dotJitter: number;
 }
@@ -133,16 +164,19 @@ export interface HeadDraw {
  * and their world sizes into `dotSizes`. Returns the height of the middle of its ball.
  */
 export function dandelionShape(id: string, x: number, y: number, z: number, h: HeadDraw, lines: number[], dots: number[], dotSizes: number[]): number {
-  const cy = y + STEM * h.size * h.stem;
+  const cy = y + h.stem;
   const r = rng(hashString(id));
   const turn = r() * TAU;
+  const n = Math.max(1, Math.min(MAX_SPOKES, Math.round(h.spokes)));
   lines.push(x, y, z, x, cy, z);
-  for (let i = 0; i < SEEDS_PER_HEAD; i++) {
-    const long = spread(h.shape, r()) * SPOKE * h.size;
+  for (let i = 0; i < n; i++) {
+    const long = spread(h.shape, r()) * h.radius;
     const dot = h.dot * spread(h.dotJitter, r());
-    // spokes spread evenly over the ball (a golden spiral)
-    const dy = 1 - (2 * (i + 0.5)) / SEEDS_PER_HEAD;
-    const ring = Math.sqrt(1 - dy * dy);
+    const there = r();
+    if (there >= h.keepSpokes) continue;
+    // spokes spread evenly over the ball (a golden spiral), or over its upper part
+    const dy = 1 - ((2 - h.dome) * (i + 0.5)) / n;
+    const ring = Math.sqrt(Math.max(0, 1 - dy * dy));
     const a = i * 2.399963 + turn;
     const tx = x + Math.cos(a) * ring * long, ty = cy + dy * long, tz = z + Math.sin(a) * ring * long;
     lines.push(x, cy, z, tx, ty, tz);
@@ -166,10 +200,24 @@ export interface Scatter {
   waver: number;
   /** How far from the centre they start (world). */
   from: number;
+  /** The wind's heading (radians), and how much it differs per id (0: exactly this … 1: any way). Without it: any way. */
+  heading?: number;
+  headingSpread?: number;
+  /** How hard they leave: 1: steadily … 5: a hard burst, then hanging (default 3). */
+  burst?: number;
+  /** 0: all thrown at once … 1: thrown over a whole life, so it lasts twice as long. */
+  emit?: number;
+  /** How much their lives differ: 0: all the longest … 1: from nothing up to the longest (default 0.7). */
+  lifeSpread?: number;
+  /** How their light goes: below 1 late, above 1 early (default 1.5). */
+  fade?: number;
   /** For `out.size`: a point's world size and its jitter. */
   dot?: number;
   dotJitter?: number;
 }
+
+/** When the last point of a scatter is gone (s). */
+export const scatterEndSec = (c: Pick<Scatter, "lifeSec" | "emit">): number => c.lifeSec * (1 + (c.emit ?? 0));
 
 /** Where a scatter is written: x, y, z per point, and if wanted its light (1 fading to 0) and world size. */
 export interface ScatterOut {
@@ -182,8 +230,10 @@ export interface ScatterOut {
 export function scatterPoints(id: string, ageSec: number, x: number, y: number, z: number, c: Scatter, out: ScatterOut, start = 0): number {
   const age = Math.max(0, ageSec);
   const r = rng(hashString(id));
-  const heading = r() * TAU;
+  const own = r();
+  const heading = c.heading === undefined ? own * TAU : c.heading + (own - 0.5) * TAU * (c.headingSpread ?? 1);
   const wx = Math.cos(heading), wz = Math.sin(heading);
+  const burst = c.burst ?? 3, emit = c.emit ?? 0, lifeSpread = c.lifeSpread ?? 0.7, fade = c.fade ?? 1.5;
   const { pos, light, size } = out;
   const room = Math.floor(pos.length / 3);
   let n = start;
@@ -191,20 +241,21 @@ export function scatterPoints(id: string, ageSec: number, x: number, y: number, 
     // the same draws for every point, gone or not, so each keeps its way
     const dy = 2 * r() - 1;
     const a = r() * TAU;
-    const life = c.lifeSec * (0.3 + 0.7 * r());
+    const life = c.lifeSec * (1 - lifeSpread + lifeSpread * r());
     const far = c.reach * (0.25 + 0.75 * r());
     const phase = r() * TAU;
     const grain = r();
-    if (age >= life) continue;
+    const t = age - emit * c.lifeSec * r();
+    if (t < 0 || t >= life) continue;
     const ring = Math.sqrt(1 - dy * dy);
     const dx = Math.cos(a) * ring, dz = Math.sin(a) * ring;
-    const u = age / life;
-    const go = far * (1 - (1 - u) ** 3);
+    const u = t / life;
+    const go = far * (1 - (1 - u) ** burst);
     const sway = c.waver * u * Math.sin(phase + u * 9);
     pos[n * 3] = x + dx * c.from + (dx * (1 - c.wind) + wx * c.wind) * go - wz * sway;
     pos[n * 3 + 1] = y + dy * c.from + dy * (1 - c.wind) * go + c.rise * u;
     pos[n * 3 + 2] = z + dz * c.from + (dz * (1 - c.wind) + wz * c.wind) * go + wx * sway;
-    if (light) light[n] = (1 - u) ** 1.5;
+    if (light) light[n] = (1 - u) ** fade;
     if (size) size[n] = (c.dot ?? 0.1) * spread(c.dotJitter ?? 0, grain);
     n++;
   }
