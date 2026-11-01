@@ -467,6 +467,58 @@ export class SpaceModel {
     };
   }
 
+  /**
+   * A chunk's mass in TILES across the ground (TILE cells each, the parts within the tile ± MARGIN): the flocks spread
+   * over the world and one grid for the whole ground passed fuseChunk's size limit (an empty mesh — the artist,
+   * 2026-11-01: "the bots move differently, but the fossil visual is gone"). Each tile keeps only its own faces (as the
+   * chunk keeps only its own rows), so the tiles join without a seam; tiles without parts cost nothing.
+   */
+  private fuseTiled(
+    w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: BakedTube[]; x0: number; z0: number; nx: number; nz: number },
+    h: NatureHistory | null,
+    u: number,
+    sed: NonNullable<ReturnType<typeof sedimentOf>>,
+    layerDecay: ((k: number) => number) | undefined,
+    fuse: FuseConfig,
+  ): FuseMesh {
+    const TILE = 24, MARGIN = 4;
+    const meshes: FuseMesh[] = [];
+    const cellOf = (v: number) => Math.floor(v / CELL);
+    for (let tz = w.z0; tz < w.z0 + w.nz; tz += TILE) {
+      for (let tx = w.x0; tx < w.x0 + w.nx; tx += TILE) {
+        const ax = tx - MARGIN, bx = tx + TILE + MARGIN, az = tz - MARGIN, bz = tz + TILE + MARGIN;
+        const ps = w.ps.filter(({ b }) => {
+          const r = Math.max(b.sx, b.sy, b.sz) / 2;
+          return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
+        });
+        const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
+        if (!ps.length && !tubes.length) continue; // empty ground costs nothing
+        meshes.push(
+          fuseChunk({
+            parts: ps.map((e) => e.b),
+            decay: ps.map((e) => e.d),
+            standing: ps.map((e) => e.up),
+            skeleton: ps.map((e) => e.sk),
+            tubes,
+            history: h,
+            k0: w.c0,
+            k1: w.c1,
+            x0: ax,
+            z0: az,
+            nx: bx - ax,
+            nz: bz - az,
+            own: { x0: tx, x1: tx + TILE, z0: tz, z1: tz + TILE },
+            unit: u,
+            sediment: sed,
+            layerDecay,
+            cfg: fuse,
+          }),
+        );
+      }
+    }
+    return mergeMeshes(meshes);
+  }
+
   /** fuseBuilt as of the last computeParts: baking waits until the parts reflect every built chunk. */
   private partsFuseBuilt = -1;
   private natureSig = "";
@@ -1203,7 +1255,29 @@ export class SpaceModel {
     const padSlots = Math.ceil((Math.max(pad.above, pad.below) * fuse.voxel + fuse.accDepth) / u) + 1 + (fuse.study?.fill ? FILL_MAX_GAP : 0);
     // the age clock in the keys moves once per chunk of slots (it only tints and pits), not every slot
     const clockKey = Math.floor(sed.tNow / (box.secPerUnit * NATURE_CHUNK));
-    type Want = { c0: number; c1: number; ps: P[]; tubes: BakedTube[]; key: string };
+    // each chunk's grid covers ITS parts (± a margin), not the whole ground: as the flocks moved over the world the
+    // ground grew wider and every chunk's grid passed fuseChunk's size limit — an empty mesh everywhere (the artist,
+    // 2026-11-01: "the bots move differently, but the fossil visual is gone")
+    type Want = { c0: number; c1: number; ps: P[]; tubes: BakedTube[]; key: string; x0: number; z0: number; nx: number; nz: number };
+    const MARGIN = 3; // cells: the blur, the sag and the shell reach a little beyond the parts
+    const extentOf = (ps: P[], tubes: BakedTube[]) => {
+      let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+      for (const { b: p } of ps) {
+        const r = Math.max(p.sx, p.sy, p.sz) / 2;
+        a = Math.min(a, p.x - r);
+        b = Math.max(b, p.x + r);
+        c = Math.min(c, p.z - r);
+        d = Math.max(d, p.z + r);
+      }
+      for (const t of tubes) {
+        a = Math.min(a, t.x0 - t.r, t.x1 - t.r);
+        b = Math.max(b, t.x0 + t.r, t.x1 + t.r);
+        c = Math.min(c, t.z0 - t.r, t.z1 - t.r);
+        d = Math.max(d, t.z0 + t.r, t.z1 + t.r);
+      }
+      const ex0 = Math.floor(a / CELL) - MARGIN, ez0 = Math.floor(c / CELL) - MARGIN;
+      return { x0: ex0, z0: ez0, nx: Math.ceil(b / CELL) + MARGIN - ex0, nz: Math.ceil(d / CELL) + MARGIN - ez0 };
+    };
     const wants: Want[] = [];
     for (let c0 = Math.floor(kA / NATURE_CHUNK) * NATURE_CHUNK; c0 <= kB; c0 += NATURE_CHUNK) {
       if (this.baked.has(c0)) continue; // done: kept as it was
@@ -1227,7 +1301,8 @@ export class SpaceModel {
         const off = (k - h.k0) * h.nx * h.nz;
         for (let i = 0; i < h.nx * h.nz; i++) vs += h.V[off + i] * ((i % 13) + 1);
       }
-      wants.push({ c0, c1, ps, tubes, key: `${ps.length}:${tubes.length}:${tsum.toFixed(2)}:${sum.toFixed(3)}:${vs.toFixed(3)}:${clockKey}:${JSON.stringify(fuse)}:${input.tauReclaimYears}:${x0},${z0},${nx},${nz}` });
+      const ex = extentOf(ps, tubes);
+      wants.push({ c0, c1, ps, tubes, ...ex, key: `${ps.length}:${tubes.length}:${tsum.toFixed(2)}:${sum.toFixed(3)}:${vs.toFixed(3)}:${clockKey}:${JSON.stringify(fuse)}:${input.tauReclaimYears}:${ex.x0},${ex.z0},${ex.nx},${ex.nz}` });
     }
     // build order: chunks with no mesh yet first, then stale ones; each nearest to where the camera looks first
     // (oldest-first starved the upper chunks — where the buildings are — while the lower ones kept changing)
@@ -1288,10 +1363,10 @@ export class SpaceModel {
           skeleton: w.ps.map((e) => e.sk),
           tubes: w.tubes,
           history: h ? sliceHistory(h, ageK0, ageK1) : null,
-          x0,
-          z0,
-          nx,
-          nz,
+          x0: w.x0,
+          z0: w.z0,
+          nx: w.nx,
+          nz: w.nz,
           unit: u,
           sediment: sed,
           t0: this.t,
@@ -1318,24 +1393,7 @@ export class SpaceModel {
     todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || builtAt(a) - builtAt(b) || dist(a) - dist(b));
     const perCall = Math.max(1, input.perCall ?? FUSE_NEW_PER_CALL);
     for (const w of todo.slice(0, perCall)) {
-      const mesh = fuseChunk({
-        parts: w.ps.map((e) => e.b),
-        decay: w.ps.map((e) => e.d),
-        standing: w.ps.map((e) => e.up),
-        skeleton: w.ps.map((e) => e.sk),
-        tubes: w.tubes,
-        history: h,
-        k0: w.c0,
-        k1: w.c1,
-        x0,
-        z0,
-        nx,
-        nz,
-        unit: u,
-        sediment: sed,
-        layerDecay,
-        cfg: fuse,
-      });
+      const mesh = this.fuseTiled(w, h, u, sed, layerDecay, fuse);
       this.fuseBuilt++;
       this.fuseChunks.set(w.c0, { key: w.key, mesh, built: this.fuseBuilt });
       for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);

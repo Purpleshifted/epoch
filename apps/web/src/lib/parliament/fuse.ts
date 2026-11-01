@@ -578,6 +578,12 @@ function faceNormals(P: Float32Array, quads: readonly number[], N: Float32Array)
 }
 
 export interface FuseChunkInput {
+  /**
+   * TILE OWNERSHIP (cells, optional): the grid covers x0 … x0 + nx (± padding) but only the faces whose edge starts in
+   * own.x0 … own.x1 × own.z0 … own.z1 are kept — the same rule as the chunk's own rows (k0 … k1), across the ground, so
+   * neighbouring tiles join without a seam. Absent = all of x0 … x0 + nx.
+   */
+  own?: { x0: number; x1: number; z0: number; z1: number };
   /** Every part as BUILT (also those that have fallen away), at least those overlapping the chunk's slots ± padding. */
   parts: readonly Box[];
   /** Per part: decay = 1 − survival (0 fresh … 1 gone). Absent = 1 (all fully decayed). */
@@ -1159,10 +1165,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     quads.push(a, b, c, d, flip ? 1 : 0, own ? 1 : 0);
   };
   const owned = (j: number) => J0 + j >= Jlo && J0 + j < Jhi;
+  const ow = input.own;
+  const Ilo = ow ? Math.floor((ow.x0 * CELL_SIZE) / vs) : -Infinity, Ihi = ow ? Math.floor((ow.x1 * CELL_SIZE) / vs) : Infinity;
+  const Klo = ow ? Math.floor((ow.z0 * CELL_SIZE) / vs) : -Infinity, Khi = ow ? Math.floor((ow.z1 * CELL_SIZE) / vs) : Infinity;
   for (let k = 1; k < nz - 1; k++) {
+    const ownK = K0 + k >= Klo && K0 + k < Khi;
     for (let j = 1; j < ny - 1; j++) {
-      const own = owned(j);
+      const ownJK = ownK && owned(j);
       for (let i = 1; i < nx - 1; i++) {
+        const own = ownJK && I0 + i >= Ilo && I0 + i < Ihi;
         const f0 = F[idx(i, j, k)] > iso;
         // edge along x: (i,j,k)→(i+1,j,k), cubes around it in (j,k)
         if (f0 !== F[idx(i + 1, j, k)] > iso) {
