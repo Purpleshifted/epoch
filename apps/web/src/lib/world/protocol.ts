@@ -45,6 +45,8 @@ export interface WorldHost {
 /** What the server is the one authority on, besides the events. */
 export interface WorldState {
   world: string;
+  /** Rises with every change of the epoch, the clock or the window: a cached read older than what a tab holds changes nothing. */
+  rev: number;
   epochMs: number;
   anchor: WorldAnchor;
   keepWindowSec: number;

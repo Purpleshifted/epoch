@@ -18,7 +18,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
-import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
+import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
+import { worldReadout } from "@/lib/parliament/serverWorld";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
@@ -1682,7 +1683,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // THE WALL opens at real speed: the shared rate is saved per origin, and a ×20 left behind from a rehearsal would
   // run the exhibition's world away (2026-10-31)
   useEffect(() => {
-    if (hideUi && !lab && clk.rate() !== 1) clk.setRate(1);
+    // (the shared world's rate belongs to the server: opening a wall must not change someone else's rehearsal)
+    if (hideUi && !lab && !hasWorldMirror() && clk.rate() !== 1) clk.setRate(1);
   }, [hideUi, lab, clk]);
   useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
@@ -2787,6 +2789,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         <div>preset: {presetSource()}{tabModified ? " · tab-modified" : ""}{params.get("cam") === "band" ? " · cam=band" : ""}</div>
+        {worldReadout() && <div>{worldReadout()}</div>}
         {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {depths && (

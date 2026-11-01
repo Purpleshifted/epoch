@@ -72,11 +72,13 @@ interface StateRow {
   bot_start_ms: string | number | null;
   host_id: string | null;
   host_until: string | number | null;
+  updated_at: string | Date;
 }
 
 function toState(r: StateRow): WorldState {
   return {
     world: r.world,
+    rev: new Date(r.updated_at).getTime(),
     epochMs: Number(r.epoch_ms),
     anchor: { r: Number(r.anchor_r), v: Number(r.anchor_v), rate: Number(r.rate) },
     keepWindowSec: Number(r.keep_window_sec),

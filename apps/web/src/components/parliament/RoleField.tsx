@@ -31,6 +31,7 @@ import {
   dueSamples,
   steerBot,
   getEpochMs,
+  hasWorldMirror,
   pickOffset,
   saveMerged,
   setKeepFrom,
@@ -244,7 +245,9 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const now = worldNow();
     const wall = Date.now();
-    const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold } = live.current;
+    const { role: myRole, botCount, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold } = live.current;
+    // the shared world's bots come from one wall (useGlobalBots), never from a visitor's tab
+    const nBots = hasWorldMirror() ? 0 : botCount;
     // V2: bots walk where others walked (bundling) and around buildings (detour)
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
     if (flow && nBots > 0 && (!botGround.current || wall - botGround.current.at >= BOT_GROUND_EVERY_MS)) {

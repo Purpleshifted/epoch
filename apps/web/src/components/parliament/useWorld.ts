@@ -33,6 +33,7 @@ import {
   type ShardConfig,
   type Snapshot,
 } from "@/lib/parliament";
+import { attachToServerWorld } from "@/lib/parliament/serverWorld";
 import type { ArchStyle } from "./Architecture";
 
 /** A wider Leva panel for every parliament view: the Korean labels are long. */
@@ -74,9 +75,12 @@ export function useWorld(onCleared?: () => void, pollMs = 3000, shared = true): 
       } else sync();
     };
     window.addEventListener("storage", onStorage);
+    // the shared world: what the other machines emit arrives here as well (a no-op when this tab has no server)
+    const detach = attachToServerWorld(log);
     return () => {
       clearInterval(poll);
       window.removeEventListener("storage", onStorage);
+      detach();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log]);

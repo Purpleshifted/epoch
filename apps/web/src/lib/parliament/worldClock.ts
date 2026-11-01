@@ -20,6 +20,42 @@ interface Anchor {
   rate: number;
 }
 
+// ── THE SHARED WORLD (serverWorld.ts): the server's clock corrects this machine's, its anchor replaces the local one and
+// a change of rate is asked of it. Unset, nothing below changes. ──
+let wallOffset = 0;
+let rateMirror: ((rate: number) => void) | null = null;
+
+/** Server ms − this machine's ms. */
+export function setWallOffset(ms: number): void {
+  wallOffset = ms;
+}
+
+/** The wall clock every machine of the shared world agrees on (this machine's own when there is no server). */
+export function wallNow(): number {
+  return Date.now() + wallOffset;
+}
+
+export function setRateMirror(fn: ((rate: number) => void) | null): void {
+  rateMirror = fn;
+}
+
+/** How far (world ms) the stored anchor may be from the server's before it is written again: no jitter from clock samples. */
+const ANCHOR_TOLERANCE_MS = 30;
+
+/** The server's anchor { r: server ms, v, rate } into this browser's storage, on this machine's clock. */
+export function adoptAnchor(server: Anchor): void {
+  const a: Anchor = { r: server.r - wallOffset, v: server.v, rate: server.rate };
+  const held = readAnchor();
+  const at = Date.now();
+  if (held && held.rate === a.rate && Math.abs(held.v + (at - held.r) * held.rate - (a.v + (at - a.r) * a.rate)) < ANCHOR_TOLERANCE_MS) return;
+  try {
+    localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify(a));
+  } catch {
+    /* storage unavailable: this tab only */
+  }
+  cached = { at, a };
+}
+
 /** How often (wall ms) the anchor is read again from storage: other tabs change it. */
 const READ_EVERY_MS = 200;
 let cached: { at: number; a: Anchor | null } | null = null;
@@ -80,6 +116,10 @@ export function makeLocalClock(rate = 1): Clock {
 export function setTimeRate(rate: number): void {
   const r = Math.max(MIN_TIME_RATE, Math.min(MAX_TIME_RATE, Math.round(rate * 100) / 100));
   if (r === timeRate()) return;
+  if (rateMirror) {
+    rateMirror(r);
+    return;
+  }
   const a: Anchor = { r: Date.now(), v: worldNow(), rate: r };
   try {
     localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify(a));

@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { pullPresets } from "./levaSave";
+import { startServerWorld } from "@/lib/parliament/serverWorld";
 
 /** The page whose saved Leva values this path reads (the lab tunes the shared view's — see /v2/global/lab). */
 function levaPageOf(pathname: string): string {
@@ -19,7 +20,8 @@ export default function ServerPresetsGate({ children }: { children: ReactNode })
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let alive = true;
-    pullPresets(levaPageOf(pathname ?? "/")).finally(() => {
+    // the shared world's epoch and clock too (at most 2.5 s, nothing when it is off): the page mounts in the right world
+    Promise.allSettled([pullPresets(levaPageOf(pathname ?? "/")), startServerWorld()]).finally(() => {
       if (alive) setReady(true);
     });
     return () => {

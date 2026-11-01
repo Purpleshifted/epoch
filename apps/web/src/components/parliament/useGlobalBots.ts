@@ -14,6 +14,9 @@
  *   RESIDENT  the old crowd: `botCount` bots always there, in flocks (bots.ts botActor).
  *
  * Only ONE emitter should run per browser: a player tab with its bots on, or one global view with this on.
+ * In the SHARED WORLD (serverWorld.ts) the server sees to that: of all the walls with this on, the one holding the lease
+ * emits. Its samples lie on a fixed grid of the world clock and are named by it, and the bots' start comes from the
+ * server, so a new host goes on from the same places and two hosts overlapping for a moment emit the same events.
  *
  * LINK (lib/parliament/botLink.ts): `?bots=session&max=24&rate=4` on the wall's address sets the group's knobs when
  * the view opens, as if turned by hand (nothing saved). `rate` sets the world clock — the lab's own; on a shared wall
@@ -21,8 +24,10 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { levaStore, useControls } from "leva";
+import { button, levaStore, useControls } from "leva";
+import { mayEmitBots, sharedBotStartMs, takeBotHost, wantBotHost } from "@/lib/parliament/serverWorld";
 import {
+  hasWorldMirror,
   DEFAULT_LIFECYCLE,
   SEAL_H,
   SESSION_ROLES,
@@ -114,6 +119,8 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
   const local = !!opts?.local;
+  // the shared world: the server decides which wall emits
+  const server = !local && hasWorldMirror();
   const show = () => enabled;
   // RESIDENT ONLY (the artist, 2026-11-01: the session bots are not used — the fusion never formed from their short,
   // gapped visits): the mode is fixed to resident and the session knobs are hidden; the session code stays (its own
@@ -155,6 +162,8 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     }),
     { order, collapsed: !enabled },
   );
+  // the shared world: of all the walls with the bots on, one runs them; this brings them here, with this wall's knobs
+  useControls(GROUP, enabled && server ? { "봇 호스트 가져오기": button(() => takeBotHost()) } : {}, { order, collapsed: !enabled });
   const on = enabled && b.botOn;
   const session = false;
   const nBots = on && !session ? b.botCount : 0;
@@ -205,7 +214,8 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     timer = window.setTimeout(apply, 0);
     // a shared wall must not stay fast after the link's tab is gone
     const back = () => {
-      if (!local && link.rate !== undefined && link.rate !== 1) clock.setRate(1);
+      // (in the shared world the rate is the server's: this tab's leaving must not change it for the others)
+      if (!local && !hasWorldMirror() && link.rate !== undefined && link.rate !== 1) clock.setRate(1);
     };
     window.addEventListener("pagehide", back);
     return () => {
@@ -273,9 +283,17 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     }
   }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (server) wantBotHost(on);
+  }, [server, on]);
+
   useTicker(TICK_MS, () => {
     const { on: isOn, session: isSession, nBots: n, role, flock: fl, cfg: foldCfg, fold: theFold, lc: lcCfg, auto } = live.current;
     if (!isOn) return;
+    if (server && !mayEmitBots()) {
+      lastSampleMs.current = 0; // when the bots come here they start from the present, not from what the last host did
+      return;
+    }
     // a cleared world (here or in another tab): join the new epoch with a fresh crowd
     if (!local && currentEpochKey() !== String(epochMs.current)) {
       epochMs.current = getEpochMs();
@@ -316,13 +334,18 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     }
     const g = flow ? ground.current : null;
     const period = Math.max(50, foldCfg.sampleSec * 1000);
-    if (lastSampleMs.current === 0) lastSampleMs.current = now - period;
+    if (server) {
+      const start = sharedBotStartMs();
+      if (start === null) return;
+      botStartMs.current = start;
+    }
+    if (lastSampleMs.current === 0) lastSampleMs.current = (server ? Math.floor(now / period) * period : now) - period;
     const due = dueSamples(lastSampleMs.current, now, period);
     if (due.length) lastSampleMs.current = due[due.length - 1];
     if (botStartMs.current === 0) botStartMs.current = now;
 
-    const add = (a: Actor) => {
-      const e: PEvent = { id: `${a.o}:${tag.current}:${seq.current++}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s };
+    const add = (a: Actor, w: number) => {
+      const e: PEvent = { id: server ? `${a.o}:${w}` : `${a.o}:${tag.current}:${seq.current++}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s };
       log.add(e);
       pending.current.push(e);
     };
@@ -361,7 +384,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       for (const w of due) {
         // (the END event, k = "x", of who leaves comes with the role controls: docs/session-logic.md §2b)
         st = stepLifecycle(st, w, { attractors: g?.visitors ?? [], planRoute }, lcCfg).state;
-        for (const v of st.present) add(lifecycleActor(v, w, epochMs.current));
+        for (const v of st.present) add(lifecycleActor(v, w, epochMs.current), w);
       }
       visitors.current = st;
       (window as unknown as { __lifecycle?: unknown }).__lifecycle = {
@@ -390,7 +413,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
         return { ...a, x, z };
       };
       for (const w of due) {
-        for (let i = 0; i < n; i++) add(steer(botActor(i, role === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : role, w, botStartMs.current, epochMs.current, 0, fl), i, w));
+        for (let i = 0; i < n; i++) add(steer(botActor(i, role === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : role, w, botStartMs.current, epochMs.current, 0, fl), i, w), w);
       }
     }
     if (local) return; // the lab keeps everything, in memory
@@ -407,5 +430,6 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   });
 
   // the readout: how many bots (session: the most at once the knob allows, as a stable number; resident: the count)
+  if (server && !mayEmitBots()) return 0;
   return on ? (session ? Math.max(1, b.lcMax) : nBots) : 0;
 }

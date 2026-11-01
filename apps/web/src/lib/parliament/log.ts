@@ -29,6 +29,26 @@ export const LS_EVENTS_EPOCH_KEY = "anthropocene:parliament:events-epoch:v1";
 export const LS_EVENTS_TOKEN_KEY = "anthropocene:parliament:events-token:v1";
 export const MAX_EVENTS = 30000;
 
+/**
+ * THE SHARED WORLD (serverWorld.ts): set only while this tab's world lives on the server. What this tab writes goes
+ * there as well, and clearing the world or changing its window is asked of the server. Unset, nothing below changes.
+ */
+export interface WorldMirror {
+  enqueue(events: Iterable<PEvent>): void;
+  clear(): void;
+  setKeepWindow(sec: number): void;
+}
+let mirror: WorldMirror | null = null;
+
+export function setWorldMirror(m: WorldMirror | null): void {
+  mirror = m;
+}
+
+/** True when this tab's world lives on the server. */
+export function hasWorldMirror(): boolean {
+  return mirror !== null;
+}
+
 export class EventLog {
   private m = new Map<string, PEvent>();
   private cache: PEvent[] | null = null;
@@ -136,6 +156,12 @@ export function keepWindowSec(): number {
 
 /** Sets the shared history window (seconds); the next setKeepFrom (every player tab, every 30 s) applies it. */
 export function setKeepWindowSec(sec: number): void {
+  if (mirror && keepWindowSec() !== sec && Number.isFinite(sec) && sec > 0) mirror.setKeepWindow(Math.round(sec));
+  storeKeepWindowSec(sec);
+}
+
+/** The window into this browser's storage, as `setKeepWindowSec` or as the server says. */
+export function storeKeepWindowSec(sec: number): void {
   try {
     if (Number.isFinite(sec) && sec > 0) localStorage.setItem(LS_KEEP_WINDOW_KEY, String(sec));
     else localStorage.removeItem(LS_KEEP_WINDOW_KEY);
@@ -157,6 +183,7 @@ export function keepFromS(): number {
 
 /** A player session that starts at assigned time `sessionStartS` keeps the window (keepWindowSec) before it. */
 export function setKeepFrom(sessionStartS: number): void {
+  if (mirror) return; // the shared world: the cut-off comes from the shared clock alone (serverWorld.ts), no tab's offset moves it
   try {
     localStorage.setItem(LS_KEEP_FROM_KEY, String(sessionStartS - keepWindowSec()));
   } catch {
@@ -233,12 +260,14 @@ export function eventsWrittenHere(): boolean {
  * nothing is written: the caller is in a world that has ended and must rejoin (useWorld's onCleared).
  * When the browser's storage quota is hit (a long run with many bots), the oldest events are dropped until it
  * fits, instead of failing silently: a failed write used to freeze the shared world for every other tab.
+ * `fromServer`: these came from the shared world's server and do not go back to it.
  * Returns false when nothing was written.
  */
-export function saveMerged(local: Iterable<PEvent>, epochMs: number): boolean {
+export function saveMerged(local: Iterable<PEvent>, epochMs: number, fromServer = false): boolean {
   let c: WriteCache;
   try {
     if (localStorage.getItem(LS_PARLIAMENT_EPOCH_KEY) !== String(epochMs)) return false;
+    if (!fromServer) mirror?.enqueue(local);
     // what is stored: what this tab wrote last (its token is still there), else read it all once
     if (cache && cache.epochMs === epochMs && readToken() === cache.token && localStorage.getItem(LS_EVENTS_EPOCH_KEY) === String(epochMs)) c = cache;
     else {
@@ -323,8 +352,7 @@ export function getEpochMs(): number {
   }
 }
 
-/** Empty the shared world and start a new epoch (the old stratum code shares the epoch key). */
-export function clearWorld(): void {
+function forgetStoredWorld(): void {
   cache = null;
   lastToken = null;
   try {
@@ -335,5 +363,24 @@ export function clearWorld(): void {
     localStorage.removeItem(LS_PARLIAMENT_EPOCH_KEY);
   } catch {
     /* ignore */
+  }
+}
+
+/** Empty the shared world and start a new epoch (the old stratum code shares the epoch key). */
+export function clearWorld(): void {
+  if (mirror) {
+    mirror.clear(); // the server makes the new epoch; every tab follows it, this one too (serverWorld.ts)
+    return;
+  }
+  forgetStoredWorld();
+}
+
+/** The server's epoch replaces what this browser holds: open views see the key change and rejoin, as after a clear. */
+export function adoptEpoch(epochMs: number): void {
+  forgetStoredWorld();
+  try {
+    localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(epochMs));
+  } catch {
+    /* storage unavailable */
   }
 }
