@@ -456,6 +456,53 @@ function makeResinMaterial(u: FuseUniforms): THREE.MeshPhysicalMaterial {
   return m;
 }
 
+/** A fused chunk's geometry (two groups: opaque stone, resin). */
+function fusedGeometry(r: FuseMesh): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(r.normal, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
+  g.setAttribute("fuseExtra", new THREE.BufferAttribute(r.extra, 4));
+  g.setIndex(new THREE.BufferAttribute(r.index, 1));
+  g.addGroup(0, r.resinStart, 0);
+  g.addGroup(r.resinStart, r.index.length - r.resinStart, 1);
+  return g;
+}
+
+/**
+ * PER-CHUNK fused mass (2026-11-01, the lag): one mesh per 10-slot chunk under `group`; only the chunks that changed are
+ * replaced (their old geometry disposed), the rest stay on the GPU as they are. Before, the whole band was merged and
+ * uploaded again every two seconds (1.1 M triangles, 127 MB at 40 minutes).
+ */
+function setFusedChunks(
+  group: THREE.Group | null,
+  byC0: Map<number, THREE.Mesh>,
+  delta: { set: { c0: number; mesh: FuseMesh }[]; drop: number[] } | null | undefined,
+  mats: THREE.Material[],
+): void {
+  if (!group || !delta) return;
+  for (const c0 of delta.drop) {
+    const m = byC0.get(c0);
+    if (!m) continue;
+    group.remove(m);
+    m.geometry.dispose();
+    byC0.delete(c0);
+  }
+  for (const { c0, mesh } of delta.set) {
+    let m = byC0.get(c0);
+    if (!m) {
+      m = new THREE.Mesh(new THREE.BufferGeometry(), mats);
+      m.frustumCulled = false;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      byC0.set(c0, m);
+      group.add(m);
+    }
+    m.geometry.dispose();
+    m.geometry = fusedGeometry(mesh);
+  }
+}
+
 /** Replaces the fused mesh's geometry (the old one is disposed). */
 function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void {
   if (!mesh || !r) return;
@@ -881,6 +928,8 @@ function SpaceWorld({
     live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
+  const fusedGroup = useRef<THREE.Group>(null);
+  const fusedByC0 = useRef(new Map<number, THREE.Mesh>());
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
   const pipeMats = useMemo(
     () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness) }),
@@ -908,6 +957,10 @@ function SpaceWorld({
     stoneMat.needsUpdate = true;
   }, [stoneMat, resin.massOpacity]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
+  // the chunk meshes follow a material swap (a changed look)
+  useEffect(() => {
+    for (const m of fusedByC0.current.values()) m.material = fusedMats;
+  }, [fusedMats]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
     // transparent points are left out of the transmission pass (three.js re-renders only the opaque objects into it)
@@ -976,8 +1029,18 @@ function SpaceWorld({
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
     setFused(fused.current, r.fuse);
+    setFusedChunks(fusedGroup.current, fusedByC0.current, r.fuseChunks, fusedMats);
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
+    if (r.fuseChunks) {
+      let tris = 0, resin = 0;
+      for (const m of fusedByC0.current.values()) {
+        const n = (m.geometry.index?.count ?? 0) / 3;
+        tris += n;
+        resin += n - (m.geometry.groups[0]?.count ?? 0) / 3;
+      }
+      fuseStats.current = { fuseTris: tris, fuseResin: resin };
+    }
     if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms });
   };
 
@@ -1097,7 +1160,7 @@ function SpaceWorld({
         const need = (immutable + 20) * cfg.secPerUnit;
         if (keepWindowSec() < need) setKeepWindowSec(need);
       }
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
+      req.fuse = { chunked: true, box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -1177,6 +1240,7 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
+      <group ref={fusedGroup} visible={fuse.enabled} />
       <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
         <bufferGeometry />
       </points>

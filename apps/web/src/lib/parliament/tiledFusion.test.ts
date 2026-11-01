@@ -40,3 +40,25 @@ it("TILED FUSION: a wide world (moving flocks, the artist's local values) still 
   expect(mesh ? mesh.index.length / 3 : 0).toBeGreaterThan(10000);
   void per;
 }, 1_800_000);
+
+it("PER-CHUNK OUTPUT: only the chunks that changed are handed out, and the set adds up to the merged mass", () => {
+  const all = buildTestColumn({ seconds: 600, bots: 8, flock: { groups: 2, spread: 10, timeSpread: 60 }, sampleSec: 2 });
+  all.sort((a, b) => a.s - b.s);
+  const m = new SpaceModel();
+  m.add(all);
+  m.setNow(900);
+  const box = { ...DEFAULT_BOXES };
+  const weather = { ...DEFAULT_WEATHER, timeScale: 0.5, gatherStart: 0, rotDose: 0 };
+  const lod = { camera: [0, 0, 0] as [number, number, number], near: Infinity, mid: Infinity, farFactor: 1 };
+  const input = { box, weather, fuse: DEFAULT_FUSE, tauReclaimYears: 300, oneClock: true, tauSlabYears: DEFAULT_FOLD.tauSlabYears, perCall: 99, bake: false };
+  m.computeParts({ fold: DEFAULT_FOLD, box, wear: true, weather, fuse: DEFAULT_FUSE, water: DEFAULT_WATER, edges: false, lod });
+  const merged = m.computeFuse(input);
+  m.computeParts({ fold: DEFAULT_FOLD, box, wear: true, weather, fuse: DEFAULT_FUSE, water: DEFAULT_WATER, edges: false, lod });
+  m.computeFuse({ ...input, chunked: true, perCall: 99, rebake: true } as never);
+  const d1 = m.fuseDelta();
+  expect(d1).not.toBeNull();
+  const tris = d1!.set.reduce((n, c) => n + c.mesh.index.length / 3, 0);
+  expect(tris).toBe(merged ? merged.index.length / 3 : 0);
+  // nothing changed since: nothing to hand out
+  expect(m.fuseDelta()).toBeNull();
+}, 1_800_000);

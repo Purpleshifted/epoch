@@ -254,6 +254,11 @@ export interface ReclaimInput {
 }
 
 export interface FuseInput {
+  /**
+   * PER-CHUNK OUTPUT (2026-11-01, the lag): the model keeps the set of chunk meshes and the caller takes only what
+   * changed (fuseDelta) instead of the whole band merged and re-sent every call (1.1 M triangles, 127 MB at 40 min).
+   */
+  chunked?: boolean;
   box: BoxConfig;
   weather: WeatherConfig;
   fuse: FuseConfig;
@@ -517,6 +522,26 @@ export class SpaceModel {
       }
     }
     return mergeMeshes(meshes);
+  }
+
+  /** The fused mass as chunk meshes by c0 (the last computeFuse), and what was last handed out (fuseDelta). */
+  private chunkSet = new Map<number, FuseMesh>();
+  private chunkSent = new Map<number, FuseMesh>();
+
+  /**
+   * What changed in the fused mass since the last call: the chunks whose mesh is new (copied: the model keeps its own
+   * buffers) and the chunks that are gone. Null when nothing changed.
+   */
+  fuseDelta(): { set: { c0: number; mesh: FuseMesh }[]; drop: number[] } | null {
+    const set: { c0: number; mesh: FuseMesh }[] = [];
+    const drop: number[] = [];
+    for (const [c0, mesh] of this.chunkSet) {
+      if (this.chunkSent.get(c0) === mesh) continue;
+      set.push({ c0, mesh: { position: mesh.position.slice(), normal: mesh.normal.slice(), color: mesh.color.slice(), extra: mesh.extra.slice(), index: mesh.index.slice(), resinStart: mesh.resinStart } });
+    }
+    for (const c0 of this.chunkSent.keys()) if (!this.chunkSet.has(c0)) drop.push(c0);
+    this.chunkSent = new Map(this.chunkSet);
+    return set.length || drop.length ? { set, drop } : null;
   }
 
   /** fuseBuilt as of the last computeParts: baking waits until the parts reflect every built chunk. */
@@ -1211,7 +1236,8 @@ export class SpaceModel {
     if (!sed || !wm || !fuse.enabled || !this.built.length) {
       this.fuseSig = sig;
       this.fuseChunks.clear();
-      return mergeMeshes(fuse.enabled ? bakedMeshes : []);
+      this.chunkSet = new Map(fuse.enabled ? [...this.baked.values()].map((b) => [b.c0, b.mesh] as [number, FuseMesh]) : []);
+      return input.chunked ? mergeMeshes([]) : mergeMeshes(fuse.enabled ? bakedMeshes : []);
     }
     const u = box.unit;
     const kNow = Math.floor(this.t / box.secPerUnit);
@@ -1429,12 +1455,16 @@ export class SpaceModel {
       }
     }
     const out: FuseMesh[] = [...this.baked.values()].map((b) => b.mesh);
+    const outSet = new Map<number, FuseMesh>([...this.baked.values()].map((b) => [b.c0, b.mesh] as [number, FuseMesh]));
     const keep = new Set<number>();
     for (const w of wants) {
       if (this.baked.has(w.c0)) continue;
       keep.add(w.c0);
       const ch = this.fuseChunks.get(w.c0); // fresh, or the stale one until its turn comes
-      if (ch) out.push(ch.mesh);
+      if (ch) {
+        out.push(ch.mesh);
+        outSet.set(w.c0, ch.mesh);
+      }
     }
     for (const c of this.fuseChunks.keys()) {
       if (keep.has(c)) continue;
@@ -1458,12 +1488,15 @@ export class SpaceModel {
       };
       this.baked.set(c, bk);
       out.push(ch.mesh);
+      outSet.set(c, ch.mesh);
       this.persist(bk);
     }
     // something was baked: the parts and points of those slots are now the baked ones (the next computeParts /
     // computeNature see it through their signatures)
     if (!pending && !bakedNow) this.fuseSig = sig;
-    return mergeMeshes(out);
+    this.chunkSet = outSet;
+    // per-chunk callers take fuseDelta(); merging the whole band here was the main cost (and the main upload)
+    return input.chunked ? mergeMeshes([]) : mergeMeshes(out);
   }
 
   /** Plants on the ruins of the last computed parts; null when nothing changed. */
@@ -1522,6 +1555,8 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
+  /** Per-chunk fused mass (FuseInput.chunked): the chunks that changed, and those gone. */
+  fuseChunks?: { set: { c0: number; mesh: FuseMesh }[]; drop: number[] } | null;
   ms: number;
 }
 
@@ -1559,8 +1594,14 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     if (out.reclaim) transfer.add(out.reclaim.position.buffer as ArrayBuffer).add(out.reclaim.color.buffer as ArrayBuffer);
   }
   if (m.fuse) {
-    out.fuse = model.computeFuse(m.fuse);
-    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
+    if (m.fuse.chunked) {
+      model.computeFuse(m.fuse);
+      out.fuseChunks = model.fuseDelta();
+      if (out.fuseChunks) for (const { mesh } of out.fuseChunks.set) for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index]) transfer.add(a.buffer as ArrayBuffer);
+    } else {
+      out.fuse = model.computeFuse(m.fuse);
+      if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
+    }
   }
   out.ms = performance.now() - t0;
   return { out, transfer: [...transfer] };
