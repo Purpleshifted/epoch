@@ -80,8 +80,8 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       arrival: { value: DEFAULT_SOUND.arrival, label: "도착의 종지 — 같이 짓기 시작 · 건물 탄생 때 도미넌트 → 으뜸", render: v2 },
       arrivalHall: { value: DEFAULT_SOUND.arrivalHall, min: 0, max: 1, step: 0.05, label: "도착 때 홀이 열리는 정도", render: v2 },
       arrivalWave: { value: DEFAULT_SOUND.arrivalWave, min: 0, max: 1, step: 0.05, label: "도착의 파도 — 도미넌트 마디에 밀려와 으뜸에서 부서짐", render: v2 },
-      waveVerb: { value: DEFAULT_SOUND.waveVerb, min: 0, max: 1, step: 0.05, label: "파도의 잔향 (홀로 보내는 양)", render: v2 },
-      waveHit: { value: DEFAULT_SOUND.waveHit, min: 0, max: 1, step: 0.05, label: "파도의 때림 (정점이 멈칫한 뒤 첫 박에 치는 세기 + 낮은 쿵)", render: v2 },
+      waveVerb: { value: DEFAULT_SOUND.waveVerb, min: 0, max: 1, step: 0.05, label: "파도의 잔향 (올릴수록 직접음이 줄고 젖음)", render: v2 },
+      waveHit: { value: DEFAULT_SOUND.waveHit, min: 0, max: 1, step: 0.05, label: "파도의 때림 (정점 뒤 첫 박에 부서지는 세기 + 낮은 쿵)", render: v2 },
       grassVerb: { value: DEFAULT_SOUND.grassVerb, min: 0, max: 1, step: 0.05, label: "식생 노이즈의 잔향", render: v2 },
       arrivalGapMs: { value: DEFAULT_SOUND.arrivalGapMs, min: 0, max: 400, step: 10, label: "으뜸 직전의 숨 (ms, 전부 잠깐 비움 — 0 = 없음; 파도 정점에서 먹히는 느낌의 원인이었음)", render: v2 },
       afterglow: { value: DEFAULT_SOUND.afterglow, min: 0, max: 0.5, step: 0.01, label: "죽은 뒤 여운: 스피커(글로벌) 소리를 헤드셋에 얇게 (0 = 없음)", render: v2 },
@@ -141,6 +141,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       { tag: "v4-a4b-scale", set: { zoneRing: 8 } }, // the harmony's scale widened (the artist: changes too fine to feel)
       { tag: "v4-a5e-tail-5", set: { afterlifeTail: 5 } }, // the artist: 10 s was too long
       { tag: "v4-a5p-no-breath", set: { arrivalGapMs: 0 } }, // the artist (10/31): the breath at the wave's peak = the sound eaten
+      { tag: "v4-a5v-wave-wet", set: { waveVerb: 0.85, waveHit: 0.5 } }, // the artist (11/01): the wave dry, its strike abrupt
       // the artist: the motif as a signal sent into space (Interstellar, 전파) — the preset on top of saved values once
       { tag: "v4-a2f-radio", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),
