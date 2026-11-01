@@ -8,7 +8,6 @@
  *                  brutal version, a hard white square blinking the being's own rhythm, like the visitor's own
  *   ConcreteLines  a vertical line from the ground up through the frame on every sealed slab cell
  *   ConcreteOutline a brutal version: the building as a line drawing, its edges and the joints between its cells
- *   WordPlates     a black plate on the ground with an ended life's melody on it, where that life left its word
  * (the paths as floating curves / ribbons were dropped by the artist on 2026-10-28; they stay on the ground)
  */
 
@@ -16,18 +15,16 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { GLYPH_COLS, GLYPH_ROWS, glyphOf, hash2, outlineSegments, rhythmOf, stepAt, type ConcreteLine, type LeftWord, type OtherMark } from "@/lib/parliament";
+import { hash2, outlineSegments, rhythmOf, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
 
 export interface MarksData {
   others: OtherMark[];
   concrete: ConcreteLine[];
-  words: LeftWord[];
 }
 
 const MAX_OTHERS = 128;
 const MAX_CONCRETE = 6000;
 const MAX_OUTLINE_SEGS = 24000;
-const MAX_WORDS = 64;
 const REFRESH = 0.5;
 /** A square whose melody rests on this step is not off: it stays as a dark grey square. */
 const SQUARE_REST = 0.22;
@@ -280,48 +277,5 @@ export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => Marks
     <lineSegments geometry={geom} frustumCulled={false}>
       <lineBasicMaterial vertexColors fog={false} />
     </lineSegments>
-  );
-}
-
-/**
- * An ended life's word on the ground (leftWords.ts): a black plate with the melody's dots on it in white, lying flat, so
- * it can be seen from a way off and walked to. `cell` is one dot's world size.
- */
-export function WordPlates({ getMarks, cell = 0.3 }: { getMarks: () => MarksData | null; cell?: number }) {
-  const plates = useRef<THREE.InstancedMesh>(null);
-  const dots = useRef<THREE.InstancedMesh>(null);
-  const timer = useRef(10);
-  const matrix = useMemo(() => new THREE.Matrix4(), []);
-  const geom = useMemo(() => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), []);
-  useEffect(() => () => geom.dispose(), [geom]);
-  useFrame((_, dt) => {
-    timer.current += dt;
-    const P = plates.current, D = dots.current;
-    if (timer.current < REFRESH || !P || !D) return;
-    timer.current = 0;
-    const words = (getMarks()?.words ?? []).slice(0, MAX_WORDS);
-    let d = 0;
-    words.forEach((w, i) => {
-      matrix.makeScale((GLYPH_COLS + 2) * cell, 1, (GLYPH_ROWS + 2) * cell).setPosition(w.x, 0.03, w.z);
-      P.setMatrixAt(i, matrix);
-      for (const g of glyphOf(w.o)) {
-        matrix.makeScale(g.len * cell, 1, cell).setPosition(w.x + (g.col + g.len / 2 - GLYPH_COLS / 2) * cell, 0.05, w.z + (g.row - GLYPH_ROWS / 2 + 0.5) * cell);
-        D.setMatrixAt(d++, matrix);
-      }
-    });
-    P.count = words.length;
-    D.count = d;
-    P.instanceMatrix.needsUpdate = true;
-    D.instanceMatrix.needsUpdate = true;
-  });
-  return (
-    <>
-      <instancedMesh ref={plates} args={[geom, undefined, MAX_WORDS]} frustumCulled={false}>
-        <meshBasicMaterial color="#000000" fog={false} />
-      </instancedMesh>
-      <instancedMesh ref={dots} args={[geom, undefined, MAX_WORDS * GLYPH_COLS]} frustumCulled={false}>
-        <meshBasicMaterial color="#ffffff" fog={false} />
-      </instancedMesh>
-    </>
   );
 }

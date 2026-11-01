@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
+import { Dandelions } from "./Dandelions";
 import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
@@ -36,6 +37,7 @@ import {
   MIN_TIME_RATE,
   getEpochMs,
   latestOf,
+  dandelionsIn,
   latestS,
   loadEvents,
   sessionSeconds,
@@ -45,6 +47,7 @@ import {
   type Clock,
   seedParliamentDemoIfRequested,
   type BoxConfig,
+  type Dandelion,
   type EventLog,
   type FoldConfig,
   type NatureConfig,
@@ -1538,6 +1541,25 @@ interface MeStatus {
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
 
 /**
+ * What the answers left (lib/parliament/dandelion.ts) at the height of their time, in the main scene: the masses hide them
+ * when they cover them. Aged by the newest sample in the log (the wall's present).
+ */
+function WallDandelions({ log, secPerUnit, unit, size }: { log: EventLog; secPerUnit: number; unit: number; size: number }) {
+  const heads = useRef<Dandelion[]>([]);
+  const now = useRef(0);
+  const timer = useRef(10);
+  useFrame((_, dt) => {
+    timer.current += dt;
+    if (timer.current < 1) return;
+    timer.current = 0;
+    const events = log.all();
+    heads.current = dandelionsIn(events);
+    now.current = heads.current.length ? latestS(events) : 0;
+  });
+  return <Dandelions getHeads={() => heads.current} ageOf={(d) => now.current - d.s} footOf={(d) => [d.x, (d.s / secPerUnit) * unit, d.z]} size={size} dot={0.14} />;
+}
+
+/**
  * Live markers: the latest presence sample of each owner, as a sphere at (x, time, z) with a thin line down to
  * the ground. "me" is the player tab on this browser (id written to localStorage by RoleField). An owner stays
  * visible while its newest sample keeps advancing; `holdSec` of silence hides it — except "me", which is always
@@ -1717,6 +1739,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       "가장 최근으로": button(() => jump(Math.max(0, topRef.current - 6))),
       markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
+      seedsOn: { value: true, label: "응답의 홀씨" },
+      seedSize: { value: 1.2, min: 0.3, max: 6, step: 0.1, label: "응답의 홀씨: 크기" },
       showEdges: { value: false, label: "모서리 선" },
       "초점 · 시야": folder({
         dof: { value: false, label: "초점 흐림 (피사계 심도)" },
@@ -2707,6 +2731,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
+        {v.seedsOn && <WallDandelions log={log} secPerUnit={c.secPerUnit} unit={c.unit} size={v.seedSize} />}
         <SpaceWorld
           log={log}
           fold={spaceFold}

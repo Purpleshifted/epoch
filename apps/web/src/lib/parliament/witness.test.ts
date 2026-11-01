@@ -128,7 +128,7 @@ describe("the witness: a record of who is near", () => {
     expect(log.push(obsAt(7, [bot(2)])).map((e) => e.key)).toContain("word.new");
     expect(log.asking()).toBe(true);
     const answered = log.answer(8, "v_me")!;
-    expect(formatEntry(answered, "ko").text).toBe("응답했습니다: ({})");
+    expect(formatEntry(answered, "ko").text).toBe("응답했습니다: ({}) 홀씨가 날아갑니다.");
     expect(answered.args.dots?.length).toBeGreaterThan(0);
     expect(log.asking()).toBe(false);
     expect(log.answer(8.5, "v_me")).toBeNull(); // once

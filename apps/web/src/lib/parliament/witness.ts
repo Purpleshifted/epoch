@@ -11,13 +11,13 @@
  *   observe()      one reading from the event log and the fold snapshot (pure)
  *   WitnessLog     turns the readings into entries: someone came near / left (with how long they were near), the
  *                  visitor started / stopped moving, the surface changed, a long contact gave a new word, an ended
- *                  life's word was found. Every change has to hold for `settleSec` before it is written, so a tap on a
+ *                  word left by an answer was found. Every change has to hold for `settleSec` before it is written, so a tap on a
  *                  key does not make a line. `note()` takes the ledger's entries into the same record.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { glyphOf, newWordOf, type GlyphDot } from "./glyph";
-import type { LeftWord } from "./leftWords";
+import type { WordSpot } from "./dandelion";
 import type { PEvent, RoleId, Snapshot } from "./types";
 import { wrapDelta, wrapDist } from "./world";
 
@@ -130,7 +130,7 @@ export interface Observation {
   others: Other[];
   /** Everyone within `farRadius` (the view), nearest first — for the markers on the ground (stakes). */
   far: Other[];
-  /** Whose left word (leftWords.ts) is within `wordRadius` now. */
+  /** Whose word (dandelion.ts wordSpots) is within `wordRadius` now. */
   wordsNear: string[];
 }
 
@@ -203,8 +203,8 @@ export interface ObserveInputs {
   snap: Snapshot | null;
   /** Session seconds (written into the observation). */
   t: number;
-  /** The words the ended lives left (leftWords.ts). */
-  words?: readonly LeftWord[];
+  /** Where others' words can be found (dandelion.ts wordSpots). */
+  words?: readonly WordSpot[];
   /** Who is here now, whatever their assigned time (aliveOwners); absent = the last recentSec of mine. */
   alive?: ReadonlySet<string>;
   cfg?: WitnessConfig;
@@ -494,7 +494,7 @@ export class WitnessLog {
         w("word.asked", { who, n, dots: newWordOf(longest.o, obs.me, Math.floor(obs.t)) }, 2);
       }
     }
-    // an ended life's word underfoot
+    // someone's word underfoot
     for (const o of obs.wordsNear) {
       if (this.totals.found.includes(o) || obs.t - this.lastWordT < this.cfg.wordGapSec) continue;
       this.totals.found.push(o);

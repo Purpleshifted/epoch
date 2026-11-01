@@ -159,6 +159,7 @@ export function SessionHud({
   noticeLineSec = NOTICE_LINE_SEC,
   coarse = false,
   footprint = true,
+  onAnswer,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -180,6 +181,8 @@ export function SessionHud({
   coarse?: boolean;
   /** The end screen's footprint map (Leva 개인뷰 비주얼). */
   footprint?: boolean;
+  /** The visitor answered someone: it leaves a seed head (RoleField). */
+  onAnswer?: () => void;
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
@@ -249,8 +252,9 @@ export function SessionHud({
   const answer = useCallback(() => {
     const me = witnessRef.current?.me;
     if (!me || !log.answer(session.lifeRef.current.t, me)) return;
+    onAnswer?.();
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary(), asking: false }));
-  }, [log, session.lifeRef, witnessRef]);
+  }, [log, session.lifeRef, witnessRef, onAnswer]);
   useEffect(() => {
     if (phase !== "live") return;
     const onKey = (e: KeyboardEvent) => {

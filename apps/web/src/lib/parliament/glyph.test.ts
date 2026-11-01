@@ -1,11 +1,9 @@
 /**
- * A melody written down (glyph.ts) and the words the ended lives leave (leftWords.ts).
+ * A melody written down (glyph.ts).
  */
 import { describe, expect, it } from "vitest";
 import { makeMotif } from "@/lib/sound/motif";
-import { GLYPH_COLS, GLYPH_ROWS, glyphDots, glyphOf, individualNo, leftWords, newWordOf, rhythmOf, stepAt, type PEvent } from "./index";
-
-const p = (o: string, x: number, z: number, s: number): PEvent => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x, z, s });
+import { GLYPH_COLS, GLYPH_ROWS, glyphDots, glyphOf, individualNo, newWordOf, rhythmOf, stepAt } from "./index";
 
 describe("the glyph", () => {
   it("every melody fits the box, one dot per note, in the order it sounds", () => {
@@ -57,34 +55,5 @@ describe("the glyph", () => {
     expect(stepAt(0)).toBe(0);
     expect(stepAt(250)).toBe(1);
     expect(stepAt(2000)).toBe(0);
-  });
-});
-
-describe("the left words", () => {
-  const stay = (o: string, x: number, from: number, to: number) => Array.from({ length: to - from }, (_, i) => p(o, x, 0, from + i));
-
-  it("one place per ended visitor, where they stayed longest; never a bot, never me, never someone still here", () => {
-    const events = [
-      ...stay("v_old", 5, 0, 4), // a short stay …
-      ...stay("v_old", 40, 4, 20), // … the long one
-      p("v_old", 70, 0, 21),
-      ...stay("v_here", 9, 60, 100),
-      ...stay("v_me", 1, 0, 100),
-      ...stay("bot1", 2, 0, 50),
-    ];
-    expect(leftWords(events, "v_me", 100)).toEqual([{ o: "v_old", x: 40, z: 0 }]);
-  });
-
-  it("someone who never stayed leaves it where they ended", () => {
-    const walked = Array.from({ length: 10 }, (_, i) => p("v_old", i * 5, 0, i));
-    expect(leftWords(walked, "v_me", 100)).toEqual([{ o: "v_old", x: 45, z: 0 }]);
-  });
-
-  it("someone still here has left nothing yet", () => {
-    expect(leftWords(stay("v_old", 5, 0, 30), "v_me", 100, undefined, new Set(["v_old"]))).toEqual([]);
-  });
-
-  it("the future of this viewer is invisible", () => {
-    expect(leftWords(stay("v_old", 5, 50, 80), "v_me", 40)).toEqual([]);
   });
 });

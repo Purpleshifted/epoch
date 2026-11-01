@@ -12,17 +12,9 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import type { LeftWord } from "./leftWords";
 import type { Other } from "./witness";
 import type { Slab } from "./types";
 import { nearestImage, wrapDist } from "./world";
-
-/** The ended lives' words within `radius`, at the image nearest the viewer. */
-export function wordMarks(words: readonly LeftWord[], me: { x: number; z: number }, radius: number): LeftWord[] {
-  const out: LeftWord[] = [];
-  for (const w of words) if (wrapDist(w.x, w.z, me.x, me.z) <= radius) out.push({ o: w.o, x: nearestImage(w.x, me.x), z: nearestImage(w.z, me.z) });
-  return out;
-}
 
 export interface OtherMark {
   /** Their id (the drawing holds each one's place between its rare moves). */

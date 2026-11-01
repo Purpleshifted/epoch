@@ -6,8 +6,8 @@
  *   look        브루털: black, white, one green, hard edges, no fog / glow / grid (2026-11-01); 부드러움: what it was
  *   footprint   the end screen's footprint map (FootprintMap)
  *   grass       how the grass reacts to the walker at once and how it is drawn (DitherGround, NatureCloud)
- *   marks       the others, the concrete, the ended lives' words (Marks.tsx, lib/parliament/marks.ts); the paths stay on
- *               the ground (PathLines)
+ *   marks       the others, the concrete (Marks.tsx, lib/parliament/marks.ts), the seed heads the answers left
+ *               (Dandelions.tsx); the paths stay on the ground (PathLines)
  */
 
 import { useMemo } from "react";
@@ -46,7 +46,7 @@ export interface GrassVisual {
 export interface MarksVisual {
   others: { on: boolean; size: number; height: number; bright: number; recentSec: number; halo: number; haloStrength: number; fog: boolean; pulseHz: number; holdSec: number; snap: boolean; square: boolean };
   concrete: { on: boolean; height: number; bright: number; radius: number; style: ConcreteStyle; outlineScale: number };
-  words: { on: boolean; cell: number };
+  seeds: { on: boolean; size: number; dot: number };
   on: boolean;
 }
 
@@ -101,9 +101,10 @@ export function usePersonalVisuals(): PersonalVisuals {
         outlineScale: { value: 1, min: 0.25, max: 6, step: 0.25, label: "외곽선: 높이 × 슬래브", render: v2 },
         otherSquare: { value: 0.8, min: 0.2, max: 2, step: 0.05, label: "타인 네모 크기", render: v2 },
       }),
-      "남긴 말": folder({
-        wordsOn: { value: true, label: "땅의 판 켜기", render: v2 },
-        wordCell: { value: 0.3, min: 0.1, max: 1, step: 0.05, label: "점 하나 크기 (월드)", render: v2 },
+      "응답의 홀씨": folder({
+        seedsOn: { value: true, label: "켜기", render: v2 },
+        seedSize: { value: 1, min: 0.3, max: 4, step: 0.1, label: "크기", render: v2 },
+        seedDot: { value: 0.1, min: 0.02, max: 0.5, step: 0.01, label: "씨앗 점 크기 (월드)", render: v2 },
       }),
       "풀 (식생)": folder({
         grassThick: { value: 2, min: 1, max: 6, step: 0.25, label: "두께 — 세로 분포 배율 (1 = 예전)", render: v2 },
@@ -172,10 +173,10 @@ export function usePersonalVisuals(): PersonalVisuals {
         square: brutal,
       },
       concrete: { on: c.concreteOn, height: c.concreteHeight, bright: brutal ? 1 : c.concreteBright, radius: c.concreteRadius, style: brutal ? c.concreteStyle : "lines", outlineScale: c.outlineScale },
-      words: { on: c.wordsOn, cell: c.wordCell },
-      on: c.othersOn || c.concreteOn || c.wordsOn,
+      seeds: { on: c.seedsOn, size: c.seedSize, dot: c.seedDot },
+      on: c.othersOn || c.concreteOn,
     }),
-    [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.wordsOn, c.wordCell],
+    [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.seedsOn, c.seedSize, c.seedDot],
   );
   return { look: c.look, footprint: c.footprint, grass, marks };
 }

@@ -56,6 +56,7 @@ import {
   type Observation,
   type RoleId,
 } from "@/lib/parliament";
+import { announcePersonalOpen } from "@/lib/sound/personalOpen";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -331,6 +332,12 @@ export default function ParliamentScene() {
     return () => clearInterval(id);
   }, []);
   const isV2 = useParliamentVersion() === "v2";
+  useEffect(() => (isV2 ? announcePersonalOpen() : undefined), [isV2]);
+  // an answer (SessionHud) leaves a seed head where the visitor stands (RoleField)
+  const answers = useRef(0);
+  const onAnswer = useCallback(() => {
+    answers.current++;
+  }, []);
   const v2 = () => isV2;
   // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
   usePageLock(isV2);
@@ -480,11 +487,12 @@ export default function ParliamentScene() {
           ledgerRef={withSession ? ledgerRef : undefined}
           grass={isV2 ? visuals.grass : undefined}
           marks={isV2 ? visuals.marks : undefined}
+          answers={answers}
         />
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

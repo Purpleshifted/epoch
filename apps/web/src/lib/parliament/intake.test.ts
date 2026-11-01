@@ -195,7 +195,7 @@ describe("the script", () => {
       }
     }
     expect(SCRIPT.ko.ended.groupRow(0)).toBe("타 개체와 집단생활 관찰되지 않음");
-    expect(SCRIPT.ko.ended.wordRow(1)).toBe("접촉 후 새로운 어휘 발생");
+    expect(SCRIPT.ko.ended.wordRow(1)).toBe("접촉 후 새로운 어휘 발생 · 홀씨 1건 출토");
     expect(SCRIPT.ko.ended.wordRow(0, 4)).toBe("관찰되지 않음 · 호출 4회 · 응답 0회");
     expect(SCRIPT.ko.ended.groupRow(6, 24)).toBe("6개체와 집단생활 · 공동 체류 00:24");
     expect(SCRIPT.ko.ended.foundRow("0412", 0)).toBe("개체 0412가 남긴 말");

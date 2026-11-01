@@ -41,10 +41,12 @@ import {
   NAME_GAP_SEC,
   aliveOwners,
   concreteLines,
-  leftWords,
+  dandelionsIn,
+  nearestImage,
+  wordSpots,
+  type Dandelion,
+  type WordSpot,
   otherMarks,
-  wordMarks,
-  type LeftWord,
   wrapCoord,
   type Actor,
   type Flock,
@@ -61,7 +63,8 @@ import {
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { ConcreteLines, ConcreteOutline, OtherDots, WordPlates, type MarksData } from "./Marks";
+import { Dandelions } from "./Dandelions";
+import { ConcreteLines, ConcreteOutline, OtherDots, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
@@ -129,6 +132,7 @@ export function RoleField({
   ledgerCfg,
   grass,
   marks,
+  answers,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
@@ -160,6 +164,8 @@ export function RoleField({
   grass?: GrassVisual;
   /** V2: the marks in the frame — others, concrete, paths (Leva 개인뷰 비주얼; lib/parliament/marks.ts, Marks.tsx). */
   marks?: MarksVisual;
+  /** How many answers the visitor has given (SessionHud): each leaves a seed head where they stand. */
+  answers?: React.MutableRefObject<number>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -205,8 +211,12 @@ export function RoleField({
   const mineMap = useRef<Map<string, number> | null>(null);
   // the marks (others, concrete, paths), renewed with the fold from the record's far list and the snapshot
   const marksRef = useRef<MarksData | null>(null);
-  // the words the ended lives left (leftWords.ts), read from the log at the ledger's cadence
-  const wordsRef = useRef<LeftWord[]>([]);
+  // the seed heads the answers left (dandelion.ts) and the time they are aged by; where others' words can be found
+  const heads = useRef<Dandelion[]>([]);
+  const headClock = useRef(0);
+  const wordsRef = useRef<WordSpot[]>([]);
+  // answers already turned into a seed head (the count lives in ParliamentScene, across lives)
+  const answered = useRef(answers?.current ?? 0);
   // who has been sending samples (aliveOwners)
   const seenOwners = useRef(new Map<string, { s: number; at: number }>());
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
@@ -247,7 +257,7 @@ export function RoleField({
     const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
     log.add(e);
     pending.current.push(e);
-    if (o === me.current.id) myEvents.current.push(e);
+    if (o === me.current.id && k === "p") myEvents.current.push(e);
   };
 
   // ── emit presence and mirror to localStorage: world clock (worldClock.ts, may run faster than the wall clock) for
@@ -337,6 +347,11 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
+    headClock.current = sMe;
+    if (answers && answers.current > answered.current) {
+      answered.current = answers.current;
+      emit(me.current.id, "tree", "s", playerPosRef.current.x, playerPosRef.current.z, sMe);
+    }
     const p = playerPosRef.current;
 
     // ── the grass reaction's quick stress: where the walker IS, every nearEvery seconds, while live ──
@@ -368,6 +383,7 @@ export function RoleField({
       // the region the drawing, the sound and the marks read (the fold itself is always the whole world)
       const readR = Math.max(VIEW_RADIUS, marks?.concrete.on ? marks.concrete.radius : 0);
       // who is here now: everyone within the assignment window, whatever time slot they live in
+      heads.current = dandelionsIn(events);
       const alive = aliveOwners(events, me.current.id, seenOwners.current, performance.now(), ALIVE_HOLD_MS, sMe, Math.max(offsetWindow, DEFAULT_WITNESS.recentSec));
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
@@ -390,7 +406,7 @@ export function RoleField({
         if (ledgerRef && lifeRef?.current.phase === "live" && ledgerTimer.current >= LEDGER_EVERY) {
           ledgerTimer.current = 0;
           const tLed = performance.now();
-          wordsRef.current = leftWords(events, me.current.id, sMe, undefined, alive);
+          wordsRef.current = wordSpots(heads.current, me.current.id, sMe);
           const obs = witnessRef.current;
           ledgerRef.current = ledgerAt({
             me: { id: me.current.id, x: p.x, z: p.z },
@@ -415,7 +431,6 @@ export function RoleField({
           marksRef.current = {
             others: marks.others.on ? otherMarks(witnessRef.current.far, p, VIEW_RADIUS, marks.others.recentSec) : [],
             concrete: marks.concrete.on ? concreteLines(snap.current.slabs, p, marks.concrete.radius, SEAL_H) : [],
-            words: marks.words.on ? wordMarks(wordsRef.current, p, VIEW_RADIUS) : [],
           };
           markSpan("marks", performance.now() - tMk);
         } else marksRef.current = null;
@@ -510,7 +525,18 @@ export function RoleField({
         />
       )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
-      {marks?.words.on && <WordPlates getMarks={() => marksRef.current} cell={marks.words.cell} />}
+      {marks?.seeds.on && (
+        <Dandelions
+          getHeads={() => heads.current}
+          ageOf={(d) => headClock.current - d.s}
+          footOf={(d) => {
+            const c = playerPosRef.current;
+            return [nearestImage(d.x, c.x), 0.01, nearestImage(d.z, c.z)];
+          }}
+          size={marks.seeds.size}
+          dot={marks.seeds.dot}
+        />
+      )}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}
