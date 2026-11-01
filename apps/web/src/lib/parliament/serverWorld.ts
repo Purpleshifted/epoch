@@ -216,7 +216,12 @@ export class WorldAgent {
   private lastContact = Date.now();
   // the bot host (useGlobalBots): only answers to this tab's own requests count; a cached read could be seconds old
   private wantHost = false;
-  private leaseUntil = 0;
+  /**
+   * This tab runs the bots, by the last answer it had. It stops when an answer says otherwise, not when the lease runs
+   * out unseen: with the network gone the wall goes on without a gap, and if another wall has taken over meanwhile they
+   * emit the same events until this one hears of it.
+   */
+  private hostHeld = false;
   private botStart: number | null = null;
   private nextHost = 0;
   private busyHost = false;
@@ -277,7 +282,7 @@ export class WorldAgent {
       lagSec: this.cursor === null ? null : (now - chunkEndMs(this.cursor)) / 1000,
       offsetMs: this.offsetMs,
       events: this.log.size,
-      host: this.leaseUntil > now ? "here" : seen && seen.id !== this.hostId && seen.untilMs > now ? "other" : "none",
+      host: this.hostHeld ? "here" : seen && seen.id !== this.hostId && seen.untilMs > now ? "other" : "none",
     };
   }
 
@@ -306,8 +311,8 @@ export class WorldAgent {
 
   /** The tab is closing or the bots are off: the next wall need not wait for the lease to run out. */
   releaseHost(): void {
-    if (this.leaseUntil > wallNow()) this.net.release(this.hostId);
-    this.leaseUntil = 0;
+    if (this.hostHeld) this.net.release(this.hostId);
+    this.hostHeld = false;
   }
 
   /** Takes the bots from whoever runs them (the rehearsal wall's button). false = refused. */
@@ -316,9 +321,9 @@ export class WorldAgent {
     return this.command({ op: "host", id: this.hostId, force: true });
   }
 
-  /** True when this tab is the one to emit the bots: it holds the lease, or the server has been silent for a while. */
+  /** True when this tab is the one to emit the bots: it is the host, or the server has been silent for a while. */
   botsAllowed(): boolean {
-    return this.leaseUntil > wallNow() || Date.now() - this.lastContact > OFFLINE_BOTS_AFTER_MS;
+    return this.hostHeld || Date.now() - this.lastContact > OFFLINE_BOTS_AFTER_MS;
   }
 
   /**
@@ -338,12 +343,8 @@ export class WorldAgent {
   }
 
   private noteLease(st: WorldState): void {
-    if (st.host?.id === this.hostId) {
-      this.leaseUntil = st.host.untilMs;
-      this.botStart = st.botStartMs;
-    } else {
-      this.leaseUntil = 0;
-    }
+    this.hostHeld = st.host?.id === this.hostId;
+    if (this.hostHeld) this.botStart = st.botStartMs;
   }
 
   /** What a refused clear must undo: the wall empties its log at once, before the server has answered. */

@@ -535,16 +535,54 @@ describe("the shared world's agent", () => {
       expect(a.botsAllowed()).toBe(true);
     });
 
-    it("a host that keeps running through an outage keeps its start", async () => {
+    it("a host goes on through an outage without a gap, with its own start", async () => {
       const a = wall("a");
       await a.begin();
       a.setWantHost(true);
       await run(a, 500);
       const start = a.botStartMs();
       server.down = true;
-      await run(a, 30_000);
-      expect(a.botsAllowed()).toBe(true);
+      // every moment of it: past the lease's end (10 s) and before the silence counts for everybody (15 s) included
+      for (let t = 0; t < 30; t++) {
+        await run(a, 1000);
+        expect(a.botsAllowed()).toBe(true);
+      }
       expect(a.botStartMs()).toBe(start);
+    });
+
+    it("a wall that was not the host waits out the silence before it runs the bots", async () => {
+      const a = wall("a");
+      const b = wall("b");
+      await a.begin();
+      await b.begin();
+      a.setWantHost(true);
+      await run(a, 500);
+      b.setWantHost(true);
+      await run(b, 500);
+      server.down = true;
+      await run(b, 12_000);
+      expect(b.botsAllowed()).toBe(false);
+      await run(b, 5000);
+      expect(b.botsAllowed()).toBe(true);
+    });
+
+    it("when the network comes back and another wall has the bots, the old host stops", async () => {
+      const a = wall("a");
+      const b = wall("b");
+      await a.begin();
+      await b.begin();
+      a.setWantHost(true);
+      await run(a, 500);
+      server.down = true;
+      await run(a, 20_000);
+      expect(a.botsAllowed()).toBe(true);
+      server.down = false;
+      b.setWantHost(true);
+      await run(b, 500); // a's lease ran out long ago: b gets it
+      expect(hostOf(b)).toBe("here");
+      await run(a, 6000);
+      expect(a.botsAllowed()).toBe(false);
+      expect(hostOf(a)).toBe("other");
     });
 
     it("a new epoch gets a new start from the server", async () => {
