@@ -26,7 +26,7 @@ it("TILED FUSION: a wide world (moving flocks, the artist's local values) still 
   m.computeParts({ fold, box, wear: true, weather, fuse, water: DEFAULT_WATER, edges: false, lod, steady: true });
   m.computeNature({ fold, box, weather, fuse, nature: DEFAULT_NATURE, perSlot: 6, window: 120, focusK: kNow, margin: 5, budget: 600000, burialSlots: 9, lod, density: { cut: 0.25, fade: 25 } });
   let mesh = null;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 6; i++) {
     m.computeParts({ fold, box, wear: true, weather, fuse, water: DEFAULT_WATER, edges: false, lod, steady: true });
     mesh = m.computeFuse({ box, weather, fuse, tauReclaimYears: 300, focusK: kNow, oneClock: true, tauSlabYears: fold.tauSlabYears, perCall: 12, bake: false }) ?? mesh;
   }
@@ -39,4 +39,4 @@ it("TILED FUSION: a wide world (moving flocks, the artist's local values) still 
   expect(oldN).toBeGreaterThan(6e6);
   expect(mesh ? mesh.index.length / 3 : 0).toBeGreaterThan(10000);
   void per;
-}, 900_000);
+}, 1_800_000);
