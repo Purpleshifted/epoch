@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventLog, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_KEEP_FROM_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, currentEpochKey, hasWorldMirror, keepWindowSec, keepFromS, saveMerged, setKeepFrom, setKeepWindowSec, setWorldMirror } from "./log";
-import { WorldAgent, serverWorldName, type WorldCommand, type WorldTransport } from "./serverWorld";
+import { ScoreFeed, WorldAgent, serverWorldName, startServerWorld, stopServerWorld, type WorldCommand, type WorldTransport } from "./serverWorld";
 import type { PEvent } from "./types";
 import { setRateMirror, setTimeRate, setWallOffset, timeRate, wallNow, worldNow } from "./worldClock";
 import { HOST_LEASE_MS, chunkEndMs, chunkOf, lastClosedChunk, type WorldState } from "@/lib/world/protocol";
@@ -560,6 +560,49 @@ describe("the shared world's agent", () => {
     });
   });
 
+  describe("a sound's feed", () => {
+    it("takes what is known when attached, then each chunk only when asked", async () => {
+      server.pages = [{ events: [ev("a:1", 1)], next: null }];
+      await agent.begin();
+      await run(agent, 500);
+      const feed = new ScoreFeed();
+      agent.attachFeed(feed);
+      expect(feed.log.size).toBe(1);
+      const k = lastClosedChunk(Date.now()) + 1;
+      server.chunks.set(k, [ev("b:2", 2)]);
+      await run(agent, 6000);
+      expect(feed.readTo).toBeGreaterThanOrEqual(k);
+      expect(feed.log.size).toBe(1);
+      feed.advanceTo(k);
+      expect(feed.log.size).toBe(2);
+    });
+
+    it("knows a chunk has been read even when it was empty", async () => {
+      await agent.begin();
+      const feed = new ScoreFeed();
+      agent.attachFeed(feed);
+      await run(agent, 6000);
+      expect(feed.readTo).toBeGreaterThanOrEqual(lastClosedChunk(Date.now()) - 1);
+    });
+
+    it("does not grow without end when no sound has started", () => {
+      const feed = new ScoreFeed();
+      for (let k = 0; k < 500; k++) feed.push(k, [ev(`bot0:${k}`, k)]);
+      expect(feed.log.size).toBeGreaterThan(300);
+      feed.advanceTo(499);
+      expect(feed.log.size).toBe(500);
+    });
+
+    it("empties with the world", async () => {
+      await agent.begin();
+      const feed = new ScoreFeed();
+      agent.attachFeed(feed);
+      feed.log.add(ev("old:1", 1));
+      await agent.command({ op: "clear" });
+      expect(feed.log.size).toBe(0);
+    });
+  });
+
   describe("without a server", () => {
     it("every hook is empty: storage behaves as before", () => {
       expect(hasWorldMirror()).toBe(false);
@@ -587,6 +630,26 @@ describe("the shared world's agent", () => {
         at(p, q);
         expect(serverWorldName()).toBeNull();
       }
+    });
+
+    it("leaving the shared pages empties every hook, and coming back starts again", async () => {
+      vi.stubEnv("NEXT_PUBLIC_WORLD", "rehearsal");
+      vi.stubGlobal("window", { location: { pathname: "/v2/global/space", search: "" }, addEventListener: () => {}, removeEventListener: () => {}, alert: () => {} });
+      vi.stubGlobal("document", { visibilityState: "visible" });
+      vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")));
+      const started = startServerWorld(10);
+      await vi.advanceTimersByTimeAsync(20);
+      await started;
+      expect(hasWorldMirror()).toBe(true);
+      stopServerWorld();
+      expect(hasWorldMirror()).toBe(false);
+      setTimeRate(3);
+      expect(timeRate()).toBe(3); // the rate is this browser's own again
+      const again = startServerWorld(10);
+      await vi.advanceTimersByTimeAsync(20);
+      await again;
+      expect(hasWorldMirror()).toBe(true);
+      stopServerWorld();
     });
 
     it("no name configured, no shared world", () => {

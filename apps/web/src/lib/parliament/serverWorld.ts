@@ -561,6 +561,7 @@ export class WorldAgent {
 }
 
 let agent: WorldAgent | null = null;
+let stopAgent: (() => void) | null = null;
 
 /** The world this tab should be in, or null when it runs on its own storage as before. */
 export function serverWorldName(): string | null {
@@ -575,19 +576,27 @@ export function serverWorldName(): string | null {
   return asked && isWorldName(asked) ? asked : configured;
 }
 
-/** A timer that keeps running in a hidden tab (see useTicker.ts). */
-function workerInterval(ms: number, fire: () => void): void {
+/** A timer that keeps running in a hidden tab (see useTicker.ts). Returns how to stop it. */
+function workerInterval(ms: number, fire: () => void): () => void {
+  let worker: Worker | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const fallback = () => {
+    worker?.terminate();
+    worker = null;
+    if (timer === null) timer = setInterval(fire, ms);
+  };
   try {
     const url = URL.createObjectURL(new Blob([`setInterval(function(){postMessage(0)},${ms});`], { type: "text/javascript" }));
-    const worker = new Worker(url);
+    worker = new Worker(url);
     worker.onmessage = fire;
-    worker.onerror = () => {
-      worker.terminate();
-      setInterval(fire, ms);
-    };
+    worker.onerror = fallback;
   } catch {
-    setInterval(fire, ms);
+    fallback();
   }
+  return () => {
+    worker?.terminate();
+    if (timer !== null) clearInterval(timer);
+  };
 }
 
 /**
@@ -613,12 +622,32 @@ export async function startServerWorld(timeoutMs = 2500): Promise<void> {
       setKeepWindow: (sec) => void a.command({ op: "window", sec }),
     });
     setRateMirror((rate) => void a.command({ op: "rate", rate }));
-    window.addEventListener("pagehide", () => a.releaseHost());
+    const onHide = () => a.releaseHost();
+    window.addEventListener("pagehide", onHide);
     (window as unknown as { __world?: WorldAgent }).__world = a;
     const begun = a.begin().catch(() => {});
-    workerInterval(TICK_MS, () => a.tick());
+    const stopTimer = workerInterval(TICK_MS, () => a.tick());
+    stopAgent = () => {
+      stopTimer();
+      window.removeEventListener("pagehide", onHide);
+      a.setWantHost(false);
+      setWorldMirror(null);
+      setRateMirror(null);
+      setWallOffset(0);
+      delete (window as unknown as { __world?: WorldAgent }).__world;
+    };
     await Promise.race([begun, new Promise((r) => setTimeout(r, timeoutMs))]);
   }
+}
+
+/**
+ * Leaving the pages of the shared world for one that is not (V1, the home page) without a page load: the agent lives in
+ * the tab's modules and would go on, and those pages would write into the shared world.
+ */
+export function stopServerWorld(): void {
+  stopAgent?.();
+  stopAgent = null;
+  agent = null;
 }
 
 /** Connects one of this tab's event logs to the server; returns how to let go (nothing to do when the agent is off). */
