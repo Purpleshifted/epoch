@@ -124,6 +124,30 @@ describe("the immutable layer", () => {
     expect(run([0, 500, 900], Infinity, true)).toBe(a);
   }, 600_000);
 
+  it("FROZEN PARTS: below freezeSlots a building's parts keep their shape and identity as it grows; erosion still applies", () => {
+    const m = new SpaceModel();
+    const priv = m as unknown as { built: { slot: number; x: number; y: number; z: number; sx: number }[]; wear: { survival: (b: unknown) => number } };
+    const spu = DEFAULT_BOXES.secPerUnit;
+    const fuse = { ...DEFAULT_FUSE, freezeSlots: 4 };
+    const half = events.filter((e) => e.s <= 900);
+    m.add(half);
+    m.setNow(900);
+    m.computeParts({ ...parts(), fuse });
+    const kFreeze = Math.floor(900 / spu) - 4;
+    const before = priv.built.filter((b) => b.slot <= kFreeze);
+    const d0 = new Map(before.map((b) => [b, 1 - priv.wear.survival(b)]));
+    // the same buildings go on growing (more visitors, more slots) and time passes
+    m.add(events.filter((e) => e.s > 900 && e.s <= 1300));
+    m.setNow(1300);
+    m.computeParts({ ...parts(), fuse });
+    const after = new Set(priv.built);
+    for (const b of before) expect(after.has(b as never)).toBe(true);
+    // … and erosion moved on for those same parts
+    let older = 0;
+    for (const b of before) if (1 - priv.wear.survival(b) > (d0.get(b) ?? 0)) older++;
+    expect(older).toBeGreaterThan(0);
+  }, 600_000);
+
   it("without the line (V1) the old rule is unchanged: what is baked is not final (the past keeps ageing)", () => {
     const m = new SpaceModel();
     const priv = m as unknown as { baked: Map<number, { final: boolean }> };

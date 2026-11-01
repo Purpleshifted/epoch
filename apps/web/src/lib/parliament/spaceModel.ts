@@ -377,6 +377,8 @@ export class SpaceModel {
   /** The fold as a state that grows with the events (foldState.ts), per fold config: a refold costs only what arrived. */
   private foldState: { key: string; state: FoldState; fed: number } | null = null;
   private partCache = new Map<number, { key: string; parts: Box[] }>();
+  /** FROZEN PARTS per building and slot (fuse.freezeSlots): once a slot is that deep, its parts are kept as they were. */
+  private frozen = new Map<number, Map<number, Box[]>>();
   private partsSig = "";
   /** Seeds by cell as last folded: kept through reset (a moved history window), see carrySeeds. */
   private seedMemo = new Map<string, Seed>();
@@ -713,6 +715,7 @@ export class SpaceModel {
     this.version++;
     this.foldState = null;
     this.partCache.clear();
+    this.frozen.clear();
     this.chunks.clear();
     this.drainKept = null;
     this.walkKept = null;
@@ -797,10 +800,41 @@ export class SpaceModel {
         this.partCache.set(s.id, hit);
       }
       live.add(s.id);
+      // FROZEN below the line: a building whose mass grew a quarter, or that gained a slot, is regenerated whole — but its
+      // parts deeper than freezeSlots keep the shape (and the identity) they had, so the layers below do not reshuffle,
+      // their fused chunks are not invalidated and absorbed parts do not pop back
+      let parts = hit.parts;
+      const fz = input.fuse.freezeSlots;
+      if (fz !== undefined && fz >= 0) {
+        const kFreeze = Math.floor(t / box.secPerUnit) - fz;
+        let mine = this.frozen.get(s.id);
+        if (!mine) this.frozen.set(s.id, (mine = new Map()));
+        const fresh = new Map<number, Box[]>();
+        for (const b of hit.parts) {
+          const l = fresh.get(b.slot);
+          if (l) l.push(b);
+          else fresh.set(b.slot, [b]);
+        }
+        const out: Box[] = [];
+        const slotsAll = new Set<number>([...fresh.keys(), ...mine.keys()]);
+        for (const k of slotsAll) {
+          if (k <= kFreeze) {
+            let kept = mine.get(k);
+            if (!kept) mine.set(k, (kept = fresh.get(k) ?? []));
+            for (const b of kept) out.push(b);
+          } else {
+            for (const b of fresh.get(k) ?? []) out.push(b);
+          }
+        }
+        // what fell below the history window is not kept
+        for (const k of mine.keys()) if (k < floorK) mine.delete(k);
+        parts = out;
+      }
       // nothing below the history window (a carried seed still has its slots below it), nothing in a baked chunk
-      for (const b of hit.parts) if (b.slot >= floorK && !this.isBaked(b.slot)) built.push(b);
+      for (const b of parts) if (b.slot >= floorK && !this.isBaked(b.slot)) built.push(b);
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
+    for (const id of this.frozen.keys()) if (!live.has(id)) this.frozen.delete(id);
     const w = input.weather;
     // vegetation around a part: the last vegetation history (if the view draws vegetation), at the part's cell and slot
     const h = this.history;
