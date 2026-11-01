@@ -16,6 +16,14 @@ const nextConfig: NextConfig = {
     // Vercel build (ENOENT mkdir /vercel/output/static/noisecraft, 2026-10-20)
     NOISECRAFT_EXAMPLES_DIR: path.join(import.meta.dirname, "public", "noisecraft", "examples"),
   },
+  // ONE three.js: drei re-exports StatsGl, whose stats-gl package carries its own three@0.170 — two copies in the
+  // bundle. We never use StatsGl, so stats-gl resolves to a do-nothing stand-in (src/lib/stubs/stats-gl.ts).
+  // Turbopack only: Next 16 refuses a Turbopack build when a webpack() override exists.
+  turbopack: {
+    resolveAlias: {
+      "stats-gl": "./src/lib/stubs/stats-gl.ts",
+    },
+  },
   // the patch list on a deployment reads the files from the function's own bundle
   outputFileTracingIncludes: {
     "/noisecraft/list-patches": ["./public/noisecraft/examples/**"],
