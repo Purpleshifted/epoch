@@ -2674,6 +2674,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         // in a 40-minute world, about a quarter of them these passes — measured 2026-11-01)
         aoGlass: { value: true, label: "투명한 것 따로 계산 (끄면 장면을 덜 그림; 켜짐 = 지금)" },
       }),
+      // the multisampled post buffers and their resolves: on a 2160×4320 wall 7 → 11 fps without them; 4 samples save
+      // nothing, only none does (measured 2026-11-01, M2)
+      msaa: { options: [8, 0] as const, value: 8 as const, label: "후처리 계단 현상 제거 샘플 (8 = 지금; 0이면 큰 화면에서 훨씬 빠름)" },
       "빛": folder({
         shadows: { value: true, label: "그림자" },
         // the shadow map draws the whole scene again; it changes only with the sun's drift and the worker's results
@@ -2845,7 +2848,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
+          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.msaa}`} multisampling={rnd.msaa}>
             {rnd.aoOn && <N8AO ref={(p: unknown) => setAoGlass(p, rnd.aoGlass)} aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
