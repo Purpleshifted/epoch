@@ -11,6 +11,7 @@ src, out, W = sys.argv[1], sys.argv[2], int(sys.argv[3])
 rng = np.random.default_rng(int(sys.argv[4]) if len(sys.argv) > 4 else 3)
 SURF = float(sys.argv[5]) if len(sys.argv) > 5 else 0.1355   # the surface line, as a fraction of the image height
 SKY = float(sys.argv[6]) if len(sys.argv) > 6 else None        # sky luminance 0–1: rising cells take on this tone
+ASSIM = float(sys.argv[7]) if len(sys.argv) > 7 else 0.0       # >0: cells are assimilated into the sky as soon as they cross the line (steepness)
 TOP = SURF - 0.085            # above this nothing is left
 END = SURF + 0.02             # below this the smooth render is whole
 im = Image.open(src).convert("RGBA")
@@ -27,8 +28,9 @@ def layer(cell, lo, hi, keep, scatter):
     small = np.asarray(im.resize((cw, ch), Image.BOX)).astype(np.float32) / 255
     tone = np.round(small[..., :3].mean(axis=2) * 6) / 6
     if SKY is not None:  # the higher a cell, the closer its tone to the sky behind it
-        w = presence(np.linspace(0, 1, ch, dtype=np.float32)[:, None]) ** 0.6
-        tone = tone * w + SKY * (1 - w)
+        g = presence(np.linspace(0, 1, ch, dtype=np.float32)[:, None])
+        w = np.exp(-(1 - g) * ASSIM) if ASSIM > 0 else g ** 0.6   # steep: a cell just above the line is already mostly sky
+        tone = tone * w + (SKY - 0.05 if ASSIM > 0 else SKY) * (1 - w)
     solid = small[..., 3] > 0.3
     y = np.linspace(0, 1, ch, dtype=np.float32)[:, None]
     share = np.clip(1 - np.abs(y - (lo + hi) / 2) / ((hi - lo) / 2), 0, 1) * (y >= lo) * (y <= hi)
@@ -42,7 +44,7 @@ def layer(cell, lo, hi, keep, scatter):
         fy = float(f[yy, 0])
         k = int(rng.poisson(scatter * (1 - fy))) if fy < 1 else 0
         ny = max(0, yy - k)
-        al = (0.06 + 0.94 * fy) * (0.75 ** k)
+        al = ((0.3 + 0.7 * float(np.exp(-(1 - fy) * ASSIM))) if ASSIM > 0 else (0.06 + 0.94 * fy)) * (0.75 ** k)
         if al > grid_a[ny, xx]:
             grid_a[ny, xx] = al; grid_t[ny, xx] = tone[yy, xx]
     rgba = np.dstack([grid_t, grid_t, grid_t, grid_a])
