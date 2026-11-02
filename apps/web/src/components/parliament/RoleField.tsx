@@ -60,6 +60,7 @@ import {
   type Snapshot,
   worldNow,
 } from "@/lib/parliament";
+import { touchDevice } from "@/lib/parliament/serverWorld";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
@@ -401,7 +402,8 @@ export function RoleField({
       // who is here now: everyone within the assignment window, whatever time slot they live in
       heads.current = dandelionsIn(events);
       const alive = aliveOwners(events, me.current.id, seenOwners.current, performance.now(), ALIVE_HOLD_MS, sMe, Math.max(offsetWindow, DEFAULT_WITNESS.recentSec));
-      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
+      // on a phone, the others' last minute reaches the ground late: replaying it near a crowd was most of the frame time
+      snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR }, touchDevice() ? { tailOf: me.current.id } : undefined);
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       markSpan("fold", performance.now() - tFold);
       if (witnessRef) {
@@ -429,7 +431,7 @@ export function RoleField({
             mine: myEvents.current,
             sNow: sMe,
             t: lifeRef.current.t,
-            snap: fold.at(sMe),
+            snap: fold.at(sMe, undefined, { tailOf: me.current.id }), // the whole world, but only my own last minute replayed
             stress: stressAt(sMe),
             natureCfg,
             flow: cfg.flow?.enabled ? cfg.flow : null,

@@ -580,8 +580,8 @@ export function serverWorldName(): string | null {
   return asked && isWorldName(asked) ? asked : configured;
 }
 
-/** A phone or tablet: never a bot host, and the world stays out of its storage. */
-function touchDevice(): boolean {
+/** A phone or tablet: never a bot host, the world stays out of its storage, and it replays only its own steps on the ground. */
+export function touchDevice(): boolean {
   if (typeof navigator === "undefined") return false;
   return navigator.maxTouchPoints > 0 || (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
 }

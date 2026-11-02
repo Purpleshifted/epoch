@@ -183,6 +183,25 @@ describe("foldState: the same ground as the batch fold, grown instead of refolde
     expect(lessTail, "the region replayed less than the whole world").toBeGreaterThan(checks / 2);
   });
 
+  it("tailOf replays one owner's tail alone; with nobody else in the world that is the whole tail", () => {
+    const owners = crowd();
+    const fedWith = (who: typeof owners): FoldState => {
+      const state = new FoldState(V2, { inactiveTicks: 30 });
+      for (const a of arrivals(who, 300)) state.add(a.e);
+      return state;
+    };
+    const state = fedWith(owners);
+    state.snapshot(299.5);
+    const whole = state.stats.tail;
+    state.snapshot(299.5, undefined, { tailOf: owners[0].id });
+    expect(state.stats.tail).toBeGreaterThan(0);
+    expect(state.stats.tail).toBeLessThan(whole);
+    state.snapshot(299.5, undefined, { tailOf: "nobody" });
+    expect(state.stats.tail).toBe(0);
+    const alone = fedWith([owners[0]]);
+    expectSame(alone.snapshot(299.5, undefined, { tailOf: owners[0].id }), fedWith([owners[0]]).snapshot(299.5), "alone");
+  });
+
   it("a region works out the stay shares of the tail that reaches it, not of the whole world's", () => {
     const owners = crowd();
     const fed = (): FoldState => {

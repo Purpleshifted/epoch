@@ -213,6 +213,8 @@ export interface FoldStateOptions {
 export interface SnapshotOptions {
   /** false: the settled state only, without replaying the tail (up to ~staySec + lateMarginSec behind the viewer). */
   tail?: boolean;
+  /** The tail of this owner alone: their own steps at once, everyone else's only as they settle. */
+  tailOf?: string;
 }
 
 /** A tail sample is replayed for a region when it, or the sample before it, lies within the region's reach plus this
@@ -643,7 +645,8 @@ export class FoldState {
     const reach = region && flow ? region.r + this.cfg.radius + CELL_SIZE * 2 + TREAD_REACH : Infinity;
     const near = (L: Line, k: number) =>
       reach === Infinity || wrapDist(L.x[k], L.z[k], region!.x, region!.z) <= reach || (k > 0 && wrapDist(L.x[k - 1], L.z[k - 1], region!.x, region!.z) <= reach);
-    for (const L of this.lines.values()) {
+    const own = opts.tailOf === undefined ? null : this.lines.get(opts.tailOf);
+    for (const L of own === null ? this.lines.values() : own ? [own] : []) {
       let stayed = L.settled - 1;
       for (let k = L.settled; k < L.s.length && L.s[k] <= sView; k++) {
         if (!near(L, k)) continue;
