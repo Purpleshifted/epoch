@@ -12,6 +12,7 @@ rng = np.random.default_rng(int(sys.argv[4]) if len(sys.argv) > 4 else 3)
 SURF = float(sys.argv[5]) if len(sys.argv) > 5 else 0.1355   # the surface line, as a fraction of the image height
 SKY = float(sys.argv[6]) if len(sys.argv) > 6 else None        # sky luminance 0–1: rising cells take on this tone
 ASSIM = float(sys.argv[7]) if len(sys.argv) > 7 else 0.0       # >0: cells are assimilated into the sky as soon as they cross the line (steepness)
+LINEMIX = float(sys.argv[8]) if len(sys.argv) > 8 else 1.0     # how much of its own tone a cell keeps right at the line (1 = all)
 TOP = SURF - 0.085            # above this nothing is left
 END = SURF + 0.02             # below this the smooth render is whole
 im = Image.open(src).convert("RGBA")
@@ -28,8 +29,10 @@ def layer(cell, lo, hi, keep, scatter):
     small = np.asarray(im.resize((cw, ch), Image.BOX)).astype(np.float32) / 255
     tone = np.round(small[..., :3].mean(axis=2) * 6) / 6
     if SKY is not None:  # the higher a cell, the closer its tone to the sky behind it
-        g = presence(np.linspace(0, 1, ch, dtype=np.float32)[:, None])
-        w = np.exp(-(1 - g) * ASSIM) if ASSIM > 0 else g ** 0.6   # steep: a cell just above the line is already mostly sky
+        yy = np.linspace(0, 1, ch, dtype=np.float32)[:, None]
+        g = presence(yy)
+        w = np.exp(-(1 - g) * ASSIM) * LINEMIX if ASSIM > 0 else g ** 0.6   # steep: a cell just above the line is already mostly sky
+        w = np.where(yy < SURF, w, 1.0)   # below the line a cell keeps its own tone
         tone = tone * w + (SKY - 0.05 if ASSIM > 0 else SKY) * (1 - w)
     solid = small[..., 3] > 0.3
     y = np.linspace(0, 1, ch, dtype=np.float32)[:, None]
@@ -62,7 +65,8 @@ for full in [layer(8, SURF - 0.035, END + 0.01, 0.8, 1.0),
     cells = cells * (1 - al) + full * al
 ch, cw = H // 8, W // 8
 y8 = np.linspace(0, 1, ch, dtype=np.float32)[:, None]
-keep_smooth = rng.random((ch, cw)) < np.clip((y8 - (SURF - 0.012)) / (END - (SURF - 0.012)), 0, 1) ** 1.3
+S0 = SURF if ASSIM > 0 else SURF - 0.012   # with assimilation the render itself stops at the line
+keep_smooth = rng.random((ch, cw)) < np.clip((y8 - S0) / (END - S0), 0, 1) ** 1.3
 ks = np.asarray(Image.fromarray(keep_smooth.astype(np.uint8) * 255).resize((cw * 8, ch * 8), Image.NEAREST)).astype(np.float32) / 255
 K = np.ones((H, W), np.float32); K[: ch * 8, : cw * 8] = ks
 outim = a * K[..., None] + cells * (1 - K[..., None])
