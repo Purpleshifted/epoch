@@ -582,7 +582,8 @@ export function serverWorldName(): string | null {
 
 /** A phone or tablet: never a bot host, and the world stays out of its storage. */
 function touchDevice(): boolean {
-  return typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
+  if (typeof navigator === "undefined") return false;
+  return navigator.maxTouchPoints > 0 || (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
 }
 
 /** A timer that keeps running in a hidden tab (see useTicker.ts). Returns how to stop it. */
