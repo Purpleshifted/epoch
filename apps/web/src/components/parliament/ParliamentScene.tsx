@@ -362,7 +362,7 @@ export default function ParliamentScene() {
   // V2: the ledger of this life (lib/parliament/ledger.ts) — written by RoleField, read by the HUD
   const ledgerRef = useRef<Ledger | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, walkSpeed, lookSpeed, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camLerp, viscosity, lookSpeed, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -401,15 +401,21 @@ export default function ParliamentScene() {
       }),
       "화면": folder({
         pixelDpr: { value: 1, min: 0.15, max: 2, step: 0.05, label: "해상도 (1 = 1x · 2 = 레티나 · 1 미만은 거칠게)" },
-        camDist: { value: 7, min: 2, max: 20, step: 0.5 },
         camLerp: { value: 0.05, min: 0.01, max: 0.3, step: 0.01, label: "카메라 부드러움" },
         viscosity: { value: 0.72, min: 0, max: 1, step: 0.01, label: "점성" },
-        walkSpeed: { value: 4, min: 1, max: 10, step: 0.25, label: "걷는 속도 (월드/초, 이전 7 · 세계 160)" },
         lookSpeed: { value: 0.65, min: 0.2, max: 1.5, step: 0.05, label: "시선 돌리는 속도 (이전 1)" },
         fogNear: { value: 18, min: 5, max: 80, step: 1 },
         fogFar: { value: 80, min: 20, max: 200, step: 5 },
       }, { collapsed: true }),
     });
+  // saved like the role's values, so a rehearsal save reaches the exhibition's screen (the artist, 2026-11-02)
+  const { walkSpeed, camDist } = useControls(
+    "걷기 · 카메라",
+    savable("걷기 · 카메라", {
+      walkSpeed: { value: 4, min: 1, max: 10, step: 0.25, label: "걷는 속도 (월드/초, 이전 7 · 세계 160)" },
+      camDist: { value: 7, min: 2, max: 20, step: 0.5, label: "카메라 거리" },
+    }),
+  );
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
   const lifeCfg = useMemo(
     () => ({ lifeSec, warnSec, endHoldSec, quickRestartSec, rate: lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
