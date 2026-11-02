@@ -76,26 +76,38 @@ export function natureColors(np: Pick<NaturePoints, "count" | "kind" | "shade">)
  * Column-major 4×4 of position · rotation (Euler "YZX" with x = 0: yaw about Y after tilt about Z) · scale —
  * exactly what three.js Object3D.updateMatrix gives (tested against it).
  */
-export function writeMatrix(out: Float32Array, o: number, b: Box): void {
+export function writeMatrix(out: Float32Array, o: number, b: Box, grow = 0): void {
   const cy = Math.cos(b.yaw ?? 0), sy = Math.sin(b.yaw ?? 0);
   const cz = Math.cos(b.tilt ?? 0), sz = Math.sin(b.tilt ?? 0);
   // R = Ry · Rz
-  out[o] = cy * cz * b.sx;
-  out[o + 1] = sz * b.sx;
-  out[o + 2] = -sy * cz * b.sx;
+  const lx = b.sx + grow, ly = b.sy + grow, lz = b.sz + grow;
+  out[o] = cy * cz * lx;
+  out[o + 1] = sz * lx;
+  out[o + 2] = -sy * cz * lx;
   out[o + 3] = 0;
-  out[o + 4] = -cy * sz * b.sy;
-  out[o + 5] = cz * b.sy;
-  out[o + 6] = sy * sz * b.sy;
+  out[o + 4] = -cy * sz * ly;
+  out[o + 5] = cz * ly;
+  out[o + 6] = sy * sz * ly;
   out[o + 7] = 0;
-  out[o + 8] = sy * b.sz;
+  out[o + 8] = sy * lz;
   out[o + 9] = 0;
-  out[o + 10] = cy * b.sz;
+  out[o + 10] = cy * lz;
   out[o + 11] = 0;
   out[o + 12] = b.x;
   out[o + 13] = b.y;
   out[o + 14] = b.z;
   out[o + 15] = 1;
+}
+
+/**
+ * How much bigger a part is drawn, fixed for each part by where it stands. Parts built on the same grid share faces, and
+ * two faces in one plane take turns in front from frame to frame as the camera moves (the artist, 2026-11-02: overlapping
+ * parts flicker). A few hundredths of a world unit at most, too little to see from the wall, and never more than a
+ * share of the part's own thickness.
+ */
+export function faceSeparation(b: Box): number {
+  const h = Math.sin(b.x * 12.9898 + b.y * 78.233 + b.z * 37.719) * 43758.5453;
+  return Math.min(0.024, 0.15 * Math.min(b.sx, b.sy, b.sz)) * (0.25 + 0.75 * (h - Math.floor(h)));
 }
 
 const EDGE: [number, number][] = [
@@ -1004,7 +1016,7 @@ export class SpaceModel {
       const i = fill[k];
       if (i >= counts[k]) continue;
       fill[k]++;
-      writeMatrix(matrices[k], i * 16, b);
+      writeMatrix(matrices[k], i * 16, b, faceSeparation(b));
       // weathering shows on the part itself: darker as it decays — grey only (human traces carry no colour);
       // a baked part keeps the shade it had
       const kept = bakedOf.get(b);

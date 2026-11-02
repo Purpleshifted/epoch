@@ -2764,7 +2764,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       perfMode: { value: false, label: "성능 모드 (해상도 ↓ · AO 절반 · 그림자 끔 · 식생 점 ↓ · LOD 가까이)" },
       // the pixels: a 5K iMac at ×2 draws 15 M of them per frame, with the AO on every one — ×1.5 looks the same
       // at that density and costs half
-      dprMax: { value: 1.5, min: 1, max: 2, step: 0.25, label: "해상도 상한 (화면 픽셀 배율; 2 = 레티나 전부, 1.5 권장)" },
+      dprMax: { value: 1.5, min: 1, max: 2, step: 0.25, label: "해상도 상한 (×2 화면에서 1 또는 2가 화면 픽셀과 맞음; 사이 값은 모서리가 떨림)" },
       aa: {
         options: { "MSAA 4 + SMAA": "msaa4smaa", "SMAA만 (가장 가벼움)": "smaa", "MSAA 8 (이전)": "msaa8", "끔": "off" },
         value: "msaa4smaa",
@@ -2895,7 +2895,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.5, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
+      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />

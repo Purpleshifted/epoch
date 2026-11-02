@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, NATURE_KIND, SpaceModel, natureColors, botActor, dueSamples, writeMatrix, type Box, type PEvent } from "./index";
+import { DEFAULT_BOXES, DEFAULT_FOLD, DEFAULT_FUSE, DEFAULT_NATURE, DEFAULT_WATER, DEFAULT_WEATHER, NATURE_KIND, SpaceModel, natureColors, botActor, dueSamples, faceSeparation,
+  writeMatrix, type Box, type PEvent } from "./index";
 
 function runBots(bots: number, seconds: number, spread = 10): PEvent[] {
   const start = 1_800_000_000_000;
@@ -20,6 +21,29 @@ function runBots(bots: number, seconds: number, spread = 10): PEvent[] {
 }
 
 const box = (over: Partial<Box>): Box => ({ kind: "beam", seed: 1, material: "concrete", x: 1, y: 2, z: 3, sx: 0.1, sy: 4, sz: 0.2, tone: 0.5, along: 0, slot: 0, ...over });
+
+describe("faces that would coincide", () => {
+  const box = { x: 3, y: 1.2, z: -7, sx: 2, sy: 0.5, sz: 2 } as unknown as Parameters<typeof faceSeparation>[0];
+  it("each part stands off by a small fixed amount, the same every time", () => {
+    const e = faceSeparation(box);
+    expect(e).toBeGreaterThan(0);
+    expect(e).toBeLessThanOrEqual(0.024);
+    expect(faceSeparation(box)).toBe(e);
+    expect(faceSeparation({ ...box, x: 5 })).not.toBe(e);
+  });
+  it("a thin part grows by a small share of its thickness, not by a fixed amount", () => {
+    expect(faceSeparation({ ...box, sx: 0.04 })).toBeLessThanOrEqual(0.15 * 0.04);
+  });
+  it("what is grown is only the size", () => {
+    const m = new Float32Array(16);
+    writeMatrix(m, 0, box, 0.01);
+    expect(m[0]).toBeCloseTo(2.01);
+    expect(m[5]).toBeCloseTo(0.51);
+    expect(m[12]).toBeCloseTo(3);
+    expect(m[13]).toBeCloseTo(1.2);
+    expect(m[14]).toBeCloseTo(-7);
+  });
+});
 
 describe("writeMatrix equals three.js Object3D.updateMatrix (Euler YZX)", () => {
   it.each([
