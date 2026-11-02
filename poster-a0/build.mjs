@@ -552,4 +552,78 @@ ${notes.map((n) => `<div class="abs n" data-text style="top:${n.y}mm">${n.sign ?
     { imgX: 0, imgY: SURF, imgH: UG, img: "underground_alpha.png" },
   );
 }
+
+// ── A2. 도면 (the artist's pick, 11/03): the first silver sketch — text column left, the structure cut hard along the
+//    time axis — with the vegetation gone and the title's tracking relaxed ─────────────────────────────────────────────
+{
+  const traces = data("traces.json");
+  const tracePaths = (scale, cx, cy, az = 36) => {
+    const a = (az * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+    return traces.map((t) => `<path d="M${t.pts.filter((_, i) => i % 2 === 0).map(([x, z]) => `${(cx + (x * ca - z * sa) * scale).toFixed(2)} ${(cy + (x * sa + z * ca) * scale).toFixed(2)}`).join("L")}"/>`).join("");
+  };
+  const NOTES = [
+    ["거주", "여럿이 오래 머문 자리에 콘크리트가 선다. 혼자서는 지을 수 없다."],
+    ["이동", "많이 밟힌 땅은 길이 되고, 발길이 끊기면 식생이 돌아온다."],
+    ["물", "건물과 길이 땅을 덮으면 빗물이 스며들지 못한다. 드문 곳에서는 물길로, 밀집한 곳에서는 땅 밑 배관으로 흐른다."],
+    ["화석", "시간이 지난 층의 건물은 서로 엉겨 붙어 뼈처럼 변한다."],
+  ];
+  const SOUND = [
+    ["이름", "관객은 이름 대신 고유한 멜로디를 받는다. 8칸 악보로 적은 이 기호가 곧 이름이다. 이름을 받으면서 세계 안의 존재가 된다."],
+    ["접촉", "다른 존재 곁에 오래 머물면 그 멜로디가 내 멜로디에 섞인다. 말을 걸어 오는 상대에게 응답하면 새 어휘가 생긴다."],
+    ["합주", "여럿이 머물면 화음이 되고, 그 자리에 건물이 선다. 건물의 조성은 지은 사람들의 멜로디로 정해진다."],
+    ["저음", "같은 멜로디들이 전시장 스피커에서는 두 옥타브 아래로 내려가 하나의 덩어리가 된다."],
+  ];
+  const ink = "#0b0b0b";
+  const paper = "#dfe0db";
+  const cut = 300;
+  const imgH = 1010;
+  const imgY = 179;
+  const imgX = cut - 196;
+  const y0 = imgY + (imgH * (88 - 82.2)) / 83.4;
+  const mmPerSec = (imgH / 83.4) * (1.2 / 20);
+  const L = 24;
+  const CW = cut - L - 22;
+  const planS = 256;
+  const timeAxis = () => {
+    const out = [`<line x1="${cut}" y1="${y0}" x2="${cut}" y2="${H}" stroke="${ink}" stroke-width=".3"/>`];
+    for (let s = 0; y0 + s * mmPerSec <= H; s += 60) {
+      const y = y0 + s * mmPerSec;
+      const major = s % 300 === 0;
+      out.push(`<line x1="${cut}" y1="${y}" x2="${cut + (major ? 7 : 3)}" y2="${y}" stroke="${ink}" stroke-width=".3"/>`);
+      if (major) out.push(`<text x="${cut + 9.5}" y="${y + 1.8}" font-size="5.4" fill="${ink}">${s === 0 ? "현재" : `−${s / 60}분`}</text>`);
+    }
+    return out.join("");
+  };
+  const G = (dots, s) => glyph(dots, s).replace(`fill="${INK}"`, `fill="${ink}"`);
+  const soundFig = (i, s) => (i === 0 ? G(fig_a(), s) : i === 1 ? G(fig_w(), s) : i === 2 ? chord(glyphs.slice(2, 7), s, ink, 0.5) : chord(glyphs.slice(0, 19), s, ink, 0.34, 0.22));
+  page(
+    "A2",
+    `
+body { background: ${paper}; color: ${ink}; }
+.t { left: ${L - 3}mm; top: 14mm; font-weight: 700; font-size: 148mm; line-height: .9; letter-spacing: -.025em; white-space: nowrap; }
+.en { left: ${L}mm; top: 292mm; width: 250mm; font-family: "Baskerville", "Times New Roman", serif; font-style: italic; font-weight: 500; font-size: 18mm; line-height: 1; }
+.head { left: ${cut + 8}mm; top: 196mm; font-family: "Neo"; font-size: 9.6mm; line-height: 1.34; }
+.body { left: ${L}mm; top: 326mm; width: ${CW}mm; font-size: 7.3mm; line-height: 1.52; font-weight: 500; }
+.body p + p { margin-top: 3.6mm; }
+.sec { font-size: 7.3mm; font-weight: 700; line-height: 1; border-top: .35mm solid ${ink}; padding-top: 2.4mm; margin-bottom: 4mm; }
+.notes { left: ${L}mm; top: 640mm; width: ${CW}mm; font-size: 5.7mm; line-height: 1.46; }
+.nrow { display: grid; grid-template-columns: 24mm 1fr; margin-bottom: 1.9mm; }
+.nrow b { font-weight: 700; }
+.srow { display: grid; grid-template-columns: 14mm 10mm 1fr; margin-bottom: 2.4mm; align-items: start; }
+.srow b { font-weight: 700; }
+.plan { left: ${L}mm; top: 884mm; width: ${CW}mm; }
+.credit { left: ${L}mm; right: 24mm; bottom: 15mm; display: flex; justify-content: space-between; font-size: 5.7mm; font-weight: 500; line-height: 1; }
+`,
+    `<div class="abs" style="left:${cut}mm;top:0;width:${W - cut}mm;height:${H}mm;overflow:hidden"><img src="../renders/column_bare.png" style="position:absolute;left:${imgX - cut}mm;top:${imgY}mm;height:${imgH}mm;width:${imgH * (5967 / 5400)}mm"></div>
+<div class="abs t" data-text>${TEXT.title.join("<br>")}</div>
+<div class="abs en" data-text>${TEXT.titleEn}</div>
+<div class="abs head" data-text>${TEXT.head.join("<br>")}</div>
+<svg class="abs" style="left:0;top:0;font-family:Pre;font-weight:500" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">${timeAxis()}</svg>
+<div class="abs body" data-text>${TEXT.body.map((p) => `<p>${p.replace(/<sup>\d<\/sup>/g, "")}</p>`).join("")}</div>
+<div class="abs notes" data-text><div class="sec">흔적</div>${NOTES.map(([h, p]) => `<div class="nrow"><b>${h}</b><span>${p}</span></div>`).join("")}<div class="sec" style="margin-top:5mm">소리</div>${SOUND.map(([h, p], i) => `<div class="srow"><b>${h}</b>${soundFig(i, 7.2)}<span>${p}</span></div>`).join("")}</div>
+<div class="abs plan" data-text><div class="sec">걸음의 자취 (위에서 본 땅)</div><svg viewBox="-50 -50 100 100" width="${planS}mm" height="${planS}mm" fill="none" stroke="${ink}" stroke-width=".06" stroke-linejoin="round" style="display:block">${tracePaths(1, 0, 0)}</svg></div>
+<div class="abs credit" data-text><div>ID40009 Graduation Design Studio<br>실시간 웹 · 3D · 공간 음향 · 2채널 디스플레이</div><div style="text-align:right">Hayeon Park 20220875<br>Supervised by Yiyun Kang</div></div>`,
+    { imgX, imgY, imgH, img: "column_bare.png", clipX: cut },
+  );
+}
 writeFileSync(resolve(OUT, "layout.json"), JSON.stringify(layout));
