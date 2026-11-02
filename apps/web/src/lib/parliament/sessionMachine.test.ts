@@ -31,7 +31,7 @@ function make(cfg: LifeConfig = CFG, rng: () => number = Math.random, getNear?: 
   return m;
 }
 
-/** From the title screen into a life (the headset is on: the life begins at once). */
+/** From the title screen into a life (the headset on, the name, 살아가기). */
 function live(m: SessionMachine) {
   press(m, "Enter"); // idle → notice
   for (const page of SCRIPT.ko.notice) {
@@ -42,6 +42,11 @@ function live(m: SessionMachine) {
   press(m, "Enter");
   expect(m.view.phase).toBe("headset");
   press(m, "Enter");
+  expect(m.view.phase).toBe("name");
+  press(m, "KeyA"); // only 살아가기 goes on
+  step(m, 8000); // the name waits
+  expect(m.view.phase).toBe("name");
+  m.beginLife();
   expect(m.view.phase).toBe("live");
 }
 
@@ -61,20 +66,31 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("the frame before a life", () => {
-  it("turns a notice page only once its lines are up, and goes back to the title when nobody presses anything", () => {
+  it("turns the notice's pages, then the consent, and goes back to the title when nobody presses anything", () => {
     const m = make();
     press(m, "Enter");
     expect(m.view.phase).toBe("notice");
-    press(m, "Enter"); // too early: the second line is not up yet
     expect(m.view.page).toBe(0);
-    step(m, 700);
     press(m, "Enter");
     expect(m.view.page).toBe(1);
+    press(m, "Enter");
+    expect(m.view.phase).toBe("consent");
     step(m, 46_000);
     expect(m.view.phase).toBe("idle");
   });
   it("runs through to the life", () => {
     live(make());
+  });
+  it("a visitor who walks away from the name is forgotten", () => {
+    const m = make();
+    press(m, "Enter");
+    press(m, "Enter");
+    press(m, "Enter");
+    press(m, "Enter");
+    press(m, "Enter");
+    expect(m.view.phase).toBe("name");
+    step(m, 46_000);
+    expect(m.view.phase).toBe("idle");
   });
 });
 
@@ -172,7 +188,7 @@ describe("stopping living (worker)", () => {
 });
 
 describe("the end and the restart", () => {
-  it("SPACE soon after the end goes straight into the next life; later it is a new visitor with the notices", () => {
+  it("SPACE soon after the end goes to a new name and the next life; later it is a new visitor with the notices", () => {
     const m = make();
     live(m);
     const no = m.view.sessionNo;
@@ -181,8 +197,10 @@ describe("the end and the restart", () => {
     step(m, 1100);
     expect(m.view.restartReady).toBe(true);
     press(m, "Space");
-    expect(m.view.phase).toBe("live");
+    expect(m.view.phase).toBe("name");
     expect(m.view.sessionNo).toBe(no + 1);
+    m.beginLife();
+    expect(m.view.phase).toBe("live");
     expect(m.lifeRef.current.t).toBe(0); // the lifespan starts afresh
     step(m, 61_000 + 1100);
     expect(m.view.phase).toBe("ended");
@@ -203,6 +221,6 @@ describe("the end and the restart", () => {
     step(m, 1100);
     vi.advanceTimersByTime(350);
     m.gesture(tap());
-    expect(m.view.phase).toBe("live");
+    expect(m.view.phase).toBe("name");
   });
 });

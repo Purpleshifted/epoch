@@ -7,6 +7,7 @@
 
 import { buttonGroup, levaStore } from "leva";
 import exhibitionPreset from "@/presets/exhibition.json";
+import { holdThenLate } from "@/lib/presets/holdThenLate";
 
 const PREFIX = "parliament.leva";
 
@@ -254,12 +255,16 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
 // the latest save". Every save also goes to /api/presets (same deployment, Neon Postgres — lib/presets/db.ts), and
 // a page asks the server once before its Leva mounts (ServerPresetsGate): a group the server saved later than this
 // browser did replaces the browser's copy. Order: server's latest > this browser's save > bundled preset > defaults.
-// No server (no DATABASE_URL, offline, slow): nothing changes, nothing waits longer than PRESET_FETCH_MS. ──
+// No server (no DATABASE_URL, offline): nothing changes, the fetch fails at once. A slow server: the page waits
+// PRESET_HOLD_MS and goes on; the request keeps running up to PRESET_LATE_MS, and what arrives is kept (onLate). ──
 
-const PRESET_FETCH_MS = 1200;
+/** A page waits this long. A cold function took 2.15 s on production (11/01), past the old 1.2 s limit. */
+const PRESET_HOLD_MS = 4000;
+/** The request itself gives up here. */
+const PRESET_LATE_MS = 30000;
 
 /** A line the artist sees after a save: "서버 저장됨" / "서버 저장 실패" — a small overlay, gone after a moment. */
-function showNote(text: string, ok: boolean): void {
+export function showNote(text: string, ok: boolean): void {
   try {
     const id = "leva-save-note";
     let el = document.getElementById(id);
@@ -309,13 +314,19 @@ export async function pushPreset(key: string, values: Record<string, unknown>): 
 /**
  * The server's groups for `page`, written into this browser where the server's save is newer than the browser's
  * (a browser copy without a date counts as older). Resolves with the keys that changed; [] when the server has
- * nothing newer, could not be reached, or took longer than PRESET_FETCH_MS. Call before Leva mounts.
+ * nothing newer, could not be reached, or took longer than PRESET_HOLD_MS. Call before Leva mounts. A slow answer is
+ * still written when it arrives (the next load starts from it) and `onLate` gets its changed keys, because Leva has
+ * mounted by then and this page shows the old values until it reloads.
  */
-export async function pullPresets(page: string): Promise<string[]> {
+export function pullPresets(page: string, onLate?: (changed: string[]) => void): Promise<string[]> {
+  if (typeof window === "undefined" || presetsDefault()) return Promise.resolve([]);
+  return holdThenLate(fetchPresets(page), PRESET_HOLD_MS, [], onLate);
+}
+
+async function fetchPresets(page: string): Promise<string[]> {
   const changed: string[] = [];
-  if (typeof window === "undefined" || presetsDefault()) return changed;
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), PRESET_FETCH_MS);
+  const timer = setTimeout(() => ctl.abort(), PRESET_LATE_MS);
   try {
     const r = await fetch(`/api/presets?page=${encodeURIComponent(page)}`, { signal: ctl.signal, cache: "no-store" });
     if (!r.ok) return changed;

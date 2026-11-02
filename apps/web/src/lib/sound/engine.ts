@@ -149,26 +149,27 @@ export interface SoundParams {
   bassDrop: number;
 }
 
+/** The artist's mix, as saved on :3003 (2026-11-01: "제일 최근에 열어본 3003 사운드를 디폴트로"). */
 export const DEFAULT_SOUND: SoundParams = {
-  master: 0.6,
+  master: 0.5,
   barSec: 2,
   speedMax: 7,
-  jitterMax: 0.03,
-  reverbMax: 0.6,
-  lpOpen: 8000,
-  lpSealed: 600,
-  noiseMax: 0.25,
-  hearRadius: 12,
-  othersLevel: 0.7,
-  botBlur: 0.6,
-  bassLevel: 0.9, // v4 A2d: the heartbeat in front (0.6 before)
-  padLevel: 0.35,
+  jitterMax: 0.04,
+  reverbMax: 0.99,
+  lpOpen: 5900,
+  lpSealed: 750,
+  noiseMax: 0.16,
+  hearRadius: 17.5,
+  othersLevel: 0.19,
+  botBlur: 0.79,
+  bassLevel: 0.6, // v4 A2d: the heartbeat in front (0.6 before)
+  padLevel: 0.62,
   magenta: false, // the light version has no Magenta (the artist, v4 A1); tfjs shared the GPU with three.js
   instrument: "both",
   clockPull: 0.08,
-  motifEvery: 2,
-  microtone: 0.3,
-  motifEcho: 0.6, // the signal's repeats (0.35 before the radio preset)
+  motifEvery: 1.9,
+  microtone: 0.5,
+  motifEcho: 0.5, // the signal's repeats (0.35 before the radio preset)
   // "a signal sent out into space" (the artist: Interstellar, 전파 보내는 느낌): a pure tone, a clean onset, long
   // tails, two layers beating slowly, a flutter, a little static, a long open space
   motifWave: "sine",
@@ -194,28 +195,28 @@ export const DEFAULT_SOUND: SoundParams = {
   fmIndex: 2,
   fmDecayMs: 300,
   motifOctaveEvery: 3,
-  motifOctaveRange: 1,
+  motifOctaveRange: 2,
   zoneTonality: true,
   zoneRing: 8, // 4 before A4b: at walking speed the ring went by in under a second
   zoneMargin: 0.15,
   bandCells: 12,
   arrival: true,
-  arrivalHall: 0.7,
+  arrivalHall: 1,
   arrivalWave: 0.6,
-  waveVerb: 0.7,
+  waveVerb: 0.85,
   grassVerb: 0.5,
-  waveHit: 0.8,
+  waveHit: 0.5,
   arrivalGapMs: 0, // 120 until 10/31 — the artist heard the breath as the sound being eaten at the wave's peak (measured: master 0.5 → 0.04 for 120 ms)
   bassFrom: 0.15,
   dead: false,
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
   afterglow: 0.12,
-  ncDull: 1,
+  ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
-  bassSpread: 0.7, // v4 A2e: its own long dark room
-  bassDub: 0.45,
-  bassDuck: 0.35,
+  bassSpread: 0.8, // v4 A2e: its own long dark room
+  bassDub: 0.75,
+  bassDuck: 0.3,
   bassDrop: 0.3,
 };
 
@@ -305,7 +306,7 @@ export class SoundEngine {
   private bassSpread!: GainNode;
   private noise!: AudioBuffer;
   /** The wave: looped noise → a low-pass that rises → a level that swells, into dry and the hall. */
-  private wave!: { filter: BiquadFilterNode; gain: GainNode; send: GainNode };
+  private wave!: { filter: BiquadFilterNode; gain: GainNode; send: GainNode; dry: GainNode };
   /** The hall's convolver itself (the arrival's room, not dulled): the wave and the vegetation send into it directly. */
   private hallConv!: ConvolverNode;
   private grassSend!: GainNode;
@@ -318,6 +319,8 @@ export class SoundEngine {
   /** My motif and the others go through this bus (dry + the rooms); the heartbeat ducks it. */
   private voiceBus!: GainNode;
   private me: Voice | null = null;
+  /** The name's melody on its way to the limiter (announce). */
+  private nameOut: GainNode | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
   private closeness = new Map<string, number>();
@@ -644,13 +647,15 @@ export class SoundEngine {
       wn.connect(wf).connect(wg);
       // the wave opens 300 → 2400 Hz, but the dry bus is dulled to ~750 Hz on concrete, where arrivals happen — the
       // artist heard the wave "pressed" (10/31): it goes straight to the master, around the building's dullness
-      wg.connect(this.master);
+      const wd = ctx.createGain();
+      wd.gain.value = 1 - 0.55 * this.params.waveVerb;
+      wg.connect(wd).connect(this.master);
       // …and into the hall's reverb (the convolver itself, open whatever the arrival's hall gain): dry noise was too dry
       const ws = ctx.createGain();
-      ws.gain.value = this.params.waveVerb;
+      ws.gain.value = this.params.waveVerb * 1.4;
       wg.connect(ws).connect(this.hallConv);
       wn.start();
-      this.wave = { filter: wf, gain: wg, send: ws };
+      this.wave = { filter: wf, gain: wg, send: ws, dry: wd };
       this.afterlifeRoom(this.params.afterlifeTail); // the afterlife's long room, ready (no cold start at a death)
       // pad: five sustained sines, retuned per bar
       const level = ctx.createGain();
@@ -726,6 +731,36 @@ export class SoundEngine {
   /** How much the limiter has been pressing lately (dB, ≤ 0). */
   get limiterDb(): number {
     return this.limHold;
+  }
+
+  /**
+   * The name (before a life): the visitor's melody, alone, straight to the limiter — the master is shut until the life
+   * begins, `level` is what it will open to. In the world's key, every note in tune. Nothing when the engine is not
+   * running (sound off, muted). The caller repeats it; hushName() ends it when the life begins.
+   */
+  announce(id: string, key: WorldKey, level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.timer) return;
+    const p = this.params;
+    if (!this.nameOut) {
+      this.nameOut = ctx.createGain();
+      this.nameOut.connect(this.limiter);
+    }
+    this.nameOut.gain.value = Math.max(level, 0.0001);
+    const m = this.motifOf(id);
+    const at = ctx.currentTime + 0.1;
+    const notes = realize(m, key, null, 1, 0);
+    for (const n of notes) this.note(this.nameOut, n.freq, at + n.at * p.barSec, n.len * p.barSec, 1, m.timbre, 0, true);
+  }
+
+  /** The life begins: what is still sounding of the name fades at once. */
+  hushName(): void {
+    const ctx = this.ctx;
+    const out = this.nameOut;
+    if (!ctx || !out) return;
+    this.nameOut = null;
+    out.gain.setTargetAtTime(0, ctx.currentTime, 0.06);
+    setTimeout(() => out.disconnect(), 800);
   }
 
   private motifOf(id: string): Motif {
@@ -827,7 +862,9 @@ export class SoundEngine {
     // vegetation
     this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
     this.grassSend.gain.setTargetAtTime(params.grassVerb, t, 0.5);
-    this.wave.send.gain.setTargetAtTime(params.waveVerb, t, 0.5);
+    // wet / dry: the more reverb, the less direct noise (11/01: the wave sounded dry)
+    this.wave.send.gain.setTargetAtTime(params.waveVerb * 1.4, t, 0.5);
+    this.wave.dry.gain.setTargetAtTime(1 - 0.55 * params.waveVerb, t, 0.5);
     // rooms: open ground → concrete → the hall of building together
     const company = Math.min(1, sig.neighbours.length / 2);
     // the arrival opens the hall at once and lets it close over ~6 s
@@ -1155,9 +1192,9 @@ export class SoundEngine {
 
   /** The wave rising through a bar: the low-pass opens 300 → 2400 Hz, the level swells (sin^1.5-ish by the ramps). */
   /**
-   * The wave rising through the dominant bar: the low-pass opens 300 → 2400 Hz, the level swells to a CREST, and in the
-   * bar's last tenth the crest HANGS (the wave itself dips, nothing else) before the hit on the downbeat (10/31, the
-   * artist: the reference's wave crested and struck; ours only swirled).
+   * The wave rising through the dominant bar: the low-pass opens 300 → 2400 Hz, the level swells to a crest, and in the
+   * bar's last tenth the crest eases back a little before it breaks on the downbeat (the artist, 10/31: the reference's
+   * wave crested and struck; 11/01: a deep dip and an instant strike were abrupt — the ease is shallow now).
    */
   private waveSwell(at: number, barSec: number, level: number): void {
     const { filter, gain } = this.wave;
@@ -1169,39 +1206,45 @@ export class SoundEngine {
     gain.gain.setValueAtTime(0.001, at);
     gain.gain.exponentialRampToValueAtTime(0.35 * level, at + barSec * 0.7);
     gain.gain.linearRampToValueAtTime(0.45 * level, at + barSec * 0.86);
-    // the crest hangs: the wave alone falls to a quarter for the last tenth of the bar, the more the harder the hit
-    gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.75 * hit), at + barSec * 0.95);
-    gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.75 * hit), at + barSec);
+    gain.gain.linearRampToValueAtTime(0.45 * level * (1 - 0.3 * hit), at + barSec);
   }
 
-  /** The wave striking on the downbeat: a burst that snaps open with a low thump under it, then it falls back over ~3 s. */
+  /**
+   * The wave breaking on the downbeat: it swells over ~0.1 s (12 ms until 11/01: "갑자기 때리는 게 어색"), the filter
+   * opens with it instead of jumping, a soft low thump lies mostly in the reverb, and it falls back over ~3 s.
+   */
   private waveBreak(at: number, level: number): void {
     const ctx = this.ctx!;
     const { filter, gain } = this.wave;
     const hit = this.params.waveHit;
     gain.gain.cancelScheduledValues(at);
-    gain.gain.setValueAtTime(0.45 * level * (1 - 0.75 * hit), at);
-    gain.gain.linearRampToValueAtTime((0.5 + 0.5 * hit) * level, at + 0.012);
-    gain.gain.setTargetAtTime(0, at + 0.25, 1.0);
+    gain.gain.setValueAtTime(0.45 * level * (1 - 0.3 * hit), at);
+    gain.gain.linearRampToValueAtTime((0.5 + 0.25 * hit) * level, at + 0.1);
+    gain.gain.setTargetAtTime(0, at + 0.3, 1.1);
     filter.frequency.cancelScheduledValues(at);
-    filter.frequency.setValueAtTime(2400 + 2000 * hit, at);
-    filter.frequency.setTargetAtTime(300, at + 0.25, 1.2);
+    filter.frequency.setValueAtTime(2400, at);
+    filter.frequency.linearRampToValueAtTime(2400 + 800 * hit, at + 0.1);
+    filter.frequency.setTargetAtTime(300, at + 0.3, 1.3);
     if (hit > 0) {
-      // the thump: one low sine under the strike, into the master and the hall
       const o = ctx.createOscillator();
       o.type = "sine";
-      o.frequency.setValueAtTime(70, at);
-      o.frequency.exponentialRampToValueAtTime(42, at + 0.25);
+      o.frequency.setValueAtTime(62, at);
+      o.frequency.exponentialRampToValueAtTime(42, at + 0.3);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, at);
-      g.gain.linearRampToValueAtTime(0.6 * level * hit, at + 0.01);
-      g.gain.setTargetAtTime(0, at + 0.08, 0.12);
+      g.gain.linearRampToValueAtTime(0.3 * level * hit, at + 0.03);
+      g.gain.setTargetAtTime(0, at + 0.1, 0.18);
+      const dry = ctx.createGain();
+      dry.gain.value = 0.4;
       o.connect(g);
-      g.connect(this.master);
+      g.connect(dry).connect(this.master);
       g.connect(this.hallConv);
-      o.onended = () => g.disconnect();
+      o.onended = () => {
+        g.disconnect();
+        dry.disconnect();
+      };
       o.start(at);
-      o.stop(at + 0.7);
+      o.stop(at + 1);
     }
   }
 

@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
+import { Dandelions } from "./Dandelions";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
@@ -1720,6 +1721,66 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
       showEdges: { value: false, label: "모서리 선" },
+      "응답의 홀씨": folder({
+        seedsOn: { value: true, label: "켜기" },
+        seedHead: { value: 5, min: 0.5, max: 20, step: 0.5, label: "처음 크기 (월드)" },
+        seedThrough: { value: 0.3, min: 0, max: 1, step: 0.05, label: "덩어리 너머로 비침 (0 = 가려짐)" },
+        "송이 모양": folder({
+          seedStem: { value: 0.9, min: 0, max: 4, step: 0.05, label: "줄기 길이 (× 크기)" },
+          seedRadius: { value: 0.55, min: 0.1, max: 2, step: 0.05, label: "공 반지름 (× 크기)" },
+          seedSpokes: { value: 24, min: 3, max: 64, step: 1, label: "살 수" },
+          seedDome: { value: 0, min: 0, max: 1, step: 0.05, label: "살이 모이는 곳 (0 = 공 전체, 1 = 위쪽 반구만)" },
+          seedLineWidth: { value: 1, min: 0.5, max: 6, step: 0.25, label: "선 굵기 (px)" },
+          seedLineColor: { value: "#ffffff", label: "선 색" },
+          seedLineLight: { value: 1, min: 0, max: 1, step: 0.05, label: "선 밝기" },
+          seedDot: { value: 0.3, min: 0.05, max: 2, step: 0.05, label: "씨앗 점 크기 (월드)" },
+          seedDotColor: { value: "#ffffff", label: "씨앗 색" },
+          seedDotLight: { value: 1, min: 0, max: 1, step: 0.05, label: "씨앗 밝기" },
+          seedDotSquare: { value: false, label: "씨앗을 네모로" },
+        }),
+        "가루": folder({
+          seedDust: { value: 260, min: 0, max: 800, step: 10, label: "양 (한 송이당 점 수)" },
+          seedDustReach: { value: 30, min: 2, max: 80, step: 1, label: "날아가는 거리 (월드)" },
+          seedDustSec: { value: 40, min: 3, max: 120, step: 1, label: "날리는 시간 (s)" },
+          seedDustEmit: { value: 0, min: 0, max: 1, step: 0.05, label: "뿜는 방식 (0 = 한꺼번에, 1 = 서서히; 날리는 시간이 최대 2배)" },
+          seedDustBurst: { value: 3, min: 1, max: 6, step: 0.25, label: "터지는 세기 (1 = 일정하게, 높을수록 확 터지고 떠 있음)" },
+          seedDustLifeSpread: { value: 0.7, min: 0, max: 1, step: 0.05, label: "점마다 수명 차이" },
+          seedDustFade: { value: 1.5, min: 0.25, max: 5, step: 0.25, label: "사라지는 곡선 (낮을수록 늦게 흐려짐)" },
+          seedDustWind: { value: 0.7, min: 0, max: 1, step: 0.05, label: "바람에 쏠림 (0 = 사방으로, 1 = 한 방향)" },
+          seedDustHeading: { value: 0, min: 0, max: 360, step: 5, label: "바람 방향 (°)" },
+          seedDustHeadingSpread: { value: 1, min: 0, max: 1, step: 0.05, label: "방향 차이 (0 = 모두 같은 쪽, 1 = 송이마다 제각각)" },
+          seedDustRise: { value: 0.12, min: -0.5, max: 1, step: 0.01, label: "떠오름 (× 거리; 음수 = 가라앉음)" },
+          seedDustWaver: { value: 0.1, min: 0, max: 0.5, step: 0.01, label: "흔들림 (× 거리)" },
+          seedDustFrom: { value: 1, min: 0, max: 2, step: 0.05, label: "출발 위치 (0 = 공 가운데, 1 = 씨앗 끝)" },
+          seedDustDot: { value: 0.15, min: 0.03, max: 2, step: 0.01, label: "점 크기 (월드)" },
+          seedDustColor: { value: "#ffffff", label: "색" },
+          seedDustLight: { value: 1, min: 0, max: 1, step: 0.05, label: "밝기" },
+          seedDustSoft: { value: 0, min: 0, max: 1, step: 0.05, label: "가장자리 부드러움" },
+          seedDustSquare: { value: false, label: "네모로" },
+        }),
+        "일생 · 화석화": folder({
+          seedGrowSec: { value: 0, min: 0, max: 10, step: 0.1, label: "처음 자라나는 시간 (s; 0 = 바로)" },
+          seedSettle: { value: 0.55, min: 0.1, max: 1, step: 0.05, label: "가루가 다 날린 뒤 크기 (처음의 ×)" },
+          seedSettleSec: { value: 12, min: 1, max: 60, step: 1, label: "줄어드는 시간 (s)" },
+          seedFossil: { value: 45, min: 5, max: 120, step: 1, label: "화석화되는 깊이 (현재에서 ↓단)" },
+          seedFossilSpread: { value: 6, min: 0, max: 30, step: 1, label: "그 깊이의 홀씨마다 차이 (±단)" },
+          seedKeep: { value: 0.35, min: 0, max: 1, step: 0.05, label: "화석으로 남는 비율 (나머지는 사라짐)" },
+          seedGoneSteps: { value: 3, min: 0.5, max: 20, step: 0.5, label: "변하는 데 걸리는 깊이 (단)" },
+          seedFossilScale: { value: 1, min: 0.1, max: 1.5, step: 0.05, label: "남은 것의 크기 (×)" },
+          seedFossilLight: { value: 1, min: 0, max: 1, step: 0.05, label: "남은 것의 밝기 (×)" },
+          seedFossilSpokes: { value: 1, min: 0.1, max: 1, step: 0.05, label: "남은 것의 살 비율" },
+        }),
+        "지터 (0 = 모두 같음, 1 = ⅓배~3배)": folder({
+          seedJitSize: { value: 0.35, min: 0, max: 1, step: 0.05, label: "송이 크기" },
+          seedJitShape: { value: 0.3, min: 0, max: 1, step: 0.05, label: "줄기·살 길이" },
+          seedJitSpokes: { value: 0, min: 0, max: 1, step: 0.05, label: "살 수" },
+          seedJitLight: { value: 0, min: 0, max: 1, step: 0.05, label: "송이 밝기 (1 = 검정~흰색)" },
+          seedJitDot: { value: 0.4, min: 0, max: 1, step: 0.05, label: "씨앗·가루 점 크기" },
+          seedJitCount: { value: 0.5, min: 0, max: 1, step: 0.05, label: "가루 양" },
+          seedJitReach: { value: 0.4, min: 0, max: 1, step: 0.05, label: "가루 거리" },
+          seedJitSec: { value: 0.3, min: 0, max: 1, step: 0.05, label: "가루 시간" },
+        }),
+      }),
       "초점 · 시야": folder({
         dof: { value: false, label: "초점 흐림 (피사계 심도)" },
         clickFocus: { value: true, label: "클릭한 곳에 초점 (끄면 화면 중앙)" },
@@ -2709,6 +2770,59 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
+        {v.seedsOn && (
+          <Dandelions
+            log={log}
+            secPerUnit={c.secPerUnit}
+            unit={c.unit}
+            look={{
+              size: v.seedHead,
+              stem: v.seedStem,
+              radius: v.seedRadius,
+              spokes: v.seedSpokes,
+              dome: v.seedDome,
+              lineWidth: v.seedLineWidth,
+              lineColor: v.seedLineColor,
+              lineLight: v.seedLineLight,
+              dot: v.seedDot,
+              dotColor: v.seedDotColor,
+              dotLight: v.seedDotLight,
+              dotSquare: v.seedDotSquare,
+              through: v.seedThrough,
+              dustCount: v.seedDust,
+              dustReach: v.seedDustReach,
+              dustSec: v.seedDustSec,
+              dustFrom: v.seedDustFrom,
+              dustWind: v.seedDustWind,
+              dustHeading: v.seedDustHeading,
+              dustHeadingSpread: v.seedDustHeadingSpread,
+              dustRise: v.seedDustRise,
+              dustWaver: v.seedDustWaver,
+              dustBurst: v.seedDustBurst,
+              dustEmit: v.seedDustEmit,
+              dustLifeSpread: v.seedDustLifeSpread,
+              dustFade: v.seedDustFade,
+              dustDot: v.seedDustDot,
+              dustColor: v.seedDustColor,
+              dustLight: v.seedDustLight,
+              dustSoft: v.seedDustSoft,
+              dustSquare: v.seedDustSquare,
+              life: {
+                growSec: v.seedGrowSec,
+                settle: v.seedSettle,
+                settleSec: v.seedSettleSec,
+                fossilDepth: v.seedFossil,
+                fossilSpread: v.seedFossilSpread,
+                keep: v.seedKeep,
+                goneSteps: v.seedGoneSteps,
+                fossilScale: v.seedFossilScale,
+                fossilLight: v.seedFossilLight,
+                fossilSpokes: v.seedFossilSpokes,
+              },
+              jitter: { size: v.seedJitSize, shape: v.seedJitShape, dot: v.seedJitDot, spokes: v.seedJitSpokes, light: v.seedJitLight, dustCount: v.seedJitCount, dustReach: v.seedJitReach, dustSec: v.seedJitSec },
+            }}
+          />
+        )}
         <SpaceWorld
           log={log}
           fold={spaceFold}

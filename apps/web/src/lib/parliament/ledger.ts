@@ -42,9 +42,12 @@ export interface LedgerConfig {
   gapSec: number;
   /** A line not yet told after this long is dropped. */
   staleSec: number;
+  /** My weight (worker·s) from which a slab counts as mine: a walker's trace in it is not (signals.ts buildFrom). */
+  mineFrom: number;
 }
 
 export const DEFAULT_LEDGER: LedgerConfig = {
+  mineFrom: 2,
   pressS: 0.25,
   pathP: 0.3,
   sealedH: 0.15,
@@ -195,7 +198,7 @@ export function ledgerAt(inp: LedgerInputs): Ledger {
     const w = sl.who;
     if (!w) continue;
     const mineW = w.find((c) => c.o === me.id);
-    if (!mineW || mineW.amount <= 0) continue;
+    if (!mineW || mineW.amount < cfg.mineFrom) continue;
     let total = 0;
     const others: string[] = [];
     for (const c of w) {
@@ -403,46 +406,30 @@ export class LedgerWatch {
 // ── the end screen ───────────────────────────────────────────────────────────
 
 export interface LedgerSummary {
-  /** Grass: cell-equivalents pressed, the share of it standing again (null: nothing pressed), and what lies under
-   * the paths I trod and the slabs I helped. */
+  /** Grass: cell-equivalents pressed, whether at least half of it stands again. */
   pressed: number;
-  recoveredPct: number | null;
-  under: number;
-  /** Ground: cells trodden, metres walked, the share that became paths, the share that were paths already. */
+  recovered: boolean;
+  /** Ground: cells trodden, metres walked, the cells that became paths, the cells that were paths already. */
   trodden: number;
   walkedM: number;
-  newPathPct: number;
-  prePathPct: number;
-  /** Concrete: cells with my weight, my share of them, how many others I built with. */
+  newPaths: number;
+  prePaths: number;
+  /** Concrete: cells with my weight, the others in the same slabs. */
   slabs: number;
-  sharePct: number;
-  withN: number;
-  /** The world: the share of its path cells I trod and of its slab cells I have a share in (null: none exist). */
-  worldPathPct: number | null;
-  worldSlabPct: number | null;
-  /** Nothing to show at all. */
-  empty: boolean;
+  with: string[];
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
 
 export function ledgerSummary(l: Ledger): LedgerSummary {
-  const pressed = round1(l.grass.pressed);
-  const trodden = l.ground.cells;
-  const slabs = l.concrete.cells;
   return {
-    pressed,
-    recoveredPct: l.grass.pressed >= 0.05 ? Math.round((100 * l.grass.recovered) / l.grass.pressed) : null,
-    under: round1(l.grass.underPaths + l.grass.underSlabs),
-    trodden,
+    pressed: round1(l.grass.pressed),
+    recovered: l.grass.pressed >= 0.05 && l.grass.recovered / l.grass.pressed >= 0.5,
+    trodden: l.ground.cells,
     walkedM: Math.round(l.walkedM / 10) * 10,
-    newPathPct: trodden ? Math.round((100 * l.ground.newPath) / trodden) : 0,
-    prePathPct: trodden ? Math.round((100 * l.ground.prePath) / trodden) : 0,
-    slabs,
-    sharePct: l.concrete.total > 0 ? Math.round((100 * l.concrete.mine) / l.concrete.total) : 0,
-    withN: l.concrete.with.length,
-    worldPathPct: l.world.pathCells ? round1((100 * l.world.pathTrodden) / l.world.pathCells) : null,
-    worldSlabPct: l.world.slabCells ? round1((100 * slabs) / l.world.slabCells) : null,
-    empty: pressed < 0.05 && trodden === 0 && slabs === 0,
+    newPaths: l.ground.newPath,
+    prePaths: l.ground.prePath,
+    slabs: l.concrete.cells,
+    with: l.concrete.with,
   };
 }

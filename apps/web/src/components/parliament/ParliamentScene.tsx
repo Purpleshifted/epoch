@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
-import { RoleField, type ParliamentDebug } from "./RoleField";
+import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -47,6 +47,7 @@ import {
   TILT_TURN_RATE,
   asLang,
   hindrance,
+  rhythmOf,
   seedParliamentDemoIfRequested,
   ROLE_IMPLEMENTED,
   wrapCoord,
@@ -54,7 +55,9 @@ import {
   type Ledger,
   type Observation,
   type RoleId,
+  QUICK_RESTART_SEC,
 } from "@/lib/parliament";
+import { announcePersonalOpen } from "@/lib/sound/personalOpen";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -122,6 +125,7 @@ function Controller({
   lifeRef,
   tiltRef,
   coarse = false,
+  getRhythm,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -136,6 +140,8 @@ function Controller({
   tiltRef?: React.MutableRefObject<TiltState>;
   /** A phone-like device: no pointer lock, no keys — a finger on the screen walks, dragging turns. */
   coarse?: boolean;
+  /** The visitor's square blinks their melody (lib/parliament/glyph.ts). */
+  getRhythm?: () => boolean[] | null;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -284,7 +290,7 @@ function Controller({
 
   return (
     <group ref={group}>
-      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} />
+      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />
     </group>
   );
 }
@@ -327,14 +333,22 @@ export default function ParliamentScene() {
     return () => clearInterval(id);
   }, []);
   const isV2 = useParliamentVersion() === "v2";
+  useEffect(() => (isV2 ? announcePersonalOpen() : undefined), [isV2]);
+  // an answer (SessionHud) leaves a seed head where the visitor stands (RoleField)
+  const answers = useRef(0);
+  const onAnswer = useCallback(() => {
+    answers.current++;
+  }, []);
   const v2 = () => isV2;
   // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
   usePageLock(isV2);
   const witnessRef = useRef<Observation | null>(null);
+  // who this life's visitor is, as soon as they exist (the name screen comes before any reading of the world)
+  const visitorRef = useRef<Visitor | null>(null);
   // V2: the ledger of this life (lib/parliament/ledger.ts) — written by RoleField, read by the HUD
   const ledgerRef = useRef<Ledger | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -349,6 +363,7 @@ export default function ParliamentScene() {
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "수명 (s, 실제 시간)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
         endHoldSec: { value: DEFAULT_LIFE.endHoldSec, min: 2, max: 60, step: 1, label: "퇴장 화면 최소 (s) → 그 뒤 스페이스로 다음 세션", render: v2 },
+        quickRestartSec: { value: QUICK_RESTART_SEC, min: 0, max: 60, step: 1, label: "끝난 뒤 이 안에 다시 시작하면 안내 생략 (s; 이름은 언제나 나옴)", render: v2 },
         lifeRate: { value: 1, min: 1, max: 30, step: 0.5, label: "수명 시계 배율 (테스트용, 1 = 실제)", render: v2 },
         "그만 살기 (회사원)": folder({
           selfP: { value: DEFAULT_LIFE.selfP ?? 0.35, min: 0, max: 1, step: 0.05, label: "성공 확률 (혼자일 때)", render: v2 },
@@ -381,8 +396,8 @@ export default function ParliamentScene() {
     });
   const botFlock = useMemo(() => ({ groups: botGroups, spread: botSpread, timeSpread: botTimeSpread }), [botGroups, botSpread, botTimeSpread]);
   const lifeCfg = useMemo(
-    () => ({ lifeSec, warnSec, endHoldSec, rate: lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
-    [lifeSec, warnSec, endHoldSec, lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
+    () => ({ lifeSec, warnSec, endHoldSec, quickRestartSec, rate: lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec }),
+    [lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, noticeLineSec, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec],
   );
   const withSession = isV2 && sessionOn;
   const lang: Lang = asLang(langParam, levaLang);
@@ -409,6 +424,8 @@ export default function ParliamentScene() {
   const { cfg: natureCfg, pointSize, pathDots, pathLine } = useNatureControls();
   // V2: what the player view adds so the visitor's effect on the ground lands (Leva 개인뷰 비주얼)
   const visuals = usePersonalVisuals();
+  const brutal = isV2 && visuals.look === "brutal";
+  const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
 
   useEffect(() => {
     if (hideChrome) return;
@@ -433,13 +450,14 @@ export default function ParliamentScene() {
         dpr={pixelDpr}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
-        style={{ background: FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
+        style={{ background: brutal ? "#000" : FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
-        <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />
+        <color attach="background" args={[brutal ? "#000000" : FOG_COLOR]} />
+        {!brutal && <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />}
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
         {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
-        <FollowGrid playerPosRef={playerPosRef} size={grid} />
+        {!brutal && <FollowGrid playerPosRef={playerPosRef} size={grid} />}
         <Controller
           key={`controller-${session.sessionNo}`}
           playerPosRef={playerPosRef}
@@ -451,9 +469,12 @@ export default function ParliamentScene() {
           lifeRef={withSession ? session.lifeRef : undefined}
           tiltRef={tiltRef}
           coarse={coarse}
+          getRhythm={withSession ? getRhythm : undefined}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
+          sessionNo={session.sessionNo}
+          visitorRef={visitorRef}
           playerPosRef={playerPosRef}
           role={role}
           cfg={cfg}
@@ -472,11 +493,12 @@ export default function ParliamentScene() {
           ledgerRef={withSession ? ledgerRef : undefined}
           grass={isV2 ? visuals.grass : undefined}
           marks={isV2 ? visuals.marks : undefined}
+          answers={answers}
         />
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

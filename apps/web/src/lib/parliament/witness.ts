@@ -3,26 +3,27 @@
  * what they and the visitor are doing, what the ground underfoot is — and, since 2026-10-20, what the visitor's life
  * is doing to the ground (the ledger's lines, ledger.ts: pressed grass, worn ground, paths, concrete shares).
  *
- * The record is STRUCTURED: every line is a LogEntry { t, key, args, level }, worded by the apparatus in the chosen
- * language (script.ts LOG · formatEntry — English upper case, or Korean). The level says how much it matters on the
+ * The record is STRUCTURED: every line is a LogEntry { t, key, args, level }, worded in the chosen language (script.ts
+ * LOG · formatEntry, plain words about what is happening now). The level says how much it matters on the
  * screen: 0 a fact (grey), 1 notable (white), 2 important (yellow). Until 2026-10-20 the record stated facts only and
  * never their consequence (docs/direction-2026-10-10.md §1); the artist withdrew that rule for the personal view.
  *
  *   observe()      one reading from the event log and the fold snapshot (pure)
  *   WitnessLog     turns the readings into entries: someone came near / left (with how long they were near), the
- *                  visitor or someone near started / stopped moving, the surface changed. Every change has to hold
- *                  for `settleSec` before it is written, so a tap on a key does not make a line. `note()` takes the
- *                  ledger's entries into the same record.
+ *                  visitor started / stopped moving, the surface changed, a long contact gave a new word, an ended
+ *                  word left by an answer was found. Every change has to hold for `settleSec` before it is written, so a tap on a
+ *                  key does not make a line. `note()` takes the ledger's entries into the same record.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { ROLE_TAG } from "./session";
+import { glyphOf, newWordOf, type GlyphDot } from "./glyph";
+import type { WordSpot } from "./dandelion";
 import type { PEvent, RoleId, Snapshot } from "./types";
 import { wrapDelta, wrapDist } from "./world";
 
 export type Surface = "open" | "trodden" | "sealed";
 
-/** Someone in the record: their id and role (named by script.ts nameIn / nameOf). */
+/** Someone in the record: their id and role (named by script.ts nameIn). */
 export interface Who {
   o: string;
   r: RoleId;
@@ -33,8 +34,15 @@ export type LogKey =
   | "you.moving"
   | "surface"
   | "near"
-  | "other.moving"
   | "gone"
+  | "word.new"
+  | "word.asked"
+  | "word.answered"
+  | "word.found"
+  | "ensemble.start"
+  | "ensemble.end"
+  | "dying"
+  | "dying.watched"
   | "attempt.tried"
   | "attempt.failed"
   | "grass.pressed"
@@ -63,6 +71,8 @@ export interface LogArgs {
   with?: Who[];
   /** Session seconds something was born (concrete). */
   at?: number;
+  /** The melody this line writes down (glyph.ts), drawn beside the words. */
+  dots?: GlyphDot[];
 }
 
 export interface LogEntry {
@@ -76,6 +86,8 @@ export interface LogEntry {
 /** The visitor's state now (the status line). */
 export interface StatusArgs {
   moving: boolean;
+  /** Staying with someone else who stays: building together (the record calls it an ensemble). */
+  together: boolean;
   forSec: number;
   surface: Surface;
   near: number;
@@ -106,6 +118,8 @@ export interface Other {
 }
 
 export interface Observation {
+  /** The visitor's own id. */
+  me: string;
   /** Seconds since the session's role was fixed. */
   t: number;
   moving: boolean;
@@ -116,6 +130,8 @@ export interface Observation {
   others: Other[];
   /** Everyone within `farRadius` (the view), nearest first — for the markers on the ground (stakes). */
   far: Other[];
+  /** Whose word (dandelion.ts wordSpots) is within `wordRadius` now. */
+  wordsNear: string[];
 }
 
 export interface WitnessConfig {
@@ -137,6 +153,20 @@ export interface WitnessConfig {
   keep: number;
   /** World radius of `far` (the player's view). */
   farRadius: number;
+  /** Near someone for this long (s) = group life with them (the end screen's count). */
+  groupSec: number;
+  /** Near someone for this long (s) = a new word from the contact (once per other). */
+  wordAfterSec: number;
+  /** A left word this close (world) is found. */
+  wordRadius: number;
+  /** At most one word line every this many seconds. */
+  wordGapSec: number;
+  /** Staying with someone else who stays for this long (s) = building together. */
+  ensembleSec: number;
+  /** While someone stays near, they ask something every this many seconds… */
+  askEverySec: number;
+  /** … and the question stays open for an answer this long. */
+  askOpenSec: number;
 }
 
 export const DEFAULT_WITNESS: WitnessConfig = {
@@ -149,6 +179,13 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   settleSec: 1.5,
   keep: 5,
   farRadius: 24,
+  groupSec: 5,
+  wordAfterSec: 6,
+  wordRadius: 3,
+  wordGapSec: 12,
+  ensembleSec: 3,
+  askEverySec: 16,
+  askOpenSec: 7,
 };
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -156,13 +193,6 @@ const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 export function bearingOf(dx: number, dz: number): string {
   const a = Math.atan2(dx, dz); // 0 = +z
   return COMPASS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
-}
-
-/** "bot3" → "WORKER #03", "v_ab12c" → "CAR AB12C". */
-export function nameOf(o: string, r: RoleId): string {
-  const tag = ROLE_TAG[r] ?? r.toUpperCase();
-  if (o.startsWith("bot")) return `${tag} #${o.slice(3).padStart(2, "0")}`;
-  return `${tag} ${o.replace(/^v_/, "").toUpperCase()}`;
 }
 
 export interface ObserveInputs {
@@ -173,18 +203,48 @@ export interface ObserveInputs {
   snap: Snapshot | null;
   /** Session seconds (written into the observation). */
   t: number;
+  /** Where others' words can be found (dandelion.ts wordSpots). */
+  words?: readonly WordSpot[];
+  /** Who is here now, whatever their assigned time (aliveOwners); absent = the last recentSec of mine. */
+  alive?: ReadonlySet<string>;
   cfg?: WitnessConfig;
+}
+
+/**
+ * Who is HERE now: everyone whose newest sample is still advancing, and whose assigned time is within `slotSec` of mine
+ * (the artist, 2026-11-01). Every visitor lives in a time slot of their own, up to the assignment window apart, so "the
+ * last few seconds of my time" left most people invisible for a whole life (19 resident bots: 0.56 on average, none for
+ * 76 % of visitors). `seen` is kept by the caller: each owner's newest sample and the wall ms it advanced; owners already
+ * in the log at the first look count as silent until they send a new one (a life that is over stays over).
+ */
+export function aliveOwners(events: readonly PEvent[], meId: string, seen: Map<string, { s: number; at: number }>, nowMs: number, holdMs: number, sNow: number, slotSec: number): Set<string> {
+  const first = seen.size === 0;
+  const latest = new Map<string, number>();
+  for (const e of events) {
+    if (e.k !== "p" || e.o === meId) continue;
+    const l = latest.get(e.o);
+    if (l === undefined || e.s > l) latest.set(e.o, e.s);
+  }
+  const alive = new Set<string>();
+  for (const [o, s] of latest) {
+    const prev = seen.get(o);
+    const cur = !prev || s > prev.s ? { s, at: first && !prev ? -Infinity : nowMs } : prev;
+    seen.set(o, cur);
+    if (nowMs - cur.at <= holdMs && Math.abs(s - sNow) <= slotSec) alive.add(o);
+  }
+  return alive;
 }
 
 export function observe(inp: ObserveInputs): Observation {
   const cfg = inp.cfg ?? DEFAULT_WITNESS;
-  const { me, events, sNow, snap } = inp;
+  const { me, events, sNow, snap, alive } = inp;
   const watch = cfg.nearRadius * cfg.leaveFactor;
-  // the two latest samples of everyone else (not from the future, not too old)
+  // the two latest samples of everyone here (alive), or else of everyone not from the future and not too old
   const last = new Map<string, PEvent>();
   const prev = new Map<string, PEvent>();
   for (const e of events) {
-    if (e.k !== "p" || e.o === me.id || e.s > sNow || e.s < sNow - cfg.recentSec) continue;
+    if (e.k !== "p" || e.o === me.id) continue;
+    if (alive ? !alive.has(e.o) : e.s > sNow || e.s < sNow - cfg.recentSec) continue;
     const l = last.get(e.o);
     if (!l || e.s > l.s) {
       if (l) prev.set(e.o, l);
@@ -204,7 +264,7 @@ export function observe(inp: ObserveInputs): Observation {
     const p = prev.get(e.o);
     const ds = p ? e.s - p.s : 0;
     const v = p && ds > 0 ? wrapDist(e.x, e.z, p.x, p.z) / ds : 0;
-    const o: Other = { o: e.o, r: e.r, x: e.x, z: e.z, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed, ageSec: Math.max(0, sNow - e.s) };
+    const o: Other = { o: e.o, r: e.r, x: e.x, z: e.z, dist, bearing: bearingOf(dx, dz), moving: v > cfg.moveSpeed, ageSec: alive ? 0 : Math.max(0, sNow - e.s) };
     far.push(o);
     if (dist <= watch) others.push(o);
   }
@@ -218,7 +278,8 @@ export function observe(inp: ObserveInputs): Observation {
     else if (snap.paths.some((p) => p.key === key && p.p >= cfg.trodden)) surface = "trodden";
   }
   const speed = Math.hypot(me.vx, me.vz);
-  return { t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, far };
+  const wordsNear = (inp.words ?? []).filter((w) => wrapDist(w.x, w.z, me.x, me.z) <= cfg.wordRadius).map((w) => w.o);
+  return { me: me.id, t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, far, wordsNear };
 }
 
 /** A state that is only taken over once a new value has held for `settleSec`. */
@@ -256,6 +317,8 @@ export class Settled<T> {
 interface NearState {
   r: RoleId;
   since: number;
+  /** When they last dropped out of the watch (null: in it). They are only gone once that has held for settleSec. */
+  missing: number | null;
   moving: Settled<boolean>;
   lastDist: number;
   lastBearing: string;
@@ -272,7 +335,14 @@ export class WitnessLog {
   /** Roles seen for ids (to name whom I built with); unknown ids are workers (the bots mostly are). */
   private roles = new Map<string, RoleId>();
   /** Totals over the session (for the end screen). */
-  private totals = { stillSec: 0, nearSec: 0, met: new Set<string>(), metByRole: new Map<RoleId, number>(), attempts: 0 };
+  private totals = { stillSec: 0, nearSec: 0, met: new Set<string>(), metByRole: new Map<RoleId, number>(), attempts: 0, group: new Set<string>(), newWords: [] as GlyphDot[][], found: [] as string[], ensembleSec: 0, asked: 0 };
+  /** What someone has asked and not yet had an answer to. */
+  private question: { who: Who; t: number } | null = null;
+  private ensemble: Settled<boolean> | null = null;
+  private isDying = false;
+  private watched = false;
+  private worded = new Set<string>();
+  private lastWordT = -Infinity;
 
   constructor(cfg: WitnessConfig = DEFAULT_WITNESS) {
     this.cfg = cfg;
@@ -283,6 +353,46 @@ export class WitnessLog {
     this.entries.push(e);
     if (this.entries.length > this.cfg.keep) this.entries.splice(0, this.entries.length - this.cfg.keep);
     return e;
+  }
+
+  private ask(t: number, who: Who): void {
+    this.question = { who, t };
+    this.totals.asked++;
+  }
+
+  /** Someone's question is open now. */
+  asking(): boolean {
+    return this.question !== null;
+  }
+
+  /**
+   * The visitor answers (SPACE, or the phone's button): one line with what came of it, a new word that goes on the
+   * end screen's card. Display only: nothing here touches the sound or the ground. Null when nobody asked.
+   */
+  answer(t: number, me: string): LogEntry | null {
+    if (!this.question) return null;
+    const dots = newWordOf(me, this.question.who.o, Math.floor(t));
+    const who = this.question.who;
+    this.question = null;
+    this.totals.newWords.push(dots);
+    return this.write(t, "word.answered", { who, dots }, 1);
+  }
+
+  /** The end has begun to make itself felt (session.ts warn): one line. */
+  dying(t: number): void {
+    if (this.isDying) return;
+    this.isDying = true;
+    this.write(t, "dying", {}, 2);
+  }
+
+  /** Close to the end: whoever is near then (longest first) keeps watch, one line, once. */
+  keptWatch(t: number): void {
+    if (this.watched) return;
+    let longest: { o: string; r: RoleId; since: number } | null = null;
+    for (const [o, st] of this.near) if (st.missing === null && (!longest || st.since < longest.since)) longest = { o, r: st.r, since: st.since };
+    if (!longest) return;
+    this.watched = true;
+    this.write(t, "dying.watched", { who: { o: longest.o, r: longest.r }, dots: glyphOf(longest.o) }, 2);
   }
 
   /** The ledger's line (ledger.ts), into the same record. */
@@ -312,6 +422,7 @@ export class WitnessLog {
       const dt = Math.max(0, obs.t - this.last.t);
       if (!this.moving.value) this.totals.stillSec += dt;
       if (this.near.size > 0) this.totals.nearSec += dt;
+      if (this.ensemble?.value) this.totals.ensembleSec += dt;
     }
 
     if (!this.moving || !this.surface) {
@@ -333,19 +444,62 @@ export class WitnessLog {
         if (o.dist <= nearRadius) {
           if (!this.totals.met.has(o.o)) this.totals.metByRole.set(o.r, (this.totals.metByRole.get(o.r) ?? 0) + 1);
           this.totals.met.add(o.o);
-          this.near.set(o.o, { r: o.r, since: obs.t, moving: new Settled(o.moving, obs.t), lastDist: o.dist, lastBearing: o.bearing });
-          w("near", { who: { o: o.o, r: o.r }, dist: o.dist, bearing: o.bearing, moving: o.moving });
+          this.near.set(o.o, { r: o.r, since: obs.t, missing: null, moving: new Settled(o.moving, obs.t), lastDist: o.dist, lastBearing: o.bearing });
+          w("near", { who: { o: o.o, r: o.r }, dist: o.dist, bearing: o.bearing, moving: o.moving, dots: glyphOf(o.o) });
         }
         continue;
       }
+      st.missing = null;
       st.lastDist = o.dist;
       st.lastBearing = o.bearing;
-      if (st.moving.feed(o.moving, obs.t, settleSec)) w("other.moving", { who: { o: o.o, r: st.r }, moving: o.moving, dist: o.dist, bearing: o.bearing });
+      st.moving.feed(o.moving, obs.t, settleSec);
     }
+    // someone whose samples sit at the edge of `recentSec` drops in and out: gone only once it has held
     for (const [o, st] of this.near) {
       if (seen.has(o)) continue;
+      st.missing ??= obs.t;
+      if (obs.t - st.missing < settleSec) continue;
       this.near.delete(o);
-      w("gone", { who: { o, r: st.r }, forSec: obs.t - st.since });
+      w("gone", { who: { o, r: st.r }, forSec: st.missing - st.since, dots: glyphOf(o) });
+    }
+    // building together: I stay, and someone near stays too, for a moment
+    const together = !obs.moving && [...this.near.values()].some((st) => st.missing === null && !st.moving.value);
+    if (!this.ensemble) this.ensemble = new Settled(false, obs.t);
+    const startedAt = this.ensemble.since;
+    if (this.ensemble.feed(together, obs.t, this.cfg.ensembleSec)) {
+      if (this.ensemble.value) w("ensemble.start", {}, 2);
+      else w("ensemble.end", { forSec: this.ensemble.since - startedAt }, 0);
+    }
+    // group life, and the new word a long contact gives (one line at a time)
+    for (const [o, st] of this.near) {
+      const forSec = obs.t - st.since;
+      if (forSec >= this.cfg.groupSec) this.totals.group.add(o);
+      if (forSec >= this.cfg.wordAfterSec && !this.worded.has(o) && obs.t - this.lastWordT >= this.cfg.wordGapSec) {
+        this.worded.add(o);
+        this.lastWordT = obs.t;
+        this.ask(obs.t, { o, r: st.r });
+        w("word.new", { who: { o, r: st.r }, dots: glyphOf(o) }, 2);
+      }
+    }
+    // the one near for longest asks again now and then: their melody, gone strange with mine in it
+    if (this.question && obs.t - this.question.t > this.cfg.askOpenSec) this.question = null;
+    if (!this.question && obs.t - this.lastWordT >= this.cfg.askEverySec) {
+      let longest: { o: string; r: RoleId; since: number } | null = null;
+      for (const [o, st] of this.near) if (st.missing === null && this.worded.has(o) && (!longest || st.since < longest.since)) longest = { o, r: st.r, since: st.since };
+      if (longest) {
+        const who = { o: longest.o, r: longest.r };
+        this.lastWordT = obs.t;
+        const n = this.totals.asked;
+        this.ask(obs.t, who);
+        w("word.asked", { who, n, dots: newWordOf(longest.o, obs.me, Math.floor(obs.t)) }, 2);
+      }
+    }
+    // someone's word underfoot
+    for (const o of obs.wordsNear) {
+      if (this.totals.found.includes(o) || obs.t - this.lastWordT < this.cfg.wordGapSec) continue;
+      this.totals.found.push(o);
+      this.lastWordT = obs.t;
+      w("word.found", { who: { o, r: "worker" }, dots: glyphOf(o) }, 2);
     }
     this.last = obs;
     return written;
@@ -354,14 +508,16 @@ export class WitnessLog {
   /** The visitor's state now (null before the first reading). */
   status(): StatusArgs | null {
     if (!this.last || !this.moving || !this.surface) return null;
-    return { moving: this.moving.value, forSec: this.last.t - this.moving.since, surface: this.surface.value, near: this.near.size };
+    const together = !!this.ensemble?.value;
+    return { moving: this.moving.value, together, forSec: this.last.t - (together ? this.ensemble!.since : this.moving.since), surface: this.surface.value, near: this.near.size };
   }
 
   /**
-   * Totals so far: seconds stationary, seconds with someone near, how many others came near (and by their role), and
-   * the ground underfoot now — what the end screen and the cause of death (intake.ts) are made from.
+   * Totals so far: seconds stationary, seconds with someone near, how many others came near (and by their role), the
+   * ground underfoot now, who was near for long (group life), the new words and the left words found — what the end
+   * screen and the cause of death (intake.ts) are made from.
    */
-  summary(): { stillSec: number; nearSec: number; met: number; metByRole: Partial<Record<RoleId, number>>; surface: Surface; attempts: number } {
+  summary(): { stillSec: number; nearSec: number; met: number; metByRole: Partial<Record<RoleId, number>>; surface: Surface; attempts: number; group: string[]; newWords: GlyphDot[][]; found: string[]; ensembleSec: number; asked: number } {
     const metByRole: Partial<Record<RoleId, number>> = {};
     for (const [r, n] of this.totals.metByRole) metByRole[r] = n;
     return {
@@ -371,6 +527,11 @@ export class WitnessLog {
       metByRole,
       surface: this.surface?.value ?? "open",
       attempts: this.totals.attempts,
+      group: [...this.totals.group],
+      newWords: this.totals.newWords,
+      found: this.totals.found,
+      ensembleSec: this.totals.ensembleSec,
+      asked: this.totals.asked,
     };
   }
 
