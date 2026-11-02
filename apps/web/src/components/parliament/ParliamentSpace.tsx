@@ -96,24 +96,20 @@ const THEMES = {
  */
 function fadingPointsMaterial(): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
-  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 }, uSoft: { value: 0 } };
+  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 } };
   m.userData.fade = uniforms;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nuniform float uJitter;\nuniform float uSoft;\nvarying float vFade;\nvarying float vDim;")
+      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nuniform float uJitter;\nvarying float vFade;")
       .replace("#include <project_vertex>", "#include <project_vertex>\nvFade = smoothstep(uFade0, max(uFade0 + 1e-3, uFade1), -mvPosition.z);")
       // size jitter: a fixed factor per point, hashed from its position
       .replace(
         "#include <fog_vertex>",
-        "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));\n" +
-          // smaller than a pixel: drawn as a full bright pixel it hops from pixel to pixel; dimmed by its area and a little
-          // wider, it fades across them instead
-          "vDim = 1.0;\nif (uSoft > 0.5 && gl_PointSize < 1.6) { float k = gl_PointSize / 1.6; vDim = k * k; gl_PointSize = 1.6; }",
+        "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));",
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vFade;\nvarying float vDim;")
-      .replace("#include <color_fragment>", "#include <color_fragment>\nif (vDim < 1.0) diffuseColor.rgb *= vDim * smoothstep(1.0, 0.3, length(gl_PointCoord - 0.5) * 2.0);")
+      .replace("#include <common>", "#include <common>\nvarying float vFade;")
       .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif (vFade < fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;");
   };
   return m;
@@ -263,8 +259,6 @@ interface NatureParams {
   gatherJitter: number;
   gatherPoints: number;
   gatherDot: number;
-  /** Points under a pixel are dimmed instead of hopping (fadingPointsMaterial). */
-  softPoints?: boolean;
   paths: { hole: number; berm: number; edge?: number } | null;
   window: number;
   margin: number;
@@ -930,10 +924,7 @@ function SpaceWorld({
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
     applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
-    const soft = nature?.softPoints ? 1 : 0;
-    natureMat.userData.fade.uSoft.value = soft;
-    gatherMat.userData.fade.uSoft.value = soft;
-  }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nature?.softPoints, nearFade]);
+  }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -2227,7 +2218,6 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         gatherJitter: { value: 0.5, min: 0, max: 0.95, step: 0.05, label: "구 크기 지터 (±)" },
         gatherPoints: { value: 24, min: 4, max: 96, step: 1, label: "구 하나의 점 수 (많을수록 무거움)" },
         gatherDot: { value: 0.025, min: 0.005, max: 0.15, step: 0.001, label: "구 속 점 크기" },
-        softPoints: { value: false, label: "1픽셀보다 작은 점을 어둡고 부드럽게 (멀리서는 색이 거의 사라짐)" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
     }),
@@ -2826,7 +2816,6 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             gatherJitter: veg.gatherJitter,
             gatherPoints: veg.gatherPoints,
             gatherDot: veg.gatherDot,
-            softPoints: veg.softPoints,
             window: veg.window,
             margin: veg.margin,
             budget: vegBudget,
