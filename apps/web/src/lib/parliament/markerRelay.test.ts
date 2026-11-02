@@ -37,11 +37,13 @@ const setup = () => {
   return { made, make, clock, read: () => clock.now };
 };
 
-const mark = { o: "v_abc12", x: 1, z: 2, s: 3 };
+const EPOCH = 5000;
+const place = { o: "v_abc12", x: 1, z: 2, s: 3, y: 0.5, e: EPOCH };
+const mark = { ...place, t: 900, r: 80 };
 
 describe("what goes over the relay", () => {
   it("a place comes back as it was sent, rounded", () => {
-    expect(parseMark(markText({ o: "v_abc12", x: 1.23456, z: -2.5, s: 100.123 }))).toEqual({ o: "v_abc12", x: 1.23, z: -2.5, s: 100.1 });
+    expect(parseMark(markText({ o: "v_abc12", x: 1.23456, z: -2.5, s: 100.123, y: 3.14159, e: EPOCH, t: 900.4, r: 79.6 }))).toEqual({ o: "v_abc12", x: 1.23, z: -2.5, s: 100.1, y: 3.14, e: EPOCH, t: 900, r: 80 });
   });
 
   it("only what could be a visitor's place is believed", () => {
@@ -51,6 +53,12 @@ describe("what goes over the relay", () => {
     expect(parseMark(JSON.stringify({ ...mark, x: "1" }))).toBeNull();
     expect(parseMark(JSON.stringify({ o: "v_abc12", x: 1, z: 2 }))).toBeNull();
     expect(parseMark(new ArrayBuffer(8))).toBeNull();
+  });
+
+  it("stays inside the relay's limit at its longest", () => {
+    const text = markText({ o: "v_abcdefghijkl", x: -79.99, z: -79.99, s: 123456.7, y: -3.14, e: 1_800_000_000_000, t: 1_800_000_000_000, r: 12345 });
+    expect(text.length).toBeLessThan(200);
+    expect(parseMark(text)).not.toBeNull();
   });
 });
 
@@ -114,33 +122,49 @@ describe("the visitor's side", () => {
 
   it("sends a walk as it goes, and standing still once a second", () => {
     const { made, make, clock, read } = setup();
-    const sender = new MarkerSender(new RelaySocket("wss://x", () => {}, make, read), read);
-    sender.tick(mark);
+    const sender = new MarkerSender(new RelaySocket("wss://x", () => {}, make, read), read, () => 900);
+    sender.tick(place);
     made[0].open();
     made[0].say("pong");
-    sender.tick(mark);
+    sender.tick(place);
     expect(places(made[0]).length).toBe(1);
     clock.now += 250;
-    sender.tick({ ...mark, x: 1.5 });
+    sender.tick({ ...place, x: 1.5 });
     expect(places(made[0]).length).toBe(2);
     clock.now += 250;
-    sender.tick({ ...mark, x: 1.5 });
+    sender.tick({ ...place, x: 1.5 });
     clock.now += 250;
-    sender.tick({ ...mark, x: 1.5 });
+    sender.tick({ ...place, x: 1.5 });
     expect(places(made[0]).length).toBe(2);
     clock.now += 500;
-    sender.tick({ ...mark, x: 1.5 });
+    sender.tick({ ...place, x: 1.5 });
     expect(places(made[0]).length).toBe(3);
+  });
+
+  it("turning on the spot is news too, and the place says when it left and how far the relay is", () => {
+    const { made, make, clock, read } = setup();
+    const socket = new RelaySocket("wss://x", () => {}, make, read);
+    const sender = new MarkerSender(socket, read, () => 900);
+    sender.tick(place);
+    made[0].open();
+    sender.tick(place);
+    expect(parseMark(places(made[0])[0])?.r).toBe(-1);
+    clock.now += 40;
+    made[0].say("pong");
+    clock.now += 210;
+    sender.tick({ ...place, y: 1 });
+    const second = parseMark(places(made[0])[1]);
+    expect(second).toMatchObject({ y: 1, t: 900, r: 40 });
   });
 
   it("drops a place rather than queueing it behind a slow network", () => {
     const { made, make, clock, read } = setup();
-    const sender = new MarkerSender(new RelaySocket("wss://x", () => {}, make, read), read);
-    sender.tick(mark);
+    const sender = new MarkerSender(new RelaySocket("wss://x", () => {}, make, read), read, () => 900);
+    sender.tick(place);
     made[0].open();
     made[0].bufferedAmount = 5000;
     clock.now += 250;
-    sender.tick({ ...mark, x: 9 });
+    sender.tick({ ...place, x: 9 });
     expect(places(made[0]).length).toBe(0);
   });
 });
@@ -148,7 +172,7 @@ describe("the visitor's side", () => {
 describe("the wall's side", () => {
   it("hands over each place once, and hears someone until they have been silent for a while", () => {
     const { made, make, clock, read } = setup();
-    const listener = new MarkerListener("wss://x", make, read);
+    const listener = new MarkerListener("wss://x", make, read, () => String(EPOCH), () => 1000);
     listener.drain();
     made[0].open();
     made[0].say(markText(mark));
@@ -158,6 +182,44 @@ describe("the wall's side", () => {
     expect([...listener.live().keys()]).toEqual([mark.o]);
     clock.now += HEARD_MS + 1;
     expect(listener.live().size).toBe(0);
+  });
+
+  it("does not believe another epoch's places: the old world's time would hold the marker up there", () => {
+    const { made, make, read } = setup();
+    let epoch = String(EPOCH);
+    const listener = new MarkerListener("wss://x", make, read, () => epoch, () => 1000);
+    listener.drain();
+    made[0].open();
+    epoch = String(EPOCH + 1);
+    made[0].say(markText({ ...mark, s: 9000 }));
+    expect(listener.drain()).toEqual([]);
+    expect(listener.live().size).toBe(0);
+    made[0].say(markText({ ...mark, s: 1, e: EPOCH + 1 }));
+    expect(listener.drain()).toEqual([{ ...mark, s: 1, e: EPOCH + 1 }]);
+  });
+
+  it("a tab that was not drawing gets only each visitor's newest place", () => {
+    const { made, make, read } = setup();
+    const listener = new MarkerListener("wss://x", make, read, () => String(EPOCH), () => 1000);
+    listener.drain();
+    made[0].open();
+    for (let i = 0; i < 1000; i++) made[0].say(markText({ ...mark, x: i }));
+    made[0].say(markText({ ...mark, o: "v_other", x: 7 }));
+    expect(listener.drain().map((m) => [m.o, m.x])).toEqual([
+      ["v_abc12", 999],
+      ["v_other", 7],
+    ]);
+  });
+
+  it("reports the way a phone's place took, by the clocks and by the round trips", () => {
+    const { made, make, read } = setup();
+    const listener = new MarkerListener("wss://x", make, read, () => String(EPOCH), () => 1000);
+    listener.drain();
+    made[0].open();
+    for (let i = 1; i <= 100; i++) made[0].say(markText({ ...mark, s: i, t: 1000 - i, r: i === 100 ? 42 : -1 }));
+    expect(listener.status()).toMatchObject({ count: 100, delayP50: 51, delayP95: 96, senderRttMs: 42 });
+    listener.clearDelays();
+    expect(listener.status().count).toBe(0);
   });
 });
 

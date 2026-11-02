@@ -5,6 +5,7 @@
  *
  *   wss://<worker>/<world>?as=phone   sends one line of text per place
  *   wss://<worker>/<world>?as=wall    hears them
+ *   https://<worker>/where/<world>    where the room's object was placed, for measuring
  */
 import { DurableObject } from "cloudflare:workers";
 
@@ -22,6 +23,10 @@ export class MarkerRoom extends DurableObject {
   }
 
   async fetch(request) {
+    if (new URL(request.url).pathname.startsWith("/where/")) {
+      const trace = await (await fetch("https://www.cloudflare.com/cdn-cgi/trace")).text();
+      return new Response(/^colo=(.+)$/m.exec(trace)?.[1] ?? "unknown");
+    }
     if (this.ctx.getWebSockets().length >= MAX_SOCKETS) return new Response("full", { status: 503 });
     const as = new URL(request.url).searchParams.get("as") === "wall" ? "wall" : "phone";
     const { 0: client, 1: server } = new WebSocketPair();
@@ -52,11 +57,15 @@ export class MarkerRoom extends DurableObject {
 
 export default {
   async fetch(request, env) {
-    const room = new URL(request.url).pathname.slice(1);
+    const path = new URL(request.url).pathname;
+    const where = path.startsWith("/where/");
+    const room = path.slice(where ? "/where/".length : 1);
     if (!ROOM.test(room)) return new Response("no such room", { status: 404 });
-    if (request.headers.get("Upgrade") !== "websocket") return new Response("websocket only", { status: 426 });
+    // the object is made near whoever asks first, and never moves: the hint keeps it near Korea even if that is not the first to ask
+    const object = env.ROOMS.get(env.ROOMS.idFromName(room), { locationHint: "apac-ne" });
+    if (where) return new Response(`entry ${request.cf?.colo ?? "?"} · object ${await (await object.fetch(request)).text()}\n`);
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("websocket only", { status: 426 });
     if (!ALLOWED_ORIGIN.test(request.headers.get("Origin") ?? "")) return new Response("forbidden", { status: 403 });
-    // the object is made near whoever asks first; the hint keeps it in Asia even if the first to ask is not
-    return env.ROOMS.get(env.ROOMS.idFromName(room), { locationHint: "apac" }).fetch(request);
+    return object.fetch(request);
   },
 };

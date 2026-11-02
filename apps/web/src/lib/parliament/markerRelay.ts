@@ -7,13 +7,23 @@
  * Lost or over its daily limit: the same, after a marker has not been heard for HEARD_MS.
  */
 
+import { currentEpochKey } from "./log";
 import { serverWorldName } from "./serverWorld";
+import { wallNow } from "./worldClock";
 
 export interface RelayedMark {
   o: string;
   x: number;
   z: number;
   s: number;
+  /** Which way they face (rad). The wall does not draw it yet. */
+  y: number;
+  /** The epoch it belongs to: a world cleared just now must not leave a marker at the old world's time. */
+  e: number;
+  /** Server-corrected wall ms it was sent at. */
+  t: number;
+  /** The sender's last round trip to the relay (ms, -1 unknown). */
+  r: number;
 }
 
 /** How often a walking visitor is sent; standing still, KEEP_SENDING_MS, so that the wall knows they are there. */
@@ -21,6 +31,7 @@ export const RELAY_SEND_MS = 250;
 const KEEP_SENDING_MS = 1000;
 /** A place that changed less than this (world) is not news. */
 const MOVED = 0.01;
+const TURNED = 0.01;
 /** A marker not heard for this long goes back to the samples. */
 export const HEARD_MS = 2000;
 const PING_MS = 5000;
@@ -29,13 +40,15 @@ const NO_ANSWER_MS = 15_000;
 const MAX_BUFFERED = 1024;
 const RETRY_MS = [1000, 2000, 5000, 10_000, 30_000, 60_000];
 const MAX_HEARD = 64;
+const DELAYS_KEPT = 2000;
 const VISITOR_ID = /^v_[a-z0-9]{1,12}$/;
 
 const OPEN = 1;
 
 /** One line of text per place; stays well inside the relay's limit. */
 export function markText(m: RelayedMark): string {
-  return JSON.stringify({ o: m.o, x: Math.round(m.x * 100) / 100, z: Math.round(m.z * 100) / 100, s: Math.round(m.s * 10) / 10 });
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  return JSON.stringify({ o: m.o, x: r2(m.x), z: r2(m.z), s: Math.round(m.s * 10) / 10, y: r2(m.y), e: m.e, t: Math.round(m.t), r: Math.round(m.r) });
 }
 
 /** A place from the relay; anyone can reach it, so a line is believed only if it could be a visitor's. */
@@ -44,8 +57,8 @@ export function parseMark(text: unknown): RelayedMark | null {
   try {
     const m = JSON.parse(text) as Partial<RelayedMark> | null;
     if (!m || typeof m.o !== "string" || !VISITOR_ID.test(m.o)) return null;
-    if (!Number.isFinite(m.x) || !Number.isFinite(m.z) || !Number.isFinite(m.s)) return null;
-    return { o: m.o, x: m.x as number, z: m.z as number, s: m.s as number };
+    for (const v of [m.x, m.z, m.s, m.y, m.e, m.t, m.r]) if (!Number.isFinite(v)) return null;
+    return { o: m.o, x: m.x as number, z: m.z as number, s: m.s as number, y: m.y as number, e: m.e as number, t: m.t as number, r: m.r as number };
   } catch {
     return null;
   }
@@ -144,21 +157,24 @@ export class RelaySocket {
 export class MarkerSender {
   private lastX = Number.NaN;
   private lastZ = Number.NaN;
+  private lastY = Number.NaN;
   private lastAt = Number.NEGATIVE_INFINITY;
 
   constructor(
     private readonly socket: RelaySocket,
     private readonly clock: () => number = monotonic,
+    private readonly sentAt: () => number = wallNow,
   ) {}
 
-  tick(m: RelayedMark): void {
+  tick(m: Omit<RelayedMark, "t" | "r">): void {
     this.socket.poke();
     const now = this.clock();
-    const moved = !(Math.abs(m.x - this.lastX) < MOVED && Math.abs(m.z - this.lastZ) < MOVED);
+    const moved = !(Math.abs(m.x - this.lastX) < MOVED && Math.abs(m.z - this.lastZ) < MOVED && Math.abs(m.y - this.lastY) < TURNED);
     if (!moved && now - this.lastAt < KEEP_SENDING_MS) return;
-    if (!this.socket.send(markText(m))) return;
+    if (!this.socket.send(markText({ ...m, t: this.sentAt(), r: this.socket.rttMs ?? -1 }))) return;
     this.lastX = m.x;
     this.lastZ = m.z;
+    this.lastY = m.y;
     this.lastAt = now;
   }
 
@@ -167,9 +183,29 @@ export class MarkerSender {
   }
 }
 
+/**
+ * How the way from a phone to this wall measures up. Two views of one thing: `delay` is by the server-corrected clocks,
+ * which may be off by half a round trip to Vercel (some 130 ms), about as much as is being measured; half of each round
+ * trip added up needs no clocks.
+ */
+export interface RelayStatus {
+  connected: boolean;
+  /** This wall to the relay and back (ms). */
+  rttMs: number | null;
+  /** The newest sender to the relay and back (ms). */
+  senderRttMs: number | null;
+  heard: number;
+  count: number;
+  delayP50: number | null;
+  delayP95: number | null;
+}
+
 /** The wall's side: what has been heard since the last frame, and who is being heard at all. */
 export class MarkerListener {
-  private news: RelayedMark[] = [];
+  /** Each visitor's newest place since the last frame: a tab that was not drawing has no use for the older ones. */
+  private readonly news = new Map<string, RelayedMark>();
+  private delays: number[] = [];
+  private senderRttMs: number | null = null;
   private readonly heard = new Map<string, { m: RelayedMark; at: number }>();
   private readonly hearing = new Map<string, RelayedMark>();
   private readonly socket: RelaySocket;
@@ -178,24 +214,29 @@ export class MarkerListener {
     url: string,
     make?: MakeSocket,
     private readonly clock: () => number = monotonic,
+    private readonly epoch: () => string | null = currentEpochKey,
+    private readonly heardAt: () => number = wallNow,
   ) {
     this.socket = new RelaySocket(url, (text) => this.hear(text), make, clock);
   }
 
   private hear(text: string): void {
     const m = parseMark(text);
-    if (!m) return;
+    if (!m || String(m.e) !== this.epoch()) return;
     if (this.heard.size >= MAX_HEARD && !this.heard.has(m.o)) return;
     this.heard.set(m.o, { m, at: this.clock() });
-    if (this.news.length < MAX_HEARD * 4) this.news.push(m);
+    this.news.set(m.o, m);
+    this.delays.push(this.heardAt() - m.t);
+    if (this.delays.length > DELAYS_KEPT) this.delays.splice(0, this.delays.length - DELAYS_KEPT);
+    if (m.r >= 0) this.senderRttMs = m.r;
   }
 
   /** The places that came in since the last call. */
   drain(): readonly RelayedMark[] {
     this.socket.poke();
-    if (this.news.length === 0) return NOTHING;
-    const out = this.news;
-    this.news = [];
+    if (this.news.size === 0) return NOTHING;
+    const out = [...this.news.values()];
+    this.news.clear();
     return out;
   }
 
@@ -210,8 +251,15 @@ export class MarkerListener {
     return this.hearing;
   }
 
-  status(): { connected: boolean; rttMs: number | null; heard: number } {
-    return { connected: this.socket.connected, rttMs: this.socket.rttMs, heard: this.heard.size };
+  status(): RelayStatus {
+    const sorted = [...this.delays].sort((a, b) => a - b);
+    const at = (q: number) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] : null);
+    return { connected: this.socket.connected, rttMs: this.socket.rttMs, senderRttMs: this.senderRttMs, heard: this.heard.size, count: sorted.length, delayP50: at(0.5), delayP95: at(0.95) };
+  }
+
+  /** A new measurement starts from here. */
+  clearDelays(): void {
+    this.delays = [];
   }
 
   close(): void {
@@ -243,6 +291,7 @@ export function openMarkerListener(): MarkerListener | null {
   if (!url) return null;
   const listener = new MarkerListener(url);
   wallListener = listener;
+  (window as unknown as { __relay?: unknown }).__relay = { status: () => listener.status(), clearDelays: () => listener.clearDelays() };
   return listener;
 }
 
@@ -253,7 +302,8 @@ let wallListener: MarkerListener | null = null;
 export function markerRelayReadout(): string | null {
   if (!wallListener) return null;
   const s = wallListener.status();
-  return `relay: ${s.connected ? "on" : "off (markers on the samples)"} · ${s.rttMs === null ? "-" : `${Math.round(s.rttMs)} ms`} there and back · hearing ${s.heard}`;
+  const ms = (v: number | null) => (v === null ? "-" : `${Math.round(v)} ms`);
+  return `relay: ${s.connected ? "on" : "off (markers on the samples)"} · hearing ${s.heard} · phone→wall ${ms(s.delayP50)} · there and back: wall ${ms(s.rttMs)}, phone ${ms(s.senderRttMs)}`;
 }
 
 /** What a phone reports with `?perf=1`, to measure the way from a real phone. */

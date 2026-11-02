@@ -367,7 +367,7 @@ export function RoleField({
     if (!relay.current || epochMs.current === 0 || document.visibilityState === "hidden") return;
     if (lifeRef && lifeRef.current.phase !== "live") return;
     const p = playerPosRef.current;
-    relay.current.tick({ o: me.current.id, x: wrapCoord(p.x), z: wrapCoord(p.z), s: sessionSeconds(worldNow(), epochMs.current, me.current.offset) });
+    relay.current.tick({ o: me.current.id, x: wrapCoord(p.x), z: wrapCoord(p.z), s: sessionSeconds(worldNow(), epochMs.current, me.current.offset), y: playerYawRef?.current ?? 0, e: epochMs.current });
   });
 
   // the name is up: the visitor's melody, with a gap, over and over; it stops when the life begins
