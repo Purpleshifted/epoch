@@ -13,7 +13,7 @@
  * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
  */
 
-import { VT323 } from "next/font/google";
+import localFont from "next/font/local";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CAUSE_NAME,
@@ -51,7 +51,7 @@ import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
 import type { LifeSession } from "./useLifeSession";
 
-const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
+const mono = localFont({ src: "../../app/fonts/vt323-latin.woff2", weight: "400", display: "swap" });
 
 const POLL_MS = 250;
 /** One round of the name's melody and its gap (a bar of 8 steps); the keys count this long after the name comes up. */

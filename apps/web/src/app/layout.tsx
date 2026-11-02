@@ -1,19 +1,20 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { GameProvider } from "@/context/GameContext";
 
-const geistSans = Geist({
+// files of our own (./fonts): next/font/google failed the build now and then (2026-11-02). The weights are what was asked of Google.
+const geistSans = localFont({
+  src: "./fonts/geist-latin.woff2",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: "400 600",
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/geist-mono-latin.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: "400 500",
   display: "swap",
 });
 
