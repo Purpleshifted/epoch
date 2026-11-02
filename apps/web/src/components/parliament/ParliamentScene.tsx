@@ -175,14 +175,15 @@ function Controller({
     };
     // a phone: while one finger is on the screen the visitor walks (pressing.current); dragging it turns — about
     // 300 px for a half turn — and tips the camera; letting go stays. (Stopping living is the HUD's button.)
-    const touch = { id: -1, x: 0, y: 0 };
+    // (null = no finger: a touch's identifier is an opaque integer — on iOS large and arbitrary, so no value of it can mean "none")
+    const touch: { id: number | null; x: number; y: number } = { id: null, x: 0, y: 0 };
     const onTouchStart = (e: TouchEvent) => {
       if (!coarse) return;
       // iOS: no text selection, callout or loupe on a long press (pointer events still fire, so the taps that go on
       // through the frame are not lost)
       if (e.cancelable) e.preventDefault();
       if (e.touches.length !== 1) {
-        touch.id = -1;
+        touch.id = null;
         pressing.current = false;
         return;
       }
@@ -193,7 +194,7 @@ function Controller({
       pressing.current = true;
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (!coarse || touch.id < 0) return;
+      if (!coarse || touch.id === null) return;
       let t: Touch | null = null;
       for (let i = 0; i < e.touches.length; i++) if (e.touches[i].identifier === touch.id) t = e.touches[i];
       if (!t) return;
@@ -210,7 +211,7 @@ function Controller({
       pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + dy * TOUCH_PITCH_RAD_PER_PX * look));
     };
     const onTouchEnd = () => {
-      touch.id = -1;
+      touch.id = null;
       pressing.current = false;
     };
     c.addEventListener("click", onClick);
