@@ -2776,7 +2776,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         distanceFalloff: { value: 1, min: 0.05, max: 4, step: 0.05, label: "거리 감쇠" },
         aoIntensity: { value: 3, min: 0, max: 12, step: 0.1, label: "세기" },
         quality: { options: ["performance", "low", "medium", "high", "ultra"] as const, value: "medium" as const, label: "품질" },
-        halfRes: { value: true, label: "절반 해상도 (거의 티 안 남, 비용은 ¼)" },
+        halfRes: { value: false, label: "절반 해상도 (비용은 ¼, 대신 깜박임이 눈에 띔: 작가 시험 2026-11-02)" },
       }),
       "빛": folder({
         shadows: { value: true, label: "그림자" },
