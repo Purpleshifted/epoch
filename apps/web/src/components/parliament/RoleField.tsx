@@ -112,6 +112,8 @@ const BOT_GROUND_EVERY_MS = 5000;
  * fold rebuild itself (foldState.ts lateMarginSec).
  */
 const PLAYER_FOLD_OPTS = { lateMarginSec: 35 };
+/** The walking speed the sound's speed knob (engine.ts speedMax) was tuned to. */
+const SOUND_FULL_WALK = 7;
 
 /** Who a life's visitor is. */
 export interface Visitor {
@@ -125,6 +127,7 @@ export function RoleField({
   role,
   cfg,
   natureCfg,
+  walkSpeed = SOUND_FULL_WALK,
   pointSize,
   pathDots = 1,
   pathLine = 1,
@@ -148,6 +151,8 @@ export function RoleField({
   role: RoleId;
   cfg: FoldConfig;
   natureCfg: NatureConfig;
+  /** The visitor's full walking speed (world units a second): at it the headset hears what it always heard at full speed. */
+  walkSpeed?: number;
   pointSize: number;
   /** How many dust points a trodden cell gets (× the base 14 at full strength); the artist wanted the paths visible. */
   pathDots?: number;
@@ -467,8 +472,9 @@ export function RoleField({
       const tSound = performance.now();
       if (sound) {
         if (!tonal.current || tonal.current.epochMs !== epochMs.current) tonal.current = { epochMs: epochMs.current, key: worldKey(String(epochMs.current)) };
+        const toSound = SOUND_FULL_WALK / walkSpeed;
         const sig = personalSignals({
-          me: { id: me.current.id, x: p.x, z: p.z, vx: p.vx ?? 0, vz: p.vz ?? 0 },
+          me: { id: me.current.id, x: p.x, z: p.z, vx: (p.vx ?? 0) * toSound, vz: (p.vz ?? 0) * toSound },
           events,
           sNow: sMe,
           snap: snap.current,

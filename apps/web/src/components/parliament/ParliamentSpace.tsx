@@ -1530,8 +1530,9 @@ interface Mark {
 }
 
 /**
- * Where a marker is shown. Samples come a second or two apart (and two at a time from the server), so a marker walks to
- * the newest one at the pace they arrive instead of jumping there; the frames only move these objects, nothing re-renders.
+ * Where a marker is shown; the frames only move these objects, nothing re-renders. Samples come a second or two apart (and
+ * two at a time from the server), so a person walks to the newest one at the pace they arrive. A bot goes there at once:
+ * gliding, the bots looked unnatural (the artist, 2026-11-02).
  */
 interface MarkTrack {
   x: number;
@@ -1650,7 +1651,7 @@ function Markers({
         track.newest = e.s;
         const dx = wrapDelta(e.x - track.x);
         const dz = wrapDelta(e.z - track.z);
-        if (Math.hypot(dx, dz) > MARK_JUMP) {
+        if (id.startsWith("bot") || Math.hypot(dx, dz) > MARK_JUMP) {
           track.x = e.x;
           track.z = e.z;
           track.s = e.s;

@@ -63,6 +63,8 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 const FOG_COLOR = "#01020a";
 const ORB_Y = 0.45;
 /** A phone: a horizontal drag of about 300 px is a half turn; a vertical one of 300 px runs the camera's whole pitch range. */
+/** Sideways against straight ahead. */
+const STRAFE_SHARE = 4.5 / 7;
 const TOUCH_TURN_RAD_PER_PX = Math.PI / 300;
 const TOUCH_PITCH_RAD_PER_PX = 1.15 / 300;
 
@@ -122,6 +124,8 @@ function Controller({
   camDist,
   camLerp,
   viscosity,
+  walkSpeed,
+  lookSpeed,
   lifeRef,
   tiltRef,
   coarse = false,
@@ -133,6 +137,10 @@ function Controller({
   camDist: number;
   camLerp: number;
   viscosity: number;
+  /** World units a second, straight ahead. */
+  walkSpeed: number;
+  /** How fast the view turns, against the mouse's and the finger's original rates. */
+  lookSpeed: number;
   /** V2: the session — the controls only work while it is live (not while the role is drawn, not after the end);
    *  near the end they answer worse and drop out; while X is held to stop living they are dead. */
   lifeRef?: { readonly current: LifeSignal };
@@ -153,6 +161,10 @@ function Controller({
   const group = useRef<THREE.Group>(null);
   /** A phone: a finger is on the screen (= walking). */
   const pressing = useRef(false);
+  const lookRef = useRef(lookSpeed);
+  useEffect(() => {
+    lookRef.current = lookSpeed;
+  }, [lookSpeed]);
 
   useEffect(() => {
     const c = gl.domElement;
@@ -163,7 +175,7 @@ function Controller({
       if (L && L.attempt > 0) return;
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
-      const look = h?.look ?? 1;
+      const look = (h?.look ?? 1) * lookRef.current;
       yaw.current -= e.movementX * 0.0025 * look;
       pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + e.movementY * 0.002 * look));
     };
@@ -206,7 +218,7 @@ function Controller({
       if (L && (L.phase !== "live" || L.attempt > 0)) return;
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
-      const look = h?.look ?? 1;
+      const look = (h?.look ?? 1) * lookRef.current;
       yaw.current -= dx * TOUCH_TURN_RAD_PER_PX * look;
       pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + dy * TOUCH_PITCH_RAD_PER_PX * look));
     };
@@ -246,7 +258,7 @@ function Controller({
     // a phone: the sideways tilt turns, the front-back tilt walks (lib/parliament/tilt.ts)
     const tl = tiltRef?.current;
     const tilt = !dead && coarse && tl?.active ? tl : null;
-    if (tilt && tilt.turn !== 0) yaw.current -= tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * dt;
+    if (tilt && tilt.turn !== 0) yaw.current -= tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * lookSpeed * dt;
     const y = yaw.current;
     const tiltFwd = tilt ? (tilt.fwd >= 0 ? tilt.fwd : tilt.fwd * 0.4) : 0;
     const pressFwd = !dead && coarse && pressing.current ? 1 : 0;
@@ -254,8 +266,8 @@ function Controller({
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
     const left = !dead && (k.has("KeyA") || k.has("ArrowLeft")) ? 1 : 0;
     const rgt = !dead && (k.has("KeyD") || k.has("ArrowRight")) ? 1 : 0;
-    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd + pressFwd)) * 7.0 * gain;
-    const tgtStrafe = (rgt - left) * 4.5 * gain;
+    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd + pressFwd)) * walkSpeed * gain;
+    const tgtStrafe = (rgt - left) * walkSpeed * STRAFE_SHARE * gain;
     const tvx = Math.sin(y) * tgtFwd + -Math.cos(y) * tgtStrafe;
     const tvz = Math.cos(y) * tgtFwd + Math.sin(y) * tgtStrafe;
     const drag = (2.0 + (1 - viscosity) * 13.0) * (h?.response ?? 1);
@@ -349,7 +361,7 @@ export default function ParliamentScene() {
   // V2: the ledger of this life (lib/parliament/ledger.ts) — written by RoleField, read by the HUD
   const ledgerRef = useRef<Ledger | null>(null);
 
-  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, fogNear, fogFar } =
+  const { session: sessionOn, role: roleChoice, lang: levaLang, phoneMode, helpLine, noticeLineSec, lifeSec, warnSec, endHoldSec, quickRestartSec, lifeRate, selfP, selfNearFactor, holdSec, hintAfterSec, hintPeriodSec, hintShowSec, stopLastSec, offsetWindow, botEnabled, botCount, botRole, botGroups, botSpread, botTimeSpread, pixelDpr, camDist, camLerp, viscosity, walkSpeed, lookSpeed, fogNear, fogFar } =
     useControls({
       // save / reload row (levaSave.ts): the saved values come back as the defaults on the next load
       "역할 (Role)": folder(
@@ -389,8 +401,10 @@ export default function ParliamentScene() {
       "화면": folder({
         pixelDpr: { value: 1, min: 0.15, max: 2, step: 0.05, label: "해상도 (1 = 1x · 2 = 레티나 · 1 미만은 거칠게)" },
         camDist: { value: 7, min: 2, max: 20, step: 0.5 },
-        camLerp: { value: 0.07, min: 0.01, max: 0.3, step: 0.01, label: "카메라 부드러움" },
+        camLerp: { value: 0.05, min: 0.01, max: 0.3, step: 0.01, label: "카메라 부드러움" },
         viscosity: { value: 0.72, min: 0, max: 1, step: 0.01, label: "점성" },
+        walkSpeed: { value: 4, min: 1, max: 10, step: 0.25, label: "걷는 속도 (월드/초, 이전 7 · 세계 160)" },
+        lookSpeed: { value: 0.65, min: 0.2, max: 1.5, step: 0.05, label: "시선 돌리는 속도 (이전 1)" },
         fogNear: { value: 18, min: 5, max: 80, step: 1 },
         fogFar: { value: 80, min: 20, max: 200, step: 5 },
       }, { collapsed: true }),
@@ -468,6 +482,8 @@ export default function ParliamentScene() {
           camDist={camDist}
           camLerp={camLerp}
           viscosity={viscosity}
+          walkSpeed={walkSpeed}
+          lookSpeed={lookSpeed}
           lifeRef={withSession ? session.lifeRef : undefined}
           tiltRef={tiltRef}
           coarse={coarse}
@@ -481,6 +497,7 @@ export default function ParliamentScene() {
           role={role}
           cfg={cfg}
           natureCfg={natureCfg}
+          walkSpeed={walkSpeed}
           pointSize={pointSize}
           pathDots={pathDots}
           pathLine={pathLine}
