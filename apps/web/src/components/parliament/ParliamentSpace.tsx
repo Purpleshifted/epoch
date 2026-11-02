@@ -20,10 +20,10 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
 import { Glyph } from "./Glyph";
+import { SlowGrain } from "./SlowGrain";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
-import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
-import { BlendFunction } from "postprocessing";
+import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
 import {
@@ -96,20 +96,24 @@ const THEMES = {
  */
 function fadingPointsMaterial(): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
-  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 } };
+  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 }, uSoft: { value: 1 } };
   m.userData.fade = uniforms;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nuniform float uJitter;\nvarying float vFade;")
+      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nuniform float uJitter;\nuniform float uSoft;\nvarying float vFade;\nvarying float vDim;")
       .replace("#include <project_vertex>", "#include <project_vertex>\nvFade = smoothstep(uFade0, max(uFade0 + 1e-3, uFade1), -mvPosition.z);")
       // size jitter: a fixed factor per point, hashed from its position
       .replace(
         "#include <fog_vertex>",
-        "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));",
+        "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));\n" +
+          // smaller than a pixel: drawn as a full bright pixel it hops from pixel to pixel; dimmed by its area and a little
+          // wider, it fades across them instead
+          "vDim = 1.0;\nif (uSoft > 0.5 && gl_PointSize < 1.6) { float k = gl_PointSize / 1.6; vDim = k * k; gl_PointSize = 1.6; }",
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vFade;")
+      .replace("#include <common>", "#include <common>\nvarying float vFade;\nvarying float vDim;")
+      .replace("#include <color_fragment>", "#include <color_fragment>\nif (vDim < 1.0) diffuseColor.rgb *= vDim * smoothstep(1.0, 0.3, length(gl_PointCoord - 0.5) * 2.0);")
       .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif (vFade < fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;");
   };
   return m;
@@ -259,6 +263,8 @@ interface NatureParams {
   gatherJitter: number;
   gatherPoints: number;
   gatherDot: number;
+  /** Points under a pixel are dimmed instead of hopping (fadingPointsMaterial). */
+  softPoints?: boolean;
   paths: { hole: number; berm: number; edge?: number } | null;
   window: number;
   margin: number;
@@ -924,7 +930,10 @@ function SpaceWorld({
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
     applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
-  }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nearFade]);
+    const soft = nature?.softPoints === false ? 0 : 1;
+    natureMat.userData.fade.uSoft.value = soft;
+    gatherMat.userData.fade.uSoft.value = soft;
+  }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nature?.softPoints, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -1465,6 +1474,11 @@ function RendererTuning({ transmissionScale }: { transmissionScale: number }) {
   return null;
 }
 
+/** The shadow map, the size of one of its texels in the world (Sun's box: ±35), and how low the sun may go (degrees). */
+const SUN_MAP = 2048;
+const SUN_TEXEL = (2 * 35) / SUN_MAP;
+const SUN_LOWEST = 6;
+
 function Sun({
   controls,
   azimuth,
@@ -1484,6 +1498,7 @@ function Sun({
 }) {
   const light = useRef<THREE.DirectionalLight>(null);
   const extent = 35;
+  const basis = useRef({ dir: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3() });
   // THE SUN'S DAY (the artist, 2026-10-30): on the wall the azimuth turns and the elevation swings slowly around the
   // sliders' values, by the clock (a stall moves it at most 0.1 s worth), from the "전시 카메라" values
   const driftT = useRef(0);
@@ -1496,19 +1511,29 @@ function Sun({
     const turn = drift.active && drift.turnMin > 0 ? (drift.dir * 360 * s) / (drift.turnMin * 60) : 0;
     const swing = drift.active && drift.swingDeg > 0 && drift.swingMin > 0 ? drift.swingDeg * Math.sin((2 * Math.PI * s) / (drift.swingMin * 60)) : 0;
     const az = (azimuth + turn) * DEG;
-    const el = THREE.MathUtils.clamp(elevation + swing, 2, 89) * DEG;
+    const el = THREE.MathUtils.clamp(elevation + swing, SUN_LOWEST, 89) * DEG;
     const d = 80;
-    l.position.set(t.x + Math.cos(el) * Math.cos(az) * d, t.y + Math.sin(el) * d, t.z + Math.cos(el) * Math.sin(az) * d);
-    l.target.position.set(t.x, t.y, t.z);
+    const { dir, right, up } = basis.current;
+    dir.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+    right.set(-dir.z, 0, dir.x).normalize();
+    up.crossVectors(dir, right);
+    // the shadow box moves by whole texels of the shadow map: it follows the present every frame, and moved freely every
+    // shadow edge samples the map anew and shimmers (the flicker that a blurred focus does not hide)
+    const a = Math.round(right.dot(t) / SUN_TEXEL) * SUN_TEXEL;
+    const b = Math.round(up.dot(t) / SUN_TEXEL) * SUN_TEXEL;
+    l.target.position.copy(right).multiplyScalar(a).addScaledVector(up, b).addScaledVector(dir, dir.dot(t));
+    l.position.copy(l.target.position).addScaledVector(dir, d);
     l.target.updateMatrixWorld();
+    // a low sun grazes the surfaces, where they shadow themselves in stripes: a wider offset the lower it is
+    l.shadow.normalBias = 0.05 + 0.15 * (1 - Math.sin(el));
   });
   return (
     <directionalLight
       ref={light}
       intensity={intensity}
       castShadow={shadows}
-      shadow-mapSize-width={2048}
-      shadow-mapSize-height={2048}
+      shadow-mapSize-width={SUN_MAP}
+      shadow-mapSize-height={SUN_MAP}
       shadow-camera-left={-extent}
       shadow-camera-right={extent}
       shadow-camera-top={extent}
@@ -1517,7 +1542,6 @@ function Sun({
       shadow-camera-far={200}
       shadow-radius={softness}
       shadow-bias={-0.0004}
-      shadow-normalBias={0.02}
     />
   );
 }
@@ -2203,6 +2227,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         gatherJitter: { value: 0.5, min: 0, max: 0.95, step: 0.05, label: "구 크기 지터 (±)" },
         gatherPoints: { value: 24, min: 4, max: 96, step: 1, label: "구 하나의 점 수 (많을수록 무거움)" },
         gatherDot: { value: 0.025, min: 0.005, max: 0.15, step: 0.001, label: "구 속 점 크기" },
+        softPoints: { value: true, label: "1픽셀보다 작은 점을 어둡고 부드럽게 (반짝임 줄임)" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
     }),
@@ -2740,6 +2765,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       // the pixels: a 5K iMac at ×2 draws 15 M of them per frame, with the AO on every one — ×1.5 looks the same
       // at that density and costs half
       dprMax: { value: 1.5, min: 1, max: 2, step: 0.25, label: "해상도 상한 (화면 픽셀 배율; 2 = 레티나 전부, 1.5 권장)" },
+      aa: {
+        options: { "MSAA 4 + SMAA": "msaa4smaa", "SMAA만 (가장 가벼움)": "smaa", "MSAA 8 (이전)": "msaa8", "끔": "off" },
+        value: "msaa4smaa",
+        label: "안티앨리어싱",
+      },
       AO: folder({
         aoOn: { value: true, label: "켜기" },
         aoRadius: { value: 2.5, min: 0.1, max: 12, step: 0.1, label: "반경 (월드)" },
@@ -2755,6 +2785,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         sunIntensity: { value: 1.4, min: 0, max: 4, step: 0.05, label: "해 세기 (그림자 대비)" },
         softness: { value: 3, min: 0, max: 12, step: 0.5, label: "그림자 부드러움" },
         grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
+        grainRate: { value: 0, min: 0, max: 60, step: 1, label: "그레인이 바뀌는 횟수 (초당; 0 = 고정, 이전은 매 프레임)" },
       }),
       LOD: folder({
         near: { value: 40, min: 5, max: 400, step: 5, label: "이 거리 안쪽: 막대 묶음 · 드립 다 그림 (월드)" },
@@ -2795,6 +2826,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             gatherJitter: veg.gatherJitter,
             gatherPoints: veg.gatherPoints,
             gatherDot: veg.gatherDot,
+            softPoints: veg.softPoints,
             window: veg.window,
             margin: veg.margin,
             budget: vegBudget,
@@ -2863,7 +2895,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
+      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.5, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
@@ -2970,10 +3002,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
+          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.aa}`} multisampling={rnd.aa === "msaa8" ? 8 : rnd.aa === "msaa4smaa" ? 4 : 0}>
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
-            {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
+            {(rnd.aa === "msaa4smaa" || rnd.aa === "smaa") && <SMAA />}
+            {rnd.grain > 0 && <SlowGrain opacity={rnd.grain} rate={rnd.grainRate} />}
           </EffectComposer>
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
