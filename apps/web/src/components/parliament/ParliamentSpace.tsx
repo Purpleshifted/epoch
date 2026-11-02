@@ -71,6 +71,8 @@ import {
   type FuseMesh,
   SpaceModel,
   glyphOf,
+  wrapCoord,
+  wrapDelta,
   layerDecayOf,
   handleSpaceRequest,
 } from "@/lib/parliament";
@@ -1523,11 +1525,49 @@ function Sun({
 interface Mark {
   id: string;
   kind: "me" | "bot" | "visitor";
+  /** No newer sample for `holdSec` (only "me" is still drawn then, dimmed). */
+  stale: boolean;
+}
+
+/**
+ * Where a marker is shown. Samples come a second or two apart (and two at a time from the server), so a marker walks to
+ * the newest one at the pace they arrive instead of jumping there; the frames only move these objects, nothing re-renders.
+ */
+interface MarkTrack {
   x: number;
   z: number;
   s: number;
-  /** No newer sample for `holdSec` (only "me" is still drawn then, dimmed). */
-  stale: boolean;
+  vx: number;
+  vz: number;
+  vs: number;
+  /** Seconds of walking left to the newest sample. */
+  left: number;
+  newest: number;
+  arrivedAt: number;
+  /** How far apart samples have been arriving (s). */
+  gap: number;
+  big: number;
+  body: THREE.Group | null;
+  ball: THREE.Mesh | null;
+  line: THREE.Mesh | null;
+  name: THREE.Group | null;
+}
+
+/** Further than this between two samples: not a walk (a new life, a host's restart), the marker goes there at once. */
+const MARK_JUMP = 20;
+/** A little longer than the samples' gap: a marker that arrives early stands still until the next one. */
+const MARK_WALK_STRETCH = 1.15;
+
+function placeMark(t: MarkTrack, secPerUnit: number, unit: number): void {
+  if (!t.body) return;
+  const y = (t.s / secPerUnit) * unit;
+  t.body.position.set(wrapCoord(t.x), 0, wrapCoord(t.z));
+  t.ball?.position.setY(y);
+  if (t.line) {
+    t.line.position.setY(y / 2);
+    t.line.scale.setY(Math.max(y, 0.001));
+  }
+  t.name?.position.setY(y + t.big + 0.25);
 }
 
 /** What the overlay says about "me": the id this browser's player tab wrote, and how long it has been silent. */
@@ -1565,11 +1605,22 @@ function Markers({
 }) {
   const [marks, setMarks] = useState<Mark[]>([]);
   const seen = useRef(new Map<string, { s: number; at: number }>());
+  const tracks = useRef(new Map<string, MarkTrack>());
   const timer = useRef(10);
   const sig = useRef("");
   const meSig = useRef("");
 
   useFrame((_, dt) => {
+    for (const t of tracks.current.values()) {
+      if (t.left > 0) {
+        const h = Math.min(dt, t.left);
+        t.x += t.vx * h;
+        t.z += t.vz * h;
+        t.s += t.vs * h;
+        t.left -= h;
+      }
+      placeMark(t, secPerUnit, unit);
+    }
     timer.current += dt;
     if (timer.current < 0.25) return;
     timer.current = 0;
@@ -1590,9 +1641,31 @@ function Markers({
       if (!prev || e.s > prev.s) seen.current.set(id, { s: e.s, at: firstScan && !prev ? -1e12 : now });
       const at = seen.current.get(id)!.at;
       const stale = now - at > holdSec * 1000;
+      const track = tracks.current.get(id);
+      if (!track) {
+        tracks.current.set(id, { x: e.x, z: e.z, s: e.s, vx: 0, vz: 0, vs: 0, left: 0, newest: e.s, arrivedAt: now, gap: 1, big: id === me ? 0.5 : 0.32, body: null, ball: null, line: null, name: null });
+      } else if (e.s > track.newest) {
+        track.gap = Math.min(4, Math.max(0.5, track.gap * 0.5 + ((now - track.arrivedAt) / 1000) * 0.5));
+        track.arrivedAt = now;
+        track.newest = e.s;
+        const dx = wrapDelta(e.x - track.x);
+        const dz = wrapDelta(e.z - track.z);
+        if (Math.hypot(dx, dz) > MARK_JUMP) {
+          track.x = e.x;
+          track.z = e.z;
+          track.s = e.s;
+          track.left = 0;
+        } else {
+          track.left = track.gap * MARK_WALK_STRETCH;
+          track.vx = dx / track.left;
+          track.vz = dz / track.left;
+          track.vs = (e.s - track.s) / track.left;
+        }
+      }
       if (stale && id !== me) continue;
-      out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", x: e.x, z: e.z, s: e.s, stale });
+      out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", stale });
     }
+    for (const id of tracks.current.keys()) if (!latest.has(id)) tracks.current.delete(id);
     const meAt = me ? seen.current.get(me)?.at : undefined;
     const meStatus: MeStatus = { id: me, silentSec: meAt === undefined ? null : meAt < 0 ? Infinity : Math.floor((now - meAt) / 1000) };
     const ms = `${meStatus.id}:${meStatus.silentSec}`;
@@ -1601,7 +1674,7 @@ function Markers({
       onMe(meStatus);
     }
     out.sort((a, b) => (a.id < b.id ? -1 : 1));
-    const next = out.map((m) => `${m.id}:${m.s}:${m.x.toFixed(2)}:${m.z.toFixed(2)}:${m.stale}`).join("|");
+    const next = out.map((m) => `${m.id}:${m.kind}:${m.stale}`).join("|");
     if (next === sig.current) return;
     sig.current = next;
     setMarks(out);
@@ -1611,31 +1684,57 @@ function Markers({
   return (
     <>
       {marks.map((m) => {
-        const y = (m.s / secPerUnit) * unit;
         const color = MARK_COLOR[m.kind];
         const big = m.kind === "me" ? 0.5 : 0.32;
+        const track = () => tracks.current.get(m.id);
         return (
-          <group key={m.id}>
-            <mesh position={[m.x, y, m.z]}>
+          <group
+            key={m.id}
+            ref={(g) => {
+              const t = track();
+              if (!t) return;
+              t.body = g;
+              t.big = big;
+              placeMark(t, secPerUnit, unit);
+            }}
+          >
+            <mesh
+              ref={(o) => {
+                const t = track();
+                if (t) t.ball = o;
+              }}
+            >
               <sphereGeometry args={[big, 16, 12]} />
               <meshBasicMaterial color={color} depthTest={false} transparent opacity={m.stale ? 0.4 : 0.95} />
             </mesh>
             {/* a unit cylinder scaled to the height: the height in `args` would make r3f build (and throw away) a new
                 geometry every time a marker's time moved — with 22 bots, ~22 geometries a second (2026-10-30) */}
-            <mesh position={[m.x, y / 2, m.z]} scale={[1, Math.max(y, 0.001), 1]}>
+            <mesh
+              ref={(o) => {
+                const t = track();
+                if (t) t.line = o;
+              }}
+            >
               <cylinderGeometry args={[0.03, 0.03, 1, 6]} />
               <meshBasicMaterial color={color} transparent opacity={0.5} />
             </mesh>
-            <mesh position={[m.x, 0.02, m.z]} rotation={[-Math.PI / 2, 0, 0]}>
+            <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
               <ringGeometry args={[0.35, 0.5, 24]} />
               <meshBasicMaterial color={color} transparent opacity={0.7} />
             </mesh>
             {nameCell > 0 && (
-              <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
-                <div style={{ color, opacity: m.stale ? 0.4 : 1 }}>
-                  <Glyph dots={glyphOf(m.id)} cell={nameCell} />
-                </div>
-              </Html>
+              <group
+                ref={(o) => {
+                  const t = track();
+                  if (t) t.name = o;
+                }}
+              >
+                <Html center style={{ pointerEvents: "none" }}>
+                  <div style={{ color, opacity: m.stale ? 0.4 : 1 }}>
+                    <Glyph dots={glyphOf(m.id)} cell={nameCell} />
+                  </div>
+                </Html>
+              </group>
             )}
           </group>
         );
