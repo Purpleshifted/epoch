@@ -1647,6 +1647,15 @@ function Markers({
  * `lab`: the WORK ROOM (/v2/global/lab) — a world of this tab only (a test column on opening, never the shared
  * storage), its own clock (paused at first), no history window; the same Leva, saved under the shared view's key.
  */
+/** Poster branch only: lets the capture script (poster-a0/tools) reach the lab's camera and renderer. */
+function PosterHook() {
+  const get = useThree((s) => s.get);
+  useEffect(() => {
+    (window as unknown as { __poster?: unknown }).__poster = { get };
+  }, [get]);
+  return null;
+}
+
 export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {}) {
   const isV2 = useParliamentVersion() === "v2";
   const [demo] = useState(() => seedParliamentDemoIfRequested());
@@ -2762,6 +2771,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       <Leva hidden={hideUi} theme={LEVA_THEME} />
       <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
+        <PosterHook />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
