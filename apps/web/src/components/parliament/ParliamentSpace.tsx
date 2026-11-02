@@ -96,7 +96,7 @@ const THEMES = {
  */
 function fadingPointsMaterial(): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
-  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 } };
+  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 }, uSat: { value: 1 } };
   m.userData.fade = uniforms;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -109,7 +109,9 @@ function fadingPointsMaterial(): THREE.PointsMaterial {
         "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));",
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vFade;")
+      .replace("#include <common>", "#include <common>\nuniform float uSat;\nvarying float vFade;")
+      // saturation at the same brightness: greys stay grey
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb = max(mix(vec3(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))), diffuseColor.rgb, uSat), 0.0);")
       .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif (vFade < fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;");
   };
   return m;
@@ -771,6 +773,7 @@ function SpaceWorld({
   lodNear,
   lodMid,
   pointsInRefraction,
+  pointSat,
   farFactor,
   weather,
   fuse,
@@ -817,6 +820,8 @@ function SpaceWorld({
    * refraction pass costs a fraction.
    */
   pointsInRefraction: boolean;
+  /** Saturation of the vegetation points (1 = the palette as it is). */
+  pointSat: number;
   farFactor: number;
   weather: WeatherConfig;
   /** Old layers fused into one mass. */
@@ -928,6 +933,10 @@ function SpaceWorld({
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
     applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
   }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nearFade]);
+  useEffect(() => {
+    natureMat.userData.fade.uSat.value = pointSat;
+    gatherMat.userData.fade.uSat.value = pointSat;
+  }, [natureMat, gatherMat, pointSat]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -2204,6 +2213,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     "식생",
     savable("식생", {
       natureOn: { value: true, label: "켜기" },
+      pointSat: { value: 1.3, min: 0, max: 3, step: 0.05, label: "점 채도 (1 = 팔레트 그대로, 회색은 그대로 회색)" },
       "퇴적 식생 (시간 속 볼륨)": folder({
         perSlot: { value: 6, min: 0.5, max: 40, step: 0.5, label: "칸·단당 점 수 (밀도 1일 때)" },
         volumeSize: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
@@ -2965,6 +2975,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           lodNear={lodNear}
           lodMid={lodMid}
           pointsInRefraction={fu.pointsInRefraction && !perf}
+          pointSat={veg.pointSat}
           farFactor={rnd.farFactor}
           weather={weather}
           fuse={fuseCfg}
