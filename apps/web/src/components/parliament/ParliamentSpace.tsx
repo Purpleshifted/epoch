@@ -915,9 +915,12 @@ function SpaceWorld({
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const natureMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
-    // transparent points are left out of the transmission pass (three.js re-renders only the opaque objects into it)
+    // transparent points are left out of the transmission pass (three.js re-renders only the opaque objects into it).
+    // They write no depth either: N8AO darkens whatever writes depth, and at full resolution each point is occluded by its
+    // neighbours until it is black; without depth it masks them out of the AO and they keep their colour (the artist, 2026-11-02)
     for (const m of [natureMat, gatherMat]) {
       m.transparent = !pointsInRefraction;
+      m.depthWrite = !m.transparent;
       m.needsUpdate = true;
     }
   }, [natureMat, gatherMat, pointsInRefraction]);
