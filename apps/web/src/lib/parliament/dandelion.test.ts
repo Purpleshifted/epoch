@@ -213,6 +213,17 @@ describe("a scatter", () => {
     expect(thrown(scatterEndSec(slow), slow).n).toBe(0);
   });
 
+  it("a share bursts at the start and the rest keep coming", () => {
+    const both = { ...plain, count: 200, emit: 1, first: 0.5 };
+    const atStart = thrown(0.01, both).n;
+    expect(atStart).toBeGreaterThan(70);
+    expect(atStart).toBeLessThan(130);
+    // the burst's points are gone by then; those still in the air were thrown later
+    expect(thrown(plain.lifeSec + 1, both).n).toBeGreaterThan(0);
+    expect(thrown(0.01, { ...both, first: 1 }).n).toBe(200);
+    expect(thrown(scatterEndSec(both), both).n).toBe(0);
+  });
+
   it("a harder burst is farther sooner; a given heading takes the wind that way", () => {
     const meanDist = (burst: number) => {
       const { n, pos } = thrown(1, { ...plain, burst });

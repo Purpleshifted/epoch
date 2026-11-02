@@ -207,6 +207,8 @@ export interface Scatter {
   burst?: number;
   /** 0: all thrown at once … 1: thrown over a whole life, so it lasts twice as long. */
   emit?: number;
+  /** The share thrown at the very start (0 … 1); the rest follow over `emit` (default 0). */
+  first?: number;
   /** How much their lives differ: 0: all the longest … 1: from nothing up to the longest (default 0.7). */
   lifeSpread?: number;
   /** How their light goes: below 1 late, above 1 early (default 1.5). */
@@ -233,7 +235,7 @@ export function scatterPoints(id: string, ageSec: number, x: number, y: number, 
   const own = r();
   const heading = c.heading === undefined ? own * TAU : c.heading + (own - 0.5) * TAU * (c.headingSpread ?? 1);
   const wx = Math.cos(heading), wz = Math.sin(heading);
-  const burst = c.burst ?? 3, emit = c.emit ?? 0, lifeSpread = c.lifeSpread ?? 0.7, fade = c.fade ?? 1.5;
+  const burst = c.burst ?? 3, emit = c.emit ?? 0, first = c.first ?? 0, lifeSpread = c.lifeSpread ?? 0.7, fade = c.fade ?? 1.5;
   const { pos, light, size } = out;
   const room = Math.floor(pos.length / 3);
   let n = start;
@@ -245,7 +247,8 @@ export function scatterPoints(id: string, ageSec: number, x: number, y: number, 
     const far = c.reach * (0.25 + 0.75 * r());
     const phase = r() * TAU;
     const grain = r();
-    const t = age - emit * c.lifeSec * r();
+    const late = r();
+    const t = age - (late < first ? 0 : emit * c.lifeSec * ((late - first) / (1 - first)));
     if (t < 0 || t >= life) continue;
     const ring = Math.sqrt(1 - dy * dy);
     const dx = Math.cos(a) * ring, dz = Math.sin(a) * ring;

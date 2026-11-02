@@ -130,6 +130,7 @@ export interface DandelionLook {
   dustWaver: number;
   dustBurst: number;
   dustEmit: number;
+  dustFirst: number;
   dustLifeSpread: number;
   dustFade: number;
   /** A grain: world size, colour, brightness, how soft its edge is (0 … 1), shape. */
@@ -290,6 +291,7 @@ export function Dandelions({ log, secPerUnit, unit, look }: { log: EventLog; sec
         headingSpread: look.dustHeadingSpread,
         burst: look.dustBurst,
         emit: look.dustEmit,
+        first: look.dustFirst,
         lifeSpread: look.dustLifeSpread,
         fade: look.dustFade,
         dot: look.dustDot,
