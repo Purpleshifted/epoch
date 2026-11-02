@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
+import { Glyph } from "./Glyph";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
@@ -55,7 +56,6 @@ import {
   type PipeParts,
   type PointsResult,
   type Recipe,
-  type RoleId,
   type SpaceRequest,
   type SpaceResponse,
   type WeatherConfig,
@@ -70,6 +70,7 @@ import {
   type FuseConfig,
   type FuseMesh,
   SpaceModel,
+  glyphOf,
   layerDecayOf,
   handleSpaceRequest,
 } from "@/lib/parliament";
@@ -1522,7 +1523,6 @@ function Sun({
 interface Mark {
   id: string;
   kind: "me" | "bot" | "visitor";
-  role: RoleId;
   x: number;
   z: number;
   s: number;
@@ -1537,9 +1537,7 @@ interface MeStatus {
   silentSec: number | null;
 }
 
-const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
-/** A visitor on the black background: the near-black above cannot be seen there, and everyone on another machine is a visitor. */
-const VISITOR_ON_BLACK = "#f0f0f0";
+const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#ff4d00" } as const;
 
 /**
  * Live markers: the latest presence sample of each owner, as a sphere at (x, time, z) with a thin line down to
@@ -1552,8 +1550,7 @@ function Markers({
   secPerUnit,
   unit,
   holdSec,
-  labels,
-  visitorColor,
+  nameCell,
   onActive,
   onMe,
 }: {
@@ -1561,9 +1558,8 @@ function Markers({
   secPerUnit: number;
   unit: number;
   holdSec: number;
-  /** The name over each marker ("me · worker", a bot's id, "visitor"); off on the exhibition wall (no text at all). */
-  labels: boolean;
-  visitorColor: string;
+  /** The name over each marker, its melody as a pattern (Glyph): one step's size in pixels, 0 = none. */
+  nameCell: number;
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
 }) {
@@ -1595,7 +1591,7 @@ function Markers({
       const at = seen.current.get(id)!.at;
       const stale = now - at > holdSec * 1000;
       if (stale && id !== me) continue;
-      out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", role: e.r, x: e.x, z: e.z, s: e.s, stale });
+      out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", x: e.x, z: e.z, s: e.s, stale });
     }
     const meAt = me ? seen.current.get(me)?.at : undefined;
     const meStatus: MeStatus = { id: me, silentSec: meAt === undefined ? null : meAt < 0 ? Infinity : Math.floor((now - meAt) / 1000) };
@@ -1616,7 +1612,7 @@ function Markers({
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
-        const color = m.kind === "visitor" ? visitorColor : MARK_COLOR[m.kind];
+        const color = MARK_COLOR[m.kind];
         const big = m.kind === "me" ? 0.5 : 0.32;
         return (
           <group key={m.id}>
@@ -1634,10 +1630,10 @@ function Markers({
               <ringGeometry args={[0.35, 0.5, 24]} />
               <meshBasicMaterial color={color} transparent opacity={0.7} />
             </mesh>
-            {labels && (
+            {nameCell > 0 && (
               <Html position={[m.x, y + big + 0.25, m.z]} center style={{ pointerEvents: "none" }}>
-                <div className="whitespace-nowrap font-mono text-[10px] leading-3" style={{ color }}>
-                  {m.kind === "me" ? (m.stale ? "me (silent)" : "me") : m.kind === "bot" ? m.id : "visitor"} · {m.role}
+                <div style={{ color, opacity: m.stale ? 0.4 : 1 }}>
+                  <Glyph dots={glyphOf(m.id)} cell={nameCell} />
                 </div>
               </Html>
             )}
@@ -1724,6 +1720,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       "가장 최근으로": button(() => jump(Math.max(0, topRef.current - 6))),
       markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
+      markerName: { value: 3, min: 0, max: 8, step: 1, label: "마커 위 이름 패턴 크기 (0 = 끔)" },
       showEdges: { value: false, label: "모서리 선" },
       "응답의 홀씨": folder({
         seedsOn: { value: true, label: "켜기" },
@@ -2730,8 +2727,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     () => ({ ...DEFAULT_BOXES, secPerUnit: tAxis.secPerUnit, unit: tAxis.unit, width: bld.partWidth, density: bld.partDensity, timeJitter: tAxis.timeJitter, recipe }),
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe],
   );
-  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear, follow: v.follow, markers: v.markers, markerHold: v.markerHold };
-  const visitorColor = v.theme === "black" ? VISITOR_ON_BLACK : MARK_COLOR.visitor;
+  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear, follow: v.follow, markers: v.markers, markerHold: v.markerHold, markerName: v.markerName };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -2885,12 +2881,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} visitorColor={visitorColor} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>
-      {/* THE WALL (ui=0, the exhibition): no text at all — the readout and the markers' names are debugging (the artist,
-          2026-10-28); the TEST entry (no ui parameter) keeps them */}
+      {/* THE WALL (ui=0, the exhibition): no text at all — the readout is debugging (the artist, 2026-10-28); the TEST
+          entry (no ui parameter) keeps it. The markers' names are patterns, on both (the artist, 2026-11-02). */}
       {!hideUi && (
       <div className={`pointer-events-none absolute bottom-3 left-3 select-none font-mono text-[10px] leading-4 ${theme.text}`}>
         <div>
@@ -2919,7 +2915,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}
-            <span style={{ color: visitorColor }}>visitor</span>)
+            <span style={{ color: MARK_COLOR.visitor }}>visitor</span>)
           </div>
         )}
         {c.markers && (
