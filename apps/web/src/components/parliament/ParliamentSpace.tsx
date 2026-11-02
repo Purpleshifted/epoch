@@ -96,7 +96,7 @@ const THEMES = {
  */
 function fadingPointsMaterial(): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
-  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 }, uSoft: { value: 1 } };
+  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 }, uSoft: { value: 0 } };
   m.userData.fade = uniforms;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -930,7 +930,7 @@ function SpaceWorld({
   useEffect(() => {
     applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
     applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
-    const soft = nature?.softPoints === false ? 0 : 1;
+    const soft = nature?.softPoints ? 1 : 0;
     natureMat.userData.fade.uSoft.value = soft;
     gatherMat.userData.fade.uSoft.value = soft;
   }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nature?.softPoints, nearFade]);
@@ -2227,7 +2227,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         gatherJitter: { value: 0.5, min: 0, max: 0.95, step: 0.05, label: "구 크기 지터 (±)" },
         gatherPoints: { value: 24, min: 4, max: 96, step: 1, label: "구 하나의 점 수 (많을수록 무거움)" },
         gatherDot: { value: 0.025, min: 0.005, max: 0.15, step: 0.001, label: "구 속 점 크기" },
-        softPoints: { value: true, label: "1픽셀보다 작은 점을 어둡고 부드럽게 (반짝임 줄임)" },
+        softPoints: { value: false, label: "1픽셀보다 작은 점을 어둡고 부드럽게 (멀리서는 색이 거의 사라짐)" },
         tauReclaimYears: { value: 300, min: 10, max: 10000, step: 10, label: "재점유 속도 (년; 마모를 끈 경우에만)" },
       }),
     }),
