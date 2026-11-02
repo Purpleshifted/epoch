@@ -1538,6 +1538,8 @@ interface MeStatus {
 }
 
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
+/** A visitor on the black background: the near-black above cannot be seen there, and everyone on another machine is a visitor. */
+const VISITOR_ON_BLACK = "#f0f0f0";
 
 /**
  * Live markers: the latest presence sample of each owner, as a sphere at (x, time, z) with a thin line down to
@@ -1551,6 +1553,7 @@ function Markers({
   unit,
   holdSec,
   labels,
+  visitorColor,
   onActive,
   onMe,
 }: {
@@ -1560,6 +1563,7 @@ function Markers({
   holdSec: number;
   /** The name over each marker ("me · worker", a bot's id, "visitor"); off on the exhibition wall (no text at all). */
   labels: boolean;
+  visitorColor: string;
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
 }) {
@@ -1612,7 +1616,7 @@ function Markers({
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
-        const color = MARK_COLOR[m.kind];
+        const color = m.kind === "visitor" ? visitorColor : MARK_COLOR[m.kind];
         const big = m.kind === "me" ? 0.5 : 0.32;
         return (
           <group key={m.id}>
@@ -2727,6 +2731,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe],
   );
   const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear, follow: v.follow, markers: v.markers, markerHold: v.markerHold };
+  const visitorColor = v.theme === "black" ? VISITOR_ON_BLACK : MARK_COLOR.visitor;
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -2880,7 +2885,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} visitorColor={visitorColor} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>
@@ -2914,7 +2919,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}
-            <span style={{ color: MARK_COLOR.visitor }}>visitor</span>)
+            <span style={{ color: visitorColor }}>visitor</span>)
           </div>
         )}
         {c.markers && (

@@ -74,6 +74,10 @@ describe("cleaning events", () => {
     expect(cleanEvent({ ...event, extra: 1 })).toEqual({ id: "bot3:1000", o: "bot3", r: "worker", k: "p", x: 1.23, z: -5.68, s: 12.35 });
   });
 
+  it("keeps a seed head an answer left (k = s), not only presence", () => {
+    expect(cleanEvent({ ...event, k: "s", r: "tree" })).toEqual({ id: "bot3:1000", o: "bot3", r: "tree", k: "s", x: 1.23, z: -5.68, s: 12.35 });
+  });
+
   it("wraps coordinates into the world", () => {
     expect(cleanEvent({ ...event, x: WORLD_HALF + 1 })?.x).toBeCloseTo(-WORLD_HALF + 1);
   });

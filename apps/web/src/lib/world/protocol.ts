@@ -99,11 +99,11 @@ export function cleanEvent(e: unknown): PEvent | null {
   const o = e as Record<string, unknown>;
   if (typeof o.id !== "string" || !o.id || o.id.length > 80) return null;
   if (typeof o.o !== "string" || !o.o || o.o.length > 40) return null;
-  if (o.k !== "p" || !isRole(o.r)) return null;
-  const { x, z, s } = o;
+  const { k, x, z, s } = o;
+  if ((k !== "p" && k !== "s") || !isRole(o.r)) return null;
   if (typeof x !== "number" || typeof z !== "number" || typeof s !== "number") return null;
   if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(s)) return null;
-  return { id: o.id, o: o.o, r: o.r, k: "p", x: r2(wrapCoord(x)), z: r2(wrapCoord(z)), s: r2(s) };
+  return { id: o.id, o: o.o, r: o.r, k, x: r2(wrapCoord(x)), z: r2(wrapCoord(z)), s: r2(s) };
 }
 
 /** The events of a POST that are events; null when it is not a list or asks for too much. */
