@@ -67,6 +67,7 @@ import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
+import { RELAY_SEND_MS, openMarkerSender, type MarkerSender } from "@/lib/parliament/markerRelay";
 import type { SoundSetup } from "./useSound";
 import { useFoldOffThread, useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
@@ -350,6 +351,23 @@ export function RoleField({
         pending.current = [];
       }
     }
+  });
+
+  // the wall's marker, a moment after the visitor moves (markerRelay.ts); nothing here enters the world's record
+  const relay = useRef<MarkerSender | null>(null);
+  useEffect(() => {
+    const sender = openMarkerSender();
+    relay.current = sender;
+    return () => {
+      sender?.close();
+      relay.current = null;
+    };
+  }, []);
+  useTicker(RELAY_SEND_MS, () => {
+    if (!relay.current || epochMs.current === 0 || document.visibilityState === "hidden") return;
+    if (lifeRef && lifeRef.current.phase !== "live") return;
+    const p = playerPosRef.current;
+    relay.current.tick({ o: me.current.id, x: wrapCoord(p.x), z: wrapCoord(p.z), s: sessionSeconds(worldNow(), epochMs.current, me.current.offset) });
   });
 
   // the name is up: the visitor's melody, with a gap, over and over; it stops when the life begins

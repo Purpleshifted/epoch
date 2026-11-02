@@ -23,6 +23,7 @@ import { Glyph } from "./Glyph";
 import { SlowGrain } from "./SlowGrain";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
+import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
 import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
@@ -1586,6 +1587,28 @@ const MARK_JUMP = 20;
 /** A little longer than the samples' gap: a marker that arrives early stands still until the next one. */
 const MARK_WALK_STRETCH = 1.15;
 
+function newMarkTrack(x: number, z: number, s: number, big: number, now: number): MarkTrack {
+  return { x, z, s, vx: 0, vz: 0, vs: 0, left: 0, newest: s, arrivedAt: now, gap: 1, big, body: null, ball: null, line: null, name: null };
+}
+
+/** A place heard over the relay: walked to in about the time until the next one comes. The samples wait until they are newer. */
+function walkToHeard(t: MarkTrack, m: RelayedMark): void {
+  t.newest = Math.max(t.newest, m.s);
+  const dx = wrapDelta(m.x - t.x);
+  const dz = wrapDelta(m.z - t.z);
+  if (Math.hypot(dx, dz) > MARK_JUMP) {
+    t.x = m.x;
+    t.z = m.z;
+    t.s = m.s;
+    t.left = 0;
+    return;
+  }
+  t.left = (RELAY_SEND_MS / 1000) * MARK_WALK_STRETCH;
+  t.vx = dx / t.left;
+  t.vz = dz / t.left;
+  t.vs = (m.s - t.s) / t.left;
+}
+
 function placeMark(t: MarkTrack, secPerUnit: number, unit: number): void {
   if (!t.body) return;
   const y = (t.s / secPerUnit) * unit;
@@ -1637,8 +1660,24 @@ function Markers({
   const timer = useRef(10);
   const sig = useRef("");
   const meSig = useRef("");
+  const relay = useRef<MarkerListener | null>(null);
+  useEffect(() => {
+    const listener = openMarkerListener();
+    relay.current = listener;
+    return () => {
+      listener?.close();
+      relay.current = null;
+    };
+  }, []);
 
   useFrame((_, dt) => {
+    if (relay.current) {
+      for (const m of relay.current.drain()) {
+        const t = tracks.current.get(m.o);
+        if (t) walkToHeard(t, m);
+        else tracks.current.set(m.o, newMarkTrack(m.x, m.z, m.s, 0.32, performance.now()));
+      }
+    }
     for (const t of tracks.current.values()) {
       if (t.left > 0) {
         const h = Math.min(dt, t.left);
@@ -1662,16 +1701,17 @@ function Markers({
     const now = performance.now();
     const firstScan = seen.current.size === 0;
     const me = typeof window === "undefined" ? null : window.localStorage.getItem(LS_PARLIAMENT_ME_KEY);
+    const heard = relay.current?.live();
     const out: Mark[] = [];
     for (const [id, e] of latest) {
       const prev = seen.current.get(id);
       // owners that were already stored when this view opened count as stale until they send a newer sample
       if (!prev || e.s > prev.s) seen.current.set(id, { s: e.s, at: firstScan && !prev ? -1e12 : now });
       const at = seen.current.get(id)!.at;
-      const stale = now - at > holdSec * 1000;
+      const stale = now - at > holdSec * 1000 && !heard?.has(id);
       const track = tracks.current.get(id);
       if (!track) {
-        tracks.current.set(id, { x: e.x, z: e.z, s: e.s, vx: 0, vz: 0, vs: 0, left: 0, newest: e.s, arrivedAt: now, gap: 1, big: id === me ? 0.5 : 0.32, body: null, ball: null, line: null, name: null });
+        tracks.current.set(id, newMarkTrack(e.x, e.z, e.s, id === me ? 0.5 : 0.32, now));
       } else if (e.s > track.newest) {
         track.gap = Math.min(4, Math.max(0.5, track.gap * 0.5 + ((now - track.arrivedAt) / 1000) * 0.5));
         track.arrivedAt = now;
@@ -1693,7 +1733,9 @@ function Markers({
       if (stale && id !== me) continue;
       out.push({ id, kind: id === me ? "me" : id.startsWith("bot") ? "bot" : "visitor", stale });
     }
-    for (const id of tracks.current.keys()) if (!latest.has(id)) tracks.current.delete(id);
+    // heard over the relay before their first sample has come through the server
+    if (heard) for (const id of heard.keys()) if (!latest.has(id)) out.push({ id, kind: id === me ? "me" : "visitor", stale: false });
+    for (const id of tracks.current.keys()) if (!latest.has(id) && !heard?.has(id)) tracks.current.delete(id);
     const meAt = me ? seen.current.get(me)?.at : undefined;
     const meStatus: MeStatus = { id: me, silentSec: meAt === undefined ? null : meAt < 0 ? Infinity : Math.floor((now - meAt) / 1000) };
     const ms = `${meStatus.id}:${meStatus.silentSec}`;
@@ -3043,6 +3085,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         <div>preset: {presetSource()}{tabModified ? " · tab-modified" : ""}{params.get("cam") === "band" ? " · cam=band" : ""}</div>
         {worldReadout() && <div>{worldReadout()}</div>}
+        {markerRelayReadout() && <div>{markerRelayReadout()}</div>}
         {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {depths && (
