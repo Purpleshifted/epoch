@@ -6,7 +6,7 @@
  * One requestAnimationFrame loop; the text updates twice a second.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Named spans of main-thread work (ms), kept a minute: which chunk makes the slow frames. */
 const spans = new Map<string, { at: number; ms: number }[]>();
@@ -45,6 +45,65 @@ export interface PerfReading {
   heapMb: number;
   /** The slowest run of each timed chunk in the last minute (ms), slowest first. */
   spans: { name: string; maxMs: number }[];
+}
+
+/** How many readings a run keeps (5 s each). */
+const REPORT_READINGS = 72;
+
+/**
+ * ?perf=1: this device's own numbers go to the server every 5 s (read back at /api/presets?page=/perf), to measure a
+ * real phone from elsewhere: frames, stalls of the main thread (what makes the sound's scheduling late), the spans above.
+ */
+export function usePerfReport(extra: () => Record<string, unknown>): void {
+  const extraRef = useRef(extra);
+  useEffect(() => {
+    extraRef.current = extra;
+  });
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("perf") !== "1") return;
+    const run = Date.now().toString(36);
+    const nav = navigator as Navigator & { deviceMemory?: number };
+    const device = { ua: nav.userAgent.slice(0, 140), url: window.location.search, cores: nav.hardwareConcurrency, memGb: nav.deviceMemory ?? null, size: [window.innerWidth, window.innerHeight], dpr: window.devicePixelRatio };
+    const readings: Record<string, unknown>[] = [];
+    let dts: number[] = [];
+    let last = performance.now();
+    let raf = 0;
+    const frame = (t: number) => {
+      dts.push(t - last);
+      last = t;
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    // a timer late by this much: the sound books its notes 0.3 s ahead from a timer like this one
+    let tickAt = performance.now();
+    let stallMax = 0;
+    let stalls = 0;
+    const tick = setInterval(() => {
+      const now = performance.now();
+      const gap = now - tickAt - 50;
+      tickAt = now;
+      if (gap > stallMax) stallMax = gap;
+      if (gap > 300) stalls++;
+    }, 50);
+    const started = performance.now();
+    const report = setInterval(() => {
+      const d = dts.sort((a, b) => a - b);
+      const q = (p: number) => Math.round(d[Math.min(d.length - 1, Math.floor(d.length * p))] ?? 0);
+      const sum = dts.reduce((a, b) => a + b, 0);
+      const reading = { t: Math.round((performance.now() - started) / 1000), fps: sum ? Math.round((d.length * 1000) / sum) : 0, p50: q(0.5), p95: q(0.95), max: Math.round(d[d.length - 1] ?? 0), over50: d.filter((x) => x > 50).length, over100: d.filter((x) => x > 100).length, stallMax: Math.round(stallMax), stalls, spans: spanSummary(), hidden: document.hidden, ...extraRef.current() };
+      dts = [];
+      stallMax = 0;
+      stalls = 0;
+      readings.push(reading);
+      if (readings.length > REPORT_READINGS) readings.shift();
+      void fetch("/api/presets", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: `parliament.leva:/perf:${run}`, json: { ...device, readings } }) }).catch(() => {});
+    }, 5000);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(tick);
+      clearInterval(report);
+    };
+  }, []);
 }
 
 export function usePerfMeter(on: boolean): PerfReading | null {

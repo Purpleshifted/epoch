@@ -27,7 +27,7 @@ import { useSound } from "./useSound";
 import SoundButton from "./SoundButton";
 import NoiseCraftHost from "./NoiseCraftHost";
 import AfterglowSound from "@/components/sound/AfterglowSound";
-import { usePerfMeter } from "./usePerfMeter";
+import { usePerfMeter, usePerfReport } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { useTilt, type TiltState } from "./useTilt";
@@ -417,6 +417,7 @@ export default function ParliamentScene() {
   const sound = useSound({ escMute: !withSession });
   // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
   const perf = usePerfMeter(!hideChrome);
+  usePerfReport(() => ({ phase: session.phase, near: witnessRef.current?.others.length ?? null, far: witnessRef.current?.far.length ?? null }));
   // a mute never carries over to the next visitor (sound wiring)
   useEffect(() => {
     if (sound?.muted) sound.toggleMute();

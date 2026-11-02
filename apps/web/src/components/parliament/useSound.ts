@@ -153,10 +153,16 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     // for measuring from DevTools / a hidden tab (debug.nc, running): no UI reads this
     (window as unknown as { __soundEngine?: SoundEngine | null }).__soundEngine = engine;
   }, [engine]);
-  const onRef = useRef(c.on);
+  // for measuring on a phone (usePerfReport), and a Claude browser: ?sound=0 no sound at all, ?nc=0 no NoiseCraft patch
+  const [urlSound] = useState(() => {
+    const q = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+    return { off: q.get("sound") === "0", noPatch: q.get("nc") === "0" };
+  });
+  const on = c.on && !urlSound.off;
+  const onRef = useRef(on);
   useEffect(() => {
-    onRef.current = c.on;
-  }, [c.on]);
+    onRef.current = on;
+  }, [on]);
 
   // the window's own mute: the ♪ button, and ESC when there is no session (with one ESC releases the look)
   const muted = useRef(false);
@@ -198,9 +204,9 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
 
   useEffect(() => {
     if (!engine) return;
-    if (c.on && !muted.current) engine.start().catch(() => {}); // no-op until a gesture has unlocked the context
+    if (on && !muted.current) engine.start().catch(() => {}); // no-op until a gesture has unlocked the context
     else engine.stop();
-  }, [engine, c.on]);
+  }, [engine, on]);
 
   // the status line, once a second
   useEffect(() => {
@@ -213,11 +219,12 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
   }, [engine]);
 
   const {
-    master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
+    master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument: savedInstrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
     bassFrom, pathRadius, afterlifeTail, afterglow,
   } = c;
+  const instrument = urlSound.off || urlSound.noPatch ? "webaudio" : savedInstrument;
   const params = useMemo<SoundParams>(
     () => ({
       master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
