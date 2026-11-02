@@ -73,6 +73,7 @@ import {
   handleSpaceRequest,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
+import { type AlignConfig, VisitorTracker, azimuthBehind, createAlignMotion, stepAlign } from "@/lib/parliament/visitorAlign";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
@@ -1306,6 +1307,8 @@ function StageCamera({
   auto,
   link,
   status,
+  log,
+  align,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   pose: StagePose;
@@ -1320,6 +1323,9 @@ function StageCamera({
   link: React.MutableRefObject<CamLink>;
   /** A line of the rehearsal wall's readout: which shot is on (null on the exhibition wall, which shows no text). */
   status: React.MutableRefObject<HTMLDivElement | null>;
+  log: EventLog;
+  /** THE WALL LINES UP WITH THE VISITOR (lib/parliament/visitorAlign.ts), or null = off. */
+  align: AlignConfig | null;
 }) {
   const dragging = useRef(false);
   /** The next auto frame eases in from where the camera is (a drag ended, a stall, the run switched on). */
@@ -1365,12 +1371,88 @@ function StageCamera({
   const stepIn = useRef<StepInput | null>(null);
   const wasAuto = useRef(false);
   const statusSec = useRef(-1);
+  // THE WALL LINES UP WITH THE VISITOR: while one holds the camera, it turns to stand behind their direction of travel
+  // and the look point drifts after their marker. Only a turn about the vertical axis and a sideways shift: the distance
+  // and the height angle are untouched. Without a holder the look point goes home, then the turn or the run takes over.
+  const tracker = useRef<VisitorTracker | null>(null);
+  const motion = useRef(createAlignMotion());
+  const alignPoll = useRef(0);
+  const alignHolder = useRef<VisitorTracker["holder"]>(null);
+  const alignHome = useRef(false);
+  const alignLine = useRef("");
+  const stepVisitorAlign = (o: Orbit, dt: number): boolean => {
+    if (!align) {
+      alignHolder.current = null;
+      alignHome.current = false;
+      return false;
+    }
+    if (!tracker.current) {
+      tracker.current = new VisitorTracker();
+      // readable from a headless check, like `__stageCam`
+      (window as unknown as { __stageAlign?: unknown }).__stageAlign = { tracker: tracker.current, log, controls: o };
+    }
+    const tr = tracker.current;
+    alignPoll.current += dt;
+    if (alignPoll.current >= 0.25) {
+      alignPoll.current = 0;
+      const now = Date.now();
+      tr.feed(log.all(), now);
+      const h = tr.update(now, align);
+      if (alignHolder.current && !h) {
+        alignHome.current = true;
+        resync.current = true; // the run (if on) eases back from wherever this left the camera
+      }
+      alignHolder.current = h;
+      if (status.current) {
+        const line = h ? `방향 맞춤: ${h.id} (${Math.floor((now - tr.heldSince) / 1000)} s${tr.waiting ? ` · 대기 ${tr.waiting}` : ""})` : "";
+        if (line !== alignLine.current) {
+          alignLine.current = line;
+          status.current.textContent = line;
+          statusSec.current = -1; // the run's line comes back at once
+        }
+      }
+    }
+    const h = alignHolder.current;
+    if (!h) {
+      if (!alignHome.current) return false;
+      // the run places the camera itself and eases back on its own; the plain turn needs the look point brought home
+      if (auto) {
+        alignHome.current = false;
+        return false;
+      }
+    }
+    if (dragging.current) {
+      motion.current.az.speed = motion.current.x.speed = motion.current.z.speed = 0;
+      resync.current = true;
+      return true;
+    }
+    const step = Math.min(dt, 0.1);
+    const dx = o.object.position.x - o.target.x;
+    const dz = o.object.position.z - o.target.z;
+    const az = Math.atan2(dx, dz) / DEG;
+    const follows = align.lookSec > 0;
+    const goalX = h ? (follows ? h.x : o.target.x) : lookX;
+    const goalZ = h ? (follows ? h.z : o.target.z) : lookZ;
+    const m = motion.current;
+    stepAlign(m, az, o.target.x, o.target.z, h && h.heading !== null ? azimuthBehind(h.heading) : null, goalX, goalZ, { turnSec: align.turnSec, maxDegPerSec: align.maxDegPerSec, lookSec: h ? align.lookSec : Math.max(align.lookSec, 1) }, step);
+    const a = (m.az.value - az) * DEG;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    o.target.x = m.x.value;
+    o.target.z = m.z.value;
+    o.object.position.x = o.target.x + dx * c + dz * s;
+    o.object.position.z = o.target.z + dz * c - dx * s;
+    o.update();
+    if (!h && Math.hypot(o.target.x - lookX, o.target.z - lookZ) < 0.05 && Math.abs(m.az.speed) < 0.05) alignHome.current = false;
+    return h !== null;
+  };
   // the turn: the camera moved around the vertical axis through the target by the time passed (a stall moves it at
   // most 0.1 s worth, so the landscape never jumps)
   useFrame((_, dt) => {
     if (!active) return;
     const o = controls.current;
     if (!o) return;
+    if (stepVisitorAlign(o, dt)) return;
     if (!auto) {
       if (wasAuto.current) {
         wasAuto.current = false;
@@ -1550,6 +1632,7 @@ function Markers({
   unit,
   holdSec,
   labels,
+  visitorColor,
   onActive,
   onMe,
 }: {
@@ -1557,6 +1640,8 @@ function Markers({
   secPerUnit: number;
   unit: number;
   holdSec: number;
+  /** A visitor's marker: near-black on the paper theme, white on the black one (where near-black cannot be seen). */
+  visitorColor: string;
   /** The name over each marker ("me · worker", a bot's id, "visitor"); off on the exhibition wall (no text at all). */
   labels: boolean;
   onActive: (n: number) => void;
@@ -1611,7 +1696,7 @@ function Markers({
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
-        const color = MARK_COLOR[m.kind];
+        const color = m.kind === "visitor" ? visitorColor : MARK_COLOR[m.kind];
         const big = m.kind === "me" ? 0.5 : 0.32;
         return (
           <group key={m.id}>
@@ -1897,6 +1982,19 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
+      // THE WALL LINES UP WITH THE VISITOR (2026-11-02): rather than elaborate moves — see lib/parliament/visitorAlign.ts.
+      // The distance and the height angle above stay as they are; only the direction turns and the look point drifts.
+      "방문자 방향 맞추기": folder(
+        {
+          camAlignOn: { value: true, label: "켜기 (걷는 방향 = 벽의 위쪽)" },
+          camAlignTurn: { value: 2.5, min: 0.5, max: 15, step: 0.5, label: "방향 맞추는 시간 (초)" },
+          camAlignMaxDeg: { value: 30, min: 5, max: 90, step: 5, label: "가장 빠른 회전 (°/초)" },
+          camAlignLook: { value: 3, min: 0, max: 15, step: 0.5, label: "마커 쪽으로 자리 옮기는 시간 (초 · 0 = 안 옮김)" },
+          camAlignIdle: { value: 20, min: 5, max: 120, step: 5, label: "이만큼 안 움직이면 놓아줌 (초)" },
+          camAlignHold: { value: 30, min: 10, max: 180, step: 5, label: "다른 사람도 걸으면 넘기는 시간 (초)" },
+        },
+        { collapsed: true },
+      ),
       camFollow: { options: { "자동 (내가 조용하면 최신)": "auto", "나 (개인 탭)": "me", "최신 (봇 포함)": "latest" }, value: "auto" as FollowWho, label: "따라갈 대상" },
       camQuietSec: { value: 30, min: 5, max: 600, step: 5, label: "자동: 내가 이만큼 조용하면 최신으로 (초)" },
       "해 (자동 운행)": folder({
@@ -1936,7 +2034,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // the shot sequence the auto run plays (docs/camera-motion.md §1): the pose above as the base, then the enabled shots
   // MEASUREMENT SWITCH `?cam=band` (2026-11-01, the reset): a fixed framing that shows the fusion band whatever the
   // saved camera says — focus 45 slots below the present, polar 62°, distance 120, no auto run, no turn
-  const camView = params.get("cam") === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 } : cam;
+  const camView = params.get("cam") === "band" ? { ...cam, camAuto: false, camAlignOn: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 } : cam;
   const shotSeq: ShotSequence = {
     base: { id: 0, dist: camView.camDist, polar: camView.camPolar, lookX: camView.camLook[0], lookZ: camView.camLook[1], lift: camView.camLift, turn: 1, holdSec: camView.camHoldSec },
     shots: [
@@ -1948,6 +2046,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     ].filter((s): s is Shot => s !== null),
     fadeSec: cam.camFadeSec,
   };
+  const alignCfg = useMemo<AlignConfig | null>(
+    () => (camView.camAlignOn ? { idleSec: camView.camAlignIdle, holdSec: camView.camAlignHold, turnSec: camView.camAlignTurn, maxDegPerSec: camView.camAlignMaxDeg, lookSec: camView.camAlignLook } : null),
+    [camView.camAlignOn, camView.camAlignIdle, camView.camAlignHold, camView.camAlignTurn, camView.camAlignMaxDeg, camView.camAlignLook],
+  );
   const tAxis = useControls(
     "시간축",
     savable("시간축", {
@@ -2865,6 +2967,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           auto={camView.camAuto ? shotSeq : null}
           link={camLink}
           status={shotLine}
+          log={log}
+          align={alignCfg}
         />
         {composerOn && (
           <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
@@ -2878,7 +2982,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} visitorColor={v.theme === "black" ? "#ffffff" : MARK_COLOR.visitor} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>
@@ -2911,7 +3015,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {c.markers && (
           <div>
             live now {active} (<span style={{ color: MARK_COLOR.me }}>me</span> · <span style={{ color: MARK_COLOR.bot }}>bot</span> ·{" "}
-            <span style={{ color: MARK_COLOR.visitor }}>visitor</span>)
+            <span style={{ color: v.theme === "black" ? "#ffffff" : MARK_COLOR.visitor }}>visitor</span>)
           </div>
         )}
         {c.markers && (
