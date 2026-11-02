@@ -68,7 +68,7 @@ import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, t
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import type { SoundSetup } from "./useSound";
-import { useFoldState, useStressState, useWorld } from "./useWorld";
+import { useFoldOffThread, useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
 import { markSpan } from "./usePerfMeter";
 import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
@@ -187,7 +187,10 @@ export function RoleField({
   });
   const epochMs = useRef(0);
   // the ground, folded as it grows (foldState.ts): the whole world is folded, the region only chooses what is read
-  const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
+  const foldHere = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
+  const foldOff = useFoldOffThread(log, cfg, PLAYER_FOLD_OPTS);
+  // the shared world: everybody's samples, which a slow device cannot fold between two frames (foldClient.ts)
+  const fold = hasWorldMirror() ? foldOff : foldHere;
   const stressAt = useStressState(log, natureCfg);
   const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
   /** My own samples, in time order (what the ledger reads; a life is a few hundred). */

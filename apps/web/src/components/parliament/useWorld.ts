@@ -33,6 +33,7 @@ import {
   type ShardConfig,
   type Snapshot,
 } from "@/lib/parliament";
+import { FoldClient, FoldHost, type FoldReply, type FoldWorkerMessage } from "@/lib/parliament/foldClient";
 import { attachToServerWorld } from "@/lib/parliament/serverWorld";
 import type { ArchStyle } from "./Architecture";
 
@@ -169,6 +170,50 @@ export function useFoldState(log: EventLog, cfg: FoldConfig, opts?: FoldStateOpt
     }),
     [log, cfg, opts],
   );
+}
+
+/**
+ * The same fold in a worker (lib/parliament/foldClient.ts): a reading answers at once from the last one that came back,
+ * so a rebuild never stops the page. The worker starts with the first reading; without workers it all runs here.
+ */
+export function useFoldOffThread(log: EventLog, cfg: FoldConfig, opts?: FoldStateOptions): GrowingFold {
+  const ref = useRef<{ cfg: FoldConfig; client: FoldClient; stop: () => void } | null>(null);
+  useEffect(
+    () => () => {
+      ref.current?.stop();
+      ref.current = null;
+    },
+    [],
+  );
+  return useMemo(() => {
+    const start = (useWorker: boolean) => {
+      ref.current?.stop();
+      if (!useWorker || typeof Worker === "undefined") {
+        const host = new FoldHost(cfg, opts);
+        const client: FoldClient = new FoldClient(log, (m) => {
+          const r = host.handle(m);
+          if (r) client.receive(r);
+        });
+        return (ref.current = { cfg, client, stop: () => {} });
+      }
+      const w = new Worker(new URL("./fold.worker.ts", import.meta.url), { type: "module" });
+      const client = new FoldClient(log, (m) => w.postMessage(m));
+      w.onmessage = (ev: MessageEvent<FoldReply>) => client.receive(ev.data);
+      w.onerror = (e) => {
+        console.warn("[parliament] fold worker failed, folding on the main thread:", e.message);
+        start(false);
+      };
+      w.postMessage({ type: "init", cfg, opts } satisfies FoldWorkerMessage);
+      return (ref.current = { cfg, client, stop: () => w.terminate() });
+    };
+    return {
+      at(sView: number, region?: Region, snapOpts?: SnapshotOptions) {
+        const h = ref.current?.cfg === cfg ? ref.current : start(true);
+        return h.client.at(sView, region, snapOpts);
+      },
+      stats: () => ref.current?.client.stats() ?? null,
+    };
+  }, [log, cfg, opts]);
 }
 
 /** The vegetation stress of this tab's log as a growing state (foldState.ts StressState); same as stressMap. */

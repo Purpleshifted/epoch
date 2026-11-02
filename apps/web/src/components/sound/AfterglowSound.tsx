@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFoldState } from "@/components/parliament/useWorld";
+import { useFoldOffThread, useFoldState } from "@/components/parliament/useWorld";
 import { useRoomLog } from "./useRoomLog";
 import type { SoundSetup } from "@/components/parliament/useSound";
 import { DEFAULT_FOLD, currentEpochKey, hasWorldMirror, latestS, withoutWear } from "@/lib/parliament";
@@ -41,7 +41,9 @@ export default function AfterglowSound({ sound }: { sound: SoundSetup }) {
   const roomLog = useRoomLog(3000, !feed); // everybody, including what this tab wrote (useRoomLog.ts)
   const log = feed ? feed.log : roomLog;
   const foldCfg = useMemo(() => withoutWear(DEFAULT_FOLD), []);
-  const fold = useFoldState(log, foldCfg);
+  const foldHere = useFoldState(log, foldCfg);
+  const foldOff = useFoldOffThread(log, foldCfg);
+  const fold = feed ? foldOff : foldHere; // the shared world: its first reading at a life's end would stop the page
   const engine = useMemo(() => new GlobalEngine({ role: "headset" }), []);
   const since = useRef<number | null>(null);
   const buildings = useRef<{ at: number; version: number; list: ReturnType<typeof globalBuildings> }>({ at: 0, version: -1, list: [] });
