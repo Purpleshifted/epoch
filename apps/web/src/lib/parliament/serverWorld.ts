@@ -13,7 +13,7 @@
  */
 
 import { sessionSeconds } from "./clock";
-import { EventLog, LS_KEEP_FROM_KEY, adoptEpoch, currentEpochKey, keepWindowSec, saveMerged, setWorldMirror, storeKeepWindowSec } from "./log";
+import { EventLog, LS_KEEP_FROM_KEY, adoptEpoch, currentEpochKey, dropStoredEvents, keepWindowSec, saveMerged, setWorldMirror, storeKeepWindowSec } from "./log";
 import type { PEvent } from "./types";
 import { adoptAnchor, setRateMirror, setWallOffset, wallNow, worldNow } from "./worldClock";
 import { MAX_EVENTS_PER_POST, MAX_RANGE_CHUNKS, chunkEndMs, isWorldName, lastClosedChunk, type WorldState } from "@/lib/world/protocol";
@@ -234,7 +234,10 @@ export class WorldAgent {
     private readonly hidden: () => boolean = () => false,
     /** This tab's name as a bot host. */
     private readonly hostId: string = `h_${Math.random().toString(36).slice(2, 10)}`,
+    /** Nothing of the world goes into this browser's storage (WorldMirror.memoryOnly). */
+    private readonly memoryOnly: boolean = false,
   ) {
+    if (memoryOnly) dropStoredEvents();
     try {
       const saved = Number(localStorage.getItem(LS_OFFSET_KEY));
       if (Number.isFinite(saved) && saved !== 0) this.setOffset(saved);
@@ -511,7 +514,7 @@ export class WorldAgent {
     this.log.addMany(events);
     for (const l of this.logs) l.addMany(events);
     for (const f of this.feeds) f.push(chunk, events);
-    for (const e of events) this.mirrorQueue.push(e);
+    if (!this.memoryOnly) for (const e of events) this.mirrorQueue.push(e);
   }
 
   private async read(t: number): Promise<void> {
@@ -577,6 +580,11 @@ export function serverWorldName(): string | null {
   return asked && isWorldName(asked) ? asked : configured;
 }
 
+/** A phone or tablet: never a bot host, and the world stays out of its storage. */
+function touchDevice(): boolean {
+  return typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
+}
+
 /** A timer that keeps running in a hidden tab (see useTicker.ts). Returns how to stop it. */
 function workerInterval(ms: number, fire: () => void): () => void {
   let worker: Worker | null = null;
@@ -609,9 +617,11 @@ export async function startServerWorld(timeoutMs = 2500): Promise<void> {
   const name = serverWorldName();
   if (!name) return;
   if (!agent) {
-    const a = new WorldAgent(name, httpTransport(name), () => document.visibilityState === "hidden");
+    const memoryOnly = touchDevice();
+    const a = new WorldAgent(name, httpTransport(name), () => document.visibilityState === "hidden", undefined, memoryOnly);
     agent = a;
     setWorldMirror({
+      memoryOnly,
       enqueue: (events) => a.enqueue(events),
       clear: () => {
         void a.command({ op: "clear" }).then((ok) => {
@@ -665,7 +675,7 @@ export function attachScoreFeed(feed: ScoreFeed): () => void {
 /** Asks to run the bots from this tab, or stops asking. A phone never hosts: it is locked or pocketed at any moment. */
 export function wantBotHost(want: boolean): void {
   if (!agent) return;
-  agent.setWantHost(want && !(typeof navigator !== "undefined" && navigator.maxTouchPoints > 0));
+  agent.setWantHost(want && !touchDevice());
 }
 
 /** Whether this tab emits the bots now (always true when the agent is off: then it is the tab's own world). */

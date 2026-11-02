@@ -635,7 +635,8 @@ export class FoldState {
     }
 
     // the tail: everything after the frontier up to the viewer's time, replayed on top and taken off again — for a
-    // region (V2) only what can reach it: the stay shares of every tail sample, the splats and treads of those near
+    // region (V2) only what can reach it: the splats and treads of those near and the stay shares they read (a far
+    // sample's share is worked out when it settles; with bots all over the world this was most of a reading's cost)
     const flow = this.flow;
     const refs: Ref[] = [];
     const lineCp = new Map<Line, number>();
@@ -643,9 +644,16 @@ export class FoldState {
     const near = (L: Line, k: number) =>
       reach === Infinity || wrapDist(L.x[k], L.z[k], region!.x, region!.z) <= reach || (k > 0 && wrapDist(L.x[k - 1], L.z[k - 1], region!.x, region!.z) <= reach);
     for (const L of this.lines.values()) {
+      let stayed = L.settled - 1;
       for (let k = L.settled; k < L.s.length && L.s[k] <= sView; k++) {
-        if (flow) L.stay[k] = this.stayOf(L, k, sView, flow);
-        if (near(L, k)) refs.push({ L, i: k, s: L.s[k], id: L.id[k] });
+        if (!near(L, k)) continue;
+        if (flow) {
+          // its tread reads the sample before it as well (settled ones already have theirs)
+          if (k > L.settled && stayed < k - 1) L.stay[k - 1] = this.stayOf(L, k - 1, sView, flow);
+          L.stay[k] = this.stayOf(L, k, sView, flow);
+          stayed = k;
+        }
+        refs.push({ L, i: k, s: L.s[k], id: L.id[k] });
       }
       if (!flow) lineCp.set(L, L.lastCell);
     }

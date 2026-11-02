@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EventLog, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_KEEP_FROM_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, currentEpochKey, hasWorldMirror, keepWindowSec, keepFromS, saveMerged, setKeepFrom, setKeepWindowSec, setWorldMirror } from "./log";
+import { EventLog, LS_EVENTS_EPOCH_KEY, LS_EVENTS_KEY, LS_KEEP_FROM_KEY, LS_PARLIAMENT_EPOCH_KEY, clearWorld, currentEpochKey, eventsWrittenHere, hasWorldMirror, keepWindowSec, keepFromS, saveMerged, setKeepFrom, setKeepWindowSec, setWorldMirror } from "./log";
 import { ScoreFeed, WorldAgent, serverWorldName, startServerWorld, stopServerWorld, type WorldCommand, type WorldTransport } from "./serverWorld";
 import type { PEvent } from "./types";
 import { setRateMirror, setTimeRate, setWallOffset, timeRate, wallNow, worldNow } from "./worldClock";
@@ -324,6 +324,23 @@ describe("the shared world's agent", () => {
       await run(agent, 11_000);
       expect(JSON.parse(localStorage.getItem(LS_EVENTS_KEY)!).map((e: PEvent) => e.id)).toEqual(["a:1"]);
       expect(server.sent).toHaveLength(0);
+    });
+
+    it("a memory-only tab sends what it emits, gets the world, and leaves storage alone", async () => {
+      localStorage.setItem(LS_EVENTS_KEY, "[]"); // what an earlier visit left
+      const phone = new WorldAgent("test-a", server, () => false, "h_phone", true);
+      expect(localStorage.getItem(LS_EVENTS_KEY)).toBeNull();
+      setWorldMirror({ memoryOnly: true, enqueue: (e) => phone.enqueue(e), clear: () => {}, setKeepWindow: () => {} });
+      const log = new EventLog();
+      phone.attach(log);
+      server.pages = [{ events: [ev("a:1", 61)], next: null }];
+      await phone.begin();
+      expect(saveMerged([ev("me:1", 61)], server.st.epochMs)).toBe(true);
+      await run(phone, 11_000);
+      expect(localStorage.getItem(LS_EVENTS_KEY)).toBeNull();
+      expect(eventsWrittenHere()).toBe(true);
+      expect(server.sent.flatMap((b) => b.events).map((e) => e.id)).toContain("me:1");
+      expect(log.all().map((e) => e.id)).toContain("a:1");
     });
 
     it("keeps events through an outage and sends them when it is back", async () => {

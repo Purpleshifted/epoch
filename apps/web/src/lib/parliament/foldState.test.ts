@@ -3,7 +3,7 @@
  * fed in arrival order, with bots ahead of and behind the viewer in assigned time, a viewer whose region moves, an
  * owner who turns up behind the frontier, the history window moving on, and the world's edge.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { DEFAULT_FLOW } from "./flow";
 import { foldWorld } from "./fold";
@@ -181,6 +181,26 @@ describe("foldState: the same ground as the batch fold, grown instead of refolde
     }
     expect(checks).toBeGreaterThan(50);
     expect(lessTail, "the region replayed less than the whole world").toBeGreaterThan(checks / 2);
+  });
+
+  it("a region works out the stay shares of the tail that reaches it, not of the whole world's", () => {
+    const owners = crowd();
+    const fed = (): FoldState => {
+      const state = new FoldState(V2, { inactiveTicks: 30 });
+      for (const a of arrivals(owners, 300)) state.add(a.e);
+      return state;
+    };
+    const stayOf = vi.spyOn(FoldState.prototype as unknown as { stayOf: () => number }, "stayOf");
+    const count = (read: (state: FoldState) => void) => {
+      const state = fed();
+      stayOf.mockClear();
+      read(state);
+      return stayOf.mock.calls.length;
+    };
+    const region = count((s) => s.snapshot(299.5, { x: 3, z: 0, r: 2 }));
+    const whole = count((s) => s.snapshot(299.5));
+    stayOf.mockRestore();
+    expect(region).toBeLessThan(whole);
   });
 
   it("lateMarginSec: an owner who joins a little behind the frontier is not late (no rebuild), the same ground", () => {

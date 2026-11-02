@@ -37,6 +37,8 @@ export interface WorldMirror {
   enqueue(events: Iterable<PEvent>): void;
   clear(): void;
   setKeepWindow(sec: number): void;
+  /** The world stays in this tab's memory and out of storage: a phone has no other tab to share it with. */
+  memoryOnly?: boolean;
 }
 let mirror: WorldMirror | null = null;
 
@@ -245,6 +247,7 @@ export function eventsToken(): string | null {
  * poll has nothing new to read. (Once per foreign merge it says false, so the poll picks those events up.)
  */
 export function eventsWrittenHere(): boolean {
+  if (mirror?.memoryOnly) return true;
   const t = readToken();
   if (t === null || t !== lastToken) return false;
   if (mergedForeign) {
@@ -268,6 +271,7 @@ export function saveMerged(local: Iterable<PEvent>, epochMs: number, fromServer 
   try {
     if (localStorage.getItem(LS_PARLIAMENT_EPOCH_KEY) !== String(epochMs)) return false;
     if (!fromServer) mirror?.enqueue(local);
+    if (mirror?.memoryOnly) return true;
     // what is stored: what this tab wrote last (its token is still there), else read it all once
     if (cache && cache.epochMs === epochMs && readToken() === cache.token && localStorage.getItem(LS_EVENTS_EPOCH_KEY) === String(epochMs)) c = cache;
     else {
@@ -361,6 +365,19 @@ function forgetStoredWorld(): void {
     localStorage.removeItem(LS_KEEP_FROM_KEY);
     localStorage.removeItem(LS_EVENTS_EPOCH_KEY);
     localStorage.removeItem(LS_PARLIAMENT_EPOCH_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Frees what an earlier visit stored: a memory-only tab (WorldMirror) never reads it. The epoch stays. */
+export function dropStoredEvents(): void {
+  cache = null;
+  lastToken = null;
+  try {
+    localStorage.removeItem(LS_EVENTS_TOKEN_KEY);
+    localStorage.removeItem(LS_EVENTS_KEY);
+    localStorage.removeItem(LS_EVENTS_EPOCH_KEY);
   } catch {
     /* ignore */
   }
