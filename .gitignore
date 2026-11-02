@@ -35,3 +35,7 @@ yarn-error.log*
 
 # Claude Code local config and session worktrees (per-folder, not shared)
 .claude/
+poster-a0/out/
+poster-a0/renders/
+poster-a0/fonts/
+poster-a0/refs-chat/
