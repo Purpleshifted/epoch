@@ -52,7 +52,10 @@ soil = (fib[y0:y1, x0:x1] * 2.2 + 0.5)
 veil = np.clip(veil * np.clip(soil, 0, 1.4), 0, 1)
 al = al * (1 - veil)
 depth = yy / (H / PX)
-r = r * (1 - 0.30 * depth[..., None])
+import os
+DD = float(os.environ.get("DEPTH_DARK", "0.30")); MELT = float(os.environ.get("MELT", "0"))
+r = r * (1 - DD * depth[..., None] ** 1.4)
+al = al * (1 - MELT * np.clip((depth - 0.55) / 0.45, 0, 1) ** 2.2 * np.clip(soil, 0.2, 1))
 canvas[y0:y1, x0:x1] = canvas[y0:y1, x0:x1] * (1 - al[..., None]) + r * al[..., None]
 # light: the structure throws a faint glow into the soil around it
 glowm = np.zeros((H, W), np.float32); glowm[y0:y1, x0:x1] = al

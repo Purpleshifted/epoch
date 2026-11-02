@@ -3,7 +3,7 @@
 //   node poster-a0/build.mjs     writes out/E.html, out/F.html and out/layout.json (for tools/overlap.py)
 // Words: poster-a0/text.md. Image: the work's own wall without vegetation (renders/column_bare.png, tools/capture.mjs
 // + key.py). Glyphs and traces: the app's own code (tools/glyphs.mjs, tools/traces.mjs).
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -624,6 +624,120 @@ body { background: ${paper}; color: ${ink}; }
 <div class="abs plan" data-text><div class="sec">걸음의 자취 (위에서 본 땅)</div><svg viewBox="-50 -50 100 100" width="${planS}mm" height="${planS}mm" fill="none" stroke="${ink}" stroke-width=".06" stroke-linejoin="round" style="display:block">${tracePaths(1, 0, 0)}</svg></div>
 <div class="abs credit" data-text><div>ID40009 Graduation Design Studio<br>실시간 웹 · 3D · 공간 음향 · 2채널 디스플레이</div><div style="text-align:right">Hayeon Park 20220875<br>Supervised by Yiyun Kang</div></div>`,
     { imgX, imgY, imgH, img: "column_bare.png", clipX: cut },
+  );
+}
+
+// ── M. 타협: A's text column and writing on the left; on the right the section as a drawing of the ground — sky above
+//    a surface line, dark earth below it, the structure sinking in and melting into the depth; white notes on hairlines;
+//    the footprints as stacked, aligned sheets (traces → trodden cells → plan) ──────────────────────────────────────────
+{
+  const traces = data("traces.json");
+  const AZ = (36 * Math.PI) / 180, CA = Math.cos(AZ), SA = Math.sin(AZ);
+  const rot = ([x, z]) => [x * CA - z * SA, x * SA + z * CA];
+  const tracePaths = (scale, cx, cy) => traces.map((t) => `<path d="M${t.pts.filter((_, i) => i % 2 === 0).map((p) => { const [u, v] = rot(p); return `${(cx + u * scale).toFixed(2)} ${(cy + v * scale).toFixed(2)}`; }).join("L")}"/>`).join("");
+  // trodden cells: how many samples fell in each cell of a 32 × 32 grid over ±50 world
+  const N = 32, cell = 100 / N, counts = new Map();
+  for (const t of traces) for (const p of t.pts) { const [u, v] = rot(p); const i = Math.floor((u + 50) / cell), j = Math.floor((v + 50) / cell); if (i >= 0 && i < N && j >= 0 && j < N) counts.set(i * N + j, (counts.get(i * N + j) ?? 0) + 1); }
+  const cells = (min, side, color, opMax = 1) => [...counts].filter(([, c]) => c >= min).map(([k, c]) => `<rect x="${((Math.floor(k / N)) * side / N).toFixed(2)}" y="${((k % N) * side / N).toFixed(2)}" width="${(side / N - 0.15).toFixed(2)}" height="${(side / N - 0.15).toFixed(2)}" fill="${color}" opacity="${Math.min(opMax, 0.25 + c / 60).toFixed(2)}"/>`).join("");
+  const NOTES = [
+    ["거주", "여럿이 오래 머문 자리에 콘크리트가 선다. 혼자서는 지을 수 없다."],
+    ["이동", "많이 밟힌 땅은 길이 되고, 발길이 끊기면 식생이 돌아온다."],
+    ["물", "건물과 길이 땅을 덮으면 빗물이 스며들지 못한다. 드문 곳에서는 물길로, 밀집한 곳에서는 땅 밑 배관으로 흐른다."],
+    ["화석", "시간이 지난 층의 건물은 서로 엉겨 붙어 뼈처럼 변한다."],
+  ];
+  const SOUND = [
+    ["이름", "관객은 이름 대신 고유한 멜로디를 받는다. 8칸 악보로 적은 이 기호가 곧 이름이다. 이름을 받으면서 세계 안의 존재가 된다."],
+    ["접촉", "다른 존재 곁에 오래 머물면 그 멜로디가 내 멜로디에 섞인다. 말을 걸어 오는 상대에게 응답하면 새 어휘가 생긴다."],
+    ["합주", "여럿이 머물면 화음이 되고, 그 자리에 건물이 선다. 건물의 조성은 지은 사람들의 멜로디로 정해진다."],
+    ["저음", "같은 멜로디들이 전시장 스피커에서는 두 옥타브 아래로 내려가 하나의 덩어리가 된다."],
+  ];
+  const ink = "#0b0b0b", dim = "#6f706d", paper = "#dfe0db";
+  const white = "#e9e9e5", wdim = "#9b9c97";
+  const cut = 300, y0 = 249;
+  const imgH = 1010;
+  const mmPerSec = (imgH / 83.4) * (1.2 / 20);
+  const L = 24, CW = cut - L - 22;
+  const G = (dots, s, c) => glyph(dots, s).replace(`fill="${INK}"`, `fill="${c}"`);
+  const staff = (inner, s, c) => `<div class="staff" style="width:${s}mm;height:${s}mm"><svg viewBox="0 0 8 8" width="${s}mm" height="${s}mm" fill="none" stroke="${c}" stroke-width=".04" opacity=".5">${Array.from({ length: 9 }, (_, i) => `<path d="M${i} 0V8M0 ${i}H8"/>`).join("")}</svg>${inner}</div>`;
+  const soundFig = (i, s) => (i === 0 ? staff(G(fig_a(), s, ink), s, ink) : i === 1 ? staff(G(fig_w(), s, ink), s, ink) : i === 2 ? staff(chord(glyphs.slice(2, 7), s, ink, 0.5), s, ink) : staff(chord(glyphs.slice(0, 19), s, ink, 0.34, 0.22), s, ink));
+  // the white notes in the ground, each on a hairline to a point of the structure
+  const calls = [
+    { x: 318, y: 972, to: [560, 322], tag: "/콘크리트", en: "concrete", t: "여럿이 오래 머문 자리. 혼자서는 서지 않는다." },
+    { x: 318, y: 1006, to: [600, 352], tag: "/배관", en: "pipe", t: "덮인 땅의 빗물이 흐르는 관. 길을 따라 깔린다." },
+    { x: 318, y: 1040, to: [560, 760], tag: "/뼈", en: "bone", t: "삭아 엉긴 건물들. 더는 변하지 않는다." },
+    { x: 318, y: 1074, to: [640, 1000], tag: "/화석", en: "fossil", t: "가장 오래된 층. 발견되는 것." },
+  ];
+  const svg = () => {
+    const out = [];
+    // the surface across the right panel, with stubble
+    out.push(`<line x1="${cut}" y1="${y0}" x2="${W}" y2="${y0}" stroke="${ink}" stroke-width=".5"/>`);
+    for (let x = cut; x < W; x += 1.6) { const h = 0.8 + Math.random() * 2.2; out.push(`<line x1="${x.toFixed(1)}" y1="${y0}" x2="${(x + (Math.random() - 0.5)).toFixed(1)}" y2="${(y0 - h).toFixed(1)}" stroke="${ink}" stroke-width=".18"/>`); }
+    // the time ruler on the cut, inside the ground
+    out.push(`<line x1="${cut}" y1="${y0}" x2="${cut}" y2="${H}" stroke="${wdim}" stroke-width=".25"/>`);
+    for (let s = 0; y0 + s * mmPerSec <= H - 6; s += 30) {
+      const y = y0 + s * mmPerSec, minute = s % 60 === 0, major = s % 300 === 0;
+      out.push(`<line x1="${cut}" y1="${y}" x2="${cut + (major ? 7 : minute ? 4 : 2)}" y2="${y}" stroke="${wdim}" stroke-width=".25"/>`);
+      if (major) out.push(`<text x="${cut + 9}" y="${y + 1.5}" font-family="Mono,Neo" font-size="4" fill="${wdim}">${s === 0 ? "T+0 현재" : `T−${s / 60}분`}</text>`);
+    }
+    for (const c of calls) out.push(`<line x1="${c.x + 72}" y1="${c.y + 2}" x2="${c.to[0]}" y2="${c.to[1]}" stroke="${white}" stroke-width=".2"/><circle cx="${c.to[0]}" cy="${c.to[1]}" r="1" fill="${white}"/>`);
+    return out.join("");
+  };
+  // the stacked sheets: three aligned layers of the same ground, drawn oblique
+  const sheets = () => {
+    const S = 128, M = "matrix(1 0 -0.72 0.44 0 0)";
+    const layer = (i, inner, label, en, note) => {
+      const ty = 10 + i * 78;
+      return `<g transform="translate(96 ${ty}) ${M}"><clipPath id="sh${i}"><rect width="${S}" height="${S}"/></clipPath><rect width="${S}" height="${S}" fill="none" stroke="${ink}" stroke-width=".3"/><g clip-path="url(#sh${i})">${inner}</g></g>
+<line x1="${96 + S + 4}" y1="${ty + S * 0.44 * 0.5}" x2="${96 + S + 18}" y2="${ty + S * 0.44 * 0.5}" stroke="${ink}" stroke-width=".25"/>
+<text x="${96 + S + 20}" y="${ty + S * 0.44 * 0.5 - 1}" font-family="Mono,Neo" font-size="4.4" font-weight="500" fill="${ink}">${label} <tspan fill="${dim}" font-weight="400">${en}</tspan></text><text x="${96 + S + 20}" y="${ty + S * 0.44 * 0.5 + 5}" font-family="Pre" font-size="3.8" fill="${ink}">${note}</text>`;
+    };
+    const corners = [[0, 0], [S, 0], [S, S], [0, S]].map(([x, y]) => [96 + x - 0.72 * y, 0.44 * y]);
+    const guides = corners.map(([x, y]) => `<line x1="${x}" y1="${10 + y}" x2="${x}" y2="${10 + 2 * 78 + y}" stroke="${ink}" stroke-width=".15" stroke-dasharray=".8 1.2"/>`).join("");
+    const planImg = existsSync(resolve(HERE, "renders/plan_bare.png")) ? `<image href="../renders/plan_bare.png" x="0" y="0" width="${S}" height="${S}" preserveAspectRatio="none"/>` : cells(22, S, ink);
+    return `<svg viewBox="0 0 ${CW} 260" width="${CW}mm" height="260mm" style="display:block;overflow:visible">${guides}
+${layer(0, `<g fill="none" stroke="${ink}" stroke-width=".12" stroke-linejoin="round">${tracePaths(S / 100, S / 2, S / 2)}</g>`, "/자취", "traces", "열아홉 존재가 23분 동안 걸은 길")}
+${layer(1, cells(5, S, ink, 0.9), "/길", "paths", "많이 밟힌 칸, 그대로 길이 된다")}
+${layer(2, planImg, "/구조물", "plan", "위에서 본 건물과 배관 — 같은 자리")}
+</svg>`;
+  };
+  page(
+    "M",
+    `
+@font-face { font-family: "Mono"; font-weight: 400; src: url("../fonts/IBMPlexMono-Regular.ttf"); }
+@font-face { font-family: "Mono"; font-weight: 500; src: url("../fonts/IBMPlexMono-Medium.ttf"); }
+body { background: ${paper}; color: ${ink}; }
+.t { left: ${L - 3}mm; top: 10mm; font-weight: 700; font-size: 118mm; line-height: .96; letter-spacing: -.03em; white-space: nowrap; }
+.en { left: ${L}mm; top: 134mm; font-family: "Courier New", Courier, monospace; font-size: 19mm; line-height: 1; letter-spacing: -.01em; }
+.head { left: ${cut + 8}mm; top: 196mm; font-family: "Neo"; font-size: 9.2mm; line-height: 1.34; }
+.body { left: ${L}mm; top: 178mm; width: ${CW}mm; font-size: 7mm; line-height: 1.52; font-weight: 500; }
+.body p + p { margin-top: 3.4mm; }
+.sec { font-size: 7mm; font-weight: 700; line-height: 1; border-top: .35mm solid ${ink}; padding-top: 2.4mm; margin-bottom: 4mm; }
+.notes { left: ${L}mm; top: 548mm; width: ${CW}mm; font-size: 5.5mm; line-height: 1.46; }
+.nrow { display: grid; grid-template-columns: 22mm 1fr; margin-bottom: 1.8mm; } .nrow b { font-weight: 700; }
+.srow { display: grid; grid-template-columns: 14mm 12mm 1fr; column-gap: 1mm; margin-bottom: 2.6mm; align-items: start; } .srow b { font-weight: 700; }
+.staff { position: relative; margin-top: .4mm; } .staff > svg { position: absolute; left: 0; top: 0; }
+.plan { left: ${L}mm; top: 846mm; width: ${CW}mm; }
+.ground { left: ${cut}mm; top: ${y0}mm; width: ${W - cut}mm; height: ${H - y0}mm; }
+.surf { left: ${cut + 8}mm; top: ${y0 - 6}mm; font-family: "Mono", "Neo"; font-size: 3.8mm; color: ${dim}; }
+.surf2 { right: 24mm; top: ${y0 - 6}mm; font-family: "Mono", "Neo"; font-size: 3.8mm; color: ${dim}; }
+.call { width: 150mm; color: ${white}; font-size: 3.8mm; line-height: 1.4; }
+.call b { font-family: "Mono", "Neo"; font-weight: 500; font-size: 4.6mm; } .call b span { font-weight: 400; color: ${wdim}; font-size: 3.6mm; margin-left: 1.2mm; }
+.credit { left: ${L}mm; right: 24mm; bottom: 12mm; display: flex; justify-content: space-between; font-size: 5.2mm; font-weight: 500; line-height: 1.3; }
+.credit .r { color: ${white}; text-align: right; }
+`,
+    `<img class="abs ground" src="../renders/ground_right.jpg">
+<svg class="abs" style="left:0;top:0" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">${svg()}</svg>
+<div class="abs t" data-text>발견된 인류</div>
+<div class="abs en" data-text>${TEXT.titleEn}</div>
+<div class="abs head" data-text>${TEXT.head.join("<br>")}</div>
+<div class="abs surf" data-text>지표면 SURFACE · 아래로 = 과거 DOWN = PAST · 1 mm = ${(1 / mmPerSec).toFixed(1)} s</div>
+<div class="abs surf2" data-text>단면 SECTION · 19 BEINGS · 23 MIN</div>
+<div class="abs body" data-text>${TEXT.body.map((p) => `<p>${p.replace(/<sup>\d<\/sup>/g, "")}</p>`).join("")}</div>
+<div class="abs notes" data-text><div class="sec">흔적</div>${NOTES.map(([h, p]) => `<div class="nrow"><b>${h}</b><span>${p}</span></div>`).join("")}<div class="sec" style="margin-top:5mm">소리</div>${SOUND.map(([h, p], i) => `<div class="srow"><b>${h}</b>${soundFig(i, 11)}<span>${p}</span></div>`).join("")}</div>
+<div class="abs plan" data-text><div class="sec">걸음의 자취 — 같은 땅의 세 층</div>${sheets()}</div>
+${calls.map((c) => `<div class="abs call" data-text style="left:${c.x}mm;top:${c.y}mm"><b>${c.tag}<span>${c.en}</span></b><br>${c.t}</div>`).join("")}
+<div class="abs credit" data-text><div>ID40009 Graduation Design Studio<br>실시간 웹 · 3D · 공간 음향 · 2채널 디스플레이</div><div class="r">Hayeon Park 20220875<br>Supervised by Yiyun Kang</div></div>`,
+    { imgX: cut, imgY: y0, imgH: H - y0, img: "ground_right_alpha.png" },
   );
 }
 writeFileSync(resolve(OUT, "layout.json"), JSON.stringify(layout));
