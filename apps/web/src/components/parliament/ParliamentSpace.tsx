@@ -1575,6 +1575,10 @@ interface MarkTrack {
   arrivedAt: number;
   /** How far apart samples have been arriving (s). */
   gap: number;
+  /** The last place heard over the relay, and when it left (ms): how fast they are going. */
+  heardX: number;
+  heardZ: number;
+  heardT: number;
   big: number;
   body: THREE.Group | null;
   ball: THREE.Mesh | null;
@@ -1586,16 +1590,28 @@ interface MarkTrack {
 const MARK_JUMP = 20;
 /** A little longer than the samples' gap: a marker that arrives early stands still until the next one. */
 const MARK_WALK_STRETCH = 1.15;
+/** Two places further apart in time than this (s) say nothing about how fast someone is going. */
+const MARK_LEAD_MAX_GAP = 0.5;
 
 function newMarkTrack(x: number, z: number, s: number, big: number, now: number): MarkTrack {
-  return { x, z, s, vx: 0, vz: 0, vs: 0, left: 0, newest: s, arrivedAt: now, gap: 1, big, body: null, ball: null, line: null, name: null };
+  return { x, z, s, vx: 0, vz: 0, vs: 0, left: 0, newest: s, arrivedAt: now, gap: 1, heardX: x, heardZ: z, heardT: 0, big, body: null, ball: null, line: null, name: null };
 }
 
-/** A place heard over the relay: walked to in about the time until the next one comes. The samples wait until they are newer. */
-function walkToHeard(t: MarkTrack, m: RelayedMark): void {
+/**
+ * A place heard over the relay: walked to in about the time until the next one comes. The samples wait until they are newer.
+ * `leadSec`: a walker has gone on since this left the phone, so the marker aims that far along their way; when they stop
+ * (the sender says so at once) it comes back to where they stood.
+ */
+function walkToHeard(t: MarkTrack, m: RelayedMark, leadSec: number): void {
   t.newest = Math.max(t.newest, m.s);
-  const dx = wrapDelta(m.x - t.x);
-  const dz = wrapDelta(m.z - t.z);
+  const sentGap = (m.t - t.heardT) / 1000;
+  const going = sentGap > 0 && sentGap < MARK_LEAD_MAX_GAP;
+  const ahead = going ? leadSec / sentGap : 0;
+  const dx = wrapDelta(m.x - t.x) + wrapDelta(m.x - t.heardX) * ahead;
+  const dz = wrapDelta(m.z - t.z) + wrapDelta(m.z - t.heardZ) * ahead;
+  t.heardX = m.x;
+  t.heardZ = m.z;
+  t.heardT = m.t;
   if (Math.hypot(dx, dz) > MARK_JUMP) {
     t.x = m.x;
     t.z = m.z;
@@ -1641,6 +1657,7 @@ function Markers({
   secPerUnit,
   unit,
   holdSec,
+  leadSec,
   nameCell,
   onActive,
   onMe,
@@ -1649,6 +1666,8 @@ function Markers({
   secPerUnit: number;
   unit: number;
   holdSec: number;
+  /** How far ahead along their way a marker heard over the relay aims (s). */
+  leadSec: number;
   /** The name over each marker, its melody as a pattern (Glyph): one step's size in pixels, 0 = none. */
   nameCell: number;
   onActive: (n: number) => void;
@@ -1674,9 +1693,10 @@ function Markers({
     if (relay.current) {
       for (const m of relay.current.drain()) {
         const t = tracks.current.get(m.o);
-        if (t) walkToHeard(t, m);
+        if (t) walkToHeard(t, m, leadSec);
         else tracks.current.set(m.o, newMarkTrack(m.x, m.z, m.s, 0.32, performance.now()));
       }
+      for (const head of relay.current.drainHeads()) log.add(head);
     }
     for (const t of tracks.current.values()) {
       if (t.left > 0) {
@@ -1889,6 +1909,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       "가장 최근으로": button(() => jump(Math.max(0, topRef.current - 6))),
       markers: { value: true, label: "실시간 마커 (나/봇/방문자)" },
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
+      markerLead: { value: 0.25, min: 0, max: 0.6, step: 0.05, label: "마커 앞서가기 (초; 클수록 폰과 가깝고 멈출 때 되돌아옴, 0 = 끔)" },
       markerName: { value: 3, min: 0, max: 8, step: 1, label: "마커 위 이름 패턴 크기 (0 = 끔)" },
       showEdges: { value: false, label: "모서리 선" },
       "응답의 홀씨": folder({
@@ -2904,7 +2925,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     () => ({ ...DEFAULT_BOXES, secPerUnit: tAxis.secPerUnit, unit: tAxis.unit, width: bld.partWidth, density: bld.partDensity, timeJitter: tAxis.timeJitter, recipe }),
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe],
   );
-  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear, follow: v.follow, markers: v.markers, markerHold: v.markerHold, markerName: v.markerName };
+  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear, follow: v.follow, markers: v.markers, markerHold: v.markerHold, markerLead: v.markerLead, markerName: v.markerName };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -3061,7 +3082,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} leadSec={c.markerLead} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>

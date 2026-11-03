@@ -1,7 +1,8 @@
 /**
- * markerRelay.ts — a visitor's place on its way to the walls in a fraction of a second (relay/marker). It carries only the
- * marker: nothing here enters the world's record, which goes on through the shared world's server. It has no timers of
- * its own: the caller's tick or frame drives it, so a page that sleeps does no work.
+ * markerRelay.ts — a visitor's place on its way to the walls in a fraction of a second (relay/marker). It carries the
+ * marker and the moment a seed head is born: nothing here enters the world's record, which goes on through the shared
+ * world's server (a head arrives there later under the same id, and the wall's log keeps one). It has no timers of its
+ * own: the caller's tick or frame drives it, so a page that sleeps does no work.
  *
  * Off (no NEXT_PUBLIC_MARKER_RELAY, not in a shared world, `?relay=0`): no socket, the walls read the samples as before.
  * Lost or over its daily limit: the same, after a marker has not been heard for HEARD_MS.
@@ -9,6 +10,7 @@
 
 import { currentEpochKey } from "./log";
 import { serverWorldName } from "./serverWorld";
+import type { PEvent } from "./types";
 import { wallNow } from "./worldClock";
 
 export interface RelayedMark {
@@ -59,6 +61,27 @@ export function parseMark(text: unknown): RelayedMark | null {
     if (!m || typeof m.o !== "string" || !VISITOR_ID.test(m.o)) return null;
     for (const v of [m.x, m.z, m.s, m.y, m.e, m.t, m.r]) if (!Number.isFinite(v)) return null;
     return { o: m.o, x: m.x as number, z: m.z as number, s: m.s as number, y: m.y as number, e: m.e as number, t: m.t as number, r: m.r as number };
+  } catch {
+    return null;
+  }
+}
+
+const HEAD_ID = /^v_[a-z0-9]{1,12}:[a-z0-9]{1,12}:\d{1,12}$/;
+
+/** A seed head's event, for the walls (dandelion.ts): `h` is its id in the record. */
+export function headText(e: PEvent, epoch: number): string {
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  return JSON.stringify({ h: e.id, o: e.o, x: r2(e.x), z: r2(e.z), s: Math.round(e.s * 100) / 100, e: epoch });
+}
+
+/** A seed head from the relay, believed like a place; null for anything else. */
+export function parseHead(text: unknown): { event: PEvent; epoch: number } | null {
+  if (typeof text !== "string" || text.length > 200) return null;
+  try {
+    const m = JSON.parse(text) as { h?: unknown; o?: unknown; x?: number; z?: number; s?: number; e?: number } | null;
+    if (!m || typeof m.h !== "string" || !HEAD_ID.test(m.h) || typeof m.o !== "string" || !m.h.startsWith(`${m.o}:`)) return null;
+    for (const v of [m.x, m.z, m.s, m.e]) if (!Number.isFinite(v)) return null;
+    return { event: { id: m.h, o: m.o, r: "tree", k: "s", x: m.x as number, z: m.z as number, s: m.s as number }, epoch: m.e as number };
   } catch {
     return null;
   }
@@ -159,6 +182,7 @@ export class MarkerSender {
   private lastZ = Number.NaN;
   private lastY = Number.NaN;
   private lastAt = Number.NEGATIVE_INFINITY;
+  private walking = false;
 
   constructor(
     private readonly socket: RelaySocket,
@@ -170,12 +194,19 @@ export class MarkerSender {
     this.socket.poke();
     const now = this.clock();
     const moved = !(Math.abs(m.x - this.lastX) < MOVED && Math.abs(m.z - this.lastZ) < MOVED && Math.abs(m.y - this.lastY) < TURNED);
-    if (!moved && now - this.lastAt < KEEP_SENDING_MS) return;
+    // the first tick standing still goes too: a marker walking ahead (walkToHeard) learns at once that they stopped
+    if (!moved && !this.walking && now - this.lastAt < KEEP_SENDING_MS) return;
     if (!this.socket.send(markText({ ...m, t: this.sentAt(), r: this.socket.rttMs ?? -1 }))) return;
     this.lastX = m.x;
     this.lastZ = m.z;
     this.lastY = m.y;
     this.lastAt = now;
+    this.walking = moved;
+  }
+
+  /** A seed head, at once. If the socket is down the wall has it from the record a few seconds later, as before. */
+  head(e: PEvent, epoch: number): void {
+    this.socket.send(headText(e, epoch));
   }
 
   close(): void {
@@ -204,6 +235,7 @@ export interface RelayStatus {
 export class MarkerListener {
   /** Each visitor's newest place since the last frame: a tab that was not drawing has no use for the older ones. */
   private readonly news = new Map<string, RelayedMark>();
+  private heads: PEvent[] = [];
   private delays: number[] = [];
   private senderRttMs: number | null = null;
   private readonly heard = new Map<string, { m: RelayedMark; at: number }>();
@@ -221,6 +253,11 @@ export class MarkerListener {
   }
 
   private hear(text: string): void {
+    const head = parseHead(text);
+    if (head) {
+      if (String(head.epoch) === this.epoch() && this.heads.length < MAX_HEARD) this.heads.push(head.event);
+      return;
+    }
     const m = parseMark(text);
     if (!m || String(m.e) !== this.epoch()) return;
     if (this.heard.size >= MAX_HEARD && !this.heard.has(m.o)) return;
@@ -237,6 +274,14 @@ export class MarkerListener {
     if (this.news.size === 0) return NOTHING;
     const out = [...this.news.values()];
     this.news.clear();
+    return out;
+  }
+
+  /** The seed heads that came in since the last call. */
+  drainHeads(): readonly PEvent[] {
+    if (this.heads.length === 0) return NO_HEADS;
+    const out = this.heads;
+    this.heads = [];
     return out;
   }
 
@@ -268,6 +313,7 @@ export class MarkerListener {
 }
 
 const NOTHING: readonly RelayedMark[] = [];
+const NO_HEADS: readonly PEvent[] = [];
 
 function relayUrl(as: "phone" | "wall"): string | null {
   const base = process.env.NEXT_PUBLIC_MARKER_RELAY;

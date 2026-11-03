@@ -17,7 +17,8 @@ import { MAX_SPOKES, dandelionShape, dandelionsIn, headState, headVariation, lat
 const MAX_HEADS = 160;
 /** Points of powder in the air at once. */
 const MAX_DUST = 8000;
-const POLL_SEC = 1;
+/** Soon after the relay brings a head into the log (markerRelay.ts): its powder bursts when the visitor answers. */
+const POLL_SEC = 0.25;
 /** How often the heads are drawn again while one is new, and otherwise (s). */
 const DRAW_NEW_SEC = 0.1;
 const DRAW_SEC = 1;
