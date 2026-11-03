@@ -53,11 +53,26 @@
     if (fc.typename == "CMYKColor" && fc.black > 70 && fc.cyan > 50 && fc.magenta > 50 && fc.yellow > 50) { q.fillColor = k; fixed++; }
   }
   log.push("ground fills → C35 K100: " + grounds + "; four-ink blacks → K100: " + fixed);
+  // 3b. the PDF's shading became a non-native object: replace it with a native two-ink black inside the staircase clip
+  for (var n = doc.nonNativeItems.length - 1; n >= 0; n--) { var nn = doc.nonNativeItems[n]; if (nn.width > 2200 && nn.height > 2500) { nn.remove(); log.push("non-native ground removed"); } }
+  var gclip = null;
+  for (var j2 = 0; j2 < doc.pathItems.length; j2++) { var p2 = doc.pathItems[j2]; if (p2.clipping && Math.round(p2.width/72*25.4) == 851 && Math.round(p2.height/72*25.4) == 1006) { gclip = p2; break; } }
+  if (gclip) { var gg = gclip.parent, bb = gclip.geometricBounds; var gr = gg.pathItems.rectangle(bb[1], bb[0], bb[2] - bb[0], bb[1] - bb[3]); gr.filled = true; gr.fillColor = ground; gr.stroked = false; gr.name = "ground C35 K100"; gr.zOrder(ZOrderMethod.SENDTOBACK); gclip.zOrder(ZOrderMethod.BRINGTOFRONT); log.push("ground rect added"); } else log.push("ground clip not found");
+  // 3c. fonts: every text frame must resolve (the pasted captions use Neo둥근모; the template uses Reddit Sans)
+  var missing = 0;
+  for (var t3 = 0; t3 < doc.textFrames.length; t3++) { try { var nmf = doc.textFrames[t3].textRange.characterAttributes.textFont.name; } catch (e) { missing++; } }
+  log.push("text frames " + doc.textFrames.length + ", unresolved fonts " + missing);
   // 4. save: .ai with PDF compatibility, and a small preview
   var opts = new IllustratorSaveOptions(); opts.pdfCompatible = true; opts.embedLinkedFiles = true; opts.compressed = true;
   doc.saveAs(outAi, opts);
   var png = new ExportOptionsPNG24(); png.horizontalScale = 20; png.verticalScale = 20; png.antiAliasing = true; png.artBoardClipping = true;
   doc.exportFile(outPng, ExportType.PNG24, png);
   log.push("saved " + outAi.fsName);
+  // 5. the submission copy: all text as outlines (the guide's rule 5)
+  doc.selectObjectsOnActiveArtboard();
+  app.executeMenuCommand("outline");
+  doc.selection = null;
+  doc.saveAs(new File("/Volumes/Hesse/exhibition/anthropocene/.claude/worktrees/a0-poster-design-89bf0a/poster-a0/out/A0_poster_B_outlined.ai"), opts);
+  log.push("outlined copy saved; text frames left " + doc.textFrames.length);
   return log.join("\n");
 })();

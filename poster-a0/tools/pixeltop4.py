@@ -71,5 +71,9 @@ keep_smooth = rng.random((ch, cw)) < np.clip((y8 - S0) / (END - S0), 0, 1) ** 1.
 ks = np.asarray(Image.fromarray(keep_smooth.astype(np.uint8) * 255).resize((cw * 8, ch * 8), Image.NEAREST)).astype(np.float32) / 255
 K = np.ones((H, W), np.float32); K[: ch * 8, : cw * 8] = ks
 outim = a * K[..., None] + cells * (1 - K[..., None])
+import os
+if os.environ.get("DUMP"):  # the cells and the mask alone, so a full-resolution render can be composed later (hires_compose.py)
+    Image.fromarray((cells * 255 + .5).astype(np.uint8), "RGBA").save(os.environ["DUMP"] + "_cells.png", optimize=True)
+    Image.fromarray((K * 255 + .5).astype(np.uint8), "L").save(os.environ["DUMP"] + "_K.png", optimize=True)
 Image.fromarray((outim * 255 + .5).astype(np.uint8), "RGBA").save(out, optimize=True)
 print(out, (W, H))
