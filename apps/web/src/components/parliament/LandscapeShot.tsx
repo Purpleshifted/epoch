@@ -8,10 +8,11 @@
 
 import { useEffect, useState, type RefObject } from "react";
 import { advance, useThree, type RootState } from "@react-three/fiber";
-import type { EffectComposer as Composer } from "postprocessing";
+import type { DepthOfFieldEffect, EffectComposer as Composer } from "postprocessing";
 import * as THREE from "three";
 import { GLYPH_COLS, GLYPH_ROWS, type GlyphDot } from "@/lib/parliament";
 import { matte } from "@/lib/parliament/shotMatte";
+import { GRAIN_CELL } from "./SlowGrain";
 
 export const SHOT_VEGETATION = { shot: "vegetation" };
 export const SHOT_SEEDS = { shot: "seeds" };
@@ -85,7 +86,15 @@ function drawNames(picture: HTMLCanvasElement, marks: readonly ShotMark[], camer
   ctx.globalAlpha = 1;
 }
 
-function takeShot(state: RootState, composer: Composer | null, marks: readonly ShotMark[], what: ShotChoice): HTMLCanvasElement {
+const BOKEH_PASSES = ["bokehNearBasePass", "bokehNearFillPass", "bokehFarBasePass", "bokehFarFillPass"] as const;
+
+/** How far the focus blur reaches, in the buffer's pixels. `bokehScale` would also change how strongly it mixes in, which the picture keeps. */
+function setBlurReach(dof: DepthOfFieldEffect, reach: number): void {
+  const passes = dof as unknown as Record<(typeof BOKEH_PASSES)[number], { fullscreenMaterial: { scale: number } }>;
+  for (const p of BOKEH_PASSES) passes[p].fullscreenMaterial.scale = reach;
+}
+
+function takeShot(state: RootState, composer: Composer | null, dof: DepthOfFieldEffect | null, marks: readonly ShotMark[], what: ShotChoice): HTMLCanvasElement {
   const { gl, scene, camera } = state;
   const canvas = gl.domElement;
   const context = gl.getContext();
@@ -95,6 +104,7 @@ function takeShot(state: RootState, composer: Composer | null, marks: readonly S
 
   const pixelRatio = gl.getPixelRatio();
   const samples = composer?.multisampling ?? 0;
+  const edgeBlur = dof?.blurPass.blurMaterial.scale ?? 1;
   const background = scene.background;
   const hidden: THREE.Object3D[] = [];
   const hide = (o: THREE.Object3D) => {
@@ -115,6 +125,14 @@ function takeShot(state: RootState, composer: Composer | null, marks: readonly S
       scale *= context.drawingBufferWidth / canvas.width;
       gl.setPixelRatio(scale);
     }
+    // the grain and the focus blur are counted in pixels: at 8K they would all but vanish, so they stay as large in the
+    // picture as on the screen
+    const larger = canvas.width / (size.x * pixelRatio);
+    GRAIN_CELL.value = larger;
+    if (dof) {
+      setBlurReach(dof, dof.bokehScale * larger);
+      dof.blurPass.blurMaterial.scale = edgeBlur * larger;
+    }
     if (composer) {
       let fit = samples;
       while (fit > 0 && canvas.width * canvas.height * fit > MSAA_BUDGET) fit = fit > 2 ? fit / 2 : 0;
@@ -125,6 +143,14 @@ function takeShot(state: RootState, composer: Composer | null, marks: readonly S
     // one ordinary frame, so that all that follows the canvas's size reads the new one
     advance(performance.now(), false, state);
     const picture = copyOf(canvas);
+    if (what.background && background instanceof THREE.Color) {
+      // on the screen whatever the canvas leaves see-through shows this colour from the page behind it
+      const ctx = picture.getContext("2d")!;
+      ctx.globalCompositeOperation = "destination-over";
+      ctx.fillStyle = `#${background.getHexString()}`;
+      ctx.fillRect(0, 0, picture.width, picture.height);
+      ctx.globalCompositeOperation = "source-over";
+    }
     if (!what.background) {
       // again without the frame's own updates: time must not move between the two
       scene.background = new THREE.Color(0xffffff);
@@ -149,6 +175,11 @@ function takeShot(state: RootState, composer: Composer | null, marks: readonly S
     scene.background = background;
     for (const o of hidden) o.visible = true;
     gl.setPixelRatio(pixelRatio);
+    GRAIN_CELL.value = 1;
+    if (dof) {
+      setBlurReach(dof, dof.bokehScale);
+      dof.blurPass.blurMaterial.scale = edgeBlur;
+    }
     if (composer) {
       composer.multisampling = samples;
       composer.setSize(size.x, size.y);
@@ -160,19 +191,21 @@ function takeShot(state: RootState, composer: Composer | null, marks: readonly S
 export function ShotRig({
   take,
   composer,
+  dof,
   marks,
 }: {
   take: RefObject<TakeShot | null>;
   composer: RefObject<Composer | null>;
+  dof: RefObject<DepthOfFieldEffect | null>;
   marks: RefObject<(() => readonly ShotMark[]) | null>;
 }) {
   const get = useThree((s) => s.get);
   useEffect(() => {
-    take.current = (what) => takeShot(get(), composer.current, marks.current?.() ?? [], what);
+    take.current = (what) => takeShot(get(), composer.current, dof.current, marks.current?.() ?? [], what);
     return () => {
       take.current = null;
     };
-  }, [get, take, composer, marks]);
+  }, [get, take, composer, dof, marks]);
   return null;
 }
 

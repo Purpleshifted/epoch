@@ -16,6 +16,10 @@ describe("a visitor goes by the rule the wall has saved", () => {
     expect(rule.flow).toMatchObject({ enabled: true, tauSec: 200, blockAt: 0.6, unit: 4 });
   });
 
+  it("the wall's weight on a person reaches the phone", () => {
+    expect(followWallRule(own, { ...FOLD, playerWeight: 5 }, FLOW).playerWeight).toBe(5);
+  });
+
   it("nothing saved: the wall's defaults, not the phone's", () => {
     const rule = followWallRule(own, null, null);
     expect(rule).toMatchObject(SPACE_FOLD);

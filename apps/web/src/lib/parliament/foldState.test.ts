@@ -130,6 +130,22 @@ describe("foldState: the same ground as the batch fold, grown instead of refolde
     expect(state.stats.rebuilds).toBeLessThanOrEqual(2);
   });
 
+  it("a person who counts for more: the same ground in both folds", () => {
+    const { seen } = runAgainstBatch({ ...V2, playerWeight: 3 }, 240, 13);
+    const who = foldWorld(seen, 239.5, { ...V2, playerWeight: 3 }).slabs.flatMap((s) => s.who!.map((w) => w.o));
+    expect(who.some((o) => !o.startsWith("bot")), "people are among the builders").toBe(true);
+  });
+
+  it("the same stay: a person puts in `playerWeight` times a bot's, and is still one person", () => {
+    const stand = (o: string): PEvent[] => Array.from({ length: 60 }, (_, s) => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x: 0.6, z: 0.6, s }));
+    const cfg: FoldConfig = { ...DEFAULT_FOLD, playerWeight: 3 };
+    const here = foldWorld([...stand("bot0"), ...stand("bot1"), ...stand("visitor")], 60, cfg).slabs.find((s) => s.key === "0,0")!;
+    const amount = (o: string) => here.who!.find((w) => w.o === o)!.amount;
+    expect(amount("visitor")).toBeCloseTo(3 * amount("bot0"));
+    expect(here.raw).toBeGreaterThan(foldWorld([...stand("bot0"), ...stand("bot1"), ...stand("bot2")], 60, cfg).slabs.find((s) => s.key === "0,0")!.raw);
+    expect(foldWorld([...stand("bot0"), ...stand("visitor")], 60, { ...cfg, playerWeight: 10 }).slabs).toHaveLength(0);
+  });
+
   it("V1 (no flow): desire paths by visits", () => {
     const { checks } = runAgainstBatch(DEFAULT_FOLD, 240, 6);
     expect(checks).toBeGreaterThan(30);

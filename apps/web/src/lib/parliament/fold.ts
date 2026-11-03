@@ -19,7 +19,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { flowLevel, flowP, flowTracks, inUseAt, stayShares, type Track } from "./flow";
-import { DEFAULT_FOLD, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
+import { DEFAULT_FOLD, presenceWeight, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 import { wrapCell, wrapDist } from "./world";
 
 /** A footprint fainter than this is gone. */
@@ -125,7 +125,7 @@ export function foldWorld(
     const key = `${acc.cx},${acc.cz}`;
     const { s, w, o } = acc;
     const dt = cfg.sampleSec;
-    // sliding window with one running sum PER VISITOR; a visitor counts at most `cap`
+    // sliding window with one running sum PER VISITOR; a visitor counts at most `cap`, by what their presence counts for
     const own = new Map<string, number>();
     let lo = 0;
     let capped = 0;
@@ -134,16 +134,17 @@ export function foldWorld(
       const prev = own.get(o[j]) ?? 0;
       const next = prev + w[j] * dt;
       own.set(o[j], next);
-      capped += Math.min(cap, next) - Math.min(cap, prev);
+      capped += presenceWeight(o[j], cfg) * (Math.min(cap, next) - Math.min(cap, prev));
       while (s[j] - s[lo] >= cfg.windowSec) {
         const p = own.get(o[lo]) ?? 0;
         const q = p - w[lo] * dt;
+        const m = presenceWeight(o[lo], cfg);
         if (q <= EPS) {
           own.delete(o[lo]);
-          capped -= Math.min(cap, p);
+          capped -= m * Math.min(cap, p);
         } else {
           own.set(o[lo], q);
-          capped += Math.min(cap, q) - Math.min(cap, p);
+          capped += m * (Math.min(cap, q) - Math.min(cap, p));
         }
         lo++;
       }
@@ -166,7 +167,7 @@ export function foldWorld(
       const prev = total.get(o[k]) ?? 0;
       const next = prev + w[k] * dt;
       total.set(o[k], next);
-      mass += Math.min(cap, next) - Math.min(cap, prev);
+      mass += presenceWeight(o[k], cfg) * (Math.min(cap, next) - Math.min(cap, prev));
       if (!firstOf.has(o[k])) firstOf.set(o[k], s[k]);
       lastOf.set(o[k], s[k]);
       if (k >= nuc) {
@@ -175,7 +176,7 @@ export function foldWorld(
       }
     }
     const raw = rawOf(mass);
-    const who = [...total].map(([id, v]) => ({ o: id, first: firstOf.get(id)!, last: lastOf.get(id)!, amount: Math.min(cap, v) }));
+    const who = [...total].map(([id, v]) => ({ o: id, first: firstOf.get(id)!, last: lastOf.get(id)!, amount: presenceWeight(id, cfg) * Math.min(cap, v) }));
 
     const lastS = s[s.length - 1];
     // when somebody was around, from the birth on; a pause longer than emptyGapSec is empty time
