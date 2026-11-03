@@ -539,8 +539,7 @@ export class SoundEngine {
     if (!this.ctx) {
       // "playback": a larger output buffer — the artist heard glitches when the hall opened on an arrival; this piece
       // needs headroom, not low latency (v4 A5)
-      // 44.1 kHz: the rate the NoiseCraft patch is written for, and it runs in this context (attachNoiseCraft)
-      const ctx = new AudioContext({ latencyHint: "playback", sampleRate: 44100 });
+      const ctx = new AudioContext(this.contextRate ? { latencyHint: "playback", sampleRate: this.contextRate } : { latencyHint: "playback" });
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = 0;
@@ -550,7 +549,13 @@ export class SoundEngine {
       this.dull.Q.value = 0.5;
       // the limiter before the device (§10c): with the room's speakers in the same Chrome the two summed and clipped
       this.limiter = makeLimiter(ctx);
-      this.dull.connect(this.master).connect(this.limiter).connect(ctx.destination);
+      this.dull.connect(this.master).connect(this.limiter);
+      // ?silent=1, to measure from a machine with someone's speakers on it: everything is computed, nothing comes out
+      if (new URLSearchParams(window.location.search).get("silent") === "1") {
+        const shut = ctx.createGain();
+        shut.gain.value = 0;
+        this.limiter.connect(shut).connect(ctx.destination);
+      } else this.limiter.connect(ctx.destination);
       // the headset's own output device, chosen on /v2/sound/output (the default when none)
       void applyOutput(ctx, "headset").then((s) => (this.outputLine = s));
       this.offOutput = onOutputChange("headset", () => void applyOutput(ctx, "headset").then((s) => (this.outputLine = s)));
@@ -705,6 +710,9 @@ export class SoundEngine {
       setTimeout(() => this.magenta.load().then((ok) => (this.magentaState = ok ? "ready" : "failed")), MAGENTA_AFTER_MS);
     }
   }
+
+  /** A phone: the rate the patch is written for, set before the first start, so that it can run in this context (NoiseCraftHost). */
+  contextRate: number | null = null;
 
   /** The context the patch's worklet joins (NoiseCraftHost); null before the first start. */
   get audioContext(): AudioContext | null {

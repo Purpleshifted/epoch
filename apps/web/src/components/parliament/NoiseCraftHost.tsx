@@ -13,6 +13,7 @@ import { useEffect, useRef } from "react";
 import { NoiseCraftDriver, noteNcEvent } from "@/lib/sound/noisecraftDriver";
 import { PULSES_PER_BAR, PULSES_PER_STEP } from "@/lib/sound/noisecraftMap";
 import { DEFAULT_PATCH, loadPatchChoice } from "@/lib/sound/patchChoice";
+import { touchDevice } from "@/lib/parliament/serverWorld";
 import type { SoundSetup } from "./useSound";
 
 /** The default patch; the bench's choice (patchChoice.ts) overrides it. */
@@ -49,9 +50,17 @@ export default function NoiseCraftHost({ sound, live, warm = false }: { sound: S
       noteNcEvent(s ? "stream" : "streamEnd");
       engine.attachNoiseCraft(s);
     };
-    // the patch runs in the engine's own context; the embed asks for it when it first plays
-    const page = window as unknown as { __ncSharedContext?: () => AudioContext | null };
-    page.__ncSharedContext = () => engine.audioContext;
+    // A PHONE ONLY (the artist, 2026-11-03: only the phone stutters, the others keep their sound as it was): the patch runs
+    // in the engine's own context, the embed asks for it when it first plays, and keeps it from life to life.
+    // To tell what stops a phone, from its own numbers (?perf=1): ?ncshare=0 the second context and its stream, as on a
+    // computer; ?ncdsp=0 the patch runs but computes nothing
+    const page = window as unknown as { __ncSharedContext?: () => AudioContext | null; __ncNoDsp?: boolean };
+    const asked = new URLSearchParams(window.location.search);
+    if (touchDevice() && asked.get("ncshare") !== "0") {
+      engine.contextRate = 44100;
+      page.__ncSharedContext = () => engine.audioContext;
+    }
+    page.__ncNoDsp = asked.get("ncdsp") === "0";
     driver.mount(host.current, loadPatchChoice(), false, true);
     const id = setInterval(() => {
       const s = driver.status;

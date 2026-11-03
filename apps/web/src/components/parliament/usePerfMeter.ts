@@ -20,6 +20,14 @@ export function markSpan(name: string, ms: number): void {
   }
   list.push({ at: performance.now(), ms });
   if (list.length > 600) list.shift();
+  if (ms > 300) perfNote(`in:${name}:${Math.round(ms)}`);
+}
+
+const perfNotes: string[] = [];
+
+/** Something worth setting beside the page's stops in `?perf=1`, with its page time. */
+export function perfNote(name: string): void {
+  if (perfNotes.length < 60) perfNotes.push(`${name}@${(performance.now() / 1000).toFixed(1)}`);
 }
 
 /** Last 60 s per span: max, mean, count — readable from DevTools / a hidden tab as `__perfSpans()`. */
@@ -78,22 +86,55 @@ export function usePerfReport(extra: () => Record<string, unknown>): void {
     let tickAt = performance.now();
     let stallMax = 0;
     let stalls = 0;
+    let stops: [number, number][] = [];
     const tick = setInterval(() => {
       const now = performance.now();
       const gap = now - tickAt - 50;
+      if (gap > 300) stops.push([Math.round(tickAt / 100) / 10, Math.round(gap)]);
       tickAt = now;
       if (gap > stallMax) stallMax = gap;
       if (gap > 300) stalls++;
     }, 50);
+    // a clock off the page's thread: if it stops with the page, the whole process stood still and not only the page's thread
+    let offThreadGap = 0;
+    let offThread: Worker | null = null;
+    try {
+      offThread = new Worker(URL.createObjectURL(new Blob(["let t=performance.now(),m=0;setInterval(()=>{const n=performance.now();m=Math.max(m,n-t-100);t=n},100);onmessage=()=>{postMessage(Math.round(m));m=0}"], { type: "text/javascript" })));
+      offThread.onmessage = (e) => (offThreadGap = e.data as number);
+    } catch {
+      offThread = null;
+    }
+    // what the phone's audio says of itself: the contexts' states (Safari has "interrupted") and its audio session
+    const heard = new WeakSet<object>();
+    const listen = (name: string, target: (EventTarget & { state?: string; type?: string; sampleRate?: number }) | null | undefined) => {
+      if (!target || heard.has(target)) return;
+      heard.add(target);
+      perfNote(`${name}:${target.state ?? ""}:${target.sampleRate ?? target.type ?? ""}`);
+      target.addEventListener("statechange", () => perfNote(`${name}:${target.state}`));
+    };
+    const listenAudio = () => {
+      const w = window as unknown as { __soundEngine?: { audioContext?: AudioContext | null } | null };
+      listen("engine", w.__soundEngine?.audioContext);
+      const frame = document.getElementById("noisecraft-iframe") as HTMLIFrameElement | null;
+      try {
+        listen("patch", (frame?.contentWindow as unknown as { noiseCraftAudioContext?: AudioContext } | null)?.noiseCraftAudioContext);
+      } catch {
+        /* not ours */
+      }
+      listen("session", (navigator as unknown as { audioSession?: EventTarget & { state?: string; type?: string } }).audioSession);
+    };
     const started = performance.now();
     const report = setInterval(() => {
+      listenAudio();
+      offThread?.postMessage(0);
       const d = dts.sort((a, b) => a - b);
       const q = (p: number) => Math.round(d[Math.min(d.length - 1, Math.floor(d.length * p))] ?? 0);
       const sum = dts.reduce((a, b) => a + b, 0);
-      const reading = { t: Math.round((performance.now() - started) / 1000), fps: sum ? Math.round((d.length * 1000) / sum) : 0, p50: q(0.5), p95: q(0.95), max: Math.round(d[d.length - 1] ?? 0), over50: d.filter((x) => x > 50).length, over100: d.filter((x) => x > 100).length, stallMax: Math.round(stallMax), stalls, spans: spanSummary(), hidden: document.hidden, ...extraRef.current() };
+      const reading = { t: Math.round((performance.now() - started) / 1000), fps: sum ? Math.round((d.length * 1000) / sum) : 0, p50: q(0.5), p95: q(0.95), max: Math.round(d[d.length - 1] ?? 0), over50: d.filter((x) => x > 50).length, over100: d.filter((x) => x > 100).length, stallMax: Math.round(stallMax), stalls, stops, offThreadGap, notes: perfNotes.splice(0), spans: spanSummary(), hidden: document.hidden, ...extraRef.current() };
       dts = [];
       stallMax = 0;
       stalls = 0;
+      stops = [];
       readings.push(reading);
       if (readings.length > REPORT_READINGS) readings.shift();
       void fetch("/api/presets", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: `parliament.leva:/perf:${run}`, json: { ...device, readings } }) }).catch(() => {});
@@ -102,6 +143,7 @@ export function usePerfReport(extra: () => Record<string, unknown>): void {
       cancelAnimationFrame(raf);
       clearInterval(tick);
       clearInterval(report);
+      offThread?.terminate();
     };
   }, []);
 }
