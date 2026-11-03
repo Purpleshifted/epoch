@@ -29,13 +29,12 @@ for page in d:
         if "/DeviceGray" in obj:
             continue
         pm = fitz.Pixmap(d, xref)
-        if pm.n - pm.alpha == 1:           # already one channel (ICC gray): just relabel the colour space
-            d.xref_set_key(xref, "ColorSpace", "/DeviceGray")
-            print("relabelled", xref, pm.width, "x", pm.height)
-        else:                              # RGB → gray pixels, alpha kept
-            g = fitz.Pixmap(fitz.csGRAY, pm)
-            page.replace_image(xref, pixmap=g)
-            print("converted", xref, pm.width, "x", pm.height, "alpha", pm.alpha)
+        smask = info[1]
+        if smask:                          # the image's transparency lives in a separate soft mask: carry it along
+            pm = fitz.Pixmap(pm, fitz.Pixmap(d, smask))
+        g = fitz.Pixmap(fitz.csGRAY, pm)   # one channel (+ alpha)
+        page.replace_image(xref, pixmap=g)
+        print("converted", xref, pm.width, "x", pm.height, "alpha", g.alpha)
 strip_icc(d)
 d.save(out, garbage=3, deflate=True)
 d2 = fitz.open(out)

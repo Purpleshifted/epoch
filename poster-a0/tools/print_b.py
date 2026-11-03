@@ -49,6 +49,13 @@ s = re.sub(r'(<div style="position: absolute; left: [\d.]+px; )top: ([\d.]+)px;(
 if lifted:
     k = s.index('<img class="struct"'); k = s.index('>', k) + 1
     s = s[:k] + '\n' + '\n'.join(lifted) + s[k:]
+# an opaque structure image must sit above the ground and below every piece of text: the trim wrapper becomes a
+# stacking context, the ground goes to -2, the image to -1, everything else keeps painting on top in DOM order
+s = s.replace('width: 1682px; height: 2378px; overflow: visible; background: ' + sky + ';', 'width: 1682px; height: 2378px; overflow: visible; isolation: isolate; background: ' + sky + ';', 1)
+s = s.replace('<div class="ground" style="position: absolute;', '<div class="ground" style="position: absolute; z-index: -2;', 1)
+s = s.replace('<img class="struct" src="', '<img class="struct" style="z-index: -1" src="', 1)
+s = re.sub(r'(<img class="struct" style="z-index: -1" src="[^"]*"[^>]*?) style="', r'\1 style="z-index: -1; ', 1) if False else s
+s = re.sub(r'<img class="struct" style="z-index: -1" src="([^"]*)"([^>]*?)style="', r'<img class="struct" src="\1"\2style="z-index: -1; ', s, count=1)
 # close the extra wrapper before </x-dc>
 s = s.replace('</div>\n<helmet', '</div></div>\n<helmet', 1)
 open(out, 'w').write(s)

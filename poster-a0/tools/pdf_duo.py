@@ -27,7 +27,7 @@ for page in d:
     for info in page.get_images(full=True):
         xref = info[0]
         pm = fitz.Pixmap(d, xref)
-        if pm.alpha: pm_rgb = pm
+        if info[1]: pm = fitz.Pixmap(pm, fitz.Pixmap(d, info[1]))   # carry the soft mask along as alpha
         a = np.frombuffer(pm.samples, dtype=np.uint8).reshape(pm.height, pm.width, pm.n)
         n = pm.n - pm.alpha
         L = a[..., :n].astype(np.float32).mean(axis=2) if n != 4 else 255 - a[..., 3].astype(np.float32)

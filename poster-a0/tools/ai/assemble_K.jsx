@@ -53,10 +53,10 @@
   }
   log.push("ground fills → C35 K100: " + grounds + "; four-ink blacks → K100: " + fixed);
   // 3b. the PDF's shading became a non-native object: replace it with a native two-ink black inside the staircase clip
-  for (var n = doc.nonNativeItems.length - 1; n >= 0; n--) { var nn = doc.nonNativeItems[n]; if (nn.width > 2200 && nn.height > 2500) { nn.remove(); log.push("non-native ground removed"); } }
+  for (var n = doc.nonNativeItems.length - 1; n >= 0; n--) { var nn = doc.nonNativeItems[n]; if (nn.width > 2200 && nn.height > 2500) { log.push("non-native " + Math.round(nn.width/72*25.4) + "x" + Math.round(nn.height/72*25.4) + " removed"); nn.remove(); } }
   var gclip = null;
-  for (var j2 = 0; j2 < doc.pathItems.length; j2++) { var p2 = doc.pathItems[j2]; if (p2.clipping && Math.round(p2.width/72*25.4) == 851 && Math.round(p2.height/72*25.4) == 1006) { gclip = p2; break; } }
-  if (gclip) { var gg = gclip.parent, bb = gclip.geometricBounds; var gr = gg.pathItems.rectangle(bb[1], bb[0], bb[2] - bb[0], bb[1] - bb[3]); gr.filled = true; gr.fillColor = ground; gr.stroked = false; gr.name = "ground C35 K100"; gr.zOrder(ZOrderMethod.SENDTOBACK); gclip.zOrder(ZOrderMethod.BRINGTOFRONT); log.push("ground rect added"); } else log.push("ground clip not found");
+  for (var j2 = 0; j2 < doc.pathItems.length; j2++) { var p2 = doc.pathItems[j2]; if (p2.clipping && p2.width > 2400 && p2.pathPoints.length > 100) { gclip = p2; break; } }
+  if (gclip) { var gg = gclip.parent, bb = gclip.geometricBounds; var gr = gg.pathItems.rectangle(bb[1], bb[0], bb[2] - bb[0], bb[1] - bb[3]); gr.filled = true; gr.fillColor = ground; gr.stroked = false; gr.name = "ground C35 K100"; gr.zOrder(ZOrderMethod.SENDTOBACK); gclip.zOrder(ZOrderMethod.BRINGTOFRONT); log.push("ground rect added in a clip of " + gclip.pathPoints.length + " points, " + Math.round(gclip.width/72*25.4) + "x" + Math.round(gclip.height/72*25.4) + " mm"); } else log.push("ground clip not found");
   // (the images arrive as DeviceGray from pdf_gray.py and stay K-only; nothing to convert)
   // 3c. fonts: every text frame must resolve (the pasted captions use Neo둥근모; the template uses Reddit Sans)
   var missing = 0;
