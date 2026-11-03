@@ -296,8 +296,7 @@ export const LOG: Record<Lang, LogTemplates> = {
       "dying.watched": () => "({})가 당신의 마지막을 지킵니다...",
       "ensemble.start": (a) => {
         const n = a.n ?? 2;
-        const need = a.need ?? 4;
-        return n >= need ? `합주 중… ${n}명이 모였습니다. 곧 집이 올라갑니다.` : `합주 중… ${n}명이 모였습니다. ${need}명이 되면 집이 올라갑니다.`;
+        return n >= (a.need ?? 4) ? `합주 중… ${n}명이 모였습니다. 곧 집이 올라갑니다.` : `합주 중… ${n}명이 모였습니다.`;
       },
       "ensemble.end": (a) => `합주가 끝났습니다 · ${secKo(a.forSec)}`,
       "attempt.tried": () => "그만 살기를 시도했습니다.",
@@ -333,8 +332,7 @@ export const LOG: Record<Lang, LogTemplates> = {
       "dying.watched": () => "({}) keeps watch over your last moments...",
       "ensemble.start": (a) => {
         const n = a.n ?? 2;
-        const need = a.need ?? 4;
-        return n >= need ? `In ensemble… ${n} gathered. A house will go up soon.` : `In ensemble… ${n} gathered. At ${need} a house goes up.`;
+        return n >= (a.need ?? 4) ? `In ensemble… ${n} gathered. A house will go up soon.` : `In ensemble… ${n} gathered.`;
       },
       "ensemble.end": (a) => `The ensemble is over · ${secEn(a.forSec)}`,
       "attempt.tried": () => "You tried to stop living.",
