@@ -17,6 +17,9 @@ export class AudioView
 
         // Latest compiled unit
         this.unit = null;
+
+        // How to compile it (compiler.js)
+        this.compileOptions = {};
     }
 
     /** Update the audio view */
@@ -140,7 +143,7 @@ export class AudioView
         }
 
         // Compile a new unit from the project state
-        this.unit = compile(state);
+        this.unit = compile(state, this.compileOptions);
 
         this.send({
             type: 'NEW_UNIT',
@@ -181,7 +184,7 @@ export class AudioView
         this.audioWorklet.connect(this.audioCtx.destination);
 
         // Compile a new unit from the project state
-        this.unit = compile(state);
+        this.unit = compile(state, this.compileOptions);
 
         this.send({
             type: 'NEW_UNIT',

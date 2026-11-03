@@ -204,7 +204,7 @@ export function detectCycles(graph)
 
  * Compile a sound-generating function from a graph of nodes
  */
-export function compile(graph)
+export function compile(graph, options = {})
 {
     function outName(nodeId, idx)
     {
@@ -619,6 +619,31 @@ export function compile(graph)
 
         // Set of nodes that are relevant for audio processing,
         // indexed by nodeId
-        nodes: audioNodes
+        nodes: audioNodes,
+
+        // The same code in small functions, on request (a phone)
+        ...(options.split ? splitSource(src, options.split) : {})
     };
+}
+
+/**
+ * The same statements, in the same order, in functions of `perPart` lines, with the values between them in an array instead
+ * of local variables. JavaScriptCore (Safari) took 5 s on a fast computer to optimise this patch as one function, and a
+ * garbage collection anywhere in the process waits for that: on an iPhone the page stopped for 10-18 s, more than once
+ * (2026-11-03, measured with the system's jsc). Small functions are optimised in moments. The output is byte for byte the same.
+ */
+export function splitSource(src, perPart)
+{
+    let slots = new Map();
+    let lines = src.split('\n').map(line => line.trim().replace(/^let /, '').replace(/\bn\d+_\d+\b/g, name => {
+        if (!slots.has(name))
+            slots.set(name, slots.size);
+        return `v[${slots.get(name)}]`;
+    }) + ';');
+
+    let parts = [];
+    for (let i = 0; i < lines.length; i += perPart)
+        parts.push(lines.slice(i, i + perPart).join('\n'));
+
+    return { parts: parts, slots: slots.size };
 }

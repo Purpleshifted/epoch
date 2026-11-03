@@ -25,7 +25,6 @@ export class AudioGraph
         // A hidden instrument (QUIET) has no scopes or sequencers on screen: what is for the eye stays here.
         // The patch's 12 scopes alone were 240 messages a second to a page that did nothing with them.
         this.quiet = false;
-        this.paused = false;
 
         // Method to send messages to the main thread
         this.send = (msg) => {
@@ -83,6 +82,19 @@ export class AudioGraph
             }
         }
 
+        // Split (compiler.js splitSource): many small functions, one array of values between them
+        if (unit.parts)
+        {
+            const parts = unit.parts.map(part => new Function('time', 'nodes', 'v', 'out', part));
+            const v = new Array(unit.slots).fill(0);
+            this._genSample = (time, nodes, out) => {
+                for (let i = 0; i < parts.length; ++i)
+                    parts[i](time, nodes, v, out);
+                return out;
+            };
+            return;
+        }
+
         // Create the sample generation function
         this._genSample = new Function(
             'time',
@@ -107,15 +119,6 @@ export class AudioGraph
 
             case 'QUIET':
             this.quiet = true;
-            break;
-
-            // In a context it shares it cannot suspend the context: it stops computing instead
-            case 'PAUSE':
-            this.paused = true;
-            break;
-
-            case 'RESUME':
-            this.paused = false;
             break;
 
             case 'SET_PARAM':

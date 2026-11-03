@@ -50,17 +50,12 @@ export default function NoiseCraftHost({ sound, live, warm = false }: { sound: S
       noteNcEvent(s ? "stream" : "streamEnd");
       engine.attachNoiseCraft(s);
     };
-    // A PHONE ONLY (the artist, 2026-11-03: only the phone stutters, the others keep their sound as it was): the patch runs
-    // in the engine's own context, the embed asks for it when it first plays, and keeps it from life to life.
-    // To tell what stops a phone, from its own numbers (?perf=1): ?ncshare=0 the second context and its stream, as on a
-    // computer; ?ncdsp=0 the patch runs but computes nothing
-    const page = window as unknown as { __ncSharedContext?: () => AudioContext | null; __ncNoDsp?: boolean };
-    const asked = new URLSearchParams(window.location.search);
-    if (touchDevice() && asked.get("ncshare") !== "0") {
-      engine.contextRate = 44100;
-      page.__ncSharedContext = () => engine.audioContext;
-    }
-    page.__ncNoDsp = asked.get("ncdsp") === "0";
+    // A PHONE ONLY (the artist, 2026-11-03: only the phone stutters, the others keep their sound as it was): the patch is
+    // compiled in small functions and keeps its context from life to life (embedded.html). ?ncsplit=0 as one function: that
+    // is what stopped an iPhone's page for 10-18 s (compiler.js splitSource), kept to compare on a real phone with ?perf=1
+    const page = window as unknown as { __ncPhone?: boolean; __ncWhole?: boolean };
+    page.__ncPhone = touchDevice();
+    page.__ncWhole = new URLSearchParams(window.location.search).get("ncsplit") === "0";
     driver.mount(host.current, loadPatchChoice(), false, true);
     const id = setInterval(() => {
       const s = driver.status;
