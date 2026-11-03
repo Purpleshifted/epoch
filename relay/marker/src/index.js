@@ -61,8 +61,8 @@ export default {
     const where = path.startsWith("/where/");
     const room = path.slice(where ? "/where/".length : 1);
     if (!ROOM.test(room)) return new Response("no such room", { status: 404 });
-    // the object is made near whoever asks first, and never moves: the hint keeps it near Korea even if that is not the first to ask
-    const object = env.ROOMS.get(env.ROOMS.idFromName(room), { locationHint: "apac-ne" });
+    // the object is made near whoever asks first, and never moves: from Korea both ends enter workers.dev in US West, so it sits there (see docs/shared-world-plan.md)
+    const object = env.ROOMS.get(env.ROOMS.idFromName(room), { locationHint: "wnam" });
     if (where) return new Response(`entry ${request.cf?.colo ?? "?"} · object ${await (await object.fetch(request)).text()}\n`);
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("websocket only", { status: 426 });
     if (!ALLOWED_ORIGIN.test(request.headers.get("Origin") ?? "")) return new Response("forbidden", { status: 403 });
