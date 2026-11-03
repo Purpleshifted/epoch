@@ -25,6 +25,7 @@ export class AudioGraph
         // A hidden instrument (QUIET) has no scopes or sequencers on screen: what is for the eye stays here.
         // The patch's 12 scopes alone were 240 messages a second to a page that did nothing with them.
         this.quiet = false;
+        this.paused = false;
 
         // Method to send messages to the main thread
         this.send = (msg) => {
@@ -106,6 +107,15 @@ export class AudioGraph
 
             case 'QUIET':
             this.quiet = true;
+            break;
+
+            // In a context it shares it cannot suspend the context: it stops computing instead
+            case 'PAUSE':
+            this.paused = true;
+            break;
+
+            case 'RESUME':
+            this.paused = false;
             break;
 
             case 'SET_PARAM':

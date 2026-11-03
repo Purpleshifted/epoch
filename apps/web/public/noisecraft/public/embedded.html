@@ -168,6 +168,7 @@
         ClockPulse,
       } from "./model.js";
       import { AudioView } from "./audioview.js";
+      import { compile } from "./compiler.js";
       import { Editor } from "./editor.js";
 
       // 1) 프로젝트(JSON) 준비
@@ -519,17 +520,52 @@
       // Expose AudioWorkletNode to parent window for spatial audio processing
       let mediaStreamDestination = null;
       let audioWorkletNode = null;
+      // the patch's worklet when it runs in the parent's engine's context
+      let sharedNode = null;
+      // only a phone's parent lends its context (NoiseCraftHost); a computer's patch goes on as it did
+      const parentSays = (name) => {
+        try {
+          return window.parent[name];
+        } catch {
+          return undefined;
+        }
+      };
+      const phoneKeeps = () => hiddenView && typeof parentSays("__ncSharedContext") === "function";
+      const noDsp = () => parentSays("__ncNoDsp") === true;
 
       // Hook into AudioView to expose audio nodes for spatial processing
       const originalPlayAudio = audioView.playAudio.bind(audioView);
       audioView.playAudio = async function (state) {
         // a hidden instrument keeps its context from life to life (see stopAudio below): it only goes on again
-        if (hiddenView && audioView.audioCtx) {
-          audioView.audioCtx.resume();
+        if (phoneKeeps() && audioView.audioCtx) {
+          if (!sharedNode) audioView.audioCtx.resume();
+          else if (!noDsp()) audioView.send({ type: "RESUME" });
+          return;
+        }
+        // ONE CONTEXT (2026-11-03): with the parent's engine running, the patch's worklet goes in the engine's own context
+        // at the rate it is written for. A second context and a MediaStream between them are what an iPhone's page stopped
+        // over, and closing the tab did not end it, only quitting Safari did
+        const shared = phoneKeeps() ? (window.parent.__ncSharedContext() ?? null) : null;
+        if (shared && shared.sampleRate === 44100) {
+          audioView.audioCtx = shared;
+          if (!shared.__ncWorklet) {
+            shared.__ncWorklet = true;
+            await shared.audioWorklet.addModule(new URL("audioworklet.js", window.location.href).href);
+          }
+          sharedNode = new window.parent.AudioWorkletNode(shared, "sample-generator", { outputChannelCount: [2] });
+          sharedNode.port.onmessage = audioView.onmessage.bind(audioView);
+          audioView.audioWorklet = sharedNode;
+          audioView.send({ type: "QUIET" });
+          audioView.unit = compile(state);
+          audioView.send({ type: "NEW_UNIT", unit: audioView.unit });
+          if (noDsp()) audioView.send({ type: "PAUSE" });
+          window.noiseCraftNode = sharedNode;
+          notifyParent({ type: "noiseCraft:audioNodeReady" });
           return;
         }
         await originalPlayAudio(state);
         if (hiddenView) audioView.send({ type: "QUIET" });
+        if (noDsp()) audioView.send({ type: "PAUSE" });
 
         // Create MediaStreamDestination to capture audio for spatial processing
         if (
@@ -589,8 +625,9 @@
       audioView.stopAudio = function () {
         // an iPhone stopped the whole page for 10 s and more around each life's start and end (2026-11-03, ?perf=1), and
         // those are when a context and its stream into the parent were made and closed. So it is paused, not closed.
-        if (hiddenView && audioView.audioCtx) {
-          audioView.audioCtx.suspend();
+        if (phoneKeeps() && audioView.audioCtx) {
+          if (sharedNode) audioView.send({ type: "PAUSE" });
+          else audioView.audioCtx.suspend();
           return;
         }
         if (mediaStreamDestination) {

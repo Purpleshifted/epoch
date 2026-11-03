@@ -301,7 +301,7 @@ export class SoundEngine {
   /** The long open space my motif is sent into (motifVerb). */
   private space!: GainNode;
   /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
-  private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
+  private nc: { source: AudioNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   /** The path's heartbeat: a soft clip for weight, then dry, and the hall's room darkened by bassSpread. */
   private bassSpread!: GainNode;
   private noise!: AudioBuffer;
@@ -460,7 +460,7 @@ export class SoundEngine {
    * The NoiseCraft patch's output (out=parent: its MediaStream) into this engine: its own low-pass (the building's
    * dullness by ncDull) → the master (level, mute, the lifespan's dulling). null = detach.
    */
-  attachNoiseCraft(stream: MediaStream | null): void {
+  attachNoiseCraft(stream: MediaStream | AudioNode | null): void {
     const ctx = this.ctx;
     if (this.nc) {
       try {
@@ -473,7 +473,8 @@ export class SoundEngine {
       this.nc = null;
     }
     if (!stream || !ctx) return;
-    const source = ctx.createMediaStreamSource(stream);
+    // its worklet in this context, or (the fallback, the bench) a stream from its own; `instanceof` fails across the iframe
+    const source = "getTracks" in stream ? ctx.createMediaStreamSource(stream) : stream;
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
     filter.frequency.value = this.params.lpOpen;
@@ -538,7 +539,7 @@ export class SoundEngine {
     if (!this.ctx) {
       // "playback": a larger output buffer — the artist heard glitches when the hall opened on an arrival; this piece
       // needs headroom, not low latency (v4 A5)
-      const ctx = new AudioContext({ latencyHint: "playback" });
+      const ctx = new AudioContext(this.contextRate ? { latencyHint: "playback", sampleRate: this.contextRate } : { latencyHint: "playback" });
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = 0;
@@ -548,7 +549,13 @@ export class SoundEngine {
       this.dull.Q.value = 0.5;
       // the limiter before the device (§10c): with the room's speakers in the same Chrome the two summed and clipped
       this.limiter = makeLimiter(ctx);
-      this.dull.connect(this.master).connect(this.limiter).connect(ctx.destination);
+      this.dull.connect(this.master).connect(this.limiter);
+      // ?silent=1, to measure from a machine with someone's speakers on it: everything is computed, nothing comes out
+      if (new URLSearchParams(window.location.search).get("silent") === "1") {
+        const shut = ctx.createGain();
+        shut.gain.value = 0;
+        this.limiter.connect(shut).connect(ctx.destination);
+      } else this.limiter.connect(ctx.destination);
       // the headset's own output device, chosen on /v2/sound/output (the default when none)
       void applyOutput(ctx, "headset").then((s) => (this.outputLine = s));
       this.offOutput = onOutputChange("headset", () => void applyOutput(ctx, "headset").then((s) => (this.outputLine = s)));
@@ -702,6 +709,24 @@ export class SoundEngine {
       this.magentaState = "loading";
       setTimeout(() => this.magenta.load().then((ok) => (this.magentaState = ok ? "ready" : "failed")), MAGENTA_AFTER_MS);
     }
+  }
+
+  /** A phone: the rate the patch is written for, set before the first start, so that it can run in this context (NoiseCraftHost). */
+  contextRate: number | null = null;
+
+  /** The context the patch's worklet joins (NoiseCraftHost); null before the first start. */
+  get audioContext(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /** The page is out of sight or going away: nothing here keeps sounding, or keeps the phone's audio busy. */
+  sleep(): void {
+    void this.ctx?.suspend();
+  }
+
+  /** Back in sight (a browser may still want a gesture: start() on the next touch does it then). */
+  wake(): void {
+    if (this.ctx && this.timer) void this.ctx.resume();
   }
 
   /** Silence and stop scheduling (the context stays, so a later start() is instant). */

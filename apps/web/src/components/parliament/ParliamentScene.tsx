@@ -24,7 +24,7 @@ import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { WALL_PAGE, savable, savedOf } from "./levaSave";
 import { WALL_FLOW_GROUP, WALL_FOLD_GROUP, followWallRule } from "@/lib/parliament/wallRule";
-import { serverWorldName } from "@/lib/parliament/serverWorld";
+import { serverWorldName, touchDevice } from "@/lib/parliament/serverWorld";
 import { useSound } from "./useSound";
 import SoundButton from "./SoundButton";
 import NoiseCraftHost from "./NoiseCraftHost";
@@ -535,7 +535,7 @@ export default function ParliamentScene() {
         <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={session.lifeSec || lifeMaxSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
-      {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} warm={withSession && (session.phase === "notice" || session.phase === "consent" || session.phase === "headset" || session.phase === "name")} />}
+      {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} warm={withSession && touchDevice() && (session.phase === "notice" || session.phase === "consent" || session.phase === "headset" || session.phase === "name")} />}
       {sound && withSession && <AfterglowSound sound={sound} />}
       {/* sound wiring: this window's ♪ switch — while LIVE only (the HUD owns the dark screens), top-right beside the HUD */}
       {sound && !hideChrome && (!withSession || session.phase === "live") && <SoundButton sound={sound} corner={withSession ? "top-right" : "bottom"} />}

@@ -31,6 +31,10 @@ class NCAudioWorklet extends AudioWorkletProcessor
 
     process(inputs, outputs, parameters)
     {
+        // paused: the output stays silent, as it comes
+        if (this.audioGraph.paused)
+            return true;
+
         const output = outputs[0];
         const outChannel0 = output[0];
         const outChannel1 = output[1];

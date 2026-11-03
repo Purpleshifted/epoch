@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { folder, levaStore, useControls } from "leva";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
+import { touchDevice } from "@/lib/parliament/serverWorld";
 import { DEFAULT_MOTIF_PRESET, DEFAULT_SIGNALS, DEFAULT_SOUND, MOTIF_PRESETS, MOTIF_PRESET_NAMES, SoundEngine, type SignalConfig, type SoundParams } from "@/lib/sound";
 
 export interface SoundSetup {
@@ -201,6 +202,22 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       engine.dispose();
     };
   }, [engine, toggleMute]);
+
+  // a phone, out of sight or gone: no sound, and nothing left running in its audio (closing a tab did not end it, 2026-11-03)
+  useEffect(() => {
+    if (!engine || !touchDevice()) return;
+    const seen = () => {
+      if (document.hidden) engine.sleep();
+      else if (onRef.current && !muted.current) engine.wake();
+    };
+    const gone = () => engine.sleep();
+    document.addEventListener("visibilitychange", seen);
+    window.addEventListener("pagehide", gone);
+    return () => {
+      document.removeEventListener("visibilitychange", seen);
+      window.removeEventListener("pagehide", gone);
+    };
+  }, [engine]);
 
   useEffect(() => {
     if (!engine) return;
