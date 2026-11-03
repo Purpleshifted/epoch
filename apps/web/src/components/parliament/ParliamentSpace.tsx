@@ -15,16 +15,18 @@
  * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
 import { Glyph } from "./Glyph";
 import { SlowGrain } from "./SlowGrain";
+import { SHOT_SEEDS, SHOT_VEGETATION, ShotPanel, ShotRig, type ShotMark, type TakeShot } from "./LandscapeShot";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
 import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
 import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
+import type { EffectComposer as ComposerImpl } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
 import {
@@ -1195,10 +1197,10 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
-      <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
+      <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat} userData={SHOT_VEGETATION}>
         <bufferGeometry />
       </points>
-      <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} />
+      <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} userData={SHOT_VEGETATION} />
     </>
   );
 }
@@ -1644,6 +1646,7 @@ function Markers({
   nameCell,
   onActive,
   onMe,
+  shotMarks,
 }: {
   log: EventLog;
   secPerUnit: number;
@@ -1653,6 +1656,7 @@ function Markers({
   nameCell: number;
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
+  shotMarks: RefObject<(() => readonly ShotMark[]) | null>;
 }) {
   const [marks, setMarks] = useState<Mark[]>([]);
   const seen = useRef(new Map<string, { s: number; at: number }>());
@@ -1669,6 +1673,16 @@ function Markers({
       relay.current = null;
     };
   }, []);
+  useEffect(() => {
+    shotMarks.current = () =>
+      marks.map((m) => {
+        const t = tracks.current.get(m.id);
+        return { kind: m.kind, body: t?.body ?? null, name: t?.name ?? null, color: MARK_COLOR[m.kind], opacity: m.stale ? 0.4 : 1, dots: glyphOf(m.id), cell: nameCell };
+      });
+    return () => {
+      shotMarks.current = null;
+    };
+  }, [marks, nameCell, shotMarks]);
 
   useFrame((_, dt) => {
     if (relay.current) {
@@ -1850,6 +1864,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
+  const shotTake = useRef<TakeShot | null>(null);
+  const shotComposer = useRef<ComposerImpl | null>(null);
+  const shotMarks = useRef<(() => readonly ShotMark[]) | null>(null);
   // THE WALL opens at real speed: the shared rate is saved per origin, and a ×20 left behind from a rehearsal would
   // run the exhibition's world away (2026-10-31)
   useEffect(() => {
@@ -2949,6 +2966,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
         {v.seedsOn && (
+          <group userData={SHOT_SEEDS}>
           <Dandelions
             log={log}
             secPerUnit={c.secPerUnit}
@@ -3001,6 +3019,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
               jitter: { size: v.seedJitSize, shape: v.seedJitShape, dot: v.seedJitDot, spokes: v.seedJitSpokes, light: v.seedJitLight, dustCount: v.seedJitCount, dustReach: v.seedJitReach, dustSec: v.seedJitSec },
             }}
           />
+          </group>
         )}
         <SpaceWorld
           log={log}
@@ -3049,7 +3068,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.aa}`} multisampling={rnd.aa === "msaa8" ? 8 : rnd.aa === "msaa4smaa" ? 4 : 0}>
+          <EffectComposer ref={shotComposer} key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.aa}`} multisampling={rnd.aa === "msaa8" ? 8 : rnd.aa === "msaa4smaa" ? 4 : 0}>
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {(rnd.aa === "msaa4smaa" || rnd.aa === "smaa") && <SMAA />}
@@ -3061,10 +3080,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} shotMarks={shotMarks} />
           </Hud>
         )}
+        {!hideUi && <ShotRig take={shotTake} composer={shotComposer} marks={shotMarks} />}
       </Canvas>
+      {!hideUi && <ShotPanel take={shotTake} className={theme.text} />}
       {/* THE WALL (ui=0, the exhibition): no text at all — the readout is debugging (the artist, 2026-10-28); the TEST
           entry (no ui parameter) keeps it. The markers' names are patterns, on both (the artist, 2026-11-02). */}
       {!hideUi && (
