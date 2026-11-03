@@ -266,6 +266,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     pourUnit: { value: D.pourUnit, min: 1, max: 200, step: 1, label: "한 단 올리는 양 (worker·s)" },
     minVisitors: { value: D.minVisitors, min: 1, max: 12, step: 1, label: "생성에 필요한 서로 다른 방문자 수" },
     visitorCap: { value: D.visitorCap, min: 1, max: 120, step: 1, label: "방문자 1명이 한 칸에 낼 수 있는 최대 (worker·s)" },
+    playerWeight: { value: D.playerWeight, min: 1, max: 10, step: 0.5, label: "사람 기여 배수 (봇은 ×1, 상한도 같이)", render: v2 },
     maxHeight: { value: D.maxHeight, min: 1, max: 20, step: 1, label: "최대 높이 (단)" },
     tauSlabYears: { value: D.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
     tauFootprintYears: { value: D.tauFootprintYears, min: 100, max: 300000, step: 100, label: "기초 윤곽 마모 시간 (년)" },
@@ -288,7 +289,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
   const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order }) as unknown as Record<string, number>;
   const flowPath = place.flow?.path ?? `${root}.길 (V2 · 유지되는 유통량)`;
   const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: true, order: place.flow?.order, render: v2 }) as unknown as Record<string, number>;
-  const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
+  const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, playerWeight, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
   const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare } = f as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(
     () => ({
@@ -299,6 +300,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
       pourUnit,
       minVisitors,
       visitorCap,
+      playerWeight: isV2 ? playerWeight : 1,
       maxHeight,
       tauSlabYears,
       tauFootprintYears,
@@ -306,7 +308,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
       tauPathYears,
       flow: isV2 && flowOn ? { enabled: true, stayRadius, staySec, moveShare, tauSec, unit: flowUnit, blockAt, pull, gridShare } : undefined,
     }),
-    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears, isV2, flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare],
+    [D, radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, playerWeight, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears, isV2, flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare],
   );
 }
 

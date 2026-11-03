@@ -35,7 +35,7 @@ import { geoYears } from "@/lib/stratum/geoClock";
 import { FOLD_EPS, FOLD_MIN_ALPHA, FOLD_MIN_FOOT, rawHeightOf, type Region } from "./fold";
 import { MAX_STEP_SEC, flowP, stayShareOf, treadCells, type FlowConfig } from "./flow";
 import type { NatureConfig } from "./nature";
-import type { Contributor, FoldConfig, PathCell, PEvent, Slab, Snapshot } from "./types";
+import { presenceWeight, type Contributor, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 import { wrapCell, wrapCoord, wrapDelta, wrapDist } from "./world";
 
 const nkOf = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768);
@@ -235,6 +235,8 @@ export interface FoldStateStats {
 export class FoldState {
   private readonly lines = new Map<string, Line>();
   private readonly names: string[] = [];
+  /** What each owner's presence counts for, by the same index as `names`. */
+  private readonly weights: number[] = [];
   private readonly cells = new Map<number, Cell>();
   private readonly seen = new Set<string>();
   private F = -Infinity;
@@ -273,6 +275,7 @@ export class FoldState {
     if (!L) {
       L = { o: this.names.length, s: [], x: [], z: [], id: [], stay: [], settled: 0, lastTick: this.tick, lastCell: NaN };
       this.names.push(e.o);
+      this.weights.push(presenceWeight(e.o, this.cfg));
       this.lines.set(e.o, L);
     }
     const x = wrapCoord(e.x);
@@ -350,6 +353,7 @@ export class FoldState {
   clear(): void {
     this.lines.clear();
     this.names.length = 0;
+    this.weights.length = 0;
     this.cells.clear();
     this.seen.clear();
     this.F = -Infinity;
@@ -425,20 +429,22 @@ export class FoldState {
     const o = c.o[j];
     const dt = cfg.sampleSec;
     const cap = cfg.visitorCap;
+    const weight = this.weights[o];
     if (c.nuc < 0) {
       const prev = c.own.get(o) ?? 0;
       const next = prev + w * dt;
       c.own.set(o, next);
-      c.capped += Math.min(cap, next) - Math.min(cap, prev);
+      c.capped += weight * (Math.min(cap, next) - Math.min(cap, prev));
       while (s - c.s[c.lo] >= cfg.windowSec) {
         const p = c.own.get(c.o[c.lo]) ?? 0;
         const q = p - c.w[c.lo] * dt;
+        const m = this.weights[c.o[c.lo]];
         if (q <= FOLD_EPS) {
           c.own.delete(c.o[c.lo]);
-          c.capped -= Math.min(cap, p);
+          c.capped -= m * Math.min(cap, p);
         } else {
           c.own.set(c.o[c.lo], q);
-          c.capped += Math.min(cap, q) - Math.min(cap, p);
+          c.capped += m * (Math.min(cap, q) - Math.min(cap, p));
         }
         c.lo++;
       }
@@ -448,7 +454,7 @@ export class FoldState {
     const prev = c.total.get(o) ?? 0;
     const next = prev + w * dt;
     c.total.set(o, next);
-    c.mass += Math.min(cap, next) - Math.min(cap, prev);
+    c.mass += weight * (Math.min(cap, next) - Math.min(cap, prev));
     if (!c.first.has(o)) c.first.set(o, s);
     c.last.set(o, s);
     if (c.nuc >= 0) {
@@ -692,7 +698,7 @@ export class FoldState {
         if (foot >= FOLD_MIN_FOOT) {
           const raw = rawHeightOf(c.mass, cfg);
           const who: Contributor[] = [];
-          for (const [o, v] of c.total) who.push({ o: this.names[o], first: c.first.get(o)!, last: c.last.get(o)!, amount: Math.min(cfg.visitorCap, v) });
+          for (const [o, v] of c.total) who.push({ o: this.names[o], first: c.first.get(o)!, last: c.last.get(o)!, amount: this.weights[o] * Math.min(cfg.visitorCap, v) });
           slabs.push({
             key: c.key,
             x: c.x,

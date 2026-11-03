@@ -55,6 +55,12 @@ export interface FoldConfig {
   pourUnit: number;
   /** Most that ONE visitor can contribute to ONE cell (worker-seconds): a lone visitor cannot build alone. */
   visitorCap: number;
+  /**
+   * What a person's presence counts for against a bot's: what they put in and the most they can put in, both this many
+   * times, so that one person shows among the bots (the artist, 2026-11-03). It does not make them several people for
+   * `minVisitors`.
+   */
+  playerWeight: number;
   /** Distinct visitors that must have been in the ball (inside the time window) before a slab can nucleate. */
   minVisitors: number;
   maxHeight: number;
@@ -83,6 +89,7 @@ export const DEFAULT_FOLD: FoldConfig = {
   threshold: 36,
   pourUnit: 15,
   visitorCap: 15,
+  playerWeight: 1,
   minVisitors: 3,
   maxHeight: 6,
   sampleSec: 1,
@@ -92,6 +99,9 @@ export const DEFAULT_FOLD: FoldConfig = {
   tauPathYears: 3000,
   emptyGapSec: 30,
 };
+
+/** What a presence of `o` counts for (FoldConfig.playerWeight): a bot once. */
+export const presenceWeight = (o: string, cfg: FoldConfig): number => (o.startsWith("bot") ? 1 : cfg.playerWeight);
 
 
 export interface Slab {
