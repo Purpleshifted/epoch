@@ -21,7 +21,7 @@ import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
 import { Glyph } from "./Glyph";
 import { SlowGrain } from "./SlowGrain";
-import { SHOT_SEEDS, SHOT_VEGETATION, ShotPanel, ShotRig, type ShotMark, type TakeShot } from "./LandscapeShot";
+import { POINT_MIN, SHOT_SEEDS, SHOT_VEGETATION, ShotPanel, ShotRig, type ShotMark, type TakeShot } from "./LandscapeShot";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
 import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
@@ -100,17 +100,17 @@ const THEMES = {
  */
 function fadingPointsMaterial(): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ vertexColors: true, sizeAttenuation: true });
-  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 }, uSat: { value: 1 } };
+  const uniforms = { uFade0: { value: 2 }, uFade1: { value: 8 }, uJitter: { value: 0 }, uSat: { value: 1 }, uPointMin: POINT_MIN };
   m.userData.fade = uniforms;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nuniform float uJitter;\nvarying float vFade;")
+      .replace("#include <common>", "#include <common>\nuniform float uFade0;\nuniform float uFade1;\nuniform float uJitter;\nuniform float uPointMin;\nvarying float vFade;")
       .replace("#include <project_vertex>", "#include <project_vertex>\nvFade = smoothstep(uFade0, max(uFade0 + 1e-3, uFade1), -mvPosition.z);")
       // size jitter: a fixed factor per point, hashed from its position
       .replace(
         "#include <fog_vertex>",
-        "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));",
+        "#include <fog_vertex>\ngl_PointSize *= max(0.05, 1.0 + uJitter * (fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 2.0 - 1.0));\ngl_PointSize = max(gl_PointSize, uPointMin);",
       );
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nuniform float uSat;\nvarying float vFade;")
@@ -1216,6 +1216,7 @@ function FocusFollow({
   clickFocus,
   speed,
   resetTick,
+  status,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   target: THREE.Vector3;
@@ -1225,9 +1226,12 @@ function FocusFollow({
   speed: number;
   /** Changes when the focus should go back to the centre of the view. */
   resetTick: number;
+  /** A line of the rehearsal wall's readout: what the focus is on. */
+  status: RefObject<HTMLDivElement | null>;
 }) {
   const { gl, camera, scene } = useThree();
   const want = useRef<THREE.Vector3 | null>(null);
+  const onWhat = useRef("");
   useEffect(() => {
     want.current = null;
   }, [resetTick]);
@@ -1248,9 +1252,16 @@ function FocusFollow({
       if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return; // a drag orbits, it does not focus
       const r = el.getBoundingClientRect();
       ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+      // the bounds three kept from the last click: the world has grown since, and a ray outside them hits nothing
+      scene.traverse((o) => {
+        if (o instanceof THREE.InstancedMesh) o.boundingSphere = null;
+        const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+        if (g) g.boundingSphere = g.boundingBox = null;
+      });
       const hit = ray.intersectObjects(scene.children, true).find((h) => h.object.visible && !(h.object instanceof THREE.LineSegments) && !(h.object instanceof THREE.GridHelper));
       if (hit) {
         want.current = hit.point.clone();
+        onWhat.current = hit.object instanceof THREE.Points ? "클릭한 점" : "클릭한 부재";
         return;
       }
       // nothing there: the point on the ray at the orbit target's depth
@@ -1259,6 +1270,7 @@ function FocusFollow({
       const c = new THREE.Vector3(t.x, t.y, t.z);
       const depth = c.clone().sub(ray.ray.origin).dot(ray.ray.direction);
       want.current = ray.ray.at(Math.max(0.1, depth), new THREE.Vector3());
+      onWhat.current = "클릭한 곳에 아무것도 없음, 화면 중앙의 깊이";
     };
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointerup", onUp);
@@ -1272,6 +1284,10 @@ function FocusFollow({
     const goal = want.current ?? (t ? new THREE.Vector3(t.x, t.y, t.z) : null);
     if (goal) target.lerp(goal, 1 - Math.exp(-dt * speed));
     effect.current?.target?.copy(target);
+    if (status.current) {
+      const line = effect.current ? `초점: ${want.current ? onWhat.current : "화면 중앙"} · 카메라에서 ${Math.round(camera.position.distanceTo(target))}` : "";
+      if (status.current.textContent !== line) status.current.textContent = line;
+    }
   });
   return null;
 }
@@ -1901,6 +1917,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
   const camLink = useRef<CamLink>({ lift: null, focusY: null });
   const shotLine = useRef<HTMLDivElement | null>(null);
+  const focusLine = useRef<HTMLDivElement | null>(null);
   const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, fuseTris: 0, fuseResin: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
@@ -1996,7 +2013,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       "초점 · 시야": folder({
         dof: { value: false, label: "초점 흐림 (피사계 심도)" },
         clickFocus: { value: true, label: "클릭한 곳에 초점 (끄면 화면 중앙)" },
-        dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점이 맞는 깊이 (월드)" },
+        dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점 폭 (초점에서 이만큼 멀어지면 완전히 흐림, 월드)" },
         dofBokeh: { value: 4, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
         focusSpeed: { value: 4, min: 0.5, max: 20, step: 0.5, label: "초점 옮겨가는 속도" },
         "초점 초기화": button(() => setFocusResets((n) => n + 1)),
@@ -3078,7 +3095,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           local={lab}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
-        <FocusFollow controls={controls} target={focusTarget} effect={dofEffect} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} />
+        <FocusFollow controls={controls} target={focusTarget} effect={dofEffect} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} status={focusLine} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
         <StageCamera
           controls={controls}
@@ -3121,6 +3138,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
         <div ref={shotLine} />
+        <div ref={focusLine} />
         <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
         <div>
           {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · baked {stats.baked} chunk(s) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{perf ? " · PERF MODE" : ""}

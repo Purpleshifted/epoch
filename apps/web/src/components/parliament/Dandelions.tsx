@@ -12,6 +12,7 @@ import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
+import { POINT_MIN } from "./LandscapeShot";
 import { MAX_SPOKES, dandelionShape, dandelionsIn, headState, headVariation, latestS, scatterEndSec, scatterPoints, type Dandelion, type EventLog, type HeadLife, type Scatter, type SeedJitter } from "@/lib/parliament";
 
 const MAX_HEADS = 160;
@@ -33,11 +34,12 @@ const POINT_VERT = /* glsl */ `
   attribute float psize;
   attribute float light;
   uniform float scale;
+  uniform float pointMin;
   varying float vLight;
   void main() {
     vLight = light;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = max(1.0, psize * scale / -mv.z);
+    gl_PointSize = max(pointMin, psize * scale / -mv.z);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -64,7 +66,7 @@ function pointMaterial(scale: { value: number }, dim: number, opts: THREE.Shader
   return new THREE.ShaderMaterial({
     vertexShader: POINT_VERT,
     fragmentShader: POINT_FRAG,
-    uniforms: { scale, color: { value: new THREE.Color("#ffffff") }, opacity: { value: 1 }, dim: { value: dim }, soft: { value: 0 }, square: { value: 0 } },
+    uniforms: { scale, pointMin: POINT_MIN, color: { value: new THREE.Color("#ffffff") }, opacity: { value: 1 }, dim: { value: dim }, soft: { value: 0 }, square: { value: 0 } },
     fog: false,
     ...opts,
   });

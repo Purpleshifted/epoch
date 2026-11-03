@@ -16,6 +16,12 @@ import { GRAIN_CELL } from "./SlowGrain";
 
 export const SHOT_VEGETATION = { shot: "vegetation" };
 export const SHOT_SEEDS = { shot: "seeds" };
+/**
+ * The smallest a point is drawn, in the buffer's pixels. A GPU draws nothing smaller than one, and most of the vegetation
+ * is smaller than that on the screen, so one pixel is its look there: a picture keeps it as large as one of the screen's,
+ * or at 8K the points would cover a fifth of what they cover on the screen.
+ */
+export const POINT_MIN = { value: 1 };
 
 export interface ShotMark {
   kind: "me" | "bot" | "visitor";
@@ -129,6 +135,7 @@ function takeShot(state: RootState, composer: Composer | null, dof: DepthOfField
     // picture as on the screen
     const larger = canvas.width / (size.x * pixelRatio);
     GRAIN_CELL.value = larger;
+    POINT_MIN.value = larger;
     if (dof) {
       setBlurReach(dof, dof.bokehScale * larger);
       dof.blurPass.blurMaterial.scale = edgeBlur * larger;
@@ -176,6 +183,7 @@ function takeShot(state: RootState, composer: Composer | null, dof: DepthOfField
     for (const o of hidden) o.visible = true;
     gl.setPixelRatio(pixelRatio);
     GRAIN_CELL.value = 1;
+    POINT_MIN.value = 1;
     if (dof) {
       setBlurReach(dof, dof.bokehScale);
       dof.blurPass.blurMaterial.scale = edgeBlur;
@@ -249,7 +257,11 @@ export function ShotPanel({ take, className = "" }: { take: RefObject<TakeShot |
         };
         try {
           const picture = take.current?.(what);
-          if (!picture) return failed();
+          if (!picture) {
+            setNote("화면이 아직 준비되지 않았습니다");
+            setBusy(false);
+            return;
+          }
           picture.toBlob((blob) => {
             if (!blob) return failed();
             download(blob, shotName(picture, what));
