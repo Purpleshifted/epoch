@@ -27,7 +27,7 @@ import { worldReadout } from "@/lib/parliament/serverWorld";
 import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
 import { SPACE_FOLD, WALL_FLOW_GROUP, WALL_FOLD_GROUP } from "@/lib/parliament/wallRule";
 import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
-import type { EffectComposer as ComposerImpl } from "postprocessing";
+import type { DepthOfFieldEffect, EffectComposer as ComposerImpl } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
 import {
@@ -1212,12 +1212,15 @@ function SpaceWorld({
 function FocusFollow({
   controls,
   target,
+  effect,
   clickFocus,
   speed,
   resetTick,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   target: THREE.Vector3;
+  /** The effect only takes `target` once, when it is made; from here on it is told every frame. */
+  effect: RefObject<DepthOfFieldEffect | null>;
   clickFocus: boolean;
   speed: number;
   /** Changes when the focus should go back to the centre of the view. */
@@ -1267,8 +1270,8 @@ function FocusFollow({
   useFrame((_, dt) => {
     const t = controls.current?.target;
     const goal = want.current ?? (t ? new THREE.Vector3(t.x, t.y, t.z) : null);
-    if (!goal) return;
-    target.lerp(goal, 1 - Math.exp(-dt * speed));
+    if (goal) target.lerp(goal, 1 - Math.exp(-dt * speed));
+    effect.current?.target?.copy(target);
   });
   return null;
 }
@@ -1885,6 +1888,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const hideUi = demo || params.get("ui") === "0";
   const shotTake = useRef<TakeShot | null>(null);
   const shotComposer = useRef<ComposerImpl | null>(null);
+  const dofEffect = useRef<DepthOfFieldEffect | null>(null);
   const shotMarks = useRef<(() => readonly ShotMark[]) | null>(null);
   // THE WALL opens at real speed: the shared rate is saved per origin, and a ×20 left behind from a rehearsal would
   // run the exhibition's world away (2026-10-31)
@@ -3074,7 +3078,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           local={lab}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
-        <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} />
+        <FocusFollow controls={controls} target={focusTarget} effect={dofEffect} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} />
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
         <StageCamera
           controls={controls}
@@ -3090,7 +3094,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         {composerOn && (
           <EffectComposer ref={shotComposer} key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.aa}`} multisampling={rnd.aa === "msaa8" ? 8 : rnd.aa === "msaa4smaa" ? 4 : 0}>
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
-            {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
+            {v.dof && <DepthOfField ref={dofEffect} target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {(rnd.aa === "msaa4smaa" || rnd.aa === "smaa") && <SMAA />}
             {rnd.grain > 0 && <SlowGrain opacity={rnd.grain} rate={rnd.grainRate} />}
           </EffectComposer>
@@ -3103,7 +3107,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} leadSec={c.markerLead} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} shotMarks={shotMarks} />
           </Hud>
         )}
-        {!hideUi && <ShotRig take={shotTake} composer={shotComposer} marks={shotMarks} />}
+        {!hideUi && <ShotRig take={shotTake} composer={shotComposer} dof={dofEffect} marks={shotMarks} />}
       </Canvas>
       {!hideUi && <ShotPanel take={shotTake} className={theme.text} />}
       {/* THE WALL (ui=0, the exhibition): no text at all — the readout is debugging (the artist, 2026-10-28); the TEST

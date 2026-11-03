@@ -9,10 +9,14 @@ import { useEffect, useMemo } from "react";
 import { BlendFunction, Effect } from "postprocessing";
 import { Uniform, type WebGLRenderer, type WebGLRenderTarget } from "three";
 
+/** How many of the buffer's pixels one grain takes: 1, but for a picture larger than the screen (LandscapeShot). */
+export const GRAIN_CELL = new Uniform(1);
+
 const FRAGMENT = /* glsl */ `
 uniform float seed;
+uniform float cell;
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-  float n = fract(sin(dot(floor(uv * resolution), vec2(12.9898, 78.233)) + seed) * 43758.5453);
+  float n = fract(sin(dot(floor(uv * resolution / cell), vec2(12.9898, 78.233)) + seed) * 43758.5453);
   outputColor = vec4(min(inputColor.rgb * n, vec3(1.0)), inputColor.a);
 }
 `;
@@ -24,7 +28,10 @@ class SlowGrainEffect extends Effect {
   constructor() {
     super("SlowGrainEffect", FRAGMENT, {
       blendFunction: BlendFunction.SCREEN,
-      uniforms: new Map<string, Uniform>([["seed", new Uniform(0.37)]]),
+      uniforms: new Map<string, Uniform>([
+        ["seed", new Uniform(0.37)],
+        ["cell", GRAIN_CELL],
+      ]),
     });
   }
 
