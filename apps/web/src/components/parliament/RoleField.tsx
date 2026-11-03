@@ -281,6 +281,7 @@ export function RoleField({
     log.add(e);
     pending.current.push(e);
     if (o === me.current.id && k === "p") myEvents.current.push(e);
+    return e;
   };
 
   // ── emit presence and mirror to localStorage: world clock (worldClock.ts, may run faster than the wall clock) for
@@ -392,7 +393,7 @@ export function RoleField({
     if (answers && answers.current > answered.current) {
       answered.current = answers.current;
       const { x, z } = playerPosRef.current;
-      emit(me.current.id, "tree", "s", x, z, sMe);
+      relay.current?.head(emit(me.current.id, "tree", "s", x, z, sMe), epochMs.current);
       burst.current = { id: `${me.current.id}:${answers.current}`, x, y: BURST_Y, z, atMs: performance.now() };
     }
     const p = playerPosRef.current;

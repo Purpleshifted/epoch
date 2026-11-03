@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HEARD_MS, MarkerListener, MarkerSender, RelaySocket, markText, openMarkerListener, openMarkerSender, parseMark } from "./markerRelay";
+import { HEARD_MS, MarkerListener, MarkerSender, RelaySocket, markText, openMarkerListener, openMarkerSender, parseHead, parseMark } from "./markerRelay";
 
 class FakeSocket {
   readyState = 0;
@@ -131,14 +131,52 @@ describe("the visitor's side", () => {
     clock.now += 250;
     sender.tick({ ...place, x: 1.5 });
     expect(places(made[0]).length).toBe(2);
+    // the first tick standing still says so at once
     clock.now += 250;
-    sender.tick({ ...place, x: 1.5 });
-    clock.now += 250;
-    sender.tick({ ...place, x: 1.5 });
-    expect(places(made[0]).length).toBe(2);
-    clock.now += 500;
     sender.tick({ ...place, x: 1.5 });
     expect(places(made[0]).length).toBe(3);
+    clock.now += 250;
+    sender.tick({ ...place, x: 1.5 });
+    expect(places(made[0]).length).toBe(3);
+    clock.now += 750;
+    sender.tick({ ...place, x: 1.5 });
+    expect(places(made[0]).length).toBe(4);
+  });
+
+  it("a seed head goes at once and reaches the wall once, under its id in the record", () => {
+    const { made, make, read } = setup();
+    const sender = new MarkerSender(new RelaySocket("wss://x", () => {}, make, read), read, () => 900);
+    sender.tick(place);
+    made[0].open();
+    const e = { id: "v_abc12:t4x:7", o: "v_abc12", r: "tree" as const, k: "s" as const, x: 1.234, z: 5, s: 60.126 };
+    sender.head(e, EPOCH);
+    const text = made[0].sent[made[0].sent.length - 1];
+    expect(parseHead(text)).toEqual({ event: { ...e, x: 1.23, s: 60.13 }, epoch: EPOCH });
+    expect(parseMark(text)).toBeNull();
+
+    const wall = setup();
+    const listener = new MarkerListener("wss://x", wall.make, wall.read, () => String(EPOCH), () => 1000);
+    listener.drain();
+    wall.made[0].open();
+    wall.made[0].say(text);
+    expect(listener.drain()).toEqual([]);
+    expect(listener.drainHeads()).toEqual([{ ...e, x: 1.23, s: 60.13 }]);
+    expect(listener.drainHeads()).toEqual([]);
+  });
+
+  it("a seed head is believed only if it could be a visitor's, in this epoch", () => {
+    const line = { h: "v_abc12:t4x:7", o: "v_abc12", x: 1, z: 2, s: 3, e: EPOCH };
+    expect(parseHead(JSON.stringify(line))).not.toBeNull();
+    expect(parseHead(JSON.stringify({ ...line, h: "bot3:t4x:7", o: "bot3" }))).toBeNull();
+    expect(parseHead(JSON.stringify({ ...line, o: "v_other" }))).toBeNull();
+    expect(parseHead(JSON.stringify({ ...line, x: "1" }))).toBeNull();
+    expect(parseHead(markText(mark))).toBeNull();
+    const { made, make, read } = setup();
+    const listener = new MarkerListener("wss://x", make, read, () => String(EPOCH + 1), () => 1000);
+    listener.drain();
+    made[0].open();
+    made[0].say(JSON.stringify(line));
+    expect(listener.drainHeads()).toEqual([]);
   });
 
   it("turning on the spot is news too, and the place says when it left and how far the relay is", () => {
