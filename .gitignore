@@ -35,3 +35,6 @@ yarn-error.log*
 
 # Claude Code local config and session worktrees (per-folder, not shared)
 .claude/
+
+# motion poster renders
+poster-motion/out/
