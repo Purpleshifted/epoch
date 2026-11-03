@@ -598,11 +598,15 @@ export function compile(graph)
     // Return the audio output values
     if (audioOutId != null)
     {
-        addLine('return [' + outName(audioOutId, 0) + ', ' + outName(audioOutId, 1) + ']');
+        addLine('out[0] = ' + outName(audioOutId, 0));
+        addLine('out[1] = ' + outName(audioOutId, 1));
+        addLine('return out');
     }
     else
     {
-        addLine('return [0, 0]');
+        addLine('out[0] = 0');
+        addLine('out[1] = 0');
+        addLine('return out');
     }
 
     //console.log(src);

@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { NoiseCraftDriver } from "@/lib/sound/noisecraftDriver";
+import { NoiseCraftDriver, noteNcEvent } from "@/lib/sound/noisecraftDriver";
 import { PULSES_PER_BAR, PULSES_PER_STEP } from "@/lib/sound/noisecraftMap";
 import { DEFAULT_PATCH, loadPatchChoice } from "@/lib/sound/patchChoice";
 import type { SoundSetup } from "./useSound";
@@ -18,28 +18,37 @@ import type { SoundSetup } from "./useSound";
 /** The default patch; the bench's choice (patchChoice.ts) overrides it. */
 export const NC_PATCH = DEFAULT_PATCH;
 
-export default function NoiseCraftHost({ sound, live }: { sound: SoundSetup; live: boolean }) {
+/**
+ * `warm`: the frame before a life. The patch already runs there, unheard (the engine's master is shut until LIVE,
+ * muffleSound): the first start stops an iPhone's page for seconds, and over the notices nobody is walking.
+ */
+export default function NoiseCraftHost({ sound, live, warm = false }: { sound: SoundSetup; live: boolean; warm?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const { engine } = sound;
   const liveRef = useRef(live);
+  const warmRef = useRef(warm);
   const mutedRef = useRef(sound.muted);
   useEffect(() => {
     liveRef.current = live;
+    warmRef.current = warm;
     mutedRef.current = sound.muted;
-  }, [live, sound.muted]);
+  }, [live, warm, sound.muted]);
 
   useEffect(() => {
     if (!host.current) return;
     const driver = new NoiseCraftDriver({
       planFor: (bar) => engine.planFor(bar),
-      running: () => engine.running && (liveRef.current || engine.inAfterlife) && !mutedRef.current,
+      running: () => engine.running && (liveRef.current || warmRef.current || engine.inAfterlife) && !mutedRef.current,
       barSec: () => engine.musicBarSec(),
       onBar: (bar, wallMs) => engine.setGridAnchor(bar, wallMs),
       knobSources: () => engine.knobSources(),
       knobDepth: () => engine.currentParams.ncMapDepth,
     });
     // the patch plays into the engine (building dullness by ncDull, master, the lifespan's dulling)
-    driver.bridge.onStream = (s) => engine.attachNoiseCraft(s);
+    driver.bridge.onStream = (s) => {
+      noteNcEvent(s ? "stream" : "streamEnd");
+      engine.attachNoiseCraft(s);
+    };
     driver.mount(host.current, loadPatchChoice(), false, true);
     const id = setInterval(() => {
       const s = driver.status;

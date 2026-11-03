@@ -19,8 +19,19 @@ export class AudioGraph
         // Compiled code to generate audio samples
         this._genSample = null;
 
+        // The one array a sample is written into: no new array for each of 44,100 samples a second
+        this.out = [0, 0];
+
+        // A hidden instrument (QUIET) has no scopes or sequencers on screen: what is for the eye stays here.
+        // The patch's 12 scopes alone were 240 messages a second to a page that did nothing with them.
+        this.quiet = false;
+
         // Method to send messages to the main thread
-        this.send = send;
+        this.send = (msg) => {
+            if (this.quiet && (msg.type === 'SEND_SAMPLES' || msg.type === 'SET_CUR_STEP'))
+                return;
+            send(msg);
+        };
 
         // Stateful audio processing nodes, indexed by nodeId
         this.nodes = [];
@@ -75,6 +86,7 @@ export class AudioGraph
         this._genSample = new Function(
             'time',
             'nodes',
+            'out',
             unit.src
         );
     }
@@ -90,6 +102,10 @@ export class AudioGraph
         {
             case 'NEW_UNIT':
             this.newUnit(msg.unit);
+            break;
+
+            case 'QUIET':
+            this.quiet = true;
             break;
 
             case 'SET_PARAM':
@@ -135,10 +151,10 @@ export class AudioGraph
     genSample()
     {
         if (!this._genSample)
-            return [0, 0];
+            return this.out;
 
         this.playPos += 1 / 44100;
-        return this._genSample(this.playPos, this.nodes);
+        return this._genSample(this.playPos, this.nodes, this.out);
     }
 }
 

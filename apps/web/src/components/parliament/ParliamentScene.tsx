@@ -31,6 +31,7 @@ import NoiseCraftHost from "./NoiseCraftHost";
 import AfterglowSound from "@/components/sound/AfterglowSound";
 import { usePerfMeter, usePerfReport } from "./usePerfMeter";
 import { markerRelayReport } from "@/lib/parliament/markerRelay";
+import { ncPerfReading } from "@/lib/sound/noisecraftDriver";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { useTilt, type TiltState } from "./useTilt";
@@ -445,7 +446,7 @@ export default function ParliamentScene() {
   const sound = useSound({ escMute: !withSession });
   // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
   const perf = usePerfMeter(!hideChrome);
-  usePerfReport(() => ({ phase: session.phase, near: witnessRef.current?.others.length ?? null, far: witnessRef.current?.far.length ?? null, ...markerRelayReport() }));
+  usePerfReport(() => ({ phase: session.phase, near: witnessRef.current?.others.length ?? null, far: witnessRef.current?.far.length ?? null, ...markerRelayReport(), ...ncPerfReading() }));
   // a mute never carries over to the next visitor (sound wiring)
   useEffect(() => {
     if (sound?.muted) sound.toggleMute();
@@ -534,7 +535,7 @@ export default function ParliamentScene() {
         <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={session.lifeSec || lifeMaxSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
-      {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
+      {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} warm={withSession && (session.phase === "notice" || session.phase === "consent" || session.phase === "headset" || session.phase === "name")} />}
       {sound && withSession && <AfterglowSound sound={sound} />}
       {/* sound wiring: this window's ♪ switch — while LIVE only (the HUD owns the dark screens), top-right beside the HUD */}
       {sound && !hideChrome && (!withSession || session.phase === "live") && <SoundButton sound={sound} corner={withSession ? "top-right" : "bottom"} />}

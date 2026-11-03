@@ -38,9 +38,10 @@ class NCAudioWorklet extends AudioWorkletProcessor
         // For each sample to generate
         for (let i = 0; i < outChannel0.length; i++)
         {
-            let [leftVal, rightVal] = this.audioGraph.genSample();
-            outChannel0[i] = leftVal;
-            outChannel1[i] = rightVal;
+            // read by index: 44,100 times a second, on the audio thread, an array's iterator is not free
+            const out = this.audioGraph.genSample();
+            outChannel0[i] = out[0];
+            outChannel1[i] = out[1];
         }
 
         return true;

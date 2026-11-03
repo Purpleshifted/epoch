@@ -523,7 +523,13 @@
       // Hook into AudioView to expose audio nodes for spatial processing
       const originalPlayAudio = audioView.playAudio.bind(audioView);
       audioView.playAudio = async function (state) {
+        // a hidden instrument keeps its context from life to life (see stopAudio below): it only goes on again
+        if (hiddenView && audioView.audioCtx) {
+          audioView.audioCtx.resume();
+          return;
+        }
         await originalPlayAudio(state);
+        if (hiddenView) audioView.send({ type: "QUIET" });
 
         // Create MediaStreamDestination to capture audio for spatial processing
         if (
@@ -581,6 +587,12 @@
 
       const originalStopAudio = audioView.stopAudio.bind(audioView);
       audioView.stopAudio = function () {
+        // an iPhone stopped the whole page for 10 s and more around each life's start and end (2026-11-03, ?perf=1), and
+        // those are when a context and its stream into the parent were made and closed. So it is paused, not closed.
+        if (hiddenView && audioView.audioCtx) {
+          audioView.audioCtx.suspend();
+          return;
+        }
         if (mediaStreamDestination) {
           try {
             if (audioWorkletNode) {

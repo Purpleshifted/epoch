@@ -50,6 +50,29 @@ export interface DriverStatus {
 const TICK_MS = 250;
 const FALLBACK_BAR_MS = 2000;
 
+/** Since the last reading: the clock pulses, the audio time they span, the wall time they took, the longest wait between two. */
+const pulseTally = { n: 0, audioFrom: 0, audioTo: 0, wallFrom: 0, wallTo: 0, maxGapMs: 0 };
+
+/**
+ * For `?perf=1` (usePerfReport): whether the patch's audio keeps up. `ncAudioPerWall` under 1: the audio thread makes less
+ * than it should (too much to compute). About 1 with a long `ncMaxGapMs`: the audio was on time and the page was stopped.
+ */
+export function ncPerfReading(): { ncPulses: number; ncAudioPerWall: number | null; ncMaxGapMs: number; ncEvents: string[]; pageSec: number } {
+  const t = pulseTally;
+  const wall = (t.wallTo - t.wallFrom) / 1000;
+  const reading = { ncPulses: t.n, ncAudioPerWall: t.n > 0 && wall > 0 ? Math.round(((t.audioTo - t.audioFrom) / wall) * 1000) / 1000 : null, ncMaxGapMs: Math.round(t.maxGapMs), ncEvents: ncEvents.splice(0), pageSec: Math.round(performance.now() / 100) / 10 };
+  t.n = 0;
+  t.maxGapMs = 0;
+  return reading;
+}
+
+const ncEvents: string[] = [];
+
+/** When the patch was started, paused and joined to the engine (page seconds), to set beside the page's stops in `?perf=1`. */
+export function noteNcEvent(name: string): void {
+  if (ncEvents.length < 40) ncEvents.push(`${name}@${(performance.now() / 1000).toFixed(1)}`);
+}
+
 export class NoiseCraftDriver {
   readonly bridge: NoiseCraftBridge;
   private pulses = -1;
@@ -109,6 +132,14 @@ export class NoiseCraftDriver {
 
   /** `pulseTime` is the patch's AUDIO time (s): the rate is measured on it, not on when the message arrived. */
   private onPulse(pulseTime: number): void {
+    const wall = performance.now();
+    if (pulseTally.n === 0) {
+      pulseTally.audioFrom = pulseTime;
+      pulseTally.wallFrom = wall;
+    } else pulseTally.maxGapMs = Math.max(pulseTally.maxGapMs, wall - pulseTally.wallTo);
+    pulseTally.n++;
+    pulseTally.audioTo = pulseTime;
+    pulseTally.wallTo = wall;
     this.clocked = true;
     this.pulses++;
     this.pulseTimes.push(pulseTime);
@@ -147,6 +178,7 @@ export class NoiseCraftDriver {
     if (should !== this.wantPlay) {
       this.wantPlay = should;
       if (this.bridge.loaded) {
+        noteNcEvent(should ? "play" : "stop");
         if (should) this.bridge.play();
         else this.bridge.stop();
       }
