@@ -57,7 +57,7 @@ export class NoiseCraftBridge {
   public onProjectLoaded?: () => void;
   public onStatus?: (status: NoiseCraftAudioStatus) => void;
   /** The embed's output as a MediaStream (null when it stops): the engine takes it into its own bus. */
-  public onStream?: (stream: MediaStream | null) => void;
+  public onStream?: (stream: MediaStream | AudioNode | null) => void;
   /** A node was clicked in the editor (umwelt used it to auto-fill a mapping; the workspace shows its rule). */
   public onNodeClicked?: (nodeId: string) => void;
   /** The embed saved (or failed to save) the patch file — auto-save or the bench's 저장 button (`manual`). */
@@ -179,6 +179,12 @@ export class NoiseCraftBridge {
         this.tryConnectAnalyser();
         this.onStream?.(this.stream);
         break;
+      case "noiseCraft:audioNodeReady": {
+        // the patch's worklet, made in the context the parent lent it (__ncSharedContext): no stream between them
+        const w = this.iframe?.contentWindow as (Window & { noiseCraftNode?: AudioNode }) | null | undefined;
+        this.onStream?.(w?.noiseCraftNode ?? null);
+        break;
+      }
       case "noiseCraft:audioStreamStopped":
         this.disconnectAnalyser();
         this.onStream?.(null);

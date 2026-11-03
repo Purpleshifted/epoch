@@ -49,6 +49,12 @@ export interface DriverStatus {
 
 const TICK_MS = 250;
 const FALLBACK_BAR_MS = 2000;
+/** A pulse this much later than the patch's clock says it should be has been waiting for the page. */
+const STALE_PULSE_MS = 400;
+/** Closer than this after the last one: still arriving in a heap. */
+const PULSE_HEAP_MS = 5;
+/** Late, yet this many came at their own pace: the clocks have moved apart, it is no backlog. */
+const LATE_AT_OWN_PACE = 24;
 
 /** Since the last reading: the clock pulses, the audio time they span, the wall time they took, the longest wait between two. */
 const pulseTally = { n: 0, audioFrom: 0, audioTo: 0, wallFrom: 0, wallTo: 0, maxGapMs: 0 };
@@ -84,6 +90,9 @@ export class NoiseCraftDriver {
   private wantPlay = false;
   private pulseTimes: number[] = [];
   private barSecSent = 0;
+  /** The least a pulse has been behind the wall clock so far (ms), and how many were late at their own pace since. */
+  private leastLag = Number.POSITIVE_INFINITY;
+  private lateAtPace = 0;
   private source: DriverSource;
   /** The patch's real-time knobs (v4 A5a). */
   readonly knobs = new KnobMapper();
@@ -133,11 +142,21 @@ export class NoiseCraftDriver {
   /** `pulseTime` is the patch's AUDIO time (s): the rate is measured on it, not on when the message arrived. */
   private onPulse(pulseTime: number): void {
     const wall = performance.now();
+    const sinceLast = wall - pulseTally.wallTo;
     if (pulseTally.n === 0) {
       pulseTally.audioFrom = pulseTime;
       pulseTally.wallFrom = wall;
-    } else pulseTally.maxGapMs = Math.max(pulseTally.maxGapMs, wall - pulseTally.wallTo);
+    } else pulseTally.maxGapMs = Math.max(pulseTally.maxGapMs, sinceLast);
     pulseTally.n++;
+    // the page stood still and the audio did not: what it missed comes all at once. Those pulses are counted, but they
+    // send no bars: a sequence for every bar it missed, one after the other, is the patch rushing through them
+    const lag = wall - pulseTime * 1000;
+    let stale = lag - this.leastLag > STALE_PULSE_MS;
+    if (stale && sinceLast >= PULSE_HEAP_MS && ++this.lateAtPace >= LATE_AT_OWN_PACE) stale = false;
+    if (!stale) {
+      this.leastLag = lag < this.leastLag || this.lateAtPace >= LATE_AT_OWN_PACE ? lag : this.leastLag;
+      this.lateAtPace = 0;
+    }
     pulseTally.audioTo = pulseTime;
     pulseTally.wallTo = wall;
     this.clocked = true;
@@ -150,7 +169,7 @@ export class NoiseCraftDriver {
       this.source.onBar?.(0, Date.now());
     }
     // the last pulse before the next bar: send it now so AI_Seq reads it from step 0; the bar starts one pulse on
-    if (this.pulses % PULSES_PER_BAR === PULSES_PER_BAR - 1) {
+    if (!stale && this.pulses % PULSES_PER_BAR === PULSES_PER_BAR - 1) {
       const bar = Math.floor(this.pulses / PULSES_PER_BAR) + 1;
       this.sendBar(bar);
       this.source.onBar?.(bar, Date.now() + period);
@@ -179,6 +198,8 @@ export class NoiseCraftDriver {
       this.wantPlay = should;
       if (this.bridge.loaded) {
         noteNcEvent(should ? "play" : "stop");
+        this.leastLag = Number.POSITIVE_INFINITY; // its clock stood still while it was paused
+        this.lateAtPace = 0;
         if (should) this.bridge.play();
         else this.bridge.stop();
       }

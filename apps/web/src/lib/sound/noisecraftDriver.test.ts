@@ -44,6 +44,53 @@ describe("the driver: the music clock goes in, the phase comes out", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("the page stood still and the pulses come in a heap: they send no bar each, the patch does not rush", () => {
+    const b = fakeBridge();
+    const bars: number[] = [];
+    const d = new NoiseCraftDriver({ planFor: aPlan, running: () => true, barSec: () => 2, onBar: (bar) => bars.push(bar) }, b);
+    let wall = 1000;
+    const now = vi.spyOn(performance, "now").mockImplementation(() => wall);
+    let audio = 0;
+    const pulse = (gapMs: number) => {
+      wall += gapMs;
+      audio += 2 / PULSES_PER_BAR;
+      b.onClockPulse!("n", audio);
+    };
+    // two bars on time
+    for (let i = 0; i < 2 * PULSES_PER_BAR; i++) pulse((2 / PULSES_PER_BAR) * 1000);
+    expect(bars).toEqual([0, 1, 2]);
+    // 10 s stopped: the audio went on, 5 bars' pulses all arrive at once
+    wall += 10_000;
+    for (let i = 0; i < 5 * PULSES_PER_BAR; i++) pulse(0);
+    // of the five it missed only the newest, the bar the patch is in now, goes out
+    expect(bars).toEqual([0, 1, 2, 7]);
+    // caught up: the bars go on from where the patch is
+    for (let i = 0; i < 2 * PULSES_PER_BAR; i++) pulse((2 / PULSES_PER_BAR) * 1000);
+    expect(bars).toEqual([0, 1, 2, 7, 8, 9]);
+    d.dispose();
+    now.mockRestore();
+  });
+
+  it("late for good, at their own pace (the clocks moved apart): the bars go on after a moment", () => {
+    const b = fakeBridge();
+    const bars: number[] = [];
+    const d = new NoiseCraftDriver({ planFor: aPlan, running: () => true, barSec: () => 2, onBar: (bar) => bars.push(bar) }, b);
+    let wall = 1000;
+    const now = vi.spyOn(performance, "now").mockImplementation(() => wall);
+    let audio = 0;
+    const pulse = () => {
+      wall += (2 / PULSES_PER_BAR) * 1000;
+      audio += 2 / PULSES_PER_BAR;
+      b.onClockPulse!("n", audio);
+    };
+    pulse();
+    wall += 3000; // the wall clock jumped once; every pulse from here is 3 s "late", evenly spaced
+    for (let i = 0; i < 3 * PULSES_PER_BAR; i++) pulse();
+    expect(bars.length).toBeGreaterThanOrEqual(3);
+    d.dispose();
+    now.mockRestore();
+  });
+
   it("sends the clock once per change, plays and stops with the source, and never any other parameter", () => {
     const b = fakeBridge();
     let barSec = 2;

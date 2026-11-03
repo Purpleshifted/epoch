@@ -202,6 +202,22 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     };
   }, [engine, toggleMute]);
 
+  // out of sight or gone: no sound, and nothing left running in the phone's audio (closing a tab did not end it, 2026-11-03)
+  useEffect(() => {
+    if (!engine) return;
+    const seen = () => {
+      if (document.hidden) engine.sleep();
+      else if (onRef.current && !muted.current) engine.wake();
+    };
+    const gone = () => engine.sleep();
+    document.addEventListener("visibilitychange", seen);
+    window.addEventListener("pagehide", gone);
+    return () => {
+      document.removeEventListener("visibilitychange", seen);
+      window.removeEventListener("pagehide", gone);
+    };
+  }, [engine]);
+
   useEffect(() => {
     if (!engine) return;
     if (on && !muted.current) engine.start().catch(() => {}); // no-op until a gesture has unlocked the context

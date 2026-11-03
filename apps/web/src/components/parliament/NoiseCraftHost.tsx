@@ -49,6 +49,9 @@ export default function NoiseCraftHost({ sound, live, warm = false }: { sound: S
       noteNcEvent(s ? "stream" : "streamEnd");
       engine.attachNoiseCraft(s);
     };
+    // the patch runs in the engine's own context; the embed asks for it when it first plays
+    const page = window as unknown as { __ncSharedContext?: () => AudioContext | null };
+    page.__ncSharedContext = () => engine.audioContext;
     driver.mount(host.current, loadPatchChoice(), false, true);
     const id = setInterval(() => {
       const s = driver.status;

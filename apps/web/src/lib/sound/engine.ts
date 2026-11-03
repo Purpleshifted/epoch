@@ -301,7 +301,7 @@ export class SoundEngine {
   /** The long open space my motif is sent into (motifVerb). */
   private space!: GainNode;
   /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
-  private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
+  private nc: { source: AudioNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
   /** The path's heartbeat: a soft clip for weight, then dry, and the hall's room darkened by bassSpread. */
   private bassSpread!: GainNode;
   private noise!: AudioBuffer;
@@ -460,7 +460,7 @@ export class SoundEngine {
    * The NoiseCraft patch's output (out=parent: its MediaStream) into this engine: its own low-pass (the building's
    * dullness by ncDull) → the master (level, mute, the lifespan's dulling). null = detach.
    */
-  attachNoiseCraft(stream: MediaStream | null): void {
+  attachNoiseCraft(stream: MediaStream | AudioNode | null): void {
     const ctx = this.ctx;
     if (this.nc) {
       try {
@@ -473,7 +473,8 @@ export class SoundEngine {
       this.nc = null;
     }
     if (!stream || !ctx) return;
-    const source = ctx.createMediaStreamSource(stream);
+    // its worklet in this context, or (the fallback, the bench) a stream from its own; `instanceof` fails across the iframe
+    const source = "getTracks" in stream ? ctx.createMediaStreamSource(stream) : stream;
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
     filter.frequency.value = this.params.lpOpen;
@@ -538,7 +539,8 @@ export class SoundEngine {
     if (!this.ctx) {
       // "playback": a larger output buffer — the artist heard glitches when the hall opened on an arrival; this piece
       // needs headroom, not low latency (v4 A5)
-      const ctx = new AudioContext({ latencyHint: "playback" });
+      // 44.1 kHz: the rate the NoiseCraft patch is written for, and it runs in this context (attachNoiseCraft)
+      const ctx = new AudioContext({ latencyHint: "playback", sampleRate: 44100 });
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = 0;
@@ -702,6 +704,21 @@ export class SoundEngine {
       this.magentaState = "loading";
       setTimeout(() => this.magenta.load().then((ok) => (this.magentaState = ok ? "ready" : "failed")), MAGENTA_AFTER_MS);
     }
+  }
+
+  /** The context the patch's worklet joins (NoiseCraftHost); null before the first start. */
+  get audioContext(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /** The page is out of sight or going away: nothing here keeps sounding, or keeps the phone's audio busy. */
+  sleep(): void {
+    void this.ctx?.suspend();
+  }
+
+  /** Back in sight (a browser may still want a gesture: start() on the next touch does it then). */
+  wake(): void {
+    if (this.ctx && this.timer) void this.ctx.resume();
   }
 
   /** Silence and stop scheduling (the context stays, so a later start() is instant). */
