@@ -35,6 +35,7 @@ import {
   pickOffset,
   saveMerged,
   setKeepFrom,
+  gatheringIn,
   observe,
   sessionSeconds,
   SESSION_ROLES,
@@ -442,7 +443,7 @@ export function RoleField({
           t: lifeRef?.current.t ?? 0,
           words: wordsRef.current,
           alive,
-          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS },
+          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS, buildNeeds: cfg.minVisitors },
         });
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
         // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
@@ -463,6 +464,7 @@ export function RoleField({
             natureCfg,
             flow: cfg.flow?.enabled ? cfg.flow : null,
             nearCount: obs.others.filter((o) => o.dist <= cfg.radius).length,
+            gathering: gatheringIn(obs.far, p, playerYawRef?.current ?? 0, 2 * cfg.radius),
             trail: trail.current,
             cfg: ledgerCfg,
             prev: ledgerRef.current,

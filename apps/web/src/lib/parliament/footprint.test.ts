@@ -9,7 +9,10 @@ const ledger = (cells: LedgerCell[], trail: { x: number; z: number; t: number }[
   t: 0, sNow: 0, sStart: 0, cells: new Map(cells.map((c) => [c.key, c])), trail, walkedM: 0,
   grass: { pressed: 0, recovered: 0, underPaths: 0, underSlabs: 0, cells: 0 },
   ground: { cells: 0, newPath: 0, prePath: 0, prePathVisits: 0 },
-  concrete: { cells: 0, mine: 0, total: 0, with: [], firstT: null, underMe: false },
+  concrete: { cells: 0, mine: 0, total: 0, with: [], firstT: null, underMe: false, fresh: [], freshHere: false },
+  passing: null,
+  nearNow: 0,
+  gathering: null,
   world: { pathCells: 0, slabCells: 0, pathTrodden: 0 },
   alone: { since: null, longest: 0 },
 });

@@ -22,7 +22,9 @@ import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
-import { savable } from "./levaSave";
+import { WALL_PAGE, savable, savedOf } from "./levaSave";
+import { WALL_FLOW_GROUP, WALL_FOLD_GROUP, followWallRule } from "@/lib/parliament/wallRule";
+import { serverWorldName } from "@/lib/parliament/serverWorld";
 import { useSound } from "./useSound";
 import SoundButton from "./SoundButton";
 import NoiseCraftHost from "./NoiseCraftHost";
@@ -423,7 +425,10 @@ export default function ParliamentScene() {
   );
   const withSession = isV2 && sessionOn;
   const lang: Lang = asLang(langParam, levaLang);
-  const cfg = useFoldControls();
+  // in the shared world a visitor goes by the rule the wall has saved (wallRule.ts): this page's sliders are not used then
+  const [wallSaved] = useState(() => (serverWorldName() ? { fold: savedOf(WALL_PAGE, WALL_FOLD_GROUP), flow: savedOf(WALL_PAGE, WALL_FLOW_GROUP) } : null));
+  const ownRule = useFoldControls(undefined, wallSaved ? { folder: "회사원 규칙 (쓰이지 않음: 벽의 저장값을 따름)" } : {});
+  const cfg = useMemo(() => (wallSaved ? followWallRule(ownRule, wallSaved.fold, wallSaved.flow) : ownRule), [ownRule, wallSaved]);
   // how many others are near right now (the record's NEAR radius = the fold's presence radius): company makes
   // stopping living less likely (intake.ts selfChance)
   const nearRadius = cfg.radius;

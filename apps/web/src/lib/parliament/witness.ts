@@ -51,6 +51,7 @@ export type LogKey =
   | "ground.prePath"
   | "path.formed"
   | "concrete.share"
+  | "concrete.passed"
   | "sealed.under"
   | "alone.long";
 
@@ -66,6 +67,8 @@ export interface LogArgs {
   forSec?: number;
   near?: number;
   n?: number;
+  /** How many a house takes (the wall's rule). */
+  need?: number;
   pct?: number;
   sec?: number;
   with?: Who[];
@@ -132,6 +135,8 @@ export interface Observation {
   far: Other[];
   /** Whose word (dandelion.ts wordSpots) is within `wordRadius` now. */
   wordsNear: string[];
+  /** How many a house takes (absent: the record's own `buildNeeds`). */
+  buildNeeds?: number;
 }
 
 export interface WitnessConfig {
@@ -161,8 +166,10 @@ export interface WitnessConfig {
   wordRadius: number;
   /** At most one word line every this many seconds. */
   wordGapSec: number;
-  /** Staying with someone else who stays for this long (s) = building together. */
+  /** Staying with someone else who stays for this long (s) = an ensemble. */
   ensembleSec: number;
+  /** How many different people a house takes (the fold's minVisitors). */
+  buildNeeds: number;
   /** While someone stays near, they ask something every this many seconds… */
   askEverySec: number;
   /** … and the question stays open for an answer this long. */
@@ -184,6 +191,7 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   wordRadius: 3,
   wordGapSec: 12,
   ensembleSec: 3,
+  buildNeeds: 3,
   askEverySec: 16,
   askOpenSec: 7,
 };
@@ -193,6 +201,38 @@ const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 export function bearingOf(dx: number, dz: number): string {
   const a = Math.atan2(dx, dz); // 0 = +z
   return COMPASS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+}
+
+/** Where something lies for someone looking along their heading. */
+export type Side = "front" | "frontRight" | "right" | "backRight" | "back" | "backLeft" | "left" | "frontLeft";
+const SIDES: Side[] = ["front", "frontRight", "right", "backRight", "back", "backLeft", "left", "frontLeft"];
+
+/** `yaw`: the player's heading (forward = (sin, cos), right = (−cos, sin); ParliamentScene). */
+export function sideOf(dx: number, dz: number, yaw: number): Side {
+  const fwd = dx * Math.sin(yaw) + dz * Math.cos(yaw);
+  const rgt = -dx * Math.cos(yaw) + dz * Math.sin(yaw);
+  return SIDES[((Math.round(Math.atan2(rgt, fwd) / (Math.PI / 4)) % 8) + 8) % 8];
+}
+
+export interface Gathering {
+  /** How many stand together, and where they are from here. */
+  n: number;
+  side: Side;
+}
+
+/** The most people standing together within sight, the nearest such group if several: where to go, for someone alone. */
+export function gatheringIn(far: readonly Other[], me: { x: number; z: number }, yaw: number, radius: number): Gathering | null {
+  let best: Other | null = null;
+  let most = 0;
+  for (const a of far) {
+    let n = 0;
+    for (const b of far) if (wrapDist(a.x, a.z, b.x, b.z) <= radius) n++;
+    if (n > most) {
+      most = n;
+      best = a;
+    }
+  }
+  return best && { n: most, side: sideOf(wrapDelta(best.x - me.x), wrapDelta(best.z - me.z), yaw) };
 }
 
 export interface ObserveInputs {
@@ -279,7 +319,7 @@ export function observe(inp: ObserveInputs): Observation {
   }
   const speed = Math.hypot(me.vx, me.vz);
   const wordsNear = (inp.words ?? []).filter((w) => wrapDist(w.x, w.z, me.x, me.z) <= cfg.wordRadius).map((w) => w.o);
-  return { me: me.id, t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, far, wordsNear };
+  return { me: me.id, t: inp.t, moving: speed > cfg.moveSpeed, speed, surface, others, far, wordsNear, buildNeeds: cfg.buildNeeds };
 }
 
 /** A state that is only taken over once a new value has held for `settleSec`. */
@@ -339,6 +379,9 @@ export class WitnessLog {
   /** What someone has asked and not yet had an answer to. */
   private question: { who: Who; t: number } | null = null;
   private ensemble: Settled<boolean> | null = null;
+  /** How many are gathered, settled, and the most this ensemble has said so far. */
+  private gathered: Settled<number> | null = null;
+  private toldGathered = 0;
   private isDying = false;
   private watched = false;
   private worded = new Set<string>();
@@ -462,13 +505,22 @@ export class WitnessLog {
       this.near.delete(o);
       w("gone", { who: { o, r: st.r }, forSec: st.missing - st.since, dots: glyphOf(o) });
     }
-    // building together: I stay, and someone near stays too, for a moment
-    const together = !obs.moving && [...this.near.values()].some((st) => st.missing === null && !st.moving.value);
+    // an ensemble: I stay, and someone near stays too, for a moment. It says how many there are and how many a house takes
+    const staying = [...this.near.values()].filter((st) => st.missing === null && !st.moving.value).length;
+    const together = !obs.moving && staying > 0;
     if (!this.ensemble) this.ensemble = new Settled(false, obs.t);
+    if (!this.gathered) this.gathered = new Settled(staying + 1, obs.t);
+    this.gathered.feed(staying + 1, obs.t, settleSec);
+    const need = obs.buildNeeds ?? this.cfg.buildNeeds;
     const startedAt = this.ensemble.since;
     if (this.ensemble.feed(together, obs.t, this.cfg.ensembleSec)) {
-      if (this.ensemble.value) w("ensemble.start", {}, 2);
-      else w("ensemble.end", { forSec: this.ensemble.since - startedAt }, 0);
+      if (this.ensemble.value) {
+        this.toldGathered = Math.max(2, this.gathered.value);
+        w("ensemble.start", { n: this.toldGathered, need }, 2);
+      } else w("ensemble.end", { forSec: this.ensemble.since - startedAt }, 0);
+    } else if (this.ensemble.value && this.gathered.value > this.toldGathered) {
+      this.toldGathered = this.gathered.value;
+      w("ensemble.start", { n: this.toldGathered, need }, 2);
     }
     // group life, and the new word a long contact gives (one line at a time)
     for (const [o, st] of this.near) {

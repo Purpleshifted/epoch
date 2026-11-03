@@ -24,6 +24,7 @@ import { SlowGrain } from "./SlowGrain";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
 import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
+import { SPACE_FOLD, WALL_FLOW_GROUP, WALL_FOLD_GROUP } from "@/lib/parliament/wallRule";
 import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
@@ -129,8 +130,6 @@ const KIND_COLOR: Record<PartKind, string> = {
   basement: "#9fa3a8",
   pile: "#7f848a",
 };
-/** The 3D view's own defaults for the worker rule (tuned on screen 2026-10-07); the player view keeps DEFAULT_FOLD. */
-const SPACE_FOLD = { radius: 2.75, threshold: 40, pourUnit: 111, minVisitors: 4, visitorCap: 20, maxHeight: 18, tauFootprintYears: 2000, emptyGapSec: 20 };
 /** V2 weathering defaults: the whole life of a part fits in the kept history window (see the 풍화 · 지층 Leva). */
 const V2_ROT_DOSE = 3;
 const V2_TIME_SCALE = 0.4;
@@ -2309,11 +2308,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // ── 길 → 다리 (V2): the ground (buildings and trodden paths, first comes first) → walkways between buildings ──
   const WALK_GROUP = "길 → 다리";
   const fold = useFoldControls(SPACE_FOLD, {
-    folder: "생성 규칙 (회사원 시공간 밀집)",
+    folder: WALL_FOLD_GROUP,
     collapsed: true,
     order: lab ? 8 : 2,
     flow: {
-      path: `${WALK_GROUP}.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)`,
+      path: WALL_FLOW_GROUP,
       order: 1,
       legacy: [`${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, "생성 규칙 (회사원 시공간 밀집)"],
     },

@@ -86,6 +86,15 @@ function load(key: string): Record<string, unknown> | null {
   return v;
 }
 
+/** The wall's page: the phone reads its building rule (lib/parliament/wallRule.ts, ServerPresetsGate). */
+export const WALL_PAGE = "/v2/global/space";
+
+/** What is saved for a group of another page; null when nothing is, or in the defaults-only mode. */
+export function savedOf(page: string, group: string): Record<string, unknown> | null {
+  if (typeof window === "undefined" || presetsDefault()) return null;
+  return load(`${PREFIX}:${page}:${group}`);
+}
+
 /**
  * Every saved Leva group on this machine (all pages), the bundled preset underneath, as one JSON object keyed by
  * storage key — what the artist copies from the machine where the values were tuned.

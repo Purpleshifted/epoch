@@ -124,6 +124,32 @@ describe("the ledger of one life", () => {
     let l = read(null, all, 41, 40, 3);
     l = read(l, all, 43, 40, 3);
     expect(l.concrete.cells).toBe(0);
+    expect(l.concrete.fresh).toEqual([]);
+  });
+
+  it("a house going up is told from one that stands already", () => {
+    const three = (t0: number, secs: number) => [...stand(ME, 0.3, 0.3, t0, secs), ...stand("bot1", 0.6, 0.3, t0, secs), ...stand("bot2", 0.3, 0.6, t0, secs)];
+    // going up now: with my weight, and young
+    let now = read(null, three(0, 40), 40, 0, 2);
+    now = read(now, three(0, 40), 42, 0, 2);
+    expect(now.concrete.fresh.length).toBeGreaterThanOrEqual(1);
+    expect(now.concrete.freshHere).toBe(true);
+    expect(now.nearNow).toBe(2);
+    expect(now.passing).toBeNull();
+    // long after, others' house: I only pass over it
+    const built = ["bot1", "bot2", "bot3"].flatMap((o, i) => stand(o, 0.3 + i * 0.1, 0.3, 0, 40));
+    const all = [...built, ...stand(ME, 0.3, 0.3, 400, 2)];
+    const later = read(null, all, 401, 400, 0);
+    expect(later.passing).not.toBeNull();
+    expect(later.passing!.agoSec).toBeGreaterThan(DEFAULT_LEDGER.freshSec);
+    expect(later.concrete.fresh).toEqual([]);
+    // my own weight in a house that is no longer young: neither going up, nor someone else's
+    const mine = [...three(0, 40), ...stand(ME, 0.3, 0.3, 400, 2)];
+    let own = read(null, mine, 400, 0, 0);
+    own = read(own, mine, 402, 0, 0);
+    expect(own.concrete.cells).toBeGreaterThanOrEqual(1);
+    expect(own.concrete.fresh).toEqual([]);
+    expect(own.passing).toBeNull();
   });
 
   it("an empty life", () => {
@@ -142,7 +168,10 @@ describe("the watch: held, one line at a time, the important first", () => {
     walkedM: 0,
     grass: { pressed: 0, recovered: 0, underPaths: 0, underSlabs: 0, cells: 0 },
     ground: { cells: 0, newPath: 0, prePath: 0, prePathVisits: 0 },
-    concrete: { cells: 0, mine: 0, total: 0, with: [], firstT: null, underMe: false },
+    concrete: { cells: 0, mine: 0, total: 0, with: [], firstT: null, underMe: false, fresh: [], freshHere: false },
+    passing: null,
+    nearNow: 0,
+    gathering: null,
     world: { pathCells: 0, slabCells: 0, pathTrodden: 0 },
     alone: { since: null, longest: 0 },
     ...over,
@@ -166,12 +195,13 @@ describe("the watch: held, one line at a time, the important first", () => {
       base(t, {
         grass: { pressed: 2, recovered: 0, underPaths: 0, underSlabs: 0, cells: 3 },
         ground: { cells: 12, newPath: 2, prePath: 0, prePathVisits: 0 },
-        concrete: { cells: 1, mine: 5, total: 15, with: ["bot1"], firstT: 30, underMe: true },
+        concrete: { cells: 1, mine: 5, total: 15, with: ["bot1"], firstT: 30, underMe: true, fresh: ["1,1"], freshHere: true },
+        nearNow: 4,
       });
     w.feed(busy(40), "sealed");
     const first = w.feed(busy(42), "sealed");
     expect(keys(first)).toEqual(["concrete.share"]);
-    expect(first[0]).toMatchObject({ level: 2, args: { n: 1, pct: 33, with: [{ o: "bot1", r: "worker" }], at: 30 } });
+    expect(first[0]).toMatchObject({ level: 2, args: { n: 1, near: 5, with: [{ o: "bot1", r: "worker" }] } });
     expect(keys(w.feed(busy(45), "sealed"))).toEqual([]); // inside the gap
     expect(keys(w.feed(busy(42 + DEFAULT_LEDGER.gapSec), "sealed"))).toEqual(["path.formed"]);
     expect(keys(w.feed(busy(42 + 2 * DEFAULT_LEDGER.gapSec), "sealed"))).toEqual(["sealed.under"]);
@@ -180,11 +210,40 @@ describe("the watch: held, one line at a time, the important first", () => {
     expect(keys(w.feed(busy(42 + 4 * DEFAULT_LEDGER.gapSec), "sealed"))).toEqual([]);
   });
 
-  it("alone: once per stretch, after aloneSec", () => {
+  it("alone: every aloneSec of it, saying who is gathered within sight and which way", () => {
     const w = new LedgerWatch();
-    expect(keys(w.feed(base(30, { alone: { since: 5, longest: 25 } }), open))).toEqual([]);
-    expect(keys(w.feed(base(66, { alone: { since: 5, longest: 61 } }), open))).toEqual(["alone.long"]);
-    expect(keys(w.feed(base(80, { alone: { since: 5, longest: 75 } }), open))).toEqual([]);
-    expect(keys(w.feed(base(200, { alone: { since: 130, longest: 75 } }), open))).toEqual(["alone.long"]);
+    const alone = (t: number, since: number, gathering: Ledger["gathering"] = null) => w.feed(base(t, { alone: { since, longest: t - since }, gathering }), open);
+    expect(keys(alone(30, 5))).toEqual([]);
+    const first = alone(36, 5, { n: 3, side: "frontRight" });
+    expect(keys(first)).toEqual(["alone.long"]);
+    expect(first[0].args).toMatchObject({ sec: 30, n: 3, bearing: "frontRight" });
+    expect(keys(alone(50, 5))).toEqual([]);
+    const again = alone(66, 5, { n: 1, side: "left" });
+    expect(keys(again)).toEqual(["alone.long"]);
+    expect(again[0].args).toMatchObject({ sec: 60, n: 1, bearing: "left" });
+    // a new stretch counts from its own beginning
+    expect(keys(alone(200, 165))).toEqual(["alone.long"]);
+  });
+
+  it("a house going up: once, and again only when it has grown; a house that stands: told apart, not often", () => {
+    const w = new LedgerWatch();
+    const up = (t: number, fresh: string[]) => w.feed(base(t, { concrete: { cells: fresh.length, mine: 5, total: 15, with: [], firstT: t, underMe: false, fresh, freshHere: false } }), open);
+    up(10, ["1,1"]);
+    const first = up(12, ["1,1"]);
+    expect(keys(first)).toEqual(["concrete.share"]);
+    expect(first[0].args.near).toBeUndefined(); // not here: nobody to count
+    expect(keys(up(22, ["1,1", "1,2"]))).toEqual([]); // one more cell is no news
+    up(30, ["1,1", "1,2", "1,3", "1,4"]);
+    expect(keys(up(32, ["1,1", "1,2", "1,3", "1,4"]))).toEqual(["concrete.share"]);
+
+    const p = new LedgerWatch();
+    const pass = (t: number) => p.feed(base(t, { passing: { agoSec: 372 } }), open);
+    pass(10);
+    const told = pass(12);
+    expect(keys(told)).toEqual(["concrete.passed"]);
+    expect(told[0].args.sec).toBe(372);
+    expect(keys(pass(40))).toEqual([]);
+    pass(72);
+    expect(keys(pass(74))).toEqual(["concrete.passed"]);
   });
 });

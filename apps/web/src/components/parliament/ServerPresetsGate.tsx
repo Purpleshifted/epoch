@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { pullPresets, showNote } from "./levaSave";
-import { startServerWorld, stopServerWorld } from "@/lib/parliament/serverWorld";
+import { WALL_PAGE, pullPresets, showNote } from "./levaSave";
+import { serverWorldName, startServerWorld, stopServerWorld } from "@/lib/parliament/serverWorld";
 
 /** The page whose saved Leva values this path reads (the lab tunes the shared view's — see /v2/global/lab). */
 function levaPageOf(pathname: string): string {
@@ -33,8 +33,10 @@ export default function ServerPresetsGate({ children }: { children: ReactNode })
       if (!unattended) showNote("서버의 새 값이 늦게 도착함 · 새로고침하면 적용", true);
       else if (page === "/v2/global/space") window.location.reload();
     });
+    // the audience's page in the shared world goes by the wall's building rule (lib/parliament/wallRule.ts)
+    const wallRule = page === "/v2/mobile" && serverWorldName() ? pullPresets(WALL_PAGE) : null;
     // the shared world's epoch and clock too (at most 2.5 s, nothing when it is off): the page mounts in the right world
-    Promise.allSettled([presets, startServerWorld()]).finally(() => {
+    Promise.allSettled([presets, wallRule, startServerWorld()]).finally(() => {
       if (alive) setReady(true);
     });
     return () => {

@@ -3,7 +3,7 @@
  * script.ts in the voice of a field note.
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WITNESS, WitnessLog, bearingOf, aliveOwners, formatEntry, formatStatus, glyphOf, observe, type LogEntry, type Observation, type Other, type PEvent } from "./index";
+import { DEFAULT_WITNESS, WitnessLog, bearingOf, aliveOwners, formatEntry, formatStatus, gatheringIn, glyphOf, observe, sideOf, type LogEntry, type Observation, type Other, type PEvent } from "./index";
 
 const me = { id: "v_me", x: 0, z: 0, vx: 0, vz: 0 };
 const p = (o: string, x: number, z: number, s: number, r: PEvent["r"] = "worker"): PEvent => ({ id: `${o}:${s}`, o, r, k: "p", x, z, s });
@@ -102,7 +102,7 @@ describe("the witness: a record of who is near", () => {
     const began = log.push(obsAt(4.5, [bot(2)]));
     expect(began.map((e) => e.key)).toEqual(["ensemble.start"]);
     expect(began[0].level).toBe(2);
-    expect(formatEntry(began[0], "ko").text).toBe("합주 중… 함께 집을 짓습니다.");
+    expect(formatEntry(began[0], "ko").text).toBe("합주 중… 2명이 모였습니다. 3명이 되면 집이 올라갑니다.");
     expect(formatStatus(log.status()!, "ko")).toBe("합주 중 00:03 · 풀밭 · 곁에 1명");
     // walking off ends it
     log.push(obsAt(20, [bot(2)], true));
@@ -117,6 +117,44 @@ describe("the witness: a record of who is near", () => {
     alone.push(obsAt(0, []));
     const walker: Other = { ...bot(2), moving: true };
     for (const t of [1, 3, 5, 7, 9]) expect(alone.push(obsAt(t, [walker])).some((e) => e.key === "ensemble.start")).toBe(false);
+  });
+
+  it("the ensemble says how many have gathered and how many a house takes, again when more come, and never lower", () => {
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, ensembleSec: 3, settleSec: 1, wordAfterSec: 1000, askEverySec: 1e6, buildNeeds: 4 });
+    const two = bot(2);
+    const third: Other = { ...bot(2), o: "bot8" };
+    const fourth: Other = { ...bot(2), o: "bot9" };
+    log.push(obsAt(0, []));
+    log.push(obsAt(1, [two]));
+    log.push(obsAt(3, [two]));
+    const said = (t: number, who: Other[]) => log.push(obsAt(t, who)).filter((e) => e.key === "ensemble.start").map((e) => formatEntry(e, "ko").text);
+    expect(said(4.5, [two])).toEqual(["합주 중… 2명이 모였습니다. 4명이 되면 집이 올라갑니다."]);
+    expect(said(5, [two, third])).toEqual([]); // just come: not yet settled
+    expect(said(6.5, [two, third])).toEqual(["합주 중… 3명이 모였습니다. 4명이 되면 집이 올라갑니다."]);
+    expect(said(7, [two, third, fourth])).toEqual([]);
+    expect(said(8.5, [two, third, fourth])).toEqual(["합주 중… 4명이 모였습니다. 곧 집이 올라갑니다."]);
+    // one leaves and comes back: nothing new to say
+    expect(said(9, [two, third])).toEqual([]);
+    expect(said(11, [two, third])).toEqual([]);
+    expect(said(11.5, [two, third, fourth])).toEqual([]);
+    expect(said(13, [two, third, fourth])).toEqual([]);
+  });
+
+  it("which way people are, from where I look, and the most of them standing together", () => {
+    // looking along +z (yaw 0): forward (0, 1), right (−1, 0)
+    expect(sideOf(0, 5, 0)).toBe("front");
+    expect(sideOf(-5, 5, 0)).toBe("frontRight");
+    expect(sideOf(-5, 0, 0)).toBe("right");
+    expect(sideOf(5, 0, 0)).toBe("left");
+    expect(sideOf(0, -5, 0)).toBe("back");
+    // turned to look along +x (yaw π/2): what was on the left is ahead
+    expect(sideOf(5, 0, Math.PI / 2)).toBe("front");
+    const at = (o: string, x: number, z: number): Other => ({ ...bot(2), o, x, z });
+    const me = { x: 0, z: 0 };
+    expect(gatheringIn([], me, 0, 6)).toBeNull();
+    expect(gatheringIn([at("a", 0, 10)], me, 0, 6)).toEqual({ n: 1, side: "front" });
+    // one nearer on the left, three together further off on the right
+    expect(gatheringIn([at("a", 8, 0), at("b", -15, 0), at("c", -16, 1), at("d", -15, 2)], me, 0, 6)).toEqual({ n: 3, side: "right" });
   });
 
   it("someone asks now and then; an open question can be answered once, and that is what leaves a new word", () => {
@@ -193,8 +231,15 @@ describe("the witness: a record of who is near", () => {
     expect(formatEntry(near, "ko")).toEqual({ prefix: "T+00:02", text: "({}) 접근" });
     expect(formatEntry({ t: 0, key: "you.state", args: { moving: false, surface: "open" }, level: 0 }, "ko").text).toBe("풀밭에 서 있습니다.");
     expect(formatEntry({ t: 0, key: "gone", args: { who: { o: "bot1", r: "worker" }, forSec: 72 }, level: 0 }, "ko").text).toBe("({}) 떠남 · 1분 12초 함께");
-    const share: LogEntry = { t: 72, key: "concrete.share", args: { n: 1, pct: 23, with: [{ o: "bot3", r: "worker" }, { o: "bot7", r: "worker" }] }, level: 2 };
-    expect(formatEntry(share, "ko").text).toBe("집이 올라갑니다 · 3명이 함께");
-    expect(formatEntry(share, "en").text).toBe("A house goes up · 3 together");
+    // "together" is who is here now, not everyone who ever passed through those cells
+    const share: LogEntry = { t: 72, key: "concrete.share", args: { n: 1, near: 5, with: Array.from({ length: 17 }, (_, i) => ({ o: `bot${i}`, r: "worker" as const })) }, level: 2 };
+    expect(formatEntry(share, "ko").text).toBe("집이 올라갑니다 · 지금 5명이 함께");
+    expect(formatEntry(share, "en").text).toBe("A house goes up · 5 together now");
+    expect(formatEntry({ ...share, args: { n: 1 } }, "ko").text).toBe("집이 올라갑니다.");
+    expect(formatEntry({ t: 72, key: "concrete.passed", args: { sec: 372 }, level: 1 }, "ko").text).toBe("누군가 지은 집을 지나갑니다 · 6분 전");
+    const alone = (args: LogEntry["args"]) => formatEntry({ t: 72, key: "alone.long", args: { sec: 30, ...args }, level: 1 }, "ko").text;
+    expect(alone({ n: 3, bearing: "frontRight" })).toBe("30초째 혼자입니다. 오른쪽 앞에 세 명이 모여 있습니다.");
+    expect(alone({ n: 1, bearing: "left" })).toBe("30초째 혼자입니다. 왼쪽에 누군가 있습니다.");
+    expect(alone({})).toBe("30초째 혼자입니다. 혼자서는 집을 지을 수 없습니다.");
   });
 });

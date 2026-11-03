@@ -22,7 +22,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { MAX_STEP_SEC, flowLevel, flowTracks, stayShares, type FlowConfig } from "./flow";
 import { baseGrass, stressMap, type NatureConfig } from "./nature";
 import type { PEvent, Snapshot } from "./types";
-import type { LogEntry, LogKey, Surface, Who } from "./witness";
+import type { Gathering, LogEntry, LogKey, Surface, Who } from "./witness";
 import { wrapDist } from "./world";
 
 export interface LedgerConfig {
@@ -44,14 +44,29 @@ export interface LedgerConfig {
   staleSec: number;
   /** My weight (worker·s) from which a slab counts as mine: a walker's trace in it is not (signals.ts buildFrom). */
   mineFrom: number;
+  /**
+   * A slab this young (s of assigned time) is going up now. Visitors' times differ by the assignment window (120 s) and
+   * one born in a time later than mine reaches me late, so a shorter time could not tell a new one from an old one.
+   */
+  freshSec: number;
+  /** A house going up this close to me (world) is here: the people near me are the ones with it. */
+  hereRadius: number;
+  /** New cells that make a further "a house goes up" line. */
+  freshStep: number;
+  /** Over others' houses, at most one line every this many seconds. */
+  passEverySec: number;
 }
 
 export const DEFAULT_LEDGER: LedgerConfig = {
   mineFrom: 2,
+  freshSec: 150,
+  hereRadius: 6,
+  freshStep: 3,
+  passEverySec: 60,
   pressS: 0.25,
   pathP: 0.3,
   sealedH: 0.15,
-  aloneSec: 60,
+  aloneSec: 30,
   gEps: 0.05,
   settleSec: 1.5,
   gapSec: 8,
@@ -135,7 +150,16 @@ export interface Ledger {
     firstT: number | null;
     /** A slab with my weight in it is under my feet now. */
     underMe: boolean;
+    /** The cells of those going up now (freshSec), and whether one of them is here (hereRadius). */
+    fresh: string[];
+    freshHere: boolean;
   };
+  /** A house I had no part in, under my feet now, and how long ago (s of assigned time) it was born. */
+  passing: { agoSec: number } | null;
+  /** Others within the presence radius now. */
+  nearNow: number;
+  /** The nearest people gathered within sight (witness.ts gatheringIn). */
+  gathering: Gathering | null;
   world: {
     /** The world's path cells (p ≥ pathP) and sealed slab cells now, and how many of its path cells I trod. */
     pathCells: number;
@@ -158,6 +182,8 @@ export interface LedgerInputs {
   flow: FlowConfig | null;
   /** Others within the presence radius now. */
   nearCount: number;
+  /** Who is gathered within sight; absent = nobody to point to. */
+  gathering?: Gathering | null;
   /** The trail so far (every fold, finer than the ledger's own readings); absent = the ledger keeps its own. */
   trail?: readonly { x: number; z: number; t: number }[];
   cfg?: LedgerConfig;
@@ -193,12 +219,17 @@ export function ledgerAt(inp: LedgerInputs): Ledger {
   }
   const mySlabs = new Map<string, LedgerSlab>();
   let slabCells = 0;
+  const [mcx, mcz] = cellOf(me.x, me.z);
+  const myKey = `${mcx},${mcz}`;
+  let passing: Ledger["passing"] = null;
   for (const sl of snap.slabs) {
     if (sl.h >= cfg.sealedH) slabCells++;
     const w = sl.who;
-    if (!w) continue;
-    const mineW = w.find((c) => c.o === me.id);
-    if (!mineW || mineW.amount < cfg.mineFrom) continue;
+    const mineW = w?.find((c) => c.o === me.id);
+    if (!w || !mineW || mineW.amount < cfg.mineFrom) {
+      if (sl.key === myKey && sl.h >= cfg.sealedH && sNow - sl.bornS > cfg.freshSec) passing = { agoSec: sNow - sl.bornS };
+      continue;
+    }
     let total = 0;
     const others: string[] = [];
     for (const c of w) {
@@ -218,10 +249,8 @@ export function ledgerAt(inp: LedgerInputs): Ledger {
 
   const grass = { pressed: 0, recovered: 0, underPaths: 0, underSlabs: 0, cells: 0 };
   const ground = { cells: 0, newPath: 0, prePath: 0, prePathVisits: prev?.ground.prePathVisits ?? 0 };
-  const concrete = { cells: 0, mine: 0, total: 0, with: new Set<string>(), firstT: null as number | null, underMe: false };
+  const concrete = { cells: 0, mine: 0, total: 0, with: new Set<string>(), firstT: null as number | null, underMe: false, fresh: [] as string[], freshHere: false };
   let pathTrodden = 0;
-  const [mcx, mcz] = cellOf(me.x, me.z);
-  const myKey = `${mcx},${mcz}`;
   for (const c of cells.values()) {
     const S = sMine.get(c.key) ?? 0;
     c.s = S;
@@ -270,6 +299,10 @@ export function ledgerAt(inp: LedgerInputs): Ledger {
       if (concrete.firstT === null || bornT < concrete.firstT) concrete.firstT = bornT;
       grass.underSlabs += c.grass * (1 - natureCfg.sealedLeft);
       if (c.key === myKey && c.slab.h >= cfg.sealedH) concrete.underMe = true;
+      if (sNow - c.slab.bornS <= cfg.freshSec) {
+        concrete.fresh.push(c.key);
+        if (wrapDist((c.cx + 0.5) * CELL_SIZE, (c.cz + 0.5) * CELL_SIZE, me.x, me.z) <= cfg.hereRadius) concrete.freshHere = true;
+      }
     }
   }
   // how far I walked: my consecutive samples, when they are one walk
@@ -296,6 +329,9 @@ export function ledgerAt(inp: LedgerInputs): Ledger {
     grass,
     ground,
     concrete: { ...concrete, with: [...concrete.with] },
+    passing,
+    nearNow: inp.nearCount,
+    gathering: inp.gathering ?? null,
     world: { pathCells, slabCells, pathTrodden },
     alone,
   };
@@ -308,6 +344,7 @@ export const LEDGER_PRIORITY: Record<string, number> = {
   "concrete.share": 0,
   "path.formed": 1,
   "sealed.under": 2,
+  "concrete.passed": 2,
   "grass.pressed": 3,
   "grass.recovered": 4,
   "alone.long": 5,
@@ -326,7 +363,7 @@ export const PRESSED_STEPS = [1, 10, 30, 60];
 export class LedgerWatch {
   readonly cfg: LedgerConfig;
   private held = new Map<string, number>();
-  private told = { pressedStep: 0, recovered: false, wornNext: 10, prePath: false, pathNext: 1, concreteCells: 0, concretePct: -1, sealed: false, aloneSince: null as number | null };
+  private told = { pressedStep: 0, recovered: false, wornNext: 10, prePath: false, pathNext: 1, freshCells: new Set<string>(), passedT: -Infinity, sealed: false, aloneSince: null as number | null, aloneStretch: 0 };
   private queue: LogEntry[] = [];
   private lastT = -Infinity;
 
@@ -376,21 +413,30 @@ export class LedgerWatch {
       told.pathNext = l.ground.newPath + 5;
       this.held.delete("path");
     }
-    const pct = l.concrete.total > 0 ? Math.round((100 * l.concrete.mine) / l.concrete.total) : 0;
-    const concreteNews = l.concrete.cells > 0 && (told.concreteCells === 0 || l.concrete.cells >= told.concreteCells + 3 || Math.abs(pct - told.concretePct) >= 10);
-    if (this.hold("concrete", concreteNews, t)) {
-      add("concrete.share", { n: l.concrete.cells, pct, with: l.concrete.with.map((o) => ({ o, r: roleOf(o) })), at: l.concrete.firstT ?? undefined }, 2);
-      told.concreteCells = l.concrete.cells;
-      told.concretePct = pct;
+    // a house going up says so, with whoever is here now; one that stands already is told apart below
+    const untold = l.concrete.fresh.filter((k) => !told.freshCells.has(k)).length;
+    if (this.hold("concrete", untold >= (told.freshCells.size === 0 ? 1 : cfg.freshStep), t)) {
+      add("concrete.share", { n: l.concrete.fresh.length, near: l.concrete.freshHere ? l.nearNow + 1 : undefined, with: l.concrete.with.map((o) => ({ o, r: roleOf(o) })) }, 2);
+      for (const k of l.concrete.fresh) told.freshCells.add(k);
       this.held.delete("concrete");
+    }
+    if (this.hold("passed", l.passing !== null && t - told.passedT >= cfg.passEverySec, t)) {
+      add("concrete.passed", { sec: l.passing?.agoSec }, 1);
+      told.passedT = t;
+      this.held.delete("passed");
     }
     if (!told.sealed && this.hold("sealed", surface === "sealed" && l.concrete.underMe, t)) {
       add("sealed.under", { pct: 5 }, 1);
       told.sealed = true;
     }
-    if (l.alone.since !== null && told.aloneSince !== l.alone.since && t - l.alone.since >= cfg.aloneSec) {
-      add("alone.long", { sec: cfg.aloneSec }, 1);
-      told.aloneSince = l.alone.since;
+    // alone: every aloneSec of it, with who is gathered within sight and which way, since they move and so do I
+    if (l.alone.since !== null) {
+      const stretch = Math.floor((t - l.alone.since) / cfg.aloneSec);
+      if (stretch >= 1 && (told.aloneSince !== l.alone.since || stretch > told.aloneStretch)) {
+        add("alone.long", { sec: stretch * cfg.aloneSec, n: l.gathering?.n, bearing: l.gathering?.side }, 1);
+        told.aloneSince = l.alone.since;
+        told.aloneStretch = stretch;
+      }
     }
 
     // out: one at a time, the most important first, nothing stale

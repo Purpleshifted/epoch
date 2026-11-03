@@ -254,6 +254,12 @@ function josaIGa(no: string): string {
 
 const WHERE_KO: Record<Surface, string> = { open: "풀밭", trodden: "다져진 길", sealed: "콘크리트 위" };
 const WHERE_EN: Record<Surface, string> = { open: "grass", trodden: "a trodden path", sealed: "concrete" };
+/** Which way, from where they look (witness.ts Side). */
+const SIDE_KO: Record<string, string> = { front: "앞", frontRight: "오른쪽 앞", right: "오른쪽", backRight: "오른쪽 뒤", back: "뒤", backLeft: "왼쪽 뒤", left: "왼쪽", frontLeft: "왼쪽 앞" };
+const SIDE_EN: Record<string, string> = { front: "ahead", frontRight: "ahead on your right", right: "on your right", backRight: "behind you on the right", back: "behind you", backLeft: "behind you on the left", left: "on your left", frontLeft: "ahead on your left" };
+const PEOPLE_KO: Record<number, string> = { 2: "두 명", 3: "세 명", 4: "네 명", 5: "다섯 명", 6: "여섯 명", 7: "일곱 명", 8: "여덟 명", 9: "아홉 명", 10: "열 명" };
+/** How many minutes ago, at least one. */
+const agoMin = (sec?: number): number => Math.max(1, Math.round((sec ?? 60) / 60));
 /** 48 → "48초", 72 → "1분 12초". */
 const secKo = (v?: number): string => {
   const s = Math.max(0, Math.round(v ?? 0));
@@ -288,7 +294,11 @@ export const LOG: Record<Lang, LogTemplates> = {
       "word.found": () => "({})가 남긴 말 발견",
       dying: () => "죽어가고 있습니다...",
       "dying.watched": () => "({})가 당신의 마지막을 지킵니다...",
-      "ensemble.start": () => "합주 중… 함께 집을 짓습니다.",
+      "ensemble.start": (a) => {
+        const n = a.n ?? 2;
+        const need = a.need ?? 4;
+        return n >= need ? `합주 중… ${n}명이 모였습니다. 곧 집이 올라갑니다.` : `합주 중… ${n}명이 모였습니다. ${need}명이 되면 집이 올라갑니다.`;
+      },
       "ensemble.end": (a) => `합주가 끝났습니다 · ${secKo(a.forSec)}`,
       "attempt.tried": () => "그만 살기를 시도했습니다.",
       "attempt.failed": () => "실패했습니다.",
@@ -297,9 +307,14 @@ export const LOG: Record<Lang, LogTemplates> = {
       "ground.worn": () => "걸은 자리가 다져지고 있습니다.",
       "ground.prePath": () => "누군가 먼저 낸 길을 걷고 있습니다.",
       "path.formed": () => "걸은 자리가 길이 되었습니다.",
-      "concrete.share": (a) => `집이 올라갑니다 · ${(a.with?.length ?? 0) + 1}명이 함께`,
+      "concrete.share": (a) => ((a.near ?? 0) >= 2 ? `집이 올라갑니다 · 지금 ${a.near}명이 함께` : "집이 올라갑니다."),
+      "concrete.passed": (a) => `누군가 지은 집을 지나갑니다 · ${agoMin(a.sec)}분 전`,
       "sealed.under": () => "함께 지은 집 위에 서 있습니다.",
-      "alone.long": (a) => `${secKo(a.sec)}째 혼자입니다. 혼자서는 집을 지을 수 없습니다.`,
+      "alone.long": (a) => {
+        const side = SIDE_KO[a.bearing ?? ""];
+        const there = !side || !a.n ? "혼자서는 집을 지을 수 없습니다." : a.n === 1 ? `${side}에 누군가 있습니다.` : `${side}에 ${PEOPLE_KO[a.n] ?? `${a.n}명`}이 모여 있습니다.`;
+        return `${secKo(a.sec)}째 혼자입니다. ${there}`;
+      },
     },
     status: (a) => `${a.together ? "합주 중" : a.moving ? "걷는 중" : "머무는 중"} ${fmtClock(a.forSec)} · ${WHERE_KO[a.surface]} · 곁에 ${a.near}명`,
   },
@@ -316,7 +331,11 @@ export const LOG: Record<Lang, LogTemplates> = {
       "word.found": () => "A word left by ({}) found",
       dying: () => "You are dying...",
       "dying.watched": () => "({}) keeps watch over your last moments...",
-      "ensemble.start": () => "In ensemble… building a house together.",
+      "ensemble.start": (a) => {
+        const n = a.n ?? 2;
+        const need = a.need ?? 4;
+        return n >= need ? `In ensemble… ${n} gathered. A house will go up soon.` : `In ensemble… ${n} gathered. At ${need} a house goes up.`;
+      },
       "ensemble.end": (a) => `The ensemble is over · ${secEn(a.forSec)}`,
       "attempt.tried": () => "You tried to stop living.",
       "attempt.failed": () => "It failed.",
@@ -325,9 +344,14 @@ export const LOG: Record<Lang, LogTemplates> = {
       "ground.worn": () => "The ground you walk is packing down.",
       "ground.prePath": () => "You are on a path someone made before you.",
       "path.formed": () => "Where you walked has become a path.",
-      "concrete.share": (a) => `A house goes up · ${(a.with?.length ?? 0) + 1} together`,
+      "concrete.share": (a) => ((a.near ?? 0) >= 2 ? `A house goes up · ${a.near} together now` : "A house goes up."),
+      "concrete.passed": (a) => `Passing a house someone built · ${agoMin(a.sec)} min ago`,
       "sealed.under": () => "You stand on a house you helped build.",
-      "alone.long": (a) => `Alone for ${secEn(a.sec)}. A house cannot be built alone.`,
+      "alone.long": (a) => {
+        const side = SIDE_EN[a.bearing ?? ""];
+        const there = !side || !a.n ? "A house cannot be built alone." : a.n === 1 ? `Someone is ${side}.` : `${a.n} are gathered ${side}.`;
+        return `Alone for ${secEn(a.sec)}. ${there}`;
+      },
     },
     status: (a) => `${a.together ? "In ensemble" : a.moving ? "Walking" : "Staying"} ${fmtClock(a.forSec)} · ${WHERE_EN[a.surface]} · ${a.near} near`,
   },
