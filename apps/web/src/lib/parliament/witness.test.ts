@@ -102,7 +102,7 @@ describe("the witness: a record of who is near", () => {
     const began = log.push(obsAt(4.5, [bot(2)]));
     expect(began.map((e) => e.key)).toEqual(["ensemble.start"]);
     expect(began[0].level).toBe(2);
-    expect(formatEntry(began[0], "ko").text).toBe("합주 중… 2명이 모였습니다. 3명이 되면 집이 올라갑니다.");
+    expect(formatEntry(began[0], "ko").text).toBe("합주 중… 2명이 모였습니다.");
     expect(formatStatus(log.status()!, "ko")).toBe("합주 중 00:03 · 풀밭 · 곁에 1명");
     // walking off ends it
     log.push(obsAt(20, [bot(2)], true));
@@ -128,9 +128,9 @@ describe("the witness: a record of who is near", () => {
     log.push(obsAt(1, [two]));
     log.push(obsAt(3, [two]));
     const said = (t: number, who: Other[]) => log.push(obsAt(t, who)).filter((e) => e.key === "ensemble.start").map((e) => formatEntry(e, "ko").text);
-    expect(said(4.5, [two])).toEqual(["합주 중… 2명이 모였습니다. 4명이 되면 집이 올라갑니다."]);
+    expect(said(4.5, [two])).toEqual(["합주 중… 2명이 모였습니다."]);
     expect(said(5, [two, third])).toEqual([]); // just come: not yet settled
-    expect(said(6.5, [two, third])).toEqual(["합주 중… 3명이 모였습니다. 4명이 되면 집이 올라갑니다."]);
+    expect(said(6.5, [two, third])).toEqual(["합주 중… 3명이 모였습니다."]);
     expect(said(7, [two, third, fourth])).toEqual([]);
     expect(said(8.5, [two, third, fourth])).toEqual(["합주 중… 4명이 모였습니다. 곧 집이 올라갑니다."]);
     // one leaves and comes back: nothing new to say
