@@ -13,7 +13,8 @@ SURF = float(sys.argv[5]) if len(sys.argv) > 5 else 0.1355   # the surface line,
 SKY = float(sys.argv[6]) if len(sys.argv) > 6 else None        # sky luminance 0–1: rising cells take on this tone
 ASSIM = float(sys.argv[7]) if len(sys.argv) > 7 else 0.0       # >0: cells are assimilated into the sky as soon as they cross the line (steepness)
 LINEMIX = float(sys.argv[8]) if len(sys.argv) > 8 else 1.0     # how much of its own tone a cell keeps right at the line (1 = all)
-TOP = SURF - 0.085            # above this nothing is left
+BAND = float(sys.argv[9]) if len(sys.argv) > 9 else 0.085      # how far above the line the dissolve reaches (fraction of the height)
+TOP = SURF - BAND             # above this nothing is left
 END = SURF + 0.02             # below this the smooth render is whole
 im = Image.open(src).convert("RGBA")
 im = im.resize((W, round(im.height * W / im.width)), Image.LANCZOS)
