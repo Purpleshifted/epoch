@@ -6,7 +6,7 @@
 //   node cdp.mjs evalfile <file.js>
 //   node cdp.mjs shot <out.png|jpg>    (the page as the browser paints it)
 //   node cdp.mjs canvas <out.png>      (the WebGL canvas itself, at its full buffer size)
-//   node cdp.mjs pdf <out.pdf> <widthMm> <heightMm>
+//   node cdp.mjs pdf <out.pdf> <widthMm> <heightMm> [cssWidthPx]   (cssWidthPx: scale the page to fill the paper)
 import fs from "node:fs";
 
 const PORT = process.env.CDP_PORT || 9333;
@@ -67,7 +67,9 @@ if (cmd === "nav") {
   console.log(args[0], (await evaluate(`(() => { const c = document.querySelector("canvas"); return [c.width, c.height]; })()`)).join("×"));
 } else if (cmd === "pdf") {
   const mm = (v) => +v / 25.4;
-  const r = await send("Page.printToPDF", { paperWidth: mm(args[1]), paperHeight: mm(args[2]), printBackground: true, preferCSSPageSize: true, marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0, transferMode: "ReturnAsBase64" });
+  // optional 4th arg: the page's CSS width in px, so the content is scaled to fill the paper (Chrome lays out at 96 px/in)
+  const scale = args[3] ? (mm(args[1]) * 96) / Number(args[3]) : 1;
+  const r = await send("Page.printToPDF", { paperWidth: mm(args[1]), paperHeight: mm(args[2]), scale, printBackground: true, preferCSSPageSize: false, marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0, transferMode: "ReturnAsBase64" });
   fs.writeFileSync(args[0], Buffer.from(r.data, "base64"));
   console.log(args[0]);
 } else {
