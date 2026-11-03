@@ -40,6 +40,7 @@ import {
   QUICK_RESTART_SEC,
   quickRestart,
   attemptEnd,
+  drawLife,
   hintUp,
   holdProgress,
   isStopKey,
@@ -97,6 +98,8 @@ export interface SessionView {
   attempts: number;
   /** … and how many others were near at the last one. */
   lastAttemptNear: number;
+  /** The length this life was given (s, drawn when it began); 0 before that. */
+  lifeSec: number;
 }
 
 export interface LifeSession extends SessionView {
@@ -124,6 +127,7 @@ const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   attemptFailed: false,
   attempts: 0,
   lastAttemptNear: 0,
+  lifeSec: 0,
 };
 
 /** A gesture on the Leva panel (tuning) does not count. */
@@ -140,6 +144,8 @@ export class SessionMachine {
   /** How many others are near the visitor right now (the record's NEAR radius); 0 when unknown. */
   getNear: () => number = () => 0;
   private readonly rng: () => number;
+  /** This life's own times, drawn when it began (drawLife); before that, the config's. */
+  private drawn: LifeConfig | null = null;
   private enabled = false;
   /** Lifespan seconds lived so far (advanced by the clock × rate) and the wall ms of the last tick. */
   private lived = 0;
@@ -199,8 +205,13 @@ export class SessionMachine {
   private begin() {
     this.lived = 0;
     this.lastTick = Date.now();
+    this.drawn = this.cfg.lifeMinSec === undefined ? null : drawLife(this.cfg, this.rng());
     this.lifeRef.current = { phase: "live", t: 0, warn: 0, attempt: 0, attemptSound: 0 };
-    this.enter("live");
+    this.enter("live", { lifeSec: this.life.lifeSec });
+  }
+
+  private get life(): LifeConfig {
+    return this.drawn ?? this.cfg;
   }
 
   /** Switched on: wait for the next visitor. Off (V1, Leva): always live, no lifespan. */
@@ -213,7 +224,7 @@ export class SessionMachine {
 
   /** The stop-living rule from the config (Leva), with intake.ts's defaults. */
   private stopRule() {
-    return { afterSec: this.cfg.hintAfterSec ?? HINT_AFTER_SEC, lastSec: this.cfg.stopLastSec ?? STOP_LAST_SEC };
+    return { afterSec: this.life.hintAfterSec ?? HINT_AFTER_SEC, lastSec: this.life.stopLastSec ?? STOP_LAST_SEC };
   }
 
   /** B — X pressed while live: within the rule's window it starts holding to stop living (line or no line). */
@@ -228,7 +239,7 @@ export class SessionMachine {
     if (!this.enabled) return;
     const v = this.view;
     const t = this.lifeRef.current.t;
-    if (v.phase !== "live" || this.holding || !stopAllowed("worker", t, lifeAt(t, this.cfg).left, this.stopRule())) return;
+    if (v.phase !== "live" || this.holding || !stopAllowed("worker", t, lifeAt(t, this.life).left, this.stopRule())) return;
     this.holding = true;
     this.holdStart = Date.now();
   };
@@ -304,7 +315,7 @@ export class SessionMachine {
       this.lived += dtWall * Math.max(0, this.cfg.rate ?? 1);
       this.lastTick = now;
       const t = this.lived;
-      const st = lifeAt(t, this.cfg);
+      const st = lifeAt(t, this.life);
       // B — the hold to stop living: the dark comes up with it; when it is complete, luck decides
       let attempt = 0;
       let tried = 0;
@@ -333,7 +344,7 @@ export class SessionMachine {
       }
       const rule = this.stopRule();
       const stopOn = stopAllowed("worker", t, st.left, rule);
-      const stopHint = stopOn && !this.holding && hintUp(t, rule.afterSec, this.cfg.hintPeriodSec ?? HINT_PERIOD_SEC, this.cfg.hintShowSec ?? HINT_SHOW_SEC);
+      const stopHint = stopOn && !this.holding && hintUp(t, rule.afterSec, this.life.hintPeriodSec ?? HINT_PERIOD_SEC, this.life.hintShowSec ?? HINT_SHOW_SEC);
       const attemptFailed = now < this.failedUntil;
       if (tried || attempt !== v.attempt || stopOn !== v.stopOn || stopHint !== v.stopHint || attemptFailed !== v.attemptFailed) {
         this.set({ attempt, stopOn, stopHint, attemptFailed, attempts: v.attempts + tried, lastAttemptNear: near });

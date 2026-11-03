@@ -33,6 +33,12 @@ export const SESSION_ROLES: readonly RoleId[] = ["worker", "cat", "car", "tree"]
 export interface LifeConfig {
   /** Seconds a session lasts once the role is fixed. */
   lifeSec: number;
+  /**
+   * The range a life's length is drawn from when it begins (the artist, 2026-11-03: 30 s to 2 min). `lifeSec` is then the
+   * length the times below were set for, and they follow the drawn one (drawLife). Absent: every life is lifeSec.
+   */
+  lifeMinSec?: number;
+  lifeMaxSec?: number;
   /** The last seconds of it in which the end makes itself felt. */
   warnSec: number;
   /** Seconds the end screen stays before SPACE starts the next session. */
@@ -59,6 +65,19 @@ export interface LifeConfig {
 }
 
 export const DEFAULT_LIFE: LifeConfig = { lifeSec: 180, warnSec: 40, endHoldSec: 3, rate: 1, selfP: 0.35 };
+
+/** The life one visitor is given: `u` (0 … 1) picks its length; what comes near its start and end keeps its proportion. */
+export function drawLife(cfg: LifeConfig, u: number): LifeConfig {
+  const { lifeMinSec: a, lifeMaxSec: b } = cfg;
+  if (a === undefined || b === undefined) return cfg;
+  const lifeSec = Math.round(Math.min(a, b) + u * Math.abs(b - a));
+  const r = lifeSec / Math.max(1, cfg.lifeSec);
+  const scaled = (v?: number) => (v === undefined ? undefined : v * r);
+  const hintPeriodSec = scaled(cfg.hintPeriodSec);
+  // the banner stays readable in a short life, and is still gone half the time
+  const hintShowSec = hintPeriodSec === undefined || cfg.hintShowSec === undefined ? cfg.hintShowSec : Math.min(cfg.hintShowSec, hintPeriodSec / 2);
+  return { ...cfg, lifeSec, warnSec: cfg.warnSec * r, hintAfterSec: scaled(cfg.hintAfterSec), hintPeriodSec, hintShowSec, stopLastSec: scaled(cfg.stopLastSec) };
+}
 
 export interface LifeState {
   /** 0 (just arrived) … 1 (lifespan used up). */

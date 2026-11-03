@@ -503,6 +503,9 @@
         console.info = () => {};
         console.debug = () => {};
         model.views = model.views.filter((v) => v !== editor);
+        // nor undo: every knob the sound moves (9 knobs, 4 times a second) copied the whole patch for an undo nobody can
+        // press, 400 copies held (50 MB in Node, 2026-11-03), and a phone's collector stopped the page to clear them
+        model.addUndo = () => {};
         // the editor's ClockOut node was what forwarded the clock to the parent: a tiny view does it instead
         model.addView({
           update(state, action) {

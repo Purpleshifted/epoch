@@ -209,6 +209,25 @@ describe("the end and the restart", () => {
     expect(m.view.phase).toBe("notice");
     expect(m.view.sessionNo).toBe(no + 2);
   });
+  it("each life is given its own length when it begins, and ends then", () => {
+    const m = make({ lifeSec: 180, lifeMinSec: 30, lifeMaxSec: 120, warnSec: 40, endHoldSec: 1, rate: 1, selfP: 0 }, () => 0);
+    expect(m.view.lifeSec).toBe(0);
+    live(m);
+    expect(m.view.lifeSec).toBe(30);
+    step(m, 29_000);
+    expect(m.view.phase).toBe("live");
+    step(m, 2000);
+    expect(m.view.phase).toBe("ended");
+    expect(m.view.lifeSec).toBe(30);
+    expect(m.view.endedBy).toBe("lifespan");
+    const n = make({ lifeSec: 180, lifeMinSec: 30, lifeMaxSec: 120, warnSec: 40, endHoldSec: 1, rate: 1, selfP: 0 }, () => 1);
+    live(n);
+    expect(n.view.lifeSec).toBe(120);
+    step(n, 119_000);
+    expect(n.view.phase).toBe("live");
+    step(n, 2000);
+    expect(n.view.phase).toBe("ended");
+  });
   it("a tap restarts too (a phone has no SPACE), and the long press holds like X", () => {
     const m = make({ ...CFG, selfP: 1 });
     live(m);
