@@ -27,7 +27,7 @@ export interface RelayedMark {
 }
 
 /** How often a walking visitor is sent; standing still, KEEP_SENDING_MS, so that the wall knows they are there. */
-export const RELAY_SEND_MS = 250;
+export const RELAY_SEND_MS = 125;
 const KEEP_SENDING_MS = 1000;
 /** A place that changed less than this (world) is not news. */
 const MOVED = 0.01;
