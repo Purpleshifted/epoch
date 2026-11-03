@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Renders the motion poster to out/motion-poster.mp4 (1080×1920, 30 fps) with a headless Chrome, frame by frame:
-// the page is a pure function of time (window.__seek), so every frame is exact.
-//   node poster-motion/tools/render.mjs            (FPS=30 DUR=55 STILL=52.5 CHROME=<path> env overrides)
+// Renders the presentation page to out/motion-poster.mp4 (1920×1080, 30 fps) with a headless Chrome, frame by frame,
+// running the steps on the page's own auto schedule (HOLD seconds each): the page is a pure function of time (window.__seek).
+//   node poster-motion/tools/render.mjs            (FPS=30 DUR=63 STILL=60 CHROME=<path> env overrides)
 //   STILLS=5,12,20 node poster-motion/tools/render.mjs   (only those frames, as out/still_<t>.png)
 import fs from "node:fs";
 import os from "node:os";
@@ -9,7 +9,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
-const FPS = +(process.env.FPS || 30), DUR = +(process.env.DUR || 55), STILL = +(process.env.STILL || 52.5);
+const FPS = +(process.env.FPS || 30), DUR = +(process.env.DUR || 63), STILL = +(process.env.STILL || 60);
 const PORT = +(process.env.PORT || 9339);
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const OUT = path.resolve(HERE, "../out"), FR = path.join(OUT, "frames");
@@ -18,7 +18,7 @@ const udd = fs.mkdtempSync(path.join(os.tmpdir(), "motion-chrome-"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, "--mute-audio", "--hide-scrollbars", "--allow-file-access-from-files",
-  "--window-size=1080,1920", "--force-device-scale-factor=1", `--user-data-dir=${udd}`, "--no-first-run", "--disable-background-timer-throttling", "about:blank"], { stdio: "ignore" });
+  "--window-size=1920,1080", "--force-device-scale-factor=1", `--user-data-dir=${udd}`, "--no-first-run", "--disable-background-timer-throttling", "about:blank"], { stdio: "ignore" });
 process.on("exit", () => { try { chrome.kill(); } catch {} });
 let page;
 for (let i = 0; i < 100; i++) { try { page = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find((t) => t.type === "page"); if (page) break; } catch {} await sleep(200); }
@@ -30,7 +30,7 @@ const send = (method, params = {}) => new Promise((ok, no) => { const i = id++; 
 const ev = async (expression) => { const r = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text); return r.result.value; };
 
 await send("Page.enable");
-await send("Emulation.setDeviceMetricsOverride", { width: 1080, height: 1920, deviceScaleFactor: 1, mobile: false });
+await send("Emulation.setDeviceMetricsOverride", { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false });
 await send("Page.navigate", { url: `file://${path.resolve(HERE, "../index.html")}?still=1` });
 for (let i = 0; i < 100; i++) { try { if (await ev("!!window.__ready")) break; } catch {} await sleep(200); }
 await ev("window.__ready");
