@@ -36,15 +36,19 @@ node poster-motion/tools/serve.mjs 3018      # http://localhost:3018/  (아무 �
 
 시각·문구는 index.html 안: `HOLD`(자동 모드 초), `SEC`(머리 제목), `KEY`(아래 핵심 문장), 각 `s1()…s7()` 함수가 한 장. 지난 시안(포스터를 움직인 것)은 `poster.html`에 남겨 둠.
 
-## 첫 페이지 — 라이브 벽
+## 첫 페이지 — 벽 (베이크 영상 · 라이브 · 정지)
 
-제목 아래에 배포된 작품의 작업실 뷰 `https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute`를 iframe으로 띄운다: 20분·18 존재의 시험 기둥이 3분에 한 바퀴 돈다(소리 없음). 12초 안에 안 뜨거나, 화면이 좁거나(760 px 미만), 움직임 줄이기 설정이면 정지 렌더(`assets/structure.webp`)로 대신한다.
-`?live=0`으로 열면 처음부터 정지 렌더(발표 기계가 약할 때). `?rate=4`를 붙이면 랩의 시계를 ×4로 돌려 기둥이 **생성 중**인 채로 보인다 — 이 값은 `apps/web`의 작은 변경(랩의 `?rate=` 파라미터)이 main에 배포된 뒤에만 먹는다.
-구간으로 넘어가면 iframe은 내려가고(`about:blank`) 제목으로 돌아오면 다시 뜬다.
+제목 아래 벽의 시공간은 세 가지 중 하나로 뜬다.
+- **기본 = 베이크 영상** `assets/wall.mp4`(+ 포스터 `wall.jpg`): 배포된 작품의 작업실 뷰(`/v2/global/lab`, 20분·18존재 시험 기둥)를 `tools/bake.mjs`로 2026-11-04에 한 바퀴(180초) 찍어 24 fps mp4로 구운 것. 바로 뜬다.
+- **`?live=1` = 라이브 iframe** `https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute` — 실제 앱이 돌지만 첫 화면까지 수십 초. `?rate=4`(랩 시계), `?minutes=5&bots=8&dpr=0.6`(경량 세계 — 작은 시험 기둥, 거친 캔버스; 전시 기본값은 그대로)은 `apps/web`의 작은 변경이 main에 배포된 뒤에만 먹는다.
+- 순서: 베이크 영상(`assets/wall.mp4`) → 영상이 없으면 **라이브 iframe** → 그것도 안 되면(12 s) 정지 렌더(`assets/structure.webp`). 화면이 좁거나(760 px 미만) 움직임 줄이기 설정이면 바로 정지 렌더. `?baked=0`이면 베이크를 건너뛰고, `?live=0`이면 라이브를 건너뛴다. ③의 평면도 패널도 같은 순서(`top.mp4` → Top 뷰 iframe).
+- 입력: 창 전체 `pointerdown`(캡처 단계)과 키(캡처 단계)로 진행한다 — 포인터 아래에 무엇이 있든 삼킬 수 없다. REFERENCES 띠는 구간이 바뀔 때만 다시 만든다(매 프레임 다시 만들면 링크가 클릭되지 않았다). `render()`는 try/catch. `?debug=1`이면 좌하단에 이벤트 로그.
+
+다시 굽기: `node poster-motion/tools/bake.mjs <url> <이름> [초] [워밍업초] [폭] [높이] [출력폭]` — 헤드리스 Chrome(음소거)으로 실제 시각을 기록하며 프레임을 찍고 ffmpeg로 mp4·jpg를 `assets/`에 쓴다. 벽: `node tools/bake.mjs "https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute" wall 180 70 1920 860 1280`. 평면도: `node tools/bake.mjs "https://anthropocene-mu.vercel.app/v2/global/top?demo=1&ui=0&at=0&look=footprint" top 60 25 900 660 900` (look=footprint는 main 배포 뒤).
 
 ## 구간 ③의 라이브 평면도
 
-③(모여 살기)의 위에서 본 땅 패널은 도해가 다 그려진 뒤(14초) 배포된 작품의 **Top 뷰** `https://anthropocene-mu.vercel.app/v2/global/top?demo=1&ui=0&look=footprint`로 바뀐다 — 시범 군중을 심고 작품의 접기 규칙 그대로 봇이 땅을 만든다. `look=footprint`는 개인 뷰 발자국 지도의 문법(검정 바탕, 회색 판, 흰 윤곽)으로 그리는 새 URL 파라미터(`apps/web` 커밋, main 배포 뒤에 먹음; 그 전엔 기본 종이 재질로 뜸). `?demo=1`은 그 iframe 출처의 localStorage에 시범 사건을 쓰므로 전시 기계의 Chrome에서는 이 사이트를 열지 않는다.
+③(모여 살기)의 위에서 본 땅 패널은 도해가 다 그려진 뒤(14초) 베이크 영상 `assets/top.mp4`로 바뀐다(`?live=1`이면 배포된 작품의 **Top 뷰** iframe) `https://anthropocene-mu.vercel.app/v2/global/top?demo=1&ui=0&look=footprint`로 바뀐다 — 시범 군중을 심고 작품의 접기 규칙 그대로 봇이 땅을 만든다. `look=footprint`는 개인 뷰 발자국 지도의 문법(검정 바탕, 회색 판, 흰 윤곽)으로 그리는 새 URL 파라미터(`apps/web` 커밋, main 배포 뒤에 먹음; 그 전엔 기본 종이 재질로 뜸). `?demo=1`은 그 iframe 출처의 localStorage에 시범 사건을 쓰므로 전시 기계의 Chrome에서는 이 사이트를 열지 않는다.
 
 ## 참고 자료 페이지 — `references.html`
 

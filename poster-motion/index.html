@@ -34,6 +34,8 @@ body.cursor{cursor:default}
 #fallback img{position:absolute;left:180px;top:-60px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%)}
 #shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(10,10,11,0) 0,rgba(10,10,11,.86) 45%,rgba(10,10,11,.96) 100%);display:none;pointer-events:none}
 #live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3;pointer-events:none}
+#wallv{position:absolute;left:0;top:220px;width:1920px;height:860px;object-fit:cover;background:#0a0a0b;display:none;pointer-events:none}
+#topv{position:absolute;left:161px;top:171px;width:899px;height:659px;object-fit:cover;background:#000;display:none;z-index:3;pointer-events:none}
 #badge3{left:160px;top:842px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:var(--dim);white-space:nowrap;display:none}
 #badge3 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
 #badge{right:64px;top:244px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
@@ -42,6 +44,7 @@ body.cursor{cursor:default}
 #refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
 #refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:10px}
 #refs a:hover{border-bottom-color:var(--white)}
+#dbg{left:60px;top:860px;margin:0;font-family:Neo,monospace;font-size:12px;line-height:1.5;color:#9b9c97;background:rgba(0,0,0,.6);padding:6px 8px;display:none;pointer-events:none;z-index:9}
 #h-ref{right:60px;top:92px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#3c3d3a;text-decoration:none;white-space:nowrap}
 #ref0{right:80px;top:80px;font-family:Neo,monospace;font-size:12px;letter-spacing:.14em;color:#3c3d3a;text-decoration:none;white-space:nowrap}
 #notice{left:64px;top:760px;width:1100px;color:var(--white);opacity:0}
@@ -62,14 +65,17 @@ body.cursor{cursor:default}
 <div id="stage">
   <div id="sky"></div>
   <iframe id="live" title="발견된 인류 — 벽의 시공간 (라이브)" allow="autoplay" referrerpolicy="no-referrer"></iframe>
+  <video id="wallv" muted loop playsinline preload="auto" poster="assets/wall.jpg"><source src="assets/wall.mp4" type="video/mp4"></video>
   <div id="fallback"><img src="assets/structure.webp" alt="벽의 기둥 렌더"></div>
   <iframe id="live3" title="The ground from above (live)" referrerpolicy="no-referrer"></iframe>
+  <video id="topv" muted loop playsinline preload="auto" poster="assets/top.jpg"><source src="assets/top.mp4" type="video/mp4"></video>
   <div id="badge3" class="abs"><i></i><span>LIVE · THE GROUND FROM ABOVE — a demo crowd, folded by the work's own rules · anthropocene-mu.vercel.app</span></div>
   <div id="shade"></div>
   <canvas id="cv" width="1920" height="1080"></canvas>
   <div id="badge" class="abs"><i></i><span>LIVE</span></div>
   <a id="ref0" class="abs" href="references.html">REFERENCES · 참고 자료 ↗</a>
   <a id="h-ref" class="abs" href="references.html">REFERENCES ↗</a>
+  <pre id="dbg" class="abs"></pre>
   <div id="hint" class="abs">→ OR CLICK: NEXT · ← BACK · 1–7 SECTIONS · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="title" class="abs">발견된 인류</div>
@@ -156,15 +162,24 @@ const REFS={
 const LIVE_URL="https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute";
 const TOP_URL="https://anthropocene-mu.vercel.app/v2/global/top?demo=1&ui=0&look=footprint";
 let step=0, prev=-1, stepAt=performance.now(), now=performance.now();
+let refsStep=-1; // the reference strip is rebuilt only when the step changes: rebuilding it every frame destroyed the link under the pointer between mousedown and mouseup, so its links could never be clicked
 const U=()=>(now-stepAt)/1000;
 const stepsEl=$("#steps"); for(let i=0;i<STEPS;i++) stepsEl.appendChild(document.createElement("i"));
 const N1="미래의 고고학자들이 멸망한 인류를 발굴 중입니다.", N2="현재의 당신은 무엇을 남기시겠습니까?";
 
 /* ---------- step 0: the title over the live wall ---------- */
-const live=$("#live"), liveWanted=q.get("live")!=="0"&&!q.has("still")&&innerWidth>=760&&!matchMedia("(prefers-reduced-motion: reduce)").matches;
-let liveState="off", liveTimer=0; // off | loading | on | failed
+const live=$("#live"), wallv=$("#wallv"), topv=$("#topv");
+const motionOk=!q.has("still")&&innerWidth>=760&&!matchMedia("(prefers-reduced-motion: reduce)").matches;
+// order: the baked videos (assets/wall.mp4, top.mp4) → when they are missing, the live app → when that fails, a still.
+// ?baked=0 skips the videos, ?live=0 skips the app, ?live=1 goes straight to the app.
+const liveWanted=q.get("live")!=="0"&&motionOk;
+let bakedOk=q.get("live")!=="1"&&q.get("baked")!=="0"&&motionOk;
+let liveState="off", liveTimer=0; // off | loading | on | failed | baked
 function liveOn(){
   if(liveState!=="off"&&liveState!=="failed")return;
+  if(bakedOk){liveState="baked"; wallv.style.display="block"; wallv.currentTime=0; wallv.play().catch(()=>{}); $("#badge").querySelector("span").textContent="THE WALL'S TIMESPACE — BAKED FROM THE WORK, 2026-11-04 · ONE TURN";
+    const fail=()=>{bakedOk=false; wallv.onerror=null; wallv.style.display="none"; liveState="off"; liveOn();};
+    wallv.onerror=fail; for(const src of wallv.querySelectorAll("source")) src.onerror=fail; return;}
   if(!liveWanted){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";return;}
   liveState="loading"; live.src=LIVE_URL+(q.has("rate")?`&rate=${q.get("rate")}`:""); live.style.display="block";
   $("#badge").querySelector("span").textContent="LIVE — THE WALL'S TIMESPACE, RENDERING NOW · anthropocene-mu.vercel.app";
@@ -172,9 +187,14 @@ function liveOn(){
   live.onload=()=>{if(liveState==="loading"){liveState="on";clearTimeout(liveTimer);}};
 }
 let live3State="off";
-function live3On(){ if(live3State!=="off"||!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
-function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; $("#badge3").style.display="none"; live3State="off"; }
-function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; $("#fallback").style.display="none"; liveState="off"; }
+function live3On(){ if(live3State!=="off")return;
+  if(bakedOk){live3State="baked"; topv.style.display="block"; topv.style.opacity="0"; topv.currentTime=0; topv.play().catch(()=>{}); topv.style.transition="opacity 1.2s"; requestAnimationFrame(()=>topv.style.opacity="1");
+    $("#badge3").querySelector("span").textContent="THE GROUND FROM ABOVE — a demo crowd folded by the work's own rules, baked 2026-11-04"; $("#badge3").style.display="block";
+    const fail=()=>{bakedOk=false; topv.onerror=null; topv.style.display="none"; $("#badge3").style.display="none"; live3State="off"; live3On();};
+    topv.onerror=fail; for(const src of topv.querySelectorAll("source")) src.onerror=fail; return;}
+  if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
+function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; topv.pause(); topv.style.display="none"; topv.style.opacity="0"; $("#badge3").style.display="none"; live3State="off"; }
+function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; wallv.pause(); wallv.style.display="none"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
   $("#title").style.clipPath=`inset(0 ${(100*(1-on(u,0.3,0.9))).toFixed(2)}% 0 0)`;
   $("#homo").style.opacity=on(u,1.0,0.7); $("#kaist").style.opacity=on(u,1.2,0.7);
@@ -438,7 +458,7 @@ function render(){
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
   if(step===3&&u>13.5)live3On(); else if(step!==3)live3Off();
-  if(!t0&&REFS[step]){$("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join(""); $("#refs").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
+  if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
     $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
@@ -459,7 +479,7 @@ window.__go=n=>{now=performance.now();go(n);render();};
 window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),plan.decode().catch(()=>0)]).then(()=>true);
 let cursorT=0;
 addEventListener("mousemove",()=>{document.body.classList.add("cursor");cursorT=performance.now();});
-addEventListener("keydown",e=>{
+addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
   if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown"||e.key==="Enter"){e.preventDefault();go(step+1);}
   else if(e.key==="ArrowLeft"||e.key==="PageUp"||e.key==="Backspace"){e.preventDefault();go(step-1);}
   else if(/^[0-7]$/.test(e.key)) go(+e.key);
@@ -467,15 +487,25 @@ addEventListener("keydown",e=>{
   else if(e.key==="r"){prev=-1;stepAt=now;}
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}
   else if(e.key==="h") $("#hud").style.opacity=$("#hud").style.opacity==="1"?"0":"1";
-});
-addEventListener("click",e=>{window.focus(); if(e.clientX>innerWidth*0.2)go(step+1);else go(step-1);});
+},true);
+// input — pointerdown in the capture phase, so nothing under the pointer (the reference links, a video, an iframe that
+// took the focus) can swallow the advance; keys are read in the capture phase for the same reason. ?debug=1 logs them.
+const dbgEl=$("#dbg"), dbgOn=q.has("debug"); if(dbgOn){dbgEl.style.display="block";$("#hud").style.opacity="1";}
+const dbgLines=[]; function dbg(t){ if(!dbgOn)return; dbgLines.push(`${(performance.now()/1000).toFixed(1)}s ${t}`); while(dbgLines.length>8)dbgLines.shift(); dbgEl.textContent=dbgLines.join("\n"); }
+let lastPtr=-1e9;
+function advanceAt(x){ if(x>innerWidth*0.2)go(step+1);else go(step-1); }
+addEventListener("pointerdown",e=>{ if(e.pointerType==="mouse"&&e.button!==0)return; lastPtr=performance.now(); try{window.focus();}catch(err){}
+  advanceAt(e.clientX); dbg(`pointerdown ${e.pointerType} on ${e.target&&e.target.tagName}#${e.target&&e.target.id} → step ${step}`); },true);
+addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (after pointerdown, ignored)");return;}
+  advanceAt(e.clientX); dbg(`click without pointerdown on ${e.target&&e.target.tagName} → step ${step}`); },true);
+addEventListener("touchend",e=>{ if(performance.now()-lastPtr<1000)return; const t=e.changedTouches&&e.changedTouches[0]; if(t){lastPtr=performance.now();advanceAt(t.clientX);dbg(`touchend → step ${step}`);} },true);
 for(const f of [live,$("#live3")]) f.setAttribute("tabindex","-1");
 await window.__ready;
 if(q.has("step")){step=clamp(+q.get("step"),0,STEPS-1); prev=step-1;}
 if(frozen){setT(+(q.get("t")||0));render();}
 const t0=performance.now(); stepAt=t0;
 (function tick(ms){
-  if(!frozen){ if(auto){setT((ms-t0)/1000);} else now=ms; render();
+  if(!frozen){ if(auto){setT((ms-t0)/1000);} else now=ms; try{render();}catch(err){console.error(err); dbg("render error: "+(err&&err.message)); $("#hud").textContent=`step ${step} · render error: ${err&&err.message}`; $("#hud").style.opacity="1";}
     if(document.body.classList.contains("cursor")&&ms-cursorT>2000)document.body.classList.remove("cursor"); }
   requestAnimationFrame(tick);
 })(t0);
