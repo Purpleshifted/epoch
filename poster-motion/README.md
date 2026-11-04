@@ -117,3 +117,9 @@ PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 - **이 브랜치의 앱을 따로 배포**: Vercel 프로젝트 **homo-inventus-lab**(prj_fHkp2JTzy8hg5bvYuD9TEMqEjA4W, root `apps/web`, Next 16, Node 24, build `next build --webpack`, install `npm install --prefix=../..`; Turbopack 빌드는 새 프로젝트에서 next/font/google 오류로 실패). 전시 배포(anthropocene, main)는 손대지 않는다. 주소 `LAB_ORIGIN` = https://homo-inventus-lab.vercel.app.
 - **앱 쪽(`apps/web`, 이 브랜치)**: `lib/parliament/scenario.ts` — 대본 군중 `?scenario=slab|path|pipe|veg` (랩, 빈 땅): slab 넷이 한 자리(9초면 문턱 36, 15마다 한 단), path 둘이 왕복(13초/한 구간), pipe 세 무리 + 두 보행자(밀봉률 25 % 넘으면 배관), veg 여섯이 한 뙈기를 밟다가 떠남(200초 주기). `useGlobalBots`의 `opts.script`가 봇 대신 대본 좌표를 그대로 사건으로 낸다. 카메라 `?cam=close`(가까이, 90초 한 바퀴) · `?cam=turn`(저장된 시점, 60초 한 바퀴). `?snap=1`이면 iframe 안에서 160 px 비트맵을 0.2초마다 부모 창에 postMessage(픽셀만).
 - **사이트 쪽**: 랜딩 `LIVE_URL` = 랩 `cam=turn&snap=1&minutes=8&bots=10&dpr=0.6` — 실제 3D 기둥이 돌고, 픽셀 침식 띠가 그 스냅샷을 셀로 받아 **같이 움직인다**(`sampleLive`; 스냅이 2.5초 끊기면 정지 렌더로 복귀). ③의 평면도도 랩 출처(`look=footprint`가 거기엔 있음). **④ 듀얼**: 12초 뒤 오른쪽에 `#live4` iframe — 대본 군중을 실제 규칙으로 접는 라이브, 40초마다 slab → path → pipe → veg(`V` 키로 다음), 아래 배지에 규칙 이름. `?live=0`이면 모두 끔.
+
+## 2026-11-04 15:00 — 홈 키 시작 · ①′ 화살표 · 폰 스크롤 발표
+
+- 홈에 START 줄 없음: **→ 키**로 발표 시작, 홈의 클릭은 전부 내비게이션(링크). 덱 안에서는 클릭/→ 진행, 상단 제목 → 홈.
+- ①′: 화살표를 구덩이 가까이(x 760·1600), 굵게(4 px, 머리 20), 라벨은 화살표 **위/아래**에 중앙 정렬 — 옆의 상자·괄호와 겹치지 않음.
+- **폰(터치 기기 760 px 미만 또는 520 px 미만)**: 스크롤로 발표를 읽는 형식 — 살아 있는 덱(`#stage`)을 `.hero`에 넣어 폭에 맞춰 축소하고 **sticky**로 상단에 고정; 아래 섹션 글(제목·핵심 문장·한국어·노트의 인용·도판·출처·REFS)을 읽어 내려가면 IntersectionObserver가 그 섹션으로 덱을 넘긴다(`go(i)`). 가로로 돌리면 전체 덱. 노트 플레이트는 폰에서 건너뜀(글로 대신). 좁은 데스크톱 창은 덱을 축소해 보임(폰 레이아웃 아님).
