@@ -46,6 +46,7 @@ body.cursor{cursor:default}
 #badge3 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
 #badge{left:64px;top:392px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
 #badge i{display:inline-block;width:8px;height:8px;background:var(--white);margin-right:10px;vertical-align:1px}
+#start{left:0;top:962px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:14px;letter-spacing:.18em;color:var(--white);cursor:pointer;display:none}
 #hint{left:0;top:1002px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f;display:none}
 #refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
 #refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:10px}
@@ -85,6 +86,33 @@ body.cursor{cursor:default}
 #inter .note b{color:var(--white);font-weight:700}
 #inter .foot,#inter .foot2{position:absolute;top:874px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f}
 #inter .foot{left:160px}#inter .foot2{right:160px;text-align:right}
+#mobile{display:none}
+@media (max-width:759px){
+  html,body{overflow:auto;height:auto;cursor:auto;background:#000}
+  #stage,#hud{display:none!important}
+  #mobile{display:block;color:var(--white);font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;line-height:1.5;word-break:keep-all;-webkit-font-smoothing:antialiased}
+  #mobile header{background:#fff;color:var(--ink);padding:22px 16px 16px}
+  #mobile header .t{font-family:PreBlack,Pretendard,sans-serif;font-weight:900;font-size:36px;line-height:1;letter-spacing:-.01em}
+  #mobile header small{display:block;font-family:Neo,monospace;font-size:10px;letter-spacing:.22em;color:#3c3d3a;margin-top:10px;line-height:1.6}
+  #medge{display:block;width:100%;height:24px;background:#000}
+  #mobile .hero img{display:block;width:100%;height:auto}
+  #mobile .n{margin:18px 16px 6px;font-family:Neo,monospace;font-size:17px;line-height:1.6}
+  #mobile .n span{display:block}
+  #mobile .n small{display:block;font-family:Pretendard,sans-serif;font-size:13px;color:var(--dim);margin-top:8px;line-height:1.5}
+  #mobile nav{display:flex;flex-wrap:wrap;gap:10px 18px;margin:14px 16px 28px;font-family:Neo,monospace;font-size:11px;letter-spacing:.12em}
+  #mobile nav a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;padding-bottom:2px}
+  #mobile h2{margin:0 16px 12px;font-family:Neo,monospace;font-size:11px;letter-spacing:.16em;color:var(--dim);font-weight:400}
+  #mobile ol{list-style:none;margin:0;padding:0 16px}
+  #mobile li{margin:0 0 28px}
+  #mobile li img{display:block;width:100%;height:auto;border:1px solid #2a2b29}
+  #mobile li b{display:block;margin-top:10px;font-size:15px}
+  #mobile li span{display:block;font-size:14px;margin-top:4px}
+  #mobile li small{display:block;font-size:12.5px;color:var(--dim);margin-top:4px}
+  #mobile li .r{display:block;margin-top:6px;font-family:Neo,monospace;font-size:10px;letter-spacing:.1em;color:var(--dim)}
+  #mobile li .r a{color:var(--white);text-decoration:none;margin-right:10px}
+  #mobile .hint{margin:10px 16px;font-size:12.5px;color:var(--dim)}
+  #mobile footer{margin:30px 16px 40px;padding-top:12px;border-top:1px solid #2a2b29;font-size:12px;color:var(--dim);line-height:1.6}
+}
 #hud{position:fixed;left:8px;bottom:6px;font:12px/1.3 ui-monospace,monospace;color:#5a5a5a;opacity:0}
 </style>
 </head>
@@ -104,7 +132,8 @@ body.cursor{cursor:default}
   <div id="h-ref" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="hint" class="abs">→ OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–8 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
+  <div id="start" class="abs">▶ START THE PRESENTATION · 발표 시작</div>
+  <div id="hint" class="abs">OR → · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–8 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -118,6 +147,17 @@ body.cursor{cursor:default}
   <div id="steps" class="abs"></div>
 </div>
 <div id="hud"></div>
+<div id="mobile">
+  <header><div class="t">발견된 인류</div><small>HOMO INVENTUS · 2026 ID40009 GRADUATION DESIGN STUDIO · KAIST</small></header>
+  <canvas id="medge" height="24" aria-hidden="true"></canvas>
+  <div class="hero"><img src="assets/slides/s0.jpg" alt="The wall's column under the title"></div>
+  <p class="n"><span>미래의 고고학자들이 멸망한 인류를 발굴 중입니다.</span><span>현재의 당신은 무엇을 남기시겠습니까?</span><small>Future archaeologists are excavating extinct humanity. You, in the present: what will you leave?</small></p>
+  <nav><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/personal" target="_blank" rel="noopener">ENTER THE WORK ON THIS PHONE ↗</a></nav>
+  <h2>THE PRESENTATION · 발표 도해</h2>
+  <ol id="mslides"></ol>
+  <p class="hint">On a wider screen this page is the presentation itself: START or → to begin, → for the next section and its notes, 1–8 for a section.</p>
+  <footer>Hayeon Park 20220875 · Supervised by Yiyun Kang · ID40009 Graduation Design Studio · KAIST 2026</footer>
+</div>
 
 <script>
 (async function(){
@@ -272,7 +312,7 @@ function s0(u,g){
   const p1=clamp((u-0.8)/2.4), p2=clamp((u-3.4)/2.0), blink=(g*2|0)%2===1;
   $("#n1").textContent=N1.slice(0,Math.round(p1*N1.length))+(p1>0&&p1<1&&blink?"▪":"");
   $("#n2").textContent=N2.slice(0,Math.round(p2*N2.length))+((p2>0&&p2<1&&blink)||(p2>=1&&blink)?"▪":"");
-  $("#notice").querySelector("p").style.opacity=on(u,5.6,0.8);
+  $("#notice").querySelector("p").style.opacity=on(u,5.6,0.8); $("#start").style.opacity=on(u,3.2,0.8); $("#hint").style.opacity=on(u,4.0,0.8);
   $("#notice").style.opacity=on(u,0.6,0.3).toFixed(3);
   erode(220,g); drawDissolve(g); // the ground's eroded edge under the paper, and the structure's top melting into it as cells
   if(liveState==="failed"){const im=$("#fallback img"); im.style.transform=`translateY(${(-40+Math.sin(g*0.08)*40).toFixed(1)}px)`;}
@@ -404,8 +444,8 @@ function s3(u){
     x=mix(sx+Math.sin(u*0.5+i)*22,dwell[0],gather); y=mix(sy+Math.cos(u*0.6+i*1.3)*22,dwell[1],gather);
     const com=on(u,6.8,0.8)*(1-on(u,11.5,0.8)); if(com>0){const to=C[(k+1)%3]; const w=tri((u-6.8)*0.22+ph0); x=mix(x,mix(dwell[0],to[0]+Math.sin(u+i)*10,w),com); y=mix(y,mix(dwell[1],to[1]+Math.cos(u+i)*10,w),com);}
     sq(x,y,6,0.95);}
-  label(C[0][0]+48,C[0][1]-36,"/concrete","콘크리트 — several dwell in one place and time",slabA(0));
-  label((C[0][0]+C[1][0])/2+18,(C[0][1]+C[1][1])/2-30,"/path","길 — repeated walking between",on(u,8.6));
+  label(C[0][0]-34,C[0][1]+72,"/concrete","콘크리트 — several dwell in one place and time",slabA(0));
+  label((C[0][0]+C[1][0])/2-60,(C[0][1]+C[1][1])/2-56,"/path","길 — repeated walking between",on(u,8.6),"right");
   label(O[0]+22,O[1]-30,"/pipe","배관 — laid under the sealed ground",pipeA);
   // the section
   const sx0=1160, sy0=170, sw=600, sh=660, surf=sy0+250; box(sx0,sy0,sw,sh,FAINT,on(u,0.2));
@@ -495,7 +535,7 @@ function s5(u){
   box(lx,ly,s,s,FAINT,on(u,1.6)); if(plan.complete&&plan.naturalWidth){ctx.globalAlpha=on(u,1.8,0.9); ctx.filter="grayscale(1)"; ctx.drawImage(plan,lx,ly,s,s); ctx.filter="none"; ctx.globalAlpha=1;}
   // the one inside, marked on the whole — the same spot the right panel shows from within
   const wa=on(u,4.2,0.6), mx=lx+s/2+Math.sin(u*0.5)*120, my=ly+s/2+Math.sin(u*0.8+1)*90; box(mx-22,my-22,44,44,WHITE,wa,1.5); sq(mx,my,5,wa);
-  txt("one person's reach",mx+30,my+4,{px:11,fam:"Neo",col:DIM,a:wa,ls:1});
+  txt("□ one person's reach",lx+s,ly-14,{px:11,fam:"Neo",col:DIM,a:wa,ls:1,al:"right"});
   para("On the wall: the whole, which no one inside can see, read as a far future would read it.",lx,ly+s+40,{px:20,maxW:540,a:on(u,5.0,0.8)});
   // between the two: the visitor moves from one state to the other, and back — the connection is the question
   const ba=on(u,6.4,0.8); arrow(lx+s+44,ly+s/2-10,1120-44,ly+s/2-10,WHITE,ba,2); arrow(1120-44,ly+s/2+10,lx+s+44,ly+s/2+10,WHITE,ba,2);
@@ -519,7 +559,7 @@ function s5(u){
 /* ---------- ⑥ sound: a name is a melody; the same event at two scales ---------- */
 function s6(u,g){
   const col=Math.floor(g/0.22)%8;
-  txt("ONE PERSON · 헤드셋",160,180,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
+  txt("ONE PERSON · 헤드셋",160,158,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
   const ax=200, ay=230, S=200; const near=on(u,1.2,3.0), locked=u>=4.4;
   const bx=mix(820,ax+S+120,near);
   glyphC(fig.a.dots,ax,ay,S,{a:on(u,0.3),cur:col}); txt("/name",ax,ay+S+30,{px:22,w:700,a:on(u,0.3)}); txt("이름 · my name · 5051 · an eight-step score",ax,ay+S+50,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
@@ -570,6 +610,8 @@ function s7(u,g){
   const ea=on(u,7.0,0.9);
   txt("기록은 남습니다.",x,y+560,{px:30,fam:"Neo",a:ea}); txt("흔적은 벽의 창에서 읽힐 수도, 읽히지 않을 수도 있습니다.",x,y+606,{px:30,fam:"Neo",a:on(u,7.8,0.9)});
   txt("The record remains. Your traces may be read — or may not be.",x,y+640,{px:16,col:DIM,a:on(u,8.4,0.9)});
+  txt("HOMO INVENTUS — THE HUMANITY THAT IS FOUND",x,y+668,{px:12,fam:"Neo",col:DIM,a:on(u,9.4),ls:1.2});
+  txt("Not a humanity named by what it does, but by how it will be found — by this gaze, after the end.",x,y+692,{px:16,a:on(u,9.8,0.8)});
   para("The visitor experiences, in their own body, that their actions undeniably left traces — and yet changed nothing of the whole. No guilt is assigned; the work hands each visitor a question to carry home.",mx,my+ms+70,{px:16,maxW:500,col:DIM,a:on(u,9.4,0.9)});
 }
 
@@ -581,7 +623,7 @@ function render(){
   ctx.clearRect(0,0,W,H);
   const t0=step===0;
   $("#sky").style.height=t0?"220px":"110px";
-  for(const id of ["#studio","#kaist","#notice","#shade","#badge","#hint","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none"; $("#visit").style.display=t0?"block":"none";
+  for(const id of ["#studio","#kaist","#notice","#shade","#badge","#hint","#start","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none"; $("#visit").style.display=t0?"block":"none";
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
   if(step===4&&u>13.5)live3On(); else if(step!==4)live3Off();
@@ -735,6 +777,11 @@ function hideInter(){ if(!inter)return; inter=false; interEl.style.display="none
 function next(){ if(!inter&&INTER[step]&&!q.has("nointer")){showInter();return;} hideInter(); go(step+1); }
 function back(){ if(inter){hideInter();return;} go(step-1); }
 
+/* ---------- a phone: the deck as cards ---------- */
+if(innerWidth<760){const ol=$("#mslides");
+  for(let i=1;i<STEPS;i++){const li=document.createElement("li"); li.innerHTML=`<img src="assets/slides/s${i}.jpg" alt="${SEC[i][0]}" loading="lazy"><b>${SEC[i][1].slice(0,2)} ${SEC[i][0]}</b><span>${KEY[i][0]}</span><small>${KEY[i][1]}</small>`+(REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""); ol.appendChild(li);}
+  const me=$("#medge"), mx=me.getContext("2d"); const dm=()=>{const w=me.width=me.clientWidth, c=6; mx.clearRect(0,0,w,24); for(let x=0;x<w/c;x++)for(let r=0;r<3;r++){if(hash(x*3+r,11)<[0.5,0.22,0.08][r]){mx.fillStyle="#fff"; mx.fillRect(x*c,r*c,c,c);}}}; dm(); addEventListener("resize",dm);}
+
 /* ---------- control ---------- */
 function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; prev=step; step=n; stepAt=now;}
 function fit(){const s=Math.min(innerWidth/W,innerHeight/H); stage.style.transform=`translate(${((innerWidth-W*s)/2).toFixed(1)}px,${((innerHeight-H*s)/2).toFixed(1)}px) scale(${s.toFixed(4)})`;}
@@ -761,9 +808,9 @@ addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
 const dbgEl=$("#dbg"), dbgOn=q.has("debug"); if(dbgOn){dbgEl.style.display="block";$("#hud").style.opacity="1";}
 const dbgLines=[]; function dbg(t){ if(!dbgOn)return; dbgLines.push(`${(performance.now()/1000).toFixed(1)}s ${t}`); while(dbgLines.length>8)dbgLines.shift(); dbgEl.textContent=dbgLines.join("\n"); }
 let lastPtr=-1e9;
-function advanceAt(x){ if(x>innerWidth*0.2)next();else back(); }
+function advanceAt(x){ if(step===0)return; if(x>innerWidth*0.2)next();else back(); }   // the home is a page, not the deck: it starts from the START line or the keys
 addEventListener("pointerdown",e=>{ if(e.pointerType==="mouse"&&e.button!==0)return; lastPtr=performance.now(); try{window.focus();}catch(err){}
-  const tg=e.target&&e.target.closest?e.target:null; if(tg&&tg.closest("#h-title,#h-homo")){hideInter(); go(0); dbg("home"); return;} if(tg&&tg.closest("a"))return;
+  if(innerWidth<760)return; const tg=e.target&&e.target.closest?e.target:null; if(tg&&tg.closest("#h-title,#h-homo")){hideInter(); go(0); dbg("home"); return;} if(tg&&tg.closest("#start")){go(1); dbg("start"); return;} if(tg&&tg.closest("a"))return;
   advanceAt(e.clientX); dbg(`pointerdown ${e.pointerType} on ${e.target&&e.target.tagName}#${e.target&&e.target.id} → step ${step}`); },true);
 addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (after pointerdown, ignored)");return;} if(e.target&&e.target.closest&&e.target.closest("a,#h-title,#h-homo"))return;
   advanceAt(e.clientX); dbg(`click without pointerdown on ${e.target&&e.target.tagName} → step ${step}`); },true);

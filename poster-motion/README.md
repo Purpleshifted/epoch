@@ -104,3 +104,10 @@ PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 - 헤더의 "발견된 인류"를 누르면 홈(0), 링크(a)를 누르면 덱이 넘어가지 않음.
 - references: 마인드맵 = **바퀴**(가지마다 부채꼴, 잎은 테두리에 방사형 라벨, hover 시 부채꼴이 넓어짐, 숨쉬듯 흔들림, 클릭 → 항목) — 자유 힘 레이아웃은 읽기 어려워 교체. 제목 계보 참고문헌 4편(Linnaeus 1758, Bergson 1907, Huizinga 1938, Arendt 1958).
 - 대본 Doc: ①′에 제목 문단, 노트 화면 표시 8개로 이름 변경.
+
+## 2026-11-04 14:10 — 홈·겹침·대본·모바일
+
+- 홈은 덱이 아니다: 홈에서 클릭해도 넘어가지 않고, **▶ START THE PRESENTATION** 줄(또는 → 키)로 시작. 링크는 링크로만 동작. 상단 제목 → 홈.
+- 겹침 수정: ③ /path·/concrete 라벨이 길 선 위에 있던 것, ⑤ "one person's reach"가 그림 위에 있던 것(패널 제목 줄로), ⑥ "ONE PERSON" 라벨이 HARMONY 줄과 겹치던 것. 전 구간 끝 시점 스틸로 확인(`STILLS=19.5,33.5,46.5,60.5,76.5,87.5,100.5,113.5`).
+- ⑦ 끝에 제목 회귀: "HOMO INVENTUS — THE HUMANITY THAT IS FOUND" + 한 줄. 대본 ⑦ 마지막에도 같은 문장(Thank you 앞).
+- **모바일(760 px 미만)**: `#stage`를 숨기고 `#mobile`을 보인다 — 흰 제목 띠 + 침식 캔버스, 랜딩 스틸(`assets/slides/s0.jpg`), 두 문장, 링크 4개(이 폰으로 작품 입장), 발표 8장을 카드로(`assets/slides/s1–8.jpg` 1280 px + 제목·핵심 문장·REFS 링크, SEC/KEY에서 생성). 스틸은 `tools/render.mjs`의 구간 끝 프레임을 ffmpeg로 줄인 것 — 슬라이드를 고치면 다시 만들 것. references는 720 px 미만에서 헤더 고정 해제·표 가로 스크롤.
