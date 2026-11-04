@@ -74,6 +74,8 @@ function tick(): void {
 
 /** Play one situation (from a click: the browser unlocks audio on a gesture). */
 export async function play(k: Kind): Promise<void> {
+  // one situation at a time: whatever was playing stops (its voices, pad, name) before the next begins
+  if (kind) { kind = null; engine.stop(); await new Promise((r) => setTimeout(r, 180)); }
   await engine.start();
   kind = k;
   t0 = performance.now();
