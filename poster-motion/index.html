@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>발견된 인류 — Homo inventus</title>
 <meta name="description" content="발견된 인류 (Homo inventus): 미래의 고고학자가 발굴하는 인류세. 참여형 미디어아트 설치의 발표 도해 — 부결된 황금못, 생흔화석, 모여 살기, 짓기 버튼 없는 세계, 하이퍼객체, 이름=멜로디, 남는 기록.">
-<meta name="theme-color" content="#0a0a0b">
+<meta name="theme-color" content="#000000">
 <meta property="og:title" content="발견된 인류 — Homo inventus">
 <meta property="og:description" content="미래의 고고학자들이 멸망한 인류를 발굴 중입니다. 현재의 당신은 무엇을 남기시겠습니까?">
 <meta property="og:type" content="website">
@@ -14,39 +14,45 @@
 @font-face{font-family:"Pretendard";font-weight:700;src:url("fonts/Pretendard-Bold.woff2") format("woff2")}
 @font-face{font-family:"Pretendard";font-weight:400;src:url("fonts/Pretendard-Regular.woff2") format("woff2")}
 @font-face{font-family:"Neo";src:url("fonts/neodgm.woff2") format("woff2")}
-:root{--sky0:#dfe0db;--sky1:#d7d8d3;--ink:#0b0b0b;--white:#e9e9e5;--dim:#9b9c97;--faint:#55564f}
+@font-face{font-family:"PlexI";src:url("fonts/IBMPlexMono-Italic.ttf") format("truetype")}
+:root{--sky0:#ffffff;--sky1:#ffffff;--ink:#0b0b0b;--white:#e9e9e5;--dim:#9b9c97;--faint:#55564f}
 html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
 body.cursor{cursor:default}
-#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;overflow:hidden;background:#0a0a0b;color:var(--white);
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;overflow:hidden;background:#000;color:var(--white);
   font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;font-weight:400;word-break:keep-all;-webkit-font-smoothing:antialiased}
 #sky{position:absolute;left:0;top:0;width:1920px;height:110px;background:linear-gradient(180deg,var(--sky0) 0,var(--sky1) 100%);color:var(--ink)}
 #cv{position:absolute;left:0;top:0;width:1920px;height:1080px}
 .abs{position:absolute}
-#title{left:60px;top:38px;font-size:122px;font-weight:700;line-height:.96;letter-spacing:-.02em;white-space:nowrap;color:var(--ink)}
-#homo{left:66px;top:168px;font-size:24px;letter-spacing:11px;line-height:1;white-space:nowrap;color:var(--ink)}
-#kaist{right:80px;top:52px;font-size:15px;letter-spacing:.14em;color:#3c3d3a;white-space:nowrap}
-#h-title{left:60px;top:30px;font-size:30px;font-weight:700;letter-spacing:-.01em;line-height:1;white-space:nowrap;color:var(--ink)}
+#studio{left:60px;top:46px;font-size:17px;font-weight:700;letter-spacing:-.005em;line-height:1.3;color:var(--ink);white-space:nowrap}
+#studio small{display:block;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;font-weight:400;margin-top:6px}
+#visit{right:80px;top:36px;width:120px;display:none;text-align:center;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:#3c3d3a;line-height:1.5;opacity:0}
+#visit img{display:block;width:120px;height:120px;margin:0 auto 6px}
+#visit span{display:block;white-space:nowrap;margin:0 -50px}
+#kaist{right:270px;top:46px;font-size:18px;font-weight:700;letter-spacing:.02em;color:var(--ink);white-space:nowrap}
+#h-title{left:60px;top:28px;font-family:Neo,monospace;font-size:30px;font-weight:400;letter-spacing:.02em;line-height:1;white-space:nowrap;color:var(--ink)}
 #h-homo{left:62px;top:68px;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;white-space:nowrap}
-#h-sec{right:60px;top:40px;font-family:Neo,monospace;font-size:14px;letter-spacing:.1em;color:#3c3d3a;white-space:nowrap;text-align:right}
+#h-sec{right:60px;top:32px;font-family:Neo,monospace;font-size:14px;letter-spacing:.1em;color:#3c3d3a;white-space:nowrap;text-align:right}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
-#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#0a0a0b;display:none;pointer-events:none}
+#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#000;display:none;pointer-events:none}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
 #fallback img{position:absolute;left:180px;top:-60px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%)}
-#shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(10,10,11,0) 0,rgba(10,10,11,.86) 45%,rgba(10,10,11,.96) 100%);display:none;pointer-events:none}
+#shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(0,0,0,0) 0,rgba(0,0,0,.86) 45%,rgba(0,0,0,.96) 100%);display:none;pointer-events:none}
 #live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3;pointer-events:none}
-#wallv{position:absolute;left:0;top:220px;width:1920px;height:860px;object-fit:cover;background:#0a0a0b;display:none;pointer-events:none}
+#wallv{position:absolute;left:0;top:220px;width:1920px;height:860px;object-fit:cover;background:#000;display:none;pointer-events:none}
 #topv{position:absolute;left:161px;top:171px;width:899px;height:659px;object-fit:cover;background:#000;display:none;z-index:3;pointer-events:none}
 #badge3{left:160px;top:842px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:var(--dim);white-space:nowrap;display:none}
 #badge3 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
-#badge{right:64px;top:244px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
+#badge{right:64px;top:262px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
 #badge i{display:inline-block;width:8px;height:8px;background:var(--white);margin-right:10px;vertical-align:1px}
 #hint{left:0;top:1002px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f;display:none}
 #refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
 #refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:10px}
 #refs a:hover{border-bottom-color:var(--white)}
 #dbg{left:60px;top:860px;margin:0;font-family:Neo,monospace;font-size:12px;line-height:1.5;color:#9b9c97;background:rgba(0,0,0,.6);padding:6px 8px;display:none;pointer-events:none;z-index:9}
-#h-ref{right:60px;top:92px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#3c3d3a;text-decoration:none;white-space:nowrap}
-#ref0{right:80px;top:80px;font-family:Neo,monospace;font-size:12px;letter-spacing:.14em;color:#3c3d3a;text-decoration:none;white-space:nowrap}
+#h-ref{left:292px;top:38px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;white-space:nowrap}
+#h-ref a,#ref0 a{color:#3c3d3a;text-decoration:none;margin-left:18px}
+#h-ref a:hover,#ref0 a:hover{color:var(--ink)}
+#ref0{right:270px;top:84px;font-family:Neo,monospace;font-size:12px;letter-spacing:.14em;white-space:nowrap}
 #notice{left:64px;top:760px;width:1100px;color:var(--white);opacity:0}
 #notice span{display:block;font-family:Neo,monospace;font-size:34px;line-height:1.6;white-space:nowrap}
 #notice p{margin:14px 0 0;font-size:16px;line-height:1.55;color:var(--dim)}
@@ -73,14 +79,14 @@ body.cursor{cursor:default}
   <div id="shade"></div>
   <canvas id="cv" width="1920" height="1080"></canvas>
   <div id="badge" class="abs"><i></i><span>LIVE</span></div>
-  <a id="ref0" class="abs" href="references.html">REFERENCES · 참고 자료 ↗</a>
-  <a id="h-ref" class="abs" href="references.html">REFERENCES ↗</a>
+  <div id="ref0" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
+  <div id="h-ref" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
   <pre id="dbg" class="abs"></pre>
-  <div id="hint" class="abs">→ OR CLICK: NEXT · ← BACK · 1–7 SECTIONS · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ OR CLICK: NEXT · ← BACK · 1–8 SECTIONS · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
-  <div id="title" class="abs">발견된 인류</div>
-  <div id="homo" class="abs">HOMO INVENTUS</div>
-  <div id="kaist" class="abs">KAIST · 2026</div>
+  <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
+  <div id="kaist" class="abs">KAIST</div>
+  <div id="visit" class="abs"><img src="assets/qr-personal.svg" alt="QR: enter the work on your phone"><span>ENTER ON A PHONE</span><span>작품 입장 · /exhibition/personal</span></div>
   <div id="h-title" class="abs">발견된 인류</div>
   <div id="h-homo" class="abs">HOMO INVENTUS</div>
   <div id="h-sec" class="abs"><b></b><span></span></div>
@@ -127,37 +133,60 @@ function glyphC(dots,x,y,s,o={}){const {a=1,cur=-1,squash=0,col=NOTE,grid=true,a
     if(squash)fill(x+cc*c+1,y+s-(8-r)*c*squash-c*squash,l*c-2,Math.max(1,c*squash-1),col,aa); else fill(x+cc*c+1,y+r*c+1,l*c-2,c-2,col,aa);}}
 function label(x,y,ko,en,a=1,al="left"){txt(ko,x,y,{px:22,w:700,a,al}); txt(en,x,y+20,{px:12,fam:"Neo",col:DIM,a,ls:1.2,al});}
 
+// the poster's eroded boundary between the white paper and the black ground: cells chipped off both sides; the
+// pattern mostly stands, a few cells come and go
+function erode(y0,g){const c=8, t=Math.floor(g/0.5); for(let x=0;x<W/c;x++){for(let r=0;r<3;r++){
+  const dn=[0.42,0.17,0.06][r], up=[0.3,0.09,0][r];
+  if((hash(x*3+r,11)<dn)!==(hash(x*7+r,t)<0.04)) fill(x*c,y0+r*c,c,c,"#ffffff",1);
+  if(up>0&&(hash(x*5+r,29)<up)!==(hash(x*11+r,t+1)<0.04)) fill(x*c,y0-(r+1)*c,c,c,"#000000",1);}}}
+// the title as on the poster: the pixel face, white on the ground, slices shifted and cells chipped out
+function glitchTitle(u,g){const s="발견된 인류", px=150, x=1856, y=930, a=on(u,0.3,0.9); if(a<=0.005)return;
+  ctx.font=`400 ${px}px Neo`; ctx.textAlign="right"; ctx.textBaseline="alphabetic"; const w=ctx.measureText(s).width, top=y-px*0.92, h=px*1.08;
+  ctx.save(); ctx.beginPath(); ctx.rect(x-w-2,top,(w+4)*a,h); ctx.clip(); ctx.fillStyle="#ffffff"; ctx.fillText(s,x,y); ctx.restore();
+  const seed=Math.floor(g/0.5);
+  for(let i=0;i<9;i++){if(hash(seed,i)<0.6)continue; const sy=top+hash(i,seed+1)*h, sh=3+hash(i+7,seed)*16, dx=(hash(seed+3,i)-0.5)*44;
+    ctx.save(); ctx.beginPath(); ctx.rect(x-w-60,sy,w+120,sh); ctx.clip(); ctx.clearRect(x-w-60,sy,w+120,sh); ctx.fillStyle="#ffffff"; ctx.fillText(s,x+dx,y); ctx.restore();}
+  for(let k=0;k<140;k++){const cx0=x-w+hash(k,101)*w, cy0=top+hash(k,202)*h, sz=4+hash(k,303)*8; if((hash(k,404)<0.55)!==(hash(k*3,seed)<0.12)) ctx.clearRect(cx0,cy0,sz,sz);}
+  txt("Homo inventus",x-2,y+52,{px:34,fam:"PlexI",a:on(u,1.0,0.7),al:"right",col:"#ffffff"});}
+function arrow(x0,y0,x1,y1,col=WHITE,a=1,lw=2){if(a<=0.005)return; line(x0,y0,x1,y1,col,a,lw); const an=Math.atan2(y1-y0,x1-x0), h=14;
+  ctx.fillStyle=rgba(col,a); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-h*Math.cos(an-0.5),y1-h*Math.sin(an-0.5)); ctx.lineTo(x1-h*Math.cos(an+0.5),y1-h*Math.sin(an+0.5)); ctx.closePath(); ctx.fill();}
+function ell(cx,cy,rx,ry,col=WHITE,a=1,fillIt=false,lw=1,dash){if(a<=0.005)return; ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,6.2832);
+  if(fillIt){ctx.fillStyle=rgba(col,a); ctx.fill();} else {ctx.strokeStyle=rgba(col,a); ctx.lineWidth=lw; ctx.setLineDash(dash||[]); ctx.stroke(); ctx.setLineDash([]);}}
+
 /* ---------- data ---------- */
 const [glyphs,fig,traces]=await Promise.all(["data/glyphs.json","data/figure.json","data/traces.json"].map(u=>fetch(u).then(r=>r.json())));
 const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=8, HOLD=[8,12,13,14,16,11,13,13];
+const STEPS=9, HOLD=[8,12,14,13,14,16,11,13,13];
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","① 부결된 지질시대"],
+  ["An epoch is interpreted spacetime","①′ 시대 = 해석된 시공간"],
   ["Trace fossils — behaviour, not bodies","② 생흔화석"],
   ["What is humanity's trace fossil?","③ 인류의 생흔화석"],
   ["So this world has no “build” button","④ 생성 로직"],
-  ["Why no one is shown the whole — hyperobjects","⑤ 하이퍼객체"],
+  ["Partial sight, and the whole — hyperobjects","⑤ 하이퍼객체"],
   ["What one person inside it experiences — sound","⑥ 사운드"],
   ["Why this work","⑦ 의의"]];
 const KEY=[["",""],
   ["That gap, between the concept and its record, is where this work begins.","개념과 기록 사이의 그 틈에서 이 작품은 시작한다."],
+  ["An epoch is not a list of events: it is spacetime, interpreted.","시대는 사건의 나열이 아니라 해석된 시공간 — 현재부터 미래를 아우르는 덩어리. 우리는 아랫면에서 행위하고, 시대를 정의하는 시선은 미래에 있다."],
   ["A fossil of behaviour, not of the body.","몸이 아니라 행동이 남는다 — 기록의 단위는 주체가 아니라 행위."],
   ["Living together.","인간이 가장 오래, 가장 촘촘히 반복한 행동 — 모여 살기. 콘크리트, 다져진 길, 땅 밑의 배관."],
   ["Seen from the future, our ordinary days are already the object of excavation.","짓기 버튼은 없다. 모든 구조는 머물고 걷는 일의 부산물이고, 20초가 지층 한 겹이 된다."],
-  ["This work refuses the omniscient view.","전체를 한눈에 보게 하는 순간 인류세는 조종 가능한 모형이 된다 — 그래서 제한된 시야, 제한된 삶."],
+  ["Only ever a part — and the way between the part and the whole.","전체를 한눈에 볼 수 없는 대상. 부분만 인식하는 상태(헤드셋)와 전체(벽)를 오가며, 둘 사이의 연결을 생각하는 계기."],
   ["The same event, at two different scales.","개인에겐 음악의 순간, 전체에겐 구조의 한 칸. 겹쳐도 가리지 않는다."],
   ["현재의 당신은 무엇을 남기시겠습니까?","What will the present you leave behind? — 분명히 남지만 혼자서는 바꿀 수 없는 전체 앞에서, 한 사람은 어떤 마음으로 행동을 정해야 하는가.","neo"]];
 const REFS={
   1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS 성명","n-vote2024"],["Gibbard et al. 2022","n-gibbard2022"]],
-  2:[["생흔화석 · ichnology","n-ichnology"],["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Behrensmeyer 1978 · 타포노미","n-taphonomy"]],
-  3:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"],["Schueler 1994","n-schueler1994"],["Elmore & Kaushal 2008","n-elmore2008"]],
-  4:[["Helbing et al. 1997","n-helbing1997"],["Cole 1995","n-cole1995"],["Pescott & Stewart 2014","n-pescott2014"],["Schueler 1994","n-schueler1994"],["Q = C·i·A","n-rational"],["Pólya 1923","n-polya1923"]],
-  5:[["Morton 2013","n-morton2013"],["Haff 2014","n-haff2014"]],
-  6:[["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
-  7:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
+  2:[["Gibbard et al. 2022 · event, not epoch","n-gibbard2022"],["Morton 2013","n-morton2013"],["Crutzen 2002","n-crutzen2002"]],
+  3:[["생흔화석 · ichnology","n-ichnology"],["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Behrensmeyer 1978 · 타포노미","n-taphonomy"]],
+  4:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"],["Schueler 1994","n-schueler1994"],["Elmore & Kaushal 2008","n-elmore2008"]],
+  5:[["Helbing et al. 1997","n-helbing1997"],["Cole 1995","n-cole1995"],["Pescott & Stewart 2014","n-pescott2014"],["Schueler 1994","n-schueler1994"],["Q = C·i·A","n-rational"],["Pólya 1923","n-polya1923"]],
+  6:[["Morton 2013","n-morton2013"],["Haff 2014","n-haff2014"]],
+  7:[["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
+  8:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
 };
 const LIVE_URL="https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute";
 const TOP_URL="https://anthropocene-mu.vercel.app/v2/global/top?demo=1&ui=0&look=footprint";
@@ -196,15 +225,14 @@ function live3On(){ if(live3State!=="off")return;
 function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; topv.pause(); topv.style.display="none"; topv.style.opacity="0"; $("#badge3").style.display="none"; live3State="off"; }
 function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; wallv.pause(); wallv.style.display="none"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
-  $("#title").style.clipPath=`inset(0 ${(100*(1-on(u,0.3,0.9))).toFixed(2)}% 0 0)`;
-  $("#homo").style.opacity=on(u,1.0,0.7); $("#kaist").style.opacity=on(u,1.2,0.7);
+  $("#studio").style.opacity=on(u,0.2,0.7); $("#kaist").style.opacity=on(u,0.4,0.7); $("#visit").style.opacity=on(u,1.6,0.8);
+  glitchTitle(u,g);
   const p1=clamp((u-0.8)/2.4), p2=clamp((u-3.4)/2.0), blink=(g*2|0)%2===1;
   $("#n1").textContent=N1.slice(0,Math.round(p1*N1.length))+(p1>0&&p1<1&&blink?"▪":"");
   $("#n2").textContent=N2.slice(0,Math.round(p2*N2.length))+((p2>0&&p2<1&&blink)||(p2>=1&&blink)?"▪":"");
   $("#notice").querySelector("p").style.opacity=on(u,5.6,0.8);
   $("#notice").style.opacity=on(u,0.6,0.3).toFixed(3);
-  // the ground's pixel edge under the sky
-  for(let c=0;c<W/12;c++){const r=hash(c,17); const d=r<0.5?0:r<0.85?12:24; fill(c*12,220,12,d,"#dfe0db",1);}
+  erode(220,g); // the ground's eroded edge under the paper
   if(liveState==="failed"){const im=$("#fallback img"); im.style.transform=`translateY(${(-40+Math.sin(g*0.08)*40).toFixed(1)}px)`;}
 }
 
@@ -238,6 +266,48 @@ function s1(u){
   // after the rejection
   para("“We are in the Anthropocene, irrespective of a line on the time scale.”",vx,vy+470,{px:28,maxW:720,lh:1.35,a:on(u,7.2,0.8)});
   para("Humanity's traces are everywhere — and yet they could not be pinned to a single point of matter.",vx,vy+580,{px:18,maxW:720,col:DIM,a:on(u,8.4,0.8)});
+}
+
+/* ---------- ①′ an epoch is interpreted spacetime: a mass from the present to the future ---------- */
+function s1b(u,g){
+  const cx=1180, rx=270, ry=68, yb=740, yt=300;             // the present face at the bottom, the future face on top
+  const rise=on(u,1.6,3.2), aB=on(u,0.2), aT=on(u,5.0,0.8), aE=on(u,7.6), yTop=mix(yb,yt,rise);
+  // the mass: strata accumulating upward from the present — the record a future will read
+  if(rise>0.01){ctx.save(); ctx.beginPath(); ctx.moveTo(cx-rx,yTop); ctx.lineTo(cx-rx,yb); ctx.ellipse(cx,yb,rx,ry,0,Math.PI,0,true); ctx.lineTo(cx+rx,yTop); ctx.ellipse(cx,yTop,rx,ry,0,0,Math.PI,false); ctx.closePath(); ctx.clip();
+    fill(cx-rx,yTop-ry,2*rx,yb-yTop+2*ry,"#141415",1);
+    const N=Math.ceil((yb-yTop+ry)/14); for(let i=0;i<N;i++){const y=yb-14-i*14, gsh=hash(i,3), gcol=(i%2?0x24:0x30)+Math.floor(gsh*10);
+      fill(cx-rx,y,2*rx,12,`#${gcol.toString(16).padStart(2,"0").repeat(3)}`,0.9); for(let k=0;k<18;k++)sq(cx-rx+hash(i,k)*2*rx,y+6+(hash(k,i)-0.5)*8,2,0.35,"#0a0a0b");}
+    ctx.restore();}
+  // the lower face: the present — the ground from above, and the people acting on it
+  if(aB>0){ctx.save(); ctx.beginPath(); ctx.ellipse(cx,yb,rx,ry,0,0,6.2832); ctx.clip(); fill(cx-rx,yb-ry,2*rx,2*ry,"#6b6c68",aB);
+    if(plan.complete&&plan.naturalWidth){ctx.globalAlpha=aB*0.55; ctx.filter="grayscale(1)"; ctx.drawImage(plan,cx-rx,yb-ry,2*rx,2*ry); ctx.filter="none"; ctx.globalAlpha=1;}
+    for(let i=0;i<14;i++){const px=cx+(hash(i,1)-0.5)*1.7*rx+Math.sin(u*0.6+i)*16, py=yb+(hash(i,2)-0.5)*1.5*ry+Math.cos(u*0.5+i*1.7)*6; sq(px,py,5,aB,"#ffffff");}
+    ctx.restore(); ell(cx,yb,rx,ry,WHITE,aB);}
+  if(rise>0.01){line(cx-rx,yTop,cx-rx,yb,WHITE,rise); line(cx+rx,yTop,cx+rx,yb,WHITE,rise); ell(cx,yTop,rx,ry,WHITE,rise);}
+  // the upper face: the future — the ones who look down and name the epoch
+  if(aT>0){ell(cx,yt,rx,ry,"#ffffff",aT,true); ell(cx,yt,rx,ry,"#0a0a0b",aT);
+    for(let i=0;i<5;i++){const ox=cx-176+i*88, oy=yt-10+(i%2?12:-6); sq(ox,oy,9,aT,"#0a0a0b"); fill(ox-3,oy+6,6,10,"#0a0a0b",aT);
+      line(ox,oy+16,cx+(hash(i,7)-0.5)*1.4*rx,yb-16,"#ffffff",aT*0.28,1,[3,7]);}
+    txt("THE FUTURE · the gaze that names the epoch",cx,yt-ry-18,{px:12,fam:"Neo",col:DIM,a:aT,al:"center",ls:1.2});}
+  txt("THE PRESENT · where we act",cx,yb+ry+28,{px:12,fam:"Neo",col:DIM,a:aB,al:"center",ls:1.2});
+  // actable: the loop of acting on the present face
+  const aL=on(u,0.9); if(aL>0){ctx.strokeStyle=rgba(WHITE,aL); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(cx-rx-150,yb+8,30,0.6,5.9); ctx.stroke();
+    const ex=cx-rx-150+30*Math.cos(5.9), ey=yb+8+30*Math.sin(5.9); arrow(ex-6,ey+9,ex+1,ey-1,WHITE,aL,2); txt("actable",cx-rx-150,yb+66,{px:16,w:700,a:aL,al:"center"});}
+  // imagined ↑ from the present, interpreted ↓ from the future
+  const aUp=on(u,3.0,0.8), aDn=on(u,6.0,0.8), ym=(yb+yt)/2;
+  arrow(cx-rx-70,yb-40,cx-rx-70,yt+ry+40,WHITE,aUp,3); txt("imagined",cx-rx-90,ym,{px:22,w:700,a:aUp,al:"right"}); txt("상상된 · from the present",cx-rx-90,ym+22,{px:12,fam:"Neo",col:DIM,a:aUp,al:"right",ls:1});
+  arrow(cx+rx+70,yt+ry+40,cx+rx+70,yb-40,WHITE,aDn,3); txt("interpreted",cx+rx+90,ym,{px:22,w:700,a:aDn}); txt("해석된 · from the future",cx+rx+90,ym+22,{px:12,fam:"Neo",col:DIM,a:aDn,ls:1});
+  // the bracket: this whole mass is the epoch
+  if(aE>0){const bx=cx+rx+300; line(bx,yt-ry,bx,yb+ry,WHITE,aE,1,[6,6]); line(bx-12,yt-ry+.5,bx,yt-ry+.5,WHITE,aE); line(bx-12,yb+ry+.5,bx,yb+ry+.5,WHITE,aE);
+    txt("EPOCH",bx,yt-ry-28,{px:28,w:700,a:aE,al:"center"}); txt("시대 · interpreted spacetime",bx,yb+ry+30,{px:12,fam:"Neo",col:DIM,a:aE,al:"center",ls:1.2});}
+  // left: future / ?? / present — the ?? is the mass
+  const lx=160, lw=360, aQ=on(u,0.8), aA=on(u,8.4,0.8);
+  box(lx,230,lw,110,FAINT,on(u,0.4)); txt("future",lx+lw/2,230+66,{px:28,a:on(u,0.4),al:"center"});
+  box(lx,690,lw,110,FAINT,on(u,0.4)); txt("present",lx+lw/2,690+66,{px:28,a:on(u,0.4),al:"center"});
+  box(lx,370,lw,290,aA>0.5?WHITE:FAINT,aQ,aA>0.5?1.5:1);
+  txt("??",lx+lw/2,370+160,{px:44,w:700,a:aQ*(1-aA),al:"center"});
+  if(aA>0){txt("the epoch",lx+lw/2,370+118,{px:32,w:700,a:aA,al:"center"}); txt("a mass of spacetime, from the present to the future",lx+lw/2,370+156,{px:15,col:DIM,a:aA,al:"center"}); txt("not a list of events — interpreted",lx+lw/2,370+180,{px:15,col:DIM,a:aA,al:"center"});}
+  para("We act on its lower face — the only place where we have agency. The gaze that defines the epoch stands in the future, and looks down.",lx,862,{px:18,maxW:600,col:WHITE,a:on(u,10.0,0.8)});
 }
 
 /* ---------- ② the trace fossil: a walker, then only its footprints ---------- */
@@ -368,11 +438,16 @@ function s5(u){
   txt("← industrialisation, centuries ago",160,ty+30,{px:14,fam:"Neo",col:DIM,a:on(u,0.8),ls:1});
   txt("strata tens of thousands of years ahead →",1760,ty+30,{px:14,fam:"Neo",col:DIM,a:on(u,0.8),ls:1,al:"right"});
   sq(960,ty,8,on(u,1.2)); txt("NOW · one life, 03:00",960,ty+30,{px:14,fam:"Neo",a:on(u,1.2),al:"center",ls:1});
-  // left: the omniscient view, refused
-  const lx=240, ly=300, s=540; txt("THE OMNISCIENT VIEW · 전지적 시점",lx,ly-14,{px:12,fam:"Neo",col:DIM,a:on(u,1.6),ls:1.2});
-  box(lx,ly,s,s,FAINT,on(u,1.6)); if(plan.complete&&plan.naturalWidth){ctx.globalAlpha=on(u,1.8,0.9)*mix(1,0.35,on(u,4.2,0.6)); ctx.filter="grayscale(1)"; ctx.drawImage(plan,lx,ly,s,s); ctx.filter="none"; ctx.globalAlpha=1;}
-  const xa=on(u,4.2,0.6); line(lx,ly,lx+s*xa,ly+s*xa,WHITE,xa,2); line(lx+s,ly,lx+s-s*xa,ly+s*xa,WHITE,xa,2);
-  para("The moment you can survey all of it, the Anthropocene is falsified — it becomes a controllable miniature.",lx,ly+s+40,{px:20,maxW:540,a:on(u,5.0,0.8)});
+  // left: the whole — the wall, everyone's traces read as a future's excavation (not refused: the other state)
+  const lx=240, ly=300, s=540; txt("THE WHOLE · 벽 — everyone's traces, as a future's excavation",lx,ly-14,{px:12,fam:"Neo",col:DIM,a:on(u,1.6),ls:1.2});
+  box(lx,ly,s,s,FAINT,on(u,1.6)); if(plan.complete&&plan.naturalWidth){ctx.globalAlpha=on(u,1.8,0.9); ctx.filter="grayscale(1)"; ctx.drawImage(plan,lx,ly,s,s); ctx.filter="none"; ctx.globalAlpha=1;}
+  // the one inside, marked on the whole — the same spot the right panel shows from within
+  const wa=on(u,4.2,0.6), mx=lx+s/2+Math.sin(u*0.5)*120, my=ly+s/2+Math.sin(u*0.8+1)*90; box(mx-22,my-22,44,44,WHITE,wa,1.5); sq(mx,my,5,wa);
+  txt("one person's reach",mx+30,my+4,{px:11,fam:"Neo",col:DIM,a:wa,ls:1});
+  para("On the wall: the whole, which no one inside can see, read as a far future would read it.",lx,ly+s+40,{px:20,maxW:540,a:on(u,5.0,0.8)});
+  // between the two: the visitor moves from one state to the other, and back — the connection is the question
+  const ba=on(u,6.4,0.8); arrow(lx+s+44,ly+s/2-10,1120-44,ly+s/2-10,WHITE,ba,2); arrow(1120-44,ly+s/2+10,lx+s+44,ly+s/2+10,WHITE,ba,2);
+  txt("MOVING BETWEEN",950,ly+s/2-28,{px:12,fam:"Neo",col:DIM,a:ba,al:"center",ls:1.4}); txt("오가며 — the connection is the question",950,ly+s/2+40,{px:12,fam:"Neo",col:DIM,a:ba,al:"center",ls:1});
   // right: inside
   const rx=1120, ry=300; txt("INSIDE · 안에서",rx,ry-14,{px:12,fam:"Neo",col:DIM,a:on(u,1.6),ls:1.2}); box(rx,ry,s,s,FAINT,on(u,1.6));
   const a=on(u,2.4,0.8); const cx=rx+s/2+Math.sin(u*0.5)*120, cy=ry+s/2+Math.sin(u*0.8+1)*90, R=112;
@@ -385,8 +460,8 @@ function s5(u){
     const vis=clamp(1-(d-R*0.6)/(R*0.6)); if(vis>0)glyphC(glyphs[i].dots,ox-12,oy-12,24,{a:vis*a,grid:false});}
   ctx.strokeStyle=rgba(WHITE,0.5*a); ctx.lineWidth=1; ctx.setLineDash([2,5]); ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.stroke(); ctx.setLineDash([]);
   sq(cx,cy,7,a); txt("as far as sound reaches",cx+R+8,cy+4,{px:11,fam:"Neo",col:DIM,a,ls:1});
-  txt(fmt(180-u),rx+s,ry+s+44,{px:34,w:700,a:on(u,3.0),al:"right"}); txt("LIFE · 수명 180 s",rx+s,ry+s+64,{px:12,fam:"Neo",col:DIM,a:on(u,3.0),al:"right",ls:1.2});
-  para("Thrown inside, with limited sight and a limited life: others are heard, as melodies, before they are seen.",rx,ry+s+40,{px:20,maxW:400,a:on(u,5.6,0.8)});
+  txt(fmt(180-u),rx+s-14,ry+44,{px:34,w:700,a:on(u,3.0),al:"right"}); txt("LIFE · 수명 180 s",rx+s-14,ry+64,{px:12,fam:"Neo",col:DIM,a:on(u,3.0),al:"right",ls:1.2});
+  para("Thrown inside, with limited sight and a limited life: others are heard, as melodies, before they are seen.",rx,ry+s+40,{px:20,maxW:540,a:on(u,5.6,0.8)});
 }
 
 /* ---------- ⑥ sound: a name is a melody; the same event at two scales ---------- */
@@ -446,7 +521,7 @@ function s7(u,g){
   para("The visitor experiences, in their own body, that their actions undeniably left traces — and yet changed nothing of the whole. No guilt is assigned; the work hands each visitor a question to carry home.",mx,my+ms+70,{px:16,maxW:500,col:DIM,a:on(u,9.4,0.9)});
 }
 
-const DRAW=[s0,s1,s2,s3,s4,s5,s6,s7];
+const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6,s7];
 
 /* ---------- render ---------- */
 function render(){
@@ -454,15 +529,16 @@ function render(){
   ctx.clearRect(0,0,W,H);
   const t0=step===0;
   $("#sky").style.height=t0?"220px":"110px";
-  for(const id of ["#title","#homo","#kaist","#notice","#shade","#badge","#hint","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none";
+  for(const id of ["#studio","#kaist","#notice","#shade","#badge","#hint","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none"; $("#visit").style.display=t0?"block":"none";
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
-  if(step===3&&u>13.5)live3On(); else if(step!==3)live3Off();
+  if(step===4&&u>13.5)live3On(); else if(step!==4)live3Off();
   if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
     $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   else{$("#notice").style.opacity="0";}
+  if(!t0)erode(110,g);
   DRAW[step](u,g);
   $("#hud").textContent=`step ${step}  u=${u.toFixed(2)}s`;
 }
@@ -476,13 +552,13 @@ const DUR=HOLD.reduce((a,b)=>a+b,0);
 function setT(t){t=((t%DUR)+DUR)%DUR; let s=0; while(s<STEPS-1&&t>=HOLD[s]){t-=HOLD[s];s++;} prev=s-1; step=s; now=t*1000; stepAt=0;}
 window.__seek=t=>{frozen=true;setT(t);render();return step;};
 window.__go=n=>{now=performance.now();go(n);render();};
-window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),plan.decode().catch(()=>0)]).then(()=>true);
+window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),document.fonts.load("20px PlexI").catch(()=>0),plan.decode().catch(()=>0)]).then(()=>true);
 let cursorT=0;
 addEventListener("mousemove",()=>{document.body.classList.add("cursor");cursorT=performance.now();});
 addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
   if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown"||e.key==="Enter"){e.preventDefault();go(step+1);}
   else if(e.key==="ArrowLeft"||e.key==="PageUp"||e.key==="Backspace"){e.preventDefault();go(step-1);}
-  else if(/^[0-7]$/.test(e.key)) go(+e.key);
+  else if(/^[0-8]$/.test(e.key)) go(+e.key);
   else if(e.key==="Home") go(0); else if(e.key==="End") go(STEPS-1);
   else if(e.key==="r"){prev=-1;stepAt=now;}
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}

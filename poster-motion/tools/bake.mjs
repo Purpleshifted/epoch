@@ -2,6 +2,7 @@
 // Bakes a live view into a looping video: a headless (muted) Chrome shows the URL, frames are captured for `seconds`
 // with their real timestamps, and ffmpeg turns them into an H.264 mp4 (and a poster jpeg) under assets/.
 //   node tools/bake.mjs <url> <name> [seconds=60] [warmupSec=20] [w=1920] [h=860] [outW=1280]
+//   GPU=1 uses the machine's GPU (ANGLE Metal) instead of swiftshader: many times faster for the 3D views.
 //   → assets/<name>.mp4, assets/<name>.jpg (the first frame)
 import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { spawn, spawnSync } from "node:child_process";
 const [url, name, secondsS = "60", warmupS = "20", W = "1920", H = "860", OUTW = "1280"] = process.argv.slice(2);
@@ -10,7 +11,7 @@ const HERE = path.dirname(new URL(import.meta.url).pathname), ASSETS = path.reso
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), `bake-${name}-`)), FR = path.join(TMP, "frames"); fs.mkdirSync(FR);
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", PORT = +(process.env.PORT || 9343);
 const udd = fs.mkdtempSync(path.join(os.tmpdir(), "bake-chrome-"));
-const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, "--mute-audio", "--hide-scrollbars", `--window-size=${W},${H}`, "--force-device-scale-factor=1", `--user-data-dir=${udd}`, "--no-first-run", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-timer-throttling", "about:blank"], { stdio: "ignore" });
+const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, "--mute-audio", "--hide-scrollbars", `--window-size=${W},${H}`, "--force-device-scale-factor=1", `--user-data-dir=${udd}`, "--no-first-run", ...(process.env.GPU ? [] : ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]), "--disable-background-timer-throttling", "about:blank"], { stdio: "ignore" });
 process.on("exit", () => { try { chrome.kill(); } catch {} });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let page; for (let i = 0; i < 100; i++) { try { page = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find((t) => t.type === "page"); if (page) break; } catch {} await sleep(200); }

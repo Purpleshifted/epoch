@@ -84,3 +84,12 @@ PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 - ⑦ 기록표의 값은 예시. 실제 시연 뒤의 기록표 화면을 캡처해 바꿔도 된다.
 - ④ 벽의 과정 띠는 9단→30단으로 줄여 그렸다(실제 불변선 60단).
 - 영문 문장은 대본의 굵은 문장 그대로, 작은 설명 줄은 대본을 줄인 것 — 작가 검수 전. 날짜·장소 없음.
+
+## 2026-11-04 오후 — 바뀐 것
+
+- **룩**: 최신 A0 포스터(B/B_K .ai)대로 종이 흰색(#fff) + 땅 검정(#000), 종이와 땅의 경계는 침식된 픽셀(`erode()`: 양쪽으로 떨어져 나간 셀, 몇 개는 깜빡임), 랜딩의 제목은 우하단 픽셀 서체(Neo) 흰색에 슬라이스·침식 글리치(`glitchTitle()`) + *Homo inventus*(IBM Plex Mono Italic, `fonts/`). 종이 띠 왼쪽은 스튜디오 표기, 오른쪽은 KAIST · 링크(REFERENCES · GALLERY · THE WALL) · **QR**(`assets/qr-personal.svg` → /exhibition/personal).
+- **새 구간 ①′ "An epoch is interpreted spacetime"**(`s1b`): 원통 = 시대 — 아랫면 현재(평면도 + 행위하는 사람들, actable 고리), 덩어리는 현재에서 위로 쌓이는 지층, 윗면 미래(내려다보는 다섯 시선), imagined ↑ / interpreted ↓, EPOCH 괄호, 왼쪽 future / ?? → the epoch / present. 구간은 9개(0–8), HOLD `[8,12,14,13,14,16,11,13,13]`, 숫자키 0–8, ③(모여 살기)은 이제 step 4.
+- **⑤ 바로잡음**: "refuses the omniscient view" → "Partial sight, and the whole": 왼쪽 패널은 전체(벽, 안의 한 사람 위치 표시), 오른쪽은 안에서, 가운데 ↔ MOVING BETWEEN.
+- **gallery.html**: 글램샷 3컷(`assets/gallery/shotN-2560.webp` 표시, `-1280` 모바일, `-full.jpg` 다운로드), 라이트박스(←/→/ESC).
+- 대본 Doc(〈발견된 인류 — 졸업심사 발표 구성과 대본〉)에 ①′ 문단, ⑤ 교체, 타임라인 행, 사이트 주소를 같이 넣었다.
+- 베이크: `GPU=1 node tools/bake.mjs …` — swiftshader 대신 GPU(ANGLE Metal). 900×660 기준 12 fps.
