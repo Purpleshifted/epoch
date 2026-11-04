@@ -30,13 +30,13 @@ body.cursor{cursor:default}
 #visit img{display:block;width:120px;height:120px;margin:0 auto 6px}
 #visit span{display:block;white-space:nowrap;margin:0 -50px}
 #kaist{right:270px;top:46px;font-size:18px;font-weight:700;letter-spacing:.02em;color:var(--ink);white-space:nowrap}
-#h-title{left:60px;top:28px;font-family:Neo,monospace;font-size:30px;font-weight:400;letter-spacing:.02em;line-height:1;white-space:nowrap;color:var(--ink)}
+#h-title{left:60px;top:28px;cursor:pointer;font-family:Neo,monospace;font-size:30px;font-weight:400;letter-spacing:.02em;line-height:1;white-space:nowrap;color:var(--ink)}
 #h-homo{left:62px;top:68px;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;white-space:nowrap}
 #h-sec{right:60px;top:32px;font-family:Neo,monospace;font-size:14px;letter-spacing:.1em;color:#3c3d3a;white-space:nowrap;text-align:right}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
 #live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#000;display:none;pointer-events:none}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
-#fallback img{position:absolute;left:180px;top:-150px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,transparent 160px,#000 300px,#000 72%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,transparent 160px,#000 300px,#000 72%,transparent 100%)}
+#fallback img{position:absolute;left:180px;top:-150px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%)}
 #live,#wallv{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 150px);mask-image:linear-gradient(180deg,transparent 0,#000 150px)}
 #shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(0,0,0,0) 0,rgba(0,0,0,.86) 45%,rgba(0,0,0,.96) 100%);display:none;pointer-events:none}
 #live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3;pointer-events:none}
@@ -66,21 +66,25 @@ body.cursor{cursor:default}
 #steps{left:0;top:1064px;width:1920px;display:flex;justify-content:center;gap:6px}
 #steps i{display:block;width:28px;height:2px;background:#3a3b38}
 #steps i.on{background:var(--white)}
-#inter{left:0;top:0;width:1920px;height:1080px;background:#fff;color:var(--ink);display:none;z-index:5;overflow:hidden}
-#inter .tag{position:absolute;left:120px;top:72px;font-family:Neo,monospace;font-size:12px;letter-spacing:.16em;color:#3c3d3a}
-#inter .q{position:absolute;left:120px;top:140px;width:760px;font-family:Baskerville,Garamond,"Times New Roman",serif;font-style:italic;font-size:40px;line-height:1.28;letter-spacing:.01em}
-#inter .q.para{font-family:Pretendard;font-style:normal;font-size:30px;font-weight:700;line-height:1.3;letter-spacing:-.01em}
-#inter .q small{display:block;font-family:Pretendard;font-style:normal;font-weight:400;font-size:14px;line-height:1.5;color:#5f605c;margin-top:18px;letter-spacing:0}
-#inter .fig{position:absolute;left:980px;top:110px;width:820px;height:600px}
+#inter{left:0;top:134px;width:1920px;height:946px;background:#000;color:var(--white);display:none;z-index:5;overflow:hidden}
+#inter>div{animation:rise .7s cubic-bezier(.2,.7,.2,1) both}
+#inter>div:nth-child(2){animation-delay:.15s}#inter>div:nth-child(3){animation-delay:.3s}#inter>div:nth-child(4){animation-delay:.45s}#inter>div:nth-child(5){animation-delay:.55s}#inter>div:nth-child(6){animation-delay:.7s}#inter>div:nth-child(7){animation-delay:.8s}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+#inter .tag{position:absolute;left:160px;top:56px;font-family:Neo,monospace;font-size:12px;letter-spacing:.16em;color:var(--dim)}
+#inter .q{position:absolute;left:160px;top:108px;width:720px;font-size:30px;font-weight:700;line-height:1.3;letter-spacing:-.01em;color:var(--white)}
+#inter .q small{display:block;font-weight:400;font-size:14px;line-height:1.5;color:var(--dim);margin-top:16px;letter-spacing:0}
+#inter .fig{position:absolute;left:940px;top:56px;width:820px;height:600px}
 #inter .fig svg{width:100%;height:100%;display:block}
-#inter .cap{position:absolute;left:980px;top:726px;width:820px;font-size:13px;line-height:1.5;color:#5f605c}
-#inter .src{position:absolute;left:120px;top:560px;width:800px}
-#inter .src h4{margin:0 0 12px;font-family:Neo,monospace;font-size:11px;letter-spacing:.16em;color:#3c3d3a;font-weight:400}
-#inter .src div{margin:0 0 13px;font-size:15px;line-height:1.45}
-#inter .src span{color:#5f605c}
-#inter .src a{font-family:Neo,monospace;font-size:10.5px;letter-spacing:.1em;color:#3c3d3a;text-decoration:none;margin-left:10px;border-bottom:1px solid #c6c7c2}
-#inter .foot,#inter .foot2{position:absolute;top:1010px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#9b9c97}
-#inter .foot{left:120px}#inter .foot2{right:120px;text-align:right}
+#inter .cap{position:absolute;left:940px;top:672px;width:820px;font-size:13px;line-height:1.5;color:var(--dim)}
+#inter .src{position:absolute;left:160px;top:456px;width:760px}
+#inter .src h4{margin:0 0 12px;font-family:Neo,monospace;font-size:11px;letter-spacing:.16em;color:var(--dim);font-weight:400}
+#inter .src div{margin:0 0 12px;font-size:15px;line-height:1.45}
+#inter .src span{color:var(--dim)}
+#inter .src a{font-family:Neo,monospace;font-size:10.5px;letter-spacing:.1em;color:var(--dim);text-decoration:none;margin-left:10px;border-bottom:1px solid #3a3b38}
+#inter .note{position:absolute;left:160px;top:690px;width:760px;font-size:14px;line-height:1.5;color:var(--dim)}
+#inter .note b{color:var(--white);font-weight:700}
+#inter .foot,#inter .foot2{position:absolute;top:874px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f}
+#inter .foot{left:160px}#inter .foot2{right:160px;text-align:right}
 #hud{position:fixed;left:8px;bottom:6px;font:12px/1.3 ui-monospace,monospace;color:#5a5a5a;opacity:0}
 </style>
 </head>
@@ -100,7 +104,7 @@ body.cursor{cursor:default}
   <div id="h-ref" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="hint" class="abs">→ OR CLICK: NEXT (A SECTION, THEN ITS READING PLATE) · ← BACK · 1–8 SECTIONS · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–8 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -168,7 +172,7 @@ function glitchTitle(u,g){const s="발견된 인류", px=150, x=1856, y=930, a=o
   txt("Homo inventus",x+6,y+56,{px:46,fam:'Baskerville, Garamond, "Times New Roman", serif',st:"italic",a:on(u,1.0,0.7),al:"right",col:"#ffffff",ls:12});}
 const dis={ok:false};
 function buildDissolve(){const im=$("#fallback img"); if(dis.ok||!im.complete||!im.naturalWidth)return;
-  const sx=180, sy=70, sw=1560, sh=im.naturalHeight*sw/im.naturalWidth, c=12, y0=120, y1=372;   // the image on the stage; the band
+  const sx=180, sy=70, sw=1560, sh=im.naturalHeight*sw/im.naturalWidth, c=12, y0=120, y1=316;   // the image on the stage; the band
   const cols=Math.ceil(W/c), rows=Math.ceil((y1-y0)/c), sm=document.createElement("canvas"); sm.width=cols; sm.height=rows;
   const sc=sm.getContext("2d"); sc.fillStyle="#000"; sc.fillRect(0,0,cols,rows); sc.drawImage(im,sx/c,(sy-y0)/c,sw/c,sh/c);
   Object.assign(dis,{ok:true,cols,rows,c,y0,d:sc.getImageData(0,0,cols,rows).data});}
@@ -178,9 +182,9 @@ function drawDissolve(g){ if(!dis.ok){buildDissolve(); if(!dis.ok)return;} const
       const p=0.85*Math.pow(clamp(1-(220-y)/110),1.6);   // the structure's own top, sampled where it stands, thinning upward
       for(let x=0;x<cols;x++){const i=(r*cols+x)*4, lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11)/255; if(lum<0.1)continue;
         if((hash(x*13+r,7)<p)===(hash(x*17+r,t)<0.06))continue; const big=hash(x*3,r*5)<0.1&&(x%2===0);
-        ctx.fillStyle=`rgba(20,20,22,${(0.85*p+0.1).toFixed(3)})`; ctx.fillRect(x*c,y-(big?c:0),big?2*c:c,big?2*c:c);}
+        const k=Math.round(70+lum*110); ctx.fillStyle=`rgba(${k},${k},${k},${(0.9*p+0.1).toFixed(3)})`; ctx.fillRect(x*c,y-(big?c:0),big?2*c:c,big?2*c:c);}
       continue;}
-    const f=clamp((y+c/2-150)/(372-150)), p=Math.pow(clamp((f-0.08)/0.92),1.7);
+    const f=clamp((y+c/2-150)/(316-150)), p=Math.pow(clamp((f-0.08)/0.92),1.4);
     for(let x=0;x<cols;x++){const i=(r*cols+x)*4, lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11)/255; if(lum<0.07)continue;
       const big=hash(x*3,r*5)<0.12&&(x%2===0)&&(r%2===0), cs=big?2*c:c; if(!big&&hash((x-1)*3,r*5)<0.12&&(x%2===1)&&(r%2===0))continue; if(!big&&hash(x*3,(r-1)*5)<0.12&&(r%2===1)&&(x%2===0))continue;
       if((hash(x*13+r,7)<p)===(hash(x*17+r,t)<0.06))continue;
@@ -218,7 +222,7 @@ const KEY=[["",""],
   ["현재의 당신은 무엇을 남기시겠습니까?","What will the present you leave behind? — 분명히 남지만 혼자서는 바꿀 수 없는 전체 앞에서, 한 사람은 어떤 마음으로 행동을 정해야 하는가.","neo"]];
 const REFS={
   1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS 성명","n-vote2024"],["Gibbard et al. 2022","n-gibbard2022"]],
-  2:[["Gibbard et al. 2022 · event, not epoch","n-gibbard2022"],["Morton 2013","n-morton2013"],["Crutzen 2002","n-crutzen2002"]],
+  2:[["Gibbard et al. 2022 · event, not epoch","n-gibbard2022"],["Morton 2013","n-morton2013"],["Linnaeus 1758 · Homo sapiens","n-linnaeus1758"],["Huizinga 1938 · Homo ludens","n-huizinga1938"]],
   3:[["생흔화석 · ichnology","n-ichnology"],["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Behrensmeyer 1978 · 타포노미","n-taphonomy"]],
   4:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"],["Schueler 1994","n-schueler1994"],["Elmore & Kaushal 2008","n-elmore2008"]],
   5:[["Helbing et al. 1997","n-helbing1997"],["Cole 1995","n-cole1995"],["Pescott & Stewart 2014","n-pescott2014"],["Schueler 1994","n-schueler1994"],["Q = C·i·A","n-rational"],["Pólya 1923","n-polya1923"]],
@@ -308,44 +312,54 @@ function s1(u){
 
 /* ---------- ①′ an epoch is interpreted spacetime: a mass from the present to the future ---------- */
 function s1b(u,g){
-  const cx=1180, rx=270, ry=68, yb=740, yt=300;             // the present face at the bottom, the future face on top
-  const rise=on(u,1.6,3.2), aB=on(u,0.2), aT=on(u,5.0,0.8), aE=on(u,7.6), yTop=mix(yb,yt,rise);
-  // the mass: strata accumulating upward from the present — the record a future will read
-  if(rise>0.01){ctx.save(); ctx.beginPath(); ctx.moveTo(cx-rx,yTop); ctx.lineTo(cx-rx,yb); ctx.ellipse(cx,yb,rx,ry,0,Math.PI,0,true); ctx.lineTo(cx+rx,yTop); ctx.ellipse(cx,yTop,rx,ry,0,0,Math.PI,false); ctx.closePath(); ctx.clip();
-    fill(cx-rx,yTop-ry,2*rx,yb-yTop+2*ry,"#141415",1);
-    const N=Math.ceil((yb-yTop+ry)/14); for(let i=0;i<N;i++){const y=yb-14-i*14, gsh=hash(i,3), gcol=(i%2?0x24:0x30)+Math.floor(gsh*10);
-      fill(cx-rx,y,2*rx,12,`#${gcol.toString(16).padStart(2,"0").repeat(3)}`,0.9); for(let k=0;k<18;k++)sq(cx-rx+hash(i,k)*2*rx,y+6+(hash(k,i)-0.5)*8,2,0.35,"#0a0a0b");}
-    ctx.restore();}
-  // the lower face: the present — the ground from above, and the people acting on it
-  if(aB>0){ctx.save(); ctx.beginPath(); ctx.ellipse(cx,yb,rx,ry,0,0,6.2832); ctx.clip(); fill(cx-rx,yb-ry,2*rx,2*ry,"#6b6c68",aB);
-    if(plan.complete&&plan.naturalWidth){ctx.globalAlpha=aB*0.55; ctx.filter="grayscale(1)"; ctx.drawImage(plan,cx-rx,yb-ry,2*rx,2*ry); ctx.filter="none"; ctx.globalAlpha=1;}
-    for(let i=0;i<14;i++){const px=cx+(hash(i,1)-0.5)*1.7*rx+Math.sin(u*0.6+i)*16, py=yb+(hash(i,2)-0.5)*1.5*ry+Math.cos(u*0.5+i*1.7)*6; sq(px,py,5,aB,"#ffffff");}
-    ctx.restore(); ell(cx,yb,rx,ry,WHITE,aB);}
-  if(rise>0.01){line(cx-rx,yTop,cx-rx,yb,WHITE,rise); line(cx+rx,yTop,cx+rx,yb,WHITE,rise); ell(cx,yTop,rx,ry,WHITE,rise);}
-  // the upper face: the future — the ones who look down and name the epoch
-  if(aT>0){ell(cx,yt,rx,ry,"#ffffff",aT,true); ell(cx,yt,rx,ry,"#0a0a0b",aT);
-    for(let i=0;i<5;i++){const ox=cx-176+i*88, oy=yt-10+(i%2?12:-6); sq(ox,oy,9,aT,"#0a0a0b"); fill(ox-3,oy+6,6,10,"#0a0a0b",aT);
-      line(ox,oy+16,cx+(hash(i,7)-0.5)*1.4*rx,yb-16,"#ffffff",aT*0.28,1,[3,7]);}
-    txt("THE FUTURE · the gaze that names the epoch",cx,yt-ry-18,{px:12,fam:"Neo",col:DIM,a:aT,al:"center",ls:1.2});}
-  txt("THE PRESENT · where we act",cx,yb+ry+28,{px:12,fam:"Neo",col:DIM,a:aB,al:"center",ls:1.2});
-  // actable: the loop of acting on the present face
-  const aL=on(u,0.9); if(aL>0){ctx.strokeStyle=rgba(WHITE,aL); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(cx-rx-150,yb+8,30,0.6,5.9); ctx.stroke();
-    const ex=cx-rx-150+30*Math.cos(5.9), ey=yb+8+30*Math.sin(5.9); arrow(ex-6,ey+9,ex+1,ey-1,WHITE,aL,2); txt("actable",cx-rx-150,yb+66,{px:16,w:700,a:aL,al:"center"});}
-  // imagined ↑ from the present, interpreted ↓ from the future
-  const aUp=on(u,3.0,0.8), aDn=on(u,6.0,0.8), ym=(yb+yt)/2;
-  arrow(cx-rx-70,yb-40,cx-rx-70,yt+ry+40,WHITE,aUp,3); txt("imagined",cx-rx-90,ym,{px:22,w:700,a:aUp,al:"right"}); txt("상상된 · from the present",cx-rx-90,ym+22,{px:12,fam:"Neo",col:DIM,a:aUp,al:"right",ls:1});
-  arrow(cx+rx+70,yt+ry+40,cx+rx+70,yb-40,WHITE,aDn,3); txt("interpreted",cx+rx+90,ym,{px:22,w:700,a:aDn}); txt("해석된 · from the future",cx+rx+90,ym+22,{px:12,fam:"Neo",col:DIM,a:aDn,ls:1});
-  // the bracket: this whole mass is the epoch
-  if(aE>0){const bx=cx+rx+300; line(bx,yt-ry,bx,yb+ry,WHITE,aE,1,[6,6]); line(bx-12,yt-ry+.5,bx,yt-ry+.5,WHITE,aE); line(bx-12,yb+ry+.5,bx,yb+ry+.5,WHITE,aE);
-    txt("EPOCH",bx,yt-ry-28,{px:28,w:700,a:aE,al:"center"}); txt("시대 · interpreted spacetime",bx,yb+ry+30,{px:12,fam:"Neo",col:DIM,a:aE,al:"center",ls:1.2});}
-  // left: future / ?? / present — the ?? is the mass
-  const lx=160, lw=360, aQ=on(u,0.8), aA=on(u,8.4,0.8);
-  box(lx,230,lw,110,FAINT,on(u,0.4)); txt("future",lx+lw/2,230+66,{px:28,a:on(u,0.4),al:"center"});
-  box(lx,690,lw,110,FAINT,on(u,0.4)); txt("present",lx+lw/2,690+66,{px:28,a:on(u,0.4),al:"center"});
-  box(lx,370,lw,290,aA>0.5?WHITE:FAINT,aQ,aA>0.5?1.5:1);
-  txt("??",lx+lw/2,370+160,{px:44,w:700,a:aQ*(1-aA),al:"center"});
-  if(aA>0){txt("the epoch",lx+lw/2,370+118,{px:32,w:700,a:aA,al:"center"}); txt("a mass of spacetime, from the present to the future",lx+lw/2,370+156,{px:15,col:DIM,a:aA,al:"center"}); txt("not a list of events — interpreted",lx+lw/2,370+180,{px:15,col:DIM,a:aA,al:"center"});}
-  para("We act on its lower face — the only place where we have agency. The gaze that defines the epoch stands in the future, and looks down.",lx,862,{px:18,maxW:600,col:WHITE,a:on(u,10.0,0.8)});
+  // an excavation, seen from above and in front with its front walls cut away: the present face at the bottom of the
+  // pit, where we act; the mass of strata as its walls; and on top the future's surface — a plane that widens behind
+  // the pit, on which the archaeologists walk and peer in. The gaze that names the epoch stands up there.
+  const cx=1180, cy=720, S=150, Hmax=260, iso=(x,y,z)=>[cx+(x-y)*0.866*S, cy+(x+y)*0.5*S-z];
+  const aB=on(u,0.2), H=Hmax*on(u,1.6,3.0), aT=on(u,4.6,0.8), E=mix(1.04,1.7,on(u,5.0,2.2)), aE=on(u,7.6), aA=on(u,8.4,0.8);
+  const add=(pts,z)=>{pts.forEach(([px,py],i)=>{const [sx,sy]=iso(px,py,z); i?ctx.lineTo(sx,sy):ctx.moveTo(sx,sy);}); ctx.closePath();}, poly=(pts,z)=>{ctx.beginPath(); add(pts,z);};
+  const SQ=[[-1,-1],[1,-1],[1,1],[-1,1]];
+  // the present: the ground from above, and the people acting on it
+  if(aB>0){const [ox,oy]=iso(-1,-1,0); ctx.save(); poly(SQ,0); ctx.clip(); fill(cx-400,cy-200,800,400,"#5f605c",aB);
+    if(plan.complete&&plan.naturalWidth){ctx.save(); ctx.globalAlpha=aB*0.6; ctx.filter="grayscale(1)"; const k=2*S/plan.naturalWidth; ctx.transform(0.866*k,0.5*k,-0.866*k,0.5*k,ox,oy); ctx.drawImage(plan,0,0); ctx.restore();}
+    for(let i=0;i<14;i++){const px=(hash(i,1)-0.5)*1.7+Math.sin(u*0.6+i)*0.08, py=(hash(i,2)-0.5)*1.7+Math.cos(u*0.5+i*1.7)*0.08; const [sx,sy]=iso(px,py,0); sq(sx,sy,5,aB,"#ffffff");}
+    ctx.restore(); ctx.strokeStyle=rgba(WHITE,aB); ctx.lineWidth=1; poly(SQ,0); ctx.stroke();}
+  // the mass: the pit's two back walls, strata accumulating upward from the present
+  if(H>1){for(const [p0,p1] of [[[-1,-1],[-1,1]],[[-1,-1],[1,-1]]]){const [ax,ay]=iso(p0[0],p0[1],0),[bx,by]=iso(p1[0],p1[1],0),[qx,qy]=iso(p1[0],p1[1],H),[dx,dy]=iso(p0[0],p0[1],H);
+      ctx.fillStyle="#141415"; ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.lineTo(qx,qy); ctx.lineTo(dx,dy); ctx.closePath(); ctx.fill();
+      for(let z=12;z<H;z+=14){const [x0,y0]=iso(p0[0],p0[1],z),[x1,y1]=iso(p1[0],p1[1],z); line(x0,y0,x1,y1,(z/14|0)%2?"#2a2b29":"#3a3b38",1,1.5); for(let k=0;k<6;k++){const t=hash(k,z); sq(mix(x0,x1,t),mix(y0,y1,t)-3,2,0.5,"#6b6c68");}}
+      line(ax,ay,bx,by,WHITE,0.9); line(bx,by,qx,qy,WHITE,0.9); line(dx,dy,qx,qy,WHITE,0.9); line(ax,ay,dx,dy,WHITE,0.9);}
+    for(const [px,py] of [[1,1],[1,-1],[-1,1]]){const [x0,y0]=iso(px,py,0),[x1,y1]=iso(px,py,H); line(x0,y0,x1,y1,WHITE,0.5,1,[3,6]);}   // the cut front edges
+    // the future's surface: the opening of the pit, and the plane widening behind it
+    const apron=[[-E,-E],[1,-E],[1,1],[-E,1]];
+    if(aT>0){ctx.fillStyle=rgba("#e9e9e5",aT); ctx.beginPath(); add(apron,H); add(SQ,H); ctx.fill("evenodd"); ctx.strokeStyle=rgba(WHITE,aT); ctx.lineWidth=1; poly(apron,H); ctx.stroke();}
+    ctx.strokeStyle=rgba(aT>0.5?"#0a0a0b":WHITE,1); ctx.lineWidth=1.5; poly(SQ,H); ctx.stroke();
+    if(aT>0){const aP=on(u,5.6,1.2), ink="#0a0a0b";   // the archaeologists: along the back rim, walking, stopping to peer in
+      for(let i=0;i<5;i++){const q=tri((u*0.025+hash(i,9))%1)*2, r=1.22; const px=q<1?-r:-r+2.4*(q-1), py=q<1?r-2.4*q:-r;
+        const peer=Math.sin(u*0.7+i*1.3)>0.15, lean=peer?1:0, [fx,fy]=iso(px,py,H), dir=Math.sign(cx-fx)||1, stp=peer?0:(Math.floor(u*5+i)%2);
+        fill(fx-5,fy-8,4,8-stp*3,ink,aP); fill(fx+1,fy-8,4,5+stp*3,ink,aP); fill(fx-5+lean*dir*2,fy-20,10,12,ink,aP); fill(fx-4+lean*dir*5,fy-30+lean*3,8,8,ink,aP);
+        if(peer){const [tx,ty]=iso(px*0.4,py*0.4,0); line(fx+lean*dir*5,fy-24,tx,ty,"#9b9c97",aP*0.9,1.5,[4,6]); box(tx-5,ty-5,10,10,WHITE,aP*0.9);}}
+      txt("THE FUTURE · the surface someone will stand on, looking in",cx,iso(-E,-E,H)[1]-20,{px:12,fam:"Neo",col:DIM,a:aT,al:"center",ls:1.2});}}
+  txt("THE PRESENT · where we act",cx,cy+S+22,{px:12,fam:"Neo",col:DIM,a:aB,al:"center",ls:1.2});
+  const aL=on(u,0.9); if(aL>0){const [lx0,ly0]=iso(-1,1,0); ctx.strokeStyle=rgba(WHITE,aL); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(lx0-60,ly0-10,26,0.6,5.9); ctx.stroke();
+    const ex=lx0-60+26*Math.cos(5.9), ey=ly0-10+26*Math.sin(5.9); arrow(ex-6,ey+9,ex+1,ey-1,WHITE,aL,2); txt("actable",lx0-60,ly0+40,{px:15,w:700,a:aL,al:"center"});}
+  // imagined ↑ from the present; interpreted ↓ from the future; the whole mass is the epoch
+  const aUp=on(u,3.0,0.8), aDn=on(u,6.0,0.8), ym=cy-Hmax/2;
+  arrow(700,cy+40,700,cy-Hmax-40,WHITE,aUp,3); txt("imagined",684,ym,{px:22,w:700,a:aUp,al:"right"}); txt("상상된 · from the present",684,ym+22,{px:12,fam:"Neo",col:DIM,a:aUp,al:"right",ls:1});
+  arrow(1700,cy-Hmax-40,1700,cy+40,WHITE,aDn,3); txt("interpreted",1716,ym,{px:22,w:700,a:aDn}); txt("해석된 · from the future",1716,ym+22,{px:12,fam:"Neo",col:DIM,a:aDn,ls:1});
+  if(aE>0){const bx=1860, y0=cy-Hmax-100, y1=cy+S+30; line(bx,y0,bx,y1,WHITE,aE,1,[6,6]); line(bx-12,y0+.5,bx,y0+.5,WHITE,aE); line(bx-12,y1+.5,bx,y1+.5,WHITE,aE);
+    txt("EPOCH",bx,y0-16,{px:26,w:700,a:aE,al:"center"}); txt("시대 · interpreted spacetime",1900,y1+26,{px:12,fam:"Neo",col:DIM,a:aE,al:"right",ls:1.2});}
+  // left: future / ?? → the epoch / present
+  const lx=160, lw=360, aQ=on(u,0.8);
+  box(lx,190,lw,100,FAINT,on(u,0.4)); txt("future",lx+lw/2,190+60,{px:26,a:on(u,0.4),al:"center"});
+  box(lx,580,lw,100,FAINT,on(u,0.4)); txt("present",lx+lw/2,580+60,{px:26,a:on(u,0.4),al:"center"});
+  box(lx,310,lw,250,aA>0.5?WHITE:FAINT,aQ,aA>0.5?1.5:1); txt("??",lx+lw/2,310+140,{px:44,w:700,a:aQ*(1-aA),al:"center"});
+  if(aA>0){txt("the epoch",lx+lw/2,310+100,{px:30,w:700,a:aA,al:"center"}); txt("a mass of spacetime, from the present to the future",lx+lw/2,310+136,{px:14,col:DIM,a:aA,al:"center"}); txt("not a list of events — interpreted",lx+lw/2,310+158,{px:14,col:DIM,a:aA,al:"center"});}
+  // the title: Homo inventus — humanity, found
+  const aN=on(u,9.6,0.9); if(aN>0){txt("HOMO INVENTUS — HUMANITY, FOUND",lx,730,{px:12,fam:"Neo",col:DIM,a:aN,ls:1.2});
+    let y=758; y+=para("Homo sapiens (Linnaeus 1758), Homo faber (Bergson 1907), Homo ludens (Huizinga 1938): a species named by what it does.",lx,y,{px:15,maxW:600,lh:1.4,a:aN});
+    y+=para("Inventus is passive — found, come upon; and, in the same word, invented.",lx,y+6,{px:15,w:700,maxW:600,lh:1.4,a:aN})+6;
+    para("A humanity named by how it will be found: by the gaze from the future — the one that also names the epoch.",lx,y,{px:15,maxW:600,lh:1.4,col:DIM,a:aN});}
 }
 
 /* ---------- ② the trace fossil: a walker, then only its footprints ---------- */
@@ -584,7 +598,7 @@ function render(){
 /* ---------- the reading plates between the sections: a quote, a figure, the sources — read while the talk goes on ---------- */
 const SV=(w,h,inner)=>`<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" font-family="Pretendard, sans-serif">${inner}</svg>`;
 const R=(x,y,w,h,o={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${o.f||"none"}" stroke="${o.s||"none"}" stroke-width="${o.sw||1}"${o.d?` stroke-dasharray="${o.d}"`:""}/>`;
-const T=(x,y,t,o={})=>`<text x="${x}" y="${y}" font-size="${o.px||13}" fill="${o.c||"#0b0b0b"}" text-anchor="${o.a||"start"}"${o.neo?' font-family="Neo, monospace" letter-spacing="1.4"':""}${o.b?' font-weight="700"':""}${o.i?' font-style="italic" font-family="Baskerville, Garamond, serif"':""}>${t}</text>`;
+const T=(x,y,t,o={})=>`<text x="${x}" y="${y}" font-size="${o.px||13}" fill="${o.c||"#0b0b0b"}" text-anchor="${o.a||"start"}"${o.neo?' font-family="Neo, monospace" letter-spacing="1.4"':""}${o.b?' font-weight="700"':""}${o.i?' font-style="italic"':""}>${t}</text>`;
 const Ln=(x1,y1,x2,y2,o={})=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${o.c||"#0b0b0b"}" stroke-width="${o.sw||1}"${o.d?` stroke-dasharray="${o.d}"`:""}/>`;
 const Pth=(d,o={})=>`<path d="${d}" fill="${o.f||"none"}" stroke="${o.c||"#0b0b0b"}" stroke-width="${o.sw||1.2}"${o.d?` stroke-dasharray="${o.d}"`:""} stroke-linecap="round" stroke-linejoin="round"/>`;
 const Ci=(cx,cy,r,o={})=>`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${o.f||"none"}" stroke="${o.c||"#0b0b0b"}" stroke-width="${o.sw||1}"/>`;
@@ -692,27 +706,30 @@ function figInherit(){let o="";
   o+=T(430,470,"No guilt, no instruction. The question is handed over:",{px:13,c:"#5f605c"}); o+=T(430,490,"facing a whole my actions enter but cannot alter alone,",{px:13,c:"#5f605c"}); o+=T(430,510,"how should one person decide how to act?",{px:13,c:"#5f605c"});
   return SV(820,600,o);}
 const INTER={
- 1:{tag:"READING · AFTER ① · THE VOTE",q:"We are in the Anthropocene, irrespective of a line on the time scale.",by:"Francine McCarthy (Brock University, lead of the Crawford Lake research), as reported by The New York Times, 5 March 2024",fig:figCrawford,cap:"Left: the varved core of Crawford Lake, Ontario — one couplet a year; the dark band is the 1952 plutonium peak proposed as the golden spike. Right: what a spike must satisfy, and the vote of the Subcommission on Quaternary Stratigraphy.",
+ 1:{tag:"NOTES · ① THE VOTE",q:"We are in the Anthropocene, irrespective of a line on the time scale.",by:"Francine McCarthy (Brock University, lead of the Crawford Lake research), as reported by The New York Times, 5 March 2024",fig:figCrawford,cap:"Left: the varved core of Crawford Lake, Ontario — one couplet a year; the dark band is the 1952 plutonium peak proposed as the golden spike. Right: what a spike must satisfy, and the vote of the Subcommission on Quaternary Stratigraphy.",
    src:[["crutzen2000","Crutzen & Stoermer 2000","the word proposed, with the steam engine as its start"],["waters2016","Waters et al. 2016","concrete, plastics, aluminium, fallout: the stratigraphic markers"],["crawford","McCarthy et al. 2025","the Crawford Lake record across the proposed boundary"],["vote2024","SQS vote · IUGS statement 2024","12 against, 4 for, 2 abstentions; confirmed 20 March"]]},
- 2:{tag:"READING · AFTER ①′ · EPOCH OR EVENT",q:"The Anthropocene as an Event, not an Epoch.",by:"Gibbard, P. L. et al. (2022), title — Journal of Quaternary Science 37(3): 395–399",fig:figEvent,cap:"An epoch needs one boundary everywhere; an event is diachronous — it began in different places at different times and is still widening. The work keeps both: the cylinder is the mass, and the line would be drawn from the future.",
-   src:[["gibbard2022","Gibbard et al. 2022","the Anthropocene as a diachronous event"],["zalasiewicz2017","Zalasiewicz et al. 2017","the physical technosphere: thirty trillion tonnes"],["steffen2015","Steffen et al. 2015","the Great Acceleration: every curve bends after 1950"],["morton2013","Morton 2013","a mass distributed in time and space beyond one life"]]},
- 3:{tag:"READING · AFTER ② · ICHNOLOGY",para:1,q:"Ichnology names fossils by what the animal did — dwelling, moving, grazing, feeding, resting, escaping — not by what it was.",by:"after Adolf Seilacher's ethological classification (1953, 1964); Bromley, Trace Fossils (1996); Buatois & Mángano, Ichnology (2011)",fig:figIchno,cap:"Seilacher's classes, and the work's traces written in the same grammar: staying → dwelling → slab; walking → locomotion → path; sealing → the subterranean trace → pipes; scattering → the technofossil.",
+ 2:{tag:"NOTES · ①′ EPOCH OR EVENT",q:"The Anthropocene as an Event, not an Epoch.",by:"Gibbard, P. L. et al. (2022), title — Journal of Quaternary Science 37(3): 395–399",fig:figEvent,cap:"An epoch needs one boundary everywhere; an event is diachronous — it began in different places at different times and is still widening. The work keeps both: the cylinder is the mass, and the line would be drawn from the future.",
+   note:"<b>The title.</b> Homo sapiens (Linnaeus 1758), Homo faber (Bergson 1907), Homo ludens (Huizinga 1938) name a species by what it does. <i>Inventus</i> is passive — found, come upon; and, in the same word, invented. Homo inventus: a humanity named by how it will be found — by the gaze from the future, which is also what names the epoch.",
+   src:[["gibbard2022","Gibbard et al. 2022","the Anthropocene as a diachronous event"],["morton2013","Morton 2013","a mass distributed in time and space beyond one life"],["linnaeus1758","Linnaeus 1758","Homo sapiens: the species named by a trait"],["huizinga1938","Huizinga 1938","Homo ludens: the player — a short life at play"]]},
+ 3:{tag:"NOTES · ② ICHNOLOGY",para:1,q:"Ichnology names fossils by what the animal did — dwelling, moving, grazing, feeding, resting, escaping — not by what it was.",by:"after Adolf Seilacher's ethological classification (1953, 1964); Bromley, Trace Fossils (1996); Buatois & Mángano, Ichnology (2011)",fig:figIchno,cap:"Seilacher's classes, and the work's traces written in the same grammar: staying → dwelling → slab; walking → locomotion → path; sealing → the subterranean trace → pipes; scattering → the technofossil.",
    src:[["ichnology","Trace fossils · ichnology","the field: traces of behaviour, systematised from the 1950s"],["zalasiewicz2014","Zalasiewicz et al. 2014","the technofossil record of humans; the subterranean trace"],["taphonomy","Behrensmeyer 1978 · Kidwell & Jablonski","what survives to be read is biased toward the durable"],["corcoran2014","Corcoran et al. 2014","plastiglomerate: a plastic rock, a future marker horizon"]]},
- 4:{tag:"READING · AFTER ③ · THE SEALED GROUND",para:1,q:"Streams begin to degrade at roughly ten percent impervious cover; past a quarter they rarely recover.",by:"after Schueler 1994, the impervious-cover model; Walsh et al. 2005 call the result the urban stream syndrome",fig:figImperv,cap:"Impervious cover and stream condition. In the work a quarter's sealed share — slabs plus paths — is measured the same way; past the threshold its rain goes into pipes laid beneath. Baltimore has buried two thirds of its headwaters (Elmore & Kaushal 2008).",
+ 4:{tag:"NOTES · ③ THE SEALED GROUND",para:1,q:"Streams begin to degrade at roughly ten percent impervious cover; past a quarter they rarely recover.",by:"after Schueler 1994, the impervious-cover model; Walsh et al. 2005 call the result the urban stream syndrome",fig:figImperv,cap:"Impervious cover and stream condition. In the work a quarter's sealed share — slabs plus paths — is measured the same way; past the threshold its rain goes into pipes laid beneath. Baltimore has buried two thirds of its headwaters (Elmore & Kaushal 2008).",
    src:[["schueler1994","Schueler 1994","the importance of imperviousness: the thresholds"],["walsh2005","Walsh et al. 2005","the urban stream syndrome"],["elmore2008","Elmore & Kaushal 2008","disappearing headwaters: stream burial under cities"],["waters2016","Waters et al. 2016","concrete: most of it made since the mid-twentieth century"]]},
- 5:{tag:"READING · AFTER ④ · PATHS, GRASS, INHERITANCE",para:1,q:"Trails are the fixed points of a loop: walking makes ground comfortable, comfortable ground attracts walking, and grass undoes it whenever no one comes.",by:"after Helbing, Keltsch & Molnár (1997), Nature 388: 47–50",fig:figTrail,cap:"The active-walker model. Walkers trade the straight line for trampled ground; the field G rises under steps and recovers with vegetation. In the work a cell is a path only while p ≥ 0.3; slabs avoid paths, paths bend around slabs.",
+ 5:{tag:"NOTES · ④ PATHS, GRASS, INHERITANCE",para:1,q:"Trails are the fixed points of a loop: walking makes ground comfortable, comfortable ground attracts walking, and grass undoes it whenever no one comes.",by:"after Helbing, Keltsch & Molnár (1997), Nature 388: 47–50",fig:figTrail,cap:"The active-walker model. Walkers trade the straight line for trampled ground; the field G rises under steps and recovers with vegetation. In the work a cell is a path only while p ≥ 0.3; slabs avoid paths, paths bend around slabs.",
    src:[["helbing1997","Helbing et al. 1997","the evolution of human trail systems"],["cole1995","Cole 1995","experimental trampling: steep loss, slow return"],["pescott2014","Pescott & Stewart 2014","meta-analysis of trampling and recovery"],["polya1923","Eggenberger & Pólya 1923","the urn: what is there raises its own odds"]]},
- 6:{tag:"READING · AFTER ⑤ · HYPEROBJECTS",q:"Things that are massively distributed in time and space relative to humans.",by:"Timothy Morton, Hyperobjects (2013), p. 1 — the definition",fig:figHyper,cap:"Morton's five traits with the work's device under each, and the clarification: the whole is not refused. The visitor holds a partial state and the whole, and moves between them.",
+ 6:{tag:"NOTES · ⑤ HYPEROBJECTS",q:"Things that are massively distributed in time and space relative to humans.",by:"Timothy Morton, Hyperobjects (2013), p. 1 — the definition",fig:figHyper,cap:"Morton's five traits with the work's device under each, and the clarification: the whole is not refused. The visitor holds a partial state and the whole, and moves between them.",
    src:[["morton2013","Morton 2013","Hyperobjects: philosophy and ecology after the end of the world"],["haff2014","Haff 2014","the technosphere as a geological phenomenon"],["tsing2015","Tsing 2015","life in ruins: noticing at the scale of a life"],["zalasiewicz2017","Zalasiewicz et al. 2017","the technosphere's scale and diversity"]]},
- 7:{tag:"READING · AFTER ⑥ · SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
+ 7:{tag:"NOTES · ⑥ SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
    src:[["webaudio","Web Audio API · W3C 2021","the engine: oscillators, panners, convolution, in the page"],["noisecraft","NoiseCraft · Chevalier-Boisvert","the browser patcher that plays the harmony on the engine's clock"],["musicvae","Roberts et al. 2018 · MusicVAE","latent interpolation between two phrases (wired, off)"],["hrtf","HRTF · PannerNode","others placed around the head by bearing and distance"]]},
- 8:{tag:"READING · AFTER ⑦ · WHAT REMAINS",q:"Facing a phenomenon that my actions clearly enter, but that I could never alter alone — what frame of mind should a single person use to decide how to act?",by:"from the presentation",fig:figInherit,cap:"Left: the inheritance rule — a Pólya urn over what still remains, so the mix drifts toward the durable without anyone deciding. Below: the specimen card that closes a life (sample values). Right: the question the work hands over.",
+ 8:{tag:"NOTES · ⑦ WHAT REMAINS",q:"Facing a phenomenon that my actions clearly enter, but that I could never alter alone — what frame of mind should a single person use to decide how to act?",by:"from the presentation",fig:figInherit,cap:"Left: the inheritance rule — a Pólya urn over what still remains, so the mix drifts toward the durable without anyone deciding. Below: the specimen card that closes a life (sample values). Right: the question the work hands over.",
    src:[["schiffer1987","Schiffer 1987","formation processes of the archaeological record"],["laland2003","Odling-Smee, Laland & Feldman 2003","ecological inheritance: inheriting a modified world"],["pauly1995","Pauly 1995","shifting baselines: each generation starts from an altered state"],["arthur1989","Arthur 1989","increasing returns and lock-in by small early events"]]},
 };
 const interEl=$("#inter"); let inter=false;
-function showInter(){const d=INTER[step]; if(!d)return; inter=true; let fig=""; try{fig=d.fig();}catch(err){console.error(err); dbg("figure error: "+err.message);}
-  interEl.innerHTML=`<div class="tag">${d.tag} · 읽는 화면</div><div class="q${d.para?" para":""}">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div><div class="cap">${d.cap}</div><div class="src"><h4>SOURCES · 출처</h4>${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}" target="_blank" rel="noopener">OPEN ↗</a></div>`).join("")}</div><div class="foot">READING · THE TALK GOES ON · → CONTINUE · ← BACK</div><div class="foot2">${SEC[step][0].toUpperCase()}</div>`;
-  interEl.style.display="block"; dbg("interlude on");}
+const DARKMAP={"#0b0b0b":"#e9e9e5","#ffffff":"#0a0a0b","#fff":"#0a0a0b","#5f605c":"#9b9c97","#3c3d3a":"#9b9c97","#c6c7c2":"#55564f","#e9e9e5":"#141415","#d7d8d3":"#232423","#b9bab5":"#3a3b38","#9b9c97":"#6b6c68"};
+const toDark=t=>t.replace(/#(?:0b0b0b|ffffff|fff|5f605c|3c3d3a|c6c7c2|e9e9e5|d7d8d3|b9bab5|9b9c97)(?![0-9a-f])/gi,m=>DARKMAP[m.toLowerCase()]||m).replace(/rgb\((\d+),(\d+),(\d+)\)/g,(m,r)=>{const k=20+Math.round((233-(+r))*0.72); return `rgb(${k},${k},${k})`;});
+function showInter(){const d=INTER[step]; if(!d)return; inter=true; let fig=""; try{fig=toDark(d.fig());}catch(err){console.error(err); dbg("figure error: "+err.message);}
+  interEl.innerHTML=`<div class="tag">${d.tag} · NOTES WHILE THE TALK GOES ON</div><div class="q">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div><div class="cap">${d.cap}</div><div class="src"><h4>SOURCES · 출처</h4>${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}" target="_blank" rel="noopener">OPEN ↗</a></div>`).join("")}</div>${d.note?`<div class="note">${d.note}</div>`:""}<div class="foot">NOTES · → CONTINUE · ← BACK</div><div class="foot2">${SEC[step][0].toUpperCase()}</div>`;
+  interEl.style.display="block"; dbg("notes on");}
 function hideInter(){ if(!inter)return; inter=false; interEl.style.display="none"; interEl.innerHTML=""; }
 // one beat forward: the section → its reading plate → the next section; ?nointer=1 skips the plates
 function next(){ if(!inter&&INTER[step]&&!q.has("nointer")){showInter();return;} hideInter(); go(step+1); }
@@ -746,8 +763,9 @@ const dbgLines=[]; function dbg(t){ if(!dbgOn)return; dbgLines.push(`${(performa
 let lastPtr=-1e9;
 function advanceAt(x){ if(x>innerWidth*0.2)next();else back(); }
 addEventListener("pointerdown",e=>{ if(e.pointerType==="mouse"&&e.button!==0)return; lastPtr=performance.now(); try{window.focus();}catch(err){}
+  const tg=e.target&&e.target.closest?e.target:null; if(tg&&tg.closest("#h-title,#h-homo")){hideInter(); go(0); dbg("home"); return;} if(tg&&tg.closest("a"))return;
   advanceAt(e.clientX); dbg(`pointerdown ${e.pointerType} on ${e.target&&e.target.tagName}#${e.target&&e.target.id} → step ${step}`); },true);
-addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (after pointerdown, ignored)");return;}
+addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (after pointerdown, ignored)");return;} if(e.target&&e.target.closest&&e.target.closest("a,#h-title,#h-homo"))return;
   advanceAt(e.clientX); dbg(`click without pointerdown on ${e.target&&e.target.tagName} → step ${step}`); },true);
 addEventListener("touchend",e=>{ if(performance.now()-lastPtr<1000)return; const t=e.changedTouches&&e.changedTouches[0]; if(t){lastPtr=performance.now();advanceAt(t.clientX);dbg(`touchend → step ${step}`);} },true);
 for(const f of [live,$("#live3")]) f.setAttribute("tabindex","-1");

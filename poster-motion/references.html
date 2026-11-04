@@ -75,7 +75,7 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
   <p class="note">Verification: bibliographic data (authors, year, journal, DOI) were checked by search and DOI; the summaries are written from abstracts and secondary summaries, and some papers were not read in full. The work's numbers (thresholds, radii, ratios) are the artist's choices, not values the literature fixes.</p>
 
   <h2 id="mindmap">Mind map<small>RULES ↔ LITERATURE</small></h2>
-  <div id="mapwrap"><div id="map"><svg id="mm" viewBox="0 0 1600 1000" role="img" aria-label="Mind map of the work's rules and the literature behind them"></svg><div class="tip">The work in the middle, a field per branch, a work per leaf — a live layout: drag anything, hover a field to see its works, click a leaf to go to its entry.</div></div></div>
+  <div id="mapwrap"><div id="map"><svg id="mm" viewBox="0 0 1600 1000" role="img" aria-label="Mind map of the work's rules and the literature behind them"></svg><div class="tip">A wheel: the work in the middle, a field per sector, a work per spoke. Hover a field and its sector opens; click a work to go to its entry.</div></div></div>
 
   <h2 id="anthropocene">Anthropocene<small>인류세</small></h2>
   <p>A proposed name for a geological epoch in which human activity has changed the Earth system enough to be recorded in its strata. Greek <i>anthropos</i> (human) plus <i>-cene</i>, the suffix of the Cenozoic epochs. The atmospheric chemist Paul Crutzen and the ecologist Eugene Stoermer proposed it in the IGBP newsletter in 2000; Crutzen's one-page “Geology of mankind” in <i>Nature</i> (2002) made it widely known. The first proposed start was the late eighteenth century (the steam engine); the working group later settled on the “Great Acceleration” of the 1950s.</p>
@@ -207,6 +207,10 @@ const B=[
   {id:"crawford",label:"Crawford Lake · McCarthy et al. 2025",cite:"McCarthy, F. M. G. et al. (2025). High-resolution analysis of the varved succession at Crawford Lake across the base of the proposed Crawfordian stage and Anthropocene series. The Anthropocene Review 12(2): 243–272.",gist:"The rise in plutonium (0.0031 Bq/g) between the 1951 and 1952 varves matches the first hydrogen-bomb test of 1 November 1952. The boundary: the base of the organic lamina of 1952.",role:"Slide ①: the one line ‘1952 · Pu’.",links:[["PDF","https://carleton.ca/timpatterson/wp-content/uploads/McCarthy.2025.Anthropocene.Review.12.2.243-272.pdf"],["EGU24 초록","https://meetingorganizer.copernicus.org/EGU24/EGU24-13348.html"]]},
   {id:"vote2024",label:"The vote of March 2024",cite:"SQS vote closed 2024-03-04 (12 against · 4 for · 2 abstentions) · IUGS–ICS statement 2024-03-20.",gist:"The rejection and confirmation of the formal epoch proposal. ‘Anthropocene’ remains an informal term.",role:"The starting point of the work — the gap between the concept and its record.",links:[["NYT","https://www.nytimes.com/2024/03/05/climate/anthropocene-epoch-vote-rejected.html"],["IUGS 성명","https://www.iugs.org/wp-content/uploads/2024/03/Anthropocene_short_IUGS-ICS_Statement-1.pdf"],["Nature","https://www.nature.com/articles/d41586-024-00675-8"]]},
   {id:"gibbard2022",label:"Gibbard et al. 2022 · an event",cite:"Gibbard, P. L. et al. (2022). The Anthropocene as an Event, not an Epoch. Journal of Quaternary Science 37(3): 395–399.",gist:"Instead of one date, the Anthropocene as a geological event unfolding over millennia, differently in different places.",role:"The framing left after the rejection. The work takes no side.",links:[["DOI","https://doi.org/10.1002/jqs.3416"]]},
+  {id:"linnaeus1758",label:"Linnaeus 1758 · Homo sapiens",cite:"Linnaeus, C. (1758). Systema Naturae, 10th ed. Stockholm: Laurentius Salvius.",gist:"The binomial Homo sapiens: humanity named by a trait — wisdom.",role:"The title's convention: Homo + what it does. Homo inventus: Homo + how it is found.",links:[]},
+  {id:"bergson1907",label:"Bergson 1907 · Homo faber",cite:"Bergson, H. (1907). L'Évolution créatrice. Paris: Alcan.",gist:"Intelligence as the faculty of making tools: Homo faber, the maker.",role:"A humanity named by doing — the series the title answers.",links:[]},
+  {id:"huizinga1938",label:"Huizinga 1938 · Homo ludens",cite:"Huizinga, J. (1938). Homo Ludens: Proeve eener bepaling van het spel-element der cultuur. Haarlem: Tjeenk Willink.",gist:"Play is older than culture; Homo ludens, the player.",role:"The visitor plays one short life; the record is what the play left.",links:[]},
+  {id:"arendt1958",label:"Arendt 1958 · homo faber, animal laborans",cite:"Arendt, H. (1958). The Human Condition. University of Chicago Press.",gist:"Labour, work and action; homo faber builds a durable world of things that outlast their makers.",role:"The durable world that outlasts its makers — the strata on the wall.",links:[]},
   {id:"morton2010",label:"Morton 2010 · the mesh",cite:"Morton, T. (2010). The Ecological Thought. Harvard University Press.",gist:"Everything is interconnected in a mesh with no centre and no edge; the others are ‘strange strangers’.",role:"The interobjective trait: one event log that everyone writes and reads.",links:[]},
   {id:"chakrabarty2009",label:"Chakrabarty 2009 · four theses",cite:"Chakrabarty, D. (2009). The Climate of History: Four Theses. Critical Inquiry 35(2): 197–222.",gist:"Humans have become a geological force; natural history and human history collapse into each other; the species is a figure no one can experience.",role:"Why the wall's scale can only be read, never lived.",links:[["DOI","https://doi.org/10.1086/596640"]]},
   {id:"latour2017",label:"Latour 2017 · Facing Gaia",cite:"Latour, B. (2017). Facing Gaia: Eight Lectures on the New Climatic Regime. Polity.",gist:"There is no outside from which to view the Earth system; we are inside the critical zone, and every overview is constructed.",role:"The headset as the inside; the wall as a constructed, partial outside.",links:[]},
@@ -294,51 +298,40 @@ for(const b of B){
 // ── the mind map: the work in the middle, branches to both sides, each branch's works as a list ─────────────────
 const svg=document.getElementById("mm"), NS="http://www.w3.org/2000/svg";
 const el=(t,a,txt)=>{const e=document.createElementNS(NS,t); for(const k in a)e.setAttribute(k,a[k]); if(txt!=null)e.textContent=txt; return e;};
-// ── the mind map: a live force layout. Nodes repel, links pull, labels push each other out of the way, and a slow drift keeps
-// it from ever sitting quite still. Drag anything; hover a field; click a leaf.
-const CX=800, CY=500, MW=1600, MH=1000;
-const nodes=[], links=[];
-const centre={kind:"c",x:CX,y:CY,fx:CX,fy:CY,w:196,h:72,vx:0,vy:0}; nodes.push(centre);
-B.forEach((b,i)=>{const ang=(i/B.length)*Math.PI*2-Math.PI/2+0.35; const bn={kind:"b",b,x:CX+Math.cos(ang)*340,y:CY+Math.sin(ang)*250,w:144,h:42,vx:0,vy:0}; nodes.push(bn); links.push({s:centre,t:bn,len:340,k:0.03});
-  b.nodes.forEach((nd,j)=>{const a2=ang+((j+0.5)/b.nodes.length-0.5)*1.7; const ln={kind:"n",nd,bn,x:bn.x+Math.cos(a2)*190,y:bn.y+Math.sin(a2)*150,w:90,h:18,vx:0,vy:0}; nodes.push(ln); links.push({s:bn,t:ln,len:165,k:0.05});});});
+// ── the mind map: a sectored wheel. Each field owns a sector sized to its works; the works sit on the ring with their
+// labels radiating, so nothing overlaps and everything can be read. Hover a field and its sector opens wider; the wheel
+// breathes slowly. Click a work for its entry.
+const CX=800, CY=500, nodes=[], branches=[];
+B.forEach(b=>{const bn={kind:"b",b,leaves:[],x:CX,y:CY,tx:CX,ty:CY,w:144,ang:0}; branches.push(bn); nodes.push(bn);
+  b.nodes.forEach(nd=>{const ln={kind:"n",nd,bn,x:CX,y:CY,tx:CX,ty:CY,ang:0}; bn.leaves.push(ln); nodes.push(ln);});});
+let hover=null;
+function layout(){const wt=bn=>bn.leaves.length*(hover===bn.b.id?1.8:1)+1.6, total=branches.reduce((a,bn)=>a+wt(bn),0); let a=-Math.PI/2-0.2;
+  for(const bn of branches){const span=wt(bn)/total*Math.PI*2, mid=a+span/2; bn.ang=mid; bn.tx=CX+Math.cos(mid)*210; bn.ty=CY+Math.sin(mid)*210*0.62;
+    const n=bn.leaves.length, inner=span*0.82; bn.leaves.forEach((ln,j)=>{const t=mid-inner/2+inner*(j+0.5)/n, R=(hover===bn.b.id?352:330)+((j%2)?22:0); ln.ang=t; ln.tx=CX+Math.cos(t)*R; ln.ty=CY+Math.sin(t)*R*0.62;}); a+=span;}}
 const g0=el("g",{"font-family":"Pretendard, sans-serif"}); svg.appendChild(g0);
 const gl=el("g",{}), gn=el("g",{}); g0.appendChild(gl); g0.appendChild(gn);
-links.forEach(l=>{l.el=el("line",{stroke:l.s.kind==="c"?"#55564f":"#3a3b38","stroke-width":1}); gl.appendChild(l.el);});
-let hover=null, drag=null, moved=0;
+const links=[]; branches.forEach(bn=>{links.push({s:null,t:bn,el:el("line",{stroke:"#55564f","stroke-width":1})}); bn.leaves.forEach(ln=>links.push({s:bn,t:ln,el:el("line",{stroke:"#3a3b38","stroke-width":1})}));}); links.forEach(l=>gl.appendChild(l.el));
+const cg=el("g",{transform:`translate(${CX},${CY})`}); cg.appendChild(el("rect",{x:-98,y:-36,width:196,height:72,fill:"#e9e9e5"})); cg.appendChild(el("text",{x:0,y:-3,"text-anchor":"middle",fill:"#0b0b0b","font-size":22,"font-weight":700},"Homo inventus")); cg.appendChild(el("text",{x:0,y:19,"text-anchor":"middle",fill:"#3c3d3a","font-size":10,"font-family":"Neo, monospace","letter-spacing":"2px"},"THE RULES OF THE WORK"));
 nodes.forEach(n=>{
-  if(n.kind==="c"){const g=el("g",{}); g.appendChild(el("rect",{x:-98,y:-36,width:196,height:72,fill:"#e9e9e5"})); g.appendChild(el("text",{x:0,y:-3,"text-anchor":"middle",fill:"#0b0b0b","font-size":22,"font-weight":700},"Homo inventus")); g.appendChild(el("text",{x:0,y:19,"text-anchor":"middle",fill:"#3c3d3a","font-size":10,"font-family":"Neo, monospace","letter-spacing":"2px"},"THE RULES OF THE WORK")); n.el=g; gn.appendChild(g); return;}
-  if(n.kind==="b"){const g=el("g",{style:"cursor:grab"}); const r=el("rect",{x:-72,y:-21,width:144,height:42,fill:"#0a0a0b",stroke:"#e9e9e5","stroke-width":1}); const t=el("text",{x:0,y:1,"text-anchor":"middle",fill:"#e9e9e5","font-size":16,"font-weight":700},n.b.title); const t2=el("text",{x:0,y:16,"text-anchor":"middle",fill:"#9b9c97","font-size":9,"font-family":"Neo, monospace","letter-spacing":"1.5px"},n.b.en);
+  if(n.kind==="b"){const g=el("g",{style:"cursor:pointer"}); const r=el("rect",{x:-72,y:-21,width:144,height:42,fill:"#0a0a0b",stroke:"#e9e9e5","stroke-width":1}); const t=el("text",{x:0,y:1,"text-anchor":"middle",fill:"#e9e9e5","font-size":16,"font-weight":700},n.b.title); const t2=el("text",{x:0,y:16,"text-anchor":"middle",fill:"#9b9c97","font-size":9,"font-family":"Neo, monospace","letter-spacing":"1.5px"},n.b.en);
     g.appendChild(r); g.appendChild(t); g.appendChild(t2); n.el=g; n.rect=r; n.t=t; gn.appendChild(g);
-    g.addEventListener("pointerenter",()=>{hover=n.b.id; paint();}); g.addEventListener("pointerleave",()=>{hover=null; paint();}); g.addEventListener("click",()=>{if(moved<4)location.hash="b-"+n.b.id;}); return;}
-  const g=el("g",{style:"cursor:grab"}); const tt=el("title",{}); tt.textContent=n.nd.cite; g.appendChild(tt); g.appendChild(el("rect",{x:-4,y:-4,width:8,height:8,fill:"#e9e9e5"})); const t=el("text",{x:12,y:4,fill:"#c9cac5","font-size":13},n.nd.label); g.appendChild(t); n.el=g; n.t=t; gn.appendChild(g);
-  g.addEventListener("pointerenter",()=>{t.setAttribute("fill","#ffffff"); t.setAttribute("font-weight","700");}); g.addEventListener("pointerleave",()=>{t.setAttribute("fill","#c9cac5"); t.removeAttribute("font-weight");}); g.addEventListener("click",()=>{if(moved<4)location.hash="n-"+n.nd.id;});
+    g.addEventListener("pointerenter",()=>{hover=n.b.id; layout(); paint();}); g.addEventListener("pointerleave",()=>{hover=null; layout(); paint();}); g.addEventListener("click",()=>location.hash="b-"+n.b.id); return;}
+  const g=el("g",{style:"cursor:pointer"}); const tt=el("title",{}); tt.textContent=n.nd.cite; g.appendChild(tt); g.appendChild(el("rect",{x:-4,y:-4,width:8,height:8,fill:"#e9e9e5"})); const t=el("text",{x:14,y:4,fill:"#c9cac5","font-size":13},n.nd.label); g.appendChild(t); n.el=g; n.t=t; gn.appendChild(g);
+  g.addEventListener("pointerenter",()=>{t.setAttribute("fill","#ffffff"); t.setAttribute("font-weight","700");}); g.addEventListener("pointerleave",()=>{t.setAttribute("fill","#c9cac5"); t.removeAttribute("font-weight");}); g.addEventListener("click",()=>location.hash="n-"+n.nd.id);
 });
-function measure(){nodes.forEach(n=>{if(n.kind==="b"){const tw=n.t.getComputedTextLength(); n.w=Math.max(144,Math.ceil(tw)+32); n.rect.setAttribute("x",-n.w/2); n.rect.setAttribute("width",n.w);} else if(n.kind==="n"){n.w=Math.ceil(n.t.getComputedTextLength())+16;}});}
-function paint(){nodes.forEach(n=>{if(n.kind==="n")n.el.style.opacity=hover&&n.bn.b.id!==hover?0.22:1; else if(n.kind==="b")n.el.style.opacity=hover&&n.b.id!==hover?0.35:1;});
-  links.forEach(l=>{const dim=hover&&((l.t.kind==="n"&&l.t.bn.b.id!==hover)||(l.t.kind==="b"&&l.t.b.id!==hover)); l.el.style.opacity=dim?0.15:1;});}
-// the box a node's label takes up — a leaf's label hangs on the side away from its field
-function boxOf(n){if(n.kind==="n"){const side=n.x>=n.bn.x?1:-1; return side>0?{x0:n.x-6,x1:n.x+n.w+6,y0:n.y-10,y1:n.y+10}:{x0:n.x-n.w-6,x1:n.x+6,y0:n.y-10,y1:n.y+10};} return {x0:n.x-n.w/2-6,x1:n.x+n.w/2+6,y0:n.y-n.h/2-6,y1:n.y+n.h/2+6};}
-let alpha=1, t0=performance.now(), running=false;
-function sim(){const t=(performance.now()-t0)/1000;
-  for(const l of links){const dx=l.t.x-l.s.x, dy=l.t.y-l.s.y, d=Math.hypot(dx,dy)||1, f=(d-l.len)*l.k*alpha, ux=dx/d*f, uy=dy/d*f; l.t.vx-=ux; l.t.vy-=uy; l.s.vx+=ux*0.5; l.s.vy+=uy*0.5;}
-  for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const a=nodes[i], b=nodes[j]; let dx=b.x-a.x, dy=b.y-a.y; if(!dx&&!dy){dx=0.5;dy=0.3;} const d2=dx*dx+dy*dy, d=Math.sqrt(d2);
-    const K=(a.kind==="n"&&b.kind==="n")?2600:(a.kind==="c"||b.kind==="c")?26000:9000, f=Math.min(6,K/(d2+400))*alpha, ux=dx/d*f, uy=dy/d*f; a.vx-=ux; a.vy-=uy; b.vx+=ux; b.vy+=uy;}
-  const bx=nodes.map(boxOf);
-  for(let i=1;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const A=bx[i], Bb=bx[j], ox=Math.min(A.x1,Bb.x1)-Math.max(A.x0,Bb.x0), oy=Math.min(A.y1,Bb.y1)-Math.max(A.y0,Bb.y0); if(ox<=0||oy<=0)continue; const a=nodes[i], b=nodes[j];
-    if(oy<ox||oy<24){const sy=Math.sign((b.y-a.y)||1), p=Math.min(oy,14)*alpha*1.5; a.vy-=sy*p; b.vy+=sy*p;} else {const sx=Math.sign((b.x-a.x)||1), p=Math.min(ox,12)*alpha; a.vx-=sx*p; b.vx+=sx*p;}}
-  for(const n of nodes){if(n.fx!=null){n.x=n.fx; n.y=n.fy; n.vx=n.vy=0; continue;}
-    n.vx+=(CX-n.x)*0.0025*alpha; n.vy+=(CY-n.y)*0.004*alpha; n.vx+=Math.sin(t*0.37+n.x*0.01)*0.05; n.vy+=Math.cos(t*0.29+n.y*0.013)*0.05;
-    n.vx*=0.82; n.vy*=0.82; n.x+=n.vx; n.y+=n.vy; const bb=boxOf(n); if(bb.x0<10)n.x+=10-bb.x0; if(bb.x1>MW-10)n.x-=bb.x1-(MW-10); if(bb.y0<10)n.y+=10-bb.y0; if(bb.y1>MH-10)n.y-=bb.y1-(MH-10);}
-  alpha=Math.max(0.05,alpha*0.985);}
-function draw(){for(const l of links){l.el.setAttribute("x1",l.s.x.toFixed(1)); l.el.setAttribute("y1",l.s.y.toFixed(1)); l.el.setAttribute("x2",l.t.x.toFixed(1)); l.el.setAttribute("y2",l.t.y.toFixed(1));}
-  for(const n of nodes){n.el.setAttribute("transform",`translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`); if(n.kind==="n"){const side=n.x>=n.bn.x?1:-1; n.t.setAttribute("text-anchor",side>0?"start":"end"); n.t.setAttribute("x",side>0?12:-12);}}}
-function loop(){if(!running)return; sim(); draw(); requestAnimationFrame(loop);}
-const pt=svg.createSVGPoint(); const toSvg=e=>{pt.x=e.clientX; pt.y=e.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse());};
-svg.addEventListener("pointerdown",e=>{const g=e.target.closest("g"); const n=nodes.find(n=>n.el===g); if(!n||n.kind==="c")return; drag=n; moved=0; const p=toSvg(e); n.fx=p.x; n.fy=p.y; alpha=Math.max(alpha,0.3); svg.setPointerCapture(e.pointerId); e.preventDefault();});
-svg.addEventListener("pointermove",e=>{if(!drag)return; const p=toSvg(e); moved+=Math.abs(p.x-drag.fx)+Math.abs(p.y-drag.fy); drag.fx=p.x; drag.fy=p.y;});
-const release=()=>{if(drag){drag.fx=drag.fy=null; drag=null;}}; svg.addEventListener("pointerup",release); svg.addEventListener("pointercancel",release);
+gn.appendChild(cg);
+function measure(){branches.forEach(n=>{const tw=n.t.getComputedTextLength(); n.w=Math.max(144,Math.ceil(tw)+32); n.rect.setAttribute("x",-n.w/2); n.rect.setAttribute("width",n.w);});}
+function paint(){nodes.forEach(n=>{if(n.kind==="n")n.el.style.opacity=hover&&n.bn.b.id!==hover?0.3:1; else n.el.style.opacity=hover&&n.b.id!==hover?0.45:1;}); links.forEach(l=>{const dim=hover&&((l.t.kind==="n"&&l.t.bn.b.id!==hover)||(l.t.kind==="b"&&l.t.b.id!==hover)); l.el.style.opacity=dim?0.2:1;});}
+let t0=performance.now(), running=false;
+function draw(){const t=(performance.now()-t0)/1000;
+  for(const n of nodes){const bx=Math.cos(t*0.5+n.ang*3)*3, by=Math.sin(t*0.4+n.ang*2)*2.4; n.x+=(n.tx+bx-n.x)*0.08; n.y+=(n.ty+by-n.y)*0.08;}
+  for(const l of links){const sx=l.s?l.s.x:CX, sy=l.s?l.s.y:CY; l.el.setAttribute("x1",sx.toFixed(1)); l.el.setAttribute("y1",sy.toFixed(1)); l.el.setAttribute("x2",l.t.x.toFixed(1)); l.el.setAttribute("y2",l.t.y.toFixed(1));}
+  for(const n of nodes){if(n.kind==="b"){n.el.setAttribute("transform",`translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`); continue;}
+    const sa=Math.atan2(n.y-CY,n.x-CX), right=Math.cos(sa)>=0, deg=(right?sa:sa+Math.PI)*180/Math.PI;   // labels radiate; on the left they read inward
+    n.el.setAttribute("transform",`translate(${n.x.toFixed(1)},${n.y.toFixed(1)}) rotate(${deg.toFixed(1)})`); n.t.setAttribute("text-anchor",right?"start":"end"); n.t.setAttribute("x",right?14:-14);}}
+function loop(){if(!running)return; draw(); requestAnimationFrame(loop);}
 new IntersectionObserver(es=>{const on=es.some(x=>x.isIntersecting); if(on&&!running){running=true; requestAnimationFrame(loop);} if(!on)running=false;},{threshold:0.05}).observe(document.getElementById("map"));
-document.fonts.ready.then(()=>{measure(); alpha=1; for(let i=0;i<160;i++)sim(); draw(); if(!running){running=true; requestAnimationFrame(loop);}});
+document.fonts.ready.then(()=>{measure(); layout(); nodes.forEach(n=>{n.x=n.tx; n.y=n.ty;}); draw(); if(!running){running=true; requestAnimationFrame(loop);}});
 
 // ── the sound architecture ───────────────────────────────────────────────────────────────────────────────────────
 const S=document.getElementById("sndmap"), sg=el("g",{"font-family":"Pretendard, sans-serif"}); S.appendChild(sg);
