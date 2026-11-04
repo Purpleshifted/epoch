@@ -34,7 +34,7 @@ body.cursor{cursor:default}
 #h-homo{left:62px;top:68px;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;white-space:nowrap}
 #h-sec{right:60px;top:32px;font-family:Neo,monospace;font-size:14px;letter-spacing:.1em;color:#3c3d3a;white-space:nowrap;text-align:right}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
-#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#000;display:none;pointer-events:none;z-index:2}
+#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#000;display:none;pointer-events:none}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
 #fallback img{position:absolute;left:180px;top:-150px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%)}
 #live,#wallv{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 150px);mask-image:linear-gradient(180deg,transparent 0,#000 150px)}
@@ -139,9 +139,9 @@ body.cursor{cursor:default}
 <body>
 <div id="stage">
   <div id="sky"></div>
+  <div id="fallback"><img src="assets/structure.webp" alt="벽의 기둥 렌더"></div>
   <iframe id="live" title="발견된 인류 — 벽의 시공간 (라이브)" allow="autoplay" referrerpolicy="no-referrer"></iframe>
   <video id="wallv" muted loop playsinline preload="auto" poster="assets/wall.jpg"><source src="assets/wall.mp4" type="video/mp4"></video>
-  <div id="fallback"><img src="assets/structure.webp" alt="벽의 기둥 렌더"></div>
   <iframe id="live3" title="The ground from above (live)" referrerpolicy="no-referrer"></iframe>
   <video id="topv" muted loop playsinline preload="auto" poster="assets/top.jpg"><source src="assets/top.mp4" type="video/mp4"></video>
   <iframe id="live4" title="One rule of the work, live" referrerpolicy="no-referrer"></iframe>

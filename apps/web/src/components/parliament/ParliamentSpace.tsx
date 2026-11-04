@@ -1980,11 +1980,15 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // and the site's framings (2026-11-04): `close` = the scripted crowd's patch from above and in front, turning slowly;
   // `turn` = the saved pose, one turn a minute (the landing's rotating column)
   const camMode = params.get("cam");
-  const camView =
+  const camView0 =
     camMode === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 }
     : camMode === "close" ? { ...cam, camAuto: false, camLift: 0, camPolar: 50, camDist: 11, camLook: [0, 0] as [number, number], camTurnSec: 90 }
     : camMode === "turn" ? { ...cam, camAuto: false, camLift: -48, camPolar: 72, camDist: 140, camLook: [0, 0] as [number, number], camTurnSec: 60 }
     : cam;
+  // and, in the lab only, numbers on the address refine any of these: `?dist=60&polar=78&lift=-12&turnsec=60` (the
+  // presentation site tunes its framings this way, 2026-11-04; the exhibition never passes them)
+  const camNum = (k: string, d: number): number => { if (!lab || !params.has(k)) return d; const v = Number(params.get(k)); return Number.isFinite(v) ? v : d; };
+  const camView = { ...camView0, camDist: camNum("dist", camView0.camDist), camPolar: camNum("polar", camView0.camPolar), camLift: camNum("lift", camView0.camLift), camTurnSec: camNum("turnsec", camView0.camTurnSec) };
   const shotSeq: ShotSequence = {
     base: { id: 0, dist: camView.camDist, polar: camView.camPolar, lookX: camView.camLook[0], lookZ: camView.camLook[1], lift: camView.camLift, turn: 1, holdSec: camView.camHoldSec },
     shots: [
