@@ -49,7 +49,6 @@ body.cursor{cursor:default}
 #badge3 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
 #badge{left:64px;top:392px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
 #badge i{display:inline-block;width:8px;height:8px;background:var(--white);margin-right:10px;vertical-align:1px}
-#start{left:0;top:962px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:14px;letter-spacing:.18em;color:var(--white);cursor:pointer;display:none}
 #hint{left:0;top:1002px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f;display:none}
 #refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
 #refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:10px}
@@ -155,8 +154,7 @@ body.cursor{cursor:default}
   <div id="h-ref" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="start" class="abs">▶ START THE PRESENTATION · 발표 시작</div>
-  <div id="hint" class="abs">OR → · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–8 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–8 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -262,7 +260,7 @@ function drawDissolve(g){ if(!dis.ok){buildDissolve(); if(!dis.ok)return;}
       if((hash(x*13+r,7)<p)===(hash(x*17+r,t)<0.06))continue;
       ctx.fillStyle=`rgba(${d[i]},${d[i+1]},${d[i+2]},${(0.35+0.65*p).toFixed(3)})`;
       ctx.fillRect(x*c,y,cs,cs);}}}
-function arrow(x0,y0,x1,y1,col=WHITE,a=1,lw=2){if(a<=0.005)return; line(x0,y0,x1,y1,col,a,lw); const an=Math.atan2(y1-y0,x1-x0), h=14;
+function arrow(x0,y0,x1,y1,col=WHITE,a=1,lw=2,h=14){if(a<=0.005)return; line(x0,y0,x1,y1,col,a,lw); const an=Math.atan2(y1-y0,x1-x0);
   ctx.fillStyle=rgba(col,a); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-h*Math.cos(an-0.5),y1-h*Math.sin(an-0.5)); ctx.lineTo(x1-h*Math.cos(an+0.5),y1-h*Math.sin(an+0.5)); ctx.closePath(); ctx.fill();}
 function ell(cx,cy,rx,ry,col=WHITE,a=1,fillIt=false,lw=1,dash){if(a<=0.005)return; ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,6.2832);
   if(fillIt){ctx.fillStyle=rgba(col,a); ctx.fill();} else {ctx.strokeStyle=rgba(col,a); ctx.lineWidth=lw; ctx.setLineDash(dash||[]); ctx.stroke(); ctx.setLineDash([]);}}
@@ -355,7 +353,7 @@ function s0(u,g){
   const p1=clamp((u-0.8)/2.4), p2=clamp((u-3.4)/2.0), blink=(g*2|0)%2===1;
   $("#n1").textContent=N1.slice(0,Math.round(p1*N1.length))+(p1>0&&p1<1&&blink?"▪":"");
   $("#n2").textContent=N2.slice(0,Math.round(p2*N2.length))+((p2>0&&p2<1&&blink)||(p2>=1&&blink)?"▪":"");
-  $("#notice").querySelector("p").style.opacity=on(u,5.6,0.8); $("#start").style.opacity=on(u,3.2,0.8); $("#hint").style.opacity=on(u,4.0,0.8);
+  $("#notice").querySelector("p").style.opacity=on(u,5.6,0.8); $("#hint").style.opacity=on(u,4.0,0.8);
   $("#notice").style.opacity=on(u,0.6,0.3).toFixed(3);
   erode(220,g); drawDissolve(g); // the ground's eroded edge under the paper, and the structure's top melting into it as cells
   if(liveState==="failed"){const im=$("#fallback img"); im.style.transform=`translateY(${(-40+Math.sin(g*0.08)*40).toFixed(1)}px)`;}
@@ -428,8 +426,8 @@ function s1b(u,g){
     const ex=lx0-60+26*Math.cos(5.9), ey=ly0-10+26*Math.sin(5.9); arrow(ex-6,ey+9,ex+1,ey-1,WHITE,aL,2); txt("actable",lx0-60,ly0+40,{px:15,w:700,a:aL,al:"center"});}
   // imagined ↑ from the present; interpreted ↓ from the future; the whole mass is the epoch
   const aUp=on(u,3.0,0.8), aDn=on(u,6.0,0.8), ym=cy-Hmax/2;
-  arrow(700,cy+40,700,cy-Hmax-40,WHITE,aUp,3); txt("imagined",684,ym,{px:22,w:700,a:aUp,al:"right"}); txt("상상된 · from the present",684,ym+22,{px:12,fam:"Neo",col:DIM,a:aUp,al:"right",ls:1});
-  arrow(1700,cy-Hmax-40,1700,cy+40,WHITE,aDn,3); txt("interpreted",1716,ym,{px:22,w:700,a:aDn}); txt("해석된 · from the future",1716,ym+22,{px:12,fam:"Neo",col:DIM,a:aDn,ls:1});
+  arrow(760,cy+36,760,cy-Hmax-36,WHITE,aUp,4,20); txt("imagined",760,cy-Hmax-92,{px:22,w:700,a:aUp,al:"center"}); txt("상상된 · from the present",760,cy-Hmax-70,{px:12,fam:"Neo",col:DIM,a:aUp,al:"center",ls:1});
+  arrow(1600,cy-Hmax-36,1600,cy+36,WHITE,aDn,4,20); txt("interpreted",1600,cy+82,{px:22,w:700,a:aDn,al:"center"}); txt("해석된 · from the future",1600,cy+104,{px:12,fam:"Neo",col:DIM,a:aDn,al:"center",ls:1});
   if(aE>0){const bx=1860, y0=cy-Hmax-100, y1=cy+S+30; line(bx,y0,bx,y1,WHITE,aE,1,[6,6]); line(bx-12,y0+.5,bx,y0+.5,WHITE,aE); line(bx-12,y1+.5,bx,y1+.5,WHITE,aE);
     txt("EPOCH",bx,y0-16,{px:26,w:700,a:aE,al:"center"}); txt("시대 · interpreted spacetime",1900,y1+26,{px:12,fam:"Neo",col:DIM,a:aE,al:"right",ls:1.2});}
   // left: future / ?? → the epoch / present
@@ -666,7 +664,7 @@ function render(){
   ctx.clearRect(0,0,W,H);
   const t0=step===0;
   $("#sky").style.height=t0?"220px":"110px";
-  for(const id of ["#studio","#kaist","#notice","#shade","#badge","#hint","#start","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none"; $("#visit").style.display=t0?"block":"none";
+  for(const id of ["#studio","#kaist","#notice","#shade","#badge","#hint","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none"; $("#visit").style.display=t0?"block":"none";
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
   if(step===4&&u>13.5)live3On(); else if(step!==4)live3Off();
@@ -866,10 +864,10 @@ const dbgLines=[]; function dbg(t){ if(!dbgOn)return; dbgLines.push(`${(performa
 let lastPtr=-1e9;
 function advanceAt(x){ if(step===0)return; if(x>innerWidth*0.2)next();else back(); }   // the home is a page, not the deck: it starts from the START line or the keys
 addEventListener("pointerdown",e=>{ if(e.pointerType==="mouse"&&e.button!==0)return; if(PHONE)return; lastPtr=performance.now(); try{window.focus();}catch(err){}
-  const tg=e.target&&e.target.closest?e.target:null; if(tg&&tg.closest("#h-title,#h-homo")){hideInter(); go(0); dbg("home"); return;} if(tg&&tg.closest("#start")){go(1); dbg("start"); return;} if(tg&&tg.closest("a"))return;
+  const tg=e.target&&e.target.closest?e.target:null; if(tg&&tg.closest("#h-title,#h-homo")){hideInter(); go(0); dbg("home"); return;} if(tg&&tg.closest("a"))return;
   advanceAt(e.clientX); dbg(`pointerdown ${e.pointerType} on ${e.target&&e.target.tagName}#${e.target&&e.target.id} → step ${step}`); },true);
 addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (after pointerdown, ignored)");return;} if(e.target&&e.target.closest&&e.target.closest("a,#h-title,#h-homo"))return;
-  if(PHONE){ if(!(e.target&&e.target.closest&&e.target.closest("#stage")))return; if(e.target.closest("#start")){go(1);return;} }
+  if(PHONE){ if(!(e.target&&e.target.closest&&e.target.closest("#stage")))return; }
   advanceAt(e.clientX); dbg(`click without pointerdown on ${e.target&&e.target.tagName} → step ${step}`); },true);
 addEventListener("touchend",e=>{ if(performance.now()-lastPtr<1000)return; const t=e.changedTouches&&e.changedTouches[0]; if(t){lastPtr=performance.now();advanceAt(t.clientX);dbg(`touchend → step ${step}`);} },true);
 for(const f of [live,$("#live3"),$("#live4")]) f.setAttribute("tabindex","-1");
