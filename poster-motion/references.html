@@ -66,7 +66,7 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
 <body>
 <header>
   <div class="t">발견된 인류<small>HOMO INVENTUS · REFERENCES</small></div>
-  <nav><a href="index.html">← Presentation</a><a href="#mindmap">Mind map</a><a href="#anthropocene">Anthropocene</a><a href="#vote">March 2024</a><a href="#rules">Rules of the work</a><a href="#lit">Literature</a><a href="#press">Press &amp; links</a></nav>
+  <nav><a href="index.html">← Presentation</a><a href="#mindmap">Mind map</a><a href="#anthropocene">Anthropocene</a><a href="#vote">March 2024</a><a href="#rules">Rules of the work</a><a href="#sound">Sound</a><a href="#lit">Literature</a><a href="#press">Press &amp; links</a></nav>
 </header>
 <main>
   <p class="mono" style="font-size:11px;color:var(--dim)">REFERENCES · AS OF 2026-11-04</p>
@@ -127,6 +127,27 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
     <tr><td><b>Name · harmony</b></td><td>A name is a melody on an eight-step score. Staying near another locks the melodies to the place's chord — harmony; answering a call births a new word. On the speakers everything sinks two octaves into one mass.</td><td>stay × company · lock</td><td>The place chord, Magenta variation <a href="#n-magenta">↓</a></td></tr>
     <tr><td><b>Specimen card</b></td><td>When a life ends, one card in the voice of someone examining a specimen: vocabulary, community, structures, movement, vegetation, cause of death.</td><td>the cause follows what was actually done</td><td>Artefact cards, formation processes <a href="#n-schiffer1987">↓</a></td></tr>
   </table>
+
+  <h2 id="sound">Sound as a web project<small>웹사운드 — THE ENGINE, NOISECRAFT, MAGENTA</small></h2>
+  <p class="lead">The sound is made in the browser, by the browser. No audio files, no DAW, no plug-ins: the headset in the personal view and the loudspeakers of the room each run a Web Audio engine fed by the same event log, a NoiseCraft patch runs as a second instrument inside a hidden page, and Google's Magenta models are wired in as an optional source of variation.</p>
+  <div id="map" style="margin-top:18px"><svg id="sndmap" viewBox="0 0 1600 760" role="img" aria-label="The sound architecture"></svg><div class="tip">One event log, two scales. Boxes are modules of apps/web/src/lib/sound; the dashed box is the NoiseCraft page; grey boxes are optional or off for the show.</div></div>
+
+  <h3 id="snd-engine">The engine — what one person hears</h3>
+  <p>Every half second the personal view folds the event log and reads a handful of <b>signals</b>: where I am, how fast I walk, whether I have stayed within 1.5 units for six seconds, who is within earshot, the strength of the path underfoot, how close the nearest concrete is, how much grass surrounds me. The ground carries a <b>harmony field</b>: each band of ground has a key and a mode, and from them a seventh chord, the place chord. A single number, <i>lock</i> = max(path, stay × company), says how strongly the place pulls my notes onto that chord.</p>
+  <p>A <b>name is a motif</b> — a short contour on an eight-step score, drawn once per life and shown as a glyph. The <b>sequencer</b> plans one bar at a time on a bar clock that every voice shares: my motif realised on the key, snapped to chord tones by lock; a neighbour's motif as a second voice; call and answer when two people stay together (even bars mine, odd bars theirs); a bass line on the paths; a pad when a building is being born. The bar length itself is decided by interaction — on a path or while building together the bar tightens by a few percent.</p>
+  <p>The <b>engine</b> schedules each note as two Web Audio nodes (an oscillator and a gain) a little ahead of time. Other people's voices pass through a <code>PannerNode</code> with the browser's built-in HRTF, so they sit in front, behind, above — before they are ever seen. Three rooms are crossfaded by convolution: open ground (short, dark), concrete (bright, early reflections), a hall when people build together. A low-pass filter dulls everything near concrete; grass adds a thin band of noise. A limiter sits after the master, and the output is routed to the headset device with <code>setSinkId</code> so the room's speakers and the visitor's headset can share one machine.</p>
+
+  <h3 id="snd-global">The whole — what the room hears</h3>
+  <p>The loudspeakers take the same log and the same motifs and fold them at the scale of the whole: every motif of the last ten minutes plays two octaves down as a sawtooth, through one low-pass filter that opens with the share of people walking, a hall and soft saturation, into one mass; a noise floor grows with the number of people; each person's rhythm cell ticks as a short noise burst. There is no interaction here at all. The same event that was a musical moment for one person is one cell of a structure for the whole — and, on the wall, one slab of concrete.</p>
+
+  <h3 id="snd-noisecraft">NoiseCraft — the artist's instrument as a static machine</h3>
+  <p><a href="https://noisecraft.app" target="_blank" rel="noopener">NoiseCraft</a> is an open-source visual programming language for sound synthesis by Maxime Chevalier-Boisvert, in the family of Pure Data and Max/MSP: one data type (floating-point numbers), no distinction between control and audio signals, compiled to an <code>AudioWorklet</code> and run in the browser. The work forks it and serves its editor from the app. The artist's patch <code>nc_noise_patch</code> — three random chains with a BPM clock, delays, reverb and LFO-driven filters, carried over from the artist's earlier project <i>umwelt</i> — plays in a hidden page and keeps its own output. The code turns none of its knobs. Only two things go in: the <b>music clock</b> (the patch's sequencer clock and its BPM knob both receive the bar length decided outside) and <b>harmonic sequences</b> (sixteen steps a bar of pitch and gate for each receiving node — a root voice, a colour voice, a fifth, the pad's upper four tones). The patch decides for itself how often each voice sounds — some envelopes follow our gates, others are fired by the patch's own random triggers and take only the pitch. Phase flows the other way: the patch's clock-out pulses are counted, and the engine's grid is anchored to them. On a bench page the artist can register a knob by clicking it in the editor and say in words what it should respond to; the mapping is then written as code, never as a UI.</p>
+
+  <h3 id="snd-magenta">Magenta — variation by models (wired, switched off)</h3>
+  <p>Two models from Google's <a href="https://magenta.tensorflow.org/" target="_blank" rel="noopener">Magenta.js</a> are ported from <i>umwelt</i> and loaded lazily after the first gesture (TensorFlow.js and the checkpoints come from Google's servers, so they need the network): <b>MusicVAE</b> (<code>mel_2bar_small</code>) interpolates my next four bars with a neighbour's in latent space, the point on the line chosen by how long and how close we have been; <b>MusicRNN</b> (<code>chord_pitches_improv</code>) continues my phrase for 32 steps over the chords of the ground once lock has held for two bars. A phrase is 32 sixteenth steps of MIDI; after a model's phrase the voice rests two bars and returns to its motif. For the November show the models are off: a procedural blend — swapping degrees of the two motifs, keeping my register — stands in, and whenever a model fails the engine keeps that blend. The architecture leaves the door open.</p>
+
+  <h3 id="snd-why">Why this counts as a web-sound project</h3>
+  <p><b>The browser is the only instrument.</b> Everything a visitor hears is synthesised by the device in their hands, from the same log that builds the ground, with nothing sent from a server. The music is a pure function of the log and the bar number: fold the same events again and the same bar sounds the same. Time is musical time, decided by what people do — bars tighten on paths and when building together — and it is not the world's clock. Spatial hearing comes from the browser's own HRTF; rooms from generated impulse responses; the exhibition's routing of headset and speakers from <code>setSinkId</code> and a compressor per engine. Each note costs two nodes, voices are budgeted, chains are capped and a watchdog reads the audio clock's speed, so an eight-gigabyte Mac can run the wall, the headset and the bots at once. A visual synth and two machine-learned models plug into the same bar clock as modules. The score is a living document, <code>docs/sound-logic.md</code>, rewritten with the artist's ear after every listening session.</p>
 
   <h2 id="lit">Literature<small>BY BRANCH</small></h2>
   <div id="entries"></div>
@@ -218,6 +239,11 @@ const B=[
  {id:"sound",title:"Sound",en:"소리",nodes:[
   {id:"placechord",label:"The place chord · lock",cite:"The work's own document, docs/sound-logic.md §3 — a seventh chord stacked in thirds on a mode per band of ground (placeChord); notes snap to chord tones by stay × company (lock).",gist:"A name is a melody (a motif) on an eight-step score. Staying near someone locks it to the place's chord — harmony — and the bars alternate as call and answer.",role:"Slide ⑥: harmony → concrete. The same event is music to the one and structure to the whole.",links:[]},
   {id:"magenta",label:"Magenta MusicRNN · variation",cite:"Google Magenta, MusicRNN / Music Transformer (Roberts, A. et al.; Huang, C.-Z. A. et al. 2018).",gist:"Machine-learned continuation of a melody. When lock holds for two bars or more, the phrase is taken as a seed and continued for 32 steps over the place chord.",role:"Slide ⑥: variation of the motif — identity kept, harmony from the place.",links:[["Magenta","https://magenta.tensorflow.org/"]]},
+  {id:"webaudio",label:"Web Audio API · W3C",cite:"Adenot, P. & Choi, H. (eds.). Web Audio API. W3C Recommendation, 17 June 2021.",gist:"The browser's own audio graph: oscillators, gains, filters, convolution, a panner with HRTF, dynamics compression, worklets — scheduled against a sample-accurate clock.",role:"Every sound in the work is made with these nodes; nothing is loaded from a file.",links:[["Spec","https://www.w3.org/TR/webaudio/"]]},
+  {id:"noisecraft",label:"NoiseCraft · Chevalier-Boisvert",cite:"Chevalier-Boisvert, M. NoiseCraft — a browser-based visual programming language for sound synthesis (open source, 2021–).",gist:"Nodes and wires, one data type, control and audio alike; compiled to an AudioWorklet. The work forks it and serves its editor from the app.",role:"The artist's patch as a second instrument: it receives only a clock and sequences and keeps its own output.",links:[["noisecraft.app","https://noisecraft.app"],["GitHub","https://github.com/maximecb/noisecraft"]]},
+  {id:"musicvae",label:"Magenta MusicVAE · Roberts et al. 2018",cite:"Roberts, A., Engel, J., Raffel, C., Hawthorne, C. & Eck, D. (2018). A hierarchical latent vector model for learning long-term structure in music. Proceedings of ICML 2018.",gist:"A variational autoencoder over short melodies whose latent space can be interpolated between two phrases.",role:"Wired, off: my next four bars ↔ a neighbour's, the point chosen by closeness.",links:[["Paper","https://arxiv.org/abs/1803.05428"],["Magenta.js","https://magenta.tensorflow.org/js-announce"]]},
+  {id:"hrtf",label:"HRTF · PannerNode",cite:"Head-related transfer function spatialisation, built into the Web Audio PannerNode (panningModel \"HRTF\").",gist:"Filters a voice the way a head and two ears would, so headphones give front, back and height.",role:"Other people are heard in space before they are seen.",links:[["Spec","https://www.w3.org/TR/webaudio/#enumdef-panningmodeltype"]]},
+  {id:"umwelt",label:"umwelt (2026) · the lineage",cite:"The artist's earlier project (2026): a NoiseCraft bridge, harmony state and Magenta morphers for a reactive sound world.",gist:"The bridge, the mapping-as-code workflow and the Magenta modules were ported from it.",role:"The way of working: the artist's patch and ear, the code's clock and sequences.",links:[]},
   {id:"lowband",label:"The low band · two octaves down",cite:"The work's own document, docs/sound-logic.md §10b — on the room's speakers every motif of the recent window, two octaves down as a sawtooth, through one low-pass → hall → saturation, into one mass.",gist:"On the exhibition speakers every motif of the recent window plays two octaves lower as a sawtooth, through one low-pass filter, a hall and saturation, into one mass. Individuals are hard to tell apart; the total is heard.",role:"Slide ⑥: /low band. The sound of the whole.",links:[]},
  ]},
 ];
@@ -273,6 +299,45 @@ const cg=el("g",{}); cg.appendChild(el("rect",{x:CX-98,y:CY-36,width:196,height:
 cg.appendChild(el("text",{x:CX,y:CY-3,"text-anchor":"middle",fill:"#0b0b0b","font-size":22,"font-weight":700},"Homo inventus"));
 cg.appendChild(el("text",{x:CX,y:CY+19,"text-anchor":"middle",fill:"#3c3d3a","font-size":10,"font-family":"Neo, monospace","letter-spacing":"2px"},"THE RULES OF THE WORK"));
 svg.appendChild(cg);
+
+// ── the sound architecture ───────────────────────────────────────────────────────────────────────────────────────
+const S=document.getElementById("sndmap"), sg=el("g",{"font-family":"Pretendard, sans-serif"}); S.appendChild(sg);
+const bx=(x,y,w,h,t,sub,o={})=>{const g=el("g",{}); const dash=o.dash?{"stroke-dasharray":"5 5"}:{}; g.appendChild(el("rect",{x,y,width:w,height:h,fill:o.fill||"#0a0a0b",stroke:o.dim?"#55564f":"#e9e9e5","stroke-width":1,...dash}));
+  g.appendChild(el("text",{x:x+w/2,y:y+(sub?h/2-6:h/2+5),"text-anchor":"middle",fill:o.dim?"#9b9c97":"#e9e9e5","font-size":o.big?16:13,"font-weight":700},t));
+  if(sub){const lines=Array.isArray(sub)?sub:[sub]; lines.forEach((l,i)=>g.appendChild(el("text",{x:x+w/2,y:y+h/2+12+i*14,"text-anchor":"middle",fill:"#9b9c97","font-size":10.5},l)));} sg.appendChild(g);};
+const ar=(x1,y1,x2,y2,o={})=>{sg.appendChild(el("line",{x1,y1,x2,y2,stroke:o.dim?"#55564f":"#9b9c97","stroke-width":1,...(o.dash?{"stroke-dasharray":"4 4"}:{})})); sg.appendChild(el("polygon",{points:`${x2},${y2} ${x2-(x2>x1?8:x2<x1?-8:0)},${y2-(y2>y1?8:y2<y1?-8:0)-(x1===x2?0:4)} ${x2-(x2>x1?8:x2<x1?-8:0)},${y2-(y2>y1?8:y2<y1?-8:0)+(x1===x2?0:4)}`,fill:o.dim?"#55564f":"#9b9c97"}));};
+const lab=(x,y,t,o={})=>sg.appendChild(el("text",{x,y,fill:o.col||"#9b9c97","font-size":o.px||11,"font-family":o.neo?"Neo, monospace":"Pretendard, sans-serif","letter-spacing":o.neo?"1.5px":"0","text-anchor":o.al||"start"},t));
+lab(60,60,"ONE EVENT LOG, TWO SCALES",{neo:true});
+bx(60,90,200,80,"Event log",["who · when · where","(the same log that builds the ground)"],{big:true});
+// personal chain
+lab(320,60,"THE PERSONAL VIEW · HEADSET",{neo:true});
+bx(320,90,190,80,"signals.ts",["x z · speed · stay · neighbours","pathP · sealed · grass"]);
+bx(540,90,190,80,"harmony.ts",["key & mode per band","place chord · lock"]);
+bx(760,90,170,80,"motif.ts",["the name = an eight-step","contour, drawn once"]);
+bx(960,90,190,80,"sequencer.ts",["one bar at a time · bar clock","call & answer · bass · pad"]);
+bx(1180,90,180,80,"variation.ts",["procedural blend of two motifs","(my register kept)"]);
+bx(1180,200,180,80,"magenta.ts",["MusicVAE interpolation","MusicRNN improvisation — off"],{dim:true,dash:true});
+bx(960,310,400,120,"engine.ts — Web Audio",["voices (osc + gain) · neighbours through PannerNode HRTF","rooms: open · concrete · hall (convolution) · dull LP · grass noise","master → limiter → setSinkId → headset"]);
+ar(260,130,320,130); ar(510,130,540,130); ar(730,130,760,130); ar(930,130,960,130); ar(1150,130,1180,130);
+ar(1270,170,1270,200,{dim:true,dash:true}); ar(1180,240,1160,310,{dim:true,dash:true}); ar(1270,170,1270,310);
+ar(1055,170,1055,310);
+// noisecraft
+lab(320,250,"NOISECRAFT · THE ARTIST'S PATCH, A STATIC MACHINE",{neo:true});
+bx(320,280,230,90,"noisecraftDriver.ts",["music clock → seq clock 306 + BPM 22","planBar → sequences per receiver"]);
+bx(580,280,200,90,"NoiseCraftBridge.ts",["postMessage both ways","setParams · setSequence · clockPulse"]);
+bx(810,280,120,90,"hidden iframe",["embedded.html","the fork's editor"],{dim:true});
+sg.appendChild(el("rect",{x:300,y:230,width:650,height:160,fill:"none",stroke:"#55564f","stroke-dasharray":"5 5"}));
+ar(960,170,620,280); ar(550,325,580,325); ar(780,325,810,325); ar(810,360,780,360,{dim:true});
+lab(620,380,"← ClockOut pulses: the phase, anchoring the engine's grid",{px:10.5});
+bx(320,420,610,70,"nc_noise_patch · its own output",["three random chains with a BPM clock · delays · reverb · LFO filters · v0 root · v1 colour · v2 fifth · harmony pad"],{dim:true});
+ar(870,370,870,420,{dim:true});
+// global chain
+lab(60,560,"THE WHOLE · ROOM SPEAKERS",{neo:true});
+bx(60,590,200,80,"the same event log",["everyone of the last 600 s"]);
+bx(320,590,610,100,"global.ts",["every motif two octaves down (sawtooth) → one low-pass (opens with the share walking) → hall → saturation → one mass","noise floor by headcount · rhythm ticks per person · pan by x · no interaction"]);
+bx(960,590,400,100,"limiter → setSinkId → speakers",["a compressor per engine (−3 dB, 20:1) so headset and","speakers can share one machine without clipping"]);
+ar(260,630,320,630); ar(930,640,960,640); ar(160,170,160,590,{dim:true});
+lab(1560,620,"THE SAME EVENT",{neo:true,al:"end"}); lab(1560,644,"a musical moment for one,",{px:13,col:"#e9e9e5",al:"end"}); lab(1560,662,"one cell of a structure for the whole,",{px:13,col:"#e9e9e5",al:"end"}); lab(1560,680,"a slab of concrete on the wall.",{px:13,col:"#e9e9e5",al:"end"});
 })();
 </script>
 </body>

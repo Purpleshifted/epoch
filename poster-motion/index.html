@@ -33,6 +33,9 @@ body.cursor{cursor:default}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
 #fallback img{position:absolute;left:180px;top:-60px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%)}
 #shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(10,10,11,0) 0,rgba(10,10,11,.86) 45%,rgba(10,10,11,.96) 100%);display:none;pointer-events:none}
+#live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3}
+#badge3{left:160px;top:842px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:var(--dim);white-space:nowrap;display:none}
+#badge3 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
 #badge{right:64px;top:244px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
 #badge i{display:inline-block;width:8px;height:8px;background:var(--white);margin-right:10px;vertical-align:1px}
 #hint{left:0;top:1002px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f;display:none}
@@ -60,6 +63,8 @@ body.cursor{cursor:default}
   <div id="sky"></div>
   <iframe id="live" title="발견된 인류 — 벽의 시공간 (라이브)" allow="autoplay" referrerpolicy="no-referrer"></iframe>
   <div id="fallback"><img src="assets/structure.webp" alt="벽의 기둥 렌더"></div>
+  <iframe id="live3" title="The ground from above (live)" referrerpolicy="no-referrer"></iframe>
+  <div id="badge3" class="abs"><i></i><span>LIVE · THE GROUND FROM ABOVE — a demo crowd, folded by the work's own rules · anthropocene-mu.vercel.app</span></div>
   <div id="shade"></div>
   <canvas id="cv" width="1920" height="1080"></canvas>
   <div id="badge" class="abs"><i></i><span>LIVE</span></div>
@@ -149,6 +154,7 @@ const REFS={
   7:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
 };
 const LIVE_URL="https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute";
+const TOP_URL="https://anthropocene-mu.vercel.app/v2/global/top?demo=1&ui=0&look=footprint";
 let step=0, prev=-1, stepAt=performance.now(), now=performance.now();
 const U=()=>(now-stepAt)/1000;
 const stepsEl=$("#steps"); for(let i=0;i<STEPS;i++) stepsEl.appendChild(document.createElement("i"));
@@ -165,6 +171,9 @@ function liveOn(){
   liveTimer=setTimeout(()=>{if(liveState==="loading"){liveState="failed";live.style.display="none";live.src="about:blank";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";}},12000);
   live.onload=()=>{if(liveState==="loading"){liveState="on";clearTimeout(liveTimer);}};
 }
+let live3State="off";
+function live3On(){ if(live3State!=="off"||!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
+function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; $("#badge3").style.display="none"; live3State="off"; }
 function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
   $("#title").style.clipPath=`inset(0 ${(100*(1-on(u,0.3,0.9))).toFixed(2)}% 0 0)`;
@@ -377,7 +386,9 @@ function s6(u,g){
   const wa=on(u,6.4,0.6); const wx=ax+S/2+60, wy=ay+S+110; glyphC(fig.word,wx,wy,150,{a:wa,cur:col});
   const bp=on(u,6.4,0.75); if(bp>0&&bp<1)for(let i=0;i<26;i++){const an=hash(i,7)*6.283, r=10+bp*(30+hash(i,8)*80); sq(wx+75+Math.cos(an)*r,wy+75+Math.sin(an)*r*0.8,3,1-bp);}
   txt("/new word",wx+170,wy+70,{px:22,w:700,a:wa}); txt("새 어휘 — answer another's call: a glyph that mixes two melodies",wx+170,wy+90,{px:12,fam:"Neo",col:DIM,a:wa,ls:1.2});
-  para("Why sound: vision places you outside; sound surrounds the body. When sounds overlap they do not hide each other — they become harmony or dissonance. Overlap without occlusion.",160,ay+S+360,{px:17,maxW:780,col:DIM,a:on(u,8.6,0.9)});
+  para("Why sound: vision places you outside; sound surrounds the body. When sounds overlap they do not hide each other — they become harmony or dissonance. Overlap without occlusion.",160,ay+S+330,{px:17,maxW:780,col:DIM,a:on(u,8.6,0.9)});
+  txt("PIPELINE — IN THE BROWSER, NO FILES",160,ay+S+396,{px:11,fam:"Neo",col:DIM,a:on(u,9.6,0.8),ls:1.4});
+  para("event log → signals → place chord · lock → motif (the name) → sequencer on a shared bar clock → variation (procedural; Magenta MusicVAE / MusicRNN wired, off) → Web Audio engine: HRTF voices · rooms · limiter → headset.  NoiseCraft: the artist's patch in a hidden page, fed only a clock and sequences.  Speakers: every motif two octaves down, one mass.",160,ay+S+414,{px:12.5,maxW:900,col:DIM,lh:1.45,a:on(u,9.6,0.8)});
   // the whole
   const cx=1180, cy=230, cw=400, ch=430; txt("THE WHOLE · 벽",1100,180,{px:12,fam:"Neo",col:DIM,a:on(u,0.4),ls:1.2});
   for(let k=0;k<12;k++)line(cx,cy+k*36+.5,cx+cw,cy+k*36+.5,FAINT,on(u,0.5+k*0.05),1); box(cx,cy,cw,ch,FAINT,on(u,0.5));
@@ -426,6 +437,7 @@ function render(){
   for(const id of ["#title","#homo","#kaist","#notice","#shade","#badge","#hint","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none";
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
+  if(step===3&&u>13.5)live3On(); else if(step!==3)live3Off();
   if(!t0&&REFS[step]){$("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join(""); $("#refs").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
