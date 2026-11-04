@@ -94,6 +94,7 @@ function BoxArchitecture({
   showPaths = true,
   every = 0.25,
   unlit = false,
+  tint,
 }: {
   getSnapshot: () => Snapshot | null;
   heightUnit: number;
@@ -102,6 +103,8 @@ function BoxArchitecture({
   every?: number;
   /** Top view: flat colours, no lighting. */
   unlit?: boolean;
+  /** One colour for every box (the footprint look: white outlines on black) instead of the box list's greys. */
+  tint?: number;
 }) {
   const timer = useRef(10);
   const boxMesh = useRef<THREE.InstancedMesh>(null);
@@ -150,7 +153,7 @@ function BoxArchitecture({
         tmp.scale.set(b.sx, b.sy, b.sz);
         tmp.updateMatrix();
         m.setMatrixAt(i, tmp.matrix);
-        m.setColorAt(i, col.setHex(b.c));
+        m.setColorAt(i, col.setHex(tint ?? b.c));
       });
       m.count = boxes.length;
       m.instanceMatrix.needsUpdate = true;
@@ -160,7 +163,7 @@ function BoxArchitecture({
       const C = (lineGeom.getAttribute("color") as THREE.BufferAttribute);
       let k = 0;
       for (const b of boxes) {
-        col.setHex(b.c);
+        col.setHex(tint ?? b.c);
         const x0 = b.x - b.sx / 2, x1 = b.x + b.sx / 2;
         const z0 = b.z - b.sz / 2, z1 = b.z + b.sz / 2;
         const y0 = b.y0, y1 = b.y0 + b.sy;
@@ -186,7 +189,7 @@ function BoxArchitecture({
       const density = 70; // points per square world unit of surface
       for (const b of boxes) {
         if (k >= MAX_POINTS - 400) break;
-        col.setHex(b.c);
+        col.setHex(tint ?? b.c);
         const top = b.sx * b.sz;
         const sideA = b.sx * b.sy;
         const sideB = b.sz * b.sy;
@@ -247,6 +250,7 @@ export function ArchitectureLayer({
   shards = DEFAULT_SHARDS,
   collage = DEFAULT_COLLAGE,
   view = "side",
+  tint,
 }: {
   getSnapshot: () => Snapshot | null;
   heightUnit: number;
@@ -257,6 +261,7 @@ export function ArchitectureLayer({
   shards?: ShardConfig;
   collage?: CollageConfig;
   view?: "side" | "top";
+  tint?: number;
 }) {
   const slow = Math.max(every, 0.5);
   if (style === "photo") {
@@ -268,5 +273,5 @@ export function ArchitectureLayer({
     );
   }
   if (style === "shards") return <ShardLayer getSnapshot={getSnapshot} heightUnit={heightUnit} cfg={shards} every={slow} view={view} showPaths={showPaths} />;
-  return <BoxArchitecture getSnapshot={getSnapshot} heightUnit={heightUnit} style={style} showPaths={showPaths} every={every} unlit={unlit} />;
+  return <BoxArchitecture getSnapshot={getSnapshot} heightUnit={heightUnit} style={style} showPaths={showPaths} every={every} unlit={unlit} tint={tint} />;
 }

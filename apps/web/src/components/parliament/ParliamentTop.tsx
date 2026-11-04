@@ -7,7 +7,9 @@
  * future where exposed slabs have worn away and only outlines of where people crowded remain;
  * Side defaults to horizon 0, i.e. what stood before the wear: the "skyline" of the architecture.
  * Concrete (slabs and desire paths) is drawn in one of three materials, switchable in Leva.
- * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel · ?at=<years> sets the horizon.
+ * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel · ?at=<years> sets the horizon ·
+ * ?look=footprint draws the ground the way the personal view's footprint map does (black, grey plates, white
+ * outlines; the presentation site embeds it, 2026-11-04).
  */
 
 import { useMemo, useRef, useState } from "react";
@@ -145,10 +147,11 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
   });
 
   // The collage reads as a front elevation on Side and as a plan (flat fragments + hard shadows) on Top.
+  const foot = params.get("look") === "footprint";
   const style: ArchStyle = arch.style;
-  const paper = style === "shards" || style === "photo";
-  const bg = paper ? PAPER : BG;
-  const lit = mode === "side" && style === "block";
+  const paper = !foot && (style === "shards" || style === "photo");
+  const bg = foot ? "#000000" : paper ? PAPER : BG;
+  const lit = !foot && mode === "side" && style === "block";
 
   return (
     <div className="relative h-full w-full" style={{ background: bg }}>
@@ -167,18 +170,26 @@ export default function ParliamentGlobal({ mode }: { mode: GlobalMode }) {
           </>
         )}
         <Surface log={log} mode={mode} horizonYears={c.horizonYears} cfg={cfg} heightUnit={arch.heightUnit} view={{ cx: c.viewCx, cz: c.viewCz, span: c.viewSpan }} snapRef={snapRef} />
-        {mode === "top" && <WorldEdge color={paper ? "#aeb3ba" : "#262a36"} />}
-        <ArchitectureLayer
-          getSnapshot={() => snapRef.current}
-          heightUnit={arch.heightUnit}
-          style={style}
-          showPaths={arch.showPaths}
-          every={0.5}
-          unlit={!lit}
-          shards={arch.shards}
-          collage={arch.collage}
-          view={mode}
-        />
+        {mode === "top" && <WorldEdge color={foot ? "#3a3b38" : paper ? "#aeb3ba" : "#262a36"} />}
+        {foot ? (
+          // the footprint look: grey plates (slabs light, paths by strength) under white outlines, like FootprintMap.tsx
+          <>
+            <ArchitectureLayer getSnapshot={() => snapRef.current} heightUnit={arch.heightUnit} style="block" showPaths every={0.5} unlit view={mode} />
+            <ArchitectureLayer getSnapshot={() => snapRef.current} heightUnit={arch.heightUnit} style="lines" showPaths={false} every={0.5} unlit tint={0xffffff} view={mode} />
+          </>
+        ) : (
+          <ArchitectureLayer
+            getSnapshot={() => snapRef.current}
+            heightUnit={arch.heightUnit}
+            style={style}
+            showPaths={arch.showPaths}
+            every={0.5}
+            unlit={!lit}
+            shards={arch.shards}
+            collage={arch.collage}
+            view={mode}
+          />
+        )}
         {mode === "side" && (
           // the ground line
           <mesh position={[0, -0.03, 0]}>
