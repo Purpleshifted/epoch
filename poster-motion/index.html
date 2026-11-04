@@ -325,8 +325,9 @@ function liveReady(){ if(liveState!=="loading")return; liveState="on"; clearTime
 function liveOn(){
   if(liveState!=="off"&&liveState!=="failed")return;
   if(bakedOk){liveState="baked"; wallv.style.display="block"; wallv.currentTime=0; wallv.play().catch(()=>{}); $("#badge").querySelector("span").textContent="THE WALL'S TIMESPACE — BAKED FROM THE WORK, 2026-11-04 · ONE TURN";
-    const fail=()=>{bakedOk=false; wallv.onerror=null; wallv.style.display="none"; liveState="off"; liveOn();};
-    wallv.onerror=fail; for(const src of wallv.querySelectorAll("source")) src.onerror=fail; return;}
+    let failed=false; const fail=()=>{if(failed)return; failed=true; bakedOk=false; wallv.onerror=null; wallv.style.display="none"; liveState="off"; liveOn();};
+    wallv.onerror=fail; for(const src of wallv.querySelectorAll("source")) src.onerror=fail;
+    const probe=(n)=>{if(failed||liveState!=="baked")return; if(wallv.networkState===3||wallv.error){fail();return;} if(wallv.readyState<2&&n<40)setTimeout(()=>probe(n+1),250);}; probe(0); return;}
   if(!liveWanted){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";return;}
   liveState="loading"; live.src=LIVE_URL+(q.has("rate")?`&rate=${q.get("rate")}`:""); live.style.display="block"; live.style.opacity="0"; live.style.transition="opacity 1.6s";
   $("#fallback").style.display="block"; $("#badge").querySelector("span").textContent="A RENDER OF THE WALL'S COLUMN — THE LIVE ONE IS LOADING · homo-inventus-lab.vercel.app";
@@ -337,8 +338,9 @@ let live3State="off";
 function live3On(){ if(live3State!=="off")return;
   if(bakedOk){live3State="baked"; topv.style.display="block"; topv.style.opacity="0"; topv.currentTime=0; topv.play().catch(()=>{}); topv.style.transition="opacity 1.2s"; requestAnimationFrame(()=>topv.style.opacity="1");
     $("#badge3").querySelector("span").textContent="THE GROUND FROM ABOVE — a demo crowd folded by the work's own rules, baked 2026-11-04"; $("#badge3").style.display="block";
-    const fail=()=>{bakedOk=false; topv.onerror=null; topv.style.display="none"; $("#badge3").style.display="none"; live3State="off"; live3On();};
-    topv.onerror=fail; for(const src of topv.querySelectorAll("source")) src.onerror=fail; return;}
+    let failed=false; const fail=()=>{if(failed)return; failed=true; bakedOk=false; topv.onerror=null; topv.style.display="none"; $("#badge3").style.display="none"; live3State="off"; live3On();};
+    topv.onerror=fail; for(const src of topv.querySelectorAll("source")) src.onerror=fail;
+    const probe=(n)=>{if(failed||live3State!=="baked")return; if(topv.networkState===3||topv.error){fail();return;} if(topv.readyState<2&&n<40)setTimeout(()=>probe(n+1),250);}; probe(0); return;}
   if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
 // ④: the rule being folded by the work itself — a scripted crowd in this branch's app, one rule at a time
 let live4Kind=null, live4Base=0;
