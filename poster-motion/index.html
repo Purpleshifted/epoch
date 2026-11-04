@@ -34,7 +34,7 @@ body.cursor{cursor:default}
 #h-homo{left:62px;top:68px;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;white-space:nowrap}
 #h-sec{right:60px;top:32px;font-family:Neo,monospace;font-size:14px;letter-spacing:.1em;color:#3c3d3a;white-space:nowrap;text-align:right}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
-#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#000;display:none;pointer-events:none}
+#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#000;display:none;pointer-events:none;z-index:2}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
 #fallback img{position:absolute;left:180px;top:-150px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%)}
 #live,#wallv{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 150px);mask-image:linear-gradient(180deg,transparent 0,#000 150px)}
@@ -326,10 +326,10 @@ function liveOn(){
     const fail=()=>{bakedOk=false; wallv.onerror=null; wallv.style.display="none"; liveState="off"; liveOn();};
     wallv.onerror=fail; for(const src of wallv.querySelectorAll("source")) src.onerror=fail; return;}
   if(!liveWanted){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";return;}
-  liveState="loading"; live.src=LIVE_URL+(q.has("rate")?`&rate=${q.get("rate")}`:""); live.style.display="block";
-  $("#badge").querySelector("span").textContent="LIVE — THE WALL'S TIMESPACE, RENDERING NOW · anthropocene-mu.vercel.app";
-  liveTimer=setTimeout(()=>{if(liveState==="loading"){liveState="failed";live.style.display="none";live.src="about:blank";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";}},12000);
-  live.onload=()=>{if(liveState==="loading"){liveState="on";clearTimeout(liveTimer);}};
+  liveState="loading"; live.src=LIVE_URL+(q.has("rate")?`&rate=${q.get("rate")}`:""); live.style.display="block"; live.style.opacity="0"; live.style.transition="opacity 1.6s";
+  $("#fallback").style.display="block"; $("#badge").querySelector("span").textContent="A RENDER OF THE WALL'S COLUMN — THE LIVE ONE IS LOADING · homo-inventus-lab.vercel.app";
+  liveTimer=setTimeout(()=>{if(liveState==="loading"){liveState="failed";live.style.display="none";live.src="about:blank";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";}},45000);
+  live.onload=()=>{if(liveState==="loading"){liveState="on";clearTimeout(liveTimer); live.style.opacity="1"; setTimeout(()=>{if(liveState==="on")$("#fallback").style.display="none";},1800); $("#badge").querySelector("span").textContent="LIVE — THE WALL'S COLUMN, TURNING, RENDERED NOW BY THE WORK · homo-inventus-lab.vercel.app";}};
 }
 let live3State="off";
 function live3On(){ if(live3State!=="off")return;
