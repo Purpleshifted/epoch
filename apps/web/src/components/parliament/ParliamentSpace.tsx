@@ -2951,7 +2951,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           shotSec={shotSec}
           dir={cam.camDir as 1 | -1}
           maxPolarDeg={isV2 ? 179.5 : 89.8}
-          active={!lab}
+          active={!lab || camMode !== null} /* the lab has its own column to look at — unless an address names a framing (?cam=…), which the stage camera then drives */
           auto={camView.camAuto ? shotSeq : null}
           link={camLink}
           status={shotLine}
