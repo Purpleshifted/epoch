@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// One screenshot of a page in a headless (muted) Chrome: node tools/shot.mjs <url> <out.png> [waitMs=4000] [w=1920] [h=1080]
+// One screenshot of a page in a headless (muted) Chrome: [GPU=1] [PORT=9341] node tools/shot.mjs <url> <out.png> [waitMs=4000] [w=1920] [h=1080]
 import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { spawn } from "node:child_process";
 const [url, out, waitMs = "4000", W = "1920", H = "1080"] = process.argv.slice(2);
-const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", PORT = 9341;
+const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", PORT = +(process.env.PORT || 9341); // PORT=… lets several run at once
 const udd = fs.mkdtempSync(path.join(os.tmpdir(), "shot-chrome-"));
-const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, "--mute-audio", "--hide-scrollbars", "--allow-file-access-from-files", `--window-size=${W},${H}`, "--force-device-scale-factor=1", `--user-data-dir=${udd}`, "--no-first-run", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "about:blank"], { stdio: "ignore" });
+const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, "--mute-audio", "--hide-scrollbars", "--allow-file-access-from-files", `--window-size=${W},${H}`, "--force-device-scale-factor=1", `--user-data-dir=${udd}`, "--no-first-run", ...(process.env.GPU ? [] : ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]), "--disable-background-timer-throttling", "about:blank"], { stdio: "ignore" }); // GPU=1 = the machine's GPU, as bake.mjs
 process.on("exit", () => { try { chrome.kill(); } catch {} });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let page; for (let i = 0; i < 100; i++) { try { page = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()).find((t) => t.type === "page"); if (page) break; } catch {} await sleep(200); }

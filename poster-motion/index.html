@@ -301,7 +301,7 @@ const REFS={
   8:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
 };
 const LAB_ORIGIN="https://homo-inventus-lab.vercel.app";   // this branch's app, its own Vercel project — never the show's
-const LIVE_URL=LAB_ORIGIN+"/v2/global/lab?ui=0&sound=mute&cam=turn&snap=1&minutes=8&bots=10&dpr=0.6";
+const LIVE_URL=LAB_ORIGIN+"/v2/global/lab?ui=0&sound=mute&cam=turn&snap=1&minutes=24&bots=16&dpr=0.6&dist=200&polar=70&lift=-30"; // a 24-minute column seen whole from a little above (the 8-minute one was a speck at that distance)
 const TOP_URL=LAB_ORIGIN+"/v2/global/top?demo=1&ui=0&look=footprint";
 const SCEN=["slab","path","pipe","veg"], SCEN_RATE={slab:1,path:2,pipe:3,veg:2};
 const SCEN_URL=k=>`${LAB_ORIGIN}/v2/global/lab?ui=0&sound=mute&scenario=${k}&cam=close&rate=${SCEN_RATE[k]}&dpr=0.7`;
@@ -317,7 +317,10 @@ const live=$("#live"), wallv=$("#wallv"), topv=$("#topv");
 const motionOk=!q.has("still")&&innerWidth>=760&&!matchMedia("(prefers-reduced-motion: reduce)").matches;
 // order: the baked videos (assets/wall.mp4, top.mp4) → when they are missing, the live app → when that fails, a still.
 // ?baked=0 skips the videos, ?live=0 skips the app, ?live=1 goes straight to the app.
-const liveWanted=q.get("live")!=="0"&&motionOk;
+const liveWanted=q.get("live")!=="0"&&motionOk;   // ③'s ground from above and ④'s scripted crowds
+// the LANDING shows the render by default (the artist, 11/04 evening: an image on the home is the better compromise — the
+// live column takes 40 s to appear and turns on a black ground); ?live=1 brings the live column back
+const landingLive=q.get("live")==="1"&&motionOk;
 let bakedOk=q.get("live")!=="1"&&q.get("baked")!=="0"&&motionOk;
 let liveState="off", liveTimer=0; // off | loading | on | failed | baked
 function liveReady(){ if(liveState!=="loading")return; liveState="on"; clearTimeout(liveTimer); live.style.opacity="1"; setTimeout(()=>{if(liveState==="on")$("#fallback").style.display="none";},1800);
@@ -328,7 +331,7 @@ function liveOn(){
     let failed=false; const fail=()=>{if(failed)return; failed=true; bakedOk=false; wallv.onerror=null; wallv.style.display="none"; liveState="off"; liveOn();};
     wallv.onerror=fail; for(const src of wallv.querySelectorAll("source")) src.onerror=fail;
     const probe=(n)=>{if(failed||liveState!=="baked")return; if(wallv.networkState===3||wallv.error){fail();return;} if(wallv.readyState<2&&n<40)setTimeout(()=>probe(n+1),250);}; probe(0); return;}
-  if(!liveWanted){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";return;}
+  if(!landingLive){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="THE WALL'S COLUMN — A RENDER FROM THE WORK, 2026-11-03 · THE LIVE ONE: ?live=1";return;}
   liveState="loading"; live.src=LIVE_URL+(q.has("rate")?`&rate=${q.get("rate")}`:""); live.style.display="block"; live.style.opacity="0"; live.style.transition="opacity 1.6s";
   $("#fallback").style.display="block"; $("#badge").querySelector("span").textContent="A RENDER OF THE WALL'S COLUMN — THE LIVE ONE IS LOADING · homo-inventus-lab.vercel.app";
   liveTimer=setTimeout(()=>{if(liveState==="loading"){liveState="failed";live.style.display="none";live.src="about:blank";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";}},45000);
