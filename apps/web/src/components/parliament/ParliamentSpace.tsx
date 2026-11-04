@@ -1699,7 +1699,20 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   useEffect(() => {
     rebuildColumn.current = () => {
       log.clear();
-      log.addMany(buildTestColumn({ seconds: tc.tcMinutes * 60, bots: tc.tcBots, flock: { groups: tc.tcGroups, spread: tc.tcSpread, timeSpread: tc.tcTime } }));
+      const col = buildTestColumn({ seconds: tc.tcMinutes * 60, bots: tc.tcBots, flock: { groups: tc.tcGroups, spread: tc.tcSpread, timeSpread: tc.tcTime } });
+      log.addMany(col);
+      // SEED HEADS FOR A RENDER (the presentation site, 2026-11-04): `?seeds=N` plants N answers near the origin at the
+      // column's newest minute, so the lab shows the heads (and their powder) as the wall draws them; the exhibition never passes it
+      const nSeeds = Math.min(12, Number(urlp.get("seeds")) || 0);
+      if (lab && nSeeds > 0) {
+        const last = col.length ? col[col.length - 1].s : tc.tcMinutes * 60;
+        const seeds: PEvent[] = [];
+        for (let i = 0; i < nSeeds; i++) {
+          const a = i * 2.4 + 0.5, r = 1.5 + (i % 3) * 1.6;
+          seeds.push({ id: `seed${i}`, o: `bot${i % Math.max(1, tc.tcBots)}`, r: "tree", k: "s", x: Math.round(Math.cos(a) * r * 100) / 100, z: Math.round(Math.sin(a) * r * 100) / 100, s: Math.max(0, last - 40 - i * 25) });
+        }
+        log.addMany(seeds);
+      }
     };
   }, [log, tc.tcMinutes, tc.tcBots, tc.tcGroups, tc.tcSpread, tc.tcTime]);
   // the lab opens with a whole column in view
