@@ -1652,12 +1652,16 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000, !lab);
   useKeepWindowControl(log, -2, !lab); // the shared history window (log.ts), the first folder
+  // A LITE WORLD FOR EMBEDDING (the presentation site, 2026-11-04): `?minutes=5&bots=8&dpr=0.6` opens the lab with a
+  // smaller test column and a coarser canvas so it loads fast where it is only looked at; the exhibition never passes these
+  const urlp = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
+  const liteMinutes = Number(urlp.get("minutes")), liteBots = Number(urlp.get("bots")), liteDpr = Number(urlp.get("dpr"));
   // the lab's test column: how the crowd that writes it is spread (the artist's player-page bot values by default)
   const tc = useControls(
     "테스트 기둥 (랩 · 이 탭만)",
     savable("테스트 기둥 (랩 · 이 탭만)", {
-      tcMinutes: { value: 20, min: 5, max: 60, step: 5, label: "분량 (분)" },
-      tcBots: { value: 18, min: 2, max: 40, step: 1, label: "봇 수" },
+      tcMinutes: { value: lab && liteMinutes >= 5 ? Math.min(60, liteMinutes) : 20, min: 5, max: 60, step: 5, label: "분량 (분)" },
+      tcBots: { value: lab && liteBots >= 2 ? Math.min(40, liteBots) : 18, min: 2, max: 40, step: 1, label: "봇 수" },
       tcGroups: { value: 5, min: 1, max: 10, step: 1, label: "무리 수" },
       tcSpread: { value: 44, min: 0, max: 90, step: 1, label: "무리 간 거리 (월드; 멀수록 건물이 흩어짐)" },
       tcTime: { value: 150, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s)" },
@@ -2768,7 +2772,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
+      <Canvas shadows="percentage" dpr={lab && liteDpr > 0 ? Math.min(2, Math.max(0.4, liteDpr)) : [1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
