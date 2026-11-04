@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { scenarioOf } from "@/lib/parliament/scenario";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
@@ -1656,6 +1657,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // smaller test column and a coarser canvas so it loads fast where it is only looked at; the exhibition never passes these
   const urlp = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const liteMinutes = Number(urlp.get("minutes")), liteBots = Number(urlp.get("bots")), liteDpr = Number(urlp.get("dpr"));
+  // A SCRIPTED CROWD (the presentation site, 2026-11-04): `?scenario=slab|path|pipe|veg` opens the lab on empty ground
+  // with a crowd that does one thing, so one rule can be watched being folded; the exhibition never passes it
+  const scenario = useMemo(() => (lab ? scenarioOf(urlp.get("scenario")) : null), [lab, urlp]);
   // the lab's test column: how the crowd that writes it is spread (the artist's player-page bot values by default)
   const tc = useControls(
     "테스트 기둥 (랩 · 이 탭만)",
@@ -1678,8 +1682,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   }, [log, tc.tcMinutes, tc.tcBots, tc.tcGroups, tc.tcSpread, tc.tcTime]);
   // the lab opens with a whole column in view
   useEffect(() => {
-    if (lab && log.size === 0) rebuildColumn.current();
-  }, [lab, log]);
+    if (lab && log.size === 0 && !scenario) rebuildColumn.current();
+  }, [lab, log, scenario]);
   // the clock the view and its bots run on: the shared world clock, or the lab's own (this tab only)
   const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
@@ -1692,10 +1696,35 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // THE LAB EMBEDDED ELSEWHERE (the presentation site, 2026-11-04): `?rate=N` runs its clock from the start, so the
   // test column is seen being made; set through Leva like the presets, after the controls have mounted
   useEffect(() => {
-    const rate = Number(params.get("rate"));
+    const rate = Number(params.get("rate")) || (scenario ? 1 : 0); // a scenario's clock runs from the start
     if (!lab || !(rate > 0)) return;
     const t = setTimeout(() => levaStore.setValueAtPath("시간축.timeRate", Math.min(rate, 20), true), 400);
     return () => clearTimeout(t);
+  }, [lab, params, scenario]);
+  // SNAPSHOTS FOR THE SITE'S PIXEL LAYER (2026-11-04): `?snap=1` inside a frame posts a small bitmap of the view to the
+  // parent five times a second (pixels only); the lab keeps its drawing buffer, so the canvas can be read any time
+  useEffect(() => {
+    if (!lab || params.get("snap") !== "1" || typeof window === "undefined" || window.parent === window) return;
+    let t = 0;
+    let stop = false;
+    const tick = async () => {
+      if (stop) return;
+      const c = document.querySelector("canvas[data-engine]") as HTMLCanvasElement | null;
+      if (c && c.width > 0) {
+        try {
+          const bmp = await createImageBitmap(c, { resizeWidth: 160, resizeHeight: Math.max(1, Math.round((160 * c.height) / c.width)), resizeQuality: "low" });
+          window.parent.postMessage({ type: "snap", bitmap: bmp }, "*", [bmp]);
+        } catch {
+          /* a lost context: try again next tick */
+        }
+      }
+      t = window.setTimeout(tick, 200);
+    };
+    t = window.setTimeout(tick, 1500);
+    return () => {
+      stop = true;
+      window.clearTimeout(t);
+    };
   }, [lab, params]);
   useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
@@ -1948,7 +1977,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // the shot sequence the auto run plays (docs/camera-motion.md §1): the pose above as the base, then the enabled shots
   // MEASUREMENT SWITCH `?cam=band` (2026-11-01, the reset): a fixed framing that shows the fusion band whatever the
   // saved camera says — focus 45 slots below the present, polar 62°, distance 120, no auto run, no turn
-  const camView = params.get("cam") === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 } : cam;
+  // and the site's framings (2026-11-04): `close` = the scripted crowd's patch from above and in front, turning slowly;
+  // `turn` = the saved pose, one turn a minute (the landing's rotating column)
+  const camMode = params.get("cam");
+  const camView =
+    camMode === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 }
+    : camMode === "close" ? { ...cam, camAuto: false, camLift: 0, camPolar: 56, camDist: 34, camLook: [0, 0] as [number, number], camTurnSec: 90 }
+    : camMode === "turn" ? { ...cam, camAuto: false, camTurnSec: 60 }
+    : cam;
   const shotSeq: ShotSequence = {
     base: { id: 0, dist: camView.camDist, polar: camView.camPolar, lookX: camView.camLook[0], lookZ: camView.camLook[1], lift: camView.camLift, turn: 1, holdSec: camView.camHoldSec },
     shots: [
@@ -2136,7 +2172,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     },
   });
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
-  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, lab ? { clock: clk, local: true } : undefined);
+  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, lab ? { clock: clk, local: true, script: scenario ?? undefined } : undefined);
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -2870,7 +2906,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <StageCamera
           controls={controls}
           pose={{ dist: camView.camDist, polar: camView.camPolar, azimuth: camView.camAzimuth, look: camView.camLook }}
-          turnSec={cam.camTurnSec}
+          turnSec={camView.camTurnSec}
           dir={cam.camDir as 1 | -1}
           maxPolarDeg={isV2 ? 179.5 : 89.8}
           active={!lab}

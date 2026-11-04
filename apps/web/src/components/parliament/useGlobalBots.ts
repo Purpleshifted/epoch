@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
+import type { Scenario } from "@/lib/parliament/scenario";
 import { levaStore, useControls } from "leva";
 import {
   DEFAULT_LIFECYCLE,
@@ -110,7 +111,7 @@ export function botReadout(): string | null {
   return `bots (session): ${l.present} now / max ${l.maxPresent} · arrived ${l.arrived} · left ${l.departed} · places ${l.places} · stalls ${l.slowPerMin}/min`;
 }
 
-export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, order = 1.5, opts?: { clock?: Clock; local?: boolean }): number {
+export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, order = 1.5, opts?: { clock?: Clock; local?: boolean; script?: Scenario }): number {
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
   const local = !!opts?.local;
@@ -155,9 +156,11 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
     }),
     { order, collapsed: !enabled },
   );
-  const on = enabled && b.botOn;
+  // SCRIPTED (lib/parliament/scenario.ts, the presentation site): the script moves its own crowd whatever the knobs say
+  const script = opts?.script;
+  const on = enabled && (b.botOn || !!script);
   const session = false;
-  const nBots = on && !session ? b.botCount : 0;
+  const nBots = on && !session ? (script ? script.count : b.botCount) : 0;
   const flock = useMemo<Flock>(
     () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
     [b.botGroups, b.botSpread, b.botTimeSpread, b.botStayMin, b.botOverlapSec, b.botCharacter],
@@ -217,10 +220,10 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   // the ground the bots walk on, folded as it grows (the whole world)
   const fold = useFoldState(log, cfg, BOT_FOLD_OPTS);
 
-  const live = useRef({ on, session, nBots, role: b.botRole, flock, cfg, fold, lc, auto: b.lcAuto });
+  const live = useRef({ on, session, nBots, role: b.botRole, flock, cfg, fold, lc, auto: b.lcAuto, script });
   useEffect(() => {
-    live.current = { on, session, nBots, role: b.botRole, flock, cfg, fold, lc, auto: b.lcAuto };
-  }, [on, session, nBots, b.botRole, flock, cfg, fold, lc, b.lcAuto]);
+    live.current = { on, session, nBots, role: b.botRole, flock, cfg, fold, lc, auto: b.lcAuto, script };
+  }, [on, session, nBots, b.botRole, flock, cfg, fold, lc, b.lcAuto, script]);
 
   const epochMs = useRef(0);
   const pending = useRef<PEvent[]>([]);
@@ -389,7 +392,17 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
         const [x, z] = steerBot(a.o, plan, { level: (k) => g.level.get(k) ?? 0, built: (k) => g.built.has(k) }, flow, routes.current);
         return { ...a, x, z };
       };
+      const sc = live.current.script;
       for (const w of due) {
+        if (sc) {
+          // SCRIPTED: the scenario says where each one is this second; nothing steers them
+          const sec = (w - botStartMs.current) / 1000;
+          for (let i = 0; i < sc.count; i++) {
+            const p = sc.at(i, sec);
+            if (p) add({ o: `bot${i}`, r: "worker", x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100, s: sessionSeconds(w, epochMs.current, 0) });
+          }
+          continue;
+        }
         for (let i = 0; i < n; i++) add(steer(botActor(i, role === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : role, w, botStartMs.current, epochMs.current, 0, fl), i, w));
       }
     }
