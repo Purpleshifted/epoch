@@ -61,6 +61,13 @@ th{font-family:Neo,monospace;font-size:11px;letter-spacing:.12em;color:var(--dim
 .links-list li small{color:var(--dim);font-size:13px;margin-left:8px}
 footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-size:13px;color:var(--dim);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 @media (max-width:720px){header{position:static;flex-wrap:wrap;gap:10px;padding:14px 16px}header nav{gap:8px 14px;font-size:12px}main{padding:24px 16px 80px}h1{font-size:34px}h2{font-size:22px;margin-top:48px}p{font-size:15.5px}.lead{font-size:16.5px}.quote{font-size:19px}table{display:block;overflow-x:auto;font-size:12.5px;white-space:nowrap}.entry{grid-template-columns:1fr}#map .tip{font-size:10px}}
+.listen{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:18px 0 10px}
+.lcard{border:1px solid #2a2b29;padding:14px 14px 12px;background:#0d0d0e;display:flex;flex-direction:column;gap:6px}
+.lcard b{font-size:16px}.lcard span{font-family:Neo,monospace;font-size:10.5px;letter-spacing:.12em;color:#9b9c97}.lcard p{margin:4px 0 8px;font-size:13.5px;color:#9b9c97;line-height:1.5;flex:1}
+.lcard button,.lbar button{font-family:Neo,monospace;font-size:12px;letter-spacing:.14em;color:#e9e9e5;background:#000;border:1px solid #55564f;padding:8px 12px;cursor:pointer;align-self:flex-start}
+.lcard button:hover,.lbar button:hover{border-color:#e9e9e5}.lcard.on{border-color:#e9e9e5}.lcard.on button{background:#e9e9e5;color:#0b0b0b}
+.lbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0 6px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:#9b9c97}
+.lbar label{display:flex;align-items:center;gap:8px}.lbar input{width:120px;accent-color:#e9e9e5}
 </style>
 </head>
 <body>
@@ -159,6 +166,19 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
   <p>A <b>name is a motif</b> — a short contour on an eight-step score, drawn once per life and shown as a glyph. The <b>sequencer</b> plans one bar at a time on a bar clock that every voice shares: my motif realised on the key, snapped to chord tones by lock; a neighbour's motif as a second voice; call and answer when two people stay together (even bars mine, odd bars theirs); a bass line on the paths; a pad when a building is being born. The bar length itself is decided by interaction — on a path or while building together the bar tightens by a few percent.</p>
   <p>The <b>engine</b> schedules each note as two Web Audio nodes (an oscillator and a gain) a little ahead of time. Other people's voices pass through a <code>PannerNode</code> with the browser's built-in HRTF, so they sit in front, behind, above — before they are ever seen. Three rooms are crossfaded by convolution: open ground (short, dark), concrete (bright, early reflections), a hall when people build together. A low-pass filter dulls everything near concrete; grass adds a thin band of noise. A limiter sits after the master, and the output is routed to the headset device with <code>setSinkId</code> so the room's speakers and the visitor's headset can share one machine.</p>
 
+  <h3 id="listen">Listen — the headset's engine, running here<small>들어보기 · 녹음이 아니라 작품의 엔진이 이 페이지에서 연주</small></h3>
+  <p>The engine that plays in the headset (<code>apps/web/src/lib/sound</code>) is bundled into this page unchanged and fed one situation at a time, as synthetic signals: not a recording — the same code, deciding each bar as it would inside the work. Press ▶ and wait a bar or two; the readout shows what the sequencer decided. Headphones help: others are placed around the head.</p>
+  <div id="listen-cards" class="listen">
+    <div class="lcard" data-kind="name"><b>Receiving a name</b><span>이름 받기 · 모티프</span><p>A life begins with a melody instead of a name: an eight-step contour drawn once, announced on its own, then carried as the voice of this life.</p><button type="button">▶ PLAY</button></div>
+    <div class="lcard" data-kind="walk"><b>Walking on open ground</b><span>걷기 · 열린 땅</span><p>My motif on the key's chord of the place; the tempo follows my pace, the ground is bright (the low-pass open), a little grass noise around.</p><button type="button">▶ PLAY</button></div>
+    <div class="lcard" data-kind="path"><b>Following a path</b><span>길 위 · 베이스</span><p>Where the ground is trodden hard, a heartbeat starts under my steps: the root, low, twice a bar, ducking the voices as it comes.</p><button type="button">▶ PLAY</button></div>
+    <div class="lcard" data-kind="stay"><b>Staying beside someone</b><span>곁에 머묾 · lock → 화음 · 집</span><p>Someone comes near and stays. After six seconds the two melodies lock into harmony and the bars alternate — call and answer; a pad holds the chord. Once we are building together, the hall opens.</p><button type="button">▶ PLAY</button></div>
+    <div class="lcard" data-kind="concrete"><b>On concrete</b><span>콘크리트 곁 · 먹먹함</span><p>Standing on a slab: the sound goes dull (the low-pass closes), the room turns hard and close — the building's own tonality takes the place.</p><button type="button">▶ PLAY</button></div>
+    <div class="lcard" data-kind="grass"><b>In the grass</b><span>식생 · 노이즈</span><p>Deep vegetation around: a filtered noise brightens with the grass and sends into the open room; the voices stay soft.</p><button type="button">▶ PLAY</button></div>
+  </div>
+  <div class="lbar"><button type="button" id="listen-stop">■ STOP</button><span id="listen-out">not playing · ▶ on a card starts the engine (audio needs a click)</span><label>volume <input id="listen-vol" type="range" min="0" max="1" step="0.05" value="0.5"></label></div>
+  <p class="tip">What it is not: the whole room's sound (every motif two octaves down into one mass) needs the event log of a running world and is not bundled here; the NoiseCraft patch and Magenta are off. Each card is one situation held for as long as you listen.</p>
+
   <h3 id="snd-global">The whole — what the room hears</h3>
   <p>The loudspeakers take the same log and the same motifs and fold them at the scale of the whole: every motif of the last ten minutes plays two octaves down as a sawtooth, through one low-pass filter that opens with the share of people walking, a hall and soft saturation, into one mass; a noise floor grows with the number of people; each person's rhythm cell ticks as a short noise burst. There is no interaction here at all. The same event that was a musical moment for one person is one cell of a structure for the whole — and, on the wall, one slab of concrete.</p>
 
@@ -193,6 +213,22 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
   <footer><span>Homo inventus — 발견된 인류 · Hayeon Park · ID40009 Graduation Design Studio · KAIST 2026</span><span><a href="index.html">Presentation</a> · <a href="gallery.html">Gallery</a> · <a href="https://anthropocene-mu.vercel.app/exhibition/personal" target="_blank" rel="noopener">Enter the work on a phone ↗</a></span></footer>
 </main>
 
+<script>
+// LISTEN (PLAN.md item 8): the headset's engine, bundled (assets/sound-demo.js, tools/build-sound.sh), loaded on the first ▶
+(function(){
+  var cards=document.querySelectorAll("#listen-cards .lcard"), out=document.getElementById("listen-out"), vol=document.getElementById("listen-vol"); if(!cards.length)return;
+  var loading=null; function lib(){ if(window.HomoSound)return Promise.resolve(window.HomoSound); if(loading)return loading;
+    loading=new Promise(function(ok,no){ var sc=document.createElement("script"); sc.src="assets/sound-demo.js"; sc.onload=function(){ok(window.HomoSound);}; sc.onerror=function(){no(new Error("the engine did not load"));}; document.head.appendChild(sc); }); return loading; }
+  var KO={name:"이름 받기",walk:"걷기",path:"길 위",stay:"곁에 머묾",concrete:"콘크리트 곁",grass:"식생"};
+  function mark(kind){ cards.forEach(function(c){ c.classList.toggle("on", c.dataset.kind===kind); }); }
+  cards.forEach(function(c){ c.querySelector("button").addEventListener("click", function(){ out.textContent="loading the engine…";
+    lib().then(function(H){ H.setMaster(+vol.value); return H.play(c.dataset.kind); }).then(function(){ mark(c.dataset.kind); }).catch(function(e){ out.textContent="could not start: "+e.message; }); }); });
+  document.getElementById("listen-stop").addEventListener("click", function(){ if(window.HomoSound)window.HomoSound.stop(); mark(null); out.textContent="stopped"; });
+  vol.addEventListener("input", function(){ if(window.HomoSound)window.HomoSound.setMaster(+vol.value); });
+  setInterval(function(){ var H=window.HomoSound; if(!H)return; var s=H.state(); if(!s.kind){ if(!/stopped|not playing|could not/.test(out.textContent))out.textContent="not playing"; return; }
+    var d=s.debug||{}; out.textContent=(KO[s.kind]||s.kind)+" · "+s.t.toFixed(0)+" s · bar "+(d.bar!=null?d.bar:"–")+" · "+(d.chord||"–")+" · lock "+(d.lock!=null?(+d.lock).toFixed(2):"–")+(d.answer?" · answer":"")+(s.running?"":" · (silent until a click unlocks audio)"); },500);
+})();
+</script>
 <script>
 (function(){
 "use strict";
