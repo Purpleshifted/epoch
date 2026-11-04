@@ -18,7 +18,7 @@ html{background:var(--paper1)}
 body{margin:0;background:linear-gradient(180deg,var(--paper0) 0,var(--paper1) 400px,var(--paper1) 100%);color:var(--ink);font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;font-weight:400;line-height:1.6;word-break:keep-all;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none;border-bottom:1px solid var(--rule)}a:hover{border-bottom-color:var(--ink)}
 .mono{font-family:Neo,monospace;letter-spacing:.08em}
-header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:18px 32px;background:rgba(223,224,219,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--rule)}
+header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:18px 32px;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--rule)}
 header .t{font-size:22px;font-weight:700;letter-spacing:-.01em;line-height:1}
 header .t small{display:block;font-family:Neo,monospace;font-size:11px;letter-spacing:.3em;color:#3c3d3a;margin-top:5px;font-weight:400}
 header nav{display:flex;gap:22px;font-size:13px}
@@ -66,7 +66,7 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
 <body>
 <header>
   <div class="t">발견된 인류<small>HOMO INVENTUS · REFERENCES</small></div>
-  <nav><a href="index.html">← Presentation</a><a href="gallery.html">Gallery</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">The wall ↗</a><a href="#mindmap">Mind map</a><a href="#anthropocene">Anthropocene</a><a href="#vote">March 2024</a><a href="#rules">Rules of the work</a><a href="#sound">Sound</a><a href="#lit">Literature</a><a href="#press">Press &amp; links</a></nav>
+  <nav><a href="index.html">← Presentation</a><a href="gallery.html">Gallery</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">The wall ↗</a><a href="#mindmap">Mind map</a><a href="#anthropocene">Anthropocene</a><a href="#vote">March 2024</a><a href="#trace">Trace fossils</a><a href="#hyper">Hyperobjects</a><a href="#rules">Rules of the work</a><a href="#sound">Sound</a><a href="#lit">Literature</a><a href="#press">Press &amp; links</a></nav>
 </header>
 <main>
   <p class="mono" style="font-size:11px;color:var(--dim)">REFERENCES · AS OF 2026-11-04</p>
@@ -75,7 +75,7 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
   <p class="note">Verification: bibliographic data (authors, year, journal, DOI) were checked by search and DOI; the summaries are written from abstracts and secondary summaries, and some papers were not read in full. The work's numbers (thresholds, radii, ratios) are the artist's choices, not values the literature fixes.</p>
 
   <h2 id="mindmap">Mind map<small>RULES ↔ LITERATURE</small></h2>
-  <div id="mapwrap"><div id="map"><svg id="mm" viewBox="0 0 1600 1000" role="img" aria-label="Mind map of the work's rules and the literature behind them"></svg><div class="tip">The work in the middle, a field per branch, a work per leaf. Click a leaf to go to its entry.</div></div></div>
+  <div id="mapwrap"><div id="map"><svg id="mm" viewBox="0 0 1600 1000" role="img" aria-label="Mind map of the work's rules and the literature behind them"></svg><div class="tip">The work in the middle, a field per branch, a work per leaf — a live layout: drag anything, hover a field to see its works, click a leaf to go to its entry.</div></div></div>
 
   <h2 id="anthropocene">Anthropocene<small>인류세</small></h2>
   <p>A proposed name for a geological epoch in which human activity has changed the Earth system enough to be recorded in its strata. Greek <i>anthropos</i> (human) plus <i>-cene</i>, the suffix of the Cenozoic epochs. The atmospheric chemist Paul Crutzen and the ecologist Eugene Stoermer proposed it in the IGBP newsletter in 2000; Crutzen's one-page “Geology of mankind” in <i>Nature</i> (2002) made it widely known. The first proposed start was the late eighteenth century (the steam engine); the working group later settled on the “Great Acceleration” of the 1950s.</p>
@@ -107,11 +107,33 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
   <h3 id="event">The Anthropocene as an event</h3>
   <p>In 2022 Gibbard and ten co-authors published “The Anthropocene as an Event, not an Epoch” in the <i>Journal of Quaternary Science</i>, proposing that instead of a boundary at one date, the Anthropocene be treated as a <b>geological event</b> unfolding over millennia, differently in different places. After the rejection the IUGS also pointed to this framing. The work takes no side in the dispute; it uses the fact that the concept did not become an official record.</p>
 
-  <h3 id="hyper">Hyperobjects</h3>
-  <p>The philosopher Timothy Morton's term, from his book of the same name (2013): <b>things massively distributed in time and space relative to humans</b> — global warming, Styrofoam, plutonium with its half-life of tens of thousands of years. He names five qualities: viscous, nonlocal, temporally undulating, phased, interobjective. We only ever meet their local manifestations; no one has seen the whole. This is why the work gives its visitors no overview.</p>
+  <h2 id="trace">Trace fossils — ichnology<small>생흔화석 · THE RECORD OF BEHAVIOUR</small></h2>
+  <p class="lead">A <b>trace fossil</b> (ichnofossil) preserves not an organism's body but what it did: footprints and trackways, burrows and borings, nests, bite marks, coprolites. The field that studies them is <b>ichnology</b>. Its founding move, made by Adolf Seilacher in the 1950s, was to classify traces not by the animal but by the <b>behaviour</b> that left them — the same burrow can be made by many species, and one species leaves many kinds of trace. So the units of the record are acts: dwelling, moving, grazing, feeding, resting, escaping. The work takes this as the rule of its world: what is recorded is not who someone was but what they did, and the structures that appear are named by the behaviour that built them.</p>
+  <div id="map" style="margin-top:18px"><svg id="fig-ichno" viewBox="0 0 820 330" role="img" aria-label="Seilacher's ethological classes and the work's traces"></svg><div class="tip">Seilacher's ethological classes (1953, 1964) and, in the same grammar, the work's traces: staying together → domichnia → a slab; walking again and again → repichnia → a path; sealing the ground → the subterranean trace → pipes.</div></div>
+  <h3>Ichnofacies: a pattern of traces reads an environment</h3>
+  <p>Seilacher's second move (1964, 1967) was to notice that traces come in <b>recurring assemblages</b> tied to the environment — above all to water depth, energy and substrate. Vertical dwelling tubes (<i>Skolithos</i>) mark the shifting sands of a shoreface; horizontal crawling and feeding traces (<i>Cruziana</i>) the shelf; folded feeding structures (<i>Zoophycos</i>) quieter, deeper water; and meandering grazing trails (<i>Nereites</i>) the deep-sea floor. A geologist who finds the assemblage can say what kind of place it was without a single body. On the wall the same reading is possible: the mix of slabs, paths and pipes in a quarter is the ichnofacies of living together at that density.</p>
+  <div id="map" style="margin-top:18px"><svg id="fig-facies" viewBox="0 0 820 300" role="img" aria-label="Seilacher's ichnofacies from the shore to the deep sea"></svg><div class="tip">Seilacher 1967, Bathymetry of trace fossils: the four classic marine ichnofacies, named after a type trace, arranged from the shore to the abyss.</div></div>
+  <h3>A trace fossil already draws one of geology's great lines</h3>
+  <p>The base of the Cambrian — and with it the base of the Phanerozoic, the eon of visible life — is fixed by a GSSP at Fortune Head, Newfoundland, on the <b>first appearance of the burrow <i>Treptichnus pedum</i></b> (Brasier, Cowie &amp; Taylor 1994). It is the one period boundary defined by a trace fossil: behaviour, not a body and not a chemical marker, marks the moment. The Anthropocene's proposed marker was chemical, plutonium in lake mud; the work's wager is that if humanity's epoch is ever read, it will be read as ichnology — from the structures of dense habitation.</p>
+  <h3>Technofossils and the subterranean trace</h3>
+  <p>Zalasiewicz, Williams, Waters, Barnosky and Haff (2014) call the fossils that made things will leave <b>technofossils</b>, and note that their diversity already exceeds that of known living species. In a companion paper (Zalasiewicz, Waters &amp; Williams 2014) they describe <b>human bioturbation</b>: mines, boreholes, tunnels, foundations and pipes form a trace that reaches kilometres below the surface, unlike anything an animal has left. Edgeworth and colleagues (2015) treat <b>artificial ground</b> as a stratigraphic unit whose base is diachronous — it began at different times in different places. The work's pipes are its subterranean trace; its column is artificial ground read from the bottom up.</p>
+  <h3>Taphonomy: who gets read</h3>
+  <p>Not everything that is left survives to be read. Taphonomy (Behrensmeyer 1978; Kidwell &amp; Jablonski 1983) studies the bias of preservation: soft and organic things go first, durable things stay, and what accumulates changes the conditions for what comes next. The work's inheritance rule counts only what still remains, so the mix each visitor inherits drifts toward the durable — the same bias that makes the Anthropocene stratum plastic-rich.</p>
 
-  <h3 id="trace">Trace fossils · technofossils</h3>
-  <p>A <b>trace fossil</b> (ichnofossil) preserves not an organism's body but its activity — footprints and trackways, burrows and borings, nests, coprolites. It stands against the <b>body fossil</b> (bones, shells); the field that studies it is ichnology. The idea that the unit of the record is the act, not the subject, comes from here. A <b>technofossil</b>, a term proposed by Zalasiewicz et al. (2014), is the fossil that human-made things and structures — concrete, plastics, pipes, cities — will leave in future strata. The work looks for humanity's trace fossils in the dwellings, waterways and paths of the city.</p>
+  <h2 id="hyper">Hyperobjects<small>하이퍼객체 · THE PART AND THE WHOLE</small></h2>
+  <p class="lead">Timothy Morton's term, from the book of the same name (2013): <b>things that are massively distributed in time and space relative to humans</b> — global warming, the sum of all plastic, plutonium with its half-life of tens of thousands of years, the Anthropocene itself. Morton names five traits. Hyperobjects are <b>viscous</b> (they stick to whoever touches them), <b>nonlocal</b> (no local piece is the thing), <b>temporally undulating</b> (they move at scales that dwarf a life), <b>phased</b> (we only ever see a slice of them), and <b>interobjective</b> (they exist in the mesh between objects, including us). The term grows out of Morton's earlier <i>The Ecological Thought</i> (2010), where everything is interconnected in a mesh with no centre and no edge.</p>
+  <div id="map" style="margin-top:18px"><svg id="fig-hyper" viewBox="0 0 820 250" role="img" aria-label="Morton's five traits and the work's devices"></svg><div class="tip">Morton 2013, the five traits — and under each, the device by which the work lets a visitor meet them.</div></div>
+  <h3>Not a refusal of the whole: a part, the whole, and the way between</h3>
+  <p>A hyperobject is never perceived whole by anyone — only its local manifestations are. The work does not conclude from this that the whole must be withheld. It gives the visitor <b>both</b>: a state in which only a part is perceivable (the headset — sight as far as sound reaches, one life of 180 seconds, others heard before they are seen), and <b>the whole</b> on the wall, everyone's traces read as a far future would read them. The visitor moves between the two. The connection — how a partial, acting life enters a whole it can never see, and how that whole is made of nothing but such lives — is what the work offers to think about.</p>
+  <div id="map" style="margin-top:18px"><svg id="fig-phasing" viewBox="0 0 820 350" role="img" aria-label="Phasing: a slice moving through the mass, and the whole"></svg><div class="tip">Phasing. Left: what one person inside meets — a slice of the mass at a time, moving with them. Right: the wall — the mass, read whole. The arrows are the visitor moving between the two.</div></div>
+  <table><tr><th>Trait (Morton 2013)</th><th>What it means</th><th>The work's device</th></tr>
+    <tr><td><b>Viscous</b></td><td>It clings; one cannot step outside it.</td><td>The visitor's own traces are undeniably left, whatever they do.</td></tr>
+    <tr><td><b>Nonlocal</b></td><td>No local manifestation is the object.</td><td>The wall: everyone's traces, nowhere in particular.</td></tr>
+    <tr><td><b>Temporal undulation</b></td><td>Time at scales that dwarf a life.</td><td>One life of 180 s inside strata of 20 s; the immutable line at 60.</td></tr>
+    <tr><td><b>Phasing</b></td><td>We see only a slice of a higher-dimensional thing.</td><td>Sight as far as sound reaches (24); the section views.</td></tr>
+    <tr><td><b>Interobjectivity</b></td><td>It exists between objects, in the mesh.</td><td>One event log, read at two scales; harmony as the form of overlap.</td></tr></table>
+  <h3>Related readings</h3>
+  <p>Dipesh Chakrabarty (2009) argues that humans have become a geological force, that natural and human history have collapsed into each other, and that the species is a figure no one can experience from inside a life — which is why the wall's scale can only be read, never lived. Bruno Latour (2017) insists there is no outside from which to view the Earth system: we are inside the critical zone, and every overview is constructed — the wall is such a construction, and the headset is the inside. Peter Haff (2014) describes the technosphere as a quasi-autonomous system individuals barely steer; Anna Tsing (2015) practises noticing at the scale of a life among ruins. The work's answer to all four is formal: a visitor holds the part and the whole, and moves between them.</p>
 
   <h2 id="rules">The rules of the work and their grounds<small>작품의 규칙</small></h2>
   <p>The work stores no buildings, paths or strata. It stores only a list of events (who, when, where) and folds that list into ground every time it draws. The table gives one line per rule and the field it leans on. The numbers are the artist's.</p>
@@ -185,6 +207,9 @@ const B=[
   {id:"crawford",label:"Crawford Lake · McCarthy et al. 2025",cite:"McCarthy, F. M. G. et al. (2025). High-resolution analysis of the varved succession at Crawford Lake across the base of the proposed Crawfordian stage and Anthropocene series. The Anthropocene Review 12(2): 243–272.",gist:"The rise in plutonium (0.0031 Bq/g) between the 1951 and 1952 varves matches the first hydrogen-bomb test of 1 November 1952. The boundary: the base of the organic lamina of 1952.",role:"Slide ①: the one line ‘1952 · Pu’.",links:[["PDF","https://carleton.ca/timpatterson/wp-content/uploads/McCarthy.2025.Anthropocene.Review.12.2.243-272.pdf"],["EGU24 초록","https://meetingorganizer.copernicus.org/EGU24/EGU24-13348.html"]]},
   {id:"vote2024",label:"The vote of March 2024",cite:"SQS vote closed 2024-03-04 (12 against · 4 for · 2 abstentions) · IUGS–ICS statement 2024-03-20.",gist:"The rejection and confirmation of the formal epoch proposal. ‘Anthropocene’ remains an informal term.",role:"The starting point of the work — the gap between the concept and its record.",links:[["NYT","https://www.nytimes.com/2024/03/05/climate/anthropocene-epoch-vote-rejected.html"],["IUGS 성명","https://www.iugs.org/wp-content/uploads/2024/03/Anthropocene_short_IUGS-ICS_Statement-1.pdf"],["Nature","https://www.nature.com/articles/d41586-024-00675-8"]]},
   {id:"gibbard2022",label:"Gibbard et al. 2022 · an event",cite:"Gibbard, P. L. et al. (2022). The Anthropocene as an Event, not an Epoch. Journal of Quaternary Science 37(3): 395–399.",gist:"Instead of one date, the Anthropocene as a geological event unfolding over millennia, differently in different places.",role:"The framing left after the rejection. The work takes no side.",links:[["DOI","https://doi.org/10.1002/jqs.3416"]]},
+  {id:"morton2010",label:"Morton 2010 · the mesh",cite:"Morton, T. (2010). The Ecological Thought. Harvard University Press.",gist:"Everything is interconnected in a mesh with no centre and no edge; the others are ‘strange strangers’.",role:"The interobjective trait: one event log that everyone writes and reads.",links:[]},
+  {id:"chakrabarty2009",label:"Chakrabarty 2009 · four theses",cite:"Chakrabarty, D. (2009). The Climate of History: Four Theses. Critical Inquiry 35(2): 197–222.",gist:"Humans have become a geological force; natural history and human history collapse into each other; the species is a figure no one can experience.",role:"Why the wall's scale can only be read, never lived.",links:[["DOI","https://doi.org/10.1086/596640"]]},
+  {id:"latour2017",label:"Latour 2017 · Facing Gaia",cite:"Latour, B. (2017). Facing Gaia: Eight Lectures on the New Climatic Regime. Polity.",gist:"There is no outside from which to view the Earth system; we are inside the critical zone, and every overview is constructed.",role:"The headset as the inside; the wall as a constructed, partial outside.",links:[]},
   {id:"morton2013",label:"Morton 2013 · Hyperobjects",cite:"Morton, T. (2013). Hyperobjects: Philosophy and Ecology after the End of the World. University of Minnesota Press (Posthumanities 27).",gist:"Things massively distributed in time and space relative to humans. We only meet their local manifestations.",role:"Slide ⑤: why no omniscient view. Limited sight, a limited life.",links:[["출판사","https://www.upress.umn.edu/book-division/books/hyperobjects"]]},
  ]},
  {id:"record",title:"The record",en:"화석과 기록",nodes:[
@@ -194,6 +219,13 @@ const B=[
   {id:"haff2014",label:"Haff 2014 · technosphere",cite:"Haff, P. K. (2014). Technology as a geological phenomenon: implications for human well-being. Geological Society, London, Special Publications 395: 301–309.",gist:"Treats the technosphere as a quasi-autonomous system of geological scale; individuals have little influence on large technological systems.",role:"Slide ⑦: a whole that clearly bears my traces and that I could never alter alone.",links:[["DOI","https://doi.org/10.1144/SP395.4"]]},
   {id:"corcoran2014",label:"Corcoran et al. 2014 · plastiglomerate",cite:"Corcoran, P. L., Moore, C. J. & Jazvac, K. (2014). An anthropogenic marker horizon in the future rock record. GSA Today 24(6): 4–8.",gist:"Proposes ‘plastiglomerate’ — melted plastic fused with sand and rock on a Hawaiian beach — as a marker horizon in the future rock record.",role:"Slide ④: the wall's ‘fused’ band, things clinging together into one.",links:[["DOI","https://doi.org/10.1130/GSAT-G198A.1"]]},
   {id:"taphonomy",label:"Taphonomic bias",cite:"Behrensmeyer, A. K. (1978). Taphonomic and ecologic information from bone weathering. Paleobiology 4(2): 150–162 · Kidwell, S. M. & Jablonski, D. (1983). Taphonomic feedback: ecological consequences of shell accumulation. In Tevesz & McCall (eds.), Biotic Interactions in Recent and Fossil Benthic Communities. Plenum · Kidwell, S. M. (2002).",gist:"The fossil record is biased toward what preserves easily (hard parts), and accumulated hard parts change what settles and survives next (taphonomic feedback).",role:"The inheritance rule's ‘what has vanished is not inherited’, and the oldest layers turning bone-like in the fused and fossil bands.",links:[["Behrensmeyer DOI","https://doi.org/10.1017/S0094837300005820"]]},
+  {id:"seilacher1953",label:"Seilacher 1953 · palichnology",cite:"Seilacher, A. (1953). Studien zur Palichnologie I: Über die Methoden der Palichnologie. Neues Jahrbuch für Geologie und Paläontologie, Abhandlungen 96: 421–452.",gist:"The methods of ichnology; traces classified by the behaviour that made them, not by the maker.",role:"The grammar of the work's traces: acts, not actors.",links:[]},
+  {id:"seilacher1967",label:"Seilacher 1967 · ichnofacies",cite:"Seilacher, A. (1967). Bathymetry of trace fossils. Marine Geology 5(5–6): 413–428.",gist:"Recurring assemblages of traces — Skolithos, Cruziana, Zoophycos, Nereites — read as water depth and environment.",role:"A pattern of traces reads a place: the wall's mix of slabs, paths and pipes as an assemblage.",links:[["DOI","https://doi.org/10.1016/0025-3227(67)90051-5"]]},
+  {id:"bromley1996",label:"Bromley 1996 · Trace Fossils",cite:"Bromley, R. G. (1996). Trace Fossils: Biology, Taphonomy and Applications. 2nd ed. Chapman & Hall.",gist:"The standard account: traces as behaviour, how they are preserved, what they are used for.",role:"Background to the record.",links:[]},
+  {id:"buatois2011",label:"Buatois & Mángano 2011 · Ichnology",cite:"Buatois, L. A. & Mángano, M. G. (2011). Ichnology: Organism–Substrate Interactions in Space and Time. Cambridge University Press.",gist:"Ichnology as the study of how organisms and substrates shape each other.",role:"Organism–substrate interaction = the work's loop: staying and walking, and the ground that answers.",links:[]},
+  {id:"brasier1994",label:"Brasier et al. 1994 · a trace draws a boundary",cite:"Brasier, M., Cowie, J. & Taylor, M. (1994). Decision on the Precambrian–Cambrian boundary stratotype. Episodes 17(1–2): 3–8.",gist:"The base of the Cambrian is fixed at Fortune Head, Newfoundland, on the first appearance of the burrow Treptichnus pedum — a boundary defined by behaviour.",role:"A precedent: a trace fossil can draw one of geology's great lines.",links:[]},
+  {id:"zalasiewicz2014b",label:"Zalasiewicz, Waters & Williams 2014 · human bioturbation",cite:"Zalasiewicz, J., Waters, C. N. & Williams, M. (2014). Human bioturbation, and the subterranean landscape of the Anthropocene. Anthropocene 6: 3–9.",gist:"Mines, boreholes, tunnels and foundations: a trace reaching kilometres down, unlike any animal's.",role:"The pipes: the subterranean trace of living together.",links:[["DOI","https://doi.org/10.1016/j.ancene.2014.07.002"]]},
+  {id:"edgeworth2015",label:"Edgeworth et al. 2015 · artificial ground",cite:"Edgeworth, M. et al. (2015). Diachronous beginnings of the Anthropocene: The lower bounding surface of anthropogenic deposits. The Anthropocene Review 2(1): 33–58.",gist:"Artificial ground as a stratigraphic unit whose base is diachronous — different places, different times.",role:"The column: artificial ground, read from the bottom up.",links:[["DOI","https://doi.org/10.1177/2053019614565394"]]},
   {id:"schiffer1987",label:"Schiffer 1987 · formation processes",cite:"Schiffer, M. B. (1987). Formation Processes of the Archaeological Record. University of New Mexico Press.",gist:"The cultural and natural processes that form the archaeological record; primary, secondary and de facto refuse.",role:"Slide ⑦: the specimen card's voice, and the premise that how remains accumulate makes the record.",links:[]},
  ]},
  {id:"paths",title:"Paths",en:"길",nodes:[
@@ -262,43 +294,51 @@ for(const b of B){
 // ── the mind map: the work in the middle, branches to both sides, each branch's works as a list ─────────────────
 const svg=document.getElementById("mm"), NS="http://www.w3.org/2000/svg";
 const el=(t,a,txt)=>{const e=document.createElementNS(NS,t); for(const k in a)e.setAttribute(k,a[k]); if(txt!=null)e.textContent=txt; return e;};
-const CX=800, CY=500, ROW=24, GAP=30, BX=330, BUS=470, LX=520;
+// ── the mind map: a live force layout. Nodes repel, links pull, labels push each other out of the way, and a slow drift keeps
+// it from ever sitting quite still. Drag anything; hover a field; click a leaf.
+const CX=800, CY=500, MW=1600, MH=1000;
+const nodes=[], links=[];
+const centre={kind:"c",x:CX,y:CY,fx:CX,fy:CY,w:196,h:72,vx:0,vy:0}; nodes.push(centre);
+B.forEach((b,i)=>{const ang=(i/B.length)*Math.PI*2-Math.PI/2+0.35; const bn={kind:"b",b,x:CX+Math.cos(ang)*340,y:CY+Math.sin(ang)*250,w:144,h:42,vx:0,vy:0}; nodes.push(bn); links.push({s:centre,t:bn,len:340,k:0.03});
+  b.nodes.forEach((nd,j)=>{const a2=ang+((j+0.5)/b.nodes.length-0.5)*1.7; const ln={kind:"n",nd,bn,x:bn.x+Math.cos(a2)*190,y:bn.y+Math.sin(a2)*150,w:90,h:18,vx:0,vy:0}; nodes.push(ln); links.push({s:bn,t:ln,len:165,k:0.05});});});
 const g0=el("g",{"font-family":"Pretendard, sans-serif"}); svg.appendChild(g0);
-const sides={R:B.filter(b=>["anthro","record","paths","sound"].includes(b.id)), L:B.filter(b=>["water","veg","stat"].includes(b.id))};
-for(const side of ["R","L"]){
-  const list=sides[side], sgn=side==="R"?1:-1;
-  const total=list.reduce((a,b)=>a+b.nodes.length,0)*ROW+(list.length-1)*GAP;
-  let y=CY-total/2+ROW/2;
-  for(const b of list){
-    const n=b.nodes.length, y0=y, y1=y+(n-1)*ROW, by=(y0+y1)/2, bx=CX+sgn*BX, busx=CX+sgn*BUS;
-    // centre → branch
-    g0.appendChild(el("path",{d:`M${CX+sgn*98} ${CY} C ${CX+sgn*200} ${CY}, ${CX+sgn*220} ${by}, ${bx-sgn*72} ${by}`,fill:"none",stroke:"#55564f","stroke-width":1}));
-    const bg=el("g",{style:"cursor:pointer"}); bg.addEventListener("click",()=>location.hash="b-"+b.id);
-    bg.appendChild(el("rect",{x:bx-72,y:by-21,width:144,height:42,fill:"#0a0a0b",stroke:"#e9e9e5","stroke-width":1}));
-    bg.appendChild(el("text",{x:bx,y:by+1,"text-anchor":"middle",fill:"#e9e9e5","font-size":16,"font-weight":700},b.title));
-    bg.appendChild(el("text",{x:bx,y:by+16,"text-anchor":"middle",fill:"#9b9c97","font-size":9,"font-family":"Neo, monospace","letter-spacing":"1.5px"},b.en));
-    g0.appendChild(bg);
-    // branch → bus → leaves
-    g0.appendChild(el("line",{x1:bx+sgn*72,y1:by,x2:busx,y2:by,stroke:"#55564f","stroke-width":1}));
-    if(n>1)g0.appendChild(el("line",{x1:busx,y1:y0,x2:busx,y2:y1,stroke:"#3a3b38","stroke-width":1}));
-    b.nodes.forEach((nd,j)=>{
-      const ly=y0+j*ROW, lx=CX+sgn*LX;
-      g0.appendChild(el("line",{x1:busx,y1:ly,x2:lx-sgn*8,y2:ly,stroke:"#3a3b38","stroke-width":1}));
-      const lg=el("g",{style:"cursor:pointer"}); lg.addEventListener("click",()=>location.hash="n-"+nd.id);
-      const tt=el("title",{}); tt.textContent=nd.cite; lg.appendChild(tt);
-      lg.appendChild(el("rect",{x:lx-4,y:ly-4,width:8,height:8,fill:"#e9e9e5"}));
-      const t=el("text",{x:lx+sgn*12,y:ly+4,"text-anchor":sgn>0?"start":"end",fill:"#c9cac5","font-size":13},nd.label); lg.appendChild(t);
-      lg.addEventListener("mouseenter",()=>{t.setAttribute("fill","#ffffff");t.setAttribute("font-weight","700");});
-      lg.addEventListener("mouseleave",()=>{t.setAttribute("fill","#c9cac5");t.removeAttribute("font-weight");});
-      g0.appendChild(lg);
-    });
-    y=y1+ROW+GAP;
-  }
-}
-const cg=el("g",{}); cg.appendChild(el("rect",{x:CX-98,y:CY-36,width:196,height:72,fill:"#e9e9e5"}));
-cg.appendChild(el("text",{x:CX,y:CY-3,"text-anchor":"middle",fill:"#0b0b0b","font-size":22,"font-weight":700},"Homo inventus"));
-cg.appendChild(el("text",{x:CX,y:CY+19,"text-anchor":"middle",fill:"#3c3d3a","font-size":10,"font-family":"Neo, monospace","letter-spacing":"2px"},"THE RULES OF THE WORK"));
-svg.appendChild(cg);
+const gl=el("g",{}), gn=el("g",{}); g0.appendChild(gl); g0.appendChild(gn);
+links.forEach(l=>{l.el=el("line",{stroke:l.s.kind==="c"?"#55564f":"#3a3b38","stroke-width":1}); gl.appendChild(l.el);});
+let hover=null, drag=null, moved=0;
+nodes.forEach(n=>{
+  if(n.kind==="c"){const g=el("g",{}); g.appendChild(el("rect",{x:-98,y:-36,width:196,height:72,fill:"#e9e9e5"})); g.appendChild(el("text",{x:0,y:-3,"text-anchor":"middle",fill:"#0b0b0b","font-size":22,"font-weight":700},"Homo inventus")); g.appendChild(el("text",{x:0,y:19,"text-anchor":"middle",fill:"#3c3d3a","font-size":10,"font-family":"Neo, monospace","letter-spacing":"2px"},"THE RULES OF THE WORK")); n.el=g; gn.appendChild(g); return;}
+  if(n.kind==="b"){const g=el("g",{style:"cursor:grab"}); const r=el("rect",{x:-72,y:-21,width:144,height:42,fill:"#0a0a0b",stroke:"#e9e9e5","stroke-width":1}); const t=el("text",{x:0,y:1,"text-anchor":"middle",fill:"#e9e9e5","font-size":16,"font-weight":700},n.b.title); const t2=el("text",{x:0,y:16,"text-anchor":"middle",fill:"#9b9c97","font-size":9,"font-family":"Neo, monospace","letter-spacing":"1.5px"},n.b.en);
+    g.appendChild(r); g.appendChild(t); g.appendChild(t2); n.el=g; n.rect=r; n.t=t; gn.appendChild(g);
+    g.addEventListener("pointerenter",()=>{hover=n.b.id; paint();}); g.addEventListener("pointerleave",()=>{hover=null; paint();}); g.addEventListener("click",()=>{if(moved<4)location.hash="b-"+n.b.id;}); return;}
+  const g=el("g",{style:"cursor:grab"}); const tt=el("title",{}); tt.textContent=n.nd.cite; g.appendChild(tt); g.appendChild(el("rect",{x:-4,y:-4,width:8,height:8,fill:"#e9e9e5"})); const t=el("text",{x:12,y:4,fill:"#c9cac5","font-size":13},n.nd.label); g.appendChild(t); n.el=g; n.t=t; gn.appendChild(g);
+  g.addEventListener("pointerenter",()=>{t.setAttribute("fill","#ffffff"); t.setAttribute("font-weight","700");}); g.addEventListener("pointerleave",()=>{t.setAttribute("fill","#c9cac5"); t.removeAttribute("font-weight");}); g.addEventListener("click",()=>{if(moved<4)location.hash="n-"+n.nd.id;});
+});
+function measure(){nodes.forEach(n=>{if(n.kind==="b"){const tw=n.t.getComputedTextLength(); n.w=Math.max(144,Math.ceil(tw)+32); n.rect.setAttribute("x",-n.w/2); n.rect.setAttribute("width",n.w);} else if(n.kind==="n"){n.w=Math.ceil(n.t.getComputedTextLength())+16;}});}
+function paint(){nodes.forEach(n=>{if(n.kind==="n")n.el.style.opacity=hover&&n.bn.b.id!==hover?0.22:1; else if(n.kind==="b")n.el.style.opacity=hover&&n.b.id!==hover?0.35:1;});
+  links.forEach(l=>{const dim=hover&&((l.t.kind==="n"&&l.t.bn.b.id!==hover)||(l.t.kind==="b"&&l.t.b.id!==hover)); l.el.style.opacity=dim?0.15:1;});}
+// the box a node's label takes up — a leaf's label hangs on the side away from its field
+function boxOf(n){if(n.kind==="n"){const side=n.x>=n.bn.x?1:-1; return side>0?{x0:n.x-6,x1:n.x+n.w+6,y0:n.y-10,y1:n.y+10}:{x0:n.x-n.w-6,x1:n.x+6,y0:n.y-10,y1:n.y+10};} return {x0:n.x-n.w/2-6,x1:n.x+n.w/2+6,y0:n.y-n.h/2-6,y1:n.y+n.h/2+6};}
+let alpha=1, t0=performance.now(), running=false;
+function sim(){const t=(performance.now()-t0)/1000;
+  for(const l of links){const dx=l.t.x-l.s.x, dy=l.t.y-l.s.y, d=Math.hypot(dx,dy)||1, f=(d-l.len)*l.k*alpha, ux=dx/d*f, uy=dy/d*f; l.t.vx-=ux; l.t.vy-=uy; l.s.vx+=ux*0.5; l.s.vy+=uy*0.5;}
+  for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const a=nodes[i], b=nodes[j]; let dx=b.x-a.x, dy=b.y-a.y; if(!dx&&!dy){dx=0.5;dy=0.3;} const d2=dx*dx+dy*dy, d=Math.sqrt(d2);
+    const K=(a.kind==="n"&&b.kind==="n")?2600:(a.kind==="c"||b.kind==="c")?26000:9000, f=Math.min(6,K/(d2+400))*alpha, ux=dx/d*f, uy=dy/d*f; a.vx-=ux; a.vy-=uy; b.vx+=ux; b.vy+=uy;}
+  const bx=nodes.map(boxOf);
+  for(let i=1;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const A=bx[i], Bb=bx[j], ox=Math.min(A.x1,Bb.x1)-Math.max(A.x0,Bb.x0), oy=Math.min(A.y1,Bb.y1)-Math.max(A.y0,Bb.y0); if(ox<=0||oy<=0)continue; const a=nodes[i], b=nodes[j];
+    if(oy<ox||oy<24){const sy=Math.sign((b.y-a.y)||1), p=Math.min(oy,14)*alpha*1.5; a.vy-=sy*p; b.vy+=sy*p;} else {const sx=Math.sign((b.x-a.x)||1), p=Math.min(ox,12)*alpha; a.vx-=sx*p; b.vx+=sx*p;}}
+  for(const n of nodes){if(n.fx!=null){n.x=n.fx; n.y=n.fy; n.vx=n.vy=0; continue;}
+    n.vx+=(CX-n.x)*0.0025*alpha; n.vy+=(CY-n.y)*0.004*alpha; n.vx+=Math.sin(t*0.37+n.x*0.01)*0.05; n.vy+=Math.cos(t*0.29+n.y*0.013)*0.05;
+    n.vx*=0.82; n.vy*=0.82; n.x+=n.vx; n.y+=n.vy; const bb=boxOf(n); if(bb.x0<10)n.x+=10-bb.x0; if(bb.x1>MW-10)n.x-=bb.x1-(MW-10); if(bb.y0<10)n.y+=10-bb.y0; if(bb.y1>MH-10)n.y-=bb.y1-(MH-10);}
+  alpha=Math.max(0.05,alpha*0.985);}
+function draw(){for(const l of links){l.el.setAttribute("x1",l.s.x.toFixed(1)); l.el.setAttribute("y1",l.s.y.toFixed(1)); l.el.setAttribute("x2",l.t.x.toFixed(1)); l.el.setAttribute("y2",l.t.y.toFixed(1));}
+  for(const n of nodes){n.el.setAttribute("transform",`translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`); if(n.kind==="n"){const side=n.x>=n.bn.x?1:-1; n.t.setAttribute("text-anchor",side>0?"start":"end"); n.t.setAttribute("x",side>0?12:-12);}}}
+function loop(){if(!running)return; sim(); draw(); requestAnimationFrame(loop);}
+const pt=svg.createSVGPoint(); const toSvg=e=>{pt.x=e.clientX; pt.y=e.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse());};
+svg.addEventListener("pointerdown",e=>{const g=e.target.closest("g"); const n=nodes.find(n=>n.el===g); if(!n||n.kind==="c")return; drag=n; moved=0; const p=toSvg(e); n.fx=p.x; n.fy=p.y; alpha=Math.max(alpha,0.3); svg.setPointerCapture(e.pointerId); e.preventDefault();});
+svg.addEventListener("pointermove",e=>{if(!drag)return; const p=toSvg(e); moved+=Math.abs(p.x-drag.fx)+Math.abs(p.y-drag.fy); drag.fx=p.x; drag.fy=p.y;});
+const release=()=>{if(drag){drag.fx=drag.fy=null; drag=null;}}; svg.addEventListener("pointerup",release); svg.addEventListener("pointercancel",release);
+new IntersectionObserver(es=>{const on=es.some(x=>x.isIntersecting); if(on&&!running){running=true; requestAnimationFrame(loop);} if(!on)running=false;},{threshold:0.05}).observe(document.getElementById("map"));
+document.fonts.ready.then(()=>{measure(); alpha=1; for(let i=0;i<160;i++)sim(); draw(); if(!running){running=true; requestAnimationFrame(loop);}});
 
 // ── the sound architecture ───────────────────────────────────────────────────────────────────────────────────────
 const S=document.getElementById("sndmap"), sg=el("g",{"font-family":"Pretendard, sans-serif"}); S.appendChild(sg);
@@ -337,7 +377,52 @@ bx(60,590,200,80,"the same event log",["everyone of the last 600 s"]);
 bx(320,590,610,100,"global.ts",["every motif two octaves down (sawtooth) → one low-pass (opens with the share walking) → hall → saturation → one mass","noise floor by headcount · rhythm ticks per person · pan by x · no interaction"]);
 bx(960,590,400,100,"limiter → setSinkId → speakers",["a compressor per engine (−3 dB, 20:1) so headset and","speakers can share one machine without clipping"]);
 ar(260,630,320,630); ar(930,640,960,640); ar(160,170,160,590,{dim:true});
-lab(1560,620,"THE SAME EVENT",{neo:true,al:"end"}); lab(1560,644,"a musical moment for one,",{px:13,col:"#e9e9e5",al:"end"}); lab(1560,662,"one cell of a structure for the whole,",{px:13,col:"#e9e9e5",al:"end"}); lab(1560,680,"a slab of concrete on the wall.",{px:13,col:"#e9e9e5",al:"end"});
+document.fonts.ready.then(()=>{for(const g of sg.querySelectorAll("g")){const r=g.querySelector("rect"); if(!r)continue; const w=+r.getAttribute("width"); for(const t of g.querySelectorAll("text")){const L=t.getComputedTextLength(); if(L>w-12){t.setAttribute("textLength",(w-12).toFixed(0)); t.setAttribute("lengthAdjust","spacingAndGlyphs");}}}});
+lab(1560,620,"THE SAME EVENT",{neo:true,al:"end"});
+// ── the figures of the trace-fossil and hyperobject sections (string-built SVG, ink on the dark ground)
+{const RR=(x,y,w,h,o={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${o.f||"none"}" stroke="${o.s||"none"}" stroke-width="${o.sw||1}"${o.d?` stroke-dasharray="${o.d}"`:""}/>`;
+ const TT=(x,y,t,o={})=>`<text x="${x}" y="${y}" font-size="${o.px||12}" fill="${o.c||"#e9e9e5"}" text-anchor="${o.a||"start"}"${o.neo?' font-family="Neo, monospace" letter-spacing="1.4"':' font-family="Pretendard, sans-serif"'}${o.b?' font-weight="700"':""}${o.i?' font-style="italic"':""}>${t}</text>`;
+ const LL=(x1,y1,x2,y2,o={})=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${o.c||"#e9e9e5"}" stroke-width="${o.sw||1}"${o.d?` stroke-dasharray="${o.d}"`:""}/>`;
+ const PP=(d,o={})=>`<path d="${d}" fill="${o.f||"none"}" stroke="${o.c||"#e9e9e5"}" stroke-width="${o.sw||1.2}"${o.d?` stroke-dasharray="${o.d}"`:""} stroke-linecap="round" stroke-linejoin="round"/>`;
+ const W="#e9e9e5", D="#9b9c97", F="#55564f";
+ // 1. Seilacher's classes + the work's traces
+ {let o=""; const items=[["Domichnia","dwelling",(x,y)=>PP(`M${x+20} ${y} v40 a30 30 0 0 0 60 0 v-40`,{sw:2})+PP(`M${x+26} ${y} v38 a24 24 0 0 0 48 0 v-38`,{c:D,sw:1})],
+  ["Repichnia","locomotion",(x,y)=>[0,1,2,3,4,5].map(i=>RR(x+8+i*16,y+(i%2?6:22),9,12,{f:W})).join("")],
+  ["Pascichnia","grazing",(x,y)=>PP(`M${x} ${y+10} c20 -20 30 20 50 0 s30 20 50 0 M${x} ${y+30} c20 -20 30 20 50 0 s30 20 50 0 M${x} ${y+50} c20 -20 30 20 50 0 s30 20 50 0`,{sw:1.6})],
+  ["Fodinichnia","feeding",(x,y)=>PP(`M${x+50} ${y} v55 M${x+50} ${y+15} l-30 20 M${x+50} ${y+15} l30 20 M${x+50} ${y+35} l-22 18 M${x+50} ${y+35} l22 18`,{sw:2})],
+  ["Cubichnia","resting",(x,y)=>`<ellipse cx="${x+50}" cy="${y+30}" rx="40" ry="22" fill="none" stroke="${W}" stroke-width="2"/>`+PP(`M${x+20} ${y+30} h60 M${x+35} ${y+18} v24 M${x+65} ${y+18} v24`,{c:D})],
+  ["Fugichnia","escape",(x,y)=>[0,1,2,3].map(i=>PP(`M${x+25} ${y+12+i*12} l25 -8 l25 8`,{sw:1.6})).join("")]];
+  items.forEach(([n,e,draw],i)=>{const x=20+i*132, y=36; o+=RR(x,y,112,90,{s:F}); o+=draw(x+6,y+14); o+=TT(x+56,y+112,n,{px:13,a:"middle",b:1}); o+=TT(x+56,y+128,e,{px:11,a:"middle",c:D});});
+  const rows=[["staying together","domichnia · dwelling","a concrete slab"],["walking, again and again","repichnia · locomotion","a path (p ≥ 0.3)"],["sealing the ground","the subterranean trace","pipes beneath the quarter"],["scattering what one carries","the technofossil","the durable outlasts the rest"]];
+  rows.forEach(([a,b,c],i)=>{const x=20+i*200, y=200; o+=RR(x,y,180,90,{s:F}); o+=TT(x+12,y+24,a,{px:12,b:1}); o+=TT(x+12,y+46,b,{px:11,c:D,neo:1}); o+=TT(x+12,y+70,c,{px:12});});
+  document.getElementById("fig-ichno").innerHTML=o;}
+ // 2. ichnofacies from the shore to the deep
+ {let o=""; o+=LL(20,60,800,60,{c:D,d:"4 4"}); o+=TT(24,52,"sea level",{px:10,c:D,neo:1});
+  o+=PP("M20 80 C 200 90, 300 120, 420 170 S 650 250, 800 262",{c:W,sw:1.5}); o+=PP("M20 80 C 200 90, 300 120, 420 170 S 650 250, 800 262 L 800 300 L 20 300 Z",{f:"#141415",c:"none"});
+  const zones=[["Skolithos",90,86,"shoreface · shifting sand",(x,y)=>[0,1,2].map(i=>LL(x+i*10,y,x+i*10,y+26,{sw:2})).join("")],["Cruziana",300,112,"shelf · crawling, feeding",(x,y)=>PP(`M${x} ${y+8} c10 -6 20 6 30 0 s20 6 30 0`,{sw:2})+PP(`M${x} ${y+16} c10 -6 20 6 30 0 s20 6 30 0`,{sw:2})],["Zoophycos",520,196,"slope · folded feeding",(x,y)=>PP(`M${x} ${y+12} c6 -14 20 -14 26 0 c6 14 20 14 26 0`,{sw:1.6})+PP(`M${x+4} ${y+12} c5 -9 16 -9 21 0 c5 9 16 9 21 0`,{c:D})],["Nereites",700,246,"abyss · meandering grazing",(x,y)=>PP(`M${x} ${y+8} c6 -12 12 12 18 0 s12 -12 18 0 s12 12 18 0`,{sw:1.8})]];
+  zones.forEach(([n,x,y,e,draw])=>{o+=draw(x-30,y+6); o+=TT(x,y-12,n,{px:13,a:"middle",b:1,i:1}); o+=TT(x,y+52,e,{px:10.5,a:"middle",c:D});});
+  o+=TT(800,290,"deeper →",{px:10,a:"end",c:D,neo:1});
+  document.getElementById("fig-facies").innerHTML=o;}
+ // 3. Morton's five traits + the work's device under each
+ {let o=""; const items=[["Viscous","it sticks to whoever touches it",(x,y)=>PP(`M${x+10} ${y+50} c10 -40 70 -40 80 0 c-10 20 -30 10 -40 25 c-10 -15 -30 -5 -40 -25 z`,{f:"#3a3b38",c:W})+RR(x+44,y+20,12,16,{f:W}),"the visitor's own traces, undeniably left"],
+  ["Nonlocal","no local piece is the thing",(x,y)=>[[12,12],[40,30],[70,10],[25,50],[60,52],[85,40]].map(([a,b])=>RR(x+a,y+b,8,8,{f:W})).join("")+PP(`M${x+5} ${y+35} c20 -30 60 -30 90 0`,{d:"3 3",c:D}),"the wall: everyone's traces, nowhere in particular"],
+  ["Temporal undulation","time at scales that dwarf a life",(x,y)=>PP(`M${x} ${y+35} c15 -40 30 40 45 0 s30 -40 45 0`,{sw:2})+LL(x+30,y+10,x+30,y+60,{c:D})+TT(x+34,y+14,"180 s",{px:9,neo:1,c:D}),"one life of 180 s inside 20-second strata"],
+  ["Phasing","we see only a slice of it",(x,y)=>PP(`M${x+10} ${y+55} l30 -40 h50 l-30 40 z`,{f:"#3a3b38",c:W})+PP(`M${x+25} ${y+10} v60`,{sw:2})+`<circle cx="${x+55}" cy="${y+36}" r="14" fill="none" stroke="${W}"/>`,"sight as far as sound reaches: 24"],
+  ["Interobjective","it exists between objects, in the mesh",(x,y)=>{let q="";const P=[[15,15],[75,20],[45,45],[20,60],[80,58]];P.forEach((p,i)=>P.forEach((r,j)=>{if(i<j)q+=LL(x+p[0],y+p[1],x+r[0],y+r[1],{c:D});}));P.forEach(p=>q+=RR(x+p[0]-4,y+p[1]-4,8,8,{f:W}));return q;},"one event log, read at two scales"]];
+  const wrap=(t,n)=>{const out=[];let l="";for(const q of t.split(" ")){if((l+" "+q).trim().length>n&&l){out.push(l);l=q;}else l=(l+" "+q).trim();}if(l)out.push(l);return out;};
+  items.forEach(([n,e,draw,w],i)=>{const x=20+i*158, y=16; o+=RR(x,y,140,90,{s:F}); o+=draw(x+22,y+10); o+=TT(x+70,y+112,n,{px:13,a:"middle",b:1}); wrap(e,22).forEach((l,k)=>o+=TT(x+70,y+130+k*14,l,{px:11,a:"middle",c:D})); o+=LL(x+40,y+168,x+100,y+168,{c:F}); wrap(w,22).forEach((l,k)=>o+=TT(x+70,y+186+k*14,l,{px:11,a:"middle"}));});
+  document.getElementById("fig-hyper").innerHTML=o;}
+ // 4. phasing: a slice moving through the mass (left), the mass whole (right) — the slice animates
+ {let o=""; const cyl=(cx,yt,yb,rx,ry)=>{let q=""; q+=PP(`M${cx-rx} ${yt} L${cx-rx} ${yb} A${rx} ${ry} 0 0 0 ${cx+rx} ${yb} L${cx+rx} ${yt}`,{c:W}); for(let y=yb-10;y>yt+ry;y-=12)q+=LL(cx-rx+2,y,cx+rx-2,y,{c:"#3a3b38"}); q+=`<ellipse cx="${cx}" cy="${yt}" rx="${rx}" ry="${ry}" fill="#141415" stroke="${W}"/>`; return q;};
+  o+=TT(200,24,"ONE PERSON INSIDE · A SLICE AT A TIME",{px:10,a:"middle",neo:1,c:D}); o+=cyl(200,70,290,120,30);
+  o+=`<g><animateTransform attributeName="transform" type="translate" values="0 0; 0 150; 0 0" dur="9s" repeatCount="indefinite"/>`+PP(`M60 120 l40 -22 h200 l-40 22 z`,{f:"rgba(233,233,229,0.22)",c:W})+`<circle cx="200" cy="109" r="16" fill="none" stroke="${W}" stroke-dasharray="2 4"/>`+RR(197,106,6,6,{f:W})+`</g>`;
+  o+=TT(200,330,"what is met: as far as sound reaches, for 180 s",{px:11,a:"middle",c:D});
+  o+=PP("M350 150 h110 M450 145 l10 5 l-10 5 M470 190 h-110 M360 185 l-10 5 l10 5",{c:W,sw:1.4}); o+=TT(410,138,"moving between",{px:10,a:"middle",neo:1,c:D});
+  o+=TT(620,24,"THE WALL · THE MASS, WHOLE",{px:10,a:"middle",neo:1,c:D}); o+=cyl(620,70,290,120,30);
+  for(let i=0;i<40;i++){const a=Math.random()*6.283, r=Math.random()*100, y=90+Math.random()*190; o+=RR(620+Math.cos(a)*r*0.95-2,y,4,3,{f:"#c9cac5"});}
+  o+=TT(620,330,"everyone's traces, read as a far future would",{px:11,a:"middle",c:D});
+  document.getElementById("fig-phasing").innerHTML=o;}
+} lab(1560,644,"a musical moment for one,",{px:13,col:"#e9e9e5",al:"end"}); lab(1560,662,"one cell of a structure for the whole,",{px:13,col:"#e9e9e5",al:"end"}); lab(1560,680,"a slab of concrete on the wall.",{px:13,col:"#e9e9e5",al:"end"});
 })();
 </script>
 </body>

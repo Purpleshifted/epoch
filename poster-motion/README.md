@@ -93,3 +93,5 @@ PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 - **gallery.html**: 글램샷 3컷(`assets/gallery/shotN-2560.webp` 표시, `-1280` 모바일, `-full.jpg` 다운로드), 라이트박스(←/→/ESC).
 - 대본 Doc(〈발견된 인류 — 졸업심사 발표 구성과 대본〉)에 ①′ 문단, ⑤ 교체, 타임라인 행, 사이트 주소를 같이 넣었다.
 - 베이크: `GPU=1 node tools/bake.mjs …` — swiftshader 대신 GPU(ANGLE Metal). 900×660 기준 12 fps.
+- **읽는 화면(간지)**: 각 구간 뒤에 → 한 번 더 누르면 흰 종이 한 장 — 인용, 그린 도판, 출처 4개(references 항목으로 링크). 다음 →로 다음 구간. `INTER` 표와 `fig…()` 빌더(SVG 문자열), `?nointer=1`이면 건너뜀, `?step=N&still=1&inter=1`로 한 장 렌더(`tools/shot.mjs`).
+- **references.html**: 마인드맵이 힘 기반 라이브 레이아웃(반발·스프링·라벨 충돌·느린 드리프트, 드래그, 가지 hover, 클릭 → 항목), 사운드 구조도는 상자 너비에 맞춰 글자를 압축(textLength); 새 섹션 **Trace fossils — ichnology**(Seilacher 행동 분류·ichnofacies·Treptichnus pedum 경계·technofossil·human bioturbation·artificial ground·taphonomy, 도판 2)와 **Hyperobjects**(5속성 도판, 부분↔전체 phasing 애니메이션 도판, 속성↔장치 표, Chakrabarty·Latour·Haff·Tsing), 새 참고문헌 10편.
