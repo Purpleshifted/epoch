@@ -90,7 +90,7 @@ body.cursor{cursor:default}
 #inter .foot{left:160px}#inter .foot2{right:160px;text-align:right}
 #mobile{display:none}
 @media (max-width:519px), (max-width:759px) and (pointer:coarse){
-  html,body{overflow:auto;height:auto;cursor:auto;background:#000}
+  html{overflow:auto;height:auto} body{overflow:visible;height:auto;cursor:auto;background:#000} /* body must not be a scroll container, or the sticky window never sticks */
   #hud,#dbg{display:none!important}
   #stage{display:block!important;position:absolute;left:0;top:0;transform-origin:0 0}
   /* the pinned picture: a square window onto the live deck, panned to the section's diagram (CROP below) */
@@ -160,7 +160,7 @@ body.cursor{cursor:default}
   <div id="h-ref" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–8 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–9 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -184,7 +184,7 @@ body.cursor{cursor:default}
   <div class="hero"><div class="cap"><span class="l"></span><span class="dots"></span></div></div>
   <p class="tap">SCROLL · THE DIAGRAM ABOVE FOLLOWS THE SECTION YOU READ, ALIVE · SIDEWAYS: THE WHOLE DECK</p>
   <ol id="mslides"></ol>
-  <p class="hint">On a wider screen this page is the presentation itself: → begins it, → again for the next section and its notes, 1–8 for a section. Here the window pinned above looks into that same deck, alive, panned to the diagram of the section you are reading.</p>
+  <p class="hint">On a wider screen this page is the presentation itself: → begins it, → again for the next section and its notes, 1–9 for a section. Here the window pinned above looks into that same deck, alive, panned to the diagram of the section you are reading.</p>
   <footer>Hayeon Park 20220875 · Supervised by Yiyun Kang · ID40009 Graduation Design Studio · KAIST 2026</footer>
 </div>
 
@@ -278,7 +278,7 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=9, HOLD=[8,12,14,13,14,16,11,13,13];
+const STEPS=10, HOLD=[8,12,14,13,14,16,11,14,13,13];
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","① 부결된 지질시대"],
   ["An epoch is interpreted spacetime","①′ 시대 = 해석된 시공간"],
@@ -286,7 +286,8 @@ const SEC=[["",""],
   ["What is humanity's trace fossil?","③ 인류의 생흔화석"],
   ["So this world has no “build” button","④ 생성 로직"],
   ["Partial sight, and the whole — hyperobjects","⑤ 하이퍼객체"],
-  ["What one person inside it experiences — sound","⑥ 사운드"],
+  ["What one person inside it experiences — a life, in plain words","⑥ 한 사람의 삶 · 일상의 언어"],
+  ["What one person inside it experiences — sound","⑥′ 사운드"],
   ["Why this work","⑦ 의의"]];
 const KEY=[["",""],
   ["That gap, between the concept and its record, is where this work begins.","개념과 기록 사이의 그 틈에서 이 작품은 시작한다."],
@@ -295,6 +296,7 @@ const KEY=[["",""],
   ["Living together.","인간이 가장 오래, 가장 촘촘히 반복한 행동 — 모여 살기. 콘크리트, 다져진 길, 땅 밑의 배관."],
   ["Seen from the future, our ordinary days are already the object of excavation.","짓기 버튼은 없다. 모든 구조는 머물고 걷는 일의 부산물이고, 20초가 지층 한 겹이 된다."],
   ["Only ever a part — and the way between the part and the whole.","전체를 한눈에 볼 수 없는 대상. 부분만 인식하는 상태(헤드셋)와 전체(벽)를 오가며, 둘 사이의 연결을 생각하는 계기."],
+  ["Born without being asked; stopping may fail — and still every act enters the whole.","묻지 않고 태어나고, 그만두기도 실패할 수 있다. 그래도 모든 행위는 전체에 들어간다 — 한 사람은 그 안에서 애써 선택하며 행위성을 가꿔 갈 수밖에 없다."],
   ["The same event, at two different scales.","개인에겐 음악의 순간, 전체에겐 구조의 한 칸. 겹쳐도 가리지 않는다."],
   ["현재의 당신은 무엇을 남기시겠습니까?","What will the present you leave behind? — 분명히 남지만 혼자서는 바꿀 수 없는 전체 앞에서, 한 사람은 어떤 마음으로 행동을 정해야 하는가.","neo"]];
 const REFS={
@@ -304,8 +306,9 @@ const REFS={
   4:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"],["Schueler 1994","n-schueler1994"],["Elmore & Kaushal 2008","n-elmore2008"]],
   5:[["Helbing et al. 1997","n-helbing1997"],["Cole 1995","n-cole1995"],["Pescott & Stewart 2014","n-pescott2014"],["Schueler 1994","n-schueler1994"],["Q = C·i·A","n-rational"],["Pólya 1923","n-polya1923"]],
   6:[["Morton 2013","n-morton2013"],["Haff 2014","n-haff2014"]],
-  7:[["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
-  8:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
+  7:[["Arendt 1958 · natality","n-arendt1958"],["Schiffer 1987","n-schiffer1987"],["Helbing et al. 1997","n-helbing1997"],["Huizinga 1938","n-huizinga1938"]],
+  8:[["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
+  9:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
 };
 const LAB_ORIGIN="https://homo-inventus-lab.vercel.app";   // this branch's app, its own Vercel project — never the show's
 const LIVE_URL=LAB_ORIGIN+"/v2/global/lab?ui=0&sound=mute&cam=turn&snap=1&minutes=24&bots=16&dpr=0.6&dist=200&polar=70&lift=-30"; // a 24-minute column seen whole from a little above (the 8-minute one was a speck at that distance)
@@ -646,6 +649,48 @@ function s6(u,g){
   txt("/low band",lx+170,ly+70,{px:22,w:700,a:la}); para("저음 — on the speakers every melody sinks two octaves into one mass: the whole is heard, no one is told apart",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
 }
 
+/* ---------- ⑥ one life, in plain words: what the headset says; what an answer leaves ---------- */
+const LIFE_LINES=[[0.4,"태어나시겠습니까?","Will you be born?",1],[0.9,"[ 예 ]   아니요 — 선택할 수 없습니다","the only answer is yes",2],
+  [2.6,"풀이 눕습니다.","the grass lies down — you walked",0],[3.7,"곁에 누군가 머뭅니다. 집이 올라갑니다.","someone stays beside you — a house goes up",0],[4.8,"부름에 응답했습니다. 새 어휘.","you answered a call — a new word",0],
+  [6.1,"그만 살기: X 키를 1초 동안 누르세요","stop living: hold X for one second",2],[7.5,"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다.","Oh. Stopping living has failed. Life goes on.",3],
+  [9.6,"삶이 끝났습니다. 기록은 남습니다.","Life has ended. The record remains.",1],[10.4,"흔적은 벽의 창에서 읽힐 수도, 읽히지 않을 수도 있습니다.","Your traces may be read — or may not be.",0]];
+function seedHead(x,y,size,o={}){const {a=1,turn=0.7,n=24,keep=1,col=WHITE}=o; if(a<=0.005||size<=0.5)return; const st=size*0.9, r=size*0.55, cy=y-st;
+  line(x,y,x,cy,col,a,1.2);
+  for(let i=0;i<n;i++){ if(hash(i,91)>=keep)continue; const dy=1-(2*(i+0.5))/n, ring=Math.sqrt(Math.max(0,1-dy*dy)), an=i*2.399963+turn, L=r*(0.8+hash(i,92)*0.4);
+    const tx=x+Math.cos(an)*ring*L, ty=cy-dy*L, depth=0.55+0.45*(Math.sin(an)*0.5+0.5); line(x,cy,tx,ty,col,a*depth,0.9); sq(tx,ty,3,a*depth,col);} }
+function s6a(u,g){
+  // left: the headset's own words, one line after another
+  const px0=160, py0=150; txt("THE PERSONAL VIEW · 헤드셋 — in a day's words, on a bare screen",px0,py0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
+  const pw=760, ph=560; fill(px0,py0+30,pw,ph,"#050505",on(u,0.2)); box(px0,py0+30,pw,ph,FAINT,on(u,0.2));
+  // the bare world: a few points of grass around, as far as sound reaches
+  // the bare world, small and low in the panel so the words have the room: a few points of grass as far as sound reaches
+  const cxp=px0+pw-270, cyp=py0+30+ph-96; for(let k=0;k<120;k++){const an=hash(k,5)*6.283, rr=20+hash(k,6)*190; const dx=Math.cos(an)*rr, dz=Math.sin(an)*rr*0.3; const fade=clamp(1-rr/210); if(k%2===0)sq(cxp+dx,cyp+dz+Math.sin(g*0.7+k)*1.2,2,0.35*fade*on(u,0.4,1.2),"#9ba36a");}
+  const ra=on(u,0.6,1.0); ctx.strokeStyle=rgba(FAINT,ra*0.8); ctx.setLineDash([3,6]); ctx.beginPath(); ctx.ellipse(cxp,cyp,200,60,0,0,6.283); ctx.stroke(); ctx.setLineDash([]); sq(cxp,cyp,5,ra);
+  txt("as far as sound reaches · 소리가 닿는 데까지",cxp,cyp+78,{px:10.5,fam:"Neo",col:FAINT,a:ra,ls:1.2,al:"center"});
+  let ly=py0+62; const blink=(g*2|0)%2===1;
+  for(const [t,ko,en,kind] of LIFE_LINES){ const a=on(u,t,0.5); if(a<=0.005)continue; const typed=Math.round(clamp((u-t)/0.9)*ko.length); const col=kind===3?"#ffffff":kind===2?DIM:WHITE;
+    txt(ko.slice(0,typed)+(typed<ko.length&&blink?"▪":""),px0+28,ly+18,{px:kind===3?20:17,fam:"Neo",col,a,ls:0.6});
+    txt(en,px0+28,ly+38,{px:11.5,col:kind===3?WHITE:FAINT,a:a*on(u,t+0.8,0.5)}); if(kind===3){box(px0+16,ly-4,pw-32,54,WHITE,a*0.5);}
+    ly+=kind===1?60:56; }
+  // under the panel
+  para("The log never says “slab +1”: it says what happened, in the words of a day — so the rule is felt before it is understood. The screen is bare on purpose: a few points, the dark, so the eyes rest and the ears do the work.",px0,py0+30+ph+40,{px:16,maxW:760,col:DIM,a:on(u,5.0,0.9)});
+  para("Born without being asked. The attempt to stop may fail. And still every act enters the whole — agency is not had once; it is tended, act by act, inside a world one cannot steer.",px0,py0+30+ph+118,{px:16,maxW:760,col:WHITE,a:on(u,8.4,0.9)});
+  // right: what an answer leaves — the seed head, its powder, and the layer that keeps some
+  const sx=1020; txt("WHAT AN ANSWER LEAVES · 홀씨",sx,py0+8,{px:12,fam:"Neo",col:DIM,a:on(u,2.6),ls:1.2});
+  const hx=1330, hy=620; const grow=on(u,3.0,1.2), settle=1-0.5*on(u,8.6,1.6); const size=170*grow*settle;
+  // the ground line and the strata beneath
+  line(sx,hy+.5,1800,hy+.5,WHITE,on(u,2.8),1); txt("THE PRESENT · 현재",sx,hy+22,{px:10,fam:"Neo",col:FAINT,a:on(u,2.8),ls:1.2});
+  for(let k=1;k<=5;k++)line(sx,hy+k*38+.5,1800,hy+k*38+.5,FAINT,on(u,3.0+k*0.1)*0.7,1,[3,5]);
+  seedHead(hx,hy,size,{a:on(u,3.0,0.6)});
+  // the powder: thrown fast, then hanging, each grain gone at its own time, downwind
+  const pt=clamp((u-4.2)/5.5); if(pt>0&&pt<1){ for(let k=0;k<220;k++){const life=0.45+hash(k,11)*0.55, q=clamp(pt/life); if(q>=1)continue; const e=1-Math.pow(1-q,2.6); const an=0.15+(hash(k,12)-0.5)*1.5, d=(30+hash(k,13)*260)*e; const wx=hx+Math.cos(an)*d+e*120, wy=hy-size*0.9-size*0.55*0.3-Math.sin(an)*d*0.45-e*40+Math.sin(g*2+k)*2; sq(wx,wy,2+hash(k,14)*2,(1-Math.pow(q,1.5))*0.9);} }
+  txt("a seed head where someone answered another's call",sx,py0+50,{px:15,a:on(u,3.4,0.8)}); txt("large at first; its powder carried off by the wind — the next one who passes finds the word there",sx,py0+72,{px:12,fam:"Neo",col:DIM,a:on(u,3.4,0.8),ls:1});
+  // the heads in the layers: some stay, some go
+  const fa=on(u,10.2,1.2); seedHead(1120,hy+120,60,{a:fa,turn:1.3,n:14,col:DIM}); seedHead(1480,hy+160,60,{a:fa*(1-on(u,11.2,1.2))*0.8,turn:2.1,n:14,col:DIM}); seedHead(1700,hy+100,56,{a:fa*0.9,turn:0.3,n:14,col:DIM,keep:0.6});
+  txt("where its layer fossilises, some stay and some go — it may remain, or not",sx,hy+236,{px:14,col:DIM,a:fa});
+  txt("남을 수도, 안 남을 수도 있는 홀씨",sx,hy+258,{px:12,fam:"Neo",col:FAINT,a:fa,ls:1.2});
+}
+
 /* ---------- ⑦ the record remains: a specimen card ---------- */
 function s7(u,g){
   const x=160, y=190; const ta=on(u,0.2);
@@ -673,7 +718,7 @@ function s7(u,g){
   para("The visitor experiences, in their own body, that their actions undeniably left traces — and yet changed nothing of the whole. No guilt is assigned; the work hands each visitor a question to carry home.",mx,my+ms+70,{px:16,maxW:500,col:DIM,a:on(u,9.4,0.9)});
 }
 
-const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6,s7];
+const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6a,s6,s7];
 
 /* ---------- render ---------- */
 function render(){
@@ -807,6 +852,28 @@ function figInherit(){let o="";
   o+=T(430,400,"“The record remains. Your traces may be read —",{px:13,i:1}); o+=T(430,420,"or may not be.”",{px:13,i:1});
   o+=T(430,470,"No guilt, no instruction. The question is handed over:",{px:13,c:"#5f605c"}); o+=T(430,490,"facing a whole my actions enter but cannot alter alone,",{px:13,c:"#5f605c"}); o+=T(430,510,"how should one person decide how to act?",{px:13,c:"#5f605c"});
   return SV(820,600,o);}
+function figLife(){let o="";
+  o+=T(20,26,"THE HEADSET'S OWN WORDS · 개인 뷰의 문장들",{px:11,neo:1,c:"#3c3d3a"}); o+=R(20,40,380,330,{s:"#0b0b0b"});
+  o+=T(40,70,"태어나시겠습니까?",{px:14,neo:1}); o+=R(40,84,52,22,{s:"#0b0b0b"}); o+=T(66,100,"예",{px:12,neo:1,a:"middle"}); o+=T(108,100,"아니요 · 선택할 수 없습니다",{px:11,neo:1,c:"#9b9c97"});
+  o+=T(40,136,"Will you be born? — the only answer is yes",{px:11.5,c:"#5f605c"});
+  [["풀이 눕습니다.","the grass lies down"],["곁에 누군가 머뭅니다. 집이 올라갑니다.","someone stays beside you — a house goes up"],["부름에 응답했습니다. 새 어휘.","you answered a call — a new word"]].forEach(([k,e],i)=>{o+=T(40,170+i*34,k,{px:12.5,neo:1}); o+=T(40,186+i*34,e,{px:10.5,c:"#5f605c"});});
+  o+=T(40,284,"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다.",{px:12,neo:1,b:1}); o+=T(40,300,"the attempt to stop (hold X one second) can fail",{px:10.5,c:"#5f605c"});
+  o+=T(40,332,"기록은 남습니다. 흔적은 읽힐 수도, 읽히지 않을 수도 있습니다.",{px:11.5,neo:1}); o+=T(40,348,"the record remains; it may be read, or not",{px:10.5,c:"#5f605c"});
+  o+=T(20,400,"IN A DAY'S WORDS, ON A BARE SCREEN",{px:11,neo:1,c:"#3c3d3a"});
+  o+=T(20,424,"The log never says “slab +1”: it says what happened, so the rule is felt",{px:12.5}); o+=T(20,442,"before it is understood. Few points, the dark — the eyes rest, the ears work.",{px:12.5});
+  o+=T(20,476,"A life not fully chosen, whose acts still enter the whole: agency is not had",{px:12.5}); o+=T(20,494,"once — it is tended, act by act, inside a world one cannot steer.",{px:12.5});
+  // the seed head
+  o+=T(440,26,"WHAT AN ANSWER LEAVES · 홀씨",{px:11,neo:1,c:"#3c3d3a"});
+  const hx=560, hy=300, st=120, r=62; o+=Ln(hx,hy,hx,hy-st,{sw:1.2}); const cy=hy-st; let seeds="";
+  for(let i=0;i<22;i++){const dy=1-(2*(i+0.5))/22, ring=Math.sqrt(Math.max(0,1-dy*dy)), a=i*2.399963+0.7, L=r*(0.8+((i*37)%10)/50); const tx=hx+Math.cos(a)*ring*L, ty=cy-dy*L; seeds+=Ln(hx,cy,tx,ty,{sw:0.9})+R(tx-2,ty-2,4,4,{f:"#0b0b0b"});}
+  o+=seeds; for(let k=0;k<70;k++){const t=((k*53)%100)/100, an=-0.9+((k*29)%100)/100*1.4, d=40+t*230; const px=hx+Math.cos(an)*d, py=cy-Math.sin(an)*d*0.5-t*30; o+=R(px,py,2.5,2.5,{f:(k%3)?"#9b9c97":"#5f605c"});}
+  o+=T(440,52,"a seed head where someone answered another: large at first,",{px:12}); o+=T(440,68,"its powder carried off by the wind; the next one who passes",{px:12}); o+=T(440,84,"finds the word there.",{px:12});
+  o+=Ln(440,340,800,340,{sw:1}); o+=T(440,358,"THE PRESENT · 현재",{px:10,neo:1,c:"#5f605c"});
+  for(let k=1;k<=5;k++)o+=Ln(440,340+k*40,800,340+k*40,{c:"#c6c7c2",d:"3 4"});
+  const small=(x,y,gone)=>{let q=Ln(x,y,x,y-34,{sw:1,c:gone?"#9b9c97":"#0b0b0b",d:gone?"2 3":""}); for(let i=0;i<10;i++){const a=i*2.399963, dy=1-(2*(i+0.5))/10, ring=Math.sqrt(Math.max(0,1-dy*dy)); q+=Ln(x,y-34,x+Math.cos(a)*ring*16,y-34-dy*16,{sw:0.8,c:gone?"#9b9c97":"#0b0b0b",d:gone?"2 3":""});} return q;};
+  o+=small(520,500,false)+small(640,500,true)+small(740,500,false);
+  o+=T(440,560,"where its layer fossilises, some stay and some go",{px:12,c:"#5f605c"}); o+=T(440,578,"— it may remain, or not",{px:12,c:"#5f605c"});
+  return SV(820,600,o);}
 const INTER={
  1:{tag:"NOTES · ① THE VOTE",q:"We are in the Anthropocene, irrespective of a line on the time scale.",by:"Francine McCarthy (Brock University, lead of the Crawford Lake research), as reported by The New York Times, 5 March 2024",fig:figCrawford,cap:"Left: the varved core of Crawford Lake, Ontario — one couplet a year; the dark band is the 1952 plutonium peak proposed as the golden spike. Right: what a spike must satisfy, and the vote of the Subcommission on Quaternary Stratigraphy.",
    src:[["crutzen2000","Crutzen & Stoermer 2000","the word proposed, with the steam engine as its start"],["waters2016","Waters et al. 2016","concrete, plastics, aluminium, fallout: the stratigraphic markers"],["crawford","McCarthy et al. 2025","the Crawford Lake record across the proposed boundary"],["vote2024","SQS vote · IUGS statement 2024","12 against, 4 for, 2 abstentions; confirmed 20 March"]]},
@@ -821,9 +888,12 @@ const INTER={
    src:[["helbing1997","Helbing et al. 1997","the evolution of human trail systems"],["cole1995","Cole 1995","experimental trampling: steep loss, slow return"],["pescott2014","Pescott & Stewart 2014","meta-analysis of trampling and recovery"],["polya1923","Eggenberger & Pólya 1923","the urn: what is there raises its own odds"]]},
  6:{tag:"NOTES · ⑤ HYPEROBJECTS",q:"Things that are massively distributed in time and space relative to humans.",by:"Timothy Morton, Hyperobjects (2013), p. 1 — the definition",fig:figHyper,cap:"Morton's five traits with the work's device under each, and the clarification: the whole is not refused. The visitor holds a partial state and the whole, and moves between them.",
    src:[["morton2013","Morton 2013","Hyperobjects: philosophy and ecology after the end of the world"],["haff2014","Haff 2014","the technosphere as a geological phenomenon"],["tsing2015","Tsing 2015","life in ruins: noticing at the scale of a life"],["zalasiewicz2017","Zalasiewicz et al. 2017","the technosphere's scale and diversity"]]},
- 7:{tag:"NOTES · ⑥ SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
+ 7:{tag:"NOTES · ⑥ A LIFE, PLAINLY",para:1,q:"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다. — Oh. Stopping living has failed. Life goes on.",by:"the work's own screen, when the attempt to stop living fails (apps/web · lib/parliament/script.ts)",fig:figLife,cap:"Left: what the headset says — the consent with one answer, the log in the words of a day (the grass lies down; a house goes up), the attempt that fails, the end that keeps the record. Right: what an answer leaves — a seed head whose powder the wind carries; where its layer fossilises some stay and some go.",
+   note:"<b>Why plain words, why bare.</b> The algorithm is never shown as a score: the log says what happened, in the language of a day, so the rule is felt before it is understood. The screen is bare on purpose — a few points, the dark — so the eyes rest and the ears do the work. <b>Why the attempt can fail.</b> A life not fully chosen (born without being asked, unable to end it at will) whose acts still enter the whole: agency is not had once, it is tended, act by act.",
+   src:[["arendt1958","Arendt 1958","natality: to be born is to be able to begin; to act is to set something in motion"],["schiffer1987","Schiffer 1987","the record's voice: formation processes, not judgement"],["helbing1997","Helbing et al. 1997","small acts that add up without anyone deciding"],["huizinga1938","Huizinga 1938","the player: a life inside rules it did not choose"]]},
+ 8:{tag:"NOTES · ⑥′ SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
    src:[["webaudio","Web Audio API · W3C 2021","the engine: oscillators, panners, convolution, in the page"],["noisecraft","NoiseCraft · Chevalier-Boisvert","the browser patcher that plays the harmony on the engine's clock"],["musicvae","Roberts et al. 2018 · MusicVAE","latent interpolation between two phrases (wired, off)"],["hrtf","HRTF · PannerNode","others placed around the head by bearing and distance"]]},
- 8:{tag:"NOTES · ⑦ WHAT REMAINS",q:"Facing a phenomenon that my actions clearly enter, but that I could never alter alone — what frame of mind should a single person use to decide how to act?",by:"from the presentation",fig:figInherit,cap:"Left: the inheritance rule — a Pólya urn over what still remains, so the mix drifts toward the durable without anyone deciding. Below: the specimen card that closes a life (sample values). Right: the question the work hands over.",
+ 9:{tag:"NOTES · ⑦ WHAT REMAINS",q:"Facing a phenomenon that my actions clearly enter, but that I could never alter alone — what frame of mind should a single person use to decide how to act?",by:"from the presentation",fig:figInherit,cap:"Left: the inheritance rule — a Pólya urn over what still remains, so the mix drifts toward the durable without anyone deciding. Below: the specimen card that closes a life (sample values). Right: the question the work hands over.",
    src:[["schiffer1987","Schiffer 1987","formation processes of the archaeological record"],["laland2003","Odling-Smee, Laland & Feldman 2003","ecological inheritance: inheriting a modified world"],["pauly1995","Pauly 1995","shifting baselines: each generation starts from an altered state"],["arthur1989","Arthur 1989","increasing returns and lock-in by small early events"]]},
 };
 const interEl=$("#inter"); let inter=false;
@@ -867,7 +937,8 @@ const CROP=[
   [[0,230,150,740],[7,230,150,740],[9,1140,150,740]],            // ③: the ground from above, then the section
   [[0,170,130,780],[9,170,130,780],[11.5,1080,130,780]],         // ④: the four rules, then the wall's strata
   [[0,200,260,640],[5,200,260,640],[7,1080,260,640]],            // ⑤: the whole, then the inside
-  [[0,170,150,620],[6,170,150,620],[8,1140,150,660]],            // ⑥: one person's harmony, then the wall's cell
+  [[0,130,140,760],[7,130,140,760],[9,1000,140,760]],            // ⑥: what the headset says, then the seed head
+  [[0,170,150,620],[6,170,150,620],[8,1140,150,660]],            // ⑥′: one person's harmony, then the wall's cell
   [[0,140,150,760],[7,140,150,760],[9,140,560,760]]];            // ⑦: the specimen card, then the record's lines
 function cropAt(n,u){const ks=CROP[Math.min(n,CROP.length-1)]||CROP[0]; if(u<=ks[0][0]||ks.length===1)return ks[0].slice(1);
   for(let k=1;k<ks.length;k++){ if(u<=ks[k][0]){const a=ks[k-1],b=ks[k],m=ease((u-a[0])/(b[0]-a[0])); return [1,2,3].map(j=>a[j]+(b[j]-a[j])*m);} }
@@ -892,7 +963,7 @@ addEventListener("mousemove",()=>{document.body.classList.add("cursor");cursorT=
 addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
   if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown"||e.key==="Enter"){e.preventDefault();next();}
   else if(e.key==="ArrowLeft"||e.key==="PageUp"||e.key==="Backspace"){e.preventDefault();back();}
-  else if(/^[0-8]$/.test(e.key)){hideInter(); go(+e.key);}
+  else if(/^[0-9]$/.test(e.key)){hideInter(); go(+e.key);}
   else if(e.key==="Home"){hideInter(); go(0);} else if(e.key==="End"){hideInter(); go(STEPS-1);}
   else if(e.key==="r"){prev=-1;stepAt=now;}
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}
