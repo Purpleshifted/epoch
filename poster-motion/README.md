@@ -36,6 +36,21 @@ node poster-motion/tools/serve.mjs 3018      # http://localhost:3018/  (아무 �
 
 시각·문구는 index.html 안: `HOLD`(자동 모드 초), `SEC`(머리 제목), `KEY`(아래 핵심 문장), 각 `s1()…s7()` 함수가 한 장. 지난 시안(포스터를 움직인 것)은 `poster.html`에 남겨 둠.
 
+## 첫 페이지 — 라이브 벽
+
+제목 아래에 배포된 작품의 작업실 뷰 `https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute`를 iframe으로 띄운다: 20분·18 존재의 시험 기둥이 3분에 한 바퀴 돈다(소리 없음). 12초 안에 안 뜨거나, 화면이 좁거나(760 px 미만), 움직임 줄이기 설정이면 정지 렌더(`assets/structure.webp`)로 대신한다.
+`?live=0`으로 열면 처음부터 정지 렌더(발표 기계가 약할 때). `?rate=4`를 붙이면 랩의 시계를 ×4로 돌려 기둥이 **생성 중**인 채로 보인다 — 이 값은 `apps/web`의 작은 변경(랩의 `?rate=` 파라미터)이 main에 배포된 뒤에만 먹는다.
+구간으로 넘어가면 iframe은 내려가고(`about:blank`) 제목으로 돌아오면 다시 뜬다.
+
+## 참고 자료 페이지 — `references.html`
+
+인류세·황금못·크로포드 호수·2024년 3월의 결정·사건으로서의 인류세·하이퍼객체·생흔화석을 백과 항목으로, 작품의 규칙(콘크리트·길·배관·식생·지층·상속·소리·기록표)이 기댄 문헌을 가지별 마인드맵(SVG, 잎을 누르면 항목으로)과 항목 목록으로. 각 구간 화면의 오른쪽 아래 `REFERENCES ↗` 줄이 이 페이지의 항목으로 이어진다. 문헌 데이터는 `references.html` 안의 `B` 배열 한 곳.
+
+## 배포 (Vercel, 정적)
+
+이 폴더가 그대로 사이트다(빌드 없음). Vercel 대시보드에서 **New Project → Import `Purpleshifted/epoch` → Root Directory `poster-motion` → Framework Preset: Other → Production Branch `claude/motion-poster-creation-c6e4e1`**. `vercel.json`이 `/references` 같은 깨끗한 주소와 폰트 캐시를 정한다. 기존 `anthropocene` 프로젝트(apps/web, main)와는 별개 프로젝트로 두어 main을 건드리지 않는다.
+CLI라면: `npx vercel --cwd poster-motion` (처음엔 로그인·프로젝트 연결을 묻는다).
+
 ## 영상으로 (비상 플랜)
 
 ```

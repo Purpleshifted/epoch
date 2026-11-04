@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>발견된 인류 — 참고 자료</title>
+<meta name="description" content="발견된 인류 (Homo inventus): 인류세, 황금못, 2024년 3월의 부결, 생흔화석과 테크노화석, 그리고 작품의 규칙 뒤에 있는 도시공학·생태학·통계의 문헌을 마인드맵과 백과형 항목으로 정리.">
+<meta property="og:title" content="발견된 인류 — 참고 자료">
+<meta property="og:description" content="인류세, 황금못, 2024년 3월의 결정, 생흔화석, 그리고 작품의 규칙 뒤의 문헌.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+@font-face{font-family:"Pretendard";font-weight:700;src:url("fonts/Pretendard-Bold.woff2") format("woff2")}
+@font-face{font-family:"Pretendard";font-weight:400;src:url("fonts/Pretendard-Regular.woff2") format("woff2")}
+@font-face{font-family:"Neo";src:url("fonts/neodgm.woff2") format("woff2")}
+:root{--paper0:#dfe0db;--paper1:#d7d8d3;--ink:#0b0b0b;--dim:#5f605c;--faint:#a9aaa5;--rule:#b9bab5;--ground:#0a0a0b;--white:#e9e9e5}
+*{box-sizing:border-box}
+html{background:var(--paper1)}
+body{margin:0;background:linear-gradient(180deg,var(--paper0) 0,var(--paper1) 400px,var(--paper1) 100%);color:var(--ink);font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;font-weight:400;line-height:1.6;word-break:keep-all;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none;border-bottom:1px solid var(--rule)}a:hover{border-bottom-color:var(--ink)}
+.mono{font-family:Neo,monospace;letter-spacing:.08em}
+header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:18px 32px;background:rgba(223,224,219,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--rule)}
+header .t{font-size:22px;font-weight:700;letter-spacing:-.01em;line-height:1}
+header .t small{display:block;font-family:Neo,monospace;font-size:11px;letter-spacing:.3em;color:#3c3d3a;margin-top:5px;font-weight:400}
+header nav{display:flex;gap:22px;font-size:13px}
+header nav a{border:0;color:var(--dim)}header nav a:hover{color:var(--ink)}
+main{max-width:1180px;margin:0 auto;padding:40px 32px 120px}
+h1{font-size:44px;line-height:1.1;letter-spacing:-.02em;margin:24px 0 10px}
+h2{font-size:26px;letter-spacing:-.01em;margin:72px 0 6px;padding-top:18px;border-top:1px solid var(--ink)}
+h2 small{font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:var(--dim);margin-left:12px;font-weight:400}
+h3{font-size:18px;margin:34px 0 6px}
+p{margin:8px 0;max-width:820px;font-size:16.5px}
+.lead{font-size:19px;max-width:860px;color:#2a2b28}
+.note{font-size:13.5px;color:var(--dim);max-width:820px}
+dl{margin:10px 0 0;max-width:860px}
+dt{font-weight:700;margin-top:14px}
+dd{margin:2px 0 0;font-size:15.5px}
+.entry{display:grid;grid-template-columns:200px 1fr;gap:6px 22px;padding:14px 0;border-top:1px solid var(--rule);scroll-margin-top:90px}
+.entry:target{background:rgba(11,11,11,.05)}
+.entry .k{font-weight:700;font-size:15px}
+.entry .k small{display:block;font-family:Neo,monospace;font-size:10.5px;letter-spacing:.1em;color:var(--dim);font-weight:400;margin-top:4px}
+.entry .cite{font-size:14.5px;color:#2a2b28}
+.entry .gist{font-size:15px;margin-top:4px}
+.entry .role{font-size:14px;color:var(--dim);margin-top:4px}
+.entry .role b{color:var(--ink);font-weight:700}
+.entry .links{font-size:12.5px;margin-top:6px}
+.entry .links a{margin-right:14px;color:var(--dim)}
+#map{margin:28px 0 0;background:var(--ground);border:1px solid #1e1f1d;padding:0;overflow:hidden}
+#map svg{display:block;width:100%;height:auto}
+#map .tip{font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:#9b9c97;padding:10px 16px;border-top:1px solid #1e1f1d}
+table{border-collapse:collapse;width:100%;max-width:960px;font-size:14.5px;margin:12px 0}
+th,td{text-align:left;vertical-align:top;padding:8px 10px 8px 0;border-top:1px solid var(--rule)}
+th{font-family:Neo,monospace;font-size:11px;letter-spacing:.12em;color:var(--dim);font-weight:400}
+.quote{font-size:24px;line-height:1.4;max-width:820px;margin:18px 0;padding-left:18px;border-left:2px solid var(--ink)}
+.quote small{display:block;font-size:13px;color:var(--dim);margin-top:8px}
+.vote{display:flex;gap:8px;margin:14px 0}
+.vote i{display:block;width:26px;height:26px;border:1px solid var(--ink)}
+.vote i.y{background:var(--ink)}
+.toc{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13.5px;margin:18px 0 0}
+.toc a{border:0;color:var(--dim)}.toc a:hover{color:var(--ink)}
+.links-list li{margin:6px 0;font-size:15px}
+.links-list li small{color:var(--dim);font-size:13px;margin-left:8px}
+footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-size:13px;color:var(--dim);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+@media (max-width:720px){header{padding:14px 16px}main{padding:24px 16px 80px}h1{font-size:34px}.entry{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="t">발견된 인류<small>HOMO INVENTUS · REFERENCES</small></div>
+  <nav><a href="index.html">← 발표 화면</a><a href="#map">마인드맵</a><a href="#anthropocene">인류세</a><a href="#vote">2024년 3월</a><a href="#rules">작품의 규칙</a><a href="#lit">문헌</a><a href="#press">기사·링크</a></nav>
+</header>
+<main>
+  <p class="mono" style="font-size:11px;color:var(--dim)">참고 자료 · 2026-11-04 기준</p>
+  <h1>인류세, 황금못, 그리고 이 작품의 규칙 뒤에 있는 것들</h1>
+  <p class="lead">〈발견된 인류〉는 2024년 3월, 인류세를 공식 지질시대로 삼자는 제안이 부결된 자리에서 시작한다. 이 페이지는 그 결정의 전말과, 작품이 땅을 만드는 규칙(콘크리트·길·배관·식생·지층·이름·기록)이 어떤 문헌에 기대어 있는지를 백과 항목처럼 정리한 것이다. 위의 마인드맵에서 항목을 누르면 그 설명으로 내려간다.</p>
+  <p class="note">확인 상태: 서지(저자·연도·저널·DOI)는 검색과 DOI로 확인했고, 요지는 초록·요약을 바탕으로 썼다. 전문을 읽지 않은 항목이 있으며, 작품의 수치(문턱·반경·비율)는 문헌이 정한 값이 아니라 작가가 고른 값이다.</p>
+
+  <h2 id="map">마인드맵<small>MIND MAP — 규칙 ↔ 문헌</small></h2>
+  <div id="mapwrap"><div id="map"><svg id="mm" viewBox="0 0 1600 1000" role="img" aria-label="작품의 규칙과 참고 문헌의 마인드맵"></svg><div class="tip">가운데가 작품, 가지가 분야, 잎이 문헌. 잎을 누르면 아래 항목으로 내려간다.</div></div></div>
+
+  <h2 id="anthropocene">인류세<small>ANTHROPOCENE</small></h2>
+  <p>인간의 활동이 지구 시스템에 남긴 변화가 지층에 기록될 만큼 커졌다는 뜻으로 제안된 지질시대의 이름. 그리스어 <i>anthropos</i>(인간)와 지질시대 '세(世)'의 접미사 <i>-cene</i>을 합쳤다. 대기화학자 파울 크뤼천(Paul Crutzen)과 생태학자 유진 스토머(Eugene Stoermer)가 2000년 IGBP 뉴스레터에서 제안했고, 크뤼천은 2002년 <i>Nature</i>의 짧은 글 "Geology of mankind"로 널리 알렸다. 처음 제안된 시작점은 18세기 후반(증기기관)이었으나, 뒤에 실무그룹은 1950년대의 '대가속(Great Acceleration)'을 시작점으로 삼았다.</p>
+  <dl>
+    <dt>2000</dt><dd>Crutzen &amp; Stoermer, "The 'Anthropocene'", <i>IGBP Global Change Newsletter</i> 41: 17–18 — 용어 제안.</dd>
+    <dt>2002</dt><dd>Crutzen, "Geology of mankind", <i>Nature</i> 415: 23.</dd>
+    <dt>2009</dt><dd>국제층서위원회(ICS) 제4기층서소위원회(SQS) 아래 <b>인류세 실무그룹(AWG)</b> 결성. 공식 지질시대(세, epoch)로 제안할 수 있는지 검토.</dd>
+    <dt>2015</dt><dd>Steffen 외, "The trajectory of the Anthropocene: The Great Acceleration", <i>The Anthropocene Review</i> 2(1): 81–98 — 1950년 이후 인구·GDP·비료·댐·플라스틱·CO₂·메탄 등 24개 지표가 함께 급가속한다는 그래프. 20세기 중반 시작점의 근거.</dd>
+    <dt>2016</dt><dd>Waters 외, "The Anthropocene is functionally and stratigraphically distinct from the Holocene", <i>Science</i> 351: aad2622 — 콘크리트·플라스틱·알루미늄·플루토늄 낙진·질소 등 지층 표지의 종합.</dd>
+    <dt>2019</dt><dd>AWG 투표: 20세기 중반을 시작점으로 공식 제안을 추진하기로.</dd>
+    <dt>2023</dt><dd>7월, 후보지 12곳 가운데 캐나다 온타리오의 <b>크로포드 호수</b>를 황금못 후보로 발표. 10월 31일, SQS에 공식 제안서 제출.</dd>
+    <dt>2024</dt><dd>3월 4일, SQS 투표에서 <b>부결</b>. 3월 20일, 국제지질과학연맹(IUGS)이 결정을 승인해 확정.</dd>
+  </dl>
+
+  <h3 id="gssp">황금못 · GSSP</h3>
+  <p><b>Global Boundary Stratotype Section and Point</b>. 지질시대의 경계를 정의하는, 전 세계에 단 하나뿐인 기준 지층 단면과 그 위의 한 지점. 실제로 그 자리에 금빛 못을 박아 표시하는 관행에서 '황금못(golden spike)'이라 부른다. 경계는 같은 순간의 지층을 전 지구에서 알아볼 수 있는 표지(동위원소 비율, 특정 화석의 출현, 낙진 등)로 잡아야 한다. 예컨대 지금 우리가 사는 홀로세의 황금못은 그린란드 NGRIP 빙하 코어 속, 11,700년 전의 급격한 온난화 층이다(Walker 외 2009).</p>
+
+  <h3 id="crawford">크로포드 호수 · Crawford Lake</h3>
+  <p>온타리오 밀턴 근처의 작은 호수. 깊은 물이 위와 섞이지 않는 부분순환호(meromictic lake)라 바닥에 해마다 한 겹씩 연층(varve)이 쌓이고, 그래서 연 단위로 시간을 읽을 수 있다. 실무그룹이 고른 경계는 <b>1952년 연층</b>: 1952년 11월 1일 첫 수소폭탄 실험(아이비 마이크) 이후 전 지구에 떨어진 플루토늄(²³⁹⁺²⁴⁰Pu)이 이 층에서 급증한다. 같은 층에서 화석연료 연소의 구형 탄소 입자(SCP)와 질소 동위원소의 변화도 함께 나타난다. 2023년 4월에 뜬 동결 코어를 한 해씩 분석해 경계를 1952년 연층의 유기층 바닥으로 확정했다(McCarthy 외 2025).</p>
+
+  <h2 id="vote">2024년 3월의 결정<small>THE VOTE</small></h2>
+  <p>2024년 3월 4일에 끝난 SQS의 투표에서 인류세 제안은 <b>반대 12 · 찬성 4 · 기권 2</b>로 부결되었다(일부 보도는 기권 3). 통과에는 60 %의 찬성이 필요했다. 소위원회 의장이자 실무그룹 의장이던 얀 잘라시에비치(Jan Zalasiewicz)와 부의장 마틴 헤드(Martin Head)는 절차 위반을 주장하며 재심을 요구했으나, 3월 20일 IUGS는 투표가 유효하며 부결이 확정되었다는 성명을 냈다. 보도에 따르면 부결된 제안은 10년 동안 다시 상정할 수 없다.</p>
+  <div class="vote" aria-label="찬성 4 반대 12"><i class="y"></i><i class="y"></i><i class="y"></i><i class="y"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <p><b>반대의 이유</b>(보도에 인용된 위원들의 말을 요약하면): 인간이 지구를 바꾼 역사는 농경과 산업혁명까지 훨씬 길고 지역마다 다른 때에 시작되었으므로(통시적, diachronous), 1952년이라는 하나의 선은 그 역사를 잘못 자른다. 또 한 사람의 수명보다 짧은 70년을 지질시대 단위로 삼는 것이 지질학적으로 어색하다는 의견이 있었다.</p>
+  <p><b>IUGS 성명의 결론</b>: 그럼에도 '인류세'라는 말은 과학자뿐 아니라 정치인·경제학자·대중이 계속 쓸 것이며, "인간이 지구 시스템에 미친 영향을 서술하는 더없이 귀중한 말로 남을 것"이다.</p>
+  <div class="quote">“We are in the Anthropocene, irrespective of a line on the time scale.”<small>프랜신 매카시(Francine McCarthy, 브록 대학교, 크로포드 호수 연구 책임) — 뉴욕타임스, 2024년 3월 5일 보도에서</small></div>
+  <p>작품은 여기서 출발한다. 인류의 흔적은 어디에나 있는데, 그것을 물질의 한 점에 못 박을 수는 없었다. <b>개념과 기록 사이의 그 틈</b>이 이 작품이 들어가는 자리다.</p>
+
+  <h3 id="event">사건으로서의 인류세</h3>
+  <p>Gibbard 외 11명은 2022년 <i>Journal of Quaternary Science</i>에 "The Anthropocene as an Event, not an Epoch"를 발표해, 한 날짜의 경계 대신 수천 년에 걸쳐 지역마다 다르게 진행된 <b>지질학적 사건(event)</b>으로 인류세를 보자고 제안했다. 부결 뒤 IUGS도 이 틀을 언급했다. 작품은 어느 쪽 주장도 하지 않는다. 다만 '공식 기록'이 되지 못한 개념이라는 사실 자체를 재료로 쓴다.</p>
+
+  <h3 id="hyper">하이퍼객체 · Hyperobjects</h3>
+  <p>철학자 티머시 모턴(Timothy Morton)이 2013년 같은 제목의 책에서 쓴 말. <b>인간에 비해 시간과 공간에 거대하게 분산되어 있는 것들</b> — 지구온난화, 스티로폼, 플루토늄처럼 반감기가 수만 년인 것들. 그는 다섯 성질을 든다: 들러붙음(viscous), 비국소성(nonlocal), 시간의 굴곡(temporal undulation), 위상(phasing), 상호객체성(interobjective). 우리는 언제나 그 국소적 발현만을 만나며, 전체를 본 적이 없다. 작품이 관객에게 전체를 조망하는 시점을 주지 않는 이유다.</p>
+
+  <h3 id="trace">생흔화석 · 테크노화석</h3>
+  <p><b>생흔화석(trace fossil, ichnofossil)</b>은 생물의 몸이 아니라 활동의 자취가 남은 화석이다 — 발자국과 보행렬, 굴과 서식 구멍, 둥지, 분석(똥 화석). 뼈·껍데기 같은 <b>체화석(body fossil)</b>과 대비되며, 이를 연구하는 분야가 생흔학(ichnology)이다. 기록의 단위가 주체가 아니라 행위라는 생각은 여기서 왔다. <b>테크노화석(technofossil)</b>은 Zalasiewicz 외(2014)가 제안한 말로, 인간이 만든 물건과 구조(콘크리트, 플라스틱, 배관, 도시)가 미래 지층에 남길 화석을 가리킨다. 작품은 인류의 생흔화석을 도시의 주거·수로·길에서 찾는다.</p>
+
+  <h2 id="rules">작품의 규칙과 그 근거<small>THE RULES OF THE WORK</small></h2>
+  <p>작품은 건물·길·지층을 저장하지 않는다. 저장되는 것은 사건 목록뿐이고(누가, 언제, 어디), 땅은 그 목록을 매번 '접어서' 계산한다. 아래 표는 각 규칙의 한 줄과, 그 규칙이 기댄 분야를 잇는다. 수치는 작가가 고른 값.</p>
+  <table>
+    <tr><th>규칙</th><th>한 줄</th><th>값</th><th>기댄 문헌</th></tr>
+    <tr><td><b>콘크리트</b></td><td>시공간에서 존재가 촘촘한 자리에 슬래브가 선다. 한 순간이 아니라 창 안의 누적.</td><td>반경 3 · 창 600 s · 문턱 36 · 단위 15</td><td>생흔화석, 테크노화석 <a href="#n-zalasiewicz2014">↓</a></td></tr>
+    <tr><td><b>길</b></td><td>밟힌 정도 G가 오르고 아무도 안 밟으면 식생이 회복하며 내려간다. 문턱을 유지하는 통행만 길.</td><td>길 p ≥ 0.3</td><td>Helbing 1997 active walker <a href="#n-helbing1997">↓</a>, Physarum <a href="#n-tero2010">↓</a>, 욕망의 길</td></tr>
+    <tr><td><b>배관</b></td><td>건물과 포장이 땅을 봉인하면 빗물이 스며들지 못하고 흘러 나가며, 봉인 비율이 문턱을 넘은 구역은 땅 밑 배관으로 배수한다.</td><td>봉인 = 건물 또는 길 p ≥ 0.3 · 합리식 C ≈ 0.9 / 0.1</td><td>불투수면 모델 <a href="#n-schueler1994">↓</a>, 합리식, 도시 하천 매설 <a href="#n-elmore2008">↓</a></td></tr>
+    <tr><td><b>식생</b></td><td>밟힘과 무게에 눌려 물러나고, 사람이 없는 시간에만 돌아온다.</td><td>스트레스 합, 1 % 아래 절단</td><td>답압 실험 <a href="#n-cole1995">↓</a>, 회복 메타분석 <a href="#n-pescott2014">↓</a></td></tr>
+    <tr><td><b>지층</b></td><td>20초가 한 겹. 현재 9단 아래로 식생 모임 → 부패 → 융합 → 레진, 불변선 아래는 굽는다.</td><td>1단 = 20 s · 불변선 60단</td><td>타포노미 <a href="#n-taphonomy">↓</a>, 층서</td></tr>
+    <tr><td><b>상속</b></td><td>흩뿌리는 물건의 종류는 그 자리에 <i>남아 있는</i> 것의 구성을 따른다. 사라진 것은 물려받지 않는다.</td><td>Pólya urn · k = 20 · R = 4</td><td>Pólya 1923 <a href="#n-polya1923">↓</a>, 생태적 상속 <a href="#n-laland2003">↓</a>, 기준선 이동 <a href="#n-pauly1995">↓</a></td></tr>
+    <tr><td><b>수명·시야</b></td><td>한 번의 삶 180초, 시야 24. 곁에 6초 머물면 '머묾'.</td><td>180 s · 24 · 6 s</td><td>하이퍼객체 <a href="#hyper">↑</a></td></tr>
+    <tr><td><b>이름·화음</b></td><td>이름은 8칸 악보의 멜로디. 곁에 머물면 장소의 코드에 붙어 화음이 되고, 응답하면 새 어휘가 난다. 스피커에선 모두 두 옥타브 아래 한 덩어리.</td><td>stay × company · lock</td><td>장소의 7화음, Magenta 변주 <a href="#n-magenta">↓</a></td></tr>
+    <tr><td><b>기록표</b></td><td>삶이 끝나면 표본을 보는 말투의 기록 한 장: 어휘·군집·구조물·이동·식생·사인.</td><td>사인은 실제 한 일에서</td><td>유물 카드, 형성 과정 <a href="#n-schiffer1987">↓</a></td></tr>
+  </table>
+
+  <h2 id="lit">문헌<small>LITERATURE — BY BRANCH</small></h2>
+  <div id="entries"></div>
+
+  <h2 id="press">기사·링크<small>PRESS &amp; LINKS</small></h2>
+  <ul class="links-list">
+    <li><a href="https://www.nytimes.com/2024/03/05/climate/anthropocene-epoch-vote-rejected.html">Are We in the ‘Anthropocene,’ the Human Age? Nope, Scientists Say.</a><small>The New York Times · Raymond Zhong · 2024-03-05 — 부결 첫 보도, 매카시의 인용</small></li>
+    <li><a href="https://www.iugs.org/wp-content/uploads/2024/03/Anthropocene_short_IUGS-ICS_Statement-1.pdf">IUGS·ICS 성명 (PDF)</a><small>International Union of Geological Sciences · 2024-03-20 — 부결 승인, "invaluable descriptor"</small></li>
+    <li><a href="https://www.nature.com/articles/d41586-024-00675-8">Geologists reject the Anthropocene as Earth’s new epoch — after 15 years of debate</a><small>Nature news · Alexandra Witze · 2024-03</small></li>
+    <li><a href="https://www.nature.com/articles/d41586-024-00868-1">It’s final: the Anthropocene is not an epoch, despite protest over vote</a><small>Nature news · 2024-03-21</small></li>
+    <li><a href="https://www.cnn.com/2024/03/05/world/anthropocene-epoch-rejected-scn">Proposal to mark a new chapter in Earth’s history rejected, scientists say</a><small>CNN · 2024-03-05</small></li>
+    <li><a href="https://eos.org/articles/whats-next-for-the-anthropocene">What’s Next for the Anthropocene?</a><small>Eos (AGU) · 2024</small></li>
+    <li><a href="https://www.mt.co.kr/tech/2024/03/06/2024030610082619146">"인류세는 죽었다"… 올 8월 한국서 '인류세' 공표 무산될 듯</a><small>머니투데이 · 2024-03-06 — 한국어 보도 (2024년 8월 부산 세계지질과학총회를 앞두고)</small></li>
+    <li><a href="https://www.philstar.com/headlines/climate-and-environment/2024/03/24/2342961/no-human-era-earths-geological-history-scientists-say">No ‘human era’ in Earth’s geological history, scientists say</a><small>AFP · 2024-03-24 — IUGS 확정 보도</small></li>
+    <li><a href="https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2025EF007638">Science or Strategy? The Rejection of the Anthropocene Epoch Demands Transparency</a><small>Schäfer · Earth's Future · 2026 — 절차에 대한 뒤늦은 비판</small></li>
+    <li><a href="https://mappingignorance.org/2024/03/21/anthropocene-rejected-and-what-it-means-from-an-epistemological-perspective/">Anthropocene rejected — and what it means from an epistemological perspective</a><small>Mapping Ignorance · 2024-03-21</small></li>
+    <li><a href="http://quaternary.stratigraphy.org/working-groups/anthropocene/">Anthropocene Working Group</a><small>SQS 공식 페이지</small></li>
+    <li><a href="https://en.wikipedia.org/wiki/Anthropocene">Anthropocene</a> · <a href="https://ko.wikipedia.org/wiki/%EC%9D%B8%EB%A5%98%EC%84%B8">인류세</a> · <a href="https://en.wikipedia.org/wiki/Global_Boundary_Stratotype_Section_and_Point">GSSP</a> · <a href="https://en.wikipedia.org/wiki/Crawford_Lake_(Ontario)">Crawford Lake</a> · <a href="https://en.wikipedia.org/wiki/Trace_fossil">Trace fossil</a> · <a href="https://en.wikipedia.org/wiki/Desire_path">Desire path</a><small>Wikipedia</small></li>
+  </ul>
+
+  <footer><span>발견된 인류 · Homo inventus — Hayeon Park · ID40009 Graduation Design Studio · KAIST 2026</span><span><a href="index.html">발표 화면</a></span></footer>
+</main>
+
+<script>
+(function(){
+"use strict";
+// ── the branches: field → the works the rules lean on. Each leaf is one entry below the map. ─────────────────────
+const B=[
+ {id:"anthro",title:"인류세",en:"ANTHROPOCENE",nodes:[
+  {id:"crutzen2000",label:"Crutzen & Stoermer 2000",cite:"Crutzen, P. J. & Stoermer, E. F. (2000). The 'Anthropocene'. IGBP Global Change Newsletter 41: 17–18.",gist:"'인류세'라는 말의 제안. 18세기 후반 증기기관을 시작점으로 들었다.",role:"작품의 제목과 전제. '발견된 인류'는 이 시대를 먼 미래의 발굴로 본다.",links:[["원문(MPIC)","https://www.mpic.de/3864697/the-anthropocene"]]},
+  {id:"crutzen2002",label:"Crutzen 2002",cite:"Crutzen, P. J. (2002). Geology of mankind. Nature 415: 23.",gist:"한 쪽짜리 글로 인류세를 널리 알림. '인류가 지질학적 힘이 되었다.'",role:"배경.",links:[["DOI","https://doi.org/10.1038/415023a"]]},
+  {id:"steffen2015",label:"Steffen et al. 2015 · 대가속",cite:"Steffen, W., Broadgate, W., Deutsch, L., Gaffney, O. & Ludwig, C. (2015). The trajectory of the Anthropocene: The Great Acceleration. The Anthropocene Review 2(1): 81–98.",gist:"1750–2010년 사회경제 12지표와 지구시스템 12지표의 그래프. 1950년 이후 모든 곡선이 꺾여 오른다.",role:"20세기 중반을 시작점으로 삼은 근거. 작품의 '20초 = 지층 한 겹'은 이 압축된 시간의 비유.",links:[["DOI","https://doi.org/10.1177/2053019614564785"]]},
+  {id:"waters2016",label:"Waters et al. 2016",cite:"Waters, C. N. et al. (2016). The Anthropocene is functionally and stratigraphically distinct from the Holocene. Science 351: aad2622.",gist:"콘크리트·플라스틱·알루미늄·낙진·질소·탄소 등 인류세의 지층 표지를 종합.",role:"작품의 흔적 목록(콘크리트·배관·플라스틱)이 지층 표지라는 전제.",links:[["DOI","https://doi.org/10.1126/science.aad2622"]]},
+  {id:"awg",label:"인류세 실무그룹 2009–",cite:"Anthropocene Working Group (AWG), Subcommission on Quaternary Stratigraphy, ICS. 2009 결성, 2023 크로포드 호수 선정, 2023-10-31 제안서 제출.",gist:"15년 동안 공식 지질시대 제안을 준비한 과학자 모임.",role:"①의 '15년의 일'.",links:[["SQS 페이지","http://quaternary.stratigraphy.org/working-groups/anthropocene/"],["Wikipedia","https://en.wikipedia.org/wiki/Anthropocene_Working_Group"]]},
+  {id:"crawford",label:"크로포드 호수 · McCarthy 2025",cite:"McCarthy, F. M. G. et al. (2025). High-resolution analysis of the varved succession at Crawford Lake across the base of the proposed Crawfordian stage and Anthropocene series. The Anthropocene Review 12(2): 243–272.",gist:"1951/1952년 연층 사이의 플루토늄 급증(0.0031 Bq/g)이 1952년 11월 1일 첫 수소폭탄 실험과 맞는다. 경계 = 1952년 연층의 유기층 바닥.",role:"①의 '1952 · Pu' 한 줄.",links:[["PDF","https://carleton.ca/timpatterson/wp-content/uploads/McCarthy.2025.Anthropocene.Review.12.2.243-272.pdf"],["EGU24 초록","https://meetingorganizer.copernicus.org/EGU24/EGU24-13348.html"]]},
+  {id:"vote2024",label:"2024년 3월 부결",cite:"SQS 투표 2024-03-04 (반대 12 · 찬성 4 · 기권 2) · IUGS·ICS 성명 2024-03-20.",gist:"공식 지질시대 제안의 부결과 확정. '인류세'는 비공식 용어로 남는다.",role:"작품의 출발점 — 개념과 기록 사이의 틈.",links:[["NYT","https://www.nytimes.com/2024/03/05/climate/anthropocene-epoch-vote-rejected.html"],["IUGS 성명","https://www.iugs.org/wp-content/uploads/2024/03/Anthropocene_short_IUGS-ICS_Statement-1.pdf"],["Nature","https://www.nature.com/articles/d41586-024-00675-8"]]},
+  {id:"gibbard2022",label:"Gibbard et al. 2022 · 사건",cite:"Gibbard, P. L. et al. (2022). The Anthropocene as an Event, not an Epoch. Journal of Quaternary Science 37(3): 395–399.",gist:"하나의 날짜 대신, 수천 년에 걸쳐 지역마다 다르게 진행된 지질학적 사건으로 보자는 제안.",role:"부결 뒤 남은 틀. 작품은 이 논쟁에서 어느 편도 들지 않는다.",links:[["DOI","https://doi.org/10.1002/jqs.3416"]]},
+  {id:"morton2013",label:"Morton 2013 · 하이퍼객체",cite:"Morton, T. (2013). Hyperobjects: Philosophy and Ecology after the End of the World. University of Minnesota Press (Posthumanities 27).",gist:"인간에 비해 시간과 공간에 거대하게 분산된 것들. 우리는 그 국소적 발현만 만난다.",role:"⑤ 전지적 시점을 주지 않는 이유. 제한된 시야, 제한된 삶.",links:[["출판사","https://www.upress.umn.edu/book-division/books/hyperobjects"]]},
+ ]},
+ {id:"record",title:"화석과 기록",en:"RECORD",nodes:[
+  {id:"ichnology",label:"생흔화석 · 생흔학",cite:"Trace fossils (ichnofossils) · ichnology. Seilacher, A. (1950s–60s)가 체계화; Seilacher (2007). Trace Fossil Analysis. Springer.",gist:"몸이 아니라 활동의 자취가 남은 화석 — 발자국, 굴, 둥지, 분석. 체화석(body fossil)과 대비.",role:"② 기록의 단위는 주체가 아니라 행위.",links:[["Wikipedia","https://en.wikipedia.org/wiki/Trace_fossil"]]},
+  {id:"zalasiewicz2014",label:"Zalasiewicz et al. 2014 · 테크노화석",cite:"Zalasiewicz, J., Williams, M., Waters, C. N., Barnosky, A. D. & Haff, P. (2014). The technofossil record of humans. The Anthropocene Review 1(1): 34–43.",gist:"인간이 만든 물건과 구조가 미래 지층에 남길 '테크노화석'과 그 층서(technostratigraphy)를 제안.",role:"③ 인류의 생흔화석 = 콘크리트·길·배관. 작품의 모든 흔적은 테크노화석 후보.",links:[["DOI","https://doi.org/10.1177/2053019613514953"]]},
+  {id:"zalasiewicz2017",label:"Zalasiewicz et al. 2017 · 테크노스피어",cite:"Zalasiewicz, J. et al. (2017). Scale and diversity of the physical technosphere: A geological perspective. The Anthropocene Review 4(1): 9–22.",gist:"인간이 만든 물리적 테크노스피어의 질량을 약 30조 톤으로 추산.",role:"벽에 쌓이는 덩어리의 규모감.",links:[["DOI","https://doi.org/10.1177/2053019616677743"]]},
+  {id:"haff2014",label:"Haff 2014 · 테크노스피어",cite:"Haff, P. K. (2014). Technology as a geological phenomenon: implications for human well-being. Geological Society, London, Special Publications 395: 301–309.",gist:"기술권(technosphere)을 지질학적 규모의 준자율 시스템으로 본다. 개인은 큰 기술 시스템에 거의 영향을 주지 못한다.",role:"⑦ 분명히 남지만 혼자서는 바꿀 수 없는 전체.",links:[["DOI","https://doi.org/10.1144/SP395.4"]]},
+  {id:"corcoran2014",label:"Corcoran et al. 2014 · 플라스티글로머릿",cite:"Corcoran, P. L., Moore, C. J. & Jazvac, K. (2014). An anthropogenic marker horizon in the future rock record. GSA Today 24(6): 4–8.",gist:"하와이 해변에서 녹은 플라스틱이 모래·돌과 엉긴 돌 '플라스티글로머릿'을 미래 암석 기록의 표지층으로 제안.",role:"④ 벽의 '융합' 띠 — 서로 엉겨 붙어 하나가 되는 것.",links:[["DOI","https://doi.org/10.1130/GSAT-G198A.1"]]},
+  {id:"taphonomy",label:"타포노미 편향",cite:"Behrensmeyer, A. K. (1978). Taphonomic and ecologic information from bone weathering. Paleobiology 4(2): 150–162 · Kidwell, S. M. & Jablonski, D. (1983). Taphonomic feedback: ecological consequences of shell accumulation. In Tevesz & McCall (eds.), Biotic Interactions in Recent and Fossil Benthic Communities. Plenum · Kidwell, S. M. (2002).",gist:"화석 기록은 남기 쉬운 것(단단한 것)으로 치우친다. 쌓인 단단한 것들이 다음에 무엇이 쌓이고 남을지를 바꾼다(타포노미 되먹임).",role:"상속 규칙의 '사라진 것은 물려받지 않는다'와, 융합·화석 띠에서 오래된 층이 뼈처럼 변하는 것.",links:[["Behrensmeyer DOI","https://doi.org/10.1017/S0094837300005820"]]},
+  {id:"schiffer1987",label:"Schiffer 1987 · 형성 과정",cite:"Schiffer, M. B. (1987). Formation Processes of the Archaeological Record. University of New Mexico Press.",gist:"유물 기록이 만들어지는 문화적·자연적 과정. 1차·2차·방치 쓰레기(de facto refuse).",role:"⑦ 기록표: 유물 카드의 말투와, 남은 것이 쌓이는 방식이 기록을 만든다는 전제.",links:[]},
+ ]},
+ {id:"paths",title:"길",en:"PATHS",nodes:[
+  {id:"helbing1997",label:"Helbing et al. 1997 · 길 형성 모델",cite:"Helbing, D., Keltsch, J. & Molnár, P. (1997). Modelling the evolution of human trail systems. Nature 388: 47–50.",gist:"'능동 보행자' 모델. 땅에 밟힌 정도 G가 있고, 걸을 때마다 오르며(포화), 아무도 안 밟으면 식생이 회복해 내려간다. 걷는 사람은 목적지와 다져진 쪽 사이에서 타협해 걷고, 그래서 직선 이동이 저절로 굵은 줄기 몇 개로 묶인다.",role:"<b>길 규칙의 몸통.</b> 길 = 회복 속도를 이기는 통행만 남는 것. 작품의 봇도 목적지와 G가 높은 쪽 사이에서 걷는다.",links:[["DOI","https://doi.org/10.1038/40353"]]},
+  {id:"tero2010",label:"Tero et al. 2010 · Physarum",cite:"Tero, A. et al. (2010). Rules for biologically inspired adaptive network design. Science 327: 439–442.",gist:"점균(Physarum)이 도쿄 철도망과 닮은 그물을 만든다. 관은 흐르는 유량에 비례해 굵어지고 안 흐르면 사라진다.",role:"장소 사이의 연결 중 오래 유지된 줄기를 고르는 규칙(다리, 보류).",links:[["DOI","https://doi.org/10.1126/science.1177894"]]},
+  {id:"barthelemy2008",label:"Barthélemy & Flammini 2008",cite:"Barthélemy, M. & Flammini, A. (2008). Modeling urban street patterns. Physical Review Letters 100: 138702.",gist:"새로 생긴 중심이 기존 길망의 가장 가까운 점으로 이어지며 길망이 자란다 — 실제 도시 블록 패턴 재현.",role:"건물이 생긴 뒤 길이 거기에 '붙는' 방식.",links:[["DOI","https://doi.org/10.1103/PhysRevLett.100.138702"]]},
+  {id:"otto",label:"Frei Otto · 털실 실험",cite:"Otto, F. (2009). Occupying and Connecting: Thoughts on Territories and Spheres of Influence with Particular Reference to Human Settlement. Edition Axel Menges.",gist:"직선으로 이은 젖은 털실이 서로 붙으며, 우회는 조금 늘고 총길이는 크게 줄어드는 그물이 된다.",role:"길이 서로 묶여 줄기가 되는 것의 물리적 비유.",links:[]},
+  {id:"galin2010",label:"Galin et al. 2010 · 비용 최소 경로",cite:"Galin, E., Peytavie, A., Maréchal, N. & Guérin, E. (2010). Procedural generation of roads. Computer Graphics Forum 29(2): 429–438.",gist:"지형 비용이 최소인 경로로 도로를 긋는 절차적 생성.",role:"건물 칸 = 높은 비용 → 길이 건물 둘레로 휘어 가는 우회 규칙.",links:[["DOI","https://doi.org/10.1111/j.1467-8659.2009.01612.x"]]},
+  {id:"hillier1984",label:"Hillier & Hanson 1984 · 공간 구문",cite:"Hillier, B. & Hanson, J. (1984). The Social Logic of Space. Cambridge University Press.",gist:"공간의 연결 구조만으로 어디가 많이 다닐 곳인지 예측하는 공간 구문론(space syntax).",role:"생성보다 해석용. 보류.",links:[]},
+  {id:"desire",label:"욕망의 길 · desire path",cite:"Desire path (desire line). 계획된 길 대신 사람들이 반복해서 밟아 생긴 길.",gist:"잔디 위의 지름길. 도시계획의 선이 아니라 발의 투표.",role:"④ '걸으면 — 길이 다져진다'.",links:[["Wikipedia","https://en.wikipedia.org/wiki/Desire_path"]]},
+ ]},
+ {id:"water",title:"물과 배관",en:"WATER",nodes:[
+  {id:"schueler1994",label:"Schueler 1994 · 불투수면 모델",cite:"Schueler, T. R. (1994). The importance of imperviousness. Watershed Protection Techniques 1(3): 100–111.",gist:"유역의 불투수면(지붕·도로·주차장) 비율이 10–15 %를 넘으면 하천이 눈에 띄게 나빠진다는 '불투수면 모델'. 비율에 따라 민감·영향·비지원 하천으로 나눈다.",role:"<b>배관 규칙의 문턱.</b> 봉인된 땅의 비율이 문턱을 넘은 구역은 땅 밑 배관으로 배수한다.",links:[["서지","https://cawaterlibrary.net/document/the-importance-of-imperviousness/"]]},
+  {id:"rational",label:"합리식 Q = C·i·A",cite:"Rational method (Mulvaney 1851; Kuichling 1889). 유출량 Q = 유출계수 C × 강우강도 i × 면적 A.",gist:"지붕·포장 C ≈ 0.70–0.95, 잔디 C ≈ 0.05–0.35. 봉인된 땅일수록 빗물이 스며들지 못하고 흘러 나간다.",role:"작품의 물 모델: 봉인 비율로 유출을 계산하고 그 유출이 배관의 굵기를 정한다(상류의 유출 합).",links:[["Wikipedia","https://en.wikipedia.org/wiki/Rational_method"]]},
+  {id:"paulmeyer2001",label:"Paul & Meyer 2001",cite:"Paul, M. J. & Meyer, J. L. (2001). Streams in the urban landscape. Annual Review of Ecology and Systematics 32: 333–365.",gist:"도시화가 하천의 수문·형태·수질·생물을 어떻게 바꾸는지의 종합 리뷰.",role:"도시화 → 홍수·수로화의 배경.",links:[["DOI","https://doi.org/10.1146/annurev.ecolsys.32.081501.114040"]]},
+  {id:"walsh2005",label:"Walsh et al. 2005 · 도시 하천 증후군",cite:"Walsh, C. J. et al. (2005). The urban stream syndrome: current knowledge and the search for a cure. Journal of the North American Benthological Society 24(3): 706–723.",gist:"도시 하천이 공통으로 보이는 증상 — 급한 유출, 침식, 오염, 생물 감소 — 을 '증후군'으로 묶음.",role:"봉인된 땅의 물이 어디로 가는가.",links:[["DOI","https://doi.org/10.1899/04-028.1"]]},
+  {id:"shuster2005",label:"Shuster et al. 2005",cite:"Shuster, W. D., Bonta, J., Thurston, H., Warnemuende, E. & Smith, D. R. (2005). Impacts of impervious surface on watershed hydrology: A review. Urban Water Journal 2(4): 263–275.",gist:"불투수면이 유역 수문에 미치는 영향의 리뷰.",role:"불투수면 모델의 보강.",links:[["DOI","https://doi.org/10.1080/15730620500386529"]]},
+  {id:"elmore2008",label:"Elmore & Kaushal 2008 · 하천 매설",cite:"Elmore, A. J. & Kaushal, S. S. (2008). Disappearing headwaters: patterns of stream burial due to urbanization. Frontiers in Ecology and the Environment 6(6): 308–312.",gist:"도시화된 유역에서 작은 상류 하천의 상당수가 관 속에 묻혀 사라진다(urban stream burial).",role:"<b>④ '덮으면 — 배관이 묻힌다'.</b> 드문 곳에서는 물길로, 밀집한 곳에서는 땅 밑 배관으로.",links:[["DOI","https://doi.org/10.1890/070101"]]},
+  {id:"mccoll2017",label:"McColl et al. 2017 · 토양수분",cite:"McColl, K. A. et al. (2017). The global distribution and dynamics of surface soil moisture. Nature Geoscience 10: 100–104.",gist:"지표 토양수분은 비 뒤에 지수적으로 마른다.",role:"젖은 땅의 시간 규모(시간~주).",links:[["DOI","https://doi.org/10.1038/ngeo2868"]]},
+  {id:"gandy2002",label:"Gandy 2002 · Concrete and Clay",cite:"Gandy, M. (2002). Concrete and Clay: Reworking Nature in New York City. MIT Press.",gist:"뉴욕의 물·공원·도로를 통해 도시가 자연을 다시 만드는 과정을 읽는 도시 정치생태학.",role:"개념 참고: 콘크리트와 물은 함께 도시를 만든다.",links:[]},
+  {id:"swyngedouw2004",label:"Swyngedouw 2004",cite:"Swyngedouw, E. (2004). Social Power and the Urbanization of Water: Flows of Power. Oxford University Press.",gist:"물의 흐름이 곧 권력의 흐름이라는 도시 수자원의 정치생태학.",role:"개념 참고.",links:[["DOI","https://doi.org/10.1093/oso/9780198233916.001.0001"]]},
+ ]},
+ {id:"veg",title:"식생",en:"VEGETATION",nodes:[
+  {id:"cole1995",label:"Cole 1995 · 답압 실험",cite:"Cole, D. N. (1995). Experimental trampling of vegetation. I. Relationship between trampling intensity and vegetation response; II. Predictors of resistance and resilience. Journal of Applied Ecology 32: 203–214, 215–224.",gist:"18가지 식생에 0·25·75·200·500회 통과 실험. 피해는 비선형 — 약 75회 이하에서 급감한 뒤 포화. 생장형에 따라 저항과 회복이 다르다.",role:"<b>④ '걸으면'의 곡선.</b> 밟을수록 풀이 눌리고, 처음 몇 번이 가장 큰 피해.",links:[["DOI I","https://doi.org/10.2307/2404429"],["DOI II","https://doi.org/10.2307/2404430"]]},
+  {id:"colebayfield1993",label:"Cole & Bayfield 1993 · 표준 절차",cite:"Cole, D. N. & Bayfield, N. G. (1993). Recreational trampling of vegetation: standard experimental procedures. Biological Conservation 63: 209–215.",gist:"답압 실험의 표준 프로토콜(통과 횟수 단계).",role:"답압을 '통과 횟수'로 세는 틀.",links:[["DOI","https://doi.org/10.1016/0006-3207(93)90714-C"]]},
+  {id:"pescott2014",label:"Pescott & Stewart 2014 · 회복",cite:"Pescott, O. L. & Stewart, G. B. (2014). Assessing the impact of human trampling on vegetation: a systematic review and meta-analysis of experimental evidence. PeerJ 2: e360.",gist:"메타분석: 회복은 처음의 저항력·회복 시간·생장형에 달려 있고, 답압 강도 자체에는 크게 좌우되지 않는다.",role:"<b>④ '떠나면 — 풀이 돌아온다'.</b> 사람이 없는 시간이 회복을 정한다.",links:[["DOI","https://doi.org/10.7717/peerj.360"]]},
+  {id:"nowak2012",label:"Nowak & Greenfield 2012",cite:"Nowak, D. J. & Greenfield, E. J. (2012). Tree and impervious cover in the United States. Landscape and Urban Planning 107(1): 21–30.",gist:"미국 도시의 수관 35.1 %, 불투수면 17.5 %.",role:"도시에서 식생과 봉인된 땅의 비율감.",links:[["DOI","https://doi.org/10.1016/j.landurbplan.2012.04.005"]]},
+  {id:"kowarik2011",label:"Kowarik 2011 · 새로운 도시 생태계",cite:"Kowarik, I. (2011). Novel urban ecosystems, biodiversity, and conservation. Environmental Pollution 159(8–9): 1974–1983.",gist:"폐허와 틈새에 생기는 새로운 도시 생태계의 가치.",role:"버려진 자리에 돌아오는 풀.",links:[["DOI","https://doi.org/10.1016/j.envpol.2011.02.022"]]},
+  {id:"sukopp1983",label:"Sukopp & Werner 1983",cite:"Sukopp, H. & Werner, P. (1983). Urban environments and vegetation. In Holzner, Werger & Ikusima (eds.), Man's Impact on Vegetation. Junk.",gist:"도시 생태학의 고전 — 도시 환경이 식생을 어떻게 고르는가.",role:"배경.",links:[]},
+  {id:"tsing2015",label:"Tsing 2015 · 세계 끝의 버섯",cite:"Tsing, A. L. (2015). The Mushroom at the End of the World: On the Possibility of Life in Capitalist Ruins. Princeton University Press.",gist:"폐허에서의 삶, '오염으로서의 협력'.",role:"개념 참고: 사람이 떠난 자리에서 자라는 것.",links:[]},
+  {id:"clement",label:"Clément 2004 · 제3의 풍경",cite:"Clément, G. (2004). Manifeste du Tiers paysage. Éditions Sujet/Objet.",gist:"버려진 땅·길가·공터의 식생을 '제3의 풍경'으로 본다.",role:"개념 참고.",links:[]},
+ ]},
+ {id:"stat",title:"상속과 통계",en:"INHERITANCE · STATISTICS",nodes:[
+  {id:"polya1923",label:"Eggenberger & Pólya 1923 · 항아리",cite:"Eggenberger, F. & Pólya, G. (1923). Über die Statistik verketteter Vorgänge. ZAMM 3(4): 279–289.",gist:"항아리에서 공을 꺼내 같은 색을 하나 더 넣고 되돌리는 모형. 한 번 나온 것이 다시 나올 확률이 오른다.",role:"<b>상속 규칙의 수학.</b> p(물건) = (k·사전확률 + 그 자리의 생존자 수) / (k + 생존자 합) — 디리클레 사전분포를 둔 폴리아 항아리(디리클레-다항).",links:[["DOI","https://doi.org/10.1002/zamm.19230030407"],["Dirichlet-multinomial","https://en.wikipedia.org/wiki/Dirichlet-multinomial_distribution"]]},
+  {id:"arthur1989",label:"Arthur 1989 · 수확 체증",cite:"Arthur, W. B. (1989). Competing technologies, increasing returns, and lock-in by historical events. The Economic Journal 99(394): 116–131.",gist:"수확 체증 아래서는 초기의 작은 우연이 어느 기술을 고착(lock-in)시킨다 — 경로 의존.",role:"한 구석이 '플라스틱 자리'가 되는 양의 되먹임과, 그것을 막는 k(사전 가중치).",links:[["DOI","https://doi.org/10.2307/2234208"]]},
+  {id:"barabasi1999",label:"Barabási & Albert 1999",cite:"Barabási, A.-L. & Albert, R. (1999). Emergence of scaling in random networks. Science 286(5439): 509–512.",gist:"연결이 많은 노드가 더 많이 연결되는 선호적 연결(preferential attachment).",role:"같은 '부자가 더 부자' 기제.",links:[["DOI","https://doi.org/10.1126/science.286.5439.509"]]},
+  {id:"laland2003",label:"Odling-Smee, Laland & Feldman 2003 · 생태적 상속",cite:"Odling-Smee, F. J., Laland, K. N. & Feldman, M. W. (2003). Niche Construction: The Neglected Process in Evolution. Princeton University Press.",gist:"생물은 환경을 바꾸고, 후손은 바뀐 환경을 고르지 않고 물려받는다(생태적 상속).",role:"<b>상속 규칙의 핵심 이유.</b> 무엇을 남길지 정하지 않는다 — 남이 남긴 것을 물려받고, 내 남김은 그것에 조건 지어진다.",links:[["출판사","https://press.princeton.edu/books/paperback/9780691044378/niche-construction"]]},
+  {id:"pauly1995",label:"Pauly 1995 · 기준선 이동",cite:"Pauly, D. (1995). Anecdotes and the shifting baseline syndrome of fisheries. Trends in Ecology & Evolution 10(10): 430.",gist:"각 세대는 이미 바뀐 상태를 '원래'로 받아들인다 — 기준선 이동 증후군.",role:"앞선 이들의 구성이 다음 사람의 기준선이 된다.",links:[["DOI","https://doi.org/10.1016/S0169-5347(00)89171-5"]]},
+  {id:"cialdini1990",label:"Cialdini, Reno & Kallgren 1990",cite:"Cialdini, R. B., Reno, R. R. & Kallgren, C. A. (1990). A focus theory of normative conduct: Recycling the concept of norms to reduce littering in public places. Journal of Personality and Social Psychology 58(6): 1015–1026.",gist:"어질러진 환경은 '그래도 된다'는 서술적 규범을 신호해 쓰레기를 더 버리게 한다.",role:"환경의 상태가 다음 남김을 바꾼다는 방향. (양을 다루지 종류를 다루지는 않는다 — 작품의 종류 효과는 설계 선택.)",links:[["DOI","https://doi.org/10.1037/0022-3514.58.6.1015"]]},
+  {id:"keizer2008",label:"Keizer, Lindenberg & Steg 2008",cite:"Keizer, K., Lindenberg, S. & Steg, L. (2008). The spreading of disorder. Science 322(5908): 1681–1685.",gist:"보이는 무질서(낙서, 쓰레기)가 다른 규범 위반도 늘린다.",role:"같은 방향의 실험 증거.",links:[["DOI","https://doi.org/10.1126/science.1161405"]]},
+  {id:"jrc2016",label:"JRC 2016 · 해변 쓰레기 상위 품목",cite:"Addamo, A. M., Laroche, P. & Hanke, G. (2017). Top Marine Beach Litter Items in Europe. JRC Technical Report, EUR 29249 EN.",gist:"유럽 해변 쓰레기 조사의 상위 품목 빈도.",role:"흩뿌리는 물건의 사전 분포(prior).",links:[["DOI","https://doi.org/10.2760/496717"]]},
+ ]},
+ {id:"sound",title:"소리",en:"SOUND",nodes:[
+  {id:"placechord",label:"장소의 코드 · lock",cite:"작품 문서 docs/sound-logic.md §3 — 땅의 띠마다 모드 위에 3도를 네 개 쌓은 7화음(placeChord), 머묾 × 동행만큼 음이 코드톤에 붙는다(lock).",gist:"이름은 8칸 악보의 멜로디(모티프). 곁에 머물면 장소의 코드에 붙어 화음이 되고, 마디가 번갈아 부르고 답한다.",role:"⑥ 화음 → 콘크리트. 같은 사건이 개인에겐 음악, 전체엔 구조.",links:[]},
+  {id:"magenta",label:"Magenta MusicRNN · 변주",cite:"Google Magenta, MusicRNN / Music Transformer (Roberts, A. et al.; Huang, C.-Z. A. et al. 2018).",gist:"기계학습으로 멜로디를 이어 받는 즉흥. lock이 두 마디 이상 이어지면 내 프레이즈를 시드로 장소 코드 위에서 32스텝을 이어 받는다.",role:"⑥ 모티프의 변주 — 정체성은 유지하고 화음은 장소에서.",links:[["Magenta","https://magenta.tensorflow.org/"]]},
+  {id:"lowband",label:"저음 · 두 옥타브 아래",cite:"작품 문서 docs/sound-logic.md §10b — 전시실 스피커에서는 최근 창의 모든 모티프가 두 옥타브 아래 낮은 톱니파로, 하나의 저역통과 → 홀 → 포화를 거쳐 한 덩어리가 된다.",gist:"개인을 구별하기 어렵고 총량이 들린다.",role:"⑥ /저음. 전체의 소리.",links:[]},
+ ]},
+];
+
+// ── the entries ───────────────────────────────────────────────────────────────────────────────────────────────────
+const E=document.getElementById("entries");
+for(const b of B){
+  const h=document.createElement("h3"); h.id="b-"+b.id; h.innerHTML=`${b.title} <small class="mono" style="font-size:11px;color:var(--dim);margin-left:10px">${b.en}</small>`; E.appendChild(h);
+  for(const n of b.nodes){
+    const d=document.createElement("div"); d.className="entry"; d.id="n-"+n.id;
+    d.innerHTML=`<div class="k">${n.label}<small>${b.en}</small></div><div><div class="cite">${n.cite}</div><div class="gist">${n.gist}</div><div class="role">작품에서 — ${n.role}</div>${n.links.length?`<div class="links">${n.links.map(([t,u])=>`<a href="${u}" target="_blank" rel="noopener">${t} ↗</a>`).join("")}</div>`:""}</div>`;
+    E.appendChild(d);
+  }
+}
+
+// ── the mind map: the work in the middle, branches to both sides, each branch's works as a list ─────────────────
+const svg=document.getElementById("mm"), NS="http://www.w3.org/2000/svg";
+const el=(t,a,txt)=>{const e=document.createElementNS(NS,t); for(const k in a)e.setAttribute(k,a[k]); if(txt!=null)e.textContent=txt; return e;};
+const CX=800, CY=500, ROW=24, GAP=30, BX=330, BUS=470, LX=520;
+const g0=el("g",{"font-family":"Pretendard, sans-serif"}); svg.appendChild(g0);
+const sides={R:B.filter(b=>["anthro","record","paths","sound"].includes(b.id)), L:B.filter(b=>["water","veg","stat"].includes(b.id))};
+for(const side of ["R","L"]){
+  const list=sides[side], sgn=side==="R"?1:-1;
+  const total=list.reduce((a,b)=>a+b.nodes.length,0)*ROW+(list.length-1)*GAP;
+  let y=CY-total/2+ROW/2;
+  for(const b of list){
+    const n=b.nodes.length, y0=y, y1=y+(n-1)*ROW, by=(y0+y1)/2, bx=CX+sgn*BX, busx=CX+sgn*BUS;
+    // centre → branch
+    g0.appendChild(el("path",{d:`M${CX+sgn*98} ${CY} C ${CX+sgn*200} ${CY}, ${CX+sgn*220} ${by}, ${bx-sgn*72} ${by}`,fill:"none",stroke:"#55564f","stroke-width":1}));
+    const bg=el("g",{style:"cursor:pointer"}); bg.addEventListener("click",()=>location.hash="b-"+b.id);
+    bg.appendChild(el("rect",{x:bx-72,y:by-21,width:144,height:42,fill:"#0a0a0b",stroke:"#e9e9e5","stroke-width":1}));
+    bg.appendChild(el("text",{x:bx,y:by+1,"text-anchor":"middle",fill:"#e9e9e5","font-size":16,"font-weight":700},b.title));
+    bg.appendChild(el("text",{x:bx,y:by+16,"text-anchor":"middle",fill:"#9b9c97","font-size":9,"font-family":"Neo, monospace","letter-spacing":"1.5px"},b.en));
+    g0.appendChild(bg);
+    // branch → bus → leaves
+    g0.appendChild(el("line",{x1:bx+sgn*72,y1:by,x2:busx,y2:by,stroke:"#55564f","stroke-width":1}));
+    if(n>1)g0.appendChild(el("line",{x1:busx,y1:y0,x2:busx,y2:y1,stroke:"#3a3b38","stroke-width":1}));
+    b.nodes.forEach((nd,j)=>{
+      const ly=y0+j*ROW, lx=CX+sgn*LX;
+      g0.appendChild(el("line",{x1:busx,y1:ly,x2:lx-sgn*8,y2:ly,stroke:"#3a3b38","stroke-width":1}));
+      const lg=el("g",{style:"cursor:pointer"}); lg.addEventListener("click",()=>location.hash="n-"+nd.id);
+      const tt=el("title",{}); tt.textContent=nd.cite; lg.appendChild(tt);
+      lg.appendChild(el("rect",{x:lx-4,y:ly-4,width:8,height:8,fill:"#e9e9e5"}));
+      const t=el("text",{x:lx+sgn*12,y:ly+4,"text-anchor":sgn>0?"start":"end",fill:"#c9cac5","font-size":13},nd.label); lg.appendChild(t);
+      lg.addEventListener("mouseenter",()=>{t.setAttribute("fill","#ffffff");t.setAttribute("font-weight","700");});
+      lg.addEventListener("mouseleave",()=>{t.setAttribute("fill","#c9cac5");t.removeAttribute("font-weight");});
+      g0.appendChild(lg);
+    });
+    y=y1+ROW+GAP;
+  }
+}
+const cg=el("g",{}); cg.appendChild(el("rect",{x:CX-98,y:CY-36,width:196,height:72,fill:"#e9e9e5"}));
+cg.appendChild(el("text",{x:CX,y:CY-3,"text-anchor":"middle",fill:"#0b0b0b","font-size":22,"font-weight":700},"발견된 인류"));
+cg.appendChild(el("text",{x:CX,y:CY+19,"text-anchor":"middle",fill:"#3c3d3a","font-size":10,"font-family":"Neo, monospace","letter-spacing":"2px"},"THE RULES OF THE WORK"));
+svg.appendChild(cg);
+})();
+</script>
+</body>
+</html>

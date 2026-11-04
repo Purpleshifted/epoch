@@ -3,7 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>발견된 인류 — 발표 도해</title>
+<title>발견된 인류 — Homo inventus</title>
+<meta name="description" content="발견된 인류 (Homo inventus): 미래의 고고학자가 발굴하는 인류세. 참여형 미디어아트 설치의 발표 도해 — 부결된 황금못, 생흔화석, 모여 살기, 짓기 버튼 없는 세계, 하이퍼객체, 이름=멜로디, 남는 기록.">
+<meta name="theme-color" content="#0a0a0b">
+<meta property="og:title" content="발견된 인류 — Homo inventus">
+<meta property="og:description" content="미래의 고고학자들이 멸망한 인류를 발굴 중입니다. 현재의 당신은 무엇을 남기시겠습니까?">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
 @font-face{font-family:"Pretendard";font-weight:700;src:url("fonts/Pretendard-Bold.woff2") format("woff2")}
 @font-face{font-family:"Pretendard";font-weight:400;src:url("fonts/Pretendard-Regular.woff2") format("woff2")}
@@ -23,9 +29,21 @@ body.cursor{cursor:default}
 #h-homo{left:62px;top:68px;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;white-space:nowrap}
 #h-sec{right:60px;top:40px;font-family:Neo,monospace;font-size:15px;letter-spacing:.14em;color:#3c3d3a;white-space:nowrap;text-align:right}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
-#notice{left:64px;top:300px;width:820px;color:var(--white);opacity:0}
-#notice span{display:block;font-family:Neo,monospace;font-size:36px;line-height:1.7;white-space:nowrap}
-#notice p{margin:22px 0 0;font-size:18px;line-height:1.6;color:var(--dim)}
+#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#0a0a0b;display:none}
+#fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
+#fallback img{position:absolute;left:180px;top:-60px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%)}
+#shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(10,10,11,0) 0,rgba(10,10,11,.86) 45%,rgba(10,10,11,.96) 100%);display:none;pointer-events:none}
+#badge{right:64px;top:244px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
+#badge i{display:inline-block;width:8px;height:8px;background:var(--white);margin-right:10px;vertical-align:1px}
+#hint{left:0;top:1002px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f;display:none}
+#refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
+#refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:10px}
+#refs a:hover{border-bottom-color:var(--white)}
+#h-ref{right:60px;top:92px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#3c3d3a;text-decoration:none;white-space:nowrap}
+#ref0{right:80px;top:80px;font-family:Neo,monospace;font-size:12px;letter-spacing:.14em;color:#3c3d3a;text-decoration:none;white-space:nowrap}
+#notice{left:64px;top:760px;width:1100px;color:var(--white);opacity:0}
+#notice span{display:block;font-family:Neo,monospace;font-size:34px;line-height:1.6;white-space:nowrap}
+#notice p{margin:14px 0 0;font-size:16px;line-height:1.55;color:var(--dim)}
 #foot{left:160px;top:922px;width:1600px;opacity:0}
 #foot p{margin:0;font-size:34px;font-weight:700;line-height:1.25;letter-spacing:-.01em}
 #foot p.ko{font-size:18px;font-weight:400;color:var(--dim);margin-top:10px}
@@ -40,7 +58,15 @@ body.cursor{cursor:default}
 <body>
 <div id="stage">
   <div id="sky"></div>
+  <iframe id="live" title="발견된 인류 — 벽의 시공간 (라이브)" allow="autoplay" referrerpolicy="no-referrer"></iframe>
+  <div id="fallback"><img src="assets/structure.webp" alt="벽의 기둥 렌더"></div>
+  <div id="shade"></div>
   <canvas id="cv" width="1920" height="1080"></canvas>
+  <div id="badge" class="abs"><i></i><span>LIVE</span></div>
+  <a id="ref0" class="abs" href="references.html">참고 자료 · REFERENCES ↗</a>
+  <a id="h-ref" class="abs" href="references.html">REFERENCES ↗</a>
+  <div id="hint" class="abs">→ 또는 클릭: 다음 · ← 이전 · 1–7 구간 · F 전체 화면</div>
+  <div id="refs" class="abs"></div>
   <div id="title" class="abs">발견된 인류</div>
   <div id="homo" class="abs">HOMO INVENTUS</div>
   <div id="kaist" class="abs">KAIST · 2026</div>
@@ -113,12 +139,33 @@ const KEY=[["",""],
   ["This work refuses the omniscient view.","전체를 한눈에 보게 하는 순간 인류세는 조종 가능한 모형이 된다 — 그래서 제한된 시야, 제한된 삶."],
   ["The same event, at two different scales.","개인에겐 음악의 순간, 전체에겐 구조의 한 칸. 겹쳐도 가리지 않는다."],
   ["현재의 당신은 무엇을 남기시겠습니까?","What will the present you leave behind? — 분명히 남지만 혼자서는 바꿀 수 없는 전체 앞에서, 한 사람은 어떤 마음으로 행동을 정해야 하는가.","neo"]];
+const REFS={
+  1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS 성명","n-vote2024"],["Gibbard et al. 2022","n-gibbard2022"]],
+  2:[["생흔화석 · ichnology","n-ichnology"],["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Behrensmeyer 1978 · 타포노미","n-taphonomy"]],
+  3:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"],["Schueler 1994","n-schueler1994"],["Elmore & Kaushal 2008","n-elmore2008"]],
+  4:[["Helbing et al. 1997","n-helbing1997"],["Cole 1995","n-cole1995"],["Pescott & Stewart 2014","n-pescott2014"],["Schueler 1994","n-schueler1994"],["Q = C·i·A","n-rational"],["Pólya 1923","n-polya1923"]],
+  5:[["Morton 2013","n-morton2013"],["Haff 2014","n-haff2014"]],
+  6:[["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
+  7:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
+};
+const LIVE_URL="https://anthropocene-mu.vercel.app/v2/global/lab?ui=0&sound=mute";
 let step=0, prev=-1, stepAt=performance.now(), now=performance.now();
 const U=()=>(now-stepAt)/1000;
 const stepsEl=$("#steps"); for(let i=0;i<STEPS;i++) stepsEl.appendChild(document.createElement("i"));
 const N1="미래의 고고학자들이 멸망한 인류를 발굴 중입니다.", N2="현재의 당신은 무엇을 남기시겠습니까?";
 
-/* ---------- step 0: the title ---------- */
+/* ---------- step 0: the title over the live wall ---------- */
+const live=$("#live"), liveWanted=q.get("live")!=="0"&&!q.has("still")&&innerWidth>=760&&!matchMedia("(prefers-reduced-motion: reduce)").matches;
+let liveState="off", liveTimer=0; // off | loading | on | failed
+function liveOn(){
+  if(liveState!=="off"&&liveState!=="failed")return;
+  if(!liveWanted){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — 벽의 기둥 (렌더)";return;}
+  liveState="loading"; live.src=LIVE_URL+(q.has("rate")?`&rate=${q.get("rate")}`:""); live.style.display="block";
+  $("#badge").querySelector("span").textContent="LIVE — 벽의 시공간, 지금 렌더링 중 · anthropocene-mu.vercel.app";
+  liveTimer=setTimeout(()=>{if(liveState==="loading"){liveState="failed";live.style.display="none";live.src="about:blank";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — 벽의 기둥 (렌더)";}},12000);
+  live.onload=()=>{if(liveState==="loading"){liveState="on";clearTimeout(liveTimer);}};
+}
+function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
   $("#title").style.clipPath=`inset(0 ${(100*(1-on(u,0.3,0.9))).toFixed(2)}% 0 0)`;
   $("#homo").style.opacity=on(u,1.0,0.7); $("#kaist").style.opacity=on(u,1.2,0.7);
@@ -129,6 +176,7 @@ function s0(u,g){
   $("#notice").style.opacity=on(u,0.6,0.3).toFixed(3);
   // the ground's pixel edge under the sky
   for(let c=0;c<W/12;c++){const r=hash(c,17); const d=r<0.5?0:r<0.85?12:24; fill(c*12,220,12,d,"#dfe0db",1);}
+  if(liveState==="failed"){const im=$("#fallback img"); im.style.transform=`translateY(${(-40+Math.sin(g*0.08)*40).toFixed(1)}px)`;}
 }
 
 /* ---------- ① the golden spike, rejected ---------- */
@@ -375,8 +423,10 @@ function render(){
   ctx.clearRect(0,0,W,H);
   const t0=step===0;
   $("#sky").style.height=t0?"220px":"110px";
-  for(const id of ["#title","#homo","#kaist","#notice","#credit"]) $(id).style.display=t0?"":"none";
-  for(const id of ["#h-title","#h-homo","#h-sec","#foot"]) $(id).style.display=t0?"none":"";
+  for(const id of ["#title","#homo","#kaist","#notice","#shade","#badge","#hint","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none";
+  for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
+  if(t0)liveOn(); else liveOff();
+  if(!t0&&REFS[step]){$("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join(""); $("#refs").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][1]; $("#h-sec span").textContent=SEC[step][0].toUpperCase();
     $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
