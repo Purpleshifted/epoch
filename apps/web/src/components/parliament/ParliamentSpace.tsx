@@ -15,8 +15,8 @@
  * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { scenarioOf } from "@/lib/parliament/scenario";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { scenarioOf, type ShotPose } from "@/lib/parliament/scenario";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
@@ -1307,10 +1307,15 @@ function StageCamera({
   auto,
   link,
   status,
+  shot = null,
+  shotSec,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   pose: StagePose;
   turnSec: number;
+  /** A SCENARIO'S SHOT (scenario.ts, the presentation site): the camera this second, by the scenario's clock. */
+  shot?: ((sec: number) => ShotPose) | null;
+  shotSec?: () => number;
   dir: 1 | -1;
   maxPolarDeg: number;
   /** Off in the lab, which has its own column to look at. */
@@ -1323,6 +1328,8 @@ function StageCamera({
   status: React.MutableRefObject<HTMLDivElement | null>;
 }) {
   const dragging = useRef(false);
+  /** The scenario shot's azimuth (rad), carried on from frame to frame. */
+  const shotAz = useRef(pose.azimuth * DEG);
   /** The next auto frame eases in from where the camera is (a drag ended, a stall, the run switched on). */
   const resync = useRef(false);
   useEffect(() => {
@@ -1377,6 +1384,21 @@ function StageCamera({
         wasAuto.current = false;
         link.current.lift = null; // the follow reads the slider again; the pose effect above puts the camera back
         if (status.current) status.current.textContent = "";
+      }
+      if (shot && shotSec && !dragging.current) {
+        // the scenario's camera: the look point and the lift from the script, the turn carried on from frame to frame
+        const p = shot(shotSec());
+        shotAz.current += turnSec > 0 ? (dir * 2 * Math.PI * Math.min(dt, 0.1)) / turnSec : 0;
+        link.current.lift = p.lift;
+        o.target.x = p.lookX;
+        o.target.z = p.lookZ;
+        const polar = THREE.MathUtils.clamp(p.polar, 0.5, maxPolarDeg) * DEG;
+        const r = Math.max(1, p.dist);
+        o.object.position.x = o.target.x + r * Math.sin(polar) * Math.sin(shotAz.current);
+        o.object.position.y = o.target.y + r * Math.cos(polar);
+        o.object.position.z = o.target.z + r * Math.sin(polar) * Math.cos(shotAz.current);
+        o.update();
+        return;
       }
       if (turnSec <= 0 || dragging.current) return;
       const a = (dir * 2 * Math.PI * Math.min(dt, 0.1)) / turnSec;
@@ -1701,6 +1723,17 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     const t = setTimeout(() => levaStore.setValueAtPath("시간축.timeRate", Math.min(rate, 20), true), 400);
     return () => clearTimeout(t);
   }, [lab, params, scenario]);
+  // the scenario's clock: seconds since this lab opened (its bots start a moment later, the same for every run)
+  const labT0 = useMemo(() => clk.now(), [clk]);
+  const shotSec = useCallback(() => (clk.now() - labT0) / 1000, [clk, labT0]);
+  // a scenario with a pace of its own (scenario.ts `rate`): the clock's rate follows it, checked every second
+  useEffect(() => {
+    const sched = scenario?.rate;
+    if (!lab || !sched) return;
+    const tick = () => { const r = Math.min(20, sched(shotSec())); if (r !== clk.rate()) levaStore.setValueAtPath("시간축.timeRate", r, true); };
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lab, scenario, clk, shotSec]);
   // SNAPSHOTS FOR THE SITE'S PIXEL LAYER (2026-11-04): `?snap=1` inside a frame posts a small bitmap of the view to the
   // parent five times a second (pixels only); the lab keeps its drawing buffer, so the canvas can be read any time
   useEffect(() => {
@@ -1984,7 +2017,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     camMode === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 }
     : camMode === "close" ? { ...cam, camAuto: false, camLift: 0, camPolar: 50, camDist: 11, camLook: [0, 0] as [number, number], camTurnSec: 90 }
     : camMode === "turn" ? { ...cam, camAuto: false, camLift: -48, camPolar: 72, camDist: 140, camLook: [0, 0] as [number, number], camTurnSec: 60 }
+    : camMode === "shot" ? { ...cam, camAuto: false, camLift: 0, camPolar: 50, camDist: 14, camLook: [0, 0] as [number, number], camTurnSec: 120 }
     : cam;
+  // `shot` = the scenario's own camera, by its clock (scenario.ts `cam`): one continuous move over the whole scene
+  const shot = lab && camMode === "shot" && scenario?.cam ? scenario.cam : null;
   // and, in the lab only, numbers on the address refine any of these: `?dist=60&polar=78&lift=-12&turnsec=60` (the
   // presentation site tunes its framings this way, 2026-11-04; the exhibition never passes them)
   const camNum = (k: string, d: number): number => { if (!lab || !params.has(k)) return d; const v = Number(params.get(k)); return Number.isFinite(v) ? v : d; };
@@ -2911,6 +2947,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           controls={controls}
           pose={{ dist: camView.camDist, polar: camView.camPolar, azimuth: camView.camAzimuth, look: camView.camLook }}
           turnSec={camView.camTurnSec}
+          shot={shot}
+          shotSec={shotSec}
           dir={cam.camDir as 1 | -1}
           maxPolarDeg={isV2 ? 179.5 : 89.8}
           active={!lab}

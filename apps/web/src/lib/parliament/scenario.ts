@@ -16,7 +16,16 @@
  * Pure and deterministic: the same (i, sec) always gives the same place.
  */
 
-export type ScenarioKind = "slab" | "path" | "pipe" | "veg";
+export type ScenarioKind = "slab" | "path" | "pipe" | "veg" | "all";
+
+/** Where the camera is at a second of the scenario (`?cam=shot`): on its sphere around the look point, lifted from the present. */
+export interface ShotPose {
+  dist: number;
+  polar: number;
+  lift: number;
+  lookX: number;
+  lookZ: number;
+}
 
 export interface Scenario {
   kind: ScenarioKind;
@@ -24,6 +33,10 @@ export interface Scenario {
   count: number;
   /** Where bot i is at second `sec` of the scenario, or null while it is away. */
   at(i: number, sec: number): { x: number; z: number } | null;
+  /** The clock's rate at second `sec` (world seconds), when the scenario sets its own pace. */
+  rate?(sec: number): number;
+  /** The camera at second `sec`, when the scenario carries its own shot (`?cam=shot`). */
+  cam?(sec: number): ShotPose;
 }
 
 const h = (a: number, b: number): number => {
@@ -40,13 +53,101 @@ const walk = (a: [number, number], b: [number, number], t0: number, dur: number,
 /** A small standing drift so a stay is not one frozen point. */
 const breathe = (i: number, sec: number, r = 0.15): [number, number] => [Math.sin(sec * 0.31 + i * 1.7) * r, Math.cos(sec * 0.27 + i * 2.3) * r];
 
+/**
+ * Back and forth between a and b at a steady pace (world/s), `dwell` seconds at each end; `phase` 0–1 shifts where in
+ * the round trip it starts. A steady pace treads every cell of the way alike (an eased walk lingers at the ends, so the
+ * ends get trodden and the middle hardly).
+ */
+const shuttle = (a: [number, number], b: [number, number], speed: number, dwell: number, t: number, phase = 0): [number, number] => {
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1]), leg = d / speed, cyc = 2 * (leg + dwell);
+  let u = ((((t / cyc + phase) % 1) + 1) % 1) * cyc;
+  if (u < leg) { const m = u / leg; return [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m]; }
+  u -= leg; if (u < dwell) return [b[0], b[1]];
+  u -= dwell; if (u < leg) { const m = u / leg; return [b[0] + (a[0] - b[0]) * m, b[1] + (a[1] - b[1]) * m]; }
+  return [a[0], a[1]];
+};
+/** Around a place: a ring position for bot i (so several can stay in one place without standing in one point). */
+const around = (p: [number, number], i: number, sec: number, d = 0.6): { x: number; z: number } => {
+  const ang = i * 2.4 + 0.6; const [bx, bz] = breathe(i, sec);
+  return { x: p[0] + Math.cos(ang) * d + bx, z: p[1] + Math.sin(ang) * d + bz };
+};
+/** Interpolation between keyframes [sec, ...values], eased; before the first / after the last it holds. */
+const keyed = (keys: number[][], sec: number): number[] => {
+  if (sec <= keys[0][0]) return keys[0].slice(1);
+  for (let k = 1; k < keys.length; k++) {
+    if (sec <= keys[k][0]) { const a = keys[k - 1], b = keys[k], m = smooth((sec - a[0]) / (b[0] - a[0])); return a.slice(1).map((v, j) => v + (b[j + 1] - v) * m); }
+  }
+  return keys[keys.length - 1].slice(1);
+};
+
 const SLAB_PLACES: [number, number][] = [
   [0, 0],
   [9, 4],
   [-8, 6],
 ];
 
+/**
+ * ALL IN ONE SHOT (the artist, 2026-11-04 evening: the cuts between scenes were awkward — one crowd, one scenario, one
+ * camera): ten people gather at P0 (a slab in seconds), three move on to P1 and two keep walking between (a walkway is
+ * laid along the trodden way — the wall draws a path as a line only between buildings; on bare ground it is a gap in
+ * the grass), three more settle at P2 with a third walker (pipes once the quarter is sealed), then at 200 s everyone
+ * leaves — the grass comes back — and the clock runs ×20: the strata sink and fossilise under the camera, which pulls
+ * back and tilts to look beneath the ground. World seconds throughout.
+ */
+const P0: [number, number] = [0, 0], P1: [number, number] = [12, 3], P2: [number, number] = [2, -11];
+const T_LEAVE = 200, T_GONE = 216;
+const far = (i: number): [number, number] => [Math.cos(i * 1.3) * 45, Math.sin(i * 1.3) * 45];
+function allPos(i: number, sec: number): { x: number; z: number } {
+  const pt = (p: [number, number]) => ({ x: p[0], z: p[1] });
+  const ring = (p: [number, number], k: number): [number, number] => [p[0] + Math.cos(k * 2.4 + 0.6) * 0.6, p[1] + Math.sin(k * 2.4 + 0.6) * 0.6];
+  switch (i) {
+    case 0: return around(P0, i, sec);
+    case 1: case 2: case 3:
+      if (sec < 90) return around(P0, i, sec);
+      if (sec < 100) return pt(walk(ring(P0, i), ring(P2, i), 90, 10, sec));
+      return around(P2, i, sec);
+    case 4: return sec < 25 ? around(P0, i, sec) : pt(shuttle(P0, P1, 1.6, 1.5, sec - 25, 0));
+    case 5:
+      if (sec < 25) return around(P0, i, sec);
+      if (sec < 100) return pt(shuttle(P0, P1, 1.6, 1.5, sec - 25, 0.5));
+      return pt(shuttle(P0, P2, 1.6, 1.5, sec - 100, 0));
+    case 6: case 7: case 8:
+      if (sec < 30) return around(P0, i, sec);
+      if (sec < 40) return pt(walk(ring(P0, i), ring(P1, i), 30, 10, sec));
+      return around(P1, i, sec);
+    default:
+      if (sec < 40) return around(P0, i, sec);
+      if (sec < 60) return pt(walk(ring(P0, i), P1, 40, 20, sec));
+      return pt(shuttle(P1, P2, 1.6, 1.5, sec - 60, 0.3));
+  }
+}
+const ALL: Scenario = {
+  kind: "all",
+  count: 10,
+  at(i, sec) {
+    if (sec >= T_GONE) return null;
+    if (sec >= T_LEAVE) { const p = allPos(i, T_LEAVE); const [x, z] = walk([p.x, p.z], far(i), T_LEAVE, T_GONE - T_LEAVE, sec); return { x, z }; }
+    return allPos(i, sec);
+  },
+  rate: (sec) => (sec < T_GONE ? 3 : sec < 260 ? 6 : 20),
+  cam(sec) {
+    // [sec, dist, polar, lift, lookX, lookZ]: close on the first slab, out to the three places, then (the clock ×20)
+    // back and down to the strata beneath
+    const [dist, polar, lift, lookX, lookZ] = keyed([
+      [0, 14, 50, 0, 0, 0],
+      [30, 14, 50, 0, 0, 0],
+      [70, 32, 56, 0, 5, -3],
+      [200, 34, 56, 0, 5, -3],
+      [262, 50, 76, -4, 5, -3],
+      [700, 96, 80, -12, 5, -3],
+      [1600, 124, 82, -22, 5, -3],
+    ], sec);
+    return { dist, polar, lift, lookX, lookZ };
+  },
+};
+
 export const SCENARIOS: Record<ScenarioKind, Scenario> = {
+  all: ALL,
   slab: {
     kind: "slab",
     count: 4,
