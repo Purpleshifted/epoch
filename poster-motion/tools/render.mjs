@@ -9,7 +9,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
-const FPS = +(process.env.FPS || 30), DUR = +(process.env.DUR || 63), STILL = +(process.env.STILL || 60);
+const FPS = +(process.env.FPS || 30), DUR = +(process.env.DUR || 100), STILL = +(process.env.STILL || 98);
 const PORT = +(process.env.PORT || 9339);
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const OUT = path.resolve(HERE, "../out"), FR = path.join(OUT, "frames");
@@ -31,7 +31,7 @@ const ev = async (expression) => { const r = await send("Runtime.evaluate", { ex
 
 await send("Page.enable");
 await send("Emulation.setDeviceMetricsOverride", { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false });
-await send("Page.navigate", { url: `file://${path.resolve(HERE, "../index.html")}?still=1` });
+await send("Page.navigate", { url: `file://${path.resolve(HERE, "../" + (process.env.PAGE || "index.html"))}?still=1` });
 for (let i = 0; i < 100; i++) { try { if (await ev("!!window.__ready")) break; } catch {} await sleep(200); }
 await ev("window.__ready");
 const frame = () => ev("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");

@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>발견된 인류 — 발표 화면</title>
+<style>
+@font-face{font-family:"Pretendard";font-weight:700;src:url("fonts/Pretendard-Bold.woff2") format("woff2")}
+@font-face{font-family:"Pretendard";font-weight:400;src:url("fonts/Pretendard-Regular.woff2") format("woff2")}
+@font-face{font-family:"Neo";src:url("fonts/neodgm.woff2") format("woff2")}
+:root{--sky0:#dfe0db;--sky1:#d7d8d3;--ink:#0b0b0b;--g0:#17181a;--g1:#0a0a0b;--white:#e9e9e5;--dim:#9b9c97;--faint:#55564f}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
+body.cursor{cursor:default}
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;overflow:hidden;
+  background:linear-gradient(180deg,var(--sky0) 0,var(--sky1) 220px,var(--sky1) 100%);color:var(--ink);
+  font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;font-weight:400;word-break:keep-all;-webkit-font-smoothing:antialiased}
+#ground{position:absolute;left:0;top:220px;width:1920px;height:860px;background:linear-gradient(180deg,var(--g0) 0,var(--g1) 100%)}
+#cv{position:absolute;left:0;top:0;width:1920px;height:1080px}
+.abs{position:absolute}
+#title{left:60px;top:38px;font-size:122px;font-weight:700;line-height:.96;letter-spacing:-.02em;white-space:nowrap}
+#homo{left:66px;top:168px;font-size:24px;letter-spacing:11px;line-height:1;white-space:nowrap}
+#kaist{right:80px;top:52px;font-size:15px;letter-spacing:.14em;color:#3c3d3a;white-space:nowrap}
+#notice{left:64px;top:300px;width:820px;color:var(--white);opacity:0}
+#notice span{display:block;font-family:Neo,monospace;font-size:36px;line-height:1.7;white-space:nowrap}
+#notice p{margin:22px 0 0;font-size:18px;line-height:1.6;color:var(--dim)}
+.tag{color:var(--white);font-weight:700;font-size:24px;line-height:1.05;white-space:nowrap;opacity:0}
+.tag small{display:block;font-family:Neo,monospace;font-weight:400;font-size:13px;letter-spacing:.09em;color:var(--dim);margin-top:5px}
+.cap{left:64px;top:296px;width:500px;color:var(--white);opacity:0}
+.cap p{margin:0;font-size:36px;line-height:1.3;font-weight:700;letter-spacing:-.01em}
+.cap p.ko{font-size:19px;line-height:1.55;font-weight:400;color:var(--white);margin-top:14px}
+.cap p.e{font-size:16px;line-height:1.55;font-weight:400;color:var(--dim);margin-top:10px}
+.cap p.rule{font-size:30px;opacity:0;line-height:1.35}
+.cap p.rule i{font-style:normal;font-weight:400;font-size:17px;color:var(--dim);margin-left:10px}
+.cap p.key{margin-top:16px;font-size:30px;opacity:0}
+.cap p.q{font-family:Neo,monospace;font-weight:400;font-size:30px;margin-top:18px}
+.box{left:64px;top:762px;width:230px;height:230px;opacity:0}
+.box svg,.box img{position:absolute;left:0;top:0;width:230px;height:230px;display:block}
+.box img{filter:grayscale(1) brightness(1.08)}
+.sign{width:88px;opacity:0}
+.sign svg{display:block}
+.sign b{display:block;font-size:14px;font-weight:700;color:var(--white);margin-top:9px;white-space:nowrap}
+.sign small{display:block;font-family:Neo,monospace;font-size:10.5px;letter-spacing:.07em;color:var(--dim);margin-top:3px;white-space:nowrap}
+#credit{left:64px;top:1030px;width:1776px;display:flex;justify-content:space-between;font-size:14px;line-height:1.45;letter-spacing:.01em;color:var(--white);opacity:.8}
+#credit div+div{text-align:right}
+#steps{left:0;top:1064px;width:1920px;display:flex;justify-content:center;gap:6px}
+#steps i{display:block;width:28px;height:2px;background:#3a3b38}
+#steps i.on{background:var(--white)}
+#hud{position:fixed;left:8px;bottom:6px;font:12px/1.3 ui-monospace,monospace;color:#5a5a5a;opacity:0}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="ground"></div>
+  <canvas id="cv" width="1920" height="1080"></canvas>
+
+  <div id="title" class="abs">발견된 인류</div>
+  <div id="homo" class="abs">HOMO INVENTUS</div>
+  <div id="kaist" class="abs">KAIST · 2026</div>
+
+  <!-- step 0: the two sentences, typed -->
+  <div id="notice" class="abs"><span id="n1"></span><span id="n2"></span><p>Future archaeologists are excavating extinct humanity.<br>You, in the present: what will you leave?</p></div>
+
+  <!-- floating tags (the evolution-plate grammar): short slash labels, hairlines into the structure -->
+  <div class="tag abs" data-id="spike" style="left:600px;top:240px">/황금못<small>GOLDEN SPIKE · 2024.03 · 4 : 12</small></div>
+  <div class="tag abs" data-id="path" style="left:600px;top:326px">/길<small>PATH</small></div>
+  <div class="tag abs" data-id="pipe" style="left:600px;top:400px">/배관<small>PIPE</small></div>
+  <div class="tag abs" data-id="conc" style="left:600px;top:566px">/콘크리트<small>CONCRETE</small></div>
+  <div class="tag abs" data-id="strata" style="left:600px;top:700px">/지층<small>ONE STRATUM = 20 S</small></div>
+  <div class="tag abs" data-id="sight" style="left:600px;top:830px">/시야<small>LIMITED SIGHT</small></div>
+  <div class="tag abs" data-id="map" style="left:64px;top:722px">/생흔<small>TRACE FOSSIL · 개체 5051 · ONE LIFE · 03:00</small></div>
+  <div class="tag abs" data-id="plan" style="left:64px;top:722px">/공동체<small>COMMUNITY · 18 BEINGS · 22 MIN</small></div>
+
+  <!-- the captions: the script's own key sentences, one per beat -->
+  <div class="cap abs" data-id="c1"><p>That gap, between the concept and its record, is where this work begins.</p><p class="ko">개념과 기록 사이의 그 틈에서 이 작품은 시작한다.</p><p class="e">March 2024, SQS vote 4 : 12 — “We are in the Anthropocene, irrespective of a line on the time scale.”</p></div>
+  <div class="cap abs" data-id="c2"><p>A fossil of behaviour, not of the body.</p><p class="ko">몸이 아니라 행동이 남는다.</p><p class="e">Footprints, burrows, nests — the unit of the record is not the subject but the act.</p></div>
+  <div class="cap abs" data-id="c3"><p>Living together.</p><p class="ko">인간이 가장 오래, 가장 촘촘히 반복한 행동 — 모여 살기.</p><p class="e">Concrete foundations, compacted paths, and the pipes laid beneath them.</p></div>
+  <div class="cap abs" data-id="c4"><p class="rule">Stay <i>머물면 — 콘크리트가 선다</i></p><p class="rule">Walk <i>걸으면 — 길이 다져진다</i></p><p class="rule">Seal <i>덮으면 — 배관이 묻힌다</i></p><p class="rule">Leave <i>떠나면 — 풀이 돌아온다</i></p><p class="key">Seen from the future, our ordinary days are already the object of excavation.</p><p class="e">No “build” button: every structure is a byproduct of staying and walking. Twenty seconds of real time becomes one stratum.</p></div>
+  <div class="cap abs" data-id="c5"><p>This work refuses the omniscient view.</p><p class="ko">전체는 끝내 보이지 않는다 — 전지적 시점을 주지 않는다.</p><p class="e">A hyperobject is massively distributed in time and space; we only ever meet its local manifestations.</p></div>
+  <div class="cap abs" data-id="c6"><p>The same event, at two different scales.</p><p class="ko">이름은 멜로디다. 곁에 머물면 화음이 되고, 그 자리에 콘크리트가 선다.</p><p class="e">Overlap without occlusion — for the one person a musical moment, for the whole one cell of a structure.</p></div>
+  <div class="cap abs" data-id="c7"><p>The record remains. Your traces may be read — or may not be.</p><p class="ko">기록은 남습니다. 흔적은 읽힐 수도, 읽히지 않을 수도 있습니다.</p><p class="q">현재의 당신은 무엇을 남기시겠습니까?</p></div>
+
+  <!-- bottom-left box: one life's footprints, then the community plan -->
+  <div class="box abs" id="mapbox"><svg id="mapsvg" viewBox="0 0 100 100"></svg></div>
+  <div class="box abs" id="planbox"><img id="planimg" src="assets/plan.webp" alt=""><svg id="plansvg" viewBox="-50 -50 100 100"></svg></div>
+
+  <!-- the work's own signs -->
+  <div class="sign abs" data-id="s_name" style="left:64px;top:580px"></div>
+  <div class="sign abs" data-id="s_contact" style="left:180px;top:580px"></div>
+  <div class="sign abs" data-id="s_word" style="left:296px;top:580px"></div>
+  <div class="sign abs" data-id="s_low" style="left:412px;top:580px"></div>
+
+  <div id="credit" class="abs"><div>ID40009 Graduation Design Studio · 실시간 웹 · 3D · 공간 음향 · 2채널 디스플레이</div><div>Hayeon Park 20220875 · Supervised by Yiyun Kang</div></div>
+  <div id="steps" class="abs"></div>
+</div>
+<div id="hud"></div>
+
+<script>
+(async function(){
+"use strict";
+const W=1920,H=1080,SURF=220;
+const q=new URLSearchParams(location.search);
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const stage=$("#stage"), cv=$("#cv"), ctx=cv.getContext("2d");
+const sc=document.createElement("canvas"); sc.width=W; sc.height=H; const sx=sc.getContext("2d");
+
+/* ---------- helpers ---------- */
+const clamp=(x,a=0,b=1)=>x<a?a:x>b?b:x;
+const ease=x=>{x=clamp(x);return (1-Math.cos(Math.PI*x))/2;};
+const mix=(a,b,p)=>a+(b-a)*p;
+const on=(t,a,d=0.6)=>ease((t-a)/d);
+const hash=(x,y)=>{let h=(x*374761393+y*668265263)|0;h=(h^(h>>13))*1274126177|0;return((h^(h>>16))>>>0)/4294967296;};
+
+/* ---------- the steps: 0 the title, then the script's seven beats. The page holds on a step until a key. ----------
+   Every picture is a function of (step, u) — u = seconds since the step was entered — so a step's own motion
+   plays once on entering and the frame then rests. Earlier steps' things stay (dimmed); later steps' are not yet there. */
+const STEPS=8, HOLD=[8,12,7,7,8,6,8,7]; // seconds per step in auto mode (?auto=1, and the video render)
+const EX=5.6;                           // the excavation, on entering step 1
+let step=0, prev=-1, stepAt=performance.now(), now=performance.now();
+const U=()=>(now-stepAt)/1000;
+// A: a thing that appears in step s after `delay` and stays; before its step 0; after, 1
+const A=(s,delay=0,d=0.6)=>step<s?0:step===s?on(U(),delay,d):1;
+// LEAVE: fades out over the first `d` seconds of the step after s
+const LEAVE=(s,d=0.6)=>step<s?0:step===s?1:step===s+1?1-on(U(),0,d):0;
+// DIM: 1 during its own step, settles to `to` once the next step begins
+const DIM=(s,to=0.55)=>step<=s?1:step===s+1?mix(1,to,on(U(),0,0.8)):to;
+
+/* ---------- the structure (the wall's column, 19 beings) ---------- */
+const IMGW=940, IMGH=940*1448/1600, IMGX=920, IMGY=SURF-0.0719*IMGH-4, YF=SURF+0.55*IMGH; // YF: the fault line
+const P=(fx,fy)=>[IMGX+fx*IMGW,IMGY+fy*IMGH];
+const img=new Image(); img.src="assets/structure.webp";
+
+/* ---------- data ---------- */
+const [glyphs,fig,traces]=await Promise.all(["data/glyphs.json","data/figure.json","data/traces.json"].map(u=>fetch(u).then(r=>r.json())));
+
+/* ---------- the ground's pixel edge ---------- */
+const CELL=12, COLS=W/CELL;
+function groundClip(shift){
+  const pts=[];
+  for(let c=0;c<COLS;c++){const r=hash(c+shift(c),17); const d=r<0.5?0:r<0.85?CELL:2*CELL; pts.push(`${c*CELL}px ${d}px`,`${(c+1)*CELL}px ${d}px`);}
+  return `polygon(${pts.join(",")},${W}px ${H}px,0 ${H}px)`;
+}
+const ground=$("#ground");
+const clipA=groundClip(()=>0), clipB=groundClip(c=>(c>80&&c<120)?3:0);
+ground.style.clipPath=clipA;
+
+/* ---------- signs: 8×8 staff with the work's melody glyphs ---------- */
+const NOTE="#f4f4f0";
+function staff(groups,size){
+  let s=`<svg viewBox="0 0 8 8" width="${size}" height="${size}" shape-rendering="crispEdges" style="display:block"><g fill="none" stroke="#55564f" stroke-width=".035">`;
+  for(let i=0;i<=8;i++) s+=`<path d="M${i} 0V8M0 ${i}H8"/>`;
+  s+=`</g><rect class="cur" x="-9" y="0" width="1" height="8" fill="#ffffff" opacity=".08"/>`;
+  for(const g of groups){
+    s+=`<g fill="${NOTE}" opacity="${g.alpha}"${g.squash?` transform="translate(0 ${(8-8*g.squash).toFixed(2)}) scale(1 ${g.squash})"`:""}>`;
+    for(const [c,r,l] of g.dots) s+=`<rect${g.live?` data-c="${c}"`:""} x="${c}" y="${r}" width="${(l-0.06).toFixed(2)}" height=".94"/>`;
+    s+=`</g>`;
+  }
+  return s+`</svg>`;
+}
+const signs={
+  s_name:{groups:[{dots:fig.a.dots,alpha:1,live:true}],ko:"/이름",en:"NAME · 5051"},
+  s_contact:{groups:[{dots:fig.b.dots,alpha:.32},{dots:fig.a.dots,alpha:.9,live:true}],ko:"/접촉",en:"CONTACT · 5527"},
+  s_word:{groups:[{dots:fig.word,alpha:1,live:true}],ko:"/새 어휘",en:"NEW WORD"},
+  s_low:{groups:glyphs.slice(0,19).map(g=>({dots:g.dots,alpha:.4,squash:.22})),ko:"/저음",en:"LOW BAND"},
+};
+for(const el of $$(".sign")){const s=signs[el.dataset.id]; el.innerHTML=staff(s.groups,88)+`<b>${s.ko}</b><small>${s.en}</small>`;}
+const signEls=$$(".sign"); const SIGN={s_name:0.4,s_contact:2.0,s_word:3.6,s_low:5.0};
+
+/* ---------- one life's footprints (bot 5051) and the community's 18 traces ---------- */
+const life=traces.find(t=>t.o==="bot7")||traces[0];
+{
+  const d=life.pts.map(([x,z])=>`${(50+x).toFixed(1)} ${(50+z).toFixed(1)}`);
+  const [bx,by]=life.pts[0], [ex,ey]=life.pts[life.pts.length-1];
+  $("#mapsvg").innerHTML=`<rect x=".3" y=".3" width="99.4" height="99.4" fill="none" stroke="#e9e9e5" stroke-width=".3" opacity=".5"/>
+  <path id="lifepath" d="M${d.join("L")}" fill="none" stroke="#e9e9e5" stroke-width=".7" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect id="birth" x="${(50+bx-1.2).toFixed(1)}" y="${(50+by-1.2).toFixed(1)}" width="2.4" height="2.4" fill="#e9e9e5"/>
+  <rect id="death" x="${(50+ex-1.2).toFixed(1)}" y="${(50+ey-1.2).toFixed(1)}" width="2.4" height="2.4" fill="none" stroke="#e9e9e5" stroke-width=".5"/>`;
+}
+{
+  const a=36*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a), k=1.02;
+  $("#plansvg").innerHTML=`<g fill="none" stroke="#f0f0ec" stroke-opacity=".72" stroke-width=".3" stroke-linejoin="round" stroke-linecap="round">`+
+    traces.map(t=>`<path d="M${t.pts.map(([x,z])=>`${((x*ca-z*sa)*k).toFixed(1)} ${((x*sa+z*ca)*k).toFixed(1)}`).join("L")}"/>`).join("")+`</g>`;
+}
+const lifepath=$("#lifepath"), lifeLen=lifepath.getTotalLength();
+lifepath.style.strokeDasharray=lifeLen; lifepath.style.strokeDashoffset=lifeLen;
+const planpaths=$$("#plansvg path").map(p=>{const L=p.getTotalLength();p.style.strokeDasharray=L;p.style.strokeDashoffset=L;return [p,L];});
+
+/* ---------- tags and captions ---------- */
+const tags=$$(".tag").map(el=>({el,id:el.dataset.id,x:parseFloat(el.style.left),y:parseFloat(el.style.top),w:0}));
+const TAG={ // s: its step, d: delay after entering, to: what the hairline points at
+  spike:{s:1,d:EX+0.4,line:true},
+  path:{s:3,d:0.3,to:P(0.13,0.085)},
+  pipe:{s:3,d:1.5,to:P(0.502,0.287)},
+  conc:{s:3,d:2.7,to:P(0.313,0.650)},
+  strata:{s:4,d:0.6},
+  sight:{s:5,d:0.4,leave:true},
+  map:{s:2,d:0.2,until:4},
+  plan:{s:4,d:1.0},
+};
+const caps=$$(".cap").map(el=>({el,id:el.dataset.id,s:+el.dataset.id.slice(1),rules:[...el.querySelectorAll(".rule")],key:el.querySelector(".key"),e:el.querySelector(".e")}));
+const CAPD={1:EX+1.0,2:0.3,3:0.3,4:0.3,5:0.4,6:0.4,7:0.3};
+const DEPTH=[SURF,262,SURF+6,520,YF,760,860,960]; // where the script is in the column, per step
+const stepsEl=$("#steps"); for(let i=0;i<STEPS;i++) stepsEl.appendChild(document.createElement("i"));
+
+/* ---------- the notice, typed ---------- */
+const N1="미래의 고고학자들이 멸망한 인류를 발굴 중입니다.", N2="현재의 당신은 무엇을 남기시겠습니까?";
+const notice=$("#notice"), n1=$("#n1"), n2=$("#n2");
+
+/* ---------- drawing ---------- */
+const RX=1868, RY0=SURF+6, RY1=1000, PXMIN=(IMGH/83.4)*(60/20)*1.2, PXSTR=PXMIN/3; // the ruler: the column's 23 minutes, one stratum = 20 s
+function render(){
+  const u=U(), g=now/1000;
+  const exP=step<1?0:step===1?ease(u/EX):1;      // the excavation
+  const yR=SURF+exP*(RY1+40-SURF);
+  const vig=step===5?on(u,0.2,0.8):step===6?1-on(u,0,0.9):0; // ⑤ the dark around a small sight
+  const slip=step<4?0:step===4?on(u,3.2,0.25):1;  // ④ the fault
+  const dx=-14*slip;
+
+  // sky
+  $("#title").style.clipPath=`inset(0 ${(100*(1-(step===0?on(u,0.3,0.9):1))).toFixed(2)}% 0 0)`;
+  $("#homo").style.opacity=step===0?on(u,1.0,0.7):1; $("#kaist").style.opacity=step===0?on(u,1.2,0.7):1;
+  ground.style.clipPath=slip>0?clipB:clipA;
+  for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
+
+  // step 0: the notice
+  const p1=step===0?clamp((u-0.8)/2.4):1, p2=step===0?clamp((u-3.4)/2.0):1, blink=(g*2|0)%2===1;
+  n1.textContent=N1.slice(0,Math.round(p1*N1.length))+(p1>0&&p1<1&&blink?"▪":"");
+  n2.textContent=N2.slice(0,Math.round(p2*N2.length))+((p2>0&&p2<1&&blink)||(p2>=1&&step===0&&blink)?"▪":"");
+  notice.querySelector("p").style.opacity=step===0?on(u,5.6,0.8):1;
+  notice.style.opacity=(step===0?on(u,0.6,0.3):LEAVE(0,0.8)).toFixed(3);
+
+  // ---- the structure on its own canvas: the slip, soil at the top, a fade at the bottom, the excavation mask
+  sx.clearRect(0,0,W,H);
+  if(img.complete&&img.naturalWidth&&exP>0){
+    sx.save(); sx.beginPath(); sx.rect(0,0,W,YF); sx.clip(); sx.drawImage(img,IMGX,IMGY,IMGW,IMGH); sx.restore();
+    sx.save(); sx.beginPath(); sx.rect(0,YF,W,H-YF); sx.clip(); sx.drawImage(img,IMGX+dx,IMGY,IMGW,IMGH); sx.restore();
+    sx.globalCompositeOperation="destination-out";
+    let gr=sx.createLinearGradient(0,SURF,0,SURF+76); gr.addColorStop(0,"rgba(0,0,0,1)"); gr.addColorStop(1,"rgba(0,0,0,0)");
+    sx.fillStyle=gr; sx.fillRect(0,0,W,SURF+76);
+    gr=sx.createLinearGradient(0,820,0,1000); gr.addColorStop(0,"rgba(0,0,0,0)"); gr.addColorStop(1,"rgba(0,0,0,1)");
+    sx.fillStyle=gr; sx.fillRect(0,820,W,H-820);
+    if(exP<1){sx.fillStyle="#000"; for(let c=0;c<COLS;c++){const r=hash(c,91); const d=r<0.45?0:r<0.8?CELL:2*CELL; sx.fillRect(c*CELL,yR+d,CELL,H);}}
+    sx.globalCompositeOperation="source-over";
+  }
+  ctx.clearRect(0,0,W,H);
+  ctx.drawImage(sc,0,0);
+  if(exP>0&&exP<1){ctx.fillStyle="rgba(233,233,229,0.75)"; ctx.fillRect(IMGX-40,yR|0,W-IMGX+40,1);}
+
+  // ---- the ruler down the right: T+0 at the surface, a tick per stratum, a label every other minute
+  {
+    const a=step<1?0:step===1?on(u,0.3,0.8):1; const yEnd=Math.min(RY1,yR);
+    if(a>0&&yEnd>RY0){
+      ctx.fillStyle=`rgba(155,156,151,${a})`;
+      ctx.fillRect(RX,RY0,1,yEnd-RY0);
+      ctx.font="12px Pretendard"; ctx.textBaseline="middle"; ctx.textAlign="left";
+      for(let s=0;;s++){const y=RY0+s*PXSTR; if(y>yEnd) break; const m=s%3===0;
+        ctx.fillRect(RX-(m?7:3),y|0,m?8:4,1);
+        if(m&&(s/3)%2===0) ctx.fillText(s===0?"T+0":`-${s/3}′`,RX+10,y+0.5);}
+    }
+    // ④ one stratum, bracketed
+    const b=A(4,0.6)*DIM(4,0.7);
+    if(b>0){const y=RY0+Math.round((700-RY0)/PXSTR)*PXSTR; ctx.fillStyle=`rgba(233,233,229,${b})`;
+      ctx.fillRect(RX+2,y|0,8,1); ctx.fillRect(RX+2,(y+PXSTR)|0,8,1); ctx.fillRect(RX+9,y|0,1,PXSTR|0);
+      ctx.font="12px Neo"; ctx.textAlign="left"; ctx.fillText("20 S",RX+14,y+PXSTR/2+0.5);}
+  }
+
+  // ---- the depth marker
+  {
+    const a=step<1?0:step===1?on(u,0.6):1;
+    const y=mix(DEPTH[Math.max(0,prev)],DEPTH[step],on(u,0,1.0));
+    if(a>0){ctx.fillStyle=`rgba(233,233,229,${a})`; ctx.fillRect(RX-3,(y-3)|0,7,7); ctx.fillRect(RX-14,y|0,10,1);}
+  }
+
+  // ---- tags: fade in, dim after their step, a hairline into the structure
+  for(const tg of tags){
+    const c=TAG[tg.id];
+    let a=c.leave?(step===c.s?on(u,c.d):LEAVE(c.s,0.5)):A(c.s,c.d);
+    if(c.until) a*=step<c.until?1:step===c.until?1-on(u,0.6,0.6):0;
+    a*=DIM(c.s); if(tg.id!=="sight") a*=1-0.75*vig;
+    tg.el.style.opacity=a.toFixed(3);
+    tg.el.style.transform=`translateY(${(8*(1-(step===c.s?on(u,c.d):1))).toFixed(2)}px)`;
+    if(!tg.w) tg.w=tg.el.offsetWidth;
+    const ax=tg.x+tg.w+12, ay=tg.y+13;
+    if(c.line&&a>0.01){ // ① the line on the time scale along the surface; its label in the sky, struck through when rejected
+      const sp=step===1?on(u,c.d+0.4,1.1):1, rej=step===1?on(u,c.d+3.3,0.6):1;
+      ctx.setLineDash([3,4]); ctx.lineWidth=1; ctx.strokeStyle=`rgba(233,233,229,${(a*mix(0.85,0.22,rej)).toFixed(3)})`;
+      ctx.beginPath(); ctx.moveTo(ax,ay+.5); ctx.lineTo(mix(ax,1840,sp),ay+.5); ctx.stroke(); ctx.setLineDash([]);
+      if(sp>=1){
+        ctx.font="13px Neo"; ctx.textAlign="right"; ctx.textBaseline="alphabetic";
+        const lab="1952 · PU · CRAWFORD LAKE"; const lw=ctx.measureText(lab).width;
+        ctx.fillStyle=`rgba(60,61,58,${a.toFixed(3)})`; ctx.fillText(lab,1840,204);
+        if(rej>0){ctx.fillStyle=`rgba(11,11,11,${(a*rej).toFixed(3)})`; ctx.fillRect(1840-lw*rej,199,lw*rej,1.5); ctx.fillText("REJECTED  4 : 12",1840,186);}
+      }
+    }
+    if(c.to&&a>0.01){
+      const p=step===c.s?on(u,c.d+0.15,0.5):1; const ex=mix(ax,c.to[0],p), ey=mix(ay,c.to[1],p);
+      ctx.strokeStyle=`rgba(233,233,229,${(0.8*a).toFixed(3)})`; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(ax,ay+.5); ctx.lineTo(ex,ey+.5); ctx.stroke();
+      if(p>=1){ctx.fillStyle=`rgba(233,233,229,${a.toFixed(3)})`; ctx.fillRect(c.to[0]-2,c.to[1]-2,5,5);}
+    }
+  }
+
+  // ---- captions: the current step's, the previous one leaving
+  for(const cp of caps){
+    const d=CAPD[cp.s]; const a=step===cp.s?on(u,d):step===cp.s+1?1-on(u,0,0.5):0;
+    cp.el.style.opacity=a.toFixed(3); cp.el.style.transform=`translateY(${(10*(1-(step===cp.s?on(u,d):1))).toFixed(2)}px)`;
+    if(cp.rules.length){const q=step===cp.s?u:99; cp.rules.forEach((r,i)=>{r.style.opacity=on(q,d+0.1+i*0.85,0.5).toFixed(3);}); cp.key.style.opacity=on(q,d+3.9,0.7).toFixed(3); cp.e.style.opacity=on(q,d+4.6,0.6).toFixed(3);}
+  }
+
+  // ---- the bottom-left box: one life (②), then the community (④)
+  {
+    let a=A(2,0.2); a*=step<4?1:step===4?1-on(u,0.6,0.6):0; $("#mapbox").style.opacity=(a*(1-0.75*vig)).toFixed(3);
+    const p=step<2?0:step===2?on(u,0.5,3.8):1; lifepath.style.strokeDashoffset=(lifeLen*(1-p)).toFixed(1);
+    $("#birth").style.opacity=p>0?1:0; $("#death").style.opacity=p>=1?1:0;
+    const b=A(4,1.0)*DIM(4,0.8); $("#planbox").style.opacity=(b*(1-0.75*vig)).toFixed(3);
+    $("#planimg").style.opacity=(step===4?on(u,1.4,1.2):step>4?1:0).toFixed(3);
+    const pp=step<4?0:step===4?on(u,1.2,4.6):1; for(const [el,L] of planpaths) el.style.strokeDashoffset=(L*(1-pp)).toFixed(1);
+  }
+
+  // ---- ④ the fault: a flash along the slip
+  if(step===4){const f=u>=3.2?1-on(u,3.2,0.35):0; if(f>0){ctx.fillStyle=`rgba(233,233,229,${(0.9*f).toFixed(3)})`; ctx.fillRect(IMGX-30,YF,W-IMGX,1);}}
+
+  // ---- ⑤ limited sight: the dark, and the small visitor at its centre
+  if(vig>0){
+    const cx=1390+230*Math.sin(0.55*g), cy=600+150*Math.sin(0.85*g+1.2), R=280;
+    const gr=ctx.createRadialGradient(cx,cy,0,cx,cy,R); gr.addColorStop(0,"rgba(10,10,11,0)"); gr.addColorStop(0.5,"rgba(10,10,11,0)"); gr.addColorStop(1,`rgba(10,10,11,${(0.88*vig).toFixed(3)})`);
+    ctx.fillStyle=gr; ctx.fillRect(0,SURF+2*CELL,W,H-SURF-2*CELL);
+    if((g*3|0)%3!==2){ctx.fillStyle=`rgba(233,233,229,${vig.toFixed(3)})`; ctx.fillRect((cx-3)|0,(cy-3)|0,7,7);}
+  }
+
+  // ---- ⑥ the signs: the sequencer runs over the name; a burst when the new word is born
+  {
+    const col=Math.floor(g/0.22)%8;
+    for(const el of signEls){
+      const d=SIGN[el.dataset.id]; const a=A(6,d)*DIM(6,0.8)*(1-0.75*vig);
+      el.style.opacity=a.toFixed(3); el.style.transform=`translateY(${(8*(1-(step===6?on(u,d):1))).toFixed(2)}px)`;
+      const live=step>=6&&a>0; const cur=el.querySelector(".cur"); cur.setAttribute("x",live&&el.dataset.id!=="s_low"?col:-9);
+      for(const r of el.querySelectorAll("rect[data-c]")) r.style.opacity=live?(+r.dataset.c===col?1:0.62):1;
+    }
+    if(step===6){const bp=on(u,SIGN.s_word,0.75);
+      if(bp>0&&bp<1){ctx.fillStyle=`rgba(244,244,240,${(1-bp).toFixed(3)})`;
+        for(let i=0;i<26;i++){const an=hash(i,7)*6.283, r=10+bp*(30+hash(i,8)*80); ctx.fillRect((340+Math.cos(an)*r)|0,(624+Math.sin(an)*r*0.8)|0,3,3);}}}
+  }
+
+  $("#hud").textContent=`step ${step}  u=${u.toFixed(2)}s`;
+}
+
+/* ---------- control ---------- */
+function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; prev=step; step=n; stepAt=now;}
+function fit(){const s=Math.min(innerWidth/W,innerHeight/H); stage.style.transform=`translate(${((innerWidth-W*s)/2).toFixed(1)}px,${((innerHeight-H*s)/2).toFixed(1)}px) scale(${s.toFixed(4)})`;}
+addEventListener("resize",fit); fit();
+let frozen=q.has("still"), auto=q.has("auto"), seekT=0;
+// auto / seek: one timeline through the steps with the HOLD seconds each (the video render uses this)
+const DUR=HOLD.reduce((a,b)=>a+b,0);
+function setT(t){t=((t%DUR)+DUR)%DUR; let s=0; while(s<STEPS-1&&t>=HOLD[s]){t-=HOLD[s];s++;} prev=s-1; step=s; now=t*1000; stepAt=0;}
+window.__seek=t=>{frozen=true;seekT=t;setT(t);render();return step;};
+window.__go=n=>{now=performance.now();go(n);render();};
+window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),img.decode(),$("#planimg").decode().catch(()=>0)]).then(()=>true);
+let cursorT=0;
+addEventListener("mousemove",()=>{document.body.classList.add("cursor");cursorT=performance.now();});
+addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown"||e.key==="Enter"){e.preventDefault();go(step+1);}
+  else if(e.key==="ArrowLeft"||e.key==="PageUp"||e.key==="Backspace"){e.preventDefault();go(step-1);}
+  else if(/^[0-7]$/.test(e.key)) go(+e.key);
+  else if(e.key==="Home") go(0); else if(e.key==="End") go(STEPS-1);
+  else if(e.key==="r"){prev=-1;stepAt=now;}                       // replay this step's motion
+  else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}
+  else if(e.key==="h") $("#hud").style.opacity=$("#hud").style.opacity==="1"?"0":"1";
+});
+addEventListener("click",e=>{if(e.clientX>innerWidth*0.2)go(step+1);else go(step-1);});
+await window.__ready;
+if(q.has("step")) {step=clamp(+q.get("step"),0,STEPS-1); prev=step-1;}
+if(frozen){setT(+(q.get("t")||0));render();}
+const t0=performance.now(); stepAt=t0;
+(function tick(ms){
+  if(!frozen){
+    if(auto){setT((ms-t0)/1000);} else now=ms;
+    render();
+    if(document.body.classList.contains("cursor")&&ms-cursorT>2000)document.body.classList.remove("cursor");
+  }
+  requestAnimationFrame(tick);
+})(t0);
+})();
+</script>
+</body>
+</html>

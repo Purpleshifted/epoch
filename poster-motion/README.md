@@ -1,7 +1,7 @@
-# 발견된 인류 — 발표 화면 (poster-motion)
+# 발견된 인류 — 발표 도해 (poster-motion)
 
-졸업심사 발표 대본(「발견된 인류 — 졸업심사 발표 구성과 대본」, Claude 문서)의 도입과 일곱 구간을 그대로 따라가는 **키로 넘기는 웹 페이지**. 16:9 (1920 × 1080).
-A0 포스터(하늘·지표면·땅에 매달린 구조물·떠 있는 슬래시 주석·멜로디 기호)의 시각 언어를 움직이게 한 것이다. 큰 글은 대본의 굵은 핵심 문장(영어) 그대로, 한국어는 작게.
+졸업심사 발표 대본(「발견된 인류 — 졸업심사 발표 구성과 대본」, Claude 문서)의 도입과 일곱 구간을 **구간마다 한 장의 도해**로 보여주는 키로 넘기는 웹 페이지. 16:9 (1920 × 1080).
+각 도해는 작품의 실제 규칙(`docs/world-logic.md`, `sound-logic.md`, `session-logic.md`, `lib/parliament/fold.ts`·`water.ts`)을 그대로 그린다. 큰 글은 대본의 굵은 핵심 문장(영어), 한국어는 작게.
 
 ## 발표 때
 
@@ -9,7 +9,7 @@ A0 포스터(하늘·지표면·땅에 매달린 구조물·떠 있는 슬래시
 node poster-motion/tools/serve.mjs 3018      # http://localhost:3018/  (아무 정적 서버든 된다; file:// 는 JSON fetch가 막힘)
 ```
 
-브라우저에서 열고 `f`로 전체 화면. 구간은 멈춰 있고 키를 눌러야 넘어간다.
+브라우저에서 열고 `f`로 전체 화면. 구간은 멈춰 있고 키를 눌러야 넘어간다. 각 구간의 움직임은 들어갈 때 한 번 재생되고 멈춘다(④의 네 판은 11초마다 되풀이).
 
 | 키 | 동작 |
 |---|---|
@@ -19,42 +19,41 @@ node poster-motion/tools/serve.mjs 3018      # http://localhost:3018/  (아무 �
 | r | 지금 구간의 움직임 다시 재생 |
 | f | 전체 화면 · h: 시간 표시 |
 
-`?step=3`으로 열면 그 구간부터. 마우스를 멈추면 커서가 숨는다.
-시연(라이브 앱)은 제목 화면(0)에서 앱으로 갔다가 돌아와 →를 누르면 ①로 이어진다.
+`?step=3`으로 열면 그 구간부터. 시연(라이브 앱)은 제목 화면(0)에서 앱으로 갔다가 돌아와 →를 누르면 ①로 이어진다.
 
-## 구간 (index.html의 `HOLD`·`TAG`·`CAPD`·`SIGN`)
+## 구간과 도해
 
-| 단계 | 화면 | 대본 |
+| 단계 | 도해 | 대본 |
 |---|---|---|
-| 0 | 제목이 쓸려 들어오고 땅에 작품의 두 문장이 타자로 찍힌다 (영문 아래) | 도입 · 시연은 라이브 |
-| 1 | 발굴: 구조물이 지표면에서 아래로 드러나고 오른쪽 눈금자(T+0 → −20′, 한 눈금 = 지층 한 겹 20 s)가 내려간다. /황금못 — 지표면을 따라 점선, 하늘의 `1952 · PU · CRAWFORD LAKE`가 줄 그어지고 `REJECTED 4 : 12`. “That gap, between the concept and its record, is where this work begins.” | ① |
-| 2 | /생흔 — 왼쪽 아래 상자에 한 삶(개체 5051)의 발자국이 그려진다 (■ 태어난 곳 · □ 끝난 곳). “A fossil of behaviour, not of the body.” | ② |
-| 3 | /길 /배관 /콘크리트 — 구조물의 지점으로 인출선. “Living together.” | ③ |
-| 4 | Stay · Walk · Seal · Leave 네 줄, /지층 눈금 한 칸(20 S), 3.2초에 단층(아래쪽이 14 px 미끄러지고 흰 선이 번쩍), 상자는 /공동체(18 존재의 자취 + 평면)로. “Seen from the future, our ordinary days are already the object of excavation.” | ④ |
-| 5 | /시야 — 땅이 어두워지고 작은 시야 하나만 떠돈다. “This work refuses the omniscient view.” | ⑤ |
-| 6 | /이름 /접촉 /새 어휘 /저음 — 8칸 악보가 시퀀서처럼 돌고, 새 어휘가 태어날 때 점이 터진다. “The same event, at two different scales.” | ⑥ |
-| 7 | “The record remains. Your traces may be read — or may not be.” + 「현재의 당신은 무엇을 남기시겠습니까?」 — 완성된 포스터 | ⑦ |
+| 0 | 제목 + 작품의 두 문장이 타자로 | 도입 · 시연은 라이브 |
+| 1 | 지층 단면에 1952 · Pu 황금못 한 줄 → 투표 16칸(4 흰 : 12 빈) → `4 : 12` → 줄이 점선이 되고 REJECTED → 인용 | ① 부결된 지질시대 |
+| 2 | 개체 5051의 실제 궤적을 따라 걷는 픽셀 몸이 발자국을 남기고, 끝에서 몸은 흩어지고 발자국만 남는다 (체화석 ✕ · 생흔화석) | ② 생흔화석 |
+| 3 | 위에서 본 땅: 15명이 세 곳에 모여 콘크리트, 오가며 길, 봉인된 땅 밑으로 배관(하수구 트리) — 옆의 단면에 슬래브·다져진 길·배관 | ③ 인류의 생흔화석 |
+| 4 | 네 판: 머물면(창 안의 존재가 문턱에 닿으면 슬래브) · 걸으면(밟을수록 p, 0.3이면 길) · 덮으면(봉인 비율 → 빗물 유출 → 배관) · 떠나면(풀 회복) + 오른쪽 벽: 0.9초마다 지층 한 겹(= 20 s), 현재 9단 → 과정 띠(식생→부패→융합→레진) → 불변선 | ④ 생성 로직 |
+| 5 | 위: 시간축이 화면 밖으로 뻗음(산업화 ← 지금 → 수만 년 뒤) · 왼쪽: 전지적 평면도에 ✕ · 오른쪽: 어둠 속 작은 시야, 소리 닿는 범위 안에서만 남의 기호가 보임, 수명 카운트다운 | ⑤ 하이퍼객체 |
+| 6 | 왼쪽: 내 이름 기호(시퀀서) 곁으로 타인이 다가와 커서가 맞물림 = 화음, 응답하면 새 어휘 기호가 터짐 · 오른쪽: 벽의 같은 단에 콘크리트 한 칸, 아래 저음(19 기호를 눌러 한 덩어리) | ⑥ 사운드 |
+| 7 | 개체 기록표(§11 항목 그대로, 예시 값) + 발자국 지도 → 「기록은 남습니다…」 → 「현재의 당신은 무엇을 남기시겠습니까?」 | ⑦ 의의 |
 
-각 구간의 움직임은 들어갈 때 한 번 재생되고 멈춘다. 앞 구간의 주석은 흐려진 채 남고, 뒤 구간 것은 아직 없다.
-글은 `.tag`(슬래시 주석)와 `.cap`(구간별 캡션) 블록에 그대로 있다.
+시각·문구는 index.html 안: `HOLD`(자동 모드 초), `SEC`(머리 제목), `KEY`(아래 핵심 문장), 각 `s1()…s7()` 함수가 한 장. 지난 시안(포스터를 움직인 것)은 `poster.html`에 남겨 둠.
 
-## 영상으로 (비상 플랜·전시용 루프)
+## 영상으로 (비상 플랜)
 
 ```
-node poster-motion/tools/render.mjs                 # out/motion-poster.mp4 — 구간을 HOLD 초씩 자동으로 넘긴 63초, 1920×1080 30 fps
-STILLS=5.5,16,62 node poster-motion/tools/render.mjs   # 그 시각의 PNG만 (out/still_<t>.png)
+node poster-motion/tools/render.mjs                  # out/motion-poster.mp4 — 구간을 HOLD 초씩 자동으로 넘긴 100초, 1920×1080 30 fps
+STILLS=17,45.5 node poster-motion/tools/render.mjs    # 그 시각의 PNG만 (out/still_<t>.png)
+PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 ```
 
 `?auto=1`로 열어도 같은 자동 진행. 헤드리스 Chrome(음소거)으로 프레임을 하나씩 찍고 ffmpeg로 묶는다. `out/`은 git에 넣지 않는다.
 
 ## 재료
 
-- `assets/structure.webp`: 벽 기둥 렌더 `poster-a0/renders/wide_alpha.png`(19 존재, 브랜치 `claude/a0-poster-design-89bf0a`, git 밖)를 1600 px로 줄인 것.
-- `assets/plan.webp`: 같은 폴더의 `plan.png`(위에서 본 건물·배관)를 무채색 900 px로.
-- `data/glyphs.json` `figure.json` `traces.json`: `poster-a0/data/`와 같은 것(작품 코드가 만든 이름 기호, 이름 a·상대 b·새 어휘, 18 존재의 궤적을 3점마다 하나로 줄임).
+- `assets/plan.webp`: 위에서 본 건물·배관 렌더(`poster-a0/renders/plan.png`)를 무채색 900 px로 — ⑤의 전지적 평면도. `assets/structure.webp`는 `poster.html`만 쓴다.
+- `data/glyphs.json` `figure.json` `traces.json`: 작품 코드가 만든 이름 기호, 이름 a·상대 b·새 어휘, 18 존재의 궤적(3점마다 하나). ②·⑦의 궤적은 bot7 = 개체 5051.
 - `fonts/`: Pretendard Bold·Regular(OFL, 한글 전체 + 라틴 서브셋 woff2), Neo둥근모(`apps/web/public/fonts/neodgm.woff2`).
 
 ## 아직 정하지 않은 것
 
-- 날짜·장소는 넣지 않았다(미정). 하늘 오른쪽 위 `KAIST · 2026`만.
-- 영문 캡션은 대본의 굵은 문장 그대로, 작은 영문 줄은 대본을 줄인 것 — 작가 검수 전.
+- ⑦ 기록표의 값은 예시. 실제 시연 뒤의 기록표 화면을 캡처해 바꿔도 된다.
+- ④ 벽의 과정 띠는 9단→30단으로 줄여 그렸다(실제 불변선 60단).
+- 영문 문장은 대본의 굵은 문장 그대로, 작은 설명 줄은 대본을 줄인 것 — 작가 검수 전. 날짜·장소 없음.
