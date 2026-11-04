@@ -1982,7 +1982,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const camMode = params.get("cam");
   const camView =
     camMode === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 }
-    : camMode === "close" ? { ...cam, camAuto: false, camLift: 0, camPolar: 56, camDist: 34, camLook: [0, 0] as [number, number], camTurnSec: 90 }
+    : camMode === "close" ? { ...cam, camAuto: false, camLift: 0, camPolar: 52, camDist: 15, camLook: [0, 0] as [number, number], camTurnSec: 90 }
     : camMode === "turn" ? { ...cam, camAuto: false, camTurnSec: 60 }
     : cam;
   const shotSeq: ShotSequence = {
