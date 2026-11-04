@@ -93,17 +93,22 @@ body.cursor{cursor:default}
   html,body{overflow:auto;height:auto;cursor:auto;background:#000}
   #hud,#dbg{display:none!important}
   #stage{display:block!important;position:absolute;left:0;top:0;transform-origin:0 0}
-  #mobile .hero{position:sticky;top:0;z-index:3;overflow:hidden;background:#000;box-shadow:0 8px 24px rgba(0,0,0,.6)}
-  #mobile .hero img{display:none}
+  /* the pinned picture: a square window onto the live deck, panned to the section's diagram (CROP below) */
+  #mobile .hero{position:sticky;top:0;z-index:3;overflow:hidden;background:#000;box-shadow:0 8px 24px rgba(0,0,0,.6);border-bottom:1px solid #2a2b29}
+  #mobile .hero .cap{position:absolute;left:12px;right:12px;bottom:9px;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;font-family:Neo,monospace;font-size:9.5px;letter-spacing:.14em;color:#9b9c97;pointer-events:none;text-shadow:0 1px 3px #000,0 0 6px #000;white-space:nowrap;overflow:hidden}
+  #mobile .hero .cap .dots{flex:none}
+  #mobile .hero .cap .dots i{display:inline-block;width:9px;height:2px;background:#3a3b38;margin-left:3px;vertical-align:middle}
+  #mobile .hero .cap .dots i.on{background:#fff}
+  #mobile .home{margin:0}
+  #mobile .home img{display:block;width:100%;height:auto;background:#000}
   #mobile .tap{margin:8px 16px 0;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:#55564f;line-height:1.7}
   #mobile li{cursor:pointer}
   #mobile li.on b{color:#fff}
   #mobile{display:block;color:var(--white);font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;line-height:1.5;word-break:keep-all;-webkit-font-smoothing:antialiased}
   #mobile header{background:#fff;color:var(--ink);padding:22px 16px 16px}
-  #mobile header .t{font-family:PreBlack,Pretendard,sans-serif;font-weight:900;font-size:36px;line-height:1;letter-spacing:-.01em}
+  #mobile header .t{font-family:Neo,monospace;font-weight:400;font-size:30px;line-height:1;letter-spacing:.02em}
   #mobile header small{display:block;font-family:Neo,monospace;font-size:10px;letter-spacing:.22em;color:#3c3d3a;margin-top:10px;line-height:1.6}
   #medge{display:block;width:100%;height:24px;background:#000}
-  #mobile .hero img{display:block;width:100%;height:auto}
   #mobile .n{margin:18px 16px 6px;font-family:Neo,monospace;font-size:17px;line-height:1.6}
   #mobile .n span{display:block}
   #mobile .n small{display:block;font-family:Pretendard,sans-serif;font-size:13px;color:var(--dim);margin-top:8px;line-height:1.5}
@@ -125,7 +130,8 @@ body.cursor{cursor:default}
   #mobile .notes .note{font-size:12.5px;line-height:1.5;color:var(--dim);margin:8px 0}
   #mobile .notes .note b{color:var(--white)}
   #mobile .notes h5{margin:12px 0 6px;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:var(--dim);font-weight:400}
-  #mobile li b{display:block;margin-top:10px;font-size:15px}
+  #mobile li .k{display:block;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:var(--dim)}
+  #mobile li b{display:block;margin-top:10px;font-size:17px;line-height:1.35}
   #mobile li span{display:block;font-size:14px;margin-top:4px}
   #mobile li small{display:block;font-size:12.5px;color:var(--dim);margin-top:4px}
   #mobile li .r{display:block;margin-top:6px;font-family:Neo,monospace;font-size:10px;letter-spacing:.1em;color:var(--dim)}
@@ -169,15 +175,16 @@ body.cursor{cursor:default}
 </div>
 <div id="hud"></div>
 <div id="mobile">
-  <header><div class="t">발견된 인류</div><small>HOMO INVENTUS · 2026 ID40009 GRADUATION DESIGN STUDIO · KAIST</small></header>
+  <header><div class="t">발견된 인류</div><small>HOMO INVENTUS · 2026 ID40009 GRADUATION DESIGN STUDIO · KAIST · A PARTICIPATORY MEDIA-ART INSTALLATION</small></header>
   <canvas id="medge" height="24" aria-hidden="true"></canvas>
-  <div class="hero"><img src="assets/slides/s0.jpg" alt="The wall's column under the title"></div>
-  <p class="tap">SCROLL · THE PICTURE FOLLOWS THE SECTION YOU READ · TURN THE PHONE SIDEWAYS FOR THE FULL DECK</p>
+  <figure class="home"><img src="assets/slides/s0.jpg" alt="The wall's column under the title"></figure>
   <p class="n" data-step="0"><span>미래의 고고학자들이 멸망한 인류를 발굴 중입니다.</span><span>현재의 당신은 무엇을 남기시겠습니까?</span><small>Future archaeologists are excavating extinct humanity. You, in the present: what will you leave?</small></p>
   <nav><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/personal" target="_blank" rel="noopener">ENTER THE WORK ON THIS PHONE ↗</a></nav>
   <h2>THE PRESENTATION · 발표 도해</h2>
+  <div class="hero"><div class="cap"><span class="l"></span><span class="dots"></span></div></div>
+  <p class="tap">SCROLL · THE DIAGRAM ABOVE FOLLOWS THE SECTION YOU READ, ALIVE · SIDEWAYS: THE WHOLE DECK</p>
   <ol id="mslides"></ol>
-  <p class="hint">On a wider screen this page is the presentation itself: START or → to begin, → for the next section and its notes, 1–8 for a section. Here the picture pinned above is that same deck, alive, following what you read.</p>
+  <p class="hint">On a wider screen this page is the presentation itself: → begins it, → again for the next section and its notes, 1–8 for a section. Here the window pinned above looks into that same deck, alive, panned to the diagram of the section you are reading.</p>
   <footer>Hayeon Park 20220875 · Supervised by Yiyun Kang · ID40009 Graduation Design Studio · KAIST 2026</footer>
 </div>
 
@@ -303,9 +310,12 @@ const REFS={
 const LAB_ORIGIN="https://homo-inventus-lab.vercel.app";   // this branch's app, its own Vercel project — never the show's
 const LIVE_URL=LAB_ORIGIN+"/v2/global/lab?ui=0&sound=mute&cam=turn&snap=1&minutes=24&bots=16&dpr=0.6&dist=200&polar=70&lift=-30"; // a 24-minute column seen whole from a little above (the 8-minute one was a speck at that distance)
 const TOP_URL=LAB_ORIGIN+"/v2/global/top?demo=1&ui=0&look=footprint";
-const SCEN=["slab","path","pipe","veg"], SCEN_RATE={slab:1,path:2,pipe:3,veg:2};
-const SCEN_URL=k=>`${LAB_ORIGIN}/v2/global/lab?ui=0&sound=mute&scenario=${k}&cam=close&rate=${SCEN_RATE[k]}&dpr=0.7`;
-const SCEN_LABEL={slab:"STAY → A SLAB · four people in one place",path:"WALK → A PATH · two people, back and forth",pipe:"SEAL → PIPES · three groups and two walkers, until the quarter is piped",veg:"LEAVE → VEGETATION · six people trample a patch, then go"};
+// ONE SHOT (the artist, 11/04 evening): one crowd does everything in one scenario under one camera — the cuts between
+// four scenes were awkward. The scenario paces its own clock (×3 while the crowd is there, ×20 once it has left, so the
+// strata sink and fossilise) and carries its own camera (apps/web lib/parliament/scenario.ts `all`).
+const SCEN=["all"], SCEN_RATE={all:0};
+const SCEN_URL=k=>`${LAB_ORIGIN}/v2/global/lab?ui=0&sound=mute&scenario=${k}&cam=shot&dpr=0.7`;
+const SCEN_LABEL={all:"STAY → A SLAB · WALK → A WALKWAY · SEAL → PIPES · LEAVE → GRASS · THEN TIME ×20: STRATA, FOSSIL"};
 let step=0, prev=-1, stepAt=performance.now(), now=performance.now();
 let refsStep=-1; // the reference strip is rebuilt only when the step changes: rebuilding it every frame destroyed the link under the pointer between mousedown and mouseup, so its links could never be clicked
 const U=()=>(now-stepAt)/1000;
@@ -347,11 +357,11 @@ function live3On(){ if(live3State!=="off")return;
   if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
 // ④: the rule being folded by the work itself — a scripted crowd in this branch's app, one rule at a time
 let live4Kind=null, live4Base=0;
-function live4On(u){ if(!liveWanted)return; const want=SCEN[(live4Base+Math.floor((u-12)/40))%SCEN.length]; if(want===live4Kind)return;
+function live4On(u){ if(!liveWanted)return; const want=SCEN[0]; if(want===live4Kind)return;
   live4Kind=want; const f=$("#live4"); f.src=SCEN_URL(want); f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.opacity="1";};
-  $("#badge4").querySelector("span").textContent="LIVE · THE WORK'S OWN RULES ON A SCRIPTED CROWD · "+SCEN_LABEL[want]+" · V: NEXT RULE"; $("#badge4").style.display="block"; }
+  $("#badge4").querySelector("span").textContent="LIVE · ONE CROWD UNDER THE WORK'S OWN RULES · "+SCEN_LABEL[want]+" · V: AGAIN"; $("#badge4").style.display="block"; }
 function live4Off(){ if(!live4Kind)return; const f=$("#live4"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; $("#badge4").style.display="none"; live4Kind=null; live4Base=0; }
-function live4Next(){ if(step!==5)return; live4Base++; live4Kind=null; live4On(Math.max(12,U())); }
+function live4Next(){ if(step!==5)return; live4Kind=null; live4On(Math.max(12,U())); } // V: the scene from the start
 function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; topv.pause(); topv.style.display="none"; topv.style.opacity="0"; $("#badge3").style.display="none"; live3State="off"; }
 function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; wallv.pause(); wallv.style.display="none"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
@@ -683,6 +693,7 @@ function render(){
   else{$("#notice").style.opacity="0";}
   if(!t0)erode(110,0);
   DRAW[step](u,g);
+  if(PHONE&&stage.parentElement!==document.body)phoneView(u);
   $("#hud").textContent=`step ${step}  u=${u.toFixed(2)}s`;
 }
 
@@ -827,25 +838,49 @@ function next(){ if(!inter&&INTER[step]&&!q.has("nointer")&&!PHONE){showInter();
 function back(){ if(inter){hideInter();return;} go(step-1); }
 
 /* ---------- a phone: the deck as cards ---------- */
-const isPhone=()=>innerWidth<520||(innerWidth<760&&matchMedia("(pointer: coarse)").matches); let PHONE=isPhone();
+const PHONE_MQ="(max-width:519px), (max-width:759px) and (pointer:coarse)"; // the stylesheet's own query, so CSS and script agree
+const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
 {const ol=$("#mslides"), cards=[];
   const notesOf=i=>{const d=INTER[i]; if(!d)return ""; let fig=""; try{fig=toDark(d.fig());}catch(err){}
     return `<div class="notes"><div class="q">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div>${d.note?`<div class="note">${d.note}</div>`:""}<h5>SOURCES · 출처</h5><div class="src">${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}">OPEN ↗</a></div>`).join("")}</div></div>`;};
-  for(let i=1;i<STEPS;i++){const li=document.createElement("li"); li.dataset.step=String(i); li.innerHTML=`<b>${SEC[i][1].slice(0,2)} ${SEC[i][0]}</b><span>${KEY[i][0]}</span><small>${KEY[i][1]}</small>`+notesOf(i)+(REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""); ol.appendChild(li); cards[i]=li;}
+  for(let i=1;i<STEPS;i++){const li=document.createElement("li"); li.dataset.step=String(i); li.innerHTML=`<span class="k">${SEC[i][1].slice(0,2)} · ${SEC[i][0].toUpperCase()}</span><b>${KEY[i][0]}</b><small>${KEY[i][1]}</small>`+notesOf(i)+(REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""); ol.appendChild(li); cards[i]=li;}
   window.__cards=cards;
   // scrolling drives the deck: the section mostly in view is the one the pinned picture plays
-  const io=new IntersectionObserver(es=>{if(!PHONE)return; for(const x of es){if(!x.isIntersecting)continue; const i=+(x.target.dataset.step||0); if(i!==step){hideInter(); go(i);}}},{rootMargin:"-35% 0px -45% 0px"});
-  io.observe($("#mobile .n")); cards.forEach(li=>{if(li)io.observe(li);});
+  // scrolling drives the deck: the card in the band just under the pinned picture is the section the picture plays
+  let io=null; window.__watchCards=()=>{ if(io)io.disconnect(); const hh=$("#mobile .hero").clientHeight||0, vh=document.documentElement.clientHeight||innerHeight; const band=Math.max(120,Math.min(260,vh-hh-120));
+    io=new IntersectionObserver(es=>{if(!PHONE)return; for(const x of es){if(!x.isIntersecting)continue; const i=+(x.target.dataset.step||0); if(i!==step){hideInter(); go(i);}}},{rootMargin:`-${hh+16}px 0px -${Math.max(0,vh-hh-16-band)}px 0px`});
+    io.observe($("#mobile .n")); cards.forEach(li=>{if(li)io.observe(li);}); };
+  $("#mobile .hero .dots").innerHTML=Array.from({length:STEPS},()=>"<i></i>").join("");
   const me=$("#medge"), mx=me.getContext("2d"); const dm=()=>{const w=me.width=me.clientWidth, c=6; mx.clearRect(0,0,w,24); for(let x=0;x<w/c;x++)for(let r=0;r<3;r++){if(hash(x*3+r,11)<[0.5,0.22,0.08][r]){mx.fillStyle="#fff"; mx.fillRect(x*c,r*c,c,c);}}}; dm(); addEventListener("resize",dm);}
 
 /* ---------- control ---------- */
-function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; prev=step; step=n; stepAt=now; const cs=window.__cards||[]; cs.forEach((li,i)=>{if(li)li.classList.toggle("on",i===n);});}
+function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; prev=step; step=n; stepAt=now; const cs=window.__cards||[]; cs.forEach((li,i)=>{if(li)li.classList.toggle("on",i===n);});
+  const cap=$("#mobile .hero .cap .l"); if(cap)cap.textContent=n===0?"HOME · THE WALL'S COLUMN":`${SEC[n][1].slice(0,2)} · ${SEC[n][0].toUpperCase()}`; $$("#mobile .hero .dots i").forEach((d,i)=>d.classList.toggle("on",i===n));}
+/* THE PHONE'S WINDOW ONTO THE DECK: per step, keyframes [u, x, y, w] of a SQUARE of the 1920×1080 stage (stage px), panned
+   between with an ease — the diagram at a readable size, not the whole slide as a strip. The text of each slide is in
+   its card. */
+const CROP=[
+  [[0,1040,300,860]],                                            // home: the column's right part and the title
+  [[0,60,170,740],[5,60,170,740],[7,1030,150,740]],              // ①: the strata and the spike, then the vote
+  [[0,820,170,760],[8.5,820,170,760],[11,110,180,700]],          // ①′: the pit, then the three faces and the title's meaning
+  [[0,620,200,660]],                                             // ②: one life's trace
+  [[0,230,150,740],[7,230,150,740],[9,1140,150,740]],            // ③: the ground from above, then the section
+  [[0,170,130,780],[9,170,130,780],[11.5,1080,130,780]],         // ④: the four rules, then the wall's strata
+  [[0,200,260,640],[5,200,260,640],[7,1080,260,640]],            // ⑤: the whole, then the inside
+  [[0,170,150,620],[6,170,150,620],[8,1140,150,660]],            // ⑥: one person's harmony, then the wall's cell
+  [[0,140,150,760],[7,140,150,760],[9,140,560,760]]];            // ⑦: the specimen card, then the record's lines
+function cropAt(n,u){const ks=CROP[Math.min(n,CROP.length-1)]||CROP[0]; if(u<=ks[0][0]||ks.length===1)return ks[0].slice(1);
+  for(let k=1;k<ks.length;k++){ if(u<=ks[k][0]){const a=ks[k-1],b=ks[k],m=ease((u-a[0])/(b[0]-a[0])); return [1,2,3].map(j=>a[j]+(b[j]-a[j])*m);} }
+  return ks[ks.length-1].slice(1);}
+let phoneTf="";
+function phoneView(u){ const hero=$("#mobile .hero"); const hw=hero.clientWidth||innerWidth; const [x,y,w]=cropAt(step,u); const s=hw/w;
+  const tf=`translate(${(-x*s).toFixed(1)}px,${(-y*s).toFixed(1)}px) scale(${s.toFixed(4)})`; if(tf!==phoneTf){phoneTf=tf; stage.style.transform=tf;} }
 function fit(){PHONE=isPhone(); const hero=$("#mobile .hero");
-  if(PHONE&&innerHeight>innerWidth){ // a phone upright: the deck lives in the hero, scaled to the width
-    if(stage.parentElement!==hero)hero.appendChild(stage); const s=hero.clientWidth/W; stage.style.transform=`scale(${s.toFixed(4)})`; hero.style.height=`${Math.round(H*s)}px`; return;}
-  if(stage.parentElement!==document.body){document.body.insertBefore(stage,$("#hud")); hero.style.height="";}
+  if(PHONE&&matchMedia("(orientation: portrait)").matches){ // a phone upright: the deck lives in the hero, a square window panned to the diagram
+    if(stage.parentElement!==hero)hero.appendChild(stage); hero.style.height=`${Math.round(hero.clientWidth||innerWidth)}px`; phoneTf=""; phoneView(U()); if(window.__watchCards)window.__watchCards(); return;}
+  if(stage.parentElement!==document.body){document.body.insertBefore(stage,$("#hud")); hero.style.height=""; phoneTf="";}
   const s=Math.min(innerWidth/W,innerHeight/H); stage.style.transform=`translate(${((innerWidth-W*s)/2).toFixed(1)}px,${((innerHeight-H*s)/2).toFixed(1)}px) scale(${s.toFixed(4)})`;}
-addEventListener("resize",fit); fit();
+addEventListener("resize",fit); try{matchMedia(PHONE_MQ).addEventListener("change",fit); matchMedia("(orientation: portrait)").addEventListener("change",fit);}catch(err){} fit();
 let frozen=q.has("still"), auto=q.has("auto");
 const DUR=HOLD.reduce((a,b)=>a+b,0);
 function setT(t){t=((t%DUR)+DUR)%DUR; let s=0; while(s<STEPS-1&&t>=HOLD[s]){t-=HOLD[s];s++;} prev=s-1; step=s; now=t*1000; stepAt=0;}
