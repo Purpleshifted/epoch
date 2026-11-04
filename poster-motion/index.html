@@ -27,7 +27,7 @@ body.cursor{cursor:default}
 #kaist{right:80px;top:52px;font-size:15px;letter-spacing:.14em;color:#3c3d3a;white-space:nowrap}
 #h-title{left:60px;top:30px;font-size:30px;font-weight:700;letter-spacing:-.01em;line-height:1;white-space:nowrap;color:var(--ink)}
 #h-homo{left:62px;top:68px;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;white-space:nowrap}
-#h-sec{right:60px;top:40px;font-family:Neo,monospace;font-size:15px;letter-spacing:.14em;color:#3c3d3a;white-space:nowrap;text-align:right}
+#h-sec{right:60px;top:40px;font-family:Neo,monospace;font-size:14px;letter-spacing:.1em;color:#3c3d3a;white-space:nowrap;text-align:right}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
 #live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#0a0a0b;display:none}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
@@ -63,9 +63,9 @@ body.cursor{cursor:default}
   <div id="shade"></div>
   <canvas id="cv" width="1920" height="1080"></canvas>
   <div id="badge" class="abs"><i></i><span>LIVE</span></div>
-  <a id="ref0" class="abs" href="references.html">참고 자료 · REFERENCES ↗</a>
+  <a id="ref0" class="abs" href="references.html">REFERENCES · 참고 자료 ↗</a>
   <a id="h-ref" class="abs" href="references.html">REFERENCES ↗</a>
-  <div id="hint" class="abs">→ 또는 클릭: 다음 · ← 이전 · 1–7 구간 · F 전체 화면</div>
+  <div id="hint" class="abs">→ OR CLICK: NEXT · ← BACK · 1–7 SECTIONS · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="title" class="abs">발견된 인류</div>
   <div id="homo" class="abs">HOMO INVENTUS</div>
@@ -159,10 +159,10 @@ const live=$("#live"), liveWanted=q.get("live")!=="0"&&!q.has("still")&&innerWid
 let liveState="off", liveTimer=0; // off | loading | on | failed
 function liveOn(){
   if(liveState!=="off"&&liveState!=="failed")return;
-  if(!liveWanted){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — 벽의 기둥 (렌더)";return;}
+  if(!liveWanted){liveState="failed";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";return;}
   liveState="loading"; live.src=LIVE_URL+(q.has("rate")?`&rate=${q.get("rate")}`:""); live.style.display="block";
-  $("#badge").querySelector("span").textContent="LIVE — 벽의 시공간, 지금 렌더링 중 · anthropocene-mu.vercel.app";
-  liveTimer=setTimeout(()=>{if(liveState==="loading"){liveState="failed";live.style.display="none";live.src="about:blank";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — 벽의 기둥 (렌더)";}},12000);
+  $("#badge").querySelector("span").textContent="LIVE — THE WALL'S TIMESPACE, RENDERING NOW · anthropocene-mu.vercel.app";
+  liveTimer=setTimeout(()=>{if(liveState==="loading"){liveState="failed";live.style.display="none";live.src="about:blank";$("#fallback").style.display="block";$("#badge").querySelector("span").textContent="STILL — THE WALL'S COLUMN, A RENDER";}},12000);
   live.onload=()=>{if(liveState==="loading"){liveState="on";clearTimeout(liveTimer);}};
 }
 function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; $("#fallback").style.display="none"; liveState="off"; }
@@ -216,9 +216,9 @@ function s2(u){
   const cx=960, cy=520, k=6.4, pts=life.pts;
   const p=lin(u,0.6,7.2), idx=p*(pts.length-1), n=Math.floor(idx);
   const at=i=>{const q=pts[Math.min(pts.length-1,Math.max(0,i))]; return [cx+q[0]*k,cy+q[1]*k];};
-  txt("체화석",210,200,{px:22,w:700,a:on(u,0.3)*mix(1,0.35,on(u,8.4))}); txt("BODY FOSSIL — bones, shells: what it was",210,224,{px:12,fam:"Neo",col:DIM,a:on(u,0.3)*mix(1,0.45,on(u,8.4)),ls:1.2});
-  line(210,194,210+86,194,WHITE,on(u,8.6,0.5),1);
-  txt("생흔화석",1710,200,{px:22,w:700,a:on(u,0.3)*mix(0.45,1,on(u,9.0)),al:"right"}); txt("TRACE FOSSIL — footprints, burrows, nests: what it did",1710,224,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2,al:"right"});
+  txt("Body fossil",210,200,{px:22,w:700,a:on(u,0.3)*mix(1,0.35,on(u,8.4))}); txt("체화석 · bones, shells — what it was",210,224,{px:12,fam:"Neo",col:DIM,a:on(u,0.3)*mix(1,0.45,on(u,8.4)),ls:1.2});
+  line(210,194,210+118,194,WHITE,on(u,8.6,0.5),1);
+  txt("Trace fossil",1710,200,{px:22,w:700,a:on(u,0.3)*mix(0.45,1,on(u,9.0)),al:"right"}); txt("생흔화석 · footprints, burrows, nests — what it did",1710,224,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2,al:"right"});
   // the way, and the footprints along it
   if(n>0){ctx.strokeStyle=rgba(WHITE,0.22); ctx.lineWidth=1; ctx.beginPath(); for(let i=0;i<=n;i++){const [x,y]=at(i); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke();}
   for(let i=0;i<=n;i+=3){const [x,y]=at(i), [x2,y2]=at(i+3); const dx=x2-x, dy=y2-y, d=Math.hypot(dx,dy)||1; const side=((i/3)%2?1:-1)*4;
@@ -230,13 +230,13 @@ function s2(u){
   if(p>0&&p<1)txt(`walking · ${fmt(p*180)}`,bx+16,by-14,{px:12,fam:"Neo",col:DIM,a:1-dis,ls:1.2});
   if(dis>=1)txt("( gone )",bx,by-18,{px:12,fam:"Neo",col:DIM,a:on(u,9.2),ls:1.2,al:"center"});
   txt("the body is gone — what it did remains in stone",960,870,{px:26,a:on(u,9.6,0.8),al:"center"});
-  txt("한 삶의 자취 · 개체 5051 · 03:00",960,896,{px:12,fam:"Neo",col:DIM,a:on(u,9.6,0.8),al:"center",ls:1.2});
+  txt("ONE LIFE'S TRACE · SPECIMEN 5051 · 03:00",960,896,{px:12,fam:"Neo",col:DIM,a:on(u,9.6,0.8),al:"center",ls:1.2});
 }
 
 /* ---------- ③ living together: top view and section ---------- */
 function s3(u){
   const px=160, py=170, pw=900, ph=660; box(px,py,pw,ph,FAINT,on(u,0.2));
-  txt("위에서 본 땅 · TOP VIEW",px,py-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
+  txt("TOP VIEW · 위에서 본 땅",px,py-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
   const C=[[px+300,py+420],[px+620,py+250],[px+690,py+560]], O=[px+60,py+620];
   const slabA=k=>on(u,4.2+0.6*k,0.6), pathA=on(u,7.4,2.6), pipeA=on(u,10.6,1.0);
   // slabs where several stayed in one place and time
@@ -253,12 +253,12 @@ function s3(u){
     x=mix(sx+Math.sin(u*0.5+i)*22,dwell[0],gather); y=mix(sy+Math.cos(u*0.6+i*1.3)*22,dwell[1],gather);
     const com=on(u,6.8,0.8)*(1-on(u,11.5,0.8)); if(com>0){const to=C[(k+1)%3]; const w=tri((u-6.8)*0.22+ph0); x=mix(x,mix(dwell[0],to[0]+Math.sin(u+i)*10,w),com); y=mix(y,mix(dwell[1],to[1]+Math.cos(u+i)*10,w),com);}
     sq(x,y,6,0.95);}
-  label(C[0][0]+48,C[0][1]-36,"/콘크리트","CONCRETE — several dwell in one place and time",slabA(0));
-  label((C[0][0]+C[1][0])/2+18,(C[0][1]+C[1][1])/2-30,"/길","PATH — repeated walking between",on(u,8.6));
-  label(O[0]+22,O[1]-30,"/배관","PIPE — laid under the sealed ground",pipeA);
+  label(C[0][0]+48,C[0][1]-36,"/concrete","콘크리트 — several dwell in one place and time",slabA(0));
+  label((C[0][0]+C[1][0])/2+18,(C[0][1]+C[1][1])/2-30,"/path","길 — repeated walking between",on(u,8.6));
+  label(O[0]+22,O[1]-30,"/pipe","배관 — laid under the sealed ground",pipeA);
   // the section
   const sx0=1160, sy0=170, sw=600, sh=660, surf=sy0+250; box(sx0,sy0,sw,sh,FAINT,on(u,0.2));
-  txt("단면 · SECTION",sx0,sy0-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
+  txt("SECTION · 단면",sx0,sy0-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
   fill(sx0+1,surf,sw-1,sh-250-1,"#141415",on(u,0.4)); line(sx0,surf+.5,sx0+sw,surf+.5,WHITE,on(u,0.6),1);
   txt("SURFACE",sx0+sw-12,surf-8,{px:12,fam:"Neo",col:DIM,a:on(u,0.6),al:"right",ls:1.2});
   const a1=slabA(0); fill(sx0+150,surf-54,170,54,"#3a3b38",a1); box(sx0+150,surf-54,170,54,WHITE,a1); txt("slab · 콘크리트",sx0+150,surf-66,{px:12,fam:"Neo",col:DIM,a:a1,ls:1.2});
@@ -267,15 +267,15 @@ function s3(u){
   line(sx0+253,surf+120.5,sx0+sw,surf+120.5,"#1c1c1d",a3,10); line(sx0+253,surf+120.5,sx0+sw,surf+120.5,WHITE,a3*0.5,1,[3,5]);
   txt("sewer · 배관",sx0+150,surf+126,{px:12,fam:"Neo",col:DIM,a:a3,al:"right",ls:1.2});
   para("What a future geologist would excavate is not a name or a body, but the structures of dense habitation.",sx0+30,surf+230,{px:20,maxW:540,col:WHITE,a:on(u,12.0,0.9)});
-  para("고고학자가 파내는 것은 이름이 아니라 모여 산 구조다.",sx0+30,surf+330,{px:16,maxW:540,col:DIM,a:on(u,12.6,0.9)});
+  para("고고학자가 파내는 것은 이름이 아니라 모여 산 구조다.",sx0+30,surf+330,{px:15,maxW:540,col:DIM,a:on(u,12.6,0.9)});
 }
 
 /* ---------- ④ no build button: four rules, and the strata ---------- */
-function panel(x,y,w,h,ko,en,a){box(x,y,w,h,FAINT,a); txt(ko,x,y-14,{px:16,w:700,a}); txt(en,x+w,y-14,{px:12,fam:"Neo",col:DIM,a,al:"right",ls:1.2});}
+function panel(x,y,w,h,en,ko,a){box(x,y,w,h,FAINT,a); txt(en,x,y-14,{px:16,w:700,a}); txt(ko,x+w,y-14,{px:12,col:DIM,a,al:"right"});}
 function s4(u){
   const P=[[160,190],[590,190],[160,560],[590,560]], pw=380, ph=300; const ul=u%11;
   // a) stay → slab
-  {const [x,y]=P[0], a=on(u,0.2); panel(x,y,pw,ph,"머물면 — 콘크리트가 선다","STAY → SLAB",a);
+  {const [x,y]=P[0], a=on(u,0.2); panel(x,y,pw,ph,"Stay — a slab rises","머물면 — 콘크리트가 선다",a);
     const c=[x+pw/2,y+150]; const gat=on(ul,0.4,1.6), meter=lin(ul,1.8,2.6), slab=on(ul,4.6,0.5), rise=Math.floor(lin(ul,5.6,4)*3);
     fill(c[0]-40-rise*6,c[1]-40-rise*6,80+rise*12,80+rise*12,"#2e2f2c",slab*a); box(c[0]-40-rise*6,c[1]-40-rise*6,80+rise*12,80+rise*12,WHITE,slab*a);
     for(let i=0;i<4;i++){const an=hash(i,4)*6.28; const far=[c[0]+Math.cos(an)*150,c[1]+Math.sin(an)*110], near=[c[0]+Math.cos(an+u*0.6)*18,c[1]+Math.sin(an+u*0.6)*14];
@@ -284,7 +284,7 @@ function s4(u){
     txt("threshold",x+pw-16,y+ph-32,{px:12,fam:"Neo",col:DIM,a:a*on(ul,4.4),al:"right",ls:1.2});
     txt("dense in spacetime, not only at one moment · no one builds alone",x,y+ph+22,{px:13,col:DIM,a});}
   // b) walk → path
-  {const [x,y]=P[1], a=on(u,0.5); panel(x,y,pw,ph,"걸으면 — 길이 다져진다","WALK → PATH",a);
+  {const [x,y]=P[1], a=on(u,0.5); panel(x,y,pw,ph,"Walk — a path hardens","걸으면 — 길이 다져진다",a);
     const y0=y+150, xa=x+50, xb=x+pw-50; const passes=Math.floor(ul/1.1);
     for(let i=0;i<160;i++){const gx=x+20+hash(i,1)*(pw-40), gy=y+30+hash(i,2)*(ph-60); const near=Math.abs(gy-y0)<22; const gone=near&&hash(i,3)<passes*0.18;
       if(!gone)sq(gx,gy,2,0.45*a,"#9b9c97");}
@@ -293,7 +293,7 @@ function s4(u){
     txt(`passes ${passes} · p ${(Math.min(0.45,passes*0.08)).toFixed(2)}${paved?" ≥ 0.3 · PATH":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("grass pressed under repeated footsteps hardens into a desire path",x,y+ph+22,{px:13,col:DIM,a});}
   // c) seal → pipes
-  {const [x,y]=P[2], a=on(u,0.8); panel(x,y,pw,ph,"덮으면 — 배관이 묻힌다","SEAL → PIPES",a);
+  {const [x,y]=P[2], a=on(u,0.8); panel(x,y,pw,ph,"Seal — pipes are laid","덮으면 — 배관이 묻힌다",a);
     const cs=34, cols=10, rows=6, gx=x+20, gy=y+36; for(let i=0;i<=cols;i++)line(gx+i*cs,gy,gx+i*cs,gy+rows*cs,FAINT,0.6*a); for(let j=0;j<=rows;j++)line(gx,gy+j*cs,gx+cols*cs,gy+j*cs,FAINT,0.6*a);
     const blds=[[1,1,2,2],[5,0,3,2],[2,4,2,2],[7,3,2,2]]; let sealed=0;
     blds.forEach(([bx,by,bw,bh],i)=>{const ba=on(ul,0.6+i*0.9,0.4); fill(gx+bx*cs,gy+by*cs,bw*cs,bh*cs,"#3a3b38",ba*a); box(gx+bx*cs,gy+by*cs,bw*cs,bh*cs,WHITE,ba*a); sealed+=ba*bw*bh;});
@@ -305,7 +305,7 @@ function s4(u){
     txt(`sealed share ${(share).toFixed(2)}${pipe>0?" → runoff · sewers laid beneath":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("rain has nowhere to soak in — the impervious-cover model",x,y+ph+22,{px:13,col:DIM,a});}
   // d) leave → grass
-  {const [x,y]=P[3], a=on(u,1.1); panel(x,y,pw,ph,"떠나면 — 풀이 돌아온다","LEAVE → VEGETATION",a);
+  {const [x,y]=P[3], a=on(u,1.1); panel(x,y,pw,ph,"Leave — vegetation returns","떠나면 — 풀이 돌아온다",a);
     const c=[x+pw/2,y+150]; const tr=lin(ul,0.3,3.6), leave=on(ul,4.2,1.0), back=lin(ul,5.6,5.0);
     for(let i=0;i<220;i++){const gx=x+20+hash(i,1)*(pw-40), gy=y+30+hash(i,2)*(ph-60); const d=Math.hypot(gx-c[0],gy-c[1]); const h=hash(i,3);
       const pressed=d<90&&h<tr; const returned=pressed&&h<back; sq(gx,gy,2,(pressed&&!returned?0.08:0.5)*a,"#9b9c97");}
@@ -314,7 +314,7 @@ function s4(u){
     txt("nature comes back only in the hours when people are gone",x,y+ph+22,{px:13,col:DIM,a});}
   // the strata: 20 s = one layer; layers sink and change
   const cx=1120, cy=190, cw=430, bh=15, nb=Math.min(44,Math.floor(u/0.9)), immut=30;
-  txt("벽 · THE WALL — 20 s = one stratum",cx,cy-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
+  txt("THE WALL · 벽 — 20 s = one stratum",cx,cy-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
   for(let k=0;k<nb;k++){const y=cy+k*bh; const age=k; const a=on(u,k*0.9,0.5);
     if(age<9){box(cx,y,cw,bh-2,"#8a8b86",a);}
     else if(age<16){box(cx,y,cw,bh-2,"#6a6b66",a); for(let d=0;d<30;d++)sq(cx+hash(k,d)*cw,y+hash(d,k)*(bh-2),2,0.6*a,"#9b9c97");}
@@ -323,10 +323,10 @@ function s4(u){
     else{fill(cx,y,cw,bh-2,"#1e1f1d",a);}}
   const yI=cy+immut*bh; if(nb>immut)line(cx-10,yI-1.5,cx+cw+10,yI-1.5,WHITE,on(u,immut*0.9,0.5),1,[2,4]);
   const bx=cx+cw+18;
-  const lab=(k0,k1,s,e,a)=>{line(bx,cy+k0*bh,bx,cy+k1*bh-2,DIM,a); line(bx,cy+k0*bh+.5,bx+6,cy+k0*bh+.5,DIM,a); line(bx,cy+k1*bh-1.5,bx+6,cy+k1*bh-1.5,DIM,a); txt(s,bx+14,cy+(k0+k1)/2*bh+6,{px:14,a}); txt(e,bx+14,cy+(k0+k1)/2*bh+22,{px:11,fam:"Neo",col:DIM,a,ls:1});};
-  lab(0,9,"현재 · 9단","PRESENT — still changing",on(u,9*0.9+0.4));
-  lab(9,immut,"과정 띠","OVERGROWN → ROT → FUSED → RESIN",on(u,16*0.9+0.4));
-  lab(immut,44,"완전불변","FINAL — the immutable line",on(u,immut*0.9+0.6));
+  const lab=(k0,k1,s,e,a)=>{line(bx,cy+k0*bh,bx,cy+k1*bh-2,DIM,a); line(bx,cy+k0*bh+.5,bx+6,cy+k0*bh+.5,DIM,a); line(bx,cy+k1*bh-1.5,bx+6,cy+k1*bh-1.5,DIM,a); txt(s,bx+14,cy+(k0+k1)/2*bh+6,{px:14,a}); txt(e,bx+14,cy+(k0+k1)/2*bh+22,{px:11,col:DIM,a});};
+  lab(0,9,"Present · 9 strata","현재 — still changing",on(u,9*0.9+0.4));
+  lab(9,immut,"The process band","과정 띠 — overgrown → rot → fused → resin",on(u,16*0.9+0.4));
+  lab(immut,44,"Final","완전불변 — the immutable line",on(u,immut*0.9+0.6));
   if(nb>0){line(cx-18,cy+.5,cx-18,cy+bh-1.5,WHITE,on(u,0.6)); txt("20 s",cx-26,cy+bh-3,{px:12,fam:"Neo",col:WHITE,a:on(u,0.6),al:"right",ls:1});}
 }
 
@@ -366,17 +366,17 @@ function s6(u,g){
   txt("ONE PERSON · 헤드셋",160,180,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
   const ax=200, ay=230, S=200; const near=on(u,1.2,3.0), locked=u>=4.4;
   const bx=mix(820,ax+S+120,near);
-  glyphC(fig.a.dots,ax,ay,S,{a:on(u,0.3),cur:col}); txt("/이름",ax,ay+S+30,{px:22,w:700,a:on(u,0.3)}); txt("MY NAME · 5051 · an eight-step score",ax,ay+S+50,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
-  glyphC(fig.b.dots,bx,ay,S,{a:on(u,0.9),cur:locked?col:(col+3)%8}); txt("/타인",bx,ay+S+30,{px:22,w:700,a:on(u,0.9)}); txt("ANOTHER · 5527",bx,ay+S+50,{px:12,fam:"Neo",col:DIM,a:on(u,0.9),ls:1.2});
+  glyphC(fig.a.dots,ax,ay,S,{a:on(u,0.3),cur:col}); txt("/name",ax,ay+S+30,{px:22,w:700,a:on(u,0.3)}); txt("이름 · my name · 5051 · an eight-step score",ax,ay+S+50,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
+  glyphC(fig.b.dots,bx,ay,S,{a:on(u,0.9),cur:locked?col:(col+3)%8}); txt("/another",bx,ay+S+30,{px:22,w:700,a:on(u,0.9)}); txt("타인 · 5527",bx,ay+S+50,{px:12,fam:"Neo",col:DIM,a:on(u,0.9),ls:1.2});
   // distance, then harmony
   const dy=ay+S/2; line(ax+S+10,dy+.5,bx-10,dy+.5,DIM,on(u,1.0)*(locked?0:1),1,[3,5]);
   txt("stay near · 6 s",ax+S+60,dy-10,{px:12,fam:"Neo",col:DIM,a:on(u,1.0)*(1-on(u,4.4,0.4)),ls:1.2});
   const ha=on(u,4.4,0.6); line(ax,ay-24,bx+S,ay-24,WHITE,ha,1); line(ax,ay-24,ax,ay-12,WHITE,ha); line(bx+S,ay-24,bx+S,ay-12,WHITE,ha);
-  txt("화음 · HARMONY — the melodies lock, the bars alternate: call and answer",ax,ay-36,{px:14,a:ha});
+  txt("HARMONY · 화음 — the melodies lock, the bars alternate: call and answer",ax,ay-36,{px:14,a:ha});
   // the new word
   const wa=on(u,6.4,0.6); const wx=ax+S/2+60, wy=ay+S+110; glyphC(fig.word,wx,wy,150,{a:wa,cur:col});
   const bp=on(u,6.4,0.75); if(bp>0&&bp<1)for(let i=0;i<26;i++){const an=hash(i,7)*6.283, r=10+bp*(30+hash(i,8)*80); sq(wx+75+Math.cos(an)*r,wy+75+Math.sin(an)*r*0.8,3,1-bp);}
-  txt("/새 어휘",wx+170,wy+70,{px:22,w:700,a:wa}); txt("NEW WORD — answer another's call: a glyph that mixes two melodies",wx+170,wy+90,{px:12,fam:"Neo",col:DIM,a:wa,ls:1.2});
+  txt("/new word",wx+170,wy+70,{px:22,w:700,a:wa}); txt("새 어휘 — answer another's call: a glyph that mixes two melodies",wx+170,wy+90,{px:12,fam:"Neo",col:DIM,a:wa,ls:1.2});
   para("Why sound: vision places you outside; sound surrounds the body. When sounds overlap they do not hide each other — they become harmony or dissonance. Overlap without occlusion.",160,ay+S+360,{px:17,maxW:780,col:DIM,a:on(u,8.6,0.9)});
   // the whole
   const cx=1180, cy=230, cw=400, ch=430; txt("THE WHOLE · 벽",1100,180,{px:12,fam:"Neo",col:DIM,a:on(u,0.4),ls:1.2});
@@ -387,24 +387,24 @@ function s6(u,g){
   txt("one cell of a structure · 구조의 한 칸",cx+150+100,cy+22,{px:12,fam:"Neo",col:DIM,a:sa,ls:1.2});
   // the low band
   const la=on(u,9.8,0.8); const lx=1180, ly=cy+ch+50; glyphC([],lx,ly,150,{a:la}); glyphs.slice(0,19).forEach(gl=>glyphC(gl.dots,lx,ly,150,{a:la,grid:false,squash:0.22,alpha:0.4}));
-  txt("/저음",lx+170,ly+70,{px:22,w:700,a:la}); para("ON THE SPEAKERS — every melody two octaves down, one mass: the whole is heard, no one is told apart",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
+  txt("/low band",lx+170,ly+70,{px:22,w:700,a:la}); para("저음 — on the speakers every melody sinks two octaves into one mass: the whole is heard, no one is told apart",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
 }
 
 /* ---------- ⑦ the record remains: a specimen card ---------- */
 function s7(u,g){
   const x=160, y=190; const ta=on(u,0.2);
-  txt("개체 기록표 · SPECIMEN CARD — the end screen of one life (sample)",x,y-14,{px:12,fam:"Neo",col:DIM,a:ta,ls:1.2});
-  line(x,y+.5,x+1000,y+.5,WHITE,ta,1); txt("개체 5051",x,y+42,{px:30,w:700,a:ta}); txt("존속 03:00",x+1000,y+42,{px:30,w:700,a:ta,al:"right"});
-  const rows=[["고유 어휘",null],["군집","3개체와 집단생활 · 공동 체류 00:24"],["어휘 변화","접촉 후 새로운 어휘 1종 발생 · 호출 2회 · 응답 1회"],["구조물","콘크리트 6칸 · 같은 층에서 어휘 4종 출토"],["이동","약 120 m · 체류 00:40 · 통로 2칸 형성 · 기존 통로 이용"],["식생","경로의 식생 3.1칸 분 소실 · 일부 회복"],["사인","과로 — the cause follows what the visitor actually did"]];
+  txt("SPECIMEN CARD · 개체 기록표 — the end screen of one life (sample values)",x,y-14,{px:12,fam:"Neo",col:DIM,a:ta,ls:1.2});
+  line(x,y+.5,x+1000,y+.5,WHITE,ta,1); txt("Specimen 5051",x,y+42,{px:30,w:700,a:ta}); txt("Lived 03:00",x+1000,y+42,{px:30,w:700,a:ta,al:"right"});
+  const rows=[["GLYPH · 고유 어휘",null],["COMMUNITY · 군집","Lived with 3 others · 00:24 in company"],["VOCABULARY · 어휘 변화","1 new word after contact · called 2 · answered 1"],["STRUCTURES · 구조물","6 cells of concrete · 4 vocabularies found in the same layer"],["MOVEMENT · 이동","About 120 m · stayed 00:40 · formed 2 cells of path · used existing paths"],["VEGETATION · 식생","3.1 cell-minutes of vegetation lost along the way · partly recovered"],["CAUSE · 사인","Overwork — the cause follows what the visitor actually did"]];
   let yy=y+78;
   rows.forEach(([k,v],i)=>{const a=on(u,0.8+i*0.7,0.5); line(x,yy+.5,x+1000,yy+.5,FAINT,a);
     txt(k,x,yy+30,{px:13,fam:"Neo",col:DIM,a,ls:1.2});
-    if(v===null){glyphC(fig.a.dots,x+190,yy+10,64,{a,cur:Math.floor(g/0.22)%8}); yy+=86;}
-    else{txt(v,x+190,yy+32,{px:21,a}); if(i===2)glyphC(fig.word,x+190+ctx.measureText(v).width+24,yy+8,40,{a}); yy+=52;}});
+    if(v===null){glyphC(fig.a.dots,x+230,yy+10,64,{a,cur:Math.floor(g/0.22)%8}); yy+=86;}
+    else{txt(v,x+230,yy+32,{px:21,a}); if(i===2)glyphC(fig.word,x+230+ctx.measureText(v).width+24,yy+8,40,{a}); yy+=52;}});
   line(x,yy+.5,x+1000,yy+.5,WHITE,on(u,0.8+rows.length*0.7,0.5),1);
   // the footprint map
   const mx=1260, my=200, ms=300, k=ms/100; const ma=on(u,1.4);
-  box(mx,my,ms,ms,DIM,ma*0.6); txt("발자국 지도 · FOOTPRINT MAP",mx,my-14,{px:12,fam:"Neo",col:DIM,a:ma,ls:1.2});
+  box(mx,my,ms,ms,DIM,ma*0.6); txt("FOOTPRINT MAP · 발자국 지도",mx,my-14,{px:12,fam:"Neo",col:DIM,a:ma,ls:1.2});
   ctx.strokeStyle=rgba(WHITE,ma); ctx.lineWidth=1.2; ctx.beginPath(); life.pts.forEach(([px,pz],i)=>{const X=mx+(50+px)*k, Y=my+(50+pz)*k; i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);}); ctx.stroke();
   const f=life.pts[0], l=life.pts[life.pts.length-1]; fill(mx+(50+f[0])*k-3,my+(50+f[1])*k-3,7,7,WHITE,ma); box(mx+(50+l[0])*k-3,my+(50+l[1])*k-3,7,7,WHITE,ma);
   txt("■ born · □ ended · 1 px = 60 % white",mx,my+ms+22,{px:11,fam:"Neo",col:DIM,a:ma,ls:1});
@@ -428,7 +428,7 @@ function render(){
   if(t0)liveOn(); else liveOff();
   if(!t0&&REFS[step]){$("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join(""); $("#refs").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
-  if(!t0){$("#h-sec b").textContent=SEC[step][1]; $("#h-sec span").textContent=SEC[step][0].toUpperCase();
+  if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
     $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   else{$("#notice").style.opacity="0";}
   DRAW[step](u,g);

@@ -1,7 +1,7 @@
-# 발견된 인류 — 발표 도해 (poster-motion)
+# 발견된 인류 — 발표 도해 · 사이트 (poster-motion)
 
 졸업심사 발표 대본(「발견된 인류 — 졸업심사 발표 구성과 대본」, Claude 문서)의 도입과 일곱 구간을 **구간마다 한 장의 도해**로 보여주는 키로 넘기는 웹 페이지. 16:9 (1920 × 1080).
-각 도해는 작품의 실제 규칙(`docs/world-logic.md`, `sound-logic.md`, `session-logic.md`, `lib/parliament/fold.ts`·`water.ts`)을 그대로 그린다. 큰 글은 대본의 굵은 핵심 문장(영어), 한국어는 작게.
+각 도해는 작품의 실제 규칙(`docs/world-logic.md`, `sound-logic.md`, `session-logic.md`, `lib/parliament/fold.ts`·`water.ts`)을 그대로 그린다. 큰 글과 설명은 영어, 한국어는 작게(작가 요청 11/04). 참고 자료 페이지도 영어.
 
 ## 발표 때
 
