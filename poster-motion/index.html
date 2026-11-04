@@ -29,11 +29,11 @@ body.cursor{cursor:default}
 #h-homo{left:62px;top:68px;font-family:Neo,monospace;font-size:12px;letter-spacing:.3em;color:#3c3d3a;white-space:nowrap}
 #h-sec{right:60px;top:40px;font-family:Neo,monospace;font-size:14px;letter-spacing:.1em;color:#3c3d3a;white-space:nowrap;text-align:right}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
-#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#0a0a0b;display:none}
+#live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#0a0a0b;display:none;pointer-events:none}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
 #fallback img{position:absolute;left:180px;top:-60px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%)}
 #shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(10,10,11,0) 0,rgba(10,10,11,.86) 45%,rgba(10,10,11,.96) 100%);display:none;pointer-events:none}
-#live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3}
+#live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3;pointer-events:none}
 #badge3{left:160px;top:842px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:var(--dim);white-space:nowrap;display:none}
 #badge3 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
 #badge{right:64px;top:244px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
@@ -468,7 +468,8 @@ addEventListener("keydown",e=>{
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}
   else if(e.key==="h") $("#hud").style.opacity=$("#hud").style.opacity==="1"?"0":"1";
 });
-addEventListener("click",e=>{if(e.clientX>innerWidth*0.2)go(step+1);else go(step-1);});
+addEventListener("click",e=>{window.focus(); if(e.clientX>innerWidth*0.2)go(step+1);else go(step-1);});
+for(const f of [live,$("#live3")]) f.setAttribute("tabindex","-1");
 await window.__ready;
 if(q.has("step")){step=clamp(+q.get("step"),0,STEPS-1); prev=step-1;}
 if(frozen){setT(+(q.get("t")||0));render();}
