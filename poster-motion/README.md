@@ -52,7 +52,7 @@ node poster-motion/tools/serve.mjs 3018      # http://localhost:3018/  (아무 �
 
 ## 배포 (Vercel, 정적) — 2026-11-04 배포됨
 
-Vercel 프로젝트 **`homo-inventus`**(팀 Hesse Park's projects, 루트 `poster-motion`, 프레임워크 없음, 빌드 없음). 프로덕션 주소 `https://homo-inventus-hesse-parks-projects.vercel.app` (`homo-inventus.vercel.app`은 다른 사람이 이미 씀). 첫 프로덕션 배포는 이 브랜치의 커밋 6e24900에서 API로 만들었다(`create_deployment`, gitSource = 이 브랜치). 프로젝트의 프로덕션 브랜치는 저장소 기본값(main)이라 **이 브랜치에 푸시해도 자동 프로덕션 배포는 안 된다** — 대시보드 Settings → Git → Production Branch를 `claude/motion-poster-creation-c6e4e1`로 바꾸거나, 바꿀 때마다 같은 API 호출로 다시 배포한다. 배포 보호(Vercel Authentication)가 팀 기본값으로 켜져 있으면 Settings → Deployment Protection에서 끈다 — 켜진 채로는 방문자가 Vercel 로그인 벽을 본다.
+Vercel 프로젝트 **`homo-inventus`**(팀 Hesse Park's projects, 루트 `poster-motion`, 프레임워크 없음, 빌드 없음). 공개 주소 **https://homo-inventus.vercel.app** (프로젝트 기본 도메인; 긴 별칭 `homo-inventus-hesse-parks-projects.vercel.app`은 팀의 배포 보호 때문에 Vercel 로그인을 요구하므로 쓰지 않는다). 첫 프로덕션 배포는 이 브랜치의 커밋 6e24900에서 API로 만들었다(`create_deployment`, gitSource = 이 브랜치). 프로젝트의 프로덕션 브랜치는 저장소 기본값(main)이라 **이 브랜치에 푸시해도 자동 프로덕션 배포는 안 된다** — 대시보드 Settings → Git → Production Branch를 `claude/motion-poster-creation-c6e4e1`로 바꾸거나, 바꿀 때마다 같은 API 호출로 다시 배포한다. 배포 보호(Vercel Authentication)는 팀 기본값(custom domain 외 모두 보호)이지만 프로젝트 기본 도메인은 열려 있다; 긴 별칭과 미리보기 주소만 로그인을 요구한다. 완전히 끄려면 Settings → Deployment Protection.
 
 ### 처음 만들 때의 절차 (기록)
 
