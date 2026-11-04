@@ -111,3 +111,9 @@ PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 - 겹침 수정: ③ /path·/concrete 라벨이 길 선 위에 있던 것, ⑤ "one person's reach"가 그림 위에 있던 것(패널 제목 줄로), ⑥ "ONE PERSON" 라벨이 HARMONY 줄과 겹치던 것. 전 구간 끝 시점 스틸로 확인(`STILLS=19.5,33.5,46.5,60.5,76.5,87.5,100.5,113.5`).
 - ⑦ 끝에 제목 회귀: "HOMO INVENTUS — THE HUMANITY THAT IS FOUND" + 한 줄. 대본 ⑦ 마지막에도 같은 문장(Thank you 앞).
 - **모바일(760 px 미만)**: `#stage`를 숨기고 `#mobile`을 보인다 — 흰 제목 띠 + 침식 캔버스, 랜딩 스틸(`assets/slides/s0.jpg`), 두 문장, 링크 4개(이 폰으로 작품 입장), 발표 8장을 카드로(`assets/slides/s1–8.jpg` 1280 px + 제목·핵심 문장·REFS 링크, SEC/KEY에서 생성). 스틸은 `tools/render.mjs`의 구간 끝 프레임을 ffmpeg로 줄인 것 — 슬라이드를 고치면 다시 만들 것. references는 720 px 미만에서 헤더 고정 해제·표 가로 스크롤.
+
+## 2026-11-04 14:40 — 3차: 실제 3D 시연 (듀얼) · 돌아가는 랜딩
+
+- **이 브랜치의 앱을 따로 배포**: Vercel 프로젝트 **homo-inventus-lab**(prj_fHkp2JTzy8hg5bvYuD9TEMqEjA4W, root `apps/web`, Next 16, Node 24, build `next build --webpack`, install `npm install --prefix=../..`; Turbopack 빌드는 새 프로젝트에서 next/font/google 오류로 실패). 전시 배포(anthropocene, main)는 손대지 않는다. 주소 `LAB_ORIGIN` = https://homo-inventus-lab.vercel.app.
+- **앱 쪽(`apps/web`, 이 브랜치)**: `lib/parliament/scenario.ts` — 대본 군중 `?scenario=slab|path|pipe|veg` (랩, 빈 땅): slab 넷이 한 자리(9초면 문턱 36, 15마다 한 단), path 둘이 왕복(13초/한 구간), pipe 세 무리 + 두 보행자(밀봉률 25 % 넘으면 배관), veg 여섯이 한 뙈기를 밟다가 떠남(200초 주기). `useGlobalBots`의 `opts.script`가 봇 대신 대본 좌표를 그대로 사건으로 낸다. 카메라 `?cam=close`(가까이, 90초 한 바퀴) · `?cam=turn`(저장된 시점, 60초 한 바퀴). `?snap=1`이면 iframe 안에서 160 px 비트맵을 0.2초마다 부모 창에 postMessage(픽셀만).
+- **사이트 쪽**: 랜딩 `LIVE_URL` = 랩 `cam=turn&snap=1&minutes=8&bots=10&dpr=0.6` — 실제 3D 기둥이 돌고, 픽셀 침식 띠가 그 스냅샷을 셀로 받아 **같이 움직인다**(`sampleLive`; 스냅이 2.5초 끊기면 정지 렌더로 복귀). ③의 평면도도 랩 출처(`look=footprint`가 거기엔 있음). **④ 듀얼**: 12초 뒤 오른쪽에 `#live4` iframe — 대본 군중을 실제 규칙으로 접는 라이브, 40초마다 slab → path → pipe → veg(`V` 키로 다음), 아래 배지에 규칙 이름. `?live=0`이면 모두 끔.
