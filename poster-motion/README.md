@@ -50,7 +50,11 @@ node poster-motion/tools/serve.mjs 3018      # http://localhost:3018/  (아무 �
 
 인류세·황금못·크로포드 호수·2024년 3월의 결정·사건으로서의 인류세·하이퍼객체·생흔화석을 백과 항목으로, 작품의 규칙(콘크리트·길·배관·식생·지층·상속·소리·기록표)이 기댄 문헌을 가지별 마인드맵(SVG, 잎을 누르면 항목으로)과 항목 목록으로. 각 구간 화면의 오른쪽 아래 `REFERENCES ↗` 줄이 이 페이지의 항목으로 이어진다. 문헌 데이터는 `references.html` 안의 `B` 배열 한 곳. **사운드** 절(`#sound`)은 엔진·NoiseCraft·Magenta·웹사운드로서의 의의를 구조도(SVG)와 함께 자세히 쓴다.
 
-## 배포 (Vercel, 정적)
+## 배포 (Vercel, 정적) — 2026-11-04 배포됨
+
+Vercel 프로젝트 **`homo-inventus`**(팀 Hesse Park's projects, 루트 `poster-motion`, 프레임워크 없음, 빌드 없음). 프로덕션 주소 `https://homo-inventus-hesse-parks-projects.vercel.app` (`homo-inventus.vercel.app`은 다른 사람이 이미 씀). 첫 프로덕션 배포는 이 브랜치의 커밋 6e24900에서 API로 만들었다(`create_deployment`, gitSource = 이 브랜치). 프로젝트의 프로덕션 브랜치는 저장소 기본값(main)이라 **이 브랜치에 푸시해도 자동 프로덕션 배포는 안 된다** — 대시보드 Settings → Git → Production Branch를 `claude/motion-poster-creation-c6e4e1`로 바꾸거나, 바꿀 때마다 같은 API 호출로 다시 배포한다. 배포 보호(Vercel Authentication)가 팀 기본값으로 켜져 있으면 Settings → Deployment Protection에서 끈다 — 켜진 채로는 방문자가 Vercel 로그인 벽을 본다.
+
+### 처음 만들 때의 절차 (기록)
 
 이 폴더가 그대로 사이트다(빌드 없음). Vercel 대시보드에서 **New Project → Import `Purpleshifted/epoch` → Root Directory `poster-motion` → Framework Preset: Other → Production Branch `claude/motion-poster-creation-c6e4e1`**. `vercel.json`이 `/references` 같은 깨끗한 주소와 폰트 캐시를 정한다. 기존 `anthropocene` 프로젝트(apps/web, main)와는 별개 프로젝트로 두어 main을 건드리지 않는다.
 CLI라면: `npx vercel --cwd poster-motion` (처음엔 로그인·프로젝트 연결을 묻는다).
