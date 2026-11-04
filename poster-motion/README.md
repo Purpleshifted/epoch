@@ -127,3 +127,12 @@ PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 ## 2026-11-04 15:45 — 클릭 버그의 진짜 원인
 
 - ②(생흔화석)의 `s2`가 걷는 사람의 위치를 `pts[idx]`로 읽는데 `idx`가 소수(예: 22.2)라 0.6–7.8 s 사이에 매 프레임 `undefined[0]`로 던졌고, try/catch 이전에는 그 예외가 rAF 루프를 죽여 **그 슬라이드부터 클릭·키가 모두 멈췄다.** 헤드리스 재현이 안 됐던 이유: 테스트는 ②를 0.3 s 만에 지나갔거나(idx 0) 끝 시점(idx 400)만 찍었다. 이제 이웃 두 점 사이를 보간한다. 배포 사이트에서 `__seek(36/40/45)`로 확인(오류 없음).
+
+## 2026-11-04 evening
+
+- **Landing**: the render by default; `?live=1` = the live column (a 24-minute test column framed whole). The live iframe had `z-index:2` and painted over the canvas — the title and the credits vanished the moment it went live; the still now precedes the iframe in the DOM instead.
+- **Phone**: a design of its own — a sticky square window onto the live deck, panned to each section's diagram by `CROP` keyframes (`phoneView()`), the home as an image, themed cards; the phone test is the stylesheet's media query (`innerWidth` lies under emulation). `body` must not be a scroll container or `position:sticky` never engages.
+- **④ one shot**: the lab scenario `all` (apps/web `lib/parliament/scenario.ts`) — one crowd: slab → walkway → pipes → leave → grass; then the clock ×20 and the strata fossilise. The scenario carries its clock rate and its camera (`?cam=shot`). The wall draws a path as a line (a walkway) only between buildings; on bare ground it is a gap in the grass — why the old `path` scenario showed no line. The stage camera was inactive in the lab (`active={!lab}`), so `?cam=` dist/polar had never applied; now any `?cam=` makes it drive.
+- **⑥ a life, in plain words** (new step 7; sound is ⑥′, step 8): `s6a()`, `figLife()`, `LIFE_LINES`, `seedHead()`; keys 1–9.
+- **Listen** (references `#listen`): the headset engine bundled by `tools/build-sound.sh` (esbuild through npx; `sound/demo.ts`, `sound/shims/field.ts` for `CELL_SIZE`; `@magenta/*` external) into `assets/sound-demo.js`; `window.HomoSound.{play,stop,state,setMaster}`. Rebuild after any change under `apps/web/src/lib/sound`.
+- Tools: `tools/shots.mjs` (a series of screenshots of one page), `GPU=1`/`PORT=` for `shot.mjs`.
