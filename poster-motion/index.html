@@ -14,7 +14,8 @@
 @font-face{font-family:"Pretendard";font-weight:700;src:url("fonts/Pretendard-Bold.woff2") format("woff2")}
 @font-face{font-family:"Pretendard";font-weight:400;src:url("fonts/Pretendard-Regular.woff2") format("woff2")}
 @font-face{font-family:"Neo";src:url("fonts/neodgm.woff2") format("woff2")}
-@font-face{font-family:"PlexI";src:url("fonts/IBMPlexMono-Italic.ttf") format("truetype")}
+@font-face{font-family:"PreBlack";font-weight:900;src:url("fonts/Pretendard-Black-title.woff2") format("woff2")}
+@font-face{font-family:"Garamond";font-style:italic;src:url("fonts/EBGaramond-Italic.woff2") format("woff2")}
 :root{--sky0:#ffffff;--sky1:#ffffff;--ink:#0b0b0b;--white:#e9e9e5;--dim:#9b9c97;--faint:#55564f}
 html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
 body.cursor{cursor:default}
@@ -35,14 +36,15 @@ body.cursor{cursor:default}
 #h-sec b{display:block;font-family:Pretendard;font-weight:700;font-size:22px;letter-spacing:0;color:var(--ink);margin-bottom:6px}
 #live{position:absolute;left:0;top:220px;width:1280px;height:573px;border:0;transform:scale(1.5);transform-origin:0 0;background:#000;display:none;pointer-events:none}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
-#fallback img{position:absolute;left:180px;top:-60px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 90px,#000 70%,transparent 100%)}
+#fallback img{position:absolute;left:180px;top:-60px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,transparent 70px,#000 215px,#000 70%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,transparent 70px,#000 215px,#000 70%,transparent 100%)}
+#live,#wallv{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 150px);mask-image:linear-gradient(180deg,transparent 0,#000 150px)}
 #shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(0,0,0,0) 0,rgba(0,0,0,.86) 45%,rgba(0,0,0,.96) 100%);display:none;pointer-events:none}
 #live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3;pointer-events:none}
 #wallv{position:absolute;left:0;top:220px;width:1920px;height:860px;object-fit:cover;background:#000;display:none;pointer-events:none}
 #topv{position:absolute;left:161px;top:171px;width:899px;height:659px;object-fit:cover;background:#000;display:none;z-index:3;pointer-events:none}
 #badge3{left:160px;top:842px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:var(--dim);white-space:nowrap;display:none}
 #badge3 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
-#badge{right:64px;top:262px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
+#badge{left:64px;top:392px;font-family:Neo,monospace;font-size:12px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
 #badge i{display:inline-block;width:8px;height:8px;background:var(--white);margin-right:10px;vertical-align:1px}
 #hint{left:0;top:1002px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;color:#55564f;display:none}
 #refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
@@ -116,8 +118,8 @@ const hash=(x,y)=>{let h=(x*374761393+y*668265263)|0;h=(h^(h>>13))*1274126177|0;
 const tri=x=>{x=x%1;return x<0.5?x*2:2-x*2;};                     // 0→1→0 triangle wave over one period
 const fmt=s=>{s=Math.max(0,Math.round(s));return `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;};
 function rgba(col,a){const h=col.replace("#","");const n=parseInt(h,16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${clamp(a).toFixed(3)})`;}
-function txt(s,x,y,o={}){const {px=16,w=400,fam="Pretendard",al="left",col=WHITE,a=1,ls=0,bl="alphabetic"}=o; if(a<=0.005)return;
-  ctx.font=`${w} ${px}px ${fam}`; ctx.textAlign=al; ctx.textBaseline=bl; ctx.letterSpacing=ls?`${ls}px`:"0px"; ctx.fillStyle=rgba(col,a); ctx.fillText(s,x,y); ctx.letterSpacing="0px";}
+function txt(s,x,y,o={}){const {px=16,w=400,fam="Pretendard",al="left",col=WHITE,a=1,ls=0,bl="alphabetic",st=""}=o; if(a<=0.005)return;
+  ctx.font=`${st} ${w} ${px}px ${fam}`.trim(); ctx.textAlign=al; ctx.textBaseline=bl; ctx.letterSpacing=ls?`${ls}px`:"0px"; ctx.fillStyle=rgba(col,a); ctx.fillText(s,x,y); ctx.letterSpacing="0px";}
 function wrap(s,maxW,px,w="400",fam="Pretendard"){ctx.font=`${w} ${px}px ${fam}`; const out=[]; let line="";
   for(const word of s.split(" ")){const t=line?line+" "+word:word; if(ctx.measureText(t).width>maxW&&line){out.push(line);line=word;}else line=t;} if(line)out.push(line); return out;}
 function para(s,x,y,o={}){const {px=20,w="400",fam="Pretendard",maxW=600,lh=1.45,col=WHITE,a=1,al="left"}=o; if(a<=0.005)return 0;
@@ -141,13 +143,33 @@ function erode(y0,g){const c=8, t=Math.floor(g/0.5); for(let x=0;x<W/c;x++){for(
   if(up>0&&(hash(x*5+r,29)<up)!==(hash(x*11+r,t+1)<0.04)) fill(x*c,y0-(r+1)*c,c,c,"#000000",1);}}}
 // the title as on the poster: the pixel face, white on the ground, slices shifted and cells chipped out
 function glitchTitle(u,g){const s="발견된 인류", px=150, x=1856, y=930, a=on(u,0.3,0.9); if(a<=0.005)return;
-  ctx.font=`400 ${px}px Neo`; ctx.textAlign="right"; ctx.textBaseline="alphabetic"; const w=ctx.measureText(s).width, top=y-px*0.92, h=px*1.08;
+  ctx.font=`900 ${px}px PreBlack, Pretendard`; ctx.textAlign="right"; ctx.textBaseline="alphabetic"; const w=ctx.measureText(s).width, top=y-px*0.92, h=px*1.08;
   ctx.save(); ctx.beginPath(); ctx.rect(x-w-2,top,(w+4)*a,h); ctx.clip(); ctx.fillStyle="#ffffff"; ctx.fillText(s,x,y); ctx.restore();
   const seed=Math.floor(g/0.5);
   for(let i=0;i<9;i++){if(hash(seed,i)<0.6)continue; const sy=top+hash(i,seed+1)*h, sh=3+hash(i+7,seed)*16, dx=(hash(seed+3,i)-0.5)*44;
     ctx.save(); ctx.beginPath(); ctx.rect(x-w-60,sy,w+120,sh); ctx.clip(); ctx.clearRect(x-w-60,sy,w+120,sh); ctx.fillStyle="#ffffff"; ctx.fillText(s,x+dx,y); ctx.restore();}
   for(let k=0;k<140;k++){const cx0=x-w+hash(k,101)*w, cy0=top+hash(k,202)*h, sz=4+hash(k,303)*8; if((hash(k,404)<0.55)!==(hash(k*3,seed)<0.12)) ctx.clearRect(cx0,cy0,sz,sz);}
-  txt("Homo inventus",x-2,y+52,{px:34,fam:"PlexI",a:on(u,1.0,0.7),al:"right",col:"#ffffff"});}
+  txt("Homo inventus",x-4,y+54,{px:44,fam:'Baskerville, Garamond, "Times New Roman", serif',st:"italic",a:on(u,1.0,0.7),al:"right",col:"#ffffff",ls:1});}
+const dis={ok:false};
+function buildDissolve(){const im=$("#fallback img"); if(dis.ok||!im.complete||!im.naturalWidth)return;
+  const sx=180, sy=160, sw=1560, sh=im.naturalHeight*sw/im.naturalWidth, c=12, y0=132, y1=372;  // the image on the stage; the band
+  const cols=Math.ceil(W/c), rows=Math.ceil((y1-y0)/c), sm=document.createElement("canvas"); sm.width=cols; sm.height=rows;
+  const sc=sm.getContext("2d"); sc.fillStyle="#000"; sc.fillRect(0,0,cols,rows); sc.drawImage(im,sx/c,(sy-y0)/c,sw/c,sh/c);
+  Object.assign(dis,{ok:true,cols,rows,c,y0,d:sc.getImageData(0,0,cols,rows).data});}
+function drawDissolve(g){ if(!dis.ok){buildDissolve(); if(!dis.ok)return;} const {cols,rows,c,y0,d}=dis, t=Math.floor(g/0.6);
+  for(let r=0;r<rows;r++){const y=y0+r*c;
+    if(y<220){ // in the paper: the structure's top members rise as dark cells that thin out upward (the poster's pixeltop)
+      const r2=Math.min(rows-1,Math.round((220+(220-y)*1.3-y0)/c)), p=0.7*Math.pow(clamp(1-(220-y)/100),2.0);
+      for(let x=0;x<cols;x++){const i=(r2*cols+x)*4, lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11)/255; if(lum<0.12)continue;
+        if((hash(x*13+r,7)<p)===(hash(x*17+r,t)<0.03))continue; const big=hash(x*3,r*5)<0.1&&(x%2===0);
+        ctx.fillStyle=`rgba(20,20,22,${(0.85*p+0.1).toFixed(3)})`; ctx.fillRect(x*c,y-(big?c:0),big?2*c:c,big?2*c:c);}
+      continue;}
+    const f=clamp((y+c/2-150)/(372-150)), p=Math.pow(clamp((f-0.08)/0.92),1.7);
+    for(let x=0;x<cols;x++){const i=(r*cols+x)*4, lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11)/255; if(lum<0.07)continue;
+      const big=hash(x*3,r*5)<0.12&&(x%2===0)&&(r%2===0), cs=big?2*c:c; if(!big&&hash((x-1)*3,r*5)<0.12&&(x%2===1)&&(r%2===0))continue; if(!big&&hash(x*3,(r-1)*5)<0.12&&(r%2===1)&&(x%2===0))continue;
+      if((hash(x*13+r,7)<p)===(hash(x*17+r,t)<0.03))continue;
+      ctx.fillStyle=`rgba(${d[i]},${d[i+1]},${d[i+2]},${(0.35+0.65*p).toFixed(3)})`;
+      ctx.fillRect(x*c,y,cs,cs);}}}
 function arrow(x0,y0,x1,y1,col=WHITE,a=1,lw=2){if(a<=0.005)return; line(x0,y0,x1,y1,col,a,lw); const an=Math.atan2(y1-y0,x1-x0), h=14;
   ctx.fillStyle=rgba(col,a); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-h*Math.cos(an-0.5),y1-h*Math.sin(an-0.5)); ctx.lineTo(x1-h*Math.cos(an+0.5),y1-h*Math.sin(an+0.5)); ctx.closePath(); ctx.fill();}
 function ell(cx,cy,rx,ry,col=WHITE,a=1,fillIt=false,lw=1,dash){if(a<=0.005)return; ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,6.2832);
@@ -232,7 +254,7 @@ function s0(u,g){
   $("#n2").textContent=N2.slice(0,Math.round(p2*N2.length))+((p2>0&&p2<1&&blink)||(p2>=1&&blink)?"▪":"");
   $("#notice").querySelector("p").style.opacity=on(u,5.6,0.8);
   $("#notice").style.opacity=on(u,0.6,0.3).toFixed(3);
-  erode(220,g); // the ground's eroded edge under the paper
+  erode(220,g); drawDissolve(g); // the ground's eroded edge under the paper, and the structure's top melting into it as cells
   if(liveState==="failed"){const im=$("#fallback img"); im.style.transform=`translateY(${(-40+Math.sin(g*0.08)*40).toFixed(1)}px)`;}
 }
 
@@ -538,7 +560,7 @@ function render(){
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
     $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
   else{$("#notice").style.opacity="0";}
-  if(!t0)erode(110,g);
+  if(!t0)erode(110,0);
   DRAW[step](u,g);
   $("#hud").textContent=`step ${step}  u=${u.toFixed(2)}s`;
 }
@@ -552,7 +574,7 @@ const DUR=HOLD.reduce((a,b)=>a+b,0);
 function setT(t){t=((t%DUR)+DUR)%DUR; let s=0; while(s<STEPS-1&&t>=HOLD[s]){t-=HOLD[s];s++;} prev=s-1; step=s; now=t*1000; stepAt=0;}
 window.__seek=t=>{frozen=true;setT(t);render();return step;};
 window.__go=n=>{now=performance.now();go(n);render();};
-window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),document.fonts.load("20px PlexI").catch(()=>0),plan.decode().catch(()=>0)]).then(()=>true);
+window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),document.fonts.load("900 20px PreBlack").catch(()=>0),document.fonts.load("italic 20px Garamond").catch(()=>0),plan.decode().catch(()=>0)]).then(()=>true);
 let cursorT=0;
 addEventListener("mousemove",()=>{document.body.classList.add("cursor");cursorT=performance.now();});
 addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
