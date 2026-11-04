@@ -68,16 +68,35 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
 .lcard button:hover,.lbar button:hover{border-color:#e9e9e5}.lcard.on{border-color:#e9e9e5}.lcard.on button{background:#e9e9e5;color:#0b0b0b}
 .lbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:10px 0 6px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:#9b9c97}
 .lbar label{display:flex;align-items:center;gap:8px}.lbar input{width:120px;accent-color:#e9e9e5}
+.toc{list-style:none;margin:22px 0 34px;padding:0;columns:2;column-gap:40px;border-top:1px solid #2a2b29}
+.toc li{break-inside:avoid;border-bottom:1px solid #2a2b29}
+.toc a{display:flex;align-items:baseline;gap:12px;padding:10px 0;color:inherit;border:0;text-decoration:none;font-size:15px}
+.toc a i{font-family:Neo,monospace;font-style:normal;font-size:10.5px;letter-spacing:.14em;color:#55564f;min-width:22px}
+.toc a span{margin-left:auto;font-family:Neo,monospace;font-size:10.5px;letter-spacing:.14em;color:#9b9c97;white-space:nowrap}
+.toc a:hover{color:#fff}.toc a:hover span{color:#fff}
+@media (max-width:720px){.toc{columns:1}}
 </style>
 </head>
 <body>
 <header>
   <div class="t">발견된 인류<small>HOMO INVENTUS · REFERENCES</small></div>
-  <nav><a href="index.html">← Presentation</a><a href="gallery.html">Gallery</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">The wall ↗</a><a href="#mindmap">Mind map</a><a href="#anthropocene">Anthropocene</a><a href="#vote">March 2024</a><a href="#trace">Trace fossils</a><a href="#hyper">Hyperobjects</a><a href="#rules">Rules of the work</a><a href="#sound">Sound</a><a href="#lit">Literature</a><a href="#press">Press &amp; links</a></nav>
+  <nav><a href="index.html">← Presentation</a><a href="gallery.html">Gallery</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">The wall ↗</a></nav>
 </header>
 <main>
   <p class="mono" style="font-size:11px;color:var(--dim)">REFERENCES · AS OF 2026-11-04</p>
   <h1>The Anthropocene, the golden spike, and what stands behind the rules of this work</h1>
+  <ol class="toc" aria-label="Contents">
+    <li><a href="#mindmap"><i>01</i>Mind map<span>마인드맵</span></a></li>
+    <li><a href="#anthropocene"><i>02</i>The Anthropocene<span>인류세</span></a></li>
+    <li><a href="#vote"><i>03</i>March 2024, the vote<span>부결</span></a></li>
+    <li><a href="#trace"><i>04</i>Trace fossils<span>생흔화석</span></a></li>
+    <li><a href="#hyper"><i>05</i>Hyperobjects<span>하이퍼객체</span></a></li>
+    <li><a href="#rules"><i>06</i>Rules of the work<span>생성 규칙</span></a></li>
+    <li><a href="#sound"><i>07</i>Sound as a web project<span>사운드</span></a></li>
+    <li><a href="#listen"><i>08</i>Listen — the engine, here<span>들어보기</span></a></li>
+    <li><a href="#lit"><i>09</i>Literature<span>문헌</span></a></li>
+    <li><a href="#press"><i>10</i>Press &amp; links<span>보도·링크</span></a></li>
+  </ol>
   <p class="lead"><i>Homo inventus</i> (발견된 인류, “discovered humanity”) begins where a proposal was voted down: in March 2024 the Anthropocene was refused as a formal geological epoch. This page tells that story and shows which literature the work's rules — concrete, paths, pipes, vegetation, strata, names and the record — lean on, as encyclopedia entries. Click a leaf of the mind map to jump to its entry.</p>
   <p class="note">Verification: bibliographic data (authors, year, journal, DOI) were checked by search and DOI; the summaries are written from abstracts and secondary summaries, and some papers were not read in full. The work's numbers (thresholds, radii, ratios) are the artist's choices, not values the literature fixes.</p>
 
@@ -175,6 +194,7 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
     <div class="lcard" data-kind="stay"><b>Staying beside someone</b><span>곁에 머묾 · lock → 화음 · 집</span><p>Someone comes near and stays. After six seconds the two melodies lock into harmony and the bars alternate — call and answer; a pad holds the chord. Once we are building together, the hall opens.</p><button type="button">▶ PLAY</button></div>
     <div class="lcard" data-kind="concrete"><b>On concrete</b><span>콘크리트 곁 · 먹먹함</span><p>Standing on a slab: the sound goes dull (the low-pass closes), the room turns hard and close — the building's own tonality takes the place.</p><button type="button">▶ PLAY</button></div>
     <div class="lcard" data-kind="grass"><b>In the grass</b><span>식생 · 노이즈</span><p>Deep vegetation around: a filtered noise brightens with the grass and sends into the open room; the voices stay soft.</p><button type="button">▶ PLAY</button></div>
+    <div class="lcard" data-kind="places"><b>From one gathering to the next</b><span>자리마다 조성 · 진행</span><p>Every building has a key of its own, chosen from who built it. Walk from one gathering to another and the chord modulates: inside A its key; across the open ground the world's own progression by place; inside B a different key — then back. Watch the chord in the readout change as the walker crosses (a 48-second round).</p><button type="button">▶ PLAY</button></div>
   </div>
   <div class="lbar"><button type="button" id="listen-stop">■ STOP</button><span id="listen-out">not playing · ▶ on a card starts the engine (audio needs a click)</span><label>volume <input id="listen-vol" type="range" min="0" max="1" step="0.05" value="0.5"></label></div>
   <p class="tip">What it is not: the whole room's sound (every motif two octaves down into one mass) needs the event log of a running world and is not bundled here; the NoiseCraft patch and Magenta are off. Each card is one situation held for as long as you listen.</p>
@@ -219,7 +239,7 @@ footer{margin-top:90px;padding-top:16px;border-top:1px solid var(--ink);font-siz
   var cards=document.querySelectorAll("#listen-cards .lcard"), out=document.getElementById("listen-out"), vol=document.getElementById("listen-vol"); if(!cards.length)return;
   var loading=null; function lib(){ if(window.HomoSound)return Promise.resolve(window.HomoSound); if(loading)return loading;
     loading=new Promise(function(ok,no){ var sc=document.createElement("script"); sc.src="assets/sound-demo.js"; sc.onload=function(){ok(window.HomoSound);}; sc.onerror=function(){no(new Error("the engine did not load"));}; document.head.appendChild(sc); }); return loading; }
-  var KO={name:"이름 받기",walk:"걷기",path:"길 위",stay:"곁에 머묾",concrete:"콘크리트 곁",grass:"식생"};
+  var KO={name:"이름 받기",walk:"걷기",path:"길 위",stay:"곁에 머묾",concrete:"콘크리트 곁",grass:"식생",places:"자리마다 조성"};
   function mark(kind){ cards.forEach(function(c){ c.classList.toggle("on", c.dataset.kind===kind); }); }
   cards.forEach(function(c){ c.querySelector("button").addEventListener("click", function(){ out.textContent="loading the engine…";
     lib().then(function(H){ H.setMaster(+vol.value); return H.play(c.dataset.kind); }).then(function(){ mark(c.dataset.kind); }).catch(function(e){ out.textContent="could not start: "+e.message; }); }); });

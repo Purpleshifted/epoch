@@ -53,6 +53,8 @@ body.cursor{cursor:default}
 #refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
 #refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:10px}
 #refs a:hover{border-bottom-color:var(--white)}
+#sdemo{left:64px;top:1008px;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);white-space:nowrap;display:none}
+#sdemo b{color:var(--white);font-weight:400}
 #dbg{left:60px;top:860px;margin:0;font-family:Neo,monospace;font-size:12px;line-height:1.5;color:#9b9c97;background:rgba(0,0,0,.6);padding:6px 8px;display:none;pointer-events:none;z-index:9}
 #h-ref{left:292px;top:38px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;white-space:nowrap}
 #h-ref a,#ref0 a{color:#3c3d3a;text-decoration:none;margin-left:18px}
@@ -105,10 +107,12 @@ body.cursor{cursor:default}
   #mobile li{cursor:pointer}
   #mobile li.on b{color:#fff}
   #mobile{display:block;color:var(--white);font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;line-height:1.5;word-break:keep-all;-webkit-font-smoothing:antialiased}
-  #mobile header{background:#fff;color:var(--ink);padding:22px 16px 16px}
-  #mobile header .t{font-family:Neo,monospace;font-weight:400;font-size:30px;line-height:1;letter-spacing:.02em}
-  #mobile header small{display:block;font-family:Neo,monospace;font-size:10px;letter-spacing:.22em;color:#3c3d3a;margin-top:10px;line-height:1.6}
-  #medge{display:block;width:100%;height:24px;background:#000}
+  #mobile header{background:#fff;color:var(--ink);padding:18px 16px 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  #mobile header .st{font-size:14px;font-weight:700;letter-spacing:-.005em;line-height:1.3}
+  #mobile header .st small{display:block;font-family:Neo,monospace;font-size:9.5px;letter-spacing:.22em;color:#3c3d3a;margin-top:6px;line-height:1.6;font-weight:400}
+  #mobile header .kaist{font-size:15px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+  #mhome{display:block;width:100%;height:auto;background:#000}
+  #phero{display:block;width:100%;height:100%}
   #mobile .n{margin:18px 16px 6px;font-family:Neo,monospace;font-size:17px;line-height:1.6}
   #mobile .n span{display:block}
   #mobile .n small{display:block;font-family:Pretendard,sans-serif;font-size:13px;color:var(--dim);margin-top:8px;line-height:1.5}
@@ -158,9 +162,10 @@ body.cursor{cursor:default}
   <div id="badge" class="abs"><i></i><span>LIVE</span></div>
   <div id="ref0" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
   <div id="h-ref" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
+  <div id="sdemo" class="abs"></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–9 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–9 SECTIONS · L: LISTEN (ON THE SOUND SECTION) · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -175,13 +180,12 @@ body.cursor{cursor:default}
 </div>
 <div id="hud"></div>
 <div id="mobile">
-  <header><div class="t">발견된 인류</div><small>HOMO INVENTUS · 2026 ID40009 GRADUATION DESIGN STUDIO · KAIST · A PARTICIPATORY MEDIA-ART INSTALLATION</small></header>
-  <canvas id="medge" height="24" aria-hidden="true"></canvas>
-  <figure class="home"><img src="assets/slides/s0.jpg" alt="The wall's column under the title"></figure>
+  <header><div class="st">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div><div class="kaist">KAIST</div></header>
+  <canvas id="mhome" width="1080" height="1240" aria-label="발견된 인류 — the wall's column under the title"></canvas>
   <p class="n" data-step="0"><span>미래의 고고학자들이 멸망한 인류를 발굴 중입니다.</span><span>현재의 당신은 무엇을 남기시겠습니까?</span><small>Future archaeologists are excavating extinct humanity. You, in the present: what will you leave?</small></p>
   <nav><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/personal" target="_blank" rel="noopener">ENTER THE WORK ON THIS PHONE ↗</a></nav>
   <h2>THE PRESENTATION · 발표 도해</h2>
-  <div class="hero"><div class="cap"><span class="l"></span><span class="dots"></span></div></div>
+  <div class="hero"><canvas id="phero" aria-label="The section's diagram"></canvas><div class="cap"><span class="l"></span><span class="dots"></span></div></div>
   <p class="tap">SCROLL · THE DIAGRAM ABOVE FOLLOWS THE SECTION YOU READ, ALIVE · SIDEWAYS: THE WHOLE DECK</p>
   <ol id="mslides"></ol>
   <p class="hint">On a wider screen this page is the presentation itself: → begins it, → again for the next section and its notes, 1–9 for a section. Here the window pinned above looks into that same deck, alive, panned to the diagram of the section you are reading.</p>
@@ -278,7 +282,7 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=10, HOLD=[8,12,14,13,14,16,11,14,13,13];
+const STEPS=10, HOLD=[8,12,14,13,14,16,11,13,14,13];
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","① 부결된 지질시대"],
   ["An epoch is interpreted spacetime","①′ 시대 = 해석된 시공간"],
@@ -286,8 +290,8 @@ const SEC=[["",""],
   ["What is humanity's trace fossil?","③ 인류의 생흔화석"],
   ["So this world has no “build” button","④ 생성 로직"],
   ["Partial sight, and the whole — hyperobjects","⑤ 하이퍼객체"],
-  ["What one person inside it experiences — a life, in plain words","⑥ 한 사람의 삶 · 일상의 언어"],
-  ["What one person inside it experiences — sound","⑥′ 사운드"],
+  ["What one person inside it experiences — sound","⑥ 사운드"],
+  ["— and what a life leaves: in plain words, and a seed","⑥′ 한 사람의 삶 · 일상의 언어 · 홀씨"],
   ["Why this work","⑦ 의의"]];
 const KEY=[["",""],
   ["That gap, between the concept and its record, is where this work begins.","개념과 기록 사이의 그 틈에서 이 작품은 시작한다."],
@@ -296,8 +300,8 @@ const KEY=[["",""],
   ["Living together.","인간이 가장 오래, 가장 촘촘히 반복한 행동 — 모여 살기. 콘크리트, 다져진 길, 땅 밑의 배관."],
   ["Seen from the future, our ordinary days are already the object of excavation.","짓기 버튼은 없다. 모든 구조는 머물고 걷는 일의 부산물이고, 20초가 지층 한 겹이 된다."],
   ["Only ever a part — and the way between the part and the whole.","전체를 한눈에 볼 수 없는 대상. 부분만 인식하는 상태(헤드셋)와 전체(벽)를 오가며, 둘 사이의 연결을 생각하는 계기."],
-  ["Born without being asked; stopping may fail — and still every act enters the whole.","묻지 않고 태어나고, 그만두기도 실패할 수 있다. 그래도 모든 행위는 전체에 들어간다 — 한 사람은 그 안에서 애써 선택하며 행위성을 가꿔 갈 수밖에 없다."],
   ["The same event, at two different scales.","개인에겐 음악의 순간, 전체에겐 구조의 한 칸. 겹쳐도 가리지 않는다."],
+  ["Born without being asked; stopping may fail — and still every act enters the whole.","묻지 않고 태어나고, 그만두기도 실패할 수 있다. 그래도 모든 행위는 전체에 들어간다 — 한 사람은 그 안에서 애써 선택하며 행위성을 가꿔 갈 수밖에 없다."],
   ["현재의 당신은 무엇을 남기시겠습니까?","What will the present you leave behind? — 분명히 남지만 혼자서는 바꿀 수 없는 전체 앞에서, 한 사람은 어떤 마음으로 행동을 정해야 하는가.","neo"]];
 const REFS={
   1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS 성명","n-vote2024"],["Gibbard et al. 2022","n-gibbard2022"]],
@@ -306,8 +310,8 @@ const REFS={
   4:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"],["Schueler 1994","n-schueler1994"],["Elmore & Kaushal 2008","n-elmore2008"]],
   5:[["Helbing et al. 1997","n-helbing1997"],["Cole 1995","n-cole1995"],["Pescott & Stewart 2014","n-pescott2014"],["Schueler 1994","n-schueler1994"],["Q = C·i·A","n-rational"],["Pólya 1923","n-polya1923"]],
   6:[["Morton 2013","n-morton2013"],["Haff 2014","n-haff2014"]],
-  7:[["Arendt 1958 · natality","n-arendt1958"],["Schiffer 1987","n-schiffer1987"],["Helbing et al. 1997","n-helbing1997"],["Huizinga 1938","n-huizinga1938"]],
-  8:[["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
+  7:[["▶ LISTEN · 들어보기","listen"],["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
+  8:[["Arendt 1958 · natality","n-arendt1958"],["Schiffer 1987","n-schiffer1987"],["Helbing et al. 1997","n-helbing1997"],["Huizinga 1938","n-huizinga1938"]],
   9:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
 };
 const LAB_ORIGIN="https://homo-inventus-lab.vercel.app";   // this branch's app, its own Vercel project — never the show's
@@ -718,7 +722,7 @@ function s7(u,g){
   para("The visitor experiences, in their own body, that their actions undeniably left traces — and yet changed nothing of the whole. No guilt is assigned; the work hands each visitor a question to carry home.",mx,my+ms+70,{px:16,maxW:500,col:DIM,a:on(u,9.4,0.9)});
 }
 
-const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6a,s6,s7];
+const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6,s6a,s7];
 
 /* ---------- render ---------- */
 function render(){
@@ -738,7 +742,9 @@ function render(){
   else{$("#notice").style.opacity="0";}
   if(!t0)erode(110,0);
   DRAW[step](u,g);
-  if(PHONE&&stage.parentElement!==document.body)phoneView(u);
+  if(PHONE&&matchMedia("(orientation: portrait)").matches)phoneComposite(performance.now());
+  soundDemoLine();
+  if(PHONE&&window.__drawMobileHome)window.__drawMobileHome(performance.now());
   $("#hud").textContent=`step ${step}  u=${u.toFixed(2)}s`;
 }
 
@@ -888,10 +894,10 @@ const INTER={
    src:[["helbing1997","Helbing et al. 1997","the evolution of human trail systems"],["cole1995","Cole 1995","experimental trampling: steep loss, slow return"],["pescott2014","Pescott & Stewart 2014","meta-analysis of trampling and recovery"],["polya1923","Eggenberger & Pólya 1923","the urn: what is there raises its own odds"]]},
  6:{tag:"NOTES · ⑤ HYPEROBJECTS",q:"Things that are massively distributed in time and space relative to humans.",by:"Timothy Morton, Hyperobjects (2013), p. 1 — the definition",fig:figHyper,cap:"Morton's five traits with the work's device under each, and the clarification: the whole is not refused. The visitor holds a partial state and the whole, and moves between them.",
    src:[["morton2013","Morton 2013","Hyperobjects: philosophy and ecology after the end of the world"],["haff2014","Haff 2014","the technosphere as a geological phenomenon"],["tsing2015","Tsing 2015","life in ruins: noticing at the scale of a life"],["zalasiewicz2017","Zalasiewicz et al. 2017","the technosphere's scale and diversity"]]},
- 7:{tag:"NOTES · ⑥ A LIFE, PLAINLY",para:1,q:"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다. — Oh. Stopping living has failed. Life goes on.",by:"the work's own screen, when the attempt to stop living fails (apps/web · lib/parliament/script.ts)",fig:figLife,cap:"Left: what the headset says — the consent with one answer, the log in the words of a day (the grass lies down; a house goes up), the attempt that fails, the end that keeps the record. Right: what an answer leaves — a seed head whose powder the wind carries; where its layer fossilises some stay and some go.",
+ 8:{tag:"NOTES · ⑥′ A LIFE, PLAINLY",para:1,q:"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다. — Oh. Stopping living has failed. Life goes on.",by:"the work's own screen, when the attempt to stop living fails (apps/web · lib/parliament/script.ts)",fig:figLife,cap:"Left: what the headset says — the consent with one answer, the log in the words of a day (the grass lies down; a house goes up), the attempt that fails, the end that keeps the record. Right: what an answer leaves — a seed head whose powder the wind carries; where its layer fossilises some stay and some go.",
    note:"<b>Why plain words, why bare.</b> The algorithm is never shown as a score: the log says what happened, in the language of a day, so the rule is felt before it is understood. The screen is bare on purpose — a few points, the dark — so the eyes rest and the ears do the work. <b>Why the attempt can fail.</b> A life not fully chosen (born without being asked, unable to end it at will) whose acts still enter the whole: agency is not had once, it is tended, act by act.",
    src:[["arendt1958","Arendt 1958","natality: to be born is to be able to begin; to act is to set something in motion"],["schiffer1987","Schiffer 1987","the record's voice: formation processes, not judgement"],["helbing1997","Helbing et al. 1997","small acts that add up without anyone deciding"],["huizinga1938","Huizinga 1938","the player: a life inside rules it did not choose"]]},
- 8:{tag:"NOTES · ⑥′ SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
+ 7:{tag:"NOTES · ⑥ SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
    src:[["webaudio","Web Audio API · W3C 2021","the engine: oscillators, panners, convolution, in the page"],["noisecraft","NoiseCraft · Chevalier-Boisvert","the browser patcher that plays the harmony on the engine's clock"],["musicvae","Roberts et al. 2018 · MusicVAE","latent interpolation between two phrases (wired, off)"],["hrtf","HRTF · PannerNode","others placed around the head by bearing and distance"]]},
  9:{tag:"NOTES · ⑦ WHAT REMAINS",q:"Facing a phenomenon that my actions clearly enter, but that I could never alter alone — what frame of mind should a single person use to decide how to act?",by:"from the presentation",fig:figInherit,cap:"Left: the inheritance rule — a Pólya urn over what still remains, so the mix drifts toward the durable without anyone deciding. Below: the specimen card that closes a life (sample values). Right: the question the work hands over.",
    src:[["schiffer1987","Schiffer 1987","formation processes of the archaeological record"],["laland2003","Odling-Smee, Laland & Feldman 2003","ecological inheritance: inheriting a modified world"],["pauly1995","Pauly 1995","shifting baselines: each generation starts from an altered state"],["arthur1989","Arthur 1989","increasing returns and lock-in by small early events"]]},
@@ -916,40 +922,94 @@ const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
   for(let i=1;i<STEPS;i++){const li=document.createElement("li"); li.dataset.step=String(i); li.innerHTML=`<span class="k">${SEC[i][1].slice(0,2)} · ${SEC[i][0].toUpperCase()}</span><b>${KEY[i][0]}</b><small>${KEY[i][1]}</small>`+notesOf(i)+(REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""); ol.appendChild(li); cards[i]=li;}
   window.__cards=cards;
   // scrolling drives the deck: the section mostly in view is the one the pinned picture plays
-  // scrolling drives the deck: the card in the band just under the pinned picture is the section the picture plays
-  let io=null; window.__watchCards=()=>{ if(io)io.disconnect(); const hh=$("#mobile .hero").clientHeight||0, vh=document.documentElement.clientHeight||innerHeight; const band=Math.max(120,Math.min(260,vh-hh-120));
-    io=new IntersectionObserver(es=>{if(!PHONE)return; for(const x of es){if(!x.isIntersecting)continue; const i=+(x.target.dataset.step||0); if(i!==step){hideInter(); go(i);}}},{rootMargin:`-${hh+16}px 0px -${Math.max(0,vh-hh-16-band)}px 0px`});
-    io.observe($("#mobile .n")); cards.forEach(li=>{if(li)io.observe(li);}); };
+  // scrolling drives the deck: a probe line a little under the pinned picture — the card it falls in is the section the
+  // picture plays (one change per card edge, never a flicker at a band's edges); the picture crossfades between sections
+  const probe=()=>{ if(!PHONE)return; const hero=$("#mobile .hero"), hb=hero.getBoundingClientRect().bottom, vh=document.documentElement.clientHeight||innerHeight, py=hb+Math.max(50,(vh-hb)*0.3);
+    const els=[$("#mobile .n")].concat(cards.filter(Boolean)); let pick=null; for(const el of els){ const r=el.getBoundingClientRect(); if(r.top<=py&&r.bottom>py){pick=el;break;} }
+    if(!pick&&window.scrollY<80)pick=$("#mobile .n"); if(!pick)return; const i=+(pick.dataset.step||0); if(i!==step){hideInter(); go(i);} };
+  let probeQ=false; addEventListener("scroll",()=>{ if(probeQ)return; probeQ=true; requestAnimationFrame(()=>{probeQ=false; probe();}); },{passive:true}); setTimeout(probe,400);
   $("#mobile .hero .dots").innerHTML=Array.from({length:STEPS},()=>"<i></i>").join("");
-  const me=$("#medge"), mx=me.getContext("2d"); const dm=()=>{const w=me.width=me.clientWidth, c=6; mx.clearRect(0,0,w,24); for(let x=0;x<w/c;x++)for(let r=0;r<3;r++){if(hash(x*3+r,11)<[0.5,0.22,0.08][r]){mx.fillStyle="#fff"; mx.fillRect(x*c,r*c,c,c);}}}; dm(); addEventListener("resize",dm);}
+  // THE PHONE'S HOME (the artist, 11/04 night: not the web's screenshot — one composition for the phone): the paper's
+  // eroded edge, the column's top melting up into it as cells, the column itself, and the title as on the poster
+  const mh=$("#mhome"); let mhLast=0, mhSm=null;
+  window.__drawMobileHome=(nowMs)=>{ if(!PHONE||!mh)return; const rc=mh.getBoundingClientRect(), vh=document.documentElement.clientHeight||innerHeight; if(rc.bottom<0||rc.top>vh)return; if(nowMs-mhLast<100)return; mhLast=nowMs;
+    const MW=1080, MH=1240, c=mh.getContext("2d"), g=nowMs/1000, t=Math.floor(g/0.5), C=12, y0=96;
+    c.clearRect(0,0,MW,MH); c.fillStyle="#000"; c.fillRect(0,0,MW,MH); c.fillStyle="#fff"; c.fillRect(0,0,MW,y0);
+    const im=$("#fallback img"), ok=im&&im.complete&&im.naturalWidth>0;
+    if(ok){ const sw=MW*1.3, sh=im.naturalHeight*sw/im.naturalWidth, sx=(MW-sw)/2, sy=y0-sh*0.05;
+      c.save(); c.beginPath(); c.rect(0,y0+C,MW,MH-y0); c.clip(); c.drawImage(im,sx,sy,sw,sh); c.restore();
+      // the top members rise into the paper as grey cells that thin out upward (sampled where the structure stands)
+      if(!mhSm){mhSm=document.createElement("canvas"); mhSm.width=Math.ceil(MW/C); mhSm.height=12;}
+      const sc=mhSm.getContext("2d"); sc.fillStyle="#000"; sc.fillRect(0,0,mhSm.width,mhSm.height); sc.drawImage(im,sx/C,(sy-y0)/C,sw/C,sh/C);
+      const d=sc.getImageData(0,0,mhSm.width,mhSm.height).data, cols=mhSm.width;
+      for(let r=0;r<12;r++){ const yy=y0+r*C, rr=r<4?r+2:r;   // the rows above the paper's edge mirror the rows just below it
+        for(let x=0;x<cols;x++){ const i=(Math.min(11,rr)*cols+x)*4, lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11)/255; if(lum<0.1)continue;
+          const above=8-r; if(above>0){ const p=0.85*Math.pow(Math.max(0,1-above/8),1.6); if((hash(x*13+above,7)<p)===(hash(x*17+above,t)<0.06))continue; const k=Math.round(70+lum*110); c.fillStyle=`rgb(${k},${k},${k})`; c.fillRect(x*C,y0-above*C,C,C);} } } }
+    // the eroded edge between the paper and the ground
+    for(let x=0;x<MW/C;x++)for(let r=0;r<3;r++){ const dn=[0.42,0.17,0.06][r], up=[0.3,0.09,0][r];
+      if((hash(x*3+r,11)<dn)!==(hash(x*7+r,t)<0.04)){c.fillStyle="#fff"; c.fillRect(x*C,y0+r*C,C,C);}
+      if(up>0&&(hash(x*5+r,29)<up)!==(hash(x*11+r,t+1)<0.04)){c.fillStyle="#000"; c.fillRect(x*C,y0-(r+1)*C,C,C);} }
+    // the title as on the poster, bottom-right: slices shifted and cells chipped out, eight times a second
+    const S="발견된 인류", px=150, x=MW-36, y=MH-150; c.font=`900 ${px}px PreBlack, Pretendard`; c.textAlign="right"; c.textBaseline="alphabetic";
+    const w=c.measureText(S).width, top=y-px*0.92, h=px*1.08; c.fillStyle="#fff"; c.fillText(S,x,y);
+    const seed=Math.floor(g/0.12);
+    for(let i=0;i<12;i++){ if(hash(seed,i)<0.55)continue; const sy2=top+hash(i,seed+1)*h, sh2=2+hash(i+7,seed)*8, dx=(hash(seed+3,i)-0.5)*28;
+      c.save(); c.beginPath(); c.rect(x-w-60,sy2,w+120,sh2); c.clip(); c.clearRect(x-w-60,sy2,w+120,sh2); c.fillStyle="#fff"; c.fillText(S,x+dx,y); c.restore(); }
+    for(let k=0;k<320;k++){ const cx0=x-w+hash(k,101)*w, cy0=top+hash(k,202)*h, sz=3+hash(k,303)*5; if((hash(k,404)<0.5)!==(hash(k*3,seed)<0.16)) c.clearRect(cx0,cy0,sz,sz); }
+    c.font=`italic 400 44px Garamond, Baskerville, "Times New Roman", serif`; c.letterSpacing="10px"; c.fillStyle="#fff"; c.fillText("Homo inventus",x+4,y+56); c.letterSpacing="0px"; };
+}
+
+/* ---------- the headset's engine, in the deck (the sound slide): L = the next situation, M = stop ---------- */
+const SD_KO={name:"이름 받기",walk:"걷기 · 열린 땅",path:"길 위 · 베이스",stay:"곁에 머묾 · lock → 화음 · 집",concrete:"콘크리트 곁 · 먹먹함",grass:"식생 · 노이즈",places:"자리마다 조성 · A → 열린 땅 → B"};
+let sdKind=-1, sdLoading=null;
+function soundLib(){ if(window.HomoSound)return Promise.resolve(window.HomoSound); if(sdLoading)return sdLoading;
+  sdLoading=new Promise((ok,no)=>{const sc=document.createElement("script"); sc.src="assets/sound-demo.js"; sc.onload=()=>ok(window.HomoSound); sc.onerror=()=>no(new Error("the engine did not load")); document.head.appendChild(sc);}); return sdLoading; }
+function soundDemoNext(){ if(step!==7)return; soundLib().then(H=>{ sdKind=(sdKind+1)%H.KINDS.length; H.setMaster(0.5); return H.play(H.KINDS[sdKind]); }).catch(()=>{}); }
+function soundDemoStop(){ if(window.HomoSound)window.HomoSound.stop(); sdKind=-1; }
+function soundDemoLine(){ const el=$("#sdemo"); if(step!==7){ if(el.style.display!=="none"){el.style.display="none"; if(sdKind>=0)soundDemoStop();} return; } el.style.display="block";
+  const H=window.HomoSound, st=H?H.state():null;
+  if(!st||!st.kind){ el.innerHTML="<b>L</b> · LISTEN — THE HEADSET'S ENGINE, HERE: A NAME · OPEN GROUND · A PATH · STAYING BESIDE SOMEONE · CONCRETE · GRASS · FROM ONE GATHERING TO THE NEXT (EACH ITS KEY) &nbsp; <b>M</b> · STOP"; return; }
+  const d=st.debug||{}; el.innerHTML=`<b>▶ ${SD_KO[st.kind]||st.kind}</b> · ${st.t.toFixed(0)} s · bar ${d.bar??"–"} · ${d.chord||"–"} · lock ${d.lock!=null?(+d.lock).toFixed(2):"–"}${d.answer?" · answer":""} &nbsp; <b>L</b> · NEXT &nbsp; <b>M</b> · STOP`; }
 
 /* ---------- control ---------- */
-function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; prev=step; step=n; stepAt=now; const cs=window.__cards||[]; cs.forEach((li,i)=>{if(li)li.classList.toggle("on",i===n);});
+function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; if(PHONE)phoneFadeFrom(); prev=step; step=n; stepAt=now; const cs=window.__cards||[]; cs.forEach((li,i)=>{if(li)li.classList.toggle("on",i===n);});
   const cap=$("#mobile .hero .cap .l"); if(cap)cap.textContent=n===0?"HOME · THE WALL'S COLUMN":`${SEC[n][1].slice(0,2)} · ${SEC[n][0].toUpperCase()}`; $$("#mobile .hero .dots i").forEach((d,i)=>d.classList.toggle("on",i===n));}
-/* THE PHONE'S WINDOW ONTO THE DECK: per step, keyframes [u, x, y, w] of a SQUARE of the 1920×1080 stage (stage px), panned
-   between with an ease — the diagram at a readable size, not the whole slide as a strip. The text of each slide is in
-   its card. */
-const CROP=[
-  [[0,1040,300,860]],                                            // home: the column's right part and the title
-  [[0,60,170,740],[5,60,170,740],[7,1030,150,740]],              // ①: the strata and the spike, then the vote
-  [[0,820,170,760],[8.5,820,170,760],[11,110,180,700]],          // ①′: the pit, then the three faces and the title's meaning
-  [[0,620,200,660]],                                             // ②: one life's trace
-  [[0,230,150,740],[7,230,150,740],[9,1140,150,740]],            // ③: the ground from above, then the section
-  [[0,170,130,780],[9,170,130,780],[11.5,1080,130,780]],         // ④: the four rules, then the wall's strata
-  [[0,200,260,640],[5,200,260,640],[7,1080,260,640]],            // ⑤: the whole, then the inside
-  [[0,130,140,760],[7,130,140,760],[9,1000,140,760]],            // ⑥: what the headset says, then the seed head
-  [[0,170,150,620],[6,170,150,620],[8,1140,150,660]],            // ⑥′: one person's harmony, then the wall's cell
-  [[0,140,150,760],[7,140,150,760],[9,140,560,760]]];            // ⑦: the specimen card, then the record's lines
-function cropAt(n,u){const ks=CROP[Math.min(n,CROP.length-1)]||CROP[0]; if(u<=ks[0][0]||ks.length===1)return ks[0].slice(1);
-  for(let k=1;k<ks.length;k++){ if(u<=ks[k][0]){const a=ks[k-1],b=ks[k],m=ease((u-a[0])/(b[0]-a[0])); return [1,2,3].map(j=>a[j]+(b[j]-a[j])*m);} }
-  return ks[ks.length-1].slice(1);}
-let phoneTf="";
-function phoneView(u){ const hero=$("#mobile .hero"); const hw=hero.clientWidth||innerWidth; const [x,y,w]=cropAt(step,u); const s=hw/w;
-  const tf=`translate(${(-x*s).toFixed(1)}px,${(-y*s).toFixed(1)}px) scale(${s.toFixed(4)})`; if(tf!==phoneTf){phoneTf=tf; stage.style.transform=tf;} }
+/* THE PHONE'S PICTURE (the artist, 11/04 night: no panning — split the diagram by its parts and lay them out to fit):
+   each slide's panels (stage rects) re-laid for a portrait window — stacked, two side by side when both are narrow —
+   scaled to fit, drawn from the deck's own canvas each frame; a crossfade carries one section into the next. The slide's
+   words are in the cards. */
+const PANELS=[
+  [[1000,500,900,560]],                                           // home: the title corner
+  [[60,150,790,760],[1000,210,820,660]],                          // ①: the strata and the spike; the vote
+  [[810,170,1090,740],[100,180,660,700]],                         // ①′: the pit; the three faces and the title's meaning
+  [[200,170,1520,720]],                                           // ②: one life's trace
+  [[150,150,940,700],[1150,150,640,700]],                         // ③: the ground from above; the section
+  [[150,150,840,730],[1060,160,770,540]],                         // ④: the four rules; the wall's strata
+  [[140,160,1640,90],[230,280,560,640],[1110,280,560,640]],       // ⑤: the timeline; the whole; the inside
+  [[150,140,880,600],[1130,140,690,750]],                         // ⑥: one person's harmony; the wall's cell
+  [[160,170,760,580],[1010,160,810,740]],                         // ⑥′: what the headset says; the seed head
+  [[150,160,1020,520],[150,710,1080,300]]];                       // ⑦: the specimen card; the record's lines
+function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=[];
+  for(let i=0;i<ps.length;i++){ const a=ps[i], b=ps[i+1]; if(b&&a[2]<=760&&b[2]<=760&&a[3]>=300&&b[3]>=300){rows.push([a,b]); i++;} else rows.push([a]); }
+  const laid=[]; let y=0; for(const row of rows){ const rw=row.reduce((t,q)=>t+q[2],0)+gap*(row.length-1), sc=hw/rw, rh=Math.max(...row.map(q=>q[3]))*sc; let x=0;
+    for(const q of row){ const dw=q[2]*sc, dh=q[3]*sc; laid.push({q,dx:x,dy:y+(rh-dh)/2,dw,dh}); x+=dw+gap*sc; } y+=rh+gap; }
+  const total=y-gap, f=Math.min(1,hh/total), oy=Math.max(0,(hh-total*f)/2), ox=(hw-hw*f)/2;
+  return laid.map(l=>({q:l.q,dx:ox+l.dx*f,dy:oy+l.dy*f,dw:l.dw*f,dh:l.dh*f})); }
+let pPrev=null, pFadeT0=0;
+function phoneComposite(nowMs){ const hero=$("#mobile .hero"), pc=$("#phero"); if(!pc)return; const hw=hero.clientWidth||innerWidth, hh=hero.clientHeight||hw, dpr=Math.min(2,devicePixelRatio||1);
+  const pw=Math.round(hw*dpr), ph=Math.round(hh*dpr); if(pc.width!==pw||pc.height!==ph){pc.width=pw; pc.height=ph; pc.style.width=hw+"px"; pc.style.height=hh+"px";}
+  const c=pc.getContext("2d"); c.setTransform(dpr,0,0,dpr,0,0); c.imageSmoothingEnabled=true; c.imageSmoothingQuality="high";
+  const a=pPrev?clamp((nowMs-pFadeT0)/700):1, e=ease(a);
+  c.globalAlpha=1; c.fillStyle="#000"; c.fillRect(0,0,hw,hh);
+  if(pPrev&&a<1){ c.globalAlpha=1-e; c.drawImage(pPrev,0,0,pPrev.width,pPrev.height,0,0,hw,hh); }
+  c.globalAlpha=pPrev?e:1; for(const l of phoneLayout(step,hw,hh)){ const [sx,sy,sw,sh]=l.q; c.drawImage(cv,sx,sy,sw,sh,l.dx,l.dy,l.dw,l.dh); }
+  c.globalAlpha=1; if(a>=1)pPrev=null; }
+/** Before a section changes on the phone: keep the picture as it is, to fade it out under the next. */
+function phoneFadeFrom(){ const pc=$("#phero"); if(!pc||!pc.width)return; const o=document.createElement("canvas"); o.width=pc.width; o.height=pc.height; o.getContext("2d").drawImage(pc,0,0); pPrev=o; pFadeT0=performance.now(); }
 function fit(){PHONE=isPhone(); const hero=$("#mobile .hero");
-  if(PHONE&&matchMedia("(orientation: portrait)").matches){ // a phone upright: the deck lives in the hero, a square window panned to the diagram
-    if(stage.parentElement!==hero)hero.appendChild(stage); hero.style.height=`${Math.round(hero.clientWidth||innerWidth)}px`; phoneTf=""; phoneView(U()); if(window.__watchCards)window.__watchCards(); return;}
-  if(stage.parentElement!==document.body){document.body.insertBefore(stage,$("#hud")); hero.style.height=""; phoneTf="";}
+  if(PHONE&&matchMedia("(orientation: portrait)").matches){ // a phone upright: the deck draws off-screen; its panels are re-laid into the pinned picture
+    stage.style.left="-4000px"; stage.style.transform="none"; const hw=hero.clientWidth||innerWidth, vh=document.documentElement.clientHeight||innerHeight; hero.style.height=`${Math.round(Math.min(hw*1.3,vh*0.62))}px`; return;}
+  if(stage.style.left){stage.style.left=""; hero.style.height="";}
   const s=Math.min(innerWidth/W,innerHeight/H); stage.style.transform=`translate(${((innerWidth-W*s)/2).toFixed(1)}px,${((innerHeight-H*s)/2).toFixed(1)}px) scale(${s.toFixed(4)})`;}
 addEventListener("resize",fit); try{matchMedia(PHONE_MQ).addEventListener("change",fit); matchMedia("(orientation: portrait)").addEventListener("change",fit);}catch(err){} fit();
 let frozen=q.has("still"), auto=q.has("auto");
@@ -969,6 +1029,8 @@ addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}
   else if(e.key==="h") $("#hud").style.opacity=$("#hud").style.opacity==="1"?"0":"1";
   else if(e.key==="v"||e.key==="V") live4Next();
+  else if(e.key==="l"||e.key==="L") soundDemoNext();
+  else if(e.key==="m"||e.key==="M") soundDemoStop();
 },true);
 // input — pointerdown in the capture phase, so nothing under the pointer (the reference links, a video, an iframe that
 // took the focus) can swallow the advance; keys are read in the capture phase for the same reason. ?debug=1 logs them.

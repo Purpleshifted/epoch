@@ -9,8 +9,8 @@ import { DEFAULT_SOUND, SoundEngine, type SoundParams } from "../../apps/web/src
 import { worldKey } from "../../apps/web/src/lib/sound/harmony";
 import type { PersonalSignals } from "../../apps/web/src/lib/sound/signals";
 
-export type Kind = "name" | "walk" | "path" | "stay" | "concrete" | "grass";
-export const KINDS: Kind[] = ["name", "walk", "path", "stay", "concrete", "grass"];
+export type Kind = "name" | "walk" | "path" | "stay" | "concrete" | "grass" | "places";
+export const KINDS: Kind[] = ["name", "walk", "path", "stay", "concrete", "grass", "places"];
 
 const EPOCH_MS = 1_762_000_000_000; // a past moment: the bar clock counts up from the epoch (a future one counted down)
 const KEY = worldKey(String(EPOCH_MS));
@@ -42,6 +42,20 @@ function signalsOf(k: Kind, t: number): PersonalSignals {
       return { ...s, speed: 0.3, stay: 0.7, grass: 0, sealed: 1, nearSlabs: ["0,0", "1,0"], building: { id: "0,0", x: 0, z: 0, dist: 1, radius: 8, mass: 40, who: [{ o: OTHER, amount: 30 }, { o: ME, amount: 12 }] } };
     case "grass":
       return { ...s, x: t * 0.6, speed: 0.6, stay: 0.2, grass: 1 };
+    case "places": {
+      // from one gathering to the next and back (a 48-second round): inside A (its key, chosen from who built it), out
+      // across open ground (the world's own progression by place), into B (another key), and back
+      const A = { id: "a", x: 0, z: 0, radius: 8, mass: 40, who: [{ o: "v_5527", amount: 30 }, { o: "v_6002", amount: 20 }] };
+      const B = { id: "b", x: 34, z: 6, radius: 9, mass: 60, who: [{ o: "v_7310", amount: 40 }, { o: "v_8120", amount: 25 }, { o: "v_9004", amount: 10 }] };
+      const u = (t % 48) / 48, half = u < 0.5 ? u * 2 : 2 - u * 2;   // 0 → 1 → 0
+      const m = half < 0.2 ? 0 : half > 0.8 ? 1 : (half - 0.2) / 0.6; // stay at A, walk, stay at B
+      const x = A.x + (B.x - A.x) * m, z = A.z + (B.z - A.z) * m;
+      const dA = Math.hypot(x - A.x, z - A.z), dB = Math.hypot(x - B.x, z - B.z);
+      const near = dA <= dB ? { ...A, dist: dA } : { ...B, dist: dB };
+      const inside = near.dist <= near.radius;
+      const moving = half > 0.2 && half < 0.8;
+      return { ...s, x, z, speed: moving ? 1.6 : 0, stay: moving ? 0 : 1, grass: inside ? 0.1 : 0.6, sealed: inside ? 1 : 0, building: near.dist <= near.radius + 4 ? near : null, nearSlabs: inside ? [near.id] : [] };
+    }
   }
 }
 
