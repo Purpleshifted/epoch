@@ -1685,6 +1685,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   useEffect(() => {
     if (hideUi && !lab && clk.rate() !== 1) clk.setRate(1);
   }, [hideUi, lab, clk]);
+  // THE LAB EMBEDDED ELSEWHERE (the presentation site, 2026-11-04): `?rate=N` runs its clock from the start, so the
+  // test column is seen being made; set through Leva like the presets, after the controls have mounted
+  useEffect(() => {
+    const rate = Number(params.get("rate"));
+    if (!lab || !(rate > 0)) return;
+    const t = setTimeout(() => levaStore.setValueAtPath("시간축.timeRate", Math.min(rate, 20), true), 400);
+    return () => clearTimeout(t);
+  }, [lab, params]);
   useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
   /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
