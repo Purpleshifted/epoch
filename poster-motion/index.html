@@ -145,7 +145,7 @@ body.cursor{cursor:default}
   <video id="wallv" muted loop playsinline preload="auto" poster="assets/wall.jpg"><source src="assets/wall.mp4" type="video/mp4"></video>
   <iframe id="live3" title="The ground from above (live)" referrerpolicy="no-referrer"></iframe>
   <video id="topv" muted loop playsinline preload="auto" poster="assets/top.jpg"><source src="assets/top.mp4" type="video/mp4"></video>
-  <video id="live4" muted playsinline preload="auto" poster="assets/shot4.jpg" aria-label="One crowd under the work's own rules, recorded from the work"></video>
+  <video id="live4" muted playsinline preload="auto" poster="assets/shot4.jpg?v=3" aria-label="One crowd under the work's own rules, recorded from the work"></video>
   <div id="badge4" class="abs"><i></i><span></span></div>
   <div id="badge3" class="abs"><i></i><span>LIVE · THE GROUND FROM ABOVE — a demo crowd, folded by the work's own rules · anthropocene-mu.vercel.app</span></div>
   <div id="shade"></div>
@@ -362,7 +362,7 @@ function live3On(){ if(live3State!=="off")return;
 // gather and a slab rises, about ×1.2 while the paths form, then fast-forward ×6 to the fossils. It runs under ④'s talk. The source loads on ②③ so it plays at once on ④.
 const shot4=$("#live4"); let shot4On=false;
 shot4.onerror=()=>{shot4.style.display="none"; $("#badge4").style.display="none"; shot4On=false; shot4.dataset.failed="1";};
-function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · TIME COMPRESSED · V: AGAIN"; }
+function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4?v=3"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · TIME COMPRESSED · V: AGAIN"; }
 function live4Show(on){ if(!shot4.src||shot4.dataset.failed)return;
   if(on&&!shot4On){shot4On=true; shot4.style.display="block"; $("#badge4").style.display="block"; try{shot4.currentTime=Math.min(U(),shot4.duration||U());}catch(e){} shot4.play().catch(()=>{}); requestAnimationFrame(()=>{shot4.style.opacity="1";});}
   else if(!on&&shot4On){shot4On=false; shot4.pause(); shot4.style.opacity="0"; shot4.style.display="none"; $("#badge4").style.display="none";} }
