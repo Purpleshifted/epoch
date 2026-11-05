@@ -42,7 +42,7 @@ body.cursor{cursor:default}
 #live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3;pointer-events:none}
 #wallv{position:absolute;left:0;top:220px;width:1920px;height:860px;object-fit:cover;background:#000;display:none;pointer-events:none}
 #topv{position:absolute;left:161px;top:171px;width:899px;height:659px;object-fit:cover;background:#000;display:none;z-index:3;pointer-events:none}
-#live4{position:absolute;left:1100px;top:170px;width:720px;height:700px;border:1px solid #3a3b38;background:#000;display:none;z-index:3;pointer-events:none;opacity:0;transition:opacity 1.2s}
+#live4{position:absolute;left:1100px;top:170px;width:720px;height:700px;object-fit:cover;border:1px solid #3a3b38;background:#000;display:none;z-index:3;pointer-events:none;opacity:0;transition:opacity .4s}
 #badge4{left:1100px;top:884px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:var(--dim);white-space:nowrap;display:none;z-index:4}
 #badge4 i{display:inline-block;width:7px;height:7px;background:var(--white);margin-right:9px;vertical-align:1px}
 #badge3{left:160px;top:842px;font-family:Neo,monospace;font-size:11px;letter-spacing:.1em;color:var(--dim);white-space:nowrap;display:none}
@@ -147,7 +147,7 @@ body.cursor{cursor:default}
   <video id="wallv" muted loop playsinline preload="auto" poster="assets/wall.jpg"><source src="assets/wall.mp4" type="video/mp4"></video>
   <iframe id="live3" title="The ground from above (live)" referrerpolicy="no-referrer"></iframe>
   <video id="topv" muted loop playsinline preload="auto" poster="assets/top.jpg"><source src="assets/top.mp4" type="video/mp4"></video>
-  <iframe id="live4" title="One rule of the work, live" referrerpolicy="no-referrer"></iframe>
+  <video id="live4" muted playsinline preload="auto" poster="assets/shot4.jpg" aria-label="One crowd under the work's own rules, recorded from the work"></video>
   <div id="badge4" class="abs"><i></i><span></span></div>
   <div id="badge3" class="abs"><i></i><span>LIVE · THE GROUND FROM ABOVE — a demo crowd, folded by the work's own rules · anthropocene-mu.vercel.app</span></div>
   <div id="shade"></div>
@@ -317,7 +317,6 @@ const TOP_URL=LAB_ORIGIN+"/v2/global/top?demo=1&ui=0&look=footprint";
 // four scenes were awkward. The scenario paces its own clock (×3 while the crowd is there, ×20 once it has left, so the
 // strata sink and fossilise) and carries its own camera (apps/web lib/parliament/scenario.ts `all`).
 const SCEN=["all"], SCEN_RATE={all:0};
-const SCEN_URL=k=>`${LAB_ORIGIN}/v2/global/lab?ui=0&sound=mute&scenario=${k}&cam=shot&dpr=0.7`;
 const SCEN_LABEL={all:"STAY → A SLAB · WALK → A WALKWAY · SEAL → PIPES · LEAVE → GRASS · THEN TIME ×20: STRATA, FOSSIL"};
 let step=0, prev=-1, stepAt=performance.now(), now=performance.now();
 let refsStep=-1; // the reference strip is rebuilt only when the step changes: rebuilding it every frame destroyed the link under the pointer between mousedown and mouseup, so its links could never be clicked
@@ -358,14 +357,15 @@ function live3On(){ if(live3State!=="off")return;
     topv.onerror=fail; for(const src of topv.querySelectorAll("source")) src.onerror=fail;
     const probe=(n)=>{if(failed||live3State!=="baked")return; if(topv.networkState===3||topv.error){fail();return;} if(topv.readyState<2&&n<40)setTimeout(()=>probe(n+1),250);}; probe(0); return;}
   if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
-// ④: the rule being folded by the work itself — a scripted crowd in this branch's app, one rule at a time
-let live4Kind=null, live4Base=0;
-let live4Loaded=false;
-function live4On(u){ if(!liveWanted||live4Kind)return; live4Kind="all"; live4Loaded=false; const f=$("#live4"); f.src=SCEN_URL("all"); f.style.display="block"; f.style.opacity="0"; f.onload=()=>{live4Loaded=true;};
-  $("#badge4").querySelector("span").textContent="LIVE · ONE CROWD, THE WORK'S OWN RULES · V: AGAIN"; }
-function live4Show(on){ if(!live4Kind)return; $("#live4").style.opacity=on&&live4Loaded?"1":"0"; $("#badge4").style.display=on&&live4Loaded?"block":"none"; }
-function live4Off(){ if(!live4Kind)return; const f=$("#live4"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; $("#badge4").style.display="none"; live4Kind=null; live4Base=0; }
-function live4Next(){ if(step!==4)return; live4Kind=null; live4On(U()); } // V: the scene from the start
+// ④: the one shot, recorded from the lab (/v2/global/lab?scenario=all&cam=shot) and pressed to 10 s, ×11: the simulation itself
+// cannot run that fast (the app's clock stops at ×20). The source loads on ②③ so it plays at once on ④.
+const shot4=$("#live4"); let shot4On=false;
+shot4.onerror=()=>{shot4.style.display="none"; $("#badge4").style.display="none"; shot4On=false; shot4.dataset.failed="1";};
+function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · ×11 · V: AGAIN"; }
+function live4Show(on){ if(!shot4.src||shot4.dataset.failed)return;
+  if(on&&!shot4On){shot4On=true; shot4.style.display="block"; $("#badge4").style.display="block"; try{shot4.currentTime=Math.min(U(),shot4.duration||U());}catch(e){} shot4.play().catch(()=>{}); requestAnimationFrame(()=>{shot4.style.opacity="1";});}
+  else if(!on&&shot4On){shot4On=false; shot4.pause(); shot4.style.opacity="0"; shot4.style.display="none"; $("#badge4").style.display="none";} }
+function live4Next(){ if(step!==4||!shot4On)return; shot4.currentTime=0; shot4.play().catch(()=>{}); } // V: the shot from the start
 function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; topv.pause(); topv.style.display="none"; topv.style.opacity="0"; $("#badge3").style.display="none"; live3State="off"; }
 function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; wallv.pause(); wallv.style.display="none"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
@@ -752,7 +752,7 @@ function render(){
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
   // ④'s live shot loads during ②③ (the app takes 10–40 s), and shows on ④
-  if(step===3||step===4)live4On(u); else live4Off();
+  if(step===3||step===4)live4On();
   live4Show(step===4);
   if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,keyAt(step),1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
@@ -922,7 +922,7 @@ addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (aft
   if(PHONE){ if(!(e.target&&e.target.closest&&e.target.closest("#stage")))return; }
   advanceAt(e.clientX); dbg(`click without pointerdown on ${e.target&&e.target.tagName} → step ${step}`); },true);
 addEventListener("touchend",e=>{ if(performance.now()-lastPtr<1000)return; const t=e.changedTouches&&e.changedTouches[0]; if(t){lastPtr=performance.now();advanceAt(t.clientX);dbg(`touchend → step ${step}`);} },true);
-for(const f of [live,$("#live3"),$("#live4")]) f.setAttribute("tabindex","-1");
+for(const f of [live,$("#live3")]) f.setAttribute("tabindex","-1");
 await window.__ready;
 if(q.has("step")){step=clamp(+q.get("step"),0,STEPS-1); prev=step-1;}
 if(q.has("inter"))showInter();
