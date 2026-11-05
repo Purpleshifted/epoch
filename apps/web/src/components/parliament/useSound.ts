@@ -203,6 +203,18 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     };
   }, [engine, toggleMute]);
 
+  // a phone on silent is heard too (the artist, 2026-11-05): Safari's default audio session follows the ring switch. Before
+  // the effect below that can make the first context
+  useEffect(() => {
+    if (!engine || !touchDevice()) return;
+    try {
+      const session = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
+      if (session) session.type = "playback";
+    } catch {
+      /* the default session, as before */
+    }
+  }, [engine]);
+
   // a phone, out of sight or gone: no sound, and nothing left running in its audio (closing a tab did not end it, 2026-11-03)
   useEffect(() => {
     if (!engine || !touchDevice()) return;

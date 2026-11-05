@@ -532,6 +532,14 @@
       // Hook into AudioView to expose audio nodes for spatial processing
       const originalPlayAudio = audioView.playAudio.bind(audioView);
       audioView.playAudio = async function (state) {
+        // a phone on silent is heard too (useSound.ts sets the page's): this frame has an audio session of its own
+        if (phone()) {
+          try {
+            if (navigator.audioSession) navigator.audioSession.type = "playback";
+          } catch {
+            // the default session, as before
+          }
+        }
         // a phone keeps its context from life to life (see stopAudio below): it only goes on again
         if (phone() && audioView.audioCtx) {
           audioView.audioCtx.resume();
