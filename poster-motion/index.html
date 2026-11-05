@@ -68,7 +68,6 @@ body.cursor{cursor:default}
 #notice p{margin:14px 0 0;font-size:16px;line-height:1.55;color:var(--dim)}
 #foot{left:160px;top:922px;width:1600px;opacity:0}
 #foot p{margin:0;font-size:34px;font-weight:700;line-height:1.25;letter-spacing:-.01em}
-#foot p.ko{font-size:18px;font-weight:400;color:var(--dim);margin-top:10px}
 #credit{left:64px;top:1030px;width:1776px;display:flex;justify-content:space-between;font-size:14px;line-height:1.45;letter-spacing:.01em;color:var(--white);opacity:.8}
 #credit div+div{text-align:right}
 #steps{left:0;top:1064px;width:1920px;display:flex;justify-content:center;gap:6px}
@@ -117,7 +116,6 @@ body.cursor{cursor:default}
   .pg .ph{font-family:Neo,monospace;font-size:10.5px;letter-spacing:.14em;color:var(--dim);line-height:1.5}
   .pg .pcv{display:block;width:100%;flex:1 1 0;min-height:160px;background:#000;margin:10px 0 12px}
   .pg .pt b{display:block;font-size:19px;line-height:1.3;font-weight:700}
-  .pg .pt small{display:block;font-size:13px;color:var(--dim);margin-top:6px;line-height:1.45}
   .pg .pt .r{display:block;margin-top:8px;font-family:Neo,monospace;font-size:10px;letter-spacing:.1em;color:var(--dim);line-height:1.8}
   .pg .pt .r a{color:var(--white);text-decoration:none;margin-right:10px}
   .pg .pt .nl{display:inline-block;margin-top:10px;font-family:Neo,monospace;font-size:10.5px;letter-spacing:.14em;color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38}
@@ -158,7 +156,7 @@ body.cursor{cursor:default}
   <div id="listen8" class="abs"><div class="b"></div><div class="o"></div></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT · ← BACK · 1–9 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT · ← BACK · 1–7 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -167,7 +165,7 @@ body.cursor{cursor:default}
   <div id="h-homo" class="abs">HOMO INVENTUS</div>
   <div id="h-sec" class="abs"><b></b><span></span></div>
   <div id="notice" class="abs"><span id="n1"></span><span id="n2"></span><p>Future archaeologists are excavating extinct humanity.<br>You, in the present: what will you leave?</p></div>
-  <div id="foot" class="abs"><p id="f-en"></p><p class="ko" id="f-ko"></p></div>
+  <div id="foot" class="abs"><p id="f-en"></p></div>
   <div id="credit" class="abs"><div>ID40009 Graduation Design Studio · 실시간 웹 · 3D · 공간 음향 · 2채널 디스플레이</div><div>Hayeon Park 20220875 · Supervised by Yiyun Kang</div></div>
   <div id="steps" class="abs"></div>
 </div>
@@ -278,37 +276,40 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=10, HOLD=[27,44,56,37,43,31,43,44,28,59], PACE=[1,1,0.9,1,1,1,1,1,0.85,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
+const STEPS=11, HOLD=[27,44,56,26,11,43,31,43,44,28,59], PACE=[1,1,0.9,0.9,0.85,1,1,1,1,0.85,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
 const SEC=[["",""],
-  ["The Anthropocene, a rejected epoch","① 인류세와 부결"],
-  ["An epoch is interpreted spacetime","①′ 해석된 시공간 · 제목"],
-  ["Trace fossils, and humanity's","②③ 생흔화석"],
-  ["How things form","④ 생성 로직"],
-  ["Hyperobjects: a part and the whole","⑤ 하이퍼객체"],
-  ["Inside: one life, in plain words","⑥ 개인 뷰 · 일상의 언어"],
-  ["Sound: the name","⑥′ 사운드 · 이름"],
-  ["What a name leaves","⑥″ 이름이 남기는 흔적"],
-  ["What I designed","⑦ 무엇을 설계했는가"]];
-const KEY=[["",""],
-  ["This work starts from that gap.","개념과 기록 사이의 그 틈에서 시작한다."],
-  ["An epoch is spacetime, interpreted.","현재에서 미래로 이어지는 덩어리. 우리는 아랫면에서 행위하고, 이름은 나중에 읽는 사람이 붙인다."],
-  ["Humanity's trace fossil is the trace of living in cities.","몸이 아니라 행동이 남는다. 인류의 생흔화석은 도시 거주의 흔적이다."],
-  ["Everything forms from staying and walking.","구조는 연구에서 가져왔고, 수치는 작가가 정했다. 20초가 지층 한 겹."],
-  ["The headset shows a part. The wall shows the whole. You go back and forth.","더운 날은 느끼지만 기후 자체는 보지 못한다. 부분과 전체를 오가며 둘의 연결을 생각한다."],
-  ["You can't choose much, and what you do still stays in the world.","그래서 계속 선택하면서 자기 행위성을 만들어 간다."],
-  ["One event at two scales.","개인에겐 음악, 벽에는 구조의 한 칸. 겹쳐도 가리지 않는다."],
-  ["You don't get to decide what remains.","응답하면 새 어휘가 태어나고 벽에 홀씨가 선다. 어떤 것은 남고 어떤 것은 사라진다."],
-  ["현재를 어떻게 살아 내고, 무엇을 할지 어떻게 정할 것인가?","How do I live with the present, and how do I decide what to do?","neo"]];
+  ["The Anthropocene, a rejected epoch","①"],
+  ["An epoch is interpreted spacetime","①′"],
+  ["Trace fossils","②"],
+  ["Humanity's trace fossil","③"],
+  ["How things form","④"],
+  ["Hyperobjects: a part and the whole","⑤"],
+  ["Inside: one life, in plain words","⑥"],
+  ["Sound: the name","⑥′"],
+  ["What a name leaves","⑥″"],
+  ["What I designed","⑦"]];
+const KEY=[[""],
+  ["This work starts from that gap."],
+  ["An epoch is spacetime, interpreted."],
+  ["A fossil not of a body, but of what it did."],
+  ["Humanity's trace fossil is the trace of living in cities."],
+  ["Everything forms from staying and walking."],
+  ["The headset shows a part. The wall shows the whole. You go back and forth."],
+  ["You can't choose much, and what you do still stays in the world."],
+  ["One event at two scales."],
+  ["You don't get to decide what remains."],
+  ["How do I live with the present, and how do I decide what to do?","neo"]];
 const REFS={
-  1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS 성명","n-vote2024"]],
+  1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS statement","n-vote2024"]],
   2:[["Gibbard et al. 2022","n-gibbard2022"],["Linnaeus 1758","n-linnaeus1758"],["Bergson 1907","n-bergson1907"],["Huizinga 1938","n-huizinga1938"]],
-  3:[["Seilacher · ichnology","n-ichnology"],["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"]],
-  4:[["Helbing et al. 1997","n-helbing1997"],["Schueler 1994","n-schueler1994"],["Cole 1995","n-cole1995"],["Behrensmeyer 1978 · 타포노미","n-taphonomy"]],
-  5:[["Morton 2013","n-morton2013"],["하이퍼객체 더 보기","hyper"]],
-  6:[["작품의 규칙","rules"]],
-  7:[["▶ 들어보기 · LISTEN","listen"],["사운드 구조","sound"]],
-  8:[["작품의 규칙","rules"]],
-  9:[["Schiffer 1987","n-schiffer1987"],["Laland et al. 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]]
+  3:[["Seilacher · ichnology","n-ichnology"]],
+  4:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"]],
+  5:[["Helbing et al. 1997","n-helbing1997"],["Schueler 1994","n-schueler1994"],["Cole 1995","n-cole1995"],["Behrensmeyer 1978 · taphonomy","n-taphonomy"]],
+  6:[["Morton 2013","n-morton2013"],["More on hyperobjects","hyper"]],
+  7:[["The work's rules","rules"]],
+  8:[["▶ LISTEN","listen"],["The sound's structure","sound"]],
+  9:[["The work's rules","rules"]],
+  10:[["Schiffer 1987","n-schiffer1987"],["Laland et al. 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]]
 };
 const LAB_ORIGIN="https://homo-inventus-lab.vercel.app";   // this branch's app, its own Vercel project — never the show's
 const LIVE_URL=LAB_ORIGIN+"/v2/global/lab?ui=0&sound=mute&cam=turn&snap=1&minutes=24&bots=16&dpr=0.6&dist=200&polar=70&lift=-30"; // a 24-minute column seen whole from a little above (the 8-minute one was a speck at that distance)
@@ -357,15 +358,15 @@ function live3On(){ if(live3State!=="off")return;
     topv.onerror=fail; for(const src of topv.querySelectorAll("source")) src.onerror=fail;
     const probe=(n)=>{if(failed||live3State!=="baked")return; if(topv.networkState===3||topv.error){fail();return;} if(topv.readyState<2&&n<40)setTimeout(()=>probe(n+1),250);}; probe(0); return;}
   if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
-// ④: the one shot, recorded from the lab (/v2/global/lab?scenario=all&cam=shot) and pressed to 10 s, ×11: the simulation itself
-// cannot run that fast (the app's clock stops at ×20). The source loads on ②③ so it plays at once on ④.
+// ④: the one shot, recorded from the lab (/v2/global/lab?scenario=all&cam=shot) and retimed to 42 s on a smooth speed curve
+// (×1.3 → ×2.8 → ×1, the artist, 11/05: ×11 looked rushed): it runs under ④'s talk. The source loads on ②③ so it plays at once on ④.
 const shot4=$("#live4"); let shot4On=false;
 shot4.onerror=()=>{shot4.style.display="none"; $("#badge4").style.display="none"; shot4On=false; shot4.dataset.failed="1";};
-function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · ×11 · V: AGAIN"; }
+function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · TIME COMPRESSED · V: AGAIN"; }
 function live4Show(on){ if(!shot4.src||shot4.dataset.failed)return;
   if(on&&!shot4On){shot4On=true; shot4.style.display="block"; $("#badge4").style.display="block"; try{shot4.currentTime=Math.min(U(),shot4.duration||U());}catch(e){} shot4.play().catch(()=>{}); requestAnimationFrame(()=>{shot4.style.opacity="1";});}
   else if(!on&&shot4On){shot4On=false; shot4.pause(); shot4.style.opacity="0"; shot4.style.display="none"; $("#badge4").style.display="none";} }
-function live4Next(){ if(step!==4||!shot4On)return; shot4.currentTime=0; shot4.play().catch(()=>{}); } // V: the shot from the start
+function live4Next(){ if(step!==5||!shot4On)return; shot4.currentTime=0; shot4.play().catch(()=>{}); } // V: the shot from the start
 function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; topv.pause(); topv.style.display="none"; topv.style.opacity="0"; $("#badge3").style.display="none"; live3State="off"; }
 function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; wallv.pause(); wallv.style.display="none"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
@@ -488,12 +489,6 @@ function s2(u){
   txt("ONE LIFE'S TRACE · SPECIMEN 5051 · 03:00",960,896,{px:12,fam:"Neo",col:DIM,a:on(u,9.6,0.8),al:"center",ls:1.2});
 }
 
-/* ---------- ②③ one screen: the trace fossil, then humanity's (the talk turns at 22 s) ---------- */
-const T23=5.2; // the turn from one life's trace to the city: the whole screen is done within 10 s, like every other (the artist, 11/05)
-function s23(u,g){ const f=on(u,T23-0.6,1.2);
-  if(f<1){ctx.save(); ctx.globalAlpha=1-f; s2(u*2.2); ctx.restore();}
-  if(f>0){ctx.save(); ctx.globalAlpha=f; {const x=Math.max(0,u-T23); s3(x<4.7?x*2.6:12.22+(x-4.7));} ctx.restore();} }
-
 /* ---------- ③ living together: top view and section ---------- */
 function s3(u){
   const px=160, py=170, pw=900, ph=660; box(px,py,pw,ph,FAINT,on(u,0.2));
@@ -528,7 +523,6 @@ function s3(u){
   line(sx0+253,surf+120.5,sx0+sw,surf+120.5,"#1c1c1d",a3,10); line(sx0+253,surf+120.5,sx0+sw,surf+120.5,WHITE,a3*0.5,1,[3,5]);
   txt("sewer · 배관",sx0+150,surf+126,{px:12,fam:"Neo",col:DIM,a:a3,al:"right",ls:1.2});
   para("Humanity's trace fossil: the trace of living in cities.",sx0+30,surf+230,{px:24,w:"700",maxW:540,col:WHITE,a:on(u,1.0,0.9)});
-  para("인류의 생흔화석 = 도시 거주의 흔적",sx0+30,surf+310,{px:15,maxW:540,col:DIM,a:on(u,1.6,0.9)});
 }
 
 /* ---------- ④ no build button: four rules, and the strata ---------- */
@@ -621,13 +615,12 @@ function s5(u){
   for(let i=0;i<6;i++){const ox=px+60+hash(i,1)*(s-120)+Math.sin(u*0.3+i)*40, oy=ly+60+hash(i,2)*(s-120)+Math.cos(u*0.4+i)*40, d=Math.hypot(ox-cx,oy-cy);
     const vis=clamp(1-(d-R*0.6)/(R*0.6)); if(vis>0)glyphC(glyphs[i].dots,ox-12,oy-12,24,{a:vis*a,grid:false});}
   ctx.strokeStyle=rgba(WHITE,0.5*a); ctx.lineWidth=1; ctx.setLineDash([2,5]); ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.stroke(); ctx.setLineDash([]); sq(cx,cy,7,a);
-  txt("and you go back and forth · 그 둘을 오간다",lx,ly+s+36,{px:18,a:on(u,8.6,0.8)});
+  txt("and you go back and forth",lx,ly+s+36,{px:18,a:on(u,8.6,0.8)});
   // right: the idea in plain words
   const rx=1320, ra=on(u,2.4,0.8);
   txt("HYPEROBJECT · 하이퍼객체",rx,ly+8,{px:13,fam:"Neo",col:DIM,a:ra,ls:1.4});
   para("So spread out in time and space that no one can see it whole.",rx,ly+50,{px:30,w:"700",maxW:460,lh:1.25,a:ra});
   const ca=on(u,4.4,0.8); para("You feel a hot day. You never see the climate itself.",rx,ly+160,{px:22,maxW:460,a:ca});
-  para("더운 날은 느끼지만 기후 자체는 보지 못합니다.",rx,ly+236,{px:15,maxW:460,col:DIM,a:ca});
 }
 
 
@@ -652,10 +645,10 @@ function s6(u,g){
   const sa=on(u,4.9,0.6); fill(cx+150,cy+2,90,32,"#3a3b38",sa); box(cx+150,cy+2,90,32,WHITE,sa);
   line(bx+S,ay-24,cx+150,cy+18,WHITE,sa*0.6,1,[3,5]);
   txt("the same event, on the wall: concrete",cx,cy-14,{px:14,a:sa});
-  txt("one cell of a structure · 구조의 한 칸",cx+150+100,cy+22,{px:12,fam:"Neo",col:DIM,a:sa,ls:1.2});
+  txt("one cell of a structure",cx+150+100,cy+22,{px:12,fam:"Neo",col:DIM,a:sa,ls:1.2});
   // the low band
   const la=on(u,6.8,0.8); const lx=1180, ly=cy+ch+50; glyphC([],lx,ly,150,{a:la}); glyphs.slice(0,19).forEach(gl=>glyphC(gl.dots,lx,ly,150,{a:la,grid:false,squash:0.22,alpha:0.4}));
-  txt("/low band",lx+170,ly+70,{px:22,w:700,a:la}); para("저음 — on the speakers every melody sinks two octaves into one mass: the whole is heard, no one is told apart",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
+  txt("/low band",lx+170,ly+70,{px:22,w:700,a:la}); para("Low — on the speakers every melody sinks two octaves into one mass: the whole is heard, no one is told apart",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
 }
 
 /* ---------- ⑥ one life, in plain words: what the headset says; what an answer leaves ---------- */
@@ -735,10 +728,10 @@ function s7(u,g){
   const ya=my+ms+64, ta2=on(u,3.0,0.8);
   txt("ONE EXPERIENCE · 목표 경험",mx,ya,{px:12,fam:"Neo",col:DIM,a:ta2,ls:1.2});
   para("Feeling your small act enter a whole you can't see.",mx,ya+36,{px:24,w:"700",maxW:560,lh:1.25,a:ta2});
-  [["limited sight","제한된 시야"],["everyday sentences","일상의 문장"],["sound before image","이미지보다 소리"],["a life with an end","끝이 있는 삶"],["a wall where you find your own traces","내 흔적을 찾는 벽"]].forEach(([en,ko],i)=>{const a=on(u,4.2+i*0.6,0.5), yl=ya+112+i*32; sq(mx+4,yl-5,5,a); txt(en,mx+20,yl,{px:17,a}); txt(ko,mx+560,yl,{px:13,col:DIM,a,al:"right"});});
+  ["limited sight","everyday sentences","sound before image","a life with an end","a wall where you find your own traces"].forEach((en,i)=>{const a=on(u,4.2+i*0.6,0.5), yl=ya+112+i*32; sq(mx+4,yl-5,5,a); txt(en,mx+20,yl,{px:17,a});});
 }
 
-const DRAW=[s0,s1,s1b,s23,s4,s5,s6a,s6,s6c,s7];
+const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6a,s6,s6c,s7];
 
 /* ---------- render ---------- */
 function animU(s,u){return u/PACE[s];}
@@ -751,13 +744,13 @@ function render(){
   for(const id of ["#studio","#kaist","#notice","#shade","#badge","#hint","#ref0"]) $(id).style.display=t0?"block":"none"; $("#credit").style.display=t0?"flex":"none"; $("#visit").style.display=t0?"block":"none";
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
-  // ④'s live shot loads during ②③ (the app takes 10–40 s), and shows on ④
-  if(step===3||step===4)live4On();
-  live4Show(step===4);
+  // ④'s shot loads during ②③, and shows on ④
+  if(step>=3&&step<=5)live4On();
+  live4Show(step===5);
   if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,keyAt(step),1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
-    $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,keyAt(step),1.0).toFixed(3);}
+    $("#f-en").textContent=KEY[step][0]; $("#f-en").style.fontFamily=KEY[step][1]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][1]==="neo"?"400":""; $("#foot").style.opacity=on(u,keyAt(step),1.0).toFixed(3);}
   else{$("#notice").style.opacity="0";}
   if(!t0)erode(110,0);
   DRAW[step](animU(step,u),g);
@@ -795,7 +788,7 @@ const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
   const notesOf=i=>{const d=INTER[i]; if(!d)return ""; let fig=""; try{fig=toDark(d.fig());}catch(err){}
     return `<div class="notes"><div class="tag">${d.tag}</div><div class="q">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div>${d.note?`<div class="note">${d.note}</div>`:""}<h5>SOURCES · 출처</h5><div class="src">${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}">OPEN ↗</a></div>`).join("")}</div></div>`;};
   for(let i=1;i<STEPS;i++){ const sec=document.createElement("section"); sec.className="pg"; sec.dataset.step=String(i);
-    sec.innerHTML=`<div class="ph">${SEC[i][1].slice(0,2)} · ${SEC[i][0].toUpperCase()}</div><canvas class="pcv" aria-label="${SEC[i][0]}"></canvas><div class="pt"><b>${KEY[i][0]}</b><small>${KEY[i][1]}</small>${i===7?'<div class="lbtns"></div>':""}${REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""}${INTER[i]?`<a class="nl" href="#mn${i}">NOTES ↓</a>`:""}</div>`;
+    sec.innerHTML=`<div class="ph">${SEC[i][1]} · ${SEC[i][0].toUpperCase()}</div><canvas class="pcv" aria-label="${SEC[i][0]}"></canvas><div class="pt"><b>${KEY[i][0]}</b>${i===8?'<div class="lbtns"></div>':""}${REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""}${INTER[i]?`<a class="nl" href="#mn${i}">NOTES ↓</a>`:""}</div>`;
     wrap.appendChild(sec); cards[i]=sec;
     if(INTER[i]){ const n=document.createElement("section"); n.className="pg pg-notes"; n.id=`mn${i}`; n.dataset.step=String(i); n.dataset.notes="1"; n.innerHTML=notesOf(i); wrap.appendChild(n); } }
   window.__cards=cards;
@@ -842,7 +835,7 @@ function soundDemoStop(){ if(window.HomoSound)window.HomoSound.stop(); }
 function soundButtons(root){ root.innerHTML=SD_KINDS.map(k=>`<button type="button" data-k="${k}">▶ ${SD_EN[k]}</button>`).join("")+`<button type="button" data-k="">■ STOP</button>`;
   root.querySelectorAll("button").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation(); const k=b.dataset.k; if(k)soundDemoPlay(k); else soundDemoStop();})); }
 soundButtons($("#listen8 .b"));
-function soundDemoLine(){ const el=$("#listen8"); const onSlide=step===7; el.style.display=onSlide?"block":"none";
+function soundDemoLine(){ const el=$("#listen8"); const onSlide=step===8; el.style.display=onSlide?"block":"none";
   const H=window.HomoSound, st=H?H.state():null, kind=st&&st.kind||"";
   if(!onSlide&&kind&&!PHONE)soundDemoStop();
   let line; if(!kind)line="press a situation · the headset's engine plays it here"; else{const d=st.debug||{}; line=`▶ ${SD_KO[kind]||kind} — ${SD_DESC[kind]||""} · ${d.chord||"–"} · lock ${d.lock!=null?(+d.lock).toFixed(2):"–"}`;}
@@ -860,15 +853,15 @@ const PANELS=[
   [[1000,500,900,560]],                                           // home: the title corner
   [[60,150,790,760],[1000,160,820,700]],                          // ①: the strata and the spike; the definition and the vote
   [[810,170,1090,740],[100,180,660,700]],                         // ①′: the pit; the three faces and the title's meaning
-  [[200,170,1520,740]],                                           // ②: one life's trace (③ below, after T23)
+  [[200,170,1520,740]],                                           // ②: one life's trace
+  [[150,150,930,700],[1150,150,620,700]],                         // ③: the ground from above; the section
   [[150,150,850,740],[1050,150,780,560]],                         // ④: the four rules; the wall's strata
   [[140,160,1640,90],[150,260,520,570],[730,260,520,570],[1310,300,500,280]],  // ⑤: the timeline; the wall; the headset's reach; the idea
   [[150,140,870,640],[1040,140,800,640]],                         // ⑥: the screen itself; its words
   [[150,140,960,530],[1130,160,690,720]],                         // ⑥′: one person's harmony; the wall's cell
   [[150,140,820,640],[1010,140,810,620]],                         // ⑥″: a call, an answer, a word; the wall's seed heads
   [[150,130,1040,760],[1240,170,620,680]]];                       // ⑦: the specimen card; the experience
-const PANEL3B=[[150,150,930,700],[1150,150,620,700]];              // ③: the ground from above; the section
-function phoneLayout(n,hw,hh){ const ps=n===3&&U()>=T23?PANEL3B:PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=[];
+function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=[];
   for(let i=0;i<ps.length;i++){ const a=ps[i], b=ps[i+1]; if(b&&a[2]<=760&&b[2]<=760&&a[3]>=300&&b[3]>=300){rows.push([a,b]); i++;} else rows.push([a]); }
   const laid=[]; let y=0; for(const row of rows){ const rw=row.reduce((t,q)=>t+q[2],0)+gap*(row.length-1), sc=hw/rw, rh=Math.max(...row.map(q=>q[3]))*sc; let x=0;
     for(const q of row){ const dw=q[2]*sc, dh=q[3]*sc; laid.push({q,dx:x,dy:y+(rh-dh)/2,dw,dh}); x+=dw+gap*sc; } y+=rh+gap; }
@@ -898,10 +891,11 @@ window.__go=n=>{now=performance.now();go(n);render();};
 window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),document.fonts.load("900 20px PreBlack").catch(()=>0),document.fonts.load("italic 20px Garamond").catch(()=>0),plan.decode().catch(()=>0)]).then(()=>true);
 let cursorT=0;
 addEventListener("mousemove",()=>{document.body.classList.add("cursor");cursorT=performance.now();});
+const SEC_KEY=[0,1,3,4,5,6,7,10]; // 1–7 → ①–⑦; the ′ and ″ screens are → from there
 addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
   if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown"||e.key==="Enter"){e.preventDefault();next();}
   else if(e.key==="ArrowLeft"||e.key==="PageUp"||e.key==="Backspace"){e.preventDefault();back();}
-  else if(/^[0-9]$/.test(e.key)){hideInter(); go(+e.key);}
+  else if(/^[0-7]$/.test(e.key)){hideInter(); go(SEC_KEY[+e.key]);}
   else if(e.key==="Home"){hideInter(); go(0);} else if(e.key==="End"){hideInter(); go(STEPS-1);}
   else if(e.key==="r"){prev=-1;stepAt=now;}
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}
