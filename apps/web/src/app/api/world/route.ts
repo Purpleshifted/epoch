@@ -8,7 +8,8 @@
  *     host { id, force? }             take or renew the bot lease; force is admin's. The answer says who holds it
  *     release { id }                  a host leaving on purpose (sent with sendBeacon when a tab closes)
  */
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { advanceBots, wantsServerBots } from "@/lib/world/bots";
 import { clearWorld, readState, releaseHost, setKeepWindow, setRate, takeHost } from "@/lib/world/db";
 import { NO_STORE, isAdmin, notFound, sameOrigin, worldAllowed, worldEnabled } from "@/lib/world/api";
 import { LOCKED_RATE_WORLD, MAX_KEEP_WINDOW_SEC } from "@/lib/world/protocol";
@@ -23,7 +24,10 @@ export async function GET(req: Request) {
   const world = new URL(req.url).searchParams.get("world");
   if (!worldAllowed(world)) return NextResponse.json({ error: "unknown world" }, { status: 400 });
   try {
-    const state = await readState(world, Date.now());
+    const now = Date.now();
+    const state = await readState(world, now);
+    // with no wall holding the bots, this look brings them up to now (at most once per CDN window: lib/world/bots.ts)
+    if (state && wantsServerBots(state, now)) after(() => advanceBots(world, state, now));
     return NextResponse.json({ state }, { headers: { "cache-control": "public, max-age=0, s-maxage=5" } });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500, headers: NO_STORE });

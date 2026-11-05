@@ -200,12 +200,50 @@ export async function takeHost(world: string, id: string, nowMs: number, force =
   return rows[0] ? toState(rows[0]) : readState(world, nowMs);
 }
 
-/** A host leaving on purpose: the next wall need not wait for the lease to run out. */
+/** A host leaving on purpose: the next wall need not wait for the lease to run out. `host_until` stays: it says how far its bots got. */
 export async function releaseHost(world: string, id: string): Promise<void> {
   const conn = db();
   if (!conn) return;
   const sql = await conn;
-  await sql`UPDATE world_state SET host_id = NULL, host_until = NULL WHERE world = ${world} AND host_id = ${id}`;
+  await sql`UPDATE world_state SET host_id = NULL WHERE world = ${world} AND host_id = ${id}`;
+}
+
+let botsTable: Promise<unknown> | null = null;
+
+/**
+ * Takes the next stretch of bots up to `toMs` (world ms, lib/world/bots.ts): one looker gets it, the others get null, as
+ * they do when less than `minStepMs` has passed. Their own table, made the first time: nothing else depends on it.
+ */
+export async function claimBots(world: string, toMs: number, minStepMs: number): Promise<{ lastMs: number | null; hostUntilMs: number | null } | null> {
+  const conn = db();
+  if (!conn) return null;
+  const sql = await conn;
+  if (!botsTable) {
+    botsTable = sql`CREATE TABLE IF NOT EXISTS world_bots (world text PRIMARY KEY, until_ms bigint NOT NULL)`;
+    botsTable.catch(() => {
+      botsTable = null;
+    });
+  }
+  await botsTable;
+  const rows = (await sql`WITH old AS (SELECT until_ms FROM world_bots WHERE world = ${world}),
+    won AS (
+      INSERT INTO world_bots (world, until_ms) VALUES (${world}, ${toMs})
+      ON CONFLICT (world) DO UPDATE SET until_ms = ${toMs} WHERE world_bots.until_ms + ${minStepMs} <= ${toMs}
+      RETURNING 1
+    )
+    SELECT (SELECT until_ms FROM old) AS last_ms, (SELECT host_until FROM world_state WHERE world = ${world}) AS host_until, (SELECT count(*) FROM won)::int AS won`) as { last_ms: string | number | null; host_until: string | number | null; won: number }[];
+  const r = rows[0];
+  if (!r?.won) return null;
+  return { lastMs: r.last_ms === null ? null : Number(r.last_ms), hostUntilMs: r.host_until === null ? null : Number(r.host_until) };
+}
+
+/** When the bots started, set the first time as takeHost does it. */
+export async function botStart(world: string, nowMs: number): Promise<number | null> {
+  const conn = db();
+  if (!conn) return null;
+  const sql = await conn;
+  const rows = (await sql`UPDATE world_state SET bot_start_ms = COALESCE(bot_start_ms, floor(anchor_v + (${nowMs}::bigint - anchor_r) * rate)::bigint) WHERE world = ${world} RETURNING bot_start_ms`) as { bot_start_ms: string | number }[];
+  return rows[0] ? Number(rows[0].bot_start_ms) : null;
 }
 
 /** Forgets rows older than `hours` (the history window is far shorter; this bounds the table). */

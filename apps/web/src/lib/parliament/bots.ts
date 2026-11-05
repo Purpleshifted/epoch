@@ -95,13 +95,23 @@ function noise1(t: number, seed: number): number {
   return a + (b - a) * u;
 }
 
+/**
+ * Where each bot's count stood. A world that runs for weeks would otherwise count every segment from the start again, for
+ * every bot at every sample; the sum is the same, added up in the same order.
+ */
+const walkedSoFar = new Map<number, { segLen: number; walkShare: number; s: number; walked: number }>();
+
 /** Seconds of the walking segments of bot i before `sec` (bots alternate walking and standing still). */
-function walkedSeconds(i: number, sec: number, segLen: number, walkShare: number): number {
+export function walkedSeconds(i: number, sec: number, segLen: number, walkShare: number): number {
   const s = Math.floor(sec / segLen);
-  let walked = 0;
-  for (let k = 0; k < s; k++) if (hash2(i, k, 83) < walkShare) walked += segLen;
-  if (hash2(i, s, 83) < walkShare) walked += sec - s * segLen;
-  return walked;
+  let m = walkedSoFar.get(i);
+  if (!m || m.segLen !== segLen || m.walkShare !== walkShare || m.s > s) {
+    m = { segLen, walkShare, s: 0, walked: 0 };
+    walkedSoFar.set(i, m);
+  }
+  for (let k = m.s; k < s; k++) if (hash2(i, k, 83) < walkShare) m.walked += segLen;
+  m.s = s;
+  return hash2(i, s, 83) < walkShare ? m.walked + (sec - s * segLen) : m.walked;
 }
 
 /** Where bot i is heading at wall time `wallMs` (botActor's parts): from flock centre A to B (m = 0 … 1), plus its own
