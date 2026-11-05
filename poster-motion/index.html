@@ -53,8 +53,11 @@ body.cursor{cursor:default}
 #refs{right:64px;top:1008px;width:1300px;text-align:right;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
 #refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:10px}
 #refs a:hover{border-bottom-color:var(--white)}
-#sdemo{left:64px;top:1008px;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);white-space:nowrap;display:none}
-#sdemo b{color:var(--white);font-weight:400}
+#listen8{left:160px;top:846px;width:900px;display:none}
+#listen8 .b{display:flex;flex-wrap:wrap;gap:8px}
+#listen8 button{font-family:Neo,monospace;font-size:11.5px;letter-spacing:.12em;color:var(--white);background:#000;border:1px solid #55564f;padding:8px 12px;cursor:pointer}
+#listen8 button:hover{border-color:var(--white)}#listen8 button.on{background:var(--white);color:#0b0b0b;border-color:var(--white)}
+#listen8 .o{margin-top:10px;font-family:Neo,monospace;font-size:11.5px;letter-spacing:.08em;color:var(--dim);white-space:nowrap}
 #dbg{left:60px;top:860px;margin:0;font-family:Neo,monospace;font-size:12px;line-height:1.5;color:#9b9c97;background:rgba(0,0,0,.6);padding:6px 8px;display:none;pointer-events:none;z-index:9}
 #h-ref{left:292px;top:38px;font-family:Neo,monospace;font-size:11px;letter-spacing:.14em;white-space:nowrap}
 #h-ref a,#ref0 a{color:#3c3d3a;text-decoration:none;margin-left:18px}
@@ -92,55 +95,45 @@ body.cursor{cursor:default}
 #inter .foot{left:160px}#inter .foot2{right:160px;text-align:right}
 #mobile{display:none}
 @media (max-width:519px), (max-width:759px) and (pointer:coarse){
-  html{overflow:auto;height:auto} body{overflow:visible;height:auto;cursor:auto;background:#000} /* body must not be a scroll container, or the sticky window never sticks */
+  /* THE PHONE (the artist, 11/04 night): one screen per section — scrolling turns the page, the diagram plays when its
+     screen arrives; type and placement made for a phone, not the deck shrunk */
+  html{overflow:auto;height:auto;scroll-snap-type:y proximity} body{overflow:visible;height:auto;cursor:auto;background:#000}
   #hud,#dbg{display:none!important}
-  #stage{display:block!important;position:absolute;left:0;top:0;transform-origin:0 0}
-  /* the pinned picture: a square window onto the live deck, panned to the section's diagram (CROP below) */
-  #mobile .hero{position:sticky;top:0;z-index:3;overflow:hidden;background:#000;box-shadow:0 8px 24px rgba(0,0,0,.6);border-bottom:1px solid #2a2b29}
-  #mobile .hero .cap{position:absolute;left:12px;right:12px;bottom:9px;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;font-family:Neo,monospace;font-size:9.5px;letter-spacing:.14em;color:#9b9c97;pointer-events:none;text-shadow:0 1px 3px #000,0 0 6px #000;white-space:nowrap;overflow:hidden}
-  #mobile .hero .cap .dots{flex:none}
-  #mobile .hero .cap .dots i{display:inline-block;width:9px;height:2px;background:#3a3b38;margin-left:3px;vertical-align:middle}
-  #mobile .hero .cap .dots i.on{background:#fff}
-  #mobile .home{margin:0}
-  #mobile .home img{display:block;width:100%;height:auto;background:#000}
-  #mobile .tap{margin:8px 16px 0;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:#55564f;line-height:1.7}
-  #mobile li{cursor:pointer}
-  #mobile li.on b{color:#fff}
+  #stage{display:block!important;position:absolute;left:-4000px;top:0;transform:none!important}
   #mobile{display:block;color:var(--white);font-family:Pretendard,"Apple SD Gothic Neo",sans-serif;line-height:1.5;word-break:keep-all;-webkit-font-smoothing:antialiased}
+  .pg{min-height:100vh;min-height:100dvh;scroll-snap-align:start;display:flex;flex-direction:column;box-sizing:border-box;padding:14px 16px 18px}
+  .pg-home{padding:0}
   #mobile header{background:#fff;color:var(--ink);padding:18px 16px 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
   #mobile header .st{font-size:14px;font-weight:700;letter-spacing:-.005em;line-height:1.3}
   #mobile header .st small{display:block;font-family:Neo,monospace;font-size:9.5px;letter-spacing:.22em;color:#3c3d3a;margin-top:6px;line-height:1.6;font-weight:400}
   #mobile header .kaist{font-size:15px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
   #mhome{display:block;width:100%;height:auto;background:#000}
-  #phero{display:block;width:100%;height:100%}
   #mobile .n{margin:18px 16px 6px;font-family:Neo,monospace;font-size:17px;line-height:1.6}
   #mobile .n span{display:block}
   #mobile .n small{display:block;font-family:Pretendard,sans-serif;font-size:13px;color:var(--dim);margin-top:8px;line-height:1.5}
-  #mobile nav{display:flex;flex-wrap:wrap;gap:10px 18px;margin:14px 16px 28px;font-family:Neo,monospace;font-size:11px;letter-spacing:.12em}
+  #mobile nav{display:flex;flex-wrap:wrap;gap:10px 18px;margin:14px 16px 18px;font-family:Neo,monospace;font-size:11px;letter-spacing:.12em}
   #mobile nav a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;padding-bottom:2px}
-  #mobile h2{margin:0 16px 12px;font-family:Neo,monospace;font-size:11px;letter-spacing:.16em;color:var(--dim);font-weight:400}
-  #mobile ol{list-style:none;margin:0;padding:0 16px}
-  #mobile li{margin:0 0 28px}
-  #mobile li{padding-top:14px;border-top:1px solid #2a2b29}
-  #mobile .notes{margin:14px 0 6px;padding:12px 12px 4px;border:1px solid #2a2b29}
-  #mobile .notes .q{font-size:15px;font-weight:700;line-height:1.4}
-  #mobile .notes .q small{display:block;font-weight:400;font-size:11.5px;color:var(--dim);margin-top:6px}
-  #mobile .notes .fig{margin:12px -4px 8px}
-  #mobile .notes .fig svg{width:100%;height:auto;display:block}
-  #mobile .notes .src{font-size:12.5px;line-height:1.5}
-  #mobile .notes .src div{margin:0 0 8px}
-  #mobile .notes .src span{color:var(--dim)}
-  #mobile .notes .src a{font-family:Neo,monospace;font-size:9.5px;letter-spacing:.1em;color:var(--dim);text-decoration:none;margin-left:8px}
-  #mobile .notes .note{font-size:12.5px;line-height:1.5;color:var(--dim);margin:8px 0}
-  #mobile .notes .note b{color:var(--white)}
-  #mobile .notes h5{margin:12px 0 6px;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:var(--dim);font-weight:400}
-  #mobile li .k{display:block;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:var(--dim)}
-  #mobile li b{display:block;margin-top:10px;font-size:17px;line-height:1.35}
-  #mobile li span{display:block;font-size:14px;margin-top:4px}
-  #mobile li small{display:block;font-size:12.5px;color:var(--dim);margin-top:4px}
-  #mobile li .r{display:block;margin-top:6px;font-family:Neo,monospace;font-size:10px;letter-spacing:.1em;color:var(--dim)}
-  #mobile li .r a{color:var(--white);text-decoration:none;margin-right:10px}
-  #mobile .hint{margin:10px 16px;font-size:12.5px;color:var(--dim)}
+  #mobile .tap{margin:0 16px 24px;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:#55564f;line-height:1.7}
+  .pg .ph{font-family:Neo,monospace;font-size:10.5px;letter-spacing:.14em;color:var(--dim);line-height:1.5}
+  .pg .pcv{display:block;width:100%;flex:1 1 0;min-height:160px;background:#000;margin:10px 0 12px}
+  .pg .pt b{display:block;font-size:19px;line-height:1.3;font-weight:700}
+  .pg .pt small{display:block;font-size:13px;color:var(--dim);margin-top:6px;line-height:1.45}
+  .pg .pt .r{display:block;margin-top:8px;font-family:Neo,monospace;font-size:10px;letter-spacing:.1em;color:var(--dim);line-height:1.8}
+  .pg .pt .r a{color:var(--white);text-decoration:none;margin-right:10px}
+  .pg .pt .nl{display:inline-block;margin-top:10px;font-family:Neo,monospace;font-size:10.5px;letter-spacing:.14em;color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38}
+  .lbtns{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+  .lbtns button{font-family:Neo,monospace;font-size:10.5px;letter-spacing:.1em;color:var(--white);background:#000;border:1px solid #55564f;padding:7px 9px}
+  .lbtns button.on{background:var(--white);color:#0b0b0b;border-color:var(--white)}
+  .lbtns .o{width:100%;font-family:Neo,monospace;font-size:10px;letter-spacing:.08em;color:var(--dim);margin-top:4px}
+  .pg-notes{min-height:0;padding-top:22px}
+  .pg-notes .notes{margin:0;padding:0;border:0}
+  .notes .q{font-size:16px;font-weight:700;line-height:1.4}.notes .q small{display:block;font-weight:400;font-size:11.5px;color:var(--dim);margin-top:6px}
+  .notes .fig{margin:12px -4px 8px}.notes .fig svg{width:100%;height:auto;display:block}
+  .notes .src{font-size:12.5px;line-height:1.5}.notes .src div{margin:0 0 8px}.notes .src span{color:var(--dim)}
+  .notes .src a{font-family:Neo,monospace;font-size:9.5px;letter-spacing:.1em;color:var(--dim);text-decoration:none;margin-left:8px}
+  .notes .note{font-size:12.5px;line-height:1.5;color:var(--dim);margin:8px 0}.notes .note b{color:var(--white)}
+  .notes h5{margin:12px 0 6px;font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:var(--dim);font-weight:400}
+  .notes .tag{font-family:Neo,monospace;font-size:10px;letter-spacing:.14em;color:var(--dim);margin-bottom:10px}
   #mobile footer{margin:30px 16px 40px;padding-top:12px;border-top:1px solid #2a2b29;font-size:12px;color:var(--dim);line-height:1.6}
 }
 #hud{position:fixed;left:8px;bottom:6px;font:12px/1.3 ui-monospace,monospace;color:#5a5a5a;opacity:0}
@@ -162,10 +155,10 @@ body.cursor{cursor:default}
   <div id="badge" class="abs"><i></i><span>LIVE</span></div>
   <div id="ref0" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
   <div id="h-ref" class="abs"><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a></div>
-  <div id="sdemo" class="abs"></div>
+  <div id="listen8" class="abs"><div class="b"></div><div class="o"></div></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–9 SECTIONS · L: LISTEN (ON THE SOUND SECTION) · TITLE: HOME · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT (A SECTION, THEN ITS NOTES) · ← BACK · 1–9 SECTIONS (END: THE LAST) · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -180,19 +173,19 @@ body.cursor{cursor:default}
 </div>
 <div id="hud"></div>
 <div id="mobile">
-  <header><div class="st">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div><div class="kaist">KAIST</div></header>
-  <canvas id="mhome" width="1080" height="1240" aria-label="발견된 인류 — the wall's column under the title"></canvas>
-  <p class="n" data-step="0"><span>미래의 고고학자들이 멸망한 인류를 발굴 중입니다.</span><span>현재의 당신은 무엇을 남기시겠습니까?</span><small>Future archaeologists are excavating extinct humanity. You, in the present: what will you leave?</small></p>
-  <nav><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/personal" target="_blank" rel="noopener">ENTER THE WORK ON THIS PHONE ↗</a></nav>
-  <h2>THE PRESENTATION · 발표 도해</h2>
-  <div class="hero"><canvas id="phero" aria-label="The section's diagram"></canvas><div class="cap"><span class="l"></span><span class="dots"></span></div></div>
-  <p class="tap">SCROLL · THE DIAGRAM ABOVE FOLLOWS THE SECTION YOU READ, ALIVE · SIDEWAYS: THE WHOLE DECK</p>
-  <ol id="mslides"></ol>
-  <p class="hint">On a wider screen this page is the presentation itself: → begins it, → again for the next section and its notes, 1–9 for a section. Here the window pinned above looks into that same deck, alive, panned to the diagram of the section you are reading.</p>
+  <section class="pg pg-home" data-step="0">
+    <header><div class="st">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div><div class="kaist">KAIST</div></header>
+    <canvas id="mhome" width="1080" height="1240" aria-label="발견된 인류 — the wall's column under the title"></canvas>
+    <p class="n" data-step="0"><span>미래의 고고학자들이 멸망한 인류를 발굴 중입니다.</span><span>현재의 당신은 무엇을 남기시겠습니까?</span><small>Future archaeologists are excavating extinct humanity. You, in the present: what will you leave?</small></p>
+    <nav><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a><a href="https://anthropocene-mu.vercel.app/exhibition/personal" target="_blank" rel="noopener">ENTER THE WORK ON THIS PHONE ↗</a></nav>
+    <p class="tap">SCROLL — ONE SCREEN PER SECTION · THE DIAGRAM PLAYS WHEN ITS SCREEN ARRIVES</p>
+  </section>
+  <div id="mpages"></div>
   <footer>Hayeon Park 20220875 · Supervised by Yiyun Kang · ID40009 Graduation Design Studio · KAIST 2026</footer>
 </div>
 
 <script>
+
 (async function(){
 "use strict";
 const W=1920,H=1080;
@@ -277,12 +270,15 @@ function ell(cx,cy,rx,ry,col=WHITE,a=1,fillIt=false,lw=1,dash){if(a<=0.005)retur
   if(fillIt){ctx.fillStyle=rgba(col,a); ctx.fill();} else {ctx.strokeStyle=rgba(col,a); ctx.lineWidth=lw; ctx.setLineDash(dash||[]); ctx.stroke(); ctx.setLineDash([]);}}
 
 /* ---------- data ---------- */
+// RENDERS OF THE WORK ITSELF (the artist, 11/04 night: not drawings — the personal view as it is): assets/pv/*.jpg
+const PV={}; for(const k of ["notice","consent","live","attempt","end","seeds"]){const im=new Image(); im.src=`assets/pv/${k}.jpg`; PV[k]=im;}
+function drawImg(im,x,y,w,h,a=1){ if(!im||!im.complete||!im.naturalWidth||a<=0.005)return false; ctx.save(); ctx.globalAlpha=clamp(a); ctx.drawImage(im,x,y,w,h); ctx.restore(); return true; }
 const [glyphs,fig,traces]=await Promise.all(["data/glyphs.json","data/figure.json","data/traces.json"].map(u=>fetch(u).then(r=>r.json())));
 const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=10, HOLD=[8,12,14,13,14,16,11,13,14,13];
+const STEPS=11, HOLD=[8,40,45,30,20,60,40,35,50,30,40]; // the talk's timing (script, 7 min); a slide's drawing is done by ~12 s
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","① 부결된 지질시대"],
   ["An epoch is interpreted spacetime","①′ 시대 = 해석된 시공간"],
@@ -290,8 +286,9 @@ const SEC=[["",""],
   ["What is humanity's trace fossil?","③ 인류의 생흔화석"],
   ["So this world has no “build” button","④ 생성 로직"],
   ["Partial sight, and the whole — hyperobjects","⑤ 하이퍼객체"],
-  ["What one person inside it experiences — sound","⑥ 사운드"],
-  ["— and what a life leaves: in plain words, and a seed","⑥′ 한 사람의 삶 · 일상의 언어 · 홀씨"],
+  ["Inside: one life, in plain words","⑥ 개인 뷰 · 일상의 언어"],
+  ["Sound — the name","⑥′ 사운드 · 이름"],
+  ["What a name leaves","⑥″ 이름이 남기는 것 · 홀씨"],
   ["Why this work","⑦ 의의"]];
 const KEY=[["",""],
   ["That gap, between the concept and its record, is where this work begins.","개념과 기록 사이의 그 틈에서 이 작품은 시작한다."],
@@ -300,8 +297,9 @@ const KEY=[["",""],
   ["Living together.","인간이 가장 오래, 가장 촘촘히 반복한 행동 — 모여 살기. 콘크리트, 다져진 길, 땅 밑의 배관."],
   ["Seen from the future, our ordinary days are already the object of excavation.","짓기 버튼은 없다. 모든 구조는 머물고 걷는 일의 부산물이고, 20초가 지층 한 겹이 된다."],
   ["Only ever a part — and the way between the part and the whole.","전체를 한눈에 볼 수 없는 대상. 부분만 인식하는 상태(헤드셋)와 전체(벽)를 오가며, 둘 사이의 연결을 생각하는 계기."],
-  ["The same event, at two different scales.","개인에겐 음악의 순간, 전체에겐 구조의 한 칸. 겹쳐도 가리지 않는다."],
-  ["Born without being asked; stopping may fail — and still every act enters the whole.","묻지 않고 태어나고, 그만두기도 실패할 수 있다. 그래도 모든 행위는 전체에 들어간다 — 한 사람은 그 안에서 애써 선택하며 행위성을 가꿔 갈 수밖에 없다."],
+  ["Born without being asked; stopping may fail — and still every act enters the whole.","묻지 않고 태어나고, 그만두기도 실패할 수 있다. 그래도 모든 행위는 전체에 들어간다 — 행위성은 한 번 갖는 것이 아니라 행위마다 가꾸는 것."],
+  ["The same event, at two different scales.","이름은 멜로디. 개인에겐 음악의 순간, 전체에겐 구조의 한 칸 — 겹쳐도 가리지 않는다."],
+  ["A name is how one life reaches the whole — and what remains of it is not up to you.","응답하면 새 어휘가 태어나고 벽에 홀씨가 선다. 이름은 한 삶이 전체에 닿는 길 — 무엇이 남을지는 내 몫이 아니다."],
   ["현재의 당신은 무엇을 남기시겠습니까?","What will the present you leave behind? — 분명히 남지만 혼자서는 바꿀 수 없는 전체 앞에서, 한 사람은 어떤 마음으로 행동을 정해야 하는가.","neo"]];
 const REFS={
   1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS 성명","n-vote2024"],["Gibbard et al. 2022","n-gibbard2022"]],
@@ -310,9 +308,10 @@ const REFS={
   4:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"],["Schueler 1994","n-schueler1994"],["Elmore & Kaushal 2008","n-elmore2008"]],
   5:[["Helbing et al. 1997","n-helbing1997"],["Cole 1995","n-cole1995"],["Pescott & Stewart 2014","n-pescott2014"],["Schueler 1994","n-schueler1994"],["Q = C·i·A","n-rational"],["Pólya 1923","n-polya1923"]],
   6:[["Morton 2013","n-morton2013"],["Haff 2014","n-haff2014"]],
-  7:[["▶ LISTEN · 들어보기","listen"],["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
-  8:[["Arendt 1958 · natality","n-arendt1958"],["Schiffer 1987","n-schiffer1987"],["Helbing et al. 1997","n-helbing1997"],["Huizinga 1938","n-huizinga1938"]],
-  9:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]],
+  7:[["Arendt 1958 · natality","n-arendt1958"],["Schiffer 1987","n-schiffer1987"],["Helbing et al. 1997","n-helbing1997"],["Huizinga 1938","n-huizinga1938"]],
+  8:[["▶ LISTEN · 들어보기","listen"],["장소의 코드 · lock","n-placechord"],["Magenta","n-magenta"],["저음","n-lowband"]],
+  9:[["Schiffer 1987","n-schiffer1987"],["Behrensmeyer 1978 · 타포노미","n-taphonomy"],["Morton 2013 · interobjectivity","n-morton2013"],["Helbing et al. 1997","n-helbing1997"]],
+  10:[["Schiffer 1987","n-schiffer1987"],["Laland & Feldman 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]]
 };
 const LAB_ORIGIN="https://homo-inventus-lab.vercel.app";   // this branch's app, its own Vercel project — never the show's
 const LIVE_URL=LAB_ORIGIN+"/v2/global/lab?ui=0&sound=mute&cam=turn&snap=1&minutes=24&bots=16&dpr=0.6&dist=200&polar=70&lift=-30"; // a 24-minute column seen whole from a little above (the 8-minute one was a speck at that distance)
@@ -638,9 +637,8 @@ function s6(u,g){
   const wa=on(u,6.4,0.6); const wx=ax+S/2+60, wy=ay+S+110; glyphC(fig.word,wx,wy,150,{a:wa,cur:col});
   const bp=on(u,6.4,0.75); if(bp>0&&bp<1)for(let i=0;i<26;i++){const an=hash(i,7)*6.283, r=10+bp*(30+hash(i,8)*80); sq(wx+75+Math.cos(an)*r,wy+75+Math.sin(an)*r*0.8,3,1-bp);}
   txt("/new word",wx+170,wy+70,{px:22,w:700,a:wa}); txt("새 어휘 — answer another's call: a glyph that mixes two melodies",wx+170,wy+90,{px:12,fam:"Neo",col:DIM,a:wa,ls:1.2});
-  para("Why sound: vision places you outside; sound surrounds the body. When sounds overlap they do not hide each other — they become harmony or dissonance. Overlap without occlusion.",160,ay+S+330,{px:17,maxW:780,col:DIM,a:on(u,8.6,0.9)});
-  txt("PIPELINE — IN THE BROWSER, NO FILES",160,ay+S+396,{px:11,fam:"Neo",col:DIM,a:on(u,9.6,0.8),ls:1.4});
-  para("event log → signals → place chord · lock → motif (the name) → sequencer on a shared bar clock → variation (procedural; Magenta MusicVAE / MusicRNN wired, off) → Web Audio engine: HRTF voices · rooms · limiter → headset.  NoiseCraft: the artist's patch in a hidden page, fed only a clock and sequences.  Speakers: every motif two octaves down, one mass.",160,ay+S+414,{px:12.5,maxW:900,col:DIM,lh:1.45,a:on(u,9.6,0.8)});
+  para("Why sound: vision places you outside; sound surrounds the body — and sounds overlap without hiding each other: harmony, or dissonance.",160,ay+S+330,{px:16,maxW:780,col:DIM,a:on(u,8.6,0.9)});
+  txt("LISTEN · THE HEADSET'S ENGINE, HERE — ONE SITUATION AT A TIME · 들어보기",160,ay+S+396,{px:11,fam:"Neo",col:DIM,a:on(u,0.8,0.8),ls:1.4});
   // the whole
   const cx=1180, cy=230, cw=400, ch=430; txt("THE WHOLE · 벽",1100,180,{px:12,fam:"Neo",col:DIM,a:on(u,0.4),ls:1.2});
   for(let k=0;k<12;k++)line(cx,cy+k*36+.5,cx+cw,cy+k*36+.5,FAINT,on(u,0.5+k*0.05),1); box(cx,cy,cw,ch,FAINT,on(u,0.5));
@@ -663,36 +661,45 @@ function seedHead(x,y,size,o={}){const {a=1,turn=0.7,n=24,keep=1,col=WHITE}=o; i
   for(let i=0;i<n;i++){ if(hash(i,91)>=keep)continue; const dy=1-(2*(i+0.5))/n, ring=Math.sqrt(Math.max(0,1-dy*dy)), an=i*2.399963+turn, L=r*(0.8+hash(i,92)*0.4);
     const tx=x+Math.cos(an)*ring*L, ty=cy-dy*L, depth=0.55+0.45*(Math.sin(an)*0.5+0.5); line(x,cy,tx,ty,col,a*depth,0.9); sq(tx,ty,3,a*depth,col);} }
 function s6a(u,g){
-  // left: the headset's own words, one line after another
-  const px0=160, py0=150; txt("THE PERSONAL VIEW · 헤드셋 — in a day's words, on a bare screen",px0,py0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
-  const pw=760, ph=560; fill(px0,py0+30,pw,ph,"#050505",on(u,0.2)); box(px0,py0+30,pw,ph,FAINT,on(u,0.2));
-  // the bare world: a few points of grass around, as far as sound reaches
-  // the bare world, small and low in the panel so the words have the room: a few points of grass as far as sound reaches
-  const cxp=px0+pw-270, cyp=py0+30+ph-96; for(let k=0;k<120;k++){const an=hash(k,5)*6.283, rr=20+hash(k,6)*190; const dx=Math.cos(an)*rr, dz=Math.sin(an)*rr*0.3; const fade=clamp(1-rr/210); if(k%2===0)sq(cxp+dx,cyp+dz+Math.sin(g*0.7+k)*1.2,2,0.35*fade*on(u,0.4,1.2),"#9ba36a");}
-  const ra=on(u,0.6,1.0); ctx.strokeStyle=rgba(FAINT,ra*0.8); ctx.setLineDash([3,6]); ctx.beginPath(); ctx.ellipse(cxp,cyp,200,60,0,0,6.283); ctx.stroke(); ctx.setLineDash([]); sq(cxp,cyp,5,ra);
-  txt("as far as sound reaches · 소리가 닿는 데까지",cxp,cyp+78,{px:10.5,fam:"Neo",col:FAINT,a:ra,ls:1.2,al:"center"});
-  let ly=py0+62; const blink=(g*2|0)%2===1;
+  // left: the personal view as it is — a render of the live screen — and, under it, why it is like this
+  const x0=160, y0=150, w=840, h=472;
+  txt("THE PERSONAL VIEW · 개인 뷰 — the screen as it is",x0,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
+  if(!drawImg(PV.attempt,x0,y0+30,w,h,on(u,0.4,0.9))){fill(x0,y0+30,w,h,"#050505",on(u,0.4)); txt("render: assets/pv/attempt.jpg",x0+20,y0+60,{px:12,fam:"Neo",col:FAINT,a:on(u,0.4)});}
+  box(x0,y0+30,w,h,FAINT,on(u,0.4));
+  txt("the ground, the dark, a name that is a melody — and the log of what just happened: an attempt to stop living, failed",x0,y0+30+h+26,{px:13,col:DIM,a:on(u,1.4)});
+  para("The log never says “slab +1”. It says what happened, in a day's words, so the rule is felt before it is understood. The screen is bare on purpose, so the ears can work.",x0,y0+30+h+66,{px:16,maxW:840,col:DIM,a:on(u,4.0,0.9)});
+  para("Born without being asked. The attempt to stop may fail. And still every act enters the whole — agency is not had once; it is tended, act by act.",x0,y0+30+h+150,{px:16,maxW:840,col:WHITE,a:on(u,8.0,0.9)});
+  // right: the screen's own words, one after another; the two screens that frame a life
+  const rx=1060; txt("WHAT THE SCREEN SAYS · 화면의 문장들",rx,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
+  let ly=y0+34; const blink=(g*2|0)%2===1;
   for(const [t,ko,en,kind] of LIFE_LINES){ const a=on(u,t,0.5); if(a<=0.005)continue; const typed=Math.round(clamp((u-t)/0.9)*ko.length); const col=kind===3?"#ffffff":kind===2?DIM:WHITE;
-    txt(ko.slice(0,typed)+(typed<ko.length&&blink?"▪":""),px0+28,ly+18,{px:kind===3?20:17,fam:"Neo",col,a,ls:0.6});
-    txt(en,px0+28,ly+38,{px:11.5,col:kind===3?WHITE:FAINT,a:a*on(u,t+0.8,0.5)}); if(kind===3){box(px0+16,ly-4,pw-32,54,WHITE,a*0.5);}
-    ly+=kind===1?60:56; }
-  // under the panel
-  para("The log never says “slab +1”: it says what happened, in the words of a day — so the rule is felt before it is understood. The screen is bare on purpose: a few points, the dark, so the eyes rest and the ears do the work.",px0,py0+30+ph+40,{px:16,maxW:760,col:DIM,a:on(u,5.0,0.9)});
-  para("Born without being asked. The attempt to stop may fail. And still every act enters the whole — agency is not had once; it is tended, act by act, inside a world one cannot steer.",px0,py0+30+ph+118,{px:16,maxW:760,col:WHITE,a:on(u,8.4,0.9)});
-  // right: what an answer leaves — the seed head, its powder, and the layer that keeps some
-  const sx=1020; txt("WHAT AN ANSWER LEAVES · 홀씨",sx,py0+8,{px:12,fam:"Neo",col:DIM,a:on(u,2.6),ls:1.2});
-  const hx=1330, hy=620; const grow=on(u,3.0,1.2), settle=1-0.5*on(u,8.6,1.6); const size=170*grow*settle;
-  // the ground line and the strata beneath
-  line(sx,hy+.5,1800,hy+.5,WHITE,on(u,2.8),1); txt("THE PRESENT · 현재",sx,hy+22,{px:10,fam:"Neo",col:FAINT,a:on(u,2.8),ls:1.2});
-  for(let k=1;k<=5;k++)line(sx,hy+k*38+.5,1800,hy+k*38+.5,FAINT,on(u,3.0+k*0.1)*0.7,1,[3,5]);
-  seedHead(hx,hy,size,{a:on(u,3.0,0.6)});
-  // the powder: thrown fast, then hanging, each grain gone at its own time, downwind
-  const pt=clamp((u-4.2)/5.5); if(pt>0&&pt<1){ for(let k=0;k<220;k++){const life=0.45+hash(k,11)*0.55, q=clamp(pt/life); if(q>=1)continue; const e=1-Math.pow(1-q,2.6); const an=0.15+(hash(k,12)-0.5)*1.5, d=(30+hash(k,13)*260)*e; const wx=hx+Math.cos(an)*d+e*120, wy=hy-size*0.9-size*0.55*0.3-Math.sin(an)*d*0.45-e*40+Math.sin(g*2+k)*2; sq(wx,wy,2+hash(k,14)*2,(1-Math.pow(q,1.5))*0.9);} }
-  txt("a seed head where someone answered another's call",sx,py0+50,{px:15,a:on(u,3.4,0.8)}); txt("large at first; its powder carried off by the wind — the next one who passes finds the word there",sx,py0+72,{px:12,fam:"Neo",col:DIM,a:on(u,3.4,0.8),ls:1});
-  // the heads in the layers: some stay, some go
-  const fa=on(u,10.2,1.2); seedHead(1120,hy+120,60,{a:fa,turn:1.3,n:14,col:DIM}); seedHead(1480,hy+160,60,{a:fa*(1-on(u,11.2,1.2))*0.8,turn:2.1,n:14,col:DIM}); seedHead(1700,hy+100,56,{a:fa*0.9,turn:0.3,n:14,col:DIM,keep:0.6});
-  txt("where its layer fossilises, some stay and some go — it may remain, or not",sx,hy+236,{px:14,col:DIM,a:fa});
-  txt("남을 수도, 안 남을 수도 있는 홀씨",sx,hy+258,{px:12,fam:"Neo",col:FAINT,a:fa,ls:1.2});
+    txt(ko.slice(0,typed)+(typed<ko.length&&blink?"▪":""),rx,ly+16,{px:kind===3?18:15,fam:"Neo",col,a,ls:0.5});
+    txt(en,rx,ly+34,{px:11,col:kind===3?WHITE:FAINT,a:a*on(u,t+0.8,0.5)}); if(kind===3){box(rx-12,ly-6,760,50,WHITE,a*0.5);}
+    ly+=kind===1?50:46; }
+  const sy=y0+34+9*47+10, sw=250, sh=141;
+  [[PV.consent,"born without being asked · only yes",2.0],[PV.live,"the grass behind you is gone",5.0],[PV.end,"the end: a specimen card",9.4]].forEach(([im,cap,t],i)=>{const a=on(u,t,0.8), x=rx+i*(sw+20); if(!drawImg(im,x,sy,sw,sh,a))fill(x,sy,sw,sh,"#050505",a); box(x,sy,sw,sh,FAINT,a); txt(cap,x,sy+sh+18,{px:10.5,fam:"Neo",col:DIM,a,ls:1});});
+}
+/* ---------- ⑥″ what a name leaves: a call, an answer, a new word — and the seed head on the wall ---------- */
+function s6c(u,g){
+  const col=Math.floor(g/0.22)%8; const x0=160, y0=150;
+  txt("A CALL, AN ANSWER, A NEW WORD · 부름 · 응답 · 새 어휘",x0,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
+  const S=170, gy=y0+40;
+  glyphC(fig.a.dots,x0,gy,S,{a:on(u,0.3),cur:col}); txt("/my name",x0,gy+S+28,{px:20,w:700,a:on(u,0.3)}); txt("5051 · a melody",x0,gy+S+48,{px:11,fam:"Neo",col:DIM,a:on(u,0.3),ls:1});
+  txt("+",x0+S+40,gy+S/2+10,{px:30,col:DIM,a:on(u,0.9),al:"center"});
+  glyphC(fig.b.dots,x0+S+80,gy,S,{a:on(u,0.9),cur:(col+3)%8}); txt("/another's call",x0+S+80,gy+S+28,{px:20,w:700,a:on(u,0.9)}); txt("5527 · heard before seen",x0+S+80,gy+S+48,{px:11,fam:"Neo",col:DIM,a:on(u,0.9),ls:1});
+  const aa=on(u,2.4,0.6); line(x0+2*S+100,gy+S/2+.5,x0+2*S+150,gy+S/2+.5,WHITE,aa,1.5); txt("SPACE · answer",x0+2*S+100,gy+S/2-12,{px:10,fam:"Neo",col:DIM,a:aa,ls:1});
+  const wx=x0+2*S+170, wa=on(u,3.0,0.7); glyphC(fig.word,wx,gy,S,{a:wa,cur:col});
+  const bp=on(u,3.0,0.8); if(bp>0&&bp<1)for(let i=0;i<30;i++){const an=hash(i,7)*6.283, r=10+bp*(30+hash(i,8)*90); sq(wx+S/2+Math.cos(an)*r,gy+S/2+Math.sin(an)*r*0.8,3,1-bp);}
+  txt("/new word",wx,gy+S+28,{px:20,w:700,a:wa}); txt("a glyph that mixes the two melodies",wx,gy+S+48,{px:11,fam:"Neo",col:DIM,a:wa,ls:1});
+  para("The answer is the one trace a visitor leaves on purpose. And it is not kept by them: on the wall a seed head stands where it happened, at the height of its time.",x0,gy+S+110,{px:16,maxW:800,col:DIM,a:on(u,4.6,0.9)});
+  const fy=gy+S+200; txt("WHAT BECOMES OF IT · 그 뒤",x0,fy,{px:12,fam:"Neo",col:DIM,a:on(u,7.0),ls:1.2});
+  [["FOUND","the wind carries the word to a few places — the next one who passes finds it: “개체 5527이 남긴 말 발견”",7.4],["KEPT","where its layer fossilises, some heads stay: smaller, fewer spokes, in the stone",8.6],["GONE","and some go — the record does not keep everything that was said",9.8]].forEach(([k,v,t],i)=>{const a=on(u,t,0.6); txt(k,x0,fy+34+i*52,{px:10,fam:"Neo",col:FAINT,a,ls:1.4}); txt(v,x0+70,fy+34+i*52,{px:15,a});});
+  const rx=1020, ry=y0+30, rw=800, rh=450; txt("ON THE WALL · 벽 — a render",rx,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,4.4),ls:1.2});
+  const ra=on(u,4.6,0.9);
+  if(!drawImg(PV.seeds,rx,ry,rw,rh,ra)){ fill(rx,ry,rw,rh,"#050505",ra); line(rx+40,ry+rh-80+.5,rx+rw-40,ry+rh-80+.5,WHITE,ra); seedHead(rx+rw/2,ry+rh-80,150,{a:ra}); }
+  box(rx,ry,rw,rh,FAINT,ra);
+  txt("seed heads where answers were given; the powder on the wind; at the height of their time",rx,ry+rh+26,{px:13,col:DIM,a:ra});
+  para("A name is how one life reaches the whole — and what remains of it is not up to the one who spoke.",rx,ry+rh+70,{px:17,maxW:800,col:WHITE,a:on(u,10.0,0.9)});
 }
 
 /* ---------- ⑦ the record remains: a specimen card ---------- */
@@ -722,7 +729,7 @@ function s7(u,g){
   para("The visitor experiences, in their own body, that their actions undeniably left traces — and yet changed nothing of the whole. No guilt is assigned; the work hands each visitor a question to carry home.",mx,my+ms+70,{px:16,maxW:500,col:DIM,a:on(u,9.4,0.9)});
 }
 
-const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6,s6a,s7];
+const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6a,s6,s6c,s7];
 
 /* ---------- render ---------- */
 function render(){
@@ -735,10 +742,10 @@ function render(){
   if(t0)liveOn(); else liveOff();
   if(step===4&&u>13.5)live3On(); else if(step!==4)live3Off();
   if(step===5&&u>12)live4On(u); else if(step!==5)live4Off();
-  if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
+  if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,Math.min(12,HOLD[step]*0.55),1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
-    $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.55,1.0).toFixed(3);}
+    $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,Math.min(12,HOLD[step]*0.55),1.0).toFixed(3);}
   else{$("#notice").style.opacity="0";}
   if(!t0)erode(110,0);
   DRAW[step](u,g);
@@ -858,6 +865,21 @@ function figInherit(){let o="";
   o+=T(430,400,"“The record remains. Your traces may be read —",{px:13,i:1}); o+=T(430,420,"or may not be.”",{px:13,i:1});
   o+=T(430,470,"No guilt, no instruction. The question is handed over:",{px:13,c:"#5f605c"}); o+=T(430,490,"facing a whole my actions enter but cannot alter alone,",{px:13,c:"#5f605c"}); o+=T(430,510,"how should one person decide how to act?",{px:13,c:"#5f605c"});
   return SV(820,600,o);}
+function figSeed(){let o="";
+  o+=T(20,26,"A CALL, AN ANSWER, A NEW WORD · 부름 · 응답 · 새 어휘",{px:11,neo:1,c:"#3c3d3a"});
+  const gl=(x,y,cells,label,sub)=>{let q=R(x,y,96,96,{s:"#0b0b0b"}); for(let i=1;i<8;i++){q+=Ln(x+i*12,y,x+i*12,y+96,{c:"#d7d8d3"})+Ln(x,y+i*12,x+96,y+i*12,{c:"#d7d8d3"});} for(const [cx,cy] of cells)q+=R(x+cx*12+1,y+cy*12+1,10,10,{f:"#0b0b0b"}); q+=T(x,y+116,label,{px:12,b:1}); if(sub)q+=T(x,y+132,sub,{px:10.5,c:"#5f605c"}); return q;};
+  o+=gl(20,50,[[0,5],[1,5],[2,4],[3,5],[4,5],[5,3],[6,6]],"/my name","5051 · a melody");
+  o+=T(136,100,"+",{px:20,a:"middle"}); o+=gl(160,50,[[0,7],[1,2],[2,3],[3,3],[4,3],[6,1],[7,0]],"/another's call","5527");
+  o+=T(290,100,"→",{px:20,a:"middle"}); o+=T(290,120,"SPACE",{px:9,neo:1,a:"middle",c:"#5f605c"});
+  o+=gl(320,50,[[0,5],[1,2],[2,4],[3,3],[4,5],[5,3],[6,1],[7,6]],"/new word","a glyph that mixes the two");
+  o+=T(20,214,"The answer is the one trace a visitor leaves on purpose — and it is not kept by them.",{px:12.5});
+  o+=T(20,250,"ON THE WALL · 벽에서",{px:11,neo:1,c:"#3c3d3a"});
+  o+=`<image href="assets/pv/seeds.jpg" x="20" y="264" width="400" height="225" preserveAspectRatio="xMidYMid slice"/>`+R(20,264,400,225,{s:"#0b0b0b"});
+  o+=T(20,508,"a seed head where the answer was given; its powder on the wind; at the height of its time",{px:11.5,c:"#5f605c"});
+  o+=T(460,250,"WHAT BECOMES OF IT · 그 뒤",{px:11,neo:1,c:"#3c3d3a"});
+  [["found","the wind carries the word to a few places; the next one who passes finds it: “a word left by 5527”"],["kept","where its layer fossilises, some heads stay — smaller, fewer spokes, in the stone"],["gone","and some go: the record does not keep everything that was said"]].forEach(([k,v],i)=>{o+=T(460,280+i*58,k.toUpperCase(),{px:10,neo:1,c:"#5f605c"}); o+=T(460,298+i*58,v.slice(0,62),{px:12}); if(v.length>62)o+=T(460,314+i*58,v.slice(62).trim(),{px:12});});
+  o+=T(460,470,"A name is how one life reaches the whole;",{px:13,b:1}); o+=T(460,490,"what remains of it is not up to the one who spoke.",{px:13,b:1});
+  return SV(820,600,o);}
 function figLife(){let o="";
   o+=T(20,26,"THE HEADSET'S OWN WORDS · 개인 뷰의 문장들",{px:11,neo:1,c:"#3c3d3a"}); o+=R(20,40,380,330,{s:"#0b0b0b"});
   o+=T(40,70,"태어나시겠습니까?",{px:14,neo:1}); o+=R(40,84,52,22,{s:"#0b0b0b"}); o+=T(66,100,"예",{px:12,neo:1,a:"middle"}); o+=T(108,100,"아니요 · 선택할 수 없습니다",{px:11,neo:1,c:"#9b9c97"});
@@ -868,17 +890,12 @@ function figLife(){let o="";
   o+=T(20,400,"IN A DAY'S WORDS, ON A BARE SCREEN",{px:11,neo:1,c:"#3c3d3a"});
   o+=T(20,424,"The log never says “slab +1”: it says what happened, so the rule is felt",{px:12.5}); o+=T(20,442,"before it is understood. Few points, the dark — the eyes rest, the ears work.",{px:12.5});
   o+=T(20,476,"A life not fully chosen, whose acts still enter the whole: agency is not had",{px:12.5}); o+=T(20,494,"once — it is tended, act by act, inside a world one cannot steer.",{px:12.5});
-  // the seed head
-  o+=T(440,26,"WHAT AN ANSWER LEAVES · 홀씨",{px:11,neo:1,c:"#3c3d3a"});
-  const hx=560, hy=300, st=120, r=62; o+=Ln(hx,hy,hx,hy-st,{sw:1.2}); const cy=hy-st; let seeds="";
-  for(let i=0;i<22;i++){const dy=1-(2*(i+0.5))/22, ring=Math.sqrt(Math.max(0,1-dy*dy)), a=i*2.399963+0.7, L=r*(0.8+((i*37)%10)/50); const tx=hx+Math.cos(a)*ring*L, ty=cy-dy*L; seeds+=Ln(hx,cy,tx,ty,{sw:0.9})+R(tx-2,ty-2,4,4,{f:"#0b0b0b"});}
-  o+=seeds; for(let k=0;k<70;k++){const t=((k*53)%100)/100, an=-0.9+((k*29)%100)/100*1.4, d=40+t*230; const px=hx+Math.cos(an)*d, py=cy-Math.sin(an)*d*0.5-t*30; o+=R(px,py,2.5,2.5,{f:(k%3)?"#9b9c97":"#5f605c"});}
-  o+=T(440,52,"a seed head where someone answered another: large at first,",{px:12}); o+=T(440,68,"its powder carried off by the wind; the next one who passes",{px:12}); o+=T(440,84,"finds the word there.",{px:12});
-  o+=Ln(440,340,800,340,{sw:1}); o+=T(440,358,"THE PRESENT · 현재",{px:10,neo:1,c:"#5f605c"});
-  for(let k=1;k<=5;k++)o+=Ln(440,340+k*40,800,340+k*40,{c:"#c6c7c2",d:"3 4"});
-  const small=(x,y,gone)=>{let q=Ln(x,y,x,y-34,{sw:1,c:gone?"#9b9c97":"#0b0b0b",d:gone?"2 3":""}); for(let i=0;i<10;i++){const a=i*2.399963, dy=1-(2*(i+0.5))/10, ring=Math.sqrt(Math.max(0,1-dy*dy)); q+=Ln(x,y-34,x+Math.cos(a)*ring*16,y-34-dy*16,{sw:0.8,c:gone?"#9b9c97":"#0b0b0b",d:gone?"2 3":""});} return q;};
-  o+=small(520,500,false)+small(640,500,true)+small(740,500,false);
-  o+=T(440,560,"where its layer fossilises, some stay and some go",{px:12,c:"#5f605c"}); o+=T(440,578,"— it may remain, or not",{px:12,c:"#5f605c"});
+  // right: the view itself — a render of the headset's screen (assets/pv), and why it is bare
+  o+=T(440,26,"THE SCREEN ITSELF · 화면 그대로",{px:11,neo:1,c:"#3c3d3a"});
+  o+=`<image href="assets/pv/live.jpg" x="440" y="40" width="360" height="202" preserveAspectRatio="xMidYMid slice"/>`+R(440,40,360,202,{s:"#0b0b0b"});
+  o+=T(440,262,"the life, as the visitor sees it: a few points, the ground, the dark —",{px:12}); o+=T(440,280,"and the words of what just happened",{px:12});
+  o+=`<image href="assets/pv/end.jpg" x="440" y="304" width="360" height="202" preserveAspectRatio="xMidYMid slice"/>`+R(440,304,360,202,{s:"#0b0b0b"});
+  o+=T(440,526,"the end: a specimen card — the record remains; it may be read, or not",{px:12});
   return SV(820,600,o);}
 const INTER={
  1:{tag:"NOTES · ① THE VOTE",q:"We are in the Anthropocene, irrespective of a line on the time scale.",by:"Francine McCarthy (Brock University, lead of the Crawford Lake research), as reported by The New York Times, 5 March 2024",fig:figCrawford,cap:"Left: the varved core of Crawford Lake, Ontario — one couplet a year; the dark band is the 1952 plutonium peak proposed as the golden spike. Right: what a spike must satisfy, and the vote of the Subcommission on Quaternary Stratigraphy.",
@@ -894,12 +911,15 @@ const INTER={
    src:[["helbing1997","Helbing et al. 1997","the evolution of human trail systems"],["cole1995","Cole 1995","experimental trampling: steep loss, slow return"],["pescott2014","Pescott & Stewart 2014","meta-analysis of trampling and recovery"],["polya1923","Eggenberger & Pólya 1923","the urn: what is there raises its own odds"]]},
  6:{tag:"NOTES · ⑤ HYPEROBJECTS",q:"Things that are massively distributed in time and space relative to humans.",by:"Timothy Morton, Hyperobjects (2013), p. 1 — the definition",fig:figHyper,cap:"Morton's five traits with the work's device under each, and the clarification: the whole is not refused. The visitor holds a partial state and the whole, and moves between them.",
    src:[["morton2013","Morton 2013","Hyperobjects: philosophy and ecology after the end of the world"],["haff2014","Haff 2014","the technosphere as a geological phenomenon"],["tsing2015","Tsing 2015","life in ruins: noticing at the scale of a life"],["zalasiewicz2017","Zalasiewicz et al. 2017","the technosphere's scale and diversity"]]},
- 8:{tag:"NOTES · ⑥′ A LIFE, PLAINLY",para:1,q:"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다. — Oh. Stopping living has failed. Life goes on.",by:"the work's own screen, when the attempt to stop living fails (apps/web · lib/parliament/script.ts)",fig:figLife,cap:"Left: what the headset says — the consent with one answer, the log in the words of a day (the grass lies down; a house goes up), the attempt that fails, the end that keeps the record. Right: what an answer leaves — a seed head whose powder the wind carries; where its layer fossilises some stay and some go.",
+ 7:{tag:"NOTES · ⑥ A LIFE, PLAINLY",para:1,q:"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다. — Oh. Stopping living has failed. Life goes on.",by:"the work's own screen, when the attempt to stop living fails (apps/web · lib/parliament/script.ts)",fig:figLife,cap:"Left: what the headset says — the consent with one answer, the log in the words of a day (the grass lies down; a house goes up), the attempt that fails, the end that keeps the record. Right: what an answer leaves — a seed head whose powder the wind carries; where its layer fossilises some stay and some go.",
    note:"<b>Why plain words, why bare.</b> The algorithm is never shown as a score: the log says what happened, in the language of a day, so the rule is felt before it is understood. The screen is bare on purpose — a few points, the dark — so the eyes rest and the ears do the work. <b>Why the attempt can fail.</b> A life not fully chosen (born without being asked, unable to end it at will) whose acts still enter the whole: agency is not had once, it is tended, act by act.",
    src:[["arendt1958","Arendt 1958","natality: to be born is to be able to begin; to act is to set something in motion"],["schiffer1987","Schiffer 1987","the record's voice: formation processes, not judgement"],["helbing1997","Helbing et al. 1997","small acts that add up without anyone deciding"],["huizinga1938","Huizinga 1938","the player: a life inside rules it did not choose"]]},
- 7:{tag:"NOTES · ⑥ SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
+ 8:{tag:"NOTES · ⑥′ SOUND",q:"Overlap without occlusion — that is the form of coexistence this work needed.",by:"from the presentation",fig:figSound,cap:"One event log heard at two scales. On the headset: signals → the place's chord and lock → the name's motif → the sequencer → the Web Audio engine (HRTF, rooms). On the speakers: every motif two octaves down into one mass. NoiseCraft is wired as the artist's patch; Magenta is wired but off.",
    src:[["webaudio","Web Audio API · W3C 2021","the engine: oscillators, panners, convolution, in the page"],["noisecraft","NoiseCraft · Chevalier-Boisvert","the browser patcher that plays the harmony on the engine's clock"],["musicvae","Roberts et al. 2018 · MusicVAE","latent interpolation between two phrases (wired, off)"],["hrtf","HRTF · PannerNode","others placed around the head by bearing and distance"]]},
- 9:{tag:"NOTES · ⑦ WHAT REMAINS",q:"Facing a phenomenon that my actions clearly enter, but that I could never alter alone — what frame of mind should a single person use to decide how to act?",by:"from the presentation",fig:figInherit,cap:"Left: the inheritance rule — a Pólya urn over what still remains, so the mix drifts toward the durable without anyone deciding. Below: the specimen card that closes a life (sample values). Right: the question the work hands over.",
+ 9:{tag:"NOTES · ⑥″ WHAT A NAME LEAVES",para:1,q:"개체 5527이 남긴 말 발견 — a word left by individual 5527, found.",by:"the work's own log, when the next one who passes finds a seed head's word (script.ts foundRow)",fig:figSeed,cap:"A call, an answer, a new word — the glyph that mixes two melodies — and on the wall a seed head where it happened: the wind carries its powder to a few places; the next one who passes finds the word; where the layer fossilises some heads stay and some go.",
+   note:"<b>Why a seed.</b> The one trace a visitor leaves on purpose is an answer — and even that is not kept by them: it stands where it happened, scatters, and is found or lost by others. Communication by name is how a partial life reaches the whole; what remains of it is decided by the record, not the speaker.",
+   src:[["schiffer1987","Schiffer 1987","formation processes: what a record keeps is not what was meant"],["taphonomy","Behrensmeyer 1978 · Kidwell & Jablonski","what survives to be read is biased toward the durable"],["morton2013","Morton 2013","interobjectivity: one event, read by others, later"],["helbing1997","Helbing et al. 1997","small acts that add up without anyone deciding"]]},
+ 10:{tag:"NOTES · ⑦ WHAT REMAINS",q:"Facing a phenomenon that my actions clearly enter, but that I could never alter alone — what frame of mind should a single person use to decide how to act?",by:"from the presentation",fig:figInherit,cap:"Left: the inheritance rule — a Pólya urn over what still remains, so the mix drifts toward the durable without anyone deciding. Below: the specimen card that closes a life (sample values). Right: the question the work hands over.",
    src:[["schiffer1987","Schiffer 1987","formation processes of the archaeological record"],["laland2003","Odling-Smee, Laland & Feldman 2003","ecological inheritance: inheriting a modified world"],["pauly1995","Pauly 1995","shifting baselines: each generation starts from an altered state"],["arthur1989","Arthur 1989","increasing returns and lock-in by small early events"]]},
 };
 const interEl=$("#inter"); let inter=false;
@@ -913,24 +933,22 @@ function hideInter(){ if(!inter)return; inter=false; interEl.style.display="none
 function next(){ if(!inter&&INTER[step]&&!q.has("nointer")&&!PHONE){showInter();return;} hideInter(); go(step+1); }
 function back(){ if(inter){hideInter();return;} go(step-1); }
 
-/* ---------- a phone: the deck as cards ---------- */
+/* ---------- a phone: one screen per section ---------- */
 const PHONE_MQ="(max-width:519px), (max-width:759px) and (pointer:coarse)"; // the stylesheet's own query, so CSS and script agree
 const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
-{const ol=$("#mslides"), cards=[];
+{const wrap=$("#mpages"), cards=[];
   const notesOf=i=>{const d=INTER[i]; if(!d)return ""; let fig=""; try{fig=toDark(d.fig());}catch(err){}
-    return `<div class="notes"><div class="q">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div>${d.note?`<div class="note">${d.note}</div>`:""}<h5>SOURCES · 출처</h5><div class="src">${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}">OPEN ↗</a></div>`).join("")}</div></div>`;};
-  for(let i=1;i<STEPS;i++){const li=document.createElement("li"); li.dataset.step=String(i); li.innerHTML=`<span class="k">${SEC[i][1].slice(0,2)} · ${SEC[i][0].toUpperCase()}</span><b>${KEY[i][0]}</b><small>${KEY[i][1]}</small>`+notesOf(i)+(REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""); ol.appendChild(li); cards[i]=li;}
+    return `<div class="notes"><div class="tag">${d.tag}</div><div class="q">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div>${d.note?`<div class="note">${d.note}</div>`:""}<h5>SOURCES · 출처</h5><div class="src">${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}">OPEN ↗</a></div>`).join("")}</div></div>`;};
+  for(let i=1;i<STEPS;i++){ const sec=document.createElement("section"); sec.className="pg"; sec.dataset.step=String(i);
+    sec.innerHTML=`<div class="ph">${SEC[i][1].slice(0,2)} · ${SEC[i][0].toUpperCase()}</div><canvas class="pcv" aria-label="${SEC[i][0]}"></canvas><div class="pt"><b>${KEY[i][0]}</b><small>${KEY[i][1]}</small>${i===8?'<div class="lbtns"></div>':""}${REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""}${INTER[i]?`<a class="nl" href="#mn${i}">NOTES ↓</a>`:""}</div>`;
+    wrap.appendChild(sec); cards[i]=sec;
+    if(INTER[i]){ const n=document.createElement("section"); n.className="pg pg-notes"; n.id=`mn${i}`; n.dataset.step=String(i); n.dataset.notes="1"; n.innerHTML=notesOf(i); wrap.appendChild(n); } }
   window.__cards=cards;
-  // scrolling drives the deck: the section mostly in view is the one the pinned picture plays
-  // scrolling drives the deck: a probe line a little under the pinned picture — the card it falls in is the section the
-  // picture plays (one change per card edge, never a flicker at a band's edges); the picture crossfades between sections
-  const probe=()=>{ if(!PHONE)return; const hero=$("#mobile .hero"), hb=hero.getBoundingClientRect().bottom, vh=document.documentElement.clientHeight||innerHeight, py=hb+Math.max(50,(vh-hb)*0.3);
-    const els=[$("#mobile .n")].concat(cards.filter(Boolean)); let pick=null; for(const el of els){ const r=el.getBoundingClientRect(); if(r.top<=py&&r.bottom>py){pick=el;break;} }
-    if(!pick&&window.scrollY<80)pick=$("#mobile .n"); if(!pick)return; const i=+(pick.dataset.step||0); if(i!==step){hideInter(); go(i);} };
+  setTimeout(()=>{const lb=$("#mpages .lbtns"); if(lb){soundButtons(lb); const o=document.createElement("div"); o.className="o"; lb.appendChild(o);}},0); // after the engine block below has run
+  // scrolling turns the page: the screen under two fifths of the viewport is the section; a notes screen keeps its section
+  const probe=()=>{ if(!PHONE)return; const vh=document.documentElement.clientHeight||innerHeight; const el=document.elementFromPoint(Math.round(innerWidth/2),Math.round(vh*0.4)); const pg=el&&el.closest?el.closest(".pg"):null; if(!pg)return; const i=+(pg.dataset.step||0); if(i!==step){hideInter(); go(i);} };
   let probeQ=false; addEventListener("scroll",()=>{ if(probeQ)return; probeQ=true; requestAnimationFrame(()=>{probeQ=false; probe();}); },{passive:true}); setTimeout(probe,400);
-  $("#mobile .hero .dots").innerHTML=Array.from({length:STEPS},()=>"<i></i>").join("");
-  // THE PHONE'S HOME (the artist, 11/04 night: not the web's screenshot — one composition for the phone): the paper's
-  // eroded edge, the column's top melting up into it as cells, the column itself, and the title as on the poster
+  // THE PHONE'S HOME: the paper's eroded edge, the column's top melting up into it as cells, the column, the title as on the poster
   const mh=$("#mhome"); let mhLast=0, mhSm=null;
   window.__drawMobileHome=(nowMs)=>{ if(!PHONE||!mh)return; const rc=mh.getBoundingClientRect(), vh=document.documentElement.clientHeight||innerHeight; if(rc.bottom<0||rc.top>vh)return; if(nowMs-mhLast<100)return; mhLast=nowMs;
     const MW=1080, MH=1240, c=mh.getContext("2d"), g=nowMs/1000, t=Math.floor(g/0.5), C=12, y0=96;
@@ -938,18 +956,15 @@ const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
     const im=$("#fallback img"), ok=im&&im.complete&&im.naturalWidth>0;
     if(ok){ const sw=MW*1.3, sh=im.naturalHeight*sw/im.naturalWidth, sx=(MW-sw)/2, sy=y0-sh*0.05;
       c.save(); c.beginPath(); c.rect(0,y0+C,MW,MH-y0); c.clip(); c.drawImage(im,sx,sy,sw,sh); c.restore();
-      // the top members rise into the paper as grey cells that thin out upward (sampled where the structure stands)
       if(!mhSm){mhSm=document.createElement("canvas"); mhSm.width=Math.ceil(MW/C); mhSm.height=12;}
       const sc=mhSm.getContext("2d"); sc.fillStyle="#000"; sc.fillRect(0,0,mhSm.width,mhSm.height); sc.drawImage(im,sx/C,(sy-y0)/C,sw/C,sh/C);
       const d=sc.getImageData(0,0,mhSm.width,mhSm.height).data, cols=mhSm.width;
-      for(let r=0;r<12;r++){ const yy=y0+r*C, rr=r<4?r+2:r;   // the rows above the paper's edge mirror the rows just below it
+      for(let r=0;r<12;r++){ const rr=r<4?r+2:r;
         for(let x=0;x<cols;x++){ const i=(Math.min(11,rr)*cols+x)*4, lum=(d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11)/255; if(lum<0.1)continue;
           const above=8-r; if(above>0){ const p=0.85*Math.pow(Math.max(0,1-above/8),1.6); if((hash(x*13+above,7)<p)===(hash(x*17+above,t)<0.06))continue; const k=Math.round(70+lum*110); c.fillStyle=`rgb(${k},${k},${k})`; c.fillRect(x*C,y0-above*C,C,C);} } } }
-    // the eroded edge between the paper and the ground
     for(let x=0;x<MW/C;x++)for(let r=0;r<3;r++){ const dn=[0.42,0.17,0.06][r], up=[0.3,0.09,0][r];
       if((hash(x*3+r,11)<dn)!==(hash(x*7+r,t)<0.04)){c.fillStyle="#fff"; c.fillRect(x*C,y0+r*C,C,C);}
       if(up>0&&(hash(x*5+r,29)<up)!==(hash(x*11+r,t+1)<0.04)){c.fillStyle="#000"; c.fillRect(x*C,y0-(r+1)*C,C,C);} }
-    // the title as on the poster, bottom-right: slices shifted and cells chipped out, eight times a second
     const S="발견된 인류", px=150, x=MW-36, y=MH-150; c.font=`900 ${px}px PreBlack, Pretendard`; c.textAlign="right"; c.textBaseline="alphabetic";
     const w=c.measureText(S).width, top=y-px*0.92, h=px*1.08; c.fillStyle="#fff"; c.fillText(S,x,y);
     const seed=Math.floor(g/0.12);
@@ -959,21 +974,28 @@ const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
     c.font=`italic 400 44px Garamond, Baskerville, "Times New Roman", serif`; c.letterSpacing="10px"; c.fillStyle="#fff"; c.fillText("Homo inventus",x+4,y+56); c.letterSpacing="0px"; };
 }
 
-/* ---------- the headset's engine, in the deck (the sound slide): L = the next situation, M = stop ---------- */
+/* ---------- the headset's engine, in the deck: buttons on the sound slide (and the phone's sound page) ---------- */
+const SD_KINDS=["name","walk","path","stay","concrete","grass","places"];
+const SD_EN={name:"A NAME",walk:"OPEN GROUND",path:"A PATH",stay:"STAYING BESIDE SOMEONE",concrete:"CONCRETE",grass:"GRASS",places:"FROM ONE GATHERING TO THE NEXT"};
 const SD_KO={name:"이름 받기",walk:"걷기 · 열린 땅",path:"길 위 · 베이스",stay:"곁에 머묾 · lock → 화음 · 집",concrete:"콘크리트 곁 · 먹먹함",grass:"식생 · 노이즈",places:"자리마다 조성 · A → 열린 땅 → B"};
-let sdKind=-1, sdLoading=null;
+let sdLoading=null;
 function soundLib(){ if(window.HomoSound)return Promise.resolve(window.HomoSound); if(sdLoading)return sdLoading;
   sdLoading=new Promise((ok,no)=>{const sc=document.createElement("script"); sc.src="assets/sound-demo.js"; sc.onload=()=>ok(window.HomoSound); sc.onerror=()=>no(new Error("the engine did not load")); document.head.appendChild(sc);}); return sdLoading; }
-function soundDemoNext(){ if(step!==7)return; soundLib().then(H=>{ sdKind=(sdKind+1)%H.KINDS.length; H.setMaster(0.5); return H.play(H.KINDS[sdKind]); }).catch(()=>{}); }
-function soundDemoStop(){ if(window.HomoSound)window.HomoSound.stop(); sdKind=-1; }
-function soundDemoLine(){ const el=$("#sdemo"); if(step!==7){ if(el.style.display!=="none"){el.style.display="none"; if(sdKind>=0)soundDemoStop();} return; } el.style.display="block";
-  const H=window.HomoSound, st=H?H.state():null;
-  if(!st||!st.kind){ el.innerHTML="<b>L</b> · LISTEN — THE HEADSET'S ENGINE, HERE: A NAME · OPEN GROUND · A PATH · STAYING BESIDE SOMEONE · CONCRETE · GRASS · FROM ONE GATHERING TO THE NEXT (EACH ITS KEY) &nbsp; <b>M</b> · STOP"; return; }
-  const d=st.debug||{}; el.innerHTML=`<b>▶ ${SD_KO[st.kind]||st.kind}</b> · ${st.t.toFixed(0)} s · bar ${d.bar??"–"} · ${d.chord||"–"} · lock ${d.lock!=null?(+d.lock).toFixed(2):"–"}${d.answer?" · answer":""} &nbsp; <b>L</b> · NEXT &nbsp; <b>M</b> · STOP`; }
+function soundDemoPlay(k){ soundLib().then(H=>{ H.setMaster(0.5); return H.play(k); }).catch(()=>{}); }
+function soundDemoStop(){ if(window.HomoSound)window.HomoSound.stop(); }
+function soundButtons(root){ root.innerHTML=SD_KINDS.map(k=>`<button type="button" data-k="${k}">▶ ${SD_EN[k]}</button>`).join("")+`<button type="button" data-k="">■ STOP</button>`;
+  root.querySelectorAll("button").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation(); const k=b.dataset.k; if(k)soundDemoPlay(k); else soundDemoStop();})); }
+soundButtons($("#listen8 .b"));
+function soundDemoLine(){ const el=$("#listen8"); const onSlide=step===8; el.style.display=onSlide?"block":"none";
+  const H=window.HomoSound, st=H?H.state():null, kind=st&&st.kind||"";
+  if(!onSlide&&kind&&!PHONE)soundDemoStop();
+  let line; if(!kind)line="press a situation · headphones help — others are placed around the head"; else{const d=st.debug||{}; line=`▶ ${SD_KO[kind]||kind} · ${st.t.toFixed(0)} s · bar ${d.bar??"–"} · ${d.chord||"–"} · lock ${d.lock!=null?(+d.lock).toFixed(2):"–"}${d.answer?" · answer":""}`;}
+  for(const root of document.querySelectorAll("#listen8, .lbtns")){ root.querySelectorAll("button").forEach(b=>b.classList.toggle("on",!!kind&&b.dataset.k===kind)); const o=root.querySelector(".o"); if(o&&o.textContent!==line)o.textContent=line; } }
 
 /* ---------- control ---------- */
+
 function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; if(PHONE)phoneFadeFrom(); prev=step; step=n; stepAt=now; const cs=window.__cards||[]; cs.forEach((li,i)=>{if(li)li.classList.toggle("on",i===n);});
-  const cap=$("#mobile .hero .cap .l"); if(cap)cap.textContent=n===0?"HOME · THE WALL'S COLUMN":`${SEC[n][1].slice(0,2)} · ${SEC[n][0].toUpperCase()}`; $$("#mobile .hero .dots i").forEach((d,i)=>d.classList.toggle("on",i===n));}
+}
 /* THE PHONE'S PICTURE (the artist, 11/04 night: no panning — split the diagram by its parts and lay them out to fit):
    each slide's panels (stage rects) re-laid for a portrait window — stacked, two side by side when both are narrow —
    scaled to fit, drawn from the deck's own canvas each frame; a crossfade carries one section into the next. The slide's
@@ -986,8 +1008,9 @@ const PANELS=[
   [[150,150,940,700],[1150,150,640,700]],                         // ③: the ground from above; the section
   [[150,150,840,730],[1060,160,770,540]],                         // ④: the four rules; the wall's strata
   [[140,160,1640,90],[230,280,560,640],[1110,280,560,640]],       // ⑤: the timeline; the whole; the inside
-  [[150,140,880,600],[1130,140,690,750]],                         // ⑥: one person's harmony; the wall's cell
-  [[160,170,760,580],[1010,160,810,740]],                         // ⑥′: what the headset says; the seed head
+  [[150,140,840,640],[1040,140,780,700]],                         // ⑥: the screen itself; its words
+  [[150,140,880,600],[1130,140,690,750]],                         // ⑥′: one person's harmony; the wall's cell
+  [[150,140,820,560],[1010,140,810,720]],                         // ⑥″: a call, an answer, a word; the wall's seed heads
   [[150,160,1020,520],[150,710,1080,300]]];                       // ⑦: the specimen card; the record's lines
 function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=[];
   for(let i=0;i<ps.length;i++){ const a=ps[i], b=ps[i+1]; if(b&&a[2]<=760&&b[2]<=760&&a[3]>=300&&b[3]>=300){rows.push([a,b]); i++;} else rows.push([a]); }
@@ -996,7 +1019,7 @@ function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap
   const total=y-gap, f=Math.min(1,hh/total), oy=Math.max(0,(hh-total*f)/2), ox=(hw-hw*f)/2;
   return laid.map(l=>({q:l.q,dx:ox+l.dx*f,dy:oy+l.dy*f,dw:l.dw*f,dh:l.dh*f})); }
 let pPrev=null, pFadeT0=0;
-function phoneComposite(nowMs){ const hero=$("#mobile .hero"), pc=$("#phero"); if(!pc)return; const hw=hero.clientWidth||innerWidth, hh=hero.clientHeight||hw, dpr=Math.min(2,devicePixelRatio||1);
+function phoneComposite(nowMs){ const pc=document.querySelector(`#mpages .pg[data-step="${step}"]:not([data-notes]) .pcv`); if(!pc)return; const hw=pc.clientWidth||innerWidth, hh=pc.clientHeight||hw, dpr=Math.min(2,devicePixelRatio||1);
   const pw=Math.round(hw*dpr), ph=Math.round(hh*dpr); if(pc.width!==pw||pc.height!==ph){pc.width=pw; pc.height=ph; pc.style.width=hw+"px"; pc.style.height=hh+"px";}
   const c=pc.getContext("2d"); c.setTransform(dpr,0,0,dpr,0,0); c.imageSmoothingEnabled=true; c.imageSmoothingQuality="high";
   const a=pPrev?clamp((nowMs-pFadeT0)/700):1, e=ease(a);
@@ -1005,11 +1028,10 @@ function phoneComposite(nowMs){ const hero=$("#mobile .hero"), pc=$("#phero"); i
   c.globalAlpha=pPrev?e:1; for(const l of phoneLayout(step,hw,hh)){ const [sx,sy,sw,sh]=l.q; c.drawImage(cv,sx,sy,sw,sh,l.dx,l.dy,l.dw,l.dh); }
   c.globalAlpha=1; if(a>=1)pPrev=null; }
 /** Before a section changes on the phone: keep the picture as it is, to fade it out under the next. */
-function phoneFadeFrom(){ const pc=$("#phero"); if(!pc||!pc.width)return; const o=document.createElement("canvas"); o.width=pc.width; o.height=pc.height; o.getContext("2d").drawImage(pc,0,0); pPrev=o; pFadeT0=performance.now(); }
-function fit(){PHONE=isPhone(); const hero=$("#mobile .hero");
-  if(PHONE&&matchMedia("(orientation: portrait)").matches){ // a phone upright: the deck draws off-screen; its panels are re-laid into the pinned picture
-    stage.style.left="-4000px"; stage.style.transform="none"; const hw=hero.clientWidth||innerWidth, vh=document.documentElement.clientHeight||innerHeight; hero.style.height=`${Math.round(Math.min(hw*1.3,vh*0.62))}px`; return;}
-  if(stage.style.left){stage.style.left=""; hero.style.height="";}
+function phoneFadeFrom(){ const pc=document.querySelector(`#mpages .pg[data-step="${step}"]:not([data-notes]) .pcv`); if(!pc||!pc.width)return; const o=document.createElement("canvas"); o.width=pc.width; o.height=pc.height; o.getContext("2d").drawImage(pc,0,0); pPrev=o; pFadeT0=performance.now(); }
+function fit(){PHONE=isPhone();
+  if(PHONE&&matchMedia("(orientation: portrait)").matches){ stage.style.left="-4000px"; stage.style.transform="none"; return;} // a phone upright: the deck draws off-screen; each screen has its own picture
+  if(stage.style.left){stage.style.left="";}
   const s=Math.min(innerWidth/W,innerHeight/H); stage.style.transform=`translate(${((innerWidth-W*s)/2).toFixed(1)}px,${((innerHeight-H*s)/2).toFixed(1)}px) scale(${s.toFixed(4)})`;}
 addEventListener("resize",fit); try{matchMedia(PHONE_MQ).addEventListener("change",fit); matchMedia("(orientation: portrait)").addEventListener("change",fit);}catch(err){} fit();
 let frozen=q.has("still"), auto=q.has("auto");
@@ -1029,7 +1051,6 @@ addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}
   else if(e.key==="h") $("#hud").style.opacity=$("#hud").style.opacity==="1"?"0":"1";
   else if(e.key==="v"||e.key==="V") live4Next();
-  else if(e.key==="l"||e.key==="L") soundDemoNext();
   else if(e.key==="m"||e.key==="M") soundDemoStop();
 },true);
 // input — pointerdown in the capture phase, so nothing under the pointer (the reference links, a video, an iframe that
@@ -1039,9 +1060,9 @@ const dbgLines=[]; function dbg(t){ if(!dbgOn)return; dbgLines.push(`${(performa
 let lastPtr=-1e9;
 function advanceAt(x){ if(step===0)return; if(x>innerWidth*0.2)next();else back(); }   // the home is a page, not the deck: it starts from the START line or the keys
 addEventListener("pointerdown",e=>{ if(e.pointerType==="mouse"&&e.button!==0)return; if(PHONE)return; lastPtr=performance.now(); try{window.focus();}catch(err){}
-  const tg=e.target&&e.target.closest?e.target:null; if(tg&&tg.closest("#h-title,#h-homo")){hideInter(); go(0); dbg("home"); return;} if(tg&&tg.closest("a"))return;
+  const tg=e.target&&e.target.closest?e.target:null; if(tg&&tg.closest("#h-title,#h-homo")){hideInter(); go(0); dbg("home"); return;} if(tg&&tg.closest("a,button,input,label"))return;
   advanceAt(e.clientX); dbg(`pointerdown ${e.pointerType} on ${e.target&&e.target.tagName}#${e.target&&e.target.id} → step ${step}`); },true);
-addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (after pointerdown, ignored)");return;} if(e.target&&e.target.closest&&e.target.closest("a,#h-title,#h-homo"))return;
+addEventListener("click",e=>{ if(performance.now()-lastPtr<1000){dbg("click (after pointerdown, ignored)");return;} if(e.target&&e.target.closest&&e.target.closest("a,button,input,label,#h-title,#h-homo"))return;
   if(PHONE){ if(!(e.target&&e.target.closest&&e.target.closest("#stage")))return; }
   advanceAt(e.clientX); dbg(`click without pointerdown on ${e.target&&e.target.tagName} → step ${step}`); },true);
 addEventListener("touchend",e=>{ if(performance.now()-lastPtr<1000)return; const t=e.changedTouches&&e.changedTouches[0]; if(t){lastPtr=performance.now();advanceAt(t.clientX);dbg(`touchend → step ${step}`);} },true);
