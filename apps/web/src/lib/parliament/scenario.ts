@@ -129,7 +129,7 @@ const ALL: Scenario = {
     if (sec >= T_LEAVE) { const p = allPos(i, T_LEAVE); const [x, z] = walk([p.x, p.z], far(i), T_LEAVE, T_GONE - T_LEAVE, sec); return { x, z }; }
     return allPos(i, sec);
   },
-  rate: (sec) => (sec < T_GONE ? 3 : sec < 260 ? 6 : 20),
+  rate: (sec) => (sec < T_GONE ? 5 : sec < 260 ? 10 : 20), // a one-minute shot: it must fit the talk's ④
   cam(sec) {
     // [sec, dist, polar, lift, lookX, lookZ]: close on the first slab, out to the three places, then (the clock ×20)
     // back and down to the strata beneath

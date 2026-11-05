@@ -23,5 +23,6 @@ for (const s of secs.split(",").map(Number)) plan.push({ at: s, shot: true });
 plan.sort((a, b) => a.at - b.at);
 for (const step of plan) { const dt = t0 + step.at * 1000 - Date.now(); if (dt > 0) await sleep(dt);
   if (step.shot) { fs.writeFileSync(`${out}_${step.at}.png`, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64")); console.log(`${out}_${step.at}.png`); continue; }
+  if (step.key === "CLICK") { const m = { x: +W / 2, y: +H / 2, button: "left", clickCount: 1 }; await send("Input.dispatchMouseEvent", { type: "mousePressed", ...m }); await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...m }); console.log(`click at ${step.at}s`); continue; } // KEYS="40:CLICK" locks the look
   await keyEv("keyDown", step.key); if (step.hold > 0) await sleep(step.hold * 1000); else await sleep(60); await keyEv("keyUp", step.key); console.log(`key ${step.key}${step.hold ? ` held ${step.hold}s` : ""} at ${step.at}s`); }
 ws.close(); chrome.kill();
