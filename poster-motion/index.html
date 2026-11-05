@@ -278,7 +278,7 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=10, HOLD=[27,44,56,37,43,31,43,44,28,59], PACE=[1,1,0.9,1,1,1,1,1,0.85,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05); ②③ does that per beat, turning at T23
+const STEPS=10, HOLD=[27,44,56,37,43,31,43,44,28,59], PACE=[1,1,0.9,1,1,1,1,1,0.85,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","① 인류세와 부결"],
   ["An epoch is interpreted spacetime","①′ 해석된 시공간 · 제목"],
@@ -489,10 +489,10 @@ function s2(u){
 }
 
 /* ---------- ②③ one screen: the trace fossil, then humanity's (the talk turns at 22 s) ---------- */
-let T23=20; // the turn from one life's trace to the city, on the script's sentence; a phone has no talk to wait for
+const T23=5.2; // the turn from one life's trace to the city: the whole screen is done within 10 s, like every other (the artist, 11/05)
 function s23(u,g){ const f=on(u,T23-0.6,1.2);
-  if(f<1){ctx.save(); ctx.globalAlpha=1-f; s2(u*1.1); ctx.restore();}
-  if(f>0){ctx.save(); ctx.globalAlpha=f; s3(Math.max(0,u-T23)*2); ctx.restore();} }
+  if(f<1){ctx.save(); ctx.globalAlpha=1-f; s2(u*2.2); ctx.restore();}
+  if(f>0){ctx.save(); ctx.globalAlpha=f; {const x=Math.max(0,u-T23); s3(x<4.7?x*2.6:12.22+(x-4.7));} ctx.restore();} }
 
 /* ---------- ③ living together: top view and section ---------- */
 function s3(u){
@@ -742,7 +742,7 @@ const DRAW=[s0,s1,s1b,s23,s4,s5,s6a,s6,s6c,s7];
 
 /* ---------- render ---------- */
 function animU(s,u){return u/PACE[s];}
-const keyAt=s=>s===3?T23+5:9; // key sentence and references: at the end of the motion, so a screen is whole by 10 s
+const keyAt=()=>9; // key sentence and references: at the end of the motion, so a screen is whole by 10 s
 function render(){
   const u=U(), g=now/1000;
   ctx.clearRect(0,0,W,H);
@@ -885,7 +885,7 @@ function phoneComposite(nowMs){ const pc=document.querySelector(`#mpages .pg[dat
   c.globalAlpha=1; if(a>=1)pPrev=null; }
 /** Before a section changes on the phone: keep the picture as it is, to fade it out under the next. */
 function phoneFadeFrom(){ const pc=document.querySelector(`#mpages .pg[data-step="${step}"]:not([data-notes]) .pcv`); if(!pc||!pc.width)return; const o=document.createElement("canvas"); o.width=pc.width; o.height=pc.height; o.getContext("2d").drawImage(pc,0,0); pPrev=o; pFadeT0=performance.now(); }
-function fit(){PHONE=isPhone(); T23=PHONE?10:20;
+function fit(){PHONE=isPhone();
   if(PHONE&&matchMedia("(orientation: portrait)").matches){ stage.style.left="-4000px"; stage.style.transform="none"; return;} // a phone upright: the deck draws off-screen; each screen has its own picture
   if(stage.style.left){stage.style.left="";}
   const s=Math.min(innerWidth/W,innerHeight/H); stage.style.transform=`translate(${((innerWidth-W*s)/2).toFixed(1)}px,${((innerHeight-H*s)/2).toFixed(1)}px) scale(${s.toFixed(4)})`;}
