@@ -278,7 +278,7 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=10, HOLD=[27,44,56,37,43,31,43,44,28,59], PACE=[1,3,3.4,1,1,2,3,3,2,2]; // HOLD: the script's seconds. PACE: a slide's motion stretched to its talk // the talk's timing (script, 7 min); a slide's drawing is done by ~12 s
+const STEPS=10, HOLD=[27,44,56,37,43,31,43,44,28,59], PACE=[1,1,1,1,1,1,2.3,2.9,1.3,3.6]; // HOLD: the script's seconds. PACE (or WARP): a slide's motion in talk time, in the script's order, done by about half of its section (the artist, 11/05) // the talk's timing (script, 7 min); a slide's drawing is done by ~12 s
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","① 인류세와 부결"],
   ["An epoch is interpreted spacetime","①′ 해석된 시공간 · 제목"],
@@ -489,10 +489,10 @@ function s2(u){
 }
 
 /* ---------- ②③ one screen: the trace fossil, then humanity's (the talk turns at 22 s) ---------- */
-const T23=22;
+const T23=20;
 function s23(u,g){ const f=on(u,T23-0.6,1.2);
-  if(f<1){ctx.save(); ctx.globalAlpha=1-f; s2(u/1.4); ctx.restore();}
-  if(f>0){ctx.save(); ctx.globalAlpha=f; s3(Math.max(0,u-T23)); ctx.restore();} }
+  if(f<1){ctx.save(); ctx.globalAlpha=1-f; s2(u); ctx.restore();}
+  if(f>0){ctx.save(); ctx.globalAlpha=f; s3(Math.max(0,u-T23)*1.5); ctx.restore();} }
 
 /* ---------- ③ living together: top view and section ---------- */
 function s3(u){
@@ -534,9 +534,11 @@ function s3(u){
 /* ---------- ④ no build button: four rules, and the strata ---------- */
 function panel(x,y,w,h,en,ko,a){box(x,y,w,h,FAINT,a); txt(en,x,y-14,{px:16,w:700,a}); txt(ko,x+w,y-14,{px:12,col:DIM,a,al:"right"});}
 function s4(u){
-  const P=[[160,190],[590,190],[160,560],[590,560]], pw=380, ph=300; const ul=u%11;
+  const P=[[160,190],[590,190],[160,560],[590,560]], pw=380, ph=300;
+  // each rule plays once on its own clock, ×1.6, so all four and the wall are done by half of the section (21.5 s)
+  const R4=1.6, clock=t0=>Math.max(0,u-t0)*R4;
   // a) stay → slab
-  {const [x,y]=P[0], a=on(u,0.2); panel(x,y,pw,ph,"Stay — a slab rises","머물면 — 콘크리트가 선다",a);
+  {const [x,y]=P[0], a=on(u,0.2), ul=clock(0.2); panel(x,y,pw,ph,"Stay — a slab rises","머물면 — 콘크리트가 선다",a);
     const c=[x+pw/2,y+150]; const gat=on(ul,0.4,1.6), meter=lin(ul,1.8,2.6), slab=on(ul,4.6,0.5), rise=Math.floor(lin(ul,5.6,4)*3);
     fill(c[0]-40-rise*6,c[1]-40-rise*6,80+rise*12,80+rise*12,"#2e2f2c",slab*a); box(c[0]-40-rise*6,c[1]-40-rise*6,80+rise*12,80+rise*12,WHITE,slab*a);
     for(let i=0;i<4;i++){const an=hash(i,4)*6.28; const far=[c[0]+Math.cos(an)*150,c[1]+Math.sin(an)*110], near=[c[0]+Math.cos(an+u*0.6)*18,c[1]+Math.sin(an+u*0.6)*14];
@@ -545,8 +547,8 @@ function s4(u){
     txt("threshold",x+pw-16,y+ph-32,{px:12,fam:"Neo",col:DIM,a:a*on(ul,4.4),al:"right",ls:1.2});
     txt("dense in spacetime, not only at one moment · no one builds alone",x,y+ph+22,{px:13,col:DIM,a});}
   // b) walk → path
-  {const [x,y]=P[1], a=on(u,0.5); panel(x,y,pw,ph,"Walk — a path hardens","걸으면 — 길이 다져진다",a);
-    const y0=y+150, xa=x+50, xb=x+pw-50; const passes=Math.floor(ul/1.1);
+  {const [x,y]=P[1], a=on(u,5,0.8), ul=clock(5); panel(x,y,pw,ph,"Walk — a path hardens","걸으면 — 길이 다져진다",a);
+    const y0=y+150, xa=x+50, xb=x+pw-50; const passes=Math.min(8,Math.floor(ul/1.1));
     for(let i=0;i<160;i++){const gx=x+20+hash(i,1)*(pw-40), gy=y+30+hash(i,2)*(ph-60); const near=Math.abs(gy-y0)<22; const gone=near&&hash(i,3)<passes*0.18;
       if(!gone)sq(gx,gy,2,0.45*a,"#9b9c97");}
     const pa=clamp(passes*0.11); line(xa,y0+.5,xb,y0+.5,"#8a8b86",pa*a,2+10*pa); const paved=passes>=4; if(paved)line(xa,y0+.5,xb,y0+.5,"#b5b6b1",a,10);
@@ -554,19 +556,19 @@ function s4(u){
     txt(`passes ${passes} · p ${(Math.min(0.45,passes*0.08)).toFixed(2)}${paved?" ≥ 0.3 · PATH":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("only steady traffic stays a path · Helbing et al. 1997, active walker",x,y+ph+22,{px:13,col:DIM,a});}
   // c) seal → pipes
-  {const [x,y]=P[2], a=on(u,0.8); panel(x,y,pw,ph,"Seal — pipes are laid","덮으면 — 배관이 묻힌다",a);
+  {const [x,y]=P[2], a=on(u,10,0.8), ul=clock(10); panel(x,y,pw,ph,"Seal — pipes are laid","덮으면 — 배관이 묻힌다",a);
     const cs=34, cols=10, rows=6, gx=x+20, gy=y+36; for(let i=0;i<=cols;i++)line(gx+i*cs,gy,gx+i*cs,gy+rows*cs,FAINT,0.6*a); for(let j=0;j<=rows;j++)line(gx,gy+j*cs,gx+cols*cs,gy+j*cs,FAINT,0.6*a);
     const blds=[[1,1,2,2],[5,0,3,2],[2,4,2,2],[7,3,2,2]]; let sealed=0;
     blds.forEach(([bx,by,bw,bh],i)=>{const ba=on(ul,0.6+i*0.9,0.4); fill(gx+bx*cs,gy+by*cs,bw*cs,bh*cs,"#3a3b38",ba*a); box(gx+bx*cs,gy+by*cs,bw*cs,bh*cs,WHITE,ba*a); sealed+=ba*bw*bh;});
     const pav=on(ul,4.2,0.6); fill(gx+3*cs,gy+2*cs,cs*2,cs,"#6a6b66",pav*a); fill(gx+4*cs,gy+3*cs,cs,cs*1,"#6a6b66",pav*a); sealed+=pav*3;
     const share=sealed/(cols*rows);
-    for(let i=0;i<40;i++){const rx=gx+hash(i,7)*cols*cs, ry=gy+((ul*90+hash(i,8)*rows*cs)%(rows*cs)); sq(rx,ry,2,0.5*a,"#cfcfca");}
+    for(let i=0;i<40;i++){const rx=gx+hash(i,7)*cols*cs, ry=gy+((u*90+hash(i,8)*rows*cs)%(rows*cs)); sq(rx,ry,2,0.5*a,"#cfcfca");}
     const pipe=on(ul,6.0,0.8); line(gx+2*cs,gy+rows*cs+14.5,gx+cols*cs+8,gy+rows*cs+14.5,"#1c1c1d",pipe*a,9); line(gx+2*cs,gy+rows*cs+14.5,gx+cols*cs+8,gy+rows*cs+14.5,WHITE,pipe*a*0.5,1,[3,5]);
     [[2,3],[6,2],[3,6],[8,5]].forEach(([bx,by])=>line(gx+bx*cs,gy+by*cs,gx+bx*cs,gy+rows*cs+10,"#1c1c1d",pipe*a,5));
     txt(`sealed share ${(share).toFixed(2)}${pipe>0?" → runoff · sewers laid beneath":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("rain has nowhere to soak in · Schueler 1994, impervious cover",x,y+ph+22,{px:13,col:DIM,a});}
   // d) leave → grass
-  {const [x,y]=P[3], a=on(u,1.1); panel(x,y,pw,ph,"Leave — vegetation returns","떠나면 — 풀이 돌아온다",a);
+  {const [x,y]=P[3], a=on(u,15,0.8), ul=clock(15); panel(x,y,pw,ph,"Leave — vegetation returns","떠나면 — 풀이 돌아온다",a);
     const c=[x+pw/2,y+150]; const tr=lin(ul,0.3,3.6), leave=on(ul,4.2,1.0), back=lin(ul,5.6,5.0);
     for(let i=0;i<220;i++){const gx=x+20+hash(i,1)*(pw-40), gy=y+30+hash(i,2)*(ph-60); const d=Math.hypot(gx-c[0],gy-c[1]); const h=hash(i,3);
       const pressed=d<90&&h<tr; const returned=pressed&&h<back; sq(gx,gy,2,(pressed&&!returned?0.08:0.5)*a,"#9b9c97");}
@@ -574,20 +576,20 @@ function s4(u){
     txt(back>0?"the empty hours — vegetation returns":tr>0?"trampling":"",x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("trampling removes it, leaving brings it back · Cole 1995",x,y+ph+22,{px:13,col:DIM,a});}
   // the strata: 20 s = one layer; layers sink and change
-  const cx=1120, cy=190, cw=430, bh=15, nb=Math.min(44,Math.floor(u/0.9)), immut=30;
+  const cx=1120, cy=190, cw=430, bh=15, uw=u*2, nb=Math.min(44,Math.floor(uw/0.9)), immut=30;
   txt("THE WALL · 벽 — 20 s = one stratum",cx,cy-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
-  for(let k=0;k<nb;k++){const y=cy+k*bh; const age=k; const a=on(u,k*0.9,0.5);
+  for(let k=0;k<nb;k++){const y=cy+k*bh; const age=k; const a=on(uw,k*0.9,0.5);
     if(age<9){box(cx,y,cw,bh-2,"#8a8b86",a);}
     else if(age<16){box(cx,y,cw,bh-2,"#6a6b66",a); for(let d=0;d<30;d++)sq(cx+hash(k,d)*cw,y+hash(d,k)*(bh-2),2,0.6*a,"#9b9c97");}
     else if(age<23){fill(cx,y,cw,bh-2,"#2a2b29",a); for(let d=0;d<16;d++)line(cx+hash(k,d)*cw,y,cx+hash(k,d)*cw+8,y+bh-2,"#6a6b66",0.6*a);}
     else if(age<immut){fill(cx,y,cw,bh-2,"#45463f",a);}
     else{fill(cx,y,cw,bh-2,"#1e1f1d",a);}}
-  const yI=cy+immut*bh; if(nb>immut)line(cx-10,yI-1.5,cx+cw+10,yI-1.5,WHITE,on(u,immut*0.9,0.5),1,[2,4]);
+  const yI=cy+immut*bh; if(nb>immut)line(cx-10,yI-1.5,cx+cw+10,yI-1.5,WHITE,on(uw,immut*0.9,0.5),1,[2,4]);
   const bx=cx+cw+18;
   const lab=(k0,k1,s,e,a)=>{line(bx,cy+k0*bh,bx,cy+k1*bh-2,DIM,a); line(bx,cy+k0*bh+.5,bx+6,cy+k0*bh+.5,DIM,a); line(bx,cy+k1*bh-1.5,bx+6,cy+k1*bh-1.5,DIM,a); txt(s,bx+14,cy+(k0+k1)/2*bh+6,{px:14,a}); txt(e,bx+14,cy+(k0+k1)/2*bh+22,{px:11,col:DIM,a});};
-  lab(0,9,"Present · 9 strata","현재 — still changing",on(u,9*0.9+0.4));
-  lab(9,immut,"The process band","과정 띠 — overgrown → rot → fused → resin",on(u,16*0.9+0.4));
-  lab(immut,44,"Final","완전불변 — the immutable line",on(u,immut*0.9+0.6));
+  lab(0,9,"Present · 9 strata","현재 — still changing",on(uw,9*0.9+0.4));
+  lab(9,immut,"The process band","과정 띠 — overgrown → rot → fused → resin",on(uw,16*0.9+0.4));
+  lab(immut,44,"Final","완전불변 — the immutable line",on(uw,immut*0.9+0.6));
   if(nb>0){line(cx-18,cy+.5,cx-18,cy+bh-1.5,WHITE,on(u,0.6)); txt("20 s",cx-26,cy+bh-3,{px:12,fam:"Neo",col:WHITE,a:on(u,0.6),al:"right",ls:1});}
 }
 
@@ -641,15 +643,15 @@ function s6(u,g){
   txt("the same event, on the wall: concrete",cx,cy-14,{px:14,a:sa});
   txt("one cell of a structure · 구조의 한 칸",cx+150+100,cy+22,{px:12,fam:"Neo",col:DIM,a:sa,ls:1.2});
   // the low band
-  const la=on(u,9.8,0.8); const lx=1180, ly=cy+ch+50; glyphC([],lx,ly,150,{a:la}); glyphs.slice(0,19).forEach(gl=>glyphC(gl.dots,lx,ly,150,{a:la,grid:false,squash:0.22,alpha:0.4}));
+  const la=on(u,6.8,0.8); const lx=1180, ly=cy+ch+50; glyphC([],lx,ly,150,{a:la}); glyphs.slice(0,19).forEach(gl=>glyphC(gl.dots,lx,ly,150,{a:la,grid:false,squash:0.22,alpha:0.4}));
   txt("/low band",lx+170,ly+70,{px:22,w:700,a:la}); para("저음 — on the speakers every melody sinks two octaves into one mass: the whole is heard, no one is told apart",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
 }
 
 /* ---------- ⑥ one life, in plain words: what the headset says; what an answer leaves ---------- */
-const LIFE_LINES=[[0.4,"태어나시겠습니까?","Will you be born?",1],[0.9,"[ 예 ]   아니요 · 선택할 수 없습니다","the only answer is yes",2],
-  [2.6,"풀밭을 걷고 있습니다.","You are walking on the grass.",0],[3.4,"지나온 자리의 풀이 사라졌습니다.","The grass where you walked is gone.",0],[4.4,"1분째 혼자입니다. 혼자서는 집을 지을 수 없습니다.","Alone for a minute. Alone you cannot build a house.",0],
-  [5.4,"합주 중… 함께 집을 짓습니다.","In ensemble: building a house together.",0],[6.4,"그만 살기: X 키를 1초 동안 누르세요","Stop living: hold X for one second.",2],[7.5,"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다.","Oh. Stopping living has failed. Life goes on.",3],
-  [9.6,"삶이 끝났습니다. 기록은 남습니다.","Life has ended. The record is kept.",1]];
+const LIFE_LINES=[[0.4,"풀밭을 걷고 있습니다.","You are walking on the grass.",0],[1.2,"지나온 자리의 풀이 사라졌습니다.","The grass where you walked is gone.",0],[2.0,"1분째 혼자입니다. 혼자서는 집을 지을 수 없습니다.","Alone for a minute. Alone you cannot build a house.",0],
+  [3.0,"합주 중… 함께 집을 짓습니다.","In ensemble: building a house together.",0],[4.4,"태어나시겠습니까?","Will you be born?",1],[5.0,"[ 예 ]   아니요 · 선택할 수 없습니다","the only answer is yes",2],
+  [6.0,"그만 살기: X 키를 1초 동안 누르세요","Stop living: hold X for one second.",2],[7.0,"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다.","Oh. Stopping living has failed. Life goes on.",3],
+  [8.2,"삶이 끝났습니다. 기록은 남습니다.","Life has ended. The record is kept.",1]];
 function seedHead(x,y,size,o={}){const {a=1,turn=0.7,n=24,keep=1,col=WHITE}=o; if(a<=0.005||size<=0.5)return; const st=size*0.9, r=size*0.55, cy=y-st;
   line(x,y,x,cy,col,a,1.2);
   for(let i=0;i<n;i++){ if(hash(i,91)>=keep)continue; const dy=1-(2*(i+0.5))/n, ring=Math.sqrt(Math.max(0,1-dy*dy)), an=i*2.399963+turn, L=r*(0.8+hash(i,92)*0.4);
@@ -661,7 +663,7 @@ function s6a(u,g){
   if(!drawImg(PV.attempt,x0,y0+30,w,h,on(u,0.4,0.9))){fill(x0,y0+30,w,h,"#050505",on(u,0.4)); txt("render: assets/pv/attempt.jpg",x0+20,y0+60,{px:12,fam:"Neo",col:FAINT,a:on(u,0.4)});}
   box(x0,y0+30,w,h,FAINT,on(u,0.4));
   txt("the ground, the dark, a name that is a melody — and the log of what just happened: an attempt to stop living, failed",x0,y0+30+h+26,{px:13,col:DIM,a:on(u,1.4)});
-  para("The log says what happened in everyday words. The screen is bare on purpose, so you listen.",x0,y0+30+h+66,{px:16,maxW:840,col:DIM,a:on(u,4.0,0.9)});
+  para("The log says what happened in everyday words. The screen is bare on purpose, so you listen.",x0,y0+30+h+66,{px:16,maxW:840,col:DIM,a:on(u,3.6,0.9)});
   para("Born without being asked. The attempt to stop can fail. What you do still stays in the world. So you keep choosing anyway, and shape your agency as you go.",x0,y0+30+h+120,{px:16,maxW:840,col:WHITE,a:on(u,8.0,0.9)});
   // right: the screen's own words, one after another; the two screens that frame a life
   const rx=1060; txt("WHAT THE SCREEN SAYS · 화면의 문장들",rx,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
@@ -671,7 +673,7 @@ function s6a(u,g){
     txt(en,rx,ly+34,{px:11,col:kind===3?WHITE:FAINT,a:a*on(u,t+0.8,0.5)}); if(kind===3){box(rx-12,ly-6,760,50,WHITE,a*0.5);}
     ly+=kind===1?50:46; }
   const sy=y0+34+9*47+10, sw=250, sh=141;
-  [[PV.consent,"born without being asked · only yes",2.0],[PV.live,"the log, in everyday sentences",4.0]].forEach(([im,cap,t],i)=>{const a=on(u,t,0.8), x=rx+i*(sw+20); if(!drawImg(im,x,sy,sw,sh,a))return; box(x,sy,sw,sh,FAINT,a); txt(cap,x,sy+sh+18,{px:10.5,fam:"Neo",col:DIM,a,ls:1});});
+  [[PV.live,"the log, in everyday sentences",1.4],[PV.consent,"born without being asked · only yes",4.6]].forEach(([im,cap,t],i)=>{const a=on(u,t,0.8), x=rx+i*(sw+20); if(!drawImg(im,x,sy,sw,sh,a))return; box(x,sy,sw,sh,FAINT,a); txt(cap,x,sy+sh+18,{px:10.5,fam:"Neo",col:DIM,a,ls:1});});
 }
 /* ---------- ⑥″ what a name leaves: a call, an answer, a new word — and the seed head on the wall ---------- */
 function s6c(u,g){
@@ -728,6 +730,9 @@ function s7(u,g){
 const DRAW=[s0,s1,s1b,s23,s4,s5,s6a,s6,s6c,s7];
 
 /* ---------- render ---------- */
+// real seconds in a section → the slide's own time, where its beats are not evenly spread: [real, slide]
+const WARP={1:[[0,0],[5,1.8],[9,3.2],[14,5.4],[16,6.4],[18,7.2],[22,9.2]],2:[[0,0],[4,1.6],[10,4.6],[16,7.6],[20,8.4],[24,9.6],[28,10.6]],5:[[0,0],[3,2.4],[7,4.4],[11,7.0],[15,9.4]]};
+function animU(s,u){const w=WARP[s]; if(!w)return u/PACE[s]; for(let i=1;i<w.length;i++){ if(u<=w[i][0]){const a=w[i-1],b=w[i]; return a[1]+(b[1]-a[1])*(u-a[0])/(b[0]-a[0]);} } const l=w[w.length-1]; return l[1]+(u-l[0]);}
 function render(){
   const u=U(), g=now/1000;
   ctx.clearRect(0,0,W,H);
@@ -739,13 +744,13 @@ function render(){
   // ④'s live shot loads during ②③ (the app takes 10–40 s), and shows on ④
   if(step===3||step===4)live4On(u); else live4Off();
   live4Show(step===4);
-  if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,Math.min(12,HOLD[step]*0.55),1.0).toFixed(3);}
+  if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,HOLD[step]*0.5,1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
-    $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,Math.min(12,HOLD[step]*0.55),1.0).toFixed(3);}
+    $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.5,1.0).toFixed(3);}
   else{$("#notice").style.opacity="0";}
   if(!t0)erode(110,0);
-  DRAW[step](u/PACE[step],g);
+  DRAW[step](animU(step,u),g);
   if(PHONE&&matchMedia("(orientation: portrait)").matches)phoneComposite(performance.now());
   soundDemoLine();
   if(PHONE&&window.__drawMobileHome)window.__drawMobileHome(performance.now());
