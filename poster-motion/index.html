@@ -278,7 +278,7 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=10, HOLD=[27,44,56,37,43,31,43,44,28,59], PACE=[1,1,1,1,1,1,2.3,2.9,1.3,3.6]; // HOLD: the script's seconds. PACE (or WARP): a slide's motion in talk time, in the script's order, done by about half of its section (the artist, 11/05) // the talk's timing (script, 7 min); a slide's drawing is done by ~12 s
+const STEPS=10, HOLD=[27,44,56,37,43,31,43,44,28,59], PACE=[1,1,0.9,1,1,1,1,1,0.85,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05); ②③ does that per beat, turning at T23
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","① 인류세와 부결"],
   ["An epoch is interpreted spacetime","①′ 해석된 시공간 · 제목"],
@@ -489,10 +489,10 @@ function s2(u){
 }
 
 /* ---------- ②③ one screen: the trace fossil, then humanity's (the talk turns at 22 s) ---------- */
-const T23=20;
+let T23=20; // the turn from one life's trace to the city, on the script's sentence; a phone has no talk to wait for
 function s23(u,g){ const f=on(u,T23-0.6,1.2);
-  if(f<1){ctx.save(); ctx.globalAlpha=1-f; s2(u); ctx.restore();}
-  if(f>0){ctx.save(); ctx.globalAlpha=f; s3(Math.max(0,u-T23)*1.5); ctx.restore();} }
+  if(f<1){ctx.save(); ctx.globalAlpha=1-f; s2(u*1.1); ctx.restore();}
+  if(f>0){ctx.save(); ctx.globalAlpha=f; s3(Math.max(0,u-T23)*2); ctx.restore();} }
 
 /* ---------- ③ living together: top view and section ---------- */
 function s3(u){
@@ -535,8 +535,8 @@ function s3(u){
 function panel(x,y,w,h,en,ko,a){box(x,y,w,h,FAINT,a); txt(en,x,y-14,{px:16,w:700,a}); txt(ko,x+w,y-14,{px:12,col:DIM,a,al:"right"});}
 function s4(u){
   const P=[[160,190],[590,190],[160,560],[590,560]], pw=380, ph=300;
-  // each rule plays once on its own clock, ×1.6, so all four and the wall are done by half of the section (21.5 s)
-  const R4=1.6, clock=t0=>Math.max(0,u-t0)*R4;
+  // each rule plays once on its own clock, ×4, so all four and the wall are done within 10 s
+  const R4=4, clock=t0=>Math.max(0,u-t0)*R4;
   // a) stay → slab
   {const [x,y]=P[0], a=on(u,0.2), ul=clock(0.2); panel(x,y,pw,ph,"Stay — a slab rises","머물면 — 콘크리트가 선다",a);
     const c=[x+pw/2,y+150]; const gat=on(ul,0.4,1.6), meter=lin(ul,1.8,2.6), slab=on(ul,4.6,0.5), rise=Math.floor(lin(ul,5.6,4)*3);
@@ -547,16 +547,16 @@ function s4(u){
     txt("threshold",x+pw-16,y+ph-32,{px:12,fam:"Neo",col:DIM,a:a*on(ul,4.4),al:"right",ls:1.2});
     txt("dense in spacetime, not only at one moment · no one builds alone",x,y+ph+22,{px:13,col:DIM,a});}
   // b) walk → path
-  {const [x,y]=P[1], a=on(u,5,0.8), ul=clock(5); panel(x,y,pw,ph,"Walk — a path hardens","걸으면 — 길이 다져진다",a);
+  {const [x,y]=P[1], a=on(u,2.4,0.8), ul=clock(2.4); panel(x,y,pw,ph,"Walk — a path hardens","걸으면 — 길이 다져진다",a);
     const y0=y+150, xa=x+50, xb=x+pw-50; const passes=Math.min(8,Math.floor(ul/1.1));
     for(let i=0;i<160;i++){const gx=x+20+hash(i,1)*(pw-40), gy=y+30+hash(i,2)*(ph-60); const near=Math.abs(gy-y0)<22; const gone=near&&hash(i,3)<passes*0.18;
       if(!gone)sq(gx,gy,2,0.45*a,"#9b9c97");}
     const pa=clamp(passes*0.11); line(xa,y0+.5,xb,y0+.5,"#8a8b86",pa*a,2+10*pa); const paved=passes>=4; if(paved)line(xa,y0+.5,xb,y0+.5,"#b5b6b1",a,10);
-    const wx=mix(xa,xb,tri(ul/2.2)); sq(wx,y0,6,a);
+    const wx=mix(xa,xb,tri(ul<8.8?ul/2.2:4+(u-2.4-8.8/R4)/2.2)); sq(wx,y0,6,a);
     txt(`passes ${passes} · p ${(Math.min(0.45,passes*0.08)).toFixed(2)}${paved?" ≥ 0.3 · PATH":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("only steady traffic stays a path · Helbing et al. 1997, active walker",x,y+ph+22,{px:13,col:DIM,a});}
   // c) seal → pipes
-  {const [x,y]=P[2], a=on(u,10,0.8), ul=clock(10); panel(x,y,pw,ph,"Seal — pipes are laid","덮으면 — 배관이 묻힌다",a);
+  {const [x,y]=P[2], a=on(u,4.8,0.8), ul=clock(4.8); panel(x,y,pw,ph,"Seal — pipes are laid","덮으면 — 배관이 묻힌다",a);
     const cs=34, cols=10, rows=6, gx=x+20, gy=y+36; for(let i=0;i<=cols;i++)line(gx+i*cs,gy,gx+i*cs,gy+rows*cs,FAINT,0.6*a); for(let j=0;j<=rows;j++)line(gx,gy+j*cs,gx+cols*cs,gy+j*cs,FAINT,0.6*a);
     const blds=[[1,1,2,2],[5,0,3,2],[2,4,2,2],[7,3,2,2]]; let sealed=0;
     blds.forEach(([bx,by,bw,bh],i)=>{const ba=on(ul,0.6+i*0.9,0.4); fill(gx+bx*cs,gy+by*cs,bw*cs,bh*cs,"#3a3b38",ba*a); box(gx+bx*cs,gy+by*cs,bw*cs,bh*cs,WHITE,ba*a); sealed+=ba*bw*bh;});
@@ -568,7 +568,7 @@ function s4(u){
     txt(`sealed share ${(share).toFixed(2)}${pipe>0?" → runoff · sewers laid beneath":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("rain has nowhere to soak in · Schueler 1994, impervious cover",x,y+ph+22,{px:13,col:DIM,a});}
   // d) leave → grass
-  {const [x,y]=P[3], a=on(u,15,0.8), ul=clock(15); panel(x,y,pw,ph,"Leave — vegetation returns","떠나면 — 풀이 돌아온다",a);
+  {const [x,y]=P[3], a=on(u,7,0.8), ul=clock(7); panel(x,y,pw,ph,"Leave — vegetation returns","떠나면 — 풀이 돌아온다",a);
     const c=[x+pw/2,y+150]; const tr=lin(ul,0.3,3.6), leave=on(ul,4.2,1.0), back=lin(ul,5.6,5.0);
     for(let i=0;i<220;i++){const gx=x+20+hash(i,1)*(pw-40), gy=y+30+hash(i,2)*(ph-60); const d=Math.hypot(gx-c[0],gy-c[1]); const h=hash(i,3);
       const pressed=d<90&&h<tr; const returned=pressed&&h<back; sq(gx,gy,2,(pressed&&!returned?0.08:0.5)*a,"#9b9c97");}
@@ -576,7 +576,7 @@ function s4(u){
     txt(back>0?"the empty hours — vegetation returns":tr>0?"trampling":"",x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
     txt("trampling removes it, leaving brings it back · Cole 1995",x,y+ph+22,{px:13,col:DIM,a});}
   // the strata: 20 s = one layer; layers sink and change
-  const cx=1120, cy=190, cw=430, bh=15, uw=u*2, nb=Math.min(44,Math.floor(uw/0.9)), immut=30;
+  const cx=1120, cy=190, cw=430, bh=15, uw=u*4.2, nb=Math.min(44,Math.floor(uw/0.9)), immut=30;
   txt("THE WALL · 벽 — 20 s = one stratum",cx,cy-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
   for(let k=0;k<nb;k++){const y=cy+k*bh; const age=k; const a=on(uw,k*0.9,0.5);
     if(age<9){box(cx,y,cw,bh-2,"#8a8b86",a);}
@@ -602,23 +602,34 @@ function s5(u){
   txt("← industrialisation, centuries ago",160,ty+30,{px:14,fam:"Neo",col:DIM,a:on(u,0.8),ls:1});
   txt("strata tens of thousands of years ahead →",1760,ty+30,{px:14,fam:"Neo",col:DIM,a:on(u,0.8),ls:1,al:"right"});
   sq(960,ty,8,on(u,1.2)); txt("NOW · one life, 03:00",960,ty+30,{px:14,fam:"Neo",a:on(u,1.2),al:"center",ls:1});
-  // left: the whole — the wall, everyone's traces read as a future's excavation (not refused: the other state)
-  const lx=240, ly=300, s=540; txt("THE WHOLE · 벽 — everyone's traces, as a future's excavation",lx,ly-14,{px:12,fam:"Neo",col:DIM,a:on(u,1.6),ls:1.2});
-  box(lx,ly,s,s,FAINT,on(u,1.6)); if(plan.complete&&plan.naturalWidth){ctx.globalAlpha=on(u,1.8,0.9); ctx.filter="grayscale(1)"; ctx.drawImage(plan,lx,ly,s,s); ctx.filter="none"; ctx.globalAlpha=1;}
-  // the one inside, marked on the whole — the same spot the right panel shows from within
-  const wa=on(u,4.2,0.6), mx=lx+s/2+Math.sin(u*0.5)*120, my=ly+s/2+Math.sin(u*0.8+1)*90; box(mx-22,my-22,44,44,WHITE,wa,1.5); sq(mx,my,5,wa);
+  // left: the whole — the wall, everyone's traces read as a future's excavation
+  const lx=160, ly=310, s=500, la=on(u,1.6);
+  txt("THE WALL",lx,ly-38,{px:20,w:700,a:la}); txt("the whole · 전체",lx+s,ly-38,{px:16,col:DIM,a:la,al:"right"});
+  txt("everyone's traces, as a future's excavation",lx,ly-14,{px:12,fam:"Neo",col:DIM,a:la,ls:1.2});
+  box(lx,ly,s,s,FAINT,la); if(plan.complete&&plan.naturalWidth){ctx.globalAlpha=on(u,1.8,0.9); ctx.filter="grayscale(1)"; ctx.drawImage(plan,lx,ly,s,s); ctx.filter="none"; ctx.globalAlpha=1;}
+  // the one inside, marked on the whole — the same person the middle panel shows from within
+  const wa=on(u,4.2,0.6), sway=t=>[Math.sin(t*0.5)*110,Math.sin(t*0.8+1)*84], [dx,dy]=sway(u), mx=lx+s/2+dx, my=ly+s/2+dy; box(mx-22,my-22,44,44,WHITE,wa,1.5); sq(mx,my,5,wa);
+  // middle: the part — as far as sound reaches; others are heard before they are seen
+  const px=740, a=on(u,5.4,0.8), cx=px+s/2+dx, cy=ly+s/2+dy, R=104;
+  line(mx+22,my-22,px,ly,WHITE,a*0.5,1,[3,5]); line(mx+22,my+22,px,ly+s,WHITE,a*0.5,1,[3,5]);
+  txt("THE HEADSET",px,ly-38,{px:20,w:700,a}); txt("a part · 부분",px+s,ly-38,{px:16,col:DIM,a,al:"right"});
+  txt("as far as sound reaches",px,ly-14,{px:12,fam:"Neo",col:DIM,a,ls:1.2}); box(px,ly,s,s,FAINT,a);
+  ctx.save(); ctx.beginPath(); ctx.rect(px,ly,s,s); ctx.clip();
+  const gr=ctx.createRadialGradient(cx,cy,0,cx,cy,R); gr.addColorStop(0,rgba("#2b2c29",a)); gr.addColorStop(0.7,rgba("#1a1b19",a)); gr.addColorStop(1,"rgba(10,10,11,0)"); ctx.fillStyle=gr; ctx.fillRect(px,ly,s,s);
+  for(let i=0;i<=16;i++){line(px+i*s/16,ly,px+i*s/16,ly+s,"#3a3b38",0.5*a); line(px,ly+i*s/16,px+s,ly+i*s/16,"#3a3b38",0.5*a);}
+  ctx.restore();
+  for(let i=0;i<6;i++){const ox=px+60+hash(i,1)*(s-120)+Math.sin(u*0.3+i)*40, oy=ly+60+hash(i,2)*(s-120)+Math.cos(u*0.4+i)*40, d=Math.hypot(ox-cx,oy-cy);
+    const vis=clamp(1-(d-R*0.6)/(R*0.6)); if(vis>0)glyphC(glyphs[i].dots,ox-12,oy-12,24,{a:vis*a,grid:false});}
+  ctx.strokeStyle=rgba(WHITE,0.5*a); ctx.lineWidth=1; ctx.setLineDash([2,5]); ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.stroke(); ctx.setLineDash([]); sq(cx,cy,7,a);
+  txt("and you go back and forth · 그 둘을 오간다",lx,ly+s+36,{px:18,a:on(u,8.6,0.8)});
   // right: the idea in plain words
-  const rx=1120, ra=on(u,2.4,0.8);
+  const rx=1320, ra=on(u,2.4,0.8);
   txt("HYPEROBJECT · 하이퍼객체",rx,ly+8,{px:13,fam:"Neo",col:DIM,a:ra,ls:1.4});
-  para("So spread out in time and space that no one can see it whole.",rx,ly+50,{px:32,w:"700",maxW:660,lh:1.25,a:ra});
-  const ca=on(u,4.4,0.8); para("You feel a hot day. You never see the climate itself.",rx,ly+190,{px:24,maxW:660,a:ca});
-  para("더운 날은 느끼지만 기후 자체는 보지 못합니다.",rx,ly+232,{px:15,maxW:660,col:DIM,a:ca});
-  const ba=on(u,7.0,0.8), by=ly+360;
-  line(mx+22,my,rx-16,by-6,WHITE,ba*0.6,1,[3,5]);
-  txt("THE HEADSET",rx,by,{px:20,w:700,a:ba}); txt("a part · 부분",rx+190,by,{px:18,col:DIM,a:ba});
-  txt("THE WALL",rx,by+44,{px:20,w:700,a:ba}); txt("the whole · 전체",rx+190,by+44,{px:18,col:DIM,a:ba});
-  txt("and you go back and forth · 그 둘을 오간다",rx,by+96,{px:18,a:on(u,8.6,0.8)});
+  para("So spread out in time and space that no one can see it whole.",rx,ly+50,{px:30,w:"700",maxW:460,lh:1.25,a:ra});
+  const ca=on(u,4.4,0.8); para("You feel a hot day. You never see the climate itself.",rx,ly+160,{px:22,maxW:460,a:ca});
+  para("더운 날은 느끼지만 기후 자체는 보지 못합니다.",rx,ly+236,{px:15,maxW:460,col:DIM,a:ca});
 }
+
 
 /* ---------- ⑥ sound: a name is a melody; the same event at two scales ---------- */
 function s6(u,g){
@@ -730,9 +741,8 @@ function s7(u,g){
 const DRAW=[s0,s1,s1b,s23,s4,s5,s6a,s6,s6c,s7];
 
 /* ---------- render ---------- */
-// real seconds in a section → the slide's own time, where its beats are not evenly spread: [real, slide]
-const WARP={1:[[0,0],[5,1.8],[9,3.2],[14,5.4],[16,6.4],[18,7.2],[22,9.2]],2:[[0,0],[4,1.6],[10,4.6],[16,7.6],[20,8.4],[24,9.6],[28,10.6]],5:[[0,0],[3,2.4],[7,4.4],[11,7.0],[15,9.4]]};
-function animU(s,u){const w=WARP[s]; if(!w)return u/PACE[s]; for(let i=1;i<w.length;i++){ if(u<=w[i][0]){const a=w[i-1],b=w[i]; return a[1]+(b[1]-a[1])*(u-a[0])/(b[0]-a[0]);} } const l=w[w.length-1]; return l[1]+(u-l[0]);}
+function animU(s,u){return u/PACE[s];}
+const keyAt=s=>s===3?T23+5:9; // key sentence and references: at the end of the motion, so a screen is whole by 10 s
 function render(){
   const u=U(), g=now/1000;
   ctx.clearRect(0,0,W,H);
@@ -744,10 +754,10 @@ function render(){
   // ④'s live shot loads during ②③ (the app takes 10–40 s), and shows on ④
   if(step===3||step===4)live4On(u); else live4Off();
   live4Show(step===4);
-  if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,HOLD[step]*0.5,1.0).toFixed(3);}
+  if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,keyAt(step),1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
-    $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,HOLD[step]*0.5,1.0).toFixed(3);}
+    $("#f-en").textContent=KEY[step][0]; $("#f-ko").textContent=KEY[step][1]; $("#f-en").style.fontFamily=KEY[step][2]==="neo"?"Neo, monospace":""; $("#f-en").style.fontWeight=KEY[step][2]==="neo"?"400":""; $("#foot").style.opacity=on(u,keyAt(step),1.0).toFixed(3);}
   else{$("#notice").style.opacity="0";}
   if(!t0)erode(110,0);
   DRAW[step](animU(step,u),g);
@@ -852,7 +862,7 @@ const PANELS=[
   [[810,170,1090,740],[100,180,660,700]],                         // ①′: the pit; the three faces and the title's meaning
   [[200,170,1520,740]],                                           // ②: one life's trace (③ below, after T23)
   [[150,150,850,740],[1050,150,780,560]],                         // ④: the four rules; the wall's strata
-  [[140,160,1640,90],[230,280,560,640],[1110,280,700,600]],       // ⑤: the timeline; the wall; the idea
+  [[140,160,1640,90],[150,260,520,570],[730,260,520,570],[1310,300,500,280]],  // ⑤: the timeline; the wall; the headset's reach; the idea
   [[150,140,870,640],[1040,140,800,640]],                         // ⑥: the screen itself; its words
   [[150,140,960,530],[1130,160,690,720]],                         // ⑥′: one person's harmony; the wall's cell
   [[150,140,820,640],[1010,140,810,620]],                         // ⑥″: a call, an answer, a word; the wall's seed heads
@@ -875,7 +885,7 @@ function phoneComposite(nowMs){ const pc=document.querySelector(`#mpages .pg[dat
   c.globalAlpha=1; if(a>=1)pPrev=null; }
 /** Before a section changes on the phone: keep the picture as it is, to fade it out under the next. */
 function phoneFadeFrom(){ const pc=document.querySelector(`#mpages .pg[data-step="${step}"]:not([data-notes]) .pcv`); if(!pc||!pc.width)return; const o=document.createElement("canvas"); o.width=pc.width; o.height=pc.height; o.getContext("2d").drawImage(pc,0,0); pPrev=o; pFadeT0=performance.now(); }
-function fit(){PHONE=isPhone();
+function fit(){PHONE=isPhone(); T23=PHONE?10:20;
   if(PHONE&&matchMedia("(orientation: portrait)").matches){ stage.style.left="-4000px"; stage.style.transform="none"; return;} // a phone upright: the deck draws off-screen; each screen has its own picture
   if(stage.style.left){stage.style.left="";}
   const s=Math.min(innerWidth/W,innerHeight/H); stage.style.transform=`translate(${((innerWidth-W*s)/2).toFixed(1)}px,${((innerHeight-H*s)/2).toFixed(1)}px) scale(${s.toFixed(4)})`;}
