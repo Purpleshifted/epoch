@@ -291,11 +291,11 @@ const SEC=[["",""],
 const KEY=[[""],
   ["This work starts from that gap."],
   ["An epoch is spacetime, interpreted."],
-  ["A fossil not of a body, but of what it did."],
+  ["A fossil not of a body, but of what an animal did."],
   ["Humanity's trace fossil is the trace of living in cities."],
   ["Everything forms from staying and walking."],
-  ["The headset shows a part. The wall shows the whole. You go back and forth."],
-  ["You can't choose much, and what you do still stays in the world."],
+  ["The headset shows a part. The wall shows the whole."],
+  ["You keep choosing anyway, and shape your agency as you go."],
   ["One event at two scales."],
   ["You don't get to decide what remains."],
   ["How do I live with the present, and how do I decide what to do?","neo"]];
@@ -358,8 +358,8 @@ function live3On(){ if(live3State!=="off")return;
     topv.onerror=fail; for(const src of topv.querySelectorAll("source")) src.onerror=fail;
     const probe=(n)=>{if(failed||live3State!=="baked")return; if(topv.networkState===3||topv.error){fail();return;} if(topv.readyState<2&&n<40)setTimeout(()=>probe(n+1),250);}; probe(0); return;}
   if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
-// ④: the one shot, recorded from the lab (/v2/global/lab?scenario=all&cam=shot) and retimed to 42 s on a smooth speed curve
-// (×1.3 → ×2.8 → ×1, the artist, 11/05: ×11 looked rushed): it runs under ④'s talk. The source loads on ②③ so it plays at once on ④.
+// ④: the one shot, recorded from the lab (/v2/global/lab?scenario=all&cam=shot) and retimed by stretch (the artist, 11/05): ×1 while they
+// gather and a slab rises, about ×1.2 while the paths form, then fast-forward ×6 to the fossils. It runs under ④'s talk. The source loads on ②③ so it plays at once on ④.
 const shot4=$("#live4"); let shot4On=false;
 shot4.onerror=()=>{shot4.style.display="none"; $("#badge4").style.display="none"; shot4On=false; shot4.dataset.failed="1";};
 function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · TIME COMPRESSED · V: AGAIN"; }
@@ -408,10 +408,8 @@ function s1(u){
     if(i<4)fill(x,y,48,48,WHITE,a); else box(x,y,48,48,DIM,a);}
   txt("FOR",vx+2,vy+170,{px:12,fam:"Neo",col:DIM,a:on(u,5.4),ls:1.4}); txt("AGAINST",vx+4*62+2,vy+170,{px:12,fam:"Neo",col:DIM,a:on(u,5.4),ls:1.4});
   txt("4 : 12",vx-4,vy+330,{px:132,w:700,a:on(u,5.4,0.7)});
-  txt("the proposal was voted down",vx,vy+376,{px:18,col:DIM,a:on(u,6.0)});
   // after the rejection
   para("“We are in the Anthropocene, irrespective of a line on the time scale.”",vx,vy+470,{px:28,maxW:720,lh:1.35,a:on(u,7.2,0.8)});
-  para("Humanity's traces are everywhere — and yet they could not be pinned to a single point of matter.",vx,vy+580,{px:18,maxW:720,col:DIM,a:on(u,8.4,0.8)});
 }
 
 /* ---------- ①′ an epoch is interpreted spacetime: a mass from the present to the future ---------- */
@@ -458,12 +456,12 @@ function s1b(u,g){
   box(lx,190,lw,100,FAINT,on(u,0.4)); txt("future",lx+lw/2,190+60,{px:26,a:on(u,0.4),al:"center"});
   box(lx,580,lw,100,FAINT,on(u,0.4)); txt("present",lx+lw/2,580+60,{px:26,a:on(u,0.4),al:"center"});
   box(lx,310,lw,250,aA>0.5?WHITE:FAINT,aQ,aA>0.5?1.5:1); txt("??",lx+lw/2,310+140,{px:44,w:700,a:aQ*(1-aA),al:"center"});
-  if(aA>0){txt("the epoch",lx+lw/2,310+100,{px:30,w:700,a:aA,al:"center"}); txt("a mass of spacetime, from the present to the future",lx+lw/2,310+136,{px:14,col:DIM,a:aA,al:"center"}); txt("not a list of events — interpreted",lx+lw/2,310+158,{px:14,col:DIM,a:aA,al:"center"});}
+  if(aA>0){txt("the epoch",lx+lw/2,310+100,{px:30,w:700,a:aA,al:"center"}); txt("a mass of spacetime, from the present to the future",lx+lw/2,310+136,{px:14,col:DIM,a:aA,al:"center"});}
   // the title: Homo inventus — humanity, found
   const aN=on(u,9.6,0.9); if(aN>0){txt("HOMO INVENTUS — HUMANITY, FOUND",lx,730,{px:12,fam:"Neo",col:DIM,a:aN,ls:1.2});
-    let y=758; y+=para("Homo sapiens (Linnaeus 1758), Homo faber (Bergson 1907), Homo ludens (Huizinga 1938): a species named by what it does.",lx,y,{px:15,maxW:600,lh:1.4,a:aN});
-    y+=para("Inventus is passive — found, come upon; and, in the same word, invented.",lx,y+6,{px:15,w:700,maxW:600,lh:1.4,a:aN})+6;
-    para("A humanity named by how it will be found: by the gaze from the future — the one that also names the epoch.",lx,y,{px:15,maxW:600,lh:1.4,col:DIM,a:aN});}
+    let y=758; y+=para("Homo sapiens, faber, ludens: named by what they do.",lx,y,{px:15,maxW:600,lh:1.4,a:aN});
+    y+=para("Inventus: found — and, in the same word, invented.",lx,y+6,{px:15,w:700,maxW:600,lh:1.4,a:aN})+6;
+    para("Homo inventus: humanity named by how it will be found.",lx,y,{px:15,maxW:600,lh:1.4,a:aN});}
 }
 
 /* ---------- ② the trace fossil: a walker, then only its footprints ---------- */
@@ -485,7 +483,6 @@ function s2(u){
     sq(bx+ox+Math.cos(an)*sc,by+oy+Math.sin(an)*sc,5,1-dis);});}
   if(p>0&&p<1)txt(`walking · ${fmt(p*180)}`,bx+16,by-14,{px:12,fam:"Neo",col:DIM,a:1-dis,ls:1.2});
   if(dis>=1)txt("( gone )",bx,by-18,{px:12,fam:"Neo",col:DIM,a:on(u,9.2),ls:1.2,al:"center"});
-  txt("the body is gone — what it did remains in stone",960,870,{px:26,a:on(u,9.6,0.8),al:"center"});
   txt("ONE LIFE'S TRACE · SPECIMEN 5051 · 03:00",960,896,{px:12,fam:"Neo",col:DIM,a:on(u,9.6,0.8),al:"center",ls:1.2});
 }
 
@@ -509,9 +506,9 @@ function s3(u){
     x=mix(sx+Math.sin(u*0.5+i)*22,dwell[0],gather); y=mix(sy+Math.cos(u*0.6+i*1.3)*22,dwell[1],gather);
     const com=on(u,6.8,0.8)*(1-on(u,11.5,0.8)); if(com>0){const to=C[(k+1)%3]; const w=tri((u-6.8)*0.22+ph0); x=mix(x,mix(dwell[0],to[0]+Math.sin(u+i)*10,w),com); y=mix(y,mix(dwell[1],to[1]+Math.cos(u+i)*10,w),com);}
     sq(x,y,6,0.95);}
-  label(C[0][0]-34,C[0][1]+72,"/concrete","콘크리트 — several dwell in one place and time",slabA(0));
-  label((C[0][0]+C[1][0])/2-60,(C[0][1]+C[1][1])/2-56,"/path","길 — repeated walking between",on(u,8.6),"right");
-  label(O[0]+22,O[1]-30,"/pipe","배관 — laid under the sealed ground",pipeA);
+  label(C[0][0]-34,C[0][1]+72,"/concrete","콘크리트 — several stay in one place and time",slabA(0));
+  label((C[0][0]+C[1][0])/2-60,(C[0][1]+C[1][1])/2-56,"/path","길 — walked again and again",on(u,8.6),"right");
+  label(O[0]+22,O[1]-30,"/pipe","배관 — under the sealed ground",pipeA);
   // the section
   const sx0=1160, sy0=170, sw=600, sh=660, surf=sy0+250; box(sx0,sy0,sw,sh,FAINT,on(u,0.2));
   txt("SECTION · 단면",sx0,sy0-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
@@ -522,7 +519,6 @@ function s3(u){
   const a3=pipeA; ctx.beginPath(); ctx.arc(sx0+235,surf+120,18,0,6.283); ctx.fillStyle=rgba("#1c1c1d",a3); ctx.fill(); ctx.strokeStyle=rgba(WHITE,a3); ctx.lineWidth=1; ctx.stroke();
   line(sx0+253,surf+120.5,sx0+sw,surf+120.5,"#1c1c1d",a3,10); line(sx0+253,surf+120.5,sx0+sw,surf+120.5,WHITE,a3*0.5,1,[3,5]);
   txt("sewer · 배관",sx0+150,surf+126,{px:12,fam:"Neo",col:DIM,a:a3,al:"right",ls:1.2});
-  para("Humanity's trace fossil: the trace of living in cities.",sx0+30,surf+230,{px:24,w:"700",maxW:540,col:WHITE,a:on(u,1.0,0.9)});
 }
 
 /* ---------- ④ no build button: four rules, and the strata ---------- */
@@ -539,7 +535,7 @@ function s4(u){
       sq(mix(far[0],near[0],gat),mix(far[1],near[1],gat),6,a);}
     txt("presence within the window",x+16,y+ph-32,{px:12,fam:"Neo",col:DIM,a,ls:1.2}); box(x+16,y+ph-24,pw-32,8,FAINT,a); fill(x+17,y+ph-23,(pw-34)*meter,6,WHITE,a);
     txt("threshold",x+pw-16,y+ph-32,{px:12,fam:"Neo",col:DIM,a:a*on(ul,4.4),al:"right",ls:1.2});
-    txt("dense in spacetime, not only at one moment · no one builds alone",x,y+ph+22,{px:13,col:DIM,a});}
+    txt("several people, one place and time · no one builds alone",x,y+ph+22,{px:13,col:DIM,a});}
   // b) walk → path
   {const [x,y]=P[1], a=on(u,2.4,0.8), ul=clock(2.4); panel(x,y,pw,ph,"Walk — a path hardens","걸으면 — 길이 다져진다",a);
     const y0=y+150, xa=x+50, xb=x+pw-50; const passes=Math.min(8,Math.floor(ul/1.1));
@@ -592,7 +588,6 @@ function s5(u){
   // a span no one perceives whole
   const ty=200; line(-60,ty+.5,W+60,ty+.5,DIM,on(u,0.3,1.2),1);
   for(let x=-60;x<W+60;x+=120)line(x,ty-4,x,ty+5,DIM,on(u,0.3,1.2)*0.7);
-  txt("A HYPEROBJECT — massively distributed in time and space (T. Morton)",160,ty-26,{px:13,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.4});
   txt("← industrialisation, centuries ago",160,ty+30,{px:14,fam:"Neo",col:DIM,a:on(u,0.8),ls:1});
   txt("strata tens of thousands of years ahead →",1760,ty+30,{px:14,fam:"Neo",col:DIM,a:on(u,0.8),ls:1,al:"right"});
   sq(960,ty,8,on(u,1.2)); txt("NOW · one life, 03:00",960,ty+30,{px:14,fam:"Neo",a:on(u,1.2),al:"center",ls:1});
@@ -618,9 +613,9 @@ function s5(u){
   txt("and you go back and forth",lx,ly+s+36,{px:18,a:on(u,8.6,0.8)});
   // right: the idea in plain words
   const rx=1320, ra=on(u,2.4,0.8);
-  txt("HYPEROBJECT · 하이퍼객체",rx,ly+8,{px:13,fam:"Neo",col:DIM,a:ra,ls:1.4});
+  txt("HYPEROBJECT · 하이퍼객체 · T. MORTON",rx,ly+8,{px:13,fam:"Neo",col:DIM,a:ra,ls:1.4});
   para("So spread out in time and space that no one can see it whole.",rx,ly+50,{px:30,w:"700",maxW:460,lh:1.25,a:ra});
-  const ca=on(u,4.4,0.8); para("You feel a hot day. You never see the climate itself.",rx,ly+160,{px:22,maxW:460,a:ca});
+  const ca=on(u,4.4,0.8); para("You feel a hot day, but you never see the climate.",rx,ly+160,{px:22,maxW:460,a:ca});
 }
 
 
@@ -636,19 +631,19 @@ function s6(u,g){
   const dy=ay+S/2; line(ax+S+10,dy+.5,bx-10,dy+.5,DIM,on(u,1.0)*(locked?0:1),1,[3,5]);
   txt("stay near · 6 s",ax+S+60,dy-10,{px:12,fam:"Neo",col:DIM,a:on(u,1.0)*(1-on(u,4.4,0.4)),ls:1.2});
   const ha=on(u,4.4,0.6); line(ax,ay-24,bx+S,ay-24,WHITE,ha,1); line(ax,ay-24,ax,ay-12,WHITE,ha); line(bx+S,ay-24,bx+S,ay-12,WHITE,ha);
-  txt("HARMONY · 화음 — the melodies lock, the bars alternate: call and answer",ax,ay-36,{px:14,a:ha});
-  para("Why sound: vision places you outside; sound surrounds the body — and sounds overlap without hiding each other: harmony, or dissonance.",160,ay+S+110,{px:16,maxW:780,col:DIM,a:on(u,5.6,0.9)});
-  txt("LISTEN · THE HEADSET'S ENGINE, HERE — ONE SITUATION AT A TIME · 들어보기",160,ay+S+206,{px:11,fam:"Neo",col:DIM,a:on(u,0.3,0.8),ls:1.4});
+  txt("HARMONY · 화음 — the melodies lock",ax,ay-36,{px:14,a:ha});
+  para("Sound surrounds you, and sounds overlap without hiding each other.",160,ay+S+110,{px:16,maxW:780,col:DIM,a:on(u,5.6,0.9)});
+  txt("LISTEN · ONE AT A TIME · 들어보기",160,ay+S+206,{px:11,fam:"Neo",col:DIM,a:on(u,0.3,0.8),ls:1.4});
   // the whole
   const cx=1180, cy=230, cw=400, ch=430; txt("THE WHOLE · 벽",1100,180,{px:12,fam:"Neo",col:DIM,a:on(u,0.4),ls:1.2});
   for(let k=0;k<12;k++)line(cx,cy+k*36+.5,cx+cw,cy+k*36+.5,FAINT,on(u,0.5+k*0.05),1); box(cx,cy,cw,ch,FAINT,on(u,0.5));
   const sa=on(u,4.9,0.6); fill(cx+150,cy+2,90,32,"#3a3b38",sa); box(cx+150,cy+2,90,32,WHITE,sa);
   line(bx+S,ay-24,cx+150,cy+18,WHITE,sa*0.6,1,[3,5]);
-  txt("the same event, on the wall: concrete",cx,cy-14,{px:14,a:sa});
+  txt("the same event, on the wall: a slab",cx,cy-14,{px:14,a:sa});
   txt("one cell of a structure",cx+150+100,cy+22,{px:12,fam:"Neo",col:DIM,a:sa,ls:1.2});
   // the low band
   const la=on(u,6.8,0.8); const lx=1180, ly=cy+ch+50; glyphC([],lx,ly,150,{a:la}); glyphs.slice(0,19).forEach(gl=>glyphC(gl.dots,lx,ly,150,{a:la,grid:false,squash:0.22,alpha:0.4}));
-  txt("/low band",lx+170,ly+70,{px:22,w:700,a:la}); para("Low — on the speakers every melody sinks two octaves into one mass: the whole is heard, no one is told apart",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
+  txt("/low band",lx+170,ly+70,{px:22,w:700,a:la}); para("on the speakers, every melody sinks into one mass",lx+170,ly+92,{px:12,fam:"Neo",maxW:420,col:DIM,a:la,lh:1.6});
 }
 
 /* ---------- ⑥ one life, in plain words: what the headset says; what an answer leaves ---------- */
@@ -666,9 +661,8 @@ function s6a(u,g){
   txt("THE PERSONAL VIEW · 개인 뷰 — the screen as it is",x0,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
   if(!drawImg(PV.attempt,x0,y0+30,w,h,on(u,0.4,0.9))){fill(x0,y0+30,w,h,"#050505",on(u,0.4)); txt("render: assets/pv/attempt.jpg",x0+20,y0+60,{px:12,fam:"Neo",col:FAINT,a:on(u,0.4)});}
   box(x0,y0+30,w,h,FAINT,on(u,0.4));
-  txt("the ground, the dark, a name that is a melody — and the log of what just happened: an attempt to stop living, failed",x0,y0+30+h+26,{px:13,col:DIM,a:on(u,1.4)});
-  para("The log says what happened in everyday words. The screen is bare on purpose, so you listen.",x0,y0+30+h+66,{px:16,maxW:840,col:DIM,a:on(u,3.6,0.9)});
-  para("Born without being asked. The attempt to stop can fail. What you do still stays in the world. So you keep choosing anyway, and shape your agency as you go.",x0,y0+30+h+120,{px:16,maxW:840,col:WHITE,a:on(u,8.0,0.9)});
+  txt("an attempt to stop living, failed",x0,y0+30+h+26,{px:13,col:DIM,a:on(u,1.4)});
+  para("The screen is mostly empty, so you listen.",x0,y0+30+h+66,{px:16,maxW:840,col:DIM,a:on(u,3.6,0.9)});
   // right: the screen's own words, one after another; the two screens that frame a life
   const rx=1060; txt("WHAT THE SCREEN SAYS · 화면의 문장들",rx,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,0.2),ls:1.2});
   let ly=y0+34; const blink=(g*2|0)%2===1;
@@ -691,15 +685,13 @@ function s6c(u,g){
   const wx=x0+2*S+170, wa=on(u,3.0,0.7); glyphC(fig.word,wx,gy,S,{a:wa,cur:col});
   const bp=on(u,3.0,0.8); if(bp>0&&bp<1)for(let i=0;i<30;i++){const an=hash(i,7)*6.283, r=10+bp*(30+hash(i,8)*90); sq(wx+S/2+Math.cos(an)*r,gy+S/2+Math.sin(an)*r*0.8,3,1-bp);}
   txt("/new word",wx,gy+S+28,{px:20,w:700,a:wa}); txt("a glyph that mixes the two melodies",wx,gy+S+48,{px:11,fam:"Neo",col:DIM,a:wa,ls:1});
-  para("The answer is the one trace a visitor leaves on purpose. And it is not kept by them: on the wall a seed head stands where it happened, at the height of its time.",x0,gy+S+110,{px:16,maxW:800,col:DIM,a:on(u,4.6,0.9)});
   const fy=gy+S+200; txt("WHAT BECOMES OF IT · 그 뒤",x0,fy,{px:12,fam:"Neo",col:DIM,a:on(u,7.0),ls:1.2});
-  [["FOUND","the wind carries the word to a few places — the next one who passes finds it: “개체 5527이 남긴 말 발견”",7.4],["KEPT","where its layer fossilises, some heads stay: smaller, fewer spokes, in the stone",8.6],["GONE","and some go — the record does not keep everything that was said",9.8]].forEach(([k,v,t],i)=>{const a=on(u,t,0.6); txt(k,x0,fy+34+i*52,{px:10,fam:"Neo",col:FAINT,a,ls:1.4}); txt(v,x0+70,fy+34+i*52,{px:15,a});});
+  [["FOUND","the next one who passes finds the word: “개체 5527이 남긴 말 발견”",7.4],["KEPT","some stay as fossils",8.6],["GONE","some disappear",9.8]].forEach(([k,v,t],i)=>{const a=on(u,t,0.6); txt(k,x0,fy+34+i*52,{px:10,fam:"Neo",col:FAINT,a,ls:1.4}); txt(v,x0+70,fy+34+i*52,{px:15,a});});
   const rx=1020, ry=y0+30, rw=800, rh=450; txt("ON THE WALL · 벽 — a render",rx,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,4.4),ls:1.2});
   const ra=on(u,4.6,0.9);
   if(!drawImg(PV.seeds,rx,ry,rw,rh,ra)){ fill(rx,ry,rw,rh,"#050505",ra); line(rx+40,ry+rh-80+.5,rx+rw-40,ry+rh-80+.5,WHITE,ra); seedHead(rx+rw/2,ry+rh-80,150,{a:ra}); }
   box(rx,ry,rw,rh,FAINT,ra);
-  txt("seed heads where answers were given; the powder on the wind; at the height of their time",rx,ry+rh+26,{px:13,col:DIM,a:ra});
-  para("You don't get to decide which.",rx,ry+rh+70,{px:20,maxW:800,col:WHITE,a:on(u,10.0,0.9)});
+  txt("seed heads where answers were given",rx,ry+rh+26,{px:13,col:DIM,a:ra});
 }
 
 /* ---------- ⑦ the record remains: a specimen card ---------- */
