@@ -269,7 +269,7 @@ function ell(cx,cy,rx,ry,col=WHITE,a=1,fillIt=false,lw=1,dash){if(a<=0.005)retur
 
 /* ---------- data ---------- */
 // RENDERS OF THE WORK ITSELF (the artist, 11/04 night: not drawings — the personal view as it is): assets/pv/*.jpg
-const PV={}; for(const k of ["consent","live","attempt","seeds"]){const im=new Image(); im.src=`assets/pv/${k}.jpg`; PV[k]=im;}
+const PV={}; for(const k of ["consent","live","attempt","seeds","call","answered"]){const im=new Image(); im.src=`assets/pv/${k}.jpg`; PV[k]=im;}
 function drawImg(im,x,y,w,h,a=1){ if(!im||!im.complete||!im.naturalWidth||a<=0.005)return false; ctx.save(); ctx.globalAlpha=clamp(a); ctx.drawImage(im,x,y,w,h); ctx.restore(); return true; }
 const [glyphs,fig,traces]=await Promise.all(["data/glyphs.json","data/figure.json","data/traces.json"].map(u=>fetch(u).then(r=>r.json())));
 const life=traces.find(t=>t.o==="bot7")||traces[0];
@@ -685,13 +685,18 @@ function s6c(u,g){
   const wx=x0+2*S+170, wa=on(u,3.0,0.7); glyphC(fig.word,wx,gy,S,{a:wa,cur:col});
   const bp=on(u,3.0,0.8); if(bp>0&&bp<1)for(let i=0;i<30;i++){const an=hash(i,7)*6.283, r=10+bp*(30+hash(i,8)*90); sq(wx+S/2+Math.cos(an)*r,gy+S/2+Math.sin(an)*r*0.8,3,1-bp);}
   txt("/new word",wx,gy+S+28,{px:20,w:700,a:wa}); txt("a glyph that mixes the two melodies",wx,gy+S+48,{px:11,fam:"Neo",col:DIM,a:wa,ls:1});
-  const fy=gy+S+200; txt("WHAT BECOMES OF IT · 그 뒤",x0,fy,{px:12,fam:"Neo",col:DIM,a:on(u,7.0),ls:1.2});
-  [["FOUND","the next one who passes finds the word: “개체 5527이 남긴 말 발견”",7.4],["KEPT","some stay as fossils",8.6],["GONE","some disappear",9.8]].forEach(([k,v,t],i)=>{const a=on(u,t,0.6); txt(k,x0,fy+34+i*52,{px:10,fam:"Neo",col:FAINT,a,ls:1.4}); txt(v,x0+70,fy+34+i*52,{px:15,a});});
+  // the same moment in the personal view: its own log, recorded from the work
+  const py=gy+S+84, pw=800, ph1=Math.round(pw*180/1144), ph2=Math.round(pw*100/1144), a1=on(u,1.2,0.6), a2=on(u,3.2,0.6);
+  txt("IN THE PERSONAL VIEW · 개인 뷰 — the screen as it is",x0,py,{px:12,fam:"Neo",col:DIM,a:a1,ls:1.2});
+  if(drawImg(PV.call,x0,py+16,pw,ph1,a1))box(x0,py+16,pw,ph1,WHITE,a1);
+  if(drawImg(PV.answered,x0,py+16+ph1+16,pw,ph2,a2))box(x0,py+16+ph1+16,pw,ph2,WHITE,a2);
   const rx=1020, ry=y0+30, rw=800, rh=450; txt("ON THE WALL · 벽 — a render",rx,y0+8,{px:12,fam:"Neo",col:DIM,a:on(u,4.4),ls:1.2});
   const ra=on(u,4.6,0.9);
   if(!drawImg(PV.seeds,rx,ry,rw,rh,ra)){ fill(rx,ry,rw,rh,"#050505",ra); line(rx+40,ry+rh-80+.5,rx+rw-40,ry+rh-80+.5,WHITE,ra); seedHead(rx+rw/2,ry+rh-80,150,{a:ra}); }
   box(rx,ry,rw,rh,FAINT,ra);
   txt("seed heads where answers were given",rx,ry+rh+26,{px:13,col:DIM,a:ra});
+  const fy=ry+rh+66; txt("WHAT BECOMES OF IT · 그 뒤",rx,fy,{px:12,fam:"Neo",col:DIM,a:on(u,7.0),ls:1.2});
+  [["FOUND","the next one who passes finds the word: “개체 5527이 남긴 말 발견”",7.4],["KEPT","some stay as fossils",8.6],["GONE","some disappear",9.8]].forEach(([k,v,t],i)=>{const a=on(u,t,0.6); txt(k,rx,fy+32+i*34,{px:10,fam:"Neo",col:FAINT,a,ls:1.4}); txt(v,rx+70,fy+32+i*34,{px:15,a});});
 }
 
 /* ---------- ⑦ the record remains: a specimen card ---------- */
@@ -851,7 +856,7 @@ const PANELS=[
   [[140,160,1640,90],[150,260,520,570],[730,260,520,570],[1310,300,500,280]],  // ⑤: the timeline; the wall; the headset's reach; the idea
   [[150,140,870,640],[1040,140,800,640]],                         // ⑥: the screen itself; its words
   [[150,140,960,530],[1130,160,690,720]],                         // ⑥′: one person's harmony; the wall's cell
-  [[150,140,820,640],[1010,140,810,620]],                         // ⑥″: a call, an answer, a word; the wall's seed heads
+  [[150,140,830,560],[1010,140,810,730]],                         // ⑥″: a call, an answer, a word, in the log; the wall's seed heads and what becomes of them
   [[150,130,1040,760],[1240,170,620,680]]];                       // ⑦: the specimen card; the experience
 function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=[];
   for(let i=0;i<ps.length;i++){ const a=ps[i], b=ps[i+1]; if(b&&a[2]<=760&&b[2]<=760&&a[3]>=300&&b[3]>=300){rows.push([a,b]); i++;} else rows.push([a]); }
