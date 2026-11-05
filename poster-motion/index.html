@@ -362,7 +362,7 @@ function live3On(){ if(live3State!=="off")return;
 let live4Kind=null, live4Base=0;
 let live4Loaded=false;
 function live4On(u){ if(!liveWanted||live4Kind)return; live4Kind="all"; live4Loaded=false; const f=$("#live4"); f.src=SCEN_URL("all"); f.style.display="block"; f.style.opacity="0"; f.onload=()=>{live4Loaded=true;};
-  $("#badge4").querySelector("span").textContent="LIVE · ONE CROWD UNDER THE WORK'S OWN RULES · "+SCEN_LABEL.all+" · V: AGAIN"; }
+  $("#badge4").querySelector("span").textContent="LIVE · ONE CROWD, THE WORK'S OWN RULES · V: AGAIN"; }
 function live4Show(on){ if(!live4Kind)return; $("#live4").style.opacity=on&&live4Loaded?"1":"0"; $("#badge4").style.display=on&&live4Loaded?"block":"none"; }
 function live4Off(){ if(!live4Kind)return; const f=$("#live4"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; $("#badge4").style.display="none"; live4Kind=null; live4Base=0; }
 function live4Next(){ if(step!==4)return; live4Kind=null; live4On(U()); } // V: the scene from the start
