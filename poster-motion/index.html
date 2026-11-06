@@ -891,7 +891,7 @@ function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; if(PHONE)phoneFadeFrom
    words are in the cards. */
 const PANELS=[
   [[1000,500,900,560]],                                           // home: the title corner
-  [[60,150,790,760],[1000,160,820,700]],                          // ①: the strata and the spike; the definition and the vote
+  [[60,150,790,760],[1000,145,820,715]],                          // ①: the strata and the spike; the definition (its first line whole) and the vote
   [[700,140,1220,770],[140,170,400,530]],                         // ①′: the pit with both arrows and EPOCH; the three faces (the title's meaning: the card's note)
   [[600,262,720,660]],                                            // ②: one life's trace, close (the two labels: the card's note)
   [[150,140,930,710],[1150,140,620,450]],                         // ③: the ground from above; the section, to the sewer
@@ -900,7 +900,7 @@ const PANELS=[
   [[150,140,870,640],[1040,140,800,640]],                         // ⑥: the screen itself; its words
   [[150,140,960,530],[1130,160,690,720]],                         // ⑥′: one person's harmony; the wall's cell
   [[150,140,830,560],[1010,140,810,730]],                         // ⑥″: a call, an answer, a word, in the log; the wall's seed heads and what becomes of them
-  [[150,150,800,580],[990,150,800,600]],                          // ⑦: the present with its legend; lower down with its words (the plastiglomerate line: the card's note)
+  [[150,140,800,590],[990,150,800,600]],                          // ⑦: the present with its legend; lower down with its words (the plastiglomerate line: the card's note)
   [[150,145,1040,745],[1240,170,620,770]]];                       // ⑧: the specimen card; the experience, down to the question
 /** A step's phone panels: each entry is a stage rect [x,y,w,h(,source)] on a row of its own, or an array of rects laid side by side. */
 function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=ps.map(e=>typeof e[0]==="number"?[e]:e);
