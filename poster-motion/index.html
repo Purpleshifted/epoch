@@ -157,7 +157,7 @@ body.cursor{cursor:default}
   <div id="listen8" class="abs"><div class="b"></div><div class="o"></div></div>
   <pre id="dbg" class="abs"></pre>
   <div id="inter" class="abs"></div>
-  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT · ← BACK · 1–7 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
+  <div id="hint" class="abs">→ BEGINS THE PRESENTATION · THEN → OR CLICK: NEXT · ← BACK · 1–8 SECTIONS · TITLE: HOME · F FULLSCREEN</div>
   <div id="refs" class="abs"></div>
   <div id="studio" class="abs">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div>
   <div id="kaist" class="abs">KAIST</div>
@@ -191,7 +191,7 @@ const W=1920,H=1080;
 const q=new URLSearchParams(location.search);
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const stage=$("#stage"), cv=$("#cv"), ctx=cv.getContext("2d");
-const WHITE="#e9e9e5", DIM="#9b9c97", FAINT="#55564f", INK="#0b0b0b", NOTE="#f4f4f0";
+const WHITE="#e9e9e5", DIM="#9b9c97", FAINT="#55564f", INK="#0b0b0b", NOTE="#f4f4f0", GREEN="#8fb55a";
 
 /* ---------- helpers ---------- */
 const clamp=(x,a=0,b=1)=>x<a?a:x>b?b:x;
@@ -271,13 +271,15 @@ function ell(cx,cy,rx,ry,col=WHITE,a=1,fillIt=false,lw=1,dash){if(a<=0.005)retur
 /* ---------- data ---------- */
 // RENDERS OF THE WORK ITSELF (the artist, 11/04 night: not drawings — the personal view as it is): assets/pv/*.jpg
 const PV={}; for(const k of ["consent","live","attempt","seeds","call","answered"]){const im=new Image(); im.src=`assets/pv/${k}.jpg`; PV[k]=im;}
+// ⑦: one column, the same render (gallery 02, 2026-11-03): the present near the top, the fused strata lower down
+const REC={}; for(const k of ["present","record"]){const im=new Image(); im.src=`assets/record/${k}.jpg`; REC[k]=im;}
 function drawImg(im,x,y,w,h,a=1){ if(!im||!im.complete||!im.naturalWidth||a<=0.005)return false; ctx.save(); ctx.globalAlpha=clamp(a); ctx.drawImage(im,x,y,w,h); ctx.restore(); return true; }
 const [glyphs,fig,traces]=await Promise.all(["data/glyphs.json","data/figure.json","data/traces.json"].map(u=>fetch(u).then(r=>r.json())));
 const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=11, HOLD=[27,44,56,26,11,43,31,43,44,28,59], PACE=[1,1,0.9,0.9,0.85,1,1,1,1,0.85,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
+const STEPS=12, HOLD=[27,44,37,26,14,42,30,43,33,27,46,51], PACE=[1,1,0.9,0.9,0.85,1,1,1,1,0.85,1,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","①"],
   ["An epoch is interpreted spacetime","①′"],
@@ -288,7 +290,8 @@ const SEC=[["",""],
   ["Inside: one life, in plain words","⑥"],
   ["Sound: the name","⑥′"],
   ["What a name leaves","⑥″"],
-  ["What I designed","⑦"]];
+  ["The present and the record","⑦"],
+  ["What I designed","⑧"]];
 const KEY=[[""],
   ["This work starts from that gap."],
   ["An epoch is spacetime, interpreted."],
@@ -299,7 +302,8 @@ const KEY=[[""],
   ["You keep choosing anyway, and shape your agency as you go."],
   ["One event at two scales."],
   ["You don't get to decide what remains."],
-  ["How do I live with the present, and how do I decide what to do?","neo"]];
+  ["The record keeps no line between the city and the grass."],
+  ["We are not outside nature. From the future, we are one species in the layer."]];
 const REFS={
   1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS statement","n-vote2024"]],
   2:[["Gibbard et al. 2022","n-gibbard2022"],["Linnaeus 1758","n-linnaeus1758"],["Bergson 1907","n-bergson1907"],["Huizinga 1938","n-huizinga1938"]],
@@ -310,7 +314,8 @@ const REFS={
   7:[["The work's rules","rules"]],
   8:[["▶ LISTEN","listen"],["The sound's structure","sound"]],
   9:[["The work's rules","rules"]],
-  10:[["Schiffer 1987","n-schiffer1987"],["Laland et al. 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]]
+  10:[["Corcoran et al. 2014 · plastiglomerate","n-corcoran2014"],["Morton 2007 · Ecology without Nature","n-morton2007"]],
+  11:[["Schiffer 1987","n-schiffer1987"],["Laland et al. 2003","n-laland2003"],["Pauly 1995","n-pauly1995"]]
 };
 const LAB_ORIGIN="https://homo-inventus-lab.vercel.app";   // this branch's app, its own Vercel project — never the show's
 const LIVE_URL=LAB_ORIGIN+"/v2/global/lab?ui=0&sound=mute&cam=turn&snap=1&minutes=24&bots=16&dpr=0.6&dist=200&polar=70&lift=-30"; // a 24-minute column seen whole from a little above (the 8-minute one was a speck at that distance)
@@ -532,6 +537,8 @@ function s3(u){
 function panel(x,y,w,h,en,ko,a){box(x,y,w,h,FAINT,a); txt(en,x,y-14,{px:16,w:700,a}); txt(ko,x+w,y-14,{px:12,col:DIM,a,al:"right"});}
 function s4(u){
   const P=[[160,190],[590,190],[160,560],[590,560]], pw=380, ph=300;
+  // the two codes, said here so ⑦ can take them back: everything human grey, colour only for plants
+  {const a=on(u,7.6,0.6); sq(1106,146,10,a,"#9b9c97"); txt("GREY — everything human",1120,151,{px:12,fam:"Neo",col:DIM,a,ls:1.2}); sq(1406,146,10,a,GREEN); txt("COLOUR — only plants",1420,151,{px:12,fam:"Neo",col:DIM,a,ls:1.2});}
   // each rule plays once on its own clock, ×4, so all four and the wall are done within 10 s
   const R4=4, clock=t0=>Math.max(0,u-t0)*R4;
   // a) stay → slab
@@ -706,7 +713,28 @@ function s6c(u,g){
   [["FOUND","the next one who passes finds the word: “개체 5527이 남긴 말 발견”",7.4],["KEPT","some stay as fossils",8.6],["GONE","some disappear",9.8]].forEach(([k,v,t],i)=>{const a=on(u,t,0.6); txt(k,rx,fy+32+i*34,{px:10,fam:"Neo",col:FAINT,a,ls:1.4}); txt(v,rx+70,fy+32+i*34,{px:15,a});});
 }
 
-/* ---------- ⑦ the record remains: a specimen card ---------- */
+/* ---------- ⑦ the present and the record: two codes on the surface, one mass lower down ---------- */
+function s6d(u,g){
+  const x0=160, x1=1000, y0=200, w=780, h=439;
+  const la=on(u,0.2); panel(x0,y0,w,h,"The present — two codes","현재 — 두 코드",la);
+  drawImg(REC.present,x0,y0,w,h,la);
+  {const a=on(u,1.4,0.5); sq(x0+6,y0+h+31,10,a,"#9b9c97"); txt("GREY — everything human: slabs, paths, pipes",x0+22,y0+h+36,{px:15,a});}
+  {const a=on(u,2.0,0.5); sq(x0+6,y0+h+61,10,a,GREEN); txt("COLOUR — only plants",x0+22,y0+h+66,{px:15,a});}
+  const aa=on(u,3.0,0.6); arrow(x0+w+8,y0+h/2,x1-10,y0+h/2,WHITE,aa,1.5,10); txt("SINKING",x0+w+30,y0+h/2-14,{px:10,fam:"Neo",col:DIM,a:aa,al:"center",ls:1});
+  // lower down: the same column, revealed from the top, the way the strata sink into it
+  const ra=on(u,3.4,0.4), wipe=ease(lin(u,3.4,1.8)); panel(x1,y0,w,h,"Lower down — one mass","아래 — 한 덩어리",ra);
+  if(wipe>0){ctx.save(); ctx.beginPath(); ctx.rect(x1,y0,w,h*wipe); ctx.clip(); drawImg(REC.record,x1,y0,w,h,ra); ctx.restore(); if(wipe<1)line(x1,y0+h*wipe+.5,x1+w,y0+h*wipe+.5,WHITE,0.6*ra);}
+  para("Plants gather on the slabs and rot into peat; the slabs swell around them like bone and coral. Which was building, which was grass?",x1,y0+h+36,{px:15,maxW:w,lh:1.5,a:on(u,5.4,0.6)});
+  txt("THE SAME COLUMN · A RENDER FROM THE WORK, 2026-11-03 · NOTHING MODELLED: FOLDED FROM WHO STAYED AND WALKED WHERE",x0,y0-44,{px:11,fam:"Neo",col:FAINT,a:la,ls:1.1});
+  // the rock already does it
+  const pa=on(u,6.6,0.7), py=y0+h+128;
+  line(x0,py-26.5,x1+w,py-26.5,FAINT,pa);
+  txt("IN THE ROCK ALREADY · 이미 암석에서",x0,py,{px:12,fam:"Neo",col:DIM,a:pa,ls:1.2});
+  txt("Plastiglomerate — plastic melted together with beach sand, lava, shell and wood into one stone.",x0+330,py+1,{px:17,a:pa});
+  txt("Kamilo Beach, Hawai‘i · Corcoran, Moore & Jazvac 2014",x0+330,py+25,{px:13,col:DIM,a:pa});
+}
+
+/* ---------- ⑧ the record remains: a specimen card ---------- */
 function s7(u,g){
   const x=160, y=190; const ta=on(u,0.2);
   txt("SPECIMEN CARD · 개체 기록표 — the end screen of one life (sample values)",x,y-14,{px:12,fam:"Neo",col:DIM,a:ta,ls:1.2});
@@ -733,9 +761,12 @@ function s7(u,g){
   txt("ONE EXPERIENCE · 목표 경험",mx,ya,{px:12,fam:"Neo",col:DIM,a:ta2,ls:1.2});
   para("Feeling your small act enter a whole you can't see.",mx,ya+36,{px:24,w:"700",maxW:560,lh:1.25,a:ta2});
   ["limited sight","everyday sentences","sound before image","a life with an end","a wall where you find your own traces"].forEach((en,i)=>{const a=on(u,4.2+i*0.6,0.5), yl=ya+112+i*32; sq(mx+4,yl-5,5,a); txt(en,mx+20,yl,{px:17,a});});
+  // the question it leaves with, small: the answer is the key line
+  const qa=on(u,7.6,0.8); txt("LEAVING WITH · 남는 질문",mx,ya+296,{px:12,fam:"Neo",col:DIM,a:qa,ls:1.2});
+  para("How do I live with the present, and how do I decide what to do?",mx,ya+322,{px:15,maxW:560,lh:1.4,col:DIM,a:qa});
 }
 
-const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6a,s6,s6c,s7];
+const DRAW=[s0,s1,s1b,s2,s3,s4,s5,s6a,s6,s6c,s6d,s7];
 
 /* ---------- render ---------- */
 function animU(s,u){return u/PACE[s];}
@@ -792,7 +823,8 @@ const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
   const NOTE={2:"Homo sapiens, faber, ludens: named by what they do. Inventus: found — and, in the same word, invented. Homo inventus: humanity named by how it will be found.",
     3:"Body fossil · bones, shells — what it was. Trace fossil · footprints, burrows, nests — what it did. Classified by behaviour, not species · Seilacher, from 1953.",
     5:"The lower picture is recorded from the work: one crowd under its own rules, time compressed.",
-    6:"← industrialisation, centuries ago · NOW · one life, 03:00 · strata tens of thousands of years ahead →"};
+    6:"← industrialisation, centuries ago · NOW · one life, 03:00 · strata tens of thousands of years ahead →",
+    10:"In the rock already: plastiglomerate — plastic melted together with beach sand, lava, shell and wood into one stone. Kamilo Beach, Hawai‘i · Corcoran, Moore & Jazvac 2014."};
   const notesOf=i=>{const d=INTER[i]; if(!d)return ""; let fig=""; try{fig=toDark(d.fig());}catch(err){}
     return `<div class="notes"><div class="tag">${d.tag}</div><div class="q">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div>${d.note?`<div class="note">${d.note}</div>`:""}<h5>SOURCES · 출처</h5><div class="src">${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}">OPEN ↗</a></div>`).join("")}</div></div>`;};
   for(let i=1;i<STEPS;i++){ const sec=document.createElement("section"); sec.className="pg"; sec.dataset.step=String(i);
@@ -868,7 +900,8 @@ const PANELS=[
   [[150,140,870,640],[1040,140,800,640]],                         // ⑥: the screen itself; its words
   [[150,140,960,530],[1130,160,690,720]],                         // ⑥′: one person's harmony; the wall's cell
   [[150,140,830,560],[1010,140,810,730]],                         // ⑥″: a call, an answer, a word, in the log; the wall's seed heads and what becomes of them
-  [[150,145,1040,745],[1240,170,620,680]]];                       // ⑦: the specimen card; the experience
+  [[150,150,800,580],[990,150,800,600]],                          // ⑦: the present with its legend; lower down with its words (the plastiglomerate line: the card's note)
+  [[150,145,1040,745],[1240,170,620,770]]];                       // ⑧: the specimen card; the experience, down to the question
 /** A step's phone panels: each entry is a stage rect [x,y,w,h(,source)] on a row of its own, or an array of rects laid side by side. */
 function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=ps.map(e=>typeof e[0]==="number"?[e]:e);
   const laid=[]; let y=0; for(const row of rows){ const rw=row.reduce((t,q)=>t+q[2],0)+gap*(row.length-1), sc=hw/rw, rh=Math.max(...row.map(q=>q[3]))*sc; let x=0;
@@ -901,11 +934,11 @@ window.__go=n=>{now=performance.now();go(n);render();};
 window.__ready=Promise.all([document.fonts.load("700 20px Pretendard"),document.fonts.load("400 20px Pretendard"),document.fonts.load("20px Neo"),document.fonts.load("900 20px PreBlack").catch(()=>0),document.fonts.load("italic 20px Garamond").catch(()=>0),plan.decode().catch(()=>0)]).then(()=>true);
 let cursorT=0;
 addEventListener("mousemove",()=>{document.body.classList.add("cursor");cursorT=performance.now();});
-const SEC_KEY=[0,1,3,4,5,6,7,10]; // 1–7 → ①–⑦; the ′ and ″ screens are → from there
+const SEC_KEY=[0,1,3,4,5,6,7,10,11]; // 1–8 → ①–⑧; the ′ and ″ screens are → from there
 addEventListener("keydown",e=>{ dbg(`key ${e.key} → step ${step}`);
   if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown"||e.key==="Enter"){e.preventDefault();next();}
   else if(e.key==="ArrowLeft"||e.key==="PageUp"||e.key==="Backspace"){e.preventDefault();back();}
-  else if(/^[0-7]$/.test(e.key)){hideInter(); go(SEC_KEY[+e.key]);}
+  else if(/^[0-8]$/.test(e.key)){hideInter(); go(SEC_KEY[+e.key]);}
   else if(e.key==="Home"){hideInter(); go(0);} else if(e.key==="End"){hideInter(); go(STEPS-1);}
   else if(e.key==="r"){prev=-1;stepAt=now;}
   else if(e.key==="f"||e.key==="F"){try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}catch(err){}}

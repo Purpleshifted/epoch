@@ -3,7 +3,7 @@
 // drawn over it): [MODE=phone|stage] [PORT=9351] [WAIT=7000] [SOFT=1: software GL — the deck's canvas stalls under it] node tools/phoneshots.mjs <baseUrl> <outDir>
 import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { spawn } from "node:child_process";
 const [base, outDir] = process.argv.slice(2); const MODE = process.env.MODE || "phone", PORT = +(process.env.PORT || 9351), WAIT = +(process.env.WAIT || 7000);
-const STEPS = +(process.env.STEPS || 11), ONLY = process.env.ONLY ? process.env.ONLY.split(",").map(Number) : null;
+const STEPS = +(process.env.STEPS || 12), ONLY = process.env.ONLY ? process.env.ONLY.split(",").map(Number) : null;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 fs.mkdirSync(outDir, { recursive: true });
 const udd = fs.mkdtempSync(path.join(os.tmpdir(), "phoneshots-"));
