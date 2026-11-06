@@ -118,6 +118,7 @@ body.cursor{cursor:default}
   .pg .pt b{display:block;font-size:19px;line-height:1.3;font-weight:700}
   .pg .pt .r{display:block;margin-top:8px;font-family:Neo,monospace;font-size:10px;letter-spacing:.1em;color:var(--dim);line-height:1.8}
   .pg .pt .r a{color:var(--white);text-decoration:none;margin-right:10px}
+  .pg .pt .nt{display:block;margin-top:8px;font-size:12.5px;line-height:1.5;color:var(--dim)}
   .pg .pt .nl{display:inline-block;margin-top:10px;font-family:Neo,monospace;font-size:10.5px;letter-spacing:.14em;color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38}
   .lbtns{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
   .lbtns button{font-family:Neo,monospace;font-size:10.5px;letter-spacing:.1em;color:var(--white);background:#000;border:1px solid #55564f;padding:7px 9px}
@@ -367,6 +368,12 @@ function live4Show(on){ if(!shot4.src||shot4.dataset.failed)return;
   if(on&&!shot4On){shot4On=true; shot4.style.display="block"; $("#badge4").style.display="block"; try{shot4.currentTime=Math.min(U(),shot4.duration||U());}catch(e){} shot4.play().catch(()=>{}); requestAnimationFrame(()=>{shot4.style.opacity="1";});}
   else if(!on&&shot4On){shot4On=false; shot4.pause(); shot4.style.opacity="0"; shot4.style.display="none"; $("#badge4").style.display="none";} }
 function live4Next(){ if(step!==5||!shot4On)return; shot4.currentTime=0; shot4.play().catch(()=>{}); } // V: the shot from the start
+// A PHONE: the same shot in a small encode (assets/shot4-phone.mp4, 540 px), drawn into ④'s picture by phoneComposite. It loads once ②③
+// is reached, plays muted and looped while ④ is the screen, and pauses elsewhere; if it fails, the picture keeps the strata drawn under it.
+function phoneShot4(){ if(!PHONE||shot4.dataset.failed)return;
+  if(step>=3&&step<=5&&!shot4.src){ shot4.src="assets/shot4-phone.mp4"; shot4.loop=true; shot4.style.display="block"; shot4.style.opacity="1"; }
+  if(!shot4.src)return;
+  if(step===5){ if(shot4.paused)shot4.play().catch(()=>{}); } else if(!shot4.paused)shot4.pause(); }
 function live3Off(){ if(live3State==="off")return; const f=$("#live3"); f.style.display="none"; f.style.opacity="0"; f.src="about:blank"; topv.pause(); topv.style.display="none"; topv.style.opacity="0"; $("#badge3").style.display="none"; live3State="off"; }
 function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.style.display="none"; live.src="about:blank"; wallv.pause(); wallv.style.display="none"; $("#fallback").style.display="none"; liveState="off"; }
 function s0(u,g){
@@ -742,8 +749,7 @@ function render(){
   for(const id of ["#h-title","#h-homo","#h-sec","#foot","#h-ref","#refs"]) $(id).style.display=t0?"none":"block";
   if(t0)liveOn(); else liveOff();
   // ④'s shot loads during ②③, and shows on ④
-  if(step>=3&&step<=5)live4On();
-  live4Show(step===5);
+  if(PHONE)phoneShot4(); else{ if(step>=3&&step<=5)live4On(); live4Show(step===5); }
   if(!t0&&REFS[step]){ if(refsStep!==step){refsStep=step; $("#refs").innerHTML="REFERENCES ↗"+REFS[step].map(([t,id])=>`<a href="references.html#${id}" target="_blank" rel="noopener">${t}</a>`).join("");} $("#refs").style.opacity=on(u,keyAt(step),1.0).toFixed(3);}
   for(let i=0;i<STEPS;i++) stepsEl.children[i].classList.toggle("on",i===step);
   if(!t0){$("#h-sec b").textContent=SEC[step][0]; $("#h-sec span").textContent=SEC[step][1];
@@ -782,10 +788,15 @@ function back(){ if(inter){hideInter();return;} go(step-1); }
 const PHONE_MQ="(max-width:519px), (max-width:759px) and (pointer:coarse)"; // the stylesheet's own query, so CSS and script agree
 const isPhone=()=>matchMedia(PHONE_MQ).matches; let PHONE=isPhone();
 {const wrap=$("#mpages"), cards=[];
+  // what the slide says in small or late type, said under the picture instead (the phone's picture would make it unreadable)
+  const NOTE={2:"Homo sapiens, faber, ludens: named by what they do. Inventus: found — and, in the same word, invented. Homo inventus: humanity named by how it will be found.",
+    3:"Body fossil · bones, shells — what it was. Trace fossil · footprints, burrows, nests — what it did. Classified by behaviour, not species · Seilacher, from 1953.",
+    5:"The lower picture is recorded from the work: one crowd under its own rules, time compressed.",
+    6:"← industrialisation, centuries ago · NOW · one life, 03:00 · strata tens of thousands of years ahead →"};
   const notesOf=i=>{const d=INTER[i]; if(!d)return ""; let fig=""; try{fig=toDark(d.fig());}catch(err){}
     return `<div class="notes"><div class="tag">${d.tag}</div><div class="q">${d.para?d.q:"“"+d.q+"”"}<small>${d.by}</small></div><div class="fig">${fig}</div>${d.note?`<div class="note">${d.note}</div>`:""}<h5>SOURCES · 출처</h5><div class="src">${d.src.map(([id,l,g])=>`<div><b>${l}</b> <span>— ${g}</span><a href="references.html#n-${id}">OPEN ↗</a></div>`).join("")}</div></div>`;};
   for(let i=1;i<STEPS;i++){ const sec=document.createElement("section"); sec.className="pg"; sec.dataset.step=String(i);
-    sec.innerHTML=`<div class="ph">${SEC[i][1]} · ${SEC[i][0].toUpperCase()}</div><canvas class="pcv" aria-label="${SEC[i][0]}"></canvas><div class="pt"><b>${KEY[i][0]}</b>${i===8?'<div class="lbtns"></div>':""}${REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""}${INTER[i]?`<a class="nl" href="#mn${i}">NOTES ↓</a>`:""}</div>`;
+    sec.innerHTML=`<div class="ph">${SEC[i][1]} · ${SEC[i][0].toUpperCase()}</div><canvas class="pcv" aria-label="${SEC[i][0]}"></canvas><div class="pt"><b>${KEY[i][0]}</b>${NOTE[i]?`<span class="nt">${NOTE[i]}</span>`:""}${i===8?'<div class="lbtns"></div>':""}${REFS[i]?`<span class="r">REFERENCES ↗ ${REFS[i].map(([t,id])=>`<a href="references.html#${id}">${t}</a>`).join("")}</span>`:""}${INTER[i]?`<a class="nl" href="#mn${i}">NOTES ↓</a>`:""}</div>`;
     wrap.appendChild(sec); cards[i]=sec;
     if(INTER[i]){ const n=document.createElement("section"); n.className="pg pg-notes"; n.id=`mn${i}`; n.dataset.step=String(i); n.dataset.notes="1"; n.innerHTML=notesOf(i); wrap.appendChild(n); } }
   window.__cards=cards;
@@ -840,7 +851,7 @@ function soundDemoLine(){ const el=$("#listen8"); const onSlide=step===8; el.sty
 
 /* ---------- control ---------- */
 
-function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; if(PHONE)phoneFadeFrom(); prev=step; step=n; stepAt=now; const cs=window.__cards||[]; cs.forEach((li,i)=>{if(li)li.classList.toggle("on",i===n);});
+function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; if(PHONE)phoneFadeFrom(); if(PHONE&&n===5&&shot4.src){try{shot4.currentTime=0;}catch(err){}} prev=step; step=n; stepAt=now; const cs=window.__cards||[]; cs.forEach((li,i)=>{if(li)li.classList.toggle("on",i===n);});
 }
 /* THE PHONE'S PICTURE (the artist, 11/04 night: no panning — split the diagram by its parts and lay them out to fit):
    each slide's panels (stage rects) re-laid for a portrait window — stacked, two side by side when both are narrow —
@@ -849,17 +860,17 @@ function go(n){n=clamp(n,0,STEPS-1); if(n===step) return; if(PHONE)phoneFadeFrom
 const PANELS=[
   [[1000,500,900,560]],                                           // home: the title corner
   [[60,150,790,760],[1000,160,820,700]],                          // ①: the strata and the spike; the definition and the vote
-  [[810,170,1090,740],[100,180,660,700]],                         // ①′: the pit; the three faces and the title's meaning
-  [[200,170,1520,740]],                                           // ②: one life's trace
-  [[150,150,930,700],[1150,150,620,700]],                         // ③: the ground from above; the section
-  [[150,150,850,740],[1050,150,780,560]],                         // ④: the four rules; the wall's strata
-  [[140,160,1640,90],[150,260,520,570],[730,260,520,570],[1310,300,500,280]],  // ⑤: the timeline; the wall; the headset's reach; the idea
+  [[700,140,1220,770],[140,170,400,530]],                         // ①′: the pit with both arrows and EPOCH; the three faces (the title's meaning: the card's note)
+  [[600,262,720,660]],                                            // ②: one life's trace, close (the two labels: the card's note)
+  [[150,140,930,710],[1150,140,620,450]],                         // ③: the ground from above; the section, to the sewer
+  [[150,150,850,740],[1100,170,720,700,"shot4"]],                 // ④: the four rules; the shot recorded from the work (the strata under it until the video has a frame)
+  [[[150,245,520,615],[730,245,520,615]],[1310,300,480,220]],     // ⑤: the wall and the headset's reach side by side; the idea (the timeline: the card's note)
   [[150,140,870,640],[1040,140,800,640]],                         // ⑥: the screen itself; its words
   [[150,140,960,530],[1130,160,690,720]],                         // ⑥′: one person's harmony; the wall's cell
   [[150,140,830,560],[1010,140,810,730]],                         // ⑥″: a call, an answer, a word, in the log; the wall's seed heads and what becomes of them
-  [[150,130,1040,760],[1240,170,620,680]]];                       // ⑦: the specimen card; the experience
-function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=[];
-  for(let i=0;i<ps.length;i++){ const a=ps[i], b=ps[i+1]; if(b&&a[2]<=760&&b[2]<=760&&a[3]>=300&&b[3]>=300){rows.push([a,b]); i++;} else rows.push([a]); }
+  [[150,145,1040,745],[1240,170,620,680]]];                       // ⑦: the specimen card; the experience
+/** A step's phone panels: each entry is a stage rect [x,y,w,h(,source)] on a row of its own, or an array of rects laid side by side. */
+function phoneLayout(n,hw,hh){ const ps=PANELS[Math.min(n,PANELS.length-1)], gap=10, rows=ps.map(e=>typeof e[0]==="number"?[e]:e);
   const laid=[]; let y=0; for(const row of rows){ const rw=row.reduce((t,q)=>t+q[2],0)+gap*(row.length-1), sc=hw/rw, rh=Math.max(...row.map(q=>q[3]))*sc; let x=0;
     for(const q of row){ const dw=q[2]*sc, dh=q[3]*sc; laid.push({q,dx:x,dy:y+(rh-dh)/2,dw,dh}); x+=dw+gap*sc; } y+=rh+gap; }
   const total=y-gap, f=Math.min(1,hh/total), oy=Math.max(0,(hh-total*f)/2), ox=(hw-hw*f)/2;
@@ -871,7 +882,9 @@ function phoneComposite(nowMs){ const pc=document.querySelector(`#mpages .pg[dat
   const a=pPrev?clamp((nowMs-pFadeT0)/700):1, e=ease(a);
   c.globalAlpha=1; c.fillStyle="#000"; c.fillRect(0,0,hw,hh);
   if(pPrev&&a<1){ c.globalAlpha=1-e; c.drawImage(pPrev,0,0,pPrev.width,pPrev.height,0,0,hw,hh); }
-  c.globalAlpha=pPrev?e:1; for(const l of phoneLayout(step,hw,hh)){ const [sx,sy,sw,sh]=l.q; c.drawImage(cv,sx,sy,sw,sh,l.dx,l.dy,l.dw,l.dh); }
+  c.globalAlpha=pPrev?e:1; for(const l of phoneLayout(step,hw,hh)){ const [sx,sy,sw,sh,src]=l.q;
+    if(src==="shot4"&&shot4.src&&!shot4.dataset.failed&&shot4.readyState>=2){ c.drawImage(shot4,0,0,shot4.videoWidth,shot4.videoHeight,l.dx,l.dy,l.dw,l.dh); continue; } // the phone's own encode of ④'s shot, in the picture
+    c.drawImage(cv,sx,sy,sw,sh,l.dx,l.dy,l.dw,l.dh); }
   c.globalAlpha=1; if(a>=1)pPrev=null; }
 /** Before a section changes on the phone: keep the picture as it is, to fade it out under the next. */
 function phoneFadeFrom(){ const pc=document.querySelector(`#mpages .pg[data-step="${step}"]:not([data-notes]) .pcv`); if(!pc||!pc.width)return; const o=document.createElement("canvas"); o.width=pc.width; o.height=pc.height; o.getContext("2d").drawImage(pc,0,0); pPrev=o; pFadeT0=performance.now(); }
