@@ -141,6 +141,6 @@ PAGE=poster.html node poster-motion/tools/render.mjs  # 지난 시안
 
 ## 2026-11-05
 
-- Deck: eleven steps — ⑥ inside: one life in plain words (`s6a`, real renders in `assets/pv/`), ⑥′ sound: the name (`s6`, situation buttons `#listen8`, `soundButtons()`), ⑥″ what a name leaves (`s6c`, `figSeed`), ⑦. `HOLD` carries the 7-minute script's timing; the key sentence appears by 12 s regardless.
+- Deck: twelve steps — ⑥ inside: one life in plain words (`s6a`, real renders in `assets/pv/`), ⑥′ sound: the name (`s6`, situation buttons `#listen8`, `soundButtons()`), ⑥″ what a name leaves (`s6c`, `figSeed`), ⑦ the present and the record (`s6d`: two crops of gallery 02 in `assets/record/`, plastiglomerate; 11/06, the conclusion that the record keeps no line between human and nature), ⑧ what I designed (`s7`). `HOLD` carries the 7-minute script's timing; the key sentence appears at 9 s. Number keys 1–8 go to ①–⑧.
 - Phone: one screen per section (`#mpages`, `.pg`, scroll-snap), each with its own picture (`phoneComposite` into the page's `.pcv`), notes as the next screen; mobile type. The probe = the page under 40 % of the viewport.
 - Renders: `tools/shots.mjs` with `KEYS="6:Space,37:Enter,44:W+6,…"` (press / hold) and `UDD=` (reuse a profile) films the real personal view; `?demo=1` hides the session HUD — leave it out. The lab's `?seeds=N` plants seed heads for a render.
