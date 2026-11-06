@@ -34,7 +34,7 @@ export interface LifeConfig {
   /** Seconds a session lasts once the role is fixed. */
   lifeSec: number;
   /**
-   * The range a life's length is drawn from when it begins (the artist, 2026-11-03: 30 s to 2 min). `lifeSec` is then the
+   * The range a life's length is drawn from when it begins (the artist, 2026-11-03: 30 s to 2 min; 2026-11-06: 45 s at least). `lifeSec` is then the
    * length the times below were set for, and they follow the drawn one (drawLife). Absent: every life is lifeSec.
    */
   lifeMinSec?: number;

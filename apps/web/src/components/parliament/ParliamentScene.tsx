@@ -377,7 +377,7 @@ export default function ParliamentScene() {
         phoneMode: { options: PHONE_MODE_OPTIONS, value: "touch" as "touch" | "tilt", label: "폰 조작", render: v2 },
         helpLine: { value: false, label: "자살일 때 상담전화 한 줄", render: v2 },
         noticeLineSec: { value: NOTICE_LINE_SEC, min: 0.2, max: 3, step: 0.1, label: "안내 줄 간격 (s)", render: v2 },
-        lifeMinSec: { value: 30, min: 10, max: 900, step: 5, label: "수명 최소 (s, 실제 시간; 삶이 시작될 때 이 사이에서 무작위)", render: v2 },
+        lifeMinSec: { value: 45, min: 10, max: 900, step: 5, label: "수명 최소 (s, 실제 시간; 삶이 시작될 때 이 사이에서 무작위)", render: v2 },
         lifeMaxSec: { value: 120, min: 10, max: 900, step: 5, label: "수명 최대 (s)", render: v2 },
         lifeSec: { value: DEFAULT_LIFE.lifeSec, min: 20, max: 900, step: 5, label: "기준 수명 (s; 아래 시간들은 이 길이에 맞춘 값이고, 실제 수명에 비례해 줄어듦)", render: v2 },
         warnSec: { value: DEFAULT_LIFE.warnSec, min: 0, max: 120, step: 1, label: "끝이 느껴지는 마지막 (s)", render: v2 },
