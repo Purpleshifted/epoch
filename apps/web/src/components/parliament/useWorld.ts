@@ -266,7 +266,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     pourUnit: { value: D.pourUnit, min: 1, max: 200, step: 1, label: "한 단 올리는 양 (worker·s)" },
     minVisitors: { value: D.minVisitors, min: 1, max: 12, step: 1, label: "생성에 필요한 서로 다른 방문자 수" },
     visitorCap: { value: D.visitorCap, min: 1, max: 120, step: 1, label: "방문자 1명이 한 칸에 낼 수 있는 최대 (worker·s)" },
-    playerWeight: { value: D.playerWeight, min: 1, max: 10, step: 0.5, label: "사람 기여 배수 (봇은 ×1, 상한도 같이)", render: v2 },
+    playerWeight: { value: D.playerWeight, min: 1, max: 100, step: 1, label: "사람 기여 배수 (봇은 ×1, 상한도 같이)", render: v2 },
     playerHeads: { value: D.playerHeads, min: 1, max: 4, step: 1, label: "사람 머릿수 (생성에 필요한 방문자 수에서 사람 1명 몫)", render: v2 },
     maxHeight: { value: D.maxHeight, min: 1, max: 20, step: 1, label: "최대 높이 (단)" },
     tauSlabYears: { value: D.tauSlabYears, min: 10, max: 30000, step: 10, label: "슬래브 마모 시간 (년)" },
