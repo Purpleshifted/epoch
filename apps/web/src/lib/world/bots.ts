@@ -9,7 +9,7 @@
  * The events are the same as a wall's, named by the same grid (`bot3:<world ms>`), so an overlap with a wall counts once.
  * Off: WORLD_SERVER_BOTS=0.
  */
-import { botActor, botPlan, type Flock } from "@/lib/parliament/bots";
+import { STOPOVERS_DEFAULT, botActor, botPlan, type Flock } from "@/lib/parliament/bots";
 import { sessionSeconds } from "@/lib/parliament/clock";
 import { steerBot } from "@/lib/parliament/flow";
 import { FoldState } from "@/lib/parliament/foldState";
@@ -55,7 +55,7 @@ export function botRuleOf(saved: Saved): BotRule | null {
   return {
     count: num(b.botCount, 12),
     role: typeof b.botRole === "string" ? (b.botRole as RoleId | "mixed") : "worker",
-    flock: { groups: num(b.botGroups, 4), spread: num(b.botSpread, 14), timeSpread: num(b.botTimeSpread, 60), stayMin: num(b.botStayMin, 0), overlapSec: num(b.botOverlapSec, 60), character: num(b.botCharacter, 0) },
+    flock: { groups: num(b.botGroups, 4), spread: num(b.botSpread, 14), timeSpread: num(b.botTimeSpread, 60), stayMin: num(b.botStayMin, 0), overlapSec: num(b.botOverlapSec, 60), character: num(b.botCharacter, 0), stopovers: num(b.botStopovers, STOPOVERS_DEFAULT) },
     fold: followWallRule(DEFAULT_FOLD, saved(WALL_FOLD_GROUP), saved(WALL_FLOW_GROUP)),
   };
 }

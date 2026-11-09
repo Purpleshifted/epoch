@@ -35,7 +35,7 @@ import { geoYears } from "@/lib/stratum/geoClock";
 import { FOLD_EPS, FOLD_MIN_ALPHA, FOLD_MIN_FOOT, rawHeightOf, type Region } from "./fold";
 import { MAX_STEP_SEC, flowP, stayShareOf, treadCells, type FlowConfig } from "./flow";
 import type { NatureConfig } from "./nature";
-import { presenceWeight, type Contributor, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
+import { presenceHeads, presenceWeight, type Contributor, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 import { wrapCell, wrapCoord, wrapDelta, wrapDist } from "./world";
 
 const nkOf = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768);
@@ -80,6 +80,8 @@ class Cell {
   t0: number[] = [];
   // ── live state: a function of the arrays above (replay rebuilds it) ──
   own = new Map<number, number>();
+  /** How many visitors `own` is (FoldConfig.playerHeads). */
+  heads = 0;
   lo = 0;
   capped = 0;
   nuc = -1;
@@ -111,6 +113,7 @@ class Cell {
 
   reset(): void {
     this.own = new Map();
+    this.heads = 0;
     this.lo = 0;
     this.capped = 0;
     this.nuc = -1;
@@ -136,6 +139,7 @@ interface Checkpoint {
   nuc: number;
   mass: number;
   own: Map<number, number>;
+  heads: number;
   total: Map<number, number>;
   first: Map<number, number>;
   last: Map<number, number>;
@@ -161,6 +165,7 @@ function checkpoint(c: Cell): Checkpoint {
     nuc: c.nuc,
     mass: c.mass,
     own: new Map(c.own),
+    heads: c.heads,
     total: new Map(c.total),
     first: new Map(c.first),
     last: new Map(c.last),
@@ -186,6 +191,7 @@ function restore(c: Cell, k: Checkpoint): void {
   c.nuc = k.nuc;
   c.mass = k.mass;
   c.own = k.own;
+  c.heads = k.heads;
   c.total = k.total;
   c.first = k.first;
   c.last = k.last;
@@ -237,6 +243,8 @@ export class FoldState {
   private readonly names: string[] = [];
   /** What each owner's presence counts for, by the same index as `names`. */
   private readonly weights: number[] = [];
+  /** How many visitors each owner is, likewise. */
+  private readonly heads: number[] = [];
   private readonly cells = new Map<number, Cell>();
   private readonly seen = new Set<string>();
   private F = -Infinity;
@@ -276,6 +284,7 @@ export class FoldState {
       L = { o: this.names.length, s: [], x: [], z: [], id: [], stay: [], settled: 0, lastTick: this.tick, lastCell: NaN };
       this.names.push(e.o);
       this.weights.push(presenceWeight(e.o, this.cfg));
+      this.heads.push(presenceHeads(e.o, this.cfg));
       this.lines.set(e.o, L);
     }
     const x = wrapCoord(e.x);
@@ -354,6 +363,7 @@ export class FoldState {
     this.lines.clear();
     this.names.length = 0;
     this.weights.length = 0;
+    this.heads.length = 0;
     this.cells.clear();
     this.seen.clear();
     this.F = -Infinity;
@@ -433,6 +443,7 @@ export class FoldState {
     if (c.nuc < 0) {
       const prev = c.own.get(o) ?? 0;
       const next = prev + w * dt;
+      if (!c.own.has(o)) c.heads += this.heads[o];
       c.own.set(o, next);
       c.capped += weight * (Math.min(cap, next) - Math.min(cap, prev));
       while (s - c.s[c.lo] >= cfg.windowSec) {
@@ -441,6 +452,7 @@ export class FoldState {
         const m = this.weights[c.o[c.lo]];
         if (q <= FOLD_EPS) {
           c.own.delete(c.o[c.lo]);
+          c.heads -= this.heads[c.o[c.lo]];
           c.capped -= m * Math.min(cap, p);
         } else {
           c.own.set(c.o[c.lo], q);
@@ -449,7 +461,7 @@ export class FoldState {
         c.lo++;
       }
       const blocked = !!flow && flowP(this.levelAt(c, c.gc, c.gq, s, flow.tauSec), flow) >= flow.blockAt;
-      if (c.capped >= cfg.threshold - FOLD_EPS && c.own.size >= cfg.minVisitors && !blocked) c.nuc = j;
+      if (c.capped >= cfg.threshold - FOLD_EPS && c.heads >= cfg.minVisitors && !blocked) c.nuc = j;
     }
     const prev = c.total.get(o) ?? 0;
     const next = prev + w * dt;

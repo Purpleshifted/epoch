@@ -9,11 +9,11 @@ import { DEFAULT_FLOW, type FlowConfig } from "./flow";
 import type { FoldConfig } from "./types";
 
 /** The wall's own defaults for the worker rule (tuned on screen 2026-10-07), under what it has saved. */
-export const SPACE_FOLD = { radius: 2.75, threshold: 40, pourUnit: 111, minVisitors: 4, visitorCap: 20, playerWeight: 3, maxHeight: 18, tauFootprintYears: 2000, emptyGapSec: 20 };
+export const SPACE_FOLD = { radius: 2.75, threshold: 40, pourUnit: 111, minVisitors: 4, visitorCap: 20, playerWeight: 6, playerHeads: 2, maxHeight: 18, tauFootprintYears: 2000, emptyGapSec: 20 };
 export const WALL_FOLD_GROUP = "생성 규칙 (회사원 시공간 밀집)";
 export const WALL_FLOW_GROUP = "길 → 다리.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)";
 
-const FOLD_KEYS = ["radius", "windowSec", "threshold", "pourUnit", "minVisitors", "visitorCap", "playerWeight", "maxHeight", "tauSlabYears", "tauFootprintYears", "pathVisits", "tauPathYears"] as const;
+const FOLD_KEYS = ["radius", "windowSec", "threshold", "pourUnit", "minVisitors", "visitorCap", "playerWeight", "playerHeads", "maxHeight", "tauSlabYears", "tauFootprintYears", "pathVisits", "tauPathYears"] as const;
 /** The saved names of the path rules (useFoldControls), and what they are in the rule. */
 const FLOW_KEYS: Record<string, keyof FlowConfig> = { stayRadius: "stayRadius", staySec: "staySec", moveShare: "moveShare", tauSec: "tauSec", flowUnit: "unit", blockAt: "blockAt", pull: "pull", gridShare: "gridShare" };
 

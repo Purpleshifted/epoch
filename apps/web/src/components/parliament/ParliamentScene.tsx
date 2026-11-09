@@ -356,6 +356,9 @@ export default function ParliamentScene() {
   const onAnswer = useCallback(() => {
     answers.current++;
   }, []);
+  // who is asking the visitor something (SessionHud), and the layer that turns the frame over when a house is born (RoleField)
+  const askerRef = useRef<string | null>(null);
+  const flashRef = useRef<HTMLDivElement>(null);
   const v2 = () => isV2;
   // V2: while the player view is up the page answers only to the piece (no selection, zoom, scroll, menus)
   usePageLock(isV2);
@@ -528,11 +531,14 @@ export default function ParliamentScene() {
           grass={isV2 ? visuals.grass : undefined}
           marks={isV2 ? visuals.marks : undefined}
           answers={answers}
+          askerRef={askerRef}
+          flashRef={flashRef}
         />
       </Canvas>
+      <div ref={flashRef} className="pointer-events-none absolute inset-0 bg-white" style={{ opacity: 0, mixBlendMode: "difference" }} />
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={session.lifeSec || lifeMaxSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={session.lifeSec || lifeMaxSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} askerRef={askerRef} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} warm={withSession && touchDevice() && (session.phase === "notice" || session.phase === "consent" || session.phase === "headset" || session.phase === "name")} />}

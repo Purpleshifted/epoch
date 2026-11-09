@@ -53,6 +53,19 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(weak.bass).toEqual([]);
   });
 
+  it("someone has asked: their voice alone, call and response, even walking and even if another is nearer", () => {
+    const s = sig({ speed: 3, neighbours: [near("bot1"), near("v_b", 5)], asker: "v_b" });
+    const even = planBar(inputs(2, s));
+    expect(even.answer).toBe(false);
+    expect(even.others.map((v) => v.o)).toEqual(["v_b"]);
+    const odd = planBar(inputs(3, s));
+    expect(odd.answer).toBe(true);
+    expect(odd.me).toEqual([]);
+    expect(odd.others.map((v) => v.o)).toEqual(["v_b"]);
+    // gone from earshot: as if nobody had asked
+    expect(planBar(inputs(3, sig({ speed: 3, neighbours: [near("bot1")], asker: "v_b" }))).answer).toBe(false);
+  });
+
   it("walking among others: everybody plays on the grid, no call and response", () => {
     const s = sig({ speed: 3, neighbours: [near("bot1"), near("v_b", 5)] });
     for (const bar of [0, 1]) {

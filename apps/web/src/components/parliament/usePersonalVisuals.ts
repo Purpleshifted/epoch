@@ -47,6 +47,10 @@ export interface MarksVisual {
   others: { on: boolean; size: number; height: number; bright: number; recentSec: number; halo: number; haloStrength: number; fog: boolean; pulseHz: number; holdSec: number; snap: boolean; square: boolean };
   concrete: { on: boolean; height: number; bright: number; radius: number; style: ConcreteStyle; outlineScale: number };
   burst: { on: boolean; count: number; reach: number; lifeSec: number; dot: number };
+  /** The name over each other being (brutal look only): one note of it in `cell` px; how it stands out when it speaks. */
+  names: { on: boolean; cell: number; rest: number; rise: number; hop: number };
+  /** A house being born where I stand, on the same bars as the sound's cadence. */
+  arrival: { on: boolean; flash: boolean; heave: number; burst: number };
   on: boolean;
 }
 
@@ -107,6 +111,19 @@ export function usePersonalVisuals(): PersonalVisuals {
         burstReach: { value: 2.6, min: 0.3, max: 10, step: 0.1, label: "퍼지는 거리 (월드)", render: v2 },
         burstLife: { value: 1.2, min: 0.2, max: 5, step: 0.1, label: "지속 (s)", render: v2 },
         burstDot: { value: 0.07, min: 0.02, max: 0.4, step: 0.01, label: "점 크기 (월드)", render: v2 },
+      }),
+      "타인의 이름 · 말 걸기": folder({
+        nameOn: { value: true, label: "켜기", render: v2 },
+        nameCell: { value: 4, min: 1, max: 8, step: 1, label: "이름 한 칸 (px)", render: v2 },
+        nameRest: { value: 0.45, min: 0.05, max: 1, step: 0.05, label: "평소 밝기", render: v2 },
+        nameRise: { value: 24, min: 0, max: 100, step: 2, label: "말을 걸 때 떠오르는 높이 (px)", render: v2 },
+        nameHop: { value: 14, min: 0, max: 60, step: 1, label: "음마다 튀는 높이 (px)", render: v2 },
+      }),
+      "함께 짓기 (도착)": folder({
+        arrivalOn: { value: true, label: "켜기", render: v2 },
+        arrivalFlash: { value: true, label: "화면 반전", render: v2 },
+        arrivalHeave: { value: 2, min: 0, max: 6, step: 0.25, label: "건물이 솟는 정도 (× 높이)", render: v2 },
+        arrivalBurst: { value: 4, min: 0, max: 6, step: 0.5, label: "터지는 점 (응답의 몇 배; 0 = 없음)", render: v2 },
       }),
       "풀 (식생)": folder({
         grassThick: { value: 2, min: 1, max: 6, step: 0.25, label: "두께 — 세로 분포 배율 (1 = 예전)", render: v2 },
@@ -176,9 +193,11 @@ export function usePersonalVisuals(): PersonalVisuals {
       },
       concrete: { on: c.concreteOn, height: c.concreteHeight, bright: brutal ? 1 : c.concreteBright, radius: c.concreteRadius, style: brutal ? c.concreteStyle : "lines", outlineScale: c.outlineScale },
       burst: { on: c.burstOn, count: c.burstCount, reach: c.burstReach, lifeSec: c.burstLife, dot: c.burstDot },
+      names: { on: brutal && c.nameOn, cell: c.nameCell, rest: c.nameRest, rise: c.nameRise, hop: c.nameHop },
+      arrival: { on: c.arrivalOn, flash: c.arrivalFlash, heave: c.arrivalHeave, burst: c.arrivalBurst },
       on: c.othersOn || c.concreteOn,
     }),
-    [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
+    [c.nameOn, c.nameCell, c.nameRest, c.nameRise, c.nameHop, c.arrivalOn, c.arrivalFlash, c.arrivalHeave, c.arrivalBurst, brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
   return { look: c.look, footprint: c.footprint, grass, marks };
 }

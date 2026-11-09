@@ -61,6 +61,11 @@ export interface Flock {
   /** Seconds over which a flock's bots leave for the new place (staggered). */
   overlapSec?: number;
   /**
+   * With moving flocks: how many places a flock keeps coming back to, always in the same order, as a flyway has its
+   * stopovers (the artist, 2026-11-09: a place is what is returned to, a species what returns). 0 = somewhere new each time.
+   */
+  stopovers?: number;
+  /**
    * FLOCK CHARACTER (0 = all the same, the old behaviour … 1 = very different): per flock, by its own hash, how close
    * the bots keep (wander radius ×0.4 … ×1.8), how much they walk, and — with moving flocks — how long it stays at a
    * place (×0.5 … ×2): a close, staying flock builds a tall narrow tower; a loose, restless one leaves wide low ones.
@@ -69,6 +74,8 @@ export interface Flock {
 }
 
 export const ONE_FLOCK: Flock = { groups: 1, spread: 0 };
+/** Flock.stopovers on the wall, and for the bots that go on with no wall open, when nothing has been saved. */
+export const STOPOVERS_DEFAULT = 5;
 
 /** Centre of flock g at `sec` seconds after the bots were switched on. */
 export function flockCentre(g: number, groups: number, spread: number, sec: number): [number, number] {
@@ -146,8 +153,10 @@ function flockPlace(g: number, groups: number, flock: Flock, sec: number, delay:
   const stay = stayMin * 60 * flockCharacter(g, flock.character ?? 0).stay;
   const u = sec - delay + hash2(g, 4, 131) * stay;
   const n = Math.floor(u / stay);
-  const place = (k: number): [number, number] => {
-    if (k <= 0) return flockCentre(g, groups, flock.spread, sec);
+  const stops = Math.round(flock.stopovers ?? 0);
+  const place = (nth: number): [number, number] => {
+    if (nth <= 0) return flockCentre(g, groups, flock.spread, sec);
+    const k = stops > 0 ? ((nth - 1) % stops) + 1 : nth;
     const a = hash2(g * 977 + k, 5, 131) * Math.PI * 2;
     const r = flock.spread * Math.sqrt(hash2(g * 977 + k, 6, 131));
     return [Math.cos(a) * r, Math.sin(a) * r];

@@ -1728,7 +1728,7 @@ function Markers({
         if (t) walkToHeard(t, m, leadSec);
         else tracks.current.set(m.o, newMarkTrack(m.x, m.z, m.s, 0.32, performance.now()));
       }
-      for (const head of relay.current.drainHeads()) log.add(head);
+      for (const e of relay.current.drainEvents()) log.add(e);
     }
     for (const t of tracks.current.values()) {
       if (t.left > 0) {

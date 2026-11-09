@@ -74,6 +74,8 @@ export interface PersonalSignals {
   coBuilders?: string[];
   /** My largest weight on those slabs (0 when none). */
   myBuild?: number;
+  /** Who has asked me something and not had an answer (witness.ts): theirs is the voice in the air until then. */
+  asker?: string | null;
 }
 
 /** A BUILDING: sealed slabs that touch, as one; its harmonic zone grows with its mass (tonality.ts). */

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HEARD_MS, MarkerListener, MarkerSender, RelaySocket, markText, openMarkerListener, openMarkerSender, parseHead, parseMark } from "./markerRelay";
+import { HEARD_MS, MarkerListener, MarkerSender, RelaySocket, markText, openMarkerListener, openMarkerSender, parseHead, parseMark, sampleOf, sampleText } from "./markerRelay";
 
 class FakeSocket {
   readyState = 0;
@@ -160,8 +160,55 @@ describe("the visitor's side", () => {
     wall.made[0].open();
     wall.made[0].say(text);
     expect(listener.drain()).toEqual([]);
-    expect(listener.drainHeads()).toEqual([{ ...e, x: 1.23, s: 60.13 }]);
-    expect(listener.drainHeads()).toEqual([]);
+    expect(listener.drainEvents()).toEqual([{ ...e, x: 1.23, s: 60.13 }]);
+    expect(listener.drainEvents()).toEqual([]);
+  });
+
+  it("a presence sample is a place too, and reaches the wall's log under its id in the record", () => {
+    const { made, make, clock, read } = setup();
+    const sender = new MarkerSender(new RelaySocket("wss://x", () => {}, make, read), read, () => 900);
+    sender.tick(place);
+    made[0].open();
+    sender.tick(place);
+    sender.tick(place);
+    const e = { id: "v_abc12:t4x:8", o: "v_abc12", r: "worker" as const, k: "p" as const, x: 1.23456, z: 2, s: 60.1266 };
+    sender.sample(e, 0.5, EPOCH);
+    const text = made[0].sent[made[0].sent.length - 1];
+    const sent = { ...e, x: 1.2346, s: 60.127 };
+
+    const wall = setup();
+    const listener = new MarkerListener("wss://x", wall.make, wall.read, () => String(EPOCH), () => 1000);
+    listener.drain();
+    wall.made[0].open();
+    wall.made[0].say(text);
+    expect(listener.drain().map((m) => m.o)).toEqual(["v_abc12"]);
+    expect(listener.drainEvents()).toEqual([sent]);
+    expect(listener.live().has("v_abc12")).toBe(true);
+
+    // standing still the samples are the only lines: the next keep-alive waits for them
+    const count = places(made[0]).length;
+    clock.now += 1200;
+    sender.tick(place);
+    expect(places(made[0]).length).toBe(count);
+    clock.now += 400;
+    sender.tick(place);
+    expect(places(made[0]).length).toBe(count + 1);
+  });
+
+  it("a sample is believed only if its id could be this visitor's", () => {
+    const e = { id: "v_abc12:t4x:8", o: "v_abc12", r: "worker" as const, k: "p" as const, x: 1, z: 2, s: 3 };
+    const line = JSON.parse(sampleText(e, 0, EPOCH, 900, 80)) as object;
+    expect(sampleOf(parseMark(JSON.stringify(line))!)).toEqual(e);
+    expect(sampleOf(parseMark(JSON.stringify({ ...line, p: "v_other:t4x:8" }))!)).toBeNull();
+    expect(sampleOf(parseMark(JSON.stringify({ ...line, p: 8 }))!)).toBeNull();
+    expect(sampleOf(parseMark(markText(mark))!)).toBeNull();
+  });
+
+  it("a sample stays inside the relay's limit at its longest", () => {
+    const e = { id: "v_abcdefghijkl:abcd:123456789012", o: "v_abcdefghijkl", r: "worker" as const, k: "p" as const, x: -79.9999, z: -79.9999, s: 123456.789 };
+    const text = sampleText(e, -3.14, 1_800_000_000_000, 1_800_000_000_000, 12345);
+    expect(text.length).toBeLessThan(200);
+    expect(sampleOf(parseMark(text)!)?.id).toBe(e.id);
   });
 
   it("a seed head is believed only if it could be a visitor's, in this epoch", () => {
@@ -176,7 +223,7 @@ describe("the visitor's side", () => {
     listener.drain();
     made[0].open();
     made[0].say(JSON.stringify(line));
-    expect(listener.drainHeads()).toEqual([]);
+    expect(listener.drainEvents()).toEqual([]);
   });
 
   it("turning on the spot is news too, and the place says when it left and how far the relay is", () => {

@@ -5,7 +5,8 @@
  * (human traces). The lists are renewed with the fold (RoleField, 0.5 s); the heights that follow the eye are set
  * every frame from the camera.
  *   OtherDots      a glowing point (core + halo, additive) on the ground for every being within the view; or, in the
- *                  brutal version, a hard white square blinking the being's own rhythm, like the visitor's own
+ *                  brutal version, a hard white square blinking the being's own rhythm, like the visitor's own, with
+ *                  its name over it (the wall's own pattern), which rises and hops on its melody when it speaks
  *   ConcreteLines  a vertical line from the ground up through the frame on every sealed slab cell
  *   ConcreteOutline a brutal version: the building as a line drawing, its edges and the joints between its cells
  *   AnswerBurst    the answer: a burst of hard white points, gone in a moment
@@ -16,12 +17,68 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { hash2, outlineSegments, rhythmOf, scatterPoints, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
+import { GLYPH_COLS, GLYPH_ROWS, glyphOf, hash2, outlineSegments, rhythmOf, scatterPoints, stepAt, type ConcreteLine, type GlyphDot, type OtherMark } from "@/lib/parliament";
 
 export interface MarksData {
   others: OtherMark[];
   concrete: ConcreteLine[];
 }
+
+/** What the names follow: who speaks, where the music is, and the arrival's bars (RoleField). */
+export interface NameVoice {
+  asker: string | null;
+  step: number;
+  into: number;
+  /** The arrival's bar now: which, and how far through it (0 … 1). */
+  arrival: { phase: "dominant" | "tonic"; t: number } | null;
+  /** Who stands with me when it comes. */
+  near: ReadonlySet<string>;
+}
+
+export interface NameLook {
+  cell: number;
+  rest: number;
+  rise: number;
+  hop: number;
+}
+
+const NAME_VERTEX = /* glsl */ `
+uniform vec2 px;
+uniform float cell;
+uniform float ratio;
+attribute vec2 offset;
+attribute float shade;
+attribute float lift;
+attribute float end;
+varying float vShade;
+varying float vEnd;
+void main() {
+  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  p.xy += (offset * cell + vec2(0.0, 4.5 * cell + lift * ratio)) * px * p.w;
+  gl_Position = p;
+  gl_PointSize = cell;
+  vShade = shade;
+  vEnd = end;
+}
+`;
+
+const NAME_FRAGMENT = /* glsl */ `
+uniform float gap;
+varying float vShade;
+varying float vEnd;
+void main() {
+  if (gl_PointCoord.y > 1.0 - gap || (vEnd > 0.5 && gl_PointCoord.x > 1.0 - gap)) discard;
+  gl_FragColor = vec4(vec3(vShade), 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+/** How far over the square (× its size, world) a name's anchor stands. */
+const NAME_ABOVE = 0.6;
+const NAME_RISE_MS = 300;
+/** A note's hop: up at once, back down over this many steps. */
+const HOP_STEPS = 1.6;
+const hopAt = (d: number) => (d < HOP_STEPS ? (1 - d / HOP_STEPS) ** 2 : 0);
 
 const MAX_OTHERS = 128;
 const MAX_CONCRETE = 6000;
@@ -85,6 +142,8 @@ export function OtherDots({
   holdSec = 4,
   snap = true,
   square = false,
+  names = null,
+  getVoice,
 }: {
   getMarks: () => MarksData | null;
   size?: number;
@@ -105,6 +164,9 @@ export function OtherDots({
   pulseHz?: number;
   /** The brutal version: hard squares that blink each being's rhythm (glyph.ts), no glow, no fog, seen through walls. */
   square?: boolean;
+  /** The brutal version: the names over the squares (null = none). */
+  names?: NameLook | null;
+  getVoice?: () => NameVoice | null;
 }) {
   const lastStep = useRef(-1);
   const group = useRef<THREE.Group>(null);
@@ -113,6 +175,33 @@ export function OtherDots({
   const tex = useMemo(() => glowTexture(), []);
   const geom = useMemo(() => lineGeom(MAX_OTHERS), []);
   const haloGeom = useMemo(() => lineGeom(MAX_OTHERS), []);
+  const nameGeom = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const n = MAX_OTHERS * GLYPH_COLS;
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute("offset", new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+    g.setAttribute("shade", new THREE.BufferAttribute(new Float32Array(n), 1));
+    g.setAttribute("lift", new THREE.BufferAttribute(new Float32Array(n), 1));
+    g.setAttribute("end", new THREE.BufferAttribute(new Float32Array(n), 1));
+    g.setDrawRange(0, 0);
+    return g;
+  }, []);
+  const nameMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: NAME_VERTEX,
+        fragmentShader: NAME_FRAGMENT,
+        uniforms: { px: { value: new THREE.Vector2(0.001, 0.001) }, cell: { value: 3 }, ratio: { value: 1 }, gap: { value: 0 } },
+        depthTest: false,
+        depthWrite: false,
+      }),
+    [],
+  );
+  /** Where each name's cells are in `nameGeom`. */
+  const nameAt = useRef<{ id: string; from: number; dots: readonly GlyphDot[] }[]>([]);
+  const nameMoving = useRef(false);
+  const asked = useRef<{ who: string | null; at: number }>({ who: null, at: 0 });
+  const buffer = useMemo(() => new THREE.Vector2(), []);
   const timer = useRef(10);
   /** Each being's held place: where its light stands and when it may next move (frame-clock seconds). */
   const held = useRef(new Map<string, { x: number; z: number; next: number; bright: number; moving: boolean; seen: number }>());
@@ -120,9 +209,11 @@ export function OtherDots({
     () => () => {
       geom.dispose();
       haloGeom.dispose();
+      nameGeom.dispose();
+      nameMat.dispose();
       tex.dispose();
     },
-    [geom, haloGeom, tex],
+    [geom, haloGeom, nameGeom, nameMat, tex],
   );
   useFrame((state, dt) => {
     if (group.current) group.current.position.y = height;
@@ -192,6 +283,81 @@ export function OtherDots({
       pos.needsUpdate = true;
       col.needsUpdate = true;
     }
+    if (!names || !square) return;
+    // the names stand where the squares do; `end` marks the last cell of each note, so that the notes stay apart
+    const attr = (k: string) => nameGeom.getAttribute(k) as THREE.BufferAttribute;
+    const P = attr("position").array as Float32Array, O = attr("offset").array as Float32Array, S = attr("shade").array as Float32Array, L = attr("lift").array as Float32Array, E = attr("end").array as Float32Array;
+    const at = nameAt.current;
+    at.length = 0;
+    let v = 0;
+    for (let i = 0; i < n; i++) {
+      const [id, h] = shown[i];
+      const dots = glyphOf(id);
+      at.push({ id, from: v, dots });
+      for (const d of dots) {
+        for (let k = 0; k < d.len; k++) {
+          P[v * 3] = h.x;
+          P[v * 3 + 1] = size * NAME_ABOVE;
+          P[v * 3 + 2] = h.z;
+          O[v * 2] = d.col + k - (GLYPH_COLS - 1) / 2;
+          O[v * 2 + 1] = (GLYPH_ROWS - 1) / 2 - d.row;
+          S[v] = names.rest;
+          L[v] = 0;
+          E[v] = k === d.len - 1 ? 1 : 0;
+          v++;
+        }
+      }
+    }
+    nameGeom.setDrawRange(0, v);
+    for (const k of ["position", "offset", "shade", "lift", "end"]) attr(k).needsUpdate = true;
+    nameMoving.current = true; // a speaker's name is drawn again in this frame, below
+  });
+  // the names: still, until someone speaks. Who asks rises and hops on their melody, its sounding note lit, the others
+  // dimmed; when a house is born those with me rise through the leaning bar and jump together on the beats of the next
+  useFrame((state) => {
+    if (!names || !square) return;
+    state.gl.getDrawingBufferSize(buffer);
+    const ratio = state.gl.getPixelRatio();
+    const cell = names.cell * ratio;
+    const u = nameMat.uniforms;
+    u.px.value.set(2 / buffer.x, 2 / buffer.y);
+    u.cell.value = cell;
+    u.ratio.value = ratio;
+    u.gap.value = cell > 2 ? 1 / cell : 0;
+    const voice = getVoice?.() ?? null;
+    const now = performance.now();
+    const who = voice?.asker ?? null;
+    if (who !== asked.current.who) asked.current = { who, at: now };
+    const speaking = who !== null && held.current.has(who);
+    const active = speaking || !!voice?.arrival;
+    if (!active && !nameMoving.current) return;
+    nameMoving.current = active;
+    const shade = nameGeom.getAttribute("shade") as THREE.BufferAttribute;
+    const lift = nameGeom.getAttribute("lift") as THREE.BufferAttribute;
+    const S = shade.array as Float32Array, L = lift.array as Float32Array;
+    const up = 1 - (1 - Math.min(1, (now - asked.current.at) / NAME_RISE_MS)) ** 2;
+    for (const { id, from, dots } of nameAt.current) {
+      const together = !!voice?.arrival && voice.near.has(id);
+      const speaks = speaking && id === who;
+      let y = 0;
+      if (together && voice?.arrival) y = voice.arrival.phase === "dominant" ? names.rise * voice.arrival.t : names.rise + names.hop * hopAt((voice.step % 2) + voice.into);
+      else if (speaks && voice) {
+        const note = dots.find((d) => voice.step >= d.col && voice.step < d.col + d.len);
+        y = up * names.rise + (note ? names.hop * hopAt(voice.step - note.col + voice.into) : 0);
+      }
+      const dim = speaking && !speaks && !together ? 0.5 : 1;
+      let v = from;
+      for (const d of dots) {
+        const lit = speaks && !!voice && voice.step >= d.col && voice.step < d.col + d.len;
+        for (let k = 0; k < d.len; k++) {
+          S[v] = together || lit ? 1 : speaks ? Math.min(1, names.rest * 1.5) : names.rest * dim;
+          L[v] = y;
+          v++;
+        }
+      }
+    }
+    shade.needsUpdate = true;
+    lift.needsUpdate = true;
   });
   if (square) {
     return (
@@ -199,6 +365,7 @@ export function OtherDots({
         <points geometry={geom} frustumCulled={false} renderOrder={10}>
           <pointsMaterial key="square" ref={coreMat} size={size} sizeAttenuation vertexColors fog={false} depthTest={false} />
         </points>
+        {names && <points geometry={nameGeom} material={nameMat} frustumCulled={false} renderOrder={11} />}
       </group>
     );
   }
@@ -257,11 +424,13 @@ export function ConcreteLines({ getMarks, height = 40, bright = 0.6 }: { getMark
  * outer edges and the joint between every two cells, as tall as the slabs (× `scale`), in hard white 1 px lines. The
  * inside is empty: what stands behind it stays visible.
  */
-export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => MarksData | null; scale?: number }) {
+export function ConcreteOutline({ getMarks, scale = 1, getHeave }: { getMarks: () => MarksData | null; scale?: number; getHeave?: () => number }) {
   const geom = useMemo(() => lineGeom(MAX_OUTLINE_SEGS * 2), []);
+  const lines = useRef<THREE.LineSegments>(null);
   const timer = useRef(10);
   useEffect(() => () => geom.dispose(), [geom]);
   useFrame((_, dt) => {
+    if (lines.current) lines.current.scale.y = 1 + (getHeave?.() ?? 0);
     timer.current += dt;
     if (timer.current < REFRESH) return;
     timer.current = 0;
@@ -276,7 +445,7 @@ export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => Marks
     col.needsUpdate = true;
   });
   return (
-    <lineSegments geometry={geom} frustumCulled={false}>
+    <lineSegments ref={lines} geometry={geom} frustumCulled={false}>
       <lineBasicMaterial vertexColors fog={false} />
     </lineSegments>
   );

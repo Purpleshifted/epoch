@@ -175,6 +175,17 @@ describe("moving flocks × flock character (2026-11-01)", () => {
     for (let m = 0; m < 30; m += 1) places.add(at(0, m * 60_000).map((v) => Math.round(v)).join(","));
     expect(places.size).toBeGreaterThan(3);
   });
+  it("with stopovers a flock comes back to the same places in the same order", () => {
+    const stay = 120_000;
+    const fl = { groups: 1, spread: 30, timeSpread: 60, stayMin: stay / 60_000, overlapSec: 0 };
+    const at = (stopovers: number, t: number) => { const p = botPlan(0, start + t, start, start, 0, { ...fl, stopovers }); return [p.bx, p.bz]; };
+    for (const t of [700_000, 830_000, 1_010_000]) {
+      expect(at(3, t + 3 * stay)[0]).toBeCloseTo(at(3, t)[0], 9);
+      expect(at(3, t + 3 * stay)[1]).toBeCloseTo(at(3, t)[1], 9);
+      expect(Math.hypot(at(3, t + stay)[0] - at(3, t)[0], at(3, t + stay)[1] - at(3, t)[1])).toBeGreaterThan(0.1);
+      expect(Math.hypot(at(0, t + 3 * stay)[0] - at(0, t)[0], at(0, t + 3 * stay)[1] - at(0, t)[1])).toBeGreaterThan(0.1);
+    }
+  });
   it("flock character makes some flocks keep close and some wander wide", () => {
     const spread = (g: number, c: number) => {
       let r = 0;

@@ -51,6 +51,13 @@ export function glyphOf(id: string): GlyphDot[] {
   return g;
 }
 
+/** A group written down: everyone's melodies on one score, the name of those who stayed together (the artist, 2026-11-09). */
+export function groupGlyphOf(ids: readonly string[]): GlyphDot[] {
+  const dots = new Map<string, GlyphDot>();
+  for (const id of ids) for (const d of glyphOf(id)) dots.set(`${d.col},${d.row},${d.len}`, d);
+  return [...dots.values()];
+}
+
 const sameDots = (a: readonly GlyphDot[], b: readonly GlyphDot[]) => a.length === b.length && a.every((d, i) => d.col === b[i].col && d.row === b[i].row);
 
 /**

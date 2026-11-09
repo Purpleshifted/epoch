@@ -59,13 +59,15 @@ import {
   type PEvent,
   type RoleId,
   type Snapshot,
+  STEP_MS,
+  stepAt,
   worldNow,
 } from "@/lib/parliament";
 import { touchDevice } from "@/lib/parliament/serverWorld";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
-import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
+import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData, type NameVoice } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import { RELAY_SEND_MS, openMarkerSender, type MarkerSender } from "@/lib/parliament/markerRelay";
@@ -86,6 +88,12 @@ const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
 const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
 const KEEP_EVERY_MS = 30_000; // how often (world time) the history window moves on (older events are dropped everywhere)
 const KEEP_MIN_WALL_MS = 3000; // … but not more often than this in wall time (a fast world clock)
+/** The frame turns over on a house's tonic, twice (ms from its start): from, to. */
+const FLASHES: readonly (readonly [number, number])[] = [
+  [0, 160],
+  [260, 360],
+];
+const NOBODY: ReadonlySet<string> = new Set();
 
 export interface ParliamentDebug {
   role: RoleId;
@@ -146,6 +154,8 @@ export function RoleField({
   grass,
   marks,
   answers,
+  askerRef,
+  flashRef,
   sessionNo = 0,
   visitorRef,
 }: {
@@ -186,6 +196,10 @@ export function RoleField({
   visitorRef?: React.MutableRefObject<Visitor | null>;
   /** How many answers the visitor has given (SessionHud): each leaves a seed head where they stand. */
   answers?: React.MutableRefObject<number>;
+  /** Who has asked the visitor something (SessionHud): their name rises and their voice is the clearest. */
+  askerRef?: React.MutableRefObject<string | null>;
+  /** The layer over the frame that turns it over when a house is born. */
+  flashRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -240,6 +254,9 @@ export function RoleField({
   // answers already turned into a seed head (the count lives in ParliamentScene, across lives), and the last one's burst here
   const answered = useRef(answers?.current ?? 0);
   const burst = useRef<BurstAt | null>(null);
+  // a house being born where I stand: its burst, and the tonic it has already been fired for
+  const arrivalBurst = useRef<BurstAt | null>(null);
+  const firedCue = useRef(0);
   // who has been sending samples (aliveOwners)
   const seenOwners = useRef(new Map<string, { s: number; at: number }>());
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
@@ -331,7 +348,11 @@ export function RoleField({
       // the visitor is only where they stand NOW: after a freeze their missed samples are not backfilled;
       // V2: and only while their session is live (before the role is drawn, and after the end, they leave nothing)
       const present = !lifeRef || lifeRef.current.phase === "live";
-      if (present && now - w < period * 1.5) actors.push({ o: me.current.id, r: myRole, x: p.x, z: p.z, s: sessionSeconds(w, epochMs.current, me.current.offset) });
+      if (present && now - w < period * 1.5) {
+        // to the walls at once as well (markerRelay.ts): they build from it seconds before the record brings it
+        const mine = emit(me.current.id, myRole, "p", p.x, p.z, sessionSeconds(w, epochMs.current, me.current.offset));
+        if (myRole === "worker") relay.current?.sample(mine, playerYawRef?.current ?? 0, epochMs.current);
+      }
       for (let i = 0; i < nBots; i++) actors.push(steer(botActor(i, theirRole === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : theirRole, w, botStartMs.current, epochMs.current, me.current.offset, flock), i, w));
       for (const a of actors) emit(a.o, a.r, "p", a.x, a.z, a.s);
     }
@@ -370,6 +391,41 @@ export function RoleField({
     if (lifeRef && lifeRef.current.phase !== "live") return;
     const p = playerPosRef.current;
     relay.current.tick({ o: me.current.id, x: wrapCoord(p.x), z: wrapCoord(p.z), s: sessionSeconds(worldNow(), epochMs.current, me.current.offset), y: playerYawRef?.current ?? 0, e: epochMs.current });
+  });
+
+  // what the arrival does to the frame, on the bars the sound leans and breaks on (engine.ts arrivalCue)
+  const arrivalNow = () => {
+    const cue = marks?.arrival.on && lifeRef?.current.phase === "live" ? sound?.engine.arrivalCue : null;
+    if (!cue) return null;
+    const t = performance.now() - cue.atMs;
+    return t >= 0 && t < cue.barMs ? { cue, ms: t, t: t / cue.barMs } : null;
+  };
+  const voiceNow = (): NameVoice => {
+    const now = performance.now();
+    const at = sound?.engine.musicStep ?? { step: stepAt(now), into: (now % STEP_MS) / STEP_MS };
+    const a = arrivalNow();
+    return {
+      asker: askerRef?.current ?? null,
+      step: at.step,
+      into: at.into,
+      arrival: a && { phase: a.cue.phase, t: a.t },
+      near: a ? new Set(witnessRef?.current?.others.filter((o) => o.dist <= cfg.radius).map((o) => o.o)) : NOBODY,
+    };
+  };
+  const heaveNow = () => {
+    const a = arrivalNow();
+    const height = marks?.arrival.heave ?? 0;
+    if (!a) return 0;
+    return height * (a.cue.phase === "dominant" ? 0.25 * a.t : 0.25 + 0.75 * (1 - a.t) ** 2);
+  };
+  useFrame(() => {
+    const a = arrivalNow();
+    if (flashRef?.current) flashRef.current.style.opacity = a && a.cue.phase === "tonic" && marks?.arrival.flash && FLASHES.some(([from, to]) => a.ms >= from && a.ms < to) ? "1" : "0";
+    if (a?.cue.phase === "tonic" && firedCue.current !== a.cue.atMs) {
+      firedCue.current = a.cue.atMs;
+      const { x, z } = playerPosRef.current;
+      arrivalBurst.current = { id: `arrival:${a.cue.atMs}`, x, y: BURST_Y, z, atMs: performance.now() };
+    }
   });
 
   // the name is up: the visitor's melody, with a gap, over and over; it stops when the life begins
@@ -443,7 +499,7 @@ export function RoleField({
           t: lifeRef?.current.t ?? 0,
           words: wordsRef.current,
           alive,
-          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS, buildNeeds: cfg.minVisitors },
+          cfg: { ...DEFAULT_WITNESS, nearRadius: cfg.radius, farRadius: VIEW_RADIUS, buildNeeds: Math.max(1, cfg.minVisitors - (cfg.playerHeads - 1)) },
         });
         // the ledger of this life: only while LIVE (after the end it keeps the life's last reading); it reads the
         // WHOLE world (its totals, my slabs wherever they are), so less often than the drawing
@@ -509,7 +565,7 @@ export function RoleField({
         const present = !lifeRef || lifeRef.current.phase === "live";
         sound.engine.update(
           present ? me.current.id : "",
-          present ? sig : { ...sig, neighbours: [] },
+          present ? { ...sig, asker: askerRef?.current ?? null } : { ...sig, neighbours: [] },
           muffleSound(sound.params, lifeRef?.current),
           playerYawRef?.current ?? 0,
           epochMs.current,
@@ -574,6 +630,7 @@ export function RoleField({
       )}
       <PathLines playerPosRef={playerPosRef} getSnapshot={() => snap.current} brightness={pathLine} radius={VIEW_RADIUS} />
       {marks?.burst.on && <AnswerBurst getBurst={() => burst.current} count={marks.burst.count} reach={marks.burst.reach} lifeSec={marks.burst.lifeSec} dot={marks.burst.dot} />}
+      {marks?.arrival.on && marks.arrival.burst > 0 && <AnswerBurst getBurst={() => arrivalBurst.current} count={marks.burst.count * marks.arrival.burst} reach={marks.burst.reach * marks.arrival.burst} lifeSec={marks.burst.lifeSec * 1.5} dot={marks.burst.dot * 1.5} />}
       {marks?.others.on && (
         <OtherDots
           getMarks={() => marksRef.current}
@@ -587,10 +644,12 @@ export function RoleField({
           holdSec={marks.others.holdSec}
           snap={marks.others.snap}
           square={marks.others.square}
+          names={marks.names.on ? marks.names : null}
+          getVoice={voiceNow}
         />
       )}
       {marks?.concrete.on && marks.concrete.style === "lines" && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
-      {marks?.concrete.on && marks.concrete.style === "outline" && <ConcreteOutline getMarks={() => marksRef.current} scale={marks.concrete.outlineScale} />}
+      {marks?.concrete.on && marks.concrete.style === "outline" && <ConcreteOutline getMarks={() => marksRef.current} scale={marks.concrete.outlineScale} getHeave={heaveNow} />}
     </>
   );
 }

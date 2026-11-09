@@ -19,7 +19,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { flowLevel, flowP, flowTracks, inUseAt, stayShares, type Track } from "./flow";
-import { DEFAULT_FOLD, presenceWeight, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
+import { DEFAULT_FOLD, presenceHeads, presenceWeight, type FoldConfig, type PathCell, type PEvent, type Slab, type Snapshot } from "./types";
 import { wrapCell, wrapDist } from "./world";
 
 /** A footprint fainter than this is gone. */
@@ -129,10 +129,12 @@ export function foldWorld(
     const own = new Map<string, number>();
     let lo = 0;
     let capped = 0;
+    let heads = 0;
     let nuc = -1;
     for (let j = 0; j < s.length; j++) {
       const prev = own.get(o[j]) ?? 0;
       const next = prev + w[j] * dt;
+      if (!own.has(o[j])) heads += presenceHeads(o[j], cfg);
       own.set(o[j], next);
       capped += presenceWeight(o[j], cfg) * (Math.min(cap, next) - Math.min(cap, prev));
       while (s[j] - s[lo] >= cfg.windowSec) {
@@ -141,6 +143,7 @@ export function foldWorld(
         const m = presenceWeight(o[lo], cfg);
         if (q <= EPS) {
           own.delete(o[lo]);
+          heads -= presenceHeads(o[lo], cfg);
           capped -= m * Math.min(cap, p);
         } else {
           own.set(o[lo], q);
@@ -148,7 +151,7 @@ export function foldWorld(
         }
         lo++;
       }
-      if (capped >= cfg.threshold - EPS && own.size >= cfg.minVisitors && !blocked(key, s[j])) {
+      if (capped >= cfg.threshold - EPS && heads >= cfg.minVisitors && !blocked(key, s[j])) {
         nuc = j;
         break;
       }

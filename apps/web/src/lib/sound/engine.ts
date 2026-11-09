@@ -21,7 +21,7 @@
 import { chordName, magentaChordName, type WorldKey } from "./harmony";
 import { Magenta } from "./magenta";
 import { makeMotif, midiToHz, realize, type Motif } from "./motif";
-import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalState, type BarPlan } from "./sequencer";
+import { ARRIVAL_IDLE, barClock, lockOf, nextArrival, planBar, type ArrivalPhase, type ArrivalState, type BarPlan } from "./sequencer";
 import { bestKey, keyName, zoneChord, zoneOf } from "./tonality";
 import type { KnobSources } from "./noisecraftKnobs";
 import { applyOutput, makeLimiter, onOutputChange } from "./output";
@@ -236,6 +236,8 @@ const OTHER_FADE_SEC = 1.5;
 const MAGENTA_AFTER_MS = 4000;
 /** The others heard at once (nearest first): an HRTF panner per bot was what lagged with a dozen bots (v4 A1). */
 const MAX_VOICES = 4;
+/** The voice of who has asked me something, against the others' level: the clearest thing around. */
+const ASKER_LEVEL = 2.2;
 
 /** A room: exponentially decaying noise, with `taps` early reflections for hard surfaces. */
 function impulse(ctx: AudioContext, seconds: number, decay: number, taps = 0, bright = 1): AudioBuffer {
@@ -355,6 +357,8 @@ export class SoundEngine {
   /** 1 right after an arrival's tonic, fading: the hall stays open a moment. */
   private arrivalGlow = 0;
   private arrivalAt = 0;
+  /** The last arrival bar as it reaches the ears (performance.now() ms): what the screen does on it (Marks.tsx). */
+  arrivalCue: { phase: NonNullable<ArrivalPhase>; atMs: number; barMs: number } | null = null;
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
@@ -449,6 +453,21 @@ export class SoundEngine {
     const p = this.params;
     if (p.instrument === "webaudio" || !this.sig) return p.barSec;
     return p.barSec * (1 - p.clockPull * lockOf(this.sig));
+  }
+
+  /** Where the bars are counted from (wall ms): the patch's clock carries the phase when it plays, else the epoch. */
+  private gridEpochMs(barSec: number): number {
+    return this.params.instrument !== "webaudio" && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
+  }
+
+  /** Where the music is: the step of its bar (8 to a bar) and how far into it, for what moves in time; null before it runs. */
+  get musicStep(): { step: number; into: number } | null {
+    if (!this.running || !this.epochMs) return null;
+    const barSec = this.musicBarSec();
+    const inBar = (((Date.now() - this.gridEpochMs(barSec)) / 1000 / barSec) % 1) + 1;
+    const pos = (inBar % 1) * 8;
+    const step = Math.floor(pos);
+    return { step, into: pos - step };
   }
 
   /** The patch's clock carries the grid's phase: bar `bar` starts at `wallMs` (NoiseCraftDriver). */
@@ -901,6 +920,7 @@ export class SoundEngine {
     const alive = new Set<string>();
     const heard = sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES);
     heard.forEach((n, rank) => {
+      const level = n.o === sig.asker ? params.othersLevel * ASKER_LEVEL : params.othersLevel;
       alive.add(n.o);
       let v = this.voices.get(n.o);
       if (!v) {
@@ -908,7 +928,7 @@ export class SoundEngine {
         this.voices.set(n.o, v);
       }
       v.seen = t;
-      v.level = params.othersLevel;
+      v.level = level;
       v.gain.gain.setTargetAtTime(v.level, t, 0.4);
       if (v.panner) {
         const model = rank === 0 ? "HRTF" : "equalpower";
@@ -1344,10 +1364,7 @@ export class SoundEngine {
     const p = this.params;
     const now = ctx.currentTime;
     const barSec = this.musicBarSec();
-    // the grid: the patch's clock carries the phase when it plays (anchor), else the epoch on the wall clock
-    const nc = p.instrument !== "webaudio";
-    const epoch = nc && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
-    const { bar, start } = barClock(epoch, Date.now(), now, barSec);
+    const { bar, start } = barClock(this.gridEpochMs(barSec), Date.now(), now, barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
     if (this.planned > bar + 1) {
       // the grid moved back (the patch's clock took over from the epoch grid, or the other way round): the bars
@@ -1362,6 +1379,7 @@ export class SoundEngine {
 
     const plan = this.planFor(next);
     if (!plan) return;
+    if (plan.arrival) this.arrivalCue = { phase: plan.arrival, atMs: performance.now() + (nextStart - now) * 1000, barMs: barSec * 1000 };
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 

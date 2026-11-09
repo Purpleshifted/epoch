@@ -30,6 +30,7 @@ import {
   formatEntry,
   formatStatus,
   glyphOf,
+  groupGlyphOf,
   individualNo,
   ledgerSummary,
   linesShown,
@@ -162,6 +163,7 @@ export function SessionHud({
   coarse = false,
   footprint = true,
   onAnswer,
+  askerRef,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -187,6 +189,8 @@ export function SessionHud({
   footprint?: boolean;
   /** The visitor answered someone: it leaves a seed head (RoleField). */
   onAnswer?: () => void;
+  /** Where to say who is asking (RoleField: their name and voice stand out until they are answered). */
+  askerRef?: React.MutableRefObject<string | null>;
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   const S = SCRIPT[lang];
@@ -231,9 +235,13 @@ export function SessionHud({
       if (warn >= WATCH_FROM_WARN) log.keptWatch(obs.t);
       const controls = coarse ? obs.t < CONTROLS_SEC : locked && Date.now() - lockedAt.current < CONTROLS_SEC * 1000;
       setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), controls });
+      if (askerRef) askerRef.current = log.asker();
     }, POLL_MS);
-    return () => clearInterval(id);
-  }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef]);
+    return () => {
+      clearInterval(id);
+      if (askerRef) askerRef.current = null;
+    };
+  }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef, askerRef]);
 
   // 살아가기: into the world, taking the pointer on the way (a click or a key is what the browser wants for that); the
   // keys count only once the name has been up a moment, so a key pressed for the headset does not go straight through
@@ -257,8 +265,9 @@ export function SessionHud({
     const me = witnessRef.current?.me;
     if (!me || !log.answer(session.lifeRef.current.t, me)) return;
     onAnswer?.();
+    if (askerRef) askerRef.current = null;
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary(), asking: false }));
-  }, [log, session.lifeRef, witnessRef, onAnswer]);
+  }, [log, session.lifeRef, witnessRef, onAnswer, askerRef]);
   useEffect(() => {
     if (phase !== "live") return;
     const onKey = (e: KeyboardEvent) => {
@@ -456,7 +465,10 @@ export function SessionHud({
                   </span>
                 </div>
                 <CardRow label={S.ended.own}>{rec.me && <Glyph dots={glyphOf(rec.me)} cell={5} />}</CardRow>
-                <CardRow label={S.ended.group}>{S.ended.groupRow(rec.group.length, rec.ensembleSec)}</CardRow>
+                <CardRow label={S.ended.group}>
+                  <span>{S.ended.groupRow(rec.group.length, rec.ensembleSec)}</span>
+                  {rec.group.length > 0 && <Glyph dots={groupGlyphOf([rec.me, ...rec.group])} cell={4} />}
+                </CardRow>
                 <CardRow label={S.ended.word}>
                   <span>{S.ended.wordRow(rec.newWords.length, rec.asked)}</span>
                   {rec.newWords.length > 0 && <Glyph dots={rec.newWords[rec.newWords.length - 1]} cell={4} />}

@@ -61,6 +61,11 @@ export interface FoldConfig {
    * `minVisitors`.
    */
   playerWeight: number;
+  /**
+   * How many visitors a person is for `minVisitors` (a bot: one), so that a person among a few bots can start a house
+   * (the artist, 2026-11-09: weight alone changes nothing while the count is short).
+   */
+  playerHeads: number;
   /** Distinct visitors that must have been in the ball (inside the time window) before a slab can nucleate. */
   minVisitors: number;
   maxHeight: number;
@@ -90,6 +95,7 @@ export const DEFAULT_FOLD: FoldConfig = {
   pourUnit: 15,
   visitorCap: 15,
   playerWeight: 1,
+  playerHeads: 1,
   minVisitors: 3,
   maxHeight: 6,
   sampleSec: 1,
@@ -102,6 +108,8 @@ export const DEFAULT_FOLD: FoldConfig = {
 
 /** What a presence of `o` counts for (FoldConfig.playerWeight): a bot once. */
 export const presenceWeight = (o: string, cfg: FoldConfig): number => (o.startsWith("bot") ? 1 : cfg.playerWeight);
+/** How many visitors `o` is for `minVisitors` (FoldConfig.playerHeads): a bot one. */
+export const presenceHeads = (o: string, cfg: FoldConfig): number => (o.startsWith("bot") ? 1 : cfg.playerHeads);
 
 
 export interface Slab {

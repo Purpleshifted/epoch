@@ -47,6 +47,7 @@ import {
   sharedClock,
   stepLifecycle,
   type Clock,
+  STOPOVERS_DEFAULT,
   sessionSeconds,
   setKeepFrom,
   steerBot,
@@ -159,6 +160,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       botStayMin: { value: 0, min: 0, max: 30, step: 0.5, label: "상주 › 무리가 한 자리에 머무는 시간 (분; 0 = 자리 고정)", render: showResident },
       botCharacter: { value: 0, min: 0, max: 1, step: 0.05, label: "상주 › 무리 성격 차이 (0 = 모두 같음; 모임 · 걷기 · 머무는 시간이 무리마다 다름)", render: showResident },
       botOverlapSec: { value: 60, min: 0, max: 300, step: 5, label: "상주 › 자리 옮길 때 겹치는 시간 (초; 봇이 하나씩 떠남)", render: showResident },
+      botStopovers: { value: STOPOVERS_DEFAULT, min: 0, max: 20, step: 1, label: "상주 › 기항지 수 (같은 곳을 같은 순서로 되돌아옴; 0 = 매번 새 곳)", render: showResident },
     }),
     { order, collapsed: !enabled },
   );
@@ -168,8 +170,8 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   const session = false;
   const nBots = on && !session ? b.botCount : 0;
   const flock = useMemo<Flock>(
-    () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
-    [b.botGroups, b.botSpread, b.botTimeSpread, b.botStayMin, b.botOverlapSec, b.botCharacter],
+    () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter, stopovers: b.botStopovers }),
+    [b.botGroups, b.botSpread, b.botTimeSpread, b.botStayMin, b.botOverlapSec, b.botCharacter, b.botStopovers],
   );
   const lc = useMemo<LifecycleConfig>(
     () => ({

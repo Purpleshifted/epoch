@@ -3,9 +3,15 @@
  */
 import { describe, expect, it } from "vitest";
 import { makeMotif } from "@/lib/sound/motif";
-import { GLYPH_COLS, GLYPH_ROWS, glyphDots, glyphOf, individualNo, newWordOf, rhythmOf, stepAt } from "./index";
+import { GLYPH_COLS, GLYPH_ROWS, glyphDots, glyphOf, groupGlyphOf, individualNo, newWordOf, rhythmOf, stepAt } from "./index";
 
 describe("the glyph", () => {
+  it("a group's name holds every member's melody, whatever the order", () => {
+    const name = groupGlyphOf(["v_a", "bot1", "bot2"]);
+    for (const id of ["v_a", "bot1", "bot2"]) for (const d of glyphOf(id)) expect(name).toContainEqual(d);
+    expect(new Set(groupGlyphOf(["bot2", "v_a", "bot1"]).map((d) => `${d.col},${d.row},${d.len}`))).toEqual(new Set(name.map((d) => `${d.col},${d.row},${d.len}`)));
+  });
+
   it("every melody fits the box, one dot per note, in the order it sounds", () => {
     for (let i = 0; i < 400; i++) {
       const id = `x${i}`;

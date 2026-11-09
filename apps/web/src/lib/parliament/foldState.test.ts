@@ -146,6 +146,19 @@ describe("foldState: the same ground as the batch fold, grown instead of refolde
     expect(foldWorld([...stand("bot0"), ...stand("visitor")], 60, { ...cfg, playerWeight: 10 }).slabs).toHaveLength(0);
   });
 
+  it("a person who is two visitors: the same ground in both folds", () => {
+    runAgainstBatch({ ...V2, minVisitors: 4, playerHeads: 2 }, 240, 17);
+  });
+
+  it("the count: a person can start a house with fewer bots, a bot cannot, and two people need none", () => {
+    const stand = (o: string): PEvent[] => Array.from({ length: 60 }, (_, s) => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x: 0.6, z: 0.6, s }));
+    const cfg: FoldConfig = { ...DEFAULT_FOLD, minVisitors: 4, playerWeight: 2, playerHeads: 2 };
+    expect(foldWorld([...stand("visitor"), ...stand("bot0")], 60, cfg).slabs).toHaveLength(0);
+    expect(foldWorld([...stand("visitor"), ...stand("bot0"), ...stand("bot1")], 60, cfg).slabs.length).toBeGreaterThan(0);
+    expect(foldWorld([...stand("bot0"), ...stand("bot1"), ...stand("bot2")], 60, cfg).slabs).toHaveLength(0);
+    expect(foldWorld([...stand("visitor"), ...stand("visitor2")], 60, cfg).slabs.length).toBeGreaterThan(0);
+  });
+
   it("V1 (no flow): desire paths by visits", () => {
     const { checks } = runAgainstBatch(DEFAULT_FOLD, 240, 6);
     expect(checks).toBeGreaterThan(30);

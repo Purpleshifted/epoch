@@ -18,6 +18,7 @@ describe("a visitor goes by the rule the wall has saved", () => {
 
   it("the wall's weight on a person reaches the phone", () => {
     expect(followWallRule(own, { ...FOLD, playerWeight: 5 }, FLOW).playerWeight).toBe(5);
+    expect(followWallRule(own, { ...FOLD, playerHeads: 3 }, FLOW).playerHeads).toBe(3);
   });
 
   it("nothing saved: the wall's defaults, not the phone's", () => {
@@ -33,9 +34,11 @@ describe("a visitor goes by the rule the wall has saved", () => {
 
   it("three who stay build nothing where the wall asks for four, as on the wall", () => {
     const stand = (o: string, x: number): PEvent[] => Array.from({ length: 60 }, (_, s) => ({ id: `${o}:${s}`, o, r: "worker", k: "p", x, z: 0.3, s }));
-    const three = ["a", "b", "c"].flatMap((o, i) => stand(o, 0.3 + i * 0.1));
+    const three = ["bot1", "bot2", "bot3"].flatMap((o, i) => stand(o, 0.3 + i * 0.1));
     expect(foldWorld(three, 60, own).slabs.length).toBeGreaterThan(0);
     expect(foldWorld(three, 60, followWallRule(own, FOLD, FLOW)).slabs.length).toBe(0);
-    expect(foldWorld([...three, ...stand("d", 0.6)], 60, followWallRule(own, FOLD, FLOW)).slabs.length).toBeGreaterThan(0);
+    expect(foldWorld([...three, ...stand("bot4", 0.6)], 60, followWallRule(own, FOLD, FLOW)).slabs.length).toBeGreaterThan(0);
+    // a person is two of the four (the wall's default)
+    expect(foldWorld([...stand("bot1", 0.3), ...stand("bot2", 0.4), ...stand("v_a", 0.5)], 60, followWallRule(own, FOLD, FLOW)).slabs.length).toBeGreaterThan(0);
   });
 });
