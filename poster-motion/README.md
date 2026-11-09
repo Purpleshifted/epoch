@@ -160,3 +160,12 @@ The script now runs on the artist's three origin questions, so the deck does too
 - Question above, answer below: `ASK` puts the question in the paper band on ①′, ②, ③ and ⑦ (`#h-ask`); `KEY` at the foot is its answer. On a phone the question sits under the section line.
 - ① now ends on the three questions, with the rejection's reasons beside 4 : 12, marked as reported by members because no official reasons were published.
 - `HOLD` follows the script's 175 wpm timing (about 6:57 in all).
+
+## 11/09 — the outline on screen; one grid; things arrive, only change moves
+
+Feedback: the talk's structure was too small to see, and the motion and the uneven placements read as generated.
+
+- **Outline:** the bottom of every screen names the three acts (22 px) with a tick per screen. The cover carries the design question in the paper band and the same outline.
+- **Grid:** one left edge (160) and one right edge (1760) for header, figures, key line and references. Figures start at 170–200 and share their bottom edges. Change a figure's position and its rect in `PANELS` (the phone crops) together.
+- **Motion:** `on()` is now a cut on a shared 1 s beat: text and frames arrive whole. `mv()` is reserved for what actually changes in a diagram. `st()` and `snap()` make movement tick from cell to cell. Gone: staggered fades, the typewriter and its blinking cursor, particle bursts, sine drift, the radial glow.
+- ③ is drawn in the work's cells: worn paths, slabs with uneven edges, square pipes.
