@@ -38,7 +38,7 @@ body.cursor{cursor:default}
 #fallback{position:absolute;left:0;top:220px;width:1920px;height:860px;overflow:hidden;display:none}
 #fallback img{position:absolute;left:180px;top:-150px;width:1560px;-webkit-mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,transparent 150px,#000 250px,#000 72%,transparent 100%)}
 #live,#wallv{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 150px);mask-image:linear-gradient(180deg,transparent 0,#000 150px)}
-#shade{position:absolute;left:0;top:640px;width:1920px;height:440px;background:linear-gradient(180deg,rgba(0,0,0,0) 0,rgba(0,0,0,.86) 45%,rgba(0,0,0,.96) 100%);display:none;pointer-events:none}
+#shade{position:absolute;left:0;top:560px;width:1920px;height:520px;background:linear-gradient(180deg,rgba(0,0,0,0) 0,rgba(0,0,0,.86) 45%,rgba(0,0,0,.96) 100%);display:none;pointer-events:none}
 #live3{position:absolute;left:161px;top:171px;width:899px;height:659px;border:0;background:#000;display:none;z-index:3;pointer-events:none}
 #wallv{position:absolute;left:0;top:220px;width:1920px;height:860px;object-fit:cover;background:#000;display:none;pointer-events:none}
 #topv{position:absolute;left:161px;top:171px;width:899px;height:659px;object-fit:cover;background:#000;display:none;z-index:3;pointer-events:none}
@@ -63,8 +63,8 @@ body.cursor{cursor:default}
 #h-ref a,#ref0 a{color:#3c3d3a;text-decoration:none;margin-left:18px}
 #h-ref a:hover,#ref0 a:hover{color:var(--ink)}
 #ref0{right:208px;top:100px;font-family:Neo,monospace;font-size:14px;letter-spacing:.14em;white-space:nowrap}
-#notice{left:64px;top:760px;width:1100px;color:var(--white);opacity:0}
-#notice span{display:block;font-family:Neo,monospace;font-size:34px;line-height:1.6;white-space:nowrap}
+#notice{left:64px;top:736px;width:1100px;color:var(--white);opacity:0}
+#notice span{display:block;font-family:Neo,monospace;font-size:50px;line-height:1.5;white-space:nowrap}
 #notice p{margin:14px 0 0;font-size:16px;line-height:1.55;color:var(--dim)}
 #foot{left:160px;top:916px;width:1600px;opacity:0}
 #foot p{margin:0;font-size:34px;font-weight:700;line-height:1.25;letter-spacing:-.01em}
@@ -194,7 +194,7 @@ body.cursor{cursor:default}
   <section class="pg pg-home" data-step="0">
     <header><div class="st">2026 ID40009 Graduation Design Studio<small>발견된 인류 · HOMO INVENTUS · 참여형 미디어아트 설치 · 2026</small></div><div class="kaist">KAIST</div></header>
     <canvas id="mhome" width="1080" height="1240" aria-label="발견된 인류 — the wall's column under the title"></canvas>
-    <p class="n" data-step="0"><span>미래의 고고학자들이 멸망한 인류를 발굴 중입니다.</span><span>현재의 당신은 무엇을 남기시겠습니까?</span><small>Future archaeologists are excavating extinct humanity. You, in the present: what will you leave?</small></p>
+    <p class="n" data-step="0"><span>Someday, the way we live will be dug up like any other animal's tracks.</span><small>Future archaeologists are excavating extinct humanity. You, in the present: what will you leave?</small></p>
     <nav><a href="references.html">REFERENCES ↗</a><a href="gallery.html">GALLERY ↗</a><a href="https://anthropocene-world.vercel.app/exhibition/global" target="_blank" rel="noopener">THE WALL ↗</a><a href="https://anthropocene-world.vercel.app/exhibition/personal" target="_blank" rel="noopener">ENTER THE WORK ON THIS PHONE ↗</a></nav>
     <p class="tap">SCROLL — ONE SCREEN PER SECTION · THE DIAGRAM PLAYS WHEN ITS SCREEN ARRIVES</p>
   </section>
@@ -366,7 +366,7 @@ const U=()=>(now-stepAt)/1000;
 const stepsEl=$("#steps"), TICKS=[];
 ACTS.forEach(([from,name],k)=>{const to=k+1<ACTS.length?ACTS[k+1][0]:STEPS, g=document.createElement("div"); g.className="g"; g.style.flex=String(to-from);
   g.innerHTML=`<span>${["I","II","III"][k]}&ensp;${name}</span><div class="t">${"<i></i>".repeat(to-from)}</div>`; stepsEl.appendChild(g); g.querySelectorAll("i").forEach((el,j)=>{TICKS[from+j]=el;});});
-const N1="미래의 고고학자들이 멸망한 인류를 발굴 중입니다.", N2="현재의 당신은 무엇을 남기시겠습니까?";
+const N1="Someday, the way we live will be dug up", N2="like any other animal's tracks."; // the work in one easy sentence (11/10): the script says it third, so it lands whole on 3 s
 
 /* ---------- step 0: the title over the live wall ---------- */
 const live=$("#live"), wallv=$("#wallv"), topv=$("#topv");
@@ -421,7 +421,7 @@ function liveOff(){ if(liveState==="off")return; clearTimeout(liveTimer); live.s
 function s0(u,g){
   $("#studio").style.opacity=on(u,0.2,0.7); $("#kaist").style.opacity=on(u,0.4,0.7); $("#visit").style.opacity=on(u,1.6,0.8);
   glitchTitle(u,g);
-  $("#n1").textContent=u>=1?N1:""; $("#n2").textContent=u>=3?N2:"";
+  $("#n1").textContent=u>=3?N1:""; $("#n2").textContent=u>=3?N2:"";
   $("#notice").querySelector("p").style.opacity=on(u,5.6,0.8); $("#hint").style.opacity=on(u,4.0,0.8);
   $("#notice").style.opacity=on(u,0.6,0.3).toFixed(3);
   erode(220,g); drawDissolve(g); // the ground's eroded edge under the paper, and the structure's top melting into it as cells

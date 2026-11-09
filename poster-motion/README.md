@@ -161,6 +161,10 @@ The script now runs on the artist's three origin questions, so the deck does too
 - ① now ends on the three questions, with the rejection's reasons beside 4 : 12, marked as reported by members because no official reasons were published.
 - `HOLD` follows the script's 175 wpm timing (about 6:57 in all).
 
+## 11/10 — the work in one easy sentence
+
+The concepts are hard, so the cover now says the work first, in plain words: "Someday, the way we live will be dug up like any other animal's tracks." It replaces the two Korean lines in the cover's big slot and lands whole on 3 s, when the script reaches it. The script's opening was tightened by the same 14 words, so every time in the timeline stands.
+
 ## 11/09 — the outline on screen; one grid; things arrive, only change moves
 
 Feedback: the talk's structure was too small to see, and the motion and the uneven placements read as generated.
