@@ -942,12 +942,14 @@ export class SoundEngine {
       v.level = level;
       v.gain.gain.setTargetAtTime(v.level, t, 0.4);
       if (v.panner) {
-        const model = rank === 0 ? "HRTF" : "equalpower";
+        // who speaks is placed by HRTF too (the artist, 2026-11-10: out of sight it could not be told where the call
+        // came from; equal-power panning says left or right only, never front or behind)
+        const model = rank === 0 || n.o === sig.asker ? "HRTF" : "equalpower";
         if (v.panner.panningModel !== model) v.panner.panningModel = model;
         v.panner.positionX.setTargetAtTime(Math.sin(n.angle) * n.dist, t, 0.1);
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
-      v.filt.frequency.setTargetAtTime(n.o === sig.asker ? 9000 : v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, n.o === sig.asker ? 0.05 : 0.3);
+      v.filt.frequency.setTargetAtTime(v.blur > 0 && n.o !== sig.asker ? 4000 * Math.pow(0.12, v.blur) : 4000, t, n.o === sig.asker ? 0.05 : 0.3);
       const near = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
     });
@@ -962,26 +964,6 @@ export class SoundEngine {
         if (nc <= 0) this.closeness.delete(id);
         else this.closeness.set(id, nc);
       }
-    }
-  }
-
-  /** A call's bell: a struck, bright partial pair that is gone in a third of a second. */
-  private bell(dest: AudioNode, freq: number, at: number): void {
-    const ctx = this.ctx!;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(0.2, at + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.0008, at + 0.34);
-    g.connect(dest);
-    for (const [mult, level] of [[1, 1], [2.76, 0.35]] as const) {
-      const o = ctx.createOscillator();
-      o.type = "sine";
-      o.frequency.value = Math.min(12000, freq * mult);
-      const og = ctx.createGain();
-      og.gain.value = level;
-      o.connect(og).connect(g);
-      o.start(at);
-      o.stop(at + 0.4);
     }
   }
 
@@ -1418,13 +1400,13 @@ export class SoundEngine {
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
-      // who speaks to me rings (the artist, 2026-11-10: like a phone, and plainly the pattern over their square): their
-      // melody on the grid's own steps, clear instead of a bot's blur, each note with a bell over it
+      // who speaks to me (the artist, 2026-11-10: heard at once, like a call, and plainly the pattern over their
+      // square): their melody on the grid's own steps, in the motif's own instrument instead of a bot's blur. No sound of
+      // its own: a bell over each note was tried the same day and thrown out ("why this timbre")
       const calls = vb.o === plan.caller;
       for (const n of vb.notes) {
         const at = nextStart + n.at * barSec + (calls ? 0 : human() * 0.5);
         this.note(v.filt, n.freq, at, n.len * barSec, plan.answer || calls ? 1 : 0.8, v.motif.timbre, calls ? 0 : v.blur);
-        if (calls) this.bell(v.filt, n.freq * 2, at);
       }
     }
     // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a

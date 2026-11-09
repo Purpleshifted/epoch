@@ -58,6 +58,13 @@ export interface CallLook {
   big: number;
   /** Their square hops on every note, this high (× its size); nobody else moves or blinks meanwhile. */
   hop: number;
+  /**
+   * Whether the others blink their rhythm when nobody speaks. Off (the artist, 2026-11-10: too many things at once): they
+   * stand still at `still`, only my own square pulses my melody, so that a blinking square comes to mean a name being
+   * said; then the one who speaks is the only other square that blinks.
+   */
+  blink: boolean;
+  still: number;
 }
 
 /** Steps (0.25 s) a note takes along the line from them to me. */
@@ -260,7 +267,11 @@ export function OtherDots({
   /** A square's grey: its own rhythm, and dark while someone else is the one speaking. */
   // (while someone speaks nobody else blinks: only the speaker moves — the artist, 2026-11-10: with everything moving
   // at once it did not show who it was)
-  const squareShade = (id: string, step: number, who: string | null) => (who !== null && id !== who ? (call?.dim ?? 1) : rhythmOf(id)[step] ? 1 : SQUARE_REST);
+  const squareShade = (id: string, step: number, who: string | null) => {
+    const blinks = !call || call.blink;
+    if (who !== null && id !== who) return (blinks ? 1 : call.still) * (call?.dim ?? 1);
+    return blinks || id === who ? (rhythmOf(id)[step] ? 1 : SQUARE_REST) : call.still;
+  };
   const speakerNow = (): string | null => {
     const who = call ? (getVoice?.()?.asker ?? null) : null;
     return who !== null && held.current.has(who) ? who : null;
@@ -441,7 +452,7 @@ export function OtherDots({
       (squares.array as Float32Array)[index * 3 + 1] = lift;
       squares.needsUpdate = true;
       const colours = geom.getAttribute("color") as THREE.BufferAttribute;
-      (colours.array as Float32Array).fill(note ? 1 : 0.45, index * 3, index * 3 + 3);
+      (colours.array as Float32Array).fill(note ? 1 : SQUARE_REST, index * 3, index * 3 + 3);
       colours.needsUpdate = true;
     }
     if (call && who && from && voice) {
