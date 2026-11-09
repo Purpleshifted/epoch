@@ -13,7 +13,6 @@
 import { sessionSeconds } from "./clock";
 import { hash2 } from "./nature";
 import type { RoleId } from "./types";
-import { wrapDist } from "./world";
 
 /** Most samples one tick may backfill (a tab frozen for longer than this skips the older part). */
 export const MAX_CATCH_UP = 300;
@@ -207,32 +206,15 @@ export function botActor(i: number, role: RoleId, wallMs: number, startMs: numbe
   return { o: `bot${i}`, r: role, x: cx + b.ox, z: cz + b.oz, s: b.s };
 }
 
-/** A bot stays where it is once a person comes this near (world), and until they are this far again. */
-export const COMPANY_NEAR = 3.5;
-export const COMPANY_LEAVE = 6;
-/** A person counts as there while their latest sample is at most this old (s). */
-export const COMPANY_RECENT_SEC = 3;
+/** A bot asked to stay is held no longer than this from now (s), whatever a phone says. */
+export const ASK_STAY_MAX_SEC = 15;
 
 /**
- * COMPANY (the artist, 2026-11-10: "I walk to a bot and it has moved on; whoever speaks to me must not walk away"): a bot
- * near a person stays where it stands for as long as the person is there, and goes back to its flock's plan when they
- * have left. `stays` holds who is staying and where (changed in place); `last` is where the bot was emitted last.
- * Returns where the bot is now.
+ * ASKED TO STAY (the artist, 2026-11-10: "I walk to a bot and it has moved on; whoever speaks to me must not walk away" —
+ * "only the one who speaks, for a while, to give the visitor time to respond"): a bot whose question to a visitor is
+ * open (`until`, told by that visitor's phone over the marker relay) stays where it was last, and goes back to its
+ * flock's plan when the time is up. Nobody else is held.
  */
-export function keepCompany(
-  o: string,
-  plan: { x: number; z: number },
-  last: { x: number; z: number } | undefined,
-  people: readonly { x: number; z: number }[],
-  stays: Map<string, { x: number; z: number }>,
-): { x: number; z: number } {
-  const stay = stays.get(o);
-  const at = stay ?? last ?? plan;
-  const reach = stay ? COMPANY_LEAVE : COMPANY_NEAR;
-  if (people.some((p) => wrapDist(p.x, p.z, at.x, at.z) <= reach)) {
-    if (!stay) stays.set(o, { x: at.x, z: at.z });
-    return at;
-  }
-  stays.delete(o);
-  return plan;
+export function stayWhileAsked(plan: { x: number; z: number }, last: { x: number; z: number } | undefined, until: number | undefined, now: number): { x: number; z: number } {
+  return last && until !== undefined && now < Math.min(until, now + ASK_STAY_MAX_SEC) ? last : plan;
 }

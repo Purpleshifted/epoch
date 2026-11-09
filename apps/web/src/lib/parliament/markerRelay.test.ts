@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HEARD_MS, MarkerListener, MarkerSender, RelaySocket, markText, openMarkerListener, openMarkerSender, parseHead, parseMark, sampleOf, sampleText } from "./markerRelay";
+import { HEARD_MS, MarkerListener, MarkerSender, RelaySocket, askText, parseAsk, markText, openMarkerListener, openMarkerSender, parseHead, parseMark, sampleOf, sampleText } from "./markerRelay";
 
 class FakeSocket {
   readyState = 0;
@@ -315,5 +315,23 @@ describe("switched off", () => {
     vi.stubEnv("NEXT_PUBLIC_MARKER_RELAY", "");
     expect(openMarkerSender()).toBeNull();
     expect(openMarkerListener()).toBeNull();
+  });
+});
+
+describe("who is asking: the bot that stays for the answer", () => {
+  it("a phone's telling is believed only for a bot, from a visitor, in this world; it is forgotten when its time is up", () => {
+    expect(parseAsk(askText("bot3", "v_abc", EPOCH, 120.26))).toEqual({ bot: "bot3", until: 120.3, epoch: EPOCH });
+    expect(parseAsk(askText("v_other", "v_abc", EPOCH, 120))).toBeNull(); // a person is never held
+    expect(parseAsk(askText("bot3", "bot1", EPOCH, 120))).toBeNull();
+    expect(parseAsk("rubbish")).toBeNull();
+    const { made, make, read } = setup();
+    const listener = new MarkerListener("wss://x", make, read, () => String(EPOCH), () => 1000);
+    listener.drain();
+    made[0].open();
+    made[0].say(askText("bot3", "v_abc", EPOCH, 120));
+    made[0].say(askText("bot4", "v_abc", EPOCH + 1, 120)); // another world's
+    expect(listener.drain()).toEqual([]); // not a place
+    expect([...listener.asked(100)]).toEqual([["bot3", 120]]);
+    expect(listener.asked(120).size).toBe(0);
   });
 });

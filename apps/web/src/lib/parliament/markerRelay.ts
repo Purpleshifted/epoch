@@ -104,6 +104,25 @@ export function parseHead(text: unknown): { event: PEvent; epoch: number } | nul
   }
 }
 
+const BOT_ID = /^bot\d{1,4}$/;
+
+/** A bot's question to this visitor is open until `until` (s): the wall keeps that bot where it stands (bots.ts stayWhileAsked). */
+export function askText(bot: string, o: string, epoch: number, until: number): string {
+  return JSON.stringify({ q: bot, o, e: epoch, u: Math.round(until * 10) / 10 });
+}
+
+export function parseAsk(text: unknown): { bot: string; until: number; epoch: number } | null {
+  if (typeof text !== "string" || text.length > 200) return null;
+  try {
+    const m = JSON.parse(text) as { q?: unknown; o?: unknown; e?: number; u?: number } | null;
+    if (!m || typeof m.q !== "string" || !BOT_ID.test(m.q) || typeof m.o !== "string" || !VISITOR_ID.test(m.o)) return null;
+    if (!Number.isFinite(m.e) || !Number.isFinite(m.u)) return null;
+    return { bot: m.q, until: m.u as number, epoch: m.e as number };
+  } catch {
+    return null;
+  }
+}
+
 type MakeSocket = (url: string) => WebSocket;
 const monotonic = () => performance.now();
 
@@ -226,6 +245,11 @@ export class MarkerSender {
     if (this.socket.send(sampleText(e, y, epoch, this.sentAt(), this.socket.rttMs ?? -1))) this.keepAt = this.clock() + SAMPLE_KEEPS_MS;
   }
 
+  /** Who is asking me now: sent again while the question is open (the wall holds that bot until `until`). */
+  ask(bot: string, o: string, epoch: number, until: number): void {
+    this.socket.send(askText(bot, o, epoch, until));
+  }
+
   /** A seed head, at once. If the socket is down the wall has it from the record a few seconds later, as before. */
   head(e: PEvent, epoch: number): void {
     this.socket.send(headText(e, epoch));
@@ -263,6 +287,8 @@ export class MarkerListener {
   private senderRttMs: number | null = null;
   private readonly heard = new Map<string, { m: RelayedMark; at: number }>();
   private readonly hearing = new Map<string, RelayedMark>();
+  /** The bots asked to stay, each until when (s). */
+  private readonly staying = new Map<string, number>();
   private readonly socket: RelaySocket;
 
   constructor(
@@ -279,6 +305,11 @@ export class MarkerListener {
     const head = parseHead(text);
     if (head) {
       if (String(head.epoch) === this.epoch() && this.events.length < MAX_HEARD) this.events.push(head.event);
+      return;
+    }
+    const ask = parseAsk(text);
+    if (ask) {
+      if (String(ask.epoch) === this.epoch() && (this.staying.size < MAX_HEARD || this.staying.has(ask.bot))) this.staying.set(ask.bot, ask.until);
       return;
     }
     const m = parseMark(text);
@@ -319,6 +350,12 @@ export class MarkerListener {
       else this.hearing.set(id, h.m);
     }
     return this.hearing;
+  }
+
+  /** The bots asked to stay; those whose time is up (before `now`, s) are forgotten. */
+  asked(now: number): ReadonlyMap<string, number> {
+    for (const [bot, until] of this.staying) if (until <= now) this.staying.delete(bot);
+    return this.staying;
   }
 
   status(): RelayStatus {
@@ -368,6 +405,11 @@ export function openMarkerListener(): MarkerListener | null {
 
 let senderSocket: RelaySocket | null = null;
 let wallListener: MarkerListener | null = null;
+
+/** The bots whose question to a visitor is open, each until when (s); null when no wall listens here. */
+export function askedBots(now: number): ReadonlyMap<string, number> | null {
+  return wallListener ? wallListener.asked(now) : null;
+}
 
 /** The relay as one line for the wall's readout (null when it is off). */
 export function markerRelayReadout(): string | null {

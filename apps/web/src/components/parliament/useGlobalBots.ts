@@ -26,7 +26,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { button, levaStore, useControls } from "leva";
 import { mayEmitBots, sharedBotStartMs, takeBotHost, wantBotHost } from "@/lib/parliament/serverWorld";
-import { COMPANY_RECENT_SEC, keepCompany } from "@/lib/parliament/bots";
+import { stayWhileAsked } from "@/lib/parliament/bots";
+import { askedBots } from "@/lib/parliament/markerRelay";
 import {
   hasWorldMirror,
   DEFAULT_LIFECYCLE,
@@ -246,9 +247,8 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   const lastKeepWall = useRef(0);
   const ground = useRef<{ at: number; level: Map<string, number>; built: Set<string>; visitors: Attractor[] } | null>(null);
   const routes = useRef(new Map<string, number[]>());
-  /** COMPANY: where each bot was last emitted, and who is staying with a person (bots.ts keepCompany). */
+  /** Where each bot was last emitted: where it stays while its question to a visitor is open (bots.ts stayWhileAsked). */
   const botAt = useRef(new Map<string, { x: number; z: number }>());
-  const stays = useRef(new Map<string, { x: number; z: number }>());
   // SESSION: the visitors, their last mirror, the frames over 50 ms of the last minute, and when the most-at-once was
   // reconsidered
   const visitors = useRef<LifecycleState | null>(null);
@@ -418,25 +418,14 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
         const [x, z] = steerBot(a.o, plan, { level: (k) => g.level.get(k) ?? 0, built: (k) => g.built.has(k) }, flow, routes.current);
         return { ...a, x, z };
       };
-      // COMPANY: the people here now (not bots); a bot near one of them stays where it is until they leave (bots.ts)
-      const people: { x: number; z: number }[] = [];
-      if (due.length) {
-        const tNow = sessionSeconds(now, epochMs.current, 0);
-        const all = log.all();
-        const latest = new Map<string, PEvent>();
-        for (let i = all.length - 1, k = 0; i >= 0 && k < 4000; i--, k++) {
-          const e = all[i];
-          if (e.k !== "p" || e.o.startsWith("bot") || e.s < tNow - COMPANY_RECENT_SEC) continue;
-          const l = latest.get(e.o);
-          if (!l || e.s > l.s) latest.set(e.o, e);
-        }
-        for (const e of latest.values()) people.push({ x: e.x, z: e.z });
-      }
+      // ASKED TO STAY: a bot whose question to a visitor is open (told by the phone over the relay) stays where it is
+      const tNow = sessionSeconds(now, epochMs.current, 0);
+      const asked = askedBots(tNow);
       for (const w of due) {
         for (let i = 0; i < n; i++) {
           const a = steer(botActor(i, role === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : role, w, botStartMs.current, epochMs.current, 0, fl), i, w);
-          const at = keepCompany(a.o, a, botAt.current.get(a.o), people, stays.current);
-          botAt.current.set(a.o, at);
+          const at = stayWhileAsked(a, botAt.current.get(a.o), asked?.get(a.o), tNow);
+          botAt.current.set(a.o, { x: at.x, z: at.z });
           add(at === a ? a : { ...a, x: at.x, z: at.z }, w);
         }
       }

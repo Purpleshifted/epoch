@@ -89,6 +89,8 @@ const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view show
 const KEEP_EVERY_MS = 30_000; // how often (world time) the history window moves on (older events are dropped everywhere)
 const KEEP_MIN_WALL_MS = 3000; // … but not more often than this in wall time (a fast world clock)
 const NOBODY: ReadonlySet<string> = new Set();
+/** A bot that asks stays this long (s) after the phone last said its question was open. */
+const ASK_STAY_SEC = 4;
 
 export interface ParliamentDebug {
   role: RoleId;
@@ -370,6 +372,7 @@ export function RoleField({
 
   // the wall's marker, a moment after the visitor moves (markerRelay.ts); nothing here enters the world's record
   const relay = useRef<MarkerSender | null>(null);
+  const askTold = useRef(-Infinity);
   useEffect(() => {
     const sender = openMarkerSender();
     relay.current = sender;
@@ -382,7 +385,15 @@ export function RoleField({
     if (!relay.current || epochMs.current === 0 || document.visibilityState === "hidden") return;
     if (lifeRef && lifeRef.current.phase !== "live") return;
     const p = playerPosRef.current;
-    relay.current.tick({ o: me.current.id, x: wrapCoord(p.x), z: wrapCoord(p.z), s: sessionSeconds(worldNow(), epochMs.current, me.current.offset), y: playerYawRef?.current ?? 0, e: epochMs.current });
+    const s = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
+    relay.current.tick({ o: me.current.id, x: wrapCoord(p.x), z: wrapCoord(p.z), s, y: playerYawRef?.current ?? 0, e: epochMs.current });
+    // who speaks to me stays for the answer (the artist, 2026-11-10): told to the wall, which runs the bots, once a
+    // second while the question is open; the bot is free again ASK_STAY_SEC after the last telling
+    const asker = askerRef?.current ?? null;
+    if (asker?.startsWith("bot") && s - askTold.current >= 1) {
+      askTold.current = s;
+      relay.current.ask(asker, me.current.id, epochMs.current, s + ASK_STAY_SEC);
+    }
   });
 
   // what the arrival does to the frame, on the bars the sound leans and breaks on (engine.ts arrivalCue)
