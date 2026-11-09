@@ -37,7 +37,6 @@ export type LogKey =
   | "gone"
   | "word.new"
   | "word.asked"
-  | "place.nth"
   | "word.answered"
   | "word.found"
   | "ensemble.start"
@@ -138,16 +137,6 @@ export interface Observation {
   wordsNear: string[];
   /** How many a house takes (absent: the record's own `buildNeeds`). */
   buildNeeds?: number;
-  /** Standing still: who has stayed where I stand, as far as the record goes back. */
-  place?: PlaceHere;
-}
-
-/** Where I stand as a place: I am the `n`-th to stay in it; `before` came just before me (null: nobody has). */
-export interface PlaceHere {
-  x: number;
-  z: number;
-  n: number;
-  before: string | null;
 }
 
 export interface WitnessConfig {
@@ -185,14 +174,6 @@ export interface WitnessConfig {
   askEverySec: number;
   /** … and the question stays open for an answer this long. */
   askOpenSec: number;
-  /** Someone has stayed in a place if this many of their samples lie in it (the fold's presence ball around me). */
-  placeSamples: number;
-  /** Who stayed here is said after standing still this long … */
-  placeAfterSec: number;
-  /** … not more often than this … */
-  placeGapSec: number;
-  /** … and once per place: a place is told again only this many near radii away. */
-  placeApart: number;
 }
 
 export const DEFAULT_WITNESS: WitnessConfig = {
@@ -213,10 +194,6 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   buildNeeds: 3,
   askEverySec: 16,
   askOpenSec: 7,
-  placeSamples: 5,
-  placeAfterSec: 4,
-  placeGapSec: 15,
-  placeApart: 2,
 };
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -343,33 +320,7 @@ export function observe(inp: ObserveInputs): Observation {
   const speed = Math.hypot(me.vx, me.vz);
   const wordsNear = (inp.words ?? []).filter((w) => wrapDist(w.x, w.z, me.x, me.z) <= cfg.wordRadius).map((w) => w.o);
   const moving = speed > cfg.moveSpeed;
-  return { me: me.id, t: inp.t, moving, speed, surface, others, far, wordsNear, buildNeeds: cfg.buildNeeds, place: moving ? undefined : placeHere(events, me, cfg) };
-}
-
-/** Who has stayed around (me.x, me.z), in the order they came (the artist, 2026-11-09: habitat is a place, not a space). */
-function placeHere(events: readonly PEvent[], me: { id: string; x: number; z: number }, cfg: WitnessConfig): PlaceHere {
-  const stayed = new Map<string, { n: number; first: number }>();
-  for (const e of events) {
-    if (e.k !== "p" || e.r !== "worker" || e.o === me.id || wrapDist(e.x, e.z, me.x, me.z) > cfg.nearRadius) continue;
-    const c = stayed.get(e.o);
-    if (!c) stayed.set(e.o, { n: 1, first: e.s });
-    else {
-      c.n++;
-      if (e.s < c.first) c.first = e.s;
-    }
-  }
-  let n = 1;
-  let before: string | null = null;
-  let last = -Infinity;
-  for (const [o, c] of stayed) {
-    if (c.n < cfg.placeSamples) continue;
-    n++;
-    if (c.first > last) {
-      last = c.first;
-      before = o;
-    }
-  }
-  return { x: me.x, z: me.z, n, before };
+  return { me: me.id, t: inp.t, moving, speed, surface, others, far, wordsNear, buildNeeds: cfg.buildNeeds };
 }
 
 /** A state that is only taken over once a new value has held for `settleSec`. */
@@ -436,10 +387,6 @@ export class WitnessLog {
   private watched = false;
   private worded = new Set<string>();
   private lastWordT = -Infinity;
-  /** Since when I have been standing still (null: walking), and the places already told. */
-  private stillSince: number | null = null;
-  private toldPlaces: { x: number; z: number }[] = [];
-  private lastPlaceT = -Infinity;
 
   constructor(cfg: WitnessConfig = DEFAULT_WITNESS) {
     this.cfg = cfg;
@@ -611,15 +558,6 @@ export class WitnessLog {
       this.totals.found.push(o);
       this.lastWordT = obs.t;
       w("word.found", { who: { o, r: "worker" }, dots: glyphOf(o) }, 2);
-    }
-    // standing still for a moment, in a place not told yet: who stayed here before me
-    if (obs.moving) this.stillSince = null;
-    else this.stillSince ??= obs.t;
-    const here = obs.place;
-    if (here && this.stillSince !== null && obs.t - this.stillSince >= this.cfg.placeAfterSec && obs.t - this.lastPlaceT >= this.cfg.placeGapSec && this.toldPlaces.every((p) => wrapDist(p.x, p.z, here.x, here.z) > nearRadius * this.cfg.placeApart)) {
-      this.toldPlaces.push({ x: here.x, z: here.z });
-      this.lastPlaceT = obs.t;
-      w("place.nth", here.before ? { n: here.n, who: { o: here.before, r: "worker" }, dots: glyphOf(here.before) } : { n: here.n }, 2);
     }
     this.last = obs;
     return written;

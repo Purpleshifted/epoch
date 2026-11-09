@@ -292,7 +292,6 @@ export const LOG: Record<Lang, LogTemplates> = {
       "word.asked": (a) => ["({}?)", "곁에서 묻습니다: ({}?)", "({}...?)", "다시 묻습니다: ({}?)"][(a.n ?? 0) % 4],
       "word.answered": () => "새로운 어휘가 탄생했습니다 ({})",
       "word.found": () => "({})가 남긴 말 발견",
-      "place.nth": (a) => ((a.n ?? 1) <= 1 ? "이 자리에 처음 머뭅니다." : `여기 머문 ${a.n}번째 존재입니다. 앞서 머문 이 ({})`),
       dying: () => "죽어가고 있습니다...",
       "dying.watched": () => "({})가 당신의 마지막을 지킵니다...",
       "ensemble.start": (a) => {
@@ -329,7 +328,6 @@ export const LOG: Record<Lang, LogTemplates> = {
       "word.asked": (a) => ["({}?)", "Asked beside you: ({}?)", "({}...?)", "Asked again: ({}?)"][(a.n ?? 0) % 4],
       "word.answered": () => "A new word is born ({})",
       "word.found": () => "A word left by ({}) found",
-      "place.nth": (a) => ((a.n ?? 1) <= 1 ? "The first to stay here." : `Number ${a.n} to stay here. Before you: ({})`),
       dying: () => "You are dying...",
       "dying.watched": () => "({}) keeps watch over your last moments...",
       "ensemble.start": (a) => {

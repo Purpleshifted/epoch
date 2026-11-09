@@ -88,11 +88,6 @@ const TICK_MS = 250; // emitter tick (wall clock; keeps running in a hidden tab)
 const SAVE_EVERY_MS = 1000; // between mirrors to localStorage (the 3D view shows live markers from it)
 const KEEP_EVERY_MS = 30_000; // how often (world time) the history window moves on (older events are dropped everywhere)
 const KEEP_MIN_WALL_MS = 3000; // … but not more often than this in wall time (a fast world clock)
-/** The frame turns over on a house's tonic, twice (ms from its start): from, to. */
-const FLASHES: readonly (readonly [number, number])[] = [
-  [0, 160],
-  [260, 360],
-];
 const NOBODY: ReadonlySet<string> = new Set();
 
 export interface ParliamentDebug {
@@ -155,7 +150,6 @@ export function RoleField({
   marks,
   answers,
   askerRef,
-  flashRef,
   sessionNo = 0,
   visitorRef,
 }: {
@@ -198,8 +192,6 @@ export function RoleField({
   answers?: React.MutableRefObject<number>;
   /** Who has asked the visitor something (SessionHud): their name rises and their voice is the clearest. */
   askerRef?: React.MutableRefObject<string | null>;
-  /** The layer over the frame that turns it over when a house is born. */
-  flashRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -420,7 +412,6 @@ export function RoleField({
   };
   useFrame(() => {
     const a = arrivalNow();
-    if (flashRef?.current) flashRef.current.style.opacity = a && a.cue.phase === "tonic" && marks?.arrival.flash && FLASHES.some(([from, to]) => a.ms >= from && a.ms < to) ? "1" : "0";
     if (a?.cue.phase === "tonic" && firedCue.current !== a.cue.atMs) {
       firedCue.current = a.cue.atMs;
       const { x, z } = playerPosRef.current;
@@ -645,7 +636,9 @@ export function RoleField({
           snap={marks.others.snap}
           square={marks.others.square}
           names={marks.names.on ? marks.names : null}
+          waves={marks.waves.on ? marks.waves : null}
           getVoice={voiceNow}
+          getMe={() => playerPosRef.current}
         />
       )}
       {marks?.concrete.on && marks.concrete.style === "lines" && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}

@@ -203,6 +203,30 @@ export interface PartsInput {
   lod: LodConfig;
 }
 
+/** A cell a person (not a bot) is building now: their weight went into its slab within HAND_SEC of the model's present. */
+export interface Hand {
+  o: string;
+  x: number;
+  z: number;
+  /** Their latest sample that counted here (s). */
+  last: number;
+}
+
+const HAND_SEC = 4;
+const MAX_HANDS = 256;
+
+export function handsOf(seeds: readonly Seed[], t: number): Hand[] {
+  const out: Hand[] = [];
+  for (const s of seeds) {
+    if (!s.who || t - s.t1 > HAND_SEC) continue;
+    for (const c of s.who) {
+      if (c.o.startsWith("bot") || t - c.last > HAND_SEC) continue;
+      if (out.length < MAX_HANDS) out.push({ o: c.o, x: s.x, z: s.z, last: c.last });
+    }
+  }
+  return out;
+}
+
 export interface PartsResult {
   counts: Record<PartKind, number>;
   /** 16 floats per instance, per kind (only `counts[kind]` used). */
@@ -211,6 +235,8 @@ export interface PartsResult {
   colors: Record<PartKind, Float32Array>;
   edges: Float32Array | null;
   seeds: number;
+  /** The cells people are building now (the wall marks them: the artist, 2026-11-10). */
+  hands: Hand[];
   parts: number;
   /** Seeds built without slats (far). */
   farSeeds: number;
@@ -1069,6 +1095,7 @@ export class SpaceModel {
       colors,
       edges: edges ? edges.subarray(0, ei * 72) : null,
       seeds: seeds.length,
+      hands: handsOf(seeds, t),
       parts: all.length,
       farSeeds: far.size,
       baked: this.baked.size,

@@ -45,24 +45,6 @@ describe("the witness: a record of who is near", () => {
     expect(obs.others[0].ageSec).toBe(0);
   });
 
-  it("standing still: who has stayed here before me, in the order they came, said once per place", () => {
-    const stay = (o: string, from: number, n: number) => Array.from({ length: n }, (_, i) => p(o, 1, 0, from + i));
-    const events = [...stay("bot1", 10, 5), ...stay("bot2", 40, 5), ...stay("bot3", 60, 2), ...stay("bot4", 50, 9).map((e) => ({ ...e, x: 30 })), ...stay("v_me", 0, 9).map((e) => ({ ...e, x: 0 }))];
-    const here = observe({ me, events, sNow: 100, snap: null, t: 5 }).place;
-    expect(here).toEqual({ x: 0, z: 0, n: 3, before: "bot2" }); // bot3 only passed, bot4 was elsewhere
-    expect(observe({ me: { ...me, vx: 2 }, events, sNow: 100, snap: null, t: 5 }).place).toBeUndefined();
-
-    const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1, wordAfterSec: 1000 });
-    const told = (t: number, place = here) => log.push({ ...obsAt(t, []), place }).filter((e) => e.key === "place.nth");
-    expect(told(0)).toEqual([]);
-    expect(told(3)).toEqual([]);
-    const said = told(4);
-    expect(en(said)[0]).toContain("Number 3 to stay here");
-    expect(said[0].args.dots).toEqual(glyphOf("bot2"));
-    expect(told(30)).toEqual([]); // the same place, not again
-    expect(en(told(60, { x: 40, z: 0, n: 1, before: null }))[0]).toContain("The first to stay here");
-  });
-
   it("the log: near with their melody, gone with how long, a state that holds", () => {
     const log = new WitnessLog({ ...DEFAULT_WITNESS, settleSec: 1, wordAfterSec: 1000 });
     expect(en(log.push(obsAt(0, [])))).toEqual(["T+00:00  Standing on grass."]);

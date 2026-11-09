@@ -26,6 +26,8 @@ import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliamen
 import { worldReadout } from "@/lib/parliament/serverWorld";
 import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
 import { SPACE_FOLD, WALL_FLOW_GROUP, WALL_FOLD_GROUP } from "@/lib/parliament/wallRule";
+import type { Hand } from "@/lib/parliament/spaceModel";
+import { CELL_SIZE } from "@/lib/stratum/field";
 import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 import type { DepthOfFieldEffect, EffectComposer as ComposerImpl } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
@@ -771,6 +773,7 @@ function SpaceWorld({
   quietSec,
   controls,
   onStats,
+  hands,
   nature,
   lodNear,
   lodMid,
@@ -812,6 +815,8 @@ function SpaceWorld({
   quietSec: number;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
+  /** The cells people are building now, for the markers' overlay. */
+  hands: RefObject<readonly Hand[]>;
   nature: NatureParams | null;
   lodNear: number;
   /** Seeds between lodNear and this get thinned slat bundles; beyond, solid masses (spaceModel LodConfig.mid). */
@@ -945,6 +950,7 @@ function SpaceWorld({
     const { boxCfg: cfg, onStats: report } = live.current;
     const p = r.parts;
     if (p) {
+      hands.current = p.hands;
       for (const kind of PART_KINDS) {
         const mesh = meshes.current[kind];
         if (!mesh) continue;
@@ -1665,6 +1671,9 @@ interface MeStatus {
 }
 
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#ff4d00" } as const;
+/** A cell stays marked this long (s of the person's own time) after their weight last went into it. */
+const HAND_HOLD_SEC = 6;
+const MAX_HAND_CELLS = 256;
 
 /**
  * Live markers: the latest presence sample of each owner, as a sphere at (x, time, z) with a thin line down to
@@ -1682,6 +1691,7 @@ function Markers({
   onActive,
   onMe,
   shotMarks,
+  hands,
 }: {
   log: EventLog;
   secPerUnit: number;
@@ -1694,8 +1704,18 @@ function Markers({
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
   shotMarks: RefObject<(() => readonly ShotMark[]) | null>;
+  /** The cells people are building now (spaceModel handsOf). */
+  hands: RefObject<readonly Hand[]>;
 }) {
   const [marks, setMarks] = useState<Mark[]>([]);
+  const handGeom = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_HAND_CELLS * 8 * 3), 3));
+    g.setDrawRange(0, 0);
+    return g;
+  }, []);
+  const handShown = useRef(0);
+  useEffect(() => () => handGeom.dispose(), [handGeom]);
   const seen = useRef(new Map<string, { s: number; at: number }>());
   const tracks = useRef(new Map<string, MarkTrack>());
   const timer = useRef(10);
@@ -1739,6 +1759,25 @@ function Markers({
         t.left -= h;
       }
       placeMark(t, secPerUnit, unit);
+    }
+    // what a person is building now: the outline of each cell their weight goes into, in their colour, at the height
+    // of their marker (the present, where the new parts come), so that it can be seen whose a house is while it grows
+    let hv = 0;
+    const HP = (handGeom.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+    const half = CELL_SIZE / 2;
+    for (const h of hands.current) {
+      const t = tracks.current.get(h.o);
+      if (!t || t.newest - h.last > HAND_HOLD_SEC || hv + 8 > MAX_HAND_CELLS * 8) continue;
+      const x = wrapCoord(h.x), z = wrapCoord(h.z), y = (t.s / secPerUnit) * unit;
+      for (const [ax, az, bx, bz] of [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1]]) {
+        HP.set([x + ax * half, y, z + az * half, x + bx * half, y, z + bz * half], hv * 3);
+        hv += 2;
+      }
+    }
+    if (hv > 0 || handShown.current > 0) {
+      handShown.current = hv;
+      handGeom.setDrawRange(0, hv);
+      handGeom.getAttribute("position").needsUpdate = true;
     }
     timer.current += dt;
     if (timer.current < 0.25) return;
@@ -1805,6 +1844,9 @@ function Markers({
 
   return (
     <>
+      <lineSegments geometry={handGeom} frustumCulled={false} renderOrder={3}>
+        <lineBasicMaterial color={MARK_COLOR.visitor} depthTest={false} toneMapped={false} />
+      </lineSegments>
       {marks.map((m) => {
         const color = MARK_COLOR[m.kind];
         const big = m.kind === "me" ? 0.5 : 0.32;
@@ -1906,6 +1948,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const shotComposer = useRef<ComposerImpl | null>(null);
   const dofEffect = useRef<DepthOfFieldEffect | null>(null);
   const shotMarks = useRef<(() => readonly ShotMark[]) | null>(null);
+  const hands = useRef<readonly Hand[]>([]);
   // THE WALL opens at real speed: the shared rate is saved per origin, and a ×20 left behind from a rehearsal would
   // run the exhibition's world away (2026-10-31)
   useEffect(() => {
@@ -3064,6 +3107,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         )}
         <SpaceWorld
           log={log}
+          hands={hands}
           fold={spaceFold}
           boxCfg={boxCfg}
           showEdges={c.showEdges}
@@ -3121,7 +3165,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} leadSec={c.markerLead} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} shotMarks={shotMarks} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} leadSec={c.markerLead} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} shotMarks={shotMarks} hands={hands} />
           </Hud>
         )}
         {!hideUi && <ShotRig take={shotTake} composer={shotComposer} dof={dofEffect} marks={shotMarks} />}

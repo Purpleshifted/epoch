@@ -6,7 +6,8 @@
  * every frame from the camera.
  *   OtherDots      a glowing point (core + halo, additive) on the ground for every being within the view; or, in the
  *                  brutal version, a hard white square blinking the being's own rhythm, like the visitor's own, with
- *                  its name over it (the wall's own pattern), which rises and hops on its melody when it speaks
+ *                  its name over it (the wall's own pattern), which rises and hops on its melody when it speaks, and
+ *                  sends its notes over the ground to the visitor as wave fronts
  *   ConcreteLines  a vertical line from the ground up through the frame on every sealed slab cell
  *   ConcreteOutline a brutal version: the building as a line drawing, its edges and the joints between its cells
  *   AnswerBurst    the answer: a burst of hard white points, gone in a moment
@@ -41,6 +42,22 @@ export interface NameLook {
   rise: number;
   hop: number;
 }
+
+/** What someone who asks sends to me: a fan of wave fronts over the ground, one set for every note of their melody. */
+export interface WaveLook {
+  /** The fan's opening (degrees). */
+  width: number;
+  /** Steps of the bar (0.25 s each) a front takes to reach me. */
+  steps: number;
+  /** Fronts to a note, one behind the other. */
+  echoes: number;
+}
+
+const WAVE_SEGS = 16;
+const MAX_WAVE_FRONTS = GLYPH_COLS * 4;
+/** Steps between a note's fronts. */
+const WAVE_ECHO_GAP = 0.45;
+const WAVE_ECHO_DIM = 0.3;
 
 const NAME_VERTEX = /* glsl */ `
 uniform vec2 px;
@@ -143,7 +160,9 @@ export function OtherDots({
   snap = true,
   square = false,
   names = null,
+  waves = null,
   getVoice,
+  getMe,
 }: {
   getMarks: () => MarksData | null;
   size?: number;
@@ -166,7 +185,11 @@ export function OtherDots({
   square?: boolean;
   /** The brutal version: the names over the squares (null = none). */
   names?: NameLook | null;
+  /** The brutal version: what the one who asks sends to me (null = nothing). */
+  waves?: WaveLook | null;
   getVoice?: () => NameVoice | null;
+  /** Where I stand, in the frame the others are placed in. */
+  getMe?: () => { x: number; z: number };
 }) {
   const lastStep = useRef(-1);
   const group = useRef<THREE.Group>(null);
@@ -186,6 +209,8 @@ export function OtherDots({
     g.setDrawRange(0, 0);
     return g;
   }, []);
+  const waveGeom = useMemo(() => lineGeom(MAX_WAVE_FRONTS * WAVE_SEGS * 2), []);
+  const waveShown = useRef(0);
   const nameMat = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -210,10 +235,11 @@ export function OtherDots({
       geom.dispose();
       haloGeom.dispose();
       nameGeom.dispose();
+      waveGeom.dispose();
       nameMat.dispose();
       tex.dispose();
     },
-    [geom, haloGeom, nameGeom, nameMat, tex],
+    [geom, haloGeom, nameGeom, waveGeom, nameMat, tex],
   );
   useFrame((state, dt) => {
     if (group.current) group.current.position.y = height;
@@ -359,6 +385,51 @@ export function OtherDots({
     shade.needsUpdate = true;
     lift.needsUpdate = true;
   });
+  // whoever asks sends their melody to me: every note leaves them as a few wave fronts, a fan opened towards where I
+  // stand, and each front is gone the moment it reaches me. Hard lines, like the buildings' drawing
+  useFrame(() => {
+    if (!square) return;
+    const voice = waves ? (getVoice?.() ?? null) : null;
+    const from = voice?.asker ? held.current.get(voice.asker) : undefined;
+    const me = getMe?.();
+    let v = 0;
+    if (waves && voice?.asker && from && me) {
+      const dx = me.x - from.x, dz = me.z - from.z;
+      const dist = Math.hypot(dx, dz);
+      const P = (waveGeom.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+      const C = (waveGeom.getAttribute("color") as THREE.BufferAttribute).array as Float32Array;
+      const mid = Math.atan2(dz, dx);
+      const half = (waves.width * Math.PI) / 360;
+      const at = voice.step + voice.into;
+      const steps = Math.max(0.5, waves.steps);
+      let fronts = 0;
+      for (const d of dist > size ? glyphOf(voice.asker) : []) {
+        const age = (at - d.col + GLYPH_COLS) % GLYPH_COLS;
+        for (let e = 0; e < waves.echoes && fronts < MAX_WAVE_FRONTS; e++) {
+          const gone = (age - e * WAVE_ECHO_GAP) / steps;
+          if (gone < 0 || gone >= 1) continue;
+          const r = size * 0.5 + (dist - size * 0.5) * gone;
+          const shade = Math.max(0.2, 1 - e * WAVE_ECHO_DIM);
+          for (let s = 0; s < WAVE_SEGS; s++) {
+            for (const k of [s, s + 1]) {
+              const a = mid - half + (2 * half * k) / WAVE_SEGS;
+              P[v * 3] = from.x + r * Math.cos(a);
+              P[v * 3 + 1] = 0;
+              P[v * 3 + 2] = from.z + r * Math.sin(a);
+              C[v * 3] = C[v * 3 + 1] = C[v * 3 + 2] = shade;
+              v++;
+            }
+          }
+          fronts++;
+        }
+      }
+    }
+    if (v === 0 && waveShown.current === 0) return;
+    waveShown.current = v;
+    waveGeom.setDrawRange(0, v);
+    waveGeom.getAttribute("position").needsUpdate = true;
+    waveGeom.getAttribute("color").needsUpdate = true;
+  });
   if (square) {
     return (
       <group ref={group}>
@@ -366,6 +437,11 @@ export function OtherDots({
           <pointsMaterial key="square" ref={coreMat} size={size} sizeAttenuation vertexColors fog={false} depthTest={false} />
         </points>
         {names && <points geometry={nameGeom} material={nameMat} frustumCulled={false} renderOrder={11} />}
+        {waves && (
+          <lineSegments geometry={waveGeom} frustumCulled={false} renderOrder={9}>
+            <lineBasicMaterial vertexColors fog={false} depthTest={false} toneMapped={false} />
+          </lineSegments>
+        )}
       </group>
     );
   }
