@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { COMPANY_LEAVE, COMPANY_NEAR, keepCompany } from "./bots";
 import { DEFAULT_FOLD, MAX_CATCH_UP, botActor, botPlan, dueSamples, flockCentre, foldWorld, latestS, seedsFromSnapshot, type Flock, type PEvent } from "./index";
 
 describe("dueSamples: the wall-clock sampler", () => {
@@ -194,5 +195,19 @@ describe("moving flocks × flock character (2026-11-01)", () => {
     };
     const rs = [0, 1, 2, 3].map((g) => spread(g, 1));
     expect(Math.max(...rs) / Math.min(...rs)).toBeGreaterThan(1.5);
+  });
+});
+
+describe("company: a bot near a person stays", () => {
+  it("stays where it was while the person is near, and goes back to its plan once they have left", () => {
+    const stays = new Map<string, { x: number; z: number }>();
+    const here = { x: 10, z: 10 };
+    const person = [{ x: 10 + COMPANY_NEAR - 0.1, z: 10 }];
+    expect(keepCompany("bot1", { x: 11, z: 10 }, here, [], stays)).toEqual({ x: 11, z: 10 }); // nobody: its plan
+    expect(keepCompany("bot1", { x: 30, z: 10 }, here, person, stays)).toEqual(here); // the plan moves on, the bot does not
+    expect(keepCompany("bot1", { x: 60, z: 10 }, here, [{ x: 10 + COMPANY_LEAVE - 0.1, z: 10 }], stays)).toEqual(here); // a step back is not leaving
+    expect(keepCompany("bot1", { x: 60, z: 10 }, here, [{ x: 10 + COMPANY_LEAVE + 0.1, z: 10 }], stays)).toEqual({ x: 60, z: 10 });
+    expect(stays.size).toBe(0);
+    expect(keepCompany("bot2", { x: 80, z: 80 }, { x: 80, z: 80 }, person, stays)).toEqual({ x: 80, z: 80 }); // far from them: not held
   });
 });

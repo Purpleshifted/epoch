@@ -7,8 +7,8 @@
  *   OtherDots      a glowing point (core + halo, additive) on the ground for every being within the view; or, in the
  *                  brutal version, a hard white square blinking the being's own rhythm, like the visitor's own, with
  *                  its name over it (the wall's own pattern), which rises and hops on its melody when it speaks. Who
- *                  speaks is the only one left bright, marked at its corners, its name larger, and its notes come to
- *                  the visitor along one thin line
+ *                  speaks is the only one left bright and the only one moving: its square jumps on every note, its
+ *                  name is larger
  *   ConcreteLines  a vertical line from the ground up through the frame on every sealed slab cell
  *   ConcreteOutline a brutal version: the building as a line drawing, its edges and the joints between its cells
  *   AnswerBurst    the answer: a burst of hard white points, gone in a moment
@@ -46,23 +46,24 @@ export interface NameLook {
 
 /**
  * Who speaks to me (the artist, 2026-11-10: it must be plain WHO, and stay minimal; a fan of wave fronts read as being
- * hit by a beam). Nothing is added to the one who speaks but four corner marks and a larger name; everyone else goes dark.
+ * hit by a beam; corner marks round the speaker read as taking aim). The one who speaks is told by MOVEMENT alone: their
+ * square jumps on every note of their melody and their name is larger, while everyone else goes dark and still.
  */
 export interface CallLook {
   /** The others' brightness while someone speaks (× their own). */
   dim: number;
-  /** Corner marks round the one who speaks. */
-  frame: boolean;
   /** One thin line from them to me, their notes coming along it as they sound. */
   line: boolean;
   /** Their name, this many times its size. */
   big: number;
+  /** Their square hops on every note, this high (× its size); nobody else moves or blinks meanwhile. */
+  hop: number;
 }
 
 /** Steps (0.25 s) a note takes along the line from them to me. */
 const CALL_STEPS = 8;
 const CALL_LINE_SHADE = 0.22;
-const MAX_CALL_VERTS = (8 + 1 + GLYPH_COLS * 2) * 2;
+const MAX_CALL_VERTS = (1 + GLYPH_COLS * 2) * 2;
 
 const NAME_VERTEX = /* glsl */ `
 uniform vec2 px;
@@ -222,8 +223,10 @@ export function OtherDots({
   }, []);
   const callGeom = useMemo(() => lineGeom(MAX_CALL_VERTS), []);
   const callShown = useRef(0);
-  const right = useMemo(() => new THREE.Vector3(), []);
-  const up = useMemo(() => new THREE.Vector3(), []);
+  /** The ids in the order the squares are drawn, and which of them was hopping. */
+  const order = useRef<string[]>([]);
+  const hopped = useRef(-1);
+
   const nameMat = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -255,7 +258,9 @@ export function OtherDots({
     [geom, haloGeom, nameGeom, callGeom, nameMat, tex],
   );
   /** A square's grey: its own rhythm, and dark while someone else is the one speaking. */
-  const squareShade = (id: string, step: number, who: string | null) => (rhythmOf(id)[step] ? 1 : SQUARE_REST) * (who !== null && id !== who ? (call?.dim ?? 1) : 1);
+  // (while someone speaks nobody else blinks: only the speaker moves — the artist, 2026-11-10: with everything moving
+  // at once it did not show who it was)
+  const squareShade = (id: string, step: number, who: string | null) => (who !== null && id !== who ? (call?.dim ?? 1) : rhythmOf(id)[step] ? 1 : SQUARE_REST);
   const speakerNow = (): string | null => {
     const who = call ? (getVoice?.()?.asker ?? null) : null;
     return who !== null && held.current.has(who) ? who : null;
@@ -310,6 +315,7 @@ export function OtherDots({
     for (const [id, h] of H) if (now - h.seen > REFRESH * 1.5 && now >= h.next) H.delete(id);
     const shown = [...H.entries()].slice(0, MAX_OTHERS);
     const n = shown.length;
+    order.current = shown.map(([id]) => id);
     const step = stepAt(performance.now());
     const speaker = speakerNow();
     for (const [g, gain] of [
@@ -411,15 +417,33 @@ export function OtherDots({
     lift.needsUpdate = true;
     size2.needsUpdate = true;
   });
-  // who speaks: four corner marks round their square (facing the eye), and one thin line from them to me along which
-  // each note of their melody comes as it sounds, a short bright stroke. Nothing else is drawn
-  useFrame((state) => {
+  // who speaks: their square jumps on each note; optionally one thin line from them to me along which each note comes as
+  // it sounds, a short bright stroke. Nothing else is drawn
+  useFrame(() => {
     if (!square) return;
     const who = speakerNow();
     const from = who ? held.current.get(who) : undefined;
     const voice = getVoice?.() ?? null;
     const me = getMe?.();
     let v = 0;
+    // the speaker's square hops on each of its notes and is lit while one sounds; when the call is over it is put back
+    const squares = geom.getAttribute("position") as THREE.BufferAttribute;
+    const at = voice ? voice.step + voice.into : 0;
+    const note = who && voice ? glyphOf(who).find((d) => voice.step >= d.col && voice.step < d.col + d.len) : undefined;
+    const lift = call && who && note ? size * call.hop * hopAt(at - note.col) : 0;
+    const index = call && who ? order.current.indexOf(who) : -1;
+    if (hopped.current >= 0 && hopped.current !== index) {
+      (squares.array as Float32Array)[hopped.current * 3 + 1] = 0;
+      squares.needsUpdate = true;
+    }
+    hopped.current = index;
+    if (index >= 0) {
+      (squares.array as Float32Array)[index * 3 + 1] = lift;
+      squares.needsUpdate = true;
+      const colours = geom.getAttribute("color") as THREE.BufferAttribute;
+      (colours.array as Float32Array).fill(note ? 1 : 0.45, index * 3, index * 3 + 3);
+      colours.needsUpdate = true;
+    }
     if (call && who && from && voice) {
       const P = (callGeom.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
       const C = (callGeom.getAttribute("color") as THREE.BufferAttribute).array as Float32Array;
@@ -429,27 +453,14 @@ export function OtherDots({
         C.fill(shade, v * 3, v * 3 + 6);
         v += 2;
       };
-      // a square's point is drawn about half its `size` wide (the point's size is cut by the lens): the marks stand clear of it
+      // a square's point is drawn about half its `size` wide (the point's size is cut by the lens)
       const half = size * 0.5;
-      if (call.frame) {
-        right.setFromMatrixColumn(state.camera.matrixWorld, 0);
-        up.setFromMatrixColumn(state.camera.matrixWorld, 1);
-        const arm = half * 0.45;
-        for (const sx of [-1, 1]) {
-          for (const sy of [-1, 1]) {
-            const cx = from.x + (right.x * sx + up.x * sy) * half, cy = (right.y * sx + up.y * sy) * half, cz = from.z + (right.z * sx + up.z * sy) * half;
-            seg(cx, cy, cz, cx - right.x * sx * arm, cy - right.y * sx * arm, cz - right.z * sx * arm, 1);
-            seg(cx, cy, cz, cx - up.x * sy * arm, cy - up.y * sy * arm, cz - up.z * sy * arm, 1);
-          }
-        }
-      }
       const dx = me ? me.x - from.x : 0, dz = me ? me.z - from.z : 0;
       const dist = Math.hypot(dx, dz);
       if (call.line && me && dist > half * 2) {
         const ux = dx / dist, uz = dz / dist;
         const a = half * 1.2, len = dist - a;
         seg(from.x + ux * a, 0, from.z + uz * a, me.x, 0, me.z, CALL_LINE_SHADE);
-        const at = voice.step + voice.into;
         for (const d of glyphOf(who)) {
           // a note leaves them when it sounds and is with me CALL_STEPS later; as long as it is held
           const head = ((at - d.col + GLYPH_COLS) % GLYPH_COLS) / CALL_STEPS;

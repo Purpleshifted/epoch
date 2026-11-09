@@ -50,7 +50,7 @@ export interface MarksVisual {
   /** The name over each other being (brutal look only): one note of it in `cell` px; how it stands out when it speaks. */
   names: { on: boolean; cell: number; rest: number; rise: number; hop: number };
   /** How the one who speaks to me is told from the others (brutal look only): Marks.tsx CallLook. */
-  call: { on: boolean; dim: number; frame: boolean; line: boolean; big: number };
+  call: { on: boolean; dim: number; line: boolean; big: number; hop: number };
   /** A house being born where I stand, on the same bars as the sound's cadence. */
   arrival: { on: boolean; heave: number; burst: number };
   on: boolean;
@@ -121,9 +121,9 @@ export function usePersonalVisuals(): PersonalVisuals {
         nameRise: { value: 24, min: 0, max: 100, step: 2, label: "말을 걸 때 떠오르는 높이 (px)", render: v2 },
         nameHop: { value: 14, min: 0, max: 60, step: 1, label: "음마다 튀는 높이 (px)", render: v2 },
         callOn: { value: true, label: "말 거는 이를 구별하기", render: v2 },
-        callDim: { value: 0.25, min: 0, max: 1, step: 0.05, label: "그동안 다른 이들 밝기 (×)", render: v2 },
-        callFrame: { value: true, label: "말 거는 이에 모서리 표시", render: v2 },
-        callLine: { value: true, label: "말 거는 이 → 나: 가는 선 (음이 따라 옴)", render: v2 },
+        callDim: { value: 0.25, min: 0, max: 1, step: 0.05, label: "그동안 다른 이들 밝기 (×, 깜빡임도 멈춤)", render: v2 },
+        callHop: { value: 1.4, min: 0, max: 4, step: 0.1, label: "말 거는 이의 네모가 음마다 뛰는 높이 (× 크기)", render: v2 },
+        callLine: { value: false, label: "말 거는 이 → 나: 가는 선 (음이 따라 옴)", render: v2 },
         callBig: { value: 2, min: 1, max: 4, step: 0.5, label: "말 거는 이의 이름 크기 (×)", render: v2 },
       }),
       "함께 짓기 (도착)": folder({
@@ -200,11 +200,11 @@ export function usePersonalVisuals(): PersonalVisuals {
       concrete: { on: c.concreteOn, height: c.concreteHeight, bright: brutal ? 1 : c.concreteBright, radius: c.concreteRadius, style: brutal ? c.concreteStyle : "lines", outlineScale: c.outlineScale },
       burst: { on: c.burstOn, count: c.burstCount, reach: c.burstReach, lifeSec: c.burstLife, dot: c.burstDot },
       names: { on: brutal && c.nameOn, cell: c.nameCell, rest: c.nameRest, rise: c.nameRise, hop: c.nameHop },
-      call: { on: brutal && c.callOn, dim: c.callDim, frame: c.callFrame, line: c.callLine, big: c.callBig },
+      call: { on: brutal && c.callOn, dim: c.callDim, line: c.callLine, big: c.callBig, hop: c.callHop },
       arrival: { on: c.arrivalOn, heave: c.arrivalHeave, burst: c.arrivalBurst },
       on: c.othersOn || c.concreteOn,
     }),
-    [c.nameOn, c.nameCell, c.nameRest, c.nameRise, c.nameHop, c.callOn, c.callDim, c.callFrame, c.callLine, c.callBig, c.arrivalOn, c.arrivalHeave, c.arrivalBurst, brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
+    [c.nameOn, c.nameCell, c.nameRest, c.nameRise, c.nameHop, c.callOn, c.callDim, c.callLine, c.callBig, c.callHop, c.arrivalOn, c.arrivalHeave, c.arrivalBurst, brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
   return { look: c.look, footprint: c.footprint, grass, marks };
 }

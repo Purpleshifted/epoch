@@ -500,7 +500,9 @@ export class SoundEngine {
     filter.frequency.value = this.params.lpOpen;
     filter.Q.value = 0.5;
     const gain = ctx.createGain();
-    gain.gain.value = 1;
+    // a stream that comes (back) after the end must not play past the end's fader: it stays shut until the next life
+    // (endAfterlife opens it)
+    gain.gain.value = this.params.dead ? 0 : 1;
     source.connect(filter).connect(gain).connect(this.master);
     this.nc = { source, filter, gain };
   }
@@ -894,11 +896,16 @@ export class SoundEngine {
       L.forwardZ.setTargetAtTime(Math.cos(yaw), t, 0.05);
     }
     // the dull: concrete nearby (log-interpolated cutoff); the patch gets its own share of it (ncDull)
+    // AFTER THE END the low-passes stay where the dying closed them (the artist, 2026-11-10: at the very end the patch
+    // alone jumps out of the reverb). The ended life's params come without the dying's muffling (muffleSound), so both
+    // filters sprang open in a quarter second just as the afterlife began — and the patch, the one source still
+    // playing (its fader takes over a second), was heard bright and dry for that moment.
+    const ended = params.dead;
     const cut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed);
-    this.dull.frequency.setTargetAtTime(cut, t, 0.25);
+    if (!ended) this.dull.frequency.setTargetAtTime(cut, t, 0.25);
     // someone speaks to me: the patch goes behind a wall (its filter closes; its gain belongs to the ending) and the noise stands back
     const called = !!sig.asker && sig.neighbours.some((n) => n.o === sig.asker);
-    if (this.nc) {
+    if (this.nc && !ended) {
       const ncCut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed * params.ncDull);
       this.nc.filter.frequency.setTargetAtTime(called ? Math.min(ncCut, 420) : ncCut, t, called ? 0.12 : 0.25);
     }
