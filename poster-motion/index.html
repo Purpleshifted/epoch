@@ -79,9 +79,10 @@ body.cursor{cursor:default}
 #steps i{display:block;flex:1;height:3px;background:#3a3b38}
 #steps i.done{background:#6b6c68}
 #steps i.on{background:var(--white)}
-#h-ask{left:0;top:30px;width:1920px;text-align:center;white-space:nowrap;color:var(--ink);display:none}
-#h-ask span{font-family:Neo,monospace;font-size:16px;letter-spacing:.1em;color:#3c3d3a;margin-right:18px}
-#h-ask b{font-size:30px;font-weight:700;letter-spacing:-.005em}
+/* the question keeps the header's two rows: big on the title's line, small on the line under it */
+#h-ask{left:420px;top:28px;white-space:nowrap;color:var(--ink);display:none}
+#h-ask b{position:absolute;left:0;top:-5px;font-size:30px;font-weight:700;letter-spacing:-.005em}
+#h-ask span{position:absolute;left:0;top:40px;font-family:Neo,monospace;font-size:14px;letter-spacing:.3em;color:#3c3d3a}
 #q0{left:0;top:18px;width:1920px;text-align:center;color:var(--ink);display:none}
 #q0 span{display:block;font-family:Neo,monospace;font-size:16px;letter-spacing:.1em;color:#3c3d3a;margin-bottom:6px}
 #q0 b{font-size:27px;font-weight:700;line-height:1.2;letter-spacing:-.005em}
@@ -331,7 +332,7 @@ const KEY=[[""],
   ["The record keeps no line between the city and the grass."],
   ["We are not outside nature. From the future, we are one species in the layer."]];
 // THE TALK'S SPINE (the artist's three questions, 11/08): the question in the paper band, its answer in the key line at the foot
-const ASK={2:["QUESTION 1","Can we name an epoch from inside it?"],
+const ASK={2:["QUESTION 1","Can we name an epoch now, when most of it lies in the future?"],
   3:["QUESTION 2","Can a one-off spike stand for a whole epoch?"],
   4:["QUESTION 3","What would a future scientist call typically human?"],
   10:["QUESTION 3, ANSWERED","So what would that future scientist actually find?"]};
@@ -703,7 +704,7 @@ function s6(u,g){
 }
 
 /* ---------- ⑥ one life, in plain words: what the headset says; what an answer leaves ---------- */
-const LIFE_LINES=[[0.4,"풀밭을 걷고 있습니다.","You are walking on the grass.",0],[1.2,"지나온 자리의 풀이 사라졌습니다.","The grass where you walked is gone.",0],[2.0,"1분째 혼자입니다. 혼자서는 집을 지을 수 없습니다.","Alone for a minute. Alone you cannot build a house.",0],
+const LIFE_LINES=[[0.4,"풀밭을 걷고 있습니다.","You are walking on the grass.",0],[1.2,"지나온 자리의 풀이 사라졌습니다.","The grass where you walked is gone.",0],[2.0,"1분째 혼자입니다. 혼자서는 집을 지을 수 없습니다.","You've been alone for a minute. You can't build a house alone.",0],
   [3.0,"합주 중… 함께 집을 짓습니다.","In ensemble: building a house together.",0],[4.4,"태어나시겠습니까?","Will you be born?",1],[5.0,"[ 예 ]   아니요 · 선택할 수 없습니다","the only answer is yes",2],
   [6.0,"그만 살기: X 키를 1초 동안 누르세요","Stop living: hold X for one second.",2],[7.0,"저런. 그만 살기에 실패했습니다. 삶은 계속됩니다.","Oh. Stopping living has failed. Life goes on.",3],
   [8.2,"삶이 끝났습니다. 기록은 남습니다.","Life has ended. The record is kept.",1]];
