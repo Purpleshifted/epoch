@@ -889,6 +889,7 @@ function SpaceWorld({
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
+  const trails = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
   const endKept = useRef<THREE.Points>(null);
@@ -988,6 +989,7 @@ function SpaceWorld({
         ax.geometry = g;
       }
       setSegments(walkLive.current, p.walk.live);
+      setSegments(trails.current, p.trails);
       setSegments(walkKept.current, p.walk.kept);
       setWalkEnds(endLive.current, p.walk.liveEnds);
       setWalkEnds(endKept.current, p.walk.keptEnds);
@@ -1169,6 +1171,11 @@ function SpaceWorld({
       </lineSegments>
       {/* WALKWAYS' pre-layer as lines: light grey, the kept ones (below the present) see-through; an end with nothing
           to arrive at any more is closed with a round dot */}
+      {/* wherever a person walked: a white line, always (the artist, 2026-11-10) */}
+      <lineSegments ref={trails} frustumCulled={false}>
+        <bufferGeometry />
+        <lineBasicMaterial color="#ffffff" toneMapped={false} />
+      </lineSegments>
       <lineSegments ref={walkLive} frustumCulled={false} visible={!!walk}>
         <bufferGeometry />
         <lineBasicMaterial color={walkLook.walkColor} />

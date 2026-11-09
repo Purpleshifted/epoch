@@ -16,6 +16,7 @@
 import localFont from "next/font/local";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  stepAt,
   CAUSE_NAME,
   GLYPH_COLS,
   HOLD_SEC,
@@ -92,11 +93,19 @@ interface WitnessView {
   asked: number;
   /** Someone's question is open: the visitor can answer it. */
   asking: boolean;
+  /** Who speaks to me now (null: nobody). */
+  asker: string | null;
   /** The line saying how to walk is up (the first seconds of the life; on a desktop counted from the pointer lock). */
   controls: boolean;
 }
 
-const EMPTY: WitnessView = { me: "", entries: [], status: null, near: [], ledger: null, t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, group: [], newWords: [], found: [], ensembleSec: 0, asked: 0, asking: false, controls: false };
+const EMPTY: WitnessView = { me: "", entries: [], status: null, near: [], ledger: null, t: 0, stillSec: 0, nearSec: 0, met: 0, metByRole: {}, surface: "open", attempts: 0, group: [], newWords: [], found: [], ensembleSec: 0, asked: 0, asking: false, asker: null, controls: false };
+
+/** The step of the bar the sound is on (the engine's grid when it runs, the page's otherwise): what Marks.tsx hops the names on. */
+const musicStepNow = (): number => {
+  const engine = (window as unknown as { __soundEngine?: { musicStep: { step: number } | null } | null }).__soundEngine;
+  return engine?.musicStep?.step ?? stepAt(performance.now());
+};
 
 /** How a record line reads by its level (witness.ts LogLevel): grey, white, reversed. */
 const LEVEL_CLASS = ["text-[#8c8c8c]", "text-white", "bg-white text-black"];
@@ -234,7 +243,7 @@ export function SessionHud({
       if (warn > 0) log.dying(obs.t);
       if (warn >= WATCH_FROM_WARN) log.keptWatch(obs.t);
       const controls = coarse ? obs.t < CONTROLS_SEC : locked && Date.now() - lockedAt.current < CONTROLS_SEC * 1000;
-      setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), controls });
+      setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), asker: log.asker(), controls });
       if (askerRef) askerRef.current = log.asker();
     }, POLL_MS);
     return () => {
@@ -434,9 +443,12 @@ export function SessionHud({
             </div>
             {(rec.near.length > 0 || rec.asking) && (
               <div className="flex items-center gap-2 border-t border-white px-3 py-1.5 text-white">
-                {rec.near.slice(0, 8).map((n) => (
-                  <Glyph key={n.who.o} dots={glyphOf(n.who.o)} cell={3} />
-                ))}
+                {/* a call: only the one who speaks, large, each note lit as it sounds (the same pattern as over their square) */}
+                {rec.asking && rec.asker ? (
+                  <Glyph key={`call:${rec.asker}`} dots={glyphOf(rec.asker)} cell={7} sounding={musicStepNow} />
+                ) : (
+                  rec.near.slice(0, 8).map((n) => <Glyph key={n.who.o} dots={glyphOf(n.who.o)} cell={3} />)
+                )}
                 {rec.asking &&
                   (coarse ? (
                     <button type="button" onClick={answer} className={`${say} pointer-events-auto ml-auto border border-white px-3 py-0.5`}>

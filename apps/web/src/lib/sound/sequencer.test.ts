@@ -57,6 +57,10 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     const s = sig({ speed: 3, neighbours: [near("bot1"), near("v_b", 5)], asker: "v_b" });
     const even = planBar(inputs(2, s));
     expect(even.answer).toBe(false);
+    expect(even.caller).toBe("v_b");
+    expect(even.me).toEqual([]); // a call: nothing of mine under it, no heartbeat, no pad
+    expect(planBar(inputs(2, { ...s, pathP: 1 })).bass).toEqual([]);
+    expect(even.pad.level).toBe(0);
     expect(even.others.map((v) => v.o)).toEqual(["v_b"]);
     const odd = planBar(inputs(3, s));
     expect(odd.answer).toBe(true);

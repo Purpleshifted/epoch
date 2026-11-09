@@ -238,6 +238,8 @@ const MAGENTA_AFTER_MS = 4000;
 const MAX_VOICES = 4;
 /** The voice of who has asked me something, against the others' level: the clearest thing around. */
 const ASKER_LEVEL = 2.2;
+/** While someone speaks to me the patch and the vegetation's noise stand back this far (×). */
+const CALL_DUCK = 0.3;
 
 /** A room: exponentially decaying noise, with `taps` early reflections for hard surfaces. */
 function impulse(ctx: AudioContext, seconds: number, decay: number, taps = 0, bright = 1): AudioBuffer {
@@ -894,13 +896,15 @@ export class SoundEngine {
     // the dull: concrete nearby (log-interpolated cutoff); the patch gets its own share of it (ncDull)
     const cut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed);
     this.dull.frequency.setTargetAtTime(cut, t, 0.25);
+    // someone speaks to me: the patch goes behind a wall (its filter closes; its gain belongs to the ending) and the noise stands back
+    const called = !!sig.asker && sig.neighbours.some((n) => n.o === sig.asker);
     if (this.nc) {
       const ncCut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed * params.ncDull);
-      this.nc.filter.frequency.setTargetAtTime(ncCut, t, 0.25);
+      this.nc.filter.frequency.setTargetAtTime(called ? Math.min(ncCut, 420) : ncCut, t, called ? 0.12 : 0.25);
     }
     this.bassSpread.gain.setTargetAtTime(params.bassSpread, t, 0.3);
     // vegetation
-    this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
+    this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5 * (called ? CALL_DUCK : 1), t, called ? 0.15 : 0.5);
     this.grassSend.gain.setTargetAtTime(params.grassVerb, t, 0.5);
     // wet / dry: the more reverb, the less direct noise (11/01: the wave sounded dry)
     this.wave.send.gain.setTargetAtTime(params.waveVerb * 1.4, t, 0.5);
@@ -936,7 +940,7 @@ export class SoundEngine {
         v.panner.positionX.setTargetAtTime(Math.sin(n.angle) * n.dist, t, 0.1);
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
-      v.filt.frequency.setTargetAtTime(v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, 0.3);
+      v.filt.frequency.setTargetAtTime(n.o === sig.asker ? 9000 : v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, n.o === sig.asker ? 0.05 : 0.3);
       const near = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
     });
@@ -951,6 +955,26 @@ export class SoundEngine {
         if (nc <= 0) this.closeness.delete(id);
         else this.closeness.set(id, nc);
       }
+    }
+  }
+
+  /** A call's bell: a struck, bright partial pair that is gone in a third of a second. */
+  private bell(dest: AudioNode, freq: number, at: number): void {
+    const ctx = this.ctx!;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(0.2, at + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0008, at + 0.34);
+    g.connect(dest);
+    for (const [mult, level] of [[1, 1], [2.76, 0.35]] as const) {
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.value = Math.min(12000, freq * mult);
+      const og = ctx.createGain();
+      og.gain.value = level;
+      o.connect(og).connect(g);
+      o.start(at);
+      o.stop(at + 0.4);
     }
   }
 
@@ -1387,7 +1411,14 @@ export class SoundEngine {
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
-      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * barSec + human() * 0.5, n.len * barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
+      // who speaks to me rings (the artist, 2026-11-10: like a phone, and plainly the pattern over their square): their
+      // melody on the grid's own steps, clear instead of a bot's blur, each note with a bell over it
+      const calls = vb.o === plan.caller;
+      for (const n of vb.notes) {
+        const at = nextStart + n.at * barSec + (calls ? 0 : human() * 0.5);
+        this.note(v.filt, n.freq, at, n.len * barSec, plan.answer || calls ? 1 : 0.8, v.motif.timbre, calls ? 0 : v.blur);
+        if (calls) this.bell(v.filt, n.freq * 2, at);
+      }
     }
     // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a
     // breath, then the tonic breaks — the contrast the hall alone could not give in a sound already wet

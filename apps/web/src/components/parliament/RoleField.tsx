@@ -636,7 +636,7 @@ export function RoleField({
           snap={marks.others.snap}
           square={marks.others.square}
           names={marks.names.on ? marks.names : null}
-          waves={marks.waves.on ? marks.waves : null}
+          call={marks.call.on ? marks.call : null}
           getVoice={voiceNow}
           getMe={() => playerPosRef.current}
         />

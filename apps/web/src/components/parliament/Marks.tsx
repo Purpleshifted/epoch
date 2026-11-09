@@ -6,8 +6,9 @@
  * every frame from the camera.
  *   OtherDots      a glowing point (core + halo, additive) on the ground for every being within the view; or, in the
  *                  brutal version, a hard white square blinking the being's own rhythm, like the visitor's own, with
- *                  its name over it (the wall's own pattern), which rises and hops on its melody when it speaks, and
- *                  sends its notes over the ground to the visitor as wave fronts
+ *                  its name over it (the wall's own pattern), which rises and hops on its melody when it speaks. Who
+ *                  speaks is the only one left bright, marked at its corners, its name larger, and its notes come to
+ *                  the visitor along one thin line
  *   ConcreteLines  a vertical line from the ground up through the frame on every sealed slab cell
  *   ConcreteOutline a brutal version: the building as a line drawing, its edges and the joints between its cells
  *   AnswerBurst    the answer: a burst of hard white points, gone in a moment
@@ -43,21 +44,25 @@ export interface NameLook {
   hop: number;
 }
 
-/** What someone who asks sends to me: a fan of wave fronts over the ground, one set for every note of their melody. */
-export interface WaveLook {
-  /** The fan's opening (degrees). */
-  width: number;
-  /** Steps of the bar (0.25 s each) a front takes to reach me. */
-  steps: number;
-  /** Fronts to a note, one behind the other. */
-  echoes: number;
+/**
+ * Who speaks to me (the artist, 2026-11-10: it must be plain WHO, and stay minimal; a fan of wave fronts read as being
+ * hit by a beam). Nothing is added to the one who speaks but four corner marks and a larger name; everyone else goes dark.
+ */
+export interface CallLook {
+  /** The others' brightness while someone speaks (× their own). */
+  dim: number;
+  /** Corner marks round the one who speaks. */
+  frame: boolean;
+  /** One thin line from them to me, their notes coming along it as they sound. */
+  line: boolean;
+  /** Their name, this many times its size. */
+  big: number;
 }
 
-const WAVE_SEGS = 16;
-const MAX_WAVE_FRONTS = GLYPH_COLS * 4;
-/** Steps between a note's fronts. */
-const WAVE_ECHO_GAP = 0.45;
-const WAVE_ECHO_DIM = 0.3;
+/** Steps (0.25 s) a note takes along the line from them to me. */
+const CALL_STEPS = 8;
+const CALL_LINE_SHADE = 0.22;
+const MAX_CALL_VERTS = (8 + 1 + GLYPH_COLS * 2) * 2;
 
 const NAME_VERTEX = /* glsl */ `
 uniform vec2 px;
@@ -67,15 +72,18 @@ attribute vec2 offset;
 attribute float shade;
 attribute float lift;
 attribute float end;
+attribute float big;
 varying float vShade;
 varying float vEnd;
+varying float vBig;
 void main() {
   vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  p.xy += (offset * cell + vec2(0.0, 4.5 * cell + lift * ratio)) * px * p.w;
+  p.xy += (offset * cell * big + vec2(0.0, 4.5 * cell * big + lift * ratio)) * px * p.w;
   gl_Position = p;
-  gl_PointSize = cell;
+  gl_PointSize = cell * big;
   vShade = shade;
   vEnd = end;
+  vBig = big;
 }
 `;
 
@@ -83,8 +91,10 @@ const NAME_FRAGMENT = /* glsl */ `
 uniform float gap;
 varying float vShade;
 varying float vEnd;
+varying float vBig;
 void main() {
-  if (gl_PointCoord.y > 1.0 - gap || (vEnd > 0.5 && gl_PointCoord.x > 1.0 - gap)) discard;
+  float g = gap / vBig;
+  if (gl_PointCoord.y > 1.0 - g || (vEnd > 0.5 && gl_PointCoord.x > 1.0 - g)) discard;
   gl_FragColor = vec4(vec3(vShade), 1.0);
   #include <colorspace_fragment>
 }
@@ -160,7 +170,7 @@ export function OtherDots({
   snap = true,
   square = false,
   names = null,
-  waves = null,
+  call = null,
   getVoice,
   getMe,
 }: {
@@ -185,8 +195,8 @@ export function OtherDots({
   square?: boolean;
   /** The brutal version: the names over the squares (null = none). */
   names?: NameLook | null;
-  /** The brutal version: what the one who asks sends to me (null = nothing). */
-  waves?: WaveLook | null;
+  /** The brutal version: how the one who speaks to me is told from the others (null = not at all). */
+  call?: CallLook | null;
   getVoice?: () => NameVoice | null;
   /** Where I stand, in the frame the others are placed in. */
   getMe?: () => { x: number; z: number };
@@ -206,11 +216,14 @@ export function OtherDots({
     g.setAttribute("shade", new THREE.BufferAttribute(new Float32Array(n), 1));
     g.setAttribute("lift", new THREE.BufferAttribute(new Float32Array(n), 1));
     g.setAttribute("end", new THREE.BufferAttribute(new Float32Array(n), 1));
+    g.setAttribute("big", new THREE.BufferAttribute(new Float32Array(n).fill(1), 1));
     g.setDrawRange(0, 0);
     return g;
   }, []);
-  const waveGeom = useMemo(() => lineGeom(MAX_WAVE_FRONTS * WAVE_SEGS * 2), []);
-  const waveShown = useRef(0);
+  const callGeom = useMemo(() => lineGeom(MAX_CALL_VERTS), []);
+  const callShown = useRef(0);
+  const right = useMemo(() => new THREE.Vector3(), []);
+  const up = useMemo(() => new THREE.Vector3(), []);
   const nameMat = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -235,12 +248,18 @@ export function OtherDots({
       geom.dispose();
       haloGeom.dispose();
       nameGeom.dispose();
-      waveGeom.dispose();
+      callGeom.dispose();
       nameMat.dispose();
       tex.dispose();
     },
-    [geom, haloGeom, nameGeom, waveGeom, nameMat, tex],
+    [geom, haloGeom, nameGeom, callGeom, nameMat, tex],
   );
+  /** A square's grey: its own rhythm, and dark while someone else is the one speaking. */
+  const squareShade = (id: string, step: number, who: string | null) => (rhythmOf(id)[step] ? 1 : SQUARE_REST) * (who !== null && id !== who ? (call?.dim ?? 1) : 1);
+  const speakerNow = (): string | null => {
+    const who = call ? (getVoice?.()?.asker ?? null) : null;
+    return who !== null && held.current.has(who) ? who : null;
+  };
   useFrame((state, dt) => {
     if (group.current) group.current.position.y = height;
     // the breath
@@ -256,9 +275,10 @@ export function OtherDots({
         const col = geom.getAttribute("color") as THREE.BufferAttribute;
         const C = col.array as Float32Array;
         let i = 0;
+        const who = speakerNow();
         for (const id of held.current.keys()) {
           if (i >= MAX_OTHERS) break;
-          C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = rhythmOf(id)[step] ? 1 : SQUARE_REST;
+          C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = squareShade(id, step, who);
           i++;
         }
         col.needsUpdate = true;
@@ -291,6 +311,7 @@ export function OtherDots({
     const shown = [...H.entries()].slice(0, MAX_OTHERS);
     const n = shown.length;
     const step = stepAt(performance.now());
+    const speaker = speakerNow();
     for (const [g, gain] of [
       [geom, 1],
       [haloGeom, haloStrength],
@@ -303,7 +324,7 @@ export function OtherDots({
         P[i * 3] = h.x;
         P[i * 3 + 1] = 0;
         P[i * 3 + 2] = h.z;
-        C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = square ? (rhythmOf(id)[step] ? 1 : SQUARE_REST) : gain * bright * (0.35 + 0.65 * h.bright);
+        C[i * 3] = C[i * 3 + 1] = C[i * 3 + 2] = square ? squareShade(id, step, speaker) : gain * bright * (0.35 + 0.65 * h.bright);
       }
       g.setDrawRange(0, n);
       pos.needsUpdate = true;
@@ -312,7 +333,7 @@ export function OtherDots({
     if (!names || !square) return;
     // the names stand where the squares do; `end` marks the last cell of each note, so that the notes stay apart
     const attr = (k: string) => nameGeom.getAttribute(k) as THREE.BufferAttribute;
-    const P = attr("position").array as Float32Array, O = attr("offset").array as Float32Array, S = attr("shade").array as Float32Array, L = attr("lift").array as Float32Array, E = attr("end").array as Float32Array;
+    const P = attr("position").array as Float32Array, O = attr("offset").array as Float32Array, S = attr("shade").array as Float32Array, L = attr("lift").array as Float32Array, E = attr("end").array as Float32Array, B = attr("big").array as Float32Array;
     const at = nameAt.current;
     at.length = 0;
     let v = 0;
@@ -329,13 +350,14 @@ export function OtherDots({
           O[v * 2 + 1] = (GLYPH_ROWS - 1) / 2 - d.row;
           S[v] = names.rest;
           L[v] = 0;
+          B[v] = 1;
           E[v] = k === d.len - 1 ? 1 : 0;
           v++;
         }
       }
     }
     nameGeom.setDrawRange(0, v);
-    for (const k of ["position", "offset", "shade", "lift", "end"]) attr(k).needsUpdate = true;
+    for (const k of ["position", "offset", "shade", "lift", "end", "big"]) attr(k).needsUpdate = true;
     nameMoving.current = true; // a speaker's name is drawn again in this frame, below
   });
   // the names: still, until someone speaks. Who asks rises and hops on their melody, its sounding note lit, the others
@@ -360,8 +382,9 @@ export function OtherDots({
     nameMoving.current = active;
     const shade = nameGeom.getAttribute("shade") as THREE.BufferAttribute;
     const lift = nameGeom.getAttribute("lift") as THREE.BufferAttribute;
-    const S = shade.array as Float32Array, L = lift.array as Float32Array;
-    const up = 1 - (1 - Math.min(1, (now - asked.current.at) / NAME_RISE_MS)) ** 2;
+    const size2 = nameGeom.getAttribute("big") as THREE.BufferAttribute;
+    const S = shade.array as Float32Array, L = lift.array as Float32Array, Z = size2.array as Float32Array;
+    const rose = 1 - (1 - Math.min(1, (now - asked.current.at) / NAME_RISE_MS)) ** 2;
     for (const { id, from, dots } of nameAt.current) {
       const together = !!voice?.arrival && voice.near.has(id);
       const speaks = speaking && id === who;
@@ -369,66 +392,78 @@ export function OtherDots({
       if (together && voice?.arrival) y = voice.arrival.phase === "dominant" ? names.rise * voice.arrival.t : names.rise + names.hop * hopAt((voice.step % 2) + voice.into);
       else if (speaks && voice) {
         const note = dots.find((d) => voice.step >= d.col && voice.step < d.col + d.len);
-        y = up * names.rise + (note ? names.hop * hopAt(voice.step - note.col + voice.into) : 0);
+        y = rose * names.rise + (note ? names.hop * hopAt(voice.step - note.col + voice.into) : 0);
       }
-      const dim = speaking && !speaks && !together ? 0.5 : 1;
+      const dim = speaking && !speaks && !together ? (call?.dim ?? 0.5) : 1;
+      const z = speaks ? 1 + ((call?.big ?? 1) - 1) * rose : 1;
       let v = from;
       for (const d of dots) {
         const lit = speaks && !!voice && voice.step >= d.col && voice.step < d.col + d.len;
         for (let k = 0; k < d.len; k++) {
           S[v] = together || lit ? 1 : speaks ? Math.min(1, names.rest * 1.5) : names.rest * dim;
           L[v] = y;
+          Z[v] = z;
           v++;
         }
       }
     }
     shade.needsUpdate = true;
     lift.needsUpdate = true;
+    size2.needsUpdate = true;
   });
-  // whoever asks sends their melody to me: every note leaves them as a few wave fronts, a fan opened towards where I
-  // stand, and each front is gone the moment it reaches me. Hard lines, like the buildings' drawing
-  useFrame(() => {
+  // who speaks: four corner marks round their square (facing the eye), and one thin line from them to me along which
+  // each note of their melody comes as it sounds, a short bright stroke. Nothing else is drawn
+  useFrame((state) => {
     if (!square) return;
-    const voice = waves ? (getVoice?.() ?? null) : null;
-    const from = voice?.asker ? held.current.get(voice.asker) : undefined;
+    const who = speakerNow();
+    const from = who ? held.current.get(who) : undefined;
+    const voice = getVoice?.() ?? null;
     const me = getMe?.();
     let v = 0;
-    if (waves && voice?.asker && from && me) {
-      const dx = me.x - from.x, dz = me.z - from.z;
-      const dist = Math.hypot(dx, dz);
-      const P = (waveGeom.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
-      const C = (waveGeom.getAttribute("color") as THREE.BufferAttribute).array as Float32Array;
-      const mid = Math.atan2(dz, dx);
-      const half = (waves.width * Math.PI) / 360;
-      const at = voice.step + voice.into;
-      const steps = Math.max(0.5, waves.steps);
-      let fronts = 0;
-      for (const d of dist > size ? glyphOf(voice.asker) : []) {
-        const age = (at - d.col + GLYPH_COLS) % GLYPH_COLS;
-        for (let e = 0; e < waves.echoes && fronts < MAX_WAVE_FRONTS; e++) {
-          const gone = (age - e * WAVE_ECHO_GAP) / steps;
-          if (gone < 0 || gone >= 1) continue;
-          const r = size * 0.5 + (dist - size * 0.5) * gone;
-          const shade = Math.max(0.2, 1 - e * WAVE_ECHO_DIM);
-          for (let s = 0; s < WAVE_SEGS; s++) {
-            for (const k of [s, s + 1]) {
-              const a = mid - half + (2 * half * k) / WAVE_SEGS;
-              P[v * 3] = from.x + r * Math.cos(a);
-              P[v * 3 + 1] = 0;
-              P[v * 3 + 2] = from.z + r * Math.sin(a);
-              C[v * 3] = C[v * 3 + 1] = C[v * 3 + 2] = shade;
-              v++;
-            }
+    if (call && who && from && voice) {
+      const P = (callGeom.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+      const C = (callGeom.getAttribute("color") as THREE.BufferAttribute).array as Float32Array;
+      const seg = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, shade: number) => {
+        if (v + 2 > MAX_CALL_VERTS) return;
+        P.set([ax, ay, az, bx, by, bz], v * 3);
+        C.fill(shade, v * 3, v * 3 + 6);
+        v += 2;
+      };
+      // a square's point is drawn about half its `size` wide (the point's size is cut by the lens): the marks stand clear of it
+      const half = size * 0.5;
+      if (call.frame) {
+        right.setFromMatrixColumn(state.camera.matrixWorld, 0);
+        up.setFromMatrixColumn(state.camera.matrixWorld, 1);
+        const arm = half * 0.45;
+        for (const sx of [-1, 1]) {
+          for (const sy of [-1, 1]) {
+            const cx = from.x + (right.x * sx + up.x * sy) * half, cy = (right.y * sx + up.y * sy) * half, cz = from.z + (right.z * sx + up.z * sy) * half;
+            seg(cx, cy, cz, cx - right.x * sx * arm, cy - right.y * sx * arm, cz - right.z * sx * arm, 1);
+            seg(cx, cy, cz, cx - up.x * sy * arm, cy - up.y * sy * arm, cz - up.z * sy * arm, 1);
           }
-          fronts++;
+        }
+      }
+      const dx = me ? me.x - from.x : 0, dz = me ? me.z - from.z : 0;
+      const dist = Math.hypot(dx, dz);
+      if (call.line && me && dist > half * 2) {
+        const ux = dx / dist, uz = dz / dist;
+        const a = half * 1.2, len = dist - a;
+        seg(from.x + ux * a, 0, from.z + uz * a, me.x, 0, me.z, CALL_LINE_SHADE);
+        const at = voice.step + voice.into;
+        for (const d of glyphOf(who)) {
+          // a note leaves them when it sounds and is with me CALL_STEPS later; as long as it is held
+          const head = ((at - d.col + GLYPH_COLS) % GLYPH_COLS) / CALL_STEPS;
+          const tail = Math.max(0, head - (d.len * 0.7) / CALL_STEPS);
+          if (head <= 0 || head > 1) continue;
+          seg(from.x + ux * (a + len * tail), 0, from.z + uz * (a + len * tail), from.x + ux * (a + len * head), 0, from.z + uz * (a + len * head), 1);
         }
       }
     }
-    if (v === 0 && waveShown.current === 0) return;
-    waveShown.current = v;
-    waveGeom.setDrawRange(0, v);
-    waveGeom.getAttribute("position").needsUpdate = true;
-    waveGeom.getAttribute("color").needsUpdate = true;
+    if (v === 0 && callShown.current === 0) return;
+    callShown.current = v;
+    callGeom.setDrawRange(0, v);
+    callGeom.getAttribute("position").needsUpdate = true;
+    callGeom.getAttribute("color").needsUpdate = true;
   });
   if (square) {
     return (
@@ -437,8 +472,8 @@ export function OtherDots({
           <pointsMaterial key="square" ref={coreMat} size={size} sizeAttenuation vertexColors fog={false} depthTest={false} />
         </points>
         {names && <points geometry={nameGeom} material={nameMat} frustumCulled={false} renderOrder={11} />}
-        {waves && (
-          <lineSegments geometry={waveGeom} frustumCulled={false} renderOrder={9}>
+        {call && (
+          <lineSegments geometry={callGeom} frustumCulled={false} renderOrder={9}>
             <lineBasicMaterial vertexColors fog={false} depthTest={false} toneMapped={false} />
           </lineSegments>
         )}

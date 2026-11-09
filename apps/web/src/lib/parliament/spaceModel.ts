@@ -24,6 +24,7 @@ import { DEFAULT_FOLD, type FoldConfig, type PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
 import { NO_WALKWAYS, otherLineNear, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
 import { NO_DRAINAGE, drainage, pipeParts, waterDistance, waterField, type Drainage, type PipeParts, type PipeRun, type WaterConfig } from "./water";
+import { wrapCoord, wrapDelta } from "./world";
 
 const CELL = CELL_SIZE;
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
@@ -227,6 +228,42 @@ export function handsOf(seeds: readonly Seed[], t: number): Hand[] {
   return out;
 }
 
+/** Samples of one walk are at most this far apart in time (s) and place (world); beyond, the line breaks. */
+const TRAIL_GAP_SEC = 5;
+const TRAIL_JUMP = 20;
+/** Standing still draws nothing. */
+const TRAIL_MOVED = 0.05;
+
+/**
+ * Wherever a person (never a bot) walked, as line segments [x, y, z, x, y, z] … at the height of the time they walked
+ * there (the artist, 2026-11-10: where a person went there is always a white line). Drawn from the samples themselves,
+ * not through the path rule: a path's tread also keeps buildings off a cell, and a person must be able to build where
+ * they have just walked.
+ */
+export function trailSegments(events: readonly PEvent[], secPerUnit: number, unit: number): Float32Array {
+  const by = new Map<string, PEvent[]>();
+  for (const e of events) {
+    if (e.k !== "p" || e.o.startsWith("bot")) continue;
+    const list = by.get(e.o);
+    if (list) list.push(e);
+    else by.set(e.o, [e]);
+  }
+  const out: number[] = [];
+  const y = (s: number) => (s / secPerUnit) * unit;
+  for (const list of by.values()) {
+    list.sort((a, b) => a.s - b.s);
+    for (let i = 1; i < list.length; i++) {
+      const a = list[i - 1], b = list[i];
+      const dx = wrapDelta(b.x - a.x), dz = wrapDelta(b.z - a.z);
+      const d = Math.hypot(dx, dz);
+      if (b.s - a.s > TRAIL_GAP_SEC || d > TRAIL_JUMP || d < TRAIL_MOVED) continue;
+      const x = wrapCoord(a.x), z = wrapCoord(a.z);
+      out.push(x, y(a.s), z, x + dx, y(b.s), z + dz);
+    }
+  }
+  return Float32Array.from(out);
+}
+
 export interface PartsResult {
   counts: Record<PartKind, number>;
   /** 16 floats per instance, per kind (only `counts[kind]` used). */
@@ -237,6 +274,8 @@ export interface PartsResult {
   seeds: number;
   /** The cells people are building now (the wall marks them: the artist, 2026-11-10). */
   hands: Hand[];
+  /** Where people walked (trailSegments). */
+  trails: Float32Array;
   parts: number;
   /** Seeds built without slats (far). */
   farSeeds: number;
@@ -1096,6 +1135,7 @@ export class SpaceModel {
       edges: edges ? edges.subarray(0, ei * 72) : null,
       seeds: seeds.length,
       hands: handsOf(seeds, t),
+      trails: trailSegments(this.events, box.secPerUnit, box.unit),
       parts: all.length,
       farSeeds: far.size,
       baked: this.baked.size,

@@ -101,6 +101,8 @@ export interface BarPlan {
   density: Density;
   /** Whether this bar is the others' answer (I keep quiet). */
   answer: boolean;
+  /** Who is speaking to me (a call): their melody alone, every bar, nothing under it. */
+  caller: string | null;
   me: MotifNote[];
   others: VoiceBar[];
   /** Downbeat pulses: at (0..1 of the bar), MIDI pitch, level 0..1. */
@@ -163,7 +165,8 @@ export function planBar(inp: BarInputs): BarPlan {
 
   // my notes: a Magenta phrase if one is running, else my motif blended with whoever has been close
   let mine: MotifNote[] = [];
-  if (!answer && myBar) {
+  // a call (the artist, 2026-11-10: like a phone ringing): nothing of mine under their melody, in any bar
+  if (!answer && myBar && !asking) {
     if (inp.phrase && bar - inp.phrase.from < CYCLES_PER_PHRASE && bar >= inp.phrase.from) {
       const cyc = stepsToCycle(inp.phrase.phrase, (bar - inp.phrase.from) * STEPS_PER_CYCLE);
       mine = cyc.map((n) => ({ at: n.at, len: n.len, pitch: n.pitch, freq: midiToHz(n.pitch, me.colour), locked: false }));
@@ -203,7 +206,9 @@ export function planBar(inp: BarInputs): BarPlan {
 
   // bass: the root of the place on the downbeat while on a path; the arrival's tonic lands on a downbeat too
   const bass: BarPlan["bass"] = [];
-  if (sig.pathP >= p.bassFrom) {
+  if (asking) {
+    // a call: no heartbeat under it
+  } else if (sig.pathP >= p.bassFrom) {
     const level = Math.min(1, (sig.pathP - p.bassFrom) / (1 - p.bassFrom) + 0.25);
     const pitch = 36 + chord.rootClass; // C2 … B2
     bass.push({ at: 0, pitch, level });
@@ -214,9 +219,10 @@ export function planBar(inp: BarInputs): BarPlan {
   let padLevel = sig.stay * company;
   if (arrival === "dominant") padLevel = Math.max(padLevel, 0.7);
   if (arrival === "tonic") padLevel = 1;
+  if (asking && !arrival) padLevel = 0;
   const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 
-  return { bar, chord, lock, density: d, answer, me: mine, others, bass, pad, arrival };
+  return { bar, chord, lock, density: d, answer, caller: asking ? asking.o : null, me: mine, others, bass, pad, arrival };
 }
 
 /** The dominant seventh of `key` (degree 4), unless the chord is already it. */
