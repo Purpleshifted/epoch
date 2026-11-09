@@ -27,6 +27,7 @@ import { worldReadout } from "@/lib/parliament/serverWorld";
 import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
 import { SPACE_FOLD, WALL_FLOW_GROUP, WALL_FOLD_GROUP } from "@/lib/parliament/wallRule";
 import type { Hand } from "@/lib/parliament/spaceModel";
+import { gatherStanding, markBuilt, provisionalParts, type ProvisionalCell } from "@/lib/parliament/provisional";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 import type { DepthOfFieldEffect, EffectComposer as ComposerImpl } from "postprocessing";
@@ -1678,6 +1679,59 @@ interface MeStatus {
 }
 
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#ff4d00" } as const;
+
+/** A person on the wall now, as their marker stands (Markers writes them every frame; Provisional reads them). */
+interface PersonNow {
+  o: string;
+  x: number;
+  z: number;
+  s: number;
+  /** Not walking: their marker has nowhere to go, or hardly moves. */
+  still: boolean;
+}
+/** A marker slower than this (world/s) is standing. */
+const STANDING_SPEED = 0.5;
+/** A person not heard over the relay counts as there while their newest sample came at most this long ago (ms). */
+const PERSON_RECENT_MS = 3000;
+const MAX_PROVISIONAL = 512;
+
+/**
+ * A person's parts at once (lib/parliament/provisional.ts): a plain concrete block on every cell their standing has
+ * reached, its top at their present, in the main scene (lit and shaded like the parts). The rule's own building takes
+ * each cell over as it comes.
+ */
+function Provisional({ people, hands, radius, secPerUnit, unit, afterSec, growSec }: { people: RefObject<PersonNow[]>; hands: RefObject<readonly Hand[]>; radius: number; secPerUnit: number; unit: number; afterSec: number; growSec: number }) {
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const cells = useRef(new Map<string, ProvisionalCell>());
+  const m4 = useMemo(() => new THREE.Matrix4(), []);
+  // -1: nothing has been set yet (an instanced mesh starts with all its instances, as unit boxes at the origin)
+  const shown = useRef(-1);
+  useFrame((state, dt) => {
+    const m = mesh.current;
+    if (!m) return;
+    const now = state.clock.elapsedTime;
+    const cfg = { radius, afterSec, growSec };
+    for (const p of people.current) if (p.still) gatherStanding(cells.current, wrapCoord(p.x), wrapCoord(p.z), (p.s / secPerUnit) * unit, Math.min(dt, 0.25), now, cfg);
+    if (cells.current.size === 0 && shown.current === 0) return;
+    markBuilt(cells.current, hands.current);
+    let n = 0;
+    for (const part of provisionalParts(cells.current, now, cfg)) {
+      if (n >= MAX_PROVISIONAL) break;
+      const h = Math.max(0.02, unit * part.h);
+      m4.makeScale(CELL_SIZE * 0.94, h, CELL_SIZE * 0.94).setPosition(part.x, part.top - h / 2, part.z);
+      m.setMatrixAt(n++, m4);
+    }
+    shown.current = n;
+    m.count = n;
+    m.instanceMatrix.needsUpdate = true;
+  });
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, MAX_PROVISIONAL]} frustumCulled={false} castShadow receiveShadow>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial color={KIND_COLOR.mass} roughness={1} metalness={0} />
+    </instancedMesh>
+  );
+}
 /** A cell stays marked this long (s of the person's own time) after their weight last went into it. */
 const HAND_HOLD_SEC = 6;
 const MAX_HAND_CELLS = 256;
@@ -1699,6 +1753,7 @@ function Markers({
   onMe,
   shotMarks,
   hands,
+  people,
 }: {
   log: EventLog;
   secPerUnit: number;
@@ -1713,6 +1768,8 @@ function Markers({
   shotMarks: RefObject<(() => readonly ShotMark[]) | null>;
   /** The cells people are building now (spaceModel handsOf). */
   hands: RefObject<readonly Hand[]>;
+  /** Written here every frame: the people on the wall now, where their markers stand. */
+  people: RefObject<PersonNow[]>;
 }) {
   const [marks, setMarks] = useState<Mark[]>([]);
   const handGeom = useMemo(() => {
@@ -1766,6 +1823,16 @@ function Markers({
         t.left -= h;
       }
       placeMark(t, secPerUnit, unit);
+    }
+    // the people now, as their markers stand: what the provisional parts gather from (Provisional)
+    const here = people.current;
+    here.length = 0;
+    const heardNow = relay.current?.live();
+    const wallMs = performance.now();
+    for (const [id, t] of tracks.current) {
+      if (id.startsWith("bot")) continue;
+      if (!heardNow?.has(id) && wallMs - (seen.current.get(id)?.at ?? -1e12) > PERSON_RECENT_MS) continue;
+      here.push({ o: id, x: t.x, z: t.z, s: t.s, still: t.left <= 0 || Math.hypot(t.vx, t.vz) < STANDING_SPEED });
     }
     // what a person is building now: the outline of each cell their weight goes into, in their colour, at the height
     // of their marker (the present, where the new parts come), so that it can be seen whose a house is while it grows
@@ -1956,6 +2023,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const dofEffect = useRef<DepthOfFieldEffect | null>(null);
   const shotMarks = useRef<(() => readonly ShotMark[]) | null>(null);
   const hands = useRef<readonly Hand[]>([]);
+  const people = useRef<PersonNow[]>([]);
   // THE WALL opens at real speed: the shared rate is saved per origin, and a ×20 left behind from a rehearsal would
   // run the exhibition's world away (2026-10-31)
   useEffect(() => {
@@ -1998,6 +2066,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       markerHold: { value: 6, min: 2, max: 60, step: 1, label: "마커 유지 (갱신 끊긴 뒤 초)" },
       markerLead: { value: 0.25, min: 0, max: 0.6, step: 0.05, label: "마커 앞서가기 (초; 클수록 폰과 가깝고 멈출 때 되돌아옴, 0 = 끔)" },
       markerName: { value: 3, min: 0, max: 8, step: 1, label: "마커 위 이름 패턴 크기 (0 = 끔)" },
+      provOn: { value: true, label: "사람의 임시 부재 (멈추면 즉시; 규칙의 건물이 서면 물러남)" },
+      provAfter: { value: 0.4, min: 0, max: 3, step: 0.1, label: "임시 부재: 멈춘 뒤 나타나기까지 (s, 발밑 칸)" },
+      provGrow: { value: 3, min: 0.2, max: 20, step: 0.2, label: "임시 부재: 다 자라는 데 (s)" },
       showEdges: { value: false, label: "모서리 선" },
       "응답의 홀씨": folder({
         seedsOn: { value: true, label: "켜기" },
@@ -3112,6 +3183,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           />
           </group>
         )}
+        {c.markers && v.provOn && <Provisional people={people} hands={hands} radius={spaceFold.radius} secPerUnit={c.secPerUnit} unit={c.unit} afterSec={v.provAfter} growSec={v.provGrow} />}
         <SpaceWorld
           log={log}
           hands={hands}
@@ -3172,7 +3244,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} leadSec={c.markerLead} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} shotMarks={shotMarks} hands={hands} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} leadSec={c.markerLead} nameCell={c.markerName} onActive={setActive} onMe={setMeStatus} shotMarks={shotMarks} hands={hands} people={people} />
           </Hud>
         )}
         {!hideUi && <ShotRig take={shotTake} composer={shotComposer} dof={dofEffect} marks={shotMarks} />}
