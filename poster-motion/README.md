@@ -163,7 +163,7 @@ The script now runs on the artist's three origin questions, so the deck does too
 
 ## 11/10 — the small type, larger
 
-Citations and captions were too small to read on the projected deck. The type floor (`fz`) is now 17–21 px, the reference line 18 px. Labels that then collided were shortened, and ④'s four Korean panel subtitles were dropped.
+Citations and captions were too small to read on the projected deck, and the references have to read as the work's academic grounds. The type floor (`fz`) is now 17–21 px and the reference line 28 px. Labels that then collided were shortened, and ④'s four Korean panel subtitles were dropped.
 
 ## 11/10 — the slides follow the artist's cut of the script
 

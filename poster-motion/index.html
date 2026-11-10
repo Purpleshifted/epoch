@@ -50,8 +50,8 @@ body.cursor{cursor:default}
 #badge{left:64px;top:392px;font-family:Neo,monospace;font-size:17px;letter-spacing:.12em;color:var(--dim);white-space:nowrap;display:none}
 #badge i{display:inline-block;width:8px;height:8px;background:var(--white);margin-right:10px;vertical-align:1px}
 #hint{left:0;top:996px;width:1920px;text-align:center;font-family:Neo,monospace;font-size:16px;letter-spacing:.14em;color:#55564f;display:none}
-#refs{left:160px;top:970px;width:1600px;text-align:left;font-family:Neo,monospace;font-size:18px;letter-spacing:.08em;color:var(--dim);line-height:1.7;white-space:nowrap;display:none}
-#refs a{color:var(--white);text-decoration:none;border-bottom:1px solid #3a3b38;margin-left:14px}
+#refs{left:160px;top:960px;width:1600px;text-align:left;font-family:Neo,monospace;font-size:28px;letter-spacing:.04em;color:#c9cac5;line-height:1.5;white-space:nowrap;display:none}
+#refs a{color:var(--white);text-decoration:none;border-bottom:2px solid #6b6c68;margin-left:18px}
 #refs a:hover{border-bottom-color:var(--white)}
 #listen8{left:160px;top:652px;width:900px;display:none}
 #listen8 .b{display:flex;flex-wrap:wrap;gap:8px}
@@ -592,7 +592,7 @@ function s4(u){
       sq(snap(mix(far[0],near[0],gat)),snap(mix(far[1],near[1],gat)),6,a);}
     txt("presence",x+16,y+ph-32,{px:12,fam:"Neo",col:DIM,a,ls:1.2}); box(x+16,y+ph-24,pw-32,8,FAINT,a); fill(x+17,y+ph-23,(pw-34)*meter,6,WHITE,a);
     txt("threshold",x+pw-16,y+ph-32,{px:12,fam:"Neo",col:DIM,a:a*on(ul,4.4),al:"right",ls:1.2});
-    txt("several people, one place and time",x,y+ph+22,{px:13,col:DIM,a});}
+    txt("several people, one place and time",x,y+ph+22,{px:20,col:WHITE,a});}
   // b) walk → path
   {const [x,y]=P[1], a=on(u,2.4,0.8), ul=clock(2.4); panel(x,y,pw,ph,"Walk — a path hardens","",a);
     const y0=y+150, xa=x+50, xb=x+pw-50; const passes=Math.min(8,Math.floor(ul/1.1));
@@ -601,7 +601,7 @@ function s4(u){
     const pa=clamp(passes*0.11); line(xa,y0+.5,xb,y0+.5,"#8a8b86",pa*a,2+10*pa); const paved=passes>=4; if(paved)line(xa,y0+.5,xb,y0+.5,"#b5b6b1",a,10);
     const wx=mix(xa,xb,tri(ul<8.8?ul/2.2:4+(u-2.4-8.8/R4)/2.2)); sq(wx,y0,6,a);
     txt(`passes ${passes} · p ${(Math.min(0.45,passes*0.08)).toFixed(2)}${paved?" ≥ 0.3 · PATH":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
-    txt("steady traffic stays a path · Helbing 1997",x,y+ph+22,{px:13,col:DIM,a});}
+    txt("steady traffic stays a path · Helbing 1997",x,y+ph+22,{px:20,col:WHITE,a});}
   // c) seal → pipes
   {const [x,y]=P[2], a=on(u,4.8,0.8), ul=clock(4.8); panel(x,y,pw,ph,"Seal — pipes are laid","",a);
     const cs=34, cols=10, rows=6, gx=x+20, gy=y+36; for(let i=0;i<=cols;i++)line(gx+i*cs,gy,gx+i*cs,gy+rows*cs,FAINT,0.6*a); for(let j=0;j<=rows;j++)line(gx,gy+j*cs,gx+cols*cs,gy+j*cs,FAINT,0.6*a);
@@ -613,7 +613,7 @@ function s4(u){
     const pipe=on(ul,6.0,0.8); line(gx+2*cs,gy+rows*cs+14.5,gx+cols*cs+8,gy+rows*cs+14.5,"#1c1c1d",pipe*a,9); line(gx+2*cs,gy+rows*cs+14.5,gx+cols*cs+8,gy+rows*cs+14.5,WHITE,pipe*a*0.5,1,[3,5]);
     [[2,3],[6,2],[3,6],[8,5]].forEach(([bx,by])=>line(gx+bx*cs,gy+by*cs,gx+bx*cs,gy+rows*cs+10,"#1c1c1d",pipe*a,5));
     txt(`sealed ${(share).toFixed(2)}${pipe>0?" → runoff → sewers":""}`,x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
-    txt("rain has nowhere to soak in · Schueler 1994",x,y+ph+22,{px:13,col:DIM,a});}
+    txt("rain has nowhere to soak in · Schueler 1994",x,y+ph+22,{px:20,col:WHITE,a});}
   // d) leave → grass
   {const [x,y]=P[3], a=on(u,7,0.8), ul=clock(7); panel(x,y,pw,ph,"Leave — vegetation returns","",a);
     const c=[x+pw/2,y+150]; const tr=lin(ul,0.3,3.6), leave=mv(ul,4.2,1.0), back=lin(ul,5.6,5.0), tk=st(u,3);
@@ -621,7 +621,7 @@ function s4(u){
       const pressed=d<90&&h<tr; const returned=pressed&&h<back; sq(gx,gy,2,(pressed&&!returned?0.08:0.5)*a,"#9b9c97");}
     for(let i=0;i<3;i++){const an=tk*0.8+i*2.1; const inx=c[0]+Math.cos(an)*40, iny=c[1]+Math.sin(an)*30; sq(mix(inx,x+pw+30,leave),iny,6,a*(1-leave*0.999));}
     txt(back>0?"empty hours — grass returns":tr>0?"trampling":"",x+16,y+ph-18,{px:12,fam:"Neo",col:DIM,a,ls:1.2});
-    txt("leaving brings it back · Cole 1995",x,y+ph+22,{px:13,col:DIM,a});}
+    txt("leaving brings it back · Cole 1995",x,y+ph+22,{px:20,col:WHITE,a});}
   // the strata: 20 s = one layer; layers sink and change
   const cx=1060, cy=190, cw=430, bh=15, uw=u*4.2, nb=Math.min(44,Math.floor(uw/0.9)), immut=30;
   if(!shot4On)txt("THE WALL · 벽 — 20 s = one stratum",cx,cy-14,{px:12,fam:"Neo",col:DIM,a:on(u,0.3),ls:1.2});
@@ -773,7 +773,7 @@ function s6d(u,g){
   line(x0,py-26.5,x1+w,py-26.5,FAINT,pa);
   txt("IN THE ROCK ALREADY",x0,py,{px:12,fam:"Neo",col:DIM,a:pa,ls:1.2});
   txt("Plastiglomerate — plastic melted together with beach sand, lava, shell and wood into one stone.",x0+330,py+1,{px:17,a:pa});
-  txt("Kamilo Beach, Hawai‘i · Corcoran, Moore & Jazvac 2014",x0+330,py+25,{px:13,col:DIM,a:pa});
+  txt("Kamilo Beach, Hawai‘i · Corcoran, Moore & Jazvac 2014",x0+330,py+30,{px:22,col:WHITE,a:pa});
 }
 
 /* ---------- ⑧ the record remains: a specimen card ---------- */
