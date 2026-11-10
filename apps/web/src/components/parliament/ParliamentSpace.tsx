@@ -46,6 +46,7 @@ import {
   MAX_TIME_RATE,
   MIN_TIME_RATE,
   getEpochMs,
+  hash2,
   latestOf,
   latestS,
   loadEvents,
@@ -875,6 +876,9 @@ function SpaceWorld({
   const focusY = useRef<number | null>(null);
   const snapped = useRef(false);
   const worker = useRef<SpaceRunner | null>(null);
+  /** The vegetation's own worker (null = the first does everything). */
+  const natureRunner = useRef<SpaceRunner | null>(null);
+  const natureFlight = useRef<{ id: number; at: number } | null>(null);
   const sent = useRef(0);
   const inFlight = useRef<{ id: number; at: number } | null>(null);
   /** The lab's present: the log's end when first seen, moved on by the lab's own clock since. */
@@ -1015,6 +1019,14 @@ function SpaceWorld({
       if (inFlight.current?.id === r.id) inFlight.current = null;
       apply(r);
     };
+    // THE VEGETATION ON A WORKER OF ITS OWN (2026-11-10, read off the Mac mini's wall: the parts came every 100 ms but a
+    // vegetation + fused-mass pass took 7–19 s, and while it ran the parts waited — the world fell up to 19 s behind
+    // the clock). The second worker holds the same model (fed the same events, asked for the parts too so its state is
+    // whole), but only its vegetation, reclaim and mass are taken; the first worker never computes those. ?w2=0 = as before.
+    const onNature = (r: SpaceResponse) => {
+      if (natureFlight.current?.id === r.id) natureFlight.current = null;
+      apply({ ...r, parts: undefined });
+    };
     // if the worker cannot start (or fails to load), the same computation runs here; everything is resent
     const fallback = () => {
       worker.current?.stop();
@@ -1030,6 +1042,16 @@ function SpaceWorld({
         fallback();
       };
       worker.current = { mode: "worker", post: (m) => w.postMessage(m), stop: () => w.terminate() };
+      if (new URLSearchParams(window.location.search).get("w2") !== "0") {
+        const w2 = new Worker(new URL("./space.worker.ts", import.meta.url), { type: "module" });
+        w2.onmessage = (ev: MessageEvent<SpaceResponse>) => onNature(ev.data);
+        w2.onerror = (e) => {
+          console.warn("[parliament] the vegetation's worker failed; the first worker takes the vegetation too:", e.message);
+          w2.terminate();
+          natureRunner.current = null;
+        };
+        natureRunner.current = { mode: "worker", post: (m) => w2.postMessage(m), stop: () => w2.terminate() };
+      }
     } catch (e) {
       console.warn("[parliament] no space worker, computing on the main thread:", e);
       fallback();
@@ -1038,6 +1060,8 @@ function SpaceWorld({
     return () => {
       worker.current?.stop();
       worker.current = null;
+      natureRunner.current?.stop();
+      natureRunner.current = null;
     };
     // apply and the runner read everything through refs
   }, []);
@@ -1053,12 +1077,17 @@ function SpaceWorld({
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
     const epoch = local ? null : currentEpochKey();
+    const w2 = natureRunner.current;
+    const both = (m: SpaceRequest) => {
+      w.post(m);
+      w2?.post(m);
+    };
     if (events.length < sent.current) {
-      w.post({ type: "events", add: events, reset: true, epoch });
+      both({ type: "events", add: events, reset: true, epoch });
       labAnchor.current = null;
     } else if (events.length > sent.current) {
-      w.post({ type: "events", add: events.slice(sent.current), epoch });
-    } else if (epoch !== lastEpoch.current) w.post({ type: "events", add: [], epoch });
+      both({ type: "events", add: events.slice(sent.current), epoch });
+    } else if (epoch !== lastEpoch.current) both({ type: "events", add: [], epoch });
     lastEpoch.current = epoch;
     sent.current = events.length;
     // THE PRESENT FOLLOWS THE CLOCK: the world's "now" in session seconds — shared: the world clock against the
@@ -1129,7 +1158,18 @@ function SpaceWorld({
       req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
     }
     inFlight.current = { id, at: now };
-    w.post(req);
+    if (!w2) {
+      w.post(req);
+      return;
+    }
+    const { nature: natReq, reclaim, fuse: fuseReq, ...partsOnly } = req;
+    w.post(partsOnly);
+    if (natReq || reclaim || fuseReq) {
+      // a pass of its own can be long: a new one is asked only once the last has come back (or an hour has passed)
+      if (natureFlight.current && now - natureFlight.current.at < 60_000) return;
+      natureFlight.current = { id, at: now };
+      w2.post(req);
+    }
   });
 
   // follow the player's present: the view moves along the time axis, keeping the viewer's own orbit.
@@ -1716,16 +1756,30 @@ const STANDING_SPEED = 0.5;
 /** A person not heard over the relay counts as there while their newest sample came at most this long ago (ms). */
 const PERSON_RECENT_MS = 3000;
 const MAX_PROVISIONAL = 512;
+const MAX_PROVISIONAL_PIECES = 4;
+/** How a provisional part looks (the artist, 2026-11-10: its feel and the real parts' must line up). */
+interface ProvisionalLook {
+  /** Boxes to a cell: several, each with its own place and size, like the masses the recipe makes. */
+  pieces: number;
+  /** A piece's footprint as a share of the cell (the pieces vary around it). */
+  size: number;
+  /** Full height as a multiple of one slot. */
+  height: number;
+  /** Grey (0 … 1) when it begins and when it is full. */
+  toneFrom: number;
+  toneTo: number;
+}
 
 /**
  * A person's parts at once (lib/parliament/provisional.ts): a plain concrete block on every cell their standing has
  * reached, its top at their present, in the main scene (lit and shaded like the parts). The rule's own building takes
  * each cell over as it comes.
  */
-function Provisional({ people, hands, radius, secPerUnit, unit, afterSec, growSec }: { people: RefObject<PersonNow[]>; hands: RefObject<readonly Hand[]>; radius: number; secPerUnit: number; unit: number; afterSec: number; growSec: number }) {
+function Provisional({ people, hands, radius, secPerUnit, unit, afterSec, growSec, look }: { people: RefObject<PersonNow[]>; hands: RefObject<readonly Hand[]>; radius: number; secPerUnit: number; unit: number; afterSec: number; growSec: number; look: ProvisionalLook }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
   const cells = useRef(new Map<string, ProvisionalCell>());
   const m4 = useMemo(() => new THREE.Matrix4(), []);
+  const colour = useMemo(() => new THREE.Color(), []);
   // -1: nothing has been set yet (an instanced mesh starts with all its instances, as unit boxes at the origin)
   const shown = useRef(-1);
   useFrame((state, dt) => {
@@ -1737,20 +1791,41 @@ function Provisional({ people, hands, radius, secPerUnit, unit, afterSec, growSe
     if (cells.current.size === 0 && shown.current === 0) return;
     markBuilt(cells.current, hands.current);
     let n = 0;
+    const pieces = Math.max(1, Math.min(MAX_PROVISIONAL_PIECES, Math.round(look.pieces)));
     for (const part of provisionalParts(cells.current, now, cfg)) {
-      if (n >= MAX_PROVISIONAL) break;
-      const h = Math.max(0.02, unit * part.h);
-      m4.makeScale(CELL_SIZE * 0.94, h, CELL_SIZE * 0.94).setPosition(part.x, part.top - h / 2, part.z);
-      m.setMatrixAt(n++, m4);
+      // the pieces of a cell: each with a place, a footprint and a height of its own, fixed by where the cell is
+      const seed = Math.floor(part.x * 7.31) * 131 + Math.floor(part.z * 7.31);
+      for (let k = 0; k < pieces; k++) {
+        if (n >= MAX_PROVISIONAL * MAX_PROVISIONAL_PIECES) break;
+        const r1 = hash2(seed, k, 11), r2 = hash2(seed, k, 23), r3 = hash2(seed, k, 37), r4 = hash2(seed, k, 53);
+        const foot = CELL_SIZE * look.size * (pieces === 1 ? 1 : 0.7 + 0.6 * r3);
+        const room = Math.max(0, CELL_SIZE - foot);
+        const h = Math.max(0.02, unit * look.height * part.h * (pieces === 1 ? 1 : 0.6 + 0.6 * r4));
+        m4.makeScale(foot, h, foot).setPosition(part.x + (r1 - 0.5) * room, part.top - h / 2, part.z + (r2 - 0.5) * room);
+        m.setMatrixAt(n, m4);
+        const tone = look.toneFrom + (look.toneTo - look.toneFrom) * part.h;
+        m.setColorAt(n, colour.setScalar(tone));
+        n++;
+      }
     }
     shown.current = n;
     m.count = n;
     m.instanceMatrix.needsUpdate = true;
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
   });
   return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, MAX_PROVISIONAL]} frustumCulled={false} castShadow receiveShadow>
+    <instancedMesh
+      ref={(o) => {
+        mesh.current = o;
+        if (o && !o.instanceColor) o.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PROVISIONAL * MAX_PROVISIONAL_PIECES * 3).fill(1), 3);
+      }}
+      args={[undefined, undefined, MAX_PROVISIONAL * MAX_PROVISIONAL_PIECES]}
+      frustumCulled={false}
+      castShadow
+      receiveShadow
+    >
       <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial color={KIND_COLOR.mass} roughness={1} metalness={0} />
+      <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
     </instancedMesh>
   );
 }
@@ -2091,6 +2166,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       provOn: { value: true, label: "사람의 임시 부재 (멈추면 즉시; 규칙의 건물이 서면 물러남)" },
       provAfter: { value: 0.4, min: 0, max: 3, step: 0.1, label: "임시 부재: 멈춘 뒤 나타나기까지 (s, 발밑 칸)" },
       provGrow: { value: 3, min: 0.2, max: 20, step: 0.2, label: "임시 부재: 다 자라는 데 (s)" },
+      provPieces: { value: 3, min: 1, max: 4, step: 1, label: "임시 부재: 칸당 조각 수" },
+      provSize: { value: 0.55, min: 0.2, max: 1, step: 0.05, label: "임시 부재: 조각 밑면 (칸의 비율)" },
+      provHeight: { value: 1, min: 0.2, max: 3, step: 0.1, label: "임시 부재: 다 자란 높이 (× 한 단)" },
+      provToneFrom: { value: 0.55, min: 0, max: 1, step: 0.05, label: "임시 부재: 처음 밝기" },
+      provToneTo: { value: 0.82, min: 0, max: 1, step: 0.05, label: "임시 부재: 다 자란 밝기" },
       showEdges: { value: false, label: "모서리 선" },
       "응답의 홀씨": folder({
         seedsOn: { value: true, label: "켜기" },
@@ -3305,7 +3385,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           />
           </group>
         )}
-        {c.markers && v.provOn && <Provisional people={people} hands={hands} radius={spaceFold.radius} secPerUnit={c.secPerUnit} unit={c.unit} afterSec={v.provAfter} growSec={v.provGrow} />}
+        {c.markers && v.provOn && <Provisional people={people} hands={hands} radius={spaceFold.radius} secPerUnit={c.secPerUnit} unit={c.unit} afterSec={v.provAfter} growSec={v.provGrow} look={{ pieces: v.provPieces, size: v.provSize, height: v.provHeight, toneFrom: v.provToneFrom, toneTo: v.provToneTo }} />}
         <SpaceWorld
           log={log}
           hands={hands}
