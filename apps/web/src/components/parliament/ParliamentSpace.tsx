@@ -20,7 +20,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
 import { Glyph } from "./Glyph";
-import { SlowGrain } from "./SlowGrain";
+import { SlowGrain, type GrainBlend, type GrainKind } from "./SlowGrain";
 import { POINT_MIN, SHOT_SEEDS, SHOT_VEGETATION, ShotPanel, ShotRig, type ShotMark, type TakeShot } from "./LandscapeShot";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { worldReadout } from "@/lib/parliament/serverWorld";
@@ -29,7 +29,8 @@ import { SPACE_FOLD, WALL_FLOW_GROUP, WALL_FOLD_GROUP } from "@/lib/parliament/w
 import type { Hand } from "@/lib/parliament/spaceModel";
 import { gatherStanding, markBuilt, provisionalParts, type ProvisionalCell } from "@/lib/parliament/provisional";
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { DepthOfField, EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
+import { Autofocus, Bloom, BrightnessContrast, ChromaticAberration, DepthOfField, EffectComposer, HueSaturation, N8AO, SMAA, TiltShift2, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import type { DepthOfFieldEffect, EffectComposer as ComposerImpl } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
 import * as THREE from "three";
@@ -1249,6 +1250,13 @@ function FocusFollow({
   useEffect(() => {
     want.current = null;
   }, [resetTick]);
+  // gone (the focus is automatic now): the readout's line must not go on saying where this one had it
+  useEffect(
+    () => () => {
+      if (status.current) status.current.textContent = "";
+    },
+    [status],
+  );
   useEffect(() => {
     if (!clickFocus) {
       want.current = null;
@@ -1679,6 +1687,20 @@ interface MeStatus {
 }
 
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#ff4d00" } as const;
+/** The panel's first folder: the exhibition camera, the focus, the rendering and the post-processing (the artist, 2026-11-10). */
+const CAMERA_ROOT = "카메라 · 렌더링";
+type ToneKey = "off" | "aces" | "agx" | "neutral" | "reinhard" | "reinhard2" | "uncharted2" | "cineon" | "linear";
+const TONE_MODES: Record<ToneKey, ToneMappingMode | null> = {
+  off: null,
+  aces: ToneMappingMode.ACES_FILMIC,
+  agx: ToneMappingMode.AGX,
+  neutral: ToneMappingMode.NEUTRAL,
+  reinhard: ToneMappingMode.REINHARD,
+  reinhard2: ToneMappingMode.REINHARD2,
+  uncharted2: ToneMappingMode.UNCHARTED2,
+  cineon: ToneMappingMode.OPTIMIZED_CINEON,
+  linear: ToneMappingMode.LINEAR,
+};
 
 /** A person on the wall now, as their marker stands (Markers writes them every frame; Provisional reads them). */
 interface PersonNow {
@@ -2131,15 +2153,6 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           seedJitSec: { value: 0.3, min: 0, max: 1, step: 0.05, label: "가루 시간" },
         }),
       }),
-      "초점 · 시야": folder({
-        dof: { value: false, label: "초점 흐림 (피사계 심도)" },
-        clickFocus: { value: true, label: "클릭한 곳에 초점 (끄면 화면 중앙)" },
-        dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점 폭 (초점에서 이만큼 멀어지면 완전히 흐림, 월드)" },
-        dofBokeh: { value: 4, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
-        focusSpeed: { value: 4, min: 0.5, max: 20, step: 0.5, label: "초점 옮겨가는 속도" },
-        "초점 초기화": button(() => setFocusResets((n) => n + 1)),
-        nearFade: { value: [2, 24] as [number, number], min: 0, max: 60, step: 0.5, label: "카메라 가까운 식생 사라짐 (거리)" },
-      }),
       "데이터": folder(
         {
           // the lab has its own column (the 테스트 기둥 group), not the shared storage
@@ -2164,9 +2177,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // Saved on the rehearsal wall, read by the exhibition wall (same page → same storage key). Keys are stable on purpose:
   // the planned server presets (MacBook → iMac) carry these same names. ──
   const capturePose = useRef(() => {});
+  // CAMERA · RENDERING (the artist, 2026-11-10): one folder at the top of the panel for everything about the picture —
+  // the exhibition camera, the focus, the rendering and the post-processing. The groups keep their saved values under
+  // their old names (savable's legacy), so nothing the wall had set is lost by the move.
   const cam = useControls(
-    "전시 카메라",
-    savable("전시 카메라", {
+    CAMERA_ROOT,
+    {
+      "전시 카메라": folder(
+        savable(`${CAMERA_ROOT}.전시 카메라`, {
       camTurnSec: { value: 180, min: 0, max: 900, step: 5, label: "한 바퀴 (초 · 0 = 멈춤)" },
       camDir: { options: { "한쪽": 1, "반대쪽": -1 }, value: 1, label: "도는 방향" },
       // DEFAULT FRAMING (the fusion session, 2026-10-30): the fused mass, resin and fossils begin 45–54 slots below the
@@ -2257,8 +2275,38 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         sunSwing: { value: 10, min: 0, max: 60, step: 1, label: "해 고도 흔들림 (± ° · 0 = 고정)" },
         sunSwingMin: { value: 30, min: 1, max: 480, step: 1, label: "해 고도 한 주기 (분)" },
       }),
-    }),
-    { order: 1, collapsed: lab },
+        }, ["전시 카메라"]),
+        { collapsed: lab },
+      ),
+    },
+    { order: -1 },
+  );
+  // THE FOCUS (depth of field). Two ways to find it: "따라가기" — the centre of the view (the orbit target), or what
+  // was clicked (FocusFollow); "자동" (the artist, 2026-11-10: "update the focus live as it turns") — the depth the
+  // picture actually shows at its centre, read back from the GPU every frame (Autofocus), eased over `dofSmooth` s.
+  const foc = useControls(
+    CAMERA_ROOT,
+    {
+      "초점 (피사계 심도)": folder(
+        savable(
+          `${CAMERA_ROOT}.초점 (피사계 심도)`,
+          {
+            dof: { value: false, label: "초점 흐림 (피사계 심도)" },
+            dofMode: { options: { "화면 중앙 · 클릭한 곳 (부드럽게 따라감)": "follow", "자동: 화면 중앙에 보이는 것의 깊이를 매 프레임 읽음": "auto" }, value: "follow" as "follow" | "auto", label: "초점을 잡는 법" },
+            clickFocus: { value: true, label: "클릭한 곳에 초점 (따라가기에서; 끄면 화면 중앙)" },
+            dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점 폭 (초점에서 이만큼 멀어지면 완전히 흐림, 월드)" },
+            dofBokeh: { value: 4, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
+            focusSpeed: { value: 4, min: 0.5, max: 20, step: 0.5, label: "초점 옮겨가는 속도 (따라가기)" },
+            dofSmooth: { value: 0.3, min: 0, max: 3, step: 0.05, label: "초점이 닿는 시간 (자동, s; 0 = 즉시)" },
+            "초점 초기화": button(() => setFocusResets((n) => n + 1)),
+            nearFade: { value: [2, 24] as [number, number], min: 0, max: 60, step: 0.5, label: "카메라 가까운 식생 사라짐 (거리)" },
+          },
+          ["보기"],
+        ),
+        { collapsed: true },
+      ),
+    },
+    { order: -1 },
   );
   // the button: the view as it is now (after dragging / zooming on the rehearsal wall) put into the values above
   useEffect(() => {
@@ -2984,8 +3032,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     [isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
-    "렌더 · 성능",
-    savable("렌더 · 성능", {
+    CAMERA_ROOT,
+    {
+      "렌더 · 성능": folder(
+        savable(`${CAMERA_ROOT}.렌더 · 성능`, {
       perfMode: { value: false, label: "성능 모드 (해상도 ↓ · AO 절반 · 그림자 끔 · 식생 점 ↓ · LOD 가까이)" },
       // the pixels: a 5K iMac at ×2 draws 15 M of them per frame, with the AO on every one — ×1.5 looks the same
       // at that density and costs half
@@ -3009,19 +3059,86 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         elevation: { value: 55, min: 5, max: 89, step: 1, label: "해 고도 (°)" },
         sunIntensity: { value: 1.4, min: 0, max: 4, step: 0.05, label: "해 세기 (그림자 대비)" },
         softness: { value: 3, min: 0, max: 12, step: 0.5, label: "그림자 부드러움" },
-        grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "그레인 (0 = 끔)" },
-        grainRate: { value: 0, min: 0, max: 60, step: 1, label: "그레인이 바뀌는 횟수 (초당; 0 = 고정, 이전은 매 프레임)" },
       }),
       LOD: folder({
         near: { value: 40, min: 5, max: 400, step: 5, label: "이 거리 안쪽: 막대 묶음 · 드립 다 그림 (월드)" },
         mid: { value: 90, min: 5, max: 600, step: 5, label: "이 거리까지: 막대 절반 · 드립 없음; 그 너머: 통짜 매스 (월드)" },
         farFactor: { value: 0.25, min: 0.05, max: 1, step: 0.05, label: "먼 곳 식생 점 비율", render: () => !isV2 },
       }),
-    }),
-    { order: 9, collapsed: true },
+        }, ["렌더 · 성능"]),
+        { collapsed: true },
+      ),
+    },
+    { order: -1 },
   );
+  // POST-PROCESSING (the artist, 2026-11-10: "see what else the gl library has"): what postprocessing 6.39 offers that
+  // fits this picture — all off but the grain, which moved here from 빛 (its saved value comes along). The grain's
+  // stripes were the sine hash (SlowGrain.tsx); "줄무늬 없는 해시" is the fix. Left out on purpose: Glitch, Pixelation,
+  // DotScreen, Scanline, ASCII, Sepia, LUT (needs a texture), GodRays / LensFlare (need a sun mesh), SSAO (N8AO is in).
+  const post = useControls(
+    CAMERA_ROOT,
+    {
+      "후처리": folder(
+        savable(
+          `${CAMERA_ROOT}.후처리`,
+          {
+            "그레인": folder({
+              grain: { value: 0.18, min: 0, max: 1, step: 0.01, label: "세기 (0 = 끔)" },
+              grainRate: { value: 0, min: 0, max: 60, step: 1, label: "바뀌는 횟수 (초당; 0 = 고정, 이전은 매 프레임)" },
+              grainKind: { options: { "줄무늬 없는 해시": "hash", "사인 해시 (이전; 세게 하면 줄무늬)": "sin" }, value: "hash" as GrainKind, label: "종류" },
+              grainBlend: { options: { "스크린 (이전)": "screen", "오버레이": "overlay", "소프트 라이트": "softlight", "가산": "add", "곱": "multiply" }, value: "screen" as GrainBlend, label: "섞는 법" },
+              grainSize: { value: 1, min: 1, max: 4, step: 1, label: "알갱이 크기 (px)" },
+            }),
+            "비네트": folder({
+              vigOn: { value: false, label: "켜기 (가장자리 어둡게)" },
+              vigOffset: { value: 0.5, min: 0, max: 1, step: 0.05, label: "시작 (중심에서)" },
+              vigDarkness: { value: 0.5, min: 0, max: 1, step: 0.05, label: "어두움" },
+            }),
+            "블룸": folder({
+              bloomOn: { value: false, label: "켜기 (밝은 곳이 번짐)" },
+              bloomIntensity: { value: 0.6, min: 0, max: 4, step: 0.05, label: "세기" },
+              bloomThreshold: { value: 0.85, min: 0, max: 1, step: 0.01, label: "번지기 시작하는 밝기" },
+              bloomSmoothing: { value: 0.1, min: 0, max: 1, step: 0.01, label: "문턱의 부드러움" },
+              bloomRadius: { value: 0.7, min: 0, max: 1, step: 0.05, label: "번지는 반경" },
+            }),
+            "색수차": folder({
+              caOn: { value: false, label: "켜기 (렌즈처럼 색이 갈라짐)" },
+              caOffset: { value: 1.5, min: 0, max: 10, step: 0.1, label: "어긋남 (‰ 화면)" },
+              caRadial: { value: true, label: "가장자리로 갈수록 더" },
+            }),
+            "밝기 · 대비 · 채도": folder({
+              gradeOn: { value: false, label: "켜기" },
+              brightness: { value: 0, min: -0.5, max: 0.5, step: 0.01, label: "밝기" },
+              contrast: { value: 0, min: -0.5, max: 0.5, step: 0.01, label: "대비" },
+              saturation: { value: 0, min: -1, max: 1, step: 0.05, label: "채도 (−1 = 무채색)" },
+              hue: { value: 0, min: -180, max: 180, step: 1, label: "색상 돌리기 (°)" },
+            }),
+            "톤매핑": folder({
+              tmMode: {
+                options: { "끔": "off", "ACES 필름": "aces", "AgX": "agx", "뉴트럴": "neutral", "라인하르트": "reinhard", "라인하르트 2": "reinhard2", "언차티드 2": "uncharted2", "시니언": "cineon", "선형": "linear" },
+                value: "off" as ToneKey,
+                label: "방식 (밝은 곳이 타지 않게 누름)",
+              },
+            }),
+            "틸트 시프트": folder({
+              tsOn: { value: false, label: "켜기 (가로 띠만 선명, 미니어처)" },
+              tsBlur: { value: 0.15, min: 0, max: 1, step: 0.01, label: "흐림" },
+              tsTaper: { value: 0.5, min: 0, max: 1, step: 0.01, label: "띠 가장자리의 부드러움" },
+              tsCentre: { value: 0.5, min: 0, max: 1, step: 0.01, label: "선명한 띠의 높이 (0 = 아래, 1 = 위)" },
+              tsWidth: { value: 0.2, min: 0, max: 1, step: 0.01, label: "띠의 폭" },
+            }),
+          },
+          ["렌더 · 성능"],
+        ),
+        { collapsed: true },
+      ),
+    },
+    { order: -1 },
+  );
+  const toneMode = TONE_MODES[post.tmMode as ToneKey];
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
-  const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
+  const caOffset = useMemo(() => new THREE.Vector2(post.caOffset / 1000, post.caOffset / 1000), [post.caOffset]);
+  const composerOn = rnd.aoOn || post.grain > 0 || foc.dof || post.vigOn || post.bloomOn || post.caOn || post.gradeOn || toneMode !== null || post.tsOn;
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
   const perf = rnd.perfMode;
   // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
@@ -3210,7 +3327,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           bake={fu.bake}
           resin={resinView}
           water={waterView}
-          nearFade={v.nearFade}
+          nearFade={foc.nearFade}
           noAxis={isV2}
           walk={walkView}
           walkLook={walkLook}
@@ -3218,7 +3335,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           local={lab}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
-        <FocusFollow controls={controls} target={focusTarget} effect={dofEffect} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} status={focusLine} />
+        {foc.dofMode === "follow" && <FocusFollow controls={controls} target={focusTarget} effect={dofEffect} clickFocus={foc.clickFocus && !wall} speed={foc.focusSpeed} resetTick={focusResets} status={focusLine} />}
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
         <StageCamera
           controls={controls}
@@ -3232,11 +3349,32 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer ref={shotComposer} key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}:${rnd.aa}`} multisampling={rnd.aa === "msaa8" ? 8 : rnd.aa === "msaa4smaa" ? 4 : 0}>
+          <EffectComposer
+            ref={shotComposer}
+            key={`${rnd.aoOn}:${post.grain > 0}:${foc.dof}:${foc.dofMode}:${rnd.aa}:${post.vigOn}:${post.bloomOn}:${post.caOn}:${post.gradeOn}:${post.tmMode}:${post.tsOn}`}
+            multisampling={rnd.aa === "msaa8" ? 8 : rnd.aa === "msaa4smaa" ? 4 : 0}
+          >
             {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
-            {v.dof && <DepthOfField ref={dofEffect} target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
+            {foc.dof && foc.dofMode === "follow" && <DepthOfField ref={dofEffect} target={focusTarget} worldFocusRange={foc.dofRange} bokehScale={foc.dofBokeh} />}
+            {foc.dof && foc.dofMode === "auto" && (
+              <Autofocus
+                ref={(api) => {
+                  dofEffect.current = api?.dofRef.current ?? null;
+                }}
+                smoothTime={foc.dofSmooth}
+                worldFocusRange={foc.dofRange}
+                bokehScale={foc.dofBokeh}
+              />
+            )}
+            {post.bloomOn && <Bloom intensity={post.bloomIntensity} luminanceThreshold={post.bloomThreshold} luminanceSmoothing={post.bloomSmoothing} radius={post.bloomRadius} mipmapBlur />}
+            {post.caOn && <ChromaticAberration offset={caOffset} radialModulation={post.caRadial} modulationOffset={0.15} />}
+            {post.gradeOn && <BrightnessContrast brightness={post.brightness} contrast={post.contrast} />}
+            {post.gradeOn && <HueSaturation hue={(post.hue * Math.PI) / 180} saturation={post.saturation} />}
+            {toneMode !== null && <ToneMapping mode={toneMode} />}
+            {post.vigOn && <Vignette offset={post.vigOffset} darkness={post.vigDarkness} />}
+            {post.tsOn && <TiltShift2 blur={post.tsBlur} taper={post.tsTaper} start={[0, Math.max(0, post.tsCentre - post.tsWidth / 2)]} end={[1, Math.min(1, post.tsCentre + post.tsWidth / 2)]} />}
             {(rnd.aa === "msaa4smaa" || rnd.aa === "smaa") && <SMAA />}
-            {rnd.grain > 0 && <SlowGrain opacity={rnd.grain} rate={rnd.grainRate} />}
+            {post.grain > 0 && <SlowGrain opacity={post.grain} rate={post.grainRate} kind={post.grainKind as GrainKind} blend={post.grainBlend as GrainBlend} size={post.grainSize} />}
           </EffectComposer>
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
