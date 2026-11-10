@@ -65,15 +65,21 @@ const sameDots = (a: readonly GlyphDot[], b: readonly GlyphDot[]) => a.length ==
  * stay close). `seed` picks which mix; a seed whose mix comes out as a's own moves on to the next.
  */
 export function newWordOf(a: string, b: string, seed: number): GlyphDot[] {
+  return glyphDots(newWordMotifOf(a, b, seed));
+}
+
+/** The new word as a melody (what newWordOf writes down): the answer plays it back (the artist, 2026-11-10). */
+export function newWordMotifOf(a: string, b: string, seed: number): Motif {
   const mine = makeMotif(a);
   const theirs = makeMotif(b);
   const own = glyphDots(mine);
   const other = glyphDots(theirs);
   for (let k = 0; k < 16; k++) {
-    const dots = glyphDots(blend(mine, theirs, k < 8 ? 0.45 : 0.7, seed + k));
-    if (!sameDots(dots, own) && !sameDots(dots, other)) return dots;
+    const mixed = blend(mine, theirs, k < 8 ? 0.45 : 0.7, seed + k);
+    const dots = glyphDots(mixed);
+    if (!sameDots(dots, own) && !sameDots(dots, other)) return mixed;
   }
-  return own;
+  return mine;
 }
 
 const rhythms = new Map<string, boolean[]>();

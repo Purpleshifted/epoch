@@ -238,8 +238,7 @@ const MAGENTA_AFTER_MS = 4000;
 const MAX_VOICES = 4;
 /** The voice of who has asked me something, against the others' level: the clearest thing around. */
 const ASKER_LEVEL = 2.2;
-/** My answer to a call: how many bars my name is said, and how loud against my ordinary motif. */
-const ANSWER_BARS = 2;
+/** My answer to a call: how loud my name is said against my ordinary motif. */
 const ANSWER_VEL = 1.6;
 
 /** A room: exponentially decaying noise, with `taps` early reflections for hard surfaces. */
@@ -340,9 +339,6 @@ export class SoundEngine {
   private planned = -1;
   private lastPlan: BarPlan | null = null;
   private lockedBars = 0;
-  /** My answer (signals.answeredMs): the bar my name is said until, and the answer already taken. */
-  private answerUntilBar = -1;
-  private answeredSeen = 0;
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
@@ -476,6 +472,22 @@ export class SoundEngine {
     return { step, into: pos - step };
   }
 
+  /**
+   * MY ANSWER (the artist, 2026-11-10): the new word — my melody and theirs merged (glyph.ts newWordMotifOf) — played once
+   * as a phrase of its own from `startPerfMs` (performance.now() basis; RoleField chose the next bar's edge, so the square
+   * and the notes share one clock), `stepMs` a step, on the place's chord, louder — laid over whatever the bars hold.
+   * Nothing in the bar plans changes.
+   */
+  playAnswer(startPerfMs: number, stepMs: number, word: Motif = this.me?.motif ?? makeMotif("v_anon")): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.running || !this.me || !this.key || this.params.dead) return;
+    const chord = this.plans.get(this.planned)?.chord ?? null;
+    const notes = realize(word, this.key, chord, 0.8, this.planned);
+    const cycleSec = (word.steps * stepMs) / 1000;
+    const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
+    for (const n of notes) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+  }
+
   /** The patch's clock carries the grid's phase: bar `bar` starts at `wallMs` (NoiseCraftDriver). */
   setGridAnchor(bar: number, wallMs: number): void {
     this.anchor = { bar, wallMs };
@@ -542,15 +554,10 @@ export class SoundEngine {
       this.arrivalGlow = 1;
       this.arrivalAt = this.ctx.currentTime;
     }
-    if (sig.answeredMs && sig.answeredMs !== this.answeredSeen) {
-      this.answeredSeen = sig.answeredMs;
-      this.answerUntilBar = bar + ANSWER_BARS;
-    }
     const plan = planBar({
       bar,
       sig,
       key,
-      answering: bar < this.answerUntilBar,
       place: this.placeFor(sig),
       arrival,
       me: this.me.motif,
@@ -1405,8 +1412,6 @@ export class SoundEngine {
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
     for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
-    // my answer: a layer over the bar, on the grid, louder (nothing else gives way — the artist, 2026-11-10)
-    for (const n of plan.answerNotes) this.note(this.me.filt, n.freq, nextStart + n.at * barSec, n.len * barSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;

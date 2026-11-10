@@ -19,7 +19,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
-import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
+import { PlayerCursor, type AnswerPhrase } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { WALL_PAGE, savable, savedOf } from "./levaSave";
@@ -155,8 +155,8 @@ function Controller({
   coarse?: boolean;
   /** The visitor's square blinks their melody (lib/parliament/glyph.ts). */
   getRhythm?: () => boolean[] | null;
-  /** performance.now() of their latest answer: the square jumps on its notes for two bars. */
-  getAnswer?: () => number;
+  /** The visitor's answer being played (PlayerCursor AnswerPhrase): the square jumps on its notes. */
+  getAnswer?: () => AnswerPhrase | null;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -356,11 +356,13 @@ export default function ParliamentScene() {
   useEffect(() => (isV2 ? announcePersonalOpen() : undefined), [isV2]);
   // an answer (SessionHud) leaves a seed head where the visitor stands (RoleField)
   const answers = useRef(0);
-  /** When the visitor last answered (performance.now()): their square jumps and their melody says their name for two bars. */
-  const answeredRef = useRef(0);
-  const onAnswer = useCallback(() => {
+  /** The visitor's latest answer: when (performance.now()) and which new word it made; RoleField turns it into the
+   * phrase both the square and the sound play at the next bar. */
+  const answeredRef = useRef<{ atMs: number; other: string; seed: number } | null>(null);
+  const answerRef = useRef<AnswerPhrase | null>(null);
+  const onAnswer = useCallback((word: { other: string; seed: number }) => {
     answers.current++;
-    answeredRef.current = performance.now();
+    answeredRef.current = { atMs: performance.now(), ...word };
   }, []);
   // who is asking the visitor something (SessionHud), and the layer that turns the frame over when a house is born (RoleField)
   const askerRef = useRef<string | null>(null);
@@ -511,7 +513,7 @@ export default function ParliamentScene() {
           tiltRef={tiltRef}
           coarse={coarse}
           getRhythm={withSession ? getRhythm : undefined}
-          getAnswer={withSession ? () => answeredRef.current : undefined}
+          getAnswer={withSession ? () => answerRef.current : undefined}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -539,6 +541,7 @@ export default function ParliamentScene() {
           answers={answers}
           askerRef={askerRef}
           answeredRef={answeredRef}
+          answerRef={answerRef}
         />
       </Canvas>
 

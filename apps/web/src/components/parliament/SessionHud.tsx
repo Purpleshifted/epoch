@@ -197,7 +197,7 @@ export function SessionHud({
   /** The end screen's footprint map (Leva 개인뷰 비주얼). */
   footprint?: boolean;
   /** The visitor answered someone: it leaves a seed head (RoleField). */
-  onAnswer?: () => void;
+  onAnswer?: (word: { other: string; seed: number }) => void;
   /** Where to say who is asking (RoleField: their name and voice stand out until they are answered). */
   askerRef?: React.MutableRefObject<string | null>;
 }) {
@@ -272,8 +272,9 @@ export function SessionHud({
   // someone asked: SPACE answers
   const answer = useCallback(() => {
     const me = witnessRef.current?.me;
-    if (!me || !log.answer(session.lifeRef.current.t, me)) return;
-    onAnswer?.();
+    const said = me ? log.answer(session.lifeRef.current.t, me) : null;
+    if (!me || !said) return;
+    onAnswer?.({ other: said.args.who!.o, seed: said.args.n ?? 0 });
     if (askerRef) askerRef.current = null;
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary(), asking: false }));
   }, [log, session.lifeRef, witnessRef, onAnswer, askerRef]);

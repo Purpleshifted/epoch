@@ -103,10 +103,7 @@ export interface BarPlan {
   answer: boolean;
   /** Who is speaking to me (a call): their melody alone, every bar, nothing under it. */
   caller: string | null;
-  /** One of the two bars of my answer (the artist, 2026-11-10: nothing else goes quiet — the answer is ADDED): my melody
-   * once more, plainly on its own steps, over whatever else the bar has. */
-  answering: boolean;
-  answerNotes: MotifNote[];
+
   me: MotifNote[];
   others: VoiceBar[];
   /** Downbeat pulses: at (0..1 of the bar), MIDI pitch, level 0..1. */
@@ -132,9 +129,6 @@ export interface BarInputs {
   place?: { key: WorldKey; chord: PlaceChord; zone: "in" | "ring" } | null;
   /** The arrival cadence this bar (nextArrival): the dominant leaning in, the tonic arriving, or nothing. */
   arrival?: ArrivalPhase;
-  /** MY ANSWER (the artist, 2026-11-10: "when I respond, let me blink as if answering and say my name plainly"): this bar is
-   * one of the two after I answered a call — my melody alone, on the grid as my name is written, nothing else. */
-  answering?: boolean;
 }
 
 /** Place a motif's cycle into a bar at the density: 0.5 = only even bars, 1 = once, 2 = twice (compressed). */
@@ -159,9 +153,7 @@ export function planBar(inp: BarInputs): BarPlan {
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
-  // an ensemble (staying with others) locks everyone hard to the place's chord (the artist, 2026-11-10: the melodies
-  // synchronising must be heard); the jitter of the timing goes with it (engine: jitterMax × (1 − lock))
-  const lock = arrival === "tonic" ? 1 : Math.max(lockOf(sig), staying ? 0.95 : 0);
+  const lock = arrival === "tonic" ? 1 : lockOf(sig);
   // someone has asked me something: their voice alone, the same call and response, whatever I am doing
   const asking = sig.asker ? sig.neighbours.find((n) => n.o === sig.asker) : undefined;
   const lead = asking ?? sig.neighbours[0];
@@ -177,10 +169,6 @@ export function planBar(inp: BarInputs): BarPlan {
 
   // my notes: a Magenta phrase if one is running, else my motif blended with whoever has been close
   let mine: MotifNote[] = [];
-  // my answer, on top of everything (the artist, 2026-11-10: "keep the chain, only add"): my name said plainly — my own
-  // motif on its own steps (as the glyph writes it), on the chord, no blending, no octave — as a layer of its own
-  const answering = !!inp.answering && !arrival;
-  const answerNotes = answering ? realize(me, key, chord, Math.max(lock, 0.8), bar, motifCfg) : [];
   if (!answer && myBar) {
     if (inp.phrase && bar - inp.phrase.from < CYCLES_PER_PHRASE && bar >= inp.phrase.from) {
       const cyc = stepsToCycle(inp.phrase.phrase, (bar - inp.phrase.from) * STEPS_PER_CYCLE);
@@ -234,7 +222,7 @@ export function planBar(inp: BarInputs): BarPlan {
   if (arrival === "tonic") padLevel = 1;
   const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 
-  return { bar, chord, lock, density: d, answer, caller: asking ? asking.o : null, answering, answerNotes, me: mine, others, bass, pad, arrival };
+  return { bar, chord, lock, density: d, answer, caller: asking ? asking.o : null, me: mine, others, bass, pad, arrival };
 }
 
 /** The dominant seventh of `key` (degree 4), unless the chord is already it. */

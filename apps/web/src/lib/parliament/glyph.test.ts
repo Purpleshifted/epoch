@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { makeMotif } from "@/lib/sound/motif";
-import { GLYPH_COLS, GLYPH_ROWS, glyphDots, glyphOf, groupGlyphOf, individualNo, newWordOf, rhythmOf, stepAt } from "./index";
+import { GLYPH_COLS, GLYPH_ROWS, glyphDots, glyphOf, groupGlyphOf, individualNo, newWordMotifOf, newWordOf, rhythmOf, stepAt } from "./index";
 
 describe("the glyph", () => {
   it("a group's name holds every member's melody, whatever the order", () => {
@@ -42,6 +42,10 @@ describe("the glyph", () => {
     const glyphs = new Set(ids.map((id) => JSON.stringify(glyphOf(id))));
     const rhythms = new Set(ids.map((id) => rhythmOf(id).join()));
     expect(glyphs.size).toBeGreaterThan(rhythms.size * 3);
+  });
+
+  it("the new word's melody writes down as the new word", () => {
+    expect(glyphDots(newWordMotifOf("bot1", "bot7", 12))).toEqual(newWordOf("bot1", "bot7", 12));
   });
 
   it("a new word is neither one's own and stays the same for the same seed", () => {

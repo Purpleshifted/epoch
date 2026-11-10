@@ -246,18 +246,3 @@ describe("the arrival cadence (v4 A4b)", () => {
     expect(wide.chord).toEqual(placeChord(key, 3, 3, { modes: [2, 3, 4, 5], bands: 16, bandCells: 4, chordSize: 4 }));
   });
 });
-
-describe("my answer", () => {
-  it("for the bars after I answer: my melody once more as a layer of its own, the rest of the bar as it was", () => {
-    const s = sig({ speed: 3, pathP: 1, neighbours: [near("bot1"), near("v_b", 5)] });
-    const plain = planBar(inputs(2, s));
-    const plan = planBar({ ...inputs(2, s), answering: true });
-    expect(plan.answering).toBe(true);
-    expect(plan.answerNotes.length).toBeGreaterThan(0);
-    expect(plan.me).toEqual(plain.me);
-    expect(plan.others).toEqual(plain.others);
-    expect(plan.bass).toEqual(plain.bass);
-    expect(plan.pad).toEqual(plain.pad);
-    expect(plain.answerNotes).toEqual([]);
-  });
-});

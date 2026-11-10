@@ -17,8 +17,14 @@ import { PointBuffer, makePixelMaterial } from "@/components/ground/pixelPoints"
 import { GLYPH_COLS, STEP_MS, stepAt } from "@/lib/parliament/glyph";
 import { blinkAt } from "@/lib/parliament/session";
 
-/** How long after an answer the square jumps on its notes (two bars of 2 s). */
-const ANSWER_MS = 4000;
+/** The visitor's answer as the square plays it (RoleField makes it; the engine plays the same notes from the same clock). */
+export interface AnswerPhrase {
+  /** performance.now() the phrase starts at (the next step's edge after SPACE). */
+  startMs: number;
+  stepMs: number;
+  /** The notes: step and length, as the glyph writes them. */
+  dots: readonly { col: number; len: number }[];
+}
 
 export function PlayerCursor({
   position,
@@ -38,8 +44,8 @@ export function PlayerCursor({
   getWarn?: () => number;
   /** Which of the bar's steps the visitor's melody sounds on (null until it is known). */
   getRhythm?: () => boolean[] | null;
-  /** performance.now() of the visitor's latest answer to a call (0 = none). */
-  getAnswer?: () => number;
+  /** The visitor's answer being played now (null = none): the square jumps on each of its notes. */
+  getAnswer?: () => AnswerPhrase | null;
   /** How high the square jumps on a note while answering (× its size). */
   hop?: number;
 }) {
@@ -76,11 +82,17 @@ export function PlayerCursor({
       ahead.current += (Math.min(delta, 0.1) * 1000 * 8 * warn) / STEP_MS;
       const now = performance.now();
       const step = (stepAt(now) + Math.floor(ahead.current)) % GLYPH_COLS;
-      buf.draw(rhythm[step] ? 1 : 0);
-      // answering: up at once on a note, down over the rest of its step
-      const since = now - (getAnswer?.() ?? 0);
-      const into = (now % STEP_MS) / STEP_MS;
-      if (body.current) body.current.position.y = since >= 0 && since < ANSWER_MS && rhythm[step] ? size * hop * (1 - into) ** 2 : 0;
+      // answering: the phrase's own notes (lit, and up at once, down over the step); between them dark; else the bar's blink
+      const ph = getAnswer?.() ?? null;
+      const dt = ph ? now - ph.startMs : -1;
+      const note = ph && dt >= 0 ? ph.dots.find((d) => dt >= d.col * ph.stepMs && dt < (d.col + d.len) * ph.stepMs) : undefined;
+      let lift = 0;
+      if (ph && note) {
+        lift = size * hop * (1 - (((dt - note.col * ph.stepMs) / ph.stepMs) % 1)) ** 2;
+        buf.draw(1);
+      } else if (ph && dt >= 0 && dt < GLYPH_COLS * ph.stepMs) buf.draw(0);
+      else buf.draw(rhythm[step] ? 1 : 0);
+      if (body.current) body.current.position.y = lift;
       return;
     }
     if (getWarn) {

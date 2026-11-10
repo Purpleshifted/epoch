@@ -61,8 +61,7 @@ import {
   type Snapshot,
   STEP_MS,
   stepAt,
-  worldNow,
-} from "@/lib/parliament";
+  worldNow, GLYPH_COLS, glyphDots, newWordMotifOf } from "@/lib/parliament";
 import { touchDevice } from "@/lib/parliament/serverWorld";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
@@ -74,6 +73,7 @@ import { RELAY_SEND_MS, openMarkerSender, type MarkerSender } from "@/lib/parlia
 import type { SoundSetup } from "./useSound";
 import { useFoldOffThread, useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
+import type { AnswerPhrase } from "@/components/mobile/scene/PlayerCursor";
 import { markSpan } from "./usePerfMeter";
 import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
@@ -91,6 +91,8 @@ const KEEP_MIN_WALL_MS = 3000; // … but not more often than this in wall time 
 const NOBODY: ReadonlySet<string> = new Set();
 /** A bot that asks stays this long (s) after the phone last said its question was open. */
 const ASK_STAY_SEC = 4;
+/** The answer waits at least this long (ms) before its bar: a pause, then the merged word. */
+const ANSWER_REST_MS = 600;
 
 export interface ParliamentDebug {
   role: RoleId;
@@ -153,6 +155,7 @@ export function RoleField({
   answers,
   askerRef,
   answeredRef,
+  answerRef,
   sessionNo = 0,
   visitorRef,
 }: {
@@ -195,8 +198,10 @@ export function RoleField({
   answers?: React.MutableRefObject<number>;
   /** Who has asked the visitor something (SessionHud): their name rises and their voice is the clearest. */
   askerRef?: React.MutableRefObject<string | null>;
-  /** performance.now() of the visitor's latest answer (SessionHud → ParliamentScene): the sound says my name for two bars. */
-  answeredRef?: React.MutableRefObject<number>;
+  /** The visitor's latest answer (SessionHud → ParliamentScene): when, and the new word (the other's id and the seed) … */
+  answeredRef?: React.MutableRefObject<{ atMs: number; other: string; seed: number } | null>;
+  /** … and the phrase made of it, for the square (PlayerCursor) and the engine from one clock. */
+  answerRef?: React.MutableRefObject<AnswerPhrase | null>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -433,6 +438,25 @@ export function RoleField({
     }
   });
 
+  // MY ANSWER (the artist, 2026-11-10: "better to hold still, wait, and in the next bar give back my melody and theirs
+  // merged — then it feels merged; and the new word is announced as that merged figure"): nothing moves until the next
+  // bar (at least ANSWER_REST_MS away, else the bar after), then the NEW WORD — the blend the record wrote down — is
+  // played once, by the square and the engine from one clock
+  const answeredSeen = useRef<unknown>(null);
+  useFrame(() => {
+    const a = answeredRef?.current;
+    if (!a || a === answeredSeen.current) return;
+    answeredSeen.current = a;
+    const now = performance.now();
+    const stepMs = sound ? (sound.engine.musicBarSec() * 1000) / GLYPH_COLS : STEP_MS;
+    const m = sound?.engine.musicStep ?? { step: stepAt(now), into: (now % STEP_MS) / STEP_MS };
+    let startMs = now + (GLYPH_COLS - (m.step + m.into)) * stepMs;
+    if (startMs - now < ANSWER_REST_MS) startMs += GLYPH_COLS * stepMs;
+    const word = newWordMotifOf(me.current.id, a.other, a.seed);
+    if (answerRef) answerRef.current = { startMs, stepMs, dots: glyphDots(word) };
+    sound?.engine.playAnswer(startMs, stepMs, word);
+  });
+
   // the name is up: the visitor's melody, with a gap, over and over; it stops when the life begins
   const nameDue = useRef<number | null>(null);
   useFrame(() => {
@@ -570,7 +594,7 @@ export function RoleField({
         const present = !lifeRef || lifeRef.current.phase === "live";
         sound.engine.update(
           present ? me.current.id : "",
-          present ? { ...sig, asker: askerRef?.current ?? null, answeredMs: answeredRef?.current ?? 0 } : { ...sig, neighbours: [] },
+          present ? { ...sig, asker: askerRef?.current ?? null } : { ...sig, neighbours: [] },
           muffleSound(sound.params, lifeRef?.current),
           playerYawRef?.current ?? 0,
           epochMs.current,

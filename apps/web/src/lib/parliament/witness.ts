@@ -16,7 +16,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { glyphOf, groupGlyphOf, newWordOf, type GlyphDot } from "./glyph";
+import { glyphOf, newWordOf, type GlyphDot } from "./glyph";
 
 /** A number in 0 … 1 from a string, the same every time (for the small randomness of the waits). */
 function hash01(s: string): number {
@@ -48,7 +48,6 @@ export type LogKey =
   | "word.found"
   | "ensemble.start"
   | "ensemble.end"
-  | "story.born"
   | "dying"
   | "dying.watched"
   | "attempt.tried"
@@ -184,8 +183,6 @@ export interface WitnessConfig {
   askOpenSec: number;
   /** Each wait before the next question is askEverySec × (1 ± this), drawn per question (the artist, 2026-11-10: "a number, then a little random"). */
   askJitter: number;
-  /** An ensemble that has held this long (s) gives a story (story.born); nobody asks anything while an ensemble goes on. */
-  storySec: number;
 }
 
 export const DEFAULT_WITNESS: WitnessConfig = {
@@ -207,7 +204,6 @@ export const DEFAULT_WITNESS: WitnessConfig = {
   askEverySec: 30, // 16 until 2026-11-10: the artist, "they speak to me too often, the ensemble is never felt"
   askOpenSec: 7,
   askJitter: 0.35,
-  storySec: 20,
 };
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -394,8 +390,6 @@ export class WitnessLog {
   /** What someone has asked and not yet had an answer to. */
   private question: { who: Who; t: number } | null = null;
   private ensemble: Settled<boolean> | null = null;
-  /** This ensemble has given its story. */
-  private storyTold = false;
   /** The wait before the next question, drawn when the last was asked (s). */
   private askGap = DEFAULT_WITNESS.askEverySec;
   /** How many are gathered, settled, and the most this ensemble has said so far. */
@@ -439,11 +433,12 @@ export class WitnessLog {
    */
   answer(t: number, me: string): LogEntry | null {
     if (!this.question) return null;
-    const dots = newWordOf(me, this.question.who.o, Math.floor(t));
+    const seed = Math.floor(t);
+    const dots = newWordOf(me, this.question.who.o, seed);
     const who = this.question.who;
     this.question = null;
     this.totals.newWords.push(dots);
-    return this.write(t, "word.answered", { who, dots }, 1);
+    return this.write(t, "word.answered", { who, dots, n: seed }, 1);
   }
 
   /** The end has begun to make itself felt (session.ts warn): one line. */
@@ -539,7 +534,6 @@ export class WitnessLog {
     const need = obs.buildNeeds ?? this.cfg.buildNeeds;
     const startedAt = this.ensemble.since;
     if (this.ensemble.feed(together, obs.t, this.cfg.ensembleSec)) {
-      this.storyTold = false;
       if (this.ensemble.value) {
         this.toldGathered = Math.max(2, this.gathered.value);
         w("ensemble.start", { n: this.toldGathered, need }, 2);
@@ -548,19 +542,11 @@ export class WitnessLog {
       this.toldGathered = this.gathered.value;
       w("ensemble.start", { n: this.toldGathered, need }, 2);
     }
-    // AN ENSEMBLE IS LEFT ALONE (the artist, 2026-11-10): while it goes on nobody speaks to me — the melodies synchronised
-    // are the thing — and once it has held `storySec`, what was made together is named: a story, the melodies as one glyph
-    const inEnsemble = !!this.ensemble.value;
-    if (inEnsemble && !this.storyTold && obs.t - this.ensemble.since >= this.cfg.storySec) {
-      this.storyTold = true;
-      const withMe = [...this.near.entries()].filter(([, st]) => st.missing === null && !st.moving.value).map(([o]) => o);
-      w("story.born", { n: withMe.length + 1, dots: groupGlyphOf([obs.me, ...withMe]) }, 2);
-    }
     // group life, and the new word a long contact gives (one line at a time)
     for (const [o, st] of this.near) {
       const forSec = obs.t - st.since;
       if (forSec >= this.cfg.groupSec) this.totals.group.add(o);
-      if (!inEnsemble && forSec >= this.cfg.wordAfterSec && !this.worded.has(o) && obs.t - this.lastWordT >= this.cfg.wordGapSec) {
+      if (forSec >= this.cfg.wordAfterSec && !this.worded.has(o) && obs.t - this.lastWordT >= this.cfg.wordGapSec) {
         this.worded.add(o);
         this.lastWordT = obs.t;
         this.ask(obs.t, { o, r: st.r });
@@ -569,7 +555,7 @@ export class WitnessLog {
     }
     // the one near for longest asks again now and then: their melody, gone strange with mine in it
     if (this.question && obs.t - this.question.t > this.cfg.askOpenSec) this.question = null;
-    if (!inEnsemble && !this.question && obs.t - this.lastWordT >= this.askGap) {
+    if (!this.question && obs.t - this.lastWordT >= this.askGap) {
       let longest: { o: string; r: RoleId; since: number } | null = null;
       for (const [o, st] of this.near) if (st.missing === null && this.worded.has(o) && (!longest || st.since < longest.since)) longest = { o, r: st.r, since: st.since };
       if (longest) {
