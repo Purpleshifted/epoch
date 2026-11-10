@@ -36,6 +36,7 @@ function db(): Promise<Sql> | null {
           host_until bigint,
           updated_at timestamptz NOT NULL DEFAULT now()
         )`;
+        await sql`ALTER TABLE world_state ADD COLUMN IF NOT EXISTS host_note text`;
         await sql`CREATE TABLE IF NOT EXISTS world_batches (
           world text NOT NULL,
           epoch_ms bigint NOT NULL,
@@ -72,6 +73,7 @@ interface StateRow {
   bot_start_ms: string | number | null;
   host_id: string | null;
   host_until: string | number | null;
+  host_note?: string | null;
   updated_at: string | Date;
 }
 
@@ -83,7 +85,7 @@ function toState(r: StateRow): WorldState {
     anchor: { r: Number(r.anchor_r), v: Number(r.anchor_v), rate: Number(r.rate) },
     keepWindowSec: Number(r.keep_window_sec),
     botStartMs: r.bot_start_ms === null ? null : Number(r.bot_start_ms),
-    host: r.host_id !== null && r.host_until !== null ? { id: r.host_id, untilMs: Number(r.host_until) } : null,
+    host: r.host_id !== null && r.host_until !== null ? { id: r.host_id, untilMs: Number(r.host_until), ...(r.host_note ? { note: r.host_note } : {}) } : null,
   };
 }
 
@@ -187,13 +189,14 @@ export async function setKeepWindow(world: string, sec: number): Promise<WorldSt
  * Takes or renews the bot host's lease for `id`: when it is already theirs, when nobody holds it, when it has run out,
  * or by force. The bots' start is set the first time and kept. Returns the state whether or not the lease was got.
  */
-export async function takeHost(world: string, id: string, nowMs: number, force = false): Promise<WorldState | null> {
+export async function takeHost(world: string, id: string, nowMs: number, force = false, note?: string): Promise<WorldState | null> {
   const conn = db();
   if (!conn) return null;
   const sql = await conn;
   const rows = (await sql`UPDATE world_state SET
       host_id = ${id},
       host_until = ${nowMs + HOST_LEASE_MS},
+      host_note = COALESCE(${note ?? null}::text, host_note),
       bot_start_ms = COALESCE(bot_start_ms, floor(anchor_v + (${nowMs}::bigint - anchor_r) * rate)::bigint)
     WHERE world = ${world} AND (host_id = ${id} OR host_id IS NULL OR host_until < ${nowMs} OR ${force}::boolean)
     RETURNING *`) as StateRow[];

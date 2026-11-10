@@ -12,7 +12,12 @@ import { after, NextResponse } from "next/server";
 import { advanceBots, wantsServerBots } from "@/lib/world/bots";
 import { clearWorld, readState, releaseHost, setKeepWindow, setRate, takeHost } from "@/lib/world/db";
 import { NO_STORE, isAdmin, notFound, sameOrigin, worldAllowed, worldEnabled } from "@/lib/world/api";
-import { LOCKED_RATE_WORLD, MAX_KEEP_WINDOW_SEC } from "@/lib/world/protocol";
+import { HOST_NOTE_MAX, LOCKED_RATE_WORLD, MAX_KEEP_WINDOW_SEC } from "@/lib/world/protocol";
+
+/** A host's note about itself (fps …), kept short; anything else is dropped. */
+function hostNote(v: unknown): string | undefined {
+  return typeof v === "string" && v.length > 0 ? v.slice(0, HOST_NOTE_MAX) : undefined;
+}
 import { MAX_TIME_RATE, MIN_TIME_RATE } from "@/lib/parliament/worldClock";
 
 export const dynamic = "force-dynamic";
@@ -66,10 +71,10 @@ export async function POST(req: Request) {
         return respond(await setKeepWindow(world, sec));
       }
       case "host": {
-        const { id, force } = body;
+        const { id, force, note } = body;
         if (typeof id !== "string" || !id || id.length > 40) return NextResponse.json({ error: "bad id" }, { status: 400 });
         if (force === true && !isAdmin(req)) return denied();
-        return respond(await takeHost(world, id, now, force === true));
+        return respond(await takeHost(world, id, now, force === true, hostNote(note)));
       }
       case "release": {
         if (typeof body.id !== "string") return NextResponse.json({ error: "bad id" }, { status: 400 });

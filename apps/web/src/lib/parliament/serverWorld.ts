@@ -16,7 +16,7 @@ import { sessionSeconds } from "./clock";
 import { EventLog, LS_KEEP_FROM_KEY, adoptEpoch, currentEpochKey, dropStoredEvents, keepWindowSec, saveMerged, setWorldMirror, storeKeepWindowSec } from "./log";
 import type { PEvent } from "./types";
 import { adoptAnchor, setRateMirror, setWallOffset, wallNow, worldNow } from "./worldClock";
-import { MAX_EVENTS_PER_POST, MAX_RANGE_CHUNKS, chunkEndMs, isWorldName, lastClosedChunk, type WorldState } from "@/lib/world/protocol";
+import { HOST_NOTE_MAX, MAX_EVENTS_PER_POST, MAX_RANGE_CHUNKS, chunkEndMs, isWorldName, lastClosedChunk, type WorldState } from "@/lib/world/protocol";
 
 /** Chunks are looked for this often; what this tab emitted goes out this often. */
 const TICK_MS = 500;
@@ -54,14 +54,14 @@ const LS_ADMIN_KEY = "anthropocene:world:admin:v1";
 export type PostAnswer = { ended: false; state?: WorldState } | { ended: true; state: WorldState };
 export type RangeAnswer = { early: true } | { early: false; events: PEvent[] };
 export type WindowAnswer = { ended: true; state: WorldState } | { ended: false; events: PEvent[]; to: number; next: number | null };
-export type WorldCommand = { op: "clear" } | { op: "rate"; rate: number } | { op: "window"; sec: number } | { op: "host"; id: string; force?: boolean };
+export type WorldCommand = { op: "clear" } | { op: "rate"; rate: number } | { op: "window"; sec: number } | { op: "host"; id: string; force?: boolean; note?: string };
 
 export interface WorldTransport {
   /** The server's clock (ms). */
   now(): Promise<number>;
   state(): Promise<WorldState>;
   /** `host`: renews this tab's lease on the bots with the same request, and the answer carries the state. */
-  send(epochMs: number, events: readonly PEvent[], host?: string): Promise<PostAnswer>;
+  send(epochMs: number, events: readonly PEvent[], host?: string, note?: string): Promise<PostAnswer>;
   /** A host leaving on purpose, as the tab closes: fire and forget. */
   release(id: string): void;
   range(epochMs: number, from: number, to: number): Promise<RangeAnswer>;
@@ -108,8 +108,8 @@ export function httpTransport(world: string): WorldTransport {
       if (!r.ok) throw bad("world", r);
       return ((await r.json()) as { state: WorldState }).state;
     },
-    async send(epochMs, events, host) {
-      const r = await post("/api/events", { world, epoch: epochMs, events, ...(host ? { host } : {}) });
+    async send(epochMs, events, host, note) {
+      const r = await post("/api/events", { world, epoch: epochMs, events, ...(host ? { host, ...(note ? { note } : {}) } : {}) });
       if (r.status === 409) return { ended: true, state: ((await r.json()) as { state: WorldState }).state };
       if (!r.ok) throw bad("send", r);
       return { ended: false, state: ((await r.json()) as { state?: WorldState }).state };
@@ -304,6 +304,9 @@ export class WorldAgent {
     }
   }
 
+  /** What this tab says of itself when it renews its lease (the wall's fps …): read at /api/world by whoever asks. */
+  hostNote = "";
+
   /** Whether a wall of this tab wants to run the bots. Switching off lets the lease go at once. */
   setWantHost(want: boolean): void {
     if (want === this.wantHost) return;
@@ -377,7 +380,7 @@ export class WorldAgent {
     this.busyHost = true;
     this.nextHost = t + HOST_EVERY_MS;
     try {
-      await this.command({ op: "host", id: this.hostId });
+      await this.command({ op: "host", id: this.hostId, ...(this.hostNote ? { note: this.hostNote } : {}) });
     } finally {
       this.busyHost = false;
     }
@@ -482,7 +485,7 @@ export class WorldAgent {
     this.nextSend = t + SEND_EVERY_MS;
     this.lastFlush = t;
     try {
-      const a = await this.net.send(st.epochMs, batch, host);
+      const a = await this.net.send(st.epochMs, batch, host, host ? this.hostNote : undefined);
       this.contact();
       if (a.ended) {
         this.apply(a.state);
@@ -671,6 +674,11 @@ export function attachToServerWorld(log: EventLog): () => void {
 /** Connects a sound's feed to the server; returns how to let go. */
 export function attachScoreFeed(feed: ScoreFeed): () => void {
   return agent ? agent.attachFeed(feed) : () => {};
+}
+
+/** The wall's word about itself, sent with every renewal of its lease (fps, size, compute): the artist, 2026-11-11, "can the Mac mini's state be checked remotely?". */
+export function setHostNote(note: string): void {
+  if (agent) agent.hostNote = note.slice(0, HOST_NOTE_MAX);
 }
 
 /** Asks to run the bots from this tab, or stops asking. A phone never hosts: it is locked or pocketed at any moment. */

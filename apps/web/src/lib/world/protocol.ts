@@ -43,7 +43,12 @@ export interface WorldAnchor {
 export interface WorldHost {
   id: string;
   untilMs: number;
+  /** What the host says of itself when it renews (the wall's fps, size, compute time): read remotely (the artist, 2026-11-11). */
+  note?: string;
 }
+
+/** The most a host's note may hold. */
+export const HOST_NOTE_MAX = 200;
 
 /** What the server is the one authority on, besides the events. */
 export interface WorldState {

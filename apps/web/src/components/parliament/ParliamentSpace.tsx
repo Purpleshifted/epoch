@@ -23,7 +23,7 @@ import { Glyph } from "./Glyph";
 import { SlowGrain, type GrainBlend, type GrainKind } from "./SlowGrain";
 import { POINT_MIN, SHOT_SEEDS, SHOT_VEGETATION, ShotPanel, ShotRig, type ShotMark, type TakeShot } from "./LandscapeShot";
 import { hasWorldMirror, keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
-import { worldReadout } from "@/lib/parliament/serverWorld";
+import { setHostNote, worldReadout } from "@/lib/parliament/serverWorld";
 import { RELAY_SEND_MS, markerRelayReadout, openMarkerListener, type MarkerListener, type RelayedMark } from "@/lib/parliament/markerRelay";
 import { SPACE_FOLD, WALL_FLOW_GROUP, WALL_FOLD_GROUP } from "@/lib/parliament/wallRule";
 import type { Hand } from "@/lib/parliament/spaceModel";
@@ -3157,6 +3157,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
   const resinView = useMemo<ResinLook>(() => (perf ? { ...resinLook, transmission: 0 } : resinLook), [perf, resinLook]);
   const fps = useFps();
+  // what this wall says of itself to the server with its bot lease (read remotely at /api/world?world=…)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setHostNote(`fps ${fps} · ${window.innerWidth}×${window.innerHeight} @${window.devicePixelRatio} · parts ${stats.boxes} · worker ${Math.round(stats.workerMs)} ms · lag ${Math.round(stats.lagS)} s · ${document.visibilityState}`);
+  }, [fps, stats.boxes, stats.workerMs, stats.lagS]);
   const natureParams = useMemo<NatureParams | null>(
     () =>
       veg.natureOn

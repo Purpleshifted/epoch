@@ -9,7 +9,7 @@
 import { after, NextResponse } from "next/server";
 import { deleteOldBatches, insertBatch, readChunks, readState, readWindow, takeHost } from "@/lib/world/db";
 import { NO_STORE, notFound, sameOrigin, worldAllowed, worldEnabled } from "@/lib/world/api";
-import { MAX_POST_BYTES, MAX_RANGE_CHUNKS, cleanEvents, isClosed, joinEventTexts, keepFromAt, lastClosedChunk, pageWindow } from "@/lib/world/protocol";
+import { HOST_NOTE_MAX, MAX_POST_BYTES, MAX_RANGE_CHUNKS, cleanEvents, isClosed, joinEventTexts, keepFromAt, lastClosedChunk, pageWindow } from "@/lib/world/protocol";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "origin" }, { status: 403 });
   const text = await req.text();
   if (text.length > MAX_POST_BYTES) return NextResponse.json({ error: "too large" }, { status: 413 });
-  let body: { world?: unknown; epoch?: unknown; events?: unknown; host?: unknown };
+  let body: { world?: unknown; epoch?: unknown; events?: unknown; host?: unknown; note?: unknown };
   try {
     body = JSON.parse(text) as typeof body;
   } catch {
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     const now = Date.now();
     const stored = events.length ? await insertBatch(world, epoch, events) : null;
     if (events.length && !stored) return NextResponse.json({ state: await readState(world, now) }, { status: 409, headers: NO_STORE });
-    const state = typeof host === "string" ? await takeHost(world, host, now) : undefined;
+    const state = typeof host === "string" ? await takeHost(world, host, now, false, typeof body.note === "string" && body.note ? body.note.slice(0, HOST_NOTE_MAX) : undefined) : undefined;
     if (now - lastClean > CLEAN_EVERY_MS) {
       lastClean = now;
       after(() => deleteOldBatches(KEEP_HOURS).catch(() => {}));
