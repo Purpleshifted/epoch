@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!worldEnabled()) return notFound();
   if (!sameOrigin(req)) return NextResponse.json({ error: "origin" }, { status: 403 });
-  let body: { world?: unknown; op?: unknown; rate?: unknown; sec?: unknown; id?: unknown; force?: unknown };
+  let body: { world?: unknown; op?: unknown; rate?: unknown; sec?: unknown; id?: unknown; force?: unknown; note?: unknown };
   try {
     body = JSON.parse(await req.text()) as typeof body;
   } catch {
