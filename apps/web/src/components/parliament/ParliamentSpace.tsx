@@ -237,6 +237,10 @@ interface Stats {
   pipeRuns: number;
   /** How long the worker's last computation took. */
   workerMs: number;
+  /** The parts worker's own time (ms) and the main thread's time applying the vegetation / mass (ms); whether the vegetation has its own worker. */
+  partsMs: number;
+  applyMs: number;
+  w2: boolean;
   /** Where it ran. */
   runner: string;
 }
@@ -954,6 +958,7 @@ function SpaceWorld({
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
+    const t0 = performance.now();
     const { boxCfg: cfg, onStats: report } = live.current;
     const p = r.parts;
     if (p) {
@@ -1001,7 +1006,7 @@ function SpaceWorld({
       setWalkEnds(endKept.current, p.walk.keptEnds);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
-      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
+      last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, partsMs: r.ms, applyMs: last.current?.applyMs ?? 0, w2: !!natureRunner.current, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
     }
     setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
@@ -1011,7 +1016,11 @@ function SpaceWorld({
     setFused(fused.current, r.fuse);
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
-    if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms });
+    if (last.current) {
+      // the main thread's own cost of a vegetation / mass result (geometry uploads): the worker's ms say nothing of it
+      if (r.nature || r.fuse || r.reclaim) last.current.applyMs = Math.round(performance.now() - t0);
+      report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms });
+    }
   };
 
   useEffect(() => {
@@ -2133,7 +2142,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const camLink = useRef<CamLink>({ lift: null, focusY: null });
   const shotLine = useRef<HTMLDivElement | null>(null);
   const focusLine = useRef<HTMLDivElement | null>(null);
-  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, fuseTris: 0, fuseResin: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, runner: "-" });
+  const [stats, setStats] = useState<Stats>({ seeds: 0, boxes: 0, kinds: NO_COUNTS, t: 0, top: 0, focusS: 0, focusIsMe: false, farSeeds: 0, lagS: 0, fuseTris: 0, fuseResin: 0, baked: 0, links: 0, pipeRuns: 0, workerMs: 0, partsMs: 0, applyMs: 0, w2: false, runner: "-" });
   const [active, setActive] = useState(0);
   const [meStatus, setMeStatus] = useState<MeStatus>({ id: null, silentSec: null });
   const topRef = useRef(0);
@@ -3241,8 +3250,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // what this wall says of itself to the server with its bot lease (read remotely at /api/world?world=…)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setHostNote(`fps ${fps} · ${window.innerWidth}×${window.innerHeight} @${window.devicePixelRatio} · parts ${stats.boxes} · worker ${Math.round(stats.workerMs)} ms · lag ${Math.round(stats.lagS)} s · ${document.visibilityState}`);
-  }, [fps, stats.boxes, stats.workerMs, stats.lagS]);
+    setHostNote(`fps ${fps} · ${window.innerWidth}×${window.innerHeight} @${window.devicePixelRatio} · parts ${stats.boxes} · parts-worker ${Math.round(stats.partsMs)} ms · last ${Math.round(stats.workerMs)} ms · apply ${stats.applyMs} ms · w2 ${stats.w2 ? "on" : "off"} · lag ${Math.round(stats.lagS)} s · ${document.visibilityState}`);
+  }, [fps, stats.boxes, stats.workerMs, stats.partsMs, stats.applyMs, stats.w2, stats.lagS]);
   const natureParams = useMemo<NatureParams | null>(
     () =>
       veg.natureOn
