@@ -164,7 +164,7 @@
 - [ ] 안 되면: 새로고침 → 크롬 재시작 → 맥북 교체(같은 주소). 폴백 = 작가 맥북(M2, 8 GB, 외부 디스플레이 1개).
 - [ ] 수 시간 구동 뒤 메모리·프레임 확인 (이벤트 누적 상한 30k, fold) — 리허설에서 한 번.
 - [ ] 학교 맥이 재부팅 때 초기화되는지 확인 (→ 결정 9).
-- [ ] **관객 세션 분석 로그(작가 요청 11/10, 공통 세계 서버 세션에 구현 요청)**: 전시 시작 전에 켜져 있는지 확인. world_batches는 24시간 뒤와 세계 지우기 때 삭제되므로 분석용 표(analytics_events·analytics_sessions)를 따로 둠; 봇 제외, IP 저장 없음, 실패해도 체험에 영향 없음.
+- [ ] **관객 세션 분석 로그(작가 요청 11/10, 공통 세계 서버 세션에 구현 요청)**: 전시 시작 전에 켜져 있는지 확인. world_batches는 24시간 뒤와 세계 지우기 때 삭제되므로 분석용 표(analytics_events·analytics_sessions)를 따로 둠; 봇 제외, IP 저장 없음, 실패해도 체험에 영향 없음. → **켜짐(feature/sync-server b8cace9, 전시 주소 anthropocene-world)**. 상태 조회 `https://anthropocene-world.vercel.app/api/analytics`(숫자만) → 첫 관객 뒤 sessions·events가 오르는지 확인(11/10 현재 0·0, DB 54 MB). 내보내기: `DATABASE_URL='…' node tools/analytics/export.mjs --since 2026-11-11 --world exhibition`(연결 문자열은 작가가 Vercel에서; `analytics-export/`에 CSV). 이벤트 복사는 DB 350 MB에서 멈춤(`WORLD_ANALYTICS_MAX_MB`), 세션 표는 계속; 끄기 `WORLD_ANALYTICS=0`(재배포 필요). 시험 세계에서만 확인, 전시 세계의 실제 세션은 첫 관객으로 확인. 동의 화면에 기록 안내는 없음 — 작가 결정.
 - [ ] **벽은 키오스크 창으로**(크롬 바 없음; 11/9 LG 4K 세로 1080×1920에서 1440,0 전체 확인): `open -na "Google Chrome" --args --user-data-dir="$HOME/Library/Application Support/anthropocene-wall-kiosk" --kiosk --window-position=<외장X>,<외장Y> --window-size=<폭>,<높이> --no-first-run --no-default-browser-check --autoplay-policy=no-user-gesture-required "<벽 주소>"`. 끝내기 = 그 창에서 ⌘Q. 별도 프로필이라 localStorage(세계·브라우저 저장값)는 공유되지 않는다 — 서버가 세계·프리셋을 주는 공통 세계 버전 전제. 소리 출력 장치 선택도 이 프로필에서 다시.
 - [ ] **당일: 벽을 열고 30초 뒤에 클릭해 소리 켜기** — 서버 답이 4초를 넘고 새 값이 있으면 벽(ui=0)이 로드 뒤 30초 안에 한 번 새로고침하고, 그러면 소리 클릭이 다시 필요하다(세션 관리, 403436b).
 - [ ] **11/7 리허설: 학교 네트워크·아이맥에서 전시 벽을 열어 저장값 대기 4초가 충분한지 확인** — 지금까지 측정은 맥북에서만(첫 호출 0.40–2.15 s, 옛 한도 1.2 s를 6회 중 2회 초과).
@@ -329,6 +329,7 @@
 
 ## 변경 기록
 
+- 2026-11-10 (2): 세션별 분석 로그 전시 주소에 켜짐(b8cace9), 확인·내보내기 방법 §4.
 - 2026-11-10: 작가 요청 — 세션별 동작 로깅(분석 전용 표) 공통 세계 서버 세션에 구현 요청; §4 확인 항목.
 - 2026-11-09: 벽을 크롬 바 없는 키오스크 창으로 여는 명령(§4), LG 4K 세로.
 - 2026-11-02 (4): §0f 세로 TV 해상도별 측정(M2, 7/9 조건, 잠정): 상한 1 = 35.5 fps, 1.75 = 11.1 fps, 픽셀에 반비례.
