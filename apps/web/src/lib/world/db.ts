@@ -36,7 +36,6 @@ function db(): Promise<Sql> | null {
           host_until bigint,
           updated_at timestamptz NOT NULL DEFAULT now()
         )`;
-        await sql`ALTER TABLE world_state ADD COLUMN IF NOT EXISTS host_note text`;
         await sql`CREATE TABLE IF NOT EXISTS world_batches (
           world text NOT NULL,
           epoch_ms bigint NOT NULL,
@@ -50,6 +49,9 @@ function db(): Promise<Sql> | null {
         )`;
         await sql`CREATE INDEX IF NOT EXISTS world_batches_created ON world_batches (created_at)`;
       }
+      // columns added later (2026-11-11 host_note): on every instance, not only where the tables were missing — put
+      // inside the guard above it never ran in production, and every lease renewal failed on the missing column
+      await sql`ALTER TABLE world_state ADD COLUMN IF NOT EXISTS host_note text`;
       return sql;
     })();
     ready.catch(() => {
