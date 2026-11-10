@@ -61,7 +61,7 @@ import {
   type Snapshot,
   STEP_MS,
   stepAt,
-  worldNow, GLYPH_COLS, glyphDots, newWordMotifOf } from "@/lib/parliament";
+  worldNow, GLYPH_COLS, glyphDots, newWordMotifOf, glyphOf } from "@/lib/parliament";
 import { touchDevice } from "@/lib/parliament/serverWorld";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
@@ -453,8 +453,9 @@ export function RoleField({
     let startMs = now + (GLYPH_COLS - (m.step + m.into)) * stepMs;
     if (startMs - now < ANSWER_REST_MS) startMs += GLYPH_COLS * stepMs;
     const word = newWordMotifOf(me.current.id, a.other, a.seed);
-    if (answerRef) answerRef.current = { startMs, stepMs, dots: glyphDots(word) };
-    sound?.engine.playAnswer(startMs, stepMs, word);
+    // the square: my melody through the first bar, the new word through the second (the engine plays the same two bars)
+    if (answerRef) answerRef.current = { startMs, stepMs, dots: [...glyphOf(me.current.id), ...glyphDots(word).map((d) => ({ ...d, col: d.col + GLYPH_COLS }))] };
+    sound?.engine.playAnswer(startMs, stepMs, a.other, word);
   });
 
   // the name is up: the visitor's melody, with a gap, over and over; it stops when the life begins

@@ -238,8 +238,8 @@ const MAGENTA_AFTER_MS = 4000;
 const MAX_VOICES = 4;
 /** The voice of who has asked me something, against the others' level: the clearest thing around. */
 const ASKER_LEVEL = 2.2;
-/** My answer to a call: how loud my name is said against my ordinary motif. */
-const ANSWER_VEL = 1.6;
+/** My answer to a call: how loud it is said against my ordinary motif (the artist, 2026-11-10: it must leap out, to anyone). */
+const ANSWER_VEL = 2.2;
 
 /** A room: exponentially decaying noise, with `taps` early reflections for hard surfaces. */
 function impulse(ctx: AudioContext, seconds: number, decay: number, taps = 0, bright = 1): AudioBuffer {
@@ -473,19 +473,25 @@ export class SoundEngine {
   }
 
   /**
-   * MY ANSWER (the artist, 2026-11-10): the new word — my melody and theirs merged (glyph.ts newWordMotifOf) — played once
-   * as a phrase of its own from `startPerfMs` (performance.now() basis; RoleField chose the next bar's edge, so the square
-   * and the notes share one clock), `stepMs` a step, on the place's chord, louder — laid over whatever the bars hold.
-   * Nothing in the bar plans changes.
+   * MY ANSWER (the artist, 2026-11-10): two bars from `startPerfMs` (performance.now() basis; RoleField chose the next
+   * bar's edge, so the square and the notes share one clock), `stepMs` a step: first my melody and `other`'s together,
+   * then the new `word` they became (glyph.ts newWordMotifOf) — on the place's chord, loud, laid over whatever the bars
+   * hold. Nothing in the bar plans changes.
    */
-  playAnswer(startPerfMs: number, stepMs: number, word: Motif = this.me?.motif ?? makeMotif("v_anon")): void {
+  playAnswer(startPerfMs: number, stepMs: number, other: string, word: Motif): void {
     const ctx = this.ctx;
     if (!ctx || !this.running || !this.me || !this.key || this.params.dead) return;
     const chord = this.plans.get(this.planned)?.chord ?? null;
-    const notes = realize(word, this.key, chord, 0.8, this.planned);
+    const theirs = this.motifs.get(other) ?? makeMotif(other);
     const cycleSec = (word.steps * stepMs) / 1000;
     const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
-    for (const n of notes) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+    // THE COUNTERPOINT, THEN THE WORD (the artist, 2026-11-10: "the merged structure must be heard, to anyone"): the first
+    // bar my melody and theirs together — theirs from where they stand when their voice is up — the second bar what the
+    // two became, in my voice; all of it loud, locked to the chord, over the bars as they are
+    const their = this.voices.get(other);
+    for (const n of realize(this.me.motif, this.key, chord, 1, this.planned)) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+    for (const n of realize(theirs, this.key, chord, 1, this.planned)) this.note(their?.filt ?? this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, theirs.timbre, 0, !their);
+    for (const n of realize(word, this.key, chord, 1, this.planned + 1)) this.note(this.me.filt, n.freq, at0 + cycleSec + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
   }
 
   /** The patch's clock carries the grid's phase: bar `bar` starts at `wallMs` (NoiseCraftDriver). */

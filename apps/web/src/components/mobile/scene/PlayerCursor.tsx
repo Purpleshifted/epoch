@@ -90,7 +90,7 @@ export function PlayerCursor({
       if (ph && note) {
         lift = size * hop * (1 - (((dt - note.col * ph.stepMs) / ph.stepMs) % 1)) ** 2;
         buf.draw(1);
-      } else if (ph && dt >= 0 && dt < GLYPH_COLS * ph.stepMs) buf.draw(0);
+      } else if (ph && dt >= 0 && dt < ph.dots.reduce((m, d) => Math.max(m, d.col + d.len), 0) * ph.stepMs) buf.draw(0);
       else buf.draw(rhythm[step] ? 1 : 0);
       if (body.current) body.current.position.y = lift;
       return;
