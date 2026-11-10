@@ -2174,6 +2174,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       showEdges: { value: false, label: "모서리 선" },
       "응답의 홀씨": folder({
         seedsOn: { value: true, label: "켜기" },
+        seedSharp: { value: false, label: "초점 흐림을 받지 않음 (뒤에 있어도 보이고, 그레인도 안 받음)" },
         seedHead: { value: 5, min: 0.5, max: 20, step: 0.5, label: "처음 크기 (월드)" },
         seedThrough: { value: 0.3, min: 0, max: 1, step: 0.05, label: "덩어리 너머로 비침 (0 = 가려짐)" },
         "송이 모양": folder({
@@ -3329,7 +3330,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
-        {v.seedsOn && (
+        {v.seedsOn && !v.seedSharp && (
           <group userData={SHOT_SEEDS}>
           <Dandelions
             log={log}
@@ -3384,6 +3385,66 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             }}
           />
           </group>
+        )}
+        {/* the seed heads out of the focus blur (the artist, 2026-11-10): drawn after the post-processing like the markers,
+            so they stay sharp — and show through what stands before them, without the grain */}
+        {v.seedsOn && v.seedSharp && (
+          <Hud key={composerOn ? "seeds-after" : "seeds-plain"} renderPriority={composerOn ? 2 : 1}>
+          <group userData={SHOT_SEEDS}>
+            <Dandelions
+              log={log}
+              secPerUnit={c.secPerUnit}
+              unit={c.unit}
+              look={{
+                size: v.seedHead,
+                stem: v.seedStem,
+                radius: v.seedRadius,
+                spokes: v.seedSpokes,
+                dome: v.seedDome,
+                lineWidth: v.seedLineWidth,
+                lineColor: v.seedLineColor,
+                lineLight: v.seedLineLight,
+                dot: v.seedDot,
+                dotColor: v.seedDotColor,
+                dotLight: v.seedDotLight,
+                dotSquare: v.seedDotSquare,
+                through: v.seedThrough,
+                dustCount: v.seedDust,
+                dustReach: v.seedDustReach,
+                dustSec: v.seedDustSec,
+                dustFrom: v.seedDustFrom,
+                dustWind: v.seedDustWind,
+                dustHeading: v.seedDustHeading,
+                dustHeadingSpread: v.seedDustHeadingSpread,
+                dustRise: v.seedDustRise,
+                dustWaver: v.seedDustWaver,
+                dustBurst: v.seedDustBurst,
+                dustEmit: v.seedDustFlowSec / v.seedDustSec,
+                dustFirst: v.seedDustFirst,
+                dustLifeSpread: v.seedDustLifeSpread,
+                dustFade: v.seedDustFade,
+                dustDot: v.seedDustDot,
+                dustColor: v.seedDustColor,
+                dustLight: v.seedDustLight,
+                dustSoft: v.seedDustSoft,
+                dustSquare: v.seedDustSquare,
+                life: {
+                  growSec: v.seedGrowSec,
+                  settle: v.seedSettle,
+                  settleSec: v.seedSettleSec,
+                  fossilDepth: v.seedFossil,
+                  fossilSpread: v.seedFossilSpread,
+                  keep: v.seedKeep,
+                  goneSteps: v.seedGoneSteps,
+                  fossilScale: v.seedFossilScale,
+                  fossilLight: v.seedFossilLight,
+                  fossilSpokes: v.seedFossilSpokes,
+                },
+                jitter: { size: v.seedJitSize, shape: v.seedJitShape, dot: v.seedJitDot, spokes: v.seedJitSpokes, light: v.seedJitLight, dustCount: v.seedJitCount, dustReach: v.seedJitReach, dustSec: v.seedJitSec },
+              }}
+            />
+            </group>
+          </Hud>
         )}
         {c.markers && v.provOn && <Provisional people={people} hands={hands} radius={spaceFold.radius} secPerUnit={c.secPerUnit} unit={c.unit} afterSec={v.provAfter} growSec={v.provGrow} look={{ pieces: v.provPieces, size: v.provSize, height: v.provHeight, toneFrom: v.provToneFrom, toneTo: v.provToneTo }} />}
         <SpaceWorld
