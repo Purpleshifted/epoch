@@ -152,6 +152,7 @@ export function RoleField({
   marks,
   answers,
   askerRef,
+  answeredRef,
   sessionNo = 0,
   visitorRef,
 }: {
@@ -194,6 +195,8 @@ export function RoleField({
   answers?: React.MutableRefObject<number>;
   /** Who has asked the visitor something (SessionHud): their name rises and their voice is the clearest. */
   askerRef?: React.MutableRefObject<string | null>;
+  /** performance.now() of the visitor's latest answer (SessionHud → ParliamentScene): the sound says my name for two bars. */
+  answeredRef?: React.MutableRefObject<number>;
 }) {
   const pending = useRef<PEvent[]>([]);
   const log = useWorld(() => {
@@ -567,7 +570,7 @@ export function RoleField({
         const present = !lifeRef || lifeRef.current.phase === "live";
         sound.engine.update(
           present ? me.current.id : "",
-          present ? { ...sig, asker: askerRef?.current ?? null } : { ...sig, neighbours: [] },
+          present ? { ...sig, asker: askerRef?.current ?? null, answeredMs: answeredRef?.current ?? 0 } : { ...sig, neighbours: [] },
           muffleSound(sound.params, lifeRef?.current),
           playerYawRef?.current ?? 0,
           epochMs.current,

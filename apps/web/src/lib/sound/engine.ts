@@ -238,6 +238,9 @@ const MAGENTA_AFTER_MS = 4000;
 const MAX_VOICES = 4;
 /** The voice of who has asked me something, against the others' level: the clearest thing around. */
 const ASKER_LEVEL = 2.2;
+/** My answer to a call: how many bars my name is said, and how loud against my ordinary motif. */
+const ANSWER_BARS = 2;
+const ANSWER_VEL = 1.6;
 /** While someone speaks to me the patch and the vegetation's noise stand back this far (×). */
 const CALL_DUCK = 0.3;
 
@@ -339,6 +342,9 @@ export class SoundEngine {
   private planned = -1;
   private lastPlan: BarPlan | null = null;
   private lockedBars = 0;
+  /** My answer (signals.answeredMs): the bar my name is said until, and the answer already taken. */
+  private answerUntilBar = -1;
+  private answeredSeen = 0;
   private phrase: { phrase: Phrase; from: number; kind: string } | null = null;
   private magenta = new Magenta();
   private magentaState: SoundDebug["magenta"] = "off";
@@ -538,10 +544,15 @@ export class SoundEngine {
       this.arrivalGlow = 1;
       this.arrivalAt = this.ctx.currentTime;
     }
+    if (sig.answeredMs && sig.answeredMs !== this.answeredSeen) {
+      this.answeredSeen = sig.answeredMs;
+      this.answerUntilBar = bar + ANSWER_BARS;
+    }
     const plan = planBar({
       bar,
       sig,
       key,
+      answering: bar < this.answerUntilBar,
       place: this.placeFor(sig),
       arrival,
       me: this.me.motif,
@@ -1396,7 +1407,7 @@ export class SoundEngine {
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
+    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + (plan.answering ? 0 : human()), n.len * barSec, plan.answering ? ANSWER_VEL : 1, this.me.motif.timbre, 0, true);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;

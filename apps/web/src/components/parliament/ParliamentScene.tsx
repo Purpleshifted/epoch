@@ -134,6 +134,7 @@ function Controller({
   tiltRef,
   coarse = false,
   getRhythm,
+  getAnswer,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -154,6 +155,8 @@ function Controller({
   coarse?: boolean;
   /** The visitor's square blinks their melody (lib/parliament/glyph.ts). */
   getRhythm?: () => boolean[] | null;
+  /** performance.now() of their latest answer: the square jumps on its notes for two bars. */
+  getAnswer?: () => number;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -307,7 +310,7 @@ function Controller({
 
   return (
     <group ref={group}>
-      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />
+      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} getAnswer={getAnswer} />
     </group>
   );
 }
@@ -353,8 +356,11 @@ export default function ParliamentScene() {
   useEffect(() => (isV2 ? announcePersonalOpen() : undefined), [isV2]);
   // an answer (SessionHud) leaves a seed head where the visitor stands (RoleField)
   const answers = useRef(0);
+  /** When the visitor last answered (performance.now()): their square jumps and their melody says their name for two bars. */
+  const answeredRef = useRef(0);
   const onAnswer = useCallback(() => {
     answers.current++;
+    answeredRef.current = performance.now();
   }, []);
   // who is asking the visitor something (SessionHud), and the layer that turns the frame over when a house is born (RoleField)
   const askerRef = useRef<string | null>(null);
@@ -505,6 +511,7 @@ export default function ParliamentScene() {
           tiltRef={tiltRef}
           coarse={coarse}
           getRhythm={withSession ? getRhythm : undefined}
+          getAnswer={withSession ? () => answeredRef.current : undefined}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -531,6 +538,7 @@ export default function ParliamentScene() {
           marks={isV2 ? visuals.marks : undefined}
           answers={answers}
           askerRef={askerRef}
+          answeredRef={answeredRef}
         />
       </Canvas>
 

@@ -76,6 +76,8 @@ export interface PersonalSignals {
   myBuild?: number;
   /** Who has asked me something and not had an answer (witness.ts): theirs is the voice in the air until then. */
   asker?: string | null;
+  /** performance.now() of my latest answer to a call (SPACE); 0 or absent = none. My melody then says my name for two bars. */
+  answeredMs?: number;
 }
 
 /** A BUILDING: sealed slabs that touch, as one; its harmonic zone grows with its mass (tonality.ts). */

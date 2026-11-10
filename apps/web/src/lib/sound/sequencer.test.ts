@@ -249,3 +249,16 @@ describe("the arrival cadence (v4 A4b)", () => {
     expect(wide.chord).toEqual(placeChord(key, 3, 3, { modes: [2, 3, 4, 5], bands: 16, bandCells: 4, chordSize: 4 }));
   });
 });
+
+describe("my answer", () => {
+  it("for the bars after I answer: my melody alone, on its own steps, nobody else, no heartbeat, no pad", () => {
+    const s = sig({ speed: 0, stay: 1, pathP: 1, neighbours: [near("bot1"), near("v_b", 5)] });
+    const plan = planBar({ ...inputs(3, s), answering: true });
+    expect(plan.answering).toBe(true);
+    expect(plan.me.length).toBeGreaterThan(0);
+    expect(plan.others).toEqual([]);
+    expect(plan.bass).toEqual([]);
+    expect(plan.pad.level).toBe(0);
+    expect(planBar(inputs(3, s)).answering).toBe(false);
+  });
+});

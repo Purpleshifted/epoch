@@ -6,7 +6,8 @@
  * up the blink. V2: `getWarn` (0 … 1 over the last seconds of the lifespan, lib/parliament/session.ts) makes it
  * blink fast and short, like a warning; it is read every frame, so it changes without re-rendering. With `getRhythm`
  * (2026-11-01) it blinks the visitor's own melody (lib/parliament/glyph.ts), in the bar every square keeps; near the
- * end that rhythm runs faster and faster.
+ * end that rhythm runs faster and faster. For two bars after the visitor answers a call (`getAnswer`, the artist,
+ * 2026-11-10) it jumps on each of its notes as the one who spoke did: the answer looks like what it answers.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -16,6 +17,9 @@ import { PointBuffer, makePixelMaterial } from "@/components/ground/pixelPoints"
 import { GLYPH_COLS, STEP_MS, stepAt } from "@/lib/parliament/glyph";
 import { blinkAt } from "@/lib/parliament/session";
 
+/** How long after an answer the square jumps on its notes (two bars of 2 s). */
+const ANSWER_MS = 4000;
+
 export function PlayerCursor({
   position,
   size = 0.55,
@@ -23,6 +27,8 @@ export function PlayerCursor({
   lifeFrac = 0,
   getWarn,
   getRhythm,
+  getAnswer,
+  hop = 1.4,
 }: {
   position: [number, number, number];
   /** World units of the block. */
@@ -32,6 +38,10 @@ export function PlayerCursor({
   getWarn?: () => number;
   /** Which of the bar's steps the visitor's melody sounds on (null until it is known). */
   getRhythm?: () => boolean[] | null;
+  /** performance.now() of the visitor's latest answer to a call (0 = none). */
+  getAnswer?: () => number;
+  /** How high the square jumps on a note while answering (× its size). */
+  hop?: number;
 }) {
   const buf = useMemo(() => new PointBuffer(1), []);
   const material = useMemo(() => {
@@ -41,6 +51,7 @@ export function PlayerCursor({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const t = useRef(0);
   const phase = useRef(0);
+  const body = useRef<THREE.Group>(null);
   /** Steps the rhythm has run ahead of the bar near the end. */
   const ahead = useRef(0);
 
@@ -63,8 +74,13 @@ export function PlayerCursor({
     if (rhythm) {
       const warn = getWarn?.() ?? 0;
       ahead.current += (Math.min(delta, 0.1) * 1000 * 8 * warn) / STEP_MS;
-      const step = (stepAt(performance.now()) + Math.floor(ahead.current)) % GLYPH_COLS;
+      const now = performance.now();
+      const step = (stepAt(now) + Math.floor(ahead.current)) % GLYPH_COLS;
       buf.draw(rhythm[step] ? 1 : 0);
+      // answering: up at once on a note, down over the rest of its step
+      const since = now - (getAnswer?.() ?? 0);
+      const into = (now % STEP_MS) / STEP_MS;
+      if (body.current) body.current.position.y = since >= 0 && since < ANSWER_MS && rhythm[step] ? size * hop * (1 - into) ** 2 : 0;
       return;
     }
     if (getWarn) {
@@ -80,7 +96,9 @@ export function PlayerCursor({
 
   return (
     <group position={position}>
-      <points geometry={buf.geometry} material={material} frustumCulled={false} renderOrder={11} />
+      <group ref={body}>
+        <points geometry={buf.geometry} material={material} frustumCulled={false} renderOrder={11} />
+      </group>
     </group>
   );
 }
