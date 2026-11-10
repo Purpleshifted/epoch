@@ -183,7 +183,7 @@ body.cursor{cursor:default}
   <div id="h-homo" class="abs">HOMO INVENTUS</div>
   <div id="h-sec" class="abs"><b></b><span></span></div>
   <div id="h-ask" class="abs"><span></span><b></b></div>
-  <div id="q0" class="abs"><span>THE DESIGN QUESTION</span><b>How can one person feel something<br>that no one can ever see whole?</b></div>
+  <div id="q0" class="abs"><span>THE DESIGN QUESTION</span><b>How can one person understand a system<br>too giant to perceive as a whole?</b></div>
   <div id="notice" class="abs"><span id="n1"></span><span id="n2"></span><p>Future archaeologists are excavating extinct humanity.<br>You, in the present: what will you leave?</p></div>
   <div id="foot" class="abs"><p id="f-en"></p></div>
   <div id="credit" class="abs"><div>ID40009 Graduation Design Studio · 실시간 웹 · 3D · 공간 음향 · 2채널 디스플레이</div><div>Hayeon Park 20220875 · Supervised by Yiyun Kang</div></div>
@@ -306,7 +306,7 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=12, HOLD=[21.5,47.3,42.8,34.6,24.3,40.1,23.9,39.0,33.3,23.9,44.2,41.8], PACE=[1,1,0.9,0.9,0.85,1,1,1,1,0.85,1,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
+const STEPS=12, HOLD=[23.9,47.3,42.5,33.2,25.7,33.9,21.9,35.6,33.3,23.9,34.9,41.8], PACE=[1,1,0.9,0.9,0.85,1,1,1,1,0.85,1,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","①"],
   ["An epoch is interpreted spacetime","①′"],
@@ -323,7 +323,7 @@ const KEY=[[""],
   ["That vote left me with three questions."],
   ["We never get to name our own epoch."],
   ["A fossil not of a body, but of what an animal kept doing."],
-  ["Humanity's trace fossil is the trace of living in cities."],
+  ["Humanity's trace fossil is the trace of living in dense cities."],
   ["Everything forms from staying and walking."],
   ["The headset shows a part. The wall shows the whole."],
   ["You keep choosing anyway, and shape your agency as you go."],
@@ -342,7 +342,7 @@ const ACTS=[[1,"THREE QUESTIONS"],[5,"THE WORK"],[10,"WHAT IT SAYS"]];
 const REFS={
   1:[["Crutzen & Stoermer 2000","n-crutzen2000"],["Steffen et al. 2015","n-steffen2015"],["McCarthy et al. 2025","n-crawford"],["SQS 2024 · IUGS statement","n-vote2024"]],
   2:[["Gibbard et al. 2022","n-gibbard2022"],["Linnaeus 1758","n-linnaeus1758"],["Bergson 1907","n-bergson1907"],["Huizinga 1938","n-huizinga1938"]],
-  3:[["Seilacher · ichnology","n-ichnology"]],
+  3:[["Seilacher · ichnology","n-ichnology"],["van Dooren & Rose 2012 · storied places","n-vandooren2012"],["van Dooren 2014 · Flight Ways","n-vandooren2014"]],
   4:[["Zalasiewicz et al. 2014","n-zalasiewicz2014"],["Waters et al. 2016","n-waters2016"]],
   5:[["Helbing et al. 1997","n-helbing1997"],["Schueler 1994","n-schueler1994"],["Cole 1995","n-cole1995"],["Behrensmeyer 1978 · taphonomy","n-taphonomy"]],
   6:[["Morton 2013","n-morton2013"],["More on hyperobjects","hyper"]],
@@ -403,11 +403,11 @@ function live3On(){ if(live3State!=="off")return;
   if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
 // ④: the one shot, recorded from the lab (/v2/global/lab?scenario=all&cam=shot) and retimed by stretch (the artist, 11/05): ×1 while they
 // gather and a slab rises, about ×1.2 while the paths form, then fast-forward ×6 to the fossils. It runs under ④'s talk. The source loads on ②③ so it plays at once on ④.
-const shot4=$("#live4"); let shot4On=false;
+const shot4=$("#live4"); let shot4On=false; const SHOT4_RATE=1.1; // the 37.3 s shot ends inside ④'s 33.9 s (11/10): the script got shorter, the file stays
 shot4.onerror=()=>{shot4.style.display="none"; $("#badge4").style.display="none"; shot4On=false; shot4.dataset.failed="1";};
 function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4?v=3"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · TIME COMPRESSED · V: AGAIN"; }
 function live4Show(on){ if(!shot4.src||shot4.dataset.failed)return;
-  if(on&&!shot4On){shot4On=true; shot4.style.display="block"; $("#badge4").style.display="block"; try{shot4.currentTime=Math.min(U(),shot4.duration||U());}catch(e){} shot4.play().catch(()=>{}); requestAnimationFrame(()=>{shot4.style.opacity="1";});}
+  if(on&&!shot4On){shot4On=true; shot4.style.display="block"; $("#badge4").style.display="block"; try{shot4.currentTime=Math.min(U()*SHOT4_RATE,shot4.duration||U());}catch(e){} shot4.playbackRate=SHOT4_RATE; shot4.play().catch(()=>{}); requestAnimationFrame(()=>{shot4.style.opacity="1";});}
   else if(!on&&shot4On){shot4On=false; shot4.pause(); shot4.style.opacity="0"; shot4.style.display="none"; $("#badge4").style.display="none";} }
 function live4Next(){ if(step!==5||!shot4On)return; shot4.currentTime=0; shot4.play().catch(()=>{}); } // V: the shot from the start
 // A PHONE: the same shot in a small encode (assets/shot4-phone.mp4, 540 px), drawn into ④'s picture by phoneComposite. It loads once ②③
@@ -513,7 +513,7 @@ function s1b(u,g){
   const aN=on(u,9.6,0.9); if(aN>0){txt("HOMO INVENTUS — HUMANITY, FOUND",lx,710,{px:12,fam:"Neo",col:DIM,a:aN,ls:1.2});
     let y=738; y+=para("Homo sapiens, faber, ludens: named by what they do.",lx,y,{px:15,maxW:600,lh:1.4,a:aN});
     y+=para("Inventus: found — and, in the same word, invented.",lx,y+6,{px:15,w:700,maxW:600,lh:1.4,a:aN})+6;
-    para("Homo inventus: humanity named by how it will be found.",lx,y,{px:15,maxW:600,lh:1.4,a:aN});}
+    para("Homo inventus: humanity named by how it will be found and interpreted.",lx,y,{px:15,maxW:600,lh:1.4,a:aN});}
 }
 
 /* ---------- ② the trace fossil: a walker, then only its footprints ---------- */
