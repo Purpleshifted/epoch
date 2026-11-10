@@ -161,6 +161,10 @@ The script now runs on the artist's three origin questions, so the deck does too
 - ① now ends on the three questions, with the rejection's reasons beside 4 : 12, marked as reported by members because no official reasons were published.
 - `HOLD` follows the script's 175 wpm timing (about 6:57 in all).
 
+## 11/10 — the small type, larger
+
+Citations and captions were too small to read on the projected deck. The type floor (`fz`) is now 17–21 px, the reference line 18 px. Labels that then collided were shortened, and ④'s four Korean panel subtitles were dropped.
+
 ## 11/10 — the slides follow the artist's cut of the script
 
 The script is 996 English words: about 6:16 at the measured 175 wpm, and HOLD follows it. ④'s 37.3 s shot now plays at 1.2× so it ends inside ④'s 30.8 s. The cover's design question, ③'s key line and ①′'s closing line follow the artist's wording. ② cites van Dooren & Rose 2012 and van Dooren 2014 for a habitat as a place.
