@@ -34,6 +34,7 @@ import { markerRelayReport } from "@/lib/parliament/markerRelay";
 import { ncPerfReading } from "@/lib/sound/noisecraftDriver";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
+import { useSessionLog } from "./useSessionLog";
 import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
@@ -447,6 +448,7 @@ export default function ParliamentScene() {
   const nearRadius = cfg.radius;
   const getNear = useCallback(() => witnessRef.current?.others.filter((o) => o.dist <= nearRadius).length ?? 0, [nearRadius]);
   const session = useLifeSession(withSession, lifeCfg, lang, getNear);
+  useSessionLog(withSession, session, visitorRef, lang);
   // a phone: a finger walks by default; its tilt walks instead in tilt mode (useTilt; nothing on the iMac)
   const { tiltRef, coarse } = useTilt(withSession, withSession ? session.lifeRef : undefined, phoneMode);
   // the role the visitor leaves traces as: in V2 always the worker (before the life — IDLE — they leave nothing, see

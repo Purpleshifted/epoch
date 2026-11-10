@@ -8,6 +8,7 @@
  */
 import { after, NextResponse } from "next/server";
 import { deleteOldBatches, insertBatch, readChunks, readState, readWindow, takeHost } from "@/lib/world/db";
+import { copyVisitorEvents } from "@/lib/world/analytics";
 import { NO_STORE, notFound, sameOrigin, worldAllowed, worldEnabled } from "@/lib/world/api";
 import { HOST_NOTE_MAX, MAX_POST_BYTES, MAX_RANGE_CHUNKS, cleanEvents, isClosed, joinEventTexts, keepFromAt, lastClosedChunk, pageWindow } from "@/lib/world/protocol";
 
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
     const now = Date.now();
     const stored = events.length ? await insertBatch(world, epoch, events) : null;
     if (events.length && !stored) return NextResponse.json({ state: await readState(world, now) }, { status: 409, headers: NO_STORE });
+    if (stored) after(() => copyVisitorEvents(world, epoch, events).catch(() => {}));
     const state = typeof host === "string" ? await takeHost(world, host, now, false, typeof body.note === "string" && body.note ? body.note.slice(0, HOST_NOTE_MAX) : undefined) : undefined;
     if (now - lastClean > CLEAN_EVERY_MS) {
       lastClean = now;

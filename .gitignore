@@ -28,6 +28,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# the exhibition's record, read out (tools/analytics/export.mjs)
+analytics-export/
+
 # third-party reference images (not ours to redistribute)
 /visual_reference_images/
 .vercel
