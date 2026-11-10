@@ -241,8 +241,6 @@ const ASKER_LEVEL = 2.2;
 /** My answer to a call: how many bars my name is said, and how loud against my ordinary motif. */
 const ANSWER_BARS = 2;
 const ANSWER_VEL = 1.6;
-/** While someone speaks to me the patch and the vegetation's noise stand back this far (×). */
-const CALL_DUCK = 0.3;
 
 /** A room: exponentially decaying noise, with `taps` early reflections for hard surfaces. */
 function impulse(ctx: AudioContext, seconds: number, decay: number, taps = 0, bright = 1): AudioBuffer {
@@ -914,15 +912,14 @@ export class SoundEngine {
     const ended = params.dead;
     const cut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed);
     if (!ended) this.dull.frequency.setTargetAtTime(cut, t, 0.25);
-    // someone speaks to me: the patch goes behind a wall (its filter closes; its gain belongs to the ending) and the noise stands back
-    const called = !!sig.asker && sig.neighbours.some((n) => n.o === sig.asker);
+    // (a call closes nothing here any more — the artist, 2026-11-10: the chain stays, the caller is only added to)
     if (this.nc && !ended) {
       const ncCut = Math.exp(Math.log(params.lpOpen) + (Math.log(params.lpSealed) - Math.log(params.lpOpen)) * sig.sealed * params.ncDull);
-      this.nc.filter.frequency.setTargetAtTime(called ? Math.min(ncCut, 420) : ncCut, t, called ? 0.12 : 0.25);
+      this.nc.filter.frequency.setTargetAtTime(ncCut, t, 0.25);
     }
     this.bassSpread.gain.setTargetAtTime(params.bassSpread, t, 0.3);
     // vegetation
-    this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5 * (called ? CALL_DUCK : 1), t, called ? 0.15 : 0.5);
+    this.noiseGain.gain.setTargetAtTime(params.noiseMax * sig.grass * 0.5, t, 0.5);
     this.grassSend.gain.setTargetAtTime(params.grassVerb, t, 0.5);
     // wet / dry: the more reverb, the less direct noise (11/01: the wave sounded dry)
     this.wave.send.gain.setTargetAtTime(params.waveVerb * 1.4, t, 0.5);
@@ -1407,7 +1404,9 @@ export class SoundEngine {
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + (plan.answering ? 0 : human()), n.len * barSec, plan.answering ? ANSWER_VEL : 1, this.me.motif.timbre, 0, true);
+    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
+    // my answer: a layer over the bar, on the grid, louder (nothing else gives way — the artist, 2026-11-10)
+    for (const n of plan.answerNotes) this.note(this.me.filt, n.freq, nextStart + n.at * barSec, n.len * barSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;

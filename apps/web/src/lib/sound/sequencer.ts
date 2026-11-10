@@ -103,8 +103,10 @@ export interface BarPlan {
   answer: boolean;
   /** Who is speaking to me (a call): their melody alone, every bar, nothing under it. */
   caller: string | null;
-  /** One of the two bars of my answer: my melody alone, loud and plain. */
+  /** One of the two bars of my answer (the artist, 2026-11-10: nothing else goes quiet — the answer is ADDED): my melody
+   * once more, plainly on its own steps, over whatever else the bar has. */
   answering: boolean;
+  answerNotes: MotifNote[];
   me: MotifNote[];
   others: VoiceBar[];
   /** Downbeat pulses: at (0..1 of the bar), MIDI pitch, level 0..1. */
@@ -162,7 +164,10 @@ export function planBar(inp: BarInputs): BarPlan {
   const asking = sig.asker ? sig.neighbours.find((n) => n.o === sig.asker) : undefined;
   const lead = asking ?? sig.neighbours[0];
   // call and response while staying among others: odd bars are theirs
-  const answer = (staying || !!asking) && bar % 2 === 1;
+  // (a call used to turn the bar into call and response — my bar, their bar — and to silence the other voices; since
+  // 2026-11-10 it changes nothing in the bar: the caller is only made louder and clearer in the engine. The artist: the
+  // sequencer being emptied and filled again is what makes the sound stumble.)
+  const answer = staying && bar % 2 === 1;
   const motifCfg = { ...DEFAULT_MOTIF, microtone: p.microtone ?? 1 };
   const every = Math.max(1, p.motifEvery ?? 1);
   // my bar: with probability 1/every, drawn from the bar and my id (the same answer every time this bar is planned)
@@ -170,12 +175,11 @@ export function planBar(inp: BarInputs): BarPlan {
 
   // my notes: a Magenta phrase if one is running, else my motif blended with whoever has been close
   let mine: MotifNote[] = [];
+  // my answer, on top of everything (the artist, 2026-11-10: "keep the chain, only add"): my name said plainly — my own
+  // motif on its own steps (as the glyph writes it), on the chord, no blending, no octave — as a layer of its own
   const answering = !!inp.answering && !arrival;
-  if (answering) {
-    // my name, said plainly: my own motif on its own steps (as the glyph writes it), on the chord, no blending, no octave
-    mine = realize(me, key, chord, Math.max(lock, 0.8), bar, motifCfg);
-  } else if (!answer && myBar && !asking) {
-    // a call (the artist, 2026-11-10: like a phone ringing): nothing of mine under their melody, in any bar
+  const answerNotes = answering ? realize(me, key, chord, Math.max(lock, 0.8), bar, motifCfg) : [];
+  if (!answer && myBar) {
     if (inp.phrase && bar - inp.phrase.from < CYCLES_PER_PHRASE && bar >= inp.phrase.from) {
       const cyc = stepsToCycle(inp.phrase.phrase, (bar - inp.phrase.from) * STEPS_PER_CYCLE);
       mine = cyc.map((n) => ({ at: n.at, len: n.len, pitch: n.pitch, freq: midiToHz(n.pitch, me.colour), locked: false }));
@@ -205,20 +209,17 @@ export function planBar(inp: BarInputs): BarPlan {
   // nearest plays alone, otherwise everybody, every bar
   const others: VoiceBar[] = [];
   for (const n of sig.neighbours) {
-    if (answering) break; // my answer: nobody else speaks over it
     const m = inp.others.get(n.o);
     if (!m) continue;
     // while staying, the others wait for their bar — except the nearest (or who asked), who plays along with me softly
-    if ((staying || asking) && n !== lead) continue;
+    if (staying && n !== lead) continue;
     const notes = realize(m, key, chord, Math.max(lock, staying || asking ? 0.8 : 0), bar, motifCfg);
     others.push({ o: n.o, notes });
   }
 
   // bass: the root of the place on the downbeat while on a path; the arrival's tonic lands on a downbeat too
   const bass: BarPlan["bass"] = [];
-  if (asking || answering) {
-    // a call, or my answer: no heartbeat under it
-  } else if (sig.pathP >= p.bassFrom) {
+  if (sig.pathP >= p.bassFrom) {
     const level = Math.min(1, (sig.pathP - p.bassFrom) / (1 - p.bassFrom) + 0.25);
     const pitch = 36 + chord.rootClass; // C2 … B2
     bass.push({ at: 0, pitch, level });
@@ -229,10 +230,9 @@ export function planBar(inp: BarInputs): BarPlan {
   let padLevel = sig.stay * company;
   if (arrival === "dominant") padLevel = Math.max(padLevel, 0.7);
   if (arrival === "tonic") padLevel = 1;
-  if ((asking || answering) && !arrival) padLevel = 0;
   const pad = padLevel > 0.2 ? { pitches: [36 + chord.rootClass, ...chord.classes.map((c) => 48 + c)], level: padLevel } : { pitches: [], level: 0 };
 
-  return { bar, chord, lock, density: d, answer, caller: asking ? asking.o : null, answering, me: mine, others, bass, pad, arrival };
+  return { bar, chord, lock, density: d, answer, caller: asking ? asking.o : null, answering, answerNotes, me: mine, others, bass, pad, arrival };
 }
 
 /** The dominant seventh of `key` (degree 4), unless the chord is already it. */

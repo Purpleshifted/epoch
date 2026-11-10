@@ -53,19 +53,16 @@ describe("sequencer: one grid for everybody, bars planned from the signals", () 
     expect(weak.bass).toEqual([]);
   });
 
-  it("someone has asked: their voice alone, call and response, even walking and even if another is nearer", () => {
+  it("someone has asked: the bar goes on as it was, the caller only named for the engine (louder, clearer there)", () => {
     const s = sig({ speed: 3, neighbours: [near("bot1"), near("v_b", 5)], asker: "v_b" });
     const even = planBar(inputs(2, s));
     expect(even.answer).toBe(false);
     expect(even.caller).toBe("v_b");
-    expect(even.me).toEqual([]); // a call: nothing of mine under it, no heartbeat, no pad
-    expect(planBar(inputs(2, { ...s, pathP: 1 })).bass).toEqual([]);
-    expect(even.pad.level).toBe(0);
-    expect(even.others.map((v) => v.o)).toEqual(["v_b"]);
+    expect(even.others.map((v) => v.o)).toEqual(["bot1", "v_b"]);
     const odd = planBar(inputs(3, s));
-    expect(odd.answer).toBe(true);
-    expect(odd.me).toEqual([]);
-    expect(odd.others.map((v) => v.o)).toEqual(["v_b"]);
+    expect(odd.answer).toBe(false);
+    expect(odd.me.length).toBeGreaterThan(0);
+    expect(odd.others.map((v) => v.o)).toEqual(["bot1", "v_b"]);
     // gone from earshot: as if nobody had asked
     expect(planBar(inputs(3, sig({ speed: 3, neighbours: [near("bot1")], asker: "v_b" }))).answer).toBe(false);
   });
@@ -251,14 +248,16 @@ describe("the arrival cadence (v4 A4b)", () => {
 });
 
 describe("my answer", () => {
-  it("for the bars after I answer: my melody alone, on its own steps, nobody else, no heartbeat, no pad", () => {
-    const s = sig({ speed: 0, stay: 1, pathP: 1, neighbours: [near("bot1"), near("v_b", 5)] });
-    const plan = planBar({ ...inputs(3, s), answering: true });
+  it("for the bars after I answer: my melody once more as a layer of its own, the rest of the bar as it was", () => {
+    const s = sig({ speed: 3, pathP: 1, neighbours: [near("bot1"), near("v_b", 5)] });
+    const plain = planBar(inputs(2, s));
+    const plan = planBar({ ...inputs(2, s), answering: true });
     expect(plan.answering).toBe(true);
-    expect(plan.me.length).toBeGreaterThan(0);
-    expect(plan.others).toEqual([]);
-    expect(plan.bass).toEqual([]);
-    expect(plan.pad.level).toBe(0);
-    expect(planBar(inputs(3, s)).answering).toBe(false);
+    expect(plan.answerNotes.length).toBeGreaterThan(0);
+    expect(plan.me).toEqual(plain.me);
+    expect(plan.others).toEqual(plain.others);
+    expect(plan.bass).toEqual(plain.bass);
+    expect(plan.pad).toEqual(plain.pad);
+    expect(plain.answerNotes).toEqual([]);
   });
 });
