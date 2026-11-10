@@ -19,7 +19,12 @@ export const MAX_RANGE_CHUNKS = 150;
 export const MAX_EVENTS_PER_POST = 4000;
 export const MAX_POST_BYTES = 512 * 1024;
 /** One page of the window read: below the function's 4.5 MB, cut at a chunk's edge. */
-export const WINDOW_PAGE_ROWS = 800;
+/**
+ * Rows one window read may return. 800 until 2026-11-11: with the server running the bots the read came back over Neon's
+ * 64 MB response limit (HTTP 507, "[world bots]" in the logs) and the bots stopped; the byte cap below is applied only
+ * after the rows have arrived, so the row count has to keep the response small by itself.
+ */
+export const WINDOW_PAGE_ROWS = 120;
 export const WINDOW_PAGE_BYTES = 3 * 1024 * 1024;
 /**
  * The bot host's lease. A lost host: 10 s + the 5 s between looks at it + the first sample stays under `emptyGapSec`
