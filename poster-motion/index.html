@@ -306,7 +306,7 @@ const life=traces.find(t=>t.o==="bot7")||traces[0];
 const plan=new Image(); plan.src="assets/plan.webp";
 
 /* ---------- the steps ---------- */
-const STEPS=12, HOLD=[23.9,47.3,42.5,33.2,25.7,33.9,21.9,35.6,33.3,23.9,34.9,41.8], PACE=[1,1,0.9,0.9,0.85,1,1,1,1,0.85,1,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
+const STEPS=12, HOLD=[23.3,42.1,42.5,33.2,25.7,30.8,21.9,32.2,33.3,20.9,28.4,41.4], PACE=[1,1,0.9,0.9,0.85,1,1,1,1,0.85,1,1]; // HOLD: the script's seconds. PACE: slide time per real second, inverted: every screen's motion is done within 10 s (the artist, 11/05)
 const SEC=[["",""],
   ["The Anthropocene, a rejected epoch","①"],
   ["An epoch is interpreted spacetime","①′"],
@@ -403,7 +403,7 @@ function live3On(){ if(live3State!=="off")return;
   if(!liveWanted)return; live3State="on"; const f=$("#live3"); f.src=TOP_URL; f.style.display="block"; f.style.opacity="0"; f.onload=()=>{f.style.transition="opacity 1.2s"; f.style.opacity="1"; $("#badge3").style.display="block";}; }
 // ④: the one shot, recorded from the lab (/v2/global/lab?scenario=all&cam=shot) and retimed by stretch (the artist, 11/05): ×1 while they
 // gather and a slab rises, about ×1.2 while the paths form, then fast-forward ×6 to the fossils. It runs under ④'s talk. The source loads on ②③ so it plays at once on ④.
-const shot4=$("#live4"); let shot4On=false; const SHOT4_RATE=1.1; // the 37.3 s shot ends inside ④'s 33.9 s (11/10): the script got shorter, the file stays
+const shot4=$("#live4"); let shot4On=false; const SHOT4_RATE=1.2; // the 37.3 s shot ends inside ④'s 30.8 s (11/10): the script got shorter, the file stays
 shot4.onerror=()=>{shot4.style.display="none"; $("#badge4").style.display="none"; shot4On=false; shot4.dataset.failed="1";};
 function live4On(){ if(!liveWanted||PHONE||shot4.src)return; shot4.src="assets/shot4.mp4?v=3"; $("#badge4").querySelector("span").textContent="RECORDED FROM THE WORK · ONE CROWD, ITS OWN RULES · TIME COMPRESSED · V: AGAIN"; }
 function live4Show(on){ if(!shot4.src||shot4.dataset.failed)return;

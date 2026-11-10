@@ -163,7 +163,7 @@ The script now runs on the artist's three origin questions, so the deck does too
 
 ## 11/10 — the slides follow the artist's cut of the script
 
-The script is 1,061 English words: about 6:38 at the measured 175 wpm, and HOLD follows it. ④'s 37.3 s shot now plays at 1.1× so it ends inside ④'s 33.9 s. The cover's design question, ③'s key line and ①′'s closing line follow the artist's wording. ② cites van Dooren & Rose 2012 and van Dooren 2014 for a habitat as a place.
+The script is 996 English words: about 6:16 at the measured 175 wpm, and HOLD follows it. ④'s 37.3 s shot now plays at 1.2× so it ends inside ④'s 30.8 s. The cover's design question, ③'s key line and ①′'s closing line follow the artist's wording. ② cites van Dooren & Rose 2012 and van Dooren 2014 for a habitat as a place.
 
 ## 11/10 — the work in one easy sentence
 
