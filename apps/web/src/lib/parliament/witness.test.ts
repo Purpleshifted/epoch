@@ -78,7 +78,8 @@ describe("the witness: a record of who is near", () => {
   });
 
   it("group life and new words: a long contact only, once per other, one line at a time", () => {
-    const log = new WitnessLog({ ...DEFAULT_WITNESS, groupSec: 5, wordAfterSec: 6, wordGapSec: 12 });
+    // (ensembleSec far off: standing with them would be an ensemble, and nobody speaks to me in one — tested below)
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, groupSec: 5, wordAfterSec: 6, wordGapSec: 12, ensembleSec: 1e6 });
     log.push(obsAt(0, []));
     log.push(obsAt(1, [bot(2), bot(2, "bot2")]));
     expect(log.summary().group).toEqual([]);
@@ -158,7 +159,7 @@ describe("the witness: a record of who is near", () => {
   });
 
   it("someone asks now and then; an open question can be answered once, and that is what leaves a new word", () => {
-    const log = new WitnessLog({ ...DEFAULT_WITNESS, wordAfterSec: 6, askEverySec: 16, askOpenSec: 7 });
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, wordAfterSec: 6, askEverySec: 16, askJitter: 0, askOpenSec: 7, ensembleSec: 1e6 });
     log.push(obsAt(0, []));
     log.push(obsAt(1, [bot(2)]));
     expect(log.asking()).toBe(false);
@@ -186,6 +187,34 @@ describe("the witness: a record of who is near", () => {
     const alone = new WitnessLog();
     alone.push(obsAt(0, []));
     expect(alone.push(obsAt(60, [])).some((e) => e.key === "word.asked")).toBe(false);
+  });
+
+  it("an ensemble is left alone: nobody asks while it goes on, and after a while it gives a story; the wait before a question is drawn a little random", () => {
+    const log = new WitnessLog({ ...DEFAULT_WITNESS, ensembleSec: 3, settleSec: 1, wordAfterSec: 6, wordGapSec: 12, askEverySec: 16, storySec: 20 });
+    log.push(obsAt(0, []));
+    for (let t = 1; t <= 30; t++) {
+      const keys = log.push(obsAt(t, [bot(2), bot(2, "bot2")])).map((e) => e.key);
+      expect(keys).not.toContain("word.new");
+      expect(keys).not.toContain("word.asked");
+      if (t < 20) expect(keys).not.toContain("story.born"); // together since t = 1, storySec 20
+    }
+    const story = log.entries.filter((e) => e.key === "story.born");
+    expect(story.length).toBe(1); // once per ensemble
+    expect(formatEntry(story[0], "ko").text).toBe("이야기가 탄생했습니다 ({})");
+    expect(story[0].args.dots!.length).toBeGreaterThan(glyphOf("bot1").length); // the melodies as one glyph
+    expect(log.asking()).toBe(false);
+    // the waits: never the same twice, all within ±35 % of askEverySec
+    const alone = new WitnessLog({ ...DEFAULT_WITNESS, wordAfterSec: 6, askEverySec: 16, askOpenSec: 7, ensembleSec: 1e6 });
+    alone.push(obsAt(0, []));
+    const asks: number[] = [];
+    for (let t = 1; t <= 200; t++) if (alone.push(obsAt(t, [bot(2)])).some((e) => e.key === "word.asked")) asks.push(t);
+    const gaps = asks.slice(1).map((t, i) => t - asks[i]);
+    expect(gaps.length).toBeGreaterThan(3);
+    for (const g of gaps) {
+      expect(g).toBeGreaterThanOrEqual(16 * 0.65 - 1);
+      expect(g).toBeLessThanOrEqual(16 * 1.35 + 1);
+    }
+    expect(new Set(gaps).size).toBeGreaterThan(1);
   });
 
   it("dying: one line, however often it is said", () => {

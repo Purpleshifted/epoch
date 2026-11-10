@@ -156,10 +156,12 @@ export function planBar(inp: BarInputs): BarPlan {
   let chord = inp.place ? inp.place.chord : placeChord(key, sig.x, sig.z, hcfg);
   // the cadence: a bar of the dominant leaning in, then the tonic (the place's own chord) arriving
   if (arrival === "dominant") chord = dominantOf(key, chord);
-  const lock = arrival === "tonic" ? 1 : lockOf(sig);
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
+  // an ensemble (staying with others) locks everyone hard to the place's chord (the artist, 2026-11-10: the melodies
+  // synchronising must be heard); the jitter of the timing goes with it (engine: jitterMax × (1 − lock))
+  const lock = arrival === "tonic" ? 1 : Math.max(lockOf(sig), staying ? 0.95 : 0);
   // someone has asked me something: their voice alone, the same call and response, whatever I am doing
   const asking = sig.asker ? sig.neighbours.find((n) => n.o === sig.asker) : undefined;
   const lead = asking ?? sig.neighbours[0];

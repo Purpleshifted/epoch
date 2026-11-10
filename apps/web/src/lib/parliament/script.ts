@@ -299,6 +299,7 @@ export const LOG: Record<Lang, LogTemplates> = {
         return n >= (a.need ?? 4) ? `합주 중… ${n}명이 모였습니다. 곧 집이 올라갑니다.` : `합주 중… ${n}명이 모였습니다.`;
       },
       "ensemble.end": (a) => `합주가 끝났습니다 · ${secKo(a.forSec)}`,
+      "story.born": () => "이야기가 탄생했습니다 ({})",
       "attempt.tried": () => "그만 살기를 시도했습니다.",
       "attempt.failed": () => "실패했습니다.",
       "grass.pressed": () => "지나온 자리의 풀이 사라졌습니다.",
@@ -335,6 +336,7 @@ export const LOG: Record<Lang, LogTemplates> = {
         return n >= (a.need ?? 4) ? `In ensemble… ${n} gathered. A house will go up soon.` : `In ensemble… ${n} gathered.`;
       },
       "ensemble.end": (a) => `The ensemble is over · ${secEn(a.forSec)}`,
+      "story.born": () => "A story is born ({})",
       "attempt.tried": () => "You tried to stop living.",
       "attempt.failed": () => "It failed.",
       "grass.pressed": () => "The grass behind you is gone.",
