@@ -2439,8 +2439,6 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       densityOn: { value: true, label: "새 규칙 (끄면 예전 접기)" },
       dVisitors: { value: DEFAULT_DENSITY.minVisitors, min: 1, max: 10, step: 1, label: "필요한 사람 수 (서로 다른)" },
       dStep: { value: DEFAULT_DENSITY.step, min: 5, max: 200, step: 5, label: "문턱 (머묾의 양 · 넘으면 지어지고, 그 뒤로는 그대로)" },
-      dPeak: { value: 0.5, min: 0, max: 0.95, step: 0.05, label: "둘레 봉우리의 이만큼 이상인 곳만 건물 (0 = 끔 · 클수록 가운데로 좁게)" },
-      dRatio: { value: DEFAULT_DENSITY.ratio, min: 1.2, max: 4, step: 0.1, label: "봉우리를 읽는 계단 배수 (새 계단에 닿을 때만 다시 읽음)" },
       dRadius: { value: DEFAULT_DENSITY.radius, min: 1, max: 8, step: 0.25, label: "옆으로 닿는 반경 (월드)" },
       dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
       dMaxBuilt: { value: 8000, min: 0, max: 60000, step: 500, label: "남기는 건물 칸 수 (넘으면 가장 먼저 지어진 칸부터 사라짐 · 0 = 한도 없음)" },
@@ -2486,9 +2484,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, peakShare: dn.dPeak, ratio: dn.dRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dPeak, dn.dRatio, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
