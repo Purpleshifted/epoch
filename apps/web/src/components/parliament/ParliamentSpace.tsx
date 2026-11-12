@@ -84,6 +84,7 @@ import {
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
+import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botKinds, botReadout, useGlobalBots, type BotKind } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
@@ -781,6 +782,7 @@ function SpaceWorld({
   density,
   pathLook,
   walkLook,
+  arrive,
   clock,
   local,
 }: {
@@ -839,8 +841,21 @@ function SpaceWorld({
   /** The paths' plates (density.ts pathPlates): the slope their surfaces may rise at, their thickness and grey; null = none. */
   pathLook: { rise: number; thick: number; shade: number } | null;
   walkLook: WalkLook;
+  /** How a part that was just built comes in (lib/parliament/arriveMaterial.ts); `on` false = it is simply there. */
+  arrive: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number };
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
+  // ARRIVAL (lib/parliament/arriveMaterial.ts): every part's instance carries when it was first there (`aBorn`, from the model);
+  // the parts' shader (and their shadows') brings it in — per frame only this time uniform moves
+  const arriveU = useMemo(() => makeArriveUniforms(), []);
+  const arriveShader = useMemo(() => arriveCompile(arriveU), [arriveU]);
+  const arriveDepth = useMemo(() => arriveDepthMaterial(arriveU), [arriveU]);
+  const arriveEpoch = useRef(0);
+  useEffect(() => () => arriveDepth.dispose(), [arriveDepth]);
+  useEffect(() => setArrive(arriveU, arrive), [arriveU, arrive]);
+  useFrame(() => {
+    arriveU.uArriveNow.value = (Date.now() - arriveEpoch.current) / 1000;
+  });
   const edges = useRef<THREE.LineSegments>(null);
   const axis = useRef<THREE.LineSegments>(null);
   const pipeLive = useRef<THREE.InstancedMesh>(null);
@@ -949,8 +964,14 @@ function SpaceWorld({
           (mesh.instanceColor.array as Float32Array).set(p.colors[kind]);
           uploadFirst(mesh.instanceColor, n);
         }
+        // when each part was first there (arrive.ts): rides along with the matrices, only when a result changes them
+        let bornAt = mesh.geometry.getAttribute("aBorn") as THREE.InstancedBufferAttribute | undefined;
+        if (!bornAt) mesh.geometry.setAttribute("aBorn", (bornAt = new THREE.InstancedBufferAttribute(new Float32Array(PART_CAPACITY[kind] * 2), 2)));
+        (bornAt.array as Float32Array).set(p.born[kind]);
+        uploadFirst(bornAt, n);
         mesh.count = n;
       }
+      arriveEpoch.current = p.bornEpochMs;
       const eg = edges.current;
       if (eg) {
         const g = new THREE.BufferGeometry();
@@ -1152,6 +1173,7 @@ function SpaceWorld({
           ref={(m) => {
             meshes.current[kind] = m;
             if (m && !m.instanceColor) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PART_CAPACITY[kind] * 3), 3);
+            if (m) m.customDepthMaterial = arriveDepth;
           }}
           args={[undefined, undefined, PART_CAPACITY[kind]]}
           frustumCulled={false}
@@ -1159,7 +1181,7 @@ function SpaceWorld({
           receiveShadow
         >
           {kind === "pile" ? <cylinderGeometry args={[0.5, 0.5, 1, 10]} /> : <boxGeometry args={[1, 1, 1]} />}
-          <meshStandardMaterial color={KIND_COLOR[kind]} roughness={kind === "pile" || STEEL.has(kind) ? 0.7 : 1} metalness={0} />
+          <meshStandardMaterial color={KIND_COLOR[kind]} roughness={kind === "pile" || STEEL.has(kind) ? 0.7 : 1} metalness={0} onBeforeCompile={arriveShader} />
         </instancedMesh>
       ))}
       <lineSegments ref={edges} frustumCulled={false} visible={showEdges}>
@@ -2262,6 +2284,21 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     }),
     { order: lab ? 7.6 : 1.65, render: () => isV2 },
   );
+  // BUILDINGS ARE BUILT, THEY DO NOT POP (lib/parliament/arrive.ts, arriveMaterial.ts — the artist, 2026-11-12: "건물
+  // 지어지는 거 좀 더 연속적으로 보이게 가능한가?"): a part that has just appeared comes in over a short time
+  const ARRIVE_GROUP = "건물이 지어지는 모습";
+  const ar = useLevaControls(
+    ARRIVE_GROUP,
+    savable(ARRIVE_GROUP, {
+      arriveOn: { value: true, label: "켜기 (끄면 예전처럼 한 번에 나타남)" },
+      arriveSec: { value: 2.5, min: 0.2, max: 20, step: 0.1, label: "부품 하나가 들어오는 시간 (s)" },
+      arriveStagger: { value: 4, min: 0, max: 30, step: 0.5, label: "한 단의 부품이 차례로 시작하는 폭 (s · 0 = 한꺼번에)" },
+      arriveWay: { value: "grow", options: { "바닥에서 자라남": "grow", "위에서 내려앉음": "settle", "가운데서 부풀어 오름": "swell" }, label: "들어오는 방식" },
+      arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높이 (월드)", render: (get: (path: string) => unknown) => get(`${ARRIVE_GROUP}.arriveWay`) === "settle" },
+    }),
+    { order: lab ? 7.65 : 1.66, render: () => isV2 },
+  );
+  const arriveView = useMemo(() => ({ on: ar.arriveOn, sec: ar.arriveSec, stagger: ar.arriveStagger, way: ar.arriveWay as ArriveWay, lift: ar.arriveLift }), [ar.arriveOn, ar.arriveSec, ar.arriveStagger, ar.arriveWay, ar.arriveLift]);
   // THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block
   const TRAIL_GROUP = "길 (이동의 실)";
   const tr = useLevaControls(
@@ -3051,6 +3088,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           noAxis={isV2}
           walk={REDESIGN ? null : walkView}
           walkLook={walkLook}
+          arrive={arriveView}
           clock={clk}
           local={lab}
         />
