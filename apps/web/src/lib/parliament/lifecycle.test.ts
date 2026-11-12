@@ -8,6 +8,7 @@ import {
   arrivalRate,
   doorsOf,
   foldWorld,
+  herdsWanted,
   initLifecycle,
   lifeFromBands,
   lifecycleActor,
@@ -310,6 +311,23 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
     expect(most).toBe(HERD.count);
     expect(least).toBeGreaterThanOrEqual(HERD.count - 2);
     expect(loners).toBe(HERD.loners);
+  });
+
+  it("between a least and a most: the number of herds swings, never under the one nor over the other (once filled)", () => {
+    const c = { ...cfg, herd: { ...HERD, countMin: 2, count: 6, countWaveSec: 300 } };
+    const seen = new Set<number>();
+    for (let sec = 0; sec < 3000; sec += 10) seen.add(herdsWanted(sec, c.herd));
+    expect(Math.min(...seen)).toBe(2);
+    expect(Math.max(...seen)).toBe(6);
+    let least = Infinity, most = 0;
+    walk(2400, c, (st, w) => {
+      const n = st.present.filter((v) => v.kind === "leader").length;
+      most = Math.max(most, n);
+      if (w - EPOCH > 300_000) least = Math.min(least, n);
+    });
+    expect(most).toBeLessThanOrEqual(6);
+    expect(least).toBeGreaterThanOrEqual(1);
+    expect(least).toBeLessThan(most);
   });
 
   it("a herd comes whole (4–6), its members within the herd's radius of the leader — sideways and in time", () => {

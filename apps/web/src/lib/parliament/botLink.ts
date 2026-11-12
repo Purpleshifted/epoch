@@ -7,7 +7,7 @@
  * axis for `rate`), as if turned by hand: the panel shows them, nothing is saved until "save" is pressed.
  *
  *   bots     on | off                        the herds, switched on or off (herd · session · resident also mean on)
- *   herds    N                               living herds at once
+ *   herds    N | a-b                         living herds at once: always N, or swinging between a and b
  *   loners   N                               bots that go about alone
  *   size     a-b                             members of a herd, e.g. 4-6
  *   life     a-b (minutes)                   shortest and longest life, e.g. 1-3
@@ -57,8 +57,16 @@ export function parseBotLink(search: string): BotLink {
   // (herd · session · resident are the old names of the ways of living: all of them switch the herds on)
   if (bots === "on" || bots === "herd" || bots === "session" || bots === "resident") values.botOn = true;
   else if (bots === "off") values.botOn = false;
+  // herds=6 (always six) or herds=3-8 (between three and eight)
+  const herdPair = pair(q.get("herds"));
   const herds = num(q.get("herds"), 0, 12);
-  if (herds !== undefined) set("hCount", Math.round(herds));
+  if (herdPair) {
+    set("hCountMin", Math.max(0, Math.min(12, Math.round(Math.min(herdPair[0], herdPair[1])))));
+    set("hCount", Math.max(0, Math.min(12, Math.round(Math.max(herdPair[0], herdPair[1])))));
+  } else if (herds !== undefined) {
+    set("hCountMin", Math.round(herds));
+    set("hCount", Math.round(herds));
+  }
   const loners = num(q.get("loners"), 0, 12);
   if (loners !== undefined) set("hLoners", Math.round(loners));
   const size = pair(q.get("size"));

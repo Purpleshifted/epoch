@@ -45,7 +45,7 @@ describe("density: buildings from the density of spacetime", () => {
     const f = fieldOf(crowd(5, 0, 0, 200, 14));
     const before = f.seeds(), v = f.version;
     // one more second of the same five: no cell-slot crosses a threshold
-    for (const e of crowd(5, 0, 0, 214, 1, "a")) f.add({ ...e, id: e.id + "x" });
+    for (const e of crowd(5, 0, 0, 214, 1, "a")) f.add(e);
     expect(f.version).toBe(v);
     expect(f.seeds()).toBe(before);
   });

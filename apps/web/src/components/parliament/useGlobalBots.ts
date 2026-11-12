@@ -120,7 +120,9 @@ export function useGlobalBots(
       botOn: { value: false, label: "봇 활성화", render: show },
       "무리": folder(
         {
-          hCount: { value: DEFAULT_HERD.count, min: 0, max: 12, step: 1, label: "무리 수 (동시)" },
+          hCountMin: { value: DEFAULT_HERD.count, min: 0, max: 12, step: 1, label: "무리 수 최소 (동시)" },
+          hCount: { value: DEFAULT_HERD.count, min: 0, max: 12, step: 1, label: "무리 수 최대 (동시)" },
+          hCountWave: { value: 10, min: 1, max: 60, step: 1, label: "수가 오르내리는 주기 (분)" },
           hSizeMin: { value: DEFAULT_HERD.sizeMin, min: 1, max: 12, step: 1, label: "크기 최소 (명)" },
           hSizeMax: { value: DEFAULT_HERD.sizeMax, min: 1, max: 12, step: 1, label: "크기 최대 (명)" },
           hLoners: { value: DEFAULT_HERD.loners, min: 0, max: 12, step: 1, label: "혼자 다니는 봇 (명)" },
@@ -160,7 +162,8 @@ export function useGlobalBots(
   const session = true;
   const sizeMin = Math.min(b.hSizeMin, b.hSizeMax), sizeMax = Math.max(b.hSizeMin, b.hSizeMax);
   /** The most at once: every herd at its largest and the loners (the hard ceiling is 60 events a second). */
-  const most = Math.min(60, Math.round(b.hCount) * sizeMax + Math.round(b.hLoners));
+  const herdsMax = Math.max(b.hCount, b.hCountMin), herdsMin = Math.min(b.hCount, b.hCountMin);
+  const most = Math.min(60, Math.round(herdsMax) * sizeMax + Math.round(b.hLoners));
   const lc = useMemo<LifecycleConfig>(
     () => ({
       ...DEFAULT_LIFECYCLE,
@@ -171,7 +174,9 @@ export function useGlobalBots(
       spread: b.hSpread,
       leaveShare: 0,
       herd: {
-        count: b.hCount,
+        count: herdsMax,
+        countMin: herdsMin,
+        countWaveSec: b.hCountWave * 60,
         loners: b.hLoners,
         sizeMin,
         sizeMax,
@@ -187,7 +192,7 @@ export function useGlobalBots(
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, b.hCount, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift],
   );
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   const setDepth = opts?.setDepth;

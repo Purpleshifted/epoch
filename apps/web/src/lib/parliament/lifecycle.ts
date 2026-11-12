@@ -94,6 +94,10 @@ export interface LifecycleConfig {
 export interface HerdConfig {
   /** HOW MANY: living herds kept at once (one is born when one is gone), and bots that go about alone. */
   count: number;
+  /** The fewest herds at once (absent or ≥ count: always `count`): the number wanted swings slowly between the two,
+   *  one swing about every `countWaveSec` (two waves over each other, so it does not tick like a clock). */
+  countMin?: number;
+  countWaveSec?: number;
   loners: number;
   /** Members of a herd, leader included. */
   sizeMin: number;
@@ -387,6 +391,15 @@ function bornAt(sec: number, j: number, wallMs: number, epochMs: number, cfg: Li
 /** 3D distance between two bots on the wall: the ground's (round the torus) and their assigned times as height. */
 function dist3(ax: number, az: number, aoff: number, bx: number, bz: number, boff: number, h: HerdConfig): number {
   return Math.hypot(wrapDist(ax, az, bx, bz), (aoff - boff) * h.metersPerSec);
+}
+
+/** How many herds are wanted at second `sec`: between countMin and count, swinging slowly. */
+export function herdsWanted(sec: number, h: HerdConfig): number {
+  const hi = Math.max(0, Math.round(h.count)), lo = Math.max(0, Math.min(hi, Math.round(h.countMin ?? hi)));
+  if (lo >= hi) return hi;
+  const P = Math.max(30, h.countWaveSec ?? 600);
+  const w = 0.5 + 0.3 * Math.cos((2 * Math.PI * sec) / P) + 0.2 * Math.cos((2 * Math.PI * sec) / (P * 0.37) + 1.3);
+  return Math.round(lo + (hi - lo) * Math.max(0, Math.min(1, w)));
 }
 
 /** One ground candidate for a new herd, by the config's way of choosing it. */
@@ -715,7 +728,7 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
     // THE POPULATION: `count` herds and `loners` bots; who is gone is replaced — a herd at the seconds ≡ 0 (mod 4),
     // a loner at ≡ 3, one at a time (so the draws of those born in one second never overlap, and nobody comes in a crowd)
     for (let sec = Math.max(st.lastSec + 1, nowSec - 600); sec <= nowSec; sec++) {
-      if (sec % 4 === 0 && st.present.filter((p) => p.kind === "leader").length < Math.round(hc.count)) {
+      if (sec % 4 === 0 && st.present.filter((p) => p.kind === "leader").length < herdsWanted(sec, hc)) {
         const lo = Math.max(1, Math.round(Math.min(hc.sizeMin, hc.sizeMax))), hi = Math.max(lo, Math.min(12, Math.round(Math.max(hc.sizeMin, hc.sizeMax))));
         const n = Math.min(hi, lo + Math.floor(worldDraw(epochMs, sec, 12) * (hi - lo + 1)));
         // a herd comes whole or not at all
