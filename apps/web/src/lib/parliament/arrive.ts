@@ -65,6 +65,10 @@ export class Arrivals {
     const still = quiet || (prev !== undefined && prev.level !== level);
     const count = new Map<number, number>();
     const fresh = new Map<number, [number, number]>();
+    // THE TICK (the artist, 2026-11-12: "저렇게 하면 procedural 한 느낌 좀 죽는 거 아냐?" → parts appear whole, one a
+    // tick, in the order the grammar made them): the n-th part that is new in this building now is n — the whole part
+    // of a part's order; its fraction is the staged order (arriveOrder), for the ways that grow
+    let seq = 0;
     for (const b of parts) {
       const sk = b.slot * 16 + KIND_INDEX[b.kind];
       const i = count.get(sk) ?? 0;
@@ -73,7 +77,7 @@ export class Arrivals {
       let a = prev?.fresh.get(key);
       if (a && now - a[0] > KEEP_S) a = undefined;
       if (!a && !still && !(prev && i < (prev.count.get(sk) ?? 0))) {
-        a = [now, arriveOrder(b.kind, i)];
+        a = [now, seq++ + Math.min(0.999, arriveOrder(b.kind, i))];
         this.last = now;
       }
       if (!a) continue;
@@ -88,7 +92,8 @@ export class Arrivals {
     return now - this.last <= KEEP_S;
   }
 
-  /** [born (s), order 0 … 1] of a part still arriving; undefined = it is there (ARRIVED). */
+  /** [born (s), order] of a part still arriving — order = its number among the building's new parts (whole part) +
+   *  its staged place 0 … 1 (fraction); undefined = it is there (ARRIVED). */
   of(b: Box): [number, number] | undefined {
     return this.at.get(b);
   }

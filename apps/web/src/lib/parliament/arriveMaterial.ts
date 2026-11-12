@@ -8,14 +8,16 @@
  *   grow    it rises from its own base to its full height (a tilted brace along its own length)
  *   settle  it comes down from above onto its place, growing to its size on the way
  *   swell   it grows from its own centre
+ *   tick    it is simply THERE, whole, when its turn comes: one part of a building every `tick` seconds, in the order
+ *           the grammar made them — no growing, no easing (the rule running, not an animation of it)
  * A part whose turn has not come yet is not drawn at all (collapsed to a point). Duration 0 = off: every part is
  * simply there, as before.
  */
 
 import * as THREE from "three";
 
-export type ArriveWay = "grow" | "settle" | "swell";
-const WAY: Record<ArriveWay, number> = { grow: 0, settle: 1, swell: 2 };
+export type ArriveWay = "tick" | "grow" | "settle" | "swell";
+const WAY: Record<ArriveWay, number> = { grow: 0, settle: 1, swell: 2, tick: 3 };
 
 export interface ArriveUniforms {
   /** Seconds on the model's arrival clock (PartsResult.bornEpochMs). */
@@ -27,24 +29,29 @@ export interface ArriveUniforms {
   uArriveWay: { value: number };
   /** settle: from how far above (world). */
   uArriveLift: { value: number };
+  /** tick: seconds between one part of a building and the next. */
+  uArriveTick: { value: number };
 }
 
 export function makeArriveUniforms(): ArriveUniforms {
-  return { uArriveNow: { value: 0 }, uArriveDur: { value: 0 }, uArriveStagger: { value: 0 }, uArriveWay: { value: 0 }, uArriveLift: { value: 1 } };
+  return { uArriveNow: { value: 0 }, uArriveDur: { value: 0 }, uArriveStagger: { value: 0 }, uArriveWay: { value: 0 }, uArriveLift: { value: 1 }, uArriveTick: { value: 0.1 } };
 }
 
-export function setArrive(u: ArriveUniforms, a: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number }): void {
-  u.uArriveDur.value = a.on ? Math.max(0, a.sec) : 0;
+export function setArrive(u: ArriveUniforms, a: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number; tick?: number }): void {
+  u.uArriveDur.value = a.on ? (a.way === "tick" ? 1 : Math.max(0, a.sec)) : 0;
+  u.uArriveTick.value = Math.max(0, a.tick ?? 0.1);
   u.uArriveStagger.value = Math.max(0, a.stagger);
   u.uArriveWay.value = WAY[a.way] ?? 0;
   u.uArriveLift.value = a.lift;
 }
 
-const HEAD = "attribute vec2 aBorn;\nuniform float uArriveNow, uArriveDur, uArriveStagger, uArriveWay, uArriveLift;";
+const HEAD = "attribute vec2 aBorn;\nuniform float uArriveNow, uArriveDur, uArriveStagger, uArriveWay, uArriveLift, uArriveTick;";
 const BODY = `
 #ifdef USE_INSTANCING
-if (uArriveDur > 0.0) {
-  float arriveP = clamp((uArriveNow - aBorn.x - aBorn.y * uArriveStagger) / uArriveDur, 0.0, 1.0);
+if (uArriveDur > 0.0 && uArriveWay > 2.5) {
+  transformed *= step(aBorn.x + floor(aBorn.y) * uArriveTick, uArriveNow);
+} else if (uArriveDur > 0.0) {
+  float arriveP = clamp((uArriveNow - aBorn.x - fract(aBorn.y) * uArriveStagger) / uArriveDur, 0.0, 1.0);
   float arriveG = 1.0 - (1.0 - arriveP) * (1.0 - arriveP) * (1.0 - arriveP);
   if (uArriveWay < 0.5) {
     transformed.y = (transformed.y + 0.5) * arriveG - 0.5;

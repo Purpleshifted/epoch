@@ -76,3 +76,18 @@ describe("arrivals: when a part was first there", () => {
     expect(JSON.stringify(boxesOfSeed(seed, DEFAULT_BOXES))).toBe(before);
   });
 });
+
+describe("arrive: the tick — a building's new parts in the order the grammar made them", () => {
+  it("the n-th new part of a building is n (the whole part of its order); what was there has none", () => {
+    const part = (kind: Box["kind"], slot: number): Box => ({ kind, seed: 7, material: "concrete", x: 0, y: 0, z: 0, sx: 1, sy: 1, sz: 1, tone: 0, along: 0, slot });
+    const a = new Arrivals();
+    const first = [part("plinth", 3), part("column", 3), part("column", 3), part("mass", 3)];
+    a.note(7, 0, first, 100, false);
+    expect(first.map((b) => Math.floor(a.of(b)![1]))).toEqual([0, 1, 2, 3]);
+    // the building gains a slot: only its parts are new, numbered from 0 again
+    const more = [...first.map((b) => ({ ...b })), part("slab", 4), part("mass", 4)];
+    a.note(7, 0, more, 130, false);
+    expect(more.slice(0, 4).map((b) => a.of(b)![0])).toEqual([100, 100, 100, 100]);
+    expect(more.slice(4).map((b) => [a.of(b)![0], Math.floor(a.of(b)![1])])).toEqual([[130, 0], [130, 1]]);
+  });
+});
