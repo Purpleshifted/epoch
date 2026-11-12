@@ -115,7 +115,7 @@ describe("the immutable layer", () => {
       const m = new SpaceModel();
       m.add(events);
       m.setNow(1500 + 20 * DEFAULT_BOXES.secPerUnit);
-      if (withNature) m.computeNature({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 120, focusK: 60, margin: 4, budget: 1e7, burialSlots: 0, lod: { camera, near: 1e9, farFactor: 1 } });
+      if (withNature) m.computeNature({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, nature: DEFAULT_NATURE, window: 120, focusK: 60, margin: 4 });
       m.computeParts({ ...parts(), lod: { camera, near, mid: near, farFactor: 1 }, steady: true });
       const priv = m as unknown as { built: { slot: number }[]; wear: { survival: (b: unknown) => number } };
       return priv.built.map((b) => `${b.slot}:${(1 - priv.wear.survival(b)).toFixed(4)}`).sort().join("|");

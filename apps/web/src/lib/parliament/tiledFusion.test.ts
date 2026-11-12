@@ -24,7 +24,7 @@ it("TILED FUSION: a wide world (moving flocks, the artist's local values) still 
   const lod = { camera: [0, 0, 0] as [number, number, number], near: Infinity, mid: Infinity, farFactor: 1 };
   const kNow = Math.floor(1400 / 20);
   m.computeParts({ fold, box, wear: true, weather, fuse, water: DEFAULT_WATER, edges: false, lod, steady: true });
-  m.computeNature({ fold, box, weather, fuse, nature: DEFAULT_NATURE, perSlot: 6, window: 120, focusK: kNow, margin: 5, budget: 600000, burialSlots: 9, lod, density: { cut: 0.25, fade: 25 } });
+  m.computeNature({ fold, box, nature: DEFAULT_NATURE, window: 120, focusK: kNow, margin: 5 });
   let mesh = null;
   for (let i = 0; i < 6; i++) {
     m.computeParts({ fold, box, wear: true, weather, fuse, water: DEFAULT_WATER, edges: false, lod, steady: true });

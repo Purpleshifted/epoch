@@ -6,7 +6,8 @@
  * The query is read once when the wall opens and written into the Leva group "봇 (글로벌에서 돌리기)" (and the time
  * axis for `rate`), as if turned by hand: the panel shows them, nothing is saved until "save" is pressed.
  *
- *   bots     session | resident | off      on, in that way (off: switched off)
+ *   bots     herd | session | resident | off   on, in that way (off: switched off); herd = herds in the block
+ *   block    N (slots)                       herd: the block's depth · resident: the bots' depth; no part shape is frozen
  *   max      N                              session: the most at once · resident: the number of bots
  *   gap      seconds                        session: mean gap between arrivals when busy
  *   quiet    0–1                            session: the quiet trough as a share of the busy rate
@@ -55,7 +56,7 @@ export function parseBotLink(search: string): BotLink {
     if (v !== undefined) values[k] = v;
   };
   const bots = q.get("bots");
-  if (bots === "session" || bots === "resident") {
+  if (bots === "session" || bots === "resident" || bots === "herd") {
     values.botOn = true;
     values.botMode = bots;
   } else if (bots === "off") values.botOn = false;
@@ -88,6 +89,9 @@ export function parseBotLink(search: string): BotLink {
   if (auto === "0" || auto === "1") values.lcAuto = auto === "1";
   // THE BLOCK (an experiment, docs/redesign-plan-2026-11-12.md §3.4): block=45 = resident bots down to 45 slots (20 s each)
   const block = blockSlots(search);
-  if (block > 0) set("botTimeDepth", block * 20);
+  if (block > 0) {
+    set("botTimeDepth", block * 20);
+    set("hdDepth", block);
+  }
   return { values, rate: num(q.get("rate"), 0, 40) };
 }

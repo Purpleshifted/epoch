@@ -221,26 +221,11 @@ export interface PartsResult {
 export interface NatureInput {
   fold: FoldConfig;
   box: BoxConfig;
-  weather: WeatherConfig;
-  fuse: FuseConfig;
-  /** Desire paths drawn as holes in the vegetation with a heaped rim (null = off). */
-  paths?: { hole: number; berm: number; edge?: number } | null;
   nature: NatureConfig;
-  perSlot: number;
-  /** Slots around `focusK` that are built. */
+  /** Slots around `focusK` whose history is kept. */
   window: number;
   focusK: number;
   margin: number;
-  budget: number;
-  burialSlots: number;
-  lod: LodConfig;
-  /**
-   * V2 DENSITY: an ABSOLUTE density floor `cut` (naturePoints.cut), the same however far the camera is (no LOD
-   * thinning: nothing is rebuilt as the camera moves), rising through the `fade` slots above the deepest living layer
-   * (and with the layers' dying) instead of thinning them evenly: the dense patches last longest and the vegetation
-   * fades out along the time axis. Absent = V1 (even thinning, by distance and by the living cut).
-   */
-  density?: { cut: number; fade: number };
 }
 
 export interface ReclaimInput {
@@ -1071,128 +1056,27 @@ export class SpaceModel {
     };
   }
 
-  /** The vegetation points around the camera's time; null when nothing changed. */
+  /** The vegetation's HISTORY around the focus (no points: the sediment vegetation is gone); null when nothing changed. */
   computeNature(input: NatureInput): PointsResult | null {
-    const { box, lod } = input;
+    const { box } = input;
     const seeds = this.ensureSeeds(input.fold);
     const spu = box.secPerUnit;
     const kNow = Math.floor(this.t / spu);
     const kFocus = Math.floor(Math.max(0, input.focusK) / NATURE_CHUNK) * NATURE_CHUNK;
     const k0 = Math.max(0, kFocus - input.window);
     const k1 = Math.min(kNow, kFocus + input.window);
-    // vegetation level per chunk (quantised), from the camera's distance to the chunk's middle
-    const levels: number[] = [];
-    const firstChunk = Math.floor(k0 / NATURE_CHUNK) * NATURE_CHUNK;
-    for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK) {
-      const y = (c0 + NATURE_CHUNK / 2) * box.unit;
-      const d = Math.abs(lod.camera[1] - y);
-      const f = d <= lod.near ? 1 : Math.max(lod.farFactor, lod.near / d);
-      levels.push(Math.round(f * 4) / 4);
-    }
-    // sediment changes with time: rebuilt once per slot of the present
-    const tQ = Math.floor(this.t / spu) * spu;
-    const sediment = input.weather.strata
-      ? { tNow: tQ, secPerUnit: spu, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, jitter: input.weather.ageJitter * 0.5, graceSlots: rotOnsetSlots(input.weather) }
-      : undefined;
-    const sedKey = sediment ? `${tQ}:${sediment.timeScale}:${sediment.tauYears}` : "-";
-    // LIVING vs FOSSIL: vegetation lives only in the layers whose concrete has not begun to fuse. A layer's typical
-    // corrosion (a mid-thick part, exposed) is taken from its age; the points thin out as it nears fuseOnset and
-    // there are none below. The most recent layers have the most.
-    const fz = input.fuse;
-    const layerDecay = sediment ? this.layerClockOf(layerDecayOf(tQ, spu, input.weather, input.fold.tauSlabYears)) : undefined;
-    const living =
-      layerDecay && fz.enabled
-        ? (k: number) => {
-            const d = layerDecay(k);
-            const t = Math.min(1, Math.max(0, (d - fz.fuseOnset * 0.4) / (fz.fuseOnset * 0.6)));
-            return 1 - t * t * (3 - 2 * t);
-          }
-        : undefined;
-    // the parts' corrosion decides where vegetation points give way to mass: rebuild when the parts change
-    const fuseKey = `${JSON.stringify(input.fuse)}:${JSON.stringify(input.paths ?? null)}:${this.partsSig}:${this.drainKey}`;
-    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.perSlot, input.margin, input.budget, input.burialSlots, input.density ?? null])}:${sedKey}:${fuseKey}:${k0}:${k1}:${input.density ? "abs" : levels.join(",")}`;
+    // THE SEDIMENT VEGETATION IS GONE (the artist, 2026-11-12: "끄라는 말 = 아예 영구제명"): no points are made, drawn
+    // or tuned any more. What stays is the vegetation's HISTORY — the fused mass (computeFuse), the parts' corrosion
+    // under plants and the gatherings on buildings (computeParts, computeReclaim) are read from it.
+    const sig = `${this.seedsKey}:${JSON.stringify([box.secPerUnit, box.unit, input.nature, input.margin])}:${this.drainKey}:${k0}:${k1}`;
     if (sig === this.natureSig) return null;
     this.natureSig = sig;
     if (k1 < k0 || !this.events.length) return { position: new Float32Array(0), color: new Float32Array(0) };
-
     const near = this.nearWater;
     const wc = this.waterCfg;
     const waterBoost = near && wc && wc.vegBoost > 0 ? (ix: number, iz: number, k: number) => near(ix, iz, k) * wc.vegBoost : undefined;
-    // the water is not drawn: the vegetation along it is wetland (its colour) and denser (waterBoost)
-    // the channel itself stays clear; its banks are wetland (per point, from the exact distance to the course)
-    const water =
-      wc && this.drain.streams.size
-        ? { dist: waterDistance(this.drain, k0, k1, wc), half: wc.channel / 2, radius: wc.radius, share: wc.wetShare }
-        : undefined;
-    const h = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold, waterBoost });
-    this.history = h;
-    // where mass has formed (growths or fusion), the vegetation is part of it: no points there
-    // numeric keys: thinCell is asked for every (cell, slot) of the window (millions of lookups)
-    const mkey = (ix: number, iz: number, k: number) => (k * 4096 + (ix + 2048)) * 4096 + (iz + 2048);
-    const massed = new Set<number>();
-    const wm = this.wear;
-    if (wm && input.fuse.enabled) {
-      for (const b of this.built) {
-        if (b.slot < k0 - 1 || b.slot > k1 + 1 || accretionShare(1 - wm.survival(b), input.fuse) <= 0.05) continue;
-        for (let ix = Math.floor((b.x - b.sx / 2) / CELL); ix <= Math.floor((b.x + b.sx / 2) / CELL); ix++) {
-          for (let iz = Math.floor((b.z - b.sz / 2) / CELL); iz <= Math.floor((b.z + b.sz / 2) / CELL); iz++) {
-            for (let k = b.slot - 1; k <= b.slot + 1; k++) massed.add(mkey(ix, iz, k));
-          }
-        }
-      }
-    }
-    const thinCell = massed.size ? (ix: number, iz: number, k: number) => (massed.has(mkey(ix, iz, k)) ? 0 : 1) : undefined;
-    let massSig = massed.size;
-    for (const key of massed) massSig = (massSig * 31 + (key % 1000003)) % 1e9;
-    // V2: the floor of each slot (absolute, rising as the layer's vegetation dies)
-    const dens = input.density;
-    // the deepest layer whose vegetation is gone; above it the floor falls back to `cut` over `fade` slots
-    let kDead = -Infinity;
-    if (dens && living) for (let k = k1; k >= k0; k--) if (living(k) <= 0.01) {
-      kDead = k;
-      break;
-    }
-    const cutOf = dens
-      ? (k: number) => {
-          const dying = 1 - (living ? Math.max(0, Math.min(1, living(k))) : 1);
-          const t = dens.fade > 0 ? Math.max(0, Math.min(1, (k - kDead) / dens.fade)) : k > kDead ? 1 : 0;
-          const ramp = 1 - t * t * (3 - 2 * t);
-          return dens.cut + (1 - dens.cut) * Math.max(dying, ramp);
-        }
-      : undefined;
-    const load = naturePointLoad(h, k0, k1, input.perSlot, cutOf);
-    const scale = load > input.budget ? input.budget / load : 1;
-    const buried = input.burialSlots > 0 ? burialOf(seeds, spu, input.burialSlots) : undefined;
-    let burySig = input.burialSlots;
-    for (const sd of seeds) burySig += sd.t0 + (sd.id % 89);
-
-    const parts: { pos: Float32Array; col: Float32Array }[] = [];
-    const keep = new Set<number>();
-    // the baked chunks' points, as they were (in and below the window)
-    // the baked chunks draw NO vegetation: below the surface there is none (the artist, 2026-10-31: a chunk baked
-    // alive left its points as a second band of greenery deep in the column)
-    let li = 0;
-    for (let c0 = firstChunk; c0 <= k1; c0 += NATURE_CHUNK, li++) {
-      if (this.baked.has(c0)) continue;
-      const a = Math.max(c0, k0);
-      const b = Math.min(c0 + NATURE_CHUNK - 1, k1);
-      // V2: the same everywhere (absolute floor per slot); V1: fewer points far away
-      const per = input.perSlot * scale * (dens ? 1 : levels[li]);
-      const off = (a - h.k0) * h.nx * h.nz;
-      let sum = 0;
-      for (let i = off; i < (b - h.k0 + 1) * h.nx * h.nz; i++) sum += h.V[i] * (i - off + 1);
-      const key = `${a}:${b}:${h.x0}:${h.z0}:${h.nx}:${h.nz}:${sum.toFixed(4)}:${per.toFixed(4)}:${dens ? `${dens.cut}:${dens.fade}` : "-"}:${box.unit}:${burySig}:${sedKey}:${fuseKey}:${massSig}`;
-      keep.add(c0);
-      let ch = this.chunks.get(c0);
-      if (!ch || ch.key !== key) {
-        const np = naturePoints(h, a, b, { unit: box.unit, perSlot: per, cut: cutOf, buried, sediment, thinCell, timeJitter: box.timeJitter, paths: input.paths ?? undefined, water, thin: dens ? undefined : living });
-        ch = { key, pos: np.position, col: natureColors(np) };
-        this.chunks.set(c0, ch);
-      }
-      parts.push(ch);
-    }
-    for (const c of this.chunks.keys()) if (!keep.has(c)) this.chunks.delete(c);
-    return concat(parts);
+    this.history = natureHistory({ events: this.events, seeds, secPerUnit: spu, k0, k1, margin: input.margin, nature: input.nature, fold: input.fold, waterBoost });
+    return { position: new Float32Array(0), color: new Float32Array(0) };
   }
 
   /**

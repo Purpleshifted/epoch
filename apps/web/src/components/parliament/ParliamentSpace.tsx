@@ -77,7 +77,7 @@ import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
-import { botReadout, useGlobalBots } from "./useGlobalBots";
+import { botReadout, useGlobalBots, type TestColumnKnobs } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 
@@ -247,23 +247,15 @@ interface CamLink {
 /** What the view asks the worker for vegetation (null = vegetation off). */
 interface NatureParams {
   cfg: NatureConfig;
-  perSlot: number;
-  /** Point size of the vegetation volume (sediment). */
-  size: number;
   /** Vegetation gathering on buildings, drawn as point clouds: the cloud's diameter, its random spread (±), the
    * number of points in one cloud and their size. */
   gatherSize: number;
   gatherJitter: number;
   gatherPoints: number;
   gatherDot: number;
-  paths: { hole: number; berm: number; edge?: number } | null;
+  /** The vegetation's history (what the fusion and the gatherings read; no points of its own): slots around the focus, cells around the visits. */
   window: number;
   margin: number;
-  budget: number;
-  burialSlots: number;
-  /** Density floor of the vegetation volume, and how much it rises far away (V2; 0 = V1's even thinning). */
-  /** V2: absolute density floor, and over how many slots it rises towards the dead layers; null = V1. */
-  density: { cut: number; fade: number } | null;
   reclaim: boolean;
   tauReclaimYears: number;
   reclaimPerArea: number;
@@ -841,7 +833,6 @@ function SpaceWorld({
   const pipeKept = useRef<THREE.InstancedMesh>(null);
   const elbowLive = useRef<THREE.InstancedMesh>(null);
   const elbowKept = useRef<THREE.InstancedMesh>(null);
-  const naturePts = useRef<THREE.Points>(null);
   // vegetation gathering on buildings: one point cloud per gathering (instanced); the cloud is rebuilt when its point
   // count changes, the gatherings stay in the shared attributes
   const gatherAt = useMemo(() => gatherAttributes(), []);
@@ -910,18 +901,14 @@ function SpaceWorld({
     stoneMat.needsUpdate = true;
   }, [stoneMat, resin.massOpacity]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
-  const natureMat = useMemo(() => fadingPointsMaterial(), []);
   useEffect(() => {
     // transparent points are left out of the transmission pass (three.js re-renders only the opaque objects into it)
-    for (const m of [natureMat, gatherMat]) {
-      m.transparent = !pointsInRefraction;
-      m.needsUpdate = true;
-    }
-  }, [natureMat, gatherMat, pointsInRefraction]);
+    gatherMat.transparent = !pointsInRefraction;
+    gatherMat.needsUpdate = true;
+  }, [gatherMat, pointsInRefraction]);
   useEffect(() => {
-    applyPointLook(natureMat, nature?.size ?? 0.07, nearFade);
     applyCloudLook(gatherMat, nature?.gatherDot ?? 0.025, (nature?.gatherSize ?? 0.3) / 2, nature?.gatherJitter ?? 0, nearFade);
-  }, [natureMat, gatherMat, nature?.size, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nearFade]);
+  }, [gatherMat, nature?.gatherDot, nature?.gatherSize, nature?.gatherJitter, nearFade]);
 
   // ── apply a result: copy buffers into the meshes (no per-part work on the main thread) ──
   const apply = (r: SpaceResponse) => {
@@ -972,7 +959,6 @@ function SpaceWorld({
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
     }
-    setPoints(naturePts.current, r.nature);
     if (r.reclaim) {
       gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
       setGatherings(gatherGeomRef.current, r.reclaim);
@@ -1080,7 +1066,7 @@ function SpaceWorld({
     if (withNature) lastNatSig.current = natSig;
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk } };
     if (withNature && nat) {
-      req.nature = { fold: f, box: cfg, weather: wx, fuse: fu, nature: nat.cfg, perSlot: nat.perSlot, window: nat.window, focusK, margin: nat.margin, budget: nat.budget, burialSlots: nat.burialSlots, paths: nat.paths, lod, density: nat.density ?? undefined };
+      req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
       if (nat.reclaim) {
         req.reclaim = {
           tauReclaimYears: nat.tauReclaimYears,
@@ -1179,9 +1165,6 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
-      <points ref={naturePts} frustumCulled={false} visible={!!nature} material={natureMat}>
-        <bufferGeometry />
-      </points>
       <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} />
     </>
   );
@@ -1653,26 +1636,16 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000, !lab);
   useKeepWindowControl(log, -2, !lab); // the shared history window (log.ts), the first folder
-  // the lab's test column: how the crowd that writes it is spread (the artist's player-page bot values by default)
-  const tc = useControls(
-    "테스트 기둥 (랩 · 이 탭만)",
-    savable("테스트 기둥 (랩 · 이 탭만)", {
-      tcMinutes: { value: 20, min: 5, max: 60, step: 5, label: "분량 (분)" },
-      tcBots: { value: 18, min: 2, max: 40, step: 1, label: "봇 수" },
-      tcGroups: { value: 5, min: 1, max: 10, step: 1, label: "무리 수" },
-      tcSpread: { value: 44, min: 0, max: 90, step: 1, label: "무리 간 거리 (월드; 멀수록 건물이 흩어짐)" },
-      tcTime: { value: 150, min: 0, max: 600, step: 5, label: "봇 시각 폭 (s)" },
-      "다시 만들기": button(() => rebuildColumn.current()),
-    }),
-    { order: 0.5, render: () => lab },
-  );
+  // the lab's test column: how the crowd that writes it is spread — its knobs live in the bots' folder (useGlobalBots)
+  const column = useRef<TestColumnKnobs>({ minutes: 20, bots: 18, groups: 5, spread: 44, time: 150 });
   const rebuildColumn = useRef(() => {});
   useEffect(() => {
     rebuildColumn.current = () => {
+      const tc = column.current;
       log.clear();
-      log.addMany(buildTestColumn({ seconds: tc.tcMinutes * 60, bots: tc.tcBots, flock: { groups: tc.tcGroups, spread: tc.tcSpread, timeSpread: tc.tcTime } }));
+      log.addMany(buildTestColumn({ seconds: tc.minutes * 60, bots: tc.bots, flock: { groups: tc.groups, spread: tc.spread, timeSpread: tc.time } }));
     };
-  }, [log, tc.tcMinutes, tc.tcBots, tc.tcGroups, tc.tcSpread, tc.tcTime]);
+  }, [log]);
   // the lab opens with a whole column in view
   useEffect(() => {
     if (lab && log.size === 0) rebuildColumn.current();
@@ -2084,15 +2057,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     "식생",
     savable("식생", {
       natureOn: { value: true, label: "켜기" },
-      "퇴적 식생 (시간 속 볼륨)": folder({
-        perSlot: { value: 6, min: 0.5, max: 40, step: 0.5, label: "칸·단당 점 수 (밀도 1일 때)" },
-        volumeSize: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "점 크기" },
-        window: { value: 120, min: 10, max: 600, step: 10, label: "보이는 시간 범위 (±단)" },
+      // THE SEDIMENT VEGETATION IS GONE (the artist, 2026-11-12). Its history is still read by the fusion and the gatherings:
+      "식생의 기록 (그리지 않음 · 융합과 건물 식생이 읽음)": folder({
+        window: { value: 120, min: 10, max: 600, step: 10, label: "읽는 시간 범위 (±단)" },
         margin: { value: 5, min: 0, max: 30, step: 1, label: "방문 범위 바깥 여백 (칸)" },
-        budget: { value: 600000, min: 50000, max: 3000000, step: 50000, label: "최대 점 수" },
-        burialSlots: { value: 3, min: 0, max: 20, step: 1, label: "식생 매몰층: 콘크리트가 생긴 시각 아래 몇 단" },
-        densityCut: { value: 0.25, min: 0, max: 0.9, step: 0.01, label: "보이는 최소 밀도 (어디서 보든 같음)", render: () => isV2 },
-        densityFade: { value: 15, min: 0, max: 80, step: 1, label: "시간 방향: 옅은 곳부터 사라지는 구간 (단)", render: () => isV2 },
       }),
       "건물에 모이는 식생": folder({
         gatherOn: { value: true, label: "켜기 (부식 초기, 덩어리 전)" },
@@ -2125,7 +2093,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     },
   });
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
-  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, lab ? { clock: clk, local: true } : undefined);
+  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, lab ? { clock: clk, local: true, column, rebuild: rebuildColumn } : undefined);
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -2677,7 +2645,6 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const aoHalfRes = perf || rnd.halfRes;
   const aoQuality = perf ? ("performance" as const) : rnd.quality;
   const shadowsOn = rnd.shadows && !perf;
-  const vegBudget = perf ? Math.min(veg.budget, 250000) : veg.budget;
   const lodNear = perf ? Math.min(rnd.near, 25) : rnd.near;
   const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
   // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
@@ -2688,25 +2655,18 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       veg.natureOn
         ? {
             cfg: natureCfg,
-            perSlot: veg.perSlot,
-            size: veg.volumeSize,
             gatherSize: veg.gatherSize,
             gatherJitter: veg.gatherJitter,
             gatherPoints: veg.gatherPoints,
             gatherDot: veg.gatherDot,
             window: veg.window,
             margin: veg.margin,
-            budget: vegBudget,
-            burialSlots: veg.burialSlots,
             reclaim: veg.gatherOn,
             tauReclaimYears: veg.tauReclaimYears,
             reclaimPerArea: veg.gatherPerArea,
-            paths: wlk.pathsOn ? { hole: wlk.pathHole, berm: wlk.pathBerm, edge: isV2 ? wlk.pathEdge : undefined } : null,
-            // V1 keeps every cell by its density and the even far thinning
-            density: isV2 ? { cut: veg.densityCut, fade: veg.densityFade } : null,
           }
         : null,
-    [isV2, veg.densityCut, veg.densityFade, veg.natureOn, natureCfg, veg.perSlot, veg.volumeSize, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, vegBudget, veg.burialSlots, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea, wlk.pathsOn, wlk.pathHole, wlk.pathBerm, wlk.pathEdge],
+    [veg.natureOn, natureCfg, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea],
   );
   const recipe = useMemo<Recipe>(
     () => ({

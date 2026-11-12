@@ -21,8 +21,9 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { levaStore, useControls } from "leva";
+import { button, levaStore, useControls } from "leva";
 import {
+  DEFAULT_HERD,
   DEFAULT_LIFECYCLE,
   SEAL_H,
   SESSION_ROLES,
@@ -91,10 +92,24 @@ const BOT_OPTIONS: Record<string, RoleId | "mixed"> = {
   "나무 (tree)": "tree",
 };
 
-const MODE_OPTIONS: Record<string, "session" | "resident"> = {
-  "세션 (들어왔다 나감)": "session",
+type BotMode = "herd" | "session" | "resident";
+const MODE_OPTIONS: Record<string, BotMode> = {
+  "무리 (덩어리 속을 몰려다님 · 태어나고 죽음)": "herd",
+  "혼자 (들어왔다 나감)": "session",
   "상주 (기존)": "resident",
 };
+/** The wall's time axis as the herds read it: one slot is 20 s and 1 world unit high (SPACE_BOXES). */
+const SLOT_SEC = 20;
+const SLOT_HEIGHT = 1;
+
+/** The lab's test column (the crowd that writes it), kept in the bots' folder; the view reads it when it rebuilds. */
+export interface TestColumnKnobs {
+  minutes: number;
+  bots: number;
+  groups: number;
+  spread: number;
+  time: number;
+}
 
 const GROUP = "봇 (글로벌에서 돌리기)";
 
@@ -110,21 +125,36 @@ export function botReadout(): string | null {
   return `bots (session): ${l.present} now / max ${l.maxPresent} · arrived ${l.arrived} · left ${l.departed} · places ${l.places} · stalls ${l.slowPerMin}/min`;
 }
 
-export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, order = 1.5, opts?: { clock?: Clock; local?: boolean }): number {
+export function useGlobalBots(
+  log: EventLog,
+  cfg: FoldConfig,
+  enabled: boolean,
+  order = 1.5,
+  opts?: { clock?: Clock; local?: boolean; column?: { current: TestColumnKnobs }; rebuild?: { current: () => void } },
+): number {
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
   const local = !!opts?.local;
   const show = () => enabled;
-  // RESIDENT ONLY (the artist, 2026-11-01: the session bots are not used — the fusion never formed from their short,
-  // gapped visits): the mode is fixed to resident and the session knobs are hidden; the session code stays (its own
-  // session's), its saved values are kept
-  const showSession = () => false;
-  const showResident = () => enabled;
+  // EVERY BOT KNOB IS IN THIS ONE FOLDER (the artist, 2026-11-12), by way of living: herds in the block (new), alone
+  // (the session bots of 2026-10-31) or the resident crowd (the artist's choice of 2026-11-01, still the default)
+  const modeIs = (m: BotMode) => (get: (path: string) => unknown) => enabled && get(`${GROUP}.botMode`) === m;
+  const showSession = (get: (path: string) => unknown) => enabled && get(`${GROUP}.botMode`) !== "resident";
+  const showHerd = modeIs("herd");
+  const showResident = modeIs("resident");
+  const showLab = () => enabled && !!opts?.local;
   const b = useControls(
     GROUP,
     savable(GROUP, {
       botOn: { value: false, label: "봇 활성화 (플레이어 탭 없이; 플레이어 탭의 봇과 같이 켜지 말 것)", render: show },
-      botMode: { options: MODE_OPTIONS, value: "resident" as "session" | "resident", label: "봇 방식", render: () => false },
+      botMode: { options: MODE_OPTIONS, value: "resident" as BotMode, label: "봇 방식", render: show },
+      // HERDS: defined in the wall's 3D space — the ground and time as height (1 단 = 20 s = 높이 1)
+      hdShare: { value: DEFAULT_HERD.share, min: 0, max: 1, step: 0.05, label: "무리 › 무리로 태어나는 비율 (나머지는 혼자)", render: showHerd },
+      hdSizeMin: { value: DEFAULT_HERD.sizeMin, min: 2, max: 12, step: 1, label: "무리 › 무리 크기 최소 (명; 콘크리트는 4명부터)", render: showHerd },
+      hdSizeMax: { value: DEFAULT_HERD.sizeMax, min: 2, max: 12, step: 1, label: "무리 › 무리 크기 최대 (명)", render: showHerd },
+      hdRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 › 무리 반경 (3차원 · 월드; 옆으로도, 시간(높이)으로도 이 안에 모여 삶)", render: showHerd },
+      hdGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 › 무리 사이 거리 (3차원 · 월드; 새 무리는 살아 있는 무리에서 이만큼 떨어져 태어남)", render: showHerd },
+      hdDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 60, step: 1, label: "무리 › 덩어리 깊이 (단; 현재에서 이만큼 아래까지 제 깊이에 태어남 · 0 = 현재에만)", render: showHerd },
       // SESSION (docs/bot-lifecycle.md)
       lcGapSec: { value: DEFAULT_LIFECYCLE.meanGapSec, min: 3, max: 120, step: 1, label: "세션 › 붐빌 때 평균 도착 간격 (s)", render: showSession },
       lcQuiet: { value: DEFAULT_LIFECYCLE.quietShare, min: 0, max: 1, step: 0.05, label: "세션 › 한산할 때 도착 (붐빌 때의 몇 배)", render: showSession },
@@ -153,11 +183,19 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       botStayMin: { value: 0, min: 0, max: 30, step: 0.5, label: "상주 › 무리가 한 자리에 머무는 시간 (분; 0 = 자리 고정)", render: showResident },
       botCharacter: { value: 0, min: 0, max: 1, step: 0.05, label: "상주 › 무리 성격 차이 (0 = 모두 같음; 모임 · 걷기 · 머무는 시간이 무리마다 다름)", render: showResident },
       botOverlapSec: { value: 60, min: 0, max: 300, step: 5, label: "상주 › 자리 옮길 때 겹치는 시간 (초; 봇이 하나씩 떠남)", render: showResident },
+      // THE LAB'S TEST COLUMN (was its own folder): the crowd that writes the column the lab opens with
+      tcMinutes: { value: 20, min: 5, max: 60, step: 5, label: "테스트 기둥 (랩) › 분량 (분)", render: showLab },
+      tcBots: { value: 18, min: 2, max: 40, step: 1, label: "테스트 기둥 (랩) › 봇 수", render: showLab },
+      tcGroups: { value: 5, min: 1, max: 10, step: 1, label: "테스트 기둥 (랩) › 무리 수", render: showLab },
+      tcSpread: { value: 44, min: 0, max: 90, step: 1, label: "테스트 기둥 (랩) › 무리 간 거리 (월드; 멀수록 건물이 흩어짐)", render: showLab },
+      tcTime: { value: 150, min: 0, max: 600, step: 5, label: "테스트 기둥 (랩) › 봇 시각 폭 (s)", render: showLab },
+      "테스트 기둥 다시 만들기 (랩)": button(() => opts?.rebuild?.current(), { disabled: !opts?.local }),
     }),
     { order, collapsed: !enabled },
   );
   const on = enabled && b.botOn;
-  const session = false;
+  const session = b.botMode !== "resident";
+  if (opts?.column) opts.column.current = { minutes: b.tcMinutes, bots: b.tcBots, groups: b.tcGroups, spread: b.tcSpread, time: b.tcTime };
   const nBots = on && !session ? b.botCount : 0;
   const flock = useMemo<Flock>(
     () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, timeDepth: b.botTimeDepth, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
@@ -179,8 +217,12 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       revisit: b.lcRevisit,
       spread: b.lcSpread,
       leaveShare: b.lcLeave,
+      herd:
+        b.botMode === "herd"
+          ? { share: b.hdShare, sizeMin: Math.min(b.hdSizeMin, b.hdSizeMax), sizeMax: Math.max(b.hdSizeMin, b.hdSizeMax), radius: b.hdRadius, gap: b.hdGap, metersPerSec: SLOT_HEIGHT / SLOT_SEC, depthSec: b.hdDepth * SLOT_SEC }
+          : undefined,
     }),
-    [b.lcGapSec, b.lcQuiet, b.lcWaveMin, b.lcMax, b.lcLifeMin, b.lcLifeMax, b.lcShort, b.lcMiddle, b.lcLong, b.lcGroup, b.lcOrigin, b.lcFollow, b.lcRevisit, b.lcSpread, b.lcLeave],
+    [b.lcGapSec, b.lcQuiet, b.lcWaveMin, b.lcMax, b.lcLifeMin, b.lcLifeMax, b.lcShort, b.lcMiddle, b.lcLong, b.lcGroup, b.lcOrigin, b.lcFollow, b.lcRevisit, b.lcSpread, b.lcLeave, b.botMode, b.hdShare, b.hdSizeMin, b.hdSizeMax, b.hdRadius, b.hdGap, b.hdDepth],
   );
   // LINK: the address's query turns the knobs once, when the view opens (the controls exist by then: retried briefly)
   useEffect(() => {

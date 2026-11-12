@@ -78,7 +78,36 @@ export interface LifecycleConfig {
    *  end (s); reaching the door ends the life. */
   leaveSec: number;
   memory: { staySec: number; mergeR: number; halfLifeSec: number; forgetSec: number };
+  /** HERDS (absent or share 0 = none: the bots come alone or in the old loose company). */
+  herd?: HerdConfig;
 }
+
+/**
+ * HERDS IN THE BLOCK (the artist, 2026-11-12: "봇 몰려다니는 로직", "무리 = 시간축을 높이로 둔 공간에서 3차원 밀도/거리로").
+ * The wall draws time as height, so a herd is defined in that one 3D space: its members live within `radius` of their
+ * leader — sideways on the ground AND up and down in assigned time (height = seconds × metersPerSec) — and a new herd
+ * is born at least `gap` (3D) from every living one. A herd moves as one: the leader goes, stays and looks about as a
+ * bot does; the others set off for the same place one after another, stand around it while it stays, and live about
+ * as long. Each herd is seated at its own depth of the block (`depthSec` below the present) and rises with time.
+ */
+export interface HerdConfig {
+  /** Share of the arrivals that are herds (0..1). */
+  share: number;
+  /** Members of a herd, leader included. */
+  sizeMin: number;
+  sizeMax: number;
+  /** 3D radius of a herd around its leader (world units; time counts as height). */
+  radius: number;
+  /** 3D distance a new herd keeps from every living herd (world units); it is seated at the best of a few tries. */
+  gap: number;
+  /** World units of height per second of assigned time (the wall: one slot's height / its seconds). */
+  metersPerSec: number;
+  /** THE BLOCK: leaders are seated uniformly down to this many seconds below the present (0 = at the present). */
+  depthSec: number;
+}
+
+/** The wall's time axis: one slot of 20 s is 1 world unit high. */
+export const DEFAULT_HERD: HerdConfig = { share: 0.8, sizeMin: 4, sizeMax: 6, radius: 2, gap: 20, metersPerSec: 1 / 20, depthSec: 900 };
 
 export const DEFAULT_LIFECYCLE: LifecycleConfig = {
   meanGapSec: 12,
@@ -150,6 +179,15 @@ export interface Visitor {
   door: number;
   /** Draws made so far. */
   k: number;
+  /** HERD: the leader's id (absent: a leader or a bot of its own), its place around the leader (m), how long after
+   *  the leader it sets off (s), where it is heading with the herd and from when it may go (wall ms). */
+  lead?: string;
+  hx?: number;
+  hz?: number;
+  lag?: number;
+  tx?: number;
+  tz?: number;
+  holdMs?: number;
 }
 
 export interface Place {
@@ -303,6 +341,99 @@ function bornAt(sec: number, j: number, wallMs: number, epochMs: number, cfg: Li
   v.head = draw(v, epochMs, 8) * 2 * Math.PI;
   v.untilMs = wallMs + range(draw(v, epochMs, 9), 3, 8) * 1000;
   return v;
+}
+
+// ── herds ───────────────────────────────────────────────────────────────────
+
+/** 3D distance between two bots on the wall: the ground's (round the torus) and their assigned times as height. */
+function dist3(ax: number, az: number, aoff: number, bx: number, bz: number, boff: number, h: HerdConfig): number {
+  return Math.hypot(wrapDist(ax, az, bx, bz), (aoff - boff) * h.metersPerSec);
+}
+
+/** Seats a new herd's leader: its depth in the block and its place, `gap` away (3D) from the living herds if it can. */
+function seatHerd(v: Visitor, present: readonly Visitor[], wallMs: number, epochMs: number, h: HerdConfig): void {
+  const depth = Math.min(Math.max(0, h.depthSec), Math.max(0, (wallMs - epochMs) / 1000));
+  const leaders = present.filter((p) => !p.lead && p.id !== v.id);
+  let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1;
+  for (let c = 0; c < 8; c++) {
+    const off = depth > 0 ? -draw(v, epochMs, 60 + c) * depth : v.off;
+    let x = v.x, z = v.z;
+    if (c > 0) {
+      const a = draw(v, epochMs, 70 + c) * 2 * Math.PI, d = 60 * Math.sqrt(draw(v, epochMs, 80 + c));
+      x = wrapCoord(Math.sin(a) * d);
+      z = wrapCoord(Math.cos(a) * d);
+    }
+    let dMin = Infinity;
+    for (const p of leaders) dMin = Math.min(dMin, dist3(x, z, off, p.x, p.z, p.off, h));
+    if (dMin > bestD) {
+      bestD = dMin;
+      best = [x, z, off];
+    }
+    if (dMin >= h.gap) break;
+  }
+  [v.x, v.z, v.off] = best;
+  v.ex = v.x;
+  v.ez = v.z;
+}
+
+/** A member of `lead`'s herd: a place within the herd's 3D radius (sideways and in time), a life about as long. */
+function joinHerd(v: Visitor, lead: Visitor, wallMs: number, epochMs: number, h: HerdConfig, aheadSec: number): void {
+  const a = draw(v, epochMs, 60) * 2 * Math.PI, r = Math.max(0, h.radius) * Math.cbrt(draw(v, epochMs, 61)), c = 2 * draw(v, epochMs, 62) - 1;
+  const flat = r * Math.sqrt(1 - c * c);
+  v.hx = Math.sin(a) * flat;
+  v.hz = Math.cos(a) * flat;
+  const elapsed = Math.max(0, (wallMs - epochMs) / 1000);
+  // within the herd's radius in time too — but not before time 0, and no further ahead of the present than any bot
+  v.off = Math.min(Math.max(lead.off, aheadSec), Math.max(-elapsed, lead.off + (h.metersPerSec > 0 ? (r * c) / h.metersPerSec : 0)));
+  v.x = v.ex = wrapCoord(lead.x + v.hx);
+  v.z = v.ez = wrapCoord(lead.z + v.hz);
+  v.lifeMs = lead.lifeMs * (0.9 + 0.2 * draw(v, epochMs, 63));
+  v.leaves = lead.leaves;
+  v.door = lead.door;
+  v.lead = lead.id;
+  v.lag = 1 + v.j * (1 + 2 * draw(v, epochMs, 64));
+  v.tx = v.x;
+  v.tz = v.z;
+  v.holdMs = 0;
+}
+
+/**
+ * A member keeps with its leader: it heads for its own place around where the leader is staying or going, sets off
+ * `lag` seconds after the leader's aim changed, and stands there for as long as the leader stays. True = it planned a route.
+ */
+function keepWithHerd(v: Visitor, lead: Visitor, st: LifecycleState, inp: LifecycleInputs, wallMs: number, cfg: LifecycleConfig, canRoute: boolean): boolean {
+  const epochMs = st.epochMs;
+  const end = lead.mode === "go" && lead.route && lead.route.length >= 2;
+  const ax = lead.mode === "stay" ? lead.sx : end ? lead.route![lead.route!.length - 2] : lead.x;
+  const az = lead.mode === "stay" ? lead.sz : end ? lead.route![lead.route!.length - 1] : lead.z;
+  const tx = wrapCoord(ax + (v.hx ?? 0)), tz = wrapCoord(az + (v.hz ?? 0));
+  if (v.tx === undefined || v.tz === undefined || wrapDist(tx, tz, v.tx, v.tz) > 1) {
+    v.tx = tx;
+    v.tz = tz;
+    v.holdMs = wallMs + (v.lag ?? 1) * 1000;
+  }
+  const hx = v.mode === "stay" ? v.sx : v.x, hz = v.mode === "stay" ? v.sz : v.z;
+  if (wrapDist(hx, hz, v.tx, v.tz) <= 1.2) {
+    // there: it stands with the herd
+    if (v.mode !== "stay") startStay(v, wallMs, epochMs, 2);
+    else v.untilMs = wallMs + 1000;
+    return false;
+  }
+  if (wallMs < (v.holdMs ?? 0) || !canRoute) {
+    // not yet: it waits where it is
+    if (v.mode !== "stay") startStay(v, wallMs, epochMs, 1);
+    else v.untilMs = wallMs + 1000;
+    return false;
+  }
+  if (v.mode === "stay" && wallMs - v.sinceMs >= cfg.memory.staySec * 1000) {
+    remember(st.places, v.sx, v.sz, wallMs, cfg);
+    v.stops.push([v.sx, v.sz]);
+  }
+  const bx = nearestImage(v.tx, v.x), bz = nearestImage(v.tz, v.z);
+  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz) : [v.x, v.z, bx, bz];
+  v.along = 0;
+  v.mode = "go";
+  return true;
 }
 
 // ── places ──────────────────────────────────────────────────────────────────
@@ -464,14 +595,28 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
   const nowSec = Math.floor((wallMs - epochMs) / 1000);
   for (let sec = Math.max(st.lastSec + 1, nowSec - 600); sec <= nowSec; sec++) {
     if (worldDraw(epochMs, sec, 10) >= arrivalRate(sec, cfg)) continue;
-    const group = worldDraw(epochMs, sec, 11) < cfg.groupP ? 1 + Math.floor(worldDraw(epochMs, sec, 12) * 2) : 0;
+    const herd = cfg.herd && cfg.herd.share > 0 && worldDraw(epochMs, sec, 13) < cfg.herd.share ? cfg.herd : null;
+    const group = herd
+      ? Math.max(1, Math.round(range(worldDraw(epochMs, sec, 12), Math.min(herd.sizeMin, herd.sizeMax), Math.max(herd.sizeMin, herd.sizeMax)))) - 1
+      : worldDraw(epochMs, sec, 11) < cfg.groupP
+        ? 1 + Math.floor(worldDraw(epochMs, sec, 12) * 2)
+        : 0;
     let lead: Visitor | null = null;
+    // a herd comes whole or not at all (a herd cut short by the most-at-once would not pour concrete)
+    if (herd && st.present.length + group + 1 > cap) {
+      st.turnedAway += group + 1;
+      continue;
+    }
     for (let j = 0; j <= group; j++) {
       if (st.present.length >= cap) {
         st.turnedAway++;
         continue;
       }
       const v = bornAt(sec, j, wallMs, epochMs, cfg, lead ? [lead.x, lead.z] : undefined);
+      if (herd) {
+        if (!lead) seatHerd(v, st.present, wallMs, epochMs, herd);
+        else joinHerd(v, lead, wallMs, epochMs, herd, cfg.timeSpreadSec);
+      }
       if (!lead) lead = v;
       st.present.push(v);
       arrivals.push(v);
@@ -485,7 +630,11 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
   let routes = 0;
   const maxRoutes = Math.max(1, inp.maxRoutes ?? 2);
   const doors = doorsOf(epochMs);
+  const byId = new Map(st.present.map((v) => [v.id, v] as const));
   for (const v of st.present) {
+    // HERD: a member whose leader is gone goes on by itself
+    const leader = v.lead ? byId.get(v.lead) : undefined;
+    if (v.lead && !leader) v.lead = undefined;
     // the end draws near: it slows as a visitor's controls do (session.ts lifeAt warn)
     const left = (v.lifeMs - (wallMs - v.bornMs)) / 1000;
     // LEAVING: time to walk out — to its own door, else the nearest — when the life left is about the walk there
@@ -517,7 +666,8 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
           v.lifeMs = Math.min(v.lifeMs, wallMs - v.bornMs);
           continue;
         }
-        if (next(v, st, inp, wallMs, cfg, routes < maxRoutes)) routes++;
+        if (leader) startStay(v, wallMs, epochMs, 2);
+        else if (next(v, st, inp, wallMs, cfg, routes < maxRoutes)) routes++;
       } else {
         const [x, z] = pointAlong(route, v.along);
         v.x = wrapCoord(x);
@@ -533,6 +683,10 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
       // staying: swaying a little about the spot
       v.x = wrapCoord(v.sx + (draw(v, epochMs, 51) - 0.5) * 0.3);
       v.z = wrapCoord(v.sz + (draw(v, epochMs, 52) - 0.5) * 0.3);
+    }
+    if (leader && !v.leaving) {
+      if (keepWithHerd(v, leader, st, inp, wallMs, cfg, routes < maxRoutes)) routes++;
+      continue;
     }
     if (wallMs >= v.untilMs && next(v, st, inp, wallMs, cfg, routes < maxRoutes)) routes++;
   }

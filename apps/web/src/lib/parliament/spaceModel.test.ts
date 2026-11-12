@@ -65,19 +65,16 @@ describe("SpaceModel: what the worker computes", () => {
     expect(far.counts.mass).toBeLessThan(near.counts.mass);
   });
 
-  it("vegetation points are built around the focus, fewer far away", () => {
+  it("the sediment vegetation is gone: no points, but the history the fusion reads is kept", () => {
     const m = new SpaceModel();
     m.add(events);
     m.computeParts(parts());
-    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 8, margin: 4, budget: 1e7, burialSlots: 3 };
-    const near = m.computeNature({ ...input, lod: lodNear })!;
-    expect(near.position.length).toBeGreaterThan(0);
-    expect(near.color.length).toBe(near.position.length);
-    expect(m.computeNature({ ...input, lod: lodNear })).toBeNull();
-    const far = m.computeNature({ ...input, lod: { camera: [0, 1e4, 0], near: 10, farFactor: 0.25 } })!;
-    expect(far.position.length).toBeLessThan(near.position.length);
+    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, nature: DEFAULT_NATURE, window: 40, focusK: 8, margin: 4 };
+    const r = m.computeNature(input)!;
+    expect(r.position.length).toBe(0);
+    expect(m.computeNature(input)).toBeNull();
+    expect((m as unknown as { history: { V: Float32Array } | null }).history!.V.length).toBeGreaterThan(0);
   });
-
   it("weathered structures turn into mass on themselves, and their parts stay drawn", () => {
     // an old world: the same bots, an hour before the present
     const late: PEvent[] = [...events, { id: "late", o: "late", r: "worker", k: "p", x: 40, z: 40, s: 4000 }];
@@ -138,27 +135,9 @@ describe("SpaceModel: what the worker computes", () => {
     expect(drain.streams.size + drain.pipes.length).toBeGreaterThan(0);
     // the pipes as tubes: a mesh with triangles when any run was laid
     expect((r.pipes.live.cylinders.length + r.pipes.kept.cylinders.length) / 8).toBeGreaterThanOrEqual(r.pipeRuns);
-    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather: DEFAULT_WEATHER, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 40, focusK: 20, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear };
-    expect(m.computeNature(input)!.position.length).toBeGreaterThan(0);
     const off = new SpaceModel();
     off.add(long);
     expect(off.computeParts({ ...parts(), water: { ...DEFAULT_WATER, enabled: false } })!.pipeRuns).toBe(0);
-  }, 120_000);
-
-  it("vegetation lives only in the layers that have not begun to fuse: none below, most at the top", () => {
-    const long = runBots(8, 1500);
-    const m = new SpaceModel();
-    m.add(long);
-    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5 };
-    m.computeParts({ ...parts(), weather });
-    const top = Math.floor(Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit);
-    const pts = m.computeNature({ fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 60, focusK: top, margin: 4, budget: 1e7, burialSlots: 0, lod: lodNear })!;
-    const ys: number[] = [];
-    for (let i = 1; i < pts.position.length; i += 3) ys.push(pts.position[i] / DEFAULT_BOXES.unit);
-    expect(ys.length).toBeGreaterThan(0);
-    const low = ys.filter((y) => y < top - 30).length, high = ys.filter((y) => y >= top - 10).length;
-    expect(low).toBe(0);
-    expect(high).toBeGreaterThan(0);
   }, 120_000);
 
   it("vegetation gathers on buildings already in the present, before they rot", () => {
@@ -168,28 +147,6 @@ describe("SpaceModel: what the worker computes", () => {
     const input = { tauReclaimYears: 300, perArea: 40, unit: DEFAULT_BOXES.unit, secPerUnit: DEFAULT_BOXES.secPerUnit, timeScale: DEFAULT_WEATHER.timeScale, fuse: DEFAULT_FUSE };
     expect(m.computeReclaim(input)!.position.length).toBeGreaterThan(0);
   });
-
-  it("V2 density: absolute (the camera's distance changes nothing) and fading out along the time axis, not cut off", () => {
-    const long = runBots(8, 1500);
-    const m = new SpaceModel();
-    m.add(long);
-    const weather = { ...DEFAULT_WEATHER, timeScale: 0.5 };
-    m.computeParts({ ...parts(), weather });
-    const top = Math.floor(Math.max(...long.map((e) => e.s)) / DEFAULT_BOXES.secPerUnit);
-    const input = { fold: DEFAULT_FOLD, box: DEFAULT_BOXES, weather, fuse: DEFAULT_FUSE, nature: DEFAULT_NATURE, perSlot: 6, window: 80, focusK: top, margin: 4, budget: 1e7, burialSlots: 0, density: { cut: 0.1, fade: 12 } };
-    const near = m.computeNature({ ...input, lod: lodNear })!;
-    expect(m.computeNature({ ...input, lod: { camera: [0, 1e4, 0], near: 10, farFactor: 0.25 } })).toBeNull(); // nothing to rebuild
-    // points per slot, from the top down: a run of slots with fewer and fewer, not full → none
-    const per = new Map<number, number>();
-    for (let i = 1; i < near.position.length; i += 3) {
-      const k = Math.floor(near.position[i] / DEFAULT_BOXES.unit);
-      per.set(k, (per.get(k) ?? 0) + 1);
-    }
-    const ks = [...per.keys()].sort((a, b) => b - a);
-    const most = Math.max(...per.values());
-    const between = ks.filter((k) => per.get(k)! > 0 && per.get(k)! < most * 0.5).length;
-    expect(between).toBeGreaterThanOrEqual(3);
-  }, 120_000);
 
   it("reset forgets the world", () => {
     const m = new SpaceModel();
