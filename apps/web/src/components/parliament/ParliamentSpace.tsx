@@ -1684,7 +1684,34 @@ void main() {
   gl_FragColor = vec4(mix(uColorA, uColorB, vShade), 1.0);
 }`;
 
-function Vegetation({ unit, slots, count, size, full, pathAt, colorA, colorB }: { unit: number; slots: number; count: number; size: number; full: number; pathAt: number; colorA: string; colorB: string }) {
+function Vegetation({
+  unit,
+  slots,
+  count,
+  size,
+  full,
+  pathAt,
+  colorA,
+  colorB,
+  spots,
+  spotR,
+  spotGrow,
+}: {
+  unit: number;
+  slots: number;
+  count: number;
+  size: number;
+  full: number;
+  pathAt: number;
+  colorA: string;
+  colorB: string;
+  /** SPOTS (the artist, 2026-11-12: "얘들도 스팟 정해놓고 자라게 하면 안 돼?"): how many places the vegetation grows
+   *  from (0 = everywhere alike), how wide a patch gets at most (world), and how much wider it is per slot of time
+   *  above where it began (world) — in the block a patch is a cone opening upwards: it grows. */
+  spots: number;
+  spotR: number;
+  spotGrow: number;
+}) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
   const N = WORLD_CELLS;
@@ -1703,23 +1730,55 @@ function Vegetation({ unit, slots, count, size, full, pathAt, colorA, colorB }: 
     return t;
   }, [N, D]);
   useEffect(() => () => tex.dispose(), [tex]);
-  // the points: made once for this many, anywhere in the block
+  // the points: made once — anywhere in the block, or (spots) inside the patches: each begins at a place and a time
+  // of the block and widens with the time above it up to its full width, thinning towards its rim
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     const n = Math.max(0, Math.round(count));
     const pos = new Float32Array(n * 3), seed = new Float32Array(n);
     let a = 0x2f6e2b1;
     const rnd = () => ((a = Math.imul(a ^ (a >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296;
+    const top = D * unit;
+    const nSpots = Math.max(0, Math.round(spots));
+    // where and when each patch begins (a third of them at the very beginning: the block is not bare below)
+    const patch: { x: number; z: number; y0: number; w: number }[] = [];
+    let wSum = 0;
+    for (let i = 0; i < nSpots; i++) {
+      const y0 = i % 3 === 0 ? 0 : rnd() * top * 0.8;
+      const x = (rnd() - 0.5) * WORLD_SIZE * 0.8, z = (rnd() - 0.5) * WORLD_SIZE * 0.8;
+      // (more points for a patch that is larger and lasts longer: the same thickness everywhere)
+      const w = Math.max(0.05, top - y0);
+      patch.push({ x, z, y0, w });
+      wSum += w;
+    }
+    const R = Math.max(0.5, spotR), grow = Math.max(0.01, spotGrow) / Math.max(1e-6, unit);
     for (let i = 0; i < n; i++) {
-      pos[i * 3] = (rnd() - 0.5) * WORLD_SIZE;
-      pos[i * 3 + 1] = rnd() * D * unit;
-      pos[i * 3 + 2] = (rnd() - 0.5) * WORLD_SIZE;
+      let x = (rnd() - 0.5) * WORLD_SIZE, y = rnd() * top, z = (rnd() - 0.5) * WORLD_SIZE;
+      if (nSpots > 0) {
+        for (let tries = 0; tries < 12; tries++) {
+          let u = rnd() * wSum, pi = 0;
+          while (pi < patch.length - 1 && u > patch[pi].w) u -= patch[pi++].w;
+          const p = patch[pi];
+          const yy = p.y0 + rnd() * (top - p.y0);
+          const r = Math.min(R, 0.5 + grow * (yy - p.y0));
+          const rho = R * Math.sqrt(rnd()), ang = rnd() * 2 * Math.PI;
+          // inside what the patch has grown to at this height, fewer towards its rim
+          if (rho > r || rnd() < Math.max(0, (rho / r - 0.6) / 0.4)) continue;
+          x = p.x + Math.cos(ang) * rho;
+          y = yy;
+          z = p.z + Math.sin(ang) * rho;
+          break;
+        }
+      }
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = y;
+      pos[i * 3 + 2] = z;
       seed[i] = rnd();
     }
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     return g;
-  }, [count, D, unit]);
+  }, [count, D, unit, spots, spotR, spotGrow]);
   useEffect(() => () => geom.dispose(), [geom]);
   const mat = useMemo(
     () =>
@@ -2443,6 +2502,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       vegOn: { value: true, label: "켜기" },
       vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
       vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
+      vegSpots: { value: 24, min: 0, max: 120, step: 1, label: "자라는 자리 수 (0 = 어디나 고르게)" },
+      vegSpotR: { value: 18, min: 2, max: 80, step: 1, label: "한 자리가 넓어지는 최대 반경 (월드)" },
+      vegSpotGrow: { value: 0.8, min: 0.05, max: 10, step: 0.05, label: "단마다 넓어지는 반경 (월드 · 위로 갈수록 자람)" },
       vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
       vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
       vegColorA: { value: "#5f7a3a", label: "색 1 (자연색)" },
@@ -3226,7 +3288,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} />
+          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegSpotR} spotGrow={vg.vegSpotGrow} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
