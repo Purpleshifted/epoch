@@ -2124,12 +2124,20 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       densityOn: { value: true, label: "새 규칙 (끄면 예전 접기)" },
       dVisitors: { value: DEFAULT_DENSITY.minVisitors, min: 1, max: 10, step: 1, label: "필요한 사람 수 (서로 다른)" },
       dStep: { value: DEFAULT_DENSITY.step, min: 5, max: 200, step: 5, label: "첫 문턱 (머묾의 양)" },
-      dRatio: { value: DEFAULT_DENSITY.ratio, min: 1.2, max: 4, step: 0.1, label: "다음 문턱까지 배수" },
-      dMaxLevel: { value: DEFAULT_DENSITY.maxLevel, min: 1, max: 8, step: 1, label: "계단 수" },
-      dMassRatio: { value: DEFAULT_DENSITY.massRatio, min: 1, max: 3, step: 0.1, label: "계단마다 부재 크기 ×" },
       dRadius: { value: DEFAULT_DENSITY.radius, min: 1, max: 8, step: 0.25, label: "옆으로 닿는 반경 (월드)" },
       dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
       dDown: { value: DEFAULT_DENSITY.down, min: 0, max: 1, step: 0.05, label: "아래로도 닿는 비율 (0 = 위로만)" },
+      // LEVELS ARE OPTIONAL NOW (the artist, 2026-11-12: "이렇게 하면 이제 단계 크게 필요 없지 않나?"): one threshold by
+      // default — a cell-slot is built once and never changes; the districts give the variety. More levels = the more
+      // people overlapped, the larger the parts
+      "계단 (겹칠수록 크게 · 계단 수 1 = 없음)": folder(
+        {
+          dMaxLevel: { value: 1, min: 1, max: 8, step: 1, label: "계단 수" },
+          dRatio: { value: DEFAULT_DENSITY.ratio, min: 1.2, max: 4, step: 0.1, label: "다음 문턱까지 배수" },
+          dMassRatio: { value: DEFAULT_DENSITY.massRatio, min: 1, max: 3, step: 0.1, label: "계단마다 부재 크기 ×" },
+        },
+        { collapsed: true },
+      ),
       // WHAT A LEVEL BUILDS, BY SHARES (seeds.ts LevelMix): how much of each kind of part a full slot keeps; less below.
       // All 1 and full at level 1 = everything the grammar makes (the look before the shares)
       "부재 비중 (1 = 전부 · 꽉 찬 단에서 남는 몫 · 낮은 계단에서는 비중이 큰 것부터)": folder(
