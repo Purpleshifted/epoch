@@ -1697,6 +1697,8 @@ function Vegetation({
   spotR,
   spotGrow,
   spotLobed,
+  moveSec,
+  moveAt,
 }: {
   unit: number;
   slots: number;
@@ -1713,6 +1715,10 @@ function Vegetation({
   spotR: number;
   spotGrow: number;
   spotLobed: number;
+  /** Seconds between two looks at where the clouds are (0 = they stay), and the people's share round a cloud's
+   *  middle from which it is seated again. */
+  moveSec: number;
+  moveAt: number;
 }) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
@@ -1737,14 +1743,20 @@ function Vegetation({
   // a probability like an electron's — thick at the middle, thinning without an edge, in every direction of the block
   // (the ground and time alike). Most are round (1s: density ∝ e^(−2r/a)); a share are two lobes along an axis of their
   // own (2p: ∝ r² e^(−r/a) cos²θ).
+  /** The clouds' middles, and per point its cloud, its place in it (an offset from the middle) and its own draw —
+   *  what moving a cloud needs (below). */
+  const clouds = useRef<{ x: number; y: number; z: number }[]>([]);
+  const made = useRef<{ of: Uint16Array; off: Float32Array; draw: Float32Array } | null>(null);
+  const rndState = useRef(0x2f6e2b1);
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     const n = Math.max(0, Math.round(count));
     const pos = new Float32Array(n * 3), seed = new Float32Array(n);
+    const of = new Uint16Array(n), off = new Float32Array(n * 3), draw = new Float32Array(n);
     let a = 0x2f6e2b1;
     const rnd = () => ((a = Math.imul(a ^ (a >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296;
     const top = D * unit;
-    const nSpots = Math.max(0, Math.round(spots));
+    const nSpots = Math.max(0, Math.min(60000, Math.round(spots)));
     const R = Math.max(0.5, spotR), T = Math.max(0.2, spotGrow) * unit;
     const cloud: { x: number; y: number; z: number; lobed: boolean; ax: [number, number, number] }[] = [];
     for (let i = 0; i < nSpots; i++) {
@@ -1756,7 +1768,8 @@ function Vegetation({
       let x = (rnd() - 0.5) * WORLD_SIZE, y = rnd() * top, z = (rnd() - 0.5) * WORLD_SIZE;
       let ok = true;
       if (nSpots > 0) {
-        const p = cloud[Math.min(nSpots - 1, Math.floor(rnd() * nSpots))];
+        const pi = Math.min(nSpots - 1, Math.floor(rnd() * nSpots));
+        const p = cloud[pi];
         // a direction: anywhere (round), or towards the cloud's axis either way (lobed: cos θ drawn ∝ cos²θ)
         let dx: number, dy: number, dz: number, r: number;
         if (p.lobed) {
@@ -1784,17 +1797,25 @@ function Vegetation({
           r = -Math.log(Math.max(1e-12, rnd() * rnd() * rnd())) / 3;
         }
         // (the cloud's size: R on the ground, T in time — r = 1 is its mean radius)
-        x = p.x + dx * r * R;
-        y = p.y + dy * r * T;
-        z = p.z + dz * r * R;
+        of[i] = pi;
+        off[i * 3] = dx * r * R;
+        off[i * 3 + 1] = dy * r * T;
+        off[i * 3 + 2] = dz * r * R;
+        x = p.x + off[i * 3];
+        y = p.y + off[i * 3 + 1];
+        z = p.z + off[i * 3 + 2];
         ok = y >= 0 && Math.abs(x) < WORLD_HALF && Math.abs(z) < WORLD_HALF;
       }
       pos[i * 3] = x;
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
+      draw[i] = rnd();
       // (a point that fell out of the block is never alive)
-      seed[i] = ok ? rnd() : 2;
+      seed[i] = ok ? draw[i] : 2;
     }
+    clouds.current = cloud.map((c) => ({ x: c.x, y: c.y, z: c.z }));
+    made.current = nSpots > 0 ? { of, off, draw } : null;
+    rndState.current = a;
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     return g;
@@ -1829,6 +1850,7 @@ function Vegetation({
     mat.uniforms.uColorB.value.set(colorB);
   }, [mat, tex, D, unit, size, full, colorA, colorB]);
   const timer = useRef(10);
+  const moveTimer = useRef(0);
   useFrame((_, dt) => {
     // a point's size in pixels for its size in the world, at its distance
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 40;
@@ -1848,6 +1870,53 @@ function Vegetation({
     const at = Math.max(0.1, pathAt);
     tailField.each((cx, cz, k, level) => put(cx, cz, k, level / at));
     tex.needsUpdate = true;
+    // THE CLOUDS KEEP OUT OF THE PEOPLE'S WAY (the artist, 2026-11-12: "구름 위치 디바운싱으로 건물/길 위치 따라
+    // 재배정"): every `moveSec` the clouds are looked at — one whose place has filled with building or way (the mean
+    // of the people's share round its middle over `moveAt`) is seated again at the emptiest of a few places tried, a
+    // few clouds at a time (nothing jumps about while the people's density is only just changing)
+    moveTimer.current += 2;
+    const m = made.current;
+    if (!m || moveSec <= 0 || moveTimer.current < moveSec) return;
+    moveTimer.current = 0;
+    const C = WORLD_SIZE / N, top = D * unit;
+    const R = Math.max(0.5, spotR), T = Math.max(0.2, spotGrow) * unit;
+    const humanAt = (x: number, y: number, z: number): number => {
+      const cx = Math.floor(x / C) + N / 2, cz = Math.floor(z / C) + N / 2, k = Math.floor(y / unit);
+      if (cx < 0 || cx >= N || cz < 0 || cz >= N || k < 0) return 1;
+      return k >= D ? 0 : data[cx + N * (cz + N * k)] / 255;
+    };
+    const around = (x: number, y: number, z: number): number =>
+      (humanAt(x, y, z) * 2 + humanAt(x + 0.6 * R, y, z) + humanAt(x - 0.6 * R, y, z) + humanAt(x, y, z + 0.6 * R) + humanAt(x, y, z - 0.6 * R) + humanAt(x, y + 0.6 * T, z) + humanAt(x, y - 0.6 * T, z)) / 8;
+    let a = rndState.current;
+    const rnd = () => ((a = Math.imul(a ^ (a >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296;
+    const moved = new Set<number>();
+    for (let i = 0; i < clouds.current.length && moved.size < 4; i++) {
+      const c = clouds.current[i];
+      if (around(c.x, c.y, c.z) <= moveAt) continue;
+      let best = c, bestH = Infinity;
+      for (let t = 0; t < 24; t++) {
+        const p = { x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85 };
+        const h = around(p.x, p.y, p.z);
+        if (h < bestH) [best, bestH] = [p, h];
+      }
+      clouds.current[i] = best;
+      moved.add(i);
+    }
+    rndState.current = a;
+    if (!moved.size) return;
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute, sd = geom.getAttribute("aSeed") as THREE.BufferAttribute;
+    const pa = pos.array as Float32Array, sa = sd.array as Float32Array;
+    for (let i = 0; i < m.of.length; i++) {
+      if (!moved.has(m.of[i])) continue;
+      const c = clouds.current[m.of[i]];
+      const x = c.x + m.off[i * 3], y = c.y + m.off[i * 3 + 1], z = c.z + m.off[i * 3 + 2];
+      pa[i * 3] = x;
+      pa[i * 3 + 1] = y;
+      pa[i * 3 + 2] = z;
+      sa[i] = y >= 0 && Math.abs(x) < WORLD_HALF && Math.abs(z) < WORLD_HALF ? m.draw[i] : 2;
+    }
+    pos.needsUpdate = true;
+    sd.needsUpdate = true;
   });
   return <points geometry={geom} material={mat} frustumCulled={false} />;
 }
@@ -2523,6 +2592,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)" },
       vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)" },
       vegCloudT: { value: 5, min: 0.5, max: 60, step: 0.5, label: "구름의 반경: 시간 (단 · 평균)" },
+      vegMoveSec: { value: 8, min: 0, max: 120, step: 2, label: "구름 자리를 다시 보는 간격 (s · 0 = 안 옮김)" },
+      vegMoveAt: { value: 0.2, min: 0.02, max: 1, step: 0.02, label: "자리에 사람이 이만큼 차면 빈 곳으로 옮김" },
       vegLobed: { value: 0.3, min: 0, max: 1, step: 0.05, label: "두 갈래 구름의 비율 (나머지는 둥근 구름)" },
       vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
       vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
@@ -3307,7 +3378,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} />
+          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
