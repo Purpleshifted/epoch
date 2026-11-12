@@ -137,6 +137,18 @@ describe("density: buildings from the density of spacetime", () => {
     expect(boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, variety: { ...v, character: 1 } }).length).toBeLessThanOrEqual(plain.length);
   });
 
+  it("a budget of what is built: beyond it the first-built cell-slots go, the newest stand", () => {
+    const count = (f: DensityField) => f.seeds().reduce((n, s) => n + s.levels!.size, 0);
+    const first = crowd(5, 0, 0, 400, 30), second = crowd(5, 40, 40, 400, 30, "b");
+    const free = fieldOf([...first, ...second]);
+    const all = count(free);
+    expect(all).toBeGreaterThan(20);
+    const tight = fieldOf([...first, ...second], { ...CFG, maxBuilt: 12 });
+    expect(count(tight)).toBeLessThanOrEqual(12);
+    // what stands is of the second place (built last)
+    for (const s of tight.seeds()) expect(Math.hypot(s.x - 40, s.z - 40)).toBeLessThan(10);
+  });
+
   it("others at the same place and time raise the level, and with it the mass", () => {
     const one = fieldOf(crowd(5, 0, 0, 400, 40));
     const two = fieldOf([...crowd(5, 0, 0, 400, 40), ...crowd(5, 0, 0, 400, 40, "b")]);

@@ -37,6 +37,8 @@ export class EventLog {
   /** Bumps whenever events were forgotten (dropBefore, clear); `droppedBefore` is the last cutoff. */
   drops = 0;
   droppedBefore = -Infinity;
+  /** How the last forgetting went: before a time, the oldest-written (what is built of them stays), or everything. */
+  lastDrop: "time" | "oldest" | "clear" = "time";
 
   get size(): number {
     return this.m.size;
@@ -70,6 +72,7 @@ export class EventLog {
       this.version++;
       this.drops++;
       this.droppedBefore = s;
+      this.lastDrop = "time";
     }
     return n;
   }
@@ -91,6 +94,7 @@ export class EventLog {
     this.version++;
     this.drops++;
     this.droppedBefore = Infinity;
+    this.lastDrop = "oldest";
     return n;
   }
 
@@ -100,6 +104,7 @@ export class EventLog {
     this.version++;
     this.drops++;
     this.droppedBefore = Infinity;
+    this.lastDrop = "clear";
   }
 
   all(): PEvent[] {

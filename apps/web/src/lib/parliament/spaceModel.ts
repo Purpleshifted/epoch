@@ -375,6 +375,8 @@ export class SpaceModel {
   private densityCfg: DensityConfig | null = null;
   private densityState: { key: string; field: DensityField; fed: number } | null = null;
   private pathsKey = "";
+  /** After a reset that keeps what is built: the ids of the samples the density has already had. */
+  private densitySeen: Set<string> | null = null;
   private partCache = new Map<number, { key: string; parts: Box[] }>();
   /** ARRIVAL (arrive.ts): when each part was first there, on a wall clock of this model's own; the parts' config the
    *  last parts were made with (another one, or none yet = a knob or a load: what appears then is not being built). */
@@ -762,9 +764,21 @@ export class SpaceModel {
   }
 
   /** Forgets every event (the world was cleared). */
-  reset(): void {
+  /**
+   * `keepBuilt` (the oldest-written samples were forgotten, log.ts dropOldest): what the density has built of them
+   * STAYS (the artist, 2026-11-12: "건물 있던 게 자꾸 사라지는데?") — the field is kept, and of the samples given again
+   * only those it has not had are added. Otherwise the density starts over with the events.
+   */
+  reset(keepBuilt = false): void {
     this.tBeforeReset = Math.max(this.tBeforeReset, this.latestEvent);
-    this.densityState = null;
+    const ds = this.densityState;
+    if (keepBuilt && ds) {
+      this.densitySeen = new Set(this.events.slice(0, ds.fed).map((e) => e.id));
+      ds.fed = 0;
+    } else {
+      this.densityState = null;
+      this.densitySeen = null;
+    }
     this.events = [];
     this.ids.clear();
     this.t = 0;
@@ -806,9 +820,10 @@ export class SpaceModel {
       if (ds.fed < this.events.length) {
         let cut = ds.fed === 0 ? Infinity : this.cutS;
         for (let i = ds.fed; i < this.events.length; i++) {
-          ds.field.add(this.events[i]);
+          if (!this.densitySeen?.has(this.events[i].id)) ds.field.add(this.events[i]);
           if (this.events[i].s < cut) cut = this.events[i].s;
         }
+        this.densitySeen = null;
         ds.fed = this.events.length;
         this.cutS = cut;
       }
@@ -1475,7 +1490,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 
 /** What the view posts to the space worker. */
 export type SpaceRequest =
-  | { type: "events"; add: PEvent[]; reset?: boolean; epoch?: string | null }
+  | { type: "events"; add: PEvent[]; reset?: boolean; keepBuilt?: boolean; epoch?: string | null }
   | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; paths?: { rise: number; smooth?: number } };
 
 /**
@@ -1509,7 +1524,7 @@ export interface SpaceResponse {
 export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: SpaceResponse; transfer: ArrayBuffer[] } | null {
   if (m.type === "events") {
     if (m.epoch !== undefined) model.setEpoch(m.epoch);
-    if (m.reset) model.reset();
+    if (m.reset) model.reset(!!m.keepBuilt);
     model.add(m.add);
     return null;
   }

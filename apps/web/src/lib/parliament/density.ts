@@ -56,6 +56,12 @@ export interface DensityConfig {
   /** A Seed's mass at level 1, and its factor per level (the parts' size follows the mass: seeds.ts recipe). */
   mass: number;
   massRatio: number;
+  /**
+   * A BUDGET OF WHAT IS BUILT: at most this many cell-slots are building at once; when one more is built, the one
+   * built FIRST is forgotten (what was put into it is gone: it can be built again). 0 / absent = no limit. This — not
+   * the forgetting of samples — is what makes a building go.
+   */
+  maxBuilt?: number;
   /** PATHS from the density of MOVEMENT, in the same grid (absent = none: every sample is a presence, as before). */
   path?: PathConfig;
 }
@@ -189,6 +195,10 @@ export class DensityField {
   /** Each walker's walk under way (x, z, s triples), and the routes so far. */
   private open = new Map<number, number[]>();
   private routes: PathRoute[] = [];
+  /** The cell-slots in the order they were built (a queue from `builtAt`), and how many are standing. */
+  private built: [Column, number, CellSlot][] = [];
+  private builtAt = 0;
+  private nBuilt = 0;
   private plates: { key: string; out: Float32Array } | null = null;
   private lines: { key: string; out: Float32Array } | null = null;
 
@@ -381,12 +391,32 @@ export class DensityField {
       this.lines = null;
     }
     if (lv !== cs.level) {
+      const born = cs.level < 1 && lv >= 1;
       cs.level = lv;
       col.seed = undefined;
       this.dirty.add(ck);
       this.listDirty = true;
       this.stats.changes++;
       this.version++;
+      // THE BUDGET: this one was just built — beyond the count, the first-built still standing go
+      if (born) {
+        this.built.push([col, ck, cs]);
+        this.nBuilt++;
+        const max = Math.round(c.maxBuilt ?? 0);
+        while (max > 0 && this.nBuilt > max && this.builtAt < this.built.length) {
+          const [oc, ock, ocs] = this.built[this.builtAt++];
+          if (ocs.level < 1) continue; // (already gone: a path took it)
+          ocs.by.clear();
+          ocs.level = 0;
+          oc.seed = undefined;
+          this.dirty.add(ock);
+          this.nBuilt--;
+        }
+        if (this.builtAt > 4096) {
+          this.built = this.built.slice(this.builtAt);
+          this.builtAt = 0;
+        }
+      } else if (lv < 1) this.nBuilt--;
     }
   }
 

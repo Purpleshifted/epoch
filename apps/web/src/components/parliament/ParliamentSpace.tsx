@@ -1101,7 +1101,7 @@ function SpaceWorld({
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
     const epoch = local ? null : currentEpochKey();
     if (events.length < sent.current) {
-      w.post({ type: "events", add: events, reset: true, epoch });
+      w.post({ type: "events", add: events, reset: true, keepBuilt: log.lastDrop === "oldest", epoch });
       labAnchor.current = null;
     } else if (events.length > sent.current) {
       w.post({ type: "events", add: events.slice(sent.current), epoch });
@@ -2227,6 +2227,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       dStep: { value: DEFAULT_DENSITY.step, min: 5, max: 200, step: 5, label: "첫 문턱 (머묾의 양)" },
       dRadius: { value: DEFAULT_DENSITY.radius, min: 1, max: 8, step: 0.25, label: "옆으로 닿는 반경 (월드)" },
       dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
+      dMaxBuilt: { value: 8000, min: 0, max: 60000, step: 500, label: "남기는 건물 칸 수 (넘으면 가장 먼저 지어진 칸부터 사라짐 · 0 = 한도 없음)" },
       dDown: { value: DEFAULT_DENSITY.down, min: 0, max: 1, step: 0.05, label: "아래로도 닿는 비율 (0 = 위로만)" },
       // LEVELS ARE OPTIONAL NOW (the artist, 2026-11-12: "이렇게 하면 이제 단계 크게 필요 없지 않나?"): one threshold by
       // default — a cell-slot is built once and never changes; the districts give the variety. More levels = the more
@@ -2280,9 +2281,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
