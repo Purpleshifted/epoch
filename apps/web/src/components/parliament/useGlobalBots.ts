@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { button, folder, levaStore, useControls } from "leva";
+import { folder, levaStore, useControls } from "leva";
 import {
   DEFAULT_HERD,
   DEFAULT_LIFECYCLE,
@@ -110,7 +110,7 @@ export function useGlobalBots(
   cfg: FoldConfig,
   enabled: boolean,
   order = 1.5,
-  opts?: { clock?: Clock; local?: boolean; column?: { current: TestColumnKnobs }; rebuild?: { current: () => void }; setDepth?: (slots: number) => void },
+  opts?: { clock?: Clock; local?: boolean; column?: { current: TestColumnKnobs }; setDepth?: (slots: number) => void },
 ): number {
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
@@ -167,9 +167,8 @@ export function useGlobalBots(
           tcGroups: { value: 5, min: 1, max: 10, step: 1, label: "무리 수" },
           tcSpread: { value: 44, min: 0, max: 90, step: 1, label: "무리 간 거리" },
           tcTime: { value: 150, min: 0, max: 600, step: 5, label: "시각 폭 (s)" },
-          "다시 만들기": button(() => opts?.rebuild?.current()),
         },
-        { render: showLab, collapsed: true },
+        { render: showLab },
       ),
     }),
     { order, collapsed: !enabled },

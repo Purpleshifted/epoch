@@ -1646,6 +1646,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       log.addMany(buildTestColumn({ seconds: tc.minutes * 60, bots: tc.bots, flock: { groups: tc.groups, spread: tc.spread, timeSpread: tc.time } }));
     };
   }, [log]);
+  // THE DATA BUTTON, at the top of the lab's panel as before (the artist, 2026-11-12: "지우고 다시 짓는 데이터 버튼 어디갔음?"):
+  // the column's knobs moved into the bots' folder, the button stays where it is found
+  useControls("데이터 (랩 · 이 탭만)", { "지우고 다시 짓기 (테스트 기둥)": button(() => rebuildColumn.current()) }, { order: 0.5, render: () => lab });
   // the lab opens with a whole column in view
   useEffect(() => {
     if (lab && log.size === 0) rebuildColumn.current();
@@ -2095,7 +2098,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
   // how deep (slots) the bots write below the present: while they do, no part's shape is frozen (below)
   const [botDepth, setBotDepth] = useState(0);
-  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, column, rebuild: rebuildColumn, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
+  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, column, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
   const wlk = useControls(
     WALK_GROUP,
