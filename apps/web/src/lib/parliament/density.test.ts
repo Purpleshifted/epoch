@@ -86,14 +86,16 @@ describe("density: buildings from the density of spacetime", () => {
   });
 
   it("what a level builds, by shares: a rising level only adds parts; a share of 0 leaves a family out", () => {
-    const boxOf = (mix: Partial<typeof DEFAULT_LEVEL_MIX>) => ({ ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelMix: { ...DEFAULT_LEVEL_MIX, ...mix } });
+    const THIN = { ...DEFAULT_LEVEL_MIX, column: 0.7, beam: 0.7, brace: 0.7, mass: 0.5, drip: 0.3, basement: 0.6, pile: 0.6, full: 3 };
+    const boxOf = (mix: Partial<typeof DEFAULT_LEVEL_MIX>) => ({ ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelMix: { ...THIN, ...mix } });
     const many = fieldOf([...crowd(5, 0, 0, 400, 40), ...crowd(5, 0, 0, 400, 40, "b"), ...crowd(5, 0, 0, 400, 40, "c")]);
     const seed = many.seeds().reduce((a, b) => (Math.max(...b.levels!.values()) > Math.max(...a.levels!.values()) ? b : a));
     const all = boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec }).length;
     const kept = boxesOfSeed(seed, boxOf({})).length;
     expect(kept).toBeGreaterThan(0);
     expect(kept).toBeLessThan(all);
-    expect(boxesOfSeed(seed, boxOf({ plate: 1, frame: 1, mass: 1, drip: 1, found: 1 })).length).toBe(all);
+    // the defaults keep everything the grammar makes: the look before the shares
+    expect(boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelMix: DEFAULT_LEVEL_MIX }).length).toBe(all);
     expect(boxesOfSeed(seed, boxOf({ mass: 0 })).some((b) => b.kind === "mass")).toBe(false);
     // the same seed one level lower everywhere: what it keeps is part of what it kept
     const lower = { ...seed, levels: new Map([...seed.levels!].map(([k, l]) => [k, Math.max(1, l - 1)] as const)) };

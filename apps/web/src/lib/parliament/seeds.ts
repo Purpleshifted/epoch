@@ -76,22 +76,18 @@ export interface Seed {
 
 /**
  * WHAT A LEVEL BUILDS, BY SHARES (the artist, 2026-11-12: "계단별로 이런 식으로 적용하는 건 좀 그런데. 비중으로 정할
- * 수 없나?"): each family of parts has a SHARE (0..1) — how much of what the grammar makes of it is kept in a slot that
+ * 수 없나?"): each kind of part has a SHARE (0..1) — how much of what the grammar makes of it is kept in a slot that
  * is full (`full` levels or more). Below that the share is raised to the power full / level, so a family with a large
  * share is there from the first level and one with a small share comes in as the level rises; a share of 1 is always
  * all, 0 never any. Nothing is switched on at a level: it thickens.
- * plate = slab · plinth, frame = column · beam · brace, mass, drip, found = basement · pile.
+ * One share per kind of part.
  */
-export interface LevelMix {
-  plate: number;
-  frame: number;
-  mass: number;
-  drip: number;
-  found: number;
+export type LevelMix = Record<PartKind, number> & {
   /** The level at which a slot is full (the shares are what is kept from there on). */
   full: number;
-}
-export const DEFAULT_LEVEL_MIX: LevelMix = { plate: 1, frame: 0.7, mass: 0.5, drip: 0.3, found: 0.6, full: 3 };
+};
+/** Everything the grammar makes, at every level: the look before the shares (the artist, 2026-11-12: "옛날 맛이랑 좀 달라"). */
+export const DEFAULT_LEVEL_MIX: LevelMix = { mass: 1, slab: 1, drip: 1, column: 1, beam: 1, brace: 1, plinth: 1, basement: 1, pile: 1, full: 1 };
 
 /** How much of a family is kept in a slot at `level` (0..1). */
 export function levelKeep(share: number, level: number, full: number): number {
@@ -165,7 +161,6 @@ export interface BoxConfig {
   levelMix?: LevelMix;
 }
 
-const PART_FAMILY: Record<PartKind, Exclude<keyof LevelMix, "full">> = { mass: "mass", slab: "plate", plinth: "plate", drip: "drip", column: "frame", beam: "frame", brace: "frame", basement: "found", pile: "found" };
 
 export const DEFAULT_BOXES: BoxConfig = { secPerUnit: 30, unit: 1, width: 1, density: 1, maxSlots: 200, timeJitter: 0.35 };
 
@@ -586,7 +581,7 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       const key = b.slot * 16 + kind;
       const i = nth.get(key) ?? 0;
       nth.set(key, i + 1);
-      return hash2(seed.id, key, i * 7 + 911) < levelKeep(mix[PART_FAMILY[b.kind]], lv.get(b.slot) ?? 0, mix.full);
+      return hash2(seed.id, key, i * 7 + 911) < levelKeep(mix[b.kind], lv.get(b.slot) ?? 0, mix.full);
     });
   }
   return out;
