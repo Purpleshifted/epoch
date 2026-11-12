@@ -20,7 +20,6 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
 import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
-import { CELL_SIZE } from "@/lib/stratum/field";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls as useLevaControls } from "leva";
@@ -836,8 +835,8 @@ function SpaceWorld({
   walk: WalkConfig | null;
   /** Buildings from the density of spacetime (density.ts); null = from the fold, as before. */
   density: DensityConfig | null;
-  /** The paths' plates (density.ts pathPlates): the slope their surfaces may rise at, their thickness and grey; null = none. */
-  pathLook: { rise: number; thick: number; shade: number } | null;
+  /** The paths' lines (density.ts pathLines): the slope they may rise at, their grey and opacity; null = none. */
+  pathLook: { rise: number; smooth: number; shade: number; opacity: number } | null;
   walkLook: WalkLook;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
@@ -860,14 +859,14 @@ function SpaceWorld({
     return () => gatherGeom.dispose();
   }, [gatherGeom]);
   const gatherMat = useMemo(() => cloudPointsMaterial(), []);
-  // THE PATHS' PLATES (density.ts pathPlates): achromatic, as every trace of people
-  const pathMesh = useRef<THREE.InstancedMesh>(null);
-  const pathThick = pathLook?.thick ?? 0.06;
-  const pathGeom = useMemo(() => new THREE.BoxGeometry(CELL_SIZE * 0.98, pathThick, CELL_SIZE * 0.98), [pathThick]);
-  const pathMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0 }), []);
+  // THE PATHS' LINES (density.ts pathLines): achromatic, as every trace of people
+  const pathCap = useRef(0);
+  const pathGeom = useMemo(() => new THREE.BufferGeometry(), []);
+  const pathMat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false }), []);
   useEffect(() => {
-    pathMat.color.setScalar(pathLook?.shade ?? 0.6);
-  }, [pathMat, pathLook?.shade]);
+    pathMat.color.setScalar(pathLook?.shade ?? 0.9);
+    pathMat.opacity = pathLook?.opacity ?? 0.9;
+  }, [pathMat, pathLook?.shade, pathLook?.opacity]);
   useEffect(() => () => pathGeom.dispose(), [pathGeom]);
   useEffect(() => () => pathMat.dispose(), [pathMat]);
   const focusY = useRef<number | null>(null);
@@ -984,15 +983,17 @@ function SpaceWorld({
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
     }
     if (r.paths) {
-      // the paths' plates: one thin box per cell and run, at its surface's height
-      const mesh = pathMesh.current;
-      if (mesh) {
-        const n = Math.min(PATH_CAPACITY, r.paths.length / 3);
-        const m4 = new THREE.Matrix4();
-        for (let i = 0; i < n; i++) mesh.setMatrixAt(i, m4.makeTranslation(r.paths[i * 3], r.paths[i * 3 + 1], r.paths[i * 3 + 2]));
-        mesh.count = n;
-        mesh.instanceMatrix.needsUpdate = true;
+      // the paths' lines (density.ts pathLines)
+      const g = pathGeom;
+      if (!g.getAttribute("position") || r.paths.length > pathCap.current) {
+        pathCap.current = Math.max(6000, Math.ceil(r.paths.length * 1.5));
+        g.dispose();
+        g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pathCap.current), 3));
       }
+      const pos = g.getAttribute("position") as THREE.BufferAttribute;
+      (pos.array as Float32Array).set(r.paths);
+      pos.needsUpdate = true;
+      g.setDrawRange(0, r.paths.length / 3);
     }
     if (r.reclaim) {
       gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
@@ -1100,7 +1101,7 @@ function SpaceWorld({
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens } };
-    if (pl && dens?.path) req.paths = { rise: pl.rise };
+    if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
     if (withNature && nat) {
       req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
       if (nat.reclaim) {
@@ -1201,7 +1202,7 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
-      <instancedMesh ref={pathMesh} args={[undefined, undefined, PATH_CAPACITY]} geometry={pathGeom} material={pathMat} frustumCulled={false} visible={!!pathLook} receiveShadow />
+      <lineSegments geometry={pathGeom} material={pathMat} frustumCulled={false} visible={!!pathLook} renderOrder={3} />
       <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} />
     </>
   );
@@ -1557,8 +1558,6 @@ interface MeStatus {
   silentSec: number | null;
 }
 
-/** The most path plates drawn (one per ground cell and run of path slots). */
-const PATH_CAPACITY = 30000;
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
 /** The markers' filter: a bot's colour by how its herd moves (settlers · roamers · on a round · alone). */
 const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8a1f", tour: "#19b36b", loner: "#9a9a9a" };
@@ -2282,15 +2281,16 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         bnSolo: { value: 0.35, min: 0, max: 1, step: 0.05, label: "묶이지 않은 실의 밝기 ×" },
       }),
       // PATHS FROM THE DENSITY OF MOVEMENT (density.ts PathConfig): the same grid and thresholds as the buildings
-      "굳은 길 (움직임의 밀도)": folder({
+      "굳은 길 (움직임의 밀도 · 곡선)": folder({
         pathOn: { value: true, label: "켜기" },
         ptStep: { value: DEFAULT_PATH.step, min: 1, max: 40, step: 0.5, label: "문턱 (밟은 양 · 한 번 건너면 한 사람당 최대 1)" },
         ptWalkers: { value: DEFAULT_PATH.minWalkers, min: 1, max: 12, step: 1, label: "필요한 사람 수 (서로 다른)" },
         ptRadius: { value: DEFAULT_PATH.radius, min: 0.4, max: 4, step: 0.1, label: "길의 반폭 (월드)" },
         ptUp: { value: DEFAULT_PATH.upSec, min: 0, max: 1200, step: 20, label: "난 길이 남는 시간 (s · 위로)" },
         ptRise: { value: 0.25, min: 0.02, max: 2, step: 0.01, label: "경사 (칸당 오르는 단 · 클수록 가파름)" },
-        ptThick: { value: 0.06, min: 0.01, max: 0.5, step: 0.01, label: "판 두께" },
-        ptShade: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
+        ptSmooth: { value: 4, min: 0, max: 12, step: 1, label: "곡선 다듬기 (횟수 · 0 = 칸에서 칸으로 꺾임)" },
+        ptShade: { value: 0.95, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
+        ptOpacity: { value: 0.9, min: 0.05, max: 1, step: 0.05, label: "진하기" },
       }),
     }),
     { order: lab ? 7.7 : 1.7, render: () => isV2 },
@@ -2302,7 +2302,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         : null,
     [isV2, tr.pathOn, tr.ptStep, tr.ptWalkers, tr.ptRadius, tr.ptUp, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
   );
-  const pathLook = useMemo(() => (tr.pathOn ? { rise: tr.ptRise, thick: tr.ptThick, shade: tr.ptShade } : null), [tr.pathOn, tr.ptRise, tr.ptThick, tr.ptShade]);
+  const pathLook = useMemo(() => (tr.pathOn ? { rise: tr.ptRise, smooth: tr.ptSmooth, shade: tr.ptShade, opacity: tr.ptOpacity } : null), [tr.pathOn, tr.ptRise, tr.ptSmooth, tr.ptShade, tr.ptOpacity]);
   const trailBundle = useMemo(
     () => (tr.bundleOn ? { radius: tr.bnRadius, threshold: tr.bnThreshold, strandSec: tr.bnStrand, strength: tr.bnStrength, full: tr.bnFull } : null),
     [tr.bundleOn, tr.bnRadius, tr.bnThreshold, tr.bnStrand, tr.bnStrength, tr.bnFull],

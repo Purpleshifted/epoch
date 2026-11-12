@@ -113,6 +113,16 @@ interface CellSlot {
   path?: boolean;
 }
 
+interface PathRun {
+  cx: number;
+  cz: number;
+  k0: number;
+  k1: number;
+  /** Its surface's height (slots), and how trodden it is at its most. */
+  h: number;
+  w: number;
+}
+
 interface Column {
   cx: number;
   cz: number;
@@ -154,6 +164,7 @@ export class DensityField {
   /** Each walker's last sample (canonical), to tell a step from a presence. */
   private last = new Map<number, { x: number; z: number; s: number }>();
   private plates: { key: string; out: Float32Array } | null = null;
+  private lines: { key: string; out: Float32Array } | null = null;
 
   constructor(readonly cfg: DensityConfig) {
     this.key = JSON.stringify(cfg);
@@ -299,6 +310,7 @@ export class DensityField {
       cs.path = path;
       this.pathVersion++;
       this.plates = null;
+      this.lines = null;
     }
     if (lv !== cs.level) {
       cs.level = lv;
@@ -316,35 +328,33 @@ export class DensityField {
   }
 
   /**
-   * THE PATHS' SURFACES: one plate per cell and run of path slots — [x, height in slots, z] — at the slot the run
-   * begins in, or lower: no surface is more than `rise` slots per cell above a surface it touches (a neighbouring
-   * cell's run that lives at the same time), so a branch climbs from the way it leaves instead of hanging over it.
+   * THE PATHS' SURFACES: one per cell and run of path slots, at the slot the run begins in, or lower: no surface is
+   * more than `rise` slots per cell above a surface it touches (a neighbouring cell's run that lives at the same time),
+   * so a branch climbs from the way it leaves instead of hanging over it. `w` = how trodden the run is at its most.
    */
-  pathPlates(rise: number): Float32Array {
-    const key = `${this.pathVersion}:${rise}`;
-    if (this.plates && this.plates.key === key) return this.plates.out;
-    interface Run {
-      cx: number;
-      cz: number;
-      k0: number;
-      k1: number;
-      h: number;
-    }
-    const runs: Run[] = [];
-    const at = new Map<number, Run[]>();
+  private pathRuns(rise: number): { runs: PathRun[]; at: Map<number, PathRun[]> } {
+    const pc = this.cfg.path;
+    const runs: PathRun[] = [];
+    const at = new Map<number, PathRun[]>();
     for (const [ck, col] of this.cols) {
       const ks: number[] = [];
       for (const [k, cs] of col.slots) if (cs.path) ks.push(k);
       if (!ks.length) continue;
       ks.sort((p, q) => p - q);
-      const mine: Run[] = [];
+      const mine: PathRun[] = [];
       let from = ks[0], prev = ks[0];
       for (let i = 1; i <= ks.length; i++) {
         if (i < ks.length && ks[i] === prev + 1) {
           prev = ks[i];
           continue;
         }
-        mine.push({ cx: col.cx, cz: col.cz, k0: from, k1: prev, h: from });
+        let w = 0;
+        for (let k = from; k <= prev; k++) {
+          let sum = 0;
+          for (const a of col.slots.get(k)!.mv?.values() ?? []) sum += Math.min(a, pc?.walkerCap ?? Infinity);
+          if (sum > w) w = sum;
+        }
+        mine.push({ cx: col.cx, cz: col.cz, k0: from, k1: prev, h: from, w });
         if (i < ks.length) from = prev = ks[i];
       }
       at.set(ck, mine);
@@ -369,10 +379,130 @@ export class DensityField {
         }
       }
     }
+    return { runs, at };
+  }
+
+  /** The surfaces as plates: [x, height in slots, z] per cell and run. */
+  pathPlates(rise: number): Float32Array {
+    const key = `${this.pathVersion}:${rise}`;
+    if (this.plates && this.plates.key === key) return this.plates.out;
+    const { runs } = this.pathRuns(rise);
     const out = new Float32Array(runs.length * 3);
     runs.forEach((r, i) => out.set([(r.cx + 0.5) * CELL_SIZE, r.h, (r.cz + 0.5) * CELL_SIZE], i * 3));
     this.plates = { key, out };
     return out;
+  }
+
+  /**
+   * THE PATHS AS LINES (the artist, 2026-11-12: "판 말고 걍 예전처럼 선으로"): the path's cells thinned to its MIDDLE —
+   * a cell stays when neither neighbour across the way is more trodden — and each joined to the cells next to it that
+   * live at the same time, the chains smoothed `smooth` times into curves (0 = cell to cell): [x, height in slots, z,
+   * x, height, z] per short segment. A way is one line however wide it was trodden; where a branch leaves an older
+   * way the line climbs (the surfaces' slope, pathRuns).
+   */
+  pathLines(rise: number, smooth = 4): Float32Array {
+    const key = `${this.pathVersion}:${rise}:${smooth}`;
+    if (this.lines && this.lines.key === key) return this.lines.out;
+    const { runs, at } = this.pathRuns(rise);
+    const touching = (a: PathRun, cx: number, cz: number): PathRun | undefined => {
+      // (not across the world's edge: that would be a line over the whole map)
+      if (Math.abs(cx) > 32000 || wrapCell(cx) !== cx || wrapCell(cz) !== cz) return undefined;
+      return at.get(colKey(cx, cz))?.find((b) => b.k0 <= a.k1 + 1 && b.k1 >= a.k0 - 1);
+    };
+    // THE MIDDLE: which way the path runs here (the direction its neighbours lie in), and whether a neighbour ACROSS
+    // it is more trodden
+    const DIRS: [number, number][] = [[1, 0], [1, 1], [0, 1], [-1, 1]];
+    const mid = new Set<PathRun>();
+    for (const a of runs) {
+      let sxx = 0, szz = 0, sxz = 0;
+      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+        if ((!dx && !dz) || !touching(a, a.cx + dx, a.cz + dz)) continue;
+        sxx += dx * dx;
+        szz += dz * dz;
+        sxz += dx * dz;
+      }
+      // the direction of most spread (the principal axis of where its neighbours are), snapped to the grid's eight
+      const ang = 0.5 * Math.atan2(2 * sxz, sxx - szz);
+      let best = 0, bestDot = -1;
+      for (let i = 0; i < 4; i++) {
+        const [dx, dz] = DIRS[i];
+        const dot = Math.abs(Math.cos(ang) * dx + Math.sin(ang) * dz) / Math.hypot(dx, dz);
+        if (dot > bestDot) [best, bestDot] = [i, dot];
+      }
+      const [px, pz] = DIRS[(best + 2) % 4];
+      const l = touching(a, a.cx + px, a.cz + pz), r = touching(a, a.cx - px, a.cz - pz);
+      // (an equal neighbour: the one with the smaller cell stays, so a path two cells wide is still one line)
+      const beats = (n: PathRun | undefined) => !!n && (n.w > a.w + 1e-9 || (Math.abs(n.w - a.w) <= 1e-9 && (n.cx < a.cx || (n.cx === a.cx && n.cz < a.cz))));
+      if (!beats(l) && !beats(r)) mid.add(a);
+    }
+    // THE LINES: the middle cells joined to the next (a diagonal only where no step round the corner does it), then
+    // followed from end to end as chains — each smoothed into a CURVE (the artist: "선분 말고 곡선")
+    const adj = new Map<PathRun, PathRun[]>();
+    const link = (a: PathRun, b: PathRun) => {
+      const la = adj.get(a) ?? (adj.set(a, []), adj.get(a)!);
+      if (!la.includes(b)) la.push(b);
+      const lb = adj.get(b) ?? (adj.set(b, []), adj.get(b)!);
+      if (!lb.includes(a)) lb.push(a);
+    };
+    const midAt = (a: PathRun, cx: number, cz: number) => {
+      const b = touching(a, cx, cz);
+      return b && mid.has(b) ? b : undefined;
+    };
+    for (const a of mid) {
+      for (const [dx, dz] of DIRS) {
+        const b = midAt(a, a.cx + dx, a.cz + dz);
+        if (!b) continue;
+        if (dx && dz && (midAt(a, a.cx + dx, a.cz) || midAt(a, a.cx, a.cz + dz))) continue;
+        link(a, b);
+      }
+    }
+    const used = new Set<string>();
+    const id = new Map<PathRun, number>();
+    runs.forEach((r, i) => id.set(r, i));
+    const edge = (a: PathRun, b: PathRun) => (id.get(a)! < id.get(b)! ? `${id.get(a)}:${id.get(b)}` : `${id.get(b)}:${id.get(a)}`);
+    const chains: PathRun[][] = [];
+    const trace = (a: PathRun, b: PathRun) => {
+      const pts = [a, b];
+      used.add(edge(a, b));
+      let prev = a, cur = b;
+      while (cur !== a && adj.get(cur)!.length === 2) {
+        const next = adj.get(cur)![0] === prev ? adj.get(cur)![1] : adj.get(cur)![0];
+        if (used.has(edge(cur, next))) break;
+        used.add(edge(cur, next));
+        pts.push(next);
+        prev = cur;
+        cur = next;
+      }
+      chains.push(pts);
+    };
+    // from the ends and the junctions first, then what is left (rings)
+    for (const [a, l] of adj) if (l.length !== 2) for (const b of l) if (!used.has(edge(a, b))) trace(a, b);
+    for (const [a, l] of adj) for (const b of l) if (!used.has(edge(a, b))) trace(a, b);
+    const out: number[] = [];
+    const passes = Math.max(0, Math.round(smooth));
+    for (const ch of chains) {
+      let pts = ch.map((r) => [(r.cx + 0.5) * CELL_SIZE, r.h, (r.cz + 0.5) * CELL_SIZE]);
+      // the cells' staircase evened out (the ends stay where the next chain begins) …
+      for (let it = 0; it < passes; it++) {
+        const q = pts.map((p) => p.slice());
+        for (let i = 1; i < pts.length - 1; i++) for (let d = 0; d < 3; d++) q[i][d] = 0.25 * pts[i - 1][d] + 0.5 * pts[i][d] + 0.25 * pts[i + 1][d];
+        pts = q;
+      }
+      // … and its corners cut (Chaikin), twice
+      for (let it = 0; it < (passes > 0 ? 2 : 0) && pts.length > 2; it++) {
+        const q: number[][] = [pts[0]];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[i], p1 = pts[i + 1];
+          q.push([0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1], 0.75 * p0[2] + 0.25 * p1[2]]);
+          q.push([0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1], 0.25 * p0[2] + 0.75 * p1[2]]);
+        }
+        q.push(pts[pts.length - 1]);
+        pts = q;
+      }
+      for (let i = 1; i < pts.length; i++) out.push(pts[i - 1][0], pts[i - 1][1], pts[i - 1][2], pts[i][0], pts[i][1], pts[i][2]);
+    }
+    this.lines = { key, out: Float32Array.from(out) };
+    return this.lines.out;
   }
 
   /** The level of a cell-slot (0 = nothing there). */

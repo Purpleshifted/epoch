@@ -771,20 +771,15 @@ export class SpaceModel {
     return this.t;
   }
 
-  /** The paths' surfaces as [x, y, z] per plate (y = the slot's height); null when nothing changed since the last call. */
-  computePaths(unit: number, rise: number): Float32Array | null {
+  /** The paths as line segments [x, y, z, x, y, z] (y = the slot's height); null when nothing changed since the last call. */
+  computePaths(unit: number, rise: number, smooth = 4): Float32Array | null {
     const ds = this.densityState;
-    const key = ds ? `${ds.key}:${ds.field.pathVersion}:${rise}:${unit}` : "-";
+    const key = ds ? `${ds.key}:${ds.field.pathVersion}:${rise}:${smooth}:${unit}` : "-";
     if (key === this.pathsKey) return null;
     this.pathsKey = key;
     if (!ds) return new Float32Array(0);
-    const plates = ds.field.pathPlates(rise);
-    const out = new Float32Array(plates.length);
-    for (let i = 0; i < plates.length; i += 3) {
-      out[i] = plates[i];
-      out[i + 1] = plates[i + 1] * unit;
-      out[i + 2] = plates[i + 2];
-    }
+    const out = Float32Array.from(ds.field.pathLines(rise, smooth));
+    for (let i = 1; i < out.length; i += 3) out[i] *= unit;
     return out;
   }
 
@@ -1430,7 +1425,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 /** What the view posts to the space worker. */
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean; epoch?: string | null }
-  | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; paths?: { rise: number } };
+  | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; paths?: { rise: number; smooth?: number } };
 
 /**
  * Two compute requests as one (the worker coalesces what queued up behind a long compute): the newer request's
@@ -1451,7 +1446,7 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
-  /** The paths' surfaces (density.ts pathPlates): [x, y, z] per plate. */
+  /** The paths as lines (density.ts pathLines): [x, y, z, x, y, z] per segment. */
   paths?: Float32Array | null;
   ms: number;
 }
@@ -1490,7 +1485,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     if (out.reclaim) transfer.add(out.reclaim.position.buffer as ArrayBuffer).add(out.reclaim.color.buffer as ArrayBuffer);
   }
   if (m.paths && m.parts) {
-    out.paths = model.computePaths(m.parts.box.unit, m.paths.rise);
+    out.paths = model.computePaths(m.parts.box.unit, m.paths.rise, m.paths.smooth ?? 4);
     if (out.paths) transfer.add(out.paths.buffer as ArrayBuffer);
   }
   if (m.fuse) {

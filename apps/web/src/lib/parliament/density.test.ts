@@ -169,6 +169,53 @@ describe("density: paths from the density of movement", () => {
     }
   });
 
+  it("as lines: a way is ONE line along its middle, however wide it was trodden", () => {
+    const f = fieldOf([...march(5, 0, 30, 400, "a"), ...march(5, 30, 0, 430, "a")], P);
+    const lines = f.pathLines(0.25, 0);
+    expect(lines.length).toBeGreaterThan(6 * 10);
+    // every segment joins two neighbouring cells, and the line keeps to one row of them
+    const rows = new Set<number>();
+    for (let i = 0; i < lines.length; i += 6) {
+      expect(Math.hypot(lines[i + 3] - lines[i], lines[i + 5] - lines[i + 2])).toBeLessThanOrEqual(1.2 * Math.SQRT2 + 1e-6);
+      rows.add(Math.round(lines[i + 2] * 100));
+      rows.add(Math.round(lines[i + 5] * 100));
+    }
+    expect(rows.size).toBe(1);
+    expect(fieldOf(march(5, 0, 30, 400, "a"), P).pathLines(0.25).length).toBe(0);
+  });
+
+  it("as curves: a way with a corner is one unbroken line, its corner rounded, its ends where they were", () => {
+    // there and back along an L: east, then north
+    const leg = (tag: string, s0: number, back: boolean): PEvent[] => {
+      const out: PEvent[] = [];
+      for (let i = 0; i < 5; i++) {
+        const pts: [number, number][] = [];
+        for (let t = 0; t <= 10; t++) pts.push([2 * t, (i - 2) * 0.3]);
+        for (let t = 1; t <= 10; t++) pts.push([20 + (i - 2) * 0.3, 2 * t]);
+        if (back) pts.reverse();
+        pts.forEach(([x, z], t) => out.push({ id: `${tag}${i}:${t}:${s0}`, o: `${tag}${i}`, r: "worker", k: "p", x, z, s: s0 + t }));
+      }
+      return out;
+    };
+    const f = fieldOf([...leg("a", 400, false), ...leg("a", 425, true)], P);
+    const sharp = f.pathLines(0.25, 0), curve = f.pathLines(0.25, 4);
+    expect(sharp.length).toBeGreaterThan(0);
+    expect(curve.length).toBeGreaterThan(sharp.length);
+    // unbroken: each segment begins where the one before ended (one chain)
+    let breaks = 0;
+    for (let i = 6; i < curve.length; i += 6) if (Math.hypot(curve[i] - curve[i - 3], curve[i + 2] - curve[i - 1]) > 1e-4) breaks++;
+    expect(breaks).toBeLessThanOrEqual(2);
+    // no sharp turn left: every bend between two segments is gentle
+    let sharpest = 0;
+    for (let i = 6; i < curve.length; i += 6) {
+      if (Math.hypot(curve[i] - curve[i - 3], curve[i + 2] - curve[i - 1]) > 1e-4) continue;
+      const ax = curve[i - 3] - curve[i - 6], az = curve[i - 1] - curve[i - 4], bx = curve[i + 3] - curve[i], bz = curve[i + 5] - curve[i + 2];
+      const cos = (ax * bx + az * bz) / Math.max(1e-9, Math.hypot(ax, az) * Math.hypot(bx, bz));
+      sharpest = Math.max(sharpest, Math.acos(Math.max(-1, Math.min(1, cos))));
+    }
+    expect(sharpest).toBeLessThan(Math.PI / 4);
+  });
+
   it("walking does not build: no building comes of a herd that only passes, however often", () => {
     const ev = [0, 1, 2, 3, 4, 5].flatMap((r) => march(5, r % 2 ? 30 : 0, r % 2 ? 0 : 30, 400 + r * 20, "a"));
     expect(fieldOf(ev, P).seeds().length).toBe(0);
