@@ -57,6 +57,17 @@ export interface DensityConfig {
   mass: number;
   massRatio: number;
   /**
+   * READ AGAINST ITS PEAK, IN STEPS (the artist, 2026-11-12: "이미 지어진 데에 더 산다 해서 건물이 더 커질 이유가
+   * 있나?" → "밀도 수치 자체에 단계별 배율화를 하도록 해서 새 최대치가 생기면 조정을 하면 되나?"). A cell-slot is
+   * building when what was put into it is at least this share of the PEAK round it (the most in any cell-slot within
+   * `radius` at that time) — and at least `step`, as before. The peak is read in steps (× `ratio`), so nothing is
+   * adjusted while it grows within a step; when it reaches a new step, the cells round it are read again. More living
+   * in a building raises its peak and its threshold with it: the building keeps to the middle of where people were,
+   * it does not spread. It is still a function of the sums alone — the order of writing does not matter.
+   * 0 / absent = the threshold is `step` everywhere (a building widens as more is put in).
+   */
+  peakShare?: number;
+  /**
    * A BUDGET OF WHAT IS BUILT: at most this many cell-slots are building at once; when one more is built, the one
    * built FIRST is forgotten (what was put into it is gone: it can be built again). 0 / absent = no limit. This — not
    * the forgetting of samples — is what makes a building go.
@@ -127,6 +138,9 @@ interface CellSlot {
   /** Per visitor (index): the weight put in, uncapped. */
   by: Map<number, number>;
   level: number;
+  /** Its own sum's step (−1 = under `step`), and the highest step of any cell-slot within `radius` at its time. */
+  q?: number;
+  pq?: number;
   /** Per walker (index): what it trod in here; and whether the cell-slot is path (never with level ≥ 1). */
   mv?: Map<number, number>;
   path?: boolean;
@@ -196,7 +210,8 @@ export class DensityField {
   private open = new Map<number, number[]>();
   private routes: PathRoute[] = [];
   /** The cell-slots in the order they were built (a queue from `builtAt`), and how many are standing. */
-  private built: [Column, number, CellSlot][] = [];
+  private ringOf: [number, number][] | null = null;
+  private built: [Column, number, CellSlot, number][] = [];
   private builtAt = 0;
   private nBuilt = 0;
   private plates: { key: string; out: Float32Array } | null = null;
@@ -271,7 +286,7 @@ export class DensityField {
             this.stats.cellSlots++;
           }
           cs.by.set(o, (cs.by.get(o) ?? 0) + g * t);
-          this.settle(col, ck, cs);
+          this.settle(col, ck, cs, k);
         }
       }
     }
@@ -358,15 +373,55 @@ export class DensityField {
         }
         if (!cs.mv) cs.mv = new Map();
         cs.mv.set(o, (cs.mv.get(o) ?? 0) + g * t);
-        this.settle(col, ck, cs);
+        this.settle(col, ck, cs, k);
       }
     }
   }
 
+  /** The cells within `radius` of a cell (offsets), itself not among them. */
+  private ring(): [number, number][] {
+    if (this.ringOf) return this.ringOf;
+    const R = Math.max(0.01, this.cfg.radius), reach = Math.ceil(R / CELL_SIZE);
+    const out: [number, number][] = [];
+    for (let a = -reach; a <= reach; a++) for (let b = -reach; b <= reach; b++) if ((a || b) && Math.hypot(a, b) * CELL_SIZE <= R) out.push([a, b]);
+    return (this.ringOf = out);
+  }
+
+  /** The step of a sum: 0 from `step`, one more for every × `ratio` (−1 = under `step`). */
+  private stepOf(sum: number): number {
+    const c = this.cfg;
+    return sum >= c.step ? Math.min(40, Math.floor(Math.log(sum / c.step) / Math.log(Math.max(1.01, c.ratio)) + 1e-9)) : -1;
+  }
+
   /** What a cell-slot is after something was put into it: a building's level, or path, or nothing (THE CONTEST). */
-  private settle(col: Column, ck: number, cs: CellSlot): void {
+  private settle(col: Column, ck: number, cs: CellSlot, k: number, spread = true): void {
     const c = this.cfg, pc = c.path;
     let lv = levelOf(cs.by, c);
+    const share = Math.max(0, Math.min(1, c.peakShare ?? 0));
+    if (share > 0) {
+      let sum = 0;
+      for (const a of cs.by.values()) sum += Math.min(a, c.visitorCap);
+      // A NEW STEP of this cell's own sum is a new peak for the cells round it: they are read again
+      const q = this.stepOf(sum);
+      if (q !== (cs.q ?? -1)) {
+        const rose = q > (cs.q ?? -1);
+        cs.q = q;
+        if (spread) {
+          for (const [a, b] of this.ring()) {
+            const nck = colKey(wrapCell(col.cx + a), wrapCell(col.cz + b));
+            const ncol = this.cols.get(nck), ncs = ncol?.slots.get(k);
+            if (!ncol || !ncs) continue;
+            const pq = rose ? Math.max(ncs.pq ?? -1, q) : this.peakOf(ncol, k);
+            if (pq === (ncs.pq ?? -1)) continue;
+            ncs.pq = pq;
+            this.settle(ncol, nck, ncs, k, false);
+          }
+        }
+      }
+      // against the peak round it (its own step counts too)
+      const peak = Math.max(cs.pq ?? -1, q);
+      if (lv > 0 && peak >= 0 && sum < share * c.step * Math.pow(Math.max(1.01, c.ratio), peak)) lv = 0;
+    }
     let path = false;
     if (pc && cs.mv) {
       let n = 0, sum = 0;
@@ -400,17 +455,19 @@ export class DensityField {
       this.version++;
       // THE BUDGET: this one was just built — beyond the count, the first-built still standing go
       if (born) {
-        this.built.push([col, ck, cs]);
+        this.built.push([col, ck, cs, k]);
         this.nBuilt++;
         const max = Math.round(c.maxBuilt ?? 0);
         while (max > 0 && this.nBuilt > max && this.builtAt < this.built.length) {
-          const [oc, ock, ocs] = this.built[this.builtAt++];
-          if (ocs.level < 1) continue; // (already gone: a path took it)
+          const [oc, ock, ocs, ok] = this.built[this.builtAt++];
+          if (ocs.level < 1) continue; // (already gone: a path took it, or a higher peak beside it)
           ocs.by.clear();
           ocs.level = 0;
           oc.seed = undefined;
           this.dirty.add(ock);
           this.nBuilt--;
+          // (its step is gone with it: the cells round it are read against what is left)
+          if ((ocs.q ?? -1) >= 0) this.settle(oc, ock, ocs, ok);
         }
         if (this.builtAt > 4096) {
           this.built = this.built.slice(this.builtAt);
@@ -418,6 +475,16 @@ export class DensityField {
         }
       } else if (lv < 1) this.nBuilt--;
     }
+  }
+
+  /** The highest step of any cell-slot within `radius` of a cell at slot `k` (its own not counted). */
+  private peakOf(col: Column, k: number): number {
+    let pq = -1;
+    for (const [a, b] of this.ring()) {
+      const q = this.cols.get(colKey(wrapCell(col.cx + a), wrapCell(col.cz + b)))?.slots.get(k)?.q ?? -1;
+      if (q > pq) pq = q;
+    }
+    return pq;
   }
 
   /** Whether a cell-slot is path. */

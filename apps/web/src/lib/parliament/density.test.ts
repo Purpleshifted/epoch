@@ -137,6 +137,22 @@ describe("density: buildings from the density of spacetime", () => {
     expect(boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, variety: { ...v, character: 1 } }).length).toBeLessThanOrEqual(plain.length);
   });
 
+  it("read against its peak: more living in a building does not widen it, and the order of writing does not matter", () => {
+    const P = { ...CFG, peakShare: 0.5 };
+    const cells = (f: DensityField) => f.seeds().length;
+    const one = fieldOf(crowd(5, 0, 0, 400, 60), P);
+    const three = [...crowd(5, 0, 0, 400, 60), ...crowd(5, 0, 0, 400, 60, "b"), ...crowd(5, 0, 0, 400, 60, "c")];
+    expect(cells(one)).toBeGreaterThan(0);
+    // three times the people at the same spot: about the same building (the peak and the threshold rose together)
+    expect(cells(fieldOf(three, P))).toBeLessThanOrEqual(cells(one) + 2);
+    // without it the building widens as more is put in
+    expect(cells(fieldOf(three))).toBeGreaterThan(cells(fieldOf(three, P)));
+    const flat = (f: DensityField) => f.seeds().map((s) => `${s.id}:${JSON.stringify(s.spans)}`).sort();
+    expect(flat(fieldOf([...three].reverse(), P))).toEqual(flat(fieldOf(three, P)));
+    // somebody standing beside it still builds there
+    expect(cells(fieldOf([...crowd(5, 0, 0, 400, 60), ...crowd(5, 6, 0, 400, 60, "d")], P))).toBeGreaterThan(cells(one));
+  });
+
   it("a budget of what is built: beyond it the first-built cell-slots go, the newest stand", () => {
     const count = (f: DensityField) => f.seeds().reduce((n, s) => n + s.levels!.size, 0);
     const first = crowd(5, 0, 0, 400, 30), second = crowd(5, 40, 40, 400, 30, "b");
