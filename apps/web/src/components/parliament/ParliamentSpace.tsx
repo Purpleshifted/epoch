@@ -63,7 +63,9 @@ import {
   DEFAULT_WATER,
   type DensityConfig,
   DEFAULT_DENSITY,
+  DEFAULT_BUNDLE,
   DEFAULT_TRAILS,
+  bundleTrails,
   trailSegments,
   DEFAULT_VARIETY,
   type WalkConfig,
@@ -1555,19 +1557,38 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
  * drawn at its latest presence (dimmed while silent), so the player can always be found.
  */
 /**
- * THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block — a 1 px line from where and
- * when to where and when. Rebuilt from the log every two seconds when it has changed (≈ 10 ms for 40 000 samples).
+ * THE PATHS (lib/parliament/trails.ts): every walk as a thread through the block — a 1 px line from where and when to
+ * where and when — and, with `bundle`, similar walks drawn as ONE path (on its line, brighter the more walks it has).
+ * Rebuilt from the log every two seconds when it has changed.
  */
-function Trails({ log, secPerUnit, unit, minStep, opacity, shade }: { log: EventLog; secPerUnit: number; unit: number; minStep: number; opacity: number; shade: number }) {
+function Trails({
+  log,
+  secPerUnit,
+  unit,
+  minStep,
+  opacity,
+  shade,
+  solo,
+  bundle,
+}: {
+  log: EventLog;
+  secPerUnit: number;
+  unit: number;
+  minStep: number;
+  opacity: number;
+  shade: number;
+  /** Brightness of a walk that is nobody else's way, as a share of a full path's (0..1). */
+  solo: number;
+  bundle: { radius: number; threshold: number; windowSec: number; strength: number; full: number } | null;
+}) {
   const geom = useMemo(() => new THREE.BufferGeometry(), []);
-  const mat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false }), []);
+  const mat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false, vertexColors: true }), []);
   const cap = useRef(0);
   const sig = useRef("");
   const timer = useRef(10);
   useEffect(() => {
-    mat.color.setScalar(shade);
     mat.opacity = opacity;
-  }, [mat, shade, opacity]);
+  }, [mat, opacity]);
   useEffect(
     () => () => {
       geom.dispose();
@@ -1580,23 +1601,28 @@ function Trails({ log, secPerUnit, unit, minStep, opacity, shade }: { log: Event
     if (timer.current < 2) return;
     timer.current = 0;
     const events = log.all();
-    const key = `${events.length}:${events.length ? events[events.length - 1].id : ""}:${secPerUnit}:${unit}:${minStep}`;
+    const key = `${events.length}:${events.length ? events[events.length - 1].id : ""}:${secPerUnit}:${unit}:${minStep}:${shade}:${solo}:${JSON.stringify(bundle)}`;
     if (key === sig.current) return;
     sig.current = key;
-    const seg = trailSegments(events, { ...DEFAULT_TRAILS, secPerUnit, unit, minStep });
-    const attr = geom.getAttribute("position") as THREE.BufferAttribute | undefined;
-    if (!attr || seg.length > cap.current) {
-      // a larger buffer (with room to grow): the old one is released with the geometry's
+    const base = { ...DEFAULT_TRAILS, secPerUnit, unit, minStep };
+    const b = bundle ? bundleTrails(events, { ...DEFAULT_BUNDLE, ...base, ...bundle }) : null;
+    const seg = b ? b.position : trailSegments(events, base);
+    const n = seg.length / 3;
+    if (!geom.getAttribute("position") || seg.length > cap.current) {
+      // larger buffers (with room to grow): the old ones are released with the geometry's
       cap.current = Math.max(6000, Math.ceil(seg.length * 1.5));
-      const arr = new Float32Array(cap.current);
-      arr.set(seg);
       geom.dispose();
-      geom.setAttribute("position", new THREE.BufferAttribute(arr, 3));
-    } else {
-      (attr.array as Float32Array).set(seg);
-      attr.needsUpdate = true;
+      geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cap.current), 3));
+      geom.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cap.current), 3));
     }
-    geom.setDrawRange(0, seg.length / 3);
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute, col = geom.getAttribute("color") as THREE.BufferAttribute;
+    (pos.array as Float32Array).set(seg);
+    const c = col.array as Float32Array;
+    for (let i = 0; i < n; i++) c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = shade * (b ? solo + (1 - solo) * b.weight[i] : 1);
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    geom.setDrawRange(0, n);
+    (window as unknown as { __trails?: unknown }).__trails = b ? { legs: b.legs, routes: b.routes, bundled: b.bundled } : { segments: n / 2 };
   });
   return <lineSegments geometry={geom} material={mat} frustumCulled={false} renderOrder={2} />;
 }
@@ -2222,8 +2248,22 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       trMinStep: { value: DEFAULT_TRAILS.minStep, min: 0.1, max: 3, step: 0.1, label: "걷기로 치는 최소 걸음 (월드/초)" },
       trOpacity: { value: 0.35, min: 0.02, max: 1, step: 0.01, label: "진하기" },
       trShade: { value: 0.85, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
+      // SIMILAR WALKS ARE ONE PATH (trails.ts bundleTrails)
+      "비슷한 걸음을 한 길로": folder({
+        bundleOn: { value: true, label: "묶기" },
+        bnThreshold: { value: DEFAULT_BUNDLE.threshold, min: 0.05, max: 1, step: 0.05, label: "유사도 문턱 (높을수록 까다롭게)" },
+        bnRadius: { value: DEFAULT_BUNDLE.radius, min: 0.5, max: 20, step: 0.5, label: "같은 곳으로 치는 반경 (월드)" },
+        bnWindow: { value: DEFAULT_BUNDLE.windowSec, min: 0, max: 1200, step: 20, label: "시간 창 (s · 0 = 시간 무관)" },
+        bnStrength: { value: DEFAULT_BUNDLE.strength, min: 0, max: 1, step: 0.05, label: "길로 당기는 세기" },
+        bnFull: { value: DEFAULT_BUNDLE.full, min: 2, max: 40, step: 1, label: "이만큼 겹치면 가장 밝음 (걸음 수)" },
+        bnSolo: { value: 0.35, min: 0, max: 1, step: 0.05, label: "묶이지 않은 실의 밝기 ×" },
+      }),
     }),
     { order: lab ? 7.7 : 1.7, render: () => isV2 },
+  );
+  const trailBundle = useMemo(
+    () => (tr.bundleOn ? { radius: tr.bnRadius, threshold: tr.bnThreshold, windowSec: tr.bnWindow, strength: tr.bnStrength, full: tr.bnFull } : null),
+    [tr.bundleOn, tr.bnRadius, tr.bnThreshold, tr.bnWindow, tr.bnStrength, tr.bnFull],
   );
   // the history window reaches as deep as the bots write (the lab keeps everything)
   useEffect(() => {
@@ -2997,7 +3037,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            {tr.trailsOn && <Trails log={log} secPerUnit={c.secPerUnit} unit={c.unit} minStep={tr.trMinStep} opacity={tr.trOpacity} shade={tr.trShade} />}
+            {tr.trailsOn && (
+              <Trails log={log} secPerUnit={c.secPerUnit} unit={c.unit} minStep={tr.trMinStep} opacity={tr.trOpacity} shade={tr.trShade} solo={tr.bnSolo} bundle={trailBundle} />
+            )}
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
