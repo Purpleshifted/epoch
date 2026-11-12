@@ -19,6 +19,7 @@ import { DensityField, type DensityConfig } from "./density";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
+import { ARRIVED, Arrivals } from "./arrive";
 import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, survivalFromBasis, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed, type WearBasis, type WearConfig } from "./seeds";
 import { bakedKey, clearBaked, loadBaked, saveBaked, type BakedTube } from "./bakeStore";
 import { DEFAULT_FOLD, type FoldConfig, type PEvent } from "./types";
@@ -200,6 +201,11 @@ export interface PartsResult {
   matrices: Record<PartKind, Float32Array>;
   /** 3 floats per instance (grey tone), per kind. */
   colors: Record<PartKind, Float32Array>;
+  /** ARRIVAL (arrive.ts): 2 floats per instance, per kind — when the part was first there (s since `bornEpochMs`,
+   *  ARRIVED = always) and where in its slot's order of building it starts (0 … 1). The wall's shader brings it in. */
+  born: Record<PartKind, Float32Array>;
+  /** The wall clock (Date.now(), ms) the `born` times count from. */
+  bornEpochMs: number;
   edges: Float32Array | null;
   seeds: number;
   parts: number;
@@ -370,6 +376,11 @@ export class SpaceModel {
   private densityState: { key: string; field: DensityField; fed: number } | null = null;
   private pathsKey = "";
   private partCache = new Map<number, { key: string; parts: Box[] }>();
+  /** ARRIVAL (arrive.ts): when each part was first there, on a wall clock of this model's own; the parts' config the
+   *  last parts were made with (another one, or none yet = a knob or a load: what appears then is not being built). */
+  private arrivals = new Arrivals();
+  private arriveEpoch = Date.now();
+  private arriveCfg: string | null = null;
   /** FROZEN PARTS per building and slot (fuse.freezeSlots): once a slot is that deep, its parts are kept as they were. */
   private frozen = new Map<number, Map<number, Box[]>>();
   private partsSig = "";
@@ -761,6 +772,8 @@ export class SpaceModel {
     this.version++;
     this.foldState = null;
     this.partCache.clear();
+    this.arrivals.clear();
+    this.arriveCfg = null;
     this.frozen.clear();
     this.chunks.clear();
     this.drainKept = null;
@@ -860,6 +873,12 @@ export class SpaceModel {
     const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
+    // ARRIVAL (arrive.ts): parts first seen now are being built — unless a knob of the parts or of the buildings' rule
+    // was turned, or this is the first result (a load, a reset): those are simply there
+    const arriveNow = (Date.now() - this.arriveEpoch) / 1000;
+    const arriveKey = `${cfgKey}:${JSON.stringify(input.density ?? null)}`;
+    const arriveQuiet = arriveKey !== this.arriveCfg;
+    this.arriveCfg = arriveKey;
 
     const order = [...seeds].sort((a, b) => a.t0 - b.t0 || a.id - b.id);
     const built: Box[] = [];
@@ -876,6 +895,7 @@ export class SpaceModel {
       if (!hit || hit.key !== key) {
         hit = { key, parts: boxesOfSeed(s, lv === 2 ? solid(s) : lv === 1 ? thinned(s) : box) };
         this.partCache.set(s.id, hit);
+        this.arrivals.note(s.id, lv, hit.parts, arriveNow, arriveQuiet);
       }
       live.add(s.id);
       // FROZEN below the line: a building whose mass grew a quarter, or that gained a slot, is regenerated whole — but its
@@ -912,6 +932,7 @@ export class SpaceModel {
       for (const b of parts) if (b.slot >= floorK && !this.isBaked(b.slot)) built.push(b);
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
+    this.arrivals.keep(live);
     for (const id of this.frozen.keys()) if (!live.has(id)) this.frozen.delete(id);
     const w = input.weather;
     // vegetation around a part: the last vegetation history (if the view draws vegetation), at the part's cell and slot
@@ -1019,6 +1040,8 @@ export class SpaceModel {
     const matrices = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 16)])) as Record<PartKind, Float32Array>;
     const colors = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 3)])) as Record<PartKind, Float32Array>;
     const fill = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
+    const born = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 2)])) as Record<PartKind, Float32Array>;
+    const arriving = this.arrivals.any(arriveNow);
     const edgeCount = input.edges ? Math.min(EDGE_CAP, all.length) : 0;
     const edges = input.edges ? new Float32Array(edgeCount * 72) : null;
     let ei = 0;
@@ -1038,6 +1061,9 @@ export class SpaceModel {
       colors[k][i * 3] = g;
       colors[k][i * 3 + 1] = g;
       colors[k][i * 3 + 2] = g;
+      const came = arriving ? this.arrivals.of(b) : undefined;
+      born[k][i * 2] = came ? came[0] : ARRIVED;
+      born[k][i * 2 + 1] = came ? came[1] : 0;
       minX = Math.min(minX, b.x - b.sx / 2);
       minZ = Math.min(minZ, b.z - b.sz / 2);
       top = Math.max(top, b.y + halfHeight(b));
@@ -1080,6 +1106,8 @@ export class SpaceModel {
       counts: fill,
       matrices,
       colors,
+      born,
+      bornEpochMs: this.arriveEpoch,
       edges: edges ? edges.subarray(0, ei * 72) : null,
       seeds: seeds.length,
       parts: all.length,
@@ -1471,6 +1499,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     if (out.parts) {
       for (const a of Object.values(out.parts.matrices)) transfer.add(a.buffer as ArrayBuffer);
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
+      for (const a of Object.values(out.parts.born)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
       for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.elbows.buffer as ArrayBuffer);
       for (const a of [out.parts.walk.live, out.parts.walk.kept, out.parts.walk.liveW, out.parts.walk.keptW, out.parts.walk.liveEnds, out.parts.walk.keptEnds]) transfer.add(a.buffer as ArrayBuffer);
