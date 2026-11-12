@@ -63,6 +63,8 @@ import {
   DEFAULT_WATER,
   type DensityConfig,
   DEFAULT_DENSITY,
+  DEFAULT_TRAILS,
+  trailSegments,
   DEFAULT_VARIETY,
   type WalkConfig,
   type WaterConfig,
@@ -1552,6 +1554,53 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
  * visible while its newest sample keeps advancing; `holdSec` of silence hides it — except "me", which is always
  * drawn at its latest presence (dimmed while silent), so the player can always be found.
  */
+/**
+ * THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block — a 1 px line from where and
+ * when to where and when. Rebuilt from the log every two seconds when it has changed (≈ 10 ms for 40 000 samples).
+ */
+function Trails({ log, secPerUnit, unit, minStep, opacity, shade }: { log: EventLog; secPerUnit: number; unit: number; minStep: number; opacity: number; shade: number }) {
+  const geom = useMemo(() => new THREE.BufferGeometry(), []);
+  const mat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false }), []);
+  const cap = useRef(0);
+  const sig = useRef("");
+  const timer = useRef(10);
+  useEffect(() => {
+    mat.color.setScalar(shade);
+    mat.opacity = opacity;
+  }, [mat, shade, opacity]);
+  useEffect(
+    () => () => {
+      geom.dispose();
+      mat.dispose();
+    },
+    [geom, mat],
+  );
+  useFrame((_, dt) => {
+    timer.current += dt;
+    if (timer.current < 2) return;
+    timer.current = 0;
+    const events = log.all();
+    const key = `${events.length}:${events.length ? events[events.length - 1].id : ""}:${secPerUnit}:${unit}:${minStep}`;
+    if (key === sig.current) return;
+    sig.current = key;
+    const seg = trailSegments(events, { ...DEFAULT_TRAILS, secPerUnit, unit, minStep });
+    const attr = geom.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!attr || seg.length > cap.current) {
+      // a larger buffer (with room to grow): the old one is released with the geometry's
+      cap.current = Math.max(6000, Math.ceil(seg.length * 1.5));
+      const arr = new Float32Array(cap.current);
+      arr.set(seg);
+      geom.dispose();
+      geom.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+    } else {
+      (attr.array as Float32Array).set(seg);
+      attr.needsUpdate = true;
+    }
+    geom.setDrawRange(0, seg.length / 3);
+  });
+  return <lineSegments geometry={geom} material={mat} frustumCulled={false} renderOrder={2} />;
+}
+
 function Markers({
   log,
   secPerUnit,
@@ -2164,6 +2213,24 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     }),
     { order: lab ? 7.6 : 1.65, render: () => isV2 },
   );
+  // THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block
+  const TRAIL_GROUP = "길 (이동의 실)";
+  const tr = useLevaControls(
+    TRAIL_GROUP,
+    savable(TRAIL_GROUP, {
+      trailsOn: { value: true, label: "켜기" },
+      trMinStep: { value: DEFAULT_TRAILS.minStep, min: 0.1, max: 3, step: 0.1, label: "걷기로 치는 최소 걸음 (월드/초)" },
+      trOpacity: { value: 0.35, min: 0.02, max: 1, step: 0.01, label: "진하기" },
+      trShade: { value: 0.85, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
+    }),
+    { order: lab ? 7.7 : 1.7, render: () => isV2 },
+  );
+  // the history window reaches as deep as the bots write (the lab keeps everything)
+  useEffect(() => {
+    if (lab || botDepth <= 0) return;
+    const need = botDepth * 20 + 240;
+    if (keepWindowSec() < need) setKeepWindowSec(need);
+  }, [lab, botDepth]);
   // THE MARKERS: the bots' names (off: no text over them) and their colours by how their herd moves
   const mk = useLevaControls(
     "마커",
@@ -2930,6 +2997,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
+            {tr.trailsOn && <Trails log={log} secPerUnit={c.secPerUnit} unit={c.unit} minStep={tr.trMinStep} opacity={tr.trOpacity} shade={tr.trShade} />}
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}

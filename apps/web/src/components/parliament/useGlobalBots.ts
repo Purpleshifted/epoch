@@ -134,7 +134,7 @@ export function useGlobalBots(
       // the wall's 3D space: the ground and time as height (1 단 = 20 s = 높이 1)
       "자리 (3차원 · 1단 = 높이 1)": folder(
         {
-          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 60, step: 1, label: "덩어리 깊이 (단)" },
+          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 깊이 (단 · 60 = 20분)" },
           hLayout: { options: LAYOUT_OPTIONS, value: DEFAULT_HERD.layout, label: "높이 배치" },
           hOrigin: { options: ORIGIN_OPTIONS, value: DEFAULT_HERD.origin, label: "기점 (땅)" },
           hOriginR: { value: DEFAULT_HERD.originR, min: 5, max: 95, step: 1, label: "기점 반경 (월드)" },

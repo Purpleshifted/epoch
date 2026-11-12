@@ -44,7 +44,7 @@ const pair = (raw: string | null): [number, number] | undefined => {
 /** `?block=N`: the bots live down to N slots below the present and the wall freezes no part's shape (0 = off). */
 export function blockSlots(search: string): number {
   const q = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  return Math.round(num(q.get("block"), 0, 60) ?? 0);
+  return Math.round(num(q.get("block"), 0, 240) ?? 0);
 }
 
 export function parseBotLink(search: string): BotLink {

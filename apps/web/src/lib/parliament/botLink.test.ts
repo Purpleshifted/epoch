@@ -11,7 +11,7 @@ describe("botLink: one link that opens a wall with its herds running", () => {
   });
   it("every knob, clamped to the Leva ranges", () => {
     const { values } = parseBotLink("herds=40&loners=3&size=6-4&life=3~1&follow=2&loose=0.4&spread=1.5&drift=5&gap=30&radius=3&block=90");
-    expect(values).toEqual({ hCountMin: 12, hCount: 12, hLoners: 3, hSizeMin: 4, hSizeMax: 6, hLifeMin: 1, hLifeMax: 3, hFollow: 1, hLoose: 0.4, hSpread: 1.5, hDrift: 0.9, hGap: 30, hRadius: 3, hDepth: 60 });
+    expect(values).toEqual({ hCountMin: 12, hCount: 12, hLoners: 3, hSizeMin: 4, hSizeMax: 6, hLifeMin: 1, hLifeMax: 3, hFollow: 1, hLoose: 0.4, hSpread: 1.5, hDrift: 0.9, hGap: 30, hRadius: 3, hDepth: 90 });
   });
   it("herds=3-8: between three and eight", () => {
     expect(parseBotLink("herds=8-3").values).toEqual({ hCountMin: 3, hCount: 8 });
