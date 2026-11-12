@@ -44,7 +44,9 @@ describe("trails: similar walks are one path", () => {
     const ys = [...b.position].filter((_, i) => i % 3 === 1);
     expect(Math.min(...ys)).toBeCloseTo(5, 4);
     expect(Math.max(...ys)).toBeCloseTo(710 / 20, 4);
-    expect(b.weight[0]).toBeCloseTo(2 / DEFAULT_BUNDLE.full, 5);
+    // two lines of the same route (ten minutes apart is not one strand), each of one walk
+    expect(b.strands).toBe(2);
+    expect(b.weight[0]).toBeCloseTo(1 / DEFAULT_BUNDLE.full, 5);
   });
 
   it("the other way along the same road is the same path; a walk elsewhere or across it is not", () => {
@@ -60,7 +62,27 @@ describe("trails: similar walks are one path", () => {
     const apart = bundleTrails(evs, { ...B, threshold: 1.01 });
     expect(apart.bundled).toBe(0);
     expect(grounds(apart)).toEqual(grounds({ position: raw }));
-    expect(grounds(bundleTrails(evs, { ...B, strength: 0 }))).toEqual(grounds({ position: raw }));
+    expect(grounds(bundleTrails(evs, { ...B, strength: 0, strandSec: 0 }))).toEqual(grounds({ position: raw }));
+  });
+
+  it("one strand: a herd walking together is ONE line; the same way later is another line of the same route", () => {
+    const herd = (tag: string, s0: number) => [0, 1, 2, 3, 4].flatMap((i) => walk(`${tag}${i}`, 0, i * 0.5, 20, i * 0.5, s0 + i * 8));
+    const one = bundleTrails(herd("a", 100), B);
+    expect(one.legs).toBe(5);
+    expect(one.strands).toBe(1);
+    expect(one.position.length).toBe(6);
+    expect(one.weight[0]).toBeCloseTo(5 / DEFAULT_BUNDLE.full, 5);
+    // from the mean time of setting off to the mean time of stopping
+    expect(one.position[1]).toBeCloseTo((100 + 16) / 20, 4);
+    const two = bundleTrails([...herd("a", 100), ...herd("b", 800)], B);
+    expect(two.routes).toBe(1);
+    expect(two.strands).toBe(2);
+    expect(grounds(two).size).toBe(2); // both on the route's one line
+    // the other way at the same time is a strand of its own
+    const back = [0, 1, 2].flatMap((i) => walk(`c${i}`, 20, i * 0.5, 0, i * 0.5, 100 + i * 8));
+    expect(bundleTrails([...herd("a", 100), ...back], B).strands).toBe(2);
+    // 0 = every walk its own line
+    expect(bundleTrails(herd("a", 100), { ...B, strandSec: 0 }).position.length).toBeGreaterThan(6 * 5);
   });
 
   it("a window in time: only walks near each other in time are one path", () => {
@@ -71,7 +93,8 @@ describe("trails: similar walks are one path", () => {
 
   it("is the same whatever order the samples come in, and brighter the more walks a path has", () => {
     const evs = [0, 1, 2, 3, 4, 5, 6].flatMap((i) => walk(`w${i}`, 0, i * 0.3, 20, i * 0.3, 100 + i * 50));
-    const a = bundleTrails(evs, B), b = bundleTrails([...evs].reverse(), B);
+    const W = { ...B, strandSec: 600 };
+    const a = bundleTrails(evs, W), b = bundleTrails([...evs].reverse(), W);
     expect([...b.position]).toEqual([...a.position]);
     expect(Math.max(...a.weight)).toBe(1);
   });

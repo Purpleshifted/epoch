@@ -72,11 +72,18 @@ export interface BundleOptions extends TrailOptions {
   windowSec: number;
   /** 0..1: how far a leg is pulled onto its route's line (0 = as walked, 1 = on the line). */
   strength: number;
-  /** Legs of a route at which it is at its brightest. */
+  /** Walks of a strand at which it is at its brightest. */
   full: number;
+  /**
+   * ONE STRAND (the artist, 2026-11-12: "나란하면 특정 시간범위 동안은 한 다발로(선으로) 묶여야 하지 않나?"): the legs
+   * of a route that go the same way and set off within this many seconds of the first of them are ONE line — from
+   * where they set off (on average) to where they stopped, from when to when (on average). A herd moving on is one
+   * line; the same way taken later is another line of the same route. 0 = every leg its own line.
+   */
+  strandSec: number;
 }
 
-export const DEFAULT_BUNDLE = { minLeg: 3, radius: 4, threshold: 0.4, windowSec: 0, strength: 1, full: 6 };
+export const DEFAULT_BUNDLE = { minLeg: 3, radius: 4, threshold: 0.4, windowSec: 0, strength: 1, full: 6, strandSec: 90 };
 
 interface Pt {
   x: number;
@@ -158,6 +165,8 @@ export interface Bundled {
   routes: number;
   /** Legs that share a route with at least one other. */
   bundled: number;
+  /** Lines drawn for the routes' legs (strandSec > 0: fewer than the legs). */
+  strands: number;
 }
 
 export function bundleTrails(events: readonly Pick<PEvent, "o" | "x" | "z" | "s" | "k">[], o: BundleOptions): Bundled {
@@ -198,32 +207,75 @@ export function bundleTrails(events: readonly Pick<PEvent, "o" | "x" | "z" | "s"
     of[i] = best;
     against[i] = flip ? 1 : 0;
   }
-  let nSeg = 0;
-  for (const g of legs) nSeg += g.pts.length - 1;
-  const position = new Float32Array(nSeg * 6), weight = new Float32Array(nSeg * 2);
   const h = o.unit / Math.max(1e-6, o.secPerUnit);
   const pull = Math.max(0, Math.min(1, o.strength));
-  let w = 0, bundled = 0;
-  for (let i = 0; i < legs.length; i++) {
+  const full = Math.max(2, o.full);
+  const pos: number[] = [], wts: number[] = [];
+  let bundled = 0, strands = 0;
+  const shared = (i: number) => of[i] >= 0 && routes[of[i]].n >= 2;
+  for (let i = 0; i < legs.length; i++) if (shared(i)) bundled++;
+  /** A leg drawn as walked, pulled onto its route's line (or left alone when it has none). */
+  const drawLeg = (i: number) => {
     const g = legs[i];
-    const r = of[i] >= 0 ? routes[of[i]] : null;
-    const shared = !!r && r.n >= 2;
-    if (shared) bundled++;
-    const wt = shared ? Math.min(1, r!.n / Math.max(2, o.full)) : 0;
+    const r = shared(i) ? routes[of[i]] : null;
+    const wt = r ? Math.min(1, r.n / full) : 0;
     const at = (k: number): [number, number] => {
       const p = g.pts[k];
-      if (!shared || pull <= 0) return [p.x, p.z];
+      if (!r || pull <= 0) return [p.x, p.z];
       const t = against[i] ? 1 - g.at[k] : g.at[k];
-      return [p.x + (r!.ax + (r!.bx - r!.ax) * t - p.x) * pull, p.z + (r!.az + (r!.bz - r!.az) * t - p.z) * pull];
+      return [p.x + (r.ax + (r.bx - r.ax) * t - p.x) * pull, p.z + (r.az + (r.bz - r.az) * t - p.z) * pull];
     };
     let [px, pz] = at(0);
     for (let k = 1; k < g.pts.length; k++) {
       const [qx, qz] = at(k);
-      position.set([px, g.pts[k - 1].s * h, pz, qx, g.pts[k].s * h, qz], w * 6);
-      weight[w * 2] = weight[w * 2 + 1] = wt;
-      w++;
+      pos.push(px, g.pts[k - 1].s * h, pz, qx, g.pts[k].s * h, qz);
+      wts.push(wt, wt);
       [px, pz] = [qx, qz];
     }
+  };
+  if (o.strandSec > 0) {
+    // ONE STRAND: per route and direction, the legs that set off within strandSec of the strand's first (the legs are
+    // in order of setting off)
+    const groups = new Map<number, number[]>();
+    for (let i = 0; i < legs.length; i++) {
+      if (!shared(i)) {
+        drawLeg(i);
+        continue;
+      }
+      const key = of[i] * 2 + against[i];
+      const l = groups.get(key);
+      if (l) l.push(i);
+      else groups.set(key, [i]);
+    }
+    for (const [key, list] of groups) {
+      const r = routes[key >> 1], rev = (key & 1) === 1;
+      const [fx, fz, tx, tz] = rev ? [r.bx, r.bz, r.ax, r.az] : [r.ax, r.az, r.bx, r.bz];
+      let k = 0;
+      while (k < list.length) {
+        const first = legs[list[k]].pts[0].s;
+        let n = 0, s0 = 0, s1 = 0, ax = 0, az = 0, bx = 0, bz = 0;
+        for (; k < list.length && legs[list[k]].pts[0].s - first <= o.strandSec; k++, n++) {
+          const g = legs[list[k]], a = g.pts[0], b = g.pts[g.pts.length - 1];
+          s0 += a.s;
+          s1 += b.s;
+          ax += a.x;
+          az += a.z;
+          bx += b.x;
+          bz += b.z;
+        }
+        // from where they set off (on average) to where they stopped, pulled onto the route's line
+        const x0 = ax / n + (fx - ax / n) * pull, z0 = az / n + (fz - az / n) * pull;
+        const x1 = bx / n + (tx - bx / n) * pull, z1 = bz / n + (tz - bz / n) * pull;
+        pos.push(x0, (s0 / n) * h, z0, x1, (s1 / n) * h, z1);
+        const wt = Math.min(1, n / full);
+        wts.push(wt, wt);
+        strands++;
+      }
+    }
+  } else {
+    for (let i = 0; i < legs.length; i++) drawLeg(i);
+    strands = bundled;
   }
-  return { position, weight, legs: legs.length, routes: routes.length, bundled };
+  const position = Float32Array.from(pos), weight = Float32Array.from(wts);
+  return { position, weight, legs: legs.length, routes: routes.length, bundled, strands };
 }

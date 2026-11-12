@@ -1579,7 +1579,7 @@ function Trails({
   shade: number;
   /** Brightness of a walk that is nobody else's way, as a share of a full path's (0..1). */
   solo: number;
-  bundle: { radius: number; threshold: number; windowSec: number; strength: number; full: number } | null;
+  bundle: { radius: number; threshold: number; strandSec: number; strength: number; full: number } | null;
 }) {
   const geom = useMemo(() => new THREE.BufferGeometry(), []);
   const mat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false, vertexColors: true }), []);
@@ -1622,7 +1622,7 @@ function Trails({
     pos.needsUpdate = true;
     col.needsUpdate = true;
     geom.setDrawRange(0, n);
-    (window as unknown as { __trails?: unknown }).__trails = b ? { legs: b.legs, routes: b.routes, bundled: b.bundled } : { segments: n / 2 };
+    (window as unknown as { __trails?: unknown }).__trails = b ? { legs: b.legs, routes: b.routes, bundled: b.bundled, strands: b.strands } : { segments: n / 2 };
   });
   return <lineSegments geometry={geom} material={mat} frustumCulled={false} renderOrder={2} />;
 }
@@ -2253,7 +2253,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         bundleOn: { value: true, label: "묶기" },
         bnThreshold: { value: DEFAULT_BUNDLE.threshold, min: 0.05, max: 1, step: 0.05, label: "유사도 문턱 (높을수록 까다롭게)" },
         bnRadius: { value: DEFAULT_BUNDLE.radius, min: 0.5, max: 20, step: 0.5, label: "같은 곳으로 치는 반경 (월드)" },
-        bnWindow: { value: DEFAULT_BUNDLE.windowSec, min: 0, max: 1200, step: 20, label: "시간 창 (s · 0 = 시간 무관)" },
+        bnStrand: { value: DEFAULT_BUNDLE.strandSec, min: 0, max: 600, step: 10, label: "한 다발(선 하나)로 치는 시간 범위 (s · 0 = 걸음마다 따로)" },
         bnStrength: { value: DEFAULT_BUNDLE.strength, min: 0, max: 1, step: 0.05, label: "길로 당기는 세기" },
         bnFull: { value: DEFAULT_BUNDLE.full, min: 2, max: 40, step: 1, label: "이만큼 겹치면 가장 밝음 (걸음 수)" },
         bnSolo: { value: 0.35, min: 0, max: 1, step: 0.05, label: "묶이지 않은 실의 밝기 ×" },
@@ -2262,8 +2262,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     { order: lab ? 7.7 : 1.7, render: () => isV2 },
   );
   const trailBundle = useMemo(
-    () => (tr.bundleOn ? { radius: tr.bnRadius, threshold: tr.bnThreshold, windowSec: tr.bnWindow, strength: tr.bnStrength, full: tr.bnFull } : null),
-    [tr.bundleOn, tr.bnRadius, tr.bnThreshold, tr.bnWindow, tr.bnStrength, tr.bnFull],
+    () => (tr.bundleOn ? { radius: tr.bnRadius, threshold: tr.bnThreshold, strandSec: tr.bnStrand, strength: tr.bnStrength, full: tr.bnFull } : null),
+    [tr.bundleOn, tr.bnRadius, tr.bnThreshold, tr.bnStrand, tr.bnStrength, tr.bnFull],
   );
   // the history window reaches as deep as the bots write (the lab keeps everything)
   useEffect(() => {
