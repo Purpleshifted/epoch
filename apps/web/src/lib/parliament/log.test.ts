@@ -145,3 +145,14 @@ describe("log: saving appends to what this tab wrote (no re-reading, no re-seria
     expect(loadEvents().map((e) => e.o)).toEqual(["new"]);
   });
 });
+
+describe("EventLog.dropOldest: forgetting by the order of writing", () => {
+  it("keeps the newest-written, wherever in time they lie, and tells the followers to start over", () => {
+    const log = new EventLog();
+    for (let i = 0; i < 10; i++) log.add({ id: `e${i}`, o: "a", r: "worker", k: "p", x: 0, z: 0, s: 100 - i });
+    expect(log.dropOldest(4)).toBe(6);
+    expect(log.all().map((e) => e.id)).toEqual(["e6", "e7", "e8", "e9"]);
+    expect(log.droppedBefore).toBe(Infinity);
+    expect(log.dropOldest(10)).toBe(0);
+  });
+});

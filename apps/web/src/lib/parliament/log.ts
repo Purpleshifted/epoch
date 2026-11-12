@@ -74,6 +74,26 @@ export class EventLog {
     return n;
   }
 
+  /**
+   * Forgets the OLDEST-WRITTEN events so that at most `keep` are left (the artist's block, 2026-11-12: a fixed piece
+   * of spacetime cannot forget by time — everything in it is always "now"; it forgets what was written longest ago,
+   * wherever in the block it lies). Followers start over from what is left (`droppedBefore` = Infinity, as a clear).
+   */
+  dropOldest(keep: number): number {
+    const n = this.m.size - Math.max(0, Math.floor(keep));
+    if (n <= 0) return 0;
+    let i = 0;
+    for (const id of this.m.keys()) {
+      if (i++ >= n) break;
+      this.m.delete(id);
+    }
+    this.cache = null;
+    this.version++;
+    this.drops++;
+    this.droppedBefore = Infinity;
+    return n;
+  }
+
   clear(): void {
     this.m.clear();
     this.cache = null;

@@ -45,6 +45,7 @@ import {
   tailField,
   type Clock,
   sessionSeconds,
+  keepWindowSec,
   setKeepFrom,
   wrapCell,
   type Actor,
@@ -129,6 +130,7 @@ export function useGlobalBots(
           hCountWave: { value: 10, min: 1, max: 60, step: 1, label: "수가 오르내리는 주기 (분)" },
           hSizeMin: { value: DEFAULT_HERD.sizeMin, min: 1, max: 12, step: 1, label: "크기 최소 (명)" },
           hSizeMax: { value: DEFAULT_HERD.sizeMax, min: 1, max: 12, step: 1, label: "크기 최대 (명)" },
+          hKeep: { value: 20000, min: 2000, max: 30000, step: 1000, label: "덩어리에 남기는 표본 수 (넘으면 오래전에 쓰인 것부터 잊음)" },
           hLoners: { value: DEFAULT_HERD.loners, min: 0, max: 12, step: 1, label: "혼자 다니는 봇 (명)" },
           hLifeMin: { value: DEFAULT_LIFECYCLE.lifeMinSec / 60, min: 0.25, max: 10, step: 0.25, label: "수명 최소 (분)" },
           hLifeMax: { value: DEFAULT_LIFECYCLE.lifeMaxSec / 60, min: 0.25, max: 10, step: 0.25, label: "수명 최대 (분)" },
@@ -138,7 +140,7 @@ export function useGlobalBots(
       // the wall's 3D space: the ground and time as height (1 단 = 20 s = 높이 1)
       "자리 (3차원 · 1단 = 높이 1)": folder(
         {
-          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 깊이 (단 · 60 = 20분)" },
+          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 높이 (단 · 고정된 시공간 · 60 = 20분)" },
           hLayout: { options: LAYOUT_OPTIONS, value: DEFAULT_HERD.layout, label: "높이 배치" },
           hOrigin: { options: ORIGIN_OPTIONS, value: DEFAULT_HERD.origin, label: "기점 (땅)" },
           hOriginR: { value: DEFAULT_HERD.originR, min: 5, max: 95, step: 1, label: "기점 반경 (월드)" },
@@ -274,6 +276,8 @@ export function useGlobalBots(
   const botStartMs = useRef(0);
   const lastSaveMs = useRef(0);
   const lastKeepMs = useRef(0);
+  const keepCount = useRef(20000);
+  keepCount.current = b.hKeep;
   const lastKeepWall = useRef(0);
   const ground = useRef<{ at: number; level: Map<string, number>; built: Set<string>; visitors: Attractor[] } | null>(null);
   const routes = useRef(new Map<string, number[]>());
@@ -464,11 +468,19 @@ export function useGlobalBots(
         }
       }
     }
-    if (local) return; // the lab keeps everything, in memory
-    if (now - lastKeepMs.current >= KEEP_EVERY_MS && wall - lastKeepWall.current >= KEEP_MIN_WALL_MS) {
-      lastKeepMs.current = now;
+    // FORGETTING IN A FIXED BLOCK: by the order of writing, not by time (everything in the block is always there) —
+    // when more than the knob's count is held, the oldest-written tenth and more goes at once (the followers start
+    // over from what is left, so it is not done sample by sample)
+    const cap = Math.max(1000, lcCfg.herd?.depthSec ? keepCount.current : Infinity);
+    if (Number.isFinite(cap) && log.size > cap && wall - lastKeepWall.current >= KEEP_MIN_WALL_MS) {
       lastKeepWall.current = wall;
-      setKeepFrom(sessionSeconds(now, epochMs.current, 0));
+      log.dropOldest(Math.floor(cap * 0.9));
+    }
+    if (local) return; // the lab keeps its world in memory
+    if (now - lastKeepMs.current >= KEEP_EVERY_MS) {
+      lastKeepMs.current = now;
+      // the block is the times 0 … its height: nothing of it is "too old" (0 = keep from the beginning)
+      setKeepFrom(lcCfg.herd?.depthSec ? keepWindowSec() : sessionSeconds(now, epochMs.current, 0));
     }
     if (wall - lastSaveMs.current >= SAVE_EVERY_MS && pending.current.length) {
       lastSaveMs.current = wall;

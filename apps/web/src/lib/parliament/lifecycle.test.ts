@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FLOW,
+  DEFAULT_DENSITY,
   DEFAULT_FOLD,
   DEFAULT_HERD,
+  DEFAULT_PATH,
+  DensityField,
   DEFAULT_LIFECYCLE,
   WORLD_HALF,
   arrivalRate,
@@ -358,12 +361,14 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
       const elapsed = (w - EPOCH) / 1000;
       if (elapsed < 1000 || elapsed % 30) return;
       const bands = new Set<number>();
-      for (const v of st.present) if (v.kind === "leader") bands.add(Math.min(HERD.count - 1, Math.floor((-v.off / HERD.depthSec) * HERD.count)));
+      for (const v of st.present) if (v.kind === "leader") bands.add(Math.min(HERD.count - 1, Math.max(0, Math.floor(((elapsed + v.off) / HERD.depthSec) * HERD.count))));
       samples++;
       bandsSeen += bands.size;
+      // THE BLOCK IS FIXED: whatever the clock says, everybody is at a time of it (0 … its height, and a herd's
+      // thickness in time above)
       for (const v of st.present) {
-        expect(v.off).toBeLessThanOrEqual(DEFAULT_LIFECYCLE.timeSpreadSec);
         expect(elapsed + v.off).toBeGreaterThanOrEqual(-1e-6);
+        expect(elapsed + v.off).toBeLessThanOrEqual(HERD.depthSec + HERD.radius / HERD.metersPerSec + 1e-6);
       }
     });
     expect(bandsSeen / samples).toBeGreaterThan(HERD.count * 0.7);
@@ -376,7 +381,7 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
     });
     expect(ss.length).toBeGreaterThanOrEqual(HERD.count - 1);
     expect(Math.max(...ss) - Math.min(...ss)).toBeGreaterThan(HERD.depthSec * 0.5);
-    expect(Math.max(...ss)).toBeLessThanOrEqual(HERD.depthSec + 60 + 1e-6);
+    expect(Math.max(...ss)).toBeLessThanOrEqual(HERD.depthSec + HERD.radius / HERD.metersPerSec + 1e-6);
     expect(Math.min(...ss)).toBeGreaterThanOrEqual(0);
   });
 
@@ -452,7 +457,7 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
         const s = lifecycleActor(v, w, EPOCH).s;
         expect(s).toBeGreaterThanOrEqual((lastS.get(v.id) ?? 0) - 1e-6);
         // (a young world's block stands ahead of its clock: seated up to its top, a herd then rises by its age)
-        expect(s).toBeLessThanOrEqual(Math.max((w - EPOCH) / 1000, HERD.depthSec) + DEFAULT_LIFECYCLE.lifeMaxSec * 1.1 + DEFAULT_LIFECYCLE.timeSpreadSec + 1e-6);
+        expect(s).toBeLessThanOrEqual(HERD.depthSec + DEFAULT_LIFECYCLE.lifeMaxSec + HERD.radius / HERD.metersPerSec + 1e-6);
         lastS.set(v.id, s);
         if (v.drift) drifting++;
       }
@@ -471,8 +476,22 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
     const a = run(1500, cfg), b = run(1500, cfg);
     expect(a.events.length).toBe(b.events.length);
     expect(a.events[a.events.length - 1]).toEqual(b.events[b.events.length - 1]);
-    expect(foldWorld(a.events, 1500, WALL).slabs.filter((s) => s.raw > 0).length).toBeGreaterThan(10);
+    // (by the wall's rule of today: the density of spacetime, density.ts)
+    const field = new DensityField({ ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 } });
+    for (const e of [...a.events].sort((p, q) => p.s - q.s)) field.add(e);
+    expect(field.seeds().length).toBeGreaterThan(10);
   }, 120_000);
+
+  it("the block does not climb with the clock: an hour on, herds are still born at times of the same block", () => {
+    const born: number[] = [];
+    walk(3600, cfg, (_st, w, arrivals) => {
+      const elapsed = (w - EPOCH) / 1000;
+      if (elapsed > 3000) for (const v of arrivals) if (v.kind === "leader") born.push(elapsed + v.off);
+    });
+    expect(born.length).toBeGreaterThan(5);
+    expect(Math.min(...born)).toBeGreaterThanOrEqual(-1e-6);
+    expect(Math.max(...born)).toBeLessThanOrEqual(HERD.depthSec + 1e-6);
+  });
 
   it("meeting a building on the way: with meetStay 1 the walker goes there and stays; with 0 it never asks", () => {
     const spot: [number, number] = [5, 5];

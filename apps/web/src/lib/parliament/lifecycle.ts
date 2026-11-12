@@ -114,7 +114,8 @@ export interface HerdConfig {
   gap: number;
   /** World units of height per second of assigned time (the wall: one slot's height / its seconds). */
   metersPerSec: number;
-  /** THE BLOCK: herds are seated down to this many seconds below the present (0 = all at the present). */
+  /** THE BLOCK: a fixed piece of spacetime, the times 0 … this many seconds; herds are born at times of it and live
+   *  upwards from there (0 = no block: all at the present, as the clock goes). */
   depthSec: number;
   /** WHEN (height): "strata" = the depth is cut into as many bands as there are herds and a new herd takes one of
    *  the emptiest — herds at every time of the block; "any" = anywhere in the depth. */
@@ -441,19 +442,19 @@ function groundCandidate(v: Visitor, places: readonly Place[], wallMs: number, e
  * away (3D) from the living herds if it can — the best of eight tries.
  */
 function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig): void {
-  // THE BLOCK IS WHOLE FROM THE FIRST SECOND (the artist, 2026-11-12: "왜 초반에는 바닥에만 몰려있어? 시공간 무작위
-  // 배정이라면"): it reaches from its top down `depthSec`, and its top is the present — or, while the world is younger
-  // than the block is deep, the block's own height (so a young world's herds are ahead of its clock, all over the
-  // block, instead of crowded on the floor between time 0 and now)
+  // THE BLOCK IS A FIXED PIECE OF SPACETIME (the artist, 2026-11-12: "정해진 시공간에서 태어났다가 나가는 건데 왜
+  // 자꾸 위로 올라가는 거냐"): it is the times 0 … depthSec, whatever the clock says — a herd is born at a time of the
+  // block (off = that time − now), lives its span upwards from there and is gone. Nothing follows the present: the
+  // block does not climb with the clock. (A life begins low enough to end within the block.)
   const elapsed = Math.max(0, (wallMs - epochMs) / 1000);
   const depth = Math.max(0, h.depthSec);
-  const lift = Math.max(0, depth - elapsed);
+  const span = Math.max(0, depth - v.lifeMs / 1000);
   const leaders = st.present.filter((p) => p.kind === "leader" && p.id !== v.id);
   const offNow = (p: Visitor) => p.off + (p.drift ?? 0) * ((wallMs - p.bornMs) / 1000);
   // STRATA: the bands of the depth and how many herds live in each
   const bands = Math.max(1, Math.round(h.count));
   const inBand = new Array<number>(bands).fill(0);
-  if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((lift - offNow(p)) / depth) * bands)))]++;
+  if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((elapsed + offNow(p)) / depth) * bands)))]++;
   const fewest = Math.min(...inBand);
   const free = inBand.map((n, i) => (n === fewest ? i : -1)).filter((i) => i >= 0);
   let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1;
@@ -462,8 +463,8 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
     if (depth > 0) {
       if (h.layout === "strata") {
         const band = free[Math.min(free.length - 1, Math.floor(draw(v, epochMs, 60 + c) * free.length))];
-        off = lift - ((band + draw(v, epochMs, 110 + c)) / bands) * depth;
-      } else off = lift - draw(v, epochMs, 60 + c) * depth;
+        off = Math.min(span, ((band + draw(v, epochMs, 110 + c)) / bands) * depth) - elapsed;
+      } else off = draw(v, epochMs, 60 + c) * span - elapsed;
     }
     const [x, z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, c);
     let dMin = Infinity;
@@ -501,7 +502,8 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
 /** A loner of the population: seated like a herd of one (its own time and ground), nothing else changed. */
 function seatLoner(v: Visitor, st: LifecycleState, wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig): void {
   const depth = Math.max(0, h.depthSec);
-  if (depth > 0) v.off = Math.max(0, depth - Math.max(0, (wallMs - epochMs) / 1000)) - draw(v, epochMs, 60) * depth;
+  // (a time of the fixed block, as a herd's: seatHerd)
+  if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - v.lifeMs / 1000) - Math.max(0, (wallMs - epochMs) / 1000);
   [v.x, v.z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, 0);
   v.ex = v.x;
   v.ez = v.z;
