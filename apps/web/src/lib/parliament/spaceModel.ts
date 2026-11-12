@@ -966,7 +966,8 @@ export class SpaceModel {
     if (wKey !== this.walkKey) {
       this.walkKey = wKey;
       const rule = `${box.secPerUnit}:${box.unit}:${presentSlots}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}`;
-      const kept = this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
+      // (THE BLOCK: with the density's buildings anybody may write at any depth, so no layer is kept as it was)
+      const kept = !this.densityCfg && this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
       this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, present: presentSlots }) : NO_WALKWAYS;
       const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
       this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;

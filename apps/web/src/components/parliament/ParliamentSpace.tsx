@@ -2024,8 +2024,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // the shot sequence the auto run plays (docs/camera-motion.md §1): the pose above as the base, then the enabled shots
   // MEASUREMENT SWITCH `?cam=band` (2026-11-01, the reset): a fixed framing that shows the fusion band whatever the
   // saved camera says — focus 45 slots below the present, polar 62°, distance 120, no auto run, no turn
-  // THE REDESIGN: the camera does not move by itself (the artist, 2026-11-12: "카메라 자동이동 좀 꺼줘") — no turning, no
-  // automatic shots; the mouse moves it
+  // THE REDESIGN: the camera does not move by itself (the artist, 2026-11-12: "카메라 자동이동 좀 꺼줘", twice) — no
+  // turning, no automatic shots, and it does not climb with the present either (`follow` below: it goes to the
+  // present once when the view opens, then stays); the mouse moves it
   const camBase = REDESIGN ? { ...cam, camAuto: false, camTurnSec: 0 } : cam;
   const camView = params.get("cam") === "band" ? { ...camBase, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 } : camBase;
   const shotSeq: ShotSequence = {
@@ -2208,6 +2209,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     order: lab ? 8 : 2,
     flow: {
       path: `${WALK_GROUP}.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)`,
+      shown: true,
       order: 1,
       legacy: [`${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, "생성 규칙 (회사원 시공간 밀집)"],
     },
@@ -2281,7 +2283,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const tr = useLevaControls(
     TRAIL_GROUP,
     savable(TRAIL_GROUP, {
-      tlOn: { value: true, label: "켜기" },
+      tlOn: { value: true, label: "켜기 (꼬리: 봇이 따라 걷는 흔적)" },
+      tlDraw: { value: false, label: "꼬리의 길 그리기 (새 방식 · 끄면 예전 길만)" },
       tlTail: { value: DEFAULT_TAILS.tailSec, min: 20, max: 1200, step: 10, label: "꼬리가 사라지기까지 (s)" },
       tlMinLeg: { value: DEFAULT_TAILS.minLeg, min: 0, max: 60, step: 1, label: "길로 치는 최소 거리 (월드 · 이보다 짧은 이동은 한 곳 안의 움직임)" },
       tlPathAt: { value: DEFAULT_TAIL_LINES.pathAt, min: 1, max: 20, step: 0.25, label: "길이 되는 겹침 (꼬리 수)" },
@@ -2346,7 +2349,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     { order: lab ? 7.2 : 1.55 },
   );
-  const wlk = useControls(
+  // BROUGHT OVER (the artist, 2026-11-12: "길 로직은 예전 버전 따를 수 있나?" — judged on the ground, between
+  // buildings: walkways.ts): the old walkways, on the density's buildings
+  const wlk = useLevaControls(
     WALK_GROUP,
     savable(
       WALK_GROUP,
@@ -2948,7 +2953,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
-  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: v.follow, markers: v.markers, markerHold: v.markerHold };
+  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: v.follow && !REDESIGN, markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -3073,7 +3078,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           pathLook={pathLook}
           nearFade={v.nearFade}
           noAxis={isV2}
-          walk={REDESIGN ? null : walkView}
+          walk={walkView}
           walkLook={walkLook}
           arrive={arriveView}
           clock={clk}
@@ -3104,7 +3109,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {/* the paths are in the scene itself (behind what stands in front of them), not on the markers' overlay */}
-        {tr.tlOn && <TailPaths unit={c.unit} look={tailLook} opacity={tr.tlOpacity} shade={tr.tlShade} />}
+        {tr.tlOn && tr.tlDraw && <TailPaths unit={c.unit} look={tailLook} opacity={tr.tlOpacity} shade={tr.tlShade} />}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />

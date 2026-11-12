@@ -204,6 +204,8 @@ export interface FlowPlacement {
   order?: number;
   /** Groups whose saved values the flow rules were in before. */
   legacy?: string[];
+  /** Shown even when the fold's own folder is hidden (the redesign's wall brings the paths' ground back). */
+  shown?: boolean;
 }
 
 export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, place: ControlPlacement & { flow?: FlowPlacement } = {}): FoldConfig {
@@ -240,7 +242,7 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
   const root = place.folder ?? "회사원 규칙 (시공간 밀집)";
   const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order, ...(place.hidden ? { render: () => false } : {}) }) as unknown as Record<string, number>;
   const flowPath = place.flow?.path ?? `${root}.길 (V2 · 유지되는 유통량)`;
-  const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: true, order: place.flow?.order, render: place.hidden ? () => false : v2 }) as unknown as Record<string, number>;
+  const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: true, order: place.flow?.order, render: place.hidden && !place.flow?.shown ? () => false : v2 }) as unknown as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
   const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare } = f as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(
