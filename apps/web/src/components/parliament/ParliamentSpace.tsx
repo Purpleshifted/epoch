@@ -2338,9 +2338,14 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           {
             walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (길이 이만큼 생기거나 사라지면)" },
             walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)" },
-            rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 길이 (월드)" },
-            minorShare: { value: DEFAULT_WALK.minorShare, min: 0, max: 1.01, step: 0.01, label: "옛 길에서 갈라진 것으로 볼 겹침 (미만 = 따로 새 길)" },
-            reach: { value: DEFAULT_WALK.reach, min: 0, max: 120, step: 1, label: "이보다 오래된 길에는 잇지 않음 (단)" },
+            // JOINING THE PAST (the artist, 2026-11-12: "경사로는 아예 안 보이는디? 과거랑 이어지질 않음"): a new way used
+            // to climb from an older one only when most of it (60 %) ran along it, and only from lines of the last few
+            // slots — so almost every way was laid flat, on its own. New inputs (new names: the old saved values would
+            // keep it so): any touch is enough, the older ways of the last twenty slots count, and the ramp is long
+            // enough to be seen as one
+            joinShare: { value: 0.02, min: 0, max: 1.01, step: 0.01, label: "옛 길에 이만큼만 겹쳐도 거기서 갈라져 오름 (작을수록 잘 이어짐)" },
+            joinReach: { value: 20, min: 1, max: 120, step: 1, label: "이만큼 아래의 옛 길까지 이음 (단)" },
+            rampLen: { value: 8, min: 0.5, max: 40, step: 0.5, label: "경사로 길이 (월드)" },
             grace: { value: DEFAULT_WALK.grace, min: 0, max: 60, step: 1, label: "이만큼 안 쓰여도 같은 길 (단)" },
             resurfaceOn: { value: DEFAULT_WALK.resurface >= 0, label: "오래 쓰는 길을 다시 깖" },
             resurface: { value: DEFAULT_WALK.resurface, min: 0, max: 120, step: 1, label: "다시 까는 간격 (단)" },
@@ -2384,16 +2389,16 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             join: wlk.walkJoin,
             change: wlk.walkChange,
             minGapSlots: wlk.walkGap,
-            rampLength: wlk.rampLength,
+            rampLength: wlk.rampLen,
             smooth: wlk.smooth,
-            reach: wlk.reach,
+            reach: wlk.joinReach,
             grace: wlk.grace,
-            minorShare: wlk.minorShare,
+            minorShare: wlk.joinShare,
             resurface: wlk.resurfaceOn ? wlk.resurface : -1,
             life: 0,
           }
         : null,
-    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLength, wlk.smooth, wlk.reach, wlk.grace, wlk.minorShare, wlk.resurfaceOn, wlk.resurface],
+    [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLen, wlk.smooth, wlk.joinReach, wlk.grace, wlk.joinShare, wlk.resurfaceOn, wlk.resurface],
   );
   // ── 물 → 배관 (V1 + V2): the sealed ground → its rain piped below (dense) / open streams (sparse, past outfalls) ──
   const WATER_GROUP = "물 → 배관";
