@@ -9,10 +9,14 @@ const walk = (o: string, i0: number, i1: number, j: number, s0: number) => {
   for (let i = i0, t = 0; d > 0 ? i <= i1 : i >= i1; i += d, t++) out.push({ o, x: (i + 0.5) * C, z: (j + 0.5) * C, s: s0 + t * 0.6, k: "p" as const });
   return out;
 };
-const fieldOf = (events: ReturnType<typeof walk>) => {
+const fieldOf = (events: ReturnType<typeof walk>, cfg = DEFAULT_TAILS) => {
   const f = new TailField();
-  f.configure({ ...DEFAULT_TAILS });
-  for (const e of [...events].sort((a, b) => a.s - b.s)) f.add(e);
+  f.configure({ ...cfg });
+  // everybody stops where they are a second after their last sample (a tail is laid when the walk has ended)
+  const last = new Map<string, (typeof events)[number]>();
+  for (const e of events) if (!last.has(e.o) || e.s >= last.get(e.o)!.s) last.set(e.o, e);
+  const all = [...events, ...[...last.values()].map((e) => ({ ...e, s: e.s + 1 }))];
+  for (const e of all.sort((a, b) => a.s - b.s)) f.add(e);
   return f;
 };
 
@@ -57,7 +61,24 @@ describe("tails: paths from fading tails", () => {
     const l = long.lines({ ...DEFAULT_TAIL_LINES, smooth: 0 });
     for (let i = 1; i < l.length; i += 3) hs.add(Math.round(l[i]));
     expect(hs.size).toBeGreaterThan(2);
+    // flat: what became path in the same layer lies at one height (no wobble from cell to cell)
+    const first = Math.min(...hs);
+    let atFirst = 0, offLayer = 0;
+    for (let i = 1; i < l.length; i += 3) {
+      if (Math.abs(l[i] - first) < 1e-6) atFirst++;
+      if (Math.abs(l[i] / DEFAULT_TAIL_LINES.layer - Math.round(l[i] / DEFAULT_TAIL_LINES.layer)) > 1e-6) offLayer++;
+    }
+    expect(atFirst).toBeGreaterThan(30);
+    // (but for the few points of a ramp where a newer stretch climbs)
+    expect(offLayer).toBeLessThan(l.length / 30);
     // smoothing keeps it a line of the same ends
     expect(long.lines(DEFAULT_TAIL_LINES).length).toBeGreaterThan(l.length);
+  });
+
+  it("near and far: a hop within a place leaves no tail; a walk from one place to another does", () => {
+    const hops = [0, 1, 2, 3, 4, 5].flatMap((i) => walk(`h${i % 3}`, i % 2 ? 6 : 0, i % 2 ? 0 : 6, 0, 400 + i * 20));
+    expect(fieldOf(hops).steps).toBe(0);
+    expect(fieldOf(hops, { ...DEFAULT_TAILS, minLeg: 0 }).steps).toBeGreaterThan(0);
+    expect(fieldOf(walk("a", 0, 20, 0, 400)).steps).toBeGreaterThan(0);
   });
 });

@@ -35,8 +35,16 @@ export interface TailConfig {
    *  `maxGapSec` are not one walk. */
   minStep: number;
   maxGapSec: number;
+  /**
+   * NEAR AND FAR (the artist, 2026-11-12: "너무 근교에 있는 건물 덩어리 사이로 오가는 거랑 멀리 있는 곳 사이를
+   * 오가는 것도 구분을 해야 할지"): a walk shorter than this (world units, from setting off to stopping) is moving
+   * about WITHIN a place — it leaves no tail, so the hops round a group of buildings do not become a scribble of
+   * little paths. Only a walk from one place to another leaves one. (So a tail is laid when the walk has ended.)
+   * 0 = every step leaves its tail at once.
+   */
+  minLeg: number;
 }
-export const DEFAULT_TAILS: TailConfig = { slotSec: 20, tailSec: 180, radius: 0.7, minStep: 0.6, maxGapSec: 3 };
+export const DEFAULT_TAILS: TailConfig = { slotSec: 20, tailSec: 180, radius: 0.7, minStep: 0.6, maxGapSec: 3, minLeg: 12 };
 
 export interface TailLines {
   /** Overlapping tails from which a cell is path. */
@@ -45,10 +53,17 @@ export interface TailLines {
   rise: number;
   /** Times the curves are smoothed (0 = cell to cell). */
   smooth: number;
-  /** A path that lives on is laid again after this many slots. */
+  /**
+   * LAYERS (the artist, 2026-11-12: "길 모양이 여전히 너무 이상해"): a path's height is not the very slot each cell
+   * crossed the threshold in — along one way that differs from cell to cell, and the line wobbled up and down. Time
+   * is read in layers of this many slots: what became path in the same layer lies FLAT at that layer's height, and
+   * only a branch that came in a later layer climbs to its own (the ramp).
+   */
+  layer: number;
+  /** A path that lives on is laid again after this many layers. */
   resurface: number;
 }
-export const DEFAULT_TAIL_LINES: TailLines = { pathAt: 3, rise: 0.25, smooth: 4, resurface: 6 };
+export const DEFAULT_TAIL_LINES: TailLines = { pathAt: 3, rise: 0.25, smooth: 4, layer: 3, resurface: 4 };
 
 interface Run {
   cx: number;
@@ -65,6 +80,8 @@ export class TailField {
   /** cell → slot → level. */
   private cols = new Map<number, Map<number, number>>();
   private last = new Map<string, { x: number; z: number; s: number }>();
+  /** Each walker's walk under way: its steps (ax, az, bx, bz, s), kept until it stops (minLeg). */
+  private open = new Map<string, number[]>();
   private cache: { key: string; out: Float32Array } | null = null;
   /** Bumped by every step: what was drawn is the same while it stands. */
   version = 0;
@@ -82,6 +99,7 @@ export class TailField {
   clear(): void {
     this.cols.clear();
     this.last.clear();
+    this.open.clear();
     this.cache = null;
     this.version++;
     this.steps = 0;
@@ -96,18 +114,41 @@ export class TailField {
     this.last.set(e.o, { x, z, s: e.s });
     if (!prev) return;
     const dt = e.s - prev.s, L = Math.hypot(x - prev.x, z - prev.z);
-    // (a step over the world's edge is short round the torus but long on the map: it leaves no tail)
-    if (dt <= 0 || dt > c.maxGapSec || L < c.minStep || L > wrapDist(prev.x, prev.z, x, z) + 1e-6) return;
+    // (a step over the world's edge is short round the torus but long on the map: the walk ends before it)
+    const step = dt > 0 && dt <= c.maxGapSec && L >= c.minStep && L <= wrapDist(prev.x, prev.z, x, z) + 1e-6;
+    if (c.minLeg <= 0) {
+      if (step) this.lay(prev.x, prev.z, x, z, e.s);
+      return;
+    }
+    if (step) {
+      const leg = this.open.get(e.o) ?? [];
+      leg.push(prev.x, prev.z, x, z, e.s);
+      this.open.set(e.o, leg);
+      return;
+    }
+    // it stopped: a walk from one place to another leaves its tail now; a hop within a place leaves none
+    const leg = this.open.get(e.o);
+    if (!leg) return;
+    this.open.delete(e.o);
+    const n = leg.length / 5;
+    if (Math.hypot(leg[(n - 1) * 5 + 2] - leg[0], leg[(n - 1) * 5 + 3] - leg[1]) < c.minLeg) return;
+    for (let i = 0; i < n; i++) this.lay(leg[i * 5], leg[i * 5 + 1], leg[i * 5 + 2], leg[i * 5 + 3], leg[i * 5 + 4]);
+  }
+
+  /** One step from (ax, az) to (bx, bz) at time `s` leaves its tail on the cells it crosses. */
+  private lay(ax: number, az: number, bx: number, bz: number, s: number): void {
+    const c = this.cfg;
+    const L = Math.hypot(bx - ax, bz - az);
     const R = Math.max(0.05, c.radius);
-    const ux = (x - prev.x) / L, uz = (z - prev.z) / L;
-    const i0 = Math.floor((Math.min(prev.x, x) - R) / CELL_SIZE), i1 = Math.floor((Math.max(prev.x, x) + R) / CELL_SIZE);
-    const j0 = Math.floor((Math.min(prev.z, z) - R) / CELL_SIZE), j1 = Math.floor((Math.max(prev.z, z) + R) / CELL_SIZE);
-    const k0 = Math.max(0, Math.floor(e.s / c.slotSec)), k1 = Math.floor((e.s + Math.max(0, c.tailSec)) / c.slotSec);
+    const ux = (bx - ax) / L, uz = (bz - az) / L;
+    const i0 = Math.floor((Math.min(ax, bx) - R) / CELL_SIZE), i1 = Math.floor((Math.max(ax, bx) + R) / CELL_SIZE);
+    const j0 = Math.floor((Math.min(az, bz) - R) / CELL_SIZE), j1 = Math.floor((Math.max(az, bz) + R) / CELL_SIZE);
+    const k0 = Math.max(0, Math.floor(s / c.slotSec)), k1 = Math.floor((s + Math.max(0, c.tailSec)) / c.slotSec);
     for (let ci = i0; ci <= i1; ci++) {
       for (let cj = j0; cj <= j1; cj++) {
         // the share of a whole crossing of this cell that this step is: the length of the step within R of the cell's
         // middle, over 2R — one walk over a cell's middle adds up to exactly 1, however it is cut into steps
-        const px = (ci + 0.5) * CELL_SIZE - prev.x, pz = (cj + 0.5) * CELL_SIZE - prev.z;
+        const px = (ci + 0.5) * CELL_SIZE - ax, pz = (cj + 0.5) * CELL_SIZE - az;
         const along = px * ux + pz * uz, off = Math.abs(px * uz - pz * ux);
         if (off >= R) continue;
         const half = Math.sqrt(R * R - off * off);
@@ -119,7 +160,7 @@ export class TailField {
         if (!col) this.cols.set(ck, (col = new Map()));
         for (let k = k0; k <= k1; k++) {
           // whole in the slot of the step, fading with the time after it
-          const fade = k === k0 ? 1 : Math.max(0, 1 - ((k + 0.5) * c.slotSec - e.s) / Math.max(1e-6, c.tailSec));
+          const fade = k === k0 ? 1 : Math.max(0, 1 - ((k + 0.5) * c.slotSec - s) / Math.max(1e-6, c.tailSec));
           if (fade > 0) col.set(k, (col.get(k) ?? 0) + g * fade);
         }
       }
@@ -143,15 +184,17 @@ export class TailField {
   lines(o: TailLines): Float32Array {
     const key = `${this.version}:${JSON.stringify(o)}`;
     if (this.cache && this.cache.key === key) return this.cache.out;
-    // RUNS: per cell, the stretches of slots at path level — a long one cut every `resurface` slots (laid again)
+    // RUNS: per cell, the stretches of LAYERS in which it is path — a long one cut every `resurface` layers (laid
+    // again). k0 … k1 are layers; the surface's height h is in slots.
+    const W = Math.max(1, Math.round(o.layer));
     const S = Math.max(1, Math.round(o.resurface));
     const runs: Run[] = [];
     const at = new Map<number, Run[]>();
     for (const [ck, col] of this.cols) {
-      const ks: number[] = [];
-      for (const [k, v] of col) if (v >= o.pathAt) ks.push(k);
-      if (!ks.length) continue;
-      ks.sort((p, q) => p - q);
+      const set = new Set<number>();
+      for (const [k, v] of col) if (v >= o.pathAt) set.add(Math.floor(k / W));
+      if (!set.size) continue;
+      const ks = [...set].sort((p, q) => p - q);
       const cx = Math.floor(ck / 65536) - 32768, cz = (ck % 65536) - 32768;
       const mine: Run[] = [];
       let from = ks[0], prev = ks[0];
@@ -160,7 +203,7 @@ export class TailField {
           prev = ks[i];
           continue;
         }
-        mine.push({ cx, cz, k0: from, k1: prev, h: from });
+        mine.push({ cx, cz, k0: from, k1: prev, h: from * W });
         if (i < ks.length) from = prev = ks[i];
       }
       at.set(ck, mine);
@@ -254,5 +297,10 @@ export class TailField {
 /** The one field of this page: the bots feed it and plan their ways over it (useGlobalBots), the wall draws it. */
 export const tailField = new TailField();
 
-/** Whether the walkers plan their ways over the tails (the wall's knob; read by useGlobalBots). */
-export const tailWalk = { follow: true };
+/**
+ * How the walkers use the ground (the wall's knobs; read by useGlobalBots): whether they plan their ways over the
+ * tails and how strongly (0 = a tail is no easier than bare ground, 1 = one tail makes a cell 63 % a path, more =
+ * sooner), and the buildings as the wall makes them (a copy of the wall's density field, fed with the same samples:
+ * the wall's own lives in its worker) — what they go round, or stop at.
+ */
+export const tailWalk: { follow: boolean; strength: number; built: { levelAt(cx: number, cz: number, k: number): number; add(e: Pick<PEvent, "o" | "x" | "z" | "s" | "k">): void } | null } = { follow: true, strength: 1, built: null };

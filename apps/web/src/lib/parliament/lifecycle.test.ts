@@ -474,6 +474,23 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
     expect(foldWorld(a.events, 1500, WALL).slabs.filter((s) => s.raw > 0).length).toBeGreaterThan(10);
   }, 120_000);
 
+  it("meeting a building on the way: with meetStay 1 the walker goes there and stays; with 0 it never asks", () => {
+    const spot: [number, number] = [5, 5];
+    let asked = 0, stayedThere = 0;
+    const c = { ...cfg, meetStay: 1 };
+    let st = initLifecycle(EPOCH, EPOCH, c);
+    for (let i = 1; i <= 600; i++) {
+      st = stepLifecycle(st, EPOCH + i * 1000, { meet: () => (asked++, spot) }, c).state;
+      for (const v of st.present) if (v.kind === "leader" && v.mode === "stay" && wrapDist(v.sx, v.sz, spot[0], spot[1]) < 1) stayedThere++;
+    }
+    expect(asked).toBeGreaterThan(0);
+    expect(stayedThere).toBeGreaterThan(0);
+    let never = 0;
+    let s0 = initLifecycle(EPOCH, EPOCH, cfg);
+    for (let i = 1; i <= 300; i++) s0 = stepLifecycle(s0, EPOCH + i * 1000, { meet: () => (never++, spot) }, cfg).state;
+    expect(never).toBe(0);
+  });
+
   it("no herd config: the bots are as before (by the rate, alone or in the old company, at the present)", () => {
     const { st } = run(600);
     for (const v of st.present) {

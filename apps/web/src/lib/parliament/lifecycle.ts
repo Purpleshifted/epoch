@@ -77,6 +77,12 @@ export interface LifecycleConfig {
   /** They set off for the door when what is left of their life is about the walk there — at most this long before the
    *  end (s); reaching the door ends the life. */
   leaveSec: number;
+  /**
+   * MEETING A BUILDING ON THE WAY (the artist, 2026-11-12: "건물이 있으면 우회/머무르기 선택하도록"): the share of
+   * such meetings in which the walker goes no further — it walks to the building and stays there; in the others it
+   * goes round (the route, LifecycleInputs.planRoute). Absent or 0 = it always goes round. Needs LifecycleInputs.meet.
+   */
+  meetStay?: number;
   memory: { staySec: number; mergeR: number; halfLifeSec: number; forgetSec: number };
   /** HERDS (absent = none: the bots arrive by the rate above, alone or in the old loose company). With it the
    *  arrivals by rate stop: the population is `count` herds and `loners` bots, each replaced when it is gone. */
@@ -218,6 +224,8 @@ export interface Visitor {
   /** HERD: the leader's id (absent: a leader or a bot of its own), its place around the leader (m), how long after
    *  the leader it sets off (s), where it is heading with the herd and from when it may go (wall ms). */
   lead?: string;
+  /** It is on its way to a building it met and will stay at (meetStay). */
+  met?: boolean;
   /** HERD: what it is in the population ("leader" of a herd, or a "loner"), how its herd moves, the round it walks
    *  (flat x, z list) and where on it it is, and how fast it rises through time relative to the clock (0 = with it). */
   kind?: "leader" | "loner";
@@ -269,6 +277,9 @@ export interface LifecycleInputs {
   /** The way from A to B (a polyline A … B in continuous coordinates); absent = straight. */
   /** (`s` = the walker's own assigned time: the ground it plans over is the ground of its time, tails.ts) */
   planRoute?: (ax: number, az: number, bx: number, bz: number, s?: number) => number[];
+  /** The first building a straight walk from A to B would meet at time `s`, well before B — where it would enter it;
+   *  null = none. */
+  meet?: (ax: number, az: number, bx: number, bz: number, s: number) => [number, number] | null;
   /** Most departures (routes planned) per step; the others wait a second. */
   maxRoutes?: number;
 }
@@ -646,8 +657,9 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
 /** What `v` does when its LOOK or STAY is over, or it has arrived. Returns true when it planned a route. */
 function next(v: Visitor, st: LifecycleState, inp: LifecycleInputs, wallMs: number, cfg: LifecycleConfig, canRoute: boolean): boolean {
   const epochMs = st.epochMs;
-  if (v.mode === "go" && draw(v, epochMs, 40) < 0.75) {
-    // arrived: usually it stays
+  if (v.mode === "go" && (v.met || draw(v, epochMs, 40) < 0.75)) {
+    // arrived: usually it stays (at a building it stopped at on its way, always)
+    v.met = false;
     startStay(v, wallMs, epochMs);
     return false;
   }
@@ -671,7 +683,16 @@ function next(v: Visitor, st: LifecycleState, inp: LifecycleInputs, wallMs: numb
     return false;
   }
   const [tx, tz] = destination(v, st.places, inp.attractors ?? [], wallMs, epochMs, cfg);
-  const bx = nearestImage(tx, v.x), bz = nearestImage(tz, v.z);
+  let bx = nearestImage(tx, v.x), bz = nearestImage(tz, v.z);
+  // a building on the way: stop there and stay, or go round it
+  if (inp.meet && (cfg.meetStay ?? 0) > 0) {
+    const hit = inp.meet(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off);
+    if (hit && draw(v, epochMs, 45) < cfg.meetStay!) {
+      bx = nearestImage(hit[0], v.x);
+      bz = nearestImage(hit[1], v.z);
+      v.met = true;
+    }
+  }
   v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
   v.along = 0;
   v.mode = "go";

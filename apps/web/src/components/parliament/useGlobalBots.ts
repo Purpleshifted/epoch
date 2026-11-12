@@ -155,6 +155,7 @@ export function useGlobalBots(
           hLoose: { value: DEFAULT_HERD.loose, min: 0, max: 1, step: 0.05, label: "무리의 느슨함" },
           hSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "성격 변주 폭" },
           hDrift: { value: DEFAULT_HERD.drift, min: 0, max: 0.9, step: 0.05, label: "시간 속도 변주 (±)" },
+          hMeetStay: { value: 0.3, min: 0, max: 1, step: 0.05, label: "가는 길에 건물을 만나면 머무는 비율 (나머지는 돌아감)" },
         },
         { render: show },
       ),
@@ -176,6 +177,7 @@ export function useGlobalBots(
       follow: b.hFollow,
       spread: b.hSpread,
       leaveShare: 0,
+      meetStay: b.hMeetStay,
       herd: {
         count: herdsMax,
         countMin: herdsMin,
@@ -195,7 +197,7 @@ export function useGlobalBots(
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   const setDepth = opts?.setDepth;
@@ -353,6 +355,7 @@ export function useGlobalBots(
       pending.current.push(e);
       // every step leaves a tail (tails.ts): the field the walkers plan over and the wall draws
       tailField.add(e);
+      tailWalk.built?.add(e);
     };
 
     if (isSession) {
@@ -380,19 +383,48 @@ export function useGlobalBots(
       // way. (Buildings are not gone round yet: they are made in the wall's worker now, density.ts.)
       const tailFlow = { ...(flow ?? DEFAULT_FLOW), enabled: true, gridShare: 1 };
       const slotOf = (sec: number) => Math.floor(sec / tailField.cfg.slotSec);
+      const builtAt = (ci: number, cj: number, k: number) => (tailWalk.built ? tailWalk.built.levelAt(ci, cj, k) >= 1 : false);
       const planRoute = tailWalk.follow
         ? (ax: number, az: number, bx: number, bz: number, sec?: number) => {
             const k = slotOf(sec ?? sessionSeconds(now, epochMs.current, 0));
-            return flowRoute(ax, az, bx, bz, { level: (key) => { const [ci, cj] = key.split(",").map(Number); return tailField.level(ci, cj, k) * tailFlow.unit; }, built: () => false }, tailFlow);
+            const cellOf = (key: string) => key.split(",").map(Number) as [number, number];
+            return flowRoute(
+              ax,
+              az,
+              bx,
+              bz,
+              {
+                level: (key) => tailField.level(cellOf(key)[0], cellOf(key)[1], k) * tailFlow.unit * Math.max(0, tailWalk.strength),
+                // built ground is dear: the way goes round a building (into it only where it is going to one)
+                built: (key) => builtAt(cellOf(key)[0], cellOf(key)[1], k),
+              },
+              tailFlow,
+            );
           }
         : flow && g
           ? (ax: number, az: number, bx: number, bz: number) => flowRoute(ax, az, bx, bz, { level: (k) => g.level.get(cell(k)) ?? 0, built: (k) => g.built.has(cell(k)) }, flow)
           : undefined;
+      // MEETING A BUILDING: the first built cell a straight walk from A to B enters, having left the building it began
+      // in and well short of where it is going (a building at its goal is the goal, not in the way)
+      const meet = (ax: number, az: number, bx: number, bz: number, sec: number): [number, number] | null => {
+        if (!tailWalk.built) return null;
+        const k = slotOf(sec);
+        const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 0.6);
+        let out = false;
+        for (let i = 1; i < n; i++) {
+          const x = ax + ((bx - ax) * i) / n, z = az + ((bz - az) * i) / n;
+          if (L - (L * i) / n < 4) break;
+          const on = builtAt(Math.floor(x / 1.2), Math.floor(z / 1.2), k);
+          if (!on) out = true;
+          else if (out) return [x, z];
+        }
+        return null;
+      };
       // the most at once follows the knobs (herds × their largest size + the loners)
       st = { ...st, maxPresent: lcCfg.maxPresent };
       for (const w of due) {
         // (the END event, k = "x", of who leaves comes with the role controls: docs/session-logic.md §2b)
-        st = stepLifecycle(st, w, { attractors: g?.visitors ?? [], planRoute }, lcCfg).state;
+        st = stepLifecycle(st, w, { attractors: g?.visitors ?? [], planRoute, meet }, lcCfg).state;
         for (const v of st.present) add(lifecycleActor(v, w, epochMs.current));
       }
       // who is of which kind now (a member is of its leader's)

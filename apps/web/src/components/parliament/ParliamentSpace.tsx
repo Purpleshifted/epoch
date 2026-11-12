@@ -63,6 +63,7 @@ import {
   DEFAULT_WATER,
   type DensityConfig,
   DEFAULT_DENSITY,
+  DensityField,
   DEFAULT_PATH,
   DEFAULT_TAILS,
   DEFAULT_TAIL_LINES,
@@ -2282,9 +2283,12 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     savable(TRAIL_GROUP, {
       tlOn: { value: true, label: "켜기" },
       tlTail: { value: DEFAULT_TAILS.tailSec, min: 20, max: 1200, step: 10, label: "꼬리가 사라지기까지 (s)" },
+      tlMinLeg: { value: DEFAULT_TAILS.minLeg, min: 0, max: 60, step: 1, label: "길로 치는 최소 거리 (월드 · 이보다 짧은 이동은 한 곳 안의 움직임)" },
       tlPathAt: { value: DEFAULT_TAIL_LINES.pathAt, min: 1, max: 20, step: 0.25, label: "길이 되는 겹침 (꼬리 수)" },
       tlFollow: { value: true, label: "봇이 꼬리를 따라 걷기 (길이 이어지는 까닭)" },
-      tlResurface: { value: DEFAULT_TAIL_LINES.resurface, min: 1, max: 60, step: 1, label: "살아 있는 길을 다시 긋는 간격 (단)" },
+      tlStrength: { value: 1, min: 0, max: 5, step: 0.1, label: "따라 걷는 정도 (0 = 꼬리를 안 봄 · 클수록 길에 붙음)" },
+      tlLayer: { value: DEFAULT_TAIL_LINES.layer, min: 1, max: 30, step: 1, label: "길의 층 두께 (단 · 같은 층에 난 길은 한 높이로 평평하게)" },
+      tlResurface: { value: DEFAULT_TAIL_LINES.resurface, min: 1, max: 60, step: 1, label: "살아 있는 길을 다시 긋는 간격 (층 수)" },
       tlRise: { value: DEFAULT_TAIL_LINES.rise, min: 0.02, max: 2, step: 0.01, label: "경사 (칸당 오르는 단)" },
       tlSmooth: { value: DEFAULT_TAIL_LINES.smooth, min: 0, max: 12, step: 1, label: "곡선 다듬기 (횟수)" },
       tlShade: { value: 0.95, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
@@ -2295,13 +2299,14 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   // the page's one field of tails: its rules, and (when they change, and at first) everything the log holds — after
   // that the bots feed it as they walk (useGlobalBots)
   useEffect(() => {
-    if (!tailField.configure({ ...DEFAULT_TAILS, slotSec: tAxis.secPerUnit, tailSec: tr.tlTail }) && tailField.steps > 0) return;
+    if (!tailField.configure({ ...DEFAULT_TAILS, slotSec: tAxis.secPerUnit, tailSec: tr.tlTail, minLeg: tr.tlMinLeg }) && tailField.steps > 0) return;
     for (const e of [...log.all()].sort((p, q) => p.s - q.s)) tailField.add(e);
-  }, [log, tAxis.secPerUnit, tr.tlTail]);
+  }, [log, tAxis.secPerUnit, tr.tlTail, tr.tlMinLeg]);
   useEffect(() => {
     tailWalk.follow = tr.tlOn && tr.tlFollow;
-  }, [tr.tlOn, tr.tlFollow]);
-  const tailLook = useMemo<TailLines>(() => ({ pathAt: tr.tlPathAt, rise: tr.tlRise, smooth: tr.tlSmooth, resurface: tr.tlResurface }), [tr.tlPathAt, tr.tlRise, tr.tlSmooth, tr.tlResurface]);
+    tailWalk.strength = tr.tlStrength;
+  }, [tr.tlOn, tr.tlFollow, tr.tlStrength]);
+  const tailLook = useMemo<TailLines>(() => ({ pathAt: tr.tlPathAt, rise: tr.tlRise, smooth: tr.tlSmooth, layer: tr.tlLayer, resurface: tr.tlResurface }), [tr.tlPathAt, tr.tlRise, tr.tlSmooth, tr.tlLayer, tr.tlResurface]);
   const densityCfg = useMemo<DensityConfig | null>(
     () =>
       dn.densityOn && isV2
@@ -2309,6 +2314,21 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         : null,
     [isV2, tr.tlOn, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
   );
+  // WHERE IT IS BUILT, FOR THE BOTS (tails.ts tailWalk.built): a copy of the wall's density field on this thread, with
+  // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
+  // it says is built, or stop at it.
+  useEffect(() => {
+    if (!densityCfg) {
+      tailWalk.built = null;
+      return;
+    }
+    const field = new DensityField(densityCfg);
+    for (const e of [...log.all()].sort((p, q) => p.s - q.s)) field.add(e);
+    tailWalk.built = field;
+    return () => {
+      if (tailWalk.built === field) tailWalk.built = null;
+    };
+  }, [log, densityCfg]);
   // (the density's own paths, density.ts pathLines, are not drawn: the tails' are)
   const pathLook = null;
   // the history window reaches as deep as the bots write (the lab keeps everything)
