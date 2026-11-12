@@ -27,7 +27,6 @@ import {
   DEFAULT_LIFECYCLE,
   SEAL_H,
   botActor,
-  DEFAULT_FLOW,
   currentEpochKey,
   dueSamples,
   flowRoute,
@@ -40,8 +39,7 @@ import {
   saveMerged,
   sharedClock,
   stepLifecycle,
-  tailField,
-  tailWalk,
+  botGround,
   type Clock,
   sessionSeconds,
   setKeepFrom,
@@ -155,6 +153,7 @@ export function useGlobalBots(
           hLoose: { value: DEFAULT_HERD.loose, min: 0, max: 1, step: 0.05, label: "무리의 느슨함" },
           hSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "성격 변주 폭" },
           hDrift: { value: DEFAULT_HERD.drift, min: 0, max: 0.9, step: 0.05, label: "시간 속도 변주 (±)" },
+          hTrail: { value: 1, min: 0, max: 5, step: 0.1, label: "밟힌 땅(길)을 따라 걷는 정도 (0 = 안 따름)" },
           hMeetStay: { value: 0.3, min: 0, max: 1, step: 0.05, label: "가는 길에 건물을 만나면 머무는 비율 (나머지는 돌아감)" },
         },
         { render: show },
@@ -199,6 +198,9 @@ export function useGlobalBots(
     }),
     [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
+  useEffect(() => {
+    botGround.trail = b.hTrail;
+  }, [b.hTrail]);
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   const setDepth = opts?.setDepth;
   const deep = on ? b.hDepth : 0;
@@ -353,9 +355,8 @@ export function useGlobalBots(
       const e: PEvent = { id: `${a.o}:${tag.current}:${seq.current++}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s };
       log.add(e);
       pending.current.push(e);
-      // every step leaves a tail (tails.ts): the field the walkers plan over and the wall draws
-      tailField.add(e);
-      tailWalk.built?.add(e);
+      // where it is built, as the wall makes it (botGround.ts): what the bots go round or stop at
+      botGround.built?.add(e);
     };
 
     if (isSession) {
@@ -378,36 +379,32 @@ export function useGlobalBots(
         const [ci, cj] = key.split(",").map(Number);
         return `${wrapCell(ci)},${wrapCell(cj)}`;
       };
-      // THE WAYS JOIN UP because of how the bots walk (tails.ts): a way is planned over the ground of the walker's own
-      // time, and ground with tails on it is easier — a second walker takes the first one's cells where they go the same
-      // way. (Buildings are not gone round yet: they are made in the wall's worker now, density.ts.)
-      const tailFlow = { ...(flow ?? DEFAULT_FLOW), enabled: true, gridShare: 1 };
-      const slotOf = (sec: number) => Math.floor(sec / tailField.cfg.slotSec);
-      const builtAt = (ci: number, cj: number, k: number) => (tailWalk.built ? tailWalk.built.levelAt(ci, cj, k) >= 1 : false);
-      const planRoute = tailWalk.follow
-        ? (ax: number, az: number, bx: number, bz: number, sec?: number) => {
-            const k = slotOf(sec ?? sessionSeconds(now, epochMs.current, 0));
-            const cellOf = (key: string) => key.split(",").map(Number) as [number, number];
-            return flowRoute(
-              ax,
-              az,
-              bx,
-              bz,
-              {
-                level: (key) => tailField.level(cellOf(key)[0], cellOf(key)[1], k) * tailFlow.unit * Math.max(0, tailWalk.strength),
-                // built ground is dear: the way goes round a building (into it only where it is going to one)
-                built: (key) => builtAt(cellOf(key)[0], cellOf(key)[1], k),
-              },
-              tailFlow,
-            );
-          }
-        : flow && g
-          ? (ax: number, az: number, bx: number, bz: number) => flowRoute(ax, az, bx, bz, { level: (k) => g.level.get(cell(k)) ?? 0, built: (k) => g.built.has(cell(k)) }, flow)
+      // A WAY IS PLANNED over the trodden ground (the fold's, flow.ts — the measure the walkways are judged on, so the
+      // bots reinforce the ways there are) and round what is built at the walker's own time (botGround.built).
+      const slotOf = (sec: number) => Math.floor(sec / Math.max(1, botGround.slotSec));
+      const builtAt = (ci: number, cj: number, k: number) => (botGround.built ? botGround.built.levelAt(ci, cj, k) >= 1 : false);
+      const planRoute =
+        flow && g
+          ? (ax: number, az: number, bx: number, bz: number, sec?: number) => {
+              const k = slotOf(sec ?? sessionSeconds(now, epochMs.current, 0));
+              const cellOf = (key: string) => key.split(",").map(Number) as [number, number];
+              return flowRoute(
+                ax,
+                az,
+                bx,
+                bz,
+                {
+                  level: (key) => (g.level.get(cell(key)) ?? 0) * Math.max(0, botGround.trail),
+                  built: (key) => (botGround.built ? builtAt(cellOf(key)[0], cellOf(key)[1], k) : g.built.has(cell(key))),
+                },
+                flow,
+              );
+            }
           : undefined;
       // MEETING A BUILDING: the first built cell a straight walk from A to B enters, having left the building it began
       // in and well short of where it is going (a building at its goal is the goal, not in the way)
       const meet = (ax: number, az: number, bx: number, bz: number, sec: number): [number, number] | null => {
-        if (!tailWalk.built) return null;
+        if (!botGround.built) return null;
         const k = slotOf(sec);
         const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 0.6);
         let out = false;

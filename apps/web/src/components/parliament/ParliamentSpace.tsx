@@ -65,11 +65,7 @@ import {
   DEFAULT_DENSITY,
   DensityField,
   DEFAULT_PATH,
-  DEFAULT_TAILS,
-  DEFAULT_TAIL_LINES,
-  tailField,
-  tailWalk,
-  type TailLines,
+  botGround,
   DEFAULT_VARIETY,
   type WalkConfig,
   type WaterConfig,
@@ -1609,48 +1605,6 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
  * visible while its newest sample keeps advancing; `holdSec` of silence hides it — except "me", which is always
  * drawn at its latest presence (dimmed while silent), so the player can always be found.
  */
-/**
- * THE PATHS (lib/parliament/tails.ts): where enough fading tails overlap and the flow is kept up — curves through the
- * block, laid again as long as the path lives. Nothing else is drawn of the walks (the threads and the strands of
- * 2026-11-12 are gone). Read from the page's one field every two seconds, when it has changed.
- */
-function TailPaths({ unit, look, opacity, shade }: { unit: number; look: TailLines; opacity: number; shade: number }) {
-  const geom = useMemo(() => new THREE.BufferGeometry(), []);
-  const mat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false }), []);
-  const cap = useRef(0);
-  const sig = useRef("");
-  const timer = useRef(10);
-  useEffect(() => {
-    mat.color.setScalar(shade);
-    mat.opacity = opacity;
-  }, [mat, shade, opacity]);
-  useEffect(() => () => geom.dispose(), [geom]);
-  useEffect(() => () => mat.dispose(), [mat]);
-  useFrame((_, dt) => {
-    timer.current += dt;
-    if (timer.current < 2) return;
-    timer.current = 0;
-    const key = `${tailField.version}:${unit}:${JSON.stringify(look)}`;
-    if (key === sig.current) return;
-    sig.current = key;
-    const seg = tailField.lines(look);
-    if (!geom.getAttribute("position") || seg.length > cap.current) {
-      // a larger buffer (with room to grow): the old one is released with the geometry's
-      cap.current = Math.max(6000, Math.ceil(seg.length * 1.5));
-      geom.dispose();
-      geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cap.current), 3));
-    }
-    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
-    const arr = pos.array as Float32Array;
-    arr.set(seg);
-    for (let i = 1; i < seg.length; i += 3) arr[i] *= unit;
-    pos.needsUpdate = true;
-    geom.setDrawRange(0, seg.length / 3);
-    (window as unknown as { __paths?: unknown }).__paths = { segments: seg.length / 6, steps: tailField.steps };
-  });
-  return <lineSegments geometry={geom} material={mat} frustumCulled={false} renderOrder={3} />;
-}
-
 function Markers({
   log,
   secPerUnit,
@@ -2278,61 +2232,31 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   const arriveView = useMemo(() => ({ on: ar.arriveOn, sec: ar.arriveSec, stagger: ar.arriveStagger, way: ar.arriveWay as ArriveWay, lift: ar.arriveLift, tick: ar.arriveTick }), [ar.arriveOn, ar.arriveSec, ar.arriveStagger, ar.arriveWay, ar.arriveLift, ar.arriveTick]);
   // THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block
-  // PATHS FROM FADING TAILS (lib/parliament/tails.ts)
-  const TRAIL_GROUP = "길 (흐려지는 꼬리)";
-  const tr = useLevaControls(
-    TRAIL_GROUP,
-    savable(TRAIL_GROUP, {
-      tlOn: { value: true, label: "켜기 (꼬리: 봇이 따라 걷는 흔적)" },
-      tlDraw: { value: false, label: "꼬리의 길 그리기 (새 방식 · 끄면 예전 길만)" },
-      tlTail: { value: DEFAULT_TAILS.tailSec, min: 20, max: 1200, step: 10, label: "꼬리가 사라지기까지 (s)" },
-      tlMinLeg: { value: DEFAULT_TAILS.minLeg, min: 0, max: 60, step: 1, label: "길로 치는 최소 거리 (월드 · 이보다 짧은 이동은 한 곳 안의 움직임)" },
-      tlPathAt: { value: DEFAULT_TAIL_LINES.pathAt, min: 1, max: 20, step: 0.25, label: "길이 되는 겹침 (꼬리 수)" },
-      tlFollow: { value: true, label: "봇이 꼬리를 따라 걷기 (길이 이어지는 까닭)" },
-      tlStrength: { value: 1, min: 0, max: 5, step: 0.1, label: "따라 걷는 정도 (0 = 꼬리를 안 봄 · 클수록 길에 붙음)" },
-      tlLayer: { value: DEFAULT_TAIL_LINES.layer, min: 1, max: 30, step: 1, label: "길의 층 두께 (단 · 같은 층에 난 길은 한 높이로 평평하게)" },
-      tlResurface: { value: DEFAULT_TAIL_LINES.resurface, min: 1, max: 60, step: 1, label: "살아 있는 길을 다시 긋는 간격 (층 수)" },
-      tlRise: { value: DEFAULT_TAIL_LINES.rise, min: 0.02, max: 2, step: 0.01, label: "경사 (칸당 오르는 단)" },
-      tlSmooth: { value: DEFAULT_TAIL_LINES.smooth, min: 0, max: 12, step: 1, label: "곡선 다듬기 (횟수)" },
-      tlShade: { value: 0.95, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
-      tlOpacity: { value: 0.9, min: 0.05, max: 1, step: 0.05, label: "진하기" },
-    }),
-    { order: lab ? 7.7 : 1.7, render: () => isV2 },
-  );
-  // the page's one field of tails: its rules, and (when they change, and at first) everything the log holds — after
-  // that the bots feed it as they walk (useGlobalBots)
-  useEffect(() => {
-    if (!tailField.configure({ ...DEFAULT_TAILS, slotSec: tAxis.secPerUnit, tailSec: tr.tlTail, minLeg: tr.tlMinLeg }) && tailField.steps > 0) return;
-    for (const e of [...log.all()].sort((p, q) => p.s - q.s)) tailField.add(e);
-  }, [log, tAxis.secPerUnit, tr.tlTail, tr.tlMinLeg]);
-  useEffect(() => {
-    tailWalk.follow = tr.tlOn && tr.tlFollow;
-    tailWalk.strength = tr.tlStrength;
-  }, [tr.tlOn, tr.tlFollow, tr.tlStrength]);
-  const tailLook = useMemo<TailLines>(() => ({ pathAt: tr.tlPathAt, rise: tr.tlRise, smooth: tr.tlSmooth, layer: tr.tlLayer, resurface: tr.tlResurface }), [tr.tlPathAt, tr.tlRise, tr.tlSmooth, tr.tlLayer, tr.tlResurface]);
   const densityCfg = useMemo<DensityConfig | null>(
     () =>
       dn.densityOn && isV2
-        ? { ...DEFAULT_DENSITY, path: tr.tlOn ? { ...DEFAULT_PATH, step: 1e9 } : undefined, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, tr.tlOn, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
   );
-  // WHERE IT IS BUILT, FOR THE BOTS (tails.ts tailWalk.built): a copy of the wall's density field on this thread, with
+  // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
   // it says is built, or stop at it.
   useEffect(() => {
     if (!densityCfg) {
-      tailWalk.built = null;
+      botGround.built = null;
       return;
     }
     const field = new DensityField(densityCfg);
     for (const e of [...log.all()].sort((p, q) => p.s - q.s)) field.add(e);
-    tailWalk.built = field;
+    botGround.built = field;
+    botGround.slotSec = densityCfg.slotSec;
     return () => {
-      if (tailWalk.built === field) tailWalk.built = null;
+      if (botGround.built === field) botGround.built = null;
     };
   }, [log, densityCfg]);
-  // (the density's own paths, density.ts pathLines, are not drawn: the tails' are)
+  // (the density's own paths, density.ts pathLines, are not drawn: the walkways are the paths — walkways.ts)
   const pathLook = null;
   // the history window reaches as deep as the bots write (the lab keeps everything)
   useEffect(() => {
@@ -3108,8 +3032,6 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
-        {/* the paths are in the scene itself (behind what stands in front of them), not on the markers' overlay */}
-        {tr.tlOn && tr.tlDraw && <TailPaths unit={c.unit} look={tailLook} opacity={tr.tlOpacity} shade={tr.tlShade} />}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
