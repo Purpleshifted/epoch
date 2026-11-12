@@ -1696,6 +1696,7 @@ function Vegetation({
   spots,
   spotR,
   spotGrow,
+  spotLobed,
 }: {
   unit: number;
   slots: number;
@@ -1705,12 +1706,13 @@ function Vegetation({
   pathAt: number;
   colorA: string;
   colorB: string;
-  /** SPOTS (the artist, 2026-11-12: "얘들도 스팟 정해놓고 자라게 하면 안 돼?"): how many places the vegetation grows
-   *  from (0 = everywhere alike), how wide a patch gets at most (world), and how much wider it is per slot of time
-   *  above where it began (world) — in the block a patch is a cone opening upwards: it grows. */
+  /** SPOTS (the artist, 2026-11-12: "얘들도 스팟 정해놓고 자라게 하면 안 돼?" → "시공간상의 전자구름처럼"): how many
+   *  clouds (0 = everywhere alike), a cloud's mean radius on the ground (world) and in time (slots), and the share of
+   *  clouds that are two lobes instead of round. */
   spots: number;
   spotR: number;
   spotGrow: number;
+  spotLobed: number;
 }) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
@@ -1730,8 +1732,11 @@ function Vegetation({
     return t;
   }, [N, D]);
   useEffect(() => () => tex.dispose(), [tex]);
-  // the points: made once — anywhere in the block, or (spots) inside the patches: each begins at a place and a time
-  // of the block and widens with the time above it up to its full width, thinning towards its rim
+  // the points: made once — anywhere in the block, or (spots) as CLOUDS IN SPACETIME (the artist, 2026-11-12: "이렇게
+  // 말고 시공간상의 전자구름처럼 해야지"): each spot is a place and a time of the block, and its points are drawn from
+  // a probability like an electron's — thick at the middle, thinning without an edge, in every direction of the block
+  // (the ground and time alike). Most are round (1s: density ∝ e^(−2r/a)); a share are two lobes along an axis of their
+  // own (2p: ∝ r² e^(−r/a) cos²θ).
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     const n = Math.max(0, Math.round(count));
@@ -1740,48 +1745,60 @@ function Vegetation({
     const rnd = () => ((a = Math.imul(a ^ (a >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296;
     const top = D * unit;
     const nSpots = Math.max(0, Math.round(spots));
-    // where and when each patch begins (a third of them at the very beginning: the block is not bare below)
-    const patch: { x: number; z: number; y0: number; w: number }[] = [];
-    let wSum = 0;
+    const R = Math.max(0.5, spotR), T = Math.max(0.2, spotGrow) * unit;
+    const cloud: { x: number; y: number; z: number; lobed: boolean; ax: [number, number, number] }[] = [];
     for (let i = 0; i < nSpots; i++) {
-      const y0 = i % 3 === 0 ? 0 : rnd() * top * 0.8;
-      const x = (rnd() - 0.5) * WORLD_SIZE * 0.8, z = (rnd() - 0.5) * WORLD_SIZE * 0.8;
-      // (more points for a patch that is larger and lasts longer: the same thickness everywhere)
-      const w = Math.max(0.05, top - y0);
-      patch.push({ x, z, y0, w });
-      wSum += w;
+      // an axis of its own for a lobed cloud (any direction of the block)
+      const c = 2 * rnd() - 1, ph = rnd() * 2 * Math.PI, sn = Math.sqrt(1 - c * c);
+      cloud.push({ x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85, lobed: rnd() < spotLobed, ax: [sn * Math.cos(ph), c, sn * Math.sin(ph)] });
     }
-    const R = Math.max(0.5, spotR), grow = Math.max(0.01, spotGrow) / Math.max(1e-6, unit);
     for (let i = 0; i < n; i++) {
       let x = (rnd() - 0.5) * WORLD_SIZE, y = rnd() * top, z = (rnd() - 0.5) * WORLD_SIZE;
-      let placed = nSpots === 0;
+      let ok = true;
       if (nSpots > 0) {
-        for (let tries = 0; tries < 12; tries++) {
-          let u = rnd() * wSum, pi = 0;
-          while (pi < patch.length - 1 && u > patch[pi].w) u -= patch[pi++].w;
-          const p = patch[pi];
-          const yy = p.y0 + rnd() * (top - p.y0);
-          const r = Math.min(R, 0.5 + grow * (yy - p.y0));
-          const rho = R * Math.sqrt(rnd()), ang = rnd() * 2 * Math.PI;
-          // inside what the patch has grown to at this height, fewer towards its rim
-          if (rho > r || rnd() < Math.max(0, (rho / r - 0.6) / 0.4)) continue;
-          x = p.x + Math.cos(ang) * rho;
-          y = yy;
-          z = p.z + Math.sin(ang) * rho;
-          placed = true;
-          break;
+        const p = cloud[Math.min(nSpots - 1, Math.floor(rnd() * nSpots))];
+        // a direction: anywhere (round), or towards the cloud's axis either way (lobed: cos θ drawn ∝ cos²θ)
+        let dx: number, dy: number, dz: number, r: number;
+        if (p.lobed) {
+          const c = Math.cbrt(2 * rnd() - 1), ph = rnd() * 2 * Math.PI, sn = Math.sqrt(Math.max(0, 1 - c * c));
+          // a frame about the axis
+          const [ux, uy, uz] = p.ax;
+          const hx = Math.abs(uy) < 0.9 ? 0 : 1, hy = Math.abs(uy) < 0.9 ? 1 : 0;
+          let vx = uy * 0 - uz * hy, vy = uz * hx - ux * 0, vz = ux * hy - uy * hx;
+          const vl = Math.hypot(vx, vy, vz) || 1;
+          vx /= vl;
+          vy /= vl;
+          vz /= vl;
+          const wx = uy * vz - uz * vy, wy = uz * vx - ux * vz, wz = ux * vy - uy * vx;
+          dx = ux * c + (vx * Math.cos(ph) + wx * Math.sin(ph)) * sn;
+          dy = uy * c + (vy * Math.cos(ph) + wy * Math.sin(ph)) * sn;
+          dz = uz * c + (vz * Math.cos(ph) + wz * Math.sin(ph)) * sn;
+          // r ∝ r⁴ e^(−r/a): the sum of five exponentials (a = 1/5, so its mean is 1)
+          r = -Math.log(Math.max(1e-12, rnd() * rnd() * rnd() * rnd() * rnd())) / 5;
+        } else {
+          const c = 2 * rnd() - 1, ph = rnd() * 2 * Math.PI, sn = Math.sqrt(1 - c * c);
+          dx = sn * Math.cos(ph);
+          dy = c;
+          dz = sn * Math.sin(ph);
+          // r ∝ r² e^(−2r/a): the sum of three exponentials (mean 1)
+          r = -Math.log(Math.max(1e-12, rnd() * rnd() * rnd())) / 3;
         }
+        // (the cloud's size: R on the ground, T in time — r = 1 is its mean radius)
+        x = p.x + dx * r * R;
+        y = p.y + dy * r * T;
+        z = p.z + dz * r * R;
+        ok = y >= 0 && Math.abs(x) < WORLD_HALF && Math.abs(z) < WORLD_HALF;
       }
       pos[i * 3] = x;
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
-      // (a point that found no patch is never alive: no stray specks between the patches)
-      seed[i] = placed ? rnd() : 2;
+      // (a point that fell out of the block is never alive)
+      seed[i] = ok ? rnd() : 2;
     }
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     return g;
-  }, [count, D, unit, spots, spotR, spotGrow]);
+  }, [count, D, unit, spots, spotR, spotGrow, spotLobed]);
   useEffect(() => () => geom.dispose(), [geom]);
   const mat = useMemo(
     () =>
@@ -2505,9 +2522,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       vegOn: { value: true, label: "켜기" },
       vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
       vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
-      vegSpots: { value: 24, min: 0, max: 120, step: 1, label: "자라는 자리 수 (0 = 어디나 고르게)" },
-      vegSpotR: { value: 18, min: 2, max: 80, step: 1, label: "한 자리가 넓어지는 최대 반경 (월드)" },
-      vegSpotGrow: { value: 0.8, min: 0.05, max: 10, step: 0.05, label: "단마다 넓어지는 반경 (월드 · 위로 갈수록 자람)" },
+      vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)" },
+      vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)" },
+      vegCloudT: { value: 5, min: 0.5, max: 60, step: 0.5, label: "구름의 반경: 시간 (단 · 평균)" },
+      vegLobed: { value: 0.3, min: 0, max: 1, step: 0.05, label: "두 갈래 구름의 비율 (나머지는 둥근 구름)" },
       vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
       vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
       vegColorA: { value: "#5f7a3a", label: "색 1 (자연색)" },
@@ -3291,7 +3309,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegSpotR} spotGrow={vg.vegSpotGrow} />
+          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
