@@ -148,6 +148,7 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
       botGroups: { value: 4, min: 1, max: 10, step: 1, label: "상주 › 봇 무리 수 (무리당 3명 이상이어야 콘크리트)", render: showResident },
       botSpread: { value: 14, min: 0, max: 60, step: 1, label: "상주 › 무리 간 거리 (월드)", render: showResident },
       botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "상주 › 봇 시각 폭 (s, 지금 기준 ±절반에서 랜덤)", render: showResident },
+      botTimeDepth: { value: 0, min: 0, max: 1200, step: 20, label: "상주 › 덩어리 깊이 (s; 실험 — 0 = 끔. 봇마다 현재에서 이만큼 아래까지의 제 깊이에 삶; 시각 폭은 무시)", render: showResident },
       // MOVING FLOCKS × FLOCK CHARACTER (the artist, 2026-11-01): 0 = the old fixed crowd
       botStayMin: { value: 0, min: 0, max: 30, step: 0.5, label: "상주 › 무리가 한 자리에 머무는 시간 (분; 0 = 자리 고정)", render: showResident },
       botCharacter: { value: 0, min: 0, max: 1, step: 0.05, label: "상주 › 무리 성격 차이 (0 = 모두 같음; 모임 · 걷기 · 머무는 시간이 무리마다 다름)", render: showResident },
@@ -159,8 +160,8 @@ export function useGlobalBots(log: EventLog, cfg: FoldConfig, enabled: boolean, 
   const session = false;
   const nBots = on && !session ? b.botCount : 0;
   const flock = useMemo<Flock>(
-    () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
-    [b.botGroups, b.botSpread, b.botTimeSpread, b.botStayMin, b.botOverlapSec, b.botCharacter],
+    () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, timeDepth: b.botTimeDepth, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
+    [b.botGroups, b.botSpread, b.botTimeSpread, b.botTimeDepth, b.botStayMin, b.botOverlapSec, b.botCharacter],
   );
   const lc = useMemo<LifecycleConfig>(
     () => ({

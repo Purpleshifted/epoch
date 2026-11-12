@@ -42,6 +42,12 @@ const pair = (raw: string | null): [number, number] | undefined => {
   return p.length === 2 && p.every(Number.isFinite) ? [p[0], p[1]] : undefined;
 };
 
+/** `?block=N`: the bots live down to N slots below the present and the wall freezes no part's shape (0 = off). */
+export function blockSlots(search: string): number {
+  const q = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  return Math.round(num(q.get("block"), 0, 60) ?? 0);
+}
+
 export function parseBotLink(search: string): BotLink {
   const q = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const values: Record<string, number | boolean | string> = {};
@@ -80,5 +86,8 @@ export function parseBotLink(search: string): BotLink {
   set("lcLeave", num(q.get("leave"), 0, 1));
   const auto = q.get("auto");
   if (auto === "0" || auto === "1") values.lcAuto = auto === "1";
+  // THE BLOCK (an experiment, docs/redesign-plan-2026-11-12.md §3.4): block=45 = resident bots down to 45 slots (20 s each)
+  const block = blockSlots(search);
+  if (block > 0) set("botTimeDepth", block * 20);
   return { values, rate: num(q.get("rate"), 0, 40) };
 }

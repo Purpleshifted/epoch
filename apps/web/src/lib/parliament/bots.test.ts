@@ -185,3 +185,26 @@ describe("moving flocks × flock character (2026-11-01)", () => {
     expect(Math.max(...rs) / Math.min(...rs)).toBeGreaterThan(1.5);
   });
 });
+
+describe("the block (timeDepth)", () => {
+  it("spreads the bots over the depth below the present, none ahead of it, none before time 0", () => {
+    const epoch = 1_000_000;
+    const flock = { groups: 4, spread: 14, timeSpread: 60, timeDepth: 900 };
+    const at = (wallS: number) => Array.from({ length: 24 }, (_, i) => botPlan(i, epoch + wallS * 1000, epoch, epoch, 0, flock).s);
+    const late = at(2000);
+    expect(Math.max(...late)).toBeLessThanOrEqual(2000);
+    expect(Math.min(...late)).toBeGreaterThanOrEqual(1100);
+    expect(Math.max(...late) - Math.min(...late)).toBeGreaterThan(450);
+    // early in the world the depth is no more than its age
+    for (const s of at(100)) {
+      expect(s).toBeGreaterThanOrEqual(0);
+      expect(s).toBeLessThanOrEqual(100);
+    }
+  });
+  it("is off at 0: the time spread rules as before", () => {
+    const epoch = 1_000_000;
+    const a = botPlan(3, epoch + 500_000, epoch, epoch, 0, { groups: 4, spread: 14, timeSpread: 60 });
+    const b = botPlan(3, epoch + 500_000, epoch, epoch, 0, { groups: 4, spread: 14, timeSpread: 60, timeDepth: 0 });
+    expect(b.s).toBe(a.s);
+  });
+});

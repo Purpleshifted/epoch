@@ -71,6 +71,7 @@ import {
   SpaceModel,
   layerDecayOf,
   handleSpaceRequest,
+  blockSlots,
 } from "@/lib/parliament";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
@@ -2538,7 +2539,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       steelFossil: fu.steelFossil,
       accOnset: DEFAULT_FUSE.accOnset,
       fuseOnset: fu.fuseOnset,
-      freezeSlots: isV2 ? fu.freezeSlots : undefined,
+      // THE BLOCK (?block=N, an experiment): no part's shape is frozen — what is written deep rewrites the parts there
+      freezeSlots: isV2 && !(typeof window !== "undefined" && blockSlots(window.location.search) > 0) ? fu.freezeSlots : undefined,
       fuseFull: fu.fuseFull,
       voxel: fu.voxel,
       blur: fu.blur,

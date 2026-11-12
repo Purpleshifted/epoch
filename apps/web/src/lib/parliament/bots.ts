@@ -52,6 +52,13 @@ export interface Flock {
    */
   timeSpread?: number;
   /**
+   * THE BLOCK (the artist, 2026-11-12: "lift the layer limit — parts and bots anywhere in one spacetime block; now it
+   * is only a cumulative simulation"): > 0 = each bot lives at its own DEPTH below the present, uniform in
+   * [0, timeDepth] seconds, instead of around the present (timeSpread is ignored). Its samples land deep in the
+   * history, so the fold and the wall are rewritten there and above. An experiment (docs/redesign-plan-2026-11-12.md §3.4).
+   */
+  timeDepth?: number;
+  /**
    * MOVING FLOCKS (the artist, 2026-11-01 evening): each flock stays at a place this many minutes on average, then the
    * whole flock moves to a new place — the bots leaving one by one over `overlapSec`, so the old place and the new one
    * are both in use for a while (a building still counts its visitors of the last minutes). 0 / absent = the flocks keep
@@ -84,6 +91,11 @@ export function flockCentre(g: number, groups: number, spread: number, sec: numb
 /** Bot i's time offset relative to the player (seconds): uniform in ±timeSpread/2, fixed while the bots are on. */
 export function botTimeOffset(i: number, startMs: number, timeSpread: number): number {
   return (hash2(i, Math.floor(startMs / 1000) % 1_000_003, 61) - 0.5) * timeSpread;
+}
+
+/** THE BLOCK: bot i's share of the depth (0 = at the present, 1 = at the bottom), fixed while the bots are on. */
+export function botDepthShare(i: number, startMs: number): number {
+  return hash2(i, Math.floor(startMs / 1000) % 1_000_003, 67);
 }
 
 /** Smooth 1D value noise, 0..1. */
@@ -170,7 +182,12 @@ export function botPlan(i: number, wallMs: number, startMs: number, epochMs: num
   const p = walkedSeconds(i, sec, segLen, walkShare) * 0.07;
   const ox = (noise1(p, i * 2 + 1) * 2 - 1) * wanderR + (noise1(p * 2.7, i * 2 + 5) * 2 - 1) * 0.6;
   const oz = (noise1(p, i * 2 + 2) * 2 - 1) * wanderR + (noise1(p * 2.7, i * 2 + 6) * 2 - 1) * 0.6;
-  const off = Math.max(0, flock.timeSpread !== undefined ? playerOffset + botTimeOffset(i, startMs, flock.timeSpread) : playerOffset - 20 + ((i * 7) % 25));
+  // THE BLOCK: a depth below the present, never deeper than the world is old (so nobody is born before time 0)
+  const elapsed = Math.max(0, (wallMs - epochMs) / 1000 + playerOffset);
+  const off =
+    (flock.timeDepth ?? 0) > 0
+      ? playerOffset - botDepthShare(i, startMs) * Math.min(flock.timeDepth!, elapsed)
+      : Math.max(0, flock.timeSpread !== undefined ? playerOffset + botTimeOffset(i, startMs, flock.timeSpread) : playerOffset - 20 + ((i * 7) % 25));
   return { ep, ax, az, bx, bz, m, ox, oz, s: sessionSeconds(wallMs, epochMs, off) };
 }
 
