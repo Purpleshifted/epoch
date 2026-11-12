@@ -15,7 +15,7 @@
  * URL: ?demo=1 seeds a demo crowd · ?ui=0 hides the panel.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
@@ -479,6 +479,9 @@ interface WalkLook {
   /** A free end's dot (px); opacity of the kept lines (below the present). */
   walkDot: number;
   walkKeptOpacity: number;
+  /** A way just over the threshold against one as trodden as can be: its brightness and its opacity (1 = no difference). */
+  walkUseDim: number;
+  walkUseFade: number;
   pipeColor: string;
   pipeRoughness: number;
   pipeMetalness: number;
@@ -498,6 +501,23 @@ function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void
   g.setAttribute("position", new THREE.BufferAttribute(segs, 3));
   lines.geometry.dispose();
   lines.geometry = g;
+}
+
+/**
+ * A WAY MORE USED IS BRIGHTER AND LESS SEE-THROUGH (the artist, 2026-11-12): per vertex, the walkway's use (the mean
+ * path strength along it when it was laid, walkways.ts) from `buildAt` (just a way) to 1 (as trodden as can be) —
+ * brightness from `dim` to 1, opacity from `fade` to 1 (× the material's own).
+ */
+function setSegmentUse(lines: THREE.LineSegments | null, use: Float32Array, buildAt: number, dim: number, fade: number): void {
+  if (!lines) return;
+  const n = use.length;
+  const col = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const u = Math.max(0, Math.min(1, (use[i] - buildAt) / Math.max(1e-6, 1 - buildAt)));
+    col[i * 4] = col[i * 4 + 1] = col[i * 4 + 2] = dim + (1 - dim) * u;
+    col[i * 4 + 3] = fade + (1 - fade) * u;
+  }
+  lines.geometry.setAttribute("color", new THREE.BufferAttribute(col, 4));
 }
 
 /** Free ends [x, y, z, weight] × n into a points cloud (positions only: the dot takes the line's colour). */
@@ -902,6 +922,17 @@ function SpaceWorld({
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
+  // how used each walkway is (per vertex), and its look applied (again when the look's knobs turn)
+  const walkUse = useRef<{ live: Float32Array; kept: Float32Array } | null>(null);
+  const walkUseLook = useRef({ buildAt: 0.45, dim: 1, fade: 1 });
+  walkUseLook.current = { buildAt: walk?.buildAt ?? 0.45, dim: walkLook.walkUseDim, fade: walkLook.walkUseFade };
+  const applyWalkUse = useCallback(() => {
+    const u = walkUse.current, l = walkUseLook.current;
+    if (!u) return;
+    setSegmentUse(walkLive.current, u.live, l.buildAt, l.dim, l.fade);
+    setSegmentUse(walkKept.current, u.kept, l.buildAt, l.dim, l.fade);
+  }, []);
+  useEffect(() => applyWalkUse(), [applyWalkUse, walk?.buildAt, walkLook.walkUseDim, walkLook.walkUseFade]);
   const endLive = useRef<THREE.Points>(null);
   const endKept = useRef<THREE.Points>(null);
   const dotTex = useMemo(() => dotTexture(), []);
@@ -995,6 +1026,8 @@ function SpaceWorld({
       }
       setSegments(walkLive.current, p.walk.live);
       setSegments(walkKept.current, p.walk.kept);
+      walkUse.current = { live: p.walk.liveU, kept: p.walk.keptU };
+      applyWalkUse();
       setWalkEnds(endLive.current, p.walk.liveEnds);
       setWalkEnds(endKept.current, p.walk.keptEnds);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
@@ -1191,11 +1224,11 @@ function SpaceWorld({
           to arrive at any more is closed with a round dot */}
       <lineSegments ref={walkLive} frustumCulled={false} visible={!!walk}>
         <bufferGeometry />
-        <lineBasicMaterial color={walkLook.walkColor} />
+        <lineBasicMaterial color={walkLook.walkColor} vertexColors transparent />
       </lineSegments>
       <lineSegments ref={walkKept} frustumCulled={false} visible={!!walk}>
         <bufferGeometry />
-        <lineBasicMaterial color={walkLook.walkColor} transparent opacity={walkLook.walkKeptOpacity} depthWrite={false} />
+        <lineBasicMaterial color={walkLook.walkColor} vertexColors transparent opacity={walkLook.walkKeptOpacity} depthWrite={false} />
       </lineSegments>
       {(["live", "kept"] as const).map((w) => (
         <points key={w} ref={w === "live" ? endLive : endKept} frustumCulled={false} visible={!!walk}>
@@ -2319,6 +2352,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             walkColor: { value: "#d8d8d8", label: "색 (무채색)" },
             walkKeptOpacity: { value: 0.4, min: 0.05, max: 1, step: 0.05, label: "굳은 길의 불투명도 (지금 것 = 1)" },
             walkDot: { value: 6, min: 0, max: 20, step: 0.5, label: "이어지지 않은 끝의 점 (px · 0 = 없음)" },
+            walkUseDim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "덜 쓰는 길의 밝기 × (1 = 차이 없음)" },
+            walkUseFade: { value: 0.35, min: 0, max: 1, step: 0.05, label: "덜 쓰는 길의 불투명도 × (1 = 차이 없음)" },
           },
           { order: 4 },
         ),
@@ -2483,8 +2518,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(
-    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
-    [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
+    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
+    [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
   const { cfg: natureCfg } = useNatureControls({ hidden: REDESIGN, folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
   const fu = useControls(

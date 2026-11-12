@@ -98,6 +98,9 @@ export interface WalkLayer {
   anchors: { key: string; building: number; x: number; z: number }[];
   /** One polyline [x, y, z, …] per drawn link (ramps included). */
   lines: Float32Array[];
+  /** Per line: how much its way is used — the mean path strength along the link when it was laid (0..1; absent in
+   *  layers kept from before this was recorded: full). */
+  use?: number[];
 }
 
 export interface Walkways {
@@ -118,7 +121,7 @@ export interface WalkOptions {
 }
 
 /** A drawn link still in use: its layer, its two ends, its line, and the last slot it was seen walked. */
-type Link = { key: string; flat: [number, number][]; a: [number, number]; b: [number, number] };
+type Link = { key: string; flat: [number, number][]; a: [number, number]; b: [number, number]; /** Mean path strength along it (0..1). */ p: number };
 type Alive = { k: number; a: [number, number]; b: [number, number]; flat: [number, number][]; seen: number };
 
 /** Two links are the same when both ends lie within this (world). */
@@ -216,7 +219,7 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       // links as they lie: smooth lines with their two ends
       now = [...links.entries()].map(([key, l]) => {
         const flat = chaikin(l.cells.map(centre), Math.max(0, Math.round(cfg.smooth)));
-        return { key, flat, a: flat[0], b: flat[flat.length - 1] };
+        return { key, flat, a: flat[0], b: flat[flat.length - 1], p: l.p };
       });
     }
     // a link is the SAME as one already drawn when its two ends lie where that one's do (by place, not by building
@@ -248,7 +251,7 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     if (!changed && !old.length) continue;
     laidK = k;
     died = 0;
-    const layer: WalkLayer = { k, links: now.map((l) => l.key), drawn: [], resurfaced: [], anchors: [], lines: [] };
+    const layer: WalkLayer = { k, links: now.map((l) => l.key), drawn: [], resurfaced: [], anchors: [], lines: [], use: [] };
     // the re-surfaced first (whole, flat, at this height): changes of this layer join them
     for (const l of old) {
       const al = matchOf.get(l.key)!;
@@ -410,6 +413,7 @@ function layLink(out: WalkLayer, link: Link, unit: number, k: number, join: { li
     const line = new Float32Array(flat.length * 3);
     flat.forEach(([x, z], q) => line.set([x, y, z], q * 3));
     out.lines.push(line);
+    out.use?.push(link.p);
   };
   if (!join || !join.lines.length) return flatLine();
   // the nearest point on a living line (and its height)
@@ -461,6 +465,7 @@ function layLink(out: WalkLayer, link: Link, unit: number, k: number, join: { li
       line.set([x, yy, z], q * 3);
     });
     out.lines.push(line);
+    out.use?.push(link.p);
   }
 }
 
@@ -498,6 +503,9 @@ export interface WalkWeighing {
   anchored: (x: number, y: number, z: number, own: number) => boolean;
   /** A layer's decay (0 fresh … 1 gone) on the parts' weathering clock. */
   decayOf: (k: number) => number;
+  /** SNAP (the artist, 2026-11-12: "끝점은 늘 건물 부재 어딘가에 스냅"): the point on the nearest part a line's end at
+   *  (x, y, z) is moved to, or null when no part is near (the end stays, a free end). */
+  snap?: (x: number, y: number, z: number) => [number, number, number] | null;
 }
 
 /**
@@ -506,25 +514,36 @@ export interface WalkWeighing {
  * arrives at nothing (no part there any more, no other line to stand on — a ramp's foot or a branch joins a line) is a FREE END: it is listed in
  * `liveEnds` / `keptEnds` [x, y, z, weight] × n, to be closed with a dot.
  */
-export function walkSegments(w: Walkways, fromK: number, weigh?: WalkWeighing): { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array } {
-  const live: number[] = [], kept: number[] = [], liveW: number[] = [], keptW: number[] = [], liveEnds: number[] = [], keptEnds: number[] = [];
+export function walkSegments(w: Walkways, fromK: number, weigh?: WalkWeighing): { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveU: Float32Array; keptU: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array } {
+  const live: number[] = [], kept: number[] = [], liveW: number[] = [], keptW: number[] = [], liveU: number[] = [], keptU: number[] = [], liveEnds: number[] = [], keptEnds: number[] = [];
   let id = -1;
   for (const l of w.layers) {
     const isLive = l.k >= fromK;
     const to = isLive ? live : kept, tw = isLive ? liveW : keptW, te = isLive ? liveEnds : keptEnds;
     const base = weigh ? 1 - Math.max(0, Math.min(1, weigh.decayOf(l.k))) : 1;
-    for (const line of l.lines) {
+    const tu = isLive ? liveU : keptU;
+    for (let li = 0; li < l.lines.length; li++) {
+      const line = l.lines[li];
       id++;
       const n = line.length / 3;
       if (n < 2) continue;
+      // USE (the artist, 2026-11-12: "더 자주 쓰는 길은 더 밝거나 불투명하게"): how trodden the link was when it was laid
+      const u = l.use?.[li] ?? 1;
+      // SNAP: each end goes to the nearest part of a building, if one is near (a ramp's foot on another line has none
+      // and stays)
+      const ends = [0, n - 1].map((i) => weigh?.snap?.(line[i * 3], line[i * 3 + 1], line[i * 3 + 2]) ?? null);
+      const at = (i: number, c: number) => (i === 0 && ends[0] ? ends[0][c] : i === n - 1 && ends[1] ? ends[1][c] : line[i * 3 + c]);
       for (let i = 0; i + 1 < n; i++) {
-        for (let c = 0; c < 6; c++) to.push(line[i * 3 + c]);
+        to.push(at(i, 0), at(i, 1), at(i, 2), at(i + 1, 0), at(i + 1, 1), at(i + 1, 2));
         tw.push(base, base);
+        tu.push(u, u);
       }
       if (!weigh) continue;
-      for (const i of [0, n - 1]) if (!weigh.anchored(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], id)) te.push(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], base);
+      [0, n - 1].forEach((i, e) => {
+        if (!ends[e] && !weigh.anchored(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], id)) te.push(line[i * 3], line[i * 3 + 1], line[i * 3 + 2], base);
+      });
     }
   }
   const f = (a: ArrayLike<number>) => Float32Array.from(a);
-  return { live: f(live), kept: f(kept), liveW: f(liveW), keptW: f(keptW), liveEnds: f(liveEnds), keptEnds: f(keptEnds) };
+  return { live: f(live), kept: f(kept), liveW: f(liveW), keptW: f(keptW), liveU: f(liveU), keptU: f(keptU), liveEnds: f(liveEnds), keptEnds: f(keptEnds) };
 }

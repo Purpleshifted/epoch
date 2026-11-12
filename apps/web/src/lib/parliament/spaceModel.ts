@@ -220,7 +220,7 @@ export interface PartsResult {
   /** The pipes as plumbing to instance (water.pipeParts): `live` within the present (still changing), `kept` below. */
   pipes: { live: PipeParts; kept: PipeParts };
   /** V2 walkways' pre-layer as line segments with a weight per vertex (walkways.walkSegments): `live` within the present, `kept` below. */
-  walk: { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array };
+  walk: { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveU: Float32Array; keptU: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array };
   t: number;
   top: number;
   minX: number;
@@ -1101,7 +1101,29 @@ export class SpaceModel {
         const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
         return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.concreteLife * life));
       };
-      return { anchored, decayOf };
+      // SNAP: the nearest shown part within two cells and a slot and a half of an end — the point of it closest to the
+      // end (a turned part by its middle, kept within its height)
+      const near = new Map<string, Box[]>();
+      for (const b of shown) {
+        const key = cellOf(b.x, b.y, b.z);
+        const l = near.get(key);
+        if (l) l.push(b);
+        else near.set(key, [b]);
+      }
+      const snap = (x: number, y: number, z: number): [number, number, number] | null => {
+        let best: [number, number, number] | null = null, bestD = Infinity;
+        for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = -1; dy <= 1; dy++) {
+          for (const b of near.get(cellOf(x + dx * CELL, y + dy * box.unit, z + dz * CELL)) ?? []) {
+            const turned = !!(b.yaw || b.tilt);
+            const hx = turned ? 0 : b.sx / 2, hz = turned ? 0 : b.sz / 2, hy = (b.tilt ? Math.min(b.sx, b.sy, b.sz) : b.sy) / 2;
+            const px = Math.max(b.x - hx, Math.min(b.x + hx, x)), py = Math.max(b.y - hy, Math.min(b.y + hy, y)), pz = Math.max(b.z - hz, Math.min(b.z + hz, z));
+            const d = Math.hypot(px - x, (py - y) * 0.5, pz - z);
+            if (d < bestD) [best, bestD] = [[px, py, pz], d];
+          }
+        }
+        return bestD <= 2.5 * CELL ? best : null;
+      };
+      return { anchored, decayOf, snap };
     })();
     return {
       counts: fill,
@@ -1503,7 +1525,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.born)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
       for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.elbows.buffer as ArrayBuffer);
-      for (const a of [out.parts.walk.live, out.parts.walk.kept, out.parts.walk.liveW, out.parts.walk.keptW, out.parts.walk.liveEnds, out.parts.walk.keptEnds]) transfer.add(a.buffer as ArrayBuffer);
+      for (const a of [out.parts.walk.live, out.parts.walk.kept, out.parts.walk.liveW, out.parts.walk.keptW, out.parts.walk.liveU, out.parts.walk.keptU, out.parts.walk.liveEnds, out.parts.walk.keptEnds]) transfer.add(a.buffer as ArrayBuffer);
     }
   }
   if (m.nature) {
