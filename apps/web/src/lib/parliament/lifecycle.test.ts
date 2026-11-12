@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FLOW,
   DEFAULT_FOLD,
+  DEFAULT_HERD,
   DEFAULT_LIFECYCLE,
   WORLD_HALF,
   arrivalRate,
@@ -285,8 +286,8 @@ describe("lifecycle: plumbing", () => {
 });
 
 describe("lifecycle: herds in the block (3D: the ground and time as height)", () => {
-  const HERD = { share: 1, sizeMin: 4, sizeMax: 6, radius: 2, gap: 20, metersPerSec: 1 / 20, depthSec: 900 };
-  const cfg: LifecycleConfig = { ...DEFAULT_LIFECYCLE, herd: HERD };
+  const HERD = { ...DEFAULT_HERD };
+  const cfg: LifecycleConfig = { ...DEFAULT_LIFECYCLE, maxPresent: HERD.count * HERD.sizeMax + HERD.loners, leaveShare: 0, herd: HERD };
   /** Steps `sec` seconds and hands every step's state to `see`. */
   function walk(sec: number, c: LifecycleConfig, see: (st: LifecycleState, wallMs: number, arrivals: LifecycleState["present"]) => void) {
     let st = initLifecycle(EPOCH, EPOCH, c);
@@ -298,69 +299,112 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
     return st;
   }
 
-  it("arrivals come as herds of 4–6: one leader, the others within the 3D radius of it (sideways and in time)", () => {
+  it("the population is the knobs': so many herds at once, each replaced when it is gone, and so many loners", () => {
+    let least = Infinity, most = 0, loners = 0;
+    walk(1500, cfg, (st, w) => {
+      const n = st.present.filter((v) => v.kind === "leader").length;
+      most = Math.max(most, n);
+      loners = Math.max(loners, st.present.filter((v) => v.kind === "loner").length);
+      if (w - EPOCH > 120_000) least = Math.min(least, n);
+    });
+    expect(most).toBe(HERD.count);
+    expect(least).toBeGreaterThanOrEqual(HERD.count - 2);
+    expect(loners).toBe(HERD.loners);
+  });
+
+  it("a herd comes whole (4–6), its members within the herd's radius of the leader — sideways and in time", () => {
     const sizes = new Map<number, number>();
     let members = 0;
     walk(1200, cfg, (st, _w, arrivals) => {
       for (const v of arrivals) {
+        if (v.kind === "loner") continue;
         sizes.set(v.sec, (sizes.get(v.sec) ?? 0) + 1);
         if (!v.lead) continue;
         members++;
-        const lead = st.present.find((p) => p.id === v.lead) ?? arrivals.find((p) => p.id === v.lead)!;
-        expect(lead).toBeDefined();
-        const flat = Math.hypot(v.hx!, v.hz!);
-        const up = (v.off - lead.off) * HERD.metersPerSec;
-        expect(flat).toBeLessThanOrEqual(HERD.radius + 1e-6);
-        expect(Math.abs(up)).toBeLessThanOrEqual(HERD.radius + 1e-6);
+        const lead = arrivals.find((p) => p.id === v.lead)!;
+        expect(Math.hypot(v.hx!, v.hz!)).toBeLessThanOrEqual(HERD.radius + 1e-6);
+        expect(Math.abs((v.off - lead.off) * HERD.metersPerSec)).toBeLessThanOrEqual(HERD.radius + 1e-6);
+        expect(v.drift).toBe(lead.drift);
       }
     });
     expect(members).toBeGreaterThan(20);
-    // a herd comes whole or not at all
     for (const n of sizes.values()) {
-      expect(n).toBeGreaterThanOrEqual(4);
-      expect(n).toBeLessThanOrEqual(6);
+      expect(n).toBeGreaterThanOrEqual(HERD.sizeMin);
+      expect(n).toBeLessThanOrEqual(HERD.sizeMax);
     }
   });
 
-  it("leaders are seated in the block: between its depth and the present, never before time 0", () => {
-    const offs: number[] = [];
-    walk(1500, cfg, (_st, w, arrivals) => {
-      for (const v of arrivals) {
-        const elapsed = (w - EPOCH) / 1000;
+  it("strata: the living herds are at different times of the block, not all at one", () => {
+    let samples = 0, bandsSeen = 0;
+    walk(1800, cfg, (st, w) => {
+      const elapsed = (w - EPOCH) / 1000;
+      if (elapsed < 1000 || elapsed % 30) return;
+      const bands = new Set<number>();
+      for (const v of st.present) if (v.kind === "leader") bands.add(Math.min(HERD.count - 1, Math.floor((-v.off / HERD.depthSec) * HERD.count)));
+      samples++;
+      bandsSeen += bands.size;
+      for (const v of st.present) {
         expect(v.off).toBeLessThanOrEqual(DEFAULT_LIFECYCLE.timeSpreadSec);
-        expect(v.off).toBeGreaterThanOrEqual(-Math.min(HERD.depthSec, elapsed) - HERD.radius / HERD.metersPerSec - 1e-6);
         expect(elapsed + v.off).toBeGreaterThanOrEqual(-1e-6);
-        if (!v.lead && elapsed > 900) offs.push(v.off);
       }
     });
-    expect(Math.min(...offs)).toBeLessThan(-450);
-    expect(Math.max(...offs)).toBeGreaterThan(-450);
+    expect(bandsSeen / samples).toBeGreaterThan(HERD.count * 0.7);
   });
 
   it("a herd moves as one: while the leader stays, most of its members stand around the same spot", () => {
     let seen = 0, close = 0;
     walk(1500, cfg, (st, w) => {
       for (const lead of st.present) {
-        if (lead.lead || lead.mode !== "stay" || w - lead.sinceMs < 25_000) continue;
+        if (lead.kind !== "leader" || lead.mode !== "stay" || w - lead.sinceMs < 25_000) continue;
         for (const v of st.present) {
-          if (v.lead !== lead.id || v.leaving) continue;
+          if (v.lead !== lead.id) continue;
           seen++;
-          if (wrapDist(v.x, v.z, lead.sx, lead.sz) <= HERD.radius + 1.5) close++;
+          if (wrapDist(v.x, v.z, lead.sx, lead.sz) <= HERD.radius * (1 + HERD.loose) + 1.5) close++;
         }
       }
     });
     expect(seen).toBeGreaterThan(50);
-    expect(close / seen).toBeGreaterThan(0.7);
+    expect(close / seen).toBeGreaterThan(0.6);
+  });
+
+  it("herds move in three ways (settle · roam · on a round), by the shares; a share of 0 leaves that way out", () => {
+    const tempers = (c: LifecycleConfig) => {
+      const n = { settle: 0, roam: 0, tour: 0 };
+      walk(1500, c, (_st, _w, arrivals) => {
+        for (const v of arrivals) if (v.kind === "leader") n[v.temper!]++;
+      });
+      return n;
+    };
+    const all = tempers(cfg);
+    expect(all.settle).toBeGreaterThan(0);
+    expect(all.roam).toBeGreaterThan(0);
+    expect(all.tour).toBeGreaterThan(0);
+    const none = tempers({ ...cfg, herd: { ...HERD, mix: { settle: 1, roam: 0, tour: 1 } } });
+    expect(none.roam).toBe(0);
+  });
+
+  it("roamers go further from where they began than settlers", () => {
+    const reach = (mix: { settle: number; roam: number; tour: number }) => {
+      let sum = 0, n = 0;
+      walk(1200, { ...cfg, herd: { ...HERD, mix } }, (st) => {
+        for (const v of st.present) if (v.kind === "leader") {
+          sum += wrapDist(v.x, v.z, v.ex, v.ez);
+          n++;
+        }
+      });
+      return sum / n;
+    };
+    expect(reach({ settle: 0, roam: 1, tour: 0 })).toBeGreaterThan(reach({ settle: 1, roam: 0, tour: 0 }) * 1.3);
   });
 
   it("a new herd keeps its distance (3D) from the living ones when the gap asks for it", () => {
     const nearestAtBirth = (gap: number) => {
       const d: number[] = [];
-      walk(1500, { ...cfg, herd: { ...HERD, gap } }, (st, _w, arrivals) => {
+      walk(1500, { ...cfg, herd: { ...HERD, layout: "any", gap } }, (st, _w, arrivals) => {
         for (const v of arrivals) {
-          if (v.lead) continue;
+          if (v.kind !== "leader") continue;
           let m = Infinity;
-          for (const p of st.present) if (!p.lead && p.id !== v.id) m = Math.min(m, Math.hypot(wrapDist(v.ex, v.ez, p.x, p.z), (v.off - p.off) * HERD.metersPerSec));
+          for (const p of st.present) if (p.kind === "leader" && p.id !== v.id) m = Math.min(m, Math.hypot(wrapDist(v.ex, v.ez, p.x, p.z), (v.off - p.off) * HERD.metersPerSec));
           if (Number.isFinite(m)) d.push(m);
         }
       });
@@ -370,29 +414,41 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
     expect(nearestAtBirth(40)).toBeGreaterThan(nearestAtBirth(0));
   });
 
-  it("a member whose leader is gone goes on by itself; nobody is left following nobody", () => {
-    let orphansFollowing = 0;
-    let prev: LifecycleState | null = null;
-    walk(1500, cfg, (st) => {
-      // one step after a leader left, its members have let go
-      if (prev) for (const v of st.present) if (v.lead && !prev.present.some((p) => p.id === v.lead) && !st.present.some((p) => p.id === v.lead)) orphansFollowing++;
-      prev = st;
+  it("drift: a herd rises faster or slower than the clock, together, and never passes the present or goes back", () => {
+    const c = { ...cfg, herd: { ...HERD, drift: 0.5 } };
+    const lastS = new Map<string, number>();
+    let drifting = 0;
+    walk(1200, c, (st, w) => {
+      for (const v of st.present) {
+        const s = lifecycleActor(v, w, EPOCH).s;
+        expect(s).toBeGreaterThanOrEqual((lastS.get(v.id) ?? 0) - 1e-6);
+        expect(s).toBeLessThanOrEqual((w - EPOCH) / 1000 + DEFAULT_LIFECYCLE.timeSpreadSec + 1e-6);
+        lastS.set(v.id, s);
+        if (v.drift) drifting++;
+      }
     });
-    expect(orphansFollowing).toBe(0);
+    expect(drifting).toBeGreaterThan(0);
   });
 
-  it("herds pour concrete on the wall's rule and the run is deterministic", () => {
+  it("a member whose leader is gone goes on by itself; herds pour concrete; the run is deterministic", () => {
+    let following = 0;
+    let prev: LifecycleState | null = null;
+    walk(900, cfg, (st) => {
+      if (prev) for (const v of st.present) if (v.lead && !prev.present.some((p) => p.id === v.lead) && !st.present.some((p) => p.id === v.lead)) following++;
+      prev = st;
+    });
+    expect(following).toBe(0);
     const a = run(1500, cfg), b = run(1500, cfg);
     expect(a.events.length).toBe(b.events.length);
     expect(a.events[a.events.length - 1]).toEqual(b.events[b.events.length - 1]);
-    const slabs = foldWorld(a.events, 1500, WALL).slabs.filter((s) => s.raw > 0);
-    expect(slabs.length).toBeGreaterThan(10);
+    expect(foldWorld(a.events, 1500, WALL).slabs.filter((s) => s.raw > 0).length).toBeGreaterThan(10);
   }, 120_000);
 
-  it("no herd config: the bots are as before (alone or in the old company, at the present)", () => {
+  it("no herd config: the bots are as before (by the rate, alone or in the old company, at the present)", () => {
     const { st } = run(600);
     for (const v of st.present) {
       expect(v.lead).toBeUndefined();
+      expect(v.kind).toBeUndefined();
       expect(v.off).toBeGreaterThanOrEqual(0);
     }
   });

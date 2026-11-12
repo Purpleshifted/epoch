@@ -2093,7 +2093,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     },
   });
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
-  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, lab ? { clock: clk, local: true, column, rebuild: rebuildColumn } : undefined);
+  // how deep (slots) the bots write below the present: while they do, no part's shape is frozen (below)
+  const [botDepth, setBotDepth] = useState(0);
+  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, column, rebuild: rebuildColumn, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
+  const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -2508,7 +2511,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       accOnset: DEFAULT_FUSE.accOnset,
       fuseOnset: fu.fuseOnset,
       // THE BLOCK (?block=N, an experiment): no part's shape is frozen — what is written deep rewrites the parts there
-      freezeSlots: isV2 && !(typeof window !== "undefined" && blockSlots(window.location.search) > 0) ? fu.freezeSlots : undefined,
+      freezeSlots: isV2 && !(botDepth > 0 || (typeof window !== "undefined" && blockSlots(window.location.search) > 0)) ? fu.freezeSlots : undefined,
       fuseFull: fu.fuseFull,
       voxel: fu.voxel,
       blur: fu.blur,
@@ -2580,7 +2583,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({

@@ -26,9 +26,7 @@ import {
   DEFAULT_HERD,
   DEFAULT_LIFECYCLE,
   SEAL_H,
-  SESSION_ROLES,
   botActor,
-  botPlan,
   currentEpochKey,
   dueSamples,
   flowRoute,
@@ -36,7 +34,6 @@ import {
   initLifecycle,
   latestS,
   lifecycleActor,
-  nextMaxPresent,
   parseBotLink,
   readLifecycle,
   saveMerged,
@@ -45,17 +42,14 @@ import {
   type Clock,
   sessionSeconds,
   setKeepFrom,
-  steerBot,
   wrapCell,
   type Actor,
   type Attractor,
   type EventLog,
-  type Flock,
   type FoldConfig,
   type LifecycleConfig,
   type LifecycleState,
   type PEvent,
-  type RoleId,
 } from "@/lib/parliament";
 import { savable } from "./levaSave";
 import { useTicker } from "./useTicker";
@@ -76,28 +70,14 @@ const STALE_MS = 10 * 60_000;
  * do, and counting frames over 50 ms took the bots down to the floor within minutes (the artist, 2026-10-31: "길이 잘
  * 안 생기네").
  */
-const CAPACITY_EVERY_MS = 20_000;
-const AUTO_MIN = 8;
 const STALL_MS = 100;
 /** SESSION: someone who is not a bot, seen in the last this many seconds, is a visitor the bots may go to. */
 const VISITOR_RECENT_SEC = 4;
 /** The bots' fold: someone who joins up to this far behind the others in assigned time is not late (no rebuild). */
 const BOT_FOLD_OPTS = { lateMarginSec: 35 };
 
-const BOT_OPTIONS: Record<string, RoleId | "mixed"> = {
-  "회사원 (worker)": "worker",
-  "섞어서 (worker · cat · car · tree 차례로)": "mixed",
-  "길고양이 (street cat)": "cat",
-  "자동차 (car)": "car",
-  "나무 (tree)": "tree",
-};
-
-type BotMode = "herd" | "session" | "resident";
-const MODE_OPTIONS: Record<string, BotMode> = {
-  "무리 (덩어리 속을 몰려다님 · 태어나고 죽음)": "herd",
-  "혼자 (들어왔다 나감)": "session",
-  "상주 (기존)": "resident",
-};
+const LAYOUT_OPTIONS: Record<string, "strata" | "any"> = { "층마다 고르게 (무리 수만큼 나눠 빈 층에)": "strata", "아무 높이나": "any" };
+const ORIGIN_OPTIONS: Record<string, "even" | "built" | "doors"> = { "세계에 고르게": "even", "지어진 곳 가까이": "built", "원점과 문 네 곳": "doors" };
 /** The wall's time axis as the herds read it: one slot is 20 s and 1 world unit high (SPACE_BOXES). */
 const SLOT_SEC = 20;
 const SLOT_HEIGHT = 1;
@@ -122,7 +102,7 @@ export function botReadout(): string | null {
   if (typeof window === "undefined") return null;
   const l = (window as unknown as { __lifecycle?: { present: number; maxPresent: number; arrived: number; departed: number; places: number; slowPerMin: number } }).__lifecycle;
   if (!l) return null;
-  return `bots (session): ${l.present} now / max ${l.maxPresent} · arrived ${l.arrived} · left ${l.departed} · places ${l.places} · stalls ${l.slowPerMin}/min`;
+  return `bots (herds): ${l.present} now / max ${l.maxPresent} · arrived ${l.arrived} · left ${l.departed} · places ${l.places} · stalls ${l.slowPerMin}/min`;
 }
 
 export function useGlobalBots(
@@ -130,84 +110,56 @@ export function useGlobalBots(
   cfg: FoldConfig,
   enabled: boolean,
   order = 1.5,
-  opts?: { clock?: Clock; local?: boolean; column?: { current: TestColumnKnobs }; rebuild?: { current: () => void } },
+  opts?: { clock?: Clock; local?: boolean; column?: { current: TestColumnKnobs }; rebuild?: { current: () => void }; setDepth?: (slots: number) => void },
 ): number {
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
   const local = !!opts?.local;
   const show = () => enabled;
-  // EVERY BOT KNOB IS IN THIS ONE FOLDER (the artist, 2026-11-12), by way of living: herds in the block (new), alone
-  // (the session bots of 2026-10-31) or the resident crowd (the artist's choice of 2026-11-01, still the default)
-  const modeIs = (m: BotMode) => (get: (path: string) => unknown) => enabled && get(`${GROUP}.botMode`) === m;
-  const showSession = (get: (path: string) => unknown) => enabled && get(`${GROUP}.botMode`) !== "resident";
-  const showHerd = modeIs("herd");
-  const showResident = modeIs("resident");
+  // THE BOTS, ONE SYSTEM (the artist, 2026-11-12: "레바 지금 거 다 없애고 싹 다 새로 만들어도 되니까"): herds in the
+  // block. The resident crowd, the arrivals by rate and their knobs are gone from the wall (lib/parliament/bots.ts and
+  // the rate path of lifecycle.ts stay for the lab's test column and the tests).
   const showLab = () => enabled && !!opts?.local;
   const b = useControls(
     GROUP,
     savable(GROUP, {
       botOn: { value: false, label: "봇 활성화", render: show },
-      botMode: { options: MODE_OPTIONS, value: "resident" as BotMode, label: "봇 방식", render: show },
-      // HERDS: defined in the wall's 3D space — the ground and time as height (1 단 = 20 s = 높이 1)
-      "무리 (3차원: 땅 + 시간 = 높이 · 1단 = 높이 1)": folder(
+      "무리": folder(
         {
-          hdShare: { value: DEFAULT_HERD.share, min: 0, max: 1, step: 0.05, label: "무리로 태어나는 비율" },
-          hdSizeMin: { value: DEFAULT_HERD.sizeMin, min: 2, max: 12, step: 1, label: "크기 최소 (명)" },
-          hdSizeMax: { value: DEFAULT_HERD.sizeMax, min: 2, max: 12, step: 1, label: "크기 최대 (명)" },
-          hdRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 반경 (3차원)" },
-          hdGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 사이 거리 (3차원)" },
-          hdDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 60, step: 1, label: "덩어리 깊이 (단)" },
+          hCount: { value: DEFAULT_HERD.count, min: 0, max: 12, step: 1, label: "무리 수 (동시)" },
+          hSizeMin: { value: DEFAULT_HERD.sizeMin, min: 1, max: 12, step: 1, label: "크기 최소 (명)" },
+          hSizeMax: { value: DEFAULT_HERD.sizeMax, min: 1, max: 12, step: 1, label: "크기 최대 (명)" },
+          hLoners: { value: DEFAULT_HERD.loners, min: 0, max: 12, step: 1, label: "혼자 다니는 봇 (명)" },
+          hLifeMin: { value: DEFAULT_LIFECYCLE.lifeMinSec / 60, min: 0.25, max: 10, step: 0.25, label: "수명 최소 (분)" },
+          hLifeMax: { value: DEFAULT_LIFECYCLE.lifeMaxSec / 60, min: 0.25, max: 10, step: 0.25, label: "수명 최대 (분)" },
         },
-        { render: showHerd },
+        { render: show },
       ),
-      // SESSION (docs/bot-lifecycle.md): shared by the herds and the bots that come alone
-      "도착 · 인원": folder(
+      // the wall's 3D space: the ground and time as height (1 단 = 20 s = 높이 1)
+      "자리 (3차원 · 1단 = 높이 1)": folder(
         {
-          lcGapSec: { value: DEFAULT_LIFECYCLE.meanGapSec, min: 3, max: 120, step: 1, label: "도착 간격 (s · 붐빌 때)" },
-          lcQuiet: { value: DEFAULT_LIFECYCLE.quietShare, min: 0, max: 1, step: 0.05, label: "한산할 때 (× 붐빌 때)" },
-          lcWaveMin: { value: DEFAULT_LIFECYCLE.wavePeriodSec / 60, min: 1, max: 120, step: 1, label: "붐빔↔한산 주기 (분)" },
-          lcMax: { value: DEFAULT_LIFECYCLE.maxPresent, min: 0, max: 40, step: 1, label: "동시 최대 (명)" },
-          lcAuto: { value: true, label: "성능 따라 줄이기" },
+          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 60, step: 1, label: "덩어리 깊이 (단)" },
+          hLayout: { options: LAYOUT_OPTIONS, value: DEFAULT_HERD.layout, label: "높이 배치" },
+          hOrigin: { options: ORIGIN_OPTIONS, value: DEFAULT_HERD.origin, label: "기점 (땅)" },
+          hOriginR: { value: DEFAULT_HERD.originR, min: 5, max: 95, step: 1, label: "기점 반경 (월드)" },
+          hGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 사이 거리 (3차원)" },
+          hRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 반경 (3차원)" },
         },
-        { render: showSession },
-      ),
-      "수명": folder(
-        {
-          lcLifeMin: { value: DEFAULT_LIFECYCLE.lifeMinSec / 60, min: 0.25, max: 10, step: 0.25, label: "최소 (분)" },
-          lcLifeMax: { value: DEFAULT_LIFECYCLE.lifeMaxSec / 60, min: 0.25, max: 10, step: 0.25, label: "최대 (분)" },
-          lcShort: { value: DEFAULT_LIFECYCLE.bands.short, min: 0, max: 100, step: 5, label: "짧은 삶 비율" },
-          lcMiddle: { value: DEFAULT_LIFECYCLE.bands.middle, min: 0, max: 100, step: 5, label: "중간 삶 비율" },
-          lcLong: { value: DEFAULT_LIFECYCLE.bands.long, min: 0, max: 100, step: 5, label: "긴 삶 비율" },
-        },
-        { render: showSession, collapsed: true },
+        { render: show },
       ),
       "움직임": folder(
         {
-          lcFollow: { value: DEFAULT_LIFECYCLE.follow, min: 0, max: 1, step: 0.05, label: "남의 자리 따라가기" },
-          lcRevisit: { value: DEFAULT_LIFECYCLE.revisit, min: 0, max: 1, step: 0.05, label: "내 자리 다시 가기" },
-          lcSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "성격 변주 폭" },
-          lcOrigin: { value: DEFAULT_LIFECYCLE.originShare, min: 0, max: 1, step: 0.05, label: "원점에서 시작 비율" },
-          lcLeave: { value: DEFAULT_LIFECYCLE.leaveShare, min: 0, max: 1, step: 0.05, label: "문으로 나가는 비율" },
-          lcGroup: { value: DEFAULT_LIFECYCLE.groupP, min: 0, max: 1, step: 0.05, label: "동행 도착 (혼자 방식)" },
+          hSettle: { value: DEFAULT_HERD.mix.settle, min: 0, max: 3, step: 0.1, label: "정착 무리 비중" },
+          hRoam: { value: DEFAULT_HERD.mix.roam, min: 0, max: 3, step: 0.1, label: "유랑 무리 비중" },
+          hTour: { value: DEFAULT_HERD.mix.tour, min: 0, max: 3, step: 0.1, label: "순회 무리 비중" },
+          hFollow: { value: DEFAULT_LIFECYCLE.follow, min: 0, max: 1, step: 0.05, label: "남의 자리 따라가기" },
+          hLoose: { value: DEFAULT_HERD.loose, min: 0, max: 1, step: 0.05, label: "무리의 느슨함" },
+          hSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "성격 변주 폭" },
+          hDrift: { value: DEFAULT_HERD.drift, min: 0, max: 0.9, step: 0.05, label: "시간 속도 변주 (±)" },
         },
-        { render: showSession, collapsed: true },
+        { render: show },
       ),
-      // RESIDENT (the old crowd); moving flocks × flock character (the artist, 2026-11-01): stay 0 = the old fixed crowd
-      "상주": folder(
-        {
-          botCount: { value: 12, min: 1, max: 30, step: 1, label: "봇 수" },
-          botRole: { options: BOT_OPTIONS, value: "worker" as RoleId | "mixed", label: "역할" },
-          botGroups: { value: 4, min: 1, max: 10, step: 1, label: "무리 수" },
-          botSpread: { value: 14, min: 0, max: 60, step: 1, label: "무리 간 거리" },
-          botTimeSpread: { value: 60, min: 0, max: 600, step: 5, label: "시각 폭 (s)" },
-          botTimeDepth: { value: 0, min: 0, max: 1200, step: 20, label: "덩어리 깊이 (s · 실험)" },
-          botStayMin: { value: 0, min: 0, max: 30, step: 0.5, label: "한 자리 머묾 (분 · 0 = 고정)" },
-          botCharacter: { value: 0, min: 0, max: 1, step: 0.05, label: "무리 성격 차이" },
-          botOverlapSec: { value: 60, min: 0, max: 300, step: 5, label: "옮길 때 겹침 (s)" },
-        },
-        { render: showResident },
-      ),
-      // THE LAB'S TEST COLUMN (was its own folder): the crowd that writes the column the lab opens with
+      // THE LAB'S TEST COLUMN: the crowd that writes the column the lab opens with
       "테스트 기둥 (랩)": folder(
         {
           tcMinutes: { value: 20, min: 5, max: 60, step: 5, label: "분량 (분)" },
@@ -223,36 +175,45 @@ export function useGlobalBots(
     { order, collapsed: !enabled },
   );
   const on = enabled && b.botOn;
-  const session = b.botMode !== "resident";
+  const session = true;
   if (opts?.column) opts.column.current = { minutes: b.tcMinutes, bots: b.tcBots, groups: b.tcGroups, spread: b.tcSpread, time: b.tcTime };
-  const nBots = on && !session ? b.botCount : 0;
-  const flock = useMemo<Flock>(
-    () => ({ groups: b.botGroups, spread: b.botSpread, timeSpread: b.botTimeSpread, timeDepth: b.botTimeDepth, stayMin: b.botStayMin, overlapSec: b.botOverlapSec, character: b.botCharacter }),
-    [b.botGroups, b.botSpread, b.botTimeSpread, b.botTimeDepth, b.botStayMin, b.botOverlapSec, b.botCharacter],
-  );
+  const sizeMin = Math.min(b.hSizeMin, b.hSizeMax), sizeMax = Math.max(b.hSizeMin, b.hSizeMax);
+  /** The most at once: every herd at its largest and the loners (the hard ceiling is 60 events a second). */
+  const most = Math.min(60, Math.round(b.hCount) * sizeMax + Math.round(b.hLoners));
   const lc = useMemo<LifecycleConfig>(
     () => ({
       ...DEFAULT_LIFECYCLE,
-      meanGapSec: b.lcGapSec,
-      quietShare: b.lcQuiet,
-      wavePeriodSec: b.lcWaveMin * 60,
-      maxPresent: b.lcMax,
-      lifeMinSec: Math.min(b.lcLifeMin, b.lcLifeMax) * 60,
-      lifeMaxSec: Math.max(b.lcLifeMin, b.lcLifeMax) * 60,
-      bands: { short: b.lcShort, middle: b.lcMiddle, long: b.lcLong },
-      groupP: b.lcGroup,
-      originShare: b.lcOrigin,
-      follow: b.lcFollow,
-      revisit: b.lcRevisit,
-      spread: b.lcSpread,
-      leaveShare: b.lcLeave,
-      herd:
-        b.botMode === "herd"
-          ? { share: b.hdShare, sizeMin: Math.min(b.hdSizeMin, b.hdSizeMax), sizeMax: Math.max(b.hdSizeMin, b.hdSizeMax), radius: b.hdRadius, gap: b.hdGap, metersPerSec: SLOT_HEIGHT / SLOT_SEC, depthSec: b.hdDepth * SLOT_SEC }
-          : undefined,
+      maxPresent: most,
+      lifeMinSec: Math.min(b.hLifeMin, b.hLifeMax) * 60,
+      lifeMaxSec: Math.max(b.hLifeMin, b.hLifeMax) * 60,
+      follow: b.hFollow,
+      spread: b.hSpread,
+      leaveShare: 0,
+      herd: {
+        count: b.hCount,
+        loners: b.hLoners,
+        sizeMin,
+        sizeMax,
+        radius: b.hRadius,
+        gap: b.hGap,
+        metersPerSec: SLOT_HEIGHT / SLOT_SEC,
+        depthSec: b.hDepth * SLOT_SEC,
+        layout: b.hLayout,
+        origin: b.hOrigin,
+        originR: b.hOriginR,
+        mix: { settle: b.hSettle, roam: b.hRoam, tour: b.hTour },
+        loose: b.hLoose,
+        drift: b.hDrift,
+      },
     }),
-    [b.lcGapSec, b.lcQuiet, b.lcWaveMin, b.lcMax, b.lcLifeMin, b.lcLifeMax, b.lcShort, b.lcMiddle, b.lcLong, b.lcGroup, b.lcOrigin, b.lcFollow, b.lcRevisit, b.lcSpread, b.lcLeave, b.botMode, b.hdShare, b.hdSizeMin, b.hdSizeMax, b.hdRadius, b.hdGap, b.hdDepth],
+    [most, sizeMin, sizeMax, b.hCount, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift],
   );
+  // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
+  const setDepth = opts?.setDepth;
+  const deep = on ? b.hDepth : 0;
+  useEffect(() => {
+    setDepth?.(deep);
+  }, [setDepth, deep]);
   // LINK: the address's query turns the knobs once, when the view opens (the controls exist by then: retried briefly)
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
@@ -294,10 +255,10 @@ export function useGlobalBots(
   // the ground the bots walk on, folded as it grows (the whole world)
   const fold = useFoldState(log, cfg, BOT_FOLD_OPTS);
 
-  const live = useRef({ on, session, nBots, role: b.botRole, flock, cfg, fold, lc, auto: b.lcAuto });
+  const live = useRef({ on, cfg, fold, lc });
   useEffect(() => {
-    live.current = { on, session, nBots, role: b.botRole, flock, cfg, fold, lc, auto: b.lcAuto };
-  }, [on, session, nBots, b.botRole, flock, cfg, fold, lc, b.lcAuto]);
+    live.current = { on, cfg, fold, lc };
+  }, [on, cfg, fold, lc]);
 
   const epochMs = useRef(0);
   const pending = useRef<PEvent[]>([]);
@@ -316,7 +277,6 @@ export function useGlobalBots(
   const lastLcSave = useRef(0);
   const slow = useRef<number[]>([]);
   const lastFrame = useRef(0);
-  const lastCapacity = useRef(0);
 
   // the frame rate (SESSION, auto): frames longer than 50 ms
   useEffect(() => {
@@ -351,7 +311,8 @@ export function useGlobalBots(
   }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useTicker(TICK_MS, () => {
-    const { on: isOn, session: isSession, nBots: n, role, flock: fl, cfg: foldCfg, fold: theFold, lc: lcCfg, auto } = live.current;
+    const { on: isOn, cfg: foldCfg, fold: theFold, lc: lcCfg } = live.current;
+    const isSession = true;
     if (!isOn) return;
     // a cleared world (here or in another tab): join the new epoch with a fresh crowd
     if (!local && currentEpochKey() !== String(epochMs.current)) {
@@ -389,7 +350,6 @@ export function useGlobalBots(
         for (const e of last.values()) seen.push({ x: e.x, z: e.z, w: 3 });
       }
       ground.current = { at: wall, level, built, visitors: seen };
-      if (routes.current.size > Math.max(8, n * 4)) routes.current.clear();
     }
     const g = flow ? ground.current : null;
     const period = Math.max(50, foldCfg.sampleSec * 1000);
@@ -425,16 +385,8 @@ export function useGlobalBots(
         return `${wrapCell(ci)},${wrapCell(cj)}`;
       };
       const planRoute = flow && g ? (ax: number, az: number, bx: number, bz: number) => flowRoute(ax, az, bx, bz, { level: (k) => g.level.get(cell(k)) ?? 0, built: (k) => g.built.has(cell(k)) }, flow) : undefined;
-      // the most at once: the knob, or (auto) what the frame rate allows under it — reconsidered every 20 s while the
-      // view is drawn (a hidden tab says nothing)
-      if (!auto) st = { ...st, maxPresent: lcCfg.maxPresent };
-      else if (st.maxPresent > lcCfg.maxPresent) st = { ...st, maxPresent: lcCfg.maxPresent };
-      else if (wall - lastCapacity.current >= CAPACITY_EVERY_MS) {
-        lastCapacity.current = wall;
-        const cut = wall - 60_000;
-        slow.current = slow.current.filter((t) => t >= cut);
-        if (wall - lastFrame.current < 2000) st = { ...st, maxPresent: nextMaxPresent(st.maxPresent, slow.current.length, Math.min(AUTO_MIN, lcCfg.maxPresent), lcCfg.maxPresent) };
-      }
+      // the most at once follows the knobs (herds × their largest size + the loners)
+      st = { ...st, maxPresent: lcCfg.maxPresent };
       for (const w of due) {
         // (the END event, k = "x", of who leaves comes with the role controls: docs/session-logic.md §2b)
         st = stepLifecycle(st, w, { attractors: g?.visitors ?? [], planRoute }, lcCfg).state;
@@ -458,17 +410,6 @@ export function useGlobalBots(
           /* quota: the page's copy goes on */
         }
       }
-    } else {
-      // RESIDENT: the old crowd
-      const steer = (a: Actor, i: number, w: number): Actor => {
-        if (!flow || !g) return a;
-        const plan = botPlan(i, w, botStartMs.current, epochMs.current, 0, fl);
-        const [x, z] = steerBot(a.o, plan, { level: (k) => g.level.get(k) ?? 0, built: (k) => g.built.has(k) }, flow, routes.current);
-        return { ...a, x, z };
-      };
-      for (const w of due) {
-        for (let i = 0; i < n; i++) add(steer(botActor(i, role === "mixed" ? SESSION_ROLES[i % SESSION_ROLES.length] : role, w, botStartMs.current, epochMs.current, 0, fl), i, w));
-      }
     }
     if (local) return; // the lab keeps everything, in memory
     if (now - lastKeepMs.current >= KEEP_EVERY_MS && wall - lastKeepWall.current >= KEEP_MIN_WALL_MS) {
@@ -484,5 +425,5 @@ export function useGlobalBots(
   });
 
   // the readout: how many bots (session: the most at once the knob allows, as a stable number; resident: the count)
-  return on ? (session ? Math.max(1, b.lcMax) : nBots) : 0;
+  return on ? Math.max(1, most) : 0;
 }

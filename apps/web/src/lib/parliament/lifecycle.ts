@@ -78,7 +78,8 @@ export interface LifecycleConfig {
    *  end (s); reaching the door ends the life. */
   leaveSec: number;
   memory: { staySec: number; mergeR: number; halfLifeSec: number; forgetSec: number };
-  /** HERDS (absent or share 0 = none: the bots come alone or in the old loose company). */
+  /** HERDS (absent = none: the bots arrive by the rate above, alone or in the old loose company). With it the
+   *  arrivals by rate stop: the population is `count` herds and `loners` bots, each replaced when it is gone. */
   herd?: HerdConfig;
 }
 
@@ -91,23 +92,54 @@ export interface LifecycleConfig {
  * as long. Each herd is seated at its own depth of the block (`depthSec` below the present) and rises with time.
  */
 export interface HerdConfig {
-  /** Share of the arrivals that are herds (0..1). */
-  share: number;
+  /** HOW MANY: living herds kept at once (one is born when one is gone), and bots that go about alone. */
+  count: number;
+  loners: number;
   /** Members of a herd, leader included. */
   sizeMin: number;
   sizeMax: number;
-  /** 3D radius of a herd around its leader (world units; time counts as height). */
+  /** 3D radius of a herd around its leader (world units; time counts as height): its members' places and times. */
   radius: number;
   /** 3D distance a new herd keeps from every living herd (world units); it is seated at the best of a few tries. */
   gap: number;
   /** World units of height per second of assigned time (the wall: one slot's height / its seconds). */
   metersPerSec: number;
-  /** THE BLOCK: leaders are seated uniformly down to this many seconds below the present (0 = at the present). */
+  /** THE BLOCK: herds are seated down to this many seconds below the present (0 = all at the present). */
   depthSec: number;
+  /** WHEN (height): "strata" = the depth is cut into as many bands as there are herds and a new herd takes one of
+   *  the emptiest — herds at every time of the block; "any" = anywhere in the depth. */
+  layout: "strata" | "any";
+  /** WHERE (ground): "even" = anywhere within originR of the origin; "doors" = the origin or one of the epoch's four
+   *  doors (the old entries); "built" = near a place others have stayed at (even, while there is none). */
+  origin: "even" | "doors" | "built";
+  originR: number;
+  /** HOW THEY MOVE, as shares of the herds: settlers (long stays, short hops, back to their places), roamers (short
+   *  stays, long walks) and those on a round (the same three or four places, again and again — paths between them). */
+  mix: { settle: number; roam: number; tour: number };
+  /** 0..1: how loosely the members keep (wider around the leader, a new place at every stop, later to set off). */
+  loose: number;
+  /** TIME: each herd rises through the block a little faster or slower than the clock — its rate is 1 ± this (0 = all
+   *  with the clock). A herd's members share it, so a herd stays together in time. */
+  drift: number;
 }
 
 /** The wall's time axis: one slot of 20 s is 1 world unit high. */
-export const DEFAULT_HERD: HerdConfig = { share: 0.8, sizeMin: 4, sizeMax: 6, radius: 2, gap: 20, metersPerSec: 1 / 20, depthSec: 900 };
+export const DEFAULT_HERD: HerdConfig = {
+  count: 6,
+  loners: 2,
+  sizeMin: 4,
+  sizeMax: 6,
+  radius: 2,
+  gap: 20,
+  metersPerSec: 1 / 20,
+  depthSec: 900,
+  layout: "strata",
+  origin: "even",
+  originR: 60,
+  mix: { settle: 1, roam: 1, tour: 1 },
+  loose: 0.3,
+  drift: 0,
+};
 
 export const DEFAULT_LIFECYCLE: LifecycleConfig = {
   meanGapSec: 12,
@@ -182,6 +214,13 @@ export interface Visitor {
   /** HERD: the leader's id (absent: a leader or a bot of its own), its place around the leader (m), how long after
    *  the leader it sets off (s), where it is heading with the herd and from when it may go (wall ms). */
   lead?: string;
+  /** HERD: what it is in the population ("leader" of a herd, or a "loner"), how its herd moves, the round it walks
+   *  (flat x, z list) and where on it it is, and how fast it rises through time relative to the clock (0 = with it). */
+  kind?: "leader" | "loner";
+  temper?: "settle" | "roam" | "tour";
+  tour?: number[];
+  ti?: number;
+  drift?: number;
   hx?: number;
   hz?: number;
   lag?: number;
@@ -350,21 +389,54 @@ function dist3(ax: number, az: number, aoff: number, bx: number, bz: number, bof
   return Math.hypot(wrapDist(ax, az, bx, bz), (aoff - boff) * h.metersPerSec);
 }
 
-/** Seats a new herd's leader: its depth in the block and its place, `gap` away (3D) from the living herds if it can. */
-function seatHerd(v: Visitor, present: readonly Visitor[], wallMs: number, epochMs: number, h: HerdConfig): void {
+/** One ground candidate for a new herd, by the config's way of choosing it. */
+function groundCandidate(v: Visitor, places: readonly Place[], wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig, c: number): [number, number] {
+  const even = (): [number, number] => {
+    const a = draw(v, epochMs, 70 + c) * 2 * Math.PI, d = Math.max(0, h.originR) * Math.sqrt(draw(v, epochMs, 80 + c));
+    return [wrapCoord(Math.sin(a) * d), wrapCoord(Math.cos(a) * d)];
+  };
+  if (h.origin === "doors") {
+    if (draw(v, epochMs, 70 + c) < cfg.originShare) return [wrapCoord((draw(v, epochMs, 80 + c) - 0.5) * 4), wrapCoord((draw(v, epochMs, 90 + c) - 0.5) * 4)];
+    const d = doorsOf(epochMs)[Math.min(3, Math.floor(draw(v, epochMs, 80 + c) * 4))];
+    return [wrapCoord(d[0] + (draw(v, epochMs, 90 + c) - 0.5) * 3), wrapCoord(d[1] + (draw(v, epochMs, 100 + c) - 0.5) * 3)];
+  }
+  if (h.origin === "built" && places.length) {
+    let tot = 0;
+    const ws = places.map((p) => (tot += placeWeight(p, wallMs, cfg)));
+    const u = draw(v, epochMs, 70 + c) * tot;
+    const p = places[Math.max(0, ws.findIndex((w) => w >= u))];
+    const a = draw(v, epochMs, 80 + c) * 2 * Math.PI, d = 3 + 9 * draw(v, epochMs, 90 + c);
+    return [wrapCoord(p.x + Math.sin(a) * d), wrapCoord(p.z + Math.cos(a) * d)];
+  }
+  return even();
+}
+
+/**
+ * Seats a new herd's leader in the block: its time (a band of the depth nobody is in, or anywhere), its ground, `gap`
+ * away (3D) from the living herds if it can — the best of eight tries.
+ */
+function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig): void {
   const depth = Math.min(Math.max(0, h.depthSec), Math.max(0, (wallMs - epochMs) / 1000));
-  const leaders = present.filter((p) => !p.lead && p.id !== v.id);
+  const leaders = st.present.filter((p) => p.kind === "leader" && p.id !== v.id);
+  const offNow = (p: Visitor) => p.off + (p.drift ?? 0) * ((wallMs - p.bornMs) / 1000);
+  // STRATA: the bands of the depth and how many herds live in each
+  const bands = Math.max(1, Math.round(h.count));
+  const inBand = new Array<number>(bands).fill(0);
+  if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor((-offNow(p) / depth) * bands)))]++;
+  const fewest = Math.min(...inBand);
+  const free = inBand.map((n, i) => (n === fewest ? i : -1)).filter((i) => i >= 0);
   let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1;
   for (let c = 0; c < 8; c++) {
-    const off = depth > 0 ? -draw(v, epochMs, 60 + c) * depth : v.off;
-    let x = v.x, z = v.z;
-    if (c > 0) {
-      const a = draw(v, epochMs, 70 + c) * 2 * Math.PI, d = 60 * Math.sqrt(draw(v, epochMs, 80 + c));
-      x = wrapCoord(Math.sin(a) * d);
-      z = wrapCoord(Math.cos(a) * d);
+    let off = v.off;
+    if (depth > 0) {
+      if (h.layout === "strata") {
+        const band = free[Math.min(free.length - 1, Math.floor(draw(v, epochMs, 60 + c) * free.length))];
+        off = -((band + draw(v, epochMs, 110 + c)) / bands) * depth;
+      } else off = -draw(v, epochMs, 60 + c) * depth;
     }
+    const [x, z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, c);
     let dMin = Infinity;
-    for (const p of leaders) dMin = Math.min(dMin, dist3(x, z, off, p.x, p.z, p.off, h));
+    for (const p of leaders) dMin = Math.min(dMin, dist3(x, z, off, p.x, p.z, offNow(p), h));
     if (dMin > bestD) {
       bestD = dMin;
       best = [x, z, off];
@@ -374,6 +446,36 @@ function seatHerd(v: Visitor, present: readonly Visitor[], wallMs: number, epoch
   [v.x, v.z, v.off] = best;
   v.ex = v.x;
   v.ez = v.z;
+  v.kind = "leader";
+  v.drift = (draw(v, epochMs, 120) - 0.5) * 2 * Math.max(0, Math.min(0.9, h.drift));
+  // HOW IT MOVES: one of three ways, by the shares
+  const m = h.mix, tot = Math.max(1e-6, m.settle + m.roam + m.tour), u = draw(v, epochMs, 121) * tot;
+  v.temper = u < m.settle ? "settle" : u < m.settle + m.roam ? "roam" : "tour";
+  if (v.temper === "settle") v.ch = { ...v.ch, stayMean: Math.min(70, v.ch.stayMean * 2), range: Math.max(4, v.ch.range * 0.35), revisit: 0.7, follow: v.ch.follow * 0.3, wander: v.ch.wander * 0.5 };
+  else if (v.temper === "roam") v.ch = { ...v.ch, stayMean: Math.max(4, v.ch.stayMean * 0.35), range: Math.min(90, v.ch.range * 2.2), revisit: 0, follow: v.ch.follow * 0.5, speed: v.ch.speed * 1.2 };
+  else {
+    v.ch = { ...v.ch, stayMean: v.ch.stayMean * 0.8, follow: 0, revisit: 0 };
+    const n = 3 + Math.floor(draw(v, epochMs, 122) * 2);
+    v.tour = [];
+    for (let i = 0; i < n; i++) {
+      const a = draw(v, epochMs, 123 + i) * 2 * Math.PI, d = v.ch.range * (0.4 + 0.6 * draw(v, epochMs, 130 + i));
+      v.tour.push(wrapCoord(v.ex + Math.sin(a) * d), wrapCoord(v.ez + Math.cos(a) * d));
+    }
+    v.ti = 0;
+  }
+  // a herd in the block dies where it stands (the doors are the old present's)
+  v.leaves = false;
+}
+
+/** A loner of the population: seated like a herd of one (its own time and ground), nothing else changed. */
+function seatLoner(v: Visitor, st: LifecycleState, wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig): void {
+  const depth = Math.min(Math.max(0, h.depthSec), Math.max(0, (wallMs - epochMs) / 1000));
+  if (depth > 0) v.off = -draw(v, epochMs, 60) * depth;
+  [v.x, v.z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, 0);
+  v.ex = v.x;
+  v.ez = v.z;
+  v.kind = "loner";
+  v.leaves = false;
 }
 
 /** A member of `lead`'s herd: a place within the herd's 3D radius (sideways and in time), a life about as long. */
@@ -388,10 +490,11 @@ function joinHerd(v: Visitor, lead: Visitor, wallMs: number, epochMs: number, h:
   v.x = v.ex = wrapCoord(lead.x + v.hx);
   v.z = v.ez = wrapCoord(lead.z + v.hz);
   v.lifeMs = lead.lifeMs * (0.9 + 0.2 * draw(v, epochMs, 63));
+  v.drift = lead.drift;
   v.leaves = lead.leaves;
   v.door = lead.door;
   v.lead = lead.id;
-  v.lag = 1 + v.j * (1 + 2 * draw(v, epochMs, 64));
+  v.lag = (1 + v.j * (1 + 2 * draw(v, epochMs, 64))) * (1 + 3 * Math.max(0, h.loose) * draw(v, epochMs, 65));
   v.tx = v.x;
   v.tz = v.z;
   v.holdMs = 0;
@@ -406,8 +509,17 @@ function keepWithHerd(v: Visitor, lead: Visitor, st: LifecycleState, inp: Lifecy
   const end = lead.mode === "go" && lead.route && lead.route.length >= 2;
   const ax = lead.mode === "stay" ? lead.sx : end ? lead.route![lead.route!.length - 2] : lead.x;
   const az = lead.mode === "stay" ? lead.sz : end ? lead.route![lead.route!.length - 1] : lead.z;
-  const tx = wrapCoord(ax + (v.hx ?? 0)), tz = wrapCoord(az + (v.hz ?? 0));
+  let tx = wrapCoord(ax + (v.hx ?? 0)), tz = wrapCoord(az + (v.hz ?? 0));
   if (v.tx === undefined || v.tz === undefined || wrapDist(tx, tz, v.tx, v.tz) > 1) {
+    // the herd's aim moved: a loose member takes a new place around it (never further than the herd's radius, widened)
+    const h = cfg.herd;
+    if (h && h.loose > 0 && (lead.mode === "stay" || end)) {
+      const a = draw(v, epochMs, 66) * 2 * Math.PI, r = h.radius * (1 + h.loose) * Math.sqrt(draw(v, epochMs, 67));
+      v.hx = Math.sin(a) * r;
+      v.hz = Math.cos(a) * r;
+      tx = wrapCoord(ax + v.hx);
+      tz = wrapCoord(az + v.hz);
+    }
     v.tx = tx;
     v.tz = tz;
     v.holdMs = wallMs + (v.lag ?? 1) * 1000;
@@ -477,6 +589,12 @@ function pointAlong(r: readonly number[], d: number): [number, number] {
 
 /** Where `v` goes next: someone else's place, its own earlier place, or somewhere new within its range. */
 function destination(v: Visitor, places: readonly Place[], attractors: readonly Attractor[], wallMs: number, epochMs: number, cfg: LifecycleConfig): [number, number] {
+  // ON A ROUND: the next of its places
+  if (v.tour && v.tour.length >= 2) {
+    const n = v.tour.length / 2;
+    v.ti = ((v.ti ?? 0) + 1) % n;
+    return [wrapCoord(v.tour[v.ti * 2] + (draw(v, epochMs, 36) - 0.5)), wrapCoord(v.tour[v.ti * 2 + 1] + (draw(v, epochMs, 37) - 0.5))];
+  }
   if (draw(v, epochMs, 30) < v.ch.follow) {
     const cands: [number, number, number][] = [];
     for (const p of places) cands.push([p.x, p.z, placeWeight(p, wallMs, cfg)]);
@@ -591,38 +709,56 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
   // the places: forgotten after forgetSec
   st.places = st.places.filter((p) => wallMs - p.atMs < cfg.memory.forgetSec * 1000);
 
-  // ARRIVALS: one draw for every second since the last step (a catch-up draws each of them)
   const nowSec = Math.floor((wallMs - epochMs) / 1000);
-  for (let sec = Math.max(st.lastSec + 1, nowSec - 600); sec <= nowSec; sec++) {
-    if (worldDraw(epochMs, sec, 10) >= arrivalRate(sec, cfg)) continue;
-    const herd = cfg.herd && cfg.herd.share > 0 && worldDraw(epochMs, sec, 13) < cfg.herd.share ? cfg.herd : null;
-    const group = herd
-      ? Math.max(1, Math.round(range(worldDraw(epochMs, sec, 12), Math.min(herd.sizeMin, herd.sizeMax), Math.max(herd.sizeMin, herd.sizeMax)))) - 1
-      : worldDraw(epochMs, sec, 11) < cfg.groupP
-        ? 1 + Math.floor(worldDraw(epochMs, sec, 12) * 2)
-        : 0;
-    let lead: Visitor | null = null;
-    // a herd comes whole or not at all (a herd cut short by the most-at-once would not pour concrete)
-    if (herd && st.present.length + group + 1 > cap) {
-      st.turnedAway += group + 1;
-      continue;
-    }
-    for (let j = 0; j <= group; j++) {
-      if (st.present.length >= cap) {
-        st.turnedAway++;
-        continue;
+  const hc = cfg.herd;
+  if (hc) {
+    // THE POPULATION: `count` herds and `loners` bots; who is gone is replaced — a herd at the seconds ≡ 0 (mod 4),
+    // a loner at ≡ 3, one at a time (so the draws of those born in one second never overlap, and nobody comes in a crowd)
+    for (let sec = Math.max(st.lastSec + 1, nowSec - 600); sec <= nowSec; sec++) {
+      if (sec % 4 === 0 && st.present.filter((p) => p.kind === "leader").length < Math.round(hc.count)) {
+        const lo = Math.max(1, Math.round(Math.min(hc.sizeMin, hc.sizeMax))), hi = Math.max(lo, Math.min(12, Math.round(Math.max(hc.sizeMin, hc.sizeMax))));
+        const n = Math.min(hi, lo + Math.floor(worldDraw(epochMs, sec, 12) * (hi - lo + 1)));
+        // a herd comes whole or not at all
+        if (st.present.length + n > cap) {
+          st.turnedAway += n;
+          continue;
+        }
+        let lead: Visitor | null = null;
+        for (let j = 0; j < n; j++) {
+          const v = bornAt(sec, j, wallMs, epochMs, cfg, lead ? [lead.x, lead.z] : undefined);
+          if (!lead) seatHerd(v, st, wallMs, epochMs, cfg, hc);
+          else joinHerd(v, lead, wallMs, epochMs, hc, cfg.timeSpreadSec);
+          if (!lead) lead = v;
+          st.present.push(v);
+          arrivals.push(v);
+          st.arrived++;
+        }
+      } else if (sec % 4 === 3 && st.present.filter((p) => p.kind === "loner").length < Math.round(hc.loners) && st.present.length < cap) {
+        const v = bornAt(sec, 0, wallMs, epochMs, cfg);
+        seatLoner(v, st, wallMs, epochMs, cfg, hc);
+        st.present.push(v);
+        arrivals.push(v);
+        st.arrived++;
       }
-      const v = bornAt(sec, j, wallMs, epochMs, cfg, lead ? [lead.x, lead.z] : undefined);
-      if (herd) {
-        if (!lead) seatHerd(v, st.present, wallMs, epochMs, herd);
-        else joinHerd(v, lead, wallMs, epochMs, herd, cfg.timeSpreadSec);
-      }
-      if (!lead) lead = v;
-      st.present.push(v);
-      arrivals.push(v);
-      st.arrived++;
     }
-  }
+  } else
+    // ARRIVALS BY RATE: one draw for every second since the last step (a catch-up draws each of them)
+    for (let sec = Math.max(st.lastSec + 1, nowSec - 600); sec <= nowSec; sec++) {
+      if (worldDraw(epochMs, sec, 10) >= arrivalRate(sec, cfg)) continue;
+      const group = worldDraw(epochMs, sec, 11) < cfg.groupP ? 1 + Math.floor(worldDraw(epochMs, sec, 12) * 2) : 0;
+      let lead: Visitor | null = null;
+      for (let j = 0; j <= group; j++) {
+        if (st.present.length >= cap) {
+          st.turnedAway++;
+          continue;
+        }
+        const v = bornAt(sec, j, wallMs, epochMs, cfg, lead ? [lead.x, lead.z] : undefined);
+        if (!lead) lead = v;
+        st.present.push(v);
+        arrivals.push(v);
+        st.arrived++;
+      }
+    }
   st.lastSec = Math.max(st.lastSec, nowSec);
   st.departed += departures.length;
 
@@ -695,7 +831,10 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
 
 /** A bot as an actor at wall time `wallMs`: its presence sample (a worker, at its own assigned time). */
 export function lifecycleActor(v: Visitor, wallMs: number, epochMs: number): Actor {
-  return { o: v.id, r: "worker", x: v.x, z: v.z, s: sessionSeconds(wallMs, epochMs, v.off) };
+  // a herd may rise a little faster or slower than the clock (drift) — never before time 0, never ahead of its start
+  const drift = (v.drift ?? 0) * ((wallMs - v.bornMs) / 1000);
+  const s = sessionSeconds(wallMs, epochMs, v.off + (v.off < 0 ? Math.min(-v.off, drift) : 0));
+  return { o: v.id, r: "worker", x: v.x, z: v.z, s: Math.max(0, s) };
 }
 
 /**
