@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DENSITY, DensityField, levelOf, type DensityConfig } from "./density";
-import { DEFAULT_BOXES, DEFAULT_LEVEL_MIX, DEFAULT_VARIETY, boxesOfSeed, districtOf, levelKeep } from "./seeds";
+import { DEFAULT_BOXES, DEFAULT_VARIETY, boxesOfSeed, buildKeep, districtOf } from "./seeds";
 import type { PEvent } from "./types";
 
 const CFG: DensityConfig = { ...DEFAULT_DENSITY };
@@ -75,33 +75,40 @@ describe("density: buildings from the density of spacetime", () => {
     expect(f.seeds().length).toBeGreaterThan(0);
   });
 
-  it("levelKeep: a share of 1 is always all, 0 never; below the full level a small share thins fastest", () => {
-    expect(levelKeep(1, 1, 3)).toBe(1);
-    expect(levelKeep(0, 5, 3)).toBe(0);
-    expect(levelKeep(0.5, 3, 3)).toBe(0.5);
-    expect(levelKeep(0.5, 9, 3)).toBe(0.5);
-    expect(levelKeep(0.5, 1, 3)).toBeCloseTo(0.125);
-    expect(levelKeep(0.9, 1, 3)).toBeGreaterThan(levelKeep(0.5, 1, 3) * 4);
-    expect(levelKeep(0.5, 0, 3)).toBe(0);
+  it("buildKeep: the foundation at once, then beams, slabs, masses, drips — complete `buildSlots` above the beginning", () => {
+    for (const k of ["basement", "pile", "plinth", "column"] as const) expect(buildKeep(k, 0, 3)).toBe(1);
+    for (const k of ["beam", "brace", "slab", "mass", "drip"] as const) expect(buildKeep(k, 0, 3)).toBe(0);
+    expect(buildKeep("beam", 1, 3)).toBeGreaterThan(0);
+    expect(buildKeep("mass", 1, 3)).toBe(0);
+    expect(buildKeep("mass", 2, 3)).toBeGreaterThan(0);
+    for (const k of ["beam", "slab", "mass", "drip"] as const) expect(buildKeep(k, 3, 3)).toBe(1);
+    expect(buildKeep("drip", 0, 0)).toBe(1); // 0 = everything at once
   });
 
-  it("what a level builds, by shares: a rising level only adds parts; a share of 0 leaves a family out", () => {
-    const THIN = { ...DEFAULT_LEVEL_MIX, column: 0.7, beam: 0.7, brace: 0.7, mass: 0.5, drip: 0.3, basement: 0.6, pile: 0.6, full: 3 };
-    const boxOf = (mix: Partial<typeof DEFAULT_LEVEL_MIX>) => ({ ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelMix: { ...THIN, ...mix } });
-    const many = fieldOf([...crowd(5, 0, 0, 400, 40), ...crowd(5, 0, 0, 400, 40, "b"), ...crowd(5, 0, 0, 400, 40, "c")]);
-    const seed = many.seeds().reduce((a, b) => (Math.max(...b.levels!.values()) > Math.max(...a.levels!.values()) ? b : a));
-    const all = boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec }).length;
-    const kept = boxesOfSeed(seed, boxOf({})).length;
-    expect(kept).toBeGreaterThan(0);
-    expect(kept).toBeLessThan(all);
-    // the defaults keep everything the grammar makes: the look before the shares
-    expect(boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelMix: DEFAULT_LEVEL_MIX }).length).toBe(all);
-    expect(boxesOfSeed(seed, boxOf({ mass: 0 })).some((b) => b.kind === "mass")).toBe(false);
-    // the same seed one level lower everywhere: what it keeps is part of what it kept
-    const lower = { ...seed, levels: new Map([...seed.levels!].map(([k, l]) => [k, Math.max(1, l - 1)] as const)) };
-    const at = (b: { kind: string; slot: number; x: number; y: number; z: number }) => `${b.kind}:${b.slot}:${b.x.toFixed(3)}:${b.y.toFixed(3)}:${b.z.toFixed(3)}`;
-    const high = new Set(boxesOfSeed(seed, boxOf({})).map(at));
-    for (const b of boxesOfSeed(lower, boxOf({}))) expect(high.has(at(b))).toBe(true);
+  it("the order of building is the time axis: no mass in a building's first slot, everything `buildSlots` above it", () => {
+    const f = fieldOf(crowd(6, 0, 0, 400, 200));
+    const seed = f.seeds().reduce((a, b) => (b.t1 - b.t0 > a.t1 - a.t0 ? b : a));
+    const box = { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec };
+    const first = Math.floor(seed.t0 / CFG.slotSec);
+    const plain = boxesOfSeed(seed, box), built = boxesOfSeed(seed, { ...box, buildSlots: 3 });
+    expect(built.length).toBeLessThan(plain.length);
+    expect(built.some((b) => b.slot === first && (b.kind === "mass" || b.kind === "slab" || b.kind === "drip"))).toBe(false);
+    const count = (list: typeof plain, k: number) => list.filter((b) => b.slot === k).length;
+    for (let k = first + 3; k <= first + 5; k++) expect(count(built, k)).toBe(count(plain, k));
+    expect(boxesOfSeed(seed, { ...box, buildSlots: 0 }).length).toBe(plain.length);
+  });
+
+  it("empty time: a short pause is one building, a longer one starts another — its order of building from the beginning", () => {
+    // two stays at the same place, far apart in time
+    const ev = [...crowd(6, 0, 0, 200, 30), ...crowd(6, 0, 0, 900, 30, "b")];
+    const two = fieldOf(ev).seeds().find((s) => Math.hypot(s.x, s.z) < 1.5)!;
+    expect(two.spans!.length).toBe(2);
+    const one = fieldOf(ev, { ...CFG, gapSec: 2000 }).seeds().find((s) => Math.hypot(s.x, s.z) < 1.5)!;
+    expect(one.spans!.length).toBe(1);
+    // the second building's first slot is a beginning again: no masses there
+    const box = { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, buildSlots: 3 };
+    const again = Math.floor(two.spans![1][0] / CFG.slotSec);
+    expect(boxesOfSeed(two, box).some((b) => b.slot === again && b.kind === "mass")).toBe(false);
   });
 
   it("districts: one district's buildings share an angle and a character; districts differ; nothing is lost or made", () => {

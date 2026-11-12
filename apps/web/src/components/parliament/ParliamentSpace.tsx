@@ -63,7 +63,6 @@ import {
   DEFAULT_WATER,
   type DensityConfig,
   DEFAULT_DENSITY,
-  DEFAULT_LEVEL_MIX,
   DEFAULT_VARIETY,
   type WalkConfig,
   type WaterConfig,
@@ -2138,32 +2137,17 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         },
         { collapsed: true },
       ),
-      // WHAT A LEVEL BUILDS, BY SHARES (seeds.ts LevelMix): how much of each kind of part a full slot keeps; less below.
-      // All 1 and full at level 1 = everything the grammar makes (the look before the shares)
-      "부재 비중 (1 = 전부 · 꽉 찬 단에서 남는 몫 · 낮은 계단에서는 비중이 큰 것부터)": folder(
-        {
-          mxFull: { value: DEFAULT_LEVEL_MIX.full, min: 1, max: 8, step: 1, label: "꽉 차는 계단 (1 = 계단과 무관)" },
-          mxMass: { value: DEFAULT_LEVEL_MIX.mass, min: 0, max: 1, step: 0.05, label: "매스" },
-          mxSlab: { value: DEFAULT_LEVEL_MIX.slab, min: 0, max: 1, step: 0.05, label: "슬래브" },
-          mxPlinth: { value: DEFAULT_LEVEL_MIX.plinth, min: 0, max: 1, step: 0.05, label: "기단" },
-          mxColumn: { value: DEFAULT_LEVEL_MIX.column, min: 0, max: 1, step: 0.05, label: "기둥" },
-          mxBeam: { value: DEFAULT_LEVEL_MIX.beam, min: 0, max: 1, step: 0.05, label: "가로보" },
-          mxBrace: { value: DEFAULT_LEVEL_MIX.brace, min: 0, max: 1, step: 0.05, label: "사선" },
-          mxDrip: { value: DEFAULT_LEVEL_MIX.drip, min: 0, max: 1, step: 0.05, label: "드립 (늘어짐)" },
-          mxBasement: { value: DEFAULT_LEVEL_MIX.basement, min: 0, max: 1, step: 0.05, label: "베이스먼트" },
-          mxPile: { value: DEFAULT_LEVEL_MIX.pile, min: 0, max: 1, step: 0.05, label: "말뚝" },
-        },
-        { collapsed: true },
-      ),
+      // THE ORDER OF BUILDING IS THE TIME AXIS (seeds.ts buildKeep): slots above a building's beginning until it is complete
+      buildSlots: { value: 3, min: 0, max: 20, step: 1, label: "다 지어지기까지 (단 · 0 = 한꺼번에)" },
     }),
     { order: lab ? 7.5 : 1.6, render: () => isV2 },
   );
   const densityCfg = useMemo<DensityConfig | null>(
     () =>
       dn.densityOn && isV2
-        ? { ...DEFAULT_DENSITY, slotSec: tAxis.secPerUnit, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, tAxis.secPerUnit, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
   );
   // DISTRICTS (seeds.ts VarietyConfig): the buildings of one neighbourhood turned and shaped alike, unlike the next
   const VARIETY_GROUP = "건물 변주 (구역마다 다르게)";
@@ -2787,11 +2771,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       timeJitter: tAxis.timeJitter,
       recipe,
       variety: vr.varietyOn ? { size: vr.vSize, angle: vr.vAngle * DEG, angleStep: vr.vAngleStep * DEG, width: vr.vWidth, height: vr.vHeight, character: vr.vCharacter } : undefined,
-      levelMix: dn.densityOn
-        ? { mass: dn.mxMass, slab: dn.mxSlab, plinth: dn.mxPlinth, column: dn.mxColumn, beam: dn.mxBeam, brace: dn.mxBrace, drip: dn.mxDrip, basement: dn.mxBasement, pile: dn.mxPile, full: dn.mxFull }
-        : undefined,
+      buildSlots: dn.densityOn ? dn.buildSlots : undefined,
     }),
-    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.mxMass, dn.mxSlab, dn.mxPlinth, dn.mxColumn, dn.mxBeam, dn.mxBrace, dn.mxDrip, dn.mxBasement, dn.mxPile, dn.mxFull, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
+    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
   const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: v.follow, markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons

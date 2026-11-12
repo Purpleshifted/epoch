@@ -49,6 +49,9 @@ export interface DensityConfig {
   step: number;
   ratio: number;
   maxLevel: number;
+  /** EMPTY TIME: a building stands through a pause up to this long (s); after a longer one what is built is a new
+   *  building — its plinth and basement laid again, its order of building from the beginning (seeds.ts buildKeep). */
+  gapSec: number;
   /** A Seed's mass at level 1, and its factor per level (the parts' size follows the mass: seeds.ts recipe). */
   mass: number;
   massRatio: number;
@@ -66,6 +69,7 @@ export const DEFAULT_DENSITY: DensityConfig = {
   step: 40,
   ratio: 2,
   maxLevel: 5,
+  gapSec: 20,
   mass: 1,
   massRatio: 1.6,
 };
@@ -203,7 +207,8 @@ export class DensityField {
       const spans: [number, number][] = [];
       let from = ks[0], prev = ks[0];
       for (let i = 1; i <= ks.length; i++) {
-        if (i < ks.length && ks[i] === prev + 1) {
+        // the next living slot continues the building when the empty time between is no longer than gapSec
+        if (i < ks.length && (ks[i] - prev - 1) * c.slotSec <= Math.max(0, c.gapSec)) {
           prev = ks[i];
           continue;
         }
@@ -236,7 +241,6 @@ export class DensityField {
         mass: c.mass * Math.pow(Math.max(1, c.massRatio), top - 1),
         who: [...who.values()],
         levels: new Map(ks.map((k) => [k, col.slots.get(k)!.level] as const)),
-        levelSig: ks.map((k) => `${k}:${col.slots.get(k)!.level}`).join(","),
       };
     }
     this.dirty.clear();

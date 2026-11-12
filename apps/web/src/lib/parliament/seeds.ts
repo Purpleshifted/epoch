@@ -68,33 +68,29 @@ export interface Seed {
   /** Who built it (Slab.who) and how it grew (Slab.growth): what waterways are made of. */
   who?: Contributor[];
   growth?: [number, number][];
-  /** DENSITY (density.ts): the level of each of its slots (what was put into the cell at that time), and the same as
-   *  one string (the parts are made again when it changes). With BoxConfig.levelMix it decides what a slot gets. */
+  /** DENSITY (density.ts): the level of each of its slots (what was put into the cell at that time). */
   levels?: ReadonlyMap<number, number>;
-  levelSig?: string;
 }
 
 /**
- * WHAT A LEVEL BUILDS, BY SHARES (the artist, 2026-11-12: "계단별로 이런 식으로 적용하는 건 좀 그런데. 비중으로 정할
- * 수 없나?"): each kind of part has a SHARE (0..1) — how much of what the grammar makes of it is kept in a slot that
- * is full (`full` levels or more). Below that the share is raised to the power full / level, so a family with a large
- * share is there from the first level and one with a small share comes in as the level rises; a share of 1 is always
- * all, 0 never any. Nothing is switched on at a level: it thickens.
- * One share per kind of part.
+ * THE ORDER OF BUILDING IS THE TIME AXIS (the artist, 2026-11-12: "시간축이 순서"). A building is a run of slots — it
+ * begins after empty time (density.ts gapSec: after a pause longer than that the plinth and the basement are laid
+ * again) and stands slot upon slot. What a slot gets depends on how far above the run's first slot it is: the
+ * foundation, the plinth and the columns at once; the beams and braces a little above; then the slabs; then the masses;
+ * the drips last. `buildSlots` slots above its beginning a building is complete (0 = everything at once, as before).
+ * Each kind comes in over a quarter of the way, part by part — it thickens, nothing is switched on.
  */
-export type LevelMix = Record<PartKind, number> & {
-  /** The level at which a slot is full (the shares are what is kept from there on). */
-  full: number;
-};
-/** Everything the grammar makes, at every level: the look before the shares (the artist, 2026-11-12: "옛날 맛이랑 좀 달라"). */
-export const DEFAULT_LEVEL_MIX: LevelMix = { mass: 1, slab: 1, drip: 1, column: 1, beam: 1, brace: 1, plinth: 1, basement: 1, pile: 1, full: 1 };
+const BUILD_FROM: Record<PartKind, number> = { basement: 0, pile: 0, plinth: 0, column: 0, beam: 0.2, brace: 0.2, slab: 0.35, mass: 0.55, drip: 0.8 };
+const BUILD_RAMP = 0.25;
 
-/** How much of a family is kept in a slot at `level` (0..1). */
-export function levelKeep(share: number, level: number, full: number): number {
-  const s = Math.max(0, Math.min(1, share));
-  if (level <= 0 || s <= 0) return 0;
-  const f = Math.max(1, full);
-  return level >= f ? s : Math.pow(s, f / level);
+/** How much of a kind a slot keeps, `slotsAbove` the first slot of its building (0..1). */
+export function buildKeep(kind: PartKind, slotsAbove: number, buildSlots: number): number {
+  if (!(buildSlots > 0)) return 1;
+  const from = BUILD_FROM[kind];
+  if (from <= 0) return 1;
+  const p = Math.min(1, Math.max(0, slotsAbove) / buildSlots);
+  // (a kind that begins late comes in faster: everything is there when the building is complete)
+  return Math.max(0, Math.min(1, (p - from) / Math.min(BUILD_RAMP, 1 - from)));
 }
 
 export type PartKind = "mass" | "slab" | "drip" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
@@ -157,8 +153,8 @@ export interface BoxConfig {
    * own slot's top: so nothing moves when the run grows, and nothing enters empty time).
    */
   timeJitter?: number;
-  /** DENSITY: how much of each family of parts a slot gets, by its level (Seed.levels); absent = every part, as before. */
-  levelMix?: LevelMix;
+  /** THE ORDER OF BUILDING: slots from a building's first slot until it is complete (buildKeep); absent / 0 = at once. */
+  buildSlots?: number;
   /** DISTRICTS: the buildings of one neighbourhood turned and shaped alike, differently from the next; absent = none. */
   variety?: VarietyConfig;
 }
@@ -639,23 +635,25 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       b.y = Math.min(hi, Math.max(lo, b.y + dy));
     }
   }
-  // WHAT A LEVEL BUILDS and THE DISTRICT'S CHARACTER: the parts are made as always (so their shapes do not depend on
-  // either); of each kind a slot keeps its share — the i-th part of a kind in a slot always has the same draw, so a
-  // rising level only ADDS
-  const lv = seed.levels, mix = cfg.levelMix;
+  // THE ORDER OF BUILDING and THE DISTRICT'S CHARACTER: the parts are made as always (so their shapes depend on
+  // neither); of each kind a slot keeps a share — the i-th part of a kind in a slot always has the same draw, so
+  // what is kept at a lower share is part of what is kept at a higher one
+  const build = cfg.buildSlots ?? 0;
   const dist = cfg.variety ? districtOf(seed.x, seed.z, cfg.variety) : null;
   const lean = dist && cfg.variety ? Math.max(0, Math.min(1, cfg.variety.character)) : 0;
   let res = out;
-  if ((lv && mix) || lean > 0) {
+  if (build > 0 || lean > 0) {
     const keepOf = dist ? CHARACTER_KEEP[dist.character] : {};
+    // each slot's height above the first slot of its building (its run)
+    const above = new Map<number, number>();
+    if (build > 0) for (const [k0, k1] of runsOf(occupiedSlots(seed, cfg))) for (let k = k0; k <= k1; k++) above.set(k, k - k0);
     const nth = new Map<number, number>();
     res = out.filter((b) => {
       const kind = PART_KINDS.indexOf(b.kind);
       const key = b.slot * 16 + kind;
       const i = nth.get(key) ?? 0;
       nth.set(key, i + 1);
-      const share = (lv && mix ? mix[b.kind] : 1) * (1 - lean * (1 - (keepOf[b.kind] ?? 1)));
-      const keep = lv && mix ? levelKeep(share, lv.get(b.slot) ?? 0, mix.full) : share;
+      const keep = buildKeep(b.kind, above.get(b.slot) ?? 0, build) * (1 - lean * (1 - (keepOf[b.kind] ?? 1)));
       return hash2(seed.id, key, i * 7 + 911) < keep;
     });
   }
