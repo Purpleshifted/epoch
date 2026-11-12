@@ -206,6 +206,10 @@ export interface FlowPlacement {
   legacy?: string[];
   /** Shown even when the fold's own folder is hidden (the redesign's wall brings the paths' ground back). */
   shown?: boolean;
+  /** Only these inputs are shown (the others keep their saved values, unseen), and these labels replace theirs:
+   *  the redesign's wall shows what does something now, in today's words. */
+  keep?: readonly string[];
+  labels?: Readonly<Record<string, string>>;
 }
 
 export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, place: ControlPlacement & { flow?: FlowPlacement } = {}): FoldConfig {
@@ -239,10 +243,16 @@ export function useFoldControls(defaults: Partial<FoldConfig> = NO_OVERRIDES, pl
     pull: { value: DEFAULT_FLOW.pull, min: 0, max: 3, step: 0.05, label: "봇이 길에 끌리는 정도 (월드)", render: v2 },
     gridShare: { value: DEFAULT_FLOW.gridShare ?? 0.3, min: 0, max: 1, step: 0.05, label: "길의 격자 비율 (0 = 곡선, 1 = 격자 0°/45°/90°)", render: v2 },
   };
+  if (place.flow?.keep || place.flow?.labels) {
+    for (const [k, item] of Object.entries(flowSchema) as [string, { label: string; render?: () => boolean }][]) {
+      if (place.flow.keep && !place.flow.keep.includes(k)) item.render = () => false;
+      if (place.flow.labels?.[k]) item.label = place.flow.labels[k];
+    }
+  }
   const root = place.folder ?? "회사원 규칙 (시공간 밀집)";
   const c = useControls(root, savable(root, schema), { collapsed: place.collapsed, order: place.order, ...(place.hidden ? { render: () => false } : {}) }) as unknown as Record<string, number>;
   const flowPath = place.flow?.path ?? `${root}.길 (V2 · 유지되는 유통량)`;
-  const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: true, order: place.flow?.order, render: place.hidden && !place.flow?.shown ? () => false : v2 }) as unknown as Record<string, number>;
+  const f = useControls(flowPath, savable(flowPath, flowSchema, place.flow?.legacy ?? [root]), { collapsed: !place.flow?.shown, order: place.flow?.order, render: place.hidden && !place.flow?.shown ? () => false : v2 }) as unknown as Record<string, number>;
   const { radius, windowSec, threshold, pourUnit, minVisitors, visitorCap, maxHeight, tauSlabYears, tauFootprintYears, pathVisits, tauPathYears } = c;
   const { flowOn, stayRadius, staySec, moveShare, tauSec, flowUnit, blockAt, pull, gridShare } = f as unknown as Record<string, number> & { flowOn: boolean };
   return useMemo(

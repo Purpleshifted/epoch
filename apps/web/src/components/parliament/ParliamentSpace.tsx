@@ -2155,17 +2155,28 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const presentMonitor = monitor(() => presentRef.current, { graph: false });
   const PRESENT = "지금 '현재' 두께 (단 · 풍화 · 지층에서 정함)";
   // ── 길 → 다리 (V2): the ground (buildings and trodden paths, first comes first) → walkways between buildings ──
-  const WALK_GROUP = "길 → 다리";
+  // (the folder of the paths: its name and its inputs are today's — the artist, 2026-11-12: "안 쓰는 레바 말고 지금에
+  // 맞게 하라고"; what was saved under the old names is read as before)
+  const WALK_GROUP = "길";
+  const WALK_GROUP_OLD = "길 → 다리";
   const fold = useFoldControls(SPACE_FOLD, {
     hidden: REDESIGN,
     folder: "생성 규칙 (회사원 시공간 밀집)",
     collapsed: true,
     order: lab ? 8 : 2,
     flow: {
-      path: `${WALK_GROUP}.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)`,
+      path: `${WALK_GROUP}.밟힘 (걸음이 땅을 다지고 · 안 다니면 되돌아옴)`,
       shown: true,
       order: 1,
-      legacy: [`${WALK_GROUP}.① 길: 밟힘 (V2 · 유지되는 유통량)`, "생성 규칙 (회사원 시공간 밀집)"],
+      legacy: [`${WALK_GROUP_OLD}.① 땅: 밟힘 → 길 (V2 · 건물과 먼저 온 쪽이 자리)`, `${WALK_GROUP_OLD}.① 길: 밟힘 (V2 · 유지되는 유통량)`, "생성 규칙 (회사원 시공간 밀집)"],
+      keep: ["flowOn", "flowUnit", "tauSec", "stayRadius", "staySec"],
+      labels: {
+        flowOn: "켜기 (꺼지면 길이 안 생김)",
+        flowUnit: "길이 되는 밟힘 (이만큼 밟히면 63 %)",
+        tauSec: "안 다니면 되돌아오는 시간 (s)",
+        stayRadius: "머묾으로 치는 반경 (월드 · 그 밖은 걸음)",
+        staySec: "머묾으로 치는 시간 (s)",
+      },
     },
   });
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
@@ -2280,49 +2291,50 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     savable(
       WALK_GROUP,
       {
-        "② 길 흔적: 식생 속 빈 통로 (남음)": folder(
+        "어디에 놓이나 (건물과 건물 사이)": folder(
+          {
+            walkOn: { value: DEFAULT_WALK.enabled, label: "켜기" },
+            buildAt: { value: DEFAULT_WALK.buildAt, min: 0.05, max: 0.99, step: 0.01, label: "길이 되는 밟힘 세기 (건물 사이 경로의 평균)" },
+            maxSpan: { value: DEFAULT_WALK.maxSpan, min: 2, max: 120, step: 1, label: "가장 긴 길 (월드)" },
+            walkJoin: { value: DEFAULT_WALK.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
+            smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선의 부드러움 (0 = 칸에서 칸으로)" },
+          },
+          { order: 2 },
+        ),
+        "층 · 경사 · 남음": folder(
+          {
+            walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (길이 이만큼 생기거나 사라지면)" },
+            walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)" },
+            rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 길이 (월드)" },
+            minorShare: { value: DEFAULT_WALK.minorShare, min: 0, max: 1.01, step: 0.01, label: "옛 길에서 갈라진 것으로 볼 겹침 (미만 = 따로 새 길)" },
+            reach: { value: DEFAULT_WALK.reach, min: 0, max: 120, step: 1, label: "이보다 오래된 길에는 잇지 않음 (단)" },
+            grace: { value: DEFAULT_WALK.grace, min: 0, max: 60, step: 1, label: "이만큼 안 쓰여도 같은 길 (단)" },
+            resurfaceOn: { value: DEFAULT_WALK.resurface >= 0, label: "오래 쓰는 길을 다시 깖" },
+            resurface: { value: DEFAULT_WALK.resurface, min: 0, max: 120, step: 1, label: "다시 까는 간격 (단)" },
+          },
+          { order: 3 },
+        ),
+        "선": folder(
+          {
+            walkColor: { value: "#d8d8d8", label: "색 (무채색)" },
+            walkKeptOpacity: { value: 0.4, min: 0.05, max: 1, step: 0.05, label: "굳은 길의 불투명도 (지금 것 = 1)" },
+            walkDot: { value: 6, min: 0, max: 20, step: 0.5, label: "이어지지 않은 끝의 점 (px · 0 = 없음)" },
+          },
+          { order: 4 },
+        ),
+        // NOT USED NOW (the vegetation is off): the holes paths leave in it, and the readout of the present's thickness
+        "쓰지 않음": folder(
           {
             pathsOn: { value: true, label: "켜기" },
             pathHole: { value: 0.35, min: 0.05, max: 1, step: 0.01, label: "빈 통로가 되는 길 세기 (작을수록 넓음)" },
             pathBerm: { value: 2, min: 0, max: 8, step: 0.5, label: "가장자리로 밀려난 흙 양" },
-            pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 너비 (클수록 좁음)", render: () => isV2 },
-          },
-          { order: 2 },
-        ),
-        "③ 다리: 어디에 놓이나 (V2)": folder(
-          {
-            walkOn: { value: DEFAULT_WALK.enabled, label: "켜기", render: () => isV2 },
-            buildAt: { value: DEFAULT_WALK.buildAt, min: 0.05, max: 0.99, step: 0.01, label: "다리가 되는 길 세기 (건물 사이 경로의 평균)", render: () => isV2 },
-            maxSpan: { value: DEFAULT_WALK.maxSpan, min: 2, max: 120, step: 1, label: "가장 긴 다리 (월드)", render: () => isV2 },
-            walkJoin: { value: DEFAULT_WALK.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)", render: () => isV2 },
-            smooth: { value: DEFAULT_WALK.smooth, min: 0, max: 5, step: 1, label: "선의 부드러움 (0 = 칸에서 칸으로)", render: () => isV2 },
-          },
-          { order: 3, render: () => isV2 },
-        ),
-        "④ 다리: 층 · 이어짐 · 남음 (V2)": folder(
-          {
+            pathEdge: { value: 0.75, min: 0.3, max: 0.98, step: 0.01, label: "경계 돌 띠 너비 (클수록 좁음)" },
             [PRESENT]: presentMonitor,
-            walkChange: { value: DEFAULT_WALK.change, min: 0.02, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (다리가 이만큼 생기거나 사라지면)", render: () => isV2 },
-            walkGap: { value: DEFAULT_WALK.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)", render: () => isV2 },
-            reach: { value: DEFAULT_WALK.reach, min: 0, max: 120, step: 1, label: "이보다 오래된 다리는 과거: 잇지 않음 (단, 0 = '현재' 두께)", render: () => isV2 },
-            grace: { value: DEFAULT_WALK.grace, min: 0, max: 60, step: 1, label: "이만큼 안 쓰여도 같은 다리 (단, 넘으면 다시 생겨도 새 다리)", render: () => isV2 },
-            minorShare: { value: DEFAULT_WALK.minorShare, min: 0, max: 1.01, step: 0.01, label: "기존 다리의 변경으로 볼 겹침 (미만 = 따로 새 다리, 경사로 없음)", render: () => isV2 },
-            rampLength: { value: DEFAULT_WALK.rampLength, min: 0.5, max: 20, step: 0.5, label: "경사로 길이 (월드)", render: () => isV2 },
-            resurfaceOn: { value: DEFAULT_WALK.resurface >= 0, label: "재포장: 오래 쓰는 다리를 다시 깖", render: () => isV2 },
-            resurface: { value: DEFAULT_WALK.resurface, min: 0, max: 120, step: 1, label: "재포장 간격 (단, 0 = 과거가 되는 나이와 같게)", render: () => isV2 },
           },
-          { order: 4, render: () => isV2 },
-        ),
-        "⑤ 다리 선 · 끝 점 (V2 · 프리레이어 선)": folder(
-          {
-            walkColor: { value: "#d8d8d8", label: "다리 선 색 (무채색)", render: () => isV2 },
-            walkKeptOpacity: { value: 0.4, min: 0.05, max: 1, step: 0.05, label: "굳은 다리의 불투명도 (현재 = 1)", render: () => isV2 },
-            walkDot: { value: 6, min: 0, max: 20, step: 0.5, label: "이어지지 않은 끝의 점 크기 (px, 0 = 없음)", render: () => isV2 },
-          },
-          { order: 5, collapsed: true, render: () => isV2 },
+          { render: () => false },
         ),
       },
-      ["길 · 다리"],
+      [WALK_GROUP_OLD, "길 · 다리"],
     ),
     // (shown in the lab too: the artist, 2026-11-12 — "길 비주얼이랑 파라미터 레바에 추가하고")
     { order: lab ? 7.8 : 4, collapsed: false },
