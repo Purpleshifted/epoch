@@ -22,7 +22,7 @@ import { Dandelions } from "./Dandelions";
 import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
-import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls } from "leva";
+import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls as useLevaControls } from "leva";
 import * as THREE from "three";
 import {
   DEFAULT_BOXES,
@@ -40,7 +40,6 @@ import {
   latestS,
   loadEvents,
   sessionSeconds,
-  buildTestColumn,
   makeLocalClock,
   sharedClock,
   type Clock,
@@ -62,6 +61,8 @@ import {
   rotOnsetSlots,
   DEFAULT_WALK,
   DEFAULT_WATER,
+  type DensityConfig,
+  DEFAULT_DENSITY,
   type WalkConfig,
   type WaterConfig,
   DEFAULT_FUSE,
@@ -77,7 +78,7 @@ import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
-import { botReadout, useGlobalBots, type TestColumnKnobs } from "./useGlobalBots";
+import { botKinds, botReadout, useGlobalBots, type BotKind } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 
@@ -770,6 +771,7 @@ function SpaceWorld({
   nearFade,
   noAxis,
   walk,
+  density,
   walkLook,
   clock,
   local,
@@ -824,6 +826,8 @@ function SpaceWorld({
   noAxis: boolean;
   /** V2: walkways between buildings (walkways.ts); null = none. */
   walk: WalkConfig | null;
+  /** Buildings from the density of spacetime (density.ts); null = from the fold, as before. */
+  density: DensityConfig | null;
   walkLook: WalkLook;
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
@@ -863,7 +867,7 @@ function SpaceWorld({
   const last = useRef<Stats | null>(null);
   const fuseStats = useRef({ fuseTris: 0, fuseResin: 0 });
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   const endLive = useRef<THREE.Points>(null);
@@ -871,7 +875,7 @@ function SpaceWorld({
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, onStats };
   });
   const fused = useRef<THREE.Mesh>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
@@ -1007,7 +1011,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, immutable, bake, water: wa, walk: wk, noAxis: oneClk } = live.current; // noAxis = V2
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, immutable, bake, water: wa, walk: wk, noAxis: oneClk, density: dens } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
@@ -1064,7 +1068,7 @@ function SpaceWorld({
     const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens } };
     if (withNature && nat) {
       req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
       if (nat.reclaim) {
@@ -1521,6 +1525,25 @@ interface MeStatus {
 }
 
 const MARK_COLOR = { me: "#ff4d00", bot: "#2a62ff", visitor: "#111111" } as const;
+/** The markers' filter: a bot's colour by how its herd moves (settlers · roamers · on a round · alone). */
+const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8a1f", tour: "#19b36b", loner: "#9a9a9a" };
+
+/**
+ * THE REDESIGN (the artist, 2026-11-12: "지금 재편하는 중이니 레바는 다 지우고 내가 도입하는 것들만 하나씩 고쳐서
+ * 옮겨와. 식생, 융합, 길, 파이프: 지금 안 쓰잖아"). While this is on, every folder this view declares with `useControls`
+ * is NOT SHOWN (its saved values still apply, so the picture's settings are what they were), and the vegetation, the
+ * fusion, the walkways and the pipes are off. What the redesign has brought over is declared with `useLevaControls`
+ * and shown: the time axis, the bots (useGlobalBots), the buildings' density rule, the markers.
+ */
+const REDESIGN = true;
+const useControls: typeof useLevaControls = ((...args: unknown[]) => {
+  if (REDESIGN && typeof args[0] === "string") {
+    const hide = { render: () => false };
+    if (args.length >= 3 && args[2] && typeof args[2] === "object" && !Array.isArray(args[2])) args[2] = { ...(args[2] as object), ...hide };
+    else args.splice(2, 0, hide);
+  }
+  return (useLevaControls as unknown as (...a: unknown[]) => unknown)(...args);
+}) as typeof useLevaControls;
 
 /**
  * Live markers: the latest presence sample of each owner, as a sphere at (x, time, z) with a thin line down to
@@ -1534,6 +1557,7 @@ function Markers({
   unit,
   holdSec,
   labels,
+  tint,
   onActive,
   onMe,
 }: {
@@ -1543,6 +1567,8 @@ function Markers({
   holdSec: number;
   /** The name over each marker ("me · worker", a bot's id, "visitor"); off on the exhibition wall (no text at all). */
   labels: boolean;
+  /** Bots coloured by how their herd moves (BOT_KIND_COLOR) instead of all one blue. */
+  tint: boolean;
   onActive: (n: number) => void;
   onMe: (m: MeStatus) => void;
 }) {
@@ -1595,7 +1621,8 @@ function Markers({
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
-        const color = MARK_COLOR[m.kind];
+        const kind = tint && m.kind === "bot" ? botKinds.get(m.id) : undefined;
+        const color = kind ? BOT_KIND_COLOR[kind] : MARK_COLOR[m.kind];
         const big = m.kind === "me" ? 0.5 : 0.32;
         return (
           <group key={m.id}>
@@ -1635,24 +1662,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const isV2 = useParliamentVersion() === "v2";
   const [demo] = useState(() => seedParliamentDemoIfRequested());
   const log = useWorld(undefined, 1000, !lab);
-  useKeepWindowControl(log, -2, !lab); // the shared history window (log.ts), the first folder
-  // the lab's test column: how the crowd that writes it is spread — its knobs live in the bots' folder (useGlobalBots)
-  const column = useRef<TestColumnKnobs>({ minutes: 20, bots: 18, groups: 5, spread: 44, time: 150 });
-  const rebuildColumn = useRef(() => {});
-  useEffect(() => {
-    rebuildColumn.current = () => {
-      const tc = column.current;
-      log.clear();
-      log.addMany(buildTestColumn({ seconds: tc.minutes * 60, bots: tc.bots, flock: { groups: tc.groups, spread: tc.spread, timeSpread: tc.time } }));
-    };
-  }, [log]);
-  // THE DATA BUTTON, at the top of the lab's panel as before (the artist, 2026-11-12: "지우고 다시 짓는 데이터 버튼 어디갔음?"):
-  // the column's knobs moved into the bots' folder, the button stays where it is found
-  useControls("데이터 (랩 · 이 탭만)", { "지우고 다시 짓기 (테스트 기둥)": button(() => rebuildColumn.current()) }, { order: 0.5, render: () => lab });
-  // the lab opens with a whole column in view
-  useEffect(() => {
-    if (lab && log.size === 0) rebuildColumn.current();
-  }, [lab, log]);
+  useKeepWindowControl(log, -2, !lab, REDESIGN); // the shared history window (log.ts), the first folder
+  // (the lab's test column is gone, 2026-11-12: the lab opens empty and the bots write it — the time rate fills it fast)
   // the clock the view and its bots run on: the shared world clock, or the lab's own (this tab only)
   const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
@@ -1925,7 +1936,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     ].filter((s): s is Shot => s !== null),
     fadeSec: cam.camFadeSec,
   };
-  const tAxis = useControls(
+  const tAxis = useLevaControls(
     "시간축",
     savable("시간축", {
       secPerUnit: { value: SPACE_BOXES.secPerUnit, min: 2, max: 600, step: 1, label: "한 단 = 몇 초" },
@@ -1937,7 +1948,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   );
   // the world clock's rate (worldClock.ts): shared by every tab, so the player tabs and their bots run faster too;
   // not saved with the group (it is the world's state, not a look)
-  const clock = useControls(
+  const clock = useLevaControls(
     "시간축",
     {
       timeRate: {
@@ -2086,6 +2097,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // ── 길 → 다리 (V2): the ground (buildings and trodden paths, first comes first) → walkways between buildings ──
   const WALK_GROUP = "길 → 다리";
   const fold = useFoldControls(SPACE_FOLD, {
+    hidden: REDESIGN,
     folder: "생성 규칙 (회사원 시공간 밀집)",
     collapsed: true,
     order: lab ? 8 : 2,
@@ -2098,8 +2110,41 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
   // how deep (slots) the bots write below the present: while they do, no part's shape is frozen (below)
   const [botDepth, setBotDepth] = useState(0);
-  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, column, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
+  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
+  // THE BUILDINGS' RULE (lib/parliament/density.ts): a threshold on what has been put into each cell-slot. Off = the fold.
+  const DENSITY_GROUP = "건물 생성 (칸 밀도 계단)";
+  const dn = useLevaControls(
+    DENSITY_GROUP,
+    savable(DENSITY_GROUP, {
+      densityOn: { value: true, label: "새 규칙 (끄면 예전 접기)" },
+      dVisitors: { value: DEFAULT_DENSITY.minVisitors, min: 1, max: 10, step: 1, label: "필요한 사람 수 (서로 다른)" },
+      dStep: { value: DEFAULT_DENSITY.step, min: 5, max: 200, step: 5, label: "첫 문턱 (머묾의 양)" },
+      dRatio: { value: DEFAULT_DENSITY.ratio, min: 1.2, max: 4, step: 0.1, label: "다음 문턱까지 배수" },
+      dMaxLevel: { value: DEFAULT_DENSITY.maxLevel, min: 1, max: 8, step: 1, label: "계단 수" },
+      dMassRatio: { value: DEFAULT_DENSITY.massRatio, min: 1, max: 3, step: 0.1, label: "계단마다 부재 크기 ×" },
+      dRadius: { value: DEFAULT_DENSITY.radius, min: 1, max: 8, step: 0.25, label: "옆으로 닿는 반경 (월드)" },
+      dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
+      dDown: { value: DEFAULT_DENSITY.down, min: 0, max: 1, step: 0.05, label: "아래로도 닿는 비율 (0 = 위로만)" },
+    }),
+    { order: lab ? 7.5 : 1.6, render: () => isV2 },
+  );
+  const densityCfg = useMemo<DensityConfig | null>(
+    () =>
+      dn.densityOn && isV2
+        ? { ...DEFAULT_DENSITY, slotSec: tAxis.secPerUnit, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        : null,
+    [isV2, tAxis.secPerUnit, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
+  );
+  // THE MARKERS: the bots' names (off: no text over them) and their colours by how their herd moves
+  const mk = useLevaControls(
+    "마커",
+    savable("마커", {
+      names: { value: false, label: "봇 이름 보이기" },
+      byKind: { value: false, label: "성격별 색 (정착 파랑 · 유랑 주황 · 순회 초록 · 혼자 회색)" },
+    }),
+    { order: lab ? 7.2 : 1.55 },
+  );
   const wlk = useControls(
     WALK_GROUP,
     savable(
@@ -2298,7 +2343,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
-  const { cfg: natureCfg } = useNatureControls({ folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
+  const { cfg: natureCfg } = useNatureControls({ hidden: REDESIGN, folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
   const fu = useControls(
     FU,
     savable(FU, {
@@ -2506,7 +2551,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   );
   const fuseCfg = useMemo<FuseConfig>(
     () => ({
-      enabled: fu.fuseOn,
+      enabled: fu.fuseOn && !REDESIGN,
       fusePipes: fu.fusePipes,
       fuseWalks: fu.fuseWalks,
       walkRadius: fu.walkRadius,
@@ -2514,7 +2559,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       accOnset: DEFAULT_FUSE.accOnset,
       fuseOnset: fu.fuseOnset,
       // THE BLOCK (?block=N, an experiment): no part's shape is frozen — what is written deep rewrites the parts there
-      freezeSlots: isV2 && !(botDepth > 0 || (typeof window !== "undefined" && blockSlots(window.location.search) > 0)) ? fu.freezeSlots : undefined,
+      freezeSlots: isV2 && !(botDepth > 0 || dn.densityOn || (typeof window !== "undefined" && blockSlots(window.location.search) > 0)) ? fu.freezeSlots : undefined,
       fuseFull: fu.fuseFull,
       voxel: fu.voxel,
       blur: fu.blur,
@@ -2586,7 +2631,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           }
         : undefined,
     }),
-    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -2658,7 +2703,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const fps = useFps();
   const natureParams = useMemo<NatureParams | null>(
     () =>
-      veg.natureOn
+      veg.natureOn && !REDESIGN
         ? {
             cfg: natureCfg,
             gatherSize: veg.gatherSize,
@@ -2812,10 +2857,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
           immutable={fu.immutable}
           bake={fu.bake}
           resin={resinView}
-          water={waterView}
+          water={REDESIGN ? null : waterView}
+          density={densityCfg}
           nearFade={v.nearFade}
           noAxis={isV2}
-          walk={walkView}
+          walk={REDESIGN ? null : walkView}
           walkLook={walkLook}
           clock={clk}
           local={lab}
@@ -2846,7 +2892,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi} onActive={setActive} onMe={setMeStatus} />
+            <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}
       </Canvas>

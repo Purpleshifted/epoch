@@ -82,14 +82,9 @@ const ORIGIN_OPTIONS: Record<string, "even" | "built" | "doors"> = { "세계에 
 const SLOT_SEC = 20;
 const SLOT_HEIGHT = 1;
 
-/** The lab's test column (the crowd that writes it), kept in the bots' folder; the view reads it when it rebuilds. */
-export interface TestColumnKnobs {
-  minutes: number;
-  bots: number;
-  groups: number;
-  spread: number;
-  time: number;
-}
+/** How a bot's herd moves — for the markers' colours (the view's filter): by bot id, of the bots living now. */
+export type BotKind = "settle" | "roam" | "tour" | "loner";
+export const botKinds = new Map<string, BotKind>();
 
 const GROUP = "봇 (글로벌에서 돌리기)";
 
@@ -110,7 +105,7 @@ export function useGlobalBots(
   cfg: FoldConfig,
   enabled: boolean,
   order = 1.5,
-  opts?: { clock?: Clock; local?: boolean; column?: { current: TestColumnKnobs }; setDepth?: (slots: number) => void },
+  opts?: { clock?: Clock; local?: boolean; setDepth?: (slots: number) => void },
 ): number {
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
@@ -119,7 +114,6 @@ export function useGlobalBots(
   // THE BOTS, ONE SYSTEM (the artist, 2026-11-12: "레바 지금 거 다 없애고 싹 다 새로 만들어도 되니까"): herds in the
   // block. The resident crowd, the arrivals by rate and their knobs are gone from the wall (lib/parliament/bots.ts and
   // the rate path of lifecycle.ts stay for the lab's test column and the tests).
-  const showLab = () => enabled && !!opts?.local;
   const b = useControls(
     GROUP,
     savable(GROUP, {
@@ -159,23 +153,11 @@ export function useGlobalBots(
         },
         { render: show },
       ),
-      // THE LAB'S TEST COLUMN: the crowd that writes the column the lab opens with
-      "테스트 기둥 (랩)": folder(
-        {
-          tcMinutes: { value: 20, min: 5, max: 60, step: 5, label: "분량 (분)" },
-          tcBots: { value: 18, min: 2, max: 40, step: 1, label: "봇 수" },
-          tcGroups: { value: 5, min: 1, max: 10, step: 1, label: "무리 수" },
-          tcSpread: { value: 44, min: 0, max: 90, step: 1, label: "무리 간 거리" },
-          tcTime: { value: 150, min: 0, max: 600, step: 5, label: "시각 폭 (s)" },
-        },
-        { render: showLab },
-      ),
     }),
     { order, collapsed: !enabled },
   );
   const on = enabled && b.botOn;
   const session = true;
-  if (opts?.column) opts.column.current = { minutes: b.tcMinutes, bots: b.tcBots, groups: b.tcGroups, spread: b.tcSpread, time: b.tcTime };
   const sizeMin = Math.min(b.hSizeMin, b.hSizeMax), sizeMax = Math.max(b.hSizeMin, b.hSizeMax);
   /** The most at once: every herd at its largest and the loners (the hard ceiling is 60 events a second). */
   const most = Math.min(60, Math.round(b.hCount) * sizeMax + Math.round(b.hLoners));
@@ -390,6 +372,13 @@ export function useGlobalBots(
         // (the END event, k = "x", of who leaves comes with the role controls: docs/session-logic.md §2b)
         st = stepLifecycle(st, w, { attractors: g?.visitors ?? [], planRoute }, lcCfg).state;
         for (const v of st.present) add(lifecycleActor(v, w, epochMs.current));
+      }
+      // who is of which kind now (a member is of its leader's)
+      botKinds.clear();
+      const byId = new Map(st.present.map((v) => [v.id, v] as const));
+      for (const v of st.present) {
+        const lead = v.lead ? byId.get(v.lead) : v;
+        botKinds.set(v.id, lead?.kind === "leader" ? (lead.temper ?? "settle") : "loner");
       }
       visitors.current = st;
       (window as unknown as { __lifecycle?: unknown }).__lifecycle = {

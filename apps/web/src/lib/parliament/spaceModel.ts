@@ -15,6 +15,7 @@ import { withoutWear } from "./fold";
 import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
+import { DensityField, type DensityConfig } from "./density";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -189,6 +190,8 @@ export interface PartsInput {
   walk?: WalkConfig | null;
   edges: boolean;
   lod: LodConfig;
+  /** BUILDINGS FROM THE DENSITY OF SPACETIME (density.ts) instead of the fold; absent / null = the fold (as before). */
+  density?: DensityConfig | null;
 }
 
 export interface PartsResult {
@@ -362,6 +365,9 @@ export class SpaceModel {
   private seedsKey = "";
   /** The fold as a state that grows with the events (foldState.ts), per fold config: a refold costs only what arrived. */
   private foldState: { key: string; state: FoldState; fed: number } | null = null;
+  /** BUILDINGS FROM THE DENSITY OF SPACETIME (density.ts): when set (computeParts), the seeds come from it, not the fold. */
+  private densityCfg: DensityConfig | null = null;
+  private densityState: { key: string; field: DensityField; fed: number } | null = null;
   private partCache = new Map<number, { key: string; parts: Box[] }>();
   /** FROZEN PARTS per building and slot (fuse.freezeSlots): once a slot is that deep, its parts are kept as they were. */
   private frozen = new Map<number, Map<number, Box[]>>();
@@ -746,6 +752,7 @@ export class SpaceModel {
   /** Forgets every event (the world was cleared). */
   reset(): void {
     this.tBeforeReset = Math.max(this.tBeforeReset, this.latestEvent);
+    this.densityState = null;
     this.events = [];
     this.ids.clear();
     this.t = 0;
@@ -764,6 +771,25 @@ export class SpaceModel {
   }
 
   private ensureSeeds(fold: FoldConfig): Seed[] {
+    if (this.densityCfg) {
+      // THE DENSITY: every new event is added to the sum (nothing is folded again, whenever in the block it is);
+      // the seeds are the same list until a cell-slot crosses a threshold
+      const dKey = JSON.stringify(this.densityCfg);
+      if (!this.densityState || this.densityState.key !== dKey) this.densityState = { key: dKey, field: new DensityField(this.densityCfg), fed: 0 };
+      const ds = this.densityState;
+      if (ds.fed < this.events.length) {
+        let cut = ds.fed === 0 ? Infinity : this.cutS;
+        for (let i = ds.fed; i < this.events.length; i++) {
+          ds.field.add(this.events[i]);
+          if (this.events[i].s < cut) cut = this.events[i].s;
+        }
+        ds.fed = this.events.length;
+        this.cutS = cut;
+      }
+      this.seedsKey = `density:${ds.field.version}:${dKey}`;
+      this.seeds = ds.field.seeds();
+      return this.seeds;
+    }
     const key = `${this.version}:${JSON.stringify(fold)}`;
     if (key !== this.seedsKey) {
       this.seedsKey = key;
@@ -787,6 +813,7 @@ export class SpaceModel {
 
   /** The parts, as per-kind instance buffers; null when nothing changed since the last call. */
   computeParts(input: PartsInput): PartsResult | null {
+    this.densityCfg = input.density ?? null;
     const { box, lod } = input;
     const seeds = this.ensureSeeds(input.fold);
     const t = this.t;
