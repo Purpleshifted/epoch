@@ -27,7 +27,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { seedId, type Seed } from "./seeds";
 import type { Contributor, PEvent } from "./types";
-import { wrapCell, wrapCoord } from "./world";
+import { wrapCell, wrapCoord, wrapDist } from "./world";
 
 export interface DensityConfig {
   /** Sideways reach of a presence (world units). */
@@ -55,7 +55,37 @@ export interface DensityConfig {
   /** A Seed's mass at level 1, and its factor per level (the parts' size follows the mass: seeds.ts recipe). */
   mass: number;
   massRatio: number;
+  /** PATHS from the density of MOVEMENT, in the same grid (absent = none: every sample is a presence, as before). */
+  path?: PathConfig;
 }
+
+/**
+ * PATHS, THE SAME WAY (the artist, 2026-11-12: "오히려 시공간 덩어리니까 한 번에 density 처럼 해결할 방법이 있나?").
+ * A sample that is a STEP (at least `minStep` from the walker's last sample, no more than `maxGapSec` after it) is not
+ * a presence: it treads the cell-slots along the step — sideways within `radius`, and in time from a little before
+ * (`downSec`) to long after (`upSec`: a way once trodden stays a while). A cell-slot is PATH when at least
+ * `minWalkers` different walkers trod it (one counts from `walkerMin`, and for no more than `walkerCap`) and their
+ * treads add up to `step`. One crossing by one herd is under the threshold (it stays a thread, trails.ts); the same
+ * way taken again, or there and back, is over it.
+ *
+ * THE CONTEST: a cell-slot is a building's or a path's, never both — whichever is further over its own threshold.
+ *
+ * RAMPS need no rule: an old way and a newer branch of it overlap where they run together (the path there reaches
+ * from the old time up to the new), while the branch alone begins at the new time; pathPlates() lets a path's surface
+ * rise no faster than `rise` slots per cell from the lower surfaces it touches, so the branch climbs from the old way.
+ */
+export interface PathConfig {
+  minStep: number;
+  maxGapSec: number;
+  radius: number;
+  upSec: number;
+  downSec: number;
+  minWalkers: number;
+  walkerMin: number;
+  walkerCap: number;
+  step: number;
+}
+export const DEFAULT_PATH: PathConfig = { minStep: 0.6, maxGapSec: 3, radius: 1, upSec: 120, downSec: 20, minWalkers: 4, walkerMin: 0.5, walkerCap: 2, step: 6 };
 
 export const DEFAULT_DENSITY: DensityConfig = {
   radius: 2.75,
@@ -78,6 +108,9 @@ interface CellSlot {
   /** Per visitor (index): the weight put in, uncapped. */
   by: Map<number, number>;
   level: number;
+  /** Per walker (index): what it trod in here; and whether the cell-slot is path (never with level ≥ 1). */
+  mv?: Map<number, number>;
+  path?: boolean;
 }
 
 interface Column {
@@ -116,6 +149,11 @@ export class DensityField {
   readonly stats = { samples: 0, cellSlots: 0, changes: 0 };
   /** Every level change bumps this: the seeds are the same list while it stands. */
   version = 0;
+  /** Every change of what is path bumps this (pathPlates is the same while it stands). */
+  pathVersion = 0;
+  /** Each walker's last sample (canonical), to tell a step from a presence. */
+  private last = new Map<number, { x: number; z: number; s: number }>();
+  private plates: { key: string; out: Float32Array } | null = null;
 
   constructor(readonly cfg: DensityConfig) {
     this.key = JSON.stringify(cfg);
@@ -133,6 +171,19 @@ export class DensityField {
     }
     this.stats.samples++;
     const x = wrapCoord(e.x), z = wrapCoord(e.z);
+    const pc = c.path;
+    if (pc) {
+      const prev = this.last.get(o);
+      this.last.set(o, { x, z, s: e.s });
+      if (prev) {
+        const dt = e.s - prev.s, d = Math.hypot(x - prev.x, z - prev.z);
+        // (a step over the world's edge is short round the torus but long on the map: its treading is left out)
+        if (dt > 0 && dt <= pc.maxGapSec && d >= pc.minStep) {
+          if (d <= wrapDist(prev.x, prev.z, x, z) + 1e-6) this.tread(o, prev.x, prev.z, x, z, e.s, pc);
+          return;
+        }
+      }
+    }
     const R = Math.max(0.01, c.radius);
     // a cell's index is floor(x / CELL), its middle (index + 0.5) × CELL — as the fold's (fold.ts)
     const ci = Math.floor(x / CELL_SIZE), cj = Math.floor(z / CELL_SIZE);
@@ -167,18 +218,161 @@ export class DensityField {
             this.stats.cellSlots++;
           }
           cs.by.set(o, (cs.by.get(o) ?? 0) + g * t);
-          const lv = levelOf(cs.by, c);
-          if (lv !== cs.level) {
-            cs.level = lv;
-            col.seed = undefined;
-            this.dirty.add(ck);
-            this.listDirty = true;
-            this.stats.changes++;
-            this.version++;
+          this.settle(col, ck, cs);
+        }
+      }
+    }
+  }
+
+  /** A step from (ax, az) to (bx, bz) arriving at `s`: its treads into the cell-slots along it. */
+  private tread(o: number, ax: number, az: number, bx: number, bz: number, s: number, pc: PathConfig): void {
+    const c = this.cfg;
+    const R = Math.max(0.01, pc.radius);
+    // the cells within R of the step, each with the share of its crossing this step is: the length of the step that
+    // lies within R of the cell's middle, over 2R — so one whole crossing over a cell's middle adds up to exactly 1,
+    // however the walk is cut into steps
+    const cells = new Map<number, [number, number, number]>();
+    const L = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / L, uz = (bz - az) / L;
+    const i0 = Math.floor((Math.min(ax, bx) - R) / CELL_SIZE), i1 = Math.floor((Math.max(ax, bx) + R) / CELL_SIZE);
+    const j0 = Math.floor((Math.min(az, bz) - R) / CELL_SIZE), j1 = Math.floor((Math.max(az, bz) + R) / CELL_SIZE);
+    for (let ci = i0; ci <= i1; ci++) {
+      for (let cj = j0; cj <= j1; cj++) {
+        const px = (ci + 0.5) * CELL_SIZE - ax, pz = (cj + 0.5) * CELL_SIZE - az;
+        const along = px * ux + pz * uz, off = Math.abs(px * uz - pz * ux);
+        if (off >= R) continue;
+        const half = Math.sqrt(R * R - off * off);
+        const len = Math.min(L, along + half) - Math.max(0, along - half);
+        if (len <= 0) continue;
+        const cx = wrapCell(ci), cz = wrapCell(cj);
+        cells.set(colKey(cx, cz), [cx, cz, len / (2 * R)]);
+      }
+    }
+    const up = Math.max(0, pc.upSec), dn = Math.max(0, pc.downSec);
+    const k0 = Math.max(0, Math.floor((s - dn) / c.slotSec)), k1 = Math.floor((s + up) / c.slotSec), kOwn = Math.floor(s / c.slotSec);
+    for (const [ck, [cx, cz, g]] of cells) {
+      let col = this.cols.get(ck);
+      if (!col) this.cols.set(ck, (col = { cx, cz, slots: new Map() }));
+      for (let k = k0; k <= k1; k++) {
+        let t = 1;
+        if (k !== kOwn) {
+          const dt = (k + 0.5) * c.slotSec - s;
+          const span = dt > 0 ? up : dn;
+          if (span <= 0) continue;
+          const q = Math.abs(dt) / span;
+          if (q >= 1) continue;
+          t = 1 - q * q;
+        }
+        let cs = col.slots.get(k);
+        if (!cs) {
+          col.slots.set(k, (cs = { by: new Map(), level: 0 }));
+          this.stats.cellSlots++;
+        }
+        if (!cs.mv) cs.mv = new Map();
+        cs.mv.set(o, (cs.mv.get(o) ?? 0) + g * t);
+        this.settle(col, ck, cs);
+      }
+    }
+  }
+
+  /** What a cell-slot is after something was put into it: a building's level, or path, or nothing (THE CONTEST). */
+  private settle(col: Column, ck: number, cs: CellSlot): void {
+    const c = this.cfg, pc = c.path;
+    let lv = levelOf(cs.by, c);
+    let path = false;
+    if (pc && cs.mv) {
+      let n = 0, sum = 0;
+      for (const a of cs.mv.values()) {
+        if (a >= pc.walkerMin) n++;
+        sum += Math.min(a, pc.walkerCap);
+      }
+      if (n >= pc.minWalkers && sum >= pc.step) {
+        let stay = 0;
+        if (lv > 0) for (const a of cs.by.values()) stay += Math.min(a, c.visitorCap);
+        // whichever is further over its own threshold
+        if (!(lv > 0 && stay / c.step >= sum / pc.step)) {
+          path = true;
+          lv = 0;
+        }
+      }
+    }
+    if (path !== !!cs.path) {
+      cs.path = path;
+      this.pathVersion++;
+      this.plates = null;
+    }
+    if (lv !== cs.level) {
+      cs.level = lv;
+      col.seed = undefined;
+      this.dirty.add(ck);
+      this.listDirty = true;
+      this.stats.changes++;
+      this.version++;
+    }
+  }
+
+  /** Whether a cell-slot is path. */
+  pathAt(cx: number, cz: number, k: number): boolean {
+    return !!this.cols.get(colKey(wrapCell(cx), wrapCell(cz)))?.slots.get(k)?.path;
+  }
+
+  /**
+   * THE PATHS' SURFACES: one plate per cell and run of path slots — [x, height in slots, z] — at the slot the run
+   * begins in, or lower: no surface is more than `rise` slots per cell above a surface it touches (a neighbouring
+   * cell's run that lives at the same time), so a branch climbs from the way it leaves instead of hanging over it.
+   */
+  pathPlates(rise: number): Float32Array {
+    const key = `${this.pathVersion}:${rise}`;
+    if (this.plates && this.plates.key === key) return this.plates.out;
+    interface Run {
+      cx: number;
+      cz: number;
+      k0: number;
+      k1: number;
+      h: number;
+    }
+    const runs: Run[] = [];
+    const at = new Map<number, Run[]>();
+    for (const [ck, col] of this.cols) {
+      const ks: number[] = [];
+      for (const [k, cs] of col.slots) if (cs.path) ks.push(k);
+      if (!ks.length) continue;
+      ks.sort((p, q) => p - q);
+      const mine: Run[] = [];
+      let from = ks[0], prev = ks[0];
+      for (let i = 1; i <= ks.length; i++) {
+        if (i < ks.length && ks[i] === prev + 1) {
+          prev = ks[i];
+          continue;
+        }
+        mine.push({ cx: col.cx, cz: col.cz, k0: from, k1: prev, h: from });
+        if (i < ks.length) from = prev = ks[i];
+      }
+      at.set(ck, mine);
+      for (const r of mine) runs.push(r);
+    }
+    // lower each surface towards the lower ones it touches, at most `rise` per cell (lowest first, until nothing moves)
+    const step = Math.max(0, rise);
+    const queue = [...runs].sort((p, q) => p.h - q.h);
+    for (let qi = 0; qi < queue.length && qi < runs.length * 64; qi++) {
+      const a = queue[qi];
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          if (!dx && !dz) continue;
+          const near = at.get(colKey(wrapCell(a.cx + dx), wrapCell(a.cz + dz)));
+          if (!near) continue;
+          const cand = a.h + step * (dx && dz ? Math.SQRT2 : 1);
+          for (const b of near) {
+            if (b.k0 > a.k1 + 1 || b.k1 < a.k0 - 1 || cand >= b.h - 1e-9) continue;
+            b.h = cand;
+            queue.push(b);
           }
         }
       }
     }
+    const out = new Float32Array(runs.length * 3);
+    runs.forEach((r, i) => out.set([(r.cx + 0.5) * CELL_SIZE, r.h, (r.cz + 0.5) * CELL_SIZE], i * 3));
+    this.plates = { key, out };
+    return out;
   }
 
   /** The level of a cell-slot (0 = nothing there). */

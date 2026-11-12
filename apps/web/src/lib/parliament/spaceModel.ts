@@ -368,6 +368,7 @@ export class SpaceModel {
   /** BUILDINGS FROM THE DENSITY OF SPACETIME (density.ts): when set (computeParts), the seeds come from it, not the fold. */
   private densityCfg: DensityConfig | null = null;
   private densityState: { key: string; field: DensityField; fed: number } | null = null;
+  private pathsKey = "";
   private partCache = new Map<number, { key: string; parts: Box[] }>();
   /** FROZEN PARTS per building and slot (fuse.freezeSlots): once a slot is that deep, its parts are kept as they were. */
   private frozen = new Map<number, Map<number, Box[]>>();
@@ -768,6 +769,23 @@ export class SpaceModel {
 
   get latest(): number {
     return this.t;
+  }
+
+  /** The paths' surfaces as [x, y, z] per plate (y = the slot's height); null when nothing changed since the last call. */
+  computePaths(unit: number, rise: number): Float32Array | null {
+    const ds = this.densityState;
+    const key = ds ? `${ds.key}:${ds.field.pathVersion}:${rise}:${unit}` : "-";
+    if (key === this.pathsKey) return null;
+    this.pathsKey = key;
+    if (!ds) return new Float32Array(0);
+    const plates = ds.field.pathPlates(rise);
+    const out = new Float32Array(plates.length);
+    for (let i = 0; i < plates.length; i += 3) {
+      out[i] = plates[i];
+      out[i + 1] = plates[i + 1] * unit;
+      out[i + 2] = plates[i + 2];
+    }
+    return out;
   }
 
   private ensureSeeds(fold: FoldConfig): Seed[] {
@@ -1412,7 +1430,7 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 /** What the view posts to the space worker. */
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean; epoch?: string | null }
-  | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput };
+  | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; paths?: { rise: number } };
 
 /**
  * Two compute requests as one (the worker coalesces what queued up behind a long compute): the newer request's
@@ -1421,7 +1439,7 @@ export type SpaceRequest =
  */
 export function mergeComputeRequests<T extends Extract<SpaceRequest, { type: "compute" }>>(prev: T | null, next: T): T {
   if (!prev) return next;
-  return { ...next, nature: next.nature ?? prev.nature, reclaim: next.reclaim ?? prev.reclaim, fuse: next.fuse ?? prev.fuse };
+  return { ...next, nature: next.nature ?? prev.nature, reclaim: next.reclaim ?? prev.reclaim, fuse: next.fuse ?? prev.fuse, paths: next.paths ?? prev.paths };
 }
 
 /** What the space worker posts back for a compute request. */
@@ -1433,6 +1451,8 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
+  /** The paths' surfaces (density.ts pathPlates): [x, y, z] per plate. */
+  paths?: Float32Array | null;
   ms: number;
 }
 
@@ -1468,6 +1488,10 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   if (m.reclaim) {
     out.reclaim = model.computeReclaim(m.reclaim);
     if (out.reclaim) transfer.add(out.reclaim.position.buffer as ArrayBuffer).add(out.reclaim.color.buffer as ArrayBuffer);
+  }
+  if (m.paths && m.parts) {
+    out.paths = model.computePaths(m.parts.box.unit, m.paths.rise);
+    if (out.paths) transfer.add(out.paths.buffer as ArrayBuffer);
   }
   if (m.fuse) {
     out.fuse = model.computeFuse(m.fuse);

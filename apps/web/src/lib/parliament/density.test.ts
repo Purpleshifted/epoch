@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DENSITY, DensityField, levelOf, type DensityConfig } from "./density";
+import { DEFAULT_DENSITY, DEFAULT_PATH, DensityField, levelOf, type DensityConfig } from "./density";
 import { DEFAULT_BOXES, DEFAULT_VARIETY, boxesOfSeed, buildKeep, districtOf } from "./seeds";
 import type { PEvent } from "./types";
 
@@ -142,5 +142,76 @@ describe("density: buildings from the density of spacetime", () => {
     const two = fieldOf([...crowd(5, 0, 0, 400, 40), ...crowd(5, 0, 0, 400, 40, "b")]);
     const mass = (f: DensityField) => Math.max(...f.seeds().map((s) => s.mass));
     expect(mass(two)).toBeGreaterThan(mass(one));
+  });
+});
+
+describe("density: paths from the density of movement", () => {
+  const P: DensityConfig = { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH } };
+  /** `n` walkers side by side going from x0 to x1 along z = 0 (2 units a second), from time s0. */
+  function march(n: number, x0: number, x1: number, s0: number, tag: string): PEvent[] {
+    const out: PEvent[] = [];
+    const steps = Math.ceil(Math.abs(x1 - x0) / 2);
+    for (let i = 0; i < n; i++) for (let t = 0; t <= steps; t++) out.push({ id: `${tag}${i}:${t}:${s0}`, o: `${tag}${i}`, r: "worker", k: "p", x: x0 + ((x1 - x0) * t) / steps, z: (i - (n - 1) / 2) * 0.3, s: s0 + t });
+    return out;
+  }
+  const pathCells = (f: DensityField) => f.pathPlates(0.25).length / 3;
+
+  it("one herd crossing once is not a path; the same way there and back is", () => {
+    expect(pathCells(fieldOf(march(5, 0, 30, 400, "a"), P))).toBe(0);
+    const f = fieldOf([...march(5, 0, 30, 400, "a"), ...march(5, 30, 0, 430, "a")], P);
+    expect(pathCells(f)).toBeGreaterThan(10);
+    // along the way, near its line
+    const plates = f.pathPlates(0.25);
+    for (let i = 0; i < plates.length; i += 3) {
+      expect(plates[i]).toBeGreaterThan(-3);
+      expect(plates[i]).toBeLessThan(33);
+      expect(Math.abs(plates[i + 2])).toBeLessThan(DEFAULT_PATH.radius + 1.5);
+    }
+  });
+
+  it("walking does not build: no building comes of a herd that only passes, however often", () => {
+    const ev = [0, 1, 2, 3, 4, 5].flatMap((r) => march(5, r % 2 ? 30 : 0, r % 2 ? 0 : 30, 400 + r * 20, "a"));
+    expect(fieldOf(ev, P).seeds().length).toBe(0);
+  });
+
+  it("the contest: a cell-slot is a building's or a path's, never both", () => {
+    const ev = [...crowd(6, 15, 0, 400, 40), ...march(5, 0, 30, 400, "w"), ...march(5, 30, 0, 420, "w")];
+    const f = fieldOf(ev, P);
+    expect(f.seeds().length).toBeGreaterThan(0);
+    for (const s of f.seeds()) for (const k of s.levels!.keys()) expect(f.pathAt(Math.floor(s.x / 1.2), Math.floor(s.z / 1.2), k)).toBe(false);
+  });
+
+  it("a later branch climbs from the way it leaves: its surface rises no faster than the slope allows", () => {
+    // an old way along x, then — four slots later — a branch that runs along it and leaves it northwards
+    const old = [...march(5, 0, 30, 400, "a"), ...march(5, 30, 0, 430, "a")];
+    const branch = (tag: string, s0: number): PEvent[] => {
+      const out: PEvent[] = [];
+      for (let i = 0; i < 5; i++) {
+        for (let t = 0; t <= 8; t++) out.push({ id: `${tag}${i}:x${t}:${s0}`, o: `${tag}${i}`, r: "worker", k: "p", x: 2 * t, z: (i - 2) * 0.3, s: s0 + t });
+        for (let t = 1; t <= 10; t++) out.push({ id: `${tag}${i}:z${t}:${s0}`, o: `${tag}${i}`, r: "worker", k: "p", x: 16 + (i - 2) * 0.3, z: 2 * t, s: s0 + 8 + t });
+      }
+      return out;
+    };
+    const back = (tag: string, s0: number): PEvent[] => branch(tag, 0).map((e) => ({ ...e, id: e.id + "b", s: s0 + (18 - e.s) })).sort((p, q) => p.s - q.s);
+    const f = fieldOf([...old, ...branch("b", 480), ...back("b", 500)], P);
+    const flat = f.pathPlates(1e9), ramp = f.pathPlates(0.25);
+    expect(ramp.length).toBe(flat.length);
+    // on the branch, far from the old way: at its own time; close to the old way: lower than it began
+    let lowered = 0, far = 0;
+    for (let i = 0; i < ramp.length; i += 3) {
+      expect(ramp[i + 1]).toBeLessThanOrEqual(flat[i + 1] + 1e-6);
+      if (ramp[i + 2] > 3 && ramp[i + 2] < 8 && ramp[i + 1] < flat[i + 1] - 0.2) lowered++;
+      if (ramp[i + 2] > 14) far++;
+    }
+    expect(far).toBeGreaterThan(0);
+    expect(lowered).toBeGreaterThan(0);
+    // no step steeper than the slope between touching surfaces
+    const at = new Map<string, number>();
+    for (let i = 0; i < ramp.length; i += 3) at.set(`${Math.floor(ramp[i] / 1.2)},${Math.floor(ramp[i + 2] / 1.2)}`, ramp[i + 1]);
+    for (const [k, h] of at) {
+      const [cx, cz] = k.split(",").map(Number);
+      const n = at.get(`${cx + 1},${cz}`);
+      if (n !== undefined && Math.abs(n - h) > 0.25 + 1e-6) expect(Math.abs(n - h)).toBeGreaterThanOrEqual(1); // (runs that do not touch in time)
+    }
   });
 });
