@@ -82,6 +82,7 @@ import {
   handleSpaceRequest,
   blockSlots,
 } from "@/lib/parliament";
+import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
@@ -1703,6 +1704,7 @@ function Vegetation({
   spotJitter,
   moveSec,
   moveAt,
+  erode,
 }: {
   unit: number;
   slots: number;
@@ -1725,6 +1727,9 @@ function Vegetation({
    *  middle from which it is seated again. */
   moveSec: number;
   moveAt: number;
+  /** THE EROSION (erode.ts): where buildings erode, their share of the people's density is given back to the
+   *  vegetation (by depth, × feed); null = buildings count whole. */
+  erode: ErodeConfig | null;
 }) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
@@ -1872,7 +1877,9 @@ function Vegetation({
       const v = Math.round(Math.max(0, Math.min(1, share)) * 255);
       if (v > data[i]) data[i] = v;
     };
-    botGround.built?.eachShare(put);
+    // (what erodes is given back: a building's share is less by its erosion × how much of it goes × feed)
+    const eb = erode && erode.feed > 0 ? erode : null;
+    botGround.built?.eachShare(eb ? (cx, cz, k, share) => put(cx, cz, k, share * (1 - eb.feed * eb.amount * erosionAt(k, 0, eb))) : put);
     const at = Math.max(0.1, pathAt);
     tailField.each((cx, cz, k, level) => put(cx, cz, k, level / at));
     tex.needsUpdate = true;
@@ -2587,13 +2594,42 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     { order: lab ? 7.9 : 1.75, render: () => isV2 },
   );
+  // EROSION IN THE BLOCK (lib/parliament/erode.ts): a part is gone by where it lies — how far below the block's top,
+  // and how little its place was lived in (the same share the gatherings read). A place, not a clock.
+  const ERODE_GROUP = "침식 (깊이 × 살지 않은 정도)";
+  const er = useLevaControls(
+    ERODE_GROUP,
+    savable(ERODE_GROUP, {
+      erOn: { value: true, label: "켜기" },
+      erStart: { value: DEFAULT_ERODE.start, min: 0, max: 1, step: 0.01, label: "시작 깊이 (꼭대기에서 · 덩어리 높이의 비율)" },
+      erFull: { value: DEFAULT_ERODE.full, min: 0.02, max: 1.5, step: 0.01, label: "다 깎이는 깊이 (덩어리 높이의 비율 · 1 넘으면 바닥에서도 덜 깎임)" },
+      erAmount: { value: DEFAULT_ERODE.amount, min: 0, max: 1, step: 0.05, label: "다 깎였을 때 사라지는 몫 (1 = 전부)" },
+      erVegPull: { value: DEFAULT_ERODE.vegPull, min: 0, max: 1, step: 0.05, label: "살지 않은 곳이 먼저 (그만큼 더 깊은 셈 · 0 = 깊이만)" },
+      erOrder: { value: DEFAULT_ERODE.order, min: 0, max: 1, step: 0.05, label: "지은 순서의 역순으로 (1 = 뼈대가 끝까지 남음 · 0 = 종류 무관)" },
+      erPatch: { value: DEFAULT_ERODE.patch, min: 0, max: 1, step: 0.05, label: "뭉텅이로 깎임 (0 = 부재 하나씩 흩어져서)" },
+      erGrain: { value: DEFAULT_ERODE.grain, min: 1, max: 20, step: 0.5, label: "뭉텅이 크기 (칸)" },
+      erShade: { value: DEFAULT_ERODE.shade, min: 0, max: 0.8, step: 0.05, label: "깎이는 곳의 남은 부재를 어둡게" },
+      erFeed: { value: DEFAULT_ERODE.feed, min: 0, max: 1, step: 0.05, label: "깎이는 자리에 식생이 모임 (0 = 안 묶음)" },
+    }),
+    { order: lab ? 7.95 : 1.76, render: () => isV2 },
+  );
+  // (only in the block, whose top is known: the bots' block height)
+  const weatherEr = useMemo<WeatherConfig>(
+    () =>
+      REDESIGN && er.erOn && dn.densityOn && botDepth > 0
+        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erAmount, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erShade, feed: er.erFeed } }
+        : weather,
+    [weather, botDepth, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed],
+  );
+  // (the unlived share is read by the gatherings and by the erosion alike)
+  const unlivedOn = vg.gaOn || er.erOn;
   const densityCfg = useMemo<DensityConfig | null>(
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, liveAt: vg.gaOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, vg.gaOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
@@ -3361,7 +3397,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           lodMid={lodMid}
           pointsInRefraction={fu.pointsInRefraction && !perf}
           farFactor={rnd.farFactor}
-          weather={weather}
+          weather={weatherEr}
           fuse={fuseCfg}
           immutable={fu.immutable}
           bake={fu.bake}
@@ -3400,7 +3436,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
+          <Vegetation erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene

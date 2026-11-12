@@ -16,6 +16,7 @@ import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
+import { erosion, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -144,6 +145,9 @@ export interface WeatherConfig {
   gatherRise: number;
   /** …and a part rots once it has collected this much (gathered density × slots buried together). */
   rotDose: number;
+  /** EROSION IN THE BLOCK (erode.ts): by a part's depth below the block's top and how little its place was lived in —
+   *  no clock. Only with the density's buildings; absent / null = none. */
+  erode?: ErodeConfig | null;
 }
 
 export const DEFAULT_WEATHER: WeatherConfig = { strata: true, timeScale: 0.06, steelLife: 2, concreteLife: 1, tauSedimentYears: 600, coverSlots: 8, buriedSlow: 4, natureAccel: 1, ageJitter: 0.5, gatherStart: 2, gatherRise: 8, rotDose: 12 };
@@ -412,6 +416,11 @@ export class SpaceModel {
   private wear: ReturnType<typeof wearModel> | null = null;
   /** How much vegetation has gathered on a part (strata only): it gathers before (and so causes) its rot. */
   private gatherOf: ((b: Box) => number) | null = null;
+  /** The erosion of the last computed parts (erode.ts; null = none), and how much of it feeds the gatherings. */
+  private eroded: (Erosion & { feed: number }) | null = null;
+  /** A part's own erosion threshold, kept while the rule that made it stands. */
+  private erodeMemo = new WeakMap<Box, number>();
+  private erodeKey = "";
   private history: NatureHistory | null = null;
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
   private drain: Drainage = NO_DRAINAGE;
@@ -1016,7 +1025,20 @@ export class SpaceModel {
       const A = Math.max(0, geoYears(t) - geoYears(laid)) * w.timeScale;
       return 1 - Math.exp(-A / (input.fold.tauSlabYears * w.steelLife * input.water.pipeLife));
     };
-    const worn = wm ? wearParts(built, seeds, t, wearCfg, wm) : built;
+    // EROSION IN THE BLOCK (erode.ts): a part is gone by where it lies (depth below the top × how little its place was
+    // lived in) — a place, not a clock, so nothing here moves unless somebody writes near it
+    const ec = this.densityCfg && w.erode && w.erode.topSlot > 0 ? w.erode : null;
+    if (ec) {
+      const eKey = `${ec.order}:${ec.patch}:${ec.grain}`;
+      if (eKey !== this.erodeKey) {
+        this.erodeKey = eKey;
+        this.erodeMemo = new WeakMap();
+      }
+    }
+    const ero = ec ? erosion(seeds, ec, this.erodeMemo) : null;
+    this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
+    const stands = ero ? built.filter((b) => !ero.gone(b)) : built;
+    const worn = wm ? wearParts(stands, seeds, t, wearCfg, wm) : stands;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
     this.wear = wm;
     this.wearCfg = wearCfg;
@@ -1076,7 +1098,7 @@ export class SpaceModel {
       // a baked part keeps the shade it had
       const kept = bakedOf.get(b);
       const d = kept === undefined && survival ? 1 - survival(b) : 0;
-      const g = kept ?? (0.86 + 0.14 * b.tone) * (1 - 0.4 * d);
+      const g = kept ?? (0.86 + 0.14 * b.tone) * (1 - 0.4 * d) * (ero && ec && ec.shade > 0 ? 1 - ec.shade * ero.at(b) : 1);
       colors[k][i * 3] = g;
       colors[k][i * 3 + 1] = g;
       colors[k][i * 3 + 2] = g;
@@ -1471,12 +1493,16 @@ export class SpaceModel {
     let gathering = wm && fu ? (b: Box) => gatheringShare(1 - wm.survival(b), fu, pre ? pre(b) : 0) : undefined;
     if (input.unlived) {
       const byId = new Map(this.seeds.map((sd) => [sd.id, sd] as const));
-      gathering = (b: Box) => byId.get(b.seed)?.gather?.get(b.slot) ?? 0;
+      // tied to the erosion (erode.ts feed): plants gather where it erodes — and stay in the place of what is gone
+      const er = this.eroded;
+      gathering = er && er.feed > 0 ? (b: Box) => Math.min(1, (byId.get(b.seed)?.gather?.get(b.slot) ?? 0) + er.feed * er.at(b)) : (b: Box) => byId.get(b.seed)?.gather?.get(b.slot) ?? 0;
     }
     const { fuse: _f, unlived: _u, ...cfg } = input;
     void _f;
     void _u;
-    const np = reclaimPoints(this.built, this.worn, this.seeds, this.t, { ...cfg, gathering });
+    // (with the erosion feeding them, the gatherings keep the shape of the parts that went: `built`, not `worn`)
+    const on = input.unlived && this.eroded && this.eroded.feed > 0 ? this.built : this.worn;
+    const np = reclaimPoints(this.built, on, this.seeds, this.t, { ...cfg, gathering });
     return { position: np.position, color: natureColors(np) };
   }
 
