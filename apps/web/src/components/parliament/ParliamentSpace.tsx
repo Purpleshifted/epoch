@@ -2029,7 +2029,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // the shot sequence the auto run plays (docs/camera-motion.md §1): the pose above as the base, then the enabled shots
   // MEASUREMENT SWITCH `?cam=band` (2026-11-01, the reset): a fixed framing that shows the fusion band whatever the
   // saved camera says — focus 45 slots below the present, polar 62°, distance 120, no auto run, no turn
-  const camView = params.get("cam") === "band" ? { ...cam, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 } : cam;
+  // THE REDESIGN: the camera does not move by itself (the artist, 2026-11-12: "카메라 자동이동 좀 꺼줘") — no turning, no
+  // automatic shots; the mouse moves it
+  const camBase = REDESIGN ? { ...cam, camAuto: false, camTurnSec: 0 } : cam;
+  const camView = params.get("cam") === "band" ? { ...camBase, camAuto: false, camLift: -45, camPolar: 62, camDist: 120, camTurnSec: 0 } : camBase;
   const shotSeq: ShotSequence = {
     base: { id: 0, dist: camView.camDist, polar: camView.camPolar, lookX: camView.camLook[0], lookZ: camView.camLook[1], lift: camView.camLift, turn: 1, holdSec: camView.camHoldSec },
     shots: [
@@ -3060,7 +3063,7 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         <StageCamera
           controls={controls}
           pose={{ dist: camView.camDist, polar: camView.camPolar, azimuth: camView.camAzimuth, look: camView.camLook }}
-          turnSec={cam.camTurnSec}
+          turnSec={camView.camTurnSec}
           dir={cam.camDir as 1 | -1}
           maxPolarDeg={isV2 ? 179.5 : 89.8}
           active={!lab}

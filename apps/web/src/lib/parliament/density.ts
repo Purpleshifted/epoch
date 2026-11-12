@@ -26,6 +26,7 @@
 
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { seedId, type Seed } from "./seeds";
+import { legSimilarity } from "./trails";
 import type { Contributor, PEvent } from "./types";
 import { wrapCell, wrapCoord, wrapDist } from "./world";
 
@@ -84,8 +85,20 @@ export interface PathConfig {
   walkerMin: number;
   walkerCap: number;
   step: number;
+  /**
+   * A WAY IS ONE THING, END TO END (the artist, 2026-11-12: "길이면 쭉 이어져야 하는 거 아냐?"). A walk is not trodden
+   * step by step where each walker happened to go — side by side, the cells under them came out uneven and the path in
+   * pieces. A walk is a LEG (from setting off to stopping; shorter than `minLeg` it is no way anywhere), and a leg
+   * belongs to a ROUTE: the most similar one there is (trails.ts legSimilarity ≥ `joinThreshold`, ends within
+   * `joinRadius`, either direction), or a new one, whose line is this first walker's own track. Every leg of a route
+   * treads THE ROUTE'S LINE. So along a route every cell gets the same, and the route is path from end to end or not
+   * at all (but where a building has the cell).
+   */
+  minLeg: number;
+  joinRadius: number;
+  joinThreshold: number;
 }
-export const DEFAULT_PATH: PathConfig = { minStep: 0.6, maxGapSec: 3, radius: 1, upSec: 120, downSec: 20, minWalkers: 4, walkerMin: 0.5, walkerCap: 2, step: 6 };
+export const DEFAULT_PATH: PathConfig = { minStep: 0.6, maxGapSec: 3, radius: 1.5, upSec: 120, downSec: 20, minWalkers: 4, walkerMin: 0.5, walkerCap: 2, step: 6.5, minLeg: 3, joinRadius: 4, joinThreshold: 0.4 };
 
 export const DEFAULT_DENSITY: DensityConfig = {
   radius: 2.75,
@@ -111,6 +124,16 @@ interface CellSlot {
   /** Per walker (index): what it trod in here; and whether the cell-slot is path (never with level ≥ 1). */
   mv?: Map<number, number>;
   path?: boolean;
+}
+
+/** A way: its line (x, z pairs — the first walker's track, its corners cut), from its one end to its other. */
+interface PathRoute {
+  pts: number[];
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  legs: number;
 }
 
 interface PathRun {
@@ -163,6 +186,9 @@ export class DensityField {
   pathVersion = 0;
   /** Each walker's last sample (canonical), to tell a step from a presence. */
   private last = new Map<number, { x: number; z: number; s: number }>();
+  /** Each walker's walk under way (x, z, s triples), and the routes so far. */
+  private open = new Map<number, number[]>();
+  private routes: PathRoute[] = [];
   private plates: { key: string; out: Float32Array } | null = null;
   private lines: { key: string; out: Float32Array } | null = null;
 
@@ -188,11 +214,17 @@ export class DensityField {
       this.last.set(o, { x, z, s: e.s });
       if (prev) {
         const dt = e.s - prev.s, d = Math.hypot(x - prev.x, z - prev.z);
-        // (a step over the world's edge is short round the torus but long on the map: its treading is left out)
-        if (dt > 0 && dt <= pc.maxGapSec && d >= pc.minStep) {
-          if (d <= wrapDist(prev.x, prev.z, x, z) + 1e-6) this.tread(o, prev.x, prev.z, x, z, e.s, pc);
+        const step = dt > 0 && dt <= pc.maxGapSec && d >= pc.minStep;
+        // (a step over the world's edge is short round the torus but long on the map: the walk ends before it)
+        if (step && d <= wrapDist(prev.x, prev.z, x, z) + 1e-6) {
+          const leg = this.open.get(o) ?? [prev.x, prev.z, prev.s];
+          leg.push(x, z, e.s);
+          this.open.set(o, leg);
           return;
         }
+        // it stopped (or paused, or went over the edge): the walk it was on is a leg now
+        this.closeLeg(o, pc);
+        if (step) return;
       }
     }
     const R = Math.max(0.01, c.radius);
@@ -233,6 +265,42 @@ export class DensityField {
         }
       }
     }
+  }
+
+  /** A walk has ended: it joins the most similar route (or begins one) and treads that route's line, at its own time. */
+  private closeLeg(o: number, pc: PathConfig): void {
+    const leg = this.open.get(o);
+    if (!leg) return;
+    this.open.delete(o);
+    const n = leg.length / 3;
+    const ax = leg[0], az = leg[1], bx = leg[(n - 1) * 3], bz = leg[(n - 1) * 3 + 1];
+    if (n < 2 || Math.hypot(bx - ax, bz - az) < pc.minLeg) return;
+    let route: PathRoute | null = null, best = Math.max(1e-9, pc.joinThreshold);
+    for (const r of this.routes) {
+      const sim = Math.max(legSimilarity(ax, az, bx, bz, r, pc.joinRadius), legSimilarity(bx, bz, ax, az, r, pc.joinRadius));
+      if (sim >= best) [route, best] = [r, sim];
+    }
+    if (!route) {
+      // a new way: this walker's own track, its corners cut twice (the ends stay)
+      let pts: number[] = [];
+      for (let i = 0; i < n; i++) pts.push(leg[i * 3], leg[i * 3 + 1]);
+      for (let it = 0; it < 2 && pts.length > 4; it++) {
+        const q = [pts[0], pts[1]];
+        for (let i = 0; i + 3 < pts.length; i += 2) {
+          q.push(0.75 * pts[i] + 0.25 * pts[i + 2], 0.75 * pts[i + 1] + 0.25 * pts[i + 3]);
+          q.push(0.25 * pts[i] + 0.75 * pts[i + 2], 0.25 * pts[i + 1] + 0.75 * pts[i + 3]);
+        }
+        q.push(pts[pts.length - 2], pts[pts.length - 1]);
+        pts = q;
+      }
+      route = { pts, ax, az, bx, bz, legs: 0 };
+      this.routes.push(route);
+      this.lines = null;
+    }
+    route.legs++;
+    const s = (leg[2] + leg[(n - 1) * 3 + 2]) / 2;
+    const p = route.pts;
+    for (let i = 0; i + 3 < p.length; i += 2) if (p[i] !== p[i + 2] || p[i + 1] !== p[i + 3]) this.tread(o, p[i], p[i + 1], p[i + 2], p[i + 3], s, pc);
   }
 
   /** A step from (ax, az) to (bx, bz) arriving at `s`: its treads into the cell-slots along it. */
@@ -394,112 +462,51 @@ export class DensityField {
   }
 
   /**
-   * THE PATHS AS LINES (the artist, 2026-11-12: "판 말고 걍 예전처럼 선으로"): the path's cells thinned to its MIDDLE —
-   * a cell stays when neither neighbour across the way is more trodden — and each joined to the cells next to it that
-   * live at the same time, the chains smoothed `smooth` times into curves (0 = cell to cell): [x, height in slots, z,
-   * x, height, z] per short segment. A way is one line however wide it was trodden; where a branch leaves an older
-   * way the line climbs (the surfaces' slope, pathRuns).
+   * THE PATHS AS CURVES (the artist, 2026-11-12: "판 말고 걍 예전처럼 선으로", "선분 말고 곡선", "길이면 쭉 이어져야"):
+   * each route's own line, drawn wherever and whenever the cells under it are path — at their surfaces' heights (so
+   * where a branch leaves an older way it climbs, pathRuns), the heights evened `smooth` times. A route is trodden
+   * evenly from end to end, so its line is unbroken from end to end (it stops only where a building has the cell);
+   * the same way taken again much later is the same curve again, higher up. [x, height in slots, z, x, height, z] per
+   * short segment.
    */
   pathLines(rise: number, smooth = 4): Float32Array {
-    const key = `${this.pathVersion}:${rise}:${smooth}`;
+    const key = `${this.pathVersion}:${this.routes.length}:${rise}:${smooth}`;
     if (this.lines && this.lines.key === key) return this.lines.out;
-    const { runs, at } = this.pathRuns(rise);
-    const touching = (a: PathRun, cx: number, cz: number): PathRun | undefined => {
-      // (not across the world's edge: that would be a line over the whole map)
-      if (Math.abs(cx) > 32000 || wrapCell(cx) !== cx || wrapCell(cz) !== cz) return undefined;
-      return at.get(colKey(cx, cz))?.find((b) => b.k0 <= a.k1 + 1 && b.k1 >= a.k0 - 1);
-    };
-    // THE MIDDLE: which way the path runs here (the direction its neighbours lie in), and whether a neighbour ACROSS
-    // it is more trodden
-    const DIRS: [number, number][] = [[1, 0], [1, 1], [0, 1], [-1, 1]];
-    const mid = new Set<PathRun>();
-    for (const a of runs) {
-      let sxx = 0, szz = 0, sxz = 0;
-      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
-        if ((!dx && !dz) || !touching(a, a.cx + dx, a.cz + dz)) continue;
-        sxx += dx * dx;
-        szz += dz * dz;
-        sxz += dx * dz;
-      }
-      // the direction of most spread (the principal axis of where its neighbours are), snapped to the grid's eight
-      const ang = 0.5 * Math.atan2(2 * sxz, sxx - szz);
-      let best = 0, bestDot = -1;
-      for (let i = 0; i < 4; i++) {
-        const [dx, dz] = DIRS[i];
-        const dot = Math.abs(Math.cos(ang) * dx + Math.sin(ang) * dz) / Math.hypot(dx, dz);
-        if (dot > bestDot) [best, bestDot] = [i, dot];
-      }
-      const [px, pz] = DIRS[(best + 2) % 4];
-      const l = touching(a, a.cx + px, a.cz + pz), r = touching(a, a.cx - px, a.cz - pz);
-      // (an equal neighbour: the one with the smaller cell stays, so a path two cells wide is still one line)
-      const beats = (n: PathRun | undefined) => !!n && (n.w > a.w + 1e-9 || (Math.abs(n.w - a.w) <= 1e-9 && (n.cx < a.cx || (n.cx === a.cx && n.cz < a.cz))));
-      if (!beats(l) && !beats(r)) mid.add(a);
-    }
-    // THE LINES: the middle cells joined to the next (a diagonal only where no step round the corner does it), then
-    // followed from end to end as chains — each smoothed into a CURVE (the artist: "선분 말고 곡선")
-    const adj = new Map<PathRun, PathRun[]>();
-    const link = (a: PathRun, b: PathRun) => {
-      const la = adj.get(a) ?? (adj.set(a, []), adj.get(a)!);
-      if (!la.includes(b)) la.push(b);
-      const lb = adj.get(b) ?? (adj.set(b, []), adj.get(b)!);
-      if (!lb.includes(a)) lb.push(a);
-    };
-    const midAt = (a: PathRun, cx: number, cz: number) => {
-      const b = touching(a, cx, cz);
-      return b && mid.has(b) ? b : undefined;
-    };
-    for (const a of mid) {
-      for (const [dx, dz] of DIRS) {
-        const b = midAt(a, a.cx + dx, a.cz + dz);
-        if (!b) continue;
-        if (dx && dz && (midAt(a, a.cx + dx, a.cz) || midAt(a, a.cx, a.cz + dz))) continue;
-        link(a, b);
-      }
-    }
-    const used = new Set<string>();
-    const id = new Map<PathRun, number>();
-    runs.forEach((r, i) => id.set(r, i));
-    const edge = (a: PathRun, b: PathRun) => (id.get(a)! < id.get(b)! ? `${id.get(a)}:${id.get(b)}` : `${id.get(b)}:${id.get(a)}`);
-    const chains: PathRun[][] = [];
-    const trace = (a: PathRun, b: PathRun) => {
-      const pts = [a, b];
-      used.add(edge(a, b));
-      let prev = a, cur = b;
-      while (cur !== a && adj.get(cur)!.length === 2) {
-        const next = adj.get(cur)![0] === prev ? adj.get(cur)![1] : adj.get(cur)![0];
-        if (used.has(edge(cur, next))) break;
-        used.add(edge(cur, next));
-        pts.push(next);
-        prev = cur;
-        cur = next;
-      }
-      chains.push(pts);
-    };
-    // from the ends and the junctions first, then what is left (rings)
-    for (const [a, l] of adj) if (l.length !== 2) for (const b of l) if (!used.has(edge(a, b))) trace(a, b);
-    for (const [a, l] of adj) for (const b of l) if (!used.has(edge(a, b))) trace(a, b);
+    const { at } = this.pathRuns(rise);
     const out: number[] = [];
     const passes = Math.max(0, Math.round(smooth));
-    for (const ch of chains) {
-      let pts = ch.map((r) => [(r.cx + 0.5) * CELL_SIZE, r.h, (r.cz + 0.5) * CELL_SIZE]);
-      // the cells' staircase evened out (the ends stay where the next chain begins) …
+    const emit = (ch: number[][]) => {
+      if (ch.length < 2) return;
       for (let it = 0; it < passes; it++) {
-        const q = pts.map((p) => p.slice());
-        for (let i = 1; i < pts.length - 1; i++) for (let d = 0; d < 3; d++) q[i][d] = 0.25 * pts[i - 1][d] + 0.5 * pts[i][d] + 0.25 * pts[i + 1][d];
-        pts = q;
+        const h = ch.map((p) => p[1]);
+        for (let i = 1; i < ch.length - 1; i++) ch[i][1] = 0.25 * h[i - 1] + 0.5 * h[i] + 0.25 * h[i + 1];
       }
-      // … and its corners cut (Chaikin), twice
-      for (let it = 0; it < (passes > 0 ? 2 : 0) && pts.length > 2; it++) {
-        const q: number[][] = [pts[0]];
-        for (let i = 0; i < pts.length - 1; i++) {
-          const p0 = pts[i], p1 = pts[i + 1];
-          q.push([0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1], 0.75 * p0[2] + 0.25 * p1[2]]);
-          q.push([0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1], 0.25 * p0[2] + 0.75 * p1[2]]);
+      for (let i = 1; i < ch.length; i++) out.push(ch[i - 1][0], ch[i - 1][1], ch[i - 1][2], ch[i][0], ch[i][1], ch[i][2]);
+    };
+    for (const r of this.routes) {
+      // the route's line, a point every half cell
+      const pts: [number, number][] = [];
+      for (let i = 0; i + 3 < r.pts.length; i += 2) {
+        const L = Math.hypot(r.pts[i + 2] - r.pts[i], r.pts[i + 3] - r.pts[i + 1]);
+        const n = Math.max(1, Math.ceil(L / (CELL_SIZE / 2)));
+        for (let j = i === 0 ? 0 : 1; j <= n; j++) pts.push([r.pts[i] + ((r.pts[i + 2] - r.pts[i]) * j) / n, r.pts[i + 1] + ((r.pts[i + 3] - r.pts[i + 1]) * j) / n]);
+      }
+      // along it, the runs of path under each point; a run goes on into the next point's run that lives at the same
+      // time — a chain per time the way was a path
+      let live: { run: PathRun; chain: number[][] }[] = [];
+      for (const [x, z] of pts) {
+        const runs = at.get(colKey(wrapCell(Math.floor(x / CELL_SIZE)), wrapCell(Math.floor(z / CELL_SIZE)))) ?? [];
+        const next: { run: PathRun; chain: number[][] }[] = [];
+        for (const b of runs) {
+          const from = live.find((l) => l.run === b || (b.k0 <= l.run.k1 + 1 && b.k1 >= l.run.k0 - 1 && !next.some((n) => n.chain === l.chain)));
+          const chain = from ? from.chain : [];
+          chain.push([x, b.h, z]);
+          next.push({ run: b, chain });
         }
-        q.push(pts[pts.length - 1]);
-        pts = q;
+        for (const l of live) if (!next.some((n) => n.chain === l.chain)) emit(l.chain);
+        live = next;
       }
-      for (let i = 1; i < pts.length; i++) out.push(pts[i - 1][0], pts[i - 1][1], pts[i - 1][2], pts[i][0], pts[i][1], pts[i][2]);
+      for (const l of live) emit(l.chain);
     }
     this.lines = { key, out: Float32Array.from(out) };
     return this.lines.out;

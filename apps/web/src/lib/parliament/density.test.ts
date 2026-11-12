@@ -154,11 +154,17 @@ describe("density: paths from the density of movement", () => {
     for (let i = 0; i < n; i++) for (let t = 0; t <= steps; t++) out.push({ id: `${tag}${i}:${t}:${s0}`, o: `${tag}${i}`, r: "worker", k: "p", x: x0 + ((x1 - x0) * t) / steps, z: (i - (n - 1) / 2) * 0.3, s: s0 + t });
     return out;
   }
+  /** Everybody stops where they are, a second after their last sample (a walk is a leg once the walker has stopped). */
+  const halted = (events: PEvent[]): PEvent[] => {
+    const last = new Map<string, PEvent>();
+    for (const e of events) if (!last.has(e.o) || e.s >= last.get(e.o)!.s) last.set(e.o, e);
+    return [...events, ...[...last.values()].map((e) => ({ ...e, id: e.id + ":halt", s: e.s + 1 }))];
+  };
   const pathCells = (f: DensityField) => f.pathPlates(0.25).length / 3;
 
   it("one herd crossing once is not a path; the same way there and back is", () => {
-    expect(pathCells(fieldOf(march(5, 0, 30, 400, "a"), P))).toBe(0);
-    const f = fieldOf([...march(5, 0, 30, 400, "a"), ...march(5, 30, 0, 430, "a")], P);
+    expect(pathCells(fieldOf(halted(march(5, 0, 30, 400, "a")), P))).toBe(0);
+    const f = fieldOf(halted([...march(5, 0, 30, 400, "a"), ...march(5, 30, 0, 430, "a")]), P);
     expect(pathCells(f)).toBeGreaterThan(10);
     // along the way, near its line
     const plates = f.pathPlates(0.25);
@@ -170,7 +176,7 @@ describe("density: paths from the density of movement", () => {
   });
 
   it("as lines: a way is ONE line along its middle, however wide it was trodden", () => {
-    const f = fieldOf([...march(5, 0, 30, 400, "a"), ...march(5, 30, 0, 430, "a")], P);
+    const f = fieldOf(halted([...march(5, 0, 30, 400, "a"), ...march(5, 30, 0, 430, "a")]), P);
     const lines = f.pathLines(0.25, 0);
     expect(lines.length).toBeGreaterThan(6 * 10);
     // every segment joins two neighbouring cells, and the line keeps to one row of them
@@ -181,7 +187,7 @@ describe("density: paths from the density of movement", () => {
       rows.add(Math.round(lines[i + 5] * 100));
     }
     expect(rows.size).toBe(1);
-    expect(fieldOf(march(5, 0, 30, 400, "a"), P).pathLines(0.25).length).toBe(0);
+    expect(fieldOf(halted(march(5, 0, 30, 400, "a")), P).pathLines(0.25).length).toBe(0);
   });
 
   it("as curves: a way with a corner is one unbroken line, its corner rounded, its ends where they were", () => {
@@ -197,10 +203,11 @@ describe("density: paths from the density of movement", () => {
       }
       return out;
     };
-    const f = fieldOf([...leg("a", 400, false), ...leg("a", 425, true)], P);
+    const f = fieldOf(halted([...leg("a", 400, false), ...leg("a", 425, true)]), P);
     const sharp = f.pathLines(0.25, 0), curve = f.pathLines(0.25, 4);
     expect(sharp.length).toBeGreaterThan(0);
-    expect(curve.length).toBeGreaterThan(sharp.length);
+    // (the line is the route's own either way: smoothing evens its heights)
+    expect(curve.length).toBe(sharp.length);
     // unbroken: each segment begins where the one before ended (one chain)
     let breaks = 0;
     for (let i = 6; i < curve.length; i += 6) if (Math.hypot(curve[i] - curve[i - 3], curve[i + 2] - curve[i - 1]) > 1e-4) breaks++;
@@ -218,12 +225,12 @@ describe("density: paths from the density of movement", () => {
 
   it("walking does not build: no building comes of a herd that only passes, however often", () => {
     const ev = [0, 1, 2, 3, 4, 5].flatMap((r) => march(5, r % 2 ? 30 : 0, r % 2 ? 0 : 30, 400 + r * 20, "a"));
-    expect(fieldOf(ev, P).seeds().length).toBe(0);
+    expect(fieldOf(halted(ev), P).seeds().length).toBe(0);
   });
 
   it("the contest: a cell-slot is a building's or a path's, never both", () => {
     const ev = [...crowd(6, 15, 0, 400, 40), ...march(5, 0, 30, 400, "w"), ...march(5, 30, 0, 420, "w")];
-    const f = fieldOf(ev, P);
+    const f = fieldOf(halted(ev), P);
     expect(f.seeds().length).toBeGreaterThan(0);
     for (const s of f.seeds()) for (const k of s.levels!.keys()) expect(f.pathAt(Math.floor(s.x / 1.2), Math.floor(s.z / 1.2), k)).toBe(false);
   });
@@ -240,7 +247,7 @@ describe("density: paths from the density of movement", () => {
       return out;
     };
     const back = (tag: string, s0: number): PEvent[] => branch(tag, 0).map((e) => ({ ...e, id: e.id + "b", s: s0 + (18 - e.s) })).sort((p, q) => p.s - q.s);
-    const f = fieldOf([...old, ...branch("b", 480), ...back("b", 500)], P);
+    const f = fieldOf(halted([...old, ...branch("b", 480), ...back("b", 500)]), P);
     const flat = f.pathPlates(1e9), ramp = f.pathPlates(0.25);
     expect(ramp.length).toBe(flat.length);
     // on the branch, far from the old way: at its own time; close to the old way: lower than it began

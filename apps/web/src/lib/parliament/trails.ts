@@ -146,7 +146,7 @@ export function legsOf(events: readonly Pick<PEvent, "o" | "x" | "z" | "s" | "k"
 }
 
 /** How similar a leg from (ax, az) to (bx, bz) is to a route, as walked (the caller tries it reversed too). */
-function similar(ax: number, az: number, bx: number, bz: number, r: Route, R: number): number {
+export function legSimilarity(ax: number, az: number, bx: number, bz: number, r: { ax: number; az: number; bx: number; bz: number }, R: number): number {
   const dA = Math.hypot(ax - r.ax, az - r.az);
   if (dA >= R) return 0;
   const dB = Math.hypot(bx - r.bx, bz - r.bz);
@@ -184,8 +184,8 @@ export function bundleTrails(events: readonly Pick<PEvent, "o" | "x" | "z" | "s"
     for (let j = 0; j < routes.length; j++) {
       const r = routes[j];
       if (o.windowSec > 0 && (a.s > r.sMax + o.windowSec || b.s < r.sMin - o.windowSec)) continue;
-      const f = similar(a.x, a.z, b.x, b.z, r, R);
-      const k = similar(b.x, b.z, a.x, a.z, r, R);
+      const f = legSimilarity(a.x, a.z, b.x, b.z, r, R);
+      const k = legSimilarity(b.x, b.z, a.x, a.z, r, R);
       if (f >= bestSim && f >= k) [best, bestSim, flip] = [j, f, false];
       else if (k >= bestSim) [best, bestSim, flip] = [j, k, true];
     }
