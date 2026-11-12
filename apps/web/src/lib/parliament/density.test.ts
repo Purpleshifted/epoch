@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DENSITY, DensityField, levelOf, type DensityConfig } from "./density";
-import { DEFAULT_BOXES, DEFAULT_LEVEL_MIX, boxesOfSeed, levelKeep } from "./seeds";
+import { DEFAULT_BOXES, DEFAULT_LEVEL_MIX, DEFAULT_VARIETY, boxesOfSeed, districtOf, levelKeep } from "./seeds";
 import type { PEvent } from "./types";
 
 const CFG: DensityConfig = { ...DEFAULT_DENSITY };
@@ -102,6 +102,32 @@ describe("density: buildings from the density of spacetime", () => {
     const at = (b: { kind: string; slot: number; x: number; y: number; z: number }) => `${b.kind}:${b.slot}:${b.x.toFixed(3)}:${b.y.toFixed(3)}:${b.z.toFixed(3)}`;
     const high = new Set(boxesOfSeed(seed, boxOf({})).map(at));
     for (const b of boxesOfSeed(lower, boxOf({}))) expect(high.has(at(b))).toBe(true);
+  });
+
+  it("districts: one district's buildings share an angle and a character; districts differ; nothing is lost or made", () => {
+    const v = { ...DEFAULT_VARIETY };
+    const a = districtOf(1, 1, v), a2 = districtOf(1.5, 0.5, v);
+    expect(a2).toEqual(a);
+    const angles = new Set<string>(), chars = new Set<string>();
+    for (let i = -6; i <= 6; i++) for (let j = -6; j <= 6; j++) {
+      const d = districtOf(i * 14, j * 14, v);
+      angles.add(d.angle.toFixed(3));
+      chars.add(d.character);
+      expect(Math.abs(d.angle)).toBeLessThanOrEqual(v.angle + 1e-9);
+    }
+    expect(angles.size).toBeGreaterThan(20);
+    expect(chars.size).toBe(4);
+    expect(Math.abs(districtOf(40, 40, { ...v, angleStep: Math.PI / 12 }).angle % (Math.PI / 12))).toBeLessThan(1e-9);
+    // a seed's parts: with no lean, the same parts — only turned and resized
+    const f = fieldOf(crowd(5, 30, 30, 400, 30));
+    const seed = f.seeds()[0];
+    const plain = boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec });
+    const turned = boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, variety: { ...v, character: 0 } });
+    expect(turned.length).toBe(plain.length);
+    const d = districtOf(seed.x, seed.z, v);
+    if (d.angle) expect(turned.some((b, i) => Math.abs(b.x - plain[i].x) > 1e-6 || (b.yaw ?? 0) !== (plain[i].yaw ?? 0))).toBe(true);
+    // with a lean some kinds thin out, none is added
+    expect(boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, variety: { ...v, character: 1 } }).length).toBeLessThanOrEqual(plain.length);
   });
 
   it("others at the same place and time raise the level, and with it the mass", () => {

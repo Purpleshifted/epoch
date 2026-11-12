@@ -64,6 +64,7 @@ import {
   type DensityConfig,
   DEFAULT_DENSITY,
   DEFAULT_LEVEL_MIX,
+  DEFAULT_VARIETY,
   type WalkConfig,
   type WaterConfig,
   DEFAULT_FUSE,
@@ -2156,6 +2157,21 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         : null,
     [isV2, tAxis.secPerUnit, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
   );
+  // DISTRICTS (seeds.ts VarietyConfig): the buildings of one neighbourhood turned and shaped alike, unlike the next
+  const VARIETY_GROUP = "건물 변주 (구역마다 다르게)";
+  const vr = useLevaControls(
+    VARIETY_GROUP,
+    savable(VARIETY_GROUP, {
+      varietyOn: { value: true, label: "켜기" },
+      vSize: { value: DEFAULT_VARIETY.size, min: 3, max: 60, step: 1, label: "구역 크기 (월드)" },
+      vAngle: { value: Math.round(DEFAULT_VARIETY.angle / DEG), min: 0, max: 90, step: 1, label: "각도 변주 (± °)" },
+      vAngleStep: { value: 0, min: 0, max: 45, step: 5, label: "각도 단위 (° · 0 = 아무 각도)" },
+      vWidth: { value: DEFAULT_VARIETY.width, min: 0, max: 0.9, step: 0.05, label: "폭 변주 (±)" },
+      vHeight: { value: DEFAULT_VARIETY.height, min: 0, max: 0.9, step: 0.05, label: "매스 높이 변주 (±)" },
+      vCharacter: { value: DEFAULT_VARIETY.character, min: 0, max: 1, step: 0.05, label: "유형 차이 (판 · 탑 · 뼈대 · 다발)" },
+    }),
+    { order: lab ? 7.6 : 1.65, render: () => isV2 },
+  );
   // THE MARKERS: the bots' names (off: no text over them) and their colours by how their herd moves
   const mk = useLevaControls(
     "마커",
@@ -2762,11 +2778,12 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       density: bld.partDensity,
       timeJitter: tAxis.timeJitter,
       recipe,
+      variety: vr.varietyOn ? { size: vr.vSize, angle: vr.vAngle * DEG, angleStep: vr.vAngleStep * DEG, width: vr.vWidth, height: vr.vHeight, character: vr.vCharacter } : undefined,
       levelMix: dn.densityOn
         ? { mass: dn.mxMass, slab: dn.mxSlab, plinth: dn.mxPlinth, column: dn.mxColumn, beam: dn.mxBeam, brace: dn.mxBrace, drip: dn.mxDrip, basement: dn.mxBasement, pile: dn.mxPile, full: dn.mxFull }
         : undefined,
     }),
-    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.mxMass, dn.mxSlab, dn.mxPlinth, dn.mxColumn, dn.mxBeam, dn.mxBrace, dn.mxDrip, dn.mxBasement, dn.mxPile, dn.mxFull],
+    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.mxMass, dn.mxSlab, dn.mxPlinth, dn.mxColumn, dn.mxBeam, dn.mxBrace, dn.mxDrip, dn.mxBasement, dn.mxPile, dn.mxFull, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
   const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: v.follow, markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons

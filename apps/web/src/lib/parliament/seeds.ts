@@ -159,6 +159,74 @@ export interface BoxConfig {
   timeJitter?: number;
   /** DENSITY: how much of each family of parts a slot gets, by its level (Seed.levels); absent = every part, as before. */
   levelMix?: LevelMix;
+  /** DISTRICTS: the buildings of one neighbourhood turned and shaped alike, differently from the next; absent = none. */
+  variety?: VarietyConfig;
+}
+
+/**
+ * DISTRICTS (the artist, 2026-11-12: "건물이 다 그냥 비슷비슷하게 생겼고 뭐 각도조절이나..."). The ground is cut into
+ * districts (a jittered grid, `size` world units across). Every building of a district is turned by the district's
+ * angle about the district's middle, is as much wider and its masses as much taller as the district is, and leans to
+ * the district's CHARACTER — plates (slabs, few masses), towers (tall narrow masses), frames (steel, hardly a mass) or
+ * bundles (masses and drips, little else) — by thinning the other kinds. All of it is drawn from the district's place
+ * alone, so a district looks the same whenever and by whomever it is built.
+ */
+export interface VarietyConfig {
+  size: number;
+  /** The most a district is turned (radians, either way), and the step the angle snaps to (0 = any angle). */
+  angle: number;
+  angleStep: number;
+  /** ± share of the footprint (0.3 = 0.7× … 1.3×), and of the masses' height. */
+  width: number;
+  height: number;
+  /** 0..1: how strongly a district leans to its character (0 = all districts build the same things). */
+  character: number;
+}
+export const DEFAULT_VARIETY: VarietyConfig = { size: 14, angle: Math.PI / 6, angleStep: 0, width: 0.3, height: 0.4, character: 0.6 };
+
+export type DistrictCharacter = "plates" | "towers" | "frames" | "bundles";
+/** What each character keeps of each kind when the lean is full (1 = all of it). */
+const CHARACTER_KEEP: Record<DistrictCharacter, Partial<Record<PartKind, number>>> = {
+  plates: { mass: 0.35, drip: 0.5, beam: 0.6, brace: 0.4 },
+  towers: { slab: 0.5, beam: 0.4, brace: 0.4, drip: 0.7 },
+  frames: { mass: 0.2, drip: 0.3, slab: 0.6 },
+  bundles: { slab: 0.4, column: 0.5, beam: 0.3, brace: 0.3 },
+};
+const CHARACTERS: readonly DistrictCharacter[] = ["plates", "towers", "frames", "bundles"];
+
+export interface District {
+  /** Its middle (the pivot its buildings are turned about). */
+  x: number;
+  z: number;
+  angle: number;
+  width: number;
+  height: number;
+  character: DistrictCharacter;
+}
+
+/** The district a place belongs to: the nearest of the jittered grid's middles. */
+export function districtOf(x: number, z: number, v: VarietyConfig): District {
+  const G = Math.max(1, v.size);
+  const gx0 = Math.floor(x / G), gz0 = Math.floor(z / G);
+  let best = Infinity, bx = 0, bz = 0, bgx = 0, bgz = 0;
+  for (let a = -1; a <= 1; a++) {
+    for (let b = -1; b <= 1; b++) {
+      const gx = gx0 + a, gz = gz0 + b;
+      const cx = (gx + 0.5 + (hash2(gx, gz, 4001) - 0.5) * 0.7) * G, cz = (gz + 0.5 + (hash2(gx, gz, 4003) - 0.5) * 0.7) * G;
+      const d = (cx - x) * (cx - x) + (cz - z) * (cz - z);
+      if (d < best) [best, bx, bz, bgx, bgz] = [d, cx, cz, gx, gz];
+    }
+  }
+  let angle = (hash2(bgx, bgz, 4007) - 0.5) * 2 * Math.max(0, v.angle);
+  if (v.angleStep > 0) angle = Math.round(angle / v.angleStep) * v.angleStep;
+  return {
+    x: bx,
+    z: bz,
+    angle,
+    width: 1 + (hash2(bgx, bgz, 4013) - 0.5) * 2 * Math.max(0, Math.min(0.9, v.width)),
+    height: 1 + (hash2(bgx, bgz, 4019) - 0.5) * 2 * Math.max(0, Math.min(0.9, v.height)),
+    character: CHARACTERS[Math.min(3, Math.floor(hash2(bgx, bgz, 4021) * 4))],
+  };
 }
 
 
@@ -571,20 +639,53 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       b.y = Math.min(hi, Math.max(lo, b.y + dy));
     }
   }
-  // WHAT A LEVEL BUILDS: the parts are made as always (so their shapes do not depend on the levels); of each family
-  // a slot keeps its share — the i-th part of a kind in a slot always has the same draw, so a rising level only ADDS
+  // WHAT A LEVEL BUILDS and THE DISTRICT'S CHARACTER: the parts are made as always (so their shapes do not depend on
+  // either); of each kind a slot keeps its share — the i-th part of a kind in a slot always has the same draw, so a
+  // rising level only ADDS
   const lv = seed.levels, mix = cfg.levelMix;
-  if (lv && mix) {
+  const dist = cfg.variety ? districtOf(seed.x, seed.z, cfg.variety) : null;
+  const lean = dist && cfg.variety ? Math.max(0, Math.min(1, cfg.variety.character)) : 0;
+  let res = out;
+  if ((lv && mix) || lean > 0) {
+    const keepOf = dist ? CHARACTER_KEEP[dist.character] : {};
     const nth = new Map<number, number>();
-    return out.filter((b) => {
+    res = out.filter((b) => {
       const kind = PART_KINDS.indexOf(b.kind);
       const key = b.slot * 16 + kind;
       const i = nth.get(key) ?? 0;
       nth.set(key, i + 1);
-      return hash2(seed.id, key, i * 7 + 911) < levelKeep(mix[b.kind], lv.get(b.slot) ?? 0, mix.full);
+      const share = (lv && mix ? mix[b.kind] : 1) * (1 - lean * (1 - (keepOf[b.kind] ?? 1)));
+      const keep = lv && mix ? levelKeep(share, lv.get(b.slot) ?? 0, mix.full) : share;
+      return hash2(seed.id, key, i * 7 + 911) < keep;
     });
   }
-  return out;
+  if (dist) {
+    // THE DISTRICT'S SHAPE: wider or narrower about the cell's middle, the masses taller or shorter from their tops
+    // (towers more so), then the whole turned about the district's middle
+    const tall = dist.height * (dist.character === "towers" ? 1 + 0.6 * lean : 1);
+    const wide = dist.width * (dist.character === "towers" ? 1 - 0.2 * lean : dist.character === "plates" ? 1 + 0.2 * lean : 1);
+    const c = Math.cos(dist.angle), sn = Math.sin(dist.angle);
+    for (const b of res) {
+      b.x = seed.x + (b.x - seed.x) * wide;
+      b.z = seed.z + (b.z - seed.z) * wide;
+      if (!b.tilt) {
+        b.sx *= wide;
+        b.sz *= wide;
+      }
+      if (b.kind === "mass") {
+        const top = b.y + b.sy / 2;
+        b.sy *= tall;
+        b.y = top - b.sy / 2;
+      }
+      if (dist.angle) {
+        const dx = b.x - dist.x, dz = b.z - dist.z;
+        b.x = dist.x + dx * c + dz * sn;
+        b.z = dist.z - dx * sn + dz * c;
+        b.yaw = (b.yaw ?? 0) + dist.angle;
+      }
+    }
+  }
+  return res;
 }
 
 /** Parts of a seed kept between calls of generateBoxes (by seed id), valid while their key is unchanged. */
