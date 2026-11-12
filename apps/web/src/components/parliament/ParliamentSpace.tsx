@@ -1754,6 +1754,7 @@ function Vegetation({
     const R = Math.max(0.5, spotR), grow = Math.max(0.01, spotGrow) / Math.max(1e-6, unit);
     for (let i = 0; i < n; i++) {
       let x = (rnd() - 0.5) * WORLD_SIZE, y = rnd() * top, z = (rnd() - 0.5) * WORLD_SIZE;
+      let placed = nSpots === 0;
       if (nSpots > 0) {
         for (let tries = 0; tries < 12; tries++) {
           let u = rnd() * wSum, pi = 0;
@@ -1767,13 +1768,15 @@ function Vegetation({
           x = p.x + Math.cos(ang) * rho;
           y = yy;
           z = p.z + Math.sin(ang) * rho;
+          placed = true;
           break;
         }
       }
       pos[i * 3] = x;
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
-      seed[i] = rnd();
+      // (a point that found no patch is never alive: no stray specks between the patches)
+      seed[i] = placed ? rnd() : 2;
     }
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
