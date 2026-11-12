@@ -63,7 +63,7 @@ import {
   DEFAULT_WATER,
   type DensityConfig,
   DEFAULT_DENSITY,
-  DEFAULT_LEVEL_FROM,
+  DEFAULT_LEVEL_MIX,
   type WalkConfig,
   type WaterConfig,
   DEFAULT_FUSE,
@@ -2128,13 +2128,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       dRadius: { value: DEFAULT_DENSITY.radius, min: 1, max: 8, step: 0.25, label: "옆으로 닿는 반경 (월드)" },
       dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
       dDown: { value: DEFAULT_DENSITY.down, min: 0, max: 1, step: 0.05, label: "아래로도 닿는 비율 (0 = 위로만)" },
-      // WHAT A LEVEL BUILDS (seeds.ts LevelFrom): each family of parts from a level on, slot by slot
-      "계단마다 짓는 것 (이 계단부터 나타남)": folder({
-        lvPlate: { value: DEFAULT_LEVEL_FROM.plate, min: 1, max: 8, step: 1, label: "판 (슬래브 · 기단)" },
-        lvFrame: { value: DEFAULT_LEVEL_FROM.frame, min: 1, max: 8, step: 1, label: "뼈대 (기둥 · 보 · 가새)" },
-        lvMass: { value: DEFAULT_LEVEL_FROM.mass, min: 1, max: 8, step: 1, label: "덩어리 (매스)" },
-        lvDrip: { value: DEFAULT_LEVEL_FROM.drip, min: 1, max: 8, step: 1, label: "늘어짐" },
-        lvFound: { value: DEFAULT_LEVEL_FROM.found, min: 1, max: 8, step: 1, label: "기초 (지하 · 말뚝)" },
+      // WHAT A LEVEL BUILDS, BY SHARES (seeds.ts LevelMix): how much of each family a full slot keeps; less below
+      "부재 비중 (꽉 찬 단에서 남는 몫 · 낮은 계단에서는 비중이 큰 것부터)": folder({
+        mxPlate: { value: DEFAULT_LEVEL_MIX.plate, min: 0, max: 1, step: 0.05, label: "판 (슬래브 · 기단)" },
+        mxFrame: { value: DEFAULT_LEVEL_MIX.frame, min: 0, max: 1, step: 0.05, label: "뼈대 (기둥 · 보 · 가새)" },
+        mxMass: { value: DEFAULT_LEVEL_MIX.mass, min: 0, max: 1, step: 0.05, label: "덩어리 (매스)" },
+        mxDrip: { value: DEFAULT_LEVEL_MIX.drip, min: 0, max: 1, step: 0.05, label: "늘어짐" },
+        mxFound: { value: DEFAULT_LEVEL_MIX.found, min: 0, max: 1, step: 0.05, label: "기초 (지하 · 말뚝)" },
+        mxFull: { value: DEFAULT_LEVEL_MIX.full, min: 1, max: 8, step: 1, label: "꽉 차는 계단" },
       }),
     }),
     { order: lab ? 7.5 : 1.6, render: () => isV2 },
@@ -2752,9 +2753,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       density: bld.partDensity,
       timeJitter: tAxis.timeJitter,
       recipe,
-      levelFrom: dn.densityOn ? { plate: dn.lvPlate, frame: dn.lvFrame, mass: dn.lvMass, drip: dn.lvDrip, found: dn.lvFound } : undefined,
+      levelMix: dn.densityOn ? { plate: dn.mxPlate, frame: dn.mxFrame, mass: dn.mxMass, drip: dn.mxDrip, found: dn.mxFound, full: dn.mxFull } : undefined,
     }),
-    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.lvPlate, dn.lvFrame, dn.lvMass, dn.lvDrip, dn.lvFound],
+    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.mxPlate, dn.mxFrame, dn.mxMass, dn.mxDrip, dn.mxFound, dn.mxFull],
   );
   const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: v.follow, markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons

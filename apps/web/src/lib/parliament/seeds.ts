@@ -69,23 +69,37 @@ export interface Seed {
   who?: Contributor[];
   growth?: [number, number][];
   /** DENSITY (density.ts): the level of each of its slots (what was put into the cell at that time), and the same as
-   *  one string (the parts are made again when it changes). With BoxConfig.levelFrom it decides what a slot gets. */
+   *  one string (the parts are made again when it changes). With BoxConfig.levelMix it decides what a slot gets. */
   levels?: ReadonlyMap<number, number>;
   levelSig?: string;
 }
 
 /**
- * WHAT A LEVEL BUILDS (the artist, 2026-11-12): the families of parts, each from a level on — a slot at a lower level
- * does not get them. plate = slab · plinth, frame = column · beam · brace, mass, drip, found = basement · pile.
+ * WHAT A LEVEL BUILDS, BY SHARES (the artist, 2026-11-12: "계단별로 이런 식으로 적용하는 건 좀 그런데. 비중으로 정할
+ * 수 없나?"): each family of parts has a SHARE (0..1) — how much of what the grammar makes of it is kept in a slot that
+ * is full (`full` levels or more). Below that the share is raised to the power full / level, so a family with a large
+ * share is there from the first level and one with a small share comes in as the level rises; a share of 1 is always
+ * all, 0 never any. Nothing is switched on at a level: it thickens.
+ * plate = slab · plinth, frame = column · beam · brace, mass, drip, found = basement · pile.
  */
-export interface LevelFrom {
+export interface LevelMix {
   plate: number;
   frame: number;
   mass: number;
   drip: number;
   found: number;
+  /** The level at which a slot is full (the shares are what is kept from there on). */
+  full: number;
 }
-export const DEFAULT_LEVEL_FROM: LevelFrom = { plate: 1, frame: 2, mass: 3, drip: 4, found: 2 };
+export const DEFAULT_LEVEL_MIX: LevelMix = { plate: 1, frame: 0.7, mass: 0.5, drip: 0.3, found: 0.6, full: 3 };
+
+/** How much of a family is kept in a slot at `level` (0..1). */
+export function levelKeep(share: number, level: number, full: number): number {
+  const s = Math.max(0, Math.min(1, share));
+  if (level <= 0 || s <= 0) return 0;
+  const f = Math.max(1, full);
+  return level >= f ? s : Math.pow(s, f / level);
+}
 
 export type PartKind = "mass" | "slab" | "drip" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
 export const PART_KINDS: readonly PartKind[] = ["mass", "slab", "drip", "column", "beam", "brace", "plinth", "basement", "pile"];
@@ -147,11 +161,11 @@ export interface BoxConfig {
    * own slot's top: so nothing moves when the run grows, and nothing enters empty time).
    */
   timeJitter?: number;
-  /** DENSITY: which families of parts a slot gets, by its level (Seed.levels); absent = every part, as before. */
-  levelFrom?: LevelFrom;
+  /** DENSITY: how much of each family of parts a slot gets, by its level (Seed.levels); absent = every part, as before. */
+  levelMix?: LevelMix;
 }
 
-const PART_FAMILY: Record<PartKind, keyof LevelFrom> = { mass: "mass", slab: "plate", plinth: "plate", drip: "drip", column: "frame", beam: "frame", brace: "frame", basement: "found", pile: "found" };
+const PART_FAMILY: Record<PartKind, Exclude<keyof LevelMix, "full">> = { mass: "mass", slab: "plate", plinth: "plate", drip: "drip", column: "frame", beam: "frame", brace: "frame", basement: "found", pile: "found" };
 
 export const DEFAULT_BOXES: BoxConfig = { secPerUnit: 30, unit: 1, width: 1, density: 1, maxSlots: 200, timeJitter: 0.35 };
 
@@ -562,10 +576,19 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       b.y = Math.min(hi, Math.max(lo, b.y + dy));
     }
   }
-  // WHAT A LEVEL BUILDS: the parts are made as always (so their shapes do not depend on the levels) and those a
-  // slot's level does not reach are left out
-  const lv = seed.levels, from = cfg.levelFrom;
-  if (lv && from) return out.filter((b) => (lv.get(b.slot) ?? 0) >= from[PART_FAMILY[b.kind]]);
+  // WHAT A LEVEL BUILDS: the parts are made as always (so their shapes do not depend on the levels); of each family
+  // a slot keeps its share — the i-th part of a kind in a slot always has the same draw, so a rising level only ADDS
+  const lv = seed.levels, mix = cfg.levelMix;
+  if (lv && mix) {
+    const nth = new Map<number, number>();
+    return out.filter((b) => {
+      const kind = PART_KINDS.indexOf(b.kind);
+      const key = b.slot * 16 + kind;
+      const i = nth.get(key) ?? 0;
+      nth.set(key, i + 1);
+      return hash2(seed.id, key, i * 7 + 911) < levelKeep(mix[PART_FAMILY[b.kind]], lv.get(b.slot) ?? 0, mix.full);
+    });
+  }
   return out;
 }
 

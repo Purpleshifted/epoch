@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DENSITY, DensityField, levelOf, type DensityConfig } from "./density";
-import { DEFAULT_BOXES, DEFAULT_LEVEL_FROM, boxesOfSeed } from "./seeds";
+import { DEFAULT_BOXES, DEFAULT_LEVEL_MIX, boxesOfSeed, levelKeep } from "./seeds";
 import type { PEvent } from "./types";
 
 const CFG: DensityConfig = { ...DEFAULT_DENSITY };
@@ -75,25 +75,31 @@ describe("density: buildings from the density of spacetime", () => {
     expect(f.seeds().length).toBeGreaterThan(0);
   });
 
-  it("what a level builds: a slot at level 1 gets plates only, more families as the level rises", () => {
-    const kindsAt = (f: DensityField) => {
-      const kinds = new Set<string>();
-      const box = { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelFrom: DEFAULT_LEVEL_FROM };
-      for (const s of f.seeds()) for (const b of boxesOfSeed(s, box)) {
-        kinds.add(b.kind);
-        // nothing above what its own slot's level allows
-        const lv = s.levels!.get(b.slot) ?? 0;
-        if (b.kind === "mass") expect(lv).toBeGreaterThanOrEqual(DEFAULT_LEVEL_FROM.mass);
-        if (b.kind === "column" || b.kind === "beam" || b.kind === "brace") expect(lv).toBeGreaterThanOrEqual(DEFAULT_LEVEL_FROM.frame);
-      }
-      return kinds;
-    };
-    const one = fieldOf(crowd(5, 0, 0, 400, 14));
-    expect(Math.max(...one.seeds().flatMap((s) => [...s.levels!.values()]))).toBe(1);
-    expect(kindsAt(one).has("mass")).toBe(false);
+  it("levelKeep: a share of 1 is always all, 0 never; below the full level a small share thins fastest", () => {
+    expect(levelKeep(1, 1, 3)).toBe(1);
+    expect(levelKeep(0, 5, 3)).toBe(0);
+    expect(levelKeep(0.5, 3, 3)).toBe(0.5);
+    expect(levelKeep(0.5, 9, 3)).toBe(0.5);
+    expect(levelKeep(0.5, 1, 3)).toBeCloseTo(0.125);
+    expect(levelKeep(0.9, 1, 3)).toBeGreaterThan(levelKeep(0.5, 1, 3) * 4);
+    expect(levelKeep(0.5, 0, 3)).toBe(0);
+  });
+
+  it("what a level builds, by shares: a rising level only adds parts; a share of 0 leaves a family out", () => {
+    const boxOf = (mix: Partial<typeof DEFAULT_LEVEL_MIX>) => ({ ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelMix: { ...DEFAULT_LEVEL_MIX, ...mix } });
     const many = fieldOf([...crowd(5, 0, 0, 400, 40), ...crowd(5, 0, 0, 400, 40, "b"), ...crowd(5, 0, 0, 400, 40, "c")]);
-    expect(Math.max(...many.seeds().flatMap((s) => [...s.levels!.values()]))).toBeGreaterThanOrEqual(3);
-    expect(kindsAt(many).has("mass")).toBe(true);
+    const seed = many.seeds().reduce((a, b) => (Math.max(...b.levels!.values()) > Math.max(...a.levels!.values()) ? b : a));
+    const all = boxesOfSeed(seed, { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec }).length;
+    const kept = boxesOfSeed(seed, boxOf({})).length;
+    expect(kept).toBeGreaterThan(0);
+    expect(kept).toBeLessThan(all);
+    expect(boxesOfSeed(seed, boxOf({ plate: 1, frame: 1, mass: 1, drip: 1, found: 1 })).length).toBe(all);
+    expect(boxesOfSeed(seed, boxOf({ mass: 0 })).some((b) => b.kind === "mass")).toBe(false);
+    // the same seed one level lower everywhere: what it keeps is part of what it kept
+    const lower = { ...seed, levels: new Map([...seed.levels!].map(([k, l]) => [k, Math.max(1, l - 1)] as const)) };
+    const at = (b: { kind: string; slot: number; x: number; y: number; z: number }) => `${b.kind}:${b.slot}:${b.x.toFixed(3)}:${b.y.toFixed(3)}:${b.z.toFixed(3)}`;
+    const high = new Set(boxesOfSeed(seed, boxOf({})).map(at));
+    for (const b of boxesOfSeed(lower, boxOf({}))) expect(high.has(at(b))).toBe(true);
   });
 
   it("others at the same place and time raise the level, and with it the mass", () => {
