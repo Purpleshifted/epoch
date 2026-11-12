@@ -267,7 +267,8 @@ export interface LifecycleInputs {
   /** People who are not bots (the visitors), where they are now. */
   attractors?: readonly Attractor[];
   /** The way from A to B (a polyline A … B in continuous coordinates); absent = straight. */
-  planRoute?: (ax: number, az: number, bx: number, bz: number) => number[];
+  /** (`s` = the walker's own assigned time: the ground it plans over is the ground of its time, tails.ts) */
+  planRoute?: (ax: number, az: number, bx: number, bz: number, s?: number) => number[];
   /** Most departures (routes planned) per step; the others wait a second. */
   maxRoutes?: number;
 }
@@ -561,7 +562,7 @@ function keepWithHerd(v: Visitor, lead: Visitor, st: LifecycleState, inp: Lifecy
     v.stops.push([v.sx, v.sz]);
   }
   const bx = nearestImage(v.tx, v.x), bz = nearestImage(v.tz, v.z);
-  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz) : [v.x, v.z, bx, bz];
+  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
   v.along = 0;
   v.mode = "go";
   return true;
@@ -671,7 +672,7 @@ function next(v: Visitor, st: LifecycleState, inp: LifecycleInputs, wallMs: numb
   }
   const [tx, tz] = destination(v, st.places, inp.attractors ?? [], wallMs, epochMs, cfg);
   const bx = nearestImage(tx, v.x), bz = nearestImage(tz, v.z);
-  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz) : [v.x, v.z, bx, bz];
+  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
   v.along = 0;
   v.mode = "go";
   return true;
@@ -800,7 +801,7 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
       const walk = (wrapDist(v.x, v.z, d[0], d[1]) * 1.3) / Math.max(0.3, cfg.speed * v.ch.speed * 0.8) + 2;
       if (left <= walk) {
         const bx = nearestImage(d[0], v.x), bz = nearestImage(d[1], v.z);
-        v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz) : [v.x, v.z, bx, bz];
+        v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
         v.along = 0;
         v.mode = "go";
         v.leaving = true;

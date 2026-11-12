@@ -64,10 +64,11 @@ import {
   type DensityConfig,
   DEFAULT_DENSITY,
   DEFAULT_PATH,
-  DEFAULT_BUNDLE,
-  DEFAULT_TRAILS,
-  bundleTrails,
-  trailSegments,
+  DEFAULT_TAILS,
+  DEFAULT_TAIL_LINES,
+  tailField,
+  tailWalk,
+  type TailLines,
   DEFAULT_VARIETY,
   type WalkConfig,
   type WaterConfig,
@@ -1608,74 +1609,45 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
  * drawn at its latest presence (dimmed while silent), so the player can always be found.
  */
 /**
- * THE PATHS (lib/parliament/trails.ts): every walk as a thread through the block — a 1 px line from where and when to
- * where and when — and, with `bundle`, similar walks drawn as ONE path (on its line, brighter the more walks it has).
- * Rebuilt from the log every two seconds when it has changed.
+ * THE PATHS (lib/parliament/tails.ts): where enough fading tails overlap and the flow is kept up — curves through the
+ * block, laid again as long as the path lives. Nothing else is drawn of the walks (the threads and the strands of
+ * 2026-11-12 are gone). Read from the page's one field every two seconds, when it has changed.
  */
-function Trails({
-  log,
-  secPerUnit,
-  unit,
-  minStep,
-  opacity,
-  shade,
-  solo,
-  bundle,
-}: {
-  log: EventLog;
-  secPerUnit: number;
-  unit: number;
-  minStep: number;
-  opacity: number;
-  shade: number;
-  /** Brightness of a walk that is nobody else's way, as a share of a full path's (0..1). */
-  solo: number;
-  bundle: { radius: number; threshold: number; strandSec: number; strength: number; full: number } | null;
-}) {
+function TailPaths({ unit, look, opacity, shade }: { unit: number; look: TailLines; opacity: number; shade: number }) {
   const geom = useMemo(() => new THREE.BufferGeometry(), []);
-  const mat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false, vertexColors: true }), []);
+  const mat = useMemo(() => new THREE.LineBasicMaterial({ transparent: true, depthWrite: false }), []);
   const cap = useRef(0);
   const sig = useRef("");
   const timer = useRef(10);
   useEffect(() => {
+    mat.color.setScalar(shade);
     mat.opacity = opacity;
-  }, [mat, opacity]);
-  useEffect(
-    () => () => {
-      geom.dispose();
-      mat.dispose();
-    },
-    [geom, mat],
-  );
+  }, [mat, shade, opacity]);
+  useEffect(() => () => geom.dispose(), [geom]);
+  useEffect(() => () => mat.dispose(), [mat]);
   useFrame((_, dt) => {
     timer.current += dt;
     if (timer.current < 2) return;
     timer.current = 0;
-    const events = log.all();
-    const key = `${events.length}:${events.length ? events[events.length - 1].id : ""}:${secPerUnit}:${unit}:${minStep}:${shade}:${solo}:${JSON.stringify(bundle)}`;
+    const key = `${tailField.version}:${unit}:${JSON.stringify(look)}`;
     if (key === sig.current) return;
     sig.current = key;
-    const base = { ...DEFAULT_TRAILS, secPerUnit, unit, minStep };
-    const b = bundle ? bundleTrails(events, { ...DEFAULT_BUNDLE, ...base, ...bundle }) : null;
-    const seg = b ? b.position : trailSegments(events, base);
-    const n = seg.length / 3;
+    const seg = tailField.lines(look);
     if (!geom.getAttribute("position") || seg.length > cap.current) {
-      // larger buffers (with room to grow): the old ones are released with the geometry's
+      // a larger buffer (with room to grow): the old one is released with the geometry's
       cap.current = Math.max(6000, Math.ceil(seg.length * 1.5));
       geom.dispose();
       geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cap.current), 3));
-      geom.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cap.current), 3));
     }
-    const pos = geom.getAttribute("position") as THREE.BufferAttribute, col = geom.getAttribute("color") as THREE.BufferAttribute;
-    (pos.array as Float32Array).set(seg);
-    const c = col.array as Float32Array;
-    for (let i = 0; i < n; i++) c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = shade * (b ? solo + (1 - solo) * b.weight[i] : 1);
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    arr.set(seg);
+    for (let i = 1; i < seg.length; i += 3) arr[i] *= unit;
     pos.needsUpdate = true;
-    col.needsUpdate = true;
-    geom.setDrawRange(0, n);
-    (window as unknown as { __trails?: unknown }).__trails = b ? { legs: b.legs, routes: b.routes, bundled: b.bundled, strands: b.strands } : { segments: n / 2 };
+    geom.setDrawRange(0, seg.length / 3);
+    (window as unknown as { __paths?: unknown }).__paths = { segments: seg.length / 6, steps: tailField.steps };
   });
-  return <lineSegments geometry={geom} material={mat} frustumCulled={false} renderOrder={2} />;
+  return <lineSegments geometry={geom} material={mat} frustumCulled={false} renderOrder={3} />;
 }
 
 function Markers({
@@ -2303,51 +2275,42 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   const arriveView = useMemo(() => ({ on: ar.arriveOn, sec: ar.arriveSec, stagger: ar.arriveStagger, way: ar.arriveWay as ArriveWay, lift: ar.arriveLift, tick: ar.arriveTick }), [ar.arriveOn, ar.arriveSec, ar.arriveStagger, ar.arriveWay, ar.arriveLift, ar.arriveTick]);
   // THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block
-  const TRAIL_GROUP = "길 (이동의 실)";
+  // PATHS FROM FADING TAILS (lib/parliament/tails.ts)
+  const TRAIL_GROUP = "길 (흐려지는 꼬리)";
   const tr = useLevaControls(
     TRAIL_GROUP,
     savable(TRAIL_GROUP, {
-      trailsOn: { value: true, label: "켜기" },
-      trMinStep: { value: DEFAULT_TRAILS.minStep, min: 0.1, max: 3, step: 0.1, label: "걷기로 치는 최소 걸음 (월드/초)" },
-      trOpacity: { value: 0.35, min: 0.02, max: 1, step: 0.01, label: "진하기" },
-      trShade: { value: 0.85, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
-      // SIMILAR WALKS ARE ONE PATH (trails.ts bundleTrails)
-      "비슷한 걸음을 한 길로": folder({
-        bundleOn: { value: true, label: "묶기" },
-        bnThreshold: { value: DEFAULT_BUNDLE.threshold, min: 0.05, max: 1, step: 0.05, label: "유사도 문턱 (높을수록 까다롭게)" },
-        bnRadius: { value: DEFAULT_BUNDLE.radius, min: 0.5, max: 20, step: 0.5, label: "같은 곳으로 치는 반경 (월드)" },
-        bnStrand: { value: DEFAULT_BUNDLE.strandSec, min: 0, max: 600, step: 10, label: "한 다발(선 하나)로 치는 시간 범위 (s · 0 = 걸음마다 따로)" },
-        bnStrength: { value: DEFAULT_BUNDLE.strength, min: 0, max: 1, step: 0.05, label: "길로 당기는 세기" },
-        bnFull: { value: DEFAULT_BUNDLE.full, min: 2, max: 40, step: 1, label: "이만큼 겹치면 가장 밝음 (걸음 수)" },
-        bnSolo: { value: 0.35, min: 0, max: 1, step: 0.05, label: "묶이지 않은 실의 밝기 ×" },
-      }),
-      // PATHS FROM THE DENSITY OF MOVEMENT (density.ts PathConfig): the same grid and thresholds as the buildings
-      "굳은 길 (움직임의 밀도 · 곡선)": folder({
-        pathOn: { value: true, label: "켜기" },
-        ptStep: { value: DEFAULT_PATH.step, min: 1, max: 40, step: 0.5, label: "문턱 (밟은 양 · 한 번 건너면 한 사람당 최대 1)" },
-        ptWalkers: { value: DEFAULT_PATH.minWalkers, min: 1, max: 12, step: 1, label: "필요한 사람 수 (서로 다른)" },
-        ptRadius: { value: DEFAULT_PATH.radius, min: 0.4, max: 4, step: 0.1, label: "길의 반폭 (월드)" },
-        ptUp: { value: DEFAULT_PATH.upSec, min: 0, max: 1200, step: 20, label: "난 길이 남는 시간 (s · 위로)" },
-        ptRise: { value: 0.25, min: 0.02, max: 2, step: 0.01, label: "경사 (칸당 오르는 단 · 클수록 가파름)" },
-        ptSmooth: { value: 4, min: 0, max: 12, step: 1, label: "곡선 다듬기 (횟수 · 0 = 칸에서 칸으로 꺾임)" },
-        ptShade: { value: 0.95, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
-        ptOpacity: { value: 0.9, min: 0.05, max: 1, step: 0.05, label: "진하기" },
-      }),
+      tlOn: { value: true, label: "켜기" },
+      tlTail: { value: DEFAULT_TAILS.tailSec, min: 20, max: 1200, step: 10, label: "꼬리가 사라지기까지 (s)" },
+      tlPathAt: { value: DEFAULT_TAIL_LINES.pathAt, min: 1, max: 20, step: 0.25, label: "길이 되는 겹침 (꼬리 수)" },
+      tlFollow: { value: true, label: "봇이 꼬리를 따라 걷기 (길이 이어지는 까닭)" },
+      tlResurface: { value: DEFAULT_TAIL_LINES.resurface, min: 1, max: 60, step: 1, label: "살아 있는 길을 다시 긋는 간격 (단)" },
+      tlRise: { value: DEFAULT_TAIL_LINES.rise, min: 0.02, max: 2, step: 0.01, label: "경사 (칸당 오르는 단)" },
+      tlSmooth: { value: DEFAULT_TAIL_LINES.smooth, min: 0, max: 12, step: 1, label: "곡선 다듬기 (횟수)" },
+      tlShade: { value: 0.95, min: 0.1, max: 1, step: 0.05, label: "밝기 (무채색)" },
+      tlOpacity: { value: 0.9, min: 0.05, max: 1, step: 0.05, label: "진하기" },
     }),
     { order: lab ? 7.7 : 1.7, render: () => isV2 },
   );
+  // the page's one field of tails: its rules, and (when they change, and at first) everything the log holds — after
+  // that the bots feed it as they walk (useGlobalBots)
+  useEffect(() => {
+    if (!tailField.configure({ ...DEFAULT_TAILS, slotSec: tAxis.secPerUnit, tailSec: tr.tlTail }) && tailField.steps > 0) return;
+    for (const e of [...log.all()].sort((p, q) => p.s - q.s)) tailField.add(e);
+  }, [log, tAxis.secPerUnit, tr.tlTail]);
+  useEffect(() => {
+    tailWalk.follow = tr.tlOn && tr.tlFollow;
+  }, [tr.tlOn, tr.tlFollow]);
+  const tailLook = useMemo<TailLines>(() => ({ pathAt: tr.tlPathAt, rise: tr.tlRise, smooth: tr.tlSmooth, resurface: tr.tlResurface }), [tr.tlPathAt, tr.tlRise, tr.tlSmooth, tr.tlResurface]);
   const densityCfg = useMemo<DensityConfig | null>(
     () =>
       dn.densityOn && isV2
-        ? { ...DEFAULT_DENSITY, path: tr.pathOn ? { ...DEFAULT_PATH, step: tr.ptStep, minWalkers: tr.ptWalkers, radius: tr.ptRadius, upSec: tr.ptUp } : undefined, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: tr.tlOn ? { ...DEFAULT_PATH, step: 1e9 } : undefined, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, minVisitors: dn.dVisitors, step: dn.dStep, ratio: dn.dRatio, maxLevel: dn.dMaxLevel, massRatio: dn.dMassRatio, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, tr.pathOn, tr.ptStep, tr.ptWalkers, tr.ptRadius, tr.ptUp, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, tr.tlOn, tAxis.secPerUnit, tAxis.emptyGapSec, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRatio, dn.dMaxLevel, dn.dMassRatio, dn.dRadius, dn.dTime, dn.dDown],
   );
-  const pathLook = useMemo(() => (tr.pathOn ? { rise: tr.ptRise, smooth: tr.ptSmooth, shade: tr.ptShade, opacity: tr.ptOpacity } : null), [tr.pathOn, tr.ptRise, tr.ptSmooth, tr.ptShade, tr.ptOpacity]);
-  const trailBundle = useMemo(
-    () => (tr.bundleOn ? { radius: tr.bnRadius, threshold: tr.bnThreshold, strandSec: tr.bnStrand, strength: tr.bnStrength, full: tr.bnFull } : null),
-    [tr.bundleOn, tr.bnRadius, tr.bnThreshold, tr.bnStrand, tr.bnStrength, tr.bnFull],
-  );
+  // (the density's own paths, density.ts pathLines, are not drawn: the tails' are)
+  const pathLook = null;
   // the history window reaches as deep as the bots write (the lab keeps everything)
   useEffect(() => {
     if (lab || botDepth <= 0) return;
@@ -3120,11 +3083,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
+        {/* the paths are in the scene itself (behind what stands in front of them), not on the markers' overlay */}
+        {tr.tlOn && <TailPaths unit={c.unit} look={tailLook} opacity={tr.tlOpacity} shade={tr.tlShade} />}
         {c.markers && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
-            {tr.trailsOn && (
-              <Trails log={log} secPerUnit={c.secPerUnit} unit={c.unit} minStep={tr.trMinStep} opacity={tr.trOpacity} shade={tr.trShade} solo={tr.bnSolo} bundle={trailBundle} />
-            )}
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
           </Hud>
         )}

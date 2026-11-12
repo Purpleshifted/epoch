@@ -27,6 +27,7 @@ import {
   DEFAULT_LIFECYCLE,
   SEAL_H,
   botActor,
+  DEFAULT_FLOW,
   currentEpochKey,
   dueSamples,
   flowRoute,
@@ -39,6 +40,8 @@ import {
   saveMerged,
   sharedClock,
   stepLifecycle,
+  tailField,
+  tailWalk,
   type Clock,
   sessionSeconds,
   setKeepFrom,
@@ -348,6 +351,8 @@ export function useGlobalBots(
       const e: PEvent = { id: `${a.o}:${tag.current}:${seq.current++}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s };
       log.add(e);
       pending.current.push(e);
+      // every step leaves a tail (tails.ts): the field the walkers plan over and the wall draws
+      tailField.add(e);
     };
 
     if (isSession) {
@@ -370,7 +375,19 @@ export function useGlobalBots(
         const [ci, cj] = key.split(",").map(Number);
         return `${wrapCell(ci)},${wrapCell(cj)}`;
       };
-      const planRoute = flow && g ? (ax: number, az: number, bx: number, bz: number) => flowRoute(ax, az, bx, bz, { level: (k) => g.level.get(cell(k)) ?? 0, built: (k) => g.built.has(cell(k)) }, flow) : undefined;
+      // THE WAYS JOIN UP because of how the bots walk (tails.ts): a way is planned over the ground of the walker's own
+      // time, and ground with tails on it is easier — a second walker takes the first one's cells where they go the same
+      // way. (Buildings are not gone round yet: they are made in the wall's worker now, density.ts.)
+      const tailFlow = { ...(flow ?? DEFAULT_FLOW), enabled: true, gridShare: 1 };
+      const slotOf = (sec: number) => Math.floor(sec / tailField.cfg.slotSec);
+      const planRoute = tailWalk.follow
+        ? (ax: number, az: number, bx: number, bz: number, sec?: number) => {
+            const k = slotOf(sec ?? sessionSeconds(now, epochMs.current, 0));
+            return flowRoute(ax, az, bx, bz, { level: (key) => { const [ci, cj] = key.split(",").map(Number); return tailField.level(ci, cj, k) * tailFlow.unit; }, built: () => false }, tailFlow);
+          }
+        : flow && g
+          ? (ax: number, az: number, bx: number, bz: number) => flowRoute(ax, az, bx, bz, { level: (k) => g.level.get(cell(k)) ?? 0, built: (k) => g.built.has(cell(k)) }, flow)
+          : undefined;
       // the most at once follows the knobs (herds × their largest size + the loners)
       st = { ...st, maxPresent: lcCfg.maxPresent };
       for (const w of due) {
