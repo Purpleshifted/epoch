@@ -70,6 +70,9 @@ export interface Seed {
   growth?: [number, number][];
   /** DENSITY (density.ts): the level of each of its slots (what was put into the cell at that time). */
   levels?: ReadonlyMap<number, number>;
+  /** DENSITY: per slot, how much vegetation gathers on what stands there (0..1) — built but not lived in
+   *  (density.ts liveAt). The erosion to come reads it too: what is overgrown goes first. */
+  gather?: ReadonlyMap<number, number>;
 }
 
 /**

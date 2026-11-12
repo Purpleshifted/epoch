@@ -245,6 +245,9 @@ export interface ReclaimInput {
   timeScale?: number;
   /** With wear and this, points GATHER on parts by their corrosion (fuse.gatheringShare) instead of abandonment. */
   fuse?: FuseConfig;
+  /** THE DENSITY'S GATHERING: points gather on a part by how little its cell-slot was lived in (Seed.gather,
+   *  density.ts liveAt) — no wear, no age. */
+  unlived?: boolean;
 }
 
 export interface FuseInput {
@@ -1465,9 +1468,14 @@ export class SpaceModel {
     const fu = input.fuse;
     // plants gather first (their own process, from gatherStart below the present), and the part rots under them
     const pre = this.gatherOf;
-    const gathering = wm && fu ? (b: Box) => gatheringShare(1 - wm.survival(b), fu, pre ? pre(b) : 0) : undefined;
-    const { fuse: _f, ...cfg } = input;
+    let gathering = wm && fu ? (b: Box) => gatheringShare(1 - wm.survival(b), fu, pre ? pre(b) : 0) : undefined;
+    if (input.unlived) {
+      const byId = new Map(this.seeds.map((sd) => [sd.id, sd] as const));
+      gathering = (b: Box) => byId.get(b.seed)?.gather?.get(b.slot) ?? 0;
+    }
+    const { fuse: _f, unlived: _u, ...cfg } = input;
     void _f;
+    void _u;
     const np = reclaimPoints(this.built, this.worn, this.seeds, this.t, { ...cfg, gathering });
     return { position: np.position, color: natureColors(np) };
   }

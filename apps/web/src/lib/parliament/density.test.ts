@@ -153,6 +153,20 @@ describe("density: buildings from the density of spacetime", () => {
     expect(cells(fieldOf([...crowd(5, 0, 0, 400, 60), ...crowd(5, 6, 0, 400, 60, "d")], P))).toBeGreaterThan(cells(one));
   });
 
+  it("built but not lived in: vegetation gathers on the rim and on the slots before and after, not where people stood", () => {
+    const f = fieldOf(crowd(6, 0, 0, 400, 40), { ...CFG, liveAt: 0.25 });
+    const seeds = f.seeds();
+    const own = seeds.reduce((a, b) => (Math.hypot(b.x - 0.3, b.z - 0.3) < Math.hypot(a.x - 0.3, a.z - 0.3) ? b : a));
+    // where and when they stood: lived
+    expect(own.gather!.get(20)).toBeLessThan(0.5);
+    // somewhere it was only reached (a cell nobody stood in, or a slot before or after): all of it gathers
+    const all = seeds.flatMap((s) => [...s.gather!.values()]);
+    expect(Math.max(...all)).toBe(1);
+    for (const g of all) expect(g * 4).toBe(Math.round(g * 4)); // read in quarters
+    // without liveAt nothing is worked out
+    expect(fieldOf(crowd(6, 0, 0, 400, 40)).seeds()[0].gather).toBeUndefined();
+  });
+
   it("a budget of what is built: beyond it the first-built cell-slots go, the newest stand", () => {
     const count = (f: DensityField) => f.seeds().reduce((n, s) => n + s.levels!.size, 0);
     const first = crowd(5, 0, 0, 400, 30), second = crowd(5, 40, 40, 400, 30, "b");

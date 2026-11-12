@@ -269,6 +269,8 @@ interface NatureParams {
   reclaim: boolean;
   tauReclaimYears: number;
   reclaimPerArea: number;
+  /** The gatherings are the density's (built but not lived in, density.ts liveAt): no vegetation history is asked for. */
+  unlived?: boolean;
 }
 
 /** The resin body of the oldest layers: transmissive, darkening with thickness (Beer–Lambert attenuation). */
@@ -1159,7 +1161,7 @@ function SpaceWorld({
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens } };
     if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
     if (withNature && nat) {
-      req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
+      if (!nat.unlived) req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
       if (nat.reclaim) {
         req.reclaim = {
           tauReclaimYears: nat.tauReclaimYears,
@@ -1167,7 +1169,8 @@ function SpaceWorld({
           unit: cfg.unit,
           secPerUnit: wx.strata ? cfg.secPerUnit : undefined,
           timeScale: wx.timeScale,
-          fuse: fu.enabled ? fu : undefined,
+          fuse: !nat.unlived && fu.enabled ? fu : undefined,
+          unlived: nat.unlived,
         };
       }
     }
@@ -1697,6 +1700,7 @@ function Vegetation({
   spotR,
   spotGrow,
   spotLobed,
+  spotJitter,
   moveSec,
   moveAt,
 }: {
@@ -1715,6 +1719,8 @@ function Vegetation({
   spotR: number;
   spotGrow: number;
   spotLobed: number;
+  /** ± share by which a cloud is larger or smaller than the mean (each its own). */
+  spotJitter: number;
   /** Seconds between two looks at where the clouds are (0 = they stay), and the people's share round a cloud's
    *  middle from which it is seated again. */
   moveSec: number;
@@ -1758,11 +1764,11 @@ function Vegetation({
     const top = D * unit;
     const nSpots = Math.max(0, Math.min(60000, Math.round(spots)));
     const R = Math.max(0.5, spotR), T = Math.max(0.2, spotGrow) * unit;
-    const cloud: { x: number; y: number; z: number; lobed: boolean; ax: [number, number, number] }[] = [];
+    const cloud: { x: number; y: number; z: number; lobed: boolean; ax: [number, number, number]; sc: number }[] = [];
     for (let i = 0; i < nSpots; i++) {
       // an axis of its own for a lobed cloud (any direction of the block)
       const c = 2 * rnd() - 1, ph = rnd() * 2 * Math.PI, sn = Math.sqrt(1 - c * c);
-      cloud.push({ x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85, lobed: rnd() < spotLobed, ax: [sn * Math.cos(ph), c, sn * Math.sin(ph)] });
+      cloud.push({ x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85, lobed: rnd() < spotLobed, ax: [sn * Math.cos(ph), c, sn * Math.sin(ph)], sc: 1 + (rnd() - 0.5) * 2 * Math.max(0, Math.min(0.95, spotJitter)) });
     }
     for (let i = 0; i < n; i++) {
       let x = (rnd() - 0.5) * WORLD_SIZE, y = rnd() * top, z = (rnd() - 0.5) * WORLD_SIZE;
@@ -1798,9 +1804,9 @@ function Vegetation({
         }
         // (the cloud's size: R on the ground, T in time — r = 1 is its mean radius)
         of[i] = pi;
-        off[i * 3] = dx * r * R;
-        off[i * 3 + 1] = dy * r * T;
-        off[i * 3 + 2] = dz * r * R;
+        off[i * 3] = dx * r * R * p.sc;
+        off[i * 3 + 1] = dy * r * T * p.sc;
+        off[i * 3 + 2] = dz * r * R * p.sc;
         x = p.x + off[i * 3];
         y = p.y + off[i * 3 + 1];
         z = p.z + off[i * 3 + 2];
@@ -1819,7 +1825,7 @@ function Vegetation({
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     return g;
-  }, [count, D, unit, spots, spotR, spotGrow, spotLobed]);
+  }, [count, D, unit, spots, spotR, spotGrow, spotLobed, spotJitter]);
   useEffect(() => () => geom.dispose(), [geom]);
   const mat = useMemo(
     () =>
@@ -2549,13 +2555,45 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   const arriveView = useMemo(() => ({ on: ar.arriveOn, sec: ar.arriveSec, stagger: ar.arriveStagger, way: ar.arriveWay as ArriveWay, lift: ar.arriveLift, tick: ar.arriveTick }), [ar.arriveOn, ar.arriveSec, ar.arriveStagger, ar.arriveWay, ar.arriveLift, ar.arriveTick]);
   // THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block
+  // THE VEGETATION, AS THE OPPOSITE OF PEOPLE (Vegetation above)
+  const VEG_GROUP = "식생 (사람의 반대)";
+  const vg = useLevaControls(
+    VEG_GROUP,
+    savable(VEG_GROUP, {
+      vegOn: { value: true, label: "켜기" },
+      vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
+      vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
+      vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)" },
+      vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)" },
+      vegCloudT: { value: 5, min: 0.5, max: 60, step: 0.5, label: "구름의 반경: 시간 (단 · 평균)" },
+      vegMoveSec: { value: 8, min: 0, max: 120, step: 2, label: "구름 자리를 다시 보는 간격 (s · 0 = 안 옮김)" },
+      vegMoveAt: { value: 0.2, min: 0.02, max: 1, step: 0.02, label: "자리에 사람이 이만큼 차면 빈 곳으로 옮김" },
+      vegCloudJit: { value: 0.4, min: 0, max: 0.9, step: 0.05, label: "구름 크기 지터 (± · 0 = 다 같은 크기)" },
+      vegLobed: { value: 0.3, min: 0, max: 1, step: 0.05, label: "두 갈래 구름의 비율 (나머지는 둥근 구름)" },
+      vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
+      vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
+      vegColorA: { value: "#5f7a3a", label: "색 1 (자연색)" },
+      vegColorB: { value: "#a9b56a", label: "색 2 (자연색)" },
+      // WHAT GATHERS ON BUILDINGS: built but not lived in (density.ts liveAt)
+      "건물에 모이는 식생 (지어졌지만 살지 않는 곳)": folder({
+        gaOn: { value: true, label: "켜기" },
+        gaLiveAt: { value: 0.25, min: 0.02, max: 1, step: 0.01, label: "직접 산 몫이 이만큼이면 안 모임 (작을수록 가장자리에만)" },
+        gaPerArea: { value: 40, min: 0, max: 300, step: 1, label: "칸²당 점 뭉치 수 (다 모였을 때)" },
+        gaSize: { value: 0.3, min: 0.02, max: 1.5, step: 0.01, label: "뭉치 지름 (월드)" },
+        gaJitter: { value: 0.5, min: 0, max: 0.95, step: 0.05, label: "뭉치 크기 지터 (±)" },
+        gaPoints: { value: 24, min: 4, max: 96, step: 1, label: "뭉치 하나의 점 수" },
+        gaDot: { value: 0.025, min: 0.005, max: 0.15, step: 0.001, label: "점 크기" },
+      }),
+    }),
+    { order: lab ? 7.9 : 1.75, render: () => isV2 },
+  );
   const densityCfg = useMemo<DensityConfig | null>(
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, liveAt: vg.gaOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, vg.gaOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
@@ -2581,27 +2619,6 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     const need = botDepth * 20 + 240;
     if (keepWindowSec() < need) setKeepWindowSec(need);
   }, [lab, botDepth]);
-  // THE VEGETATION, AS THE OPPOSITE OF PEOPLE (Vegetation above)
-  const VEG_GROUP = "식생 (사람의 반대)";
-  const vg = useLevaControls(
-    VEG_GROUP,
-    savable(VEG_GROUP, {
-      vegOn: { value: true, label: "켜기" },
-      vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
-      vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
-      vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)" },
-      vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)" },
-      vegCloudT: { value: 5, min: 0.5, max: 60, step: 0.5, label: "구름의 반경: 시간 (단 · 평균)" },
-      vegMoveSec: { value: 8, min: 0, max: 120, step: 2, label: "구름 자리를 다시 보는 간격 (s · 0 = 안 옮김)" },
-      vegMoveAt: { value: 0.2, min: 0.02, max: 1, step: 0.02, label: "자리에 사람이 이만큼 차면 빈 곳으로 옮김" },
-      vegLobed: { value: 0.3, min: 0, max: 1, step: 0.05, label: "두 갈래 구름의 비율 (나머지는 둥근 구름)" },
-      vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
-      vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
-      vegColorA: { value: "#5f7a3a", label: "색 1 (자연색)" },
-      vegColorB: { value: "#a9b56a", label: "색 2 (자연색)" },
-    }),
-    { order: lab ? 7.9 : 1.75, render: () => isV2 },
-  );
   // THE MARKERS: the bots' names (off: no text over them) and their colours by how their herd moves
   const mk = useLevaControls(
     "마커",
@@ -3180,21 +3197,26 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const fps = useFps();
   const natureParams = useMemo<NatureParams | null>(
     () =>
-      veg.natureOn && !REDESIGN
-        ? {
-            cfg: natureCfg,
-            gatherSize: veg.gatherSize,
-            gatherJitter: veg.gatherJitter,
-            gatherPoints: veg.gatherPoints,
-            gatherDot: veg.gatherDot,
-            window: veg.window,
-            margin: veg.margin,
-            reclaim: veg.gatherOn,
-            tauReclaimYears: veg.tauReclaimYears,
-            reclaimPerArea: veg.gatherPerArea,
-          }
-        : null,
-    [veg.natureOn, natureCfg, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea],
+      // THE REDESIGN: no vegetation history; what gathers on buildings is the density's (vg: 건물에 모이는 식생)
+      REDESIGN
+        ? vg.gaOn
+          ? { cfg: natureCfg, gatherSize: vg.gaSize, gatherJitter: vg.gaJitter, gatherPoints: vg.gaPoints, gatherDot: vg.gaDot, window: 0, margin: 0, reclaim: true, tauReclaimYears: 300, reclaimPerArea: vg.gaPerArea, unlived: true }
+          : null
+        : veg.natureOn
+          ? {
+              cfg: natureCfg,
+              gatherSize: veg.gatherSize,
+              gatherJitter: veg.gatherJitter,
+              gatherPoints: veg.gatherPoints,
+              gatherDot: veg.gatherDot,
+              window: veg.window,
+              margin: veg.margin,
+              reclaim: veg.gatherOn,
+              tauReclaimYears: veg.tauReclaimYears,
+              reclaimPerArea: veg.gatherPerArea,
+            }
+          : null,
+    [vg.gaOn, vg.gaSize, vg.gaJitter, vg.gaPoints, vg.gaDot, vg.gaPerArea, veg.natureOn, natureCfg, veg.gatherSize, veg.gatherJitter, veg.gatherPoints, veg.gatherDot, veg.window, veg.margin, veg.gatherOn, veg.tauReclaimYears, veg.gatherPerArea],
   );
   const recipe = useMemo<Recipe>(
     () => ({
@@ -3378,7 +3400,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
+          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene

@@ -68,6 +68,15 @@ export interface DensityConfig {
    */
   peakShare?: number;
   /**
+   * BUILT BUT NOT LIVED IN (the artist, 2026-11-12, accepted: "건물에 모이는 식생 = 지어졌지만 살지 않는 곳"). What is
+   * in a cell-slot came from somebody standing right there at that time (DIRECT) or reached it from the cells round it
+   * and the times before and after (a building is a little wider than where people stood, and lasts a little longer
+   * than they stayed). Vegetation gathers where the direct share is small: gather = 1 − (direct ÷ all) ÷ liveAt,
+   * between 0 and 1 — none where at least `liveAt` of it was lived, all of it where nobody ever stood. Read in
+   * quarters (a Seed is made again only when a quarter is crossed). Absent / 0 = no gathering is worked out.
+   */
+  liveAt?: number;
+  /**
    * A BUDGET OF WHAT IS BUILT: at most this many cell-slots are building at once; when one more is built, the one
    * built FIRST is forgotten (what was put into it is gone: it can be built again). 0 / absent = no limit. This — not
    * the forgetting of samples — is what makes a building go.
@@ -138,6 +147,9 @@ interface CellSlot {
   /** Per visitor (index): the weight put in, uncapped. */
   by: Map<number, number>;
   level: number;
+  /** What somebody standing in this very cell at this very time put in (uncapped), and the gathering's quarter. */
+  direct?: number;
+  gq?: number;
   /** Its own sum's step (−1 = under `step`), and the highest step of any cell-slot within `radius` at its time. */
   q?: number;
   pq?: number;
@@ -286,7 +298,19 @@ export class DensityField {
             this.stats.cellSlots++;
           }
           cs.by.set(o, (cs.by.get(o) ?? 0) + g * t);
+          if (!a && !b && k === kOwn) cs.direct = (cs.direct ?? 0) + g * t;
           this.settle(col, ck, cs, k);
+          // the gathering's quarter: a Seed is made again when it changes (not at every sample)
+          if (cs.level >= 1 && (c.liveAt ?? 0) > 0) {
+            const gq = Math.round(this.gatherOf(cs) * 4);
+            if (gq !== cs.gq) {
+              cs.gq = gq;
+              col.seed = undefined;
+              this.dirty.add(ck);
+              this.listDirty = true;
+              this.version++;
+            }
+          }
         }
       }
     }
@@ -378,6 +402,16 @@ export class DensityField {
     }
   }
 
+  /** How much vegetation gathers on a built cell-slot (0..1): built but not lived in (DensityConfig.liveAt). */
+  private gatherOf(cs: CellSlot): number {
+    const c = this.cfg, at = c.liveAt ?? 0;
+    if (at <= 0) return 0;
+    let sum = 0;
+    for (const a of cs.by.values()) sum += a;
+    if (sum <= 0) return 1;
+    return Math.max(0, Math.min(1, 1 - (cs.direct ?? 0) / sum / at));
+  }
+
   /** The cells within `radius` of a cell (offsets), itself not among them. */
   private ring(): [number, number][] {
     if (this.ringOf) return this.ringOf;
@@ -462,6 +496,7 @@ export class DensityField {
           const [oc, ock, ocs, ok] = this.built[this.builtAt++];
           if (ocs.level < 1) continue; // (already gone: a path took it, or a higher peak beside it)
           ocs.by.clear();
+          ocs.direct = 0;
           ocs.level = 0;
           oc.seed = undefined;
           this.dirty.add(ock);
@@ -688,6 +723,7 @@ export class DensityField {
         mass: c.mass * Math.pow(Math.max(1, c.massRatio), top - 1),
         who: [...who.values()],
         levels: new Map(ks.map((k) => [k, col.slots.get(k)!.level] as const)),
+        ...((c.liveAt ?? 0) > 0 ? { gather: new Map(ks.map((k) => [k, Math.round(this.gatherOf(col.slots.get(k)!) * 4) / 4] as const)) } : {}),
       };
     }
     this.dirty.clear();
