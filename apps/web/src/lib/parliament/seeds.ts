@@ -68,7 +68,24 @@ export interface Seed {
   /** Who built it (Slab.who) and how it grew (Slab.growth): what waterways are made of. */
   who?: Contributor[];
   growth?: [number, number][];
+  /** DENSITY (density.ts): the level of each of its slots (what was put into the cell at that time), and the same as
+   *  one string (the parts are made again when it changes). With BoxConfig.levelFrom it decides what a slot gets. */
+  levels?: ReadonlyMap<number, number>;
+  levelSig?: string;
 }
+
+/**
+ * WHAT A LEVEL BUILDS (the artist, 2026-11-12): the families of parts, each from a level on — a slot at a lower level
+ * does not get them. plate = slab · plinth, frame = column · beam · brace, mass, drip, found = basement · pile.
+ */
+export interface LevelFrom {
+  plate: number;
+  frame: number;
+  mass: number;
+  drip: number;
+  found: number;
+}
+export const DEFAULT_LEVEL_FROM: LevelFrom = { plate: 1, frame: 2, mass: 3, drip: 4, found: 2 };
 
 export type PartKind = "mass" | "slab" | "drip" | "column" | "beam" | "brace" | "plinth" | "basement" | "pile";
 export const PART_KINDS: readonly PartKind[] = ["mass", "slab", "drip", "column", "beam", "brace", "plinth", "basement", "pile"];
@@ -130,7 +147,11 @@ export interface BoxConfig {
    * own slot's top: so nothing moves when the run grows, and nothing enters empty time).
    */
   timeJitter?: number;
+  /** DENSITY: which families of parts a slot gets, by its level (Seed.levels); absent = every part, as before. */
+  levelFrom?: LevelFrom;
 }
+
+const PART_FAMILY: Record<PartKind, keyof LevelFrom> = { mass: "mass", slab: "plate", plinth: "plate", drip: "drip", column: "frame", beam: "frame", brace: "frame", basement: "found", pile: "found" };
 
 export const DEFAULT_BOXES: BoxConfig = { secPerUnit: 30, unit: 1, width: 1, density: 1, maxSlots: 200, timeJitter: 0.35 };
 
@@ -541,6 +562,10 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       b.y = Math.min(hi, Math.max(lo, b.y + dy));
     }
   }
+  // WHAT A LEVEL BUILDS: the parts are made as always (so their shapes do not depend on the levels) and those a
+  // slot's level does not reach are left out
+  const lv = seed.levels, from = cfg.levelFrom;
+  if (lv && from) return out.filter((b) => (lv.get(b.slot) ?? 0) >= from[PART_FAMILY[b.kind]]);
   return out;
 }
 

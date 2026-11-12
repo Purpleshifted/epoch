@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DENSITY, DensityField, levelOf, type DensityConfig } from "./density";
+import { DEFAULT_BOXES, DEFAULT_LEVEL_FROM, boxesOfSeed } from "./seeds";
 import type { PEvent } from "./types";
 
 const CFG: DensityConfig = { ...DEFAULT_DENSITY };
@@ -72,6 +73,27 @@ describe("density: buildings from the density of spacetime", () => {
     const f = fieldOf(crowd(6, 0, 0, 405, 30), { ...CFG, down: 0 });
     for (const s of f.seeds()) expect(s.t0).toBeGreaterThanOrEqual(400);
     expect(f.seeds().length).toBeGreaterThan(0);
+  });
+
+  it("what a level builds: a slot at level 1 gets plates only, more families as the level rises", () => {
+    const kindsAt = (f: DensityField) => {
+      const kinds = new Set<string>();
+      const box = { ...DEFAULT_BOXES, secPerUnit: CFG.slotSec, levelFrom: DEFAULT_LEVEL_FROM };
+      for (const s of f.seeds()) for (const b of boxesOfSeed(s, box)) {
+        kinds.add(b.kind);
+        // nothing above what its own slot's level allows
+        const lv = s.levels!.get(b.slot) ?? 0;
+        if (b.kind === "mass") expect(lv).toBeGreaterThanOrEqual(DEFAULT_LEVEL_FROM.mass);
+        if (b.kind === "column" || b.kind === "beam" || b.kind === "brace") expect(lv).toBeGreaterThanOrEqual(DEFAULT_LEVEL_FROM.frame);
+      }
+      return kinds;
+    };
+    const one = fieldOf(crowd(5, 0, 0, 400, 14));
+    expect(Math.max(...one.seeds().flatMap((s) => [...s.levels!.values()]))).toBe(1);
+    expect(kindsAt(one).has("mass")).toBe(false);
+    const many = fieldOf([...crowd(5, 0, 0, 400, 40), ...crowd(5, 0, 0, 400, 40, "b"), ...crowd(5, 0, 0, 400, 40, "c")]);
+    expect(Math.max(...many.seeds().flatMap((s) => [...s.levels!.values()]))).toBeGreaterThanOrEqual(3);
+    expect(kindsAt(many).has("mass")).toBe(true);
   });
 
   it("others at the same place and time raise the level, and with it the mass", () => {

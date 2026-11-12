@@ -858,7 +858,7 @@ export class SpaceModel {
       const s: Seed = { ...s0, mass: Math.round(s0.mass * 4) / 4 };
       const lv = level.get(s.id) ?? 0;
       const slots = occupiedSlots(s, box);
-      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${lv}:${cfgKey}`;
+      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${lv}:${s.levelSig ?? ""}:${cfgKey}`;
       let hit = this.partCache.get(s.id);
       if (!hit || hit.key !== key) {
         hit = { key, parts: boxesOfSeed(s, lv === 2 ? solid(s) : lv === 1 ? thinned(s) : box) };

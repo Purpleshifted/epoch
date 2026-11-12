@@ -235,6 +235,8 @@ export class DensityField {
         spans,
         mass: c.mass * Math.pow(Math.max(1, c.massRatio), top - 1),
         who: [...who.values()],
+        levels: new Map(ks.map((k) => [k, col.slots.get(k)!.level] as const)),
+        levelSig: ks.map((k) => `${k}:${col.slots.get(k)!.level}`).join(","),
       };
     }
     this.dirty.clear();
