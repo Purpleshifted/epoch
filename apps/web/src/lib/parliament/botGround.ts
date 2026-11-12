@@ -11,7 +11,7 @@
 import type { PEvent } from "./types";
 
 export const botGround: {
-  built: { levelAt(cx: number, cz: number, k: number): number; add(e: Pick<PEvent, "o" | "x" | "z" | "s" | "k">): void } | null;
+  built: { levelAt(cx: number, cz: number, k: number): number; add(e: Pick<PEvent, "o" | "x" | "z" | "s" | "k">): void; eachShare(cb: (cx: number, cz: number, k: number, share: number) => void): void } | null;
   /** Seconds of one slot of the time axis (to read `built` at a bot's own time). */
   slotSec: number;
   trail: number;

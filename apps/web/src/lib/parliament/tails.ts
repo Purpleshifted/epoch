@@ -122,6 +122,14 @@ export class TailField {
     this.steps++;
   }
 
+  /** Every cell-slot a tail lies on, with its level. */
+  each(cb: (cx: number, cz: number, k: number, level: number) => void): void {
+    for (const [ck, col] of this.cols) {
+      const cx = Math.floor(ck / 65536) - 32768, cz = (ck % 65536) - 32768;
+      for (const [k, v] of col) cb(cx, cz, k, v);
+    }
+  }
+
   /** The level of a cell at a slot: how many tails lie on it then, each as faded as it is. */
   level(cx: number, cz: number, k: number): number {
     return this.cols.get(colKey(wrapCell(cx), wrapCell(cz)))?.get(k) ?? 0;

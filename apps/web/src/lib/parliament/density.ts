@@ -609,6 +609,25 @@ export class DensityField {
     return this.lines.out;
   }
 
+  /**
+   * Every cell-slot anything was put into: how near it is to being building — the sum over `step`, capped at 1 (1 =
+   * building, or as good as). What the vegetation grows AGAINST (ParliamentSpace Vegetation).
+   */
+  eachShare(cb: (cx: number, cz: number, k: number, share: number) => void): void {
+    const c = this.cfg;
+    for (const col of this.cols.values()) {
+      for (const [k, cs] of col.slots) {
+        if (cs.level >= 1) {
+          cb(col.cx, col.cz, k, 1);
+          continue;
+        }
+        let sum = 0;
+        for (const a of cs.by.values()) sum += Math.min(a, c.visitorCap);
+        if (sum > 0) cb(col.cx, col.cz, k, Math.min(1, sum / c.step));
+      }
+    }
+  }
+
   /** The level of a cell-slot (0 = nothing there). */
   levelAt(cx: number, cz: number, k: number): number {
     return this.cols.get(colKey(wrapCell(cx), wrapCell(cz)))?.slots.get(k)?.level ?? 0;

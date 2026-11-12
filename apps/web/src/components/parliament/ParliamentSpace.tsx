@@ -66,6 +66,10 @@ import {
   DensityField,
   DEFAULT_PATH,
   botGround,
+  tailField,
+  WORLD_CELLS,
+  WORLD_HALF,
+  WORLD_SIZE,
   DEFAULT_VARIETY,
   type WalkConfig,
   type WaterConfig,
@@ -1638,6 +1642,137 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
  * visible while its newest sample keeps advancing; `holdSec` of silence hides it — except "me", which is always
  * drawn at its latest presence (dimmed while silent), so the player can always be found.
  */
+/**
+ * THE VEGETATION, AS THE OPPOSITE OF PEOPLE (the artist, 2026-11-12: "식생도 밀도함수 만들어서 길이랑 건물함수랑
+ * 역방향으로 자라게 만드는 게 나을 듯"; earlier: "전체에 두면서도 cpu/gpu 덜먹게 못하나?"). It is everywhere in the
+ * block by default: ONE fixed set of points filling it, made once. What takes it away is the people's density — how
+ * near a cell-slot is to being building (density.ts eachShare) and the tails of the walks lying on it (tails.ts) —
+ * written into a small 3D texture every two seconds; the vertex shader reads it and lets a point live only where the
+ * vegetation left there (1 − the people's share) is more than the point's own draw. So it thins towards a building,
+ * is gone inside one and along a way that is walked, and is back where and when the tails have faded. Per frame
+ * nothing is computed or uploaded.
+ */
+const VEG_VERT = `
+precision highp sampler3D;
+uniform sampler3D uHuman;
+uniform vec3 uMin;
+uniform vec3 uSpan;
+uniform float uSize;
+uniform float uScale;
+uniform float uFull;
+attribute float aSeed;
+varying float vShade;
+void main() {
+  // the texture's x, y are the ground's x, z cells; its depth is the slot (the height)
+  vec3 uvw = vec3((position.x - uMin.x) / uSpan.x, (position.z - uMin.z) / uSpan.z, (position.y - uMin.y) / uSpan.y);
+  float human = texture(uHuman, uvw).r;
+  // (uFull < 1: even untouched ground is not all vegetation)
+  float veg = (1.0 - human) * uFull;
+  float alive = step(aSeed, veg);
+  vShade = fract(aSeed * 7.31);
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = alive > 0.5 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
+  gl_PointSize = alive * uSize * uScale / max(0.001, -mv.z);
+}`;
+const VEG_FRAG = `
+uniform vec3 uColorA;
+uniform vec3 uColorB;
+varying float vShade;
+void main() {
+  vec2 d = gl_PointCoord - 0.5;
+  if (dot(d, d) > 0.25) discard;
+  gl_FragColor = vec4(mix(uColorA, uColorB, vShade), 1.0);
+}`;
+
+function Vegetation({ unit, slots, count, size, full, pathAt, colorA, colorB }: { unit: number; slots: number; count: number; size: number; full: number; pathAt: number; colorA: string; colorB: string }) {
+  const gl = useThree((st) => st.gl);
+  const camera = useThree((st) => st.camera);
+  const N = WORLD_CELLS;
+  const D = Math.max(8, Math.min(160, Math.round(slots)));
+  // the people's share per cell-slot (x = the cell along x, y = the cell along z, depth = the slot)
+  const tex = useMemo(() => {
+    const t = new THREE.Data3DTexture(new Uint8Array(N * N * D), N, N, D);
+    t.format = THREE.RedFormat;
+    t.type = THREE.UnsignedByteType;
+    t.minFilter = THREE.LinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.wrapR = THREE.ClampToEdgeWrapping;
+    t.unpackAlignment = 1;
+    t.needsUpdate = true;
+    return t;
+  }, [N, D]);
+  useEffect(() => () => tex.dispose(), [tex]);
+  // the points: made once for this many, anywhere in the block
+  const geom = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const n = Math.max(0, Math.round(count));
+    const pos = new Float32Array(n * 3), seed = new Float32Array(n);
+    let a = 0x2f6e2b1;
+    const rnd = () => ((a = Math.imul(a ^ (a >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296;
+    for (let i = 0; i < n; i++) {
+      pos[i * 3] = (rnd() - 0.5) * WORLD_SIZE;
+      pos[i * 3 + 1] = rnd() * D * unit;
+      pos[i * 3 + 2] = (rnd() - 0.5) * WORLD_SIZE;
+      seed[i] = rnd();
+    }
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+    return g;
+  }, [count, D, unit]);
+  useEffect(() => () => geom.dispose(), [geom]);
+  const mat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: VEG_VERT,
+        fragmentShader: VEG_FRAG,
+        uniforms: {
+          uHuman: { value: null },
+          uMin: { value: new THREE.Vector3() },
+          uSpan: { value: new THREE.Vector3(1, 1, 1) },
+          uSize: { value: 0.1 },
+          uScale: { value: 500 },
+          uFull: { value: 1 },
+          uColorA: { value: new THREE.Color() },
+          uColorB: { value: new THREE.Color() },
+        },
+      }),
+    [],
+  );
+  useEffect(() => () => mat.dispose(), [mat]);
+  useEffect(() => {
+    mat.uniforms.uHuman.value = tex;
+    mat.uniforms.uMin.value.set(-WORLD_HALF, 0, -WORLD_HALF);
+    mat.uniforms.uSpan.value.set(WORLD_SIZE, D * unit, WORLD_SIZE);
+    mat.uniforms.uSize.value = size;
+    mat.uniforms.uFull.value = full;
+    mat.uniforms.uColorA.value.set(colorA);
+    mat.uniforms.uColorB.value.set(colorB);
+  }, [mat, tex, D, unit, size, full, colorA, colorB]);
+  const timer = useRef(10);
+  useFrame((_, dt) => {
+    // a point's size in pixels for its size in the world, at its distance
+    const fov = (camera as THREE.PerspectiveCamera).fov ?? 40;
+    mat.uniforms.uScale.value = gl.domElement.height / (2 * Math.tan((fov * Math.PI) / 360));
+    timer.current += dt;
+    if (timer.current < 2) return;
+    timer.current = 0;
+    const data = tex.image.data as Uint8Array;
+    data.fill(0);
+    const put = (cx: number, cz: number, k: number, share: number) => {
+      if (k < 0 || k >= D) return;
+      const i = cx + N / 2 + N * (cz + N / 2 + N * k);
+      const v = Math.round(Math.max(0, Math.min(1, share)) * 255);
+      if (v > data[i]) data[i] = v;
+    };
+    botGround.built?.eachShare(put);
+    const at = Math.max(0.1, pathAt);
+    tailField.each((cx, cz, k, level) => put(cx, cz, k, level / at));
+    tex.needsUpdate = true;
+  });
+  return <points geometry={geom} material={mat} frustumCulled={false} />;
+}
+
 function Markers({
   log,
   secPerUnit,
@@ -2300,6 +2435,21 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     const need = botDepth * 20 + 240;
     if (keepWindowSec() < need) setKeepWindowSec(need);
   }, [lab, botDepth]);
+  // THE VEGETATION, AS THE OPPOSITE OF PEOPLE (Vegetation above)
+  const VEG_GROUP = "식생 (사람의 반대)";
+  const vg = useLevaControls(
+    VEG_GROUP,
+    savable(VEG_GROUP, {
+      vegOn: { value: true, label: "켜기" },
+      vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
+      vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
+      vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
+      vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
+      vegColorA: { value: "#5f7a3a", label: "색 1 (자연색)" },
+      vegColorB: { value: "#a9b56a", label: "색 2 (자연색)" },
+    }),
+    { order: lab ? 7.9 : 1.75, render: () => isV2 },
+  );
   // THE MARKERS: the bots' names (off: no text over them) and their colours by how their herd moves
   const mk = useLevaControls(
     "마커",
@@ -3073,6 +3223,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
             {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
           </EffectComposer>
+        )}
+        {/* the vegetation fills the block the bots live in (a little above it too) */}
+        {vg.vegOn && (
+          <Vegetation unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
