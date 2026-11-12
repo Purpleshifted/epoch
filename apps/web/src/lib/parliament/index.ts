@@ -12,6 +12,7 @@ export * from "./seeds";
 export * from "./density";
 export * from "./trails";
 export * from "./botGround";
+export * from "./tails";
 export * from "./bots";
 export * from "./natureHistory";
 export * from "./spaceModel";

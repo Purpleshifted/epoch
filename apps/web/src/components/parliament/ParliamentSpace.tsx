@@ -2324,7 +2324,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       },
       ["길 · 다리"],
     ),
-    { order: 4, collapsed: true, render: () => !lab },
+    // (shown in the lab too: the artist, 2026-11-12 — "길 비주얼이랑 파라미터 레바에 추가하고")
+    { order: lab ? 7.8 : 4, collapsed: false },
   );
   const walkView = useMemo<WalkConfig | null>(
     () =>

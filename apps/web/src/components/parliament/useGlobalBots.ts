@@ -40,6 +40,9 @@ import {
   sharedClock,
   stepLifecycle,
   botGround,
+  DEFAULT_FLOW,
+  DEFAULT_TAILS,
+  tailField,
   type Clock,
   sessionSeconds,
   setKeepFrom,
@@ -153,7 +156,9 @@ export function useGlobalBots(
           hLoose: { value: DEFAULT_HERD.loose, min: 0, max: 1, step: 0.05, label: "무리의 느슨함" },
           hSpread: { value: DEFAULT_LIFECYCLE.spread, min: 0, max: 2, step: 0.1, label: "성격 변주 폭" },
           hDrift: { value: DEFAULT_HERD.drift, min: 0, max: 0.9, step: 0.05, label: "시간 속도 변주 (±)" },
-          hTrail: { value: 1, min: 0, max: 5, step: 0.1, label: "밟힌 땅(길)을 따라 걷는 정도 (0 = 안 따름)" },
+          hTrail: { value: 1, min: 0, max: 5, step: 0.1, label: "앞선 걸음의 꼬리를 따라 걷는 정도 (0 = 안 따름)" },
+          hTailSec: { value: DEFAULT_TAILS.tailSec, min: 20, max: 1200, step: 10, label: "꼬리가 사라지기까지 (s)" },
+          hTailLeg: { value: DEFAULT_TAILS.minLeg, min: 0, max: 60, step: 1, label: "꼬리를 남기는 최소 이동 (월드 · 짧으면 한 곳 안의 움직임)" },
           hMeetStay: { value: 0.3, min: 0, max: 1, step: 0.05, label: "가는 길에 건물을 만나면 머무는 비율 (나머지는 돌아감)" },
         },
         { render: show },
@@ -201,6 +206,14 @@ export function useGlobalBots(
   useEffect(() => {
     botGround.trail = b.hTrail;
   }, [b.hTrail]);
+  // the tails' rules; when they change (and at first) the field is laid again from everything the log holds
+  useEffect(() => {
+    if (!enabled) return;
+    const changed = tailField.configure({ ...DEFAULT_TAILS, slotSec: SLOT_SEC, tailSec: b.hTailSec, minLeg: b.hTailLeg });
+    if (!changed && tailField.steps > 0) return;
+    tailField.clear();
+    for (const e of [...log.all()].sort((p, q) => p.s - q.s)) tailField.add(e);
+  }, [enabled, log, b.hTailSec, b.hTailLeg]);
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   const setDepth = opts?.setDepth;
   const deep = on ? b.hDepth : 0;
@@ -357,6 +370,8 @@ export function useGlobalBots(
       pending.current.push(e);
       // where it is built, as the wall makes it (botGround.ts): what the bots go round or stop at
       botGround.built?.add(e);
+      // every walk from one place to another leaves a tail (tails.ts): what the bots plan their ways over
+      tailField.add(e);
     };
 
     if (isSession) {
@@ -379,28 +394,27 @@ export function useGlobalBots(
         const [ci, cj] = key.split(",").map(Number);
         return `${wrapCell(ci)},${wrapCell(cj)}`;
       };
-      // A WAY IS PLANNED over the trodden ground (the fold's, flow.ts — the measure the walkways are judged on, so the
-      // bots reinforce the ways there are) and round what is built at the walker's own time (botGround.built).
+      // A WAY IS PLANNED over the tails AS THEY LIE AT THE WALKER'S OWN TIME (tails.ts — the fold's trodden ground is
+      // the present's only, and a bot lives at its own time of the block) and round what is built then (botGround).
+      // Ground with tails on it is easier, so a second walker takes the first one's cells: the ways join into trunks.
+      const tailFlow = { ...(flow ?? DEFAULT_FLOW), enabled: true, gridShare: 1 };
       const slotOf = (sec: number) => Math.floor(sec / Math.max(1, botGround.slotSec));
       const builtAt = (ci: number, cj: number, k: number) => (botGround.built ? botGround.built.levelAt(ci, cj, k) >= 1 : false);
-      const planRoute =
-        flow && g
-          ? (ax: number, az: number, bx: number, bz: number, sec?: number) => {
-              const k = slotOf(sec ?? sessionSeconds(now, epochMs.current, 0));
-              const cellOf = (key: string) => key.split(",").map(Number) as [number, number];
-              return flowRoute(
-                ax,
-                az,
-                bx,
-                bz,
-                {
-                  level: (key) => (g.level.get(cell(key)) ?? 0) * Math.max(0, botGround.trail),
-                  built: (key) => (botGround.built ? builtAt(cellOf(key)[0], cellOf(key)[1], k) : g.built.has(cell(key))),
-                },
-                flow,
-              );
-            }
-          : undefined;
+      const planRoute = (ax: number, az: number, bx: number, bz: number, sec?: number) => {
+        const k = slotOf(sec ?? sessionSeconds(now, epochMs.current, 0));
+        const cellOf = (key: string) => key.split(",").map(Number) as [number, number];
+        return flowRoute(
+          ax,
+          az,
+          bx,
+          bz,
+          {
+            level: (key) => tailField.level(cellOf(key)[0], cellOf(key)[1], k) * tailFlow.unit * Math.max(0, botGround.trail),
+            built: (key) => (botGround.built ? builtAt(cellOf(key)[0], cellOf(key)[1], k) : !!g && g.built.has(cell(key))),
+          },
+          tailFlow,
+        );
+      };
       // MEETING A BUILDING: the first built cell a straight walk from A to B enters, having left the building it began
       // in and well short of where it is going (a building at its goal is the goal, not in the way)
       const meet = (ax: number, az: number, bx: number, bz: number, sec: number): [number, number] | null => {
