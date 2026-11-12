@@ -369,6 +369,17 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
     expect(bandsSeen / samples).toBeGreaterThan(HERD.count * 0.7);
   });
 
+  it("the block is whole from the first second: a young world's herds are all over it, not on its floor", () => {
+    const ss: number[] = [];
+    walk(60, cfg, (st, w) => {
+      if (w - EPOCH === 60_000) for (const v of st.present) if (v.kind === "leader") ss.push(lifecycleActor(v, w, EPOCH).s);
+    });
+    expect(ss.length).toBeGreaterThanOrEqual(HERD.count - 1);
+    expect(Math.max(...ss) - Math.min(...ss)).toBeGreaterThan(HERD.depthSec * 0.5);
+    expect(Math.max(...ss)).toBeLessThanOrEqual(HERD.depthSec + 60 + 1e-6);
+    expect(Math.min(...ss)).toBeGreaterThanOrEqual(0);
+  });
+
   it("a herd moves as one: while the leader stays, most of its members stand around the same spot", () => {
     let seen = 0, close = 0;
     walk(1500, cfg, (st, w) => {
@@ -440,7 +451,8 @@ describe("lifecycle: herds in the block (3D: the ground and time as height)", ()
       for (const v of st.present) {
         const s = lifecycleActor(v, w, EPOCH).s;
         expect(s).toBeGreaterThanOrEqual((lastS.get(v.id) ?? 0) - 1e-6);
-        expect(s).toBeLessThanOrEqual((w - EPOCH) / 1000 + DEFAULT_LIFECYCLE.timeSpreadSec + 1e-6);
+        // (a young world's block stands ahead of its clock: seated up to its top, a herd then rises by its age)
+        expect(s).toBeLessThanOrEqual(Math.max((w - EPOCH) / 1000, HERD.depthSec) + DEFAULT_LIFECYCLE.lifeMaxSec * 1.1 + DEFAULT_LIFECYCLE.timeSpreadSec + 1e-6);
         lastS.set(v.id, s);
         if (v.drift) drifting++;
       }
