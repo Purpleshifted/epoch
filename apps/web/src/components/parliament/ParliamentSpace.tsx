@@ -1718,7 +1718,7 @@ const VEG_OVER = 4;
  *  points, on top of that. */
 type TestPerf = "off" | "light" | "min";
 const TEST_PERF_KEY = "parliament.testPerf";
-const TEST_PERF_OPTIONS: Record<string, TestPerf> = { "끔 (저장된 화질 그대로)": "off", "가볍게 (해상도 1× · AO · 그림자 · 굴절 끔 · 덩어리 거칠게)": "light", "아주 가볍게 (해상도 0.6× · 식생 점 1/3까지)": "min" };
+const TEST_PERF_OPTIONS: Record<string, TestPerf> = { "끔 (저장된 화질 그대로)": "off", "가볍게 (해상도 1× · AO · 그림자 · 굴절 끔)": "light", "아주 가볍게 (해상도 0.6× · 식생 점 1/3까지)": "min" };
 const useControls: typeof useLevaControls = ((...args: unknown[]) => {
   if (REDESIGN && typeof args[0] === "string") {
     const hide = { render: () => false };
@@ -1747,6 +1747,7 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
 const VEG_VERT = `
 precision highp sampler3D;
 uniform sampler3D uHuman;
+uniform sampler2D uRange;
 uniform vec3 uMin;
 uniform vec3 uSpan;
 uniform float uSize;
@@ -1759,7 +1760,8 @@ void main() {
   vec3 uvw = vec3((position.x - uMin.x) / uSpan.x, (position.z - uMin.z) / uSpan.z, (position.y - uMin.y) / uSpan.y);
   float human = texture(uHuman, uvw).r;
   // (uFull < 1: even untouched ground is not all vegetation)
-  float veg = (1.0 - human) * uFull;
+  // (only round where anybody has been — uRange: 1 within the margin of what was built or walked, 0 beyond)
+  float veg = (1.0 - human) * uFull * texture(uRange, uvw.xy).r;
   float alive = step(aSeed, veg);
   vShade = fract(aSeed * 7.31);
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
@@ -1793,7 +1795,10 @@ function Vegetation({
   moveSec,
   moveAt,
   erode,
+  margin,
 }: {
+  /** World units of vegetation beyond what was built or walked (< 0 = the whole ground). */
+  margin: number;
   unit: number;
   slots: number;
   count: number;
@@ -1927,6 +1932,7 @@ function Vegetation({
         fragmentShader: VEG_FRAG,
         uniforms: {
           uHuman: { value: null },
+          uRange: { value: null },
           uMin: { value: new THREE.Vector3() },
           uSpan: { value: new THREE.Vector3(1, 1, 1) },
           uSize: { value: 0.1 },
@@ -1941,6 +1947,7 @@ function Vegetation({
   useEffect(() => () => mat.dispose(), [mat]);
   useEffect(() => {
     mat.uniforms.uHuman.value = tex;
+    mat.uniforms.uRange.value = rangeTex;
     mat.uniforms.uMin.value.set(-WORLD_HALF, 0, -WORLD_HALF);
     mat.uniforms.uSpan.value.set(WORLD_SIZE, D * unit, WORLD_SIZE);
     mat.uniforms.uSize.value = size;
@@ -1950,6 +1957,21 @@ function Vegetation({
   }, [mat, tex, D, unit, size, full, colorA, colorB]);
   const timer = useRef(10);
   const moveTimer = useRef(0);
+  // where the vegetation is at all: a map of the ground (N × N), and two scratch maps for widening it
+  const rangeTex = useMemo(() => {
+    const t = new THREE.DataTexture(new Uint8Array(N * N).fill(255), N, N, THREE.RedFormat, THREE.UnsignedByteType);
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearFilter;
+    t.needsUpdate = true;
+    return t;
+  }, [N]);
+  useEffect(() => () => rangeTex.dispose(), [rangeTex]);
+  const rangeUsed = useRef(new Uint8Array(0));
+  const rangeTmp = useRef(new Uint8Array(0));
+  if (rangeUsed.current.length !== N * N) {
+    rangeUsed.current = new Uint8Array(N * N);
+    rangeTmp.current = new Uint8Array(N * N);
+  }
 
   useFrame((_, dt) => {
     // a point's size in pixels for its size in the world, at its distance
@@ -1988,6 +2010,45 @@ function Vegetation({
     const at = Math.max(0.1, pathAt);
     tailField.each((cx, cz, k, level) => put(cx, cz, k, level / at));
     tex.needsUpdate = true;
+    // WHERE THE VEGETATION IS AT ALL (the artist, 2026-11-15: "식생반경이 알아서 돌아다닌 범위 살짝 바깥에만 마진
+    // 두고 생성되게"): the ground anybody has built on or walked over (at any time of the block), widened by the
+    // margin — beyond it there are no plants. With margin < 0 (off) the whole ground, as before.
+    {
+      const R = rangeTex.image.data as Uint8Array;
+      const m = Math.round(margin / (WORLD_SIZE / N));
+      if (margin < 0) R.fill(255);
+      else {
+        const used = rangeUsed.current;
+        used.fill(0);
+        for (let k = 0; k < D; k++) {
+          const off = N * N * k;
+          for (let i = 0; i < N * N; i++) if (data[off + i]) used[i] = 1;
+        }
+        // (a square of the margin round every used cell: two passes, along x and along z)
+        const tmp = rangeTmp.current;
+        for (let j = 0; j < N; j++) {
+          for (let i = 0; i < N; i++) {
+            let v = 0;
+            for (let d = -m; d <= m && !v; d++) {
+              const ii = i + d;
+              if (ii >= 0 && ii < N && used[j * N + ii]) v = 1;
+            }
+            tmp[j * N + i] = v;
+          }
+        }
+        for (let j = 0; j < N; j++) {
+          for (let i = 0; i < N; i++) {
+            let v = 0;
+            for (let d = -m; d <= m && !v; d++) {
+              const jj = j + d;
+              if (jj >= 0 && jj < N && tmp[jj * N + i]) v = 1;
+            }
+            R[j * N + i] = v ? 255 : 0;
+          }
+        }
+      }
+      rangeTex.needsUpdate = true;
+    }
     // THE CLOUDS KEEP OUT OF THE PEOPLE'S WAY (the artist, 2026-11-12: "구름 위치 디바운싱으로 건물/길 위치 따라
     // 재배정"): every `moveSec` the clouds are looked at — one whose place has filled with building or way (the mean
     // of the people's share round its middle over `moveAt`) is seated again at the emptiest of a few places tried, a
@@ -2732,6 +2793,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     savable(VEG_GROUP, {
       vegOn: { value: true, label: "켜기" },
       vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
+      // (the artist, 2026-11-15: "식생반경이 알아서 돌아다닌 범위 살짝 바깥에만 마진 두고 생성되게")
+      vegMargin: { value: 8, min: -1, max: 60, step: 1, label: "돌아다닌 범위 바깥으로 식생이 나는 폭 (월드 · -1 = 땅 전체에)" },
       vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
       vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)" },
       vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)" },
@@ -3082,7 +3145,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         layerSpread: { value: 0.5, min: 0, max: 1, step: 0.05, label: "자리마다 · 부재마다 다르게 (0 = 같은 단은 한꺼번에 → 잘려 보임)", render: () => REDESIGN },
         // THE BLOCK: how much of a fused part the mass takes the place of (fuse.ts absorb; the artist, 2026-11-15:
         // "건물이 녹는 게 아니라 건물에 엉겨붙도록 하는 게 예전 느낌에 더 맞는 것 같은데")
-        absorb: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (1 = 전시 버전처럼 서서히 녹음 … 0 = 부재는 그대로, 덩어리만 엉겨 붙음)", render: () => REDESIGN },
+        // (0 by default since 2026-11-15 late: with parts hidden under their mass — and the eroded ones gone — a fused
+        // building was a block of mass standing where no building could be seen: "건물 안 생긴 자리에 갑자기 생긴
+        // 거라고!!". A new name, so what was saved as 1 does not keep it so.)
+        cling: { value: 0, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (0 = 부재는 그대로 보이고 덩어리가 엉겨 붙음 … 1 = 전시 버전처럼 부재가 녹아 사라짐)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: () => REDESIGN },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
@@ -3307,7 +3373,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.absorb } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3362,7 +3428,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.absorb, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -3433,9 +3499,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
   // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
   const resinView = useMemo<ResinLook>(() => (perf ? { ...resinLook, transmission: 0 } : resinLook), [perf, resinLook]);
-  // (the test render mode: the mass is worked out on coarser voxels — a quarter of the work at 0.4 against the
-  // exhibition's 0.25; its surface is a little rounder for it)
-  const fuseView = useMemo<FuseConfig>(() => (testPerf !== "off" && fuseCfg.voxel < 0.4 ? { ...fuseCfg, voxel: 0.4 } : fuseCfg), [testPerf, fuseCfg]);
+  // (taken back the same night: coarse voxels made the mass a staircase of facets — the very look being judged)
+  const fuseView = fuseCfg;
   const fps = useFps();
   const natureParams = useMemo<NatureParams | null>(
     () =>
@@ -3643,7 +3708,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
+          <Vegetation margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene

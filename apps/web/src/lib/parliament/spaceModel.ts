@@ -661,7 +661,8 @@ export class SpaceModel {
       if (l) l.push(e);
       else byAngle.set(a, [e]);
     }
-    if (byAngle.size <= 1 && (byAngle.has(0) || !byAngle.size)) return this.fuseTiles(w, h, u, sed, layerDecay, fuse);
+    // (the old wall — one frame, no districts: as it always was; the block always goes district by district below)
+    if (!this.blockClock && byAngle.size <= 1 && (byAngle.has(0) || !byAngle.size)) return this.fuseTiles(w, h, u, sed, layerDecay, fuse);
     const out: FuseMesh[] = [];
     const M = 3;
     const extent = (ps: typeof w.ps, tubes: BakedTube[]) => {
@@ -703,6 +704,13 @@ export class SpaceModel {
       for (const tb of tubes) sum += tb.decay * 13 + tb.x0 + tb.z1 + tb.y0 * 3 + tb.r * 17;
       return `${list.length}:${tubes.length}:${sum.toFixed(3)}:${layers}:${cfgKey}`;
     };
+    // NOTHING COMES OF A PLACE WHERE NO PART IS FUSING (measured 2026-11-15: with "판 사이 채우기" on — the exhibition's
+    // value — every plate of every building is handed to the fusion whether it has begun to fuse or not, so every
+    // building, however new, was a tile to work out: 1–3 s each, and an empty mesh at the end of it. The same for a
+    // tile with only ways or pipes in it: the envelope cuts their mass away where no building stands).
+    // (a part counts from a twentieth of it being mass: below that the field does not reach the surface's level, and
+    // the tile came out empty after the same second or two)
+    const fusing = (list: typeof w.ps): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || accretionShare(e.d, fuse) > 0.01);
     const want = (ang: number, id: string, key: string, run: () => FuseMesh) => {
       used.add(id);
       const kept = this.districtMass.get(id);
@@ -725,12 +733,13 @@ export class SpaceModel {
               return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
             });
             const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
-            if (!ps.length && !tubes.length) continue;
+            if (!fusing(ps)) continue;
             want(0, `${w.c0}:0:${tx}:${tz}`, sigOf(ps, tubes), () => this.fuseTiles({ ...w, ps, tubes, x0: tx, z0: tz, nx: T, nz: T }, h, u, sed, layerDecay, fuse, T));
           }
         }
         continue;
       }
+      if (!fusing(list)) continue;
       want(ang, `${w.c0}:${ang}`, sigOf(list, []), () => {
         // into the district's frame (the inverse of seeds.ts' turn, about the origin), and the mesh back out of it
         const c = Math.cos(ang), sn = Math.sin(ang);
@@ -818,8 +827,14 @@ export class SpaceModel {
         }
         this.stages["fuse tiles (n)"] = (this.stages["fuse tiles (n)"] ?? 0) + 1;
         this.stages["fuse cells (n)"] = (this.stages["fuse cells (n)"] ?? 0) + (bx - ax) * (bz - az);
-        meshes.push(
-          fuseChunk({
+        const tTile = performance.now();
+        const kinds: Record<string, number> = {};
+        for (const e of ps) kinds[e.b.kind] = (kinds[e.b.kind] ?? 0) + 1;
+        const tubeKinds: Record<string, number> = {};
+        for (const t of tubes) tubeKinds[t.kind] = (tubeKinds[t.kind] ?? 0) + 1;
+        let big = 0;
+        for (const e of ps) big = Math.max(big, e.b.sx, e.b.sz, e.b.sy);
+        const tileMesh = fuseChunk({
             parts: ps.map((e) => e.b),
             decay: ps.map((e) => e.d),
             standing: ps.map((e) => e.up),
@@ -837,8 +852,19 @@ export class SpaceModel {
             sediment: sed,
             layerDecay,
             cfg: fuse,
-          }),
-        );
+          });
+        meshes.push(tileMesh);
+        const dtTile = performance.now() - tTile;
+        if (dtTile > (this.stages["slow tile ms"] ?? 300)) {
+          let y0 = Infinity, y1 = -Infinity;
+          for (let q = 1; q < tileMesh.position.length; q += 3) {
+            y0 = Math.min(y0, tileMesh.position[q]);
+            y1 = Math.max(y1, tileMesh.position[q]);
+          }
+          Object.assign(this.stages, { "slow tile ms": dtTile, "slow tile cells": (bx - ax) * (bz - az), "slow tile parts": ps.length, "slow tile tubes": tubes.length, "slow tile tris": tileMesh.index.length / 3, "slow tile y0": y0, "slow tile y1": y1, "slow tile biggest part": big, "slow tile c0": w.c0 });
+          for (const [k, v] of Object.entries(kinds)) this.stages[`slow tile ${k}`] = v;
+          for (const [k, v] of Object.entries(tubeKinds)) this.stages[`slow tile tube ${k}`] = v;
+        }
       }
     }
     return mergeMeshes(meshes);
