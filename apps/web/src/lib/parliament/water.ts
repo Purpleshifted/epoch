@@ -127,6 +127,11 @@ export interface WaterConfig {
    * been cheaper under a path (sewers run under streets: a step there costs 0.3 of a step over open ground) — so
    * where there are paths the pipes are drawn right under them and read as the same lines again. 1 / absent = that
    * (as it was); 0 = a path is no cheaper than any ground: the pipes go their own shortest way to the outfall.
+   * BELOW 0 THE PIPES KEEP AWAY FROM THE PATHS (the artist, 2026-11-15: "길이랑 배관 로직 아예 별개로 가져가고 싶음.
+   * 지금은 거의 그냥 길 아래에 배관이 생김"): at 0 they still ran under the paths — both join the same houses by the
+   * shortest line. At −1 a step on a path costs PATH_AVOID times a step over open ground, and a step right beside
+   * one half of that: a pipe crosses a path where it must and never runs along one; it goes round the back of the
+   * houses and through the open middle instead. In between: that much of it.
    */
   pathPull?: number;
 }
@@ -275,6 +280,8 @@ const MARGIN = 10;
 const COST_PATH = 0.3;
 const COST_PIPE = 0.12;
 const COST_GROUND = 1;
+/** WaterConfig.pathPull −1: a step on a path costs this many steps over open ground (beside one: half of it). */
+const PATH_AVOID = 6;
 
 /**
  * The drainage of the history: per epoch, the sealed ground, each source's route to open ground (cheapest over the
@@ -698,6 +705,11 @@ function routeOut(
     const d = Math.SQRT2 * (1 + (1 - Math.min(1, cfg.diagonal)));
     steps.push([1, 1, d], [1, -1, d], [-1, 1, d], [-1, -1, d]);
   }
+  // (how a path weighs on a pipe's step: cheaper under it — pull > 0 — or dearer on it and beside it — pull < 0)
+  const pull = Math.max(-1, Math.min(1, cfg.pathPull ?? 1));
+  const onPath = pull >= 0 ? COST_GROUND - (COST_GROUND - COST_PATH) * pull : COST_GROUND * (1 + (PATH_AVOID - 1) * -pull);
+  const byPath = pull >= 0 ? COST_GROUND : COST_GROUND * (1 + (PATH_AVOID / 2 - 1) * -pull);
+  const besidePath = (i: number, j: number) => (i > 0 && path[j * nx + i - 1] === 1) || (i + 1 < nx && path[j * nx + i + 1] === 1) || (j > 0 && path[(j - 1) * nx + i] === 1) || (j + 1 < nz && path[(j + 1) * nx + i] === 1);
   let goal = -1;
   while (heap.length) {
     const u = pop();
@@ -715,7 +727,8 @@ function routeOut(
       if (done[v] || block[v] >= 0) continue;
       // no corner cutting past a building on a diagonal
       if (di && dj && (block[uj * nx + vi] >= 0 || block[vj * nx + ui] >= 0)) continue;
-      const cost = piped[v] ? COST_PIPE : path[v] ? COST_GROUND - (COST_GROUND - COST_PATH) * Math.max(0, Math.min(1, cfg.pathPull ?? 1)) : COST_GROUND;
+      // (a pipe already laid is cheap to join wherever it lies — but not one that lies on a path the pipes keep off)
+      const cost = path[v] ? (piped[v] && pull >= 0 ? COST_PIPE : onPath) : piped[v] ? COST_PIPE : pull < 0 && besidePath(vi, vj) ? byPath : COST_GROUND;
       const dd = dist[u] + len * cost;
       if (dd < dist[v]) {
         dist[v] = dd;

@@ -3123,7 +3123,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "관이 향하는 열린 땅 (덮인 비율이 이보다 낮은 곳)" },
             pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "덮인 땅으로 치는 길 (밟힘 세기)" },
             // (water.ts pathPull: "배관이 거의 길 따라가는데")
-            pipePathPull: { value: 0.3, min: 0, max: 1, step: 0.05, label: "관이 길 밑으로 가려는 정도 (1 = 길 밑이 훨씬 쌈, 예전 그대로 … 0 = 길과 무관하게 제 지름길)" },
+            pipePathPull: { value: -1, min: -1, max: 1, step: 0.05, label: "관과 길 (-1 = 관이 길을 피해 제 길로: 건너기만 하고 따라가지 않음 … 0 = 길과 무관한 지름길 … 1 = 길 밑으로, 예전 그대로)" },
             join: { value: DEFAULT_WATER.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
             quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
             diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "45° 꺾임 (0 = 직각만)" },
@@ -3197,6 +3197,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         ),
       },
       [WATER_GROUP_OLD, "수로 (덮인 땅의 물)", "길 · 다리"],
+      // (the artist, 2026-11-15: "길이랑 배관 로직 아예 별개로" — the saved 0.3 still laid the pipes under the paths)
+      REDESIGN ? [{ tag: "pipes-keep-off-paths-2026-11-15", set: { pipePathPull: -1 } }] : [],
     ),
     // (shown in the lab too, as the paths are)
     { order: lab ? 7.85 : 4.2, collapsed: true },
