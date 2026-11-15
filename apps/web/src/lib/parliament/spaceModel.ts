@@ -16,7 +16,7 @@ import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
-import { erosion, erosionAt, pipeErosion, type ErodeConfig, type Erosion } from "./erode";
+import { erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -427,7 +427,7 @@ export class SpaceModel {
    * block's top, and how little it was lived in). So a part fuses by where it lies; nothing else decides when.
    * null = not the block (the wear model's corrosion is read, as before).
    */
-  private blockClock: { top: number; decay: (b: Box) => number; layer: (k: number) => number; old: (slot: number) => number; erode: ErodeConfig } | null = null;
+  private blockClock: { top: number; decay: (b: Box) => number; layer: (k: number) => number; old: (slot: number, x?: number, z?: number) => number; erode: ErodeConfig } | null = null;
   private erodeKey = "";
   private history: NatureHistory | null = null;
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
@@ -675,7 +675,7 @@ export class SpaceModel {
         if (p.k < kLo || p.k > kHi) continue;
         // (the block: a run's erosion, by where it lies — as it is drawn, computeParts)
         const bc = this.blockClock;
-        const decay = quant20(bc && bc.erode.pipes !== false ? pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - wc.pipeDepth), bc.erode) * bc.old(p.k) : this.pipeDecayAt(p.k, w));
+        const decay = quant20(bc && bc.erode.pipes !== false ? pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - wc.pipeDepth), bc.erode) * bc.old(p.k, (p.ax + p.bx) / 2, (p.az + p.bz) / 2) : this.pipeDecayAt(p.k, w));
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
       }
@@ -1056,16 +1056,15 @@ export class SpaceModel {
       }
     }
     const ero = ec ? erosion(seeds, ec, this.erodeMemo) : null;
-    // (the count of layers is mixed in: nothing fuses in the newest slots, fuse.ts freshSlots — a factor on the place's
-    // value by how many slots below the top the part lies)
-    const fresh = Math.max(0, input.fuse.freshSlots ?? 0), ramp = Math.max(0, input.fuse.freshRamp ?? 0);
-    const old = (slot: number): number => {
+    // (the count of layers is multiplied in — fuse.ts freshSlots: a factor 0 at the top … 1 from that many slots down,
+    // the depth it is whole at differing from place to place in the erosion's patches)
+    const fresh = Math.max(0, input.fuse.freshSlots ?? 0), spread = Math.max(0, Math.min(1, input.fuse.freshSpread ?? 0));
+    const old = (slot: number, x?: number, z?: number): number => {
       if (!ec || fresh <= 0) return 1;
-      const q = ramp > 0 ? (ec.topSlot - (slot + 0.5) - fresh) / ramp : ec.topSlot - (slot + 0.5) >= fresh ? 1 : 0;
-      const c = q <= 0 ? 0 : q >= 1 ? 1 : q;
-      return c * c * (3 - 2 * c);
+      const n = spread > 0 && x !== undefined && z !== undefined ? fresh * (1 + spread * (placeNoise(x, z, slot, ec.grain * 2) * 2 - 1)) : fresh;
+      return Math.max(0, Math.min(1, (ec.topSlot - (slot + 0.5)) / Math.max(1e-6, n)));
     };
-    this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => ero.at(b) * old(b.slot), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
+    this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => ero.at(b) * old(b.slot, b.x, b.z), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
     const stands = ero ? built.filter((b) => !ero.gone(b)) : built;

@@ -195,6 +195,16 @@ function migrateSaved(key: string, m: SavedMigration): void {
  * (if any) and a save / reload row. `legacy`: the names the group had before (their saved values are taken as long as
  * nothing is saved under the new name). The type is the schema's own, so useControls infers its values as before.
  */
+/**
+ * ONE SAVE FOR A WHOLE FOLDER (the artist, 2026-11-15: "'길' 레바 폴더 다 저장로직이랑 이어졌는지도 확인해"). A folder
+ * inside a group may keep its own values under its own key (savable("group.folder", …): the paths' trodden ground
+ * inside 길) — it has its own save row, and the group's row did not reach it: pressing 길's save left 밟힘 unsaved.
+ * Every savable registers its save and reload by root; a group's row runs those of the folders inside it too.
+ */
+const savers = new Map<string, (get: (path: string) => unknown) => void>();
+const reloaders = new Map<string, () => void>();
+const inside = (root: string) => [...savers.keys()].filter((r) => r.startsWith(`${root}.`));
+
 export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = [], migrations: readonly SavedMigration[] = []): S {
   if (typeof window === "undefined") return schema;
   const key = storageKey(root);
@@ -202,10 +212,7 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
   if (!defaultsOnly) for (const m of migrations) migrateSaved(key, m);
   const paths = new Map<string, string>();
   const out = inject(schema as Item, root, defaultsOnly ? null : loadWithLegacy(root, legacy), paths);
-  out["__save"] = buttonGroup({
-    label: null,
-    opts: {
-      save: (get) => {
+  savers.set(root, (get) => {
         if (defaultsOnly) {
           showNote("기본값 모드 (?presets=default): 저장하지 않음", false);
           return;
@@ -227,8 +234,8 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
           /* storage full or blocked */
         }
         void pushPreset(key, values);
-      },
-      reload: () => {
+  });
+  reloaders.set(root, () => {
         let saved: Record<string, unknown> | null = null;
         try {
           const raw = window.localStorage.getItem(key);
@@ -245,6 +252,17 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
             /* an input that is not rendered */
           }
         }
+  });
+  out["__save"] = buttonGroup({
+    label: null,
+    opts: {
+      save: (get) => {
+        savers.get(root)?.(get);
+        for (const r of inside(root)) savers.get(r)?.(get);
+      },
+      reload: () => {
+        reloaders.get(root)?.();
+        for (const r of inside(root)) reloaders.get(r)?.();
       },
     },
   });

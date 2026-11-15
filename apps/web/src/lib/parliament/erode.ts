@@ -76,6 +76,11 @@ function patchNoise(b: Box, grain: number): number {
   return Math.min(1, Math.max(0, (n - 0.5) * 2.2 + 0.5));
 }
 
+/** The patches' noise at a place of the block (0 … 1): the same field the parts' thresholds are drawn from. */
+export function placeNoise(x: number, z: number, slot: number, grain: number): number {
+  return patchNoise({ x, z, slot } as Box, grain);
+}
+
 /** A part's own threshold, 0 … 1 (fixed): it is gone where erosion × amount is above it. */
 export function erodeThreshold(b: Box, cfg: Pick<ErodeConfig, "order" | "patch" | "grain">): number {
   const own = hash2(Math.round(b.x * 997) ^ b.seed, Math.round(b.z * 991) ^ Math.round(b.y * 983), PART_KINDS.indexOf(b.kind) + 4099);

@@ -87,14 +87,17 @@ export interface FuseConfig {
   /** Decay up to which the skeleton stands out of the mass (after it, it is swallowed too). */
   skeletonUntil: number;
   /**
-   * THE BLOCK — THE NEWEST LAYERS DO NOT FOSSILISE (the artist, 2026-11-15: "융합은 층수 로직도 섞어서", "제일 최신
-   * 층은 화석화 되면 안 되는데"). The fusion's clock there is the erosion of a part's place (spaceModel blockClock);
-   * it is read as nothing within `freshSlots` slots of the block's top, and comes in over the `freshRamp` slots below
-   * (the count of layers, whatever the place's own value — an unlived place near the top does not fuse either).
-   * Absent / 0 = no such band. Not read outside the block.
+   * THE BLOCK — THE COUNT OF LAYERS, MULTIPLIED IN (the artist, 2026-11-15: "융합은 층수 로직도 섞어서", "제일 최신
+   * 층은 화석화 되면 안 되는데" → "딱 잘려보이는데, 다른 로직에 곱하거나 하는 식으로(단수를) 조정"). The fusion's
+   * clock there is the erosion of a part's place (spaceModel blockClock) TIMES how many slots below the block's top it
+   * lies, as a share of `freshSlots`: 0 at the top, 1 from `freshSlots` slots down. A factor, not a line — the
+   * newest layers have next to nothing to fuse with, and where the mass begins follows the place's own value (the
+   * unlived fuse higher up, the lived lower down). `freshSpread` (0 … 1) lets that depth differ from place to place
+   * (× 1 ∓ spread, in the erosion's patches), so it is no plane even where the places are alike.
+   * Absent / 0 = the count of layers is not read. Not read outside the block.
    */
   freshSlots?: number;
-  freshRamp?: number;
+  freshSpread?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
