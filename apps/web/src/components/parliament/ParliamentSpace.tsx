@@ -276,6 +276,8 @@ interface NatureParams {
 
 /** The resin body of the oldest layers: transmissive, darkening with thickness (Beer–Lambert attenuation). */
 interface ResinLook {
+  /** Seconds the mass takes to change from what it was to what it is (the cross-fade; 0 = at once). */
+  fadeSec?: number;
   color: string;
   /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
@@ -391,8 +393,30 @@ const FUSE_PITS_GLSL = [
  * layers' voxel steps, ref 9579) is shaded by its face, not by the smoothed vertex normal; PITS — the shell's pores
  * (FUSE_PITS_GLSL) where the vertex allows them (z = coverage here, w = away from the ribs).
  */
-function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: FuseUniforms): void {
+/**
+ * THE MASS CHANGES SOFTLY (the artist, 2026-11-15: "건물 티커 적용처럼 융합 비주얼도 부드럽게 interpolate"). The mass
+ * is one mesh, made again whole whenever something in it changed — it has no parts to bring in one by one. So what
+ * it WAS is kept and drawn together with what it IS for a moment, through complementary screen-door patterns: a
+ * pixel is drawn by the new mesh where its noise is under `t`, by the old one where it is not, `t` going 0 → 1. Where
+ * the two are the same surface the picture does not change at all; where they differ, one dissolves into the other.
+ */
+interface FuseFade {
+  t: THREE.IUniform<number>;
+  /** 0 = what the mass is now (coming in), 1 = what it was (going out). */
+  side: 0 | 1;
+}
+
+function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: FuseUniforms, fade?: FuseFade): void {
   Object.assign(shader.uniforms, u);
+  if (fade) {
+    shader.uniforms.uFuseFade = fade.t;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uFuseFade;")
+      .replace(
+        "#include <clipping_planes_fragment>",
+        `#include <clipping_planes_fragment>\nfloat fuseFadeN = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) );\nif ( ${fade.side === 0 ? "fuseFadeN >= uFuseFade" : "fuseFadeN < uFuseFade"} ) discard;`,
+      );
+  }
   shader.vertexShader = shader.vertexShader
     .replace("#include <common>", "#include <common>\nattribute vec4 fuseExtra;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;")
     .replace("#include <begin_vertex>", "#include <begin_vertex>\nvExtra = fuseExtra;\nvFusePos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
@@ -427,10 +451,12 @@ function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: Fu
 }
 
 /** The fused stone's material (V1's mass before the resin; V2 draws everything as resin). */
-function makeStoneMaterial(u: FuseUniforms): THREE.MeshStandardMaterial {
+function makeStoneMaterial(u: FuseUniforms, fade?: FuseFade): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
   m.userData.fuseU = u;
-  m.onBeforeCompile = (shader) => patchFuseExtras(shader, u);
+  m.onBeforeCompile = (shader) => patchFuseExtras(shader, u, fade);
+  // (the two sides of the fade are two programs)
+  m.customProgramCacheKey = () => `fuse-stone-${fade ? fade.side : "x"}`;
   return m;
 }
 
@@ -439,7 +465,7 @@ function makeStoneMaterial(u: FuseUniforms): THREE.MeshStandardMaterial {
  * multiplied in as they are — that made the glass dirty — but normalised by the concrete's base grey, so a plain
  * surface leaves the resin colour as it is and only the deviations (pits, stains) show, by `shade` (0 = none).
  */
-function makeResinMaterial(u: FuseUniforms): THREE.MeshPhysicalMaterial {
+function makeResinMaterial(u: FuseUniforms, fade?: FuseFade): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 0, vertexColors: true });
   const uShade: THREE.IUniform = { value: 0.5 };
   // the FROSTED SKIN (no refraction): a Fresnel rim — brighter where the surface turns away from the eye, as glass
@@ -448,8 +474,9 @@ function makeResinMaterial(u: FuseUniforms): THREE.MeshPhysicalMaterial {
   m.userData.uShade = uShade;
   m.userData.uRim = uRim;
   m.userData.fuseU = u;
+  m.customProgramCacheKey = () => `fuse-resin-${fade ? fade.side : "x"}`;
   m.onBeforeCompile = (shader) => {
-    patchFuseExtras(shader, u);
+    patchFuseExtras(shader, u, fade);
     shader.uniforms.uShade = uShade;
     shader.uniforms.uRim = uRim;
     shader.fragmentShader = shader.fragmentShader
@@ -464,7 +491,7 @@ function makeResinMaterial(u: FuseUniforms): THREE.MeshPhysicalMaterial {
 }
 
 /** Replaces the fused mesh's geometry (the old one is disposed). */
-function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void {
+function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?: { mesh: THREE.Mesh | null; fade: { t: THREE.IUniform<number>; t0: number }; sec: number }): void {
   if (!mesh || !r) return;
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
@@ -475,8 +502,16 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined): void
   // group 0: opaque fused stone; group 1: resin (the oldest layers)
   g.addGroup(0, r.resinStart, 0);
   g.addGroup(r.resinStart, r.index.length - r.resinStart, 1);
-  mesh.geometry.dispose();
+  const old = mesh.geometry;
   mesh.geometry = g;
+  // what it was goes on being drawn while the new comes in (the frame loop ends the fade and lets it go)
+  if (was?.mesh && was.sec > 0 && (old.index?.count ?? 0) > 0) {
+    was.mesh.geometry.dispose();
+    was.mesh.geometry = old;
+    was.mesh.visible = true;
+    was.fade.t.value = 0;
+    was.fade.t0 = performance.now();
+  } else old.dispose();
 }
 
 /** Replaces a Points' geometry with the given buffers (the old one is disposed, freeing its GPU memory). */
@@ -964,17 +999,43 @@ function SpaceWorld({
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
   const fuseU = useMemo<FuseUniforms>(() => makeFuseUniforms(), []);
-  const stoneMat = useMemo(() => makeStoneMaterial(fuseU), [fuseU]);
-  const resinMat = useMemo(() => makeResinMaterial(fuseU), [fuseU]);
-  useEffect(() => applyResin(resinMat, resin), [resinMat, resin]);
+  // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
+  const fuseFade = useMemo(() => ({ t: { value: 1 } as THREE.IUniform<number>, t0: 0 }), []);
+  const fusedWas = useRef<THREE.Mesh>(null);
+  const fadeSec = useRef(0);
+  fadeSec.current = Math.max(0, resin.fadeSec ?? 0);
+  const stoneMat = useMemo(() => makeStoneMaterial(fuseU, { t: fuseFade.t, side: 0 }), [fuseU, fuseFade]);
+  const resinMat = useMemo(() => makeResinMaterial(fuseU, { t: fuseFade.t, side: 0 }), [fuseU, fuseFade]);
+  const stoneWas = useMemo(() => makeStoneMaterial(fuseU, { t: fuseFade.t, side: 1 }), [fuseU, fuseFade]);
+  const resinWas = useMemo(() => makeResinMaterial(fuseU, { t: fuseFade.t, side: 1 }), [fuseU, fuseFade]);
+  useEffect(() => {
+    applyResin(resinMat, resin);
+    applyResin(resinWas, resin);
+  }, [resinMat, resinWas, resin]);
   useEffect(() => {
     // the mass as a translucent body: alpha, no depth write (what stands inside shows through)
-    stoneMat.transparent = resin.massOpacity < 1;
-    stoneMat.opacity = resin.massOpacity;
-    stoneMat.depthWrite = resin.massOpacity >= 1;
-    stoneMat.needsUpdate = true;
-  }, [stoneMat, resin.massOpacity]);
+    for (const m of [stoneMat, stoneWas]) {
+      m.transparent = resin.massOpacity < 1;
+      m.opacity = resin.massOpacity;
+      m.depthWrite = resin.massOpacity >= 1;
+      m.needsUpdate = true;
+    }
+  }, [stoneMat, stoneWas, resin.massOpacity]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
+  const fusedWasMats = useMemo(() => [stoneWas, resinWas], [stoneWas, resinWas]);
+  useFrame(() => {
+    if (!fuseFade.t0) return;
+    const t = fadeSec.current > 0 ? (performance.now() - fuseFade.t0) / (fadeSec.current * 1000) : 1;
+    fuseFade.t.value = Math.min(1, t);
+    if (t < 1) return;
+    fuseFade.t0 = 0;
+    const m = fusedWas.current;
+    if (m) {
+      m.visible = false;
+      m.geometry.dispose();
+      m.geometry = new THREE.BufferGeometry();
+    }
+  });
   useEffect(() => {
     // transparent points are left out of the transmission pass (three.js re-renders only the opaque objects into it)
     gatherMat.transparent = !pointsInRefraction;
@@ -1058,7 +1119,7 @@ function SpaceWorld({
       gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
-    setFused(fused.current, r.fuse);
+    setFused(fused.current, r.fuse, { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current });
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms });
@@ -1261,6 +1322,10 @@ function SpaceWorld({
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
+        <bufferGeometry />
+      </mesh>
+      {/* what the mass was, while the new comes in (setFused; hidden otherwise) */}
+      <mesh ref={fusedWas} frustumCulled={false} visible={false} material={fusedWasMats}>
         <bufferGeometry />
       </mesh>
       <lineSegments geometry={pathGeom} material={pathMat} frustumCulled={false} visible={!!pathLook} renderOrder={3} />
@@ -2912,6 +2977,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     FU,
     savable(FU, {
       fuseOn: { value: DEFAULT_FUSE.enabled, label: REDESIGN ? "켜기 (덩어리: 부식 = 침식의 자리 값 · 작용 띠는 '침식'의 시작 … 다 깎이는 깊이)" : "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
+      // THE MASS CHANGES SOFTLY (FuseFade): what it was dissolves into what it is over this long
+      fuseFade: { value: 2, min: 0, max: 10, step: 0.25, label: "덩어리가 바뀔 때 녹아드는 시간 (s · 0 = 바로)" },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
         // THREE BANDS (the artist, 2026-10-31 night): the present (풍화 · 지층 › 현재 두께), the layer where the processes
@@ -3206,6 +3273,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
+      fadeSec: fu.fuseFade,
       color: fu.resinColor,
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
       opacity: fu.resinMode === "alpha" ? fu.resinOpacity : 1,
@@ -3220,7 +3288,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.fuseFade, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
