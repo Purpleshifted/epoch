@@ -126,12 +126,17 @@ export interface HerdConfig {
   origin: "even" | "doors" | "built" | "villages";
   originR: number;
   /**
-   * VILLAGES (the artist, 2026-11-15: "마을 시작"): `count` sites fixed for the whole block (by the epoch), within
-   * originR of the origin and at least `gap` apart. A herd (and a loner) belongs to one — the one with fewest herds
-   * living, mostly — is born in it and goes about inside its `radius` only: its stays, its round, the places it follows.
-   * The same ground at every time of the block, so a village stands through the block as a column.
+   * VILLAGES (the artist, 2026-11-15: "마을 시작"): sites of the epoch within originR of the origin. A herd (and a
+   * loner) belongs to one alive at its time — the one with fewest herds living, mostly — is born in it and goes about
+   * inside its `radius` only: its stays, its round, the places it follows.
+   * IN TIME (the artist, 2026-11-15: "마을은 시간대별로 거점이 다를 수 있어야"): with `lifeSec` > 0 and a block, a
+   * site lives for a span of the block's time (lifeSec × 0.6 … 1.4); `count` villages are alive at any time, each
+   * followed by the next of its line a little before it ends — near it with `carry` (the village moved), elsewhere
+   * otherwise (abandoned; a new one founded). The lines are out of step, so no time of the block is a border of eras.
+   * A herd whose village ends while it lives walks over to the one that follows it: a way between the two. Sites keep
+   * `gap` from the sites alive at the same time. lifeSec 0 = every site for the whole block (a column).
    */
-  villages?: { count: number; radius: number; gap: number };
+  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number };
   /** HOW THEY MOVE, as shares of the herds: settlers (long stays, short hops, back to their places), roamers (short
    *  stays, long walks) and those on a round (the same three or four places, again and again — paths between them). */
   mix: { settle: number; roam: number; tour: number };
@@ -155,7 +160,7 @@ export const DEFAULT_HERD: HerdConfig = {
   layout: "strata",
   origin: "villages",
   originR: 60,
-  villages: { count: 5, radius: 12, gap: 40 },
+  villages: { count: 5, radius: 12, gap: 40, lifeSec: 400, carry: 0.5 },
   mix: { settle: 1, roam: 1, tour: 1 },
   loose: 0.3,
   drift: 0,
@@ -428,44 +433,106 @@ export function herdsWanted(sec: number, h: HerdConfig): number {
 
 // ── villages ────────────────────────────────────────────────────────────────
 
-let siteCache: { key: string; sites: [number, number][] } | null = null;
+/** A village site: its ground, the block times it lives (from ≤ t < to), and the site that follows it (−1: none). */
+export interface VillageSite {
+  x: number;
+  z: number;
+  from: number;
+  to: number;
+  next: number;
+}
+
+let siteCache: { key: string; sites: VillageSite[] } | null = null;
 
 /**
- * The epoch's village sites (HerdConfig.villages): each the best of 16 draws within originR of the origin — the
- * farthest from the sites before it, or the first at least `gap` from all of them. Fixed while the epoch and the
- * knobs are; empty when the herds are not in villages.
+ * The epoch's village sites (HerdConfig.villages), by the epoch's draws only: `count` lines out of step, each a chain of
+ * sites over the block's time (or one site for the whole block when lifeSec is 0 or there is no block). A site is the
+ * best of 16 draws within originR — the farthest from the sites alive at the same time, or the first at least `gap`
+ * from all of them; a moved village is drawn at gap × 0.5 … 0.9 from the one before it. Empty when the herds are not
+ * in villages.
  */
-export function villageSites(epochMs: number, h: HerdConfig | undefined): [number, number][] {
+export function villageSites(epochMs: number, h: HerdConfig | undefined): VillageSite[] {
   if (!h || h.origin !== "villages" || !h.villages) return [];
-  const n = Math.max(1, Math.min(16, Math.round(h.villages.count)));
-  const key = `${epochMs}|${n}|${h.originR}|${h.villages.gap}`;
-  if (siteCache?.key === key) return siteCache.sites;
-  const sites: [number, number][] = [];
+  const V = h.villages;
+  const n = Math.max(1, Math.min(16, Math.round(V.count)));
+  const depth = Math.max(0, h.depthSec);
+  const life = depth > 0 ? Math.max(0, V.lifeSec ?? 0) : 0;
+  const carry = Math.max(0, Math.min(1, V.carry ?? 0));
   const R = Math.max(0, h.originR);
-  for (let i = 0; i < n; i++) {
+  const key = `${epochMs}|${n}|${R}|${V.gap}|${depth}|${life}|${carry}`;
+  if (siteCache?.key === key) return siteCache.sites;
+  const sites: VillageSite[] = [];
+  let d = 0;
+  const wd = (s: number) => worldDraw(epochMs, -1000 - d, s);
+  /** The best ground for a site alive over [from, to): far from the others then (and near `after`, a moved one). */
+  const seat = (from: number, to: number, after: VillageSite | null): [number, number] => {
+    const others = sites.filter((o) => o.from < to && from < o.to && o !== after);
     let best: [number, number] = [0, 0], bestD = -1;
-    for (let c = 0; c < 16; c++) {
-      const a = worldDraw(epochMs, -200 - i * 32 - c, 1) * 2 * Math.PI, d = R * Math.sqrt(worldDraw(epochMs, -200 - i * 32 - c, 2));
-      const x = wrapCoord(Math.sin(a) * d), z = wrapCoord(Math.cos(a) * d);
+    for (let c = 0; c < 16; c++, d++) {
+      let x: number, z: number;
+      if (after) {
+        const a = wd(1) * 2 * Math.PI, r = V.gap * (0.5 + 0.4 * wd(2));
+        x = after.x + Math.sin(a) * r;
+        z = after.z + Math.cos(a) * r;
+        // never out past originR (the box of the ground stays off the world's edge)
+        const L = Math.hypot(x, z);
+        if (L > R && L > 0) [x, z] = [(x / L) * R, (z / L) * R];
+      } else {
+        const a = wd(1) * 2 * Math.PI, r = R * Math.sqrt(wd(2));
+        [x, z] = [Math.sin(a) * r, Math.cos(a) * r];
+      }
+      x = wrapCoord(x);
+      z = wrapCoord(z);
       let dMin = Infinity;
-      for (const s of sites) dMin = Math.min(dMin, wrapDist(x, z, s[0], s[1]));
+      for (const o of others) dMin = Math.min(dMin, wrapDist(x, z, o.x, o.z));
       if (dMin > bestD) {
         bestD = dMin;
         best = [x, z];
       }
-      if (dMin >= h.villages.gap) break;
+      if (dMin >= V.gap) break;
     }
-    sites.push(best);
+    return best;
+  };
+  if (!(life > 0)) {
+    for (let i = 0; i < n; i++) {
+      const [x, z] = seat(-Infinity, Infinity, null);
+      sites.push({ x, z, from: -Infinity, to: Infinity, next: -1 });
+    }
+  } else {
+    // the lines: each begins at its own phase below time 0, and the earliest next start is laid first, so a site
+    // sees every site alive with it
+    const lines = Array.from({ length: n }, (_, i) => ({ at: -worldDraw(epochMs, -900 - i, 1) * life, last: -1 }));
+    for (let guard = 0; guard < 400; guard++) {
+      let li = -1;
+      for (let i = 0; i < n; i++) if (lines[i].at < depth && (li < 0 || lines[i].at < lines[li].at)) li = i;
+      if (li < 0) break;
+      const L = lines[li];
+      const len = life * (0.6 + 0.8 * worldDraw(epochMs, -2000 - guard, 1));
+      const prev = L.last >= 0 ? sites[L.last] : null;
+      const moved = prev !== null && worldDraw(epochMs, -2000 - guard, 2) < carry;
+      const [x, z] = seat(L.at, L.at + len, moved ? prev : null);
+      sites.push({ x, z, from: L.at, to: L.at + len, next: -1 });
+      if (prev) prev.next = sites.length - 1;
+      L.last = sites.length - 1;
+      // the next of the line comes a little before this one ends (the two are both lived in for a while)
+      L.at += len - life * 0.1;
+    }
   }
   siteCache = { key, sites };
   return sites;
+}
+
+/** v's place in the block's time now (the seconds its samples carry: lifecycleActor). */
+function blockSecOf(v: Visitor, wallMs: number, epochMs: number): number {
+  const drift = (v.drift ?? 0) * ((wallMs - v.bornMs) / 1000);
+  return Math.max(0, (wallMs - epochMs) / 1000 + v.off + (v.off < 0 ? Math.min(-v.off, drift) : 0));
 }
 
 /** The centre and radius of v's village, or null (no village). */
 function villageOf(v: Visitor, epochMs: number, h: HerdConfig | undefined): { x: number; z: number; r: number } | null {
   if (v.vil === undefined || !h?.villages) return null;
   const s = villageSites(epochMs, h)[v.vil];
-  return s ? { x: s[0], z: s[1], r: Math.max(1, h.villages.radius) } : null;
+  return s ? { x: s.x, z: s.z, r: Math.max(1, h.villages.radius) } : null;
 }
 
 /** A spot of v's village: within `share` of its radius, evenly over the disc (canonical). */
@@ -474,16 +541,37 @@ function spotIn(v: Visitor, vil: { x: number; z: number; r: number }, epochMs: n
   return [wrapCoord(vil.x + Math.sin(a) * d), wrapCoord(vil.z + Math.cos(a) * d)];
 }
 
-/** The village a new herd or loner joins: weighted towards those with fewest of `kind` living (1 / (1 + n)). */
-function chooseVillage(v: Visitor, st: LifecycleState, epochMs: number, h: HerdConfig, kind: "leader" | "loner"): number | undefined {
-  const n = villageSites(epochMs, h).length;
-  if (!n) return undefined;
-  const living = new Array<number>(n).fill(0);
-  for (const p of st.present) if (p.kind === kind && p.vil !== undefined && p.vil < n && p.id !== v.id) living[p.vil]++;
+/**
+ * The village a new herd or loner joins at block time `t`: one alive then, weighted towards those with fewest of `kind`
+ * living (1 / (1 + n)); none alive (past the top of the block) = the one whose span is nearest.
+ */
+function chooseVillage(v: Visitor, st: LifecycleState, epochMs: number, h: HerdConfig, kind: "leader" | "loner", t: number): number | undefined {
+  const sites = villageSites(epochMs, h);
+  if (!sites.length) return undefined;
+  const alive: number[] = [];
+  sites.forEach((s, i) => s.from <= t && t < s.to && alive.push(i));
+  if (!alive.length) {
+    let bi = 0, bd = Infinity;
+    sites.forEach((s, i) => {
+      const dd = t < s.from ? s.from - t : t - s.to;
+      if (dd < bd) [bi, bd] = [i, dd];
+    });
+    return bi;
+  }
+  const living = new Map<number, number>();
+  for (const p of st.present) if (p.kind === kind && p.vil !== undefined && p.id !== v.id) living.set(p.vil, (living.get(p.vil) ?? 0) + 1);
   let tot = 0;
-  const ws = living.map((c) => (tot += 1 / (1 + c)));
+  const ws = alive.map((i) => (tot += 1 / (1 + (living.get(i) ?? 0))));
   const u = draw(v, epochMs, 140) * tot;
-  return Math.max(0, ws.findIndex((w) => w >= u));
+  return alive[Math.max(0, ws.findIndex((w) => w >= u))];
+}
+
+/** A round of 3–4 spots of v's village (a tour herd's, again when its village is followed by another). */
+function villageTour(v: Visitor, vil: { x: number; z: number; r: number }, epochMs: number): number[] {
+  const n = 3 + Math.floor(draw(v, epochMs, 122) * 2);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(...spotIn(v, vil, epochMs, 1, 150 + 2 * i));
+  return out;
 }
 
 /** One ground candidate for a new herd, by the config's way of choosing it. */
@@ -530,9 +618,7 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((elapsed + offNow(p)) / depth) * bands)))]++;
   const fewest = Math.min(...inBand);
   const free = inBand.map((n, i) => (n === fewest ? i : -1)).filter((i) => i >= 0);
-  // VILLAGES: the herd's village first (its ground candidates are spots of it)
-  if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "leader");
-  let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1;
+  let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1, bestVil: number | undefined;
   for (let c = 0; c < 8; c++) {
     let off = v.off;
     if (depth > 0) {
@@ -541,16 +627,20 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
         off = Math.min(span, ((band + draw(v, epochMs, 110 + c)) / bands) * depth) - elapsed;
       } else off = draw(v, epochMs, 60 + c) * span - elapsed;
     }
+    // VILLAGES: one alive at this try's time (its ground candidates are spots of it)
+    if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "leader", Math.max(0, elapsed + off));
     const [x, z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, c);
     let dMin = Infinity;
     for (const p of leaders) dMin = Math.min(dMin, dist3(x, z, off, p.x, p.z, offNow(p), h));
     if (dMin > bestD) {
       bestD = dMin;
       best = [x, z, off];
+      bestVil = v.vil;
     }
     if (dMin >= h.gap) break;
   }
   [v.x, v.z, v.off] = best;
+  v.vil = bestVil;
   v.ex = v.x;
   v.ez = v.z;
   v.kind = "leader";
@@ -562,15 +652,11 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   else if (v.temper === "roam") v.ch = { ...v.ch, stayMean: Math.max(4, v.ch.stayMean * 0.35), range: Math.min(90, v.ch.range * 2.2), revisit: 0, follow: v.ch.follow * 0.5, speed: v.ch.speed * 1.2 };
   else {
     v.ch = { ...v.ch, stayMean: v.ch.stayMean * 0.8, follow: 0, revisit: 0 };
-    const n = 3 + Math.floor(draw(v, epochMs, 122) * 2);
     const vil = villageOf(v, epochMs, h);
-    v.tour = [];
+    // in a village: its round is spots of the village
+    const n = vil ? 0 : 3 + Math.floor(draw(v, epochMs, 122) * 2);
+    v.tour = vil ? villageTour(v, vil, epochMs) : [];
     for (let i = 0; i < n; i++) {
-      // in a village: its round is spots of the village
-      if (vil) {
-        v.tour.push(...spotIn(v, vil, epochMs, 1, 150 + 2 * i));
-        continue;
-      }
       const a = draw(v, epochMs, 123 + i) * 2 * Math.PI, d = v.ch.range * (0.4 + 0.6 * draw(v, epochMs, 130 + i));
       v.tour.push(wrapCoord(v.ex + Math.sin(a) * d), wrapCoord(v.ez + Math.cos(a) * d));
     }
@@ -585,7 +671,7 @@ function seatLoner(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numb
   const depth = Math.max(0, h.depthSec);
   // (a time of the fixed block, as a herd's: seatHerd)
   if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - v.lifeMs / 1000) - Math.max(0, (wallMs - epochMs) / 1000);
-  if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "loner");
+  if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "loner", Math.max(0, (wallMs - epochMs) / 1000 + v.off));
   [v.x, v.z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, 0);
   v.ex = v.x;
   v.ez = v.z;
@@ -900,6 +986,24 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
     // HERD: a member whose leader is gone goes on by itself
     const leader = v.lead ? byId.get(v.lead) : undefined;
     if (v.lead && !leader) v.lead = undefined;
+    // VILLAGES IN TIME: its village has ended at its time — it goes over to the one that follows (a member: its
+    // leader's); a stay is cut short so it sets off now, a round is laid anew in the new village
+    if (hc && v.vil !== undefined) {
+      const sites = villageSites(epochMs, hc);
+      const site = sites[v.vil];
+      const to = leader ? leader.vil : site && site.next >= 0 && blockSecOf(v, wallMs, epochMs) >= site.to ? site.next : v.vil;
+      if (to !== undefined && to !== v.vil) {
+        v.vil = to;
+        // its own earlier places were the old village's
+        v.stops = [];
+        const nv = villageOf(v, epochMs, hc);
+        if (nv && v.tour) {
+          v.tour = villageTour(v, nv, epochMs);
+          v.ti = v.tour.length / 2 - 1;
+        }
+        if (!leader && v.mode !== "go") v.untilMs = wallMs;
+      }
+    }
     // the end draws near: it slows as a visitor's controls do (session.ts lifeAt warn)
     const left = (v.lifeMs - (wallMs - v.bornMs)) / 1000;
     // LEAVING: time to walk out — to its own door, else the nearest — when the life left is about the walk there
