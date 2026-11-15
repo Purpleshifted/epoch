@@ -232,6 +232,10 @@ interface Stats {
   lagS: number;
   /** The fused mass as last received: triangles in all, and in the resin part (0 = the mesh came empty). */
   fuseTris: number;
+  /** SEEDED: of the mass's vertices, the share that is out of its part at all, and how far out they are on average
+   *  (0 … 1; −1 = the mass is not seeded) — so "nothing to be seen yet" can be told from "nothing there". */
+  fuseOut?: number;
+  fuseOutMean?: number;
   fuseResin: number;
   /** Chunks of slots baked (kept as they were, below the history window too). */
   baked: number;
@@ -373,11 +377,14 @@ interface FuseUniforms {
   uGrowWaitTop: THREE.IUniform;
   uGrowOnset: THREE.IUniform;
   uGrowFullAt: THREE.IUniform;
+  /** …and the slots a part stands before its fossil begins (it must have been simplified), and the slots it comes out over. */
+  uGrowAfter: THREE.IUniform;
+  uGrowOver: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
-    uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 },
+    uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
   };
 }
 
@@ -393,26 +400,21 @@ const FUSE_GROW_VERT_HEAD = `
 attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowStart, uGrowFull, uGrowVegPull, uGrowLifeTop, uGrowWaitTop, uGrowOnset, uGrowFullAt;
-varying float vGrow;
-float fuseProgress( float slot, float bornTop, float gather, float layers ) {
-  float t0 = bornTop + uGrowWaitTop;
-  float span = uGrowTop - t0;
-  if ( span <= 0.0 ) return 0.0;
-  float sum = 0.0;
-  for ( int q = 0; q < 6; q ++ ) {
-    float below = t0 + ( float( q ) + 0.5 ) / 6.0 * span - ( slot + 0.5 );
-    float e = clamp( ( below / max( 1.0, uGrowHeight ) + uGrowVegPull * gather - uGrowStart ) / max( 1e-4, uGrowFull - uGrowStart ), 0.0, 1.0 );
-    float old = layers > 0.0 ? clamp( below / layers, 0.0, 1.0 ) : 1.0;
-    sum += e * e * ( 3.0 - 2.0 * e ) * old;
-  }
-  return min( 1.0, sum / 6.0 * span / max( 1e-4, uGrowLifeTop ) );
-}`;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowVegPull, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver;
+varying float vGrow;`;
+// BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
+// 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
+// (0 the top … 1 its foot), deeper by the vegetation gathered there and a little sooner or later part by part — between
+// the depth the fossil begins at and the depth it is whole at; times how much of it the vegetation makes; and not
+// before its part has stood long enough to have been simplified (then over a few slots, so it does not appear at once).
+// No sum over the time gone by: the layer sinks as the window rises, and the fossil comes out with it.
 const FUSE_GROW_VERT_BODY = `
 vGrow = 1.0;
 if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
-  float growP = fuseProgress( fuseGrowA.x, fuseGrowA.y, fuseGrowA.z, fuseGrowB.x ) * fuseGrowA.w;
-  vGrow = clamp( ( growP - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), 0.0, 1.0 ) * fuseGrowB.y;
+  float growDepth = ( uGrowTop - ( fuseGrowA.x + 0.5 ) ) / max( 1.0, uGrowHeight ) + uGrowVegPull * fuseGrowA.z + ( fuseGrowA.w - 1.0 ) * 0.15;
+  float growLayer = clamp( ( growDepth - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), 0.0, 1.0 );
+  float growAged = clamp( ( uGrowTop - fuseGrowA.y - uGrowAfter ) / max( 0.1, uGrowOver ), 0.0, 1.0 );
+  vGrow = growLayer * growAged * fuseGrowB.y;
   transformed = mix( fuseAnchor, transformed, vGrow * vGrow * ( 3.0 - 2.0 * vGrow ) );
 }`;
 
@@ -1040,7 +1042,36 @@ function SpaceWorld({
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
-  const fuseStats = useRef({ fuseTris: 0, fuseResin: 0 });
+  const fuseStats = useRef<{ fuseTris: number; fuseResin: number; fuseOut?: number; fuseOutMean?: number }>({ fuseTris: 0, fuseResin: 0 });
+  // HOW FAR THE MASS IS OUT OF ITS PARTS (the readout): the shader's own sum on a sample of the vertices, once a
+  // second — the artist, 2026-11-16: "아직 뭐가 보이질 않아서 … 피드백을 못 주겠는데"
+  const growSeen = useRef(0);
+  useFrame(() => {
+    const now = performance.now();
+    if (now - growSeen.current < 1000) return;
+    growSeen.current = now;
+    const g = fused.current?.geometry;
+    const A = g?.getAttribute("fuseGrowA")?.array as Float32Array | undefined, B = g?.getAttribute("fuseGrowB")?.array as Float32Array | undefined;
+    if (!A || !B || fuseU.uGrowOn.value < 0.5) {
+      fuseStats.current.fuseOut = -1;
+      return;
+    }
+    const U = fuseU;
+    const nv = A.length / 4, stepV = Math.max(1, Math.floor(nv / 4000));
+    let out = 0, sum = 0, n = 0;
+    for (let v = 0; v < nv; v += stepV) {
+      n++;
+      if (B[v * 2 + 1] < 0) continue;
+      const depth = (U.uGrowTop.value - (A[v * 4] + 0.5)) / Math.max(1, U.uGrowHeight.value) + U.uGrowVegPull.value * A[v * 4 + 2] + (A[v * 4 + 3] - 1) * 0.15;
+      const layer = Math.max(0, Math.min(1, (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value)));
+      const aged = Math.max(0, Math.min(1, (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
+      const f = layer * aged * B[v * 2 + 1];
+      if (f >= 0.02) out++;
+      sum += f;
+    }
+    fuseStats.current.fuseOut = n ? out / n : 0;
+    fuseStats.current.fuseOutMean = n ? sum / n : 0;
+  });
   const stageMax = useRef<{ ms: number; at: number; stages: Record<string, number> }>({ ms: 0, at: 0, stages: {} });
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats });
@@ -1099,6 +1130,10 @@ function SpaceWorld({
     fuseU.uGrowWaitTop.value = Math.max(0, (er.waitSec ?? 0) / perTop);
     fuseU.uGrowOnset.value = fuse.fuseOnset;
     fuseU.uGrowFullAt.value = Math.max(fuse.fuseOnset + 0.01, Math.min(1, fuse.fuseFull ?? 1));
+    // (a part's fossil begins once every cell-slot of its age is surely simplified — the latest of them, 1.3 of the
+    // time — and a slot more for its mass to have been made; then it comes out over three slots)
+    fuseU.uGrowAfter.value = ((er.lodSec ?? 0) * 1.3) / perTop + 1;
+    fuseU.uGrowOver.value = 3;
   });
   // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
   const fuseFade = useMemo(() => ({ t: { value: 1 } as THREE.IUniform<number>, t0: 0 }), []);
@@ -1233,7 +1268,7 @@ function SpaceWorld({
     }
     setFused(fused.current, r.fuse, { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current }, fuseU);
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
-    if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
+    if (r.fuse) fuseStats.current = { ...fuseStats.current, fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     // where the worker's time went: the slowest request of the last few is kept, so a heavy one can be read
     if (r.stages && (r.ms >= stageMax.current.ms || performance.now() - stageMax.current.at > 8000)) stageMax.current = { ms: r.ms, at: performance.now(), stages: r.stages };
     if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms, stages: stageMax.current });
@@ -3443,10 +3478,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         cling: { value: 0, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (0 = 부재는 그대로 보이고 덩어리가 엉겨 붙음 … 1 = 전시 버전처럼 부재가 녹아 사라짐)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: (get) => REDESIGN && get(BODY_PATH) !== "crust" },
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "화석이 부재에서 나오기 시작하는 진행 (그 전엔 부재만 보임 · 0 = 지어지자마자 … 1 = 끝에서야)" },
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "화석이 나오기 시작하는 깊이 (창 높이의 비율 · 그 위에서는 부재만 보임 · 0 = 꼭대기 … 1 = 바닥)" },
         // (THE REDESIGN, 2026-11-15: 0.9 — the mass thickens over most of a part's progress, a thin skin first; the
         // exhibition's 0.49 was full two steps after it began)
-        fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "화석이 다 나온 진행 (위 값에 가까울수록 한꺼번에 부풀고 · 1 = 끝까지 천천히)" },
+        fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "화석이 다 나온 깊이 (창 높이의 비율 · 위 값에 가까울수록 좁은 띠에서 한꺼번에)" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 진행 (>1 = 끝까지 남음)", render: (get) => get(BODY_PATH) !== "crust" && get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
@@ -4022,7 +4057,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
-          {` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
+          {` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
+          {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
         <div ref={shotLine} />

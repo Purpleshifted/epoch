@@ -463,6 +463,8 @@ export class SpaceModel {
   /** THE EROSION'S TICK: per building and part (partKey), how eroded it was at the last reading and when it goes
    *  (STANDS while it stands; −Infinity = it was gone before anybody looked). */
   private erodeSeen = new Map<number, Map<number, [number, number]>>();
+  /** SEEDED: how deep in the window a part lies when the erosion takes it ([the settings it holds for, the depth]). */
+  private goneDepth = new WeakMap<Box, [string, number]>();
   // ── SIMPLIFIED WITH TIME (computeParts) ──
   /** Per building and slot: the ASSET its parts were made into once it had stood long enough — the masses it is made
    *  of (`src`: its own, and what was built over it and taken in), its plates and foundation as they were (`kept`),
@@ -2660,6 +2662,7 @@ export class SpaceModel {
     const seedXZ = seeded ? new Map(this.seeds.map((sd) => [sd.id, [sd.x, sd.z] as const] as const)) : null;
     const spreadS = Math.max(0, Math.min(1, fuse.freshSpread ?? 0)), freshS = Math.max(0, fuse.freshSlots ?? 0);
     const amountS = bc ? Math.min(1, Math.max(0, bc.erode.amount)) : 0;
+    const goneKey = bc ? `${JSON.stringify({ ...bc.erode, topSlot: 0 })}:${fuse.fuseOnset}:${freshS}:${spreadS}` : "";
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       if (assetsOnly && !this.assetClock.has(b)) continue;
@@ -2668,14 +2671,35 @@ export class SpaceModel {
         let th = this.erodeMemo.get(b);
         if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, bc.erode)));
         const own = spreadS > 0 ? 1 + spreadS * (1 - 2 * th) : 1;
-        // (it goes at progress th ÷ amount, its fossil begins at fuseOnset ÷ own: gone first = no fossil)
-        if (amountS > 0 && th < amountS && th / amountS <= fuse.fuseOnset / Math.max(0.05, own)) continue;
         const g = gatherOfSeed?.get(b.seed)?.get(b.slot) ?? 0;
         const most = 1 - crustVeg * (1 - g);
         if (most < 0.05) continue;
         const [sx, sz] = seedXZ.get(b.seed) ?? [b.x, b.z];
         const nEff = freshS > 0 ? freshS * (spreadS > 0 ? 1 + spreadS * (placeNoise(sx, sz, b.slot, bc.erode.grain * 2) * 2 - 1) : 1) : 0;
-        const e: P = { b, d: 1, up: true, sk: false, ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, this.assetClock.get(b)?.top ?? bc.top, g, own, nEff, most] };
+        const bornTop = this.assetClock.get(b)?.top ?? bc.top;
+        // A PART THAT GOES BEFORE ITS FOSSIL BEGINS LEAVES NONE (the wall's shader lets the fossil out by the layer's
+        // depth: FUSE_GROW_VERT_BODY): how deep the part lies when the erosion takes it — its progress summed slot by
+        // slot of the top's way, as computeParts does — against the depth its fossil begins at (kept per part: it
+        // does not change).
+        if (amountS > 0 && th < amountS) {
+          let goes = this.goneDepth.get(b);
+          if (goes === undefined || goes[0] !== goneKey) {
+            const ec = bc.erode, H = Math.max(1, ec.height ?? ec.topSlot);
+            const perTop = Math.max(1, ec.slotSec ?? box.secPerUnit) / Math.max(1e-6, ec.shift ?? 1);
+            const need = (th / amountS) * Math.max(1e-6, (ec.lifeSec ?? 0) / perTop);
+            let acc = 0, at = Infinity;
+            for (let T = bornTop + (ec.waitSec ?? 0) / perTop + 0.5; T < b.slot + 0.5 + H * 1.2; T++) {
+              acc += erosionAt(b.slot, g, { ...ec, topSlot: T }) * (nEff > 0 ? Math.max(0, Math.min(1, (T - (b.slot + 0.5)) / nEff)) : 1);
+              if (acc >= need) {
+                at = (T - (b.slot + 0.5)) / H;
+                break;
+              }
+            }
+            this.goneDepth.set(b, (goes = [goneKey, at]));
+          }
+          if (goes[1] + (bc.erode.vegPull ?? 0) * g + (own - 1) * 0.15 <= fuse.fuseOnset) continue;
+        }
+        const e: P = { b, d: 1, up: true, sk: false, ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornTop, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);
         else bySlot.set(b.slot, [e]);
