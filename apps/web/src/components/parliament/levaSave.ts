@@ -199,11 +199,17 @@ function migrateSaved(key: string, m: SavedMigration): void {
  * ONE SAVE FOR A WHOLE FOLDER (the artist, 2026-11-15: "'길' 레바 폴더 다 저장로직이랑 이어졌는지도 확인해"). A folder
  * inside a group may keep its own values under its own key (savable("group.folder", …): the paths' trodden ground
  * inside 길) — it has its own save row, and the group's row did not reach it: pressing 길's save left 밟힘 unsaved.
- * Every savable registers its save and reload by root; a group's row runs those of the folders inside it too.
+ * Every savable registers its save and reload by root; a save row runs those of its whole group (the artist, later
+ * the same day: "길 폴더 레바 뒤에서 세 개 값은 계속 저장이 안 돼" — whichever of the two rows is pressed).
  */
 const savers = new Map<string, (get: (path: string) => unknown) => void>();
 const reloaders = new Map<string, () => void>();
-const inside = (root: string) => [...savers.keys()].filter((r) => r.startsWith(`${root}.`));
+/** Every registered root of the group `root` belongs to (the group itself and the folders inside it that keep their
+ *  own values): any save row of a group saves the whole group — 길's own row and the one inside 길 › 밟힘 alike. */
+const groupOf = (root: string) => {
+  const top = root.split(".")[0];
+  return [...savers.keys()].filter((r) => r === top || r.startsWith(`${top}.`));
+};
 
 export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = [], migrations: readonly SavedMigration[] = []): S {
   if (typeof window === "undefined") return schema;
@@ -257,12 +263,10 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
     label: null,
     opts: {
       save: (get) => {
-        savers.get(root)?.(get);
-        for (const r of inside(root)) savers.get(r)?.(get);
+        for (const r of groupOf(root)) savers.get(r)?.(get);
       },
       reload: () => {
-        reloaders.get(root)?.();
-        for (const r of inside(root)) reloaders.get(r)?.();
+        for (const r of groupOf(root)) reloaders.get(r)?.();
       },
     },
   });
