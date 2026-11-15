@@ -2697,7 +2697,7 @@ export class SpaceModel {
             }
             this.goneDepth.set(b, (goes = [goneKey, at]));
           }
-          if (goes[1] + (bc.erode.vegPull ?? 0) * g + (own - 1) * 0.15 <= fuse.fuseOnset) continue;
+          if (goes[1] + (own - 1) * 0.15 <= fuse.fuseOnset) continue;
         }
         const e: P = { b, d: 1, up: true, sk: false, ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornTop, g, own, nEff, most] };
         const l = bySlot.get(b.slot);

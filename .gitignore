@@ -35,3 +35,6 @@ yarn-error.log*
 
 # Claude Code local config and session worktrees (per-folder, not shared)
 .claude/
+
+# the panel values an open tab posts while developing (apps/web api/dev-leva)
+.leva-live/

@@ -400,7 +400,7 @@ const FUSE_GROW_VERT_HEAD = `
 attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowVegPull, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver;
 varying float vGrow;`;
 // BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
 // 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
@@ -411,7 +411,10 @@ varying float vGrow;`;
 const FUSE_GROW_VERT_BODY = `
 vGrow = 1.0;
 if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
-  float growDepth = ( uGrowTop - ( fuseGrowA.x + 0.5 ) ) / max( 1.0, uGrowHeight ) + uGrowVegPull * fuseGrowA.z + ( fuseGrowA.w - 1.0 ) * 0.15;
+  // (the vegetation is a FACTOR of how much comes out — fuseGrowB.y — not a depth added: with the artist's own
+  // values, 2026-11-16, most cells are unlived and "unlived first" at 0.45 put every layer past the depth the fossil
+  // is whole at: the whole wall's fossil was out at once, and the layer shaped nothing)
+  float growDepth = ( uGrowTop - ( fuseGrowA.x + 0.5 ) ) / max( 1.0, uGrowHeight ) + ( fuseGrowA.w - 1.0 ) * 0.15;
   float growLayer = clamp( ( growDepth - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), 0.0, 1.0 );
   float growAged = clamp( ( uGrowTop - fuseGrowA.y - uGrowAfter ) / max( 0.1, uGrowOver ), 0.0, 1.0 );
   vGrow = growLayer * growAged * fuseGrowB.y;
@@ -1062,7 +1065,7 @@ function SpaceWorld({
     for (let v = 0; v < nv; v += stepV) {
       n++;
       if (B[v * 2 + 1] < 0) continue;
-      const depth = (U.uGrowTop.value - (A[v * 4] + 0.5)) / Math.max(1, U.uGrowHeight.value) + U.uGrowVegPull.value * A[v * 4 + 2] + (A[v * 4 + 3] - 1) * 0.15;
+      const depth = (U.uGrowTop.value - (A[v * 4] + 0.5)) / Math.max(1, U.uGrowHeight.value) + (A[v * 4 + 3] - 1) * 0.15;
       const layer = Math.max(0, Math.min(1, (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value)));
       const aged = Math.max(0, Math.min(1, (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
       const f = layer * aged * B[v * 2 + 1];

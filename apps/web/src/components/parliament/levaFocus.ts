@@ -35,6 +35,34 @@ export const LEVA_FOCUS: Record<string, readonly string[]> = {
 let installed = false;
 let active = false;
 
+/**
+ * DEV ONLY: the panel's values as they stand in this tab go to a file on this machine (app/api/dev-leva) — once the
+ * view is up, and again whenever they have changed — so what the artist has on the screen can be taken as it is and
+ * tried elsewhere, saved or not. A tab is told from another by a tag kept for the tab's life.
+ */
+let posting = false;
+function postLive(): void {
+  if (posting || typeof window === "undefined" || process.env.NODE_ENV !== "development") return;
+  posting = true;
+  const w = window as unknown as { __levaTag?: string };
+  const tag = (w.__levaTag ??= `tab-${Date.now().toString(36)}`);
+  let sent = "";
+  const send = () => {
+    const data = levaStore.getData() as Record<string, { value?: unknown } | undefined>;
+    const values: Record<string, unknown> = {};
+    for (const [path, input] of Object.entries(data)) {
+      const v = input?.value;
+      if (v !== undefined && typeof v !== "function") values[path] = v;
+    }
+    const body = JSON.stringify({ tag, page: window.location.pathname + window.location.search, ua: navigator.userAgent, values });
+    if (body === sent || Object.keys(values).length < 5) return;
+    sent = body;
+    void fetch("/api/dev-leva", { method: "POST", headers: { "content-type": "application/json" }, body }).catch(() => undefined);
+  };
+  window.setTimeout(send, 2500);
+  window.setInterval(send, 10000);
+}
+
 /** Whether a path is listed: every path of a group that is not cut down; of one that is, the knobs under review —
  *  or all of it, with its checkbox on. */
 function listed(path: string, data: Record<string, { value?: unknown } | undefined>): boolean {
@@ -52,6 +80,7 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
  */
 export function setLevaFocus(on: boolean): void {
   active = on;
+  postLive();
   if (installed || !on) return;
   installed = true;
   const all = levaStore.getVisiblePaths.bind(levaStore);
