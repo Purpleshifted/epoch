@@ -1756,15 +1756,19 @@ uniform float uFull;
 attribute float aSeed;
 varying float vShade;
 void main() {
+  // (THE RISING WINDOW: the points fill the window, whose foot is uMin.y — a point keeps its place in the world while
+  // the window rises past it, and when it drops out below it is a point of the new time at the top)
+  float yl = mod(position.y - uMin.y, uSpan.y);
+  vec3 pos = vec3(position.x, uMin.y + yl, position.z);
   // the texture's x, y are the ground's x, z cells; its depth is the slot (the height)
-  vec3 uvw = vec3((position.x - uMin.x) / uSpan.x, (position.z - uMin.z) / uSpan.z, (position.y - uMin.y) / uSpan.y);
+  vec3 uvw = vec3((pos.x - uMin.x) / uSpan.x, (pos.z - uMin.z) / uSpan.z, yl / uSpan.y);
   float human = texture(uHuman, uvw).r;
   // (uFull < 1: even untouched ground is not all vegetation)
   // (only round where anybody has been — uRange: 1 within the margin of what was built or walked, 0 beyond)
   float veg = (1.0 - human) * uFull * texture(uRange, uvw.xy).r;
   float alive = step(aSeed, veg);
   vShade = fract(aSeed * 7.31);
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = alive > 0.5 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
   gl_PointSize = alive * uSize * uScale / max(0.001, -mv.z);
 }`;
@@ -1796,7 +1800,10 @@ function Vegetation({
   moveAt,
   erode,
   margin,
+  base,
 }: {
+  /** The window's first slot (the rising block: its foot; 0 = the fixed block). */
+  base: number;
   /** World units of vegetation beyond what was built or walked (< 0 = the whole ground). */
   margin: number;
   unit: number;
@@ -1948,13 +1955,13 @@ function Vegetation({
   useEffect(() => {
     mat.uniforms.uHuman.value = tex;
     mat.uniforms.uRange.value = rangeTex;
-    mat.uniforms.uMin.value.set(-WORLD_HALF, 0, -WORLD_HALF);
+    mat.uniforms.uMin.value.set(-WORLD_HALF, base * unit, -WORLD_HALF);
     mat.uniforms.uSpan.value.set(WORLD_SIZE, D * unit, WORLD_SIZE);
     mat.uniforms.uSize.value = size;
     mat.uniforms.uFull.value = full;
     mat.uniforms.uColorA.value.set(colorA);
     mat.uniforms.uColorB.value.set(colorB);
-  }, [mat, tex, D, unit, size, full, colorA, colorB]);
+  }, [mat, tex, D, unit, size, full, colorA, colorB, base]);
   const timer = useRef(10);
   const moveTimer = useRef(0);
   // where the vegetation is at all: a map of the ground (N × N), and two scratch maps for widening it
@@ -1982,7 +1989,8 @@ function Vegetation({
     timer.current = 0;
     const data = tex.image.data as Uint8Array;
     data.fill(0);
-    const put = (cx: number, cz: number, k: number, share: number) => {
+    const put = (cx: number, cz: number, kAbs: number, share: number) => {
+      const k = kAbs - base; // (the texture's first row is the window's first slot)
       if (k < 0 || k >= D) return;
       const i = cx + N / 2 + N * (cz + N / 2 + N * k);
       const v = Math.round(Math.max(0, Math.min(1, share)) * 255);
@@ -2060,7 +2068,9 @@ function Vegetation({
     const C = WORLD_SIZE / N, top = D * unit;
     const R = Math.max(0.5, spotR), T = Math.max(0.2, spotGrow) * unit;
     const humanAt = (x: number, y: number, z: number): number => {
-      const cx = Math.floor(x / C) + N / 2, cz = Math.floor(z / C) + N / 2, k = Math.floor(y / unit);
+      // (a point's height is taken round the window, as the shader does)
+      const span = D * unit;
+      const cx = Math.floor(x / C) + N / 2, cz = Math.floor(z / C) + N / 2, k = Math.floor(((((y - base * unit) % span) + span) % span) / unit);
       if (cx < 0 || cx >= N || cz < 0 || cz >= N || k < 0) return 1;
       return k >= D ? 0 : data[cx + N * (cz + N * k)] / 255;
     };
@@ -2844,15 +2854,29 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     { order: lab ? 7.95 : 1.76, render: () => isV2 },
   );
+  // THE THICK PRESENT RISES (lifecycle.ts shift): where the block's top is now (slots, in quarters — the parts are read
+  // again at every quarter), from the bots' own clock; with no bots here, or a block that stands, its height.
+  const [win, setWin] = useState<{ top: number; shift: number; tail: number }>({ top: 0, shift: 0, tail: 0 });
+  useEffect(() => {
+    const read = () => {
+      const w = botGround.window?.();
+      const next = w && w.shift > 0 ? { top: Math.round((w.top / Math.max(1, tAxis.secPerUnit)) * 4) / 4, shift: w.shift, tail: w.tail } : { top: 0, shift: 0, tail: 0 };
+      setWin((cur) => (cur.top === next.top && cur.shift === next.shift && cur.tail === next.tail ? cur : next));
+    };
+    read();
+    const iv = window.setInterval(read, 500);
+    return () => window.clearInterval(iv);
+  }, [tAxis.secPerUnit]);
+  const rising = win.shift > 0 && botDepth > 0;
   // (only in the block, whose top is known: the bots' block height)
   const weatherEr = useMemo<WeatherConfig>(
     () =>
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait } }
+        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait } }
         : weather,
-    [weather, botDepth, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait],
+    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait],
   );
   // (the unlived share is read by the gatherings and by the erosion alike)
   const unlivedOn = vg.gaOn || er.erOn;
@@ -3554,7 +3578,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.dGrowCount, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
-  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: v.follow && !REDESIGN, markers: v.markers, markerHold: v.markerHold };
+  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: (v.follow && !REDESIGN) || rising, markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -3708,7 +3732,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
+          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene

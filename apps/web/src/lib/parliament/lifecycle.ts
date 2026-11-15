@@ -117,6 +117,14 @@ export interface HerdConfig {
   /** THE BLOCK: a fixed piece of spacetime, the times 0 … this many seconds; herds are born at times of it and live
    *  upwards from there (0 = no block: all at the present, as the clock goes). */
   depthSec: number;
+  /**
+   * THE THICK PRESENT RISES (the artist, 2026-11-15: "리디자인 전버전에서 '현재' 층이 엄청 두꺼운 느낌으로 … 서서히
+   * 위로 밀려 올라가는 시프트 델타티" → "실제 시간으로"). The block is no longer the times 0 … depthSec for good: it is
+   * a WINDOW that deep whose bottom is at `shift` × the seconds gone by — 1 = it rises with the clock (a slot of 20 s
+   * every 20 s), 0 / absent = it stands (the fixed block of 11/12). A herd is born at a time of the window and lives
+   * upwards from there, a second a second, as before; what the window has left behind is below it.
+   */
+  shift?: number;
   /** WHEN (height): "strata" = the depth is cut into as many bands as there are herds and a new herd takes one of
    *  the emptiest — herds at every time of the block; "any" = anywhere in the depth. */
   layout: "strata" | "any";
@@ -448,13 +456,16 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   // block does not climb with the clock. (A life begins low enough to end within the block.)
   const elapsed = Math.max(0, (wallMs - epochMs) / 1000);
   const depth = Math.max(0, h.depthSec);
-  const span = Math.max(0, depth - v.lifeMs / 1000);
+  // (the window's bottom is at shift × elapsed; a life rises 1 − shift faster than it, and begins low enough to end
+  // within it)
+  const shift = Math.max(0, Math.min(1, h.shift ?? 0)), still = 1 - shift;
+  const span = Math.max(0, depth - still * (v.lifeMs / 1000));
   const leaders = st.present.filter((p) => p.kind === "leader" && p.id !== v.id);
   const offNow = (p: Visitor) => p.off + (p.drift ?? 0) * ((wallMs - p.bornMs) / 1000);
   // STRATA: the bands of the depth and how many herds live in each
   const bands = Math.max(1, Math.round(h.count));
   const inBand = new Array<number>(bands).fill(0);
-  if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((elapsed + offNow(p)) / depth) * bands)))]++;
+  if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((still * elapsed + offNow(p)) / depth) * bands)))]++;
   const fewest = Math.min(...inBand);
   const free = inBand.map((n, i) => (n === fewest ? i : -1)).filter((i) => i >= 0);
   let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1;
@@ -463,8 +474,8 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
     if (depth > 0) {
       if (h.layout === "strata") {
         const band = free[Math.min(free.length - 1, Math.floor(draw(v, epochMs, 60 + c) * free.length))];
-        off = Math.min(span, ((band + draw(v, epochMs, 110 + c)) / bands) * depth) - elapsed;
-      } else off = draw(v, epochMs, 60 + c) * span - elapsed;
+        off = Math.min(span, ((band + draw(v, epochMs, 110 + c)) / bands) * depth) - still * elapsed;
+      } else off = draw(v, epochMs, 60 + c) * span - still * elapsed;
     }
     const [x, z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, c);
     let dMin = Infinity;
@@ -503,7 +514,8 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
 function seatLoner(v: Visitor, st: LifecycleState, wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig): void {
   const depth = Math.max(0, h.depthSec);
   // (a time of the fixed block, as a herd's: seatHerd)
-  if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - v.lifeMs / 1000) - Math.max(0, (wallMs - epochMs) / 1000);
+  const still = 1 - Math.max(0, Math.min(1, h.shift ?? 0));
+  if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - still * (v.lifeMs / 1000)) - still * Math.max(0, (wallMs - epochMs) / 1000);
   [v.x, v.z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, 0);
   v.ex = v.x;
   v.ez = v.z;

@@ -140,7 +140,12 @@ export function useGlobalBots(
       // the wall's 3D space: the ground and time as height (1 단 = 20 s = 높이 1)
       "자리 (3차원 · 1단 = 높이 1)": folder(
         {
-          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 높이 (단 · 고정된 시공간 · 60 = 20분)" },
+          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 높이 = 현재의 두께 (단 · 60 = 20분)" },
+          // THE THICK PRESENT RISES (lifecycle.ts shift; the artist, 2026-11-15: "실제 시간으로")
+          hShift: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 올라가는 속도 (1 = 실제 시간: 20초에 한 단 · 0 = 고정된 덩어리)" },
+          // (what has left the window: nothing of it is kept by default — every slot kept is a slot of buildings, ways
+          // and pipes the wall goes on working out: measured 2026-11-15, three windows' length = 9 s a round of ways)
+          hTail: { value: 0, min: 0, max: 120, step: 1, label: "올라간 덩어리 아래로 남기는 기록 (단 · 0 = 창을 벗어나면 버림 · 길수록 무거움)" },
           hLayout: { options: LAYOUT_OPTIONS, value: DEFAULT_HERD.layout, label: "높이 배치" },
           hOrigin: { options: ORIGIN_OPTIONS, value: DEFAULT_HERD.origin, label: "기점 (땅)" },
           hOriginR: { value: DEFAULT_HERD.originR, min: 5, max: 95, step: 1, label: "기점 반경 (월드)" },
@@ -195,6 +200,7 @@ export function useGlobalBots(
         gap: b.hGap,
         metersPerSec: SLOT_HEIGHT / SLOT_SEC,
         depthSec: b.hDepth * SLOT_SEC,
+        shift: b.hShift,
         layout: b.hLayout,
         origin: b.hOrigin,
         originR: b.hOriginR,
@@ -203,7 +209,7 @@ export function useGlobalBots(
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hShift, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   useEffect(() => {
     botGround.trail = b.hTrail;
@@ -217,6 +223,21 @@ export function useGlobalBots(
     for (const e of [...log.all()].sort((p, q) => p.s - q.s)) tailField.add(e);
   }, [enabled, log, b.hTailSec, b.hTailLeg]);
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
+  // (where the block's top is now, in seconds of its time axis: the wall reads it — botGround.topSec)
+  const shiftRef = useRef({ shift: 0, depthSec: 0, tail: 0 });
+  shiftRef.current = { shift: on ? b.hShift : 0, depthSec: b.hDepth * SLOT_SEC, tail: b.hTail };
+  useEffect(() => {
+    if (!on) return;
+    const f = () => {
+      const { shift, depthSec, tail } = shiftRef.current;
+      const elapsed = epochMs.current ? Math.max(0, (clock.now() - epochMs.current) / 1000) : 0;
+      return { top: shift * elapsed + depthSec, shift, tail };
+    };
+    botGround.window = f;
+    return () => {
+      if (botGround.window === f) botGround.window = null;
+    };
+  }, [on, clock]);
   const setDepth = opts?.setDepth;
   const deep = on ? b.hDepth : 0;
   useEffect(() => {

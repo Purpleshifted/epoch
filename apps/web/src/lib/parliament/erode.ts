@@ -51,6 +51,18 @@ export interface ErodeConfig {
    */
   lifeSec?: number;
   waitSec?: number;
+  /**
+   * THE THICK PRESENT RISES (lifecycle.ts shift): the block is a window `height` slots deep whose top is `topSlot`
+   * now and goes up `shift` slots of the time axis for every slot of time gone by (1 = with the clock). Depth is read
+   * below that top, as a share of `height` (absent: of `topSlot`, the fixed block). A cell-slot then sinks as the
+   * window rises, and its progress is what its changing depth lets it go on, summed since it was built.
+   */
+  height?: number;
+  shift?: number;
+  /** Seconds of one slot of the time axis (to turn lifeSec / waitSec into how far the top moves meanwhile). */
+  slotSec?: number;
+  /** THE RISING WINDOW: slots of record kept below its foot (0 = what leaves the window is let go). */
+  tail?: number;
 }
 
 export const DEFAULT_ERODE: Omit<ErodeConfig, "topSlot"> = { start: 0.15, full: 0.9, amount: 0.75, vegPull: 0.3, order: 0.6, patch: 0.6, grain: 4, shade: 0.25, feed: 0.6 };
@@ -61,7 +73,7 @@ const GO_AT: Record<PartKind, number> = { drip: 0, mass: 0.3, slab: 0.55, beam: 
 /** How eroded the place of a slot is, 0 … 1, by its depth below the top and its unlived share (0 … 1). */
 export function erosionAt(slot: number, gather: number, cfg: ErodeConfig): number {
   if (!(cfg.topSlot > 0)) return 0;
-  const depth = (cfg.topSlot - (slot + 0.5)) / cfg.topSlot + cfg.vegPull * gather;
+  const depth = (cfg.topSlot - (slot + 0.5)) / Math.max(1, cfg.height ?? cfg.topSlot) + cfg.vegPull * gather;
   const e = (depth - cfg.start) / Math.max(1e-6, cfg.full - cfg.start);
   const c = e <= 0 ? 0 : e >= 1 ? 1 : e;
   return c * c * (3 - 2 * c);

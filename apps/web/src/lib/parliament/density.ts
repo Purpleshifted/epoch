@@ -842,6 +842,76 @@ export class DensityField {
     return out;
   }
 
+  /**
+   * THE RISING WINDOW HAS PASSED (spaceModel: the thick present rises with the clock, and what is below it — and below
+   * the record kept under it — is let go): everything below slot `floor` is forgotten — what was put in, what was
+   * built, the paths, the joins. A BUILDING THAT STILL STANDS ACROSS THE FLOOR IS KEPT WHOLE (its size is read from
+   * all that was stayed in it, from its first slot: cut at the floor it would be rebuilt smaller while people are
+   * still in it) — but no further down than `hard`. Returns how many cell-slots went.
+   */
+  dropBelow(floor: number, hard = floor - 60): number {
+    const c = this.cfg;
+    let n = 0, paths = false;
+    for (const [ck, col] of this.cols) {
+      // the first slot of the building that reaches the floor, if one does
+      let cut = floor;
+      const ks: number[] = [];
+      for (const [k, cs] of col.slots) if (cs.level >= 1) ks.push(k);
+      if (col.joined) for (const k of col.joined) ks.push(k);
+      if (ks.length) {
+        ks.sort((p, q) => p - q);
+        let from = ks[0], prev = ks[0];
+        for (let i = 1; i <= ks.length; i++) {
+          if (i < ks.length && (ks[i] - prev - 1) * c.slotSec <= Math.max(0, c.gapSec)) {
+            prev = ks[i];
+            continue;
+          }
+          if (from < floor && prev >= floor) cut = Math.max(hard, from);
+          if (i < ks.length) from = prev = ks[i];
+        }
+      }
+      let hit = false;
+      for (const [k, cs] of col.slots) {
+        if (k >= cut) continue;
+        if (cs.level >= 1) this.nBuilt--;
+        if (cs.path) paths = true;
+        cs.level = 0; // (the queue of what was built skips it)
+        cs.by.clear();
+        col.slots.delete(k);
+        this.builtIn.get(k)?.delete(ck);
+        hit = true;
+        n++;
+      }
+      if (col.joined) {
+        for (const k of col.joined) {
+          if (k >= cut) continue;
+          col.joined.delete(k);
+          this.joinedIn.get(k)?.delete(ck);
+          hit = true;
+        }
+      }
+      const lived = this.lived.get(ck);
+      if (lived) for (const k of lived) if (k < cut) lived.delete(k);
+      if (hit) {
+        col.seed = undefined;
+        this.dirty.add(ck);
+      }
+    }
+    for (const m of [this.builtIn, this.joinedIn]) for (const [k, set] of m) if (k < floor && !set.size) m.delete(k);
+    for (const k of this.mergeDirty) if (k < hard) this.mergeDirty.delete(k);
+    if (n) {
+      this.stats.cellSlots -= n;
+      this.listDirty = true;
+      this.version++;
+      if (paths) {
+        this.pathVersion++;
+        this.plates = null;
+        this.lines = null;
+      }
+    }
+    return n;
+  }
+
   /** One Seed per ground cell that has anything: its runs of slots at level ≥ 1, its mass from its highest level. */
   seeds(): Seed[] {
     this.merge();

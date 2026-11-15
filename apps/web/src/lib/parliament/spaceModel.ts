@@ -520,12 +520,14 @@ export class SpaceModel {
    * the cell (seed id) and the slot, with the level it had; kept through the forgetting of old samples, emptied with
    * the world. `ageClock` only ever goes forward.
    */
-  private bornT = new Map<number, Map<number, { born: number; level: number }>>();
+  private bornT = new Map<number, Map<number, { born: number; level: number; top: number }>>();
   /** How far a part's plants have come since it was built (0 during its wait … 1): the gatherings read it. */
   private partSettled: ((b: Box) => number) | null = null;
   private ageClock = 0;
   /** How many times a cell-slot that had begun to go on was lived in again (the parts are read again when it moves). */
   private renewals = 0;
+  /** THE RISING WINDOW: the slot below which everything has been let go (computeParts). */
+  private floorDone = -Infinity;
   /** Whether the parts' ages have begun to be kept: until then what is found standing is taken as long there. */
   private ageBegun = false;
   /** What is made again whole in the block (the ways, the pipes): when it was last made, and of how many events. */
@@ -561,14 +563,23 @@ export class SpaceModel {
     }
     let h: NatureHistory | null = null;
     if (any) {
-      const x0 = a - 2, z0 = c - 2, nx = b - a + 5, nz = d - c + 5, nk = Math.max(1, Math.round(top) + 2);
+      // (only the slots anything stands in: the top rises without end)
+      let kLo = Infinity, kHi = -Infinity;
+      for (const sd of this.seeds) {
+        if (!sd.gather) continue;
+        for (const k of sd.gather.keys()) {
+          if (k < kLo) kLo = k;
+          if (k > kHi) kHi = k;
+        }
+      }
+      const x0 = a - 2, z0 = c - 2, nx = b - a + 5, nz = d - c + 5, nk = Math.max(1, kHi - kLo + 1);
       const V = new Float32Array(nx * nz * nk);
       for (const sd of this.seeds) {
         if (!sd.gather) continue;
         const i = Math.floor(sd.x / CELL) - x0, j = Math.floor(sd.z / CELL) - z0;
         for (const [k, g] of sd.gather) {
-          if (k < 0 || k >= nk || !(g > 0)) continue;
-          const off = k * nx * nz;
+          if (k < kLo || k > kHi || !(g > 0)) continue;
+          const off = (k - kLo) * nx * nz;
           for (let dj = -1; dj <= 1; dj++) {
             for (let di = -1; di <= 1; di++) {
               const p = off + (j + dj) * nx + i + di, v = di || dj ? g * 0.6 : g;
@@ -577,7 +588,7 @@ export class SpaceModel {
           }
         }
       }
-      h = { x0, z0, nx, nz, k0: 0, nk, V, P: new Float32Array(0) };
+      h = { x0, z0, nx, nz, k0: kLo, nk, V, P: new Float32Array(0) };
     }
     this.blockHist = { key, h };
     return h;
@@ -689,8 +700,32 @@ export class SpaceModel {
     // one building had changed). A district's mass is kept with a signature of what went into it: its parts (where
     // they lie, how far gone, standing or not), the layers' ages, the vegetation at its parts, the pipes and ways
     // (for the parts at no angle) and the look. A district whose signature stands is not fused again.
-    let layers = "";
-    if (layerDecay) for (let k = w.c0 - 12; k <= w.c1 + 12; k++) layers += Math.round(layerDecay(k) * 20).toString(36);
+    // THE LAYERS' LOOK IS THE UNIT'S OWN (the rising window): how old a layer of the mass looks — its voids, its
+    // darkening, how far it is fossil — is read from the parts of THIS district lying in it (their mean progress,
+    // over a slot above and below; a slot of it without parts: the district's mean), not from the block's depth: the
+    // depth of every slot changes all the time now, and read from it every district was fused again as it sank.
+    const lookOf = (list: typeof w.ps): ((k: number) => number) | undefined => {
+      if (!layerDecay) return undefined;
+      const sum = new Map<number, number>(), cnt = new Map<number, number>();
+      let all = 0;
+      for (const e of list) {
+        sum.set(e.b.slot, (sum.get(e.b.slot) ?? 0) + e.d);
+        cnt.set(e.b.slot, (cnt.get(e.b.slot) ?? 0) + 1);
+        all += e.d;
+      }
+      const mean = list.length ? all / list.length : 0;
+      return (k: number) => {
+        let sm = 0, n = 0;
+        for (let j = k - 1; j <= k + 1; j++) {
+          const c = cnt.get(j);
+          if (c) {
+            sm += sum.get(j)!;
+            n += c;
+          }
+        }
+        return n ? sm / n : mean;
+      };
+    };
     const used = new Set<string>();
     // (a district's signature reads what its mass is made of — how much of each part is mass — not the part's value
     // itself: past `fuseFull` a part is all mass and ageing on changes nothing)
@@ -699,10 +734,10 @@ export class SpaceModel {
       let sum = 0;
       for (const e of list) {
         const veg = h ? (natureAt(h, Math.floor(e.b.x / CELL), Math.floor(e.b.z / CELL), e.b.slot) ?? 0) : 0;
-        sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(fusedShare(e.d, fuse) * 20) * 0.65 + Math.round(accretionShare(e.d, fuse) * 20) * 0.35 + (e.up ? 19 : 0) + (e.sk ? 23 : 0) + veg * 5;
+        sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(fusedShare(e.d, fuse) * 20) * 0.65 + Math.round(accretionShare(e.d, fuse) * 20) * 0.35 + Math.round(e.d * 10) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0) + veg * 5;
       }
       for (const tb of tubes) sum += tb.decay * 13 + tb.x0 + tb.z1 + tb.y0 * 3 + tb.r * 17;
-      return `${list.length}:${tubes.length}:${sum.toFixed(3)}:${layers}:${cfgKey}`;
+      return `${list.length}:${tubes.length}:${sum.toFixed(3)}:${cfgKey}`;
     };
     // NOTHING COMES OF A PLACE WHERE NO PART IS FUSING (measured 2026-11-15: with "판 사이 채우기" on — the exhibition's
     // value — every plate of every building is handed to the fusion whether it has begun to fuse or not, so every
@@ -734,7 +769,7 @@ export class SpaceModel {
             });
             const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
             if (!fusing(ps)) continue;
-            want(0, `${w.c0}:0:${tx}:${tz}`, sigOf(ps, tubes), () => this.fuseTiles({ ...w, ps, tubes, x0: tx, z0: tz, nx: T, nz: T }, h, u, sed, layerDecay, fuse, T));
+            want(0, `${w.c0}:0:${tx}:${tz}`, sigOf(ps, tubes), () => this.fuseTiles({ ...w, ps, tubes, x0: tx, z0: tz, nx: T, nz: T }, h, u, sed, lookOf(ps), fuse, T));
           }
         }
         continue;
@@ -745,7 +780,7 @@ export class SpaceModel {
         const c = Math.cos(ang), sn = Math.sin(ang);
         const turned = list.map((e) => ({ ...e, b: { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } }));
         const ext = extent(turned, []);
-        const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...ext }, h ? SpaceModel.turnedHistory(h, c, sn, ext, w.c0 - 12, w.c1 + 12) : null, u, sed, layerDecay, fuse, BLOCK_TILE);
+        const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...ext }, h ? SpaceModel.turnedHistory(h, c, sn, ext, w.c0 - 12, w.c1 + 12) : null, u, sed, lookOf(list), fuse, BLOCK_TILE);
         for (const arr of [m.position, m.normal]) {
           for (let i = 0; i < arr.length; i += 3) {
             const x = arr[i], z = arr[i + 2];
@@ -1140,6 +1175,7 @@ export class SpaceModel {
     if (!keepBuilt) {
       this.bornT.clear();
       this.ageBegun = true;
+      this.floorDone = -Infinity;
     }
     this.events = [];
     this.ids.clear();
@@ -1219,7 +1255,30 @@ export class SpaceModel {
     let lapT = performance.now();
     this.densityCfg = input.density ?? null;
     const { box, lod } = input;
-    const seeds = this.ensureSeeds(input.fold);
+    let seeds = this.ensureSeeds(input.fold);
+    // THE RISING WINDOW LETS GO OF WHAT IS BELOW IT (the artist, 2026-11-15: "전체 시간 덩어리가 조금씩 위로 올라가며 아래 걸
+    // 버리도록"): below its foot — and the record kept under it (erode.tail) — the density forgets what was put in and
+    // built, and with it go the parts, their lives, the ways and the pipes laid there. Without it the column grew for
+    // ever: measured the same day, three windows' length held 720 buildings and a round of ways took 9 s.
+    const we0 = this.densityCfg ? input.weather.erode : null;
+    const floorNow = we0 && (we0.shift ?? 0) > 0 && we0.height ? Math.floor(we0.topSlot - we0.height - Math.max(0, we0.tail ?? 0)) : -Infinity;
+    if (floorNow !== this.floorDone) {
+      if (floorNow > this.floorDone && this.densityState) {
+        this.densityState.field.dropBelow(floorNow, floorNow - Math.max(1, Math.round(we0!.height!)));
+        for (const [id, m] of this.bornT) {
+          for (const k of m.keys()) if (k < floorNow) m.delete(k);
+          if (!m.size) this.bornT.delete(id);
+        }
+        if (this.drainKept) {
+          const streams = new Map<number, Float32Array[]>();
+          for (const [k, c] of this.drainKept.streams) if (k >= floorNow) streams.set(k, c);
+          this.drainKept = { ...this.drainKept, pipes: this.drainKept.pipes.filter((p) => p.k >= floorNow), streams };
+        }
+        if (this.walkKept) this.walkKept = { ...this.walkKept, layers: this.walkKept.layers.filter((l) => l.k >= floorNow) };
+        seeds = this.ensureSeeds(input.fold);
+      }
+      this.floorDone = floorNow;
+    }
     lapT = this.lap("seeds", lapT);
     const t = this.t;
     /** The same config without slat bundles and drips, for far seeds. */
@@ -1261,6 +1320,7 @@ export class SpaceModel {
         // (only what had begun to go on is a change to be seen)
         if (nowAge - e.born > (input.weather.erode?.waitSec ?? 0)) this.renewals++;
         e.born = nowAge;
+        e.top = input.weather.erode?.topSlot ?? 0;
       }
     }
     // (the block's parts go on by the clock: they are read again at every step of it)
@@ -1281,7 +1341,9 @@ export class SpaceModel {
     const order = [...seeds].sort((a, b) => a.t0 - b.t0 || a.id - b.id);
     const built: Box[] = [];
     const live = new Set<number>();
-    const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
+    // (the density keeps what it has built whatever samples were forgotten since: nothing of it is below a window —
+    // but the RISING window's floor: a building standing across it keeps its slots below for its size, not its parts)
+    const floorK = this.densityCfg ? floorNow : Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
     for (const s0 of order) {
       // a building's mass grows with every sample: the parts follow it in steps of a quarter, so a living building is
       // not rebuilt (every part regenerated) twice a second
@@ -1350,6 +1412,9 @@ export class SpaceModel {
     // (THE BLOCK: nothing laid is kept there — the whole is laid again — and somebody is always writing: at every new
     // cell and every slot it cost 0.1–0.9 s of the worker, more as the world grew. There it is laid again at most
     // every SLOW_MS, when anything was written since: slowKey)
+    // THE RISING WINDOW (erode.ts shift): the last slot below it — nothing is written there any more
+    const we = this.densityCfg ? input.weather.erode : null;
+    const belowK = we && (we.shift ?? 0) > 0 && we.height ? Math.floor(we.topSlot - we.height) - 2 : null;
     const dCfg = `${box.secPerUnit}:${presentSlots}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
     const dKey = this.densityCfg ? this.slowKey("drain", dCfg) : `${Math.floor(t / box.secPerUnit)}:${seeds.length}:${dCfg}`;
     lapT = this.lap("parts", lapT);
@@ -1359,11 +1424,13 @@ export class SpaceModel {
       // (THE BLOCK: with the density's buildings anybody may write at any depth, so nothing laid is kept as it was,
       // and the ground is read per slot from what stands in it — water.ts DrainageOptions.block)
       const inBlock = !!this.densityCfg;
-      const kept = !inBlock && this.drainKept && this.drainKept.rule === rule ? this.drainKept : undefined;
+      // (…but below a RISING window nobody writes any more: what was laid there is kept as it is — the samples it was
+      // laid from are forgotten in time, and it must not go with them)
+      const kept = (!inBlock || belowK !== null) && this.drainKept && this.drainKept.rule === rule ? this.drainKept : undefined;
       this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t, frozen: kept, present: presentSlots, block: inBlock });
       // the slots before the present are done: what was laid there stays
       // only what lies below the present thickness is done; the present keeps changing
-      const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
+      const upToK = belowK ?? Math.floor(t / box.secPerUnit) - presentSlots;
       const streams = new Map<number, Float32Array[]>();
       for (const [k, c] of this.drain.streams) if (k <= upToK) streams.set(k, c);
       this.drainKept = { rule, pipes: this.drain.pipes.filter((p) => p.k <= upToK), streams, upToK };
@@ -1378,9 +1445,9 @@ export class SpaceModel {
       this.walkKey = wKey;
       const rule = `${box.secPerUnit}:${box.unit}:${presentSlots}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}`;
       // (THE BLOCK: with the density's buildings anybody may write at any depth, so no layer is kept as it was)
-      const kept = !this.densityCfg && this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
+      const kept = (!this.densityCfg || belowK !== null) && this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
       this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, present: presentSlots }) : NO_WALKWAYS;
-      const upToK = Math.floor(t / box.secPerUnit) - presentSlots;
+      const upToK = belowK ?? Math.floor(t / box.secPerUnit) - presentSlots;
       this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;
     }
     const near = this.nearWater;
@@ -1424,10 +1491,10 @@ export class SpaceModel {
     // (the count of layers is multiplied in — fuse.ts freshSlots: a factor 0 at the top … 1 from that many slots down,
     // the depth it is whole at differing from place to place in the erosion's patches)
     const fresh = Math.max(0, input.fuse.freshSlots ?? 0), spread = Math.max(0, Math.min(1, input.fuse.freshSpread ?? 0));
-    const old = (slot: number, x?: number, z?: number): number => {
+    const old = (slot: number, x?: number, z?: number, top = ec ? ec.topSlot : 0): number => {
       if (!ec || fresh <= 0) return 1;
       const n = spread > 0 && x !== undefined && z !== undefined ? fresh * (1 + spread * (placeNoise(x, z, slot, ec.grain * 2) * 2 - 1)) : fresh;
-      return Math.max(0, Math.min(1, (ec.topSlot - (slot + 0.5)) / Math.max(1e-6, n)));
+      return Math.max(0, Math.min(1, (top - (slot + 0.5)) / Math.max(1e-6, n)));
     };
     // …and PART BY PART (the artist, 2026-11-15: "여전히 잘려 보이는 곳이 있어서 자연스럽게 생성된다는 느낌이 안 듦"):
     // read by the place alone, every part of a slot had the same value — the mass began on one plane, and in steps
@@ -1467,10 +1534,13 @@ export class SpaceModel {
         if (!m) this.bornT.set(sd.id, (m = new Map()));
         for (const [k, lv] of sd.levels) {
           const e = m.get(k);
-          if (!e) m.set(k, { born: found ? ageNow - lifeSec - waitSec : ageNow, level: lv });
+          // (the rising window: what was found standing is taken as built when the top was at its own slot — it has
+          // sunk all the way since)
+          if (!e) m.set(k, { born: found ? ageNow - lifeSec - waitSec : ageNow, level: lv, top: found ? k + 0.5 : ec.topSlot });
           else if (lv > e.level) {
             e.born = ageNow;
             e.level = lv;
+            e.top = ec.topSlot;
           }
         }
         if (m.size > sd.levels.size) for (const k of m.keys()) if (!sd.levels.has(k)) m.delete(k);
@@ -1501,13 +1571,70 @@ export class SpaceModel {
     };
     /** How fast a part's place lets it go on (0 … 1). */
     const weight = (b: Box): number => (ero ? Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z))) : 0);
+    /**
+     * THE RISING WINDOW: a cell-slot's progress is what its place let it go on at every moment since it was built —
+     * and its place changes: it sinks as the top rises. Summed over the top's way from where it stood when the
+     * cell-slot was built (plus the wait) to where it stands now, in the clock's shared steps (and the patch's beat):
+     * Σ weight(depth at that top) × the time the top took over that stretch ÷ lifeSec. No wall clock in it — only
+     * how far the window has moved — so it is the same at any time rate.
+     */
+    const shiftRate = ec && lifeSec > 0 ? Math.max(0, ec.shift ?? 0) : 0;
+    const slotSecE = Math.max(1, ec?.slotSec ?? box.secPerUnit);
+    const gatherOfSeed = new Map<number, ReadonlyMap<number, number> | undefined>();
+    const xzOfSeed = new Map<number, [number, number]>();
+    if (shiftRate > 0) {
+      for (const sd of seeds) {
+        gatherOfSeed.set(sd.id, sd.gather);
+        xzOfSeed.set(sd.id, [sd.x, sd.z]);
+      }
+    }
+    const sunkMemo = new Map<number, Map<number, [number, number]>>();
+    /** [progress, how far past its wait the cell-slot is, in steps] of a cell-slot in the rising window. */
+    const sunk = (seed: number, slot: number): [number, number] => {
+      let ms = sunkMemo.get(seed);
+      if (!ms) sunkMemo.set(seed, (ms = new Map()));
+      const hit = ms.get(slot);
+      if (hit) return hit;
+      let out: [number, number] = [0, 0];
+      const m = this.bornT.get(seed);
+      let e = m?.get(slot);
+      if (m && !e) {
+        let lo = Infinity;
+        for (const k of m.keys()) if (k < lo) lo = k;
+        e = m.get(lo);
+      }
+      if (e && ec) {
+        const perTop = slotSecE / shiftRate; // seconds the top takes over one slot
+        const lifeTop = lifeSec / perTop, waitTop = waitSec / perTop;
+        const stepTop = lifeTop / AGE_STEPS;
+        const [sx, sz] = xzOfSeed.get(seed) ?? [0, 0];
+        const ph = (phaseOf(sx, sz, slot) * stepTop) / AGE_PHASES;
+        const t0 = e.top + waitTop;
+        const t1 = Math.floor((ec.topSlot + ph) / stepTop) * stepTop - ph;
+        if (t1 > t0) {
+          const g = gatherOfSeed.get(seed)?.get(slot) ?? 0;
+          const N = 8;
+          let sum = 0;
+          for (let q = 0; q < N; q++) {
+            const top = t0 + ((q + 0.5) / N) * (t1 - t0);
+            sum += Math.max(0, Math.min(1, erosionAt(slot, g, { ...ec, topSlot: top }) * old(slot, sx, sz, top)));
+          }
+          out = [Math.min(1, ((sum / N) * (t1 - t0)) / lifeTop), (t1 - t0) / stepTop];
+        }
+      }
+      ms.set(slot, out);
+      return out;
+    };
     /** A part's progress, 0 … 1. Without a life time (lifeSec 0) the place alone, as before. */
     const progMemo = new Map<Box, number>();
     const progress = (b: Box): number => {
       let v = progMemo.get(b);
       if (v === undefined) {
-        const wgt = weight(b);
-        v = lifeSec > 0 ? Math.min(1, (wgt * aged(b)) / lifeSec) : wgt;
+        if (shiftRate > 0) v = sunk(b.seed, b.slot)[0];
+        else {
+          const wgt = weight(b);
+          v = lifeSec > 0 ? Math.min(1, (wgt * aged(b)) / lifeSec) : wgt;
+        }
         progMemo.set(b, v);
       }
       return v;
@@ -1528,7 +1655,7 @@ export class SpaceModel {
           }
         : null;
     // the plants come once the part is built: nothing during the wait, all of them a few steps on
-    this.partSettled = ec && lifeSec > 0 ? (b: Box) => Math.min(1, aged(b) / (2 * step)) : null;
+    this.partSettled = ec && lifeSec > 0 ? (shiftRate > 0 ? (b: Box) => Math.min(1, sunk(b.seed, b.slot)[1] / 2) : (b: Box) => Math.min(1, aged(b) / (2 * step))) : null;
     this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => Math.max(0, Math.min(1, progress(b) * own(b))), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = life && ec ? { ...life, feed: ec.feed } : null;
@@ -1688,7 +1815,7 @@ export class SpaceModel {
             const step2 = lifeSec > 0 ? lifeSec / AGE_STEPS : 1;
             const ph2 = (phaseOf(sd.x, sd.z, k) * step2) / AGE_PHASES;
             const aged2 = e ? Math.max(0, Math.floor((this.ageClock + ph2) / step2) - Math.floor((e.born + waitSec + ph2) / step2)) * step2 : 0;
-            prog = (lifeSec > 0 ? Math.min(1, (wgt * aged2) / lifeSec) : wgt) * amountC;
+            prog = (shiftRate > 0 ? sunk(sd.id, k)[0] : lifeSec > 0 ? Math.min(1, (wgt * aged2) / lifeSec) : wgt) * amountC;
           }
           cells.set([cx, cz, k, age > 1e5 || !e ? -1 : age, prog], ci);
           ci += 5;
@@ -1852,7 +1979,13 @@ export class SpaceModel {
       return { x0: ex0, z0: ez0, nx: Math.ceil(b / CELL) + MARGIN - ex0, nz: Math.ceil(d / CELL) + MARGIN - ez0 };
     };
     const wants: Want[] = [];
-    for (let c0 = Math.floor(kA / NATURE_CHUNK) * NATURE_CHUNK; c0 <= kB; c0 += NATURE_CHUNK) {
+    // (only where anything stands: the top rises without end)
+    let sLo = Infinity, sHi = -Infinity;
+    for (const k of bySlot.keys()) {
+      if (k < sLo) sLo = k;
+      if (k > sHi) sHi = k;
+    }
+    for (let c0 = Math.floor(Math.max(kA, sLo - 24) / NATURE_CHUNK) * NATURE_CHUNK; c0 <= Math.min(kB, sHi + 24); c0 += NATURE_CHUNK) {
       if (this.baked.has(c0)) continue; // done: kept as it was
       const c1 = c0 + NATURE_CHUNK - 1;
       const ps: P[] = [];
@@ -1881,7 +2014,8 @@ export class SpaceModel {
     // (oldest-first starved the upper chunks — where the buildings are — while the lower ones kept changing)
     const focus = input.focusK ?? kNow;
     const dist = (w: Want) => Math.abs((w.c0 + w.c1) / 2 - focus);
-    const floorK = Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
+    // (the density keeps what it has built whatever samples were forgotten since: nothing of it is below a window)
+    const floorK = this.densityCfg ? -Infinity : Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
     /** About to leave the history window: the two chunks just above the cut. */
     // … and so are the chunks about to fall below the vegetation window (kA, which follows the focus): a live chunk
     // outside it is not asked for any more, and would vanish with its mass

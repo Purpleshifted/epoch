@@ -19,4 +19,7 @@ export const botGround: {
    *  vegetation gives way to this — to the buildings that are there, not to the density they will come of. */
   shown: Float32Array | null;
   shownAt: number;
-} = { built: null, slotSec: 20, trail: 1, shown: null, shownAt: 0 };
+  /** Where the block's top is now (seconds of its time axis) and how fast it rises (lifecycle.ts shift; 0 = it
+   *  stands): set by the bots, read by the wall. null = no bots running here. */
+  window: (() => { top: number; shift: number; tail: number }) | null;
+} = { built: null, slotSec: 20, trail: 1, shown: null, shownAt: 0, window: null };
