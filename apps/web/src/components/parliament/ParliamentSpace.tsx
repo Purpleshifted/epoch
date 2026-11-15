@@ -2636,8 +2636,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   // (only in the block, whose top is known: the bots' block height)
   const weatherEr = useMemo<WeatherConfig>(
     () =>
-      REDESIGN && er.erOn && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erAmount, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erShade, feed: er.erFeed, pipes: er.erPipes } }
+      // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
+      // nothing goes: amount 0)
+      REDESIGN && dn.densityOn && botDepth > 0
+        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes } }
         : weather,
     [weather, botDepth, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes],
   );
@@ -2901,10 +2903,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
   const { cfg: natureCfg } = useNatureControls({ hidden: REDESIGN, folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
-  const fu = useControls(
+  // BROUGHT OVER (the artist, 2026-11-15: "융합 진행하면 될 것 같고"): the fusion in the block. Its one clock — a
+  // part's corrosion, 0 new … 1 gone — is there the EROSION OF THE PART'S PLACE (침식: depth below the block's top ×
+  // how little it was lived in; spaceModel blockClock), so the thresholds below are thresholds of that, and where the
+  // band lies is the erosion's 시작 깊이 … 다 깎이는 깊이. The folder is the artist's own (① … ⑦), shown as it was;
+  // what the block has no use for is not shown (baking, the immutable line, the frozen shapes).
+  const fu = useLevaControls(
     FU,
     savable(FU, {
-      fuseOn: { value: DEFAULT_FUSE.enabled, label: "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
+      fuseOn: { value: DEFAULT_FUSE.enabled, label: REDESIGN ? "켜기 (덩어리: 부식 = 침식의 자리 값 · 작용 띠는 '침식'의 시작 … 다 깎이는 깊이)" : "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
         // THREE BANDS (the artist, 2026-10-31 night): the present (풍화 · 지층 › 현재 두께), the layer where the processes
@@ -2913,9 +2920,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         // (풍화 · 지층 › 식생 모임 · 부패 시작 양) → 부식이 자라 → 아래 문턱에서 덩어리가 됨 → 레진. 완전불변 층 = 그때 모습으로 굳음.
         // BAKING OFF by default (the artist, 2026-11-01 16:45): the world is the history window alone (세계 › 시간 범위,
         // 20 min = 60 slots); below it nothing is kept. On: the immutable layer below, baked as it is, stored
-        bake: { value: false, label: "옛 층 굽기 (끄면 기록 창 20분만 남고 창 밖은 사라짐; 켜면 완전불변 층을 구워 보존)", render: () => isV2 },
-        freezeSlots: { value: 4, min: 0, max: 30, step: 1, label: "부재 모양 고정 (현재에서 ↓단; 그 아래 부재는 처음 지어진 모양 그대로)", render: () => isV2 },
-        immutable: { value: 60, min: 10, max: 300, step: 5, label: "완전불변 층 (현재에서 ↓단; 그 아래는 그때 모습으로 굳어 다시 계산하지 않음)", render: (get) => isV2 && get(BAKE_PATH) },
+        bake: { value: false, label: "옛 층 굽기 (끄면 기록 창 20분만 남고 창 밖은 사라짐; 켜면 완전불변 층을 구워 보존)", render: () => isV2 && !REDESIGN },
+        freezeSlots: { value: 4, min: 0, max: 30, step: 1, label: "부재 모양 고정 (현재에서 ↓단; 그 아래 부재는 처음 지어진 모양 그대로)", render: () => isV2 && !REDESIGN },
+        immutable: { value: 60, min: 10, max: 300, step: 5, label: "완전불변 층 (현재에서 ↓단; 그 아래는 그때 모습으로 굳어 다시 계산하지 않음)", render: (get) => isV2 && !REDESIGN && get(BAKE_PATH) },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
         fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 부식 (1 = 끝까지 천천히; 낮출수록 문턱을 넘자마자 차오름)" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
@@ -3104,11 +3111,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         { collapsed: false },
       ),
     }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }] : []),
-    { order: lab ? 2 : 8 },
+    { order: REDESIGN ? (lab ? 7.97 : 4.4) : lab ? 2 : 8, collapsed: REDESIGN },
   );
+  // (the redesign's wall: only in the block — the density's buildings and a block whose top is known)
+  const fuseInBlock = isV2 && dn.densityOn && botDepth > 0;
   const fuseCfg = useMemo<FuseConfig>(
     () => ({
-      enabled: fu.fuseOn && !REDESIGN,
+      enabled: fu.fuseOn && (!REDESIGN || fuseInBlock),
       fusePipes: fu.fusePipes,
       fuseWalks: fu.fuseWalks,
       walkRadius: fu.walkRadius,
@@ -3188,7 +3197,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -3427,7 +3436,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           weather={weatherEr}
           fuse={fuseCfg}
           immutable={fu.immutable}
-          bake={fu.bake}
+          bake={REDESIGN ? false : fu.bake}
           resin={resinView}
           water={waterView}
           density={densityCfg}

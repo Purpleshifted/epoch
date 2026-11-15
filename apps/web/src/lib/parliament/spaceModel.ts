@@ -16,7 +16,7 @@ import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
-import { erosion, pipeErosion, type ErodeConfig, type Erosion } from "./erode";
+import { erosion, erosionAt, pipeErosion, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -420,6 +420,14 @@ export class SpaceModel {
   private eroded: (Erosion & { feed: number }) | null = null;
   /** A part's own erosion threshold, kept while the rule that made it stands. */
   private erodeMemo = new WeakMap<Box, number>();
+  /**
+   * THE BLOCK'S ONE CLOCK FOR THE FUSION (the artist, 2026-11-15: "융합 진행"). The fusion was always driven by one
+   * number per part — its corrosion, 0 new … 1 gone — and every stage is a threshold of it (fuse.ts). In the block
+   * nothing is on a clock: that number is the EROSION OF THE PART'S PLACE (erode.ts erosionAt: how far below the
+   * block's top, and how little it was lived in). So a part fuses by where it lies; nothing else decides when.
+   * null = not the block (the wear model's corrosion is read, as before).
+   */
+  private blockClock: { top: number; decay: (b: Box) => number; layer: (k: number) => number; erode: ErodeConfig } | null = null;
   private erodeKey = "";
   private history: NatureHistory | null = null;
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
@@ -459,8 +467,15 @@ export class SpaceModel {
    * typical exposed part on the layer clock — covered parts corrode slower, and the two clocks drifted apart as the
    * world aged. Slots without parts fall back to the formula.
    */
+  /** What the fusion reads a part's corrosion from: the wear model — or, in the block, the erosion of its place. */
+  private fuseWear(): { survival: (b: Box) => number; basis: (b: Box) => WearBasis | null } | null {
+    if (this.wear) return this.wear;
+    const bc = this.blockClock;
+    return bc ? { survival: (b) => 1 - bc.decay(b), basis: () => null } : null;
+  }
+
   private layerClockOf(formula: (k: number) => number): (k: number) => number {
-    const wm = this.wear;
+    const wm = this.fuseWear();
     if (!wm) return formula;
     const sum = new Map<number, number>();
     const n = new Map<number, number>();
@@ -658,7 +673,9 @@ export class SpaceModel {
       const yOf = (k: number) => (k - wc.pipeDepth) * u;
       for (const p of this.drain.pipes) {
         if (p.k < kLo || p.k > kHi) continue;
-        const decay = quant20(this.pipeDecayAt(p.k, w));
+        // (the block: a run's erosion, by where it lies — as it is drawn, computeParts)
+        const bc = this.blockClock;
+        const decay = quant20(bc && bc.erode.pipes !== false ? pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - wc.pipeDepth), bc.erode) : this.pipeDecayAt(p.k, w));
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
       }
@@ -670,7 +687,7 @@ export class SpaceModel {
         for (const line of l.lines) for (let i = 3; i + 2 < line.length; i += 3) out.push({ x0: line[i - 3], y0: line[i - 2], z0: line[i - 1], x1: line[i], y1: line[i + 1], z1: line[i + 2], r: fuse.walkRadius, decay, kind: "walk", k: l.k });
       }
     }
-    const wm = this.wear;
+    const wm = this.fuseWear();
     if (fuse.steelFossil > 0 && wm) {
       for (const b of this.built) {
         if (!STEEL_KINDS.has(b.kind) || b.tilt || b.slot < kLo || b.slot > kHi || partHash(b) >= fuse.steelFossil) continue;
@@ -1039,6 +1056,7 @@ export class SpaceModel {
       }
     }
     const ero = ec ? erosion(seeds, ec, this.erodeMemo) : null;
+    this.blockClock = ec && ero ? { top: ec.topSlot, decay: ero.at, layer: (k) => erosionAt(k, 0, ec), erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
     const stands = ero ? built.filter((b) => !ero.gone(b)) : built;
@@ -1051,13 +1069,13 @@ export class SpaceModel {
     this.gatherOf = w.strata ? (b: Box) => gatherAmount(kNow - (b.slot + 1), wearCfg) * gatherDensity(b, wearCfg) : null;
     this.built = built;
     this.worn = worn;
-    const survival = this.wear?.survival;
+    const survival = this.fuseWear()?.survival;
     // a part being fused is absorbed into the mass, little by little (by a fixed hash): the mass takes its place.
     // Steel stays (it sticks out of the mass), and so does the skeleton until late (its form kept inside the mass).
     const fu = input.fuse;
     const absorbed = (b: Box) => {
       // the steel stays out of the mass (it rusts and falls) — but for the share that fuses as fossil
-      if (!survival || !fu.enabled || !w.strata || (STEEL_KINDS.has(b.kind) && !(fu.steelFossil > 0 && partHash(b) < fu.steelFossil))) return false;
+      if (!survival || !fu.enabled || !(w.strata || this.blockClock) || (STEEL_KINDS.has(b.kind) && !(fu.steelFossil > 0 && partHash(b) < fu.steelFossil))) return false;
       const d = 1 - survival(b);
       if (isSkeleton(b, d, fu)) return false;
       // only as far as the mass that takes its place is already drawn (it is built a few chunks at a time)
@@ -1224,9 +1242,11 @@ export class SpaceModel {
    */
   computeFuse(input: FuseInput): FuseMesh | null {
     const { box, fuse } = input;
-    const sed = sedimentOf(this.t, box, input.weather);
+    // THE BLOCK: its clock is a place — the "present" the layers are read against is the block's top, which stands
+    const bc = this.blockClock;
+    const sed = bc ? { tNow: bc.top * box.secPerUnit, secPerUnit: box.secPerUnit, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, graceSlots: 0 } : sedimentOf(this.t, box, input.weather);
     const h = this.history;
-    const wm = this.wear;
+    const wm = this.fuseWear();
     const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(input)}`;
     if (sig === this.fuseSig) return null;
     if (input.bake === false && this.baked.size) this.baked.clear();
@@ -1237,9 +1257,10 @@ export class SpaceModel {
       return mergeMeshes(fuse.enabled ? bakedMeshes : []);
     }
     const u = box.unit;
-    const kNow = Math.floor(this.t / box.secPerUnit);
+    const kNow = bc ? bc.top : Math.floor(this.t / box.secPerUnit);
     // V2: one clock — the layers' age for the resin and the look of the old layers is the parts' corrosion
-    const layerDecay = input.oneClock ? this.layerClockOf(layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears)) : undefined;
+    // (the block: the erosion of the parts' places; a slot without parts is read by its depth alone)
+    const layerDecay = input.oneClock ? this.layerClockOf(bc ? bc.layer : layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears)) : undefined;
     const kA = h ? h.k0 : 0;
     const kB = h ? h.k0 + h.nk - 1 : kNow;
     // extent: the vegetation's, or the parts' (cells)
