@@ -21,7 +21,7 @@ import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedSha
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
 import { ARRIVED, Arrivals } from "./arrive";
-import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, survivalFromBasis, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed, type WearBasis, type WearConfig } from "./seeds";
+import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, districtOf, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, survivalFromBasis, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed, type WearBasis, type WearConfig } from "./seeds";
 import { bakedKey, clearBaked, loadBaked, saveBaked, type BakedTube } from "./bakeStore";
 import { DEFAULT_FOLD, type FoldConfig, type PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
@@ -519,7 +519,74 @@ export class SpaceModel {
    * 2026-11-01: "the bots move differently, but the fossil visual is gone"). Each tile keeps only its own faces (as the
    * chunk keeps only its own rows), so the tiles join without a seam; tiles without parts cost nothing.
    */
+  /**
+   * THE DISTRICTS ARE TURNED (seeds.ts VarietyConfig: every building of a district stands at the district's angle),
+   * and the mass is worked out on a grid: fused as they lie, turned buildings came out as blocks along the world's
+   * axes at the buildings' places — stair-steps that did not follow their walls (the artist, 2026-11-15: "화석 모양이
+   * 이전보다 너무 블록같은데"). So a chunk's parts are fused district angle by district angle, each in its own frame:
+   * turned back until they are square to the grid, fused there exactly as before, and the mesh turned forward again.
+   * Parts at no angle (and the pipes, ways and steel) are fused in the world's frame, as they always were.
+   */
   private fuseTiled(
+    w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean; ang?: number }[]; tubes: BakedTube[]; x0: number; z0: number; nx: number; nz: number },
+    h: NatureHistory | null,
+    u: number,
+    sed: NonNullable<ReturnType<typeof sedimentOf>>,
+    layerDecay: ((k: number) => number) | undefined,
+    fuse: FuseConfig,
+  ): FuseMesh {
+    const byAngle = new Map<number, typeof w.ps>();
+    for (const e of w.ps) {
+      const a = Math.round((e.ang ?? 0) * 1e4) / 1e4;
+      const l = byAngle.get(a);
+      if (l) l.push(e);
+      else byAngle.set(a, [e]);
+    }
+    if (byAngle.size <= 1 && (byAngle.has(0) || !byAngle.size)) return this.fuseTiles(w, h, u, sed, layerDecay, fuse);
+    const out: FuseMesh[] = [];
+    const M = 3;
+    const extent = (ps: typeof w.ps, tubes: BakedTube[]) => {
+      let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+      for (const { b: q } of ps) {
+        const r = Math.max(q.sx, q.sy, q.sz) / 2;
+        a = Math.min(a, q.x - r);
+        b = Math.max(b, q.x + r);
+        c = Math.min(c, q.z - r);
+        d = Math.max(d, q.z + r);
+      }
+      for (const t of tubes) {
+        a = Math.min(a, t.x0 - t.r, t.x1 - t.r);
+        b = Math.max(b, t.x0 + t.r, t.x1 + t.r);
+        c = Math.min(c, t.z0 - t.r, t.z1 - t.r);
+        d = Math.max(d, t.z0 + t.r, t.z1 + t.r);
+      }
+      const x0 = Math.floor(a / CELL) - M, z0 = Math.floor(c / CELL) - M;
+      return { x0, z0, nx: Math.ceil(b / CELL) + M - x0, nz: Math.ceil(d / CELL) + M - z0 };
+    };
+    if (!byAngle.has(0) && w.tubes.length) byAngle.set(0, []);
+    for (const [ang, list] of byAngle) {
+      if (!ang) {
+        out.push(this.fuseTiles({ ...w, ps: list, ...extent(list, w.tubes) }, h, u, sed, layerDecay, fuse));
+        continue;
+      }
+      // into the district's frame (the inverse of seeds.ts' turn, about the origin), and the mesh back out of it
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      const turned = list.map((e) => ({ ...e, b: { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } }));
+      const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...extent(turned, []) }, null, u, sed, layerDecay, fuse);
+      for (const arr of [m.position, m.normal]) {
+        for (let i = 0; i < arr.length; i += 3) {
+          const x = arr[i], z = arr[i + 2];
+          arr[i] = x * c + z * sn;
+          arr[i + 2] = -x * sn + z * c;
+        }
+      }
+      out.push(m);
+    }
+    return mergeMeshes(out);
+  }
+
+  /** A chunk's parts (all square to the grid) fused tile by tile. */
+  private fuseTiles(
     w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: BakedTube[]; x0: number; z0: number; nx: number; nz: number },
     h: NatureHistory | null,
     u: number,
@@ -1317,14 +1384,17 @@ export class SpaceModel {
     // every built part with its decay, its reclaim and whether it still stands (quantised: the cache keys follow)
     const standing = new Set(this.worn);
     const q20 = (v: number) => Math.round(v * 20) / 20;
-    type P = { b: Box; d: number; up: boolean; sk: boolean };
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number };
+    // the angle each seed's district is turned by (fuseTiled)
+    const angleOf = new Map<number, number>();
+    if (box.variety) for (const sd of this.seeds) angleOf.set(sd.id, districtOf(sd.x, sd.z, box.variety).angle);
     const bySlot = new Map<number, P[]>();
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       const d = q20(1 - wm.survival(b));
       // not corroding yet: nothing grows on it (B FILL: the plates are kept, they bound the rooms of the parts below)
       if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
-      const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse) };
+      const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse), ang: angleOf.get(b.seed) ?? 0 };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
       else bySlot.set(b.slot, [e]);
