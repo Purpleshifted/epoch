@@ -114,6 +114,13 @@ export interface WaterConfig {
    * (in the slot) sheds no water — a speck beside a quarter gets no lateral of its own. 0 / absent = every building.
    */
   minCells?: number;
+  /**
+   * HOW MUCH A PIPE KEEPS UNDER THE PATHS (the artist, 2026-11-15: "배관이 거의 길 따라가는데"). A route has always
+   * been cheaper under a path (sewers run under streets: a step there costs 0.3 of a step over open ground) — so
+   * where there are paths the pipes are drawn right under them and read as the same lines again. 1 / absent = that
+   * (as it was); 0 = a path is no cheaper than any ground: the pipes go their own shortest way to the outfall.
+   */
+  pathPull?: number;
 }
 
 export const DEFAULT_WATER: WaterConfig = {
@@ -615,7 +622,7 @@ function routeOut(
       return ii >= 0 && jj >= 0 && ii < nx && jj < nz && path[jj * nx + ii] === 1;
     });
   });
-  for (const c of onStreet.length ? onStreet : edge) {
+  for (const c of onStreet.length && (cfg.pathPull ?? 1) > 0.5 ? onStreet : edge) {
     dist[c] = 0;
     push(c);
   }
@@ -641,7 +648,7 @@ function routeOut(
       if (done[v] || block[v] >= 0) continue;
       // no corner cutting past a building on a diagonal
       if (di && dj && (block[uj * nx + vi] >= 0 || block[vj * nx + ui] >= 0)) continue;
-      const cost = piped[v] ? COST_PIPE : path[v] ? COST_PATH : COST_GROUND;
+      const cost = piped[v] ? COST_PIPE : path[v] ? COST_GROUND - (COST_GROUND - COST_PATH) * Math.max(0, Math.min(1, cfg.pathPull ?? 1)) : COST_GROUND;
       const dd = dist[u] + len * cost;
       if (dd < dist[v]) {
         dist[v] = dd;

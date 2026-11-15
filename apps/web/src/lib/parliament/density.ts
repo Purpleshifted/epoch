@@ -216,6 +216,9 @@ export function levelOf(by: ReadonlyMap<number, number>, cfg: DensityConfig): nu
   return Math.max(1, Math.min(Math.round(cfg.maxLevel), 1 + Math.floor(Math.log(sum / cfg.step) / Math.log(r) + 1e-9)));
 }
 
+/** The most a Seed's mass can be (the old fold's maxHeight on the exhibition wall). */
+const MASS_MAX = 15;
+
 const colKey = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768);
 
 export class DensityField {
@@ -882,21 +885,32 @@ export class DensityField {
         const lv = total >= c.step ? Math.min(Math.round(c.maxLevel), 1 + Math.floor(Math.log(total / c.step) / Math.log(ratio) + 1e-9)) : 1;
         return Math.max(own, lv);
       };
+      // …AND THE WHOLE BUILDING IS BUILT TO IT (the artist, 2026-11-15, a screenshot: "난데없이 허공에 이딴 게 생김").
+      // Read slot by slot, only a building's LATER slots were large — and later is higher: a tower with a head several
+      // times its width, which then fused into one block in mid-air. A building has one size: what was stayed in it in
+      // all (its run of slots), for every slot of it. It is rebuilt larger, whole, when that passes a level.
       const spans: [number, number][] = [];
       let from = ks[0], prev = ks[0];
-      grown.set(ks[0], levelUpTo(ks[0]));
+      let run: number[] = [ks[0]];
+      let runLevel = levelUpTo(ks[0]);
+      const close = () => {
+        for (const k of run) grown.set(k, runLevel);
+      };
       for (let i = 1; i <= ks.length; i++) {
         // the next living slot continues the building when the empty time between is no longer than gapSec
         if (i < ks.length && (ks[i] - prev - 1) * c.slotSec <= Math.max(0, c.gapSec)) {
           prev = ks[i];
-          grown.set(prev, levelUpTo(prev));
+          run.push(prev);
+          runLevel = Math.max(runLevel, levelUpTo(prev));
           continue;
         }
         spans.push([from * c.slotSec, (prev + 1) * c.slotSec - 0.001]);
+        close();
         if (i < ks.length) {
           from = prev = ks[i];
           total = 0; // (a new building: it begins small again)
-          grown.set(prev, levelUpTo(prev));
+          run = [prev];
+          runLevel = levelUpTo(prev);
         }
       }
       for (const lv of grown.values()) if (lv > top) top = lv;
@@ -924,11 +938,13 @@ export class DensityField {
         t0: spans[0][0],
         t1: spans[spans.length - 1][1],
         spans,
-        mass: c.mass * Math.pow(Math.max(1, c.massRatio), top - 1),
+        mass: Math.min(MASS_MAX, c.mass * Math.pow(Math.max(1, c.massRatio), top - 1)),
         who: [...who.values()],
         levels: grown,
         // (the mass of each slot's parts: its own level's — seeds.ts massAt)
-        masses: new Map(ks.map((k) => [k, c.mass * Math.pow(Math.max(1, c.massRatio), (grown.get(k) ?? 1) - 1)] as const)),
+        // (never more than MASS_MAX — the old fold's ceiling: the parts' size and number follow it, and a factor per
+        // level is an exponent)
+        masses: new Map(ks.map((k) => [k, Math.min(MASS_MAX, c.mass * Math.pow(Math.max(1, c.massRatio), (grown.get(k) ?? 1) - 1))] as const)),
         // (a joined cell-slot was never lived in: its gathering is whole)
         ...((c.liveAt ?? 0) > 0 ? { gather: new Map(ks.map((k) => [k, (col.slots.get(k)?.level ?? 0) >= 1 ? Math.round(this.gatherOf(col.slots.get(k)!) * 4) / 4 : 1] as const)) } : {}),
       };
