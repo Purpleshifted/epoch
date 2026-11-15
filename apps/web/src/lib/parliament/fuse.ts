@@ -389,6 +389,9 @@ const smoothRamp = (x: number, a: number, b: number) => {
 };
 
 /** How much of a part has itself turned into mass, from its decay (1 − survival). */
+/** The most of the mass the noise openings take (fuseChunk: above it what is left is islands, not a sponge). */
+const NOISE_OPEN_MAX = 0.55;
+
 export function fusedShare(decay: number, cfg: FuseConfig): number {
   if (!cfg.enabled) return 0;
   // the mass is full at fuseFull (default 1: it fills slowly all the way); lower, it rises right past the threshold —
@@ -1011,7 +1014,12 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
     }
     const vo = new Float64Array(3);
-    const half = st.ribWidth / 2;
+    // NO CRUMBS (the artist, 2026-11-15, a screenshot of fields of pebbles: "보로노이 또 이러네"). Where nearly every
+    // cell opens, what is left of the mass must still hang together: (1) a rib is never thinner than the grid can
+    // hold (a voxel and a half), (2) the noise openings — which leave no ribs, only what the threshold spares — open
+    // at most NOISE_OPEN_MAX of the mass (above it the rest is islands), (3) what still comes loose, smaller than a
+    // fifth of a cell across, is taken away (below).
+    const half = Math.max(st.ribWidth / 2, 0.75 * vs);
     const lip = Math.max(0, st.ribLip ?? 0);
     const shape = st.holeShape ?? "voronoi";
     const nf = 1 / Math.max(0.2, st.ribCell); // noise openings: one feature per ribCell
@@ -1036,7 +1044,8 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
           if (m < 1) {
             // open where the noise runs high: the share `open` of the surface, edges softened over ribWidth
             const nz = noise3(x * nf, y * nf * 0.8, z * nf, 87);
-            byNoise = smoothRamp(nz, 1 - open - soft, 1 - open + soft);
+            const openN = Math.min(open, NOISE_OPEN_MAX);
+            byNoise = smoothRamp(nz, 1 - openN - soft, 1 - openN + soft);
           }
           if (m > 0) {
             voronoi(x, y, z, st.ribCell, 1.35, vo);
@@ -1049,6 +1058,33 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         }
         if (carve > 0) F[p] -= (F[p] - iso + 0.25) * carve;
       }
+    }
+    // (3) the loose bits: every piece of mass that touches no side of the grid (a piece cut by the grid's side may go
+    // on in the next tile) and is smaller than a fifth of a cell across goes
+    const minVox = Math.max(27, Math.round(Math.pow((0.2 * st.ribCell) / vs, 3)));
+    const seen = new Uint8Array(n);
+    const queue = new Int32Array(n);
+    const nxy = nx * ny;
+    for (let p0 = 0; p0 < n; p0++) {
+      if (seen[p0] || !(F[p0] > iso)) continue;
+      let head = 0, tail = 0, edge = false;
+      queue[tail++] = p0;
+      seen[p0] = 1;
+      while (head < tail) {
+        const p = queue[head++];
+        const i = p % nx, j = ((p - i) / nx) % ny, k = (p - i - j * nx) / nxy;
+        if (i === 0 || j === 0 || k === 0 || i === nx - 1 || j === ny - 1 || k === nz - 1) {
+          edge = true;
+          continue;
+        }
+        for (let s6 = 0; s6 < 6; s6++) {
+          const q = p + (s6 === 0 ? -1 : s6 === 1 ? 1 : s6 === 2 ? -nx : s6 === 3 ? nx : s6 === 4 ? -nxy : nxy);
+          if (seen[q] || !(F[q] > iso)) continue;
+          seen[q] = 1;
+          queue[tail++] = q;
+        }
+      }
+      if (!edge && tail < minVox) for (let t = 0; t < tail; t++) F[queue[t]] = iso - 0.25;
     }
   }
 

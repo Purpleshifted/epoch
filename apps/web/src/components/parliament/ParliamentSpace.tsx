@@ -178,13 +178,14 @@ const PAUSED_FUSE_PER_CALL = 12;
 const IDLE_AGE_MAX_S = 2 * 3600;
 /** The fusion group and the Leva paths its `render` conditions read (a folder's name is part of the path). */
 const FU = "엉김 · 융합 · 레진";
-const FU_WHEN = "① 세 층 (현재 · 작용 · 완전불변)";
-const FU_MASS = "② 덩어리 (녹은 부재들이 되는 것)";
-const FU_WAY = "③ 꼴 (부재가 녹는 꼴)";
-const FU_FOSSIL = "④ 화석화 (층의 나이: 젊음 = 건축 · 오래됨 = 화석)";
-const FU_HOLLOW = "⑤ 껍질 · 거품";
-const FU_PITS = "⑥ 곰보 (껍질 · 거품의 표면)";
-const FU_MAT = "⑦ 재질 (레진 = 융합된 것 전부)";
+// (named for what each does, in the order a part goes through them — the artist, 2026-11-15: "융합비주얼 레바 정리/설명좀")
+const FU_WHEN = "① 언제 덩어리가 되나 (부재의 진행 = 침식과 같은 숫자)";
+const FU_MASS = "② 얼마나 뭉치나 (부재 사이를 메움)";
+const FU_WAY = "③ 부재가 녹는 꼴 (통째 · 관 · 판 사이 채움)";
+const FU_FOSSIL = "④ 건축 → 화석 (진행이 깊을수록 둥글게)";
+const FU_HOLLOW = "⑤ 구멍 (껍질 · 거품 · 보로노이)";
+const FU_PITS = "⑥ 곰보 (표면의 작은 자국)";
+const FU_MAT = "⑦ 재질 (덩어리의 색 · 빛)";
 const MODE_PATH = `${FU}.${FU_WAY}.massMode`;
 const WALKS_PATH = `${FU}.${FU_WAY}.배관 · 다리 · 철골도 녹음.fuseWalks`;
 const FILL_PATH = `${FU}.${FU_WAY}.판 사이 채우기.fill`;
@@ -3286,11 +3287,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         cling: { value: 0, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (0 = 부재는 그대로 보이고 덩어리가 엉겨 붙음 … 1 = 전시 버전처럼 부재가 녹아 사라짐)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: () => REDESIGN },
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리가 생기기 시작하는 진행 (0 = 지어지자마자 … 1 = 끝에서야)" },
         // (THE REDESIGN, 2026-11-15: 0.9 — the mass thickens over most of a part's progress, a thin skin first; the
         // exhibition's 0.49 was full two steps after it began)
-        fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 부식 (1 = 끝까지 천천히; 낮출수록 문턱을 넘자마자 차오름)" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
+        fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 진행 (위 값에 가까울수록 한꺼번에 차오름 · 1 = 끝까지 천천히)" },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 진행 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
       [FU_MASS]: folder({
@@ -3404,8 +3405,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             render: (get) => get(SHELL_PATH) || get(FOAM_PATH),
           },
           ribCell: { value: DEFAULT_STUDY.ribCell, min: 0.6, max: 5, step: 0.1, label: "구멍 크기 (월드)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
-          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (보로노이: 벽 두께 · 노이즈: 가장자리 부드러움)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
-          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 비율 (0 = 닫힘, 1 = 거의 다; 거품: 공동이 되는 셀의 몫)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ribWidth: { value: DEFAULT_STUDY.ribWidth, min: 0.05, max: 1.2, step: 0.05, label: "리브 굵기 (보로노이: 벽 두께 · 노이즈: 가장자리 부드러움 · 격자 1.5칸보다 얇아지지 않음)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
+          ribOpen: { value: DEFAULT_STUDY.ribOpen, min: 0, max: 1, step: 0.01, label: "열리는 비율 (0 = 닫힘 … 1 = 거의 다 · 높을수록 리브만 남음; 노이즈 구멍은 0.55까지만 열림)", render: (get) => get(SHELL_PATH) || get(FOAM_PATH) },
           holeVoronoiSmall: { value: DEFAULT_STUDY.holeVoronoiSmall, min: 0, max: 1, step: 0.05, label: "보로노이 비율 · 작은 부재 (0 = 노이즈, 1 = 보로노이)", render: (get) => (get(SHELL_PATH) || get(FOAM_PATH)) && get(HOLE_PATH) === "size" },
           holeVoronoiLarge: { value: DEFAULT_STUDY.holeVoronoiLarge, min: 0, max: 1, step: 0.05, label: "보로노이 비율 · 큰 부재", render: (get) => (get(SHELL_PATH) || get(FOAM_PATH)) && get(HOLE_PATH) === "size" },
           "고급": folder(
