@@ -2990,6 +2990,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     savable(SIMPLIFY_GROUP, {
       lodOn: { value: true, label: "켜기 (끄면 부재가 끝까지 낱낱이)" },
       lodSec: { value: 180, min: 10, max: 1200, step: 10, label: "지어진 뒤 이만큼 지나면 한 덩이로 (초 · 자리마다 ±30%)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
+      // (the lattice the masses are joined on: their outline is kept to its width — the artist, 2026-11-16: "합쳤을 때 모양 유지")
+      lodGrid: { value: 0.5, min: 0.2, max: 4, step: 0.1, label: "합칠 때 모양을 지키는 격자 (월드 · 작을수록 원래 모양 · 클수록 단순한 덩이)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
     }),
     { order: lab ? 7.955 : 1.77, render: () => isV2 },
   );
@@ -3000,9 +3002,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0 } }
+        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0, lodGrid: sm.lodGrid } }
         : weather,
-    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread, sm.lodOn, sm.lodSec],
+    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread, sm.lodOn, sm.lodSec, sm.lodGrid],
   );
   // (the unlived share is read by the gatherings and by the erosion alike)
   const unlivedOn = vg.gaOn || er.erOn;

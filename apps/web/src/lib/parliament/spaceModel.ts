@@ -462,10 +462,15 @@ export class SpaceModel {
    *  (STANDS while it stands; −Infinity = it was gone before anybody looked). */
   private erodeSeen = new Map<number, Map<number, [number, number]>>();
   // ── SIMPLIFIED WITH TIME (computeParts) ──
-  /** Per building and slot: the ASSET its parts were made into once it had stood long enough — its boxes; the
-   *  cell-slot's clock as of the last building taken into it; whether new building stands over it now, of which
-   *  generation and its parts; and when the parts it took the place of began to go (the arrival clock). */
-  private assets = new Map<number, Map<number, { boxes: Box[]; seenBorn: number; over: Box[] | null; gen: number; swapAt: number; swapped: Box[] }>>();
+  /** Per building and slot: the ASSET its parts were made into once it had stood long enough — the masses it is made
+   *  of (`src`: its own, and what was built over it and taken in), its plates and foundation as they were (`kept`),
+   *  the clock of what it was first made from; the cell-slot's clock as of the last building taken in; whether new
+   *  building stands over it now, of which generation and its parts; and when the parts it took the place of began
+   *  to go (the arrival clock). */
+  private assets = new Map<number, Map<number, { src: Box[]; kept: Box[]; clock: { born: number; top: number }; seenBorn: number; over: Box[] | null; gen: number; swapAt: number; swapped: Box[] }>>();
+  /** The assets of ONE BUILDING IN ONE SLOT as they are drawn: their masses joined (latticeUnion), kept while the
+   *  assets in it are the same. */
+  private assetGroups = new Map<string, { sig: string; boxes: Box[] }>();
   /** An asset's boxes go on by the clock of what they were first made from, whatever is built over them later. */
   private assetClock = new WeakMap<Box, { born: number; top: number }>();
   /** New building over an asset: when each of its parts arrives ([born, order], as arrive.ts). */
@@ -474,35 +479,64 @@ export class SpaceModel {
   private lodVariants = new Map<string, Map<number, Box[]>>();
 
   /**
-   * THE ASSET OF A CELL-SLOT: its masses (and the asset's own, when new building is taken in) as ONE box — their
-   * bounds in the building's own frame — with its plates and its foundation kept as they are; the columns, the steel
-   * and what hangs are let go. Not a union's exact outline: a simpler body where the parts were.
+   * MASSES JOINED, THEIR SHAPE KEPT (the artist, 2026-11-16: "이웃끼리도 합치고 … 합쳤을 때 모양 유지시키기는
+   * 어려움?"). Not the bounds of them all (a box that fills every gap and squares the building off) and not an exact
+   * boolean union either: the masses are laid on a LATTICE in the building's own frame — `grid` wide on the ground,
+   * `gy` tall — each lattice cell a column from the lowest to the highest mass over it; and the columns are joined
+   * into as few boxes as will cover them (runs along x of the same height, then rows of the same run along z). What
+   * comes out has the outline of the masses to the lattice's width, whoever's they were: the masses of neighbouring
+   * cells of one building are one body. A wider lattice is a simpler body.
    */
-  private static simplified(parts: readonly Box[], prev: readonly Box[]): Box[] {
-    const isMass = (b: Box) => b.kind === "mass" && !b.tilt;
-    const masses = [...prev.filter(isMass), ...parts.filter(isMass)];
-    const out: Box[] = [];
-    if (masses.length) {
-      const yaw = masses[0].yaw ?? 0, c = Math.cos(yaw), sn = Math.sin(yaw);
-      let ax = Infinity, bx = -Infinity, ay = Infinity, by = -Infinity, az = Infinity, bz = -Infinity;
-      for (const q of masses) {
-        // (into the frame the building is turned by: writeMatrix's turn undone)
-        const lx = q.x * c - q.z * sn, lz = q.x * sn + q.z * c;
-        const same = Math.abs((q.yaw ?? 0) - yaw) < 1e-6;
-        const hx = same ? q.sx / 2 : Math.max(q.sx, q.sz) / 2, hz = same ? q.sz / 2 : Math.max(q.sx, q.sz) / 2;
-        ax = Math.min(ax, lx - hx);
-        bx = Math.max(bx, lx + hx);
-        az = Math.min(az, lz - hz);
-        bz = Math.max(bz, lz + hz);
-        ay = Math.min(ay, q.y - q.sy / 2);
-        by = Math.max(by, q.y + q.sy / 2);
+  private static latticeUnion(masses: readonly Box[], grid: number, gy: number): Box[] {
+    if (!masses.length) return [];
+    const r = Math.max(0.05, grid), ry = Math.max(0.05, gy);
+    const yaw = masses[0].yaw ?? 0, c = Math.cos(yaw), sn = Math.sin(yaw);
+    // every lattice cell under a mass: the lowest and the highest of the masses over it (in steps of `gy`)
+    const cols = new Map<number, [number, number]>();
+    const key = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
+    for (const q of masses) {
+      // (into the frame the building is turned by: writeMatrix's turn undone)
+      const lx = q.x * c - q.z * sn, lz = q.x * sn + q.z * c;
+      const same = Math.abs((q.yaw ?? 0) - yaw) < 1e-6;
+      const hx = same ? q.sx / 2 : Math.max(q.sx, q.sz) / 2, hz = same ? q.sz / 2 : Math.max(q.sx, q.sz) / 2;
+      const i0 = Math.floor((lx - hx) / r + 0.5), j0 = Math.floor((lz - hz) / r + 0.5);
+      const i1 = Math.max(i0 + 1, Math.floor((lx + hx) / r + 0.5)), j1 = Math.max(j0 + 1, Math.floor((lz + hz) / r + 0.5));
+      const y0 = Math.floor((q.y - q.sy / 2) / ry + 0.5), y1 = Math.max(y0 + 1, Math.floor((q.y + q.sy / 2) / ry + 0.5));
+      for (let j = j0; j < j1; j++) {
+        for (let i = i0; i < i1; i++) {
+          const k = key(i, j), was = cols.get(k);
+          if (was) {
+            if (y0 < was[0]) was[0] = y0;
+            if (y1 > was[1]) was[1] = y1;
+          } else cols.set(k, [y0, y1]);
+        }
       }
-      const lx = (ax + bx) / 2, lz = (az + bz) / 2;
-      out.push({ ...masses[0], kind: "mass", x: lx * c + lz * sn, z: -lx * sn + lz * c, y: (ay + by) / 2, sx: bx - ax, sy: by - ay, sz: bz - az, yaw, tilt: undefined });
     }
-    const keep = (b: Box) => b.kind === "slab" || b.kind === "plinth" || b.kind === "basement" || b.kind === "pile";
-    const kept = prev.some(keep) ? prev.filter(keep) : parts.filter(keep);
-    for (const b of kept) out.push(prev.includes(b) ? b : { ...b });
+    // joined in a fixed order (z, then x), so the same masses always come out as the same boxes
+    const order = [...cols.keys()].sort((p, q) => (p % 65536) - (q % 65536) || p - q);
+    const used = new Set<number>();
+    const out: Box[] = [];
+    for (const k0 of order) {
+      if (used.has(k0)) continue;
+      const i = Math.floor(k0 / 65536) - 32768, j = (k0 % 65536) - 32768;
+      const [y0, y1] = cols.get(k0)!;
+      const fits = (ii: number, jj: number) => {
+        const kk = key(ii, jj), v = cols.get(kk);
+        return !!v && !used.has(kk) && v[0] === y0 && v[1] === y1;
+      };
+      let w = 1;
+      while (fits(i + w, j)) w++;
+      let h = 1;
+      for (;;) {
+        let row = true;
+        for (let d = 0; d < w && row; d++) row = fits(i + d, j + h);
+        if (!row) break;
+        h++;
+      }
+      for (let dj = 0; dj < h; dj++) for (let di = 0; di < w; di++) used.add(key(i + di, j + dj));
+      const lx = (i + w / 2) * r, lz = (j + h / 2) * r;
+      out.push({ ...masses[0], kind: "mass", x: lx * c + lz * sn, z: -lx * sn + lz * c, y: ((y0 + y1) / 2) * ry, sx: w * r, sy: (y1 - y0) * ry, sz: h * r, yaw, tilt: undefined });
+    }
     return out;
   }
   /**
@@ -1559,6 +1593,7 @@ export class SpaceModel {
     if (!keepBuilt) {
       this.bornT.clear();
       this.assets.clear();
+      this.assetGroups.clear();
       this.lodVariants.clear();
       this.ageBegun = true;
       this.floorDone = -Infinity;
@@ -1939,17 +1974,25 @@ export class SpaceModel {
     // SIMPLIFIED WITH TIME (the artist, 2026-11-16: "시간이 지나면 부재에 lod가 적용돼서 단순화되는 시기를 거치도록
     // 만들기 (boolean union이나): 이러면 거기 재방문해서 건물이 새로 생기더라도 이전 에셋 위에 생기는 거니까 커지는
     // 거랑 효과 비슷하게"). A cell-slot that has stood `lodSec` (each a little sooner or later) is no longer its many
-    // parts: it is its ASSET — its masses as one box, its plates and foundation kept. From then on the building's
-    // growing elsewhere changes nothing of it. When somebody comes BACK to it, what they build is built OVER the asset
-    // — in another layout than the first, so it shows — and once that too has stood long enough it is taken into the
-    // asset, which is then a little larger: the place grows by what was built on it, not by being made again larger.
-    // The asset goes on (erodes, fuses) by the clock of what it was first made from.
+    // parts: it is its ASSET — its masses, with its plates and foundation kept; the columns, the steel and what hangs
+    // are let go. From then on the building's growing elsewhere changes nothing of it. When somebody comes BACK to
+    // it, what they build is built OVER the asset — in another layout than the first, so it shows — and once that
+    // too has stood long enough it is taken into the asset, which is then a little larger: the place grows by what
+    // was built on it, not by being made again larger. The asset goes on (erodes, fuses) by the clock of what it was
+    // first made from.
+    // THE ASSETS OF ONE BUILDING IN ONE SLOT ARE ONE BODY (the artist, a day later: "이웃끼리도 합치고", "합쳤을 때
+    // 모양 유지"): their masses are joined on a lattice (latticeUnion) — the outline of the masses kept to the
+    // lattice's width, as few boxes as cover it — whichever cell they stood in.
     const lodSec = ec && lifeSec > 0 ? Math.max(0, ec.lodSec ?? 0) : 0;
     const lodGone: [Box, number][] = [];
     if (lodSec > 0 && ec) {
       const shiftL = Math.max(0, ec.shift ?? 0);
       const perTopL = shiftL > 0 ? Math.max(1, ec.slotSec ?? box.secPerUnit) / shiftL : 0;
+      const grid = Math.max(0.1, ec.lodGrid ?? 0.5);
       const seedOf = new Map(seeds.map((sd) => [sd.id, sd] as const));
+      const runsOf = this.buildingsOfSeeds(box);
+      const isMass = (b: Box) => b.kind === "mass" && !b.tilt;
+      const isKept = (b: Box) => b.kind === "slab" || b.kind === "plinth" || b.kind === "basement" || b.kind === "pile";
       const groups = new Map<number, Map<number, Box[]>>();
       for (const b of built) {
         let g = groups.get(b.seed);
@@ -1980,61 +2023,96 @@ export class SpaceModel {
         return bySlot.get(k) ?? [];
       };
       const out: Box[] = [];
+      // the assets by building and slot: what is joined into one body
+      type Asset = NonNullable<ReturnType<NonNullable<ReturnType<SpaceModel["assets"]["get"]>>["get"]>>;
+      const bodies = new Map<string, { seed: number; st: Asset }[]>();
+      let nAssets = 0;
       for (const [seed, slotsOf] of groups) {
         const clocks = this.bornT.get(seed);
         let states = this.assets.get(seed);
+        const runs = runsOf.get(seed);
         for (const [k, parts] of slotsOf) {
           const e = clocks?.get(k);
           let st = states?.get(k);
-          if (!e) {
+          if (!e && !st) {
             // (a slot with no clock of its own: nothing is known of its age — as it is)
-            for (const b of st ? st.boxes : parts) out.push(b);
+            for (const b of parts) out.push(b);
             continue;
           }
-          const age = perTopL > 0 ? (ec.topSlot - e.top) * perTopL : ageNow - e.born;
-          const old = age >= lodSec * (0.7 + 0.6 * hash2(seed, k, 4421));
-          if (!st) {
-            if (!old) {
-              for (const b of parts) out.push(b);
-              continue;
+          if (e) {
+            const age = perTopL > 0 ? (ec.topSlot - e.top) * perTopL : ageNow - e.born;
+            const old = age >= lodSec * (0.7 + 0.6 * hash2(seed, k, 4421));
+            if (!st) {
+              if (!old) {
+                for (const b of parts) out.push(b);
+                continue;
+              }
+              const clock = { born: e.born, top: e.top };
+              st = { src: parts.filter(isMass), kept: parts.filter(isKept).map((b) => ({ ...b })), clock, seenBorn: e.born, over: null, gen: 0, swapAt: arriveQuiet ? -Infinity : arriveNow, swapped: parts };
+              for (const q of st.kept) this.assetClock.set(q, clock);
+              if (!states) this.assets.set(seed, (states = new Map()));
+              states.set(k, st);
+            } else if (e.born !== st.seenBorn) {
+              // SOMEBODY CAME BACK: what they build stands over the asset — and is taken into it once it is old enough
+              if (!st.over) {
+                st.gen++;
+                st.over = variant(seed, k, st.gen);
+                if (!arriveQuiet) st.over.forEach((b, i) => this.lodArrive.set(b, [arriveNow, i]));
+              }
+              if (old) {
+                st.swapped = st.over;
+                st.src = [...st.src, ...st.over.filter(isMass)];
+                st.seenBorn = e.born;
+                st.over = null;
+                st.swapAt = arriveQuiet ? -Infinity : arriveNow;
+              } else for (const b of st.over) out.push(b);
             }
-            st = { boxes: SpaceModel.simplified(parts, []), seenBorn: e.born, over: null, gen: 0, swapAt: arriveQuiet ? -Infinity : arriveNow, swapped: parts };
-            for (const q of st.boxes) this.assetClock.set(q, { born: e.born, top: e.top });
-            if (!states) this.assets.set(seed, (states = new Map()));
-            states.set(k, st);
-          } else if (e.born !== st.seenBorn) {
-            // SOMEBODY CAME BACK: what they build stands over the asset — and is taken into it once it is old enough
-            if (!st.over) {
-              st.gen++;
-              st.over = variant(seed, k, st.gen);
-              if (!arriveQuiet) st.over.forEach((b, i) => this.lodArrive.set(b, [arriveNow, i]));
-            }
-            if (old) {
-              const clock = (st.boxes.length ? this.assetClock.get(st.boxes[0]) : undefined) ?? { born: e.born, top: e.top };
-              st.swapped = st.over;
-              st.boxes = SpaceModel.simplified(st.over, st.boxes);
-              for (const q of st.boxes) if (!this.assetClock.has(q)) this.assetClock.set(q, clock);
-              st.seenBorn = e.born;
-              st.over = null;
-              st.swapAt = arriveQuiet ? -Infinity : arriveNow;
-            } else for (const b of st.over) out.push(b);
           }
-          for (const q of st.boxes) out.push(q);
+          if (!st) continue;
+          nAssets++;
+          for (const q of st.kept) out.push(q);
           // (the parts an asset took the place of shrink away, one after another — the erosion's tick)
           if (arriveNow < st.swapAt + LEAVE_KEEP_S) st.swapped.forEach((b, i) => lodGone.push([b, st!.swapAt + Math.min(2, i * 0.04)]));
           else if (st.swapped.length) st.swapped = [];
+          // its building at this slot: the body its masses are joined into
+          let bid = `${seed}`;
+          if (runs) for (const rn of runs) if (k >= rn.k0 && k <= rn.k1) bid = rn.id;
+          const bk = `${bid}|${k}`;
+          const l = bodies.get(bk);
+          if (l) l.push({ seed, st });
+          else bodies.set(bk, [{ seed, st }]);
         }
         if (states) for (const k of states.keys()) if (!slotsOf.has(k)) states.delete(k);
       }
       for (const id of this.assets.keys()) if (!groups.has(id)) this.assets.delete(id);
+      // each building's assets of a slot as one body — made again only when the assets in it are other than they were
+      for (const [bk, members] of bodies) {
+        members.sort((p, q) => p.seed - q.seed);
+        const sig = `${grid}|${members.map((m) => `${m.seed}:${m.st.gen}:${m.st.src.length}`).join(",")}`;
+        let body = this.assetGroups.get(bk);
+        if (!body || body.sig !== sig) {
+          const masses: Box[] = [];
+          let clock = members[0].st.clock;
+          for (const m of members) {
+            for (const q of m.st.src) masses.push(q);
+            if (m.st.clock.born < clock.born) clock = m.st.clock; // (the oldest of them: what the body was first made from)
+          }
+          body = { sig, boxes: SpaceModel.latticeUnion(masses, grid, Math.max(0.05, box.unit / 2)) };
+          for (const q of body.boxes) this.assetClock.set(q, clock);
+          this.assetGroups.set(bk, body);
+        }
+        for (const q of body.boxes) out.push(q);
+      }
+      for (const bk of this.assetGroups.keys()) if (!bodies.has(bk)) this.assetGroups.delete(bk);
       // (for the readout: how many cell-slots are assets, and how many parts that left of how many)
-      let nAssets = 0;
-      for (const m of this.assets.values()) nAssets += m.size;
       this.stages["asset slots (n)"] = nAssets;
       this.stages["parts before assets (n)"] = built.length;
       this.stages["parts after assets (n)"] = out.length;
       built = out;
-    } else if (this.assets.size) this.assets.clear();
+    } else if (this.assets.size) {
+      this.assets.clear();
+      this.assetGroups.clear();
+    }
     /** Seconds a part's cell-slot has been there past its wait, in the clock's shared steps (AGE_STEPS to `lifeSec`:
      *  all parts move at once, so nothing is worked out again between two steps). A part below its building's slots
      *  (a pile, a basement) goes with the building's first slot. */

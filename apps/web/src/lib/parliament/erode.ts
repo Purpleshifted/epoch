@@ -68,6 +68,8 @@ export interface ErodeConfig {
   spread?: boolean;
   /** SIMPLIFIED WITH TIME (spaceModel): seconds a cell-slot stands before its parts are made one asset (0 = never). */
   lodSec?: number;
+  /** …and the lattice the masses of a building are joined on (world units: the width their outline is kept to). */
+  lodGrid?: number;
 }
 
 export const DEFAULT_ERODE: Omit<ErodeConfig, "topSlot"> = { start: 0.15, full: 0.9, amount: 0.75, vegPull: 0.3, order: 0.6, patch: 0.6, grain: 4, shade: 0.25, feed: 0.6 };
