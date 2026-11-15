@@ -3028,9 +3028,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         // 되면 안 되는데" → "딱 잘려보이는데, 다른 로직에 곱하거나 하는 식으로(단수를)") — new names: a factor now, not a line
         layerSlots: { value: 24, min: 0, max: 240, step: 1, label: "층수를 곱함: 꼭대기 0 → 이 단수 아래에서 1 (0 = 층수 안 봄)", render: () => REDESIGN },
         layerSpread: { value: 0.5, min: 0, max: 1, step: 0.05, label: "자리마다 · 부재마다 다르게 (0 = 같은 단은 한꺼번에 → 잘려 보임)", render: () => REDESIGN },
+        // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
+        goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: () => REDESIGN },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
         fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 부식 (1 = 끝까지 천천히; 낮출수록 문턱을 넘자마자 차오름)" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => !REDESIGN && get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
       [FU_MASS]: folder({
@@ -3248,7 +3250,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3303,7 +3305,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({

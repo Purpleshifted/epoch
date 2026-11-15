@@ -488,6 +488,8 @@ export class SpaceModel {
    * where plants gather — what is BUILT BUT NOT LIVED IN (Seed.gather, density.ts liveAt). That is read in its place:
    * per cell-slot the unlived share, and a little of it on the cells right beside (it sticks from the side too).
    */
+  /** The parts still standing, as of the fuse being computed (tubesOf reads it: eroded steel leaves no mass). */
+  private standingNow: Set<Box> | null = null;
   private blockHist: { key: string; h: NatureHistory | null } | null = null;
   private blockHistory(top: number): NatureHistory | null {
     const key = `${this.seedsKey}:${top}`;
@@ -818,7 +820,11 @@ export class SpaceModel {
         if (p.k < kLo || p.k > kHi) continue;
         // (the block: a run's erosion, by where it lies — as it is drawn, computeParts)
         const bc = this.blockClock;
-        const decay = quant20(bc && bc.erode.pipes !== false ? pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - wc.pipeDepth), bc.erode) * bc.old(p.k, (p.ax + p.bx) / 2, (p.az + p.bz) / 2) : this.pipeDecayAt(p.k, w));
+        const worn = bc && bc.erode.pipes !== false ? pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - wc.pipeDepth), bc.erode) : 0;
+        // (a run the erosion has taken leaves no mass either — fuse.ts goneMass)
+        const left = bc && worn >= 1 ? Math.max(0, Math.min(1, fuse.goneMass ?? 0)) : 1;
+        if (left <= 0) continue;
+        const decay = quant20(bc && bc.erode.pipes !== false ? worn * left * bc.old(p.k, (p.ax + p.bx) / 2, (p.az + p.bz) / 2) : this.pipeDecayAt(p.k, w));
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
       }
@@ -834,7 +840,12 @@ export class SpaceModel {
     if (fuse.steelFossil > 0 && wm) {
       for (const b of this.built) {
         if (!STEEL_KINDS.has(b.kind) || b.tilt || b.slot < kLo || b.slot > kHi || partHash(b) >= fuse.steelFossil) continue;
-        const decay = quant20(1 - wm.survival(b));
+        let decay = quant20(1 - wm.survival(b));
+        if (this.blockClock && this.standingNow && !this.standingNow.has(b)) {
+          const left = Math.max(0, Math.min(1, fuse.goneMass ?? 0));
+          if (left <= 0) continue;
+          decay = quant20(decay * left);
+        }
         const hh = halfHeight(b);
         // along the part's long axis, as thick as its thin sides
         const dims = [b.sx, 2 * hh, b.sz];
@@ -1235,11 +1246,13 @@ export class SpaceModel {
     // a part being fused is absorbed into the mass, little by little (by a fixed hash): the mass takes its place.
     // Steel stays (it sticks out of the mass), and so does the skeleton until late (its form kept inside the mass).
     const fu = input.fuse;
+    // (the block: the skeleton is never swallowed by the clock — fuse.ts goneMass)
+    const fuSk = this.blockClock ? { ...fu, skeletonUntil: 2 } : fu;
     const absorbed = (b: Box) => {
       // the steel stays out of the mass (it rusts and falls) — but for the share that fuses as fossil
       if (!survival || !fu.enabled || !(w.strata || this.blockClock) || (STEEL_KINDS.has(b.kind) && !(fu.steelFossil > 0 && partHash(b) < fu.steelFossil))) return false;
       const d = 1 - survival(b);
-      if (isSkeleton(b, d, fu)) return false;
+      if (isSkeleton(b, d, fuSk)) return false;
       // only as far as the mass that takes its place is already drawn (it is built a few chunks at a time)
       const f = fusedShare(Math.min(d, this.fusedAtOf(b) ?? 0), fu);
       return f > 0 && partHash(b) < Math.min(1, f * 1.6);
@@ -1446,6 +1459,10 @@ export class SpaceModel {
     }
     // every built part with its decay, its reclaim and whether it still stands (quantised: the cache keys follow)
     const standing = new Set(this.worn);
+    this.standingNow = standing;
+    // THE BLOCK: what the erosion has taken leaves no mass (or `goneMass` of it), and the skeleton stays inside
+    const gone = bc ? Math.max(0, Math.min(1, fuse.goneMass ?? 0)) : 1;
+    const skCfg = bc ? { ...fuse, skeletonUntil: 2 } : fuse;
     const q20 = (v: number) => Math.round(v * 20) / 20;
     type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number };
     // the angle each seed's district is turned by (fuseTiled)
@@ -1454,10 +1471,15 @@ export class SpaceModel {
     const bySlot = new Map<number, P[]>();
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
-      const d = q20(1 - wm.survival(b));
+      const up = standing.has(b);
+      let d = q20(1 - wm.survival(b));
+      if (!up && gone < 1) {
+        if (gone <= 0) continue;
+        d = q20(d * gone);
+      }
       // not corroding yet: nothing grows on it (B FILL: the plates are kept, they bound the rooms of the parts below)
       if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
-      const e: P = { b, d, up: standing.has(b), sk: isSkeleton(b, d, fuse), ang: angleOf.get(b.seed) ?? 0 };
+      const e: P = { b, d, up, sk: isSkeleton(b, d, skCfg), ang: angleOf.get(b.seed) ?? 0 };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
       else bySlot.set(b.slot, [e]);

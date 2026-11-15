@@ -98,6 +98,18 @@ export interface FuseConfig {
    */
   freshSlots?: number;
   freshSpread?: number;
+  /**
+   * THE BLOCK — WHAT HAS ERODED LEAVES NO MASS (the artist, 2026-11-15: "덩어리도 비우도록"). A part the erosion has
+   * taken used to leave its whole mass where it stood (as a part worn away did), so a building fused into its full
+   * prism however much of it was gone. Now the mass is of what still stands: the erosion's patches cut it, and what
+   * is left are the plates, the columns and the rooms between them. 0 / absent = an eroded part leaves nothing;
+   * up to 1 = it leaves that much of its mass (1 = as before). Not read outside the block.
+   *
+   * And THE SKELETON STAYS INSIDE in the block: `skeletonUntil` is not read there — what goes is the erosion's to say,
+   * and the skeleton is what the openings of the shell show (the artist, the same day: "보로노이셀 넣은 이유가 공동이
+   * 열리면 거기로 오래된 부재가 드러나도록 하는 거였는데 지금은 어찌 다 덩어리라 그 매력이 없어짐").
+   */
+  goneMass?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
