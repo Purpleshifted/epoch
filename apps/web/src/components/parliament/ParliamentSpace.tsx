@@ -3084,6 +3084,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: () => REDESIGN },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
+        // (THE REDESIGN, 2026-11-15: 0.9 — the mass thickens over most of a part's progress, a thin skin first; the
+        // exhibition's 0.49 was full two steps after it began)
         fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 부식 (1 = 끝까지 천천히; 낮출수록 문턱을 넘자마자 차오름)" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
@@ -3270,7 +3272,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         },
         { collapsed: false },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }] : [])] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }, { tag: "mass-fills-slowly-2026-11-15", set: { fuseFull: 0.9 } }] : [])] : []),
     { order: REDESIGN ? (lab ? 7.97 : 4.4) : lab ? 2 : 8, collapsed: REDESIGN },
   );
   // (the redesign's wall: only in the block — the density's buildings and a block whose top is known)

@@ -23,7 +23,7 @@
     "scatter": 1.6999999999999997,
     "envelope": 0.9,
     "fossilTo": 0.66,
-    "fuseFull": 0.49000000000000005,
+    "fuseFull": 0.9,
     "massBody": "alpha",
     "massMode": "size",
     "pitBroad": 0.95,

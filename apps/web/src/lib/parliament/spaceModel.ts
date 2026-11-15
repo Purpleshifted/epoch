@@ -47,6 +47,8 @@ const BLOCK_TILE = 14;
 const FUSE_BUDGET_MS = 300;
 /** THE BLOCK: a part's age is read in this many steps to `lifeSec` (the steps are the clock's: all parts move at once). */
 const AGE_STEPS = 6;
+/** …and each patch of the block moves on at one of this many beats within a step (the parts are read at every beat). */
+const AGE_PHASES = 6;
 
 /** sRGB hex pairs (low, high shade) per NATURE_KIND. */
 export const NATURE_PALETTE: [string, string][] = [
@@ -1240,7 +1242,7 @@ export class SpaceModel {
     const waitSec = Math.max(0, input.weather.erode?.waitSec ?? 0);
     // (real seconds: the world's clock is set back whenever the lab's world is trimmed, and a part's age must not be)
     this.ageClock = Math.max(this.ageClock, (Date.now() - this.arriveEpoch) / 1000);
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${lifeSec > 0 ? Math.floor(this.ageClock / (lifeSec / AGE_STEPS)) : "-"}:${this.renewals}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${lifeSec > 0 ? Math.floor(this.ageClock / (lifeSec / AGE_STEPS / AGE_PHASES)) : "-"}:${this.renewals}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
     // ARRIVAL (arrive.ts): parts first seen now are being built — unless a knob of the parts or of the buildings' rule
@@ -1453,6 +1455,8 @@ export class SpaceModel {
      *  all parts move at once, so nothing is worked out again between two steps). A part below its building's slots
      *  (a pile, a basement) goes with the building's first slot. */
     const step = lifeSec > 0 ? lifeSec / AGE_STEPS : 1;
+    /** Which beat a place moves on at: 0 … AGE_PHASES − 1, alike within a patch. */
+    const phaseOf = (x: number, z: number, slot: number): number => (ec ? Math.min(AGE_PHASES - 1, Math.floor(placeNoise(Math.floor(x / CELL) * CELL, Math.floor(z / CELL) * CELL, slot, ec.grain * 2) * AGE_PHASES)) : 0);
     const aged = (b: Box): number => {
       const m = this.bornT.get(b.seed);
       if (!m) return 0;
@@ -1463,7 +1467,11 @@ export class SpaceModel {
         e = m.get(lo);
         if (!e) return 0;
       }
-      return Math.max(0, Math.floor(ageNow / step) - Math.floor((e.born + waitSec) / step)) * step;
+      // PATCH BY PATCH (the artist, 2026-11-15: "융합 비주얼을 '유기적으로' 나타나는 것처럼"): the steps are still
+      // the clock's — but each patch of the block (the erosion's patches, twice as wide) has its own beat, one of
+      // AGE_PHASES: the whole wall no longer moves on at one moment, it moves on here, then there
+      const ph = (phaseOf(b.x, b.z, b.slot) * step) / AGE_PHASES;
+      return Math.max(0, Math.floor((ageNow + ph) / step) - Math.floor((e.born + waitSec + ph) / step)) * step;
     };
     /** How fast a part's place lets it go on (0 … 1). */
     const weight = (b: Box): number => (ero ? Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z))) : 0);
@@ -1652,7 +1660,8 @@ export class SpaceModel {
           if (ec) {
             const wgt = Math.max(0, Math.min(1, erosionAt(k, sd.gather?.get(k) ?? 0, ec) * old(k, sd.x, sd.z)));
             const step2 = lifeSec > 0 ? lifeSec / AGE_STEPS : 1;
-            const aged2 = e ? Math.max(0, Math.floor(this.ageClock / step2) - Math.floor((e.born + waitSec) / step2)) * step2 : 0;
+            const ph2 = (phaseOf(sd.x, sd.z, k) * step2) / AGE_PHASES;
+            const aged2 = e ? Math.max(0, Math.floor((this.ageClock + ph2) / step2) - Math.floor((e.born + waitSec + ph2) / step2)) * step2 : 0;
             prog = (lifeSec > 0 ? Math.min(1, (wgt * aged2) / lifeSec) : wgt) * amountC;
           }
           cells.set([cx, cz, k, age > 1e5 || !e ? -1 : age, prog], ci);
