@@ -228,6 +228,9 @@ export interface PartsResult {
   pipeRuns: number;
   /** The pipes as plumbing to instance (water.pipeParts): `live` within the present (still changing), `kept` below. */
   pipes: { live: PipeParts; kept: PipeParts };
+  /** The open water of every slot as line segments [x, y, z, x, y, z] at its slot's height (the water between the
+   *  villages, water.ts WaterConfig.villages). */
+  streams: Float32Array;
   /** V2 walkways' pre-layer as line segments with a weight per vertex (walkways.walkSegments): `live` within the present, `kept` below. */
   walk: { live: Float32Array; kept: Float32Array; liveW: Float32Array; keptW: Float32Array; liveU: Float32Array; keptU: Float32Array; liveEnds: Float32Array; keptEnds: Float32Array };
   t: number;
@@ -451,6 +454,8 @@ export class SpaceModel {
   private history: NatureHistory | null = null;
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
   private drain: Drainage = NO_DRAINAGE;
+  /** The open water as segments, made again only when the drainage is (streamSegments). */
+  private streamSegs: { of: Drainage; unit: number; segs: Float32Array } | null = null;
   private drainKey = "";
   /** What water has laid in the slots already past: kept as it is (same rule); reset when the rule changes. */
   private drainKept: { rule: string; pipes: PipeRun[]; streams: Map<number, Float32Array[]>; upToK: number } | null = null;
@@ -521,6 +526,20 @@ export class SpaceModel {
   /** What is made again whole in the block (the ways, the pipes): when it was last made, and of how many events. */
   private slow = new Map<string, { cfg: string; at: number; version: number; n: number }>();
   /** A key that moves when the rule changed — or, no sooner than SLOW_MS after the last time, when anything was written. */
+  /** Every slot's open water as line segments at the slot's height (a little above its floor), cached per drainage. */
+  private streamSegments(unit: number): Float32Array {
+    const c = this.streamSegs;
+    if (c && c.of === this.drain && c.unit === unit) return c.segs;
+    const out: number[] = [];
+    for (const [k, courses] of this.drain.streams) {
+      const y = k * unit + 0.04;
+      for (const line of courses) for (let i = 0; i + 3 < line.length; i += 2) out.push(line[i], y, line[i + 1], line[i + 2], y, line[i + 3]);
+    }
+    const segs = Float32Array.from(out);
+    this.streamSegs = { of: this.drain, unit, segs };
+    return segs;
+  }
+
   private slowKey(name: string, cfg: string): string {
     const now = Date.now();
     let st = this.slow.get(name);
@@ -1624,6 +1643,7 @@ export class SpaceModel {
         ? pipeParts(this.drain.pipes.filter((p) => pipeErode(p) < 1), box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, (_k, p) => pipeErode(p))
         : pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, pipeDecay),
       walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1, walkWeigh),
+      streams: this.streamSegments(box.unit),
       t,
       top,
       minX,

@@ -153,6 +153,7 @@ export function useGlobalBots(
           hVillageCarry: { value: DEFAULT_HERD.villages!.carry!, min: 0, max: 1, step: 0.05, label: "끝난 마을이 옆으로 옮겨 가는 비율 (나머지는 버려지고 딴 데 새로)" },
           hVillageTravel: { value: DEFAULT_HERD.villages!.travel!, min: 0, max: 1, step: 0.05, label: "유랑 무리·외톨이가 이웃 마을로 다녀오는 비율 (집에서 머물다 떠날 때마다)" },
           hVillagePlots: { value: DEFAULT_HERD.villages!.plots!, min: 0, max: 12, step: 1, label: "마을마다 집 수 (가운데 마당 둘레 · 0 = 마을 아무 데나, 한 덩어리)" },
+          hVillageFluid: { value: DEFAULT_HERD.villages!.fluid!, min: 0, max: 1, step: 0.05, label: "마을 사이 길의 흔들림 (몇 분에 걸쳐 옆으로 휨 · 0 = 곧게 찾음)" },
           hGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 사이 거리 (3차원)" },
           hRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 반경 (3차원)" },
         },
@@ -207,13 +208,13 @@ export function useGlobalBots(
         layout: b.hLayout,
         origin: b.hOrigin,
         originR: b.hOriginR,
-        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel, plots: b.hVillagePlots },
+        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel, plots: b.hVillagePlots, fluid: b.hVillageFluid },
         mix: { settle: b.hSettle, roam: b.hRoam, tour: b.hTour },
         loose: b.hLoose,
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hVillagePlots, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hVillagePlots, b.hVillageFluid, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   useEffect(() => {
     botGround.trail = b.hTrail;

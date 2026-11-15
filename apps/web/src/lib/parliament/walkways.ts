@@ -297,17 +297,25 @@ function linksAt(buildings: readonly ReturnType<typeof buildingsOf>[number][], P
   }
   const cost = (c: number) => 0.15 + 2 * (1 - P[c]) ** 2;
   const out = new Map<string, { cells: number[]; p: number }>();
-  const dist = new Float64Array(n);
-  const prev = new Int32Array(n);
+  // (one set of buffers for all the searches, and only the cells a search touched are put back after it: a search
+  // stops at maxSpan, so it touches a few thousand cells, not the whole grid — the artist, 2026-11-15: "최적화")
+  const dist = new Float64Array(n).fill(Infinity);
+  const prev = new Int32Array(n).fill(-1);
   const done = new Uint8Array(n);
+  const steps = new Uint16Array(n);
+  const touched: number[] = [];
   const maxCells = cfg.maxSpan / CELL_SIZE;
   for (const a of buildings) {
-    dist.fill(Infinity);
-    prev.fill(-1);
-    done.fill(0);
-    const steps = new Uint16Array(n);
+    for (const c of touched) {
+      dist[c] = Infinity;
+      prev[c] = -1;
+      done[c] = 0;
+      steps[c] = 0;
+    }
+    touched.length = 0;
     const heap: number[] = [];
     const push = (v: number) => {
+      touched.push(v);
       heap.push(v);
       let c = heap.length - 1;
       while (c > 0) {

@@ -142,8 +142,15 @@ export interface HerdConfig {
    * `plots` house plots (± 1 by its own draw) on a ring at 0.75 of its radius around an open middle; every stay in a
    * village is at one of them — a settler mostly at its own — so a village is several buildings round a court, not
    * one mass. 0 = anywhere in the village (one mass).
+   * TWO KINDS OF WAY (the artist, 2026-11-15: "마을 속 길이랑 마을간 긴 로직을 좀 나눠서 최적화", "마을간 길은 좀 더
+   * 유동적이도록"): a walk inside a village is a LANE — from where it is to the court's middle and on to where it goes
+   * (straight when the two are near), no search over the grid at all, so the lanes of a village are the same few lines
+   * walked again and again. A walk between two villages is a ROAD — searched over the grid (the tails, round the
+   * buildings) through a waypoint off the straight line between the two villages, swung sideways by up to `fluid` × 35 %
+   * of their distance, drifting slowly with the block's time (minutes): walks of about the same time take the same
+   * road, and over time the road wanders. 0 = the straight search between them.
    */
-  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number; travel?: number; plots?: number };
+  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number; travel?: number; plots?: number; fluid?: number };
   /** HOW THEY MOVE, as shares of the herds: settlers (long stays, short hops, back to their places), roamers (short
    *  stays, long walks) and those on a round (the same three or four places, again and again — paths between them). */
   mix: { settle: number; roam: number; tour: number };
@@ -166,8 +173,10 @@ export const DEFAULT_HERD: HerdConfig = {
   depthSec: 900,
   layout: "strata",
   origin: "villages",
-  originR: 60,
-  villages: { count: 5, radius: 12, gap: 40, lifeSec: 400, carry: 0.5, travel: 0.5, plots: 5 },
+  // (the ground narrowed for villages, the artist 2026-11-15 "땅 좁히기": the block reads as a column, the wall's grids
+  // over all buildings — water, walkways — are smaller)
+  originR: 38,
+  villages: { count: 5, radius: 12, gap: 30, lifeSec: 400, carry: 0.5, travel: 0.5, plots: 5, fluid: 0.5 },
   mix: { settle: 1, roam: 1, tour: 1 },
   loose: 0.3,
   drift: 0,
@@ -788,7 +797,7 @@ function keepWithHerd(v: Visitor, lead: Visitor, st: LifecycleState, inp: Lifecy
     v.stops.push([v.sx, v.sz]);
   }
   const bx = nearestImage(v.tx, v.x), bz = nearestImage(v.tz, v.z);
-  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
+  v.route = planWay(v, inp, wallMs, epochMs, cfg, bx, bz);
   v.along = 0;
   v.mode = "go";
   return true;
@@ -914,6 +923,58 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
   return [wrapCoord(v.ex + Math.sin(a) * d), wrapCoord(v.ez + Math.cos(a) * d)];
 }
 
+/** Smooth 1D value noise, 0..1 (a road's slow swing). */
+function swing(t: number, seed: number): number {
+  const i = Math.floor(t), f = t - i, u = f * f * (3 - 2 * f);
+  const a = hash2(i, seed, 173), b = hash2(i + 1, seed, 173);
+  return a + (b - a) * u;
+}
+
+/**
+ * The way from where v is to (bx, bz) (nearest images). In villages (HerdConfig.villages): a LANE when both ends are in
+ * its village — through the court's middle, no grid search; a ROAD when one end is not — the caller's search through a
+ * slowly drifting waypoint between the two villages (`fluid`). Otherwise the caller's search (or straight).
+ */
+function planWay(v: Visitor, inp: LifecycleInputs, wallMs: number, epochMs: number, cfg: LifecycleConfig, bx: number, bz: number): number[] {
+  const sec = (wallMs - epochMs) / 1000 + v.off;
+  const search = (ax: number, az: number, cx: number, cz: number) => (inp.planRoute ? inp.planRoute(ax, az, cx, cz, sec) : [ax, az, cx, cz]);
+  const h = cfg.herd;
+  const vil = villageOf(v, epochMs, h);
+  if (!vil || !h?.villages) return search(v.x, v.z, bx, bz);
+  const near = (x: number, z: number) => wrapDist(x, z, vil.x, vil.z) <= vil.r * 1.3;
+  const inA = near(v.x, v.z), inB = near(wrapCoord(bx), wrapCoord(bz));
+  if (inA && inB) {
+    // LANE: straight when the two ends are near each other (one house), else by the court's middle
+    if (Math.hypot(bx - v.x, bz - v.z) < vil.r * 0.5) return [v.x, v.z, bx, bz];
+    const cx = nearestImage(vil.x, v.x) + (draw(v, epochMs, 180) - 0.5) * 1.2, cz = nearestImage(vil.z, v.z) + (draw(v, epochMs, 181) - 0.5) * 1.2;
+    return [v.x, v.z, cx, cz, bx, bz];
+  }
+  // ROAD between two villages: the one it leaves (nearest to it) and the one it goes to (or the other way round)
+  const sites = villageSites(epochMs, h);
+  const nearestSite = (x: number, z: number) => {
+    let bi = -1, bd = Infinity;
+    sites.forEach((q, i) => {
+      const d = wrapDist(x, z, q.x, q.z);
+      if (d < bd) [bi, bd] = [i, d];
+    });
+    return bi;
+  };
+  const i = nearestSite(v.x, v.z), j = nearestSite(wrapCoord(bx), wrapCoord(bz));
+  const fluid = Math.max(0, Math.min(1, h.villages.fluid ?? 0));
+  if (i < 0 || j < 0 || i === j || !(fluid > 0)) return search(v.x, v.z, bx, bz);
+  // the waypoint: the middle, swung across the line from the lower-numbered village to the other (the same side
+  // whichever way it is walked), drifting with the block's time
+  const [lo, hi] = i < j ? [sites[i], sites[j]] : [sites[j], sites[i]];
+  const lx = nearestImage(lo.x, v.x), lz = nearestImage(lo.z, v.z), hx = nearestImage(hi.x, lx), hz = nearestImage(hi.z, lz);
+  const L = Math.hypot(hx - lx, hz - lz);
+  if (L < 1) return search(v.x, v.z, bx, bz);
+  const side = (swing(Math.max(0, sec) / 150, Math.min(i, j) * 977 + Math.max(i, j)) - 0.5) * 2 * fluid * 0.35 * L;
+  const along = 0.5 + (swing(Math.max(0, sec) / 210, Math.min(i, j) * 911 + Math.max(i, j) + 7) - 0.5) * 0.3 * fluid;
+  const wx = lx + (hx - lx) * along + (-(hz - lz) / L) * side, wz = lz + (hz - lz) * along + ((hx - lx) / L) * side;
+  const a = search(v.x, v.z, wx, wz), b = search(wx, wz, bx, bz);
+  return [...a, ...b.slice(2)];
+}
+
 /** What `v` does when its LOOK or STAY is over, or it has arrived. Returns true when it planned a route. */
 function next(v: Visitor, st: LifecycleState, inp: LifecycleInputs, wallMs: number, cfg: LifecycleConfig, canRoute: boolean): boolean {
   const epochMs = st.epochMs;
@@ -953,7 +1014,7 @@ function next(v: Visitor, st: LifecycleState, inp: LifecycleInputs, wallMs: numb
       v.met = true;
     }
   }
-  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
+  v.route = planWay(v, inp, wallMs, epochMs, cfg, bx, bz);
   v.along = 0;
   v.mode = "go";
   return true;

@@ -537,6 +537,10 @@ interface WalkLook {
   pipeHoleOnset: number;
   pipeDarken: number;
   pipeGrain: number;
+  /** The open water between villages: drawn or not, its colour and opacity (water.ts WaterConfig.villages). */
+  riverOn: boolean;
+  riverColor: string;
+  riverOpacity: number;
 }
 
 /** Line segments [a, b] × n into a line set. */
@@ -967,6 +971,7 @@ function SpaceWorld({
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
+  const streamLines = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   // how used each walkway is (per vertex), and its look applied (again when the look's knobs turn)
   const walkUse = useRef<{ live: Float32Array; kept: Float32Array } | null>(null);
@@ -1102,6 +1107,7 @@ function SpaceWorld({
       applyWalkUse();
       setWalkEnds(endLive.current, p.walk.liveEnds);
       setWalkEnds(endKept.current, p.walk.keptEnds);
+      setSegments(streamLines.current, p.streams);
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
@@ -1297,6 +1303,11 @@ function SpaceWorld({
       </lineSegments>
       {/* WALKWAYS' pre-layer as lines: light grey, the kept ones (below the present) see-through; an end with nothing
           to arrive at any more is closed with a round dot */}
+      {/* THE OPEN WATER between the villages: every slot's stream at its height, so the slots stack into a channel */}
+      <lineSegments ref={streamLines} frustumCulled={false} visible={!!water && walkLook.riverOn}>
+        <bufferGeometry />
+        <lineBasicMaterial color={walkLook.riverColor} transparent opacity={walkLook.riverOpacity} depthWrite={false} />
+      </lineSegments>
       <lineSegments ref={walkLive} frustumCulled={false} visible={!!walk}>
         <bufferGeometry />
         <lineBasicMaterial color={walkLook.walkColor} vertexColors transparent />
@@ -2950,6 +2961,16 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           },
           { order: 1 },
         ),
+        // (the artist, 2026-11-15: "마을과 마을 사이에 물 흐르는 게 보이도록"): each village's water runs from its
+        // outfall to where it meets its nearest neighbour's — water.ts towardCourse
+        "마을 사이 물길": folder(
+          {
+            riverOn: { value: true, label: "보이기" },
+            riverColor: { value: "#6f9fb8", label: "색" },
+            riverOpacity: { value: 0.55, min: 0.05, max: 1, step: 0.05, label: "불투명도" },
+          },
+          { order: 1.5 },
+        ),
         "층 · 이어짐": folder(
           {
             change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (덮인 땅이 이만큼 바뀌면 · 건물이 오고 가도)" },
@@ -3053,8 +3074,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(
-    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
-    [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
+    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain, riverOn: wtr.riverOn, riverColor: wtr.riverColor, riverOpacity: wtr.riverOpacity }),
+    [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain, wtr.riverOn, wtr.riverColor, wtr.riverOpacity],
   );
   const { cfg: natureCfg } = useNatureControls({ hidden: REDESIGN, folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
   // BROUGHT OVER (the artist, 2026-11-15: "융합 진행하면 될 것 같고"): the fusion in the block. Its one clock — a
