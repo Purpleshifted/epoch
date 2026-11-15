@@ -246,6 +246,34 @@ describe("the block: the ground is read per slot from what stands in it", () => 
   });
 });
 
+describe("the block, calmer: specks shed nothing, a building that leaves lays nothing", () => {
+  const inBlock = { ...opts, block: true };
+  const until = (ss: Seed[], t1: number) => ss.map((s) => ({ ...s, t1 }));
+
+  it("a building of fewer cells than minCells sheds no water", () => {
+    const quarter = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6)];
+    const speck = [seed(900, 3, 8), seed(901, 4, 8)]; // two cells just south of the quarter
+    // (burial low enough that the speck counts as part of the sealed quarter)
+    const all = drainage([], [...quarter, ...speck], { ...DEFAULT_WATER, burial: 0.1 }, inBlock);
+    const calm = drainage([], [...quarter, ...speck], { ...DEFAULT_WATER, burial: 0.1, minCells: 4 }, inBlock);
+    // what comes out at the outfall is the runoff of every source: with the speck 36 + 30 + 2 cells, without it 66
+    const most = (d: typeof all) => Math.max(...d.pipes.map((p) => p.flow));
+    expect(most(all)).toBe(68);
+    expect(most(calm)).toBe(66);
+  });
+
+  it("when a building leaves, no new layer is laid; when one arrives, one is", () => {
+    // A stands in slots 0 … 30; B beside it only in slots 0 … 10; C arrives in slot 20
+    const A = until(block(1, 0, 0, 6, 6), 619), B = until(block(100, 8, 0, 5, 6), 219);
+    const C = until(block(200, 0, 8, 6, 5, 400), 619);
+    const d = drainage([], [...A, ...B, ...C], { ...DEFAULT_WATER, relay: -1 }, inBlock);
+    const ks = [...new Set(d.pipes.map((p) => p.k))].sort((p, q) => p - q);
+    expect(ks[0]).toBe(0);
+    expect(ks.some((k) => k > 10 && k < 20)).toBe(false); // B left: nothing laid
+    expect(ks.some((k) => k >= 20 && k <= 22)).toBe(true); // C arrived: laid
+  });
+});
+
 describe("pipes as plumbing (the wrapper)", () => {
   it("every run a straight cylinder on its axis (right angles kept), a fitting at every bend, manholes upright with covers", () => {
     const seeds = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5), ...block(300, 8, 8, 5, 5, 300)];

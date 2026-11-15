@@ -28,7 +28,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { seedId, type Seed } from "./seeds";
 import { legSimilarity } from "./trails";
 import type { Contributor, PEvent } from "./types";
-import { wrapCell, wrapCoord, wrapDist } from "./world";
+import { WORLD_CELLS, wrapCell, wrapCoord, wrapDist } from "./world";
 
 export interface DensityConfig {
   /** Sideways reach of a presence (world units). */
@@ -82,6 +82,21 @@ export interface DensityConfig {
    * the forgetting of samples — is what makes a building go.
    */
   maxBuilt?: number;
+  /**
+   * NEAR BUILDINGS ARE ONE (the artist, 2026-11-15: "건물 자체가 좀 산발적으로 지어지다 보니 … 건물이 특정 거리 미만
+   * 가까이 있으면 병합되도록"). In a slot, the ground between built cells no more than this many cells apart is built
+   * too: the gap is closed (a morphological closing of the slot's built cells by a square `mergeGap` cells wide — a gap
+   * is filled as wide as the two sides face each other, so are notches and small courts). The filled cell-slots are
+   * JOINED, not built by anybody: level 1, nobody's, never lived in (their gathering is whole). They are a function of
+   * what is built in their slot alone — nothing is kept, the order of writing does not matter. 0 / absent = none.
+   */
+  mergeGap?: number;
+  /**
+   * …AND NOT IN ONE LAYER (the artist, 2026-11-15: "한 겹으로 생기는 건물 덩어리"). Two buildings that stand side by
+   * side for one slot only would be joined by a sheet one slot thick. A joined cell-slot counts only where the cell
+   * is built or joined through at least this many slots running (itself among them). 1 / absent = every one counts.
+   */
+  mergeThick?: number;
   /** PATHS from the density of MOVEMENT, in the same grid (absent = none: every sample is a presence, as before). */
   path?: PathConfig;
 }
@@ -185,6 +200,8 @@ interface Column {
   slots: Map<number, CellSlot>;
   /** The Seed as last made (null = none, undefined = to be made). */
   seed?: Seed | null;
+  /** The slots in which this cell is JOINED (DensityConfig.mergeGap): between near buildings, not built itself. */
+  joined?: Set<number>;
 }
 
 /** The level of a cell-slot from what its visitors put in. */
@@ -228,6 +245,11 @@ export class DensityField {
   private nBuilt = 0;
   private plates: { key: string; out: Float32Array } | null = null;
   private lines: { key: string; out: Float32Array } | null = null;
+  /** MERGING: the built cells of every slot, the joined cells of every slot, and the slots to be closed again. */
+  private builtIn = new Map<number, Set<number>>();
+  private joinedIn = new Map<number, Set<number>>();
+  private mergeDirty = new Set<number>();
+  private mergeBuf: [Uint8Array, Uint8Array, Uint8Array] | null = null;
 
   constructor(readonly cfg: DensityConfig) {
     this.key = JSON.stringify(cfg);
@@ -481,6 +503,7 @@ export class DensityField {
     }
     if (lv !== cs.level) {
       const born = cs.level < 1 && lv >= 1;
+      if (born || (cs.level >= 1 && lv < 1)) this.markBuilt(ck, k, born);
       cs.level = lv;
       col.seed = undefined;
       this.dirty.add(ck);
@@ -498,6 +521,7 @@ export class DensityField {
           ocs.by.clear();
           ocs.direct = 0;
           ocs.level = 0;
+          this.markBuilt(ock, ok, false);
           oc.seed = undefined;
           this.dirty.add(ock);
           this.nBuilt--;
@@ -510,6 +534,116 @@ export class DensityField {
         }
       } else if (lv < 1) this.nBuilt--;
     }
+  }
+
+  /** A cell-slot has become built, or is no longer: its slot's gaps are closed again at the next reading. */
+  private markBuilt(ck: number, k: number, built: boolean): void {
+    let set = this.builtIn.get(k);
+    if (built) {
+      if (!set) this.builtIn.set(k, (set = new Set()));
+      set.add(ck);
+    } else set?.delete(ck);
+    if (Math.round(this.cfg.mergeGap ?? 0) > 0) this.mergeDirty.add(k);
+  }
+
+  /**
+   * NEAR BUILDINGS ARE ONE (DensityConfig.mergeGap): the slots whose built cells changed are closed again — a
+   * dilation and an erosion of the slot's ground by a square `mergeGap` cells wide, round the torus. A cell that
+   * comes out built without being so is JOINED; where that changed, the cell's Seed is made again.
+   */
+  private merge(): void {
+    if (!this.mergeDirty.size) return;
+    const G = Math.round(this.cfg.mergeGap ?? 0);
+    const N = WORLD_CELLS, H = N / 2;
+    // the square's offsets: −a … +b one way, −b … +a back (a + b = G: a gap of G cells is just closed)
+    const a = Math.floor(G / 2), b = G - a;
+    const A = (this.mergeBuf ??= [new Uint8Array(N * N), new Uint8Array(N * N), new Uint8Array(N * N)])[0];
+    const T = this.mergeBuf[1], D = this.mergeBuf[2];
+    const wrap = (v: number) => ((v % N) + N) % N;
+    for (const k of this.mergeDirty) {
+      const built = this.builtIn.get(k);
+      const next = new Set<number>();
+      if (G > 0 && built && built.size >= 2) {
+        // the slot's built cells on the ground's grid, and their bounds (what is closed lies within them)
+        let i0 = N, i1 = -1, j0 = N, j1 = -1;
+        const at: number[] = [];
+        for (const ck of built) {
+          const col = this.cols.get(ck)!;
+          const i = col.cx + H, j = col.cz + H;
+          A[j * N + i] = 1;
+          at.push(j * N + i);
+          if (i < i0) i0 = i;
+          if (i > i1) i1 = i;
+          if (j < j0) j0 = j;
+          if (j > j1) j1 = j;
+        }
+        // worked out two gaps beyond the bounds (the passes read that far) — the whole way round where the bounds
+        // come near the world's edge, since a gap may lie across it
+        let x0 = i0 - 2 * G, x1 = i1 + 2 * G, z0 = j0 - 2 * G, z1 = j1 + 2 * G;
+        if (x0 < 0 || x1 >= N) [x0, x1, i0, i1] = [0, N - 1, 0, N - 1];
+        if (z0 < 0 || z1 >= N) [z0, z1, j0, j1] = [0, N - 1, 0, N - 1];
+        const pass = (src: Uint8Array, dst: Uint8Array, lo: number, hi: number, alongX: boolean, all: boolean) => {
+          // dst = any (a dilation) or all (an erosion) of src over lo … hi along x or z, round the torus
+          for (let j = z0; j <= z1; j++) {
+            for (let i = x0; i <= x1; i++) {
+              let v = all ? 1 : 0;
+              for (let d = lo; d <= hi; d++) {
+                const c = alongX ? src[j * N + wrap(i + d)] : src[wrap(j + d) * N + i];
+                if (all ? !c : c) {
+                  v = all ? 0 : 1;
+                  break;
+                }
+              }
+              dst[j * N + i] = v;
+            }
+          }
+        };
+        pass(A, T, -b, a, true, false);
+        pass(T, D, -b, a, false, false);
+        pass(D, T, -a, b, true, true);
+        pass(T, D, -a, b, false, true);
+        for (let j = j0; j <= j1; j++) {
+          for (let i = i0; i <= i1; i++) {
+            if (!D[j * N + i] || A[j * N + i]) continue;
+            const ck = colKey(i - H, j - H);
+            // (a cell-slot that is path stays path)
+            if (!this.cols.get(ck)?.slots.get(k)?.path) next.add(ck);
+          }
+        }
+        for (const c of at) A[c] = 0;
+      }
+      const prev = this.joinedIn.get(k);
+      const touch = (ck: number, on: boolean) => {
+        let col = this.cols.get(ck);
+        if (!col) {
+          const cx = Math.floor(ck / 65536) - 32768, cz = (ck % 65536) - 32768;
+          this.cols.set(ck, (col = { cx, cz, slots: new Map() }));
+        }
+        if (on) (col.joined ??= new Set()).add(k);
+        else col.joined?.delete(k);
+        col.seed = undefined;
+        this.dirty.add(ck);
+        this.listDirty = true;
+        this.version++;
+      };
+      for (const ck of next) if (!prev?.has(ck)) touch(ck, true);
+      if (prev) for (const ck of prev) if (!next.has(ck)) touch(ck, false);
+      if (next.size) this.joinedIn.set(k, next);
+      else this.joinedIn.delete(k);
+    }
+    this.mergeDirty.clear();
+  }
+
+  /** Whether a cell is joined in slot k — not built itself, and the fill thick enough there (mergeThick). */
+  private joinedHere(col: Column, k: number): boolean {
+    if (!col.joined?.has(k) || (col.slots.get(k)?.level ?? 0) >= 1) return false;
+    const thick = Math.round(this.cfg.mergeThick ?? 1);
+    if (thick <= 1) return true;
+    const has = (q: number) => (col.slots.get(q)?.level ?? 0) >= 1 || !!col.joined?.has(q);
+    let n = 1;
+    for (let q = k - 1; n < thick && has(q); q--) n++;
+    for (let q = k + 1; n < thick && has(q); q++) n++;
+    return n >= thick;
   }
 
   /** The highest step of any cell-slot within `radius` of a cell at slot `k` (its own not counted). */
@@ -650,9 +784,12 @@ export class DensityField {
    */
   eachShare(cb: (cx: number, cz: number, k: number, share: number) => void): void {
     const c = this.cfg;
+    this.merge();
     for (const col of this.cols.values()) {
+      // (a joined cell-slot is building as much as a built one; one nothing was ever put into is not among `slots`)
+      if (col.joined) for (const k of col.joined) if (!col.slots.has(k) && this.joinedHere(col, k)) cb(col.cx, col.cz, k, 1);
       for (const [k, cs] of col.slots) {
-        if (cs.level >= 1) {
+        if (cs.level >= 1 || this.joinedHere(col, k)) {
           cb(col.cx, col.cz, k, 1);
           continue;
         }
@@ -663,13 +800,23 @@ export class DensityField {
     }
   }
 
-  /** The level of a cell-slot (0 = nothing there). */
+  /** The level of a cell-slot (0 = nothing there; a joined one is 1). */
   levelAt(cx: number, cz: number, k: number): number {
-    return this.cols.get(colKey(wrapCell(cx), wrapCell(cz)))?.slots.get(k)?.level ?? 0;
+    this.merge();
+    const col = this.cols.get(colKey(wrapCell(cx), wrapCell(cz)));
+    return (col?.slots.get(k)?.level ?? 0) || (col && this.joinedHere(col, k) ? 1 : 0);
+  }
+
+  /** Whether a cell-slot is joined (between near buildings: DensityConfig.mergeGap), not built itself. */
+  joinedAt(cx: number, cz: number, k: number): boolean {
+    this.merge();
+    const col = this.cols.get(colKey(wrapCell(cx), wrapCell(cz)));
+    return !!col && this.joinedHere(col, k);
   }
 
   /** One Seed per ground cell that has anything: its runs of slots at level ≥ 1, its mass from its highest level. */
   seeds(): Seed[] {
+    this.merge();
     if (!this.listDirty) return this.list;
     const c = this.cfg;
     for (const ck of this.dirty) {
@@ -680,6 +827,14 @@ export class DensityField {
         if (cs.level < 1) continue;
         ks.push(k);
         if (cs.level > top) top = cs.level;
+      }
+      // the slots it is joined in (between near buildings): level 1, nobody's
+      if (col.joined) {
+        for (const k of col.joined) {
+          if (!this.joinedHere(col, k)) continue;
+          ks.push(k);
+          if (top < 1) top = 1;
+        }
       }
       if (!ks.length) {
         col.seed = null;
@@ -700,6 +855,7 @@ export class DensityField {
       // who built it: every visitor of its living slots, first and last slot time, weight (capped per slot)
       const who = new Map<number, Contributor>();
       for (const k of ks) {
+        if (!((col.slots.get(k)?.level ?? 0) >= 1)) continue; // (joined: nobody's)
         for (const [o, a] of col.slots.get(k)!.by) {
           const t = k * c.slotSec, amt = Math.min(a, c.visitorCap);
           const w = who.get(o);
@@ -722,8 +878,9 @@ export class DensityField {
         spans,
         mass: c.mass * Math.pow(Math.max(1, c.massRatio), top - 1),
         who: [...who.values()],
-        levels: new Map(ks.map((k) => [k, col.slots.get(k)!.level] as const)),
-        ...((c.liveAt ?? 0) > 0 ? { gather: new Map(ks.map((k) => [k, Math.round(this.gatherOf(col.slots.get(k)!) * 4) / 4] as const)) } : {}),
+        levels: new Map(ks.map((k) => [k, Math.max(1, col.slots.get(k)?.level ?? 0)] as const)),
+        // (a joined cell-slot was never lived in: its gathering is whole)
+        ...((c.liveAt ?? 0) > 0 ? { gather: new Map(ks.map((k) => [k, (col.slots.get(k)?.level ?? 0) >= 1 ? Math.round(this.gatherOf(col.slots.get(k)!) * 4) / 4 : 1] as const)) } : {}),
       };
     }
     this.dirty.clear();

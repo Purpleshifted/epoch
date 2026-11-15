@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ERODE, erodeThreshold, erosion, erosionAt, type ErodeConfig } from "./erode";
+import { DEFAULT_ERODE, erodeThreshold, erosion, erosionAt, pipeErosion, type ErodeConfig } from "./erode";
 import type { Box, Seed } from "./seeds";
 
 const cfg: ErodeConfig = { ...DEFAULT_ERODE, topSlot: 40 };
@@ -54,3 +54,25 @@ describe("erosion in the block", () => {
     expect(gone(35)).toBeGreaterThan(0);
   });
 });
+
+describe("the pipes erode too", () => {
+  const runs = Array.from({ length: 400 }, (_, i) => [((i * 37) % 97) * 1.2, ((i * 53) % 89) * 1.2] as const);
+  const goneAt = (slot: number, c = cfg) => runs.filter(([x, z]) => pipeErosion(x, z, slot, c) >= 1).length;
+
+  it("nothing near the top, more gone the deeper, holes before a run goes", () => {
+    expect(runs.every(([x, z]) => pipeErosion(x, z, 39, cfg) === 0)).toBe(true);
+    expect(goneAt(2)).toBeGreaterThan(goneAt(20));
+    expect(goneAt(20)).toBeGreaterThanOrEqual(goneAt(34));
+    expect(goneAt(2)).toBeGreaterThan(0);
+    // a run that still lies deep carries how near it is to going (0 … 1)
+    const deep = runs.map(([x, z]) => pipeErosion(x, z, 2, cfg)).filter((e) => e < 1);
+    expect(deep.length).toBeGreaterThan(0);
+    for (const e of deep) expect(e).toBeGreaterThan(0);
+  });
+
+  it("is a place, not a clock: the same run, the same answer; no amount, nothing goes", () => {
+    for (const [x, z] of runs.slice(0, 20)) expect(pipeErosion(x, z, 5, cfg)).toBe(pipeErosion(x, z, 5, cfg));
+    expect(goneAt(2, { ...cfg, amount: 0 })).toBe(0);
+  });
+});
+

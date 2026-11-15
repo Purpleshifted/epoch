@@ -311,3 +311,68 @@ describe("density: paths from the density of movement", () => {
     }
   });
 });
+
+describe("near buildings are one (mergeGap)", () => {
+  const K = Math.floor(410 / CFG.slotSec);
+  const cellOf = (v: number) => Math.floor(v / 1.2);
+  /** Two crowds at the same time, `d` apart along x; the built cells of slot K on the row between them. */
+  const two = (d: number, mergeGap: number, liveAt = 0) => fieldOf([...crowd(5, 10, 10, 400, 30, "a"), ...crowd(5, 10 + d, 10, 400, 30, "b")], { ...CFG, mergeGap, liveAt });
+  const row = (f: DensityField, cz: number, from: number, to: number) => {
+    const out: number[] = [];
+    for (let cx = from; cx <= to; cx++) out.push(f.levelAt(cx, cz, K) >= 1 ? 1 : 0);
+    return out;
+  };
+  const cz = cellOf(10.1);
+  // the gap between the two buildings on that row, without merging
+  const gapOf = (d: number) => {
+    const r = row(two(d, 0), cz, cellOf(10), cellOf(10 + d));
+    return r.filter((v) => !v).length;
+  };
+
+  it("a gap no wider than mergeGap is filled, a wider one is not", () => {
+    const d = 9;
+    const gap = gapOf(d);
+    expect(gap).toBeGreaterThanOrEqual(2);
+    const filled = two(d, gap);
+    expect(row(filled, cz, cellOf(10), cellOf(10 + d)).every((v) => v === 1)).toBe(true);
+    const not = two(d, gap - 1);
+    expect(row(not, cz, cellOf(10), cellOf(10 + d)).filter((v) => !v).length).toBe(gap);
+    // more ground is building than before, and the same seeds whichever crowd is written first
+    expect(filled.seeds().length).toBeGreaterThan(two(d, 0).seeds().length);
+    const back = fieldOf([...crowd(5, 10 + d, 10, 400, 30, "b"), ...crowd(5, 10, 10, 400, 30, "a")], { ...CFG, mergeGap: gap });
+    const sig = (f: DensityField) => f.seeds().map((s) => `${s.id}:${JSON.stringify(s.spans)}`).sort();
+    expect(sig(back)).toEqual(sig(filled));
+  });
+
+  it("a joined cell-slot is nobody's and was never lived in; buildings at different times are not joined", () => {
+    const d = 9, gap = gapOf(d);
+    const f = two(d, gap, 0.5);
+    let cx = cellOf(10);
+    while (!f.joinedAt(cx, cz, K)) cx++;
+    expect(cx).toBeLessThan(cellOf(10 + d));
+    const s = f.seeds().find((q) => cellOf(q.x) === cx && cellOf(q.z) === cz)!;
+    expect(s.levels!.get(K)).toBe(1);
+    expect(s.gather!.get(K)).toBe(1);
+    expect((s.who ?? []).length).toBe(0);
+    // the same two crowds far apart in time: each alone in its slots — nothing between them
+    const apart = fieldOf([...crowd(5, 10, 10, 400, 30, "a"), ...crowd(5, 10 + d, 10, 2000, 30, "b")], { ...CFG, mergeGap: gap });
+    for (let x = cellOf(10); x <= cellOf(10 + d); x++) expect(apart.joinedAt(x, cz, K)).toBe(false);
+  });
+
+  it("not in one layer: with mergeThick 2 a fill one slot thick does not count, a thicker one does", () => {
+    const d = 9, gap = gapOf(d);
+    const at = (shift: number, mergeThick: number) => fieldOf([...crowd(5, 10, 10, 400, 30, "a"), ...crowd(5, 10 + d, 10, 400 + shift, 30, "b")], { ...CFG, mergeGap: gap, mergeThick });
+    // a cell of the gap, and the slots it is joined in, as the second crowd comes later and later
+    const probe = two(d, gap);
+    let cx = cellOf(10);
+    while (!probe.joinedAt(cx, cz, K)) cx++;
+    const joinedSlots = (f: DensityField) => Array.from({ length: 60 }, (_, k) => k).filter((k) => f.joinedAt(cx, cz, k));
+    let thin = -1;
+    for (let shift = 20; shift <= 240 && thin < 0; shift += 10) if (joinedSlots(at(shift, 1)).length === 1) thin = shift;
+    expect(thin).toBeGreaterThan(0);
+    expect(joinedSlots(at(thin, 2))).toEqual([]);
+    const thick = joinedSlots(at(0, 1));
+    expect(thick.length).toBeGreaterThanOrEqual(2);
+    expect(joinedSlots(at(0, 2))).toEqual(thick);
+  });
+});

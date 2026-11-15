@@ -320,7 +320,23 @@ export function useGlobalBots(
     }
   }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // THE WORLD WAS EMPTIED (the wall's 지우고 다시 생성하기; the artist, 2026-11-15): the tails go with it, and the
+  // crowd starts over — in the lab too, whose world is this tab's only (no shared epoch tells it)
+  const seenDrops = useRef(log.drops);
   useTicker(TICK_MS, () => {
+    if (log.drops !== seenDrops.current) {
+      seenDrops.current = log.drops;
+      if (log.lastDrop === "clear") {
+        tailField.clear();
+        pending.current = [];
+        botStartMs.current = 0;
+        lastSampleMs.current = 0;
+        ground.current = null;
+        routes.current.clear();
+        visitors.current = null;
+        if (local) epochMs.current = clock.now();
+      }
+    }
     const { on: isOn, cfg: foldCfg, fold: theFold, lc: lcCfg } = live.current;
     const isSession = true;
     if (!isOn) return;

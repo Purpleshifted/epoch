@@ -109,6 +109,11 @@ export interface WaterConfig {
   pipeLife: number;
   /** How much of its radius a pipe loses as it decays fully (the wall thins before the holes take it). */
   thin: number;
+  /**
+   * THE BLOCK, CALMER (the artist, 2026-11-15: "배관도 너무 복잡하게 얽히는데"): a building of fewer cells than this
+   * (in the slot) sheds no water — a speck beside a quarter gets no lateral of its own. 0 / absent = every building.
+   */
+  minCells?: number;
 }
 
 export const DEFAULT_WATER: WaterConfig = {
@@ -338,6 +343,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const sat = new Float64Array((nx + 1) * (nz + 1));
   const share = new Float32Array(n);
   let laidDense = "";
+  let laidIds = new Set<number>();
   let laidK = -Infinity;
   let courses: Float32Array[] = [];
   for (let k = kFirst; k <= kLast; k++) {
@@ -385,7 +391,9 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       inBlock
         ? buildings.map((b) => ({ ...b, seeds: b.seeds.filter((s) => stands(s, k)) })).filter((b) => b.seeds.length > 0)
         : buildings.filter((b) => b.t0 <= t && b.lastS + cfg.persistSec >= t)
-    ).sort((p, q) => q.seeds.length - p.seeds.length || p.id - q.id);
+    )
+      .filter((b) => b.seeds.length >= (cfg.minCells ?? 0))
+      .sort((p, q) => q.seeds.length - p.seeds.length || p.id - q.id);
     if (!live.length) {
       courses = [];
       continue;
@@ -402,12 +410,19 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     let diff = 0, tot = 0;
     for (let c = 0; c < n; c++) {
       tot += sealed[c];
-      if (laidSealed && laidSealed[c] !== sealed[c]) diff++;
+      // (the block: only ground newly sealed counts — a network laid for more ground than there is now still serves)
+      if (laidSealed && laidSealed[c] !== sealed[c] && (!inBlock || sealed[c])) diff++;
     }
     // RE-LAYING: the network in use has grown older than `relay` (a sewer relaid in its time)
     let stale = false;
     if (relayEvery > 0) for (const v of lastNet.values()) if (v.seen === netK && k - v.k >= relayEvery) stale = true;
-    const changed = !laidSealed || denseKey !== laidDense || diff / Math.max(1, tot) >= cfg.change || stale;
+    // (THE BLOCK, CALMER: buildings come and go slot by slot there — a network is laid anew for a building that was
+    // not in it, not for one that left: its lateral is just no longer used)
+    let arrived = false;
+    if (inBlock) {
+      for (const b of dense) if (!laidIds.has(b.id)) arrived = true;
+    }
+    const changed = !laidSealed || (inBlock ? arrived : denseKey !== laidDense) || diff / Math.max(1, tot) >= cfg.change || stale;
     if (!changed || k - laidK < cfg.minGapSlots) {
       if (courses.length) streams.set(k, courses);
       continue;
@@ -415,6 +430,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     laidBuf.set(sealed);
     laidSealed = laidBuf;
     laidDense = denseKey;
+    laidIds = new Set(dense.map((b) => b.id));
     laidK = k;
     const e = k;
     courses = [];
@@ -863,11 +879,12 @@ export interface PipeParts {
  * CORROSION: `decayOf(k)` (0 fresh … 1 gone, from the parts' weathering clock) is carried on every part of a layer;
  * the wall thins by `thin` × decay, and the material eats holes with it.
  */
-export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number, decayOf: (k: number) => number = () => 0): { live: PipeParts; kept: PipeParts } {
+export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterConfig, fromK: number, decayOf: (k: number, run: PipeRun) => number = () => 0): { live: PipeParts; kept: PipeParts } {
   const y = (k: number) => (k - cfg.pipeDepth) * unit;
-  const dec = (k: number) => Math.max(0, Math.min(1, decayOf(k)));
-  const thin = (k: number) => 1 - Math.max(0, Math.min(0.9, cfg.thin)) * dec(k);
-  const rad = (flow: number, k: number) => cfg.pipeRadius * Math.pow(Math.max(1, flow), cfg.flowGain) * thin(k);
+  // (a run's decay: by the slot it was laid in — and, where the caller reads it so, by where the run lies)
+  const dec = (p: PipeRun) => Math.max(0, Math.min(1, decayOf(p.k, p)));
+  const thin = (p: PipeRun) => 1 - Math.max(0, Math.min(0.9, cfg.thin)) * dec(p);
+  const rad = (p: PipeRun) => cfg.pipeRadius * Math.pow(Math.max(1, p.flow), cfg.flowGain) * thin(p);
   type V = [number, number, number];
   type Cyl = { a: V; b: V; r: number; live: boolean; shaft: boolean; decay: number };
   const cyls: Cyl[] = [];
@@ -884,14 +901,14 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
   for (const p of pipes) {
     const live = p.k >= fromK;
     if (p.k0 !== undefined) {
-      const r = cfg.pipeRadius * cfg.shaftRadius * thin(p.k), d = dec(p.k);
+      const r = cfg.pipeRadius * cfg.shaftRadius * thin(p), d = dec(p);
       cyls.push({ a: [p.ax, y(p.k0), p.az], b: [p.ax, y(p.k), p.az], r, live, shaft: true, decay: d }); // the shaft, old pipe to new
       cyls.push({ a: [p.ax, y(p.k) + r * 0.8, p.az], b: [p.ax, y(p.k) + r * (0.8 + cfg.coverHeight), p.az], r: r * cfg.coverRadius, live, shaft: true, decay: d }); // the cover
       end(cyls.length - 2, 0);
       end(cyls.length - 2, 1);
       continue;
     }
-    cyls.push({ a: [p.ax, y(p.k), p.az], b: [p.bx, y(p.k), p.bz], r: rad(p.flow, p.k), live, shaft: false, decay: dec(p.k) });
+    cyls.push({ a: [p.ax, y(p.k), p.az], b: [p.bx, y(p.k), p.bz], r: rad(p), live, shaft: false, decay: dec(p) });
     end(cyls.length - 1, 0);
     end(cyls.length - 1, 1);
   }

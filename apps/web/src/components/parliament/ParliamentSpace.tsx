@@ -2514,6 +2514,20 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [botDepth, setBotDepth] = useState(0);
   const botOpts = useMemo(() => (lab ? { clock: clk, local: true, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
+  // EMPTY THE WORLD AND LET IT BE MADE AGAIN (the artist, 2026-11-15: "지우고 다시 생성하기 레바 버튼 넣기"), at the top
+  // of the panel. The lab's world is this tab's only; the wall's is the shared one (every open tab follows), so there
+  // it asks first. The bots start over with a fresh crowd (useGlobalBots), the wall and the bots' ground from nothing.
+  const [worldResets, setWorldResets] = useState(0);
+  const resetWorld = useRef(() => {});
+  resetWorld.current = () => {
+    if (!lab) {
+      if (!window.confirm("세계를 비우고 처음부터 다시 생성할까요? (열려 있는 다른 탭도 따라옵니다)")) return;
+      clearWorld();
+    }
+    log.clear();
+    setWorldResets((n) => n + 1);
+  };
+  useLevaControls("세계", { "지우고 다시 생성하기": button(() => resetWorld.current()) }, { order: 0.4, render: () => isV2 });
   // THE BUILDINGS' RULE (lib/parliament/density.ts): a threshold on what has been put into each cell-slot. Off = the fold.
   const DENSITY_GROUP = "건물 생성 (칸 밀도 계단)";
   const dn = useLevaControls(
@@ -2526,6 +2540,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
       dMaxBuilt: { value: 8000, min: 0, max: 60000, step: 500, label: "남기는 건물 칸 수 (넘으면 가장 먼저 지어진 칸부터 사라짐 · 0 = 한도 없음)" },
       dDown: { value: DEFAULT_DENSITY.down, min: 0, max: 1, step: 0.05, label: "아래로도 닿는 비율 (0 = 위로만)" },
+      // NEAR BUILDINGS ARE ONE (density.ts mergeGap; the artist, 2026-11-15: "가까이 있으면 병합되도록")
+      dMerge: { value: 3, min: 0, max: 10, step: 1, label: "가까운 건물 병합: 틈이 이 칸 수 이하이면 메워 한 건물로 (0 = 끔)" },
+      dMergeThick: { value: 2, min: 1, max: 8, step: 1, label: "메운 자리의 최소 두께 (단 · 1 = 한 겹짜리도 메움)" },
       // THE ORDER OF BUILDING IS THE TIME AXIS (seeds.ts buildKeep): slots above a building's beginning until it is complete
       buildSlots: { value: 3, min: 0, max: 20, step: 1, label: "다 지어지기까지 (단 · 0 = 한꺼번에)" },
     }),
@@ -2611,6 +2628,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       erGrain: { value: DEFAULT_ERODE.grain, min: 1, max: 20, step: 0.5, label: "뭉텅이 크기 (칸)" },
       erShade: { value: DEFAULT_ERODE.shade, min: 0, max: 0.8, step: 0.05, label: "깎이는 곳의 남은 부재를 어둡게" },
       erFeed: { value: DEFAULT_ERODE.feed, min: 0, max: 1, step: 0.05, label: "깎이는 자리에 식생이 모임 (0 = 안 묶음)" },
+      // (the artist, 2026-11-15: "배관도 침식 적용되도록" — erode.ts pipeErosion: by depth, in the parts' patches)
+      erPipes: { value: true, label: "배관도 깎임 (깊이로 · 건물과 같은 뭉텅이에서 · 구멍이 나다가 사라짐)" },
     }),
     { order: lab ? 7.95 : 1.76, render: () => isV2 },
   );
@@ -2618,9 +2637,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const weatherEr = useMemo<WeatherConfig>(
     () =>
       REDESIGN && er.erOn && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erAmount, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erShade, feed: er.erFeed } }
+        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erAmount, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erShade, feed: er.erFeed, pipes: er.erPipes } }
         : weather,
-    [weather, botDepth, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed],
+    [weather, botDepth, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes],
   );
   // (the unlived share is read by the gatherings and by the erosion alike)
   const unlivedOn = vg.gaOn || er.erOn;
@@ -2628,9 +2647,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, mergeGap: dn.dMerge, mergeThick: dn.dMergeThick, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.dMerge, dn.dMergeThick, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
@@ -2647,7 +2666,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     return () => {
       if (botGround.built === field) botGround.built = null;
     };
-  }, [log, densityCfg]);
+  }, [log, densityCfg, worldResets]);
   // (the density's own paths, density.ts pathLines, are not drawn: the walkways are the paths — walkways.ts)
   const pathLook = null;
   // the history window reaches as deep as the bots write (the lab keeps everything)
@@ -2763,6 +2782,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         "어디에 깔리나 (덮인 땅의 건물에서 열린 땅 쪽으로)": folder(
           {
             pipesOn: { value: true, label: "켜기" },
+            // (the block, calmer: a speck of a building gets no lateral of its own — water.ts minCells)
+            pipeMinCells: { value: 4, min: 0, max: 40, step: 1, label: "이보다 작은 건물은 관을 내지 않음 (칸 · 0 = 모두)" },
             burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "관이 깔리는 덮인 비율 (건물 둘레가 이만큼 덮여야 · 관은 여기까지만 감)" },
             imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
             openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "관이 향하는 열린 땅 (덮인 비율이 이보다 낮은 곳)" },
@@ -2869,9 +2890,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             collarLength: wtr.collarLength,
             pipeLife: wtr.pipeLife,
             thin: wtr.thin,
+            ...(REDESIGN ? { minCells: wtr.pipeMinCells } : {}),
           }
         : null,
-    [isV2, wtr.pipesOn, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
+    [isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(

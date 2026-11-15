@@ -16,7 +16,7 @@ import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
-import { erosion, type ErodeConfig, type Erosion } from "./erode";
+import { erosion, pipeErosion, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -1039,6 +1039,7 @@ export class SpaceModel {
       }
     }
     const ero = ec ? erosion(seeds, ec, this.erodeMemo) : null;
+    const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
     const stands = ero ? built.filter((b) => !ero.gone(b)) : built;
     const worn = wm ? wearParts(stands, seeds, t, wearCfg, wm) : stands;
@@ -1181,7 +1182,11 @@ export class SpaceModel {
       baked: this.baked.size,
       links: this.drain.streams.get(Math.floor(t / box.secPerUnit))?.length ?? 0,
       pipeRuns: this.drain.pipes.length,
-      pipes: pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, pipeDecay),
+      // (THE BLOCK: the pipes erode as the parts do — by where a run lies, erode.ts pipeErosion; a run that is gone
+      // is not drawn, the others carry how near they are to going, which the pipes' material draws as holes)
+      pipes: pipeErode
+        ? pipeParts(this.drain.pipes.filter((p) => pipeErode(p) < 1), box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, (_k, p) => pipeErode(p))
+        : pipeParts(this.drain.pipes, box.unit, input.water, Math.floor(t / box.secPerUnit) - presentSlots + 1, pipeDecay),
       walk: walkSegments(this.walks, Math.floor(t / box.secPerUnit) - presentSlots + 1, walkWeigh),
       t,
       top,

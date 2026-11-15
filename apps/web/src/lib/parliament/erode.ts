@@ -41,6 +41,8 @@ export interface ErodeConfig {
   shade: number;
   /** Plants gather where it erodes: this much of the erosion is added to a part's gathering (0 = not tied). */
   feed: number;
+  /** The pipes erode too (pipeErosion); false = they stay whole. Absent = they erode. */
+  pipes?: boolean;
 }
 
 export const DEFAULT_ERODE: Omit<ErodeConfig, "topSlot"> = { start: 0.15, full: 0.9, amount: 0.75, vegPull: 0.3, order: 0.6, patch: 0.6, grain: 4, shade: 0.25, feed: 0.6 };
@@ -81,6 +83,27 @@ export function erodeThreshold(b: Box, cfg: Pick<ErodeConfig, "order" | "patch" 
   const h = p > 0 ? own * (1 - p) + patchNoise(b, cfg.grain) * p : own;
   const o = Math.min(1, Math.max(0, cfg.order));
   return h * (1 - o) + (GO_AT[b.kind] * 0.75 + h * 0.25) * o;
+}
+
+/** When a pipe goes, among the kinds of parts (0 first … 1 last): with the steel, before the foundation. */
+const PIPE_GO_AT = 0.75;
+
+/**
+ * THE PIPES ERODE TOO (the artist, 2026-11-15: "배관도 침식 적용되도록"). A run of pipe is a thing in the block like
+ * a part: how eroded its place is comes from its depth alone (a pipe is nobody's to live in or not: no unlived share),
+ * and its own threshold from the same patches as the parts' — so where a corner of a building is gone, the pipes
+ * there tend to be gone with it. Returns 0 … 1: how near the run is to going (what its holes are drawn from), 1 = gone.
+ */
+export function pipeErosion(x: number, z: number, slot: number, cfg: ErodeConfig): number {
+  const e = erosionAt(slot, 0, cfg) * Math.min(1, Math.max(0, cfg.amount));
+  if (e <= 0) return 0;
+  const at = { x, z, slot } as Box;
+  const own = hash2(Math.round(x * 997), Math.round(z * 991), slot * 131 + 5501);
+  const p = Math.min(1, Math.max(0, cfg.patch));
+  const h = p > 0 ? own * (1 - p) + patchNoise(at, cfg.grain) * p : own;
+  const o = Math.min(1, Math.max(0, cfg.order));
+  const th = h * (1 - o) + (PIPE_GO_AT * 0.75 + h * 0.25) * o;
+  return th < e ? 1 : e / Math.max(th, 1e-6);
 }
 
 export interface Erosion {
