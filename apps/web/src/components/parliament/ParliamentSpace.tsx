@@ -2622,7 +2622,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
   // how deep (slots) the bots write below the present: while they do, no part's shape is frozen (below)
   const [botDepth, setBotDepth] = useState(0);
-  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
+  // the bots' village sites: the pipes are laid in villages only (water.ts WaterConfig.villages)
+  const [botVillages, setBotVillages] = useState<WaterConfig["villages"] | null>(null);
+  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, setDepth: setBotDepth, setVillages: setBotVillages } : { setDepth: setBotDepth, setVillages: setBotVillages }), [lab, clk]);
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
   // EMPTY THE WORLD AND LET IT BE MADE AGAIN (the artist, 2026-11-15: "지우고 다시 생성하기 레바 버튼 넣기"), at the top
   // of the panel. The lab's world is this tab's only; the wall's is the shared one (every open tab follows), so there
@@ -3044,9 +3046,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             pipeLife: wtr.pipeLife,
             thin: wtr.thin,
             ...(REDESIGN ? { minCells: wtr.pipeMinCells } : {}),
+            ...(REDESIGN && botVillages ? { villages: botVillages } : {}),
           }
         : null,
-    [isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
+    [botVillages, isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(

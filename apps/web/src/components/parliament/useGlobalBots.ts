@@ -55,6 +55,8 @@ import {
   type LifecycleConfig,
   type LifecycleState,
   type PEvent,
+  type WaterConfig,
+  villageSites,
 } from "@/lib/parliament";
 import { savable } from "./levaSave";
 import { useTicker } from "./useTicker";
@@ -110,7 +112,7 @@ export function useGlobalBots(
   cfg: FoldConfig,
   enabled: boolean,
   order = 1.5,
-  opts?: { clock?: Clock; local?: boolean; setDepth?: (slots: number) => void },
+  opts?: { clock?: Clock; local?: boolean; setDepth?: (slots: number) => void; setVillages?: (v: WaterConfig["villages"] | null) => void },
 ): number {
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
@@ -150,6 +152,7 @@ export function useGlobalBots(
           hVillageLife: { value: DEFAULT_HERD.villages!.lifeSec! / SLOT_SEC, min: 0, max: 240, step: 1, label: "마을 하나가 사는 시간 (단 · 0 = 블록 내내 같은 자리)" },
           hVillageCarry: { value: DEFAULT_HERD.villages!.carry!, min: 0, max: 1, step: 0.05, label: "끝난 마을이 옆으로 옮겨 가는 비율 (나머지는 버려지고 딴 데 새로)" },
           hVillageTravel: { value: DEFAULT_HERD.villages!.travel!, min: 0, max: 1, step: 0.05, label: "유랑 무리·외톨이가 이웃 마을로 다녀오는 비율 (집에서 머물다 떠날 때마다)" },
+          hVillagePlots: { value: DEFAULT_HERD.villages!.plots!, min: 0, max: 12, step: 1, label: "마을마다 집 수 (가운데 마당 둘레 · 0 = 마을 아무 데나, 한 덩어리)" },
           hGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 사이 거리 (3차원)" },
           hRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 반경 (3차원)" },
         },
@@ -204,13 +207,13 @@ export function useGlobalBots(
         layout: b.hLayout,
         origin: b.hOrigin,
         originR: b.hOriginR,
-        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel },
+        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel, plots: b.hVillagePlots },
         mix: { settle: b.hSettle, roam: b.hRoam, tour: b.hTour },
         loose: b.hLoose,
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hVillagePlots, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   useEffect(() => {
     botGround.trail = b.hTrail;
@@ -294,6 +297,7 @@ export function useGlobalBots(
   const lastLcSave = useRef(0);
   const slow = useRef<number[]>([]);
   const lastFrame = useRef(0);
+  const villageKey = useRef("");
 
   // the frame rate (SESSION, auto): frames longer than 50 ms
   useEffect(() => {
@@ -346,6 +350,19 @@ export function useGlobalBots(
     }
     const { on: isOn, cfg: foldCfg, fold: theFold, lc: lcCfg } = live.current;
     const isSession = true;
+    // THE VILLAGES, for the pipes (water.ts WaterConfig.villages: pipes in villages only) — told whenever the epoch or
+    // the village knobs change, the bots on here or not (a view that only watches lays the same pipes)
+    if (opts?.setVillages && enabled) {
+      const vh = lcCfg.herd;
+      const ep = epochMs.current || (local ? 0 : getEpochMs());
+      const sites = ep ? villageSites(ep, vh) : [];
+      const key = sites.length ? `${ep}|${JSON.stringify(vh?.villages)}|${vh?.depthSec}|${vh?.originR}` : "";
+      if (key !== villageKey.current) {
+        villageKey.current = key;
+        const fin = (t: number) => Math.max(-1e12, Math.min(1e12, t));
+        opts.setVillages(sites.length && vh?.villages ? { sites: sites.map((q) => [q.x, q.z, fin(q.from), fin(q.to)]), radius: vh.villages.radius } : null);
+      }
+    }
     if (!isOn) return;
     // a cleared world (here or in another tab): join the new epoch with a fresh crowd
     if (!local && currentEpochKey() !== String(epochMs.current)) {

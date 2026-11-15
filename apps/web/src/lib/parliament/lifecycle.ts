@@ -138,8 +138,12 @@ export interface HerdConfig {
    * WAYS BETWEEN THEM (step 2): roaming herds and loners have a home village; leaving a stay at home, they go to a
    * neighbour alive at their time with `travel` (the nearer, much the likelier: the same pairs again and again), stay
    * there a while and come back — the walks between two villages are taken again and again and become the roads.
+   * HOUSES (the artist, 2026-11-15: "마을에 건물이 여러채보다는 한 덩어리가 되는 느낌이라 아쉬움"): a village has
+   * `plots` house plots (± 1 by its own draw) on a ring at 0.75 of its radius around an open middle; every stay in a
+   * village is at one of them — a settler mostly at its own — so a village is several buildings round a court, not
+   * one mass. 0 = anywhere in the village (one mass).
    */
-  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number; travel?: number };
+  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number; travel?: number; plots?: number };
   /** HOW THEY MOVE, as shares of the herds: settlers (long stays, short hops, back to their places), roamers (short
    *  stays, long walks) and those on a round (the same three or four places, again and again — paths between them). */
   mix: { settle: number; roam: number; tour: number };
@@ -163,7 +167,7 @@ export const DEFAULT_HERD: HerdConfig = {
   layout: "strata",
   origin: "villages",
   originR: 60,
-  villages: { count: 5, radius: 12, gap: 40, lifeSec: 400, carry: 0.5, travel: 0.5 },
+  villages: { count: 5, radius: 12, gap: 40, lifeSec: 400, carry: 0.5, travel: 0.5, plots: 5 },
   mix: { settle: 1, roam: 1, tour: 1 },
   loose: 0.3,
   drift: 0,
@@ -257,6 +261,8 @@ export interface Visitor {
    *  roamer's or loner's home, which it leaves to visit a neighbour and comes back to; absent = vil). */
   vil?: number;
   home?: number;
+  /** VILLAGES: its own house plot in the village it is in (an index of the site's plots). */
+  plot?: number;
   lag?: number;
   tx?: number;
   tz?: number;
@@ -445,9 +451,14 @@ export interface VillageSite {
   from: number;
   to: number;
   next: number;
+  /** Its house plots (canonical ground), round an open middle; empty = none (anywhere in the village). */
+  plots: [number, number][];
 }
 
 let siteCache: { key: string; sites: VillageSite[] } | null = null;
+
+/** Least distance (world) between the middles of two house plots on a village's ring. */
+const PLOT_SPACING = 10;
 
 /**
  * The epoch's village sites (HerdConfig.villages), by the epoch's draws only: `count` lines out of step, each a chain of
@@ -464,7 +475,7 @@ export function villageSites(epochMs: number, h: HerdConfig | undefined): Villag
   const life = depth > 0 ? Math.max(0, V.lifeSec ?? 0) : 0;
   const carry = Math.max(0, Math.min(1, V.carry ?? 0));
   const R = Math.max(0, h.originR);
-  const key = `${epochMs}|${n}|${R}|${V.gap}|${depth}|${life}|${carry}`;
+  const key = `${epochMs}|${n}|${R}|${V.gap}|${depth}|${life}|${carry}|${V.radius}|${V.plots ?? 0}`;
   if (siteCache?.key === key) return siteCache.sites;
   const sites: VillageSite[] = [];
   let d = 0;
@@ -501,7 +512,7 @@ export function villageSites(epochMs: number, h: HerdConfig | undefined): Villag
   if (!(life > 0)) {
     for (let i = 0; i < n; i++) {
       const [x, z] = seat(-Infinity, Infinity, null);
-      sites.push({ x, z, from: -Infinity, to: Infinity, next: -1 });
+      sites.push({ x, z, from: -Infinity, to: Infinity, next: -1, plots: [] });
     }
   } else {
     // the lines: each begins at its own phase below time 0, and the earliest next start is laid first, so a site
@@ -516,13 +527,27 @@ export function villageSites(epochMs: number, h: HerdConfig | undefined): Villag
       const prev = L.last >= 0 ? sites[L.last] : null;
       const moved = prev !== null && worldDraw(epochMs, -2000 - guard, 2) < carry;
       const [x, z] = seat(L.at, L.at + len, moved ? prev : null);
-      sites.push({ x, z, from: L.at, to: L.at + len, next: -1 });
+      sites.push({ x, z, from: L.at, to: L.at + len, next: -1, plots: [] });
       if (prev) prev.next = sites.length - 1;
       L.last = sites.length - 1;
       // the next of the line comes a little before this one ends (the two are both lived in for a while)
       L.at += len - life * 0.1;
     }
   }
+  // HOUSES: each site's plots on a ring round its open middle, evenly spaced with a little play
+  const P = Math.max(0, Math.round(V.plots ?? 0));
+  if (P > 0)
+    sites.forEach((s, i) => {
+      // (no more than fit on the ring PLOT_SPACING apart: closer, two houses would be built into one)
+      const ring0 = Math.max(1, V.radius) * 0.75, fit = Math.max(1, Math.floor((2 * Math.PI * ring0) / PLOT_SPACING));
+      const m = Math.max(1, Math.min(fit, 12, Math.round(P + (worldDraw(epochMs, -3000 - i, 1) - 0.5) * 2.2)));
+      const a0 = worldDraw(epochMs, -3000 - i, 2) * 2 * Math.PI, ring = m === 1 ? 0 : ring0;
+      for (let j = 0; j < m; j++) {
+        const a = a0 + ((j + (worldDraw(epochMs, -3100 - i * 16 - j, 1) - 0.5) * 0.15) * 2 * Math.PI) / m;
+        const r = ring * (0.92 + 0.16 * worldDraw(epochMs, -3100 - i * 16 - j, 2));
+        s.plots.push([wrapCoord(s.x + Math.sin(a) * r), wrapCoord(s.z + Math.cos(a) * r)]);
+      }
+    });
   siteCache = { key, sites };
   return sites;
 }
@@ -534,10 +559,24 @@ function blockSecOf(v: Visitor, wallMs: number, epochMs: number): number {
 }
 
 /** The centre and radius of v's village, or null (no village). */
-function villageOf(v: Visitor, epochMs: number, h: HerdConfig | undefined): { x: number; z: number; r: number } | null {
+function villageOf(v: Visitor, epochMs: number, h: HerdConfig | undefined): { x: number; z: number; r: number; plots: [number, number][] } | null {
   if (v.vil === undefined || !h?.villages) return null;
   const s = villageSites(epochMs, h)[v.vil];
-  return s ? { x: s.x, z: s.z, r: Math.max(1, h.villages.radius) } : null;
+  return s ? { x: s.x, z: s.z, r: Math.max(1, h.villages.radius), plots: s.plots } : null;
+}
+
+/**
+ * A spot at a house plot of v's village (null: the village has none): its own plot with `own`, else any — and a plot
+ * it has none of yet becomes its own. Within 0.8 of the plot's middle.
+ */
+function plotSpot(v: Visitor, vil: { plots: [number, number][] }, epochMs: number, own: number, s: number): [number, number] | null {
+  const n = vil.plots.length;
+  if (!n) return null;
+  let i = v.plot !== undefined && v.plot < n && draw(v, epochMs, s) < own ? v.plot : Math.floor(draw(v, epochMs, s + 1) * n) % n;
+  if (v.plot === undefined || v.plot >= n) v.plot = i;
+  i = Math.min(n - 1, i);
+  const p = vil.plots[i];
+  return [wrapCoord(p[0] + (draw(v, epochMs, s + 2) - 0.5) * 1.6), wrapCoord(p[1] + (draw(v, epochMs, s + 3) - 0.5) * 1.6)];
 }
 
 /** A spot of v's village: within `share` of its radius, evenly over the disc (canonical). */
@@ -572,10 +611,10 @@ function chooseVillage(v: Visitor, st: LifecycleState, epochMs: number, h: HerdC
 }
 
 /** A round of 3–4 spots of v's village (a tour herd's, again when its village is followed by another). */
-function villageTour(v: Visitor, vil: { x: number; z: number; r: number }, epochMs: number): number[] {
+function villageTour(v: Visitor, vil: { x: number; z: number; r: number; plots: [number, number][] }, epochMs: number): number[] {
   const n = 3 + Math.floor(draw(v, epochMs, 122) * 2);
   const out: number[] = [];
-  for (let i = 0; i < n; i++) out.push(...spotIn(v, vil, epochMs, 1, 150 + 2 * i));
+  for (let i = 0; i < n; i++) out.push(...(plotSpot(v, vil, epochMs, 0, 150 + 4 * i) ?? spotIn(v, vil, epochMs, 1, 150 + 2 * i)));
   return out;
 }
 
@@ -586,7 +625,7 @@ function groundCandidate(v: Visitor, places: readonly Place[], wallMs: number, e
     return [wrapCoord(Math.sin(a) * d), wrapCoord(Math.cos(a) * d)];
   };
   const vil = villageOf(v, epochMs, h);
-  if (vil) return spotIn(v, vil, epochMs, 0.7, 70 + 2 * c);
+  if (vil) return plotSpot(v, vil, epochMs, 0, 70 + 4 * c) ?? spotIn(v, vil, epochMs, 0.7, 70 + 2 * c);
   if (h.origin === "doors") {
     if (draw(v, epochMs, 70 + c) < cfg.originShare) return [wrapCoord((draw(v, epochMs, 80 + c) - 0.5) * 4), wrapCoord((draw(v, epochMs, 90 + c) - 0.5) * 4)];
     const d = doorsOf(epochMs)[Math.min(3, Math.floor(draw(v, epochMs, 80 + c) * 4))];
@@ -825,8 +864,9 @@ function villageTrip(v: Visitor, wallMs: number, epochMs: number, h: HerdConfig 
     v.vil = cands[Math.max(0, ws.findIndex((w) => w >= u))];
   }
   v.stops = [];
+  v.plot = undefined;
   const vil = villageOf(v, epochMs, h);
-  return vil ? spotIn(v, vil, epochMs, 0.6, 163) : null;
+  return vil ? plotSpot(v, vil, epochMs, 0, 163) ?? spotIn(v, vil, epochMs, 0.6, 163) : null;
 }
 
 /** Where `v` goes next: someone else's place, its own earlier place, or somewhere new within its range. */
@@ -840,8 +880,11 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
   // VILLAGES: to a neighbour village and back (roamers, loners) …
   const trip = villageTrip(v, wallMs, epochMs, cfg.herd);
   if (trip) return trip;
-  // … else it goes about inside its village — the places it follows are the village's, a new place a spot of it
+  // … else it goes about inside its village — at its houses (a settler mostly at its own), or, without houses, the
+  // places it follows are the village's, a new place a spot of it
   const vil = villageOf(v, epochMs, cfg.herd);
+  const house = vil ? plotSpot(v, vil, epochMs, v.temper === "settle" ? 0.75 : 0.35, 170) : null;
+  if (house) return house;
   if (draw(v, epochMs, 30) < v.ch.follow) {
     const cands: [number, number, number][] = [];
     for (const p of places) if (!vil || wrapDist(p.x, p.z, vil.x, vil.z) <= vil.r * 1.2) cands.push([p.x, p.z, placeWeight(p, wallMs, cfg)]);
@@ -1040,8 +1083,9 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
       const to = leader ? leader.vil : after(v.vil);
       if (to !== undefined && to !== v.vil) {
         v.vil = to;
-        // its own earlier places were the old village's
+        // its own earlier places (and its house) were the old village's
         v.stops = [];
+        v.plot = undefined;
         const nv = villageOf(v, epochMs, hc);
         if (nv && v.tour) {
           v.tour = villageTour(v, nv, epochMs);

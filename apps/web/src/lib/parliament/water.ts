@@ -45,6 +45,7 @@ import { cellKey, flowP, flowTracks, stayShares, type FlowConfig, type Track } f
 import { hash2 } from "./nature";
 import type { Seed } from "./seeds";
 import type { PEvent } from "./types";
+import { wrapDist } from "./world";
 
 export interface WaterConfig {
   enabled: boolean;
@@ -87,6 +88,13 @@ export interface WaterConfig {
   pipeRadius: number;
   /** Dense buildings within this distance (world) share one sewer network and outfall (a quarter). */
   quarterGap: number;
+  /**
+   * PIPES IN VILLAGES ONLY (the artist, 2026-11-15: "배관은 마을 안에서만 생겨야 하지 않나?"): the bots' village sites
+   * ([x, z, from s, to s], lifecycle.ts villageSites) and their radius. A dense building belongs to the village alive
+   * at its slot whose middle is nearest, within 1.5 radii; quarters are made inside each village only (never across
+   * two), and a building in no village gets no pipe — its water runs off in the open. Absent = as before.
+   */
+  villages?: { sites: [number, number, number, number][]; radius: number };
   /** How far back (slots) a new network may reuse the pipes below (and join them by manholes); 0 = the present
    *  thickness (DrainageOptions.present). Older pipes are past: a network there is laid anew. */
   reach: number;
@@ -401,8 +409,29 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     usedK = k;
     const isOpen = (c: number) => !sealed[c] && share[c] < cfg.openShare;
     const meanShare = (b: Building) => b.seeds.reduce((a, s) => a + share[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))], 0) / b.seeds.length;
-    const dense = live.filter((b) => meanShare(b) >= cfg.burial);
+    let dense = live.filter((b) => meanShare(b) >= cfg.burial);
     const sparse = live.filter((b) => meanShare(b) < cfg.burial);
+    // VILLAGES: which village each dense building is in (at this slot); outside every village, no pipe
+    const villageOfB = new Map<number, number>();
+    const vs = cfg.villages;
+    if (vs) {
+      const tMid = (k + 0.5) * spu, reach = Math.max(1, vs.radius) * 1.5;
+      dense = dense.filter((b) => {
+        const cx = b.seeds.reduce((a, q) => a + q.x, 0) / b.seeds.length, cz = b.seeds.reduce((a, q) => a + q.z, 0) / b.seeds.length;
+        let best = -1, bd = reach;
+        vs.sites.forEach(([x, z, from, to], i) => {
+          if (!(from <= tMid && tMid < to)) return;
+          const d = wrapDist(cx, cz, x, z);
+          if (d <= bd) [best, bd] = [i, d];
+        });
+        if (best < 0) {
+          sparse.push(b);
+          return false;
+        }
+        villageOfB.set(b.id, best);
+        return true;
+      });
+    }
     // CHANGE: laid anew only when the quarter changed — a building came into use or left, a quarter got dense
     // enough to pipe (or no longer is), or the sealed ground changed by `change` of itself — and not more often
     // than every `minGapSlots`; between changes the last network stands and its streams keep running
@@ -444,7 +473,15 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     const risen = new Set<number>();
 
     // QUARTERS: dense buildings near each other share one sewer network and one outfall
-    for (const quarter of quartersOf(dense, cfg.quarterGap)) {
+    // (in villages: quarters inside each village only)
+    const groups = new Map<number, Building[]>();
+    for (const b of dense) {
+      const g = villageOfB.get(b.id) ?? -1;
+      const l = groups.get(g);
+      if (l) l.push(b);
+      else groups.set(g, [b]);
+    }
+    for (const quarter of [...groups.values()].flatMap((g) => quartersOf(g, cfg.quarterGap))) {
       const down = new Int32Array(n).fill(-2); // network: the next cell towards the outfall (−1 = the outfall)
       const inNet = (c: number) => down[c] !== -2;
       const routes: number[][] = [];
