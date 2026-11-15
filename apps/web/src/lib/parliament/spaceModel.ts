@@ -39,8 +39,8 @@ export const EDGE_CAP = 40000;
 export const NATURE_CHUNK = 10;
 /** Fused chunks (re)built per request at most; the rest follow on the next requests. */
 export const FUSE_NEW_PER_CALL = 2;
-/** THE BLOCK: the ways and the pipes are laid again at most this often (ms), and one call fuses for about this long. */
-const SLOW_MS = 8000;
+/** THE BLOCK: the ways and the pipes are laid again at most this often (ms; the artist, 2026-11-15: "길 연산에 너무 많이 쓴다면 디바운싱 훨 길게 잡아도 됨"), and one call fuses for about this long. */
+const SLOW_MS = 30000;
 const FUSE_BUDGET_MS = 450;
 /** THE BLOCK: a part's age is read in this many steps to `lifeSec` (the steps are the clock's: all parts move at once). */
 const AGE_STEPS = 8;
@@ -1234,7 +1234,10 @@ export class SpaceModel {
       const s: Seed = { ...s0, mass: Math.round(s0.mass * 4) / 4 };
       const lv = level.get(s.id) ?? 0;
       const slots = occupiedSlots(s, box);
-      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${lv}:${cfgKey}`;
+      // (…and the mass of each of its slots, where it has one per slot: a building grown lower down is made again too)
+      let massSig = 0;
+      if (s.masses) for (const [k, m] of s.masses) massSig += (k + 1) * m;
+      const key = `${s.t0}:${slots[0]}:${slots[slots.length - 1]}:${slots.length}:${s.spans?.length ?? 0}:${s.mass}:${massSig.toFixed(2)}:${lv}:${cfgKey}`;
       let hit = this.partCache.get(s.id);
       if (!hit || hit.key !== key) {
         hit = { key, parts: boxesOfSeed(s, lv === 2 ? solid(s) : lv === 1 ? thinned(s) : box) };

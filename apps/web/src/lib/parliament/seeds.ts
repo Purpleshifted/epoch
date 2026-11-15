@@ -70,6 +70,9 @@ export interface Seed {
   growth?: [number, number][];
   /** DENSITY (density.ts): the level of each of its slots (what was put into the cell at that time). */
   levels?: ReadonlyMap<number, number>;
+  /** DENSITY: the mass of each slot's parts (its level's; density.ts: the time stayed adds up along a building, so a
+   *  building's later slots are larger). Absent = `mass` for every slot. */
+  masses?: ReadonlyMap<number, number>;
   /** DENSITY: per slot, how much vegetation gathers on what stands there (0..1) — built but not lived in
    *  (density.ts liveAt). The erosion to come reads it too: what is overgrown goes first. */
   gather?: ReadonlyMap<number, number>;
@@ -160,6 +163,13 @@ export interface BoxConfig {
   buildSlots?: number;
   /** DISTRICTS: the buildings of one neighbourhood turned and shaped alike, differently from the next; absent = none. */
   variety?: VarietyConfig;
+  /**
+   * How much of a slot's mass goes into the NUMBER of its masses (the rest only into their size): 1 / absent = all of
+   * it, as the grammar always did. With the density's levels (a building grows with what is stayed in it) all of it
+   * meant a dozen alike white boxes a slot (the artist, 2026-11-15: "서로 엇비슷한 하얀 네모만 엄청 많아져서 … '다양한
+   * 건물 형태' 느낌이 안 남") — there it is small: a building stayed in gets LARGER parts, hardly more of them.
+   */
+  growCount?: number;
 }
 
 /**
@@ -404,7 +414,9 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
   const first = birth;
   const last = Math.floor(seed.t1 / cfg.secPerUnit);
   const span = Math.max(1, last - first);
-  const grow = 1 + rc.mass.growth * Math.max(0, seed.mass - 1);
+  // (a slot's parts are sized by that slot's mass where the seed has one per slot — density.ts masses)
+  const massAt = (k: number): number => seed.masses?.get(k) ?? seed.mass;
+  const growAt = (k: number): number => 1 + rc.mass.growth * Math.max(0, massAt(k) - 1);
   const out: Box[] = [];
   const push = (kind: PartKind, x: number, y: number, z: number, sx: number, sy: number, sz: number, tone: number, k: number, yaw?: number, tilt?: number) => {
     const b: Box = { kind, seed: seed.id, material: seed.material, x, y, z, sx, sy, sz, tone, along: Math.max(0, (k - first) / span), slot: k };
@@ -507,8 +519,8 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
     const pileCount: [number, number] = [Math.round(rc.pile.count[0]), Math.round(rc.pile.count[1])];
     const piles: number[][] = [];
     for (let i = 0; i < pileCount[1]; i++) piles.push([r(), r(), r(), r()]);
-    const px = logIn(a0, rc.plinth.footprint) * W * grow;
-    const pz = logIn(a1, rc.plinth.footprint) * W * grow;
+    const px = logIn(a0, rc.plinth.footprint) * W * growAt(birth);
+    const pz = logIn(a1, rc.plinth.footprint) * W * growAt(birth);
     const th = logIn(a2, rc.plinth.thick) * u;
     const y0 = birth * u;
     push("plinth", seed.x, y0 + th / 2, seed.z, px, th, pz, a7, birth);
@@ -537,13 +549,13 @@ export function boxesOfSeed(seed: Seed, cfg: BoxConfig = DEFAULT_BOXES): Box[] {
       const extraDraw = r();
       const per: number[][] = [];
       for (let i = 0; i < rc.mass.maxPerSlot; i++) per.push([r(), r(), r(), r(), r(), r(), r(), r()]);
-      const want = 1 + (seed.mass - 1) * rc.mass.perMass * cfg.density + extraDraw * 0.8 * cfg.density;
+      const want = 1 + (massAt(k) - 1) * Math.max(0, Math.min(1, cfg.growCount ?? 1)) * rc.mass.perMass * cfg.density + extraDraw * 0.8 * cfg.density;
       const n = Math.max(1, Math.min(rc.mass.maxPerSlot, Math.floor(want)));
       const top = (k + 1) * u;
       const floor = runStart * u;
       for (let i = 0; i < n; i++) {
         const [u0, u1, u2, u3, u4, u5, u6] = per[i];
-        const f = paretoIn(u0, rc.mass.footprint, rc.mass.alpha) * W * grow;
+        const f = paretoIn(u0, rc.mass.footprint, rc.mass.alpha) * W * growAt(k);
         const asp = Math.sqrt(Math.pow(rc.mass.aspect, 2 * u1 - 1));
         let sx = f * asp;
         let sz = f / asp;

@@ -841,17 +841,40 @@ export class DensityField {
         continue;
       }
       ks.sort((p, q) => p - q);
+      // THE TIME STAYED ADDS UP ALONG A BUILDING (the artist, 2026-11-15: "건물이 일정 수준 이상으로 안 커지는 건
+      // 어떡함?"). A slot holds what was put into it at its own time — and time moves on: however long people stay,
+      // each slot gets about the same, so no slot ever passed the second or third level; staying made a building
+      // taller, never larger. Now a slot's level is read from everything put into its building UP TO IT (the run of
+      // slots it stands in, from the run's first slot): the longer a building has been stayed in, the larger it is
+      // built — up to `maxLevel`. A function of the sums below it, so the order of writing still does not matter.
+      const grown = new Map<number, number>();
+      const ratio = Math.max(1.01, c.ratio);
+      let total = 0;
+      const levelUpTo = (k: number): number => {
+        const cs = col.slots.get(k);
+        if (cs) for (const a of cs.by.values()) total += Math.min(a, c.visitorCap);
+        const own = Math.max(1, cs?.level ?? 0);
+        const lv = total >= c.step ? Math.min(Math.round(c.maxLevel), 1 + Math.floor(Math.log(total / c.step) / Math.log(ratio) + 1e-9)) : 1;
+        return Math.max(own, lv);
+      };
       const spans: [number, number][] = [];
       let from = ks[0], prev = ks[0];
+      grown.set(ks[0], levelUpTo(ks[0]));
       for (let i = 1; i <= ks.length; i++) {
         // the next living slot continues the building when the empty time between is no longer than gapSec
         if (i < ks.length && (ks[i] - prev - 1) * c.slotSec <= Math.max(0, c.gapSec)) {
           prev = ks[i];
+          grown.set(prev, levelUpTo(prev));
           continue;
         }
         spans.push([from * c.slotSec, (prev + 1) * c.slotSec - 0.001]);
-        if (i < ks.length) from = prev = ks[i];
+        if (i < ks.length) {
+          from = prev = ks[i];
+          total = 0; // (a new building: it begins small again)
+          grown.set(prev, levelUpTo(prev));
+        }
       }
+      for (const lv of grown.values()) if (lv > top) top = lv;
       // who built it: every visitor of its living slots, first and last slot time, weight (capped per slot)
       const who = new Map<number, Contributor>();
       for (const k of ks) {
@@ -878,7 +901,9 @@ export class DensityField {
         spans,
         mass: c.mass * Math.pow(Math.max(1, c.massRatio), top - 1),
         who: [...who.values()],
-        levels: new Map(ks.map((k) => [k, Math.max(1, col.slots.get(k)?.level ?? 0)] as const)),
+        levels: grown,
+        // (the mass of each slot's parts: its own level's — seeds.ts massAt)
+        masses: new Map(ks.map((k) => [k, c.mass * Math.pow(Math.max(1, c.massRatio), (grown.get(k) ?? 1) - 1)] as const)),
         // (a joined cell-slot was never lived in: its gathering is whole)
         ...((c.liveAt ?? 0) > 0 ? { gather: new Map(ks.map((k) => [k, (col.slots.get(k)?.level ?? 0) >= 1 ? Math.round(this.gatherOf(col.slots.get(k)!) * 4) / 4 : 1] as const)) } : {}),
       };

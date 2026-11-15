@@ -2645,7 +2645,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       // "어차피 침식 가져왔으니 건물도 더 지어져도 상관없어"): the levels are back — every doubling of what was put
       // into a cell-slot is one more level (bigger and more parts), and one person may put in more than before, so one
       // herd that stays on raises it too. 1 level = a threshold and nothing after (as on 11/12).
-      dLevels: { value: 4, min: 1, max: 6, step: 1, label: "머물수록 커짐: 계단 수 (머묾이 두 배가 될 때마다 한 계단 · 1 = 문턱만 넘으면 그대로)" },
+      // (a new input: the count now reads what was stayed in the building up to each slot — density.ts)
+      dGrow: { value: 6, min: 1, max: 10, step: 1, label: "머물수록 커짐: 계단 수 (한 건물에 머문 양이 쌓여 두 배가 될 때마다 한 계단 · 1 = 안 커짐)" },
+      dGrowBy: { value: DEFAULT_DENSITY.massRatio, min: 1, max: 2.5, step: 0.05, label: "한 계단마다 커지는 배율" },
+      // (seeds.ts growCount: larger parts, hardly more of them — "엇비슷한 하얀 네모만 엄청 많아져서")
+      dGrowCount: { value: 0.15, min: 0, max: 1, step: 0.05, label: "커질 때 매스 수가 느는 정도 (0 = 크기만 커짐 … 1 = 수도 같이, 하얀 상자가 많아짐)" },
       dCap: { value: 60, min: 10, max: 200, step: 5, label: "한 사람이 한 칸에 보탤 수 있는 최대 (클수록 한 무리가 오래 머물러 더 키움)" },
       dRadius: { value: DEFAULT_DENSITY.radius, min: 1, max: 8, step: 0.25, label: "옆으로 닿는 반경 (월드)" },
       dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
@@ -2763,9 +2767,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, mergeGap: dn.dMerge, mergeThick: dn.dMergeThick, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: dn.dLevels, visitorCap: dn.dCap, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, mergeGap: dn.dMerge, mergeThick: dn.dMergeThick, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: dn.dGrow, massRatio: dn.dGrowBy, visitorCap: dn.dCap, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.dMerge, dn.dMergeThick, dn.densityOn, dn.dVisitors, dn.dStep, dn.dLevels, dn.dCap, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.dMerge, dn.dMergeThick, dn.densityOn, dn.dVisitors, dn.dStep, dn.dGrow, dn.dGrowBy, dn.dCap, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
@@ -3441,10 +3445,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       density: bld.partDensity,
       timeJitter: tAxis.timeJitter,
       recipe,
+      growCount: dn.densityOn ? dn.dGrowCount : undefined,
       variety: vr.varietyOn ? { size: vr.vSize, angle: vr.vAngle * DEG, angleStep: vr.vAngleStep * DEG, width: vr.vWidth, height: vr.vHeight, character: vr.vCharacter } : undefined,
       buildSlots: dn.densityOn ? dn.buildSlots : undefined,
     }),
-    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
+    [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.dGrowCount, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
   const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: v.follow && !REDESIGN, markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
