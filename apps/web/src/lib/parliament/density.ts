@@ -249,6 +249,8 @@ export class DensityField {
   private builtIn = new Map<number, Set<number>>();
   private joinedIn = new Map<number, Set<number>>();
   private mergeDirty = new Set<number>();
+  /** The cell-slots somebody stood in or right beside, at their own time, since takeLived was last asked. */
+  private lived = new Map<number, Set<number>>();
   private mergeBuf: [Uint8Array, Uint8Array, Uint8Array] | null = null;
 
   constructor(readonly cfg: DensityConfig) {
@@ -321,6 +323,12 @@ export class DensityField {
           }
           cs.by.set(o, (cs.by.get(o) ?? 0) + g * t);
           if (!a && !b && k === kOwn) cs.direct = (cs.direct ?? 0) + g * t;
+          // (somebody is here now: this cell-slot is being lived in — takeLived)
+          if (k === kOwn) {
+            let lv = this.lived.get(ck);
+            if (!lv) this.lived.set(ck, (lv = new Set()));
+            lv.add(k);
+          }
           this.settle(col, ck, cs, k);
           // the gathering's quarter: a Seed is made again when it changes (not at every sample)
           if (cs.level >= 1 && (c.liveAt ?? 0) > 0) {
@@ -812,6 +820,23 @@ export class DensityField {
     this.merge();
     const col = this.cols.get(colKey(wrapCell(cx), wrapCell(cz)));
     return !!col && this.joinedHere(col, k);
+  }
+
+  /**
+   * WHAT IS BEING LIVED IN: the cell-slots (by their Seed's id, and the slot) that got a sample of their own time since
+   * this was last asked — the wall starts their life over (spaceModel: what is lived in does not fossilise, and a
+   * place that had gone stands again when people come back to it).
+   */
+  takeLived(): [number, number][] {
+    const out: [number, number][] = [];
+    for (const [ck, ks] of this.lived) {
+      const col = this.cols.get(ck);
+      if (!col) continue;
+      const id = seedId(col.cx, col.cz, 0);
+      for (const k of ks) out.push([id, k]);
+    }
+    this.lived.clear();
+    return out;
   }
 
   /** One Seed per ground cell that has anything: its runs of slots at level ≥ 1, its mass from its highest level. */

@@ -1123,6 +1123,11 @@ function SpaceWorld({
       gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
       setGatherings(gatherGeomRef.current, r.reclaim);
     }
+    // (what the wall shows as built, for the vegetation — botGround.shown)
+    if (r.parts?.cells) {
+      botGround.shown = r.parts.cells;
+      botGround.shownAt = performance.now();
+    }
     setFused(fused.current, r.fuse, { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current });
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
@@ -1243,7 +1248,9 @@ function SpaceWorld({
       }
     }
     // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
-    if (frozen || id % NATURE_EVERY === 1) {
+    // (THE REDESIGN: the mass is asked for half as often — a request in which it is fused keeps the buildings waiting,
+    // and nothing about a fossil is in a hurry)
+    if (frozen || id % (REDESIGN ? NATURE_EVERY * 2 : NATURE_EVERY) === 1) {
       // the history window must reach below the immutable line (plus two chunks), or a layer would be cut before it is baked
       if (oneClk && bake && !local) {
         const need = (immutable + 20) * cfg.secPerUnit;
@@ -1703,12 +1710,15 @@ const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8
  * walkways (길), the vegetation as clouds, the erosion (침식) and the pipes (배관, 2026-11-15). Still off: the fusion.
  */
 const REDESIGN = true;
+/** The vegetation leaves a built cell-slot this many seconds after its building came, over this many seconds. */
+const VEG_AFTER = 3;
+const VEG_OVER = 4;
 /** The test render mode (세계 › 테스트 렌더): off = the picture as saved; light = 1 device pixel per CSS pixel, no
  *  post-processing (AO, grain, depth of field), no shadows, no refraction; min = 0.6 pixels, a third of the vegetation
  *  points, on top of that. */
 type TestPerf = "off" | "light" | "min";
 const TEST_PERF_KEY = "parliament.testPerf";
-const TEST_PERF_OPTIONS: Record<string, TestPerf> = { "끔 (저장된 화질 그대로)": "off", "가볍게 (해상도 1× · AO · 그림자 · 굴절 끔)": "light", "아주 가볍게 (해상도 0.6× · 식생 점 1/3까지)": "min" };
+const TEST_PERF_OPTIONS: Record<string, TestPerf> = { "끔 (저장된 화질 그대로)": "off", "가볍게 (해상도 1× · AO · 그림자 · 굴절 끔 · 덩어리 거칠게)": "light", "아주 가볍게 (해상도 0.6× · 식생 점 1/3까지)": "min" };
 const useControls: typeof useLevaControls = ((...args: unknown[]) => {
   if (REDESIGN && typeof args[0] === "string") {
     const hide = { render: () => false };
@@ -1940,9 +1950,7 @@ function Vegetation({
   }, [mat, tex, D, unit, size, full, colorA, colorB]);
   const timer = useRef(10);
   const moveTimer = useRef(0);
-  /** When each built cell-slot was first seen here (s), and whether this is the first look (what stands then is old). */
-  const vegBorn = useRef(new Map<number, number>());
-  const vegFirst = useRef(true);
+
   useFrame((_, dt) => {
     // a point's size in pixels for its size in the world, at its distance
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 40;
@@ -1958,39 +1966,25 @@ function Vegetation({
       const v = Math.round(Math.max(0, Math.min(1, share)) * 255);
       if (v > data[i]) data[i] = v;
     };
-    // (what erodes is given back: a building's share is less by its erosion × how much of it goes × feed)
-    // AFTER THE BUILDING, AS IT GOES ON (the artist, 2026-11-15: "식생이 건물보다 먼저 보였음"): this read the place
-    // alone — deep in the block a building's share was cut the moment the people's density was there, before the
-    // building itself had come, so the plants stood in its place first. Now it follows the cell-slot's progress as the
-    // wall's own parts do (spaceModel: one life per part): nothing while it is being built and for the wait after,
-    // then as fast as its place weighs. What stood when the view opened is taken as having lived its life.
+    // AFTER THE BUILDING (the artist, 2026-11-15: "식생이 건물보다 먼저 보였음", "건물 생성이랑, 식생 모이는 거랑 …
+    // 단계가 딱딱 분절로 나뉘어있는 게 맞아? 지금 뭔가 뒤죽박죽이야"). The clouds used to give way to the people's
+    // DENSITY, read here on the main thread — seconds before the building that density becomes had come through the
+    // wall's worker and ticked in, and (deep in the block) with the eroded share given back at once. Now they give way
+    // to what the wall itself SHOWS as built (botGround.shown, from the worker's own result): a few seconds after a
+    // cell-slot's building has come, the plants are gone from it; as it goes on (erosion), they come back by its
+    // progress × feed. Where the wall has no density rule (the old wall) the density is read as before.
     const eb = erode && erode.feed > 0 ? erode : null;
-    const nowS = performance.now() / 1000;
-    const born = vegBorn.current;
-    const first = vegFirst.current;
-    const life = Math.max(0, eb?.lifeSec ?? 0), wait = Math.max(0, eb?.waitSec ?? 0);
-    const seen = new Set<number>();
-    botGround.built?.eachShare(
-      eb
-        ? (cx, cz, k, share) => {
-            if (share < 1 || k < 0 || k >= D) {
-              put(cx, cz, k, share);
-              return;
-            }
-            const i = cx + N / 2 + N * (cz + N / 2 + N * k);
-            seen.add(i);
-            let b = born.get(i);
-            if (b === undefined) born.set(i, (b = first ? -Infinity : nowS));
-            const w = erosionAt(k, 0, eb);
-            const prog = life > 0 && b !== -Infinity ? Math.min(1, (w * Math.max(0, nowS - b - wait)) / life) : w;
-            put(cx, cz, k, share * (1 - eb.feed * eb.amount * prog));
-          }
-        : put,
-    );
-    if (eb) {
-      if (botGround.built) vegFirst.current = false;
-      if (born.size > seen.size) for (const i of born.keys()) if (!seen.has(i)) born.delete(i);
-    }
+    const shown = botGround.shown;
+    if (shown) {
+      const since = (performance.now() - botGround.shownAt) / 1000;
+      const feed = eb ? eb.feed : 0;
+      for (let c = 0; c + 4 < shown.length; c += 5) {
+        const age = shown[c + 3] < 0 ? Infinity : shown[c + 3] + since;
+        // (the building ticks in over its first seconds; the plants leave after that)
+        const q = age <= VEG_AFTER ? 0 : age >= VEG_AFTER + VEG_OVER ? 1 : (age - VEG_AFTER) / VEG_OVER;
+        if (q > 0) put(shown[c], shown[c + 1], shown[c + 2], q * (1 - feed * shown[c + 4]));
+      }
+    } else botGround.built?.eachShare(eb ? (cx, cz, k, share) => put(cx, cz, k, share * (1 - eb.feed * eb.amount * erosionAt(k, 0, eb))) : put);
     const at = Math.max(0.1, pathAt);
     tailField.each((cx, cz, k, level) => put(cx, cz, k, level / at));
     tex.needsUpdate = true;
@@ -2680,7 +2674,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       // herd that stays on raises it too. 1 level = a threshold and nothing after (as on 11/12).
       // (a new input: the count now reads what was stayed in the building up to each slot — density.ts)
       dGrow: { value: 6, min: 1, max: 10, step: 1, label: "머물수록 커짐: 계단 수 (한 건물에 머문 양이 쌓여 두 배가 될 때마다 한 계단 · 1 = 안 커짐)" },
-      dGrowBy: { value: DEFAULT_DENSITY.massRatio, min: 1, max: 2.5, step: 0.05, label: "한 계단마다 커지는 배율" },
+      // (how much more must be stayed for each further level: at ×2 every cell of a building was at the top level within
+      // a minute or two — all alike again; at ×3 the middle of where people stood grows well ahead of its edges)
+      dGrowEvery: { value: 3, min: 1.5, max: 6, step: 0.25, label: "한 계단 오르는 데 필요한 머묾의 배수 (클수록 천천히 · 가운데와 가장자리가 달라짐)" },
+      dGrowBy: { value: 1.45, min: 1, max: 2.5, step: 0.05, label: "한 계단마다 커지는 배율" },
       // (seeds.ts growCount: larger parts, hardly more of them — "엇비슷한 하얀 네모만 엄청 많아져서")
       dGrowCount: { value: 0.15, min: 0, max: 1, step: 0.05, label: "커질 때 매스 수가 느는 정도 (0 = 크기만 커짐 … 1 = 수도 같이, 하얀 상자가 많아짐)" },
       dCap: { value: 60, min: 10, max: 200, step: 5, label: "한 사람이 한 칸에 보탤 수 있는 최대 (클수록 한 무리가 오래 머물러 더 키움)" },
@@ -2800,9 +2797,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, mergeGap: dn.dMerge, mergeThick: dn.dMergeThick, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: dn.dGrow, massRatio: dn.dGrowBy, visitorCap: dn.dCap, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, mergeGap: dn.dMerge, mergeThick: dn.dMergeThick, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: dn.dGrow, ratio: dn.dGrowEvery, massRatio: dn.dGrowBy, visitorCap: dn.dCap, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.dMerge, dn.dMergeThick, dn.densityOn, dn.dVisitors, dn.dStep, dn.dGrow, dn.dGrowBy, dn.dCap, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.dMerge, dn.dMergeThick, dn.densityOn, dn.dVisitors, dn.dStep, dn.dGrow, dn.dGrowEvery, dn.dGrowBy, dn.dCap, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
@@ -2810,6 +2807,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   useEffect(() => {
     if (!densityCfg) {
       botGround.built = null;
+      botGround.shown = null;
       return;
     }
     const field = new DensityField(densityCfg);
@@ -3431,6 +3429,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
   // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
   const resinView = useMemo<ResinLook>(() => (perf ? { ...resinLook, transmission: 0 } : resinLook), [perf, resinLook]);
+  // (the test render mode: the mass is worked out on coarser voxels — a quarter of the work at 0.4 against the
+  // exhibition's 0.25; its surface is a little rounder for it)
+  const fuseView = useMemo<FuseConfig>(() => (testPerf !== "off" && fuseCfg.voxel < 0.4 ? { ...fuseCfg, voxel: 0.4 } : fuseCfg), [testPerf, fuseCfg]);
   const fps = useFps();
   const natureParams = useMemo<NatureParams | null>(
     () =>
@@ -3600,7 +3601,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           pointsInRefraction={fu.pointsInRefraction && !perf}
           farFactor={rnd.farFactor}
           weather={weatherEr}
-          fuse={fuseCfg}
+          fuse={fuseView}
           immutable={fu.immutable}
           bake={REDESIGN ? false : fu.bake}
           resin={resinView}

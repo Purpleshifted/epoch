@@ -41,9 +41,12 @@ export const NATURE_CHUNK = 10;
 export const FUSE_NEW_PER_CALL = 2;
 /** THE BLOCK: the ways and the pipes are laid again at most this often (ms; the artist, 2026-11-15: "길 연산에 너무 많이 쓴다면 디바운싱 훨 길게 잡아도 됨"), and one call fuses for about this long. */
 const SLOW_MS = 30000;
-const FUSE_BUDGET_MS = 450;
+/** THE BLOCK: a tile is this many cells (the old wall: 24). A tile is fused in one go — the budget cannot stop it —
+ *  and at the exhibition's fine voxels (0.25) a full tile of 24 took over a second. */
+const BLOCK_TILE = 14;
+const FUSE_BUDGET_MS = 300;
 /** THE BLOCK: a part's age is read in this many steps to `lifeSec` (the steps are the clock's: all parts move at once). */
-const AGE_STEPS = 8;
+const AGE_STEPS = 6;
 
 /** sRGB hex pairs (low, high shade) per NATURE_KIND. */
 export const NATURE_PALETTE: [string, string][] = [
@@ -205,6 +208,9 @@ export interface PartsInput {
 }
 
 export interface PartsResult {
+  /** THE BLOCK: every built cell-slot as the wall shows it — [cell x, cell z, slot, seconds since it was built (−1 =
+   *  long there), how far it has gone on × how much of it goes] — what the vegetation gives way to. */
+  cells?: Float32Array;
   counts: Record<PartKind, number>;
   /** 16 floats per instance, per kind (only `counts[kind]` used). */
   matrices: Record<PartKind, Float32Array>;
@@ -516,6 +522,8 @@ export class SpaceModel {
   /** How far a part's plants have come since it was built (0 during its wait … 1): the gatherings read it. */
   private partSettled: ((b: Box) => number) | null = null;
   private ageClock = 0;
+  /** How many times a cell-slot that had begun to go on was lived in again (the parts are read again when it moves). */
+  private renewals = 0;
   /** Whether the parts' ages have begun to be kept: until then what is found standing is taken as long there. */
   private ageBegun = false;
   /** What is made again whole in the block (the ways, the pipes): when it was last made, and of how many events. */
@@ -705,7 +713,7 @@ export class SpaceModel {
         // WHAT STANDS AT NO ANGLE — AND THE PIPES, THE WAYS, THE STEEL, which run all over the ground: kept TILE BY
         // TILE (tiles on a grid of the world's, so a tile is the same tile whatever else is in the chunk). As one
         // unit it was a dozen tiles that had to be fused in one go, whatever the budget said (4 s in one call).
-        const T = 24, PAD = 4;
+        const T = BLOCK_TILE, PAD = 4;
         const ex = extent(list, w.tubes);
         for (let tz = Math.floor(ex.z0 / T) * T; tz < ex.z0 + ex.nz; tz += T) {
           for (let tx = Math.floor(ex.x0 / T) * T; tx < ex.x0 + ex.nx; tx += T) {
@@ -716,7 +724,7 @@ export class SpaceModel {
             });
             const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
             if (!ps.length && !tubes.length) continue;
-            want(0, `${w.c0}:0:${tx}:${tz}`, sigOf(ps, tubes), () => this.fuseTiles({ ...w, ps, tubes, x0: tx, z0: tz, nx: T, nz: T }, h, u, sed, layerDecay, fuse));
+            want(0, `${w.c0}:0:${tx}:${tz}`, sigOf(ps, tubes), () => this.fuseTiles({ ...w, ps, tubes, x0: tx, z0: tz, nx: T, nz: T }, h, u, sed, layerDecay, fuse, T));
           }
         }
         continue;
@@ -726,7 +734,7 @@ export class SpaceModel {
         const c = Math.cos(ang), sn = Math.sin(ang);
         const turned = list.map((e) => ({ ...e, b: { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } }));
         const ext = extent(turned, []);
-        const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...ext }, h ? SpaceModel.turnedHistory(h, c, sn, ext, w.c0 - 12, w.c1 + 12) : null, u, sed, layerDecay, fuse);
+        const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...ext }, h ? SpaceModel.turnedHistory(h, c, sn, ext, w.c0 - 12, w.c1 + 12) : null, u, sed, layerDecay, fuse, BLOCK_TILE);
         for (const arr of [m.position, m.normal]) {
           for (let i = 0; i < arr.length; i += 3) {
             const x = arr[i], z = arr[i + 2];
@@ -749,7 +757,10 @@ export class SpaceModel {
         continue;
       }
       this.stages["fuse districts (n)"] = (this.stages["fuse districts (n)"] ?? 0) + 1;
+      const tRun = performance.now();
       const m = run();
+      this.stages["fuse units ms"] = (this.stages["fuse units ms"] ?? 0) + performance.now() - tRun;
+      this.stages["fuse unit max ms"] = Math.max(this.stages["fuse unit max ms"] ?? 0, performance.now() - tRun);
       this.districtMass.set(id, { key, mesh: m, at: this.fuseBuilt });
       out.push(m);
     }
@@ -766,8 +777,9 @@ export class SpaceModel {
     sed: NonNullable<ReturnType<typeof sedimentOf>>,
     layerDecay: ((k: number) => number) | undefined,
     fuse: FuseConfig,
+    TILE = 24,
   ): FuseMesh {
-    const TILE = 24, MARGIN = 4;
+    const MARGIN = 4;
     const meshes: FuseMesh[] = [];
     const cellOf = (v: number) => Math.floor(v / CELL);
     for (let tz = w.z0; tz < w.z0 + w.nz; tz += TILE) {
@@ -1209,12 +1221,26 @@ export class SpaceModel {
         if (lv === 2) far.add(s.id);
       }
     }
+    // WHAT IS LIVED IN STARTS OVER (the artist, 2026-11-15: "건물이 … 어떨 땐 아예 안 생기고"): a cell-slot is built
+    // once — people standing in a place that was built long ago, and had since eroded away, built nothing one could
+    // see. Every cell-slot somebody stood in since the last reading is given its time back: it stands whole again,
+    // and goes on from there once they have left.
+    if (this.densityState) {
+      const nowAge = Math.max(this.ageClock, (Date.now() - this.arriveEpoch) / 1000);
+      for (const [id, k] of this.densityState.field.takeLived()) {
+        const e = this.bornT.get(id)?.get(k);
+        if (!e) continue;
+        // (only what had begun to go on is a change to be seen)
+        if (nowAge - e.born > (input.weather.erode?.waitSec ?? 0)) this.renewals++;
+        e.born = nowAge;
+      }
+    }
     // (the block's parts go on by the clock: they are read again at every step of it)
     const lifeSec = this.densityCfg && input.weather.erode ? Math.max(0, input.weather.erode.lifeSec ?? 0) : 0;
     const waitSec = Math.max(0, input.weather.erode?.waitSec ?? 0);
     // (real seconds: the world's clock is set back whenever the lab's world is trimmed, and a part's age must not be)
     this.ageClock = Math.max(this.ageClock, (Date.now() - this.arriveEpoch) / 1000);
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${lifeSec > 0 ? Math.floor(this.ageClock / (lifeSec / AGE_STEPS)) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${lifeSec > 0 ? Math.floor(this.ageClock / (lifeSec / AGE_STEPS)) : "-"}:${this.renewals}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
     // ARRIVAL (arrive.ts): parts first seen now are being built — unless a knob of the parts or of the buildings' rule
@@ -1604,8 +1630,39 @@ export class SpaceModel {
       };
       return { anchored, decayOf, snap };
     })();
+    // WHAT THE WALL SHOWS, FOR THE VEGETATION (the artist, 2026-11-15: "식생이 건물보다 먼저 보였음"): the clouds gave
+    // way to the people's density on the main thread, seconds before the building it becomes had come through here
+    // and ticked in. They are now told what is built by the wall itself: every built cell-slot, how long it has been
+    // there and how far it has gone on — [cell x, cell z, slot, seconds since built (−1 = long), progress].
+    let cells: Float32Array | undefined;
+    if (this.densityCfg) {
+      let n = 0;
+      for (const sd of seeds) n += sd.levels?.size ?? 0;
+      cells = new Float32Array(n * 5);
+      let ci = 0;
+      const amountC = ec ? Math.min(1, Math.max(0, ec.amount)) : 0;
+      for (const sd of seeds) {
+        if (!sd.levels) continue;
+        const cx = Math.floor(sd.x / CELL), cz = Math.floor(sd.z / CELL);
+        const m = this.bornT.get(sd.id);
+        for (const k of sd.levels.keys()) {
+          const e = m?.get(k);
+          const age = e ? this.ageClock - e.born : -1;
+          let prog = 0;
+          if (ec) {
+            const wgt = Math.max(0, Math.min(1, erosionAt(k, sd.gather?.get(k) ?? 0, ec) * old(k, sd.x, sd.z)));
+            const step2 = lifeSec > 0 ? lifeSec / AGE_STEPS : 1;
+            const aged2 = e ? Math.max(0, Math.floor(this.ageClock / step2) - Math.floor((e.born + waitSec) / step2)) * step2 : 0;
+            prog = (lifeSec > 0 ? Math.min(1, (wgt * aged2) / lifeSec) : wgt) * amountC;
+          }
+          cells.set([cx, cz, k, age > 1e5 || !e ? -1 : age, prog], ci);
+          ci += 5;
+        }
+      }
+    }
     this.lap("emit", lapT);
     return {
+      cells,
       counts: fill,
       matrices,
       colors,
@@ -1659,6 +1716,7 @@ export class SpaceModel {
    * (or all slots without vegetation), at most FUSE_NEW_PER_CALL new chunks per call; null when nothing changed.
    */
   computeFuse(input: FuseInput): FuseMesh | null {
+    const tFuse0 = performance.now();
     const { box, fuse } = input;
     // THE BLOCK: its clock is a place — the "present" the layers are read against is the block's top, which stands
     const bc = this.blockClock;
@@ -1873,6 +1931,7 @@ export class SpaceModel {
     todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || builtAt(a) - builtAt(b) || dist(a) - dist(b));
     const perCall = Math.max(1, input.perCall ?? FUSE_NEW_PER_CALL);
     this.stages["fuse chunks waiting (n)"] = todo.length;
+    this.stages["fuse prep ms"] = performance.now() - tFuse0;
     const fuseKey = JSON.stringify(fuse);
     // THE BLOCK: a call fuses for about FUSE_BUDGET_MS (the paused view: as long as it takes) — a chunk that ran out of
     // time keeps a key that is not its own, so it comes round again, and its districts already done are not done twice
@@ -2077,6 +2136,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       for (const a of Object.values(out.parts.colors)) transfer.add(a.buffer as ArrayBuffer);
       for (const a of Object.values(out.parts.born)) transfer.add(a.buffer as ArrayBuffer);
       if (out.parts.edges) transfer.add(out.parts.edges.buffer as ArrayBuffer);
+      if (out.parts.cells) transfer.add(out.parts.cells.buffer as ArrayBuffer);
       for (const m of [out.parts.pipes.live, out.parts.pipes.kept]) transfer.add(m.cylinders.buffer as ArrayBuffer).add(m.elbows.buffer as ArrayBuffer);
       for (const a of [out.parts.walk.live, out.parts.walk.kept, out.parts.walk.liveW, out.parts.walk.keptW, out.parts.walk.liveU, out.parts.walk.keptU, out.parts.walk.liveEnds, out.parts.walk.keptEnds]) transfer.add(a.buffer as ArrayBuffer);
     }

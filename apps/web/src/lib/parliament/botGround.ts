@@ -15,4 +15,8 @@ export const botGround: {
   /** Seconds of one slot of the time axis (to read `built` at a bot's own time). */
   slotSec: number;
   trail: number;
-} = { built: null, slotSec: 20, trail: 1 };
+  /** What the wall itself shows as built (spaceModel PartsResult.cells) and when it came (performance.now(), ms): the
+   *  vegetation gives way to this — to the buildings that are there, not to the density they will come of. */
+  shown: Float32Array | null;
+  shownAt: number;
+} = { built: null, slotSec: 20, trail: 1, shown: null, shownAt: 0 };
