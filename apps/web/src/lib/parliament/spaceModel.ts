@@ -16,7 +16,7 @@ import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
-import { erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
+import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import type { NatureConfig } from "./nature";
@@ -398,7 +398,21 @@ export class SpaceModel {
   /** The latest time before the last reset: a world that starts again far earlier is a new world (memo cleared). */
   private tBeforeReset = 0;
   /** The decay each part had in the fused mass as last drawn (computeFuse): it is absorbed only as far as that. */
-  private fusedAt = new WeakMap<Box, number>();
+  /**
+   * Kept per chunk and BY THE PART'S OWN KEY (its slot and its hash — where it lies and what it is), not by the Box
+   * object: with the density's buildings a cell's parts are made again whenever anything is written near it (and all
+   * of them when old samples are forgotten) — new objects, the same parts. Remembered by object, every such part
+   * came back out of the mass and stayed out until its chunk happened to be built again: the buildings stood in
+   * front of the mass, most of all in the layers nobody writes in (the artist, 2026-11-15: "아래층에서는 안 보임",
+   * "건물은 있고, 융합이 보였다 말았다 함").
+   */
+  private fusedAt = new Map<number, Map<number, number>>();
+  private static partKey(b: Box): number {
+    return b.slot * 4294967296 + Math.floor(partHash(b) * 4294967296);
+  }
+  private fusedAtOf(b: Box): number | undefined {
+    return this.fusedAt.get(Math.floor(b.slot / NATURE_CHUNK) * NATURE_CHUNK)?.get(SpaceModel.partKey(b));
+  }
   /** The wear config the parts were last worn with (the baked layers age by it). */
   private wearCfg: WearConfig | null = null;
   /** For the pipes' corrosion in the fuse (computeParts' present thickness and slab wear; the water config is kept below). */
@@ -1064,7 +1078,18 @@ export class SpaceModel {
       const n = spread > 0 && x !== undefined && z !== undefined ? fresh * (1 + spread * (placeNoise(x, z, slot, ec.grain * 2) * 2 - 1)) : fresh;
       return Math.max(0, Math.min(1, (ec.topSlot - (slot + 0.5)) / Math.max(1e-6, n)));
     };
-    this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => ero.at(b) * old(b.slot, b.x, b.z), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
+    // …and PART BY PART (the artist, 2026-11-15: "여전히 잘려 보이는 곳이 있어서 자연스럽게 생성된다는 느낌이 안 듦"):
+    // read by the place alone, every part of a slot had the same value — the mass began on one plane, and in steps
+    // where the unlived share changed. The old corrosion differed part by part (thin and exposed parts went first);
+    // here a part's own threshold of the erosion (erode.ts: its patch, its kind, itself) shifts its value the same
+    // way — what erodes first fuses first, the skeleton last — by the same `freshSpread`
+    const own = (b: Box): number => {
+      if (!ec || spread <= 0) return 1;
+      let th = this.erodeMemo.get(b);
+      if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
+      return 1 + spread * (1 - 2 * th);
+    };
+    this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z) * own(b))), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
     const stands = ero ? built.filter((b) => !ero.gone(b)) : built;
@@ -1087,7 +1112,7 @@ export class SpaceModel {
       const d = 1 - survival(b);
       if (isSkeleton(b, d, fu)) return false;
       // only as far as the mass that takes its place is already drawn (it is built a few chunks at a time)
-      const f = fusedShare(Math.min(d, this.fusedAt.get(b) ?? 0), fu);
+      const f = fusedShare(Math.min(d, this.fusedAtOf(b) ?? 0), fu);
       return f > 0 && partHash(b) < Math.min(1, f * 1.6);
     };
     const shown = worn.filter((b) => !absorbed(b));
@@ -1262,6 +1287,7 @@ export class SpaceModel {
     if (!sed || !wm || !fuse.enabled || !this.built.length) {
       this.fuseSig = sig;
       this.fuseChunks.clear();
+      this.fusedAt.clear();
       return mergeMeshes(fuse.enabled ? bakedMeshes : []);
     }
     const u = box.unit;
@@ -1448,8 +1474,10 @@ export class SpaceModel {
       const mesh = this.fuseTiled(w, h, u, sed, layerDecay, fuse);
       this.fuseBuilt++;
       this.fuseChunks.set(w.c0, { key: w.key, mesh, built: this.fuseBuilt });
-      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) this.fusedAt.set(e.b, e.d);
-      for (const tb of w.tubes) if (tb.box && tb.k >= w.c0 && tb.k <= w.c1) this.fusedAt.set(tb.box, tb.decay);
+      const fa = new Map<number, number>();
+      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) fa.set(SpaceModel.partKey(e.b), e.d);
+      for (const tb of w.tubes) if (tb.box && tb.k >= w.c0 && tb.k <= w.c1) fa.set(SpaceModel.partKey(tb.box), tb.decay);
+      this.fusedAt.set(w.c0, fa);
     }
     let pending = todo.length > perCall;
     // WORK MODE (rebake): the baked layers rendered again with the current look, within what is left of this call's
@@ -1492,6 +1520,7 @@ export class SpaceModel {
       if (keep.has(c)) continue;
       const ch = this.fuseChunks.get(c)!;
       this.fuseChunks.delete(c);
+      this.fusedAt.delete(c);
       // ORPHAN: a chunk with a mesh that is no longer asked for — its parts went with a bulk window move, or the
       // window moved past it before it was baked — keeps its last mesh for good rather than vanishing (the artist,
       // 2026-10-31: "the fossils vanish after a while"); no material, so it neither ages nor re-renders
