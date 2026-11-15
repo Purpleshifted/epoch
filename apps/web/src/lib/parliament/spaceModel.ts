@@ -47,6 +47,8 @@ const BLOCK_TILE = 14;
 /** THE EROSION'S TICK: a part that stands (its leaving time), and how long a part that has gone is still handed to
  *  the wall (s: longer than the wall's knob for how long a part takes to go). */
 const STANDS = 1e9;
+/** SEEDED: a building's mass is not made again sooner than this after it was made (ms). */
+const UNIT_REST_MS = 12000;
 const LEAVE_KEEP_S = 20;
 const FUSE_BUDGET_MS = 300;
 /** THE BLOCK: a part's age is read in this many steps to `lifeSec` (the steps are the clock's: all parts move at once). */
@@ -659,13 +661,15 @@ export class SpaceModel {
   /** Which building a cell-run belongs to: per Seed, its runs of slots with the building's id. */
   private buildingRuns: { key: string; of: Map<number, { k0: number; k1: number; id: string }[]> } | null = null;
   /** Each building's mass as shown, with the state it was made from (part → decay) and its pieces kept for reuse. */
-  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; pieces: Map<string, { sig: string; mesh: FuseMesh }> }>();
+  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }> }>();
   /** The one building being made now: the state it is made from, the pieces still to do and those done. */
   private unitJob: {
     id: string;
     cfg: string;
     snap: Map<number, number>;
     ang: number;
+    /** (seeded: the building's parts as they stand in the world, with what each one's progress is made of) */
+    parts: { b: Box; grow?: number[] }[];
     h: NatureHistory | null;
     look: ((k: number) => number) | undefined;
     todo: { key: string; sig: string; k0: number; k1: number; tx: number; tz: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[] }[];
@@ -753,7 +757,7 @@ export class SpaceModel {
    * parts stand exactly as they did is kept as it was.
    */
   private fuseBuildings(
-    bySlot: ReadonlyMap<number, { b: Box; d: number; up: boolean; sk: boolean; ang: number }[]>,
+    bySlot: ReadonlyMap<number, { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[] }[]>,
     h: NatureHistory | null,
     u: number,
     sed: NonNullable<ReturnType<typeof sedimentOf>>,
@@ -762,8 +766,11 @@ export class SpaceModel {
     padSlots: number,
     box: BoxConfig,
   ): FuseMesh | null {
-    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number };
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[] };
     const SEG = NATURE_CHUNK, T = BLOCK_TILE, PAD = 4;
+    // (SEEDED: the mass is the building's whole mass, whatever its progress — it is made again only when its parts
+    // are other than they were, and not more often than every so long: its assets come one by one)
+    const seeded = !!fuse.seeded;
     const cfg = JSON.stringify(fuse);
     const runsOf = this.buildingsOfSeeds(box);
     // every part to its building
@@ -898,7 +905,7 @@ export class SpaceModel {
       }
       const snap = new Map<number, number>();
       for (const e of list) snap.set(key(e.b), e.d);
-      return { id, cfg, snap, ang, h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map() };
+      return { id, cfg, snap, ang, parts: seeded ? list.map((e) => ({ b: e.b, grow: e.grow })) : [], h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map() };
     };
 
     const deadline = performance.now() + FUSE_BUDGET_MS;
@@ -908,10 +915,12 @@ export class SpaceModel {
         // the building that has moved most from its state
         let pick = "", most = 0;
         waiting = 0;
-        const th = Math.max(0.02, fuse.unitChange ?? 0.15);
+        const th = seeded ? 1e-6 : Math.max(0.02, fuse.unitChange ?? 0.15);
+        const nowMs = performance.now();
         for (const [id, list] of lists) {
           const ch = changeOf(id, list);
           if (ch < th) continue;
+          if (seeded && nowMs - (this.units.get(id)?.madeMs ?? -Infinity) < UNIT_REST_MS) continue;
           waiting++;
           if (ch > most || (ch === most && pick && list.length > lists.get(pick)!.length)) [pick, most] = [id, ch];
         }
@@ -951,7 +960,9 @@ export class SpaceModel {
       // (the parts are read again against the mass only where the mass takes their place: with `absorb` 0 — the
       // parts stand whole under it — a building's new mass costs the parts nothing)
       if ((fuse.absorb ?? 1) > 0) this.fuseBuilt++;
-      this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, pieces: job.done });
+      // SEEDED: every vertex is given the part it grows from
+      if (seeded && job.parts.length) SpaceModel.growData(mesh, job.parts);
+      this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
       this.unitJob = null;
       this.stages["fuse buildings (n)"] = (this.stages["fuse buildings (n)"] ?? 0) + 1;
       if (performance.now() > deadline) break;
@@ -963,6 +974,72 @@ export class SpaceModel {
     for (const ent of this.units.values()) if (ent.mesh.index.length) out.push(ent.mesh);
     for (const o of this.unitOrphans) out.push(o.mesh);
     return mergeMeshes(out);
+  }
+
+  /**
+   * SEEDED (fuse.ts seeded): every vertex of a building's mass is given THE PART IT GROWS FROM — the nearest of the
+   * building's parts (by its box, in the box's own turn) — as the point of that part it is pressed to (the nearest
+   * point of the box, drawn a little inside it, so the pressed mass lies within the part) and that part's growing
+   * data. The parts are looked up through a coarse grid of the space (a vertex asks only the parts near it).
+   */
+  private static growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[]): void {
+    const nv = mesh.position.length / 3;
+    const anchor = new Float32Array(nv * 3), A = new Float32Array(nv * 4), B = new Float32Array(nv * 2);
+    const G = 2, REACH = 3;
+    const cellKey = (ix: number, iy: number, iz: number) => ((ix & 1023) * 1024 + (iy & 1023)) * 1024 + (iz & 1023);
+    const cells = new Map<number, number[]>();
+    const cs = parts.map((e) => Math.cos(e.b.yaw ?? 0)), sn = parts.map((e) => Math.sin(e.b.yaw ?? 0));
+    parts.forEach((e, pi) => {
+      const b = e.b, r = Math.max(b.sx, b.sz) / 2 + REACH, ry = b.sy / 2 + REACH;
+      for (let ix = Math.floor((b.x - r) / G); ix <= Math.floor((b.x + r) / G); ix++)
+        for (let iy = Math.floor((b.y - ry) / G); iy <= Math.floor((b.y + ry) / G); iy++)
+          for (let iz = Math.floor((b.z - r) / G); iz <= Math.floor((b.z + r) / G); iz++) {
+            const k = cellKey(ix, iy, iz), l = cells.get(k);
+            if (l) l.push(pi);
+            else cells.set(k, [pi]);
+          }
+    });
+    const all = parts.map((_, i) => i);
+    let last = 0;
+    for (let v = 0; v < nv; v++) {
+      const px = mesh.position[v * 3], py = mesh.position[v * 3 + 1], pz = mesh.position[v * 3 + 2];
+      // (far from every part — what hangs a long way down: the part the vertex before it grew from, and its neighbours)
+      const near = cells.get(cellKey(Math.floor(px / G), Math.floor(py / G), Math.floor(pz / G))) ?? (parts.length <= 64 ? all : [last]);
+      let best = last, bd = Infinity, ax = px, ay = py, az = pz;
+      for (const pi of near) {
+        const b = parts[pi].b, c = cs[pi], s = sn[pi];
+        const dx = px - b.x, dz = pz - b.z;
+        // (into the part's own turn: writeMatrix's turn undone)
+        const lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - b.y;
+        const hx = b.sx / 2, hy = b.sy / 2, hz = b.sz / 2;
+        const qx = Math.max(-hx, Math.min(hx, lx)), qy = Math.max(-hy, Math.min(hy, ly)), qz = Math.max(-hz, Math.min(hz, lz));
+        const d2 = (lx - qx) * (lx - qx) + (ly - qy) * (ly - qy) + (lz - qz) * (lz - qz);
+        if (d2 < bd) {
+          bd = d2;
+          best = pi;
+          const ix = qx * 0.9, iy = qy * 0.9, iz = qz * 0.9;
+          ax = b.x + ix * c + iz * s;
+          ay = b.y + iy;
+          az = b.z - ix * s + iz * c;
+        }
+      }
+      last = best;
+      anchor[v * 3] = ax;
+      anchor[v * 3 + 1] = ay;
+      anchor[v * 3 + 2] = az;
+      const g = parts[best].grow;
+      if (g) {
+        A[v * 4] = g[0];
+        A[v * 4 + 1] = g[1];
+        A[v * 4 + 2] = g[2];
+        A[v * 4 + 3] = g[3];
+        B[v * 2] = g[4];
+        B[v * 2 + 1] = g[5];
+      } else B[v * 2 + 1] = -1;
+    }
+    mesh.anchor = anchor;
+    mesh.growA = A;
+    mesh.growB = B;
   }
 
   private blockHist: { key: string; h: NatureHistory | null } | null = null;
@@ -2210,12 +2287,16 @@ export class SpaceModel {
     };
     // the erosion reads the progress: a part is gone when it has passed the part's own threshold
     const amount = ec ? Math.min(1, Math.max(0, ec.amount)) : 0;
+    // (the erosion and the fusion both run over the whole progress, side by side — the artist, 2026-11-16: "건물이
+    // 있는데 화석화되는 구간도 있어야지": a part stands while its fossil grows, and may go later. With the seeded mass
+    // — fuse.ts — nothing has to be kept in step: the fossil's shape stands, and a part that goes leaves it.)
+    const eroded = progress;
     const life: Erosion | null =
       ec && ero
         ? {
-            at: progress,
+            at: eroded,
             gone: (b) => {
-              const e = progress(b) * amount;
+              const e = eroded(b) * amount;
               if (e <= 0) return false;
               let th = this.erodeMemo.get(b);
               if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
@@ -2243,7 +2324,7 @@ export class SpaceModel {
       const seen = new Map<number, Map<number, [number, number]>>();
       for (const b of built) {
         const k = SpaceModel.partKey(b);
-        const e = progress(b) * amount;
+        const e = eroded(b) * amount;
         const was = this.erodeSeen.get(b.seed)?.get(k);
         let at = STANDS;
         if (life.gone(b)) {
@@ -2552,7 +2633,7 @@ export class SpaceModel {
     const gone = bc ? Math.max(0, Math.min(1, fuse.goneMass ?? 0)) : 1;
     const skCfg = fuse;
     const q20 = (v: number) => Math.round(v * 20) / 20;
-    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number };
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[] };
     // the angle each seed's district is turned by (fuseTiled)
     const angleOf = new Map<number, number>();
     if (box.variety) for (const sd of this.seeds) angleOf.set(sd.id, districtOf(sd.x, sd.z, box.variety).angle);
@@ -2563,19 +2644,51 @@ export class SpaceModel {
     // progress (the hull is the whole building's), and those the erosion has taken too: the crust stays over what
     // stood there.
     const crustOn = !!bc && !!fuse.crust;
-    const crustVeg = Math.max(0, Math.min(1, fuse.crustVeg ?? 0.6));
-    const gatherOfSeed = crustOn ? new Map(this.seeds.map((sd) => [sd.id, sd.gather] as const)) : null;
+    const crustVeg = Math.max(0, Math.min(1, fuse.crustVeg ?? 0.5));
+    // THE MASS GROWS WHERE THE VEGETATION GATHERED — whatever it is made of (the artist, 2026-11-15: "식생 기여 포함"):
+    // the same share for the parts' own skins as for the crust. In the block only.
+    const gatherOfSeed = bc && (crustOn || crustVeg > 0) ? new Map(this.seeds.map((sd) => [sd.id, sd.gather] as const)) : null;
+    // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (the artist, 2026-11-16: "융합!!!!! 일단 해보자" — after the buildings
+    // were given their stage of simplification): built → simplified with time (computeParts: the asset) → fused. A
+    // part still in its many pieces is new building — nothing grows on it; the mass is the simple body's, and the
+    // orthogonal body stands inside it. (With the simplification off there are no assets: every part, as before.)
+    const assetsOnly = !!bc && fuse.assetsOnly !== false && (bc.erode.lodSec ?? 0) > 0;
+    // SEEDED (fuse.ts seeded): the mass as it will be when all of it has fused, and for every part what its progress
+    // is made of — the wall works the progress out itself. A part that goes before its fossil begins (its erosion's
+    // threshold comes first) leaves nothing, and is not in it; nor one where no vegetation makes mass.
+    const seeded = !!bc && !!fuse.seeded && assetsOnly && (bc.erode.shift ?? 0) > 0 && !crustOn;
+    const seedXZ = seeded ? new Map(this.seeds.map((sd) => [sd.id, [sd.x, sd.z] as const] as const)) : null;
+    const spreadS = Math.max(0, Math.min(1, fuse.freshSpread ?? 0)), freshS = Math.max(0, fuse.freshSlots ?? 0);
+    const amountS = bc ? Math.min(1, Math.max(0, bc.erode.amount)) : 0;
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
+      if (assetsOnly && !this.assetClock.has(b)) continue;
       const up = standing.has(b);
+      if (seeded && bc && seedXZ) {
+        let th = this.erodeMemo.get(b);
+        if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, bc.erode)));
+        const own = spreadS > 0 ? 1 + spreadS * (1 - 2 * th) : 1;
+        // (it goes at progress th ÷ amount, its fossil begins at fuseOnset ÷ own: gone first = no fossil)
+        if (amountS > 0 && th < amountS && th / amountS <= fuse.fuseOnset / Math.max(0.05, own)) continue;
+        const g = gatherOfSeed?.get(b.seed)?.get(b.slot) ?? 0;
+        const most = 1 - crustVeg * (1 - g);
+        if (most < 0.05) continue;
+        const [sx, sz] = seedXZ.get(b.seed) ?? [b.x, b.z];
+        const nEff = freshS > 0 ? freshS * (spreadS > 0 ? 1 + spreadS * (placeNoise(sx, sz, b.slot, bc.erode.grain * 2) * 2 - 1) : 1) : 0;
+        const e: P = { b, d: 1, up: true, sk: false, ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, this.assetClock.get(b)?.top ?? bc.top, g, own, nEff, most] };
+        const l = bySlot.get(b.slot);
+        if (l) l.push(e);
+        else bySlot.set(b.slot, [e]);
+        continue;
+      }
       let d = q20(1 - wm.survival(b));
       if (gatherOfSeed) d = q20(d * (1 - crustVeg * (1 - (gatherOfSeed.get(b.seed)?.get(b.slot) ?? 0))));
-      else if (!up && gone < 1) {
+      if (!crustOn && !up && gone < 1) {
         if (gone <= 0) continue;
         d = q20(d * gone);
       }
       // not corroding yet: nothing grows on it (B FILL: the plates are kept, they bound the rooms of the parts below)
-      if (!gatherOfSeed && fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
+      if (!crustOn && fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
       const e: P = { b, d, up, sk: isSkeleton(b, d, skCfg), ang: angleOf.get(b.seed) ?? 0 };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
@@ -2973,7 +3086,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   }
   if (m.fuse) {
     out.fuse = timed("fuse", () => model.computeFuse(m.fuse!));
-    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB]) if (a) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };

@@ -132,8 +132,26 @@ export interface FuseConfig {
    * the vegetation's thickening.
    */
   crust?: boolean;
-  /** How much the vegetation makes the crust (0 = the progress alone … 1 = only where vegetation gathered). */
+  /** How much the vegetation makes the mass — the crust or the parts' own skins (0 = the progress alone … 1 = only
+   *  where vegetation gathered). */
   crustVeg?: number;
+  /** THE BLOCK: the mass grows only on what has been simplified with time (spaceModel: the assets) — a part still in
+   *  its many pieces is new building. Absent / true = so (when the simplification is on); false = on every part. */
+  assetsOnly?: boolean;
+  /**
+   * THE BLOCK: THE MASS'S SHAPE IS MADE ONCE, AND GROWS ON THE SCREEN (the artist, 2026-11-16: "건물생성시드 참조해서
+   * 그렇게 적용 가능하게", "그러면 병렬진행 가능하잖아", "시간대별로 눌러서 안 보이게 … 얼추 생성되는 것처럼", and the three
+   * stretches: the part alone → the part standing while its fossil grows → the part gone, the fossil left). A
+   * building is what its seed makes it, whatever its progress — so its mass is fused ONCE as it will be when all of
+   * it has fused (made again only when its parts are other than they were), and every vertex is given the part it
+   * grows from: the point of that part's surface it is PRESSED to, and what that part's progress is made of (its
+   * slot, the top when it was built, the vegetation gathered there, its own lead or lag, its layer factor, how much
+   * of it fuses). The wall's shader works the part's progress out of the window's top every frame and lets the vertex
+   * out of its part by as much: nothing is fused again as the progress moves, and the erosion needs no keeping in
+   * step — a part that goes by its tick leaves the fossil that had grown on it. Needs the rising window and the
+   * simplification (an asset's clock stands); otherwise the mass is made from the state, as before.
+   */
+  seeded?: boolean;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
@@ -456,6 +474,12 @@ export interface FuseMesh {
   extra: Float32Array;
   /** Opaque faces first, then the resin faces from `resinStart` on. */
   index: Uint32Array;
+  /** SEEDED (FuseConfig.seeded) — per vertex: the point it is pressed to (3); [slot, the top when its part was built,
+   *  the vegetation gathered there, the part's own lead or lag] (4); [layers until the layer factor is whole (0 = no
+   *  factor), how much of it fuses (< 0 = not seeded: whole as it is)] (2). Absent = a mesh made from the state. */
+  anchor?: Float32Array;
+  growA?: Float32Array;
+  growB?: Float32Array;
   resinStart: number;
 }
 
@@ -1400,18 +1424,36 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
 export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   let nv = 0, ni = 0, nr = 0;
+  let seeded = false;
   for (const p of parts) {
     nv += p.position.length;
     ni += p.index.length;
     nr += p.index.length - p.resinStart;
+    if (p.anchor) seeded = true;
   }
   const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 4), index: new Uint32Array(ni), resinStart: ni - nr };
+  // (the growing data rides along when any part has it; a part without it is whole as it is)
+  if (seeded) {
+    out.anchor = new Float32Array(nv);
+    out.growA = new Float32Array((nv / 3) * 4);
+    out.growB = new Float32Array((nv / 3) * 2);
+  }
   let ov = 0, oo = 0, or = ni - nr;
   for (const p of parts) {
     out.position.set(p.position, ov);
     out.normal.set(p.normal, ov);
     out.color.set(p.color, ov);
     out.extra.set(p.extra, (ov / 3) * 4);
+    if (out.anchor && out.growA && out.growB) {
+      if (p.anchor && p.growA && p.growB) {
+        out.anchor.set(p.anchor, ov);
+        out.growA.set(p.growA, (ov / 3) * 4);
+        out.growB.set(p.growB, (ov / 3) * 2);
+      } else {
+        out.anchor.set(p.position, ov);
+        for (let v = ov / 3; v < (ov + p.position.length) / 3; v++) out.growB[v * 2 + 1] = -1;
+      }
+    }
     const base = ov / 3;
     for (let i = 0; i < p.index.length; i++) {
       if (i < p.resinStart) out.index[oo++] = p.index[i] + base;

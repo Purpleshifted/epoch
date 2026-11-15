@@ -23,9 +23,13 @@ export const FOCUS_ALL_KEY = "allKnobs";
  * part of an input's path, whatever folder of the group it sits in). `__save` is a group's save / reload row.
  */
 export const LEVA_FOCUS: Record<string, readonly string[]> = {
-  // the switch; what the mass is made of (the parts' own skins / the crust, with the vegetation's share); what is
-  // fused together (a building / a chunk × tile) — the two choices the artist is weighing (2026-11-15)
-  "엉김 · 융합 · 레진": ["fuseOn", "fuseBody", "crustVeg", "fuseUnit", FOCUS_ALL_KEY, "__save"],
+  // the switch; where the mass grows (on what has been simplified / on every part) and how much the vegetation makes
+  // it (2026-11-16: "융합!!!!! 일단 해보자"); what it is made of (the parts' own skins / the crust); what is fused
+  // together (a building / a chunk × tile)
+  // …and where on the progress the mass begins: the erosion is over by then (2026-11-16)
+  // …how the fossil appears (its shape made once, swelling out of its part / made again with the progress), and the
+  // progress it begins and is whole at
+  "엉김 · 융합 · 레진": ["fuseOn", "fuseGrow", "fuseOnset", "fuseFull", "fuseFrom", "massVeg", "fuseBody", "fuseUnit", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;

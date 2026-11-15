@@ -360,10 +360,61 @@ interface FuseUniforms {
   uPitJitter: THREE.IUniform;
   uPitSoft: THREE.IUniform;
   uPitDepth: THREE.IUniform;
+  // THE MASS GROWS OUT OF ITS PARTS ON THE SCREEN (fuse.ts seeded): on for a mesh that carries the growing data; the
+  // window's top now (slots), its height, the erosion's start … full depth and the unlived pull, the life and the
+  // wait as slots of the top's travel, and the progress the mass begins … is whole at
+  uGrowOn: THREE.IUniform;
+  uGrowTop: THREE.IUniform;
+  uGrowHeight: THREE.IUniform;
+  uGrowStart: THREE.IUniform;
+  uGrowFull: THREE.IUniform;
+  uGrowVegPull: THREE.IUniform;
+  uGrowLifeTop: THREE.IUniform;
+  uGrowWaitTop: THREE.IUniform;
+  uGrowOnset: THREE.IUniform;
+  uGrowFullAt: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
-  return { uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 } };
+  return {
+    uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
+    uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 },
+  };
 }
+
+/**
+ * THE MASS GROWS OUT OF ITS PARTS (fuse.ts seeded; the artist, 2026-11-16: "시간대별로 눌러서 안 보이게 … 얼추 생성되는
+ * 것처럼", "건물이 있는데 화석화되는 구간도 있어야지"). The mesh is the mass as it will be when all of it has fused;
+ * every vertex knows the part it grows from. Here the part's PROGRESS is worked out of the window's top — the same
+ * sum the model makes (spaceModel sunk: the depth's weight × the layer factor over the top's way since the part was
+ * built, without its steps) — and the vertex is let out of its part by as much: pressed to the part while the part
+ * is new, swelling out of it as it goes on. Nothing is sent or made again for it: one number a frame.
+ */
+const FUSE_GROW_VERT_HEAD = `
+attribute vec3 fuseAnchor;
+attribute vec4 fuseGrowA;
+attribute vec2 fuseGrowB;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowStart, uGrowFull, uGrowVegPull, uGrowLifeTop, uGrowWaitTop, uGrowOnset, uGrowFullAt;
+varying float vGrow;
+float fuseProgress( float slot, float bornTop, float gather, float layers ) {
+  float t0 = bornTop + uGrowWaitTop;
+  float span = uGrowTop - t0;
+  if ( span <= 0.0 ) return 0.0;
+  float sum = 0.0;
+  for ( int q = 0; q < 6; q ++ ) {
+    float below = t0 + ( float( q ) + 0.5 ) / 6.0 * span - ( slot + 0.5 );
+    float e = clamp( ( below / max( 1.0, uGrowHeight ) + uGrowVegPull * gather - uGrowStart ) / max( 1e-4, uGrowFull - uGrowStart ), 0.0, 1.0 );
+    float old = layers > 0.0 ? clamp( below / layers, 0.0, 1.0 ) : 1.0;
+    sum += e * e * ( 3.0 - 2.0 * e ) * old;
+  }
+  return min( 1.0, sum / 6.0 * span / max( 1e-4, uGrowLifeTop ) );
+}`;
+const FUSE_GROW_VERT_BODY = `
+vGrow = 1.0;
+if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
+  float growP = fuseProgress( fuseGrowA.x, fuseGrowA.y, fuseGrowA.z, fuseGrowB.x ) * fuseGrowA.w;
+  vGrow = clamp( ( growP - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), 0.0, 1.0 ) * fuseGrowB.y;
+  transformed = mix( fuseAnchor, transformed, vGrow * vGrow * ( 3.0 - 2.0 * vGrow ) );
+}`;
 
 /**
  * The PITS of the shell (refs 9664, 9665: small round pores scattered over a smooth surface, of varied size, denser
@@ -424,8 +475,12 @@ function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: Fu
       );
   }
   shader.vertexShader = shader.vertexShader
-    .replace("#include <common>", "#include <common>\nattribute vec4 fuseExtra;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;")
-    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvExtra = fuseExtra;\nvFusePos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
+    .replace("#include <common>", `#include <common>\nattribute vec4 fuseExtra;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;${FUSE_GROW_VERT_HEAD}`)
+    .replace("#include <begin_vertex>", `#include <begin_vertex>${FUSE_GROW_VERT_BODY}\nvExtra = fuseExtra;\nvFusePos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;`);
+  // (what has not begun to grow is not drawn: the pressed mass lies inside its part, or where its part was)
+  shader.fragmentShader = shader.fragmentShader
+    .replace("#include <common>", "#include <common>\nvarying float vGrow;")
+    .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif ( vGrow < 0.02 ) discard;");
   shader.fragmentShader = shader.fragmentShader
     .replace(
       "#include <common>",
@@ -497,13 +552,26 @@ function makeResinMaterial(u: FuseUniforms, fade?: FuseFade): THREE.MeshPhysical
 }
 
 /** Replaces the fused mesh's geometry (the old one is disposed). */
-function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?: { mesh: THREE.Mesh | null; fade: { t: THREE.IUniform<number>; t0: number }; sec: number }): void {
+function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?: { mesh: THREE.Mesh | null; fade: { t: THREE.IUniform<number>; t0: number }; sec: number }, u?: FuseUniforms): void {
   if (!mesh || !r) return;
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(r.position, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(r.normal, 3));
   g.setAttribute("color", new THREE.BufferAttribute(r.color, 3));
   g.setAttribute("fuseExtra", new THREE.BufferAttribute(r.extra, 4));
+  // SEEDED (fuse.ts): the growing data — and the shader grows the mass only for a mesh that carries it
+  const grows = !!(r.anchor && r.growA && r.growB);
+  if (grows) {
+    g.setAttribute("fuseAnchor", new THREE.BufferAttribute(r.anchor!, 3));
+    g.setAttribute("fuseGrowA", new THREE.BufferAttribute(r.growA!, 4));
+    g.setAttribute("fuseGrowB", new THREE.BufferAttribute(r.growB!, 2));
+    // (the vertices move in the shader: the mesh's bounds are not where it is drawn)
+    mesh.frustumCulled = false;
+  }
+  if (u) u.uGrowOn.value = grows ? 1 : 0;
+  // (readable from DevTools / a headless check, like `__perfSpans`: the growing data and the shader's numbers — how
+  // far the mass is out of its parts can be worked out without looking)
+  if (typeof window !== "undefined") (window as unknown as { __fuseGrow?: unknown }).__fuseGrow = grows && u ? { position: r.position, anchor: r.anchor, growA: r.growA, growB: r.growB, u } : null;
   g.setIndex(new THREE.BufferAttribute(r.index, 1));
   // group 0: opaque fused stone; group 1: resin (the oldest layers)
   g.addGroup(0, r.resinStart, 0);
@@ -1013,6 +1081,25 @@ function SpaceWorld({
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
   const fuseU = useMemo<FuseUniforms>(() => makeFuseUniforms(), []);
+  // THE MASS GROWS OUT OF ITS PARTS (fuse.ts seeded): what the shader makes each part's progress of — the window's
+  // top from the bots' own clock, every frame (the model's own is in quarters of a slot), and the erosion's and the
+  // fusion's knobs as they stand
+  useFrame(() => {
+    const er = weather.erode;
+    if (!er) return;
+    const slotSec = Math.max(1, er.slotSec ?? boxCfg.secPerUnit), shift = Math.max(0, er.shift ?? 0);
+    const perTop = shift > 0 ? slotSec / shift : slotSec;
+    const w = botGround.window?.();
+    fuseU.uGrowTop.value = w && w.shift > 0 ? Math.max(er.height ?? 0, w.top / slotSec) : er.topSlot;
+    fuseU.uGrowHeight.value = Math.max(1, er.height ?? er.topSlot);
+    fuseU.uGrowStart.value = er.start;
+    fuseU.uGrowFull.value = er.full;
+    fuseU.uGrowVegPull.value = er.vegPull;
+    fuseU.uGrowLifeTop.value = Math.max(1e-3, (er.lifeSec ?? 0) / perTop);
+    fuseU.uGrowWaitTop.value = Math.max(0, (er.waitSec ?? 0) / perTop);
+    fuseU.uGrowOnset.value = fuse.fuseOnset;
+    fuseU.uGrowFullAt.value = Math.max(fuse.fuseOnset + 0.01, Math.min(1, fuse.fuseFull ?? 1));
+  });
   // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
   const fuseFade = useMemo(() => ({ t: { value: 1 } as THREE.IUniform<number>, t0: 0 }), []);
   const fusedWas = useRef<THREE.Mesh>(null);
@@ -1144,7 +1231,7 @@ function SpaceWorld({
       botGround.shown = r.parts.cells;
       botGround.shownAt = performance.now();
     }
-    setFused(fused.current, r.fuse, { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current });
+    setFused(fused.current, r.fuse, { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current }, fuseU);
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     // where the worker's time went: the slowest request of the last few is kept, so a heavy one can be read
@@ -3310,7 +3397,22 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "덩어리의 재료",
         render: () => REDESIGN,
       },
-      crustVeg: { value: 0.6, min: 0, max: 1, step: 0.05, label: "식생이 껍질을 만드는 정도 (0 = 식생과 무관하게 진행만큼 … 1 = 식생이 모인 곳에만)", render: (get: (path: string) => unknown) => REDESIGN && get(BODY_PATH) === "crust" },
+      // (for the parts' own skins too since 2026-11-16 — a new key, so what was saved for the crust does not carry over)
+      massVeg: { value: 0.5, min: 0, max: 1, step: 0.05, label: "식생이 덩어리를 만드는 정도 (0 = 식생과 무관하게 진행만큼 … 1 = 식생이 모인 곳에만)", render: () => REDESIGN },
+      // THE MASS'S SHAPE IS MADE ONCE AND GROWS ON THE SCREEN (fuse.ts seeded; the artist, 2026-11-16: "만들어서 보여줘")
+      fuseGrow: {
+        options: { "모양은 한 번만 만들고, 부재에서 부풀어 나옴 (새 방식)": "seed", "진행이 바뀔 때마다 다시 만듦 (예전)": "state" },
+        value: "seed" as "seed" | "state",
+        label: "화석이 나타나는 방식",
+        render: () => REDESIGN,
+      },
+      // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
+      fuseFrom: {
+        options: { "단순화된 것에만 (갓 지은 낱낱의 부재는 융합 안 함)": "assets", "모든 부재에": "all" },
+        value: "assets" as "assets" | "all",
+        label: "덩어리가 자라는 곳",
+        render: () => REDESIGN,
+      },
       fuseUnit: {
         options: { "건물마다 (건물 상태가 달라지면 그 건물만 다시)": "building", "묶음 · 타일 (예전: 10단 × 14칸 × 구역 각도)": "tile" },
         value: "building" as "building" | "tile",
@@ -3341,10 +3443,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         cling: { value: 0, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (0 = 부재는 그대로 보이고 덩어리가 엉겨 붙음 … 1 = 전시 버전처럼 부재가 녹아 사라짐)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: (get) => REDESIGN && get(BODY_PATH) !== "crust" },
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리가 생기기 시작하는 진행 (0 = 지어지자마자 … 1 = 끝에서야)" },
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "화석이 부재에서 나오기 시작하는 진행 (그 전엔 부재만 보임 · 0 = 지어지자마자 … 1 = 끝에서야)" },
         // (THE REDESIGN, 2026-11-15: 0.9 — the mass thickens over most of a part's progress, a thin skin first; the
         // exhibition's 0.49 was full two steps after it began)
-        fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 진행 (위 값에 가까울수록 한꺼번에 차오름 · 1 = 끝까지 천천히)" },
+        fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "화석이 다 나온 진행 (위 값에 가까울수록 한꺼번에 부풀고 · 1 = 끝까지 천천히)" },
         skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 진행 (>1 = 끝까지 남음)", render: (get) => get(BODY_PATH) !== "crust" && get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
@@ -3567,7 +3669,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.crustVeg } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed" } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3622,7 +3724,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.crustVeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
