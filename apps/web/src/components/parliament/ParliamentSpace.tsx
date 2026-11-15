@@ -88,6 +88,7 @@ import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindow
 import { presetSource, savable } from "./levaSave";
 import { EXHIBITION_FUSION } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
+import { setLevaFocus } from "./levaFocus";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botKinds, botReadout, useGlobalBots, type BotKind } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
@@ -2312,6 +2313,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
+  // THE FUSION'S FOLDER LISTS ONLY WHAT IS BEING WORKED ON (levaFocus.ts; every other folder is whole) — set while
+  // rendering, before the panel mounts
+  setLevaFocus(REDESIGN && isV2);
   // THE WALL opens at real speed: the shared rate is saved per origin, and a ×20 left behind from a rehearsal would
   // run the exhibition's world away (2026-10-31)
   useEffect(() => {
@@ -3276,6 +3280,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     savable(FU, {
       fuseOn: { value: DEFAULT_FUSE.enabled, label: REDESIGN ? "켜기 (덩어리: 부식 = 침식의 자리 값 · 작용 띠는 '침식'의 시작 … 다 깎이는 깊이)" : "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
       // THE MASS CHANGES SOFTLY (FuseFade): what it was dissolves into what it is over this long
+      // (levaFocus.ts: this folder lists only the knobs under review; this lists all of it again)
+      allKnobs: { value: false, label: "이 폴더의 손잡이 전부 보기 (끄면 지금 손보는 것만)", render: () => REDESIGN },
       fuseFade: { value: 2, min: 0, max: 10, step: 0.25, label: "덩어리가 바뀔 때 녹아드는 시간 (s · 0 = 바로)" },
       // BUILDING BY BUILDING, FROM A STATE KEPT (spaceModel fuseBuildings; the artist, 2026-11-15: "건물 상태를 기점마다
       // 굽고 일정 변화 이상이 감지되면 변화하는 식으로")
@@ -3512,7 +3518,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         { collapsed: false },
       ),
     }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }, { tag: "mass-fills-slowly-2026-11-15", set: { fuseFull: 0.9 } }, { tag: "no-pebbles-2026-11-15", set: { scatter: 0 } }] : [])] : []),
-    { order: REDESIGN ? (lab ? 7.97 : 4.4) : lab ? 2 : 8, collapsed: REDESIGN },
+    { order: REDESIGN ? (lab ? 7.97 : 4.4) : lab ? 2 : 8, collapsed: false },
   );
   // (the redesign's wall: only in the block — the density's buildings and a block whose top is known)
   const fuseInBlock = isV2 && dn.densityOn && botDepth > 0;

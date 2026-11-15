@@ -1,0 +1,60 @@
+/**
+ * THE PANEL SHOWS ONLY WHAT IS BEING WORKED ON (the artist, 2026-11-15: "지금 레바가 너무 혼잡해서 판단이 좀 어려운데,
+ * 이전에 초반 작업하던 것처럼 레바 수정/도입하는 것마다 하나씩 들고오는 식으로 진행하자. 일단 지금 한 것만 레바 남겨줘").
+ *
+ * ONLY THE GROUPS NAMED BELOW ARE CUT DOWN — every other group of the panel is listed whole, as it was (the artist,
+ * a moment later, when the first version hid them all: "아니 다른 레바도 다 숨기면 어떡하냐"). It is the fusion's
+ * folder that had grown past judging (some ninety knobs of several generations).
+ *
+ * Every knob is still declared where it belongs and still applies — its value, its saving, its place in its group are
+ * untouched. Only what the panel LISTS of such a group is cut down: Leva asks its store which inputs are visible
+ * (`getVisiblePaths`), and here that answer is filtered to LEVA_FOCUS (no schema is changed anywhere). A knob is
+ * BROUGHT IN by adding its key to its group's list below, one at a time, when it is introduced or reworked. The
+ * group's own `이 폴더의 손잡이 전부 보기` lists all of it again.
+ */
+
+import { levaStore } from "leva";
+
+/** The key of the checkbox, in a group that is cut down, that lists all of the group again. */
+export const FOCUS_ALL_KEY = "allKnobs";
+
+/**
+ * What the panel lists now: group (the top-level folder) → the keys of its knobs under review (a key is the last
+ * part of an input's path, whatever folder of the group it sits in). `__save` is a group's save / reload row.
+ */
+export const LEVA_FOCUS: Record<string, readonly string[]> = {
+  // THE CRUST (the fusion's rework, stage 1 — 2026-11-15): the switch, what the mass is made of, the vegetation's share
+  "엉김 · 융합 · 레진": ["fuseOn", "fuseBody", "crustVeg", FOCUS_ALL_KEY, "__save"],
+};
+
+let installed = false;
+let active = false;
+
+/** Whether a path is listed: every path of a group that is not cut down; of one that is, the knobs under review —
+ *  or all of it, with its checkbox on. */
+function listed(path: string, data: Record<string, { value?: unknown } | undefined>): boolean {
+  for (const group in LEVA_FOCUS) {
+    if (!path.startsWith(`${group}.`)) continue;
+    if (data[`${group}.${FOCUS_ALL_KEY}`]?.value) return true;
+    return LEVA_FOCUS[group].includes(path.slice(path.lastIndexOf(".") + 1));
+  }
+  return true;
+}
+
+/**
+ * Turns the focus on or off for this page (the redesign's wall: on). Called while the view renders — before the panel
+ * mounts and asks the store for the first time.
+ */
+export function setLevaFocus(on: boolean): void {
+  active = on;
+  if (installed || !on) return;
+  installed = true;
+  const all = levaStore.getVisiblePaths.bind(levaStore);
+  levaStore.getVisiblePaths = () => {
+    const paths = all();
+    if (!active) return paths;
+    // (the checkbox is read from the store's data, not `get`: that warns for a path that is not there yet)
+    const data = levaStore.getData() as Record<string, { value?: unknown } | undefined>;
+    return paths.filter((q) => listed(q, data));
+  };
+}
