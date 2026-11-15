@@ -23,8 +23,9 @@ export const FOCUS_ALL_KEY = "allKnobs";
  * part of an input's path, whatever folder of the group it sits in). `__save` is a group's save / reload row.
  */
 export const LEVA_FOCUS: Record<string, readonly string[]> = {
-  // THE CRUST (the fusion's rework, stage 1 — 2026-11-15): the switch, what the mass is made of, the vegetation's share
-  "엉김 · 융합 · 레진": ["fuseOn", "fuseBody", "crustVeg", FOCUS_ALL_KEY, "__save"],
+  // the switch; what the mass is made of (the parts' own skins / the crust, with the vegetation's share); what is
+  // fused together (a building / a chunk × tile) — the two choices the artist is weighing (2026-11-15)
+  "엉김 · 융합 · 레진": ["fuseOn", "fuseBody", "crustVeg", "fuseUnit", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;

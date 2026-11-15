@@ -3287,9 +3287,12 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // 굽고 일정 변화 이상이 감지되면 변화하는 식으로")
       // THE CRUST (fuse.ts crust; the artist, 2026-11-15: "1단계 시작"): one shell over the building's outline, where
       // the vegetation gathered — instead of a skin round every part
+      // (BACK TO THE PARTS' OWN SKINS BY DEFAULT the same night: the cells and ribs were always a lattice of the
+      // world's, and what made the mass read part by part was the mass itself — the crust over a whole building took
+      // that away. The artist: "그럼 이전이 나을 것 같은데; 문제가 그럼 건물이랑 지역단위로 묶어서 생겼단 거잖아")
       fuseBody: {
-        options: { "껍질 (건물 윤곽을 덮는 한 몸 · 식생이 모인 곳에)": "crust", "부재마다 감싸기 (예전)": "wrap" },
-        value: "crust" as "crust" | "wrap",
+        options: { "부재마다 감싸기 (전시 버전의 방식)": "wrap", "껍질 (건물 윤곽을 덮는 한 몸 · 식생이 모인 곳에)": "crust" },
+        value: "wrap" as "crust" | "wrap",
         label: "덩어리의 재료",
         render: () => REDESIGN,
       },
@@ -3517,7 +3520,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         },
         { collapsed: false },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }, { tag: "mass-fills-slowly-2026-11-15", set: { fuseFull: 0.9 } }, { tag: "no-pebbles-2026-11-15", set: { scatter: 0 } }] : [])] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }, { tag: "mass-fills-slowly-2026-11-15", set: { fuseFull: 0.9 } }, { tag: "no-pebbles-2026-11-15", set: { scatter: 0 } }, { tag: "parts-own-skins-2026-11-15", set: { fuseBody: "wrap" } }] : [])] : []),
     { order: REDESIGN ? (lab ? 7.97 : 4.4) : lab ? 2 : 8, collapsed: false },
   );
   // (the redesign's wall: only in the block — the density's buildings and a block whose top is known)
