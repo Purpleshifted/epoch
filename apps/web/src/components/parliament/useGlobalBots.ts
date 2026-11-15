@@ -57,6 +57,7 @@ import {
   type PEvent,
   type WaterConfig,
   villageSites,
+  siteRadius,
 } from "@/lib/parliament";
 import { savable } from "./levaSave";
 import { useTicker } from "./useTicker";
@@ -153,6 +154,7 @@ export function useGlobalBots(
           hVillageCarry: { value: DEFAULT_HERD.villages!.carry!, min: 0, max: 1, step: 0.05, label: "끝난 마을이 옆으로 옮겨 가는 비율 (나머지는 버려지고 딴 데 새로)" },
           hVillageTravel: { value: DEFAULT_HERD.villages!.travel!, min: 0, max: 1, step: 0.05, label: "유랑 무리·외톨이가 이웃 마을로 다녀오는 비율 (집에서 머물다 떠날 때마다)" },
           hVillagePlots: { value: DEFAULT_HERD.villages!.plots!, min: 0, max: 12, step: 1, label: "마을마다 집 수 (가운데 마당 둘레 · 0 = 마을 아무 데나, 한 덩어리)" },
+          hVillageChar: { value: DEFAULT_HERD.villages!.character!, min: 0, max: 1, step: 0.05, label: "마을마다 다른 성격 (크기·머묾·나들이·정착 · 0 = 다 같음)" },
           hVillageFluid: { value: DEFAULT_HERD.villages!.fluid!, min: 0, max: 1, step: 0.05, label: "마을 사이 길의 흔들림 (몇 분에 걸쳐 옆으로 휨 · 0 = 곧게 찾음)" },
           hGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 사이 거리 (3차원)" },
           hRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 반경 (3차원)" },
@@ -208,13 +210,13 @@ export function useGlobalBots(
         layout: b.hLayout,
         origin: b.hOrigin,
         originR: b.hOriginR,
-        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel, plots: b.hVillagePlots, fluid: b.hVillageFluid },
+        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel, plots: b.hVillagePlots, fluid: b.hVillageFluid, character: b.hVillageChar },
         mix: { settle: b.hSettle, roam: b.hRoam, tour: b.hTour },
         loose: b.hLoose,
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hVillagePlots, b.hVillageFluid, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hVillagePlots, b.hVillageFluid, b.hVillageChar, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   useEffect(() => {
     botGround.trail = b.hTrail;
@@ -361,7 +363,7 @@ export function useGlobalBots(
       if (key !== villageKey.current) {
         villageKey.current = key;
         const fin = (t: number) => Math.max(-1e12, Math.min(1e12, t));
-        opts.setVillages(sites.length && vh?.villages ? { sites: sites.map((q) => [q.x, q.z, fin(q.from), fin(q.to)]), radius: vh.villages.radius } : null);
+        opts.setVillages(sites.length && vh?.villages ? { sites: sites.map((q) => [q.x, q.z, fin(q.from), fin(q.to), siteRadius(q, vh)]), radius: vh.villages.radius } : null);
       }
     }
     if (!isOn) return;

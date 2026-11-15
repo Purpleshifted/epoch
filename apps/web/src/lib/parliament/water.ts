@@ -90,11 +90,11 @@ export interface WaterConfig {
   quarterGap: number;
   /**
    * PIPES IN VILLAGES ONLY (the artist, 2026-11-15: "배관은 마을 안에서만 생겨야 하지 않나?"): the bots' village sites
-   * ([x, z, from s, to s], lifecycle.ts villageSites) and their radius. A dense building belongs to the village alive
+   * ([x, z, from s, to s, its own radius], lifecycle.ts villageSites) and the radius of those without one. A dense building belongs to the village alive
    * at its slot whose middle is nearest, within 1.5 radii; quarters are made inside each village only (never across
    * two), and a building in no village gets no pipe — its water runs off in the open. Absent = as before.
    */
-  villages?: { sites: [number, number, number, number][]; radius: number };
+  villages?: { sites: ([number, number, number, number] | [number, number, number, number, number])[]; radius: number };
   /** How far back (slots) a new network may reuse the pipes below (and join them by manholes); 0 = the present
    *  thickness (DrainageOptions.present). Older pipes are past: a network there is laid anew. */
   reach: number;
@@ -417,13 +417,13 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     const tMid = (k + 0.5) * spu;
     const aliveSite = (i: number) => !!vs && vs.sites[i][2] <= tMid && tMid < vs.sites[i][3];
     if (vs) {
-      const reach = Math.max(1, vs.radius) * 1.5;
       for (const b of live) {
         const cx = b.seeds.reduce((a, q) => a + q.x, 0) / b.seeds.length, cz = b.seeds.reduce((a, q) => a + q.z, 0) / b.seeds.length;
-        let best = -1, bd = reach;
-        vs.sites.forEach(([x, z], i) => {
+        // (the nearest by distance over its own reach: 1.5 of its radius)
+        let best = -1, bd = 1;
+        vs.sites.forEach((q, i) => {
           if (!aliveSite(i)) return;
-          const d = wrapDist(cx, cz, x, z);
+          const d = wrapDist(cx, cz, q[0], q[1]) / (Math.max(1, q[4] ?? vs.radius) * 1.5);
           if (d <= bd) [best, bd] = [i, d];
         });
         if (best >= 0) villageOfB.set(b.id, best);
