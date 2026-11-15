@@ -121,9 +121,17 @@ export interface HerdConfig {
    *  the emptiest — herds at every time of the block; "any" = anywhere in the depth. */
   layout: "strata" | "any";
   /** WHERE (ground): "even" = anywhere within originR of the origin; "doors" = the origin or one of the epoch's four
-   *  doors (the old entries); "built" = near a place others have stayed at (even, while there is none). */
-  origin: "even" | "doors" | "built";
+   *  doors (the old entries); "built" = near a place others have stayed at (even, while there is none);
+   *  "villages" = in one of the epoch's village sites (`villages`), and every herd stays in its own. */
+  origin: "even" | "doors" | "built" | "villages";
   originR: number;
+  /**
+   * VILLAGES (the artist, 2026-11-15: "마을 시작"): `count` sites fixed for the whole block (by the epoch), within
+   * originR of the origin and at least `gap` apart. A herd (and a loner) belongs to one — the one with fewest herds
+   * living, mostly — is born in it and goes about inside its `radius` only: its stays, its round, the places it follows.
+   * The same ground at every time of the block, so a village stands through the block as a column.
+   */
+  villages?: { count: number; radius: number; gap: number };
   /** HOW THEY MOVE, as shares of the herds: settlers (long stays, short hops, back to their places), roamers (short
    *  stays, long walks) and those on a round (the same three or four places, again and again — paths between them). */
   mix: { settle: number; roam: number; tour: number };
@@ -145,8 +153,9 @@ export const DEFAULT_HERD: HerdConfig = {
   metersPerSec: 1 / 20,
   depthSec: 900,
   layout: "strata",
-  origin: "even",
+  origin: "villages",
   originR: 60,
+  villages: { count: 5, radius: 12, gap: 40 },
   mix: { settle: 1, roam: 1, tour: 1 },
   loose: 0.3,
   drift: 0,
@@ -236,6 +245,8 @@ export interface Visitor {
   drift?: number;
   hx?: number;
   hz?: number;
+  /** VILLAGES: the village it belongs to (an index of villageSites); absent = none. */
+  vil?: number;
   lag?: number;
   tx?: number;
   tz?: number;
@@ -415,12 +426,74 @@ export function herdsWanted(sec: number, h: HerdConfig): number {
   return Math.round(lo + (hi - lo) * Math.max(0, Math.min(1, w)));
 }
 
+// ── villages ────────────────────────────────────────────────────────────────
+
+let siteCache: { key: string; sites: [number, number][] } | null = null;
+
+/**
+ * The epoch's village sites (HerdConfig.villages): each the best of 16 draws within originR of the origin — the
+ * farthest from the sites before it, or the first at least `gap` from all of them. Fixed while the epoch and the
+ * knobs are; empty when the herds are not in villages.
+ */
+export function villageSites(epochMs: number, h: HerdConfig | undefined): [number, number][] {
+  if (!h || h.origin !== "villages" || !h.villages) return [];
+  const n = Math.max(1, Math.min(16, Math.round(h.villages.count)));
+  const key = `${epochMs}|${n}|${h.originR}|${h.villages.gap}`;
+  if (siteCache?.key === key) return siteCache.sites;
+  const sites: [number, number][] = [];
+  const R = Math.max(0, h.originR);
+  for (let i = 0; i < n; i++) {
+    let best: [number, number] = [0, 0], bestD = -1;
+    for (let c = 0; c < 16; c++) {
+      const a = worldDraw(epochMs, -200 - i * 32 - c, 1) * 2 * Math.PI, d = R * Math.sqrt(worldDraw(epochMs, -200 - i * 32 - c, 2));
+      const x = wrapCoord(Math.sin(a) * d), z = wrapCoord(Math.cos(a) * d);
+      let dMin = Infinity;
+      for (const s of sites) dMin = Math.min(dMin, wrapDist(x, z, s[0], s[1]));
+      if (dMin > bestD) {
+        bestD = dMin;
+        best = [x, z];
+      }
+      if (dMin >= h.villages.gap) break;
+    }
+    sites.push(best);
+  }
+  siteCache = { key, sites };
+  return sites;
+}
+
+/** The centre and radius of v's village, or null (no village). */
+function villageOf(v: Visitor, epochMs: number, h: HerdConfig | undefined): { x: number; z: number; r: number } | null {
+  if (v.vil === undefined || !h?.villages) return null;
+  const s = villageSites(epochMs, h)[v.vil];
+  return s ? { x: s[0], z: s[1], r: Math.max(1, h.villages.radius) } : null;
+}
+
+/** A spot of v's village: within `share` of its radius, evenly over the disc (canonical). */
+function spotIn(v: Visitor, vil: { x: number; z: number; r: number }, epochMs: number, share: number, s: number): [number, number] {
+  const a = draw(v, epochMs, s) * 2 * Math.PI, d = vil.r * share * Math.sqrt(draw(v, epochMs, s + 1));
+  return [wrapCoord(vil.x + Math.sin(a) * d), wrapCoord(vil.z + Math.cos(a) * d)];
+}
+
+/** The village a new herd or loner joins: weighted towards those with fewest of `kind` living (1 / (1 + n)). */
+function chooseVillage(v: Visitor, st: LifecycleState, epochMs: number, h: HerdConfig, kind: "leader" | "loner"): number | undefined {
+  const n = villageSites(epochMs, h).length;
+  if (!n) return undefined;
+  const living = new Array<number>(n).fill(0);
+  for (const p of st.present) if (p.kind === kind && p.vil !== undefined && p.vil < n && p.id !== v.id) living[p.vil]++;
+  let tot = 0;
+  const ws = living.map((c) => (tot += 1 / (1 + c)));
+  const u = draw(v, epochMs, 140) * tot;
+  return Math.max(0, ws.findIndex((w) => w >= u));
+}
+
 /** One ground candidate for a new herd, by the config's way of choosing it. */
 function groundCandidate(v: Visitor, places: readonly Place[], wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig, c: number): [number, number] {
   const even = (): [number, number] => {
     const a = draw(v, epochMs, 70 + c) * 2 * Math.PI, d = Math.max(0, h.originR) * Math.sqrt(draw(v, epochMs, 80 + c));
     return [wrapCoord(Math.sin(a) * d), wrapCoord(Math.cos(a) * d)];
   };
+  const vil = villageOf(v, epochMs, h);
+  if (vil) return spotIn(v, vil, epochMs, 0.7, 70 + 2 * c);
   if (h.origin === "doors") {
     if (draw(v, epochMs, 70 + c) < cfg.originShare) return [wrapCoord((draw(v, epochMs, 80 + c) - 0.5) * 4), wrapCoord((draw(v, epochMs, 90 + c) - 0.5) * 4)];
     const d = doorsOf(epochMs)[Math.min(3, Math.floor(draw(v, epochMs, 80 + c) * 4))];
@@ -457,6 +530,8 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((elapsed + offNow(p)) / depth) * bands)))]++;
   const fewest = Math.min(...inBand);
   const free = inBand.map((n, i) => (n === fewest ? i : -1)).filter((i) => i >= 0);
+  // VILLAGES: the herd's village first (its ground candidates are spots of it)
+  if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "leader");
   let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1;
   for (let c = 0; c < 8; c++) {
     let off = v.off;
@@ -488,8 +563,14 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   else {
     v.ch = { ...v.ch, stayMean: v.ch.stayMean * 0.8, follow: 0, revisit: 0 };
     const n = 3 + Math.floor(draw(v, epochMs, 122) * 2);
+    const vil = villageOf(v, epochMs, h);
     v.tour = [];
     for (let i = 0; i < n; i++) {
+      // in a village: its round is spots of the village
+      if (vil) {
+        v.tour.push(...spotIn(v, vil, epochMs, 1, 150 + 2 * i));
+        continue;
+      }
       const a = draw(v, epochMs, 123 + i) * 2 * Math.PI, d = v.ch.range * (0.4 + 0.6 * draw(v, epochMs, 130 + i));
       v.tour.push(wrapCoord(v.ex + Math.sin(a) * d), wrapCoord(v.ez + Math.cos(a) * d));
     }
@@ -504,6 +585,7 @@ function seatLoner(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numb
   const depth = Math.max(0, h.depthSec);
   // (a time of the fixed block, as a herd's: seatHerd)
   if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - v.lifeMs / 1000) - Math.max(0, (wallMs - epochMs) / 1000);
+  if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "loner");
   [v.x, v.z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, 0);
   v.ex = v.x;
   v.ez = v.z;
@@ -524,6 +606,7 @@ function joinHerd(v: Visitor, lead: Visitor, wallMs: number, epochMs: number, h:
   v.z = v.ez = wrapCoord(lead.z + v.hz);
   v.lifeMs = lead.lifeMs * (0.9 + 0.2 * draw(v, epochMs, 63));
   v.drift = lead.drift;
+  v.vil = lead.vil;
   v.leaves = lead.leaves;
   v.door = lead.door;
   v.lead = lead.id;
@@ -628,9 +711,11 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
     v.ti = ((v.ti ?? 0) + 1) % n;
     return [wrapCoord(v.tour[v.ti * 2] + (draw(v, epochMs, 36) - 0.5)), wrapCoord(v.tour[v.ti * 2 + 1] + (draw(v, epochMs, 37) - 0.5))];
   }
+  // VILLAGES: it goes about inside its village — the places it follows are the village's, a new place a spot of it
+  const vil = villageOf(v, epochMs, cfg.herd);
   if (draw(v, epochMs, 30) < v.ch.follow) {
     const cands: [number, number, number][] = [];
-    for (const p of places) cands.push([p.x, p.z, placeWeight(p, wallMs, cfg)]);
+    for (const p of places) if (!vil || wrapDist(p.x, p.z, vil.x, vil.z) <= vil.r * 1.2) cands.push([p.x, p.z, placeWeight(p, wallMs, cfg)]);
     for (const a of attractors) cands.push([a.x, a.z, a.w]);
     let tot = 0;
     const ws = cands.map(([x, z, w]) => {
@@ -652,6 +737,7 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
     const s = v.stops[Math.min(v.stops.length - 1, Math.floor(draw(v, epochMs, 35) * v.stops.length))];
     return [wrapCoord(s[0] + (draw(v, epochMs, 36) - 0.5)), wrapCoord(s[1] + (draw(v, epochMs, 37) - 0.5))];
   }
+  if (vil) return spotIn(v, vil, epochMs, 1, 38);
   const a = draw(v, epochMs, 38) * 2 * Math.PI, d = v.ch.range * Math.sqrt(draw(v, epochMs, 39));
   return [wrapCoord(v.ex + Math.sin(a) * d), wrapCoord(v.ez + Math.cos(a) * d)];
 }
@@ -856,6 +942,9 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
     }
     if (v.mode === "look") {
       v.head += (draw(v, epochMs, 50) - 0.5) * 1.2 * (0.3 + v.ch.wander);
+      // VILLAGES: looking about past the village's edge, it turns back towards its middle
+      const vil = villageOf(v, epochMs, hc);
+      if (vil && wrapDist(v.x, v.z, vil.x, vil.z) > vil.r) v.head = Math.atan2(nearestImage(vil.x, v.x) - v.x, nearestImage(vil.z, v.z) - v.z);
       v.x = wrapCoord(v.x + Math.sin(v.head) * speed * 0.6 * dt);
       v.z = wrapCoord(v.z + Math.cos(v.head) * speed * 0.6 * dt);
     } else {

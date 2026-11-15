@@ -290,7 +290,7 @@ describe("lifecycle: plumbing", () => {
 });
 
 describe("lifecycle: herds in the block (3D: the ground and time as height)", () => {
-  const HERD = { ...DEFAULT_HERD };
+  const HERD = { ...DEFAULT_HERD, origin: "even" as const };
   const cfg: LifecycleConfig = { ...DEFAULT_LIFECYCLE, maxPresent: HERD.count * HERD.sizeMax + HERD.loners, leaveShare: 0, herd: HERD };
   /** Steps `sec` seconds and hands every step's state to `see`. */
   function walk(sec: number, c: LifecycleConfig, see: (st: LifecycleState, wallMs: number, arrivals: LifecycleState["present"]) => void) {

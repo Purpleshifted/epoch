@@ -82,7 +82,7 @@ const VISITOR_RECENT_SEC = 4;
 const BOT_FOLD_OPTS = { lateMarginSec: 35 };
 
 const LAYOUT_OPTIONS: Record<string, "strata" | "any"> = { "층마다 고르게 (무리 수만큼 나눠 빈 층에)": "strata", "아무 높이나": "any" };
-const ORIGIN_OPTIONS: Record<string, "even" | "built" | "doors"> = { "세계에 고르게": "even", "지어진 곳 가까이": "built", "원점과 문 네 곳": "doors" };
+const ORIGIN_OPTIONS: Record<string, "even" | "built" | "doors" | "villages"> = { "마을 터 (정해진 몇 곳, 무리는 자기 마을 안에서만)": "villages", "세계에 고르게": "even", "지어진 곳 가까이": "built", "원점과 문 네 곳": "doors" };
 /** The wall's time axis as the herds read it: one slot is 20 s and 1 world unit high (SPACE_BOXES). */
 const SLOT_SEC = 20;
 const SLOT_HEIGHT = 1;
@@ -144,6 +144,9 @@ export function useGlobalBots(
           hLayout: { options: LAYOUT_OPTIONS, value: DEFAULT_HERD.layout, label: "높이 배치" },
           hOrigin: { options: ORIGIN_OPTIONS, value: DEFAULT_HERD.origin, label: "기점 (땅)" },
           hOriginR: { value: DEFAULT_HERD.originR, min: 5, max: 95, step: 1, label: "기점 반경 (월드)" },
+          hVillages: { value: DEFAULT_HERD.villages!.count, min: 1, max: 16, step: 1, label: "마을 수 (기점이 마을 터일 때)" },
+          hVillageR: { value: DEFAULT_HERD.villages!.radius, min: 2, max: 40, step: 0.5, label: "마을 반경 (월드)" },
+          hVillageGap: { value: DEFAULT_HERD.villages!.gap, min: 0, max: 120, step: 1, label: "마을 사이 최소 거리 (월드)" },
           hGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 사이 거리 (3차원)" },
           hRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 반경 (3차원)" },
         },
@@ -198,12 +201,13 @@ export function useGlobalBots(
         layout: b.hLayout,
         origin: b.hOrigin,
         originR: b.hOriginR,
+        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap },
         mix: { settle: b.hSettle, roam: b.hRoam, tour: b.hTour },
         loose: b.hLoose,
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   useEffect(() => {
     botGround.trail = b.hTrail;
