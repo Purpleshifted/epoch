@@ -2981,6 +2981,18 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   }, [tAxis.secPerUnit]);
   const rising = win.shift > 0 && botDepth > 0;
   // (only in the block, whose top is known: the bots' block height)
+  // SIMPLIFIED WITH TIME (spaceModel computeParts; the artist, 2026-11-16: "시간이 지나면 부재에 lod가 적용돼서
+  // 단순화되는 시기를 거치도록 … 재방문해서 건물이 새로 생기더라도 이전 에셋 위에 생기는 거니까"): a cell-slot that has
+  // stood this long is one simple body; what is built there later is built over it, and taken into it in its turn
+  const SIMPLIFY_GROUP = "건물 단순화 (시간이 지나면 한 덩이로)";
+  const sm = useLevaControls(
+    SIMPLIFY_GROUP,
+    savable(SIMPLIFY_GROUP, {
+      lodOn: { value: true, label: "켜기 (끄면 부재가 끝까지 낱낱이)" },
+      lodSec: { value: 180, min: 10, max: 1200, step: 10, label: "지어진 뒤 이만큼 지나면 한 덩이로 (초 · 자리마다 ±30%)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
+    }),
+    { order: lab ? 7.955 : 1.77, render: () => isV2 },
+  );
   // (the arrival's uniforms carry the leaving too: how long a part takes to go — only with the erosion on)
   const arriveLeave = useMemo(() => ({ ...arriveView, leave: er.erOn ? er.erLeaveSec : 0 }), [arriveView, er.erOn, er.erLeaveSec]);
   const weatherEr = useMemo<WeatherConfig>(
@@ -2988,9 +3000,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread } }
+        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0 } }
         : weather,
-    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread],
+    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread, sm.lodOn, sm.lodSec],
   );
   // (the unlived share is read by the gatherings and by the erosion alike)
   const unlivedOn = vg.gaOn || er.erOn;

@@ -19,7 +19,7 @@ import { DensityField, type DensityConfig } from "./density";
 import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
-import type { NatureConfig } from "./nature";
+import { hash2, type NatureConfig } from "./nature";
 import { ARRIVED, Arrivals } from "./arrive";
 import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, districtOf, gatherAmount, gatherDensity, halfHeight, rotOnsetSlots, occupiedSlots, partHash, seedsFromSnapshot, survivalFromBasis, wearModel, wearParts, type Box, type BoxConfig, type PartKind, type Seed, type WearBasis, type WearConfig } from "./seeds";
 import { bakedKey, clearBaked, loadBaked, saveBaked, type BakedTube } from "./bakeStore";
@@ -461,6 +461,50 @@ export class SpaceModel {
   /** THE EROSION'S TICK: per building and part (partKey), how eroded it was at the last reading and when it goes
    *  (STANDS while it stands; −Infinity = it was gone before anybody looked). */
   private erodeSeen = new Map<number, Map<number, [number, number]>>();
+  // ── SIMPLIFIED WITH TIME (computeParts) ──
+  /** Per building and slot: the ASSET its parts were made into once it had stood long enough — its boxes; the
+   *  cell-slot's clock as of the last building taken into it; whether new building stands over it now, of which
+   *  generation and its parts; and when the parts it took the place of began to go (the arrival clock). */
+  private assets = new Map<number, Map<number, { boxes: Box[]; seenBorn: number; over: Box[] | null; gen: number; swapAt: number; swapped: Box[] }>>();
+  /** An asset's boxes go on by the clock of what they were first made from, whatever is built over them later. */
+  private assetClock = new WeakMap<Box, { born: number; top: number }>();
+  /** New building over an asset: when each of its parts arrives ([born, order], as arrive.ts). */
+  private lodArrive = new WeakMap<Box, [number, number]>();
+  /** A building's parts in another layout (generation g: what is built over an asset is not what was built first). */
+  private lodVariants = new Map<string, Map<number, Box[]>>();
+
+  /**
+   * THE ASSET OF A CELL-SLOT: its masses (and the asset's own, when new building is taken in) as ONE box — their
+   * bounds in the building's own frame — with its plates and its foundation kept as they are; the columns, the steel
+   * and what hangs are let go. Not a union's exact outline: a simpler body where the parts were.
+   */
+  private static simplified(parts: readonly Box[], prev: readonly Box[]): Box[] {
+    const isMass = (b: Box) => b.kind === "mass" && !b.tilt;
+    const masses = [...prev.filter(isMass), ...parts.filter(isMass)];
+    const out: Box[] = [];
+    if (masses.length) {
+      const yaw = masses[0].yaw ?? 0, c = Math.cos(yaw), sn = Math.sin(yaw);
+      let ax = Infinity, bx = -Infinity, ay = Infinity, by = -Infinity, az = Infinity, bz = -Infinity;
+      for (const q of masses) {
+        // (into the frame the building is turned by: writeMatrix's turn undone)
+        const lx = q.x * c - q.z * sn, lz = q.x * sn + q.z * c;
+        const same = Math.abs((q.yaw ?? 0) - yaw) < 1e-6;
+        const hx = same ? q.sx / 2 : Math.max(q.sx, q.sz) / 2, hz = same ? q.sz / 2 : Math.max(q.sx, q.sz) / 2;
+        ax = Math.min(ax, lx - hx);
+        bx = Math.max(bx, lx + hx);
+        az = Math.min(az, lz - hz);
+        bz = Math.max(bz, lz + hz);
+        ay = Math.min(ay, q.y - q.sy / 2);
+        by = Math.max(by, q.y + q.sy / 2);
+      }
+      const lx = (ax + bx) / 2, lz = (az + bz) / 2;
+      out.push({ ...masses[0], kind: "mass", x: lx * c + lz * sn, z: -lx * sn + lz * c, y: (ay + by) / 2, sx: bx - ax, sy: by - ay, sz: bz - az, yaw, tilt: undefined });
+    }
+    const keep = (b: Box) => b.kind === "slab" || b.kind === "plinth" || b.kind === "basement" || b.kind === "pile";
+    const kept = prev.some(keep) ? prev.filter(keep) : parts.filter(keep);
+    for (const b of kept) out.push(prev.includes(b) ? b : { ...b });
+    return out;
+  }
   /**
    * THE BLOCK'S ONE CLOCK FOR THE FUSION (the artist, 2026-11-15: "융합 진행"). The fusion was always driven by one
    * number per part — its corrosion, 0 new … 1 gone — and every stage is a threshold of it (fuse.ts). In the block
@@ -1514,6 +1558,8 @@ export class SpaceModel {
     // (the world was emptied while the wall runs: whatever is built from now on is new)
     if (!keepBuilt) {
       this.bornT.clear();
+      this.assets.clear();
+      this.lodVariants.clear();
       this.ageBegun = true;
       this.floorDone = -Infinity;
     }
@@ -1679,7 +1725,7 @@ export class SpaceModel {
     this.arriveCfg = arriveKey;
 
     const order = [...seeds].sort((a, b) => a.t0 - b.t0 || a.id - b.id);
-    const built: Box[] = [];
+    let built: Box[] = [];
     const live = new Set<number>();
     // (the density keeps what it has built whatever samples were forgotten since: nothing of it is below a window —
     // but the RISING window's floor: a building standing across it keeps its slots below for its size, not its parts)
@@ -1878,15 +1924,117 @@ export class SpaceModel {
           // sunk all the way since)
           if (!e) m.set(k, { born: found ? ageNow - lifeSec - waitSec : ageNow, level: lv, top: found ? k + 0.5 : ec.topSlot });
           else if (lv > e.level) {
-            e.born = ageNow;
             e.level = lv;
-            e.top = ec.topSlot;
+            // (where an asset stands the building's growing elsewhere builds nothing: only people coming back do)
+            if (!this.assets.get(sd.id)?.has(k)) {
+              e.born = ageNow;
+              e.top = ec.topSlot;
+            }
           }
         }
         if (m.size > sd.levels.size) for (const k of m.keys()) if (!sd.levels.has(k)) m.delete(k);
       }
       if (this.bornT.size > live.size) for (const id of this.bornT.keys()) if (!live.has(id)) this.bornT.delete(id);
     }
+    // SIMPLIFIED WITH TIME (the artist, 2026-11-16: "시간이 지나면 부재에 lod가 적용돼서 단순화되는 시기를 거치도록
+    // 만들기 (boolean union이나): 이러면 거기 재방문해서 건물이 새로 생기더라도 이전 에셋 위에 생기는 거니까 커지는
+    // 거랑 효과 비슷하게"). A cell-slot that has stood `lodSec` (each a little sooner or later) is no longer its many
+    // parts: it is its ASSET — its masses as one box, its plates and foundation kept. From then on the building's
+    // growing elsewhere changes nothing of it. When somebody comes BACK to it, what they build is built OVER the asset
+    // — in another layout than the first, so it shows — and once that too has stood long enough it is taken into the
+    // asset, which is then a little larger: the place grows by what was built on it, not by being made again larger.
+    // The asset goes on (erodes, fuses) by the clock of what it was first made from.
+    const lodSec = ec && lifeSec > 0 ? Math.max(0, ec.lodSec ?? 0) : 0;
+    const lodGone: [Box, number][] = [];
+    if (lodSec > 0 && ec) {
+      const shiftL = Math.max(0, ec.shift ?? 0);
+      const perTopL = shiftL > 0 ? Math.max(1, ec.slotSec ?? box.secPerUnit) / shiftL : 0;
+      const seedOf = new Map(seeds.map((sd) => [sd.id, sd] as const));
+      const groups = new Map<number, Map<number, Box[]>>();
+      for (const b of built) {
+        let g = groups.get(b.seed);
+        if (!g) groups.set(b.seed, (g = new Map()));
+        const l = g.get(b.slot);
+        if (l) l.push(b);
+        else g.set(b.slot, [b]);
+      }
+      /** The parts of slot k of a building in the layout of generation g (cached while the building is as it is). */
+      const variant = (seed: number, k: number, g: number): Box[] => {
+        const sd = seedOf.get(seed), hit = this.partCache.get(seed);
+        if (!sd || !hit) return [];
+        const vk = `${seed}|${g}|${hit.key}`;
+        let bySlot = this.lodVariants.get(vk);
+        if (!bySlot) {
+          if (this.lodVariants.size > 400) this.lodVariants.clear();
+          const lv = level.get(seed) ?? 0;
+          const sv: Seed = { ...sd, mass: Math.round(sd.mass * 4) / 4, id: (seed ^ Math.imul(g, 0x9e3779b1)) >>> 0 };
+          bySlot = new Map();
+          for (const b of boxesOfSeed(sv, lv === 2 ? solid(sd) : lv === 1 ? thinned(sd) : box)) {
+            b.seed = seed;
+            const l = bySlot.get(b.slot);
+            if (l) l.push(b);
+            else bySlot.set(b.slot, [b]);
+          }
+          this.lodVariants.set(vk, bySlot);
+        }
+        return bySlot.get(k) ?? [];
+      };
+      const out: Box[] = [];
+      for (const [seed, slotsOf] of groups) {
+        const clocks = this.bornT.get(seed);
+        let states = this.assets.get(seed);
+        for (const [k, parts] of slotsOf) {
+          const e = clocks?.get(k);
+          let st = states?.get(k);
+          if (!e) {
+            // (a slot with no clock of its own: nothing is known of its age — as it is)
+            for (const b of st ? st.boxes : parts) out.push(b);
+            continue;
+          }
+          const age = perTopL > 0 ? (ec.topSlot - e.top) * perTopL : ageNow - e.born;
+          const old = age >= lodSec * (0.7 + 0.6 * hash2(seed, k, 4421));
+          if (!st) {
+            if (!old) {
+              for (const b of parts) out.push(b);
+              continue;
+            }
+            st = { boxes: SpaceModel.simplified(parts, []), seenBorn: e.born, over: null, gen: 0, swapAt: arriveQuiet ? -Infinity : arriveNow, swapped: parts };
+            for (const q of st.boxes) this.assetClock.set(q, { born: e.born, top: e.top });
+            if (!states) this.assets.set(seed, (states = new Map()));
+            states.set(k, st);
+          } else if (e.born !== st.seenBorn) {
+            // SOMEBODY CAME BACK: what they build stands over the asset — and is taken into it once it is old enough
+            if (!st.over) {
+              st.gen++;
+              st.over = variant(seed, k, st.gen);
+              if (!arriveQuiet) st.over.forEach((b, i) => this.lodArrive.set(b, [arriveNow, i]));
+            }
+            if (old) {
+              const clock = (st.boxes.length ? this.assetClock.get(st.boxes[0]) : undefined) ?? { born: e.born, top: e.top };
+              st.swapped = st.over;
+              st.boxes = SpaceModel.simplified(st.over, st.boxes);
+              for (const q of st.boxes) if (!this.assetClock.has(q)) this.assetClock.set(q, clock);
+              st.seenBorn = e.born;
+              st.over = null;
+              st.swapAt = arriveQuiet ? -Infinity : arriveNow;
+            } else for (const b of st.over) out.push(b);
+          }
+          for (const q of st.boxes) out.push(q);
+          // (the parts an asset took the place of shrink away, one after another — the erosion's tick)
+          if (arriveNow < st.swapAt + LEAVE_KEEP_S) st.swapped.forEach((b, i) => lodGone.push([b, st!.swapAt + Math.min(2, i * 0.04)]));
+          else if (st.swapped.length) st.swapped = [];
+        }
+        if (states) for (const k of states.keys()) if (!slotsOf.has(k)) states.delete(k);
+      }
+      for (const id of this.assets.keys()) if (!groups.has(id)) this.assets.delete(id);
+      // (for the readout: how many cell-slots are assets, and how many parts that left of how many)
+      let nAssets = 0;
+      for (const m of this.assets.values()) nAssets += m.size;
+      this.stages["asset slots (n)"] = nAssets;
+      this.stages["parts before assets (n)"] = built.length;
+      this.stages["parts after assets (n)"] = out.length;
+      built = out;
+    } else if (this.assets.size) this.assets.clear();
     /** Seconds a part's cell-slot has been there past its wait, in the clock's shared steps (AGE_STEPS to `lifeSec`:
      *  all parts move at once, so nothing is worked out again between two steps). A part below its building's slots
      *  (a pile, a basement) goes with the building's first slot. */
@@ -1896,7 +2044,8 @@ export class SpaceModel {
     const aged = (b: Box): number => {
       const m = this.bornT.get(b.seed);
       if (!m) return 0;
-      let e = m.get(b.slot);
+      // (an asset: the clock of what it was first made from)
+      let e: { born: number } | undefined = this.assetClock.get(b) ?? m.get(b.slot);
       if (!e) {
         let lo = Infinity;
         for (const k of m.keys()) if (k < lo) lo = k;
@@ -1930,15 +2079,17 @@ export class SpaceModel {
     }
     const sunkMemo = new Map<number, Map<number, [number, number]>>();
     /** [progress, how far past its wait the cell-slot is, in steps] of a cell-slot in the rising window. */
-    const sunk = (seed: number, slot: number): [number, number] => {
+    const sunk = (seed: number, slot: number, clock?: { top: number }): [number, number] => {
       let ms = sunkMemo.get(seed);
       if (!ms) sunkMemo.set(seed, (ms = new Map()));
-      const hit = ms.get(slot);
+      // (an asset goes by its own clock — the one of what it was first made from: kept beside the cell-slot's)
+      const mk = clock ? slot + 0.5 : slot;
+      const hit = ms.get(mk);
       if (hit) return hit;
       let out: [number, number] = [0, 0];
       const m = this.bornT.get(seed);
-      let e = m?.get(slot);
-      if (m && !e) {
+      let e: { top: number } | undefined = clock ?? m?.get(slot);
+      if (!clock && m && !e) {
         let lo = Infinity;
         for (const k of m.keys()) if (k < lo) lo = k;
         e = m.get(lo);
@@ -1962,7 +2113,7 @@ export class SpaceModel {
           out = [Math.min(1, ((sum / N) * (t1 - t0)) / lifeTop), (t1 - t0) / stepTop];
         }
       }
-      ms.set(slot, out);
+      ms.set(mk, out);
       return out;
     };
     /** A part's progress, 0 … 1. Without a life time (lifeSec 0) the place alone, as before. */
@@ -1970,7 +2121,7 @@ export class SpaceModel {
     const progress = (b: Box): number => {
       let v = progMemo.get(b);
       if (v === undefined) {
-        if (shiftRate > 0) v = sunk(b.seed, b.slot)[0];
+        if (shiftRate > 0) v = sunk(b.seed, b.slot, this.assetClock.get(b))[0];
         else {
           const wgt = weight(b);
           v = lifeSec > 0 ? Math.min(1, (wgt * aged(b)) / lifeSec) : wgt;
@@ -1995,7 +2146,7 @@ export class SpaceModel {
           }
         : null;
     // the plants come once the part is built: nothing during the wait, all of them a few steps on
-    this.partSettled = ec && lifeSec > 0 ? (shiftRate > 0 ? (b: Box) => Math.min(1, sunk(b.seed, b.slot)[1] / 2) : (b: Box) => Math.min(1, aged(b) / (2 * step))) : null;
+    this.partSettled = ec && lifeSec > 0 ? (shiftRate > 0 ? (b: Box) => Math.min(1, sunk(b.seed, b.slot, this.assetClock.get(b))[1] / 2) : (b: Box) => Math.min(1, aged(b) / (2 * step))) : null;
     this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => Math.max(0, Math.min(1, progress(b) * own(b))), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = life && ec ? { ...life, feed: ec.feed } : null;
@@ -2035,6 +2186,12 @@ export class SpaceModel {
       }
       this.erodeSeen = seen;
     } else if (this.erodeSeen.size) this.erodeSeen = new Map();
+    // (…and the parts an asset has taken the place of: drawn until they have shrunk away)
+    for (const [b, at] of lodGone) {
+      if (leaveAt.has(b)) continue;
+      leaving.push(b);
+      leaveAt.set(b, at);
+    }
     const worn = wm ? wearParts(stands, seeds, t, wearCfg, wm) : stands;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
     this.wear = wm;
@@ -2105,7 +2262,7 @@ export class SpaceModel {
       colors[k][i * 3] = g;
       colors[k][i * 3 + 1] = g;
       colors[k][i * 3 + 2] = g;
-      const came = arriving ? this.arrivals.of(b) : undefined;
+      const came = (arriving ? this.arrivals.of(b) : undefined) ?? this.lodArrive.get(b);
       born[k][i * 2] = came ? came[0] : ARRIVED;
       born[k][i * 2 + 1] = came ? came[1] : 0;
       const goes = leaveAt.get(b);
