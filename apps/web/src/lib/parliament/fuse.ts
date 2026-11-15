@@ -113,6 +113,14 @@ export interface FuseConfig {
    * part is hidden — the building stands whole under what has grown on it. Not read outside the block.
    */
   absorb?: number;
+  /**
+   * THE BLOCK: the mass is made BUILDING BY BUILDING from a state kept (spaceModel fuseBuildings; the artist,
+   * 2026-11-15: "건물 상태를 기점마다 굽고 일정 변화 이상이 감지되면 변화하는 식으로") — a building's mass is made
+   * again when its state has moved by `unitChange` (the mean change of its parts, in its most changed band of slots)
+   * from the state it was made from. Absent / false = chunk by chunk, tile by tile, as before.
+   */
+  perBuilding?: boolean;
+  unitChange?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */

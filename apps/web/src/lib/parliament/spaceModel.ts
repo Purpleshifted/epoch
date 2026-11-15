@@ -427,6 +427,7 @@ export class SpaceModel {
     return b.slot * 4294967296 + Math.floor(partHash(b) * 4294967296);
   }
   private fusedAtOf(b: Box): number | undefined {
+    if (this.units.size) return this.unitFused.get(SpaceModel.partKey(b));
     return this.fusedAt.get(Math.floor(b.slot / NATURE_CHUNK) * NATURE_CHUNK)?.get(SpaceModel.partKey(b));
   }
   /** The wear config the parts were last worn with (the baked layers age by it). */
@@ -566,6 +567,315 @@ export class SpaceModel {
   private fuseLeft: Set<number> | null = null;
   /** The mass of each district of each chunk, with the signature of what went into it (fuseTiled). */
   private districtMass = new Map<string, { key: string; mesh: FuseMesh; at: number }>();
+  // ── THE MASS BUILDING BY BUILDING (fuseBuildings) ──
+  /** Which building a cell-run belongs to: per Seed, its runs of slots with the building's id. */
+  private buildingRuns: { key: string; of: Map<number, { k0: number; k1: number; id: string }[]> } | null = null;
+  /** Each building's mass as shown, with the state it was made from (part → decay) and its pieces kept for reuse. */
+  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; pieces: Map<string, { sig: string; mesh: FuseMesh }> }>();
+  /** The one building being made now: the state it is made from, the pieces still to do and those done. */
+  private unitJob: {
+    id: string;
+    cfg: string;
+    snap: Map<number, number>;
+    ang: number;
+    h: NatureHistory | null;
+    look: ((k: number) => number) | undefined;
+    todo: { key: string; sig: string; k0: number; k1: number; tx: number; tz: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[] }[];
+    done: Map<string, { sig: string; mesh: FuseMesh }>;
+  } | null = null;
+  /** Masses of buildings that are no longer a building of their own (joined to another): shown until that one is made again. */
+  private unitOrphans: { mesh: FuseMesh; heir: string; heirAt: number }[] = [];
+  /** part → the decay it has in the mass shown (fusedAtOf, building by building). */
+  private unitFused = new Map<number, number>();
+  private unitsVersion = 0;
+  private unitsEmitted = -1;
+
+  /**
+   * THE BUILDINGS OF THE BLOCK: the cell-runs (a Seed's run of slots) that touch — neighbours on the ground, at the
+   * same time, in the same district's frame — are one building. Its id is that of its oldest cell-run, so a building
+   * that grows keeps its id.
+   */
+  private buildingsOfSeeds(box: BoxConfig): Map<number, { k0: number; k1: number; id: string }[]> {
+    const key = `${this.seedsKey}:${JSON.stringify(box.variety ?? null)}:${box.secPerUnit}`;
+    if (this.buildingRuns?.key === key) return this.buildingRuns.of;
+    const spu = box.secPerUnit;
+    const nodes: { seed: number; cx: number; cz: number; k0: number; k1: number; ang: number }[] = [];
+    const at = new Map<string, number[]>();
+    for (const sd of this.seeds) {
+      const cx = Math.floor(sd.x / CELL), cz = Math.floor(sd.z / CELL);
+      const ang = box.variety ? Math.round(districtOf(sd.x, sd.z, box.variety).angle * 1e4) / 1e4 : 0;
+      for (const [t0, t1] of sd.spans ?? [[sd.t0, sd.t1] as [number, number]]) {
+        const ck = `${cx},${cz}`;
+        const l = at.get(ck);
+        if (l) l.push(nodes.length);
+        else at.set(ck, [nodes.length]);
+        nodes.push({ seed: sd.id, cx, cz, k0: Math.floor(t0 / spu), k1: Math.floor(t1 / spu), ang });
+      }
+    }
+    const parent = nodes.map((_, i) => i);
+    const find = (i: number): number => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+      }
+      return i;
+    };
+    nodes.forEach((a, i) => {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dz) continue;
+          for (const j of at.get(`${a.cx + dx},${a.cz + dz}`) ?? []) {
+            if (j <= i) continue;
+            const b = nodes[j];
+            if (b.ang !== a.ang || a.k0 > b.k1 + 1 || b.k0 > a.k1 + 1) continue;
+            const ra = find(i), rb = find(j);
+            if (ra !== rb) parent[ra] = rb;
+          }
+        }
+      }
+    });
+    // the oldest cell-run names the building
+    const first = new Map<number, number>();
+    nodes.forEach((a, i) => {
+      const r = find(i), f = first.get(r);
+      if (f === undefined || a.k0 < nodes[f].k0 || (a.k0 === nodes[f].k0 && a.seed < nodes[f].seed)) first.set(r, i);
+    });
+    const of = new Map<number, { k0: number; k1: number; id: string }[]>();
+    nodes.forEach((a, i) => {
+      const f = nodes[first.get(find(i))!];
+      const run = { k0: a.k0, k1: a.k1, id: `${f.seed}@${f.k0}` };
+      const l = of.get(a.seed);
+      if (l) l.push(run);
+      else of.set(a.seed, [run]);
+    });
+    this.buildingRuns = { key, of };
+    return of;
+  }
+
+  /**
+   * THE MASS, BUILDING BY BUILDING, FROM A STATE KEPT (the artist, 2026-11-15: "메시를 굽지 말고 오히려 건물 상태를
+   * 기점마다 굽고 일정 변화 이상이 감지되면 변화하는 식으로"). The unit is a building — not a chunk of ten slots, a
+   * tile of the ground and a district's angle, whose sides cut the mass wherever one was fused later than the next.
+   * Of every building the STATE its mass was last made from is kept (each part's decay). The mass is made again only
+   * when the building's state has moved from that by `unitChange` — the mean change of its parts' value, in whichever
+   * band of ten slots changed most (a building is tall in time and changes from the bottom: a mean over all of it
+   * would never move), a part come or gone counting as a whole change. The building that has changed most goes first.
+   * A building is made in PIECES (bands of slots × tiles of the ground, so no call fuses for long), all from the
+   * same state, and shown only when every piece is done — so no piece is newer than the one beside it. A piece whose
+   * parts stand exactly as they did is kept as it was.
+   */
+  private fuseBuildings(
+    bySlot: ReadonlyMap<number, { b: Box; d: number; up: boolean; sk: boolean; ang: number }[]>,
+    h: NatureHistory | null,
+    u: number,
+    sed: NonNullable<ReturnType<typeof sedimentOf>>,
+    layered: boolean,
+    fuse: FuseConfig,
+    padSlots: number,
+    box: BoxConfig,
+  ): FuseMesh | null {
+    type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number };
+    const SEG = NATURE_CHUNK, T = BLOCK_TILE, PAD = 4;
+    const cfg = JSON.stringify(fuse);
+    const runsOf = this.buildingsOfSeeds(box);
+    // every part to its building
+    const lists = new Map<string, P[]>();
+    for (const l of bySlot.values()) {
+      for (const e of l) {
+        const runs = runsOf.get(e.b.seed);
+        if (!runs?.length) continue;
+        let best = runs[0], bd = Infinity;
+        for (const r of runs) {
+          const dd = e.b.slot < r.k0 ? r.k0 - e.b.slot : e.b.slot > r.k1 ? e.b.slot - r.k1 : 0;
+          if (dd < bd) [best, bd] = [r, dd];
+        }
+        const li = lists.get(best.id);
+        if (li) li.push(e);
+        else lists.set(best.id, [e]);
+      }
+    }
+    const fusing = (list: readonly { d: number }[]): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || accretionShare(e.d, fuse) > 0.01);
+    const value = (d: number) => 0.7 * fusedShare(d, fuse) + 0.3 * d;
+    const key = (b: Box) => SpaceModel.partKey(b);
+    // A BUILDING UNDER ANOTHER NAME (it grew a cell older than its oldest, or its foot went with the window's floor):
+    // the mass kept under the old name is its own — taken over when most of that mass's parts are in it
+    const gone = [...this.units.keys()].filter((id) => !lists.has(id));
+    for (const old of gone) {
+      const ent = this.units.get(old)!;
+      let heir = "", most = 0;
+      if (ent.snap.size) {
+        for (const [id, list] of lists) {
+          let nShared = 0;
+          for (const e of list) if (ent.snap.has(key(e.b))) nShared++;
+          if (nShared > most) [heir, most] = [id, nShared];
+        }
+      }
+      this.units.delete(old);
+      this.unitsVersion++;
+      if (!heir || most < ent.snap.size * 0.5) continue; // (its parts are gone: so is its mass)
+      const mine = this.units.get(heir);
+      if (!mine) this.units.set(heir, ent);
+      else if (ent.mesh.index.length) this.unitOrphans.push({ mesh: ent.mesh, heir, heirAt: mine.at }); // (joined to another: shown until that one is made again)
+    }
+    if (this.unitOrphans.length) {
+      const n0 = this.unitOrphans.length;
+      this.unitOrphans = this.unitOrphans.filter((o) => this.units.get(o.heir)?.at === o.heirAt);
+      if (this.unitOrphans.length !== n0) this.unitsVersion++;
+    }
+    if (this.unitJob && !lists.has(this.unitJob.id)) this.unitJob = null;
+
+    // how far each building's state has moved from the one its mass was made from
+    const changeOf = (id: string, list: readonly P[]): number => {
+      const ent = this.units.get(id);
+      if (!ent) return fusing(list) ? 1 : 0;
+      if (ent.cfg !== cfg) return 1;
+      const sum = new Map<number, number>(), cnt = new Map<number, number>();
+      const add = (band: number, v: number) => {
+        sum.set(band, (sum.get(band) ?? 0) + v);
+        cnt.set(band, (cnt.get(band) ?? 0) + 1);
+      };
+      const now = new Set<number>();
+      for (const e of list) {
+        const k = key(e.b);
+        now.add(k);
+        const was = ent.snap.get(k);
+        add(Math.floor(e.b.slot / SEG), was === undefined ? (fusedShare(e.d, fuse) > 0 ? 1 : 0) : Math.abs(value(e.d) - value(was)));
+      }
+      for (const [k, was] of ent.snap) if (!now.has(k)) add(Math.floor(Math.floor(k / 4294967296) / SEG), fusedShare(was, fuse) > 0 ? 1 : 0);
+      let most = 0;
+      for (const [band, v] of sum) most = Math.max(most, v / Math.max(4, cnt.get(band)!));
+      return most;
+    };
+    const lookOf = (list: readonly P[]): ((k: number) => number) | undefined => {
+      if (!layered) return undefined;
+      const sum = new Map<number, number>(), cnt = new Map<number, number>();
+      let all = 0;
+      for (const e of list) {
+        sum.set(e.b.slot, (sum.get(e.b.slot) ?? 0) + e.d);
+        cnt.set(e.b.slot, (cnt.get(e.b.slot) ?? 0) + 1);
+        all += e.d;
+      }
+      const mean = list.length ? all / list.length : 0;
+      return (k: number) => {
+        let sm = 0, n = 0;
+        for (let j = k - 1; j <= k + 1; j++) {
+          const c = cnt.get(j);
+          if (c) {
+            sm += sum.get(j)!;
+            n += c;
+          }
+        }
+        return n ? sm / n : mean;
+      };
+    };
+    const cellOf = (v: number) => Math.floor(v / CELL);
+    /** The pieces of a building as it stands now, and the state they are made from. */
+    const begin = (id: string, list: readonly P[]): NonNullable<SpaceModel["unitJob"]> => {
+      const ang = list[0].ang;
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      // (a turned district is fused in its own frame, where its boxes lie along the grid: seeds.ts' turn undone)
+      const ps = ang ? list.map((e) => ({ ...e, b: { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } })) : list.slice();
+      let xa = Infinity, xb = -Infinity, za = Infinity, zb = -Infinity, ka = Infinity, kb = -Infinity;
+      for (const { b } of ps) {
+        const r = Math.max(b.sx, b.sy, b.sz) / 2;
+        xa = Math.min(xa, cellOf(b.x - r));
+        xb = Math.max(xb, cellOf(b.x + r));
+        za = Math.min(za, cellOf(b.z - r));
+        zb = Math.max(zb, cellOf(b.z + r));
+        ka = Math.min(ka, b.slot);
+        kb = Math.max(kb, b.slot);
+      }
+      const ext = { x0: xa - PAD, z0: za - PAD, nx: xb - xa + 1 + 2 * PAD, nz: zb - za + 1 + 2 * PAD };
+      const todo: NonNullable<SpaceModel["unitJob"]>["todo"] = [];
+      for (let k0 = Math.floor((ka - 8) / SEG) * SEG; k0 <= kb + 3; k0 += SEG) {
+        const k1 = k0 + SEG - 1;
+        // (parts reaching into the band: masses hang ≤ 3 slots, foundations ≤ 8 below their slot — as the chunks did)
+        const inBand = ps.filter((e) => e.b.slot >= k0 - padSlots - 3 && e.b.slot <= k1 + padSlots + 8);
+        if (!inBand.length) continue;
+        for (let tz = Math.floor(ext.z0 / T) * T; tz < ext.z0 + ext.nz; tz += T) {
+          for (let tx = Math.floor(ext.x0 / T) * T; tx < ext.x0 + ext.nx; tx += T) {
+            const ax = tx - PAD, bx = tx + T + PAD, az = tz - PAD, bz = tz + T + PAD;
+            const mine = inBand.filter(({ b }) => {
+              const r = Math.max(b.sx, b.sy, b.sz) / 2;
+              return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
+            });
+            // (nothing comes of a place where no part is fusing: fuseTiled)
+            if (!fusing(mine)) continue;
+            let sg = 0;
+            for (const e of mine) sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
+            todo.push({ key: `${k0}:${tx}:${tz}`, sig: `${mine.length}:${sg.toFixed(3)}`, k0, k1, tx, tz, ps: mine });
+          }
+        }
+      }
+      const snap = new Map<number, number>();
+      for (const e of list) snap.set(key(e.b), e.d);
+      return { id, cfg, snap, ang, h: h && ang ? SpaceModel.turnedHistory(h, c, sn, ext, ka - 12, kb + 12) : h, look: lookOf(list), todo, done: new Map() };
+    };
+
+    const deadline = performance.now() + FUSE_BUDGET_MS;
+    let waiting = 0;
+    for (let guard = 0; guard < 64; guard++) {
+      if (!this.unitJob) {
+        // the building that has moved most from its state
+        let pick = "", most = 0;
+        waiting = 0;
+        const th = Math.max(0.02, fuse.unitChange ?? 0.15);
+        for (const [id, list] of lists) {
+          const ch = changeOf(id, list);
+          if (ch < th) continue;
+          waiting++;
+          if (ch > most || (ch === most && pick && list.length > lists.get(pick)!.length)) [pick, most] = [id, ch];
+        }
+        if (!pick) break;
+        this.unitJob = begin(pick, lists.get(pick)!);
+      }
+      const job = this.unitJob;
+      const was = this.units.get(job.id);
+      while (job.todo.length) {
+        const piece = job.todo.shift()!;
+        const kept = was && was.cfg === job.cfg ? was.pieces.get(piece.key) : undefined;
+        if (kept && kept.sig === piece.sig) job.done.set(piece.key, kept);
+        else {
+          const t0 = performance.now();
+          const mesh = this.fuseTiles({ c0: piece.k0, c1: piece.k1, ps: piece.ps, tubes: [], x0: piece.tx, z0: piece.tz, nx: T, nz: T }, job.h, u, sed, job.look, fuse, T);
+          job.done.set(piece.key, { sig: piece.sig, mesh });
+          this.stages["fuse pieces (n)"] = (this.stages["fuse pieces (n)"] ?? 0) + 1;
+          this.stages["fuse piece max ms"] = Math.max(this.stages["fuse piece max ms"] ?? 0, performance.now() - t0);
+        }
+        if (performance.now() > deadline) break;
+      }
+      if (job.todo.length) break; // (out of time: the building goes on at the next call, from the same state)
+      // every piece is done: the building's mass is changed whole
+      const mesh = mergeMeshes([...job.done.values()].map((q) => q.mesh));
+      if (job.ang) {
+        const c = Math.cos(job.ang), sn = Math.sin(job.ang);
+        for (const arr of [mesh.position, mesh.normal]) {
+          for (let i = 0; i < arr.length; i += 3) {
+            const x = arr[i], z = arr[i + 2];
+            arr[i] = x * c + z * sn;
+            arr[i + 2] = -x * sn + z * c;
+          }
+        }
+      }
+      if (was) for (const k of was.snap.keys()) this.unitFused.delete(k);
+      for (const [k, d] of job.snap) this.unitFused.set(k, d);
+      // (the parts are read again against the mass only where the mass takes their place: with `absorb` 0 — the
+      // parts stand whole under it — a building's new mass costs the parts nothing)
+      if ((fuse.absorb ?? 1) > 0) this.fuseBuilt++;
+      this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, pieces: job.done });
+      this.unitJob = null;
+      this.stages["fuse buildings (n)"] = (this.stages["fuse buildings (n)"] ?? 0) + 1;
+      if (performance.now() > deadline) break;
+    }
+    this.stages["fuse buildings waiting (n)"] = waiting;
+    if (this.unitsVersion === this.unitsEmitted) return null;
+    this.unitsEmitted = this.unitsVersion;
+    const out: FuseMesh[] = [];
+    for (const ent of this.units.values()) if (ent.mesh.index.length) out.push(ent.mesh);
+    for (const o of this.unitOrphans) out.push(o.mesh);
+    return mergeMeshes(out);
+  }
+
   private blockHist: { key: string; h: NatureHistory | null } | null = null;
   private blockHistory(top: number): NatureHistory | null {
     const key = `${this.seedsKey}:${top}`;
@@ -1915,6 +2225,11 @@ export class SpaceModel {
       this.fuseChunks.clear();
       this.fusedAt.clear();
       this.districtMass.clear();
+      this.units.clear();
+      this.unitOrphans = [];
+      this.unitFused.clear();
+      this.unitJob = null;
+      this.unitsEmitted = -1;
       return mergeMeshes(fuse.enabled ? bakedMeshes : []);
     }
     const u = box.unit;
@@ -1973,6 +2288,25 @@ export class SpaceModel {
     }
     const pad = fusePad(fuse);
     const padSlots = Math.ceil((Math.max(pad.above, pad.below) * fuse.voxel + fuse.accDepth) / u) + 1 + (fuse.study?.fill ? FILL_MAX_GAP : 0);
+    // BUILDING BY BUILDING (fuse.ts perBuilding): each building's mass from a state kept — fuseBuildings
+    if (bc && fuse.perBuilding) {
+      if (this.fuseChunks.size || this.districtMass.size) {
+        this.fuseChunks.clear();
+        this.fusedAt.clear();
+        this.districtMass.clear();
+        this.unitsEmitted = -1;
+      }
+      this.stages["fuse prep ms"] = performance.now() - tFuse0;
+      // (never "unchanged" for good: the buildings go on changing — every call looks again)
+      return this.fuseBuildings(bySlot, h, u, sed, !!layerDecay, fuse, padSlots, box);
+    }
+    if (this.units.size || this.unitOrphans.length || this.unitJob) {
+      this.units.clear();
+      this.unitOrphans = [];
+      this.unitFused.clear();
+      this.unitJob = null;
+      this.unitsEmitted = -1;
+    }
     // the age clock in the keys moves once per chunk of slots (it only tints and pits), not every slot
     const clockKey = Math.floor(sed.tNow / (box.secPerUnit * NATURE_CHUNK));
     // each chunk's grid covers ITS parts (± a margin), not the whole ground: as the flocks moved over the world the

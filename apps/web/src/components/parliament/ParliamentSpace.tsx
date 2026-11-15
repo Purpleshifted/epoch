@@ -1259,7 +1259,9 @@ function SpaceWorld({
     // the fused mass follows the vegetation's cadence (it is built from its history); paused: every tick, in bulk
     // (THE REDESIGN: the mass is asked for half as often — a request in which it is fused keeps the buildings waiting,
     // and nothing about a fossil is in a hurry)
-    if (frozen || id % (REDESIGN ? NATURE_EVERY * 2 : NATURE_EVERY) === 1) {
+    // (BUILDING BY BUILDING: a call fuses no longer than its budget and one building at a time, so it is asked for
+    // every other tick — the buildings waiting get their turn sooner)
+    if (frozen || id % (REDESIGN ? (fu.perBuilding ? 2 : NATURE_EVERY * 2) : NATURE_EVERY) === 1) {
       // the history window must reach below the immutable line (plus two chunks), or a layer would be cut before it is baked
       if (oneClk && bake && !local) {
         const need = (immutable + 20) * cfg.secPerUnit;
@@ -3264,6 +3266,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       fuseOn: { value: DEFAULT_FUSE.enabled, label: REDESIGN ? "켜기 (덩어리: 부식 = 침식의 자리 값 · 작용 띠는 '침식'의 시작 … 다 깎이는 깊이)" : "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
       // THE MASS CHANGES SOFTLY (FuseFade): what it was dissolves into what it is over this long
       fuseFade: { value: 2, min: 0, max: 10, step: 0.25, label: "덩어리가 바뀔 때 녹아드는 시간 (s · 0 = 바로)" },
+      // BUILDING BY BUILDING, FROM A STATE KEPT (spaceModel fuseBuildings; the artist, 2026-11-15: "건물 상태를 기점마다
+      // 굽고 일정 변화 이상이 감지되면 변화하는 식으로")
+      fuseUnit: {
+        options: { "건물마다 (건물 상태가 달라지면 그 건물만 다시)": "building", "묶음 · 타일 (예전: 10단 × 14칸 × 구역 각도)": "tile" },
+        value: "building" as "building" | "tile",
+        label: "덩어리를 만드는 단위",
+        render: () => REDESIGN,
+      },
+      unitChange: { value: 0.15, min: 0.03, max: 0.5, step: 0.01, label: "건물 상태가 이만큼 달라지면 덩어리를 다시 만듦 (작을수록 자주 바뀌고 무거움)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseUnit`) === "building" },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
         // THREE BANDS (the artist, 2026-10-31 night): the present (풍화 · 지층 › 현재 두께), the layer where the processes
@@ -3300,7 +3311,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         "고급": folder(
           {
             sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 흘러내림 (0 = 없음; 젊은 블로키 층은 안 흐름)" },
-            scatter: { value: DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "젊은 층 가장자리 부스러짐 (0 = 매끈)" },
+            // (0 in the redesign since 2026-11-15: it breaks thin, young mass into pieces by a noise — and in the block
+            // nearly all the mass is thin and young by its look: fields of pebbles. The artist: "절대 이 조약돌 덩어리를
+            // 원한 게 아님")
+            scatter: { value: REDESIGN ? 0 : DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "얇은 덩어리를 조각냄 (0 = 안 함 · 올리면 조약돌처럼 부서짐)" },
             porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "둥근 구멍 양 (오래된 층일수록 많이)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
             poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드; 껍질 · 거품의 '둥근 구멍' 모양도 이 크기)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
             skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)" },
@@ -3476,7 +3490,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         },
         { collapsed: false },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }, { tag: "mass-fills-slowly-2026-11-15", set: { fuseFull: 0.9 } }] : [])] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }, { tag: "mass-fills-slowly-2026-11-15", set: { fuseFull: 0.9 } }, { tag: "no-pebbles-2026-11-15", set: { scatter: 0 } }] : [])] : []),
     { order: REDESIGN ? (lab ? 7.97 : 4.4) : lab ? 2 : 8, collapsed: REDESIGN },
   );
   // (the redesign's wall: only in the block — the density's buildings and a block whose top is known)
@@ -3509,7 +3523,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3564,7 +3578,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
