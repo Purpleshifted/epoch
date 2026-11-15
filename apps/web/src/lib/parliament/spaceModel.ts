@@ -41,7 +41,9 @@ export const NATURE_CHUNK = 10;
 export const FUSE_NEW_PER_CALL = 2;
 /** THE BLOCK: the ways and the pipes are laid again at most this often (ms), and one call fuses for about this long. */
 const SLOW_MS = 8000;
-const FUSE_BUDGET_MS = 350;
+const FUSE_BUDGET_MS = 450;
+/** THE BLOCK: a part's age is read in this many steps to `fossilSec` (the steps are the clock's: all parts move at once). */
+const AGE_STEPS = 8;
 
 /** sRGB hex pairs (low, high shade) per NATURE_KIND. */
 export const NATURE_PALETTE: [string, string][] = [
@@ -528,7 +530,7 @@ export class SpaceModel {
   private fuseDeadline = Infinity;
   private fuseLeft: Set<number> | null = null;
   /** The mass of each district of each chunk, with the signature of what went into it (fuseTiled). */
-  private districtMass = new Map<string, { key: string; mesh: FuseMesh }>();
+  private districtMass = new Map<string, { key: string; mesh: FuseMesh; at: number }>();
   private blockHist: { key: string; h: NatureHistory | null } | null = null;
   private blockHistory(top: number): NatureHistory | null {
     const key = `${this.seedsKey}:${top}`;
@@ -675,47 +677,76 @@ export class SpaceModel {
     let layers = "";
     if (layerDecay) for (let k = w.c0 - 12; k <= w.c1 + 12; k++) layers += Math.round(layerDecay(k) * 20).toString(36);
     const used = new Set<string>();
-    for (const [ang, list] of byAngle) {
+    // (a district's signature reads what its mass is made of — how much of each part is mass — not the part's value
+    // itself: past `fuseFull` a part is all mass and ageing on changes nothing)
+    const stale: { ang: number; id: string; key: string; at: number; run: () => FuseMesh }[] = [];
+    const sigOf = (list: typeof w.ps, tubes: readonly BakedTube[]): string => {
       let sum = 0;
       for (const e of list) {
         const veg = h ? (natureAt(h, Math.floor(e.b.x / CELL), Math.floor(e.b.z / CELL), e.b.slot) ?? 0) : 0;
-        sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + e.d * 13 + (e.up ? 19 : 0) + (e.sk ? 23 : 0) + veg * 5;
+        sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(fusedShare(e.d, fuse) * 20) * 0.65 + Math.round(accretionShare(e.d, fuse) * 20) * 0.35 + (e.up ? 19 : 0) + (e.sk ? 23 : 0) + veg * 5;
       }
-      if (!ang) for (const tb of w.tubes) sum += tb.decay * 13 + tb.x0 + tb.z1 + tb.y0 * 3 + tb.r * 17;
-      const id = `${w.c0}:${ang}`;
-      const key = `${list.length}:${!ang ? w.tubes.length : 0}:${sum.toFixed(3)}:${layers}:${cfgKey}`;
+      for (const tb of tubes) sum += tb.decay * 13 + tb.x0 + tb.z1 + tb.y0 * 3 + tb.r * 17;
+      return `${list.length}:${tubes.length}:${sum.toFixed(3)}:${layers}:${cfgKey}`;
+    };
+    const want = (ang: number, id: string, key: string, run: () => FuseMesh) => {
       used.add(id);
       const kept = this.districtMass.get(id);
-      if (kept && kept.key === key) {
-        out.push(kept.mesh);
+      if (kept && kept.key === key) out.push(kept.mesh);
+      else stale.push({ ang, id, key, at: kept ? kept.at : -1, run });
+    };
+    const cellOf = (v: number) => Math.floor(v / CELL);
+    for (const [ang, list] of byAngle) {
+      if (!ang) {
+        // WHAT STANDS AT NO ANGLE — AND THE PIPES, THE WAYS, THE STEEL, which run all over the ground: kept TILE BY
+        // TILE (tiles on a grid of the world's, so a tile is the same tile whatever else is in the chunk). As one
+        // unit it was a dozen tiles that had to be fused in one go, whatever the budget said (4 s in one call).
+        const T = 24, PAD = 4;
+        const ex = extent(list, w.tubes);
+        for (let tz = Math.floor(ex.z0 / T) * T; tz < ex.z0 + ex.nz; tz += T) {
+          for (let tx = Math.floor(ex.x0 / T) * T; tx < ex.x0 + ex.nx; tx += T) {
+            const ax = tx - PAD, bx = tx + T + PAD, az = tz - PAD, bz = tz + T + PAD;
+            const ps = list.filter(({ b }) => {
+              const r = Math.max(b.sx, b.sy, b.sz) / 2;
+              return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
+            });
+            const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
+            if (!ps.length && !tubes.length) continue;
+            want(0, `${w.c0}:0:${tx}:${tz}`, sigOf(ps, tubes), () => this.fuseTiles({ ...w, ps, tubes, x0: tx, z0: tz, nx: T, nz: T }, h, u, sed, layerDecay, fuse));
+          }
+        }
         continue;
       }
+      want(ang, `${w.c0}:${ang}`, sigOf(list, []), () => {
+        // into the district's frame (the inverse of seeds.ts' turn, about the origin), and the mesh back out of it
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        const turned = list.map((e) => ({ ...e, b: { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } }));
+        const ext = extent(turned, []);
+        const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...ext }, h ? SpaceModel.turnedHistory(h, c, sn, ext, w.c0 - 12, w.c1 + 12) : null, u, sed, layerDecay, fuse);
+        for (const arr of [m.position, m.normal]) {
+          for (let i = 0; i < arr.length; i += 3) {
+            const x = arr[i], z = arr[i + 2];
+            arr[i] = x * c + z * sn;
+            arr[i + 2] = -x * sn + z * c;
+          }
+        }
+        return m;
+      });
+    }
+    // THE LEAST RECENTLY FUSED FIRST (never fused: first of all) — in map order the first districts of a chunk were
+    // stale again by the next call and took the whole budget every time, and the others were never reached
+    stale.sort((p, q) => p.at - q.at);
+    for (const { ang, id, key, run } of stale) {
       // (out of time for this call: the district keeps the mass it had — or none yet — and is done at the next)
       if (performance.now() > this.fuseDeadline) {
+        const kept = this.districtMass.get(id);
         if (kept) out.push(kept.mesh);
         (this.fuseLeft ??= new Set()).add(ang);
         continue;
       }
       this.stages["fuse districts (n)"] = (this.stages["fuse districts (n)"] ?? 0) + 1;
-      if (!ang) {
-        const m0 = this.fuseTiles({ ...w, ps: list, ...extent(list, w.tubes) }, h, u, sed, layerDecay, fuse);
-        this.districtMass.set(id, { key, mesh: m0 });
-        out.push(m0);
-        continue;
-      }
-      // into the district's frame (the inverse of seeds.ts' turn, about the origin), and the mesh back out of it
-      const c = Math.cos(ang), sn = Math.sin(ang);
-      const turned = list.map((e) => ({ ...e, b: { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } }));
-      const ext = extent(turned, []);
-      const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...ext }, h ? SpaceModel.turnedHistory(h, c, sn, ext, w.c0 - 12, w.c1 + 12) : null, u, sed, layerDecay, fuse);
-      for (const arr of [m.position, m.normal]) {
-        for (let i = 0; i < arr.length; i += 3) {
-          const x = arr[i], z = arr[i + 2];
-          arr[i] = x * c + z * sn;
-          arr[i + 2] = -x * sn + z * c;
-        }
-      }
-      this.districtMass.set(id, { key, mesh: m });
+      const m = run();
+      this.districtMass.set(id, { key, mesh: m, at: this.fuseBuilt });
       out.push(m);
     }
     // (districts that are no longer in this chunk are let go)
@@ -1174,7 +1205,7 @@ export class SpaceModel {
     const fossilSec = this.densityCfg ? Math.max(0, input.fuse.fossilSec ?? 0) : 0;
     // (real seconds: the world's clock is set back whenever the lab's world is trimmed, and a part's age must not be)
     this.ageClock = Math.max(this.ageClock, (Date.now() - this.arriveEpoch) / 1000);
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${fossilSec > 0 && input.fuse.enabled ? Math.floor(this.ageClock / 4) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${fossilSec > 0 && input.fuse.enabled ? Math.floor(this.ageClock / (fossilSec / AGE_STEPS)) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
     // ARRIVAL (arrive.ts): parts first seen now are being built — unless a knob of the parts or of the buildings' rule
@@ -1363,7 +1394,13 @@ export class SpaceModel {
       if (!(fossilSec > 0) || w <= 0) return w;
       const born = this.bornT.get(SpaceModel.partKey(b));
       if (born === undefined || born === -Infinity) return w;
-      return w * Math.min(1, (w * Math.max(0, ageNow - born)) / fossilSec);
+      // (the age is read in steps of the clock that every part shares — AGE_STEPS to `fossilSec`: read to the second,
+      // each part crossed its next twentieth at its own moment, so every fossilising district was fused again all
+      // the time, and the deepest — the fastest and the most — fell furthest behind: "깊을수록 오히려 화석화가 느려
+      // 보이는데", the artist, 2026-11-15)
+      const step = fossilSec / AGE_STEPS;
+      const age = Math.max(0, Math.floor(ageNow / step) - Math.floor(born / step)) * step;
+      return w * Math.min(1, (w * age) / fossilSec);
     };
     this.blockClock = ec && ero ? { top: ec.topSlot, decay: grown, layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
