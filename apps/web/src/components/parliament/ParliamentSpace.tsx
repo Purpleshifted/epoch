@@ -539,6 +539,13 @@ interface WalkLook {
   pipeGrain: number;
 }
 
+/**
+ * THE OPEN WATER for the vegetation (the artist, 2026-11-15: "물길은 선으로 표현하기보다 식생 점이 닳는 걸로"): the
+ * streams of every slot as the worker last laid them (SpaceResult.streams: segments at their slot's height), handed from
+ * the scene to the Vegetation, which wears its points away along them.
+ */
+const waterNow: { segs: Float32Array } = { segs: new Float32Array(0) };
+
 /** Line segments [a, b] × n into a line set. */
 function setSegments(lines: THREE.LineSegments | null, segs: Float32Array): void {
   if (!lines) return;
@@ -1102,6 +1109,7 @@ function SpaceWorld({
       applyWalkUse();
       setWalkEnds(endLive.current, p.walk.liveEnds);
       setWalkEnds(endKept.current, p.walk.keptEnds);
+      waterNow.segs = p.streams;
       setPipeParts(pipeLive.current, elbowLive.current, p.pipes.live);
       setPipeParts(pipeKept.current, elbowKept.current, p.pipes.kept);
       last.current = { seeds: p.seeds, boxes: p.parts, kinds: p.counts, t: p.t, top: p.top, farSeeds: p.farSeeds, baked: p.baked, links: p.links, pipeRuns: p.pipeRuns, workerMs: r.ms, runner: worker.current?.mode ?? "-", lagS: Math.max(0, latestS(log.all()) - p.t), ...fuseStats.current, ...focus.current };
@@ -1718,6 +1726,8 @@ const VEG_OVER = 4;
  *  points, on top of that. */
 type TestPerf = "off" | "light" | "min";
 const TEST_PERF_KEY = "parliament.testPerf";
+/** Whether the camera goes up with the rising block (세계 › 카메라가 올라가는 덩어리를 따라감), kept in this browser. */
+const CAM_RISE_KEY = "parliament.camRise";
 const TEST_PERF_OPTIONS: Record<string, TestPerf> = { "끔 (저장된 화질 그대로)": "off", "가볍게 (해상도 1× · AO · 그림자 · 굴절 끔)": "light", "아주 가볍게 (해상도 0.6× · 식생 점 1/3까지)": "min" };
 const useControls: typeof useLevaControls = ((...args: unknown[]) => {
   if (REDESIGN && typeof args[0] === "string") {
@@ -1748,6 +1758,7 @@ const VEG_VERT = `
 precision highp sampler3D;
 uniform sampler3D uHuman;
 uniform sampler2D uRange;
+uniform sampler3D uWater;
 uniform vec3 uMin;
 uniform vec3 uSpan;
 uniform float uSize;
@@ -1765,7 +1776,9 @@ void main() {
   float human = texture(uHuman, uvw).r;
   // (uFull < 1: even untouched ground is not all vegetation)
   // (only round where anybody has been — uRange: 1 within the margin of what was built or walked, 0 beyond)
-  float veg = (1.0 - human) * uFull * texture(uRange, uvw.xy).r;
+  // (the open water wears the plants away along its course: water.ts → waterNow)
+  float worn = texture(uWater, uvw).r;
+  float veg = (1.0 - human) * (1.0 - worn) * uFull * texture(uRange, uvw.xy).r;
   float alive = step(aSeed, veg);
   vShade = fract(aSeed * 7.31);
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
@@ -1801,6 +1814,7 @@ function Vegetation({
   erode,
   margin,
   base,
+  river,
 }: {
   /** The window's first slot (the rising block: its foot; 0 = the fixed block). */
   base: number;
@@ -1830,6 +1844,9 @@ function Vegetation({
   /** THE EROSION (erode.ts): where buildings erode, their share of the people's density is given back to the
    *  vegetation (by depth, × feed); null = buildings count whole. */
   erode: ErodeConfig | null;
+  /** THE OPEN WATER WEARS THE PLANTS (waterNow): per slot the water adds `gain` of wear on its course (± `width`
+   *  cells), the wear goes on up the block × `keep` per slot — deeper where it has run on; null = none. */
+  river: { gain: number; keep: number; width: number } | null;
 }) {
   const gl = useThree((st) => st.gl);
   const camera = useThree((st) => st.camera);
@@ -1849,6 +1866,21 @@ function Vegetation({
     return t;
   }, [N, D]);
   useEffect(() => () => tex.dispose(), [tex]);
+  // how worn by water each cell-slot is (0 … 1), in the same layout
+  const wTex = useMemo(() => {
+    const t = new THREE.Data3DTexture(new Uint8Array(N * N * D), N, N, D);
+    t.format = THREE.RedFormat;
+    t.type = THREE.UnsignedByteType;
+    t.minFilter = THREE.LinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.wrapR = THREE.ClampToEdgeWrapping;
+    t.unpackAlignment = 1;
+    t.needsUpdate = true;
+    return t;
+  }, [N, D]);
+  useEffect(() => () => wTex.dispose(), [wTex]);
+  const wornOf = useRef<{ segs: Float32Array | null; key: string }>({ segs: null, key: "" });
   // the points: made once — anywhere in the block, or (spots) as CLOUDS IN SPACETIME (the artist, 2026-11-12: "이렇게
   // 말고 시공간상의 전자구름처럼 해야지"): each spot is a place and a time of the block, and its points are drawn from
   // a probability like an electron's — thick at the middle, thinning without an edge, in every direction of the block
@@ -1940,6 +1972,7 @@ function Vegetation({
         uniforms: {
           uHuman: { value: null },
           uRange: { value: null },
+          uWater: { value: null },
           uMin: { value: new THREE.Vector3() },
           uSpan: { value: new THREE.Vector3(1, 1, 1) },
           uSize: { value: 0.1 },
@@ -1955,13 +1988,14 @@ function Vegetation({
   useEffect(() => {
     mat.uniforms.uHuman.value = tex;
     mat.uniforms.uRange.value = rangeTex;
+    mat.uniforms.uWater.value = wTex;
     mat.uniforms.uMin.value.set(-WORLD_HALF, base * unit, -WORLD_HALF);
     mat.uniforms.uSpan.value.set(WORLD_SIZE, D * unit, WORLD_SIZE);
     mat.uniforms.uSize.value = size;
     mat.uniforms.uFull.value = full;
     mat.uniforms.uColorA.value.set(colorA);
     mat.uniforms.uColorB.value.set(colorB);
-  }, [mat, tex, D, unit, size, full, colorA, colorB, base]);
+  }, [mat, tex, wTex, D, unit, size, full, colorA, colorB, base]);
   const timer = useRef(10);
   const moveTimer = useRef(0);
   // where the vegetation is at all: a map of the ground (N × N), and two scratch maps for widening it
@@ -2056,6 +2090,48 @@ function Vegetation({
         }
       }
       rangeTex.needsUpdate = true;
+    }
+    // THE WATER'S WEAR, laid again only when the streams or the knobs changed
+    // (the rising window: a slot's row is counted from the window's first slot, as the people's share is)
+    const wKey = river ? `${river.gain}|${river.keep}|${river.width}|${unit}|${D}|${base}` : "";
+    if (waterNow.segs !== wornOf.current.segs || wKey !== wornOf.current.key) {
+      wornOf.current = { segs: waterNow.segs, key: wKey };
+      const wd = wTex.image.data as Uint8Array;
+      wd.fill(0);
+      const segs = waterNow.segs;
+      if (river && segs.length) {
+        const C = WORLD_SIZE / N, NN = N * N;
+        const mark = new Float32Array(NN * D);
+        const W = Math.max(0, river.width), Wc = Math.ceil(W);
+        for (let i = 0; i + 5 < segs.length; i += 6) {
+          const k = Math.floor(segs[i + 1] / unit) - base;
+          if (k < 0 || k >= D) continue;
+          const x0 = segs[i], z0 = segs[i + 2], x1 = segs[i + 3], z1 = segs[i + 5];
+          const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / (C * 0.5)));
+          for (let t = 0; t <= n; t++) {
+            const cx = Math.floor((x0 + ((x1 - x0) * t) / n) / C) + N / 2, cz = Math.floor((z0 + ((z1 - z0) * t) / n) / C) + N / 2;
+            for (let dz = -Wc; dz <= Wc; dz++)
+              for (let dx = -Wc; dx <= Wc; dx++) {
+                const r = Math.hypot(dx, dz);
+                if (r > W + 0.5) continue;
+                // whole on the course, less towards the banks
+                const v = 1 - r / (W + 1);
+                const id = (((cx + dx) % N) + N) % N + N * ((((cz + dz) % N) + N) % N) + NN * k;
+                if (v > mark[id]) mark[id] = v;
+              }
+          }
+        }
+        const keep = Math.max(0, Math.min(0.99, river.keep)), gain = Math.max(0, river.gain);
+        for (let c = 0; c < NN; c++) {
+          let w = 0;
+          for (let k = 0; k < D; k++) {
+            const id = c + NN * k;
+            w = Math.min(1, w * keep + mark[id] * gain);
+            wd[id] = Math.round(w * 255);
+          }
+        }
+      }
+      wTex.needsUpdate = true;
     }
     // THE CLOUDS KEEP OUT OF THE PEOPLE'S WAY (the artist, 2026-11-12: "구름 위치 디바운싱으로 건물/길 위치 따라
     // 재배정"): every `moveSec` the clouds are looked at — one whose place has filled with building or way (the mean
@@ -2687,7 +2763,9 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   // V2: bots run from here, without a player tab (useGlobalBots.ts)
   // how deep (slots) the bots write below the present: while they do, no part's shape is frozen (below)
   const [botDepth, setBotDepth] = useState(0);
-  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, setDepth: setBotDepth } : { setDepth: setBotDepth }), [lab, clk]);
+  // the bots' village sites: the pipes are laid in villages only (water.ts WaterConfig.villages)
+  const [botVillages, setBotVillages] = useState<WaterConfig["villages"] | null>(null);
+  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, setDepth: setBotDepth, setVillages: setBotVillages } : { setDepth: setBotDepth, setVillages: setBotVillages }), [lab, clk]);
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
   // EMPTY THE WORLD AND LET IT BE MADE AGAIN (the artist, 2026-11-15: "지우고 다시 생성하기 레바 버튼 넣기"), at the top
   // of the panel. The lab's world is this tab's only; the wall's is the shared one (every open tab follows), so there
@@ -2714,11 +2792,22 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       return "off";
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // THE CAMERA GOES UP WITH THE RISING BLOCK — or stays where it is put (the artist, 2026-11-15: "카메라 자동으로
+  // 따라가지는거 켜고 끌 수 있게 레바도 넣어줘"). Kept in this browser, like the test render.
+  const camRiseFirst = useMemo(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(CAM_RISE_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  }, []);
   const world = useLevaControls(
     "세계",
     {
       "지우고 다시 생성하기": button(() => resetWorld.current()),
       testPerf: { options: TEST_PERF_OPTIONS, value: perfFirst, label: "테스트 렌더 (가볍게)" },
+      camRise: { value: camRiseFirst, label: "카메라가 올라가는 덩어리를 따라감 (끄면 카메라는 둔 자리에 그대로)" },
     },
     { order: 0.4, render: () => isV2 },
   );
@@ -2731,6 +2820,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
       /* storage unavailable */
     }
   }, [hideUi, world.testPerf]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CAM_RISE_KEY, world.camRise ? "on" : "off");
+    } catch {
+      /* storage unavailable */
+    }
+  }, [world.camRise]);
   // THE BUILDINGS' RULE (lib/parliament/density.ts): a threshold on what has been put into each cell-slot. Off = the fold.
   const DENSITY_GROUP = "건물 생성 (칸 밀도 계단)";
   const dn = useLevaControls(
@@ -3035,6 +3131,18 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           },
           { order: 1 },
         ),
+        // (the artist, 2026-11-15: "마을과 마을 사이에 물 흐르는 게 보이도록" → "선으로 표현하기보다 식생 점이 닳는
+        // 걸로"): each village's water runs from its outfall to where it meets its nearest neighbour's (water.ts
+        // towardCourse), and the vegetation's points wear away along it — more where it has run on, slot after slot
+        "마을 사이 물길 (식생이 닳음)": folder(
+          {
+            riverOn: { value: true, label: "켜기" },
+            riverGain: { value: 0.35, min: 0, max: 1, step: 0.05, label: "물이 지나간 한 단에 닳는 정도" },
+            riverKeep: { value: 0.85, min: 0, max: 0.99, step: 0.01, label: "닳음이 위 단으로 이어지는 정도 (오래 흐른 곳일수록 깊게)" },
+            riverWidth: { value: 1, min: 0, max: 4, step: 0.5, label: "물길 폭 (칸 · 양옆으로)" },
+          },
+          { order: 1.5 },
+        ),
         "층 · 이어짐": folder(
           {
             change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (덮인 땅이 이만큼 바뀌면 · 건물이 오고 가도)" },
@@ -3131,9 +3239,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             pipeLife: wtr.pipeLife,
             thin: wtr.thin,
             ...(REDESIGN ? { minCells: wtr.pipeMinCells, pathPull: wtr.pipePathPull } : {}),
+            ...(REDESIGN && botVillages ? { villages: botVillages } : {}),
           }
         : null,
-    [isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipePathPull, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
+    [botVillages, isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipePathPull, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(
@@ -3578,7 +3687,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.dGrowCount, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
-  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: (v.follow && !REDESIGN) || rising, markers: v.markers, markerHold: v.markerHold };
+  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: (v.follow && !REDESIGN) || (rising && !!world.camRise), markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -3732,7 +3841,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
+          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene

@@ -129,9 +129,41 @@ export interface HerdConfig {
    *  the emptiest — herds at every time of the block; "any" = anywhere in the depth. */
   layout: "strata" | "any";
   /** WHERE (ground): "even" = anywhere within originR of the origin; "doors" = the origin or one of the epoch's four
-   *  doors (the old entries); "built" = near a place others have stayed at (even, while there is none). */
-  origin: "even" | "doors" | "built";
+   *  doors (the old entries); "built" = near a place others have stayed at (even, while there is none);
+   *  "villages" = in one of the epoch's village sites (`villages`), and every herd stays in its own. */
+  origin: "even" | "doors" | "built" | "villages";
   originR: number;
+  /**
+   * VILLAGES (the artist, 2026-11-15: "마을 시작"): sites of the epoch within originR of the origin. A herd (and a
+   * loner) belongs to one alive at its time — the one with fewest herds living, mostly — is born in it and goes about
+   * inside its `radius` only: its stays, its round, the places it follows.
+   * IN TIME (the artist, 2026-11-15: "마을은 시간대별로 거점이 다를 수 있어야"): with `lifeSec` > 0 and a block, a
+   * site lives for a span of the block's time (lifeSec × 0.6 … 1.4); `count` villages are alive at any time, each
+   * followed by the next of its line a little before it ends — near it with `carry` (the village moved), elsewhere
+   * otherwise (abandoned; a new one founded). The lines are out of step, so no time of the block is a border of eras.
+   * A herd whose village ends while it lives walks over to the one that follows it: a way between the two. Sites keep
+   * `gap` from the sites alive at the same time. lifeSec 0 = every site for the whole block (a column).
+   * WAYS BETWEEN THEM (step 2): roaming herds and loners have a home village; leaving a stay at home, they go to a
+   * neighbour alive at their time with `travel` (the nearer, much the likelier: the same pairs again and again), stay
+   * there a while and come back — the walks between two villages are taken again and again and become the roads.
+   * HOUSES (the artist, 2026-11-15: "마을에 건물이 여러채보다는 한 덩어리가 되는 느낌이라 아쉬움"): a village has
+   * `plots` house plots (± 1 by its own draw) on a ring at 0.75 of its radius around an open middle; every stay in a
+   * village is at one of them — a settler mostly at its own — so a village is several buildings round a court, not
+   * one mass. 0 = anywhere in the village (one mass).
+   * TWO KINDS OF WAY (the artist, 2026-11-15: "마을 속 길이랑 마을간 긴 로직을 좀 나눠서 최적화", "마을간 길은 좀 더
+   * 유동적이도록"): a walk inside a village is a LANE — from where it is to the court's middle and on to where it goes
+   * (straight when the two are near), no search over the grid at all, so the lanes of a village are the same few lines
+   * walked again and again. A walk between two villages is a ROAD — searched over the grid (the tails, round the
+   * buildings) through a waypoint off the straight line between the two villages, swung sideways by up to `fluid` × 35 %
+   * of their distance, drifting slowly with the block's time (minutes): walks of about the same time take the same
+   * road, and over time the road wanders. 0 = the straight search between them.
+   * CHARACTER (step 4; the artist, 2026-11-15: "마을마다 다른 성격으로"): every site draws its own — SIZE (its radius
+   * × 0.6 … 1.6, and as many houses as fit), STAY (how long its people stay, × 0.5 … 1.9: a staying village builds
+   * tall), TRAVEL (how often its roamers go visiting, × 0.2 … 1.8: open or closed) and SETTLED (its herds more settlers
+   * or more roamers) — all scaled by `character` (0 = every village alike). A moved village keeps its line's character
+   * (a little drifted); a newly founded one draws its own.
+   */
+  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number; travel?: number; plots?: number; fluid?: number; character?: number };
   /** HOW THEY MOVE, as shares of the herds: settlers (long stays, short hops, back to their places), roamers (short
    *  stays, long walks) and those on a round (the same three or four places, again and again — paths between them). */
   mix: { settle: number; roam: number; tour: number };
@@ -153,8 +185,11 @@ export const DEFAULT_HERD: HerdConfig = {
   metersPerSec: 1 / 20,
   depthSec: 900,
   layout: "strata",
-  origin: "even",
-  originR: 60,
+  origin: "villages",
+  // (the ground narrowed for villages, the artist 2026-11-15 "땅 좁히기": the block reads as a column, the wall's grids
+  // over all buildings — water, walkways — are smaller; 44, not less: villages of different sizes need the room)
+  originR: 44,
+  villages: { count: 5, radius: 12, gap: 30, lifeSec: 400, carry: 0.5, travel: 0.5, plots: 5, fluid: 0.5, character: 0.6 },
   mix: { settle: 1, roam: 1, tour: 1 },
   loose: 0.3,
   drift: 0,
@@ -244,6 +279,12 @@ export interface Visitor {
   drift?: number;
   hx?: number;
   hz?: number;
+  /** VILLAGES: the village it is in now (an index of villageSites; absent = none), and the one it lives in (a
+   *  roamer's or loner's home, which it leaves to visit a neighbour and comes back to; absent = vil). */
+  vil?: number;
+  home?: number;
+  /** VILLAGES: its own house plot in the village it is in (an index of the site's plots). */
+  plot?: number;
   lag?: number;
   tx?: number;
   tz?: number;
@@ -423,12 +464,225 @@ export function herdsWanted(sec: number, h: HerdConfig): number {
   return Math.round(lo + (hi - lo) * Math.max(0, Math.min(1, w)));
 }
 
+// ── villages ────────────────────────────────────────────────────────────────
+
+/** A village site: its ground, the block times it lives (from ≤ t < to), and the site that follows it (−1: none). */
+export interface VillageSite {
+  x: number;
+  z: number;
+  from: number;
+  to: number;
+  next: number;
+  /** Its house plots (canonical ground), round an open middle; empty = none (anywhere in the village). */
+  plots: [number, number][];
+  /** Its CHARACTER (HerdConfig.villages.character): multipliers of its radius, of its people's stays and of its
+   *  roamers' visits, and its lean towards settlers (> 0) or roamers (< 0, −1 … 1). */
+  ch: { size: number; stay: number; travel: number; settled: number };
+}
+
+/** A site's radius (its village's character × the radius of the knobs). */
+export function siteRadius(s: VillageSite, h: HerdConfig): number {
+  return Math.max(1, (h.villages?.radius ?? 1) * s.ch.size);
+}
+
+let siteCache: { key: string; sites: VillageSite[] } | null = null;
+/** THE RISING WINDOW (HerdConfig.shift): the time of the axis the sites are laid up to, and the world it is of. */
+let siteUntil = 0, siteEpoch = 0;
+
+/** Least distance (world) between the middles of two house plots on a village's ring. */
+const PLOT_SPACING = 10;
+
+/**
+ * The epoch's village sites (HerdConfig.villages), by the epoch's draws only: `count` lines out of step, each a chain of
+ * sites over the block's time (or one site for the whole block when lifeSec is 0 or there is no block). A site is the
+ * best of 16 draws within originR — the farthest from the sites alive at the same time, or the first at least `gap`
+ * from all of them; a moved village is drawn at gap × 0.5 … 0.9 from the one before it. Empty when the herds are not
+ * in villages.
+ */
+export function villageSites(epochMs: number, h: HerdConfig | undefined, until?: number): VillageSite[] {
+  if (!h || h.origin !== "villages" || !h.villages) return [];
+  const V = h.villages;
+  const n = Math.max(1, Math.min(16, Math.round(V.count)));
+  const depth = Math.max(0, h.depthSec);
+  // THE RISING WINDOW (merged 2026-11-15 with the thick present that rises): the block is no longer the times
+  // 0 … depth for good, so the lines of sites go on as far as the window has come — `until`, the latest time of the
+  // axis anybody asks about (stepLifecycle gives the window's top). They are laid a window's height ahead at a time;
+  // the sites laid before keep their place in the list (the same draws in the same order), so an index stands.
+  if (siteEpoch !== epochMs) [siteEpoch, siteUntil] = [epochMs, 0];
+  const rising = (h.shift ?? 0) > 0 && depth > 0;
+  if (rising && until !== undefined && until > siteUntil - depth) siteUntil = (Math.floor(until / depth) + 2) * depth;
+  const upTo = rising ? Math.max(depth, siteUntil) : depth;
+  const life = depth > 0 ? Math.max(0, V.lifeSec ?? 0) : 0;
+  const carry = Math.max(0, Math.min(1, V.carry ?? 0));
+  const R = Math.max(0, h.originR);
+  const chA = Math.max(0, Math.min(1, V.character ?? 0));
+  const key = `${epochMs}|${n}|${R}|${V.gap}|${depth}|${upTo}|${life}|${carry}|${V.radius}|${V.plots ?? 0}|${chA}`;
+  if (siteCache?.key === key) return siteCache.sites;
+  const sites: VillageSite[] = [];
+  let d = 0;
+  const wd = (s: number) => worldDraw(epochMs, -1000 - d, s);
+  /** A character: a new one by the draws `g`, or the one before it a little drifted (a moved village). */
+  const charOf = (g: number, after: VillageSite | null): VillageSite["ch"] => {
+    const u = (s: number) => worldDraw(epochMs, -4000 - g, s);
+    if (after) {
+      const dr = (s: number) => 1 + (u(s) - 0.5) * 0.2 * chA;
+      return { size: after.ch.size * dr(1), stay: after.ch.stay * dr(2), travel: after.ch.travel * dr(3), settled: Math.max(-1, Math.min(1, after.ch.settled + (u(4) - 0.5) * 0.2 * chA)) };
+    }
+    return { size: 1 + chA * (u(1) * 1.0 - 0.4), stay: 1 + chA * (u(2) * 1.4 - 0.5), travel: 1 + chA * (u(3) * 1.6 - 0.8), settled: chA * (u(4) * 2 - 1) };
+  };
+  /** The best ground for a site alive over [from, to) of size `size`: far from the others then — the distance read
+   *  against their mean size — and near `after`, a moved one. */
+  const seat = (from: number, to: number, after: VillageSite | null, size = 1): [number, number] => {
+    const others = sites.filter((o) => o.from < to && from < o.to && o !== after);
+    let best: [number, number] = [0, 0], bestD = -1;
+    // (48 tries; a moved village tries near the one before it first, and is founded elsewhere if there is no room)
+    for (let c = 0; c < 48; c++, d++) {
+      let x: number, z: number;
+      if (after && c < 24) {
+        const a = wd(1) * 2 * Math.PI, r = V.gap * (0.5 + 0.4 * wd(2));
+        x = after.x + Math.sin(a) * r;
+        z = after.z + Math.cos(a) * r;
+        // never out past originR (the box of the ground stays off the world's edge)
+        const L = Math.hypot(x, z);
+        if (L > R && L > 0) [x, z] = [(x / L) * R, (z / L) * R];
+      } else {
+        const a = wd(1) * 2 * Math.PI, r = R * Math.sqrt(wd(2));
+        [x, z] = [Math.sin(a) * r, Math.cos(a) * r];
+      }
+      x = wrapCoord(x);
+      z = wrapCoord(z);
+      let dMin = Infinity;
+      for (const o of others) dMin = Math.min(dMin, wrapDist(x, z, o.x, o.z) / Math.max(1, (o.ch.size + size) / 2));
+      if (dMin > bestD) {
+        bestD = dMin;
+        best = [x, z];
+      }
+      if (dMin >= V.gap) break;
+    }
+    return best;
+  };
+  if (!(life > 0)) {
+    for (let i = 0; i < n; i++) {
+      const ch = charOf(i, null);
+      const [x, z] = seat(-Infinity, Infinity, null, ch.size);
+      sites.push({ x, z, from: -Infinity, to: Infinity, next: -1, plots: [], ch });
+    }
+  } else {
+    // the lines: each begins at its own phase below time 0, and the earliest next start is laid first, so a site
+    // sees every site alive with it
+    const lines = Array.from({ length: n }, (_, i) => ({ at: -worldDraw(epochMs, -900 - i, 1) * life, last: -1 }));
+    // (the rising window: a day of the wall is some thousands of sites)
+    for (let guard = 0; guard < (rising ? 6000 : 400); guard++) {
+      let li = -1;
+      for (let i = 0; i < n; i++) if (lines[i].at < upTo && (li < 0 || lines[i].at < lines[li].at)) li = i;
+      if (li < 0) break;
+      const L = lines[li];
+      const len = life * (0.6 + 0.8 * worldDraw(epochMs, -2000 - guard, 1));
+      const prev = L.last >= 0 ? sites[L.last] : null;
+      const moved = prev !== null && worldDraw(epochMs, -2000 - guard, 2) < carry;
+      const ch = charOf(guard, moved ? prev : null);
+      const [x, z] = seat(L.at, L.at + len, moved ? prev : null, ch.size);
+      sites.push({ x, z, from: L.at, to: L.at + len, next: -1, plots: [], ch });
+      if (prev) prev.next = sites.length - 1;
+      L.last = sites.length - 1;
+      // the next of the line comes a little before this one ends (the two are both lived in for a while)
+      L.at += len - life * 0.1;
+    }
+  }
+  // HOUSES: each site's plots on a ring round its open middle, evenly spaced with a little play
+  const P = Math.max(0, Math.round(V.plots ?? 0));
+  if (P > 0)
+    sites.forEach((s, i) => {
+      // (no more than fit on the ring PLOT_SPACING apart: closer, two houses would be built into one)
+      // (a larger village: a wider ring and more houses on it)
+      const ring0 = siteRadius(s, h) * 0.75, fit = Math.max(1, Math.floor((2 * Math.PI * ring0) / PLOT_SPACING));
+      const m = Math.max(1, Math.min(fit, 12, Math.round(P * s.ch.size + (worldDraw(epochMs, -3000 - i, 1) - 0.5) * 2.2)));
+      const a0 = worldDraw(epochMs, -3000 - i, 2) * 2 * Math.PI, ring = m === 1 ? 0 : ring0;
+      for (let j = 0; j < m; j++) {
+        const a = a0 + ((j + (worldDraw(epochMs, -3100 - i * 16 - j, 1) - 0.5) * 0.15) * 2 * Math.PI) / m;
+        const r = ring * (0.92 + 0.16 * worldDraw(epochMs, -3100 - i * 16 - j, 2));
+        s.plots.push([wrapCoord(s.x + Math.sin(a) * r), wrapCoord(s.z + Math.cos(a) * r)]);
+      }
+    });
+  siteCache = { key, sites };
+  return sites;
+}
+
+/** v's place in the block's time now (the seconds its samples carry: lifecycleActor). */
+function blockSecOf(v: Visitor, wallMs: number, epochMs: number): number {
+  const drift = (v.drift ?? 0) * ((wallMs - v.bornMs) / 1000);
+  return Math.max(0, (wallMs - epochMs) / 1000 + v.off + (v.off < 0 ? Math.min(-v.off, drift) : 0));
+}
+
+/** The centre and radius of v's village, or null (no village). */
+function villageOf(v: Visitor, epochMs: number, h: HerdConfig | undefined): { x: number; z: number; r: number; plots: [number, number][] } | null {
+  if (v.vil === undefined || !h?.villages) return null;
+  const s = villageSites(epochMs, h)[v.vil];
+  return s ? { x: s.x, z: s.z, r: siteRadius(s, h), plots: s.plots } : null;
+}
+
+/**
+ * A spot at a house plot of v's village (null: the village has none): its own plot with `own`, else any — and a plot
+ * it has none of yet becomes its own. Within 0.8 of the plot's middle.
+ */
+function plotSpot(v: Visitor, vil: { plots: [number, number][] }, epochMs: number, own: number, s: number): [number, number] | null {
+  const n = vil.plots.length;
+  if (!n) return null;
+  let i = v.plot !== undefined && v.plot < n && draw(v, epochMs, s) < own ? v.plot : Math.floor(draw(v, epochMs, s + 1) * n) % n;
+  if (v.plot === undefined || v.plot >= n) v.plot = i;
+  i = Math.min(n - 1, i);
+  const p = vil.plots[i];
+  return [wrapCoord(p[0] + (draw(v, epochMs, s + 2) - 0.5) * 1.6), wrapCoord(p[1] + (draw(v, epochMs, s + 3) - 0.5) * 1.6)];
+}
+
+/** A spot of v's village: within `share` of its radius, evenly over the disc (canonical). */
+function spotIn(v: Visitor, vil: { x: number; z: number; r: number }, epochMs: number, share: number, s: number): [number, number] {
+  const a = draw(v, epochMs, s) * 2 * Math.PI, d = vil.r * share * Math.sqrt(draw(v, epochMs, s + 1));
+  return [wrapCoord(vil.x + Math.sin(a) * d), wrapCoord(vil.z + Math.cos(a) * d)];
+}
+
+/**
+ * The village a new herd or loner joins at block time `t`: one alive then, weighted towards those with fewest of `kind`
+ * living (1 / (1 + n)); none alive (past the top of the block) = the one whose span is nearest.
+ */
+function chooseVillage(v: Visitor, st: LifecycleState, epochMs: number, h: HerdConfig, kind: "leader" | "loner", t: number): number | undefined {
+  const sites = villageSites(epochMs, h, t);
+  if (!sites.length) return undefined;
+  const alive: number[] = [];
+  sites.forEach((s, i) => s.from <= t && t < s.to && alive.push(i));
+  if (!alive.length) {
+    let bi = 0, bd = Infinity;
+    sites.forEach((s, i) => {
+      const dd = t < s.from ? s.from - t : t - s.to;
+      if (dd < bd) [bi, bd] = [i, dd];
+    });
+    return bi;
+  }
+  const living = new Map<number, number>();
+  for (const p of st.present) if (p.kind === kind && p.vil !== undefined && p.id !== v.id) living.set(p.vil, (living.get(p.vil) ?? 0) + 1);
+  let tot = 0;
+  // (a larger village draws more people: its size over those living there)
+  const ws = alive.map((i) => (tot += sites[i].ch.size / (1 + (living.get(i) ?? 0))));
+  const u = draw(v, epochMs, 140) * tot;
+  return alive[Math.max(0, ws.findIndex((w) => w >= u))];
+}
+
+/** A round of 3–4 spots of v's village (a tour herd's, again when its village is followed by another). */
+function villageTour(v: Visitor, vil: { x: number; z: number; r: number; plots: [number, number][] }, epochMs: number): number[] {
+  const n = 3 + Math.floor(draw(v, epochMs, 122) * 2);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(...(plotSpot(v, vil, epochMs, 0, 150 + 4 * i) ?? spotIn(v, vil, epochMs, 1, 150 + 2 * i)));
+  return out;
+}
+
 /** One ground candidate for a new herd, by the config's way of choosing it. */
 function groundCandidate(v: Visitor, places: readonly Place[], wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig, c: number): [number, number] {
   const even = (): [number, number] => {
     const a = draw(v, epochMs, 70 + c) * 2 * Math.PI, d = Math.max(0, h.originR) * Math.sqrt(draw(v, epochMs, 80 + c));
     return [wrapCoord(Math.sin(a) * d), wrapCoord(Math.cos(a) * d)];
   };
+  const vil = villageOf(v, epochMs, h);
+  if (vil) return plotSpot(v, vil, epochMs, 0, 70 + 4 * c) ?? spotIn(v, vil, epochMs, 0.7, 70 + 2 * c);
   if (h.origin === "doors") {
     if (draw(v, epochMs, 70 + c) < cfg.originShare) return [wrapCoord((draw(v, epochMs, 80 + c) - 0.5) * 4), wrapCoord((draw(v, epochMs, 90 + c) - 0.5) * 4)];
     const d = doorsOf(epochMs)[Math.min(3, Math.floor(draw(v, epochMs, 80 + c) * 4))];
@@ -468,7 +722,7 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((still * elapsed + offNow(p)) / depth) * bands)))]++;
   const fewest = Math.min(...inBand);
   const free = inBand.map((n, i) => (n === fewest ? i : -1)).filter((i) => i >= 0);
-  let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1;
+  let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1, bestVil: number | undefined;
   for (let c = 0; c < 8; c++) {
     let off = v.off;
     if (depth > 0) {
@@ -477,35 +731,46 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
         off = Math.min(span, ((band + draw(v, epochMs, 110 + c)) / bands) * depth) - still * elapsed;
       } else off = draw(v, epochMs, 60 + c) * span - still * elapsed;
     }
+    // VILLAGES: one alive at this try's time (its ground candidates are spots of it)
+    if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "leader", Math.max(0, elapsed + off));
     const [x, z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, c);
     let dMin = Infinity;
     for (const p of leaders) dMin = Math.min(dMin, dist3(x, z, off, p.x, p.z, offNow(p), h));
     if (dMin > bestD) {
       bestD = dMin;
       best = [x, z, off];
+      bestVil = v.vil;
     }
     if (dMin >= h.gap) break;
   }
   [v.x, v.z, v.off] = best;
+  v.vil = bestVil;
   v.ex = v.x;
   v.ez = v.z;
   v.kind = "leader";
   v.drift = (draw(v, epochMs, 120) - 0.5) * 2 * Math.max(0, Math.min(0.9, h.drift));
-  // HOW IT MOVES: one of three ways, by the shares
-  const m = h.mix, tot = Math.max(1e-6, m.settle + m.roam + m.tour), u = draw(v, epochMs, 121) * tot;
+  // HOW IT MOVES: one of three ways, by the shares (in a village: leaning as the village does, settlers or roamers)
+  const site = v.vil !== undefined ? villageSites(epochMs, h)[v.vil] : undefined;
+  const lean = site?.ch.settled ?? 0;
+  const m = { settle: h.mix.settle * (1 + lean), roam: h.mix.roam * (1 - lean), tour: h.mix.tour };
+  const tot = Math.max(1e-6, m.settle + m.roam + m.tour), u = draw(v, epochMs, 121) * tot;
   v.temper = u < m.settle ? "settle" : u < m.settle + m.roam ? "roam" : "tour";
   if (v.temper === "settle") v.ch = { ...v.ch, stayMean: Math.min(70, v.ch.stayMean * 2), range: Math.max(4, v.ch.range * 0.35), revisit: 0.7, follow: v.ch.follow * 0.3, wander: v.ch.wander * 0.5 };
   else if (v.temper === "roam") v.ch = { ...v.ch, stayMean: Math.max(4, v.ch.stayMean * 0.35), range: Math.min(90, v.ch.range * 2.2), revisit: 0, follow: v.ch.follow * 0.5, speed: v.ch.speed * 1.2 };
   else {
     v.ch = { ...v.ch, stayMean: v.ch.stayMean * 0.8, follow: 0, revisit: 0 };
-    const n = 3 + Math.floor(draw(v, epochMs, 122) * 2);
-    v.tour = [];
+    const vil = villageOf(v, epochMs, h);
+    // in a village: its round is spots of the village
+    const n = vil ? 0 : 3 + Math.floor(draw(v, epochMs, 122) * 2);
+    v.tour = vil ? villageTour(v, vil, epochMs) : [];
     for (let i = 0; i < n; i++) {
       const a = draw(v, epochMs, 123 + i) * 2 * Math.PI, d = v.ch.range * (0.4 + 0.6 * draw(v, epochMs, 130 + i));
       v.tour.push(wrapCoord(v.ex + Math.sin(a) * d), wrapCoord(v.ez + Math.cos(a) * d));
     }
     v.ti = 0;
   }
+  // its village's character: a staying village's people stay longer
+  if (site) v.ch = { ...v.ch, stayMean: v.ch.stayMean * site.ch.stay };
   // a herd in the block dies where it stands (the doors are the old present's)
   v.leaves = false;
 }
@@ -516,6 +781,10 @@ function seatLoner(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numb
   // (a time of the fixed block, as a herd's: seatHerd)
   const still = 1 - Math.max(0, Math.min(1, h.shift ?? 0));
   if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - still * (v.lifeMs / 1000)) - still * Math.max(0, (wallMs - epochMs) / 1000);
+  // (its time on the axis: the clock + off, in the fixed block and in the rising window alike)
+  if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "loner", Math.max(0, (wallMs - epochMs) / 1000 + v.off));
+  const site = v.vil !== undefined ? villageSites(epochMs, h)[v.vil] : undefined;
+  if (site) v.ch = { ...v.ch, stayMean: v.ch.stayMean * site.ch.stay };
   [v.x, v.z] = groundCandidate(v, st.places, wallMs, epochMs, cfg, h, 0);
   v.ex = v.x;
   v.ez = v.z;
@@ -536,6 +805,7 @@ function joinHerd(v: Visitor, lead: Visitor, wallMs: number, epochMs: number, h:
   v.z = v.ez = wrapCoord(lead.z + v.hz);
   v.lifeMs = lead.lifeMs * (0.9 + 0.2 * draw(v, epochMs, 63));
   v.drift = lead.drift;
+  v.vil = lead.vil;
   v.leaves = lead.leaves;
   v.door = lead.door;
   v.lead = lead.id;
@@ -587,7 +857,7 @@ function keepWithHerd(v: Visitor, lead: Visitor, st: LifecycleState, inp: Lifecy
     v.stops.push([v.sx, v.sz]);
   }
   const bx = nearestImage(v.tx, v.x), bz = nearestImage(v.tz, v.z);
-  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
+  v.route = planWay(v, inp, wallMs, epochMs, cfg, bx, bz);
   v.along = 0;
   v.mode = "go";
   return true;
@@ -632,6 +902,43 @@ function pointAlong(r: readonly number[], d: number): [number, number] {
   return [r[r.length - 2], r[r.length - 1]];
 }
 
+/**
+ * VILLAGES, WAYS BETWEEN THEM: a roaming herd's leader or a loner, leaving a stay — at home it goes to a neighbour alive
+ * at its time with `travel` (weight (1 + d / gap)^−3: the nearest by far the likeliest), away it goes home again half
+ * the time (else it stays about the village it visits). Null = it goes about where it is.
+ */
+function villageTrip(v: Visitor, wallMs: number, epochMs: number, h: HerdConfig | undefined): [number, number] | null {
+  if (!h?.villages || v.vil === undefined || !(v.temper === "roam" || v.kind === "loner")) return null;
+  const home = v.home ?? v.vil;
+  v.home = home;
+  const sites = villageSites(epochMs, h);
+  // (an open village's people go visiting more, a closed one's less)
+  const travel = Math.max(0, Math.min(1, (h.villages.travel ?? 0) * (sites[home]?.ch.travel ?? 1)));
+  if (!(travel > 0)) return null;
+  if (v.vil !== home) {
+    if (draw(v, epochMs, 160) >= 0.5) return null;
+    v.vil = home;
+  } else {
+    if (draw(v, epochMs, 161) >= travel) return null;
+    const t = blockSecOf(v, wallMs, epochMs), me = sites[home];
+    if (!me) return null;
+    const cands: number[] = [], ws: number[] = [];
+    let tot = 0;
+    sites.forEach((s, i) => {
+      if (i === home || !(s.from <= t && t < s.to)) return;
+      cands.push(i);
+      ws.push((tot += Math.pow(1 + wrapDist(me.x, me.z, s.x, s.z) / Math.max(1, h.villages!.gap), -3)));
+    });
+    if (!cands.length) return null;
+    const u = draw(v, epochMs, 162) * tot;
+    v.vil = cands[Math.max(0, ws.findIndex((w) => w >= u))];
+  }
+  v.stops = [];
+  v.plot = undefined;
+  const vil = villageOf(v, epochMs, h);
+  return vil ? plotSpot(v, vil, epochMs, 0, 163) ?? spotIn(v, vil, epochMs, 0.6, 163) : null;
+}
+
 /** Where `v` goes next: someone else's place, its own earlier place, or somewhere new within its range. */
 function destination(v: Visitor, places: readonly Place[], attractors: readonly Attractor[], wallMs: number, epochMs: number, cfg: LifecycleConfig): [number, number] {
   // ON A ROUND: the next of its places
@@ -640,9 +947,17 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
     v.ti = ((v.ti ?? 0) + 1) % n;
     return [wrapCoord(v.tour[v.ti * 2] + (draw(v, epochMs, 36) - 0.5)), wrapCoord(v.tour[v.ti * 2 + 1] + (draw(v, epochMs, 37) - 0.5))];
   }
+  // VILLAGES: to a neighbour village and back (roamers, loners) …
+  const trip = villageTrip(v, wallMs, epochMs, cfg.herd);
+  if (trip) return trip;
+  // … else it goes about inside its village — at its houses (a settler mostly at its own), or, without houses, the
+  // places it follows are the village's, a new place a spot of it
+  const vil = villageOf(v, epochMs, cfg.herd);
+  const house = vil ? plotSpot(v, vil, epochMs, v.temper === "settle" ? 0.75 : 0.35, 170) : null;
+  if (house) return house;
   if (draw(v, epochMs, 30) < v.ch.follow) {
     const cands: [number, number, number][] = [];
-    for (const p of places) cands.push([p.x, p.z, placeWeight(p, wallMs, cfg)]);
+    for (const p of places) if (!vil || wrapDist(p.x, p.z, vil.x, vil.z) <= vil.r * 1.2) cands.push([p.x, p.z, placeWeight(p, wallMs, cfg)]);
     for (const a of attractors) cands.push([a.x, a.z, a.w]);
     let tot = 0;
     const ws = cands.map(([x, z, w]) => {
@@ -664,8 +979,61 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
     const s = v.stops[Math.min(v.stops.length - 1, Math.floor(draw(v, epochMs, 35) * v.stops.length))];
     return [wrapCoord(s[0] + (draw(v, epochMs, 36) - 0.5)), wrapCoord(s[1] + (draw(v, epochMs, 37) - 0.5))];
   }
+  if (vil) return spotIn(v, vil, epochMs, 1, 38);
   const a = draw(v, epochMs, 38) * 2 * Math.PI, d = v.ch.range * Math.sqrt(draw(v, epochMs, 39));
   return [wrapCoord(v.ex + Math.sin(a) * d), wrapCoord(v.ez + Math.cos(a) * d)];
+}
+
+/** Smooth 1D value noise, 0..1 (a road's slow swing). */
+function swing(t: number, seed: number): number {
+  const i = Math.floor(t), f = t - i, u = f * f * (3 - 2 * f);
+  const a = hash2(i, seed, 173), b = hash2(i + 1, seed, 173);
+  return a + (b - a) * u;
+}
+
+/**
+ * The way from where v is to (bx, bz) (nearest images). In villages (HerdConfig.villages): a LANE when both ends are in
+ * its village — through the court's middle, no grid search; a ROAD when one end is not — the caller's search through a
+ * slowly drifting waypoint between the two villages (`fluid`). Otherwise the caller's search (or straight).
+ */
+function planWay(v: Visitor, inp: LifecycleInputs, wallMs: number, epochMs: number, cfg: LifecycleConfig, bx: number, bz: number): number[] {
+  const sec = (wallMs - epochMs) / 1000 + v.off;
+  const search = (ax: number, az: number, cx: number, cz: number) => (inp.planRoute ? inp.planRoute(ax, az, cx, cz, sec) : [ax, az, cx, cz]);
+  const h = cfg.herd;
+  const vil = villageOf(v, epochMs, h);
+  if (!vil || !h?.villages) return search(v.x, v.z, bx, bz);
+  const near = (x: number, z: number) => wrapDist(x, z, vil.x, vil.z) <= vil.r * 1.3;
+  const inA = near(v.x, v.z), inB = near(wrapCoord(bx), wrapCoord(bz));
+  if (inA && inB) {
+    // LANE: straight when the two ends are near each other (one house), else by the court's middle
+    if (Math.hypot(bx - v.x, bz - v.z) < vil.r * 0.5) return [v.x, v.z, bx, bz];
+    const cx = nearestImage(vil.x, v.x) + (draw(v, epochMs, 180) - 0.5) * 1.2, cz = nearestImage(vil.z, v.z) + (draw(v, epochMs, 181) - 0.5) * 1.2;
+    return [v.x, v.z, cx, cz, bx, bz];
+  }
+  // ROAD between two villages: the one it leaves (nearest to it) and the one it goes to (or the other way round)
+  const sites = villageSites(epochMs, h);
+  const nearestSite = (x: number, z: number) => {
+    let bi = -1, bd = Infinity;
+    sites.forEach((q, i) => {
+      const d = wrapDist(x, z, q.x, q.z);
+      if (d < bd) [bi, bd] = [i, d];
+    });
+    return bi;
+  };
+  const i = nearestSite(v.x, v.z), j = nearestSite(wrapCoord(bx), wrapCoord(bz));
+  const fluid = Math.max(0, Math.min(1, h.villages.fluid ?? 0));
+  if (i < 0 || j < 0 || i === j || !(fluid > 0)) return search(v.x, v.z, bx, bz);
+  // the waypoint: the middle, swung across the line from the lower-numbered village to the other (the same side
+  // whichever way it is walked), drifting with the block's time
+  const [lo, hi] = i < j ? [sites[i], sites[j]] : [sites[j], sites[i]];
+  const lx = nearestImage(lo.x, v.x), lz = nearestImage(lo.z, v.z), hx = nearestImage(hi.x, lx), hz = nearestImage(hi.z, lz);
+  const L = Math.hypot(hx - lx, hz - lz);
+  if (L < 1) return search(v.x, v.z, bx, bz);
+  const side = (swing(Math.max(0, sec) / 150, Math.min(i, j) * 977 + Math.max(i, j)) - 0.5) * 2 * fluid * 0.35 * L;
+  const along = 0.5 + (swing(Math.max(0, sec) / 210, Math.min(i, j) * 911 + Math.max(i, j) + 7) - 0.5) * 0.3 * fluid;
+  const wx = lx + (hx - lx) * along + (-(hz - lz) / L) * side, wz = lz + (hz - lz) * along + ((hx - lx) / L) * side;
+  const a = search(v.x, v.z, wx, wz), b = search(wx, wz, bx, bz);
+  return [...a, ...b.slice(2)];
 }
 
 /** What `v` does when its LOOK or STAY is over, or it has arrived. Returns true when it planned a route. */
@@ -707,7 +1075,7 @@ function next(v: Visitor, st: LifecycleState, inp: LifecycleInputs, wallMs: numb
       v.met = true;
     }
   }
-  v.route = inp.planRoute ? inp.planRoute(v.x, v.z, bx, bz, (wallMs - epochMs) / 1000 + v.off) : [v.x, v.z, bx, bz];
+  v.route = planWay(v, inp, wallMs, epochMs, cfg, bx, bz);
   v.along = 0;
   v.mode = "go";
   return true;
@@ -766,6 +1134,8 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
 
   const nowSec = Math.floor((wallMs - epochMs) / 1000);
   const hc = cfg.herd;
+  // (the rising window: the villages' sites are laid as far as its top before anybody asks for one)
+  if (hc && (hc.shift ?? 0) > 0) villageSites(epochMs, hc, Math.max(0, Math.min(1, hc.shift ?? 0)) * Math.max(0, (wallMs - epochMs) / 1000) + Math.max(0, hc.depthSec));
   if (hc) {
     // THE POPULATION: `count` herds and `loners` bots; who is gone is replaced — a herd at the seconds ≡ 0 (mod 4),
     // a loner at ≡ 3, one at a time (so the draws of those born in one second never overlap, and nobody comes in a crowd)
@@ -826,6 +1196,28 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
     // HERD: a member whose leader is gone goes on by itself
     const leader = v.lead ? byId.get(v.lead) : undefined;
     if (v.lead && !leader) v.lead = undefined;
+    // VILLAGES IN TIME: its village has ended at its time — it goes over to the one that follows (a member: its
+    // leader's); a stay is cut short so it sets off now, a round is laid anew in the new village
+    if (hc && v.vil !== undefined) {
+      const sites = villageSites(epochMs, hc);
+      const t = blockSecOf(v, wallMs, epochMs);
+      const after = (i: number) => (sites[i] && sites[i].next >= 0 && t >= sites[i].to ? sites[i].next : i);
+      // its home too (a roamer away from it comes back to the one that follows it)
+      if (v.home !== undefined) v.home = after(v.home);
+      const to = leader ? leader.vil : after(v.vil);
+      if (to !== undefined && to !== v.vil) {
+        v.vil = to;
+        // its own earlier places (and its house) were the old village's
+        v.stops = [];
+        v.plot = undefined;
+        const nv = villageOf(v, epochMs, hc);
+        if (nv && v.tour) {
+          v.tour = villageTour(v, nv, epochMs);
+          v.ti = v.tour.length / 2 - 1;
+        }
+        if (!leader && v.mode !== "go") v.untilMs = wallMs;
+      }
+    }
     // the end draws near: it slows as a visitor's controls do (session.ts lifeAt warn)
     const left = (v.lifeMs - (wallMs - v.bornMs)) / 1000;
     // LEAVING: time to walk out — to its own door, else the nearest — when the life left is about the walk there
@@ -868,6 +1260,9 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
     }
     if (v.mode === "look") {
       v.head += (draw(v, epochMs, 50) - 0.5) * 1.2 * (0.3 + v.ch.wander);
+      // VILLAGES: looking about past the village's edge, it turns back towards its middle
+      const vil = villageOf(v, epochMs, hc);
+      if (vil && wrapDist(v.x, v.z, vil.x, vil.z) > vil.r) v.head = Math.atan2(nearestImage(vil.x, v.x) - v.x, nearestImage(vil.z, v.z) - v.z);
       v.x = wrapCoord(v.x + Math.sin(v.head) * speed * 0.6 * dt);
       v.z = wrapCoord(v.z + Math.cos(v.head) * speed * 0.6 * dt);
     } else {

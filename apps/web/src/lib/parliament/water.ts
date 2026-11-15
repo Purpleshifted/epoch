@@ -45,6 +45,7 @@ import { cellKey, flowP, flowTracks, stayShares, type FlowConfig, type Track } f
 import { hash2 } from "./nature";
 import type { Seed } from "./seeds";
 import type { PEvent } from "./types";
+import { wrapDist } from "./world";
 
 export interface WaterConfig {
   enabled: boolean;
@@ -87,6 +88,13 @@ export interface WaterConfig {
   pipeRadius: number;
   /** Dense buildings within this distance (world) share one sewer network and outfall (a quarter). */
   quarterGap: number;
+  /**
+   * PIPES IN VILLAGES ONLY (the artist, 2026-11-15: "배관은 마을 안에서만 생겨야 하지 않나?"): the bots' village sites
+   * ([x, z, from s, to s, its own radius], lifecycle.ts villageSites) and the radius of those without one. A dense building belongs to the village alive
+   * at its slot whose middle is nearest, within 1.5 radii; quarters are made inside each village only (never across
+   * two), and a building in no village gets no pipe — its water runs off in the open. Absent = as before.
+   */
+  villages?: { sites: ([number, number, number, number] | [number, number, number, number, number])[]; radius: number };
   /** How far back (slots) a new network may reuse the pipes below (and join them by manholes); 0 = the present
    *  thickness (DrainageOptions.present). Older pipes are past: a network there is laid anew. */
   reach: number;
@@ -408,8 +416,31 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     usedK = k;
     const isOpen = (c: number) => !sealed[c] && share[c] < cfg.openShare;
     const meanShare = (b: Building) => b.seeds.reduce((a, s) => a + share[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))], 0) / b.seeds.length;
-    const dense = live.filter((b) => meanShare(b) >= cfg.burial);
+    let dense = live.filter((b) => meanShare(b) >= cfg.burial);
     const sparse = live.filter((b) => meanShare(b) < cfg.burial);
+    // VILLAGES: which village each building is in (at this slot); a dense one outside every village gets no pipe
+    const villageOfB = new Map<number, number>();
+    const vs = cfg.villages;
+    const tMid = (k + 0.5) * spu;
+    const aliveSite = (i: number) => !!vs && vs.sites[i][2] <= tMid && tMid < vs.sites[i][3];
+    if (vs) {
+      for (const b of live) {
+        const cx = b.seeds.reduce((a, q) => a + q.x, 0) / b.seeds.length, cz = b.seeds.reduce((a, q) => a + q.z, 0) / b.seeds.length;
+        // (the nearest by distance over its own reach: 1.5 of its radius)
+        let best = -1, bd = 1;
+        vs.sites.forEach((q, i) => {
+          if (!aliveSite(i)) return;
+          const d = wrapDist(cx, cz, q[0], q[1]) / (Math.max(1, q[4] ?? vs.radius) * 1.5);
+          if (d <= bd) [best, bd] = [i, d];
+        });
+        if (best >= 0) villageOfB.set(b.id, best);
+      }
+      dense = dense.filter((b) => {
+        if (villageOfB.has(b.id)) return true;
+        sparse.push(b);
+        return false;
+      });
+    }
     // CHANGE: laid anew only when the quarter changed — a building came into use or left, a quarter got dense
     // enough to pipe (or no longer is), or the sealed ground changed by `change` of itself — and not more often
     // than every `minGapSlots`; between changes the last network stands and its streams keep running
@@ -451,7 +482,16 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     const risen = new Set<number>();
 
     // QUARTERS: dense buildings near each other share one sewer network and one outfall
-    for (const quarter of quartersOf(dense, cfg.quarterGap)) {
+    // (in villages: quarters inside each village only)
+    const outfallOf = new Map<number, number>(); // village → the cell its water comes out at
+    const groups = new Map<number, Building[]>();
+    for (const b of dense) {
+      const g = villageOfB.get(b.id) ?? -1;
+      const l = groups.get(g);
+      if (l) l.push(b);
+      else groups.set(g, [b]);
+    }
+    for (const quarter of [...groups.values()].flatMap((g) => quartersOf(g, cfg.quarterGap))) {
       const down = new Int32Array(n).fill(-2); // network: the next cell towards the outfall (−1 = the outfall)
       const inNet = (c: number) => down[c] !== -2;
       const routes: number[][] = [];
@@ -526,14 +566,41 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
           }
         }
       }
-      // the outfall: the water comes out into the open and runs on
-      courses.push(openCourse([trunk.cells[trunk.cells.length - 1]], share, nx, nz, centre, cfg, quarter[0].id, e));
+      // the outfall: the water comes out into the open and runs on (in a village: the village's one stream, below)
+      const vq = villageOfB.get(quarter[0].id);
+      if (vq !== undefined) {
+        if (!outfallOf.has(vq)) outfallOf.set(vq, trunk.cells[trunk.cells.length - 1]);
+      } else courses.push(openCourse([trunk.cells[trunk.cells.length - 1]], share, nx, nz, centre, cfg, quarter[0].id, e));
     }
-    // buildings in open land: an open stream from their edge
+    // buildings in open land: an open stream from their edge (in a village: its stream starts at the largest one when it
+    // has no sewer)
     for (const b of sparse) {
+      const vb = villageOfB.get(b.id);
+      if (vb !== undefined && outfallOf.has(vb)) continue;
       const r = routeOut([b], block, path, piped, nx, nz, idx, cfg, isOpen);
-      if (r) courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
+      if (!r) continue;
+      if (vb !== undefined) outfallOf.set(vb, r.cells[r.cells.length - 1]);
+      else courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
     }
+    // WATER BETWEEN VILLAGES (the artist, 2026-11-15: "마을과 마을 사이에 물 흐르는 게 보이도록"): each village's water
+    // runs from its outfall to the place where it meets the water of its nearest living neighbour (the middle between
+    // the two), so the streams of neighbours join; a village alone runs on as an open stream
+    if (vs)
+      for (const [vi, start] of outfallOf) {
+        const [ax, az] = [vs.sites[vi][0], vs.sites[vi][1]];
+        let nb = -1, nd = Infinity;
+        vs.sites.forEach(([x, z], i) => {
+          if (i === vi || !aliveSite(i)) return;
+          const d = wrapDist(ax, az, x, z);
+          if (d < nd) [nb, nd] = [i, d];
+        });
+        if (nb < 0) {
+          courses.push(openCourse([start], share, nx, nz, centre, cfg, vi + 1, e));
+          continue;
+        }
+        // (the sites lie well inside the world's edge: their middle is the plain average)
+        courses.push(towardCourse(start, (ax + vs.sites[nb][0]) / 2, (az + vs.sites[nb][1]) / 2, block, nx, nz, centre, cfg, Math.min(vi, nb) * 1009 + Math.max(vi, nb), e));
+      }
     // the network in use now; cells it no longer uses stay known for `grace` (a pipe briefly out of use is still there)
     if (net.size) {
       for (const [c, v] of lastNet) if (!net.has(c) && e - v.seen <= grace) net.set(c, { ...v });
@@ -757,6 +824,50 @@ function openCourse(route: number[], share: Float32Array, nx: number, nz: number
     pts.push(x + b, z - b);
   }
   // round the corners (Chaikin, once), ends kept
+  if (pts.length < 6) return Float32Array.from(pts);
+  const q: number[] = [pts[0], pts[1]];
+  for (let k = 0; k + 3 < pts.length; k += 2) q.push(0.75 * pts[k] + 0.25 * pts[k + 2], 0.75 * pts[k + 1] + 0.25 * pts[k + 3], 0.25 * pts[k] + 0.75 * pts[k + 2], 0.25 * pts[k + 1] + 0.75 * pts[k + 3]);
+  q.push(pts[pts.length - 2], pts[pts.length - 1]);
+  return Float32Array.from(q);
+}
+
+/**
+ * A stream from cell `start` to the world point (tx, tz): step by step to the neighbouring cell nearest the target
+ * (never through a standing building), swung a little by noise so it meanders; at most 160 cells. A polyline [x, z, …],
+ * corners rounded as an open course's.
+ */
+function towardCourse(start: number, tx: number, tz: number, block: Int32Array, nx: number, nz: number, centre: (c: number) => [number, number], cfg: WaterConfig, id: number, e: number): Float32Array {
+  const cells = [start];
+  const seen = new Set(cells);
+  let cur = start;
+  for (let guard = 0; guard < 160; guard++) {
+    const [cx, cz] = centre(cur);
+    if (Math.hypot(tx - cx, tz - cz) <= CELL_SIZE * 1.5) break;
+    const ci = cur % nx, cj = Math.floor(cur / nx);
+    let best = -1, bs = Infinity;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const vi = ci + di, vj = cj + dj;
+      if (vi < 0 || vj < 0 || vi >= nx || vj >= nz) continue;
+      const v = vj * nx + vi;
+      if (seen.has(v) || block[v] >= 0) continue;
+      const [vx, vz] = centre(v);
+      const s = Math.hypot(tx - vx, tz - vz) + (hash2(v, e + id, 9) - 0.5) * CELL_SIZE * 1.2;
+      if (s < bs) {
+        bs = s;
+        best = v;
+      }
+    }
+    if (best < 0) break;
+    cells.push(best);
+    seen.add(best);
+    cur = best;
+  }
+  const pts: number[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    const [x, z] = centre(cells[i]);
+    const b = (noise1(i * 0.35 + e * 0.02, id % 100003) * 2 - 1) * cfg.meander * CELL_SIZE * 2;
+    pts.push(x + b, z - b);
+  }
   if (pts.length < 6) return Float32Array.from(pts);
   const q: number[] = [pts[0], pts[1]];
   for (let k = 0; k + 3 < pts.length; k += 2) q.push(0.75 * pts[k] + 0.25 * pts[k + 2], 0.75 * pts[k + 1] + 0.25 * pts[k + 3], 0.25 * pts[k] + 0.75 * pts[k + 2], 0.25 * pts[k + 1] + 0.75 * pts[k + 3]);
