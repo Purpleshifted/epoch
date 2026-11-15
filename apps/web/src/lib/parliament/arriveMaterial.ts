@@ -31,13 +31,16 @@ export interface ArriveUniforms {
   uArriveLift: { value: number };
   /** tick: seconds between one part of a building and the next. */
   uArriveTick: { value: number };
+  /** LEAVING (the erosion's tick): how long a part takes to go from its moment on (s; 0 = at once). */
+  uLeaveDur: { value: number };
 }
 
 export function makeArriveUniforms(): ArriveUniforms {
-  return { uArriveNow: { value: 0 }, uArriveDur: { value: 0 }, uArriveStagger: { value: 0 }, uArriveWay: { value: 0 }, uArriveLift: { value: 1 }, uArriveTick: { value: 0.1 } };
+  return { uArriveNow: { value: 0 }, uArriveDur: { value: 0 }, uArriveStagger: { value: 0 }, uArriveWay: { value: 0 }, uArriveLift: { value: 1 }, uArriveTick: { value: 0.1 }, uLeaveDur: { value: 0 } };
 }
 
-export function setArrive(u: ArriveUniforms, a: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number; tick?: number }): void {
+export function setArrive(u: ArriveUniforms, a: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number; tick?: number; leave?: number }): void {
+  u.uLeaveDur.value = Math.max(0, a.leave ?? 0);
   u.uArriveDur.value = a.on ? (a.way === "tick" ? 1 : Math.max(0, a.sec)) : 0;
   u.uArriveTick.value = Math.max(0, a.tick ?? 0.1);
   u.uArriveStagger.value = Math.max(0, a.stagger);
@@ -45,7 +48,7 @@ export function setArrive(u: ArriveUniforms, a: { on: boolean; sec: number; stag
   u.uArriveLift.value = a.lift;
 }
 
-const HEAD = "attribute vec2 aBorn;\nuniform float uArriveNow, uArriveDur, uArriveStagger, uArriveWay, uArriveLift, uArriveTick;";
+const HEAD = "attribute vec2 aBorn;\nattribute float aGone;\nuniform float uArriveNow, uArriveDur, uArriveStagger, uArriveWay, uArriveLift, uArriveTick, uLeaveDur;";
 const BODY = `
 #ifdef USE_INSTANCING
 if (uArriveDur > 0.0 && uArriveWay > 2.5) {
@@ -63,6 +66,8 @@ if (uArriveDur > 0.0 && uArriveWay > 2.5) {
   }
   transformed *= step(1e-4, arriveP);
 }
+// LEAVING (the erosion's tick): from its moment on the part shrinks away over uLeaveDur
+transformed *= 1.0 - smoothstep(aGone, aGone + max(uLeaveDur, 1e-3), uArriveNow);
 #endif`;
 
 /** `onBeforeCompile` for a part's material (and its shadow's): the instance comes in by `aBorn`. */

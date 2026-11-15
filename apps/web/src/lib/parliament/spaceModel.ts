@@ -44,6 +44,10 @@ const SLOW_MS = 30000;
 /** THE BLOCK: a tile is this many cells (the old wall: 24). A tile is fused in one go — the budget cannot stop it —
  *  and at the exhibition's fine voxels (0.25) a full tile of 24 took over a second. */
 const BLOCK_TILE = 14;
+/** THE EROSION'S TICK: a part that stands (its leaving time), and how long a part that has gone is still handed to
+ *  the wall (s: longer than the wall's knob for how long a part takes to go). */
+const STANDS = 1e9;
+const LEAVE_KEEP_S = 20;
 const FUSE_BUDGET_MS = 300;
 /** THE BLOCK: a part's age is read in this many steps to `lifeSec` (the steps are the clock's: all parts move at once). */
 const AGE_STEPS = 6;
@@ -218,6 +222,9 @@ export interface PartsResult {
   matrices: Record<PartKind, Float32Array>;
   /** 3 floats per instance (grey tone), per kind. */
   colors: Record<PartKind, Float32Array>;
+  /** LEAVING (the erosion's tick): 1 float per instance, per kind — when the part goes (s since `bornEpochMs`;
+   *  STANDS = it does not). The wall's shader takes it out from then on. */
+  gone: Record<PartKind, Float32Array>;
   /** ARRIVAL (arrive.ts): 2 floats per instance, per kind — when the part was first there (s since `bornEpochMs`,
    *  ARRIVED = always) and where in its slot's order of building it starts (0 … 1). The wall's shader brings it in. */
   born: Record<PartKind, Float32Array>;
@@ -451,6 +458,9 @@ export class SpaceModel {
   private eroded: (Erosion & { feed: number }) | null = null;
   /** A part's own erosion threshold, kept while the rule that made it stands. */
   private erodeMemo = new WeakMap<Box, number>();
+  /** THE EROSION'S TICK: per building and part (partKey), how eroded it was at the last reading and when it goes
+   *  (STANDS while it stands; −Infinity = it was gone before anybody looked). */
+  private erodeSeen = new Map<number, Map<number, [number, number]>>();
   /**
    * THE BLOCK'S ONE CLOCK FOR THE FUSION (the artist, 2026-11-15: "융합 진행"). The fusion was always driven by one
    * number per part — its corrosion, 0 new … 1 gone — and every stage is a threshold of it (fuse.ts). In the block
@@ -1989,6 +1999,41 @@ export class SpaceModel {
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = life && ec ? { ...life, feed: ec.feed } : null;
     const stands = life ? built.filter((b) => !life.gone(b)) : built;
+    // THE EROSION TICKS (the artist, 2026-11-15: "침식도 티커 적용해서 부드럽게 이어져 보이도록"). The progress moves
+    // in steps, so every part that passed its threshold within a step went at the same moment: a batch gone at once.
+    // Each part now goes at ITS OWN moment: how far into the step it passed (its threshold between what it was at the
+    // last reading and what it is now) is how far into the NEXT step's length it leaves — the parts of a step go one
+    // after another, in the order and at the spacing they passed. To everything that reads the block (the mass, the
+    // plants) such a part is gone already; it is only still DRAWN until its moment (and a little after: the shader
+    // takes it out). A part with no reading before (a load, a knob turned) is simply not there, as it was.
+    const leaving: Box[] = [];
+    const leaveAt = new Map<Box, number>();
+    if (life && ec && lifeSec > 0 && ec.spread !== false) {
+      const stepSec = lifeSec / AGE_STEPS;
+      const seen = new Map<number, Map<number, [number, number]>>();
+      for (const b of built) {
+        const k = SpaceModel.partKey(b);
+        const e = progress(b) * amount;
+        const was = this.erodeSeen.get(b.seed)?.get(k);
+        let at = STANDS;
+        if (life.gone(b)) {
+          if (was && was[1] !== STANDS) at = was[1];
+          else if (was && !arriveQuiet && e > was[0]) {
+            let th = this.erodeMemo.get(b);
+            if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
+            at = arriveNow + Math.max(0, Math.min(1, (th - was[0]) / (e - was[0]))) * stepSec;
+          } else at = -Infinity;
+          if (arriveNow < at + LEAVE_KEEP_S) {
+            leaving.push(b);
+            leaveAt.set(b, at);
+          }
+        }
+        let m = seen.get(b.seed);
+        if (!m) seen.set(b.seed, (m = new Map()));
+        m.set(k, [e, at]);
+      }
+      this.erodeSeen = seen;
+    } else if (this.erodeSeen.size) this.erodeSeen = new Map();
     const worn = wm ? wearParts(stands, seeds, t, wearCfg, wm) : stands;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
     this.wear = wm;
@@ -2029,7 +2074,8 @@ export class SpaceModel {
     }
     const bakedOf = new Map<Box, number>();
     bakedBoxes.forEach((b, i) => bakedOf.set(b, bakedShade[i]));
-    const all = bakedBoxes.length ? [...bakedBoxes, ...shown] : shown;
+    // (…and the parts on their way out: drawn until their moment — the erosion's tick)
+    const all = bakedBoxes.length || leaving.length ? [...bakedBoxes, ...shown, ...leaving] : shown;
 
     const counts = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
     for (const b of all) counts[b.kind] = Math.min(PART_CAPACITY[b.kind], counts[b.kind] + 1);
@@ -2037,6 +2083,7 @@ export class SpaceModel {
     const colors = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 3)])) as Record<PartKind, Float32Array>;
     const fill = Object.fromEntries(PART_KINDS.map((k) => [k, 0])) as Record<PartKind, number>;
     const born = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k] * 2)])) as Record<PartKind, Float32Array>;
+    const gone = Object.fromEntries(PART_KINDS.map((k) => [k, new Float32Array(counts[k]).fill(STANDS)])) as Record<PartKind, Float32Array>;
     const arriving = this.arrivals.any(arriveNow);
     const edgeCount = input.edges ? Math.min(EDGE_CAP, all.length) : 0;
     const edges = input.edges ? new Float32Array(edgeCount * 72) : null;
@@ -2060,6 +2107,8 @@ export class SpaceModel {
       const came = arriving ? this.arrivals.of(b) : undefined;
       born[k][i * 2] = came ? came[0] : ARRIVED;
       born[k][i * 2 + 1] = came ? came[1] : 0;
+      const goes = leaveAt.get(b);
+      if (goes !== undefined) gone[k][i] = Math.max(-1e9, goes);
       minX = Math.min(minX, b.x - b.sx / 2);
       minZ = Math.min(minZ, b.z - b.sz / 2);
       top = Math.max(top, b.y + halfHeight(b));
@@ -2158,6 +2207,7 @@ export class SpaceModel {
       matrices,
       colors,
       born,
+      gone,
       bornEpochMs: this.arriveEpoch,
       edges: edges ? edges.subarray(0, ei * 72) : null,
       seeds: seeds.length,

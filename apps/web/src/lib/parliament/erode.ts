@@ -63,6 +63,9 @@ export interface ErodeConfig {
   slotSec?: number;
   /** THE RISING WINDOW: slots of record kept below its foot (0 = what leaves the window is let go). */
   tail?: number;
+  /** THE TICK (spaceModel): the parts of a step go one after another over the step's length, each at the moment it
+   *  passed its threshold (false = all at the step, as before). */
+  spread?: boolean;
 }
 
 export const DEFAULT_ERODE: Omit<ErodeConfig, "topSlot"> = { start: 0.15, full: 0.9, amount: 0.75, vegPull: 0.3, order: 0.6, patch: 0.6, grain: 4, shade: 0.25, feed: 0.6 };

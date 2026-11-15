@@ -912,7 +912,7 @@ function SpaceWorld({
   pathLook: { rise: number; smooth: number; shade: number; opacity: number } | null;
   walkLook: WalkLook;
   /** How a part that was just built comes in (lib/parliament/arriveMaterial.ts); `on` false = it is simply there. */
-  arrive: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number; tick: number };
+  arrive: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number; tick: number; leave?: number };
 }) {
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   // ARRIVAL (lib/parliament/arriveMaterial.ts): every part's instance carries when it was first there (`aBorn`, from the model);
@@ -1077,6 +1077,11 @@ function SpaceWorld({
         if (!bornAt) mesh.geometry.setAttribute("aBorn", (bornAt = new THREE.InstancedBufferAttribute(new Float32Array(PART_CAPACITY[kind] * 2), 2)));
         (bornAt.array as Float32Array).set(p.born[kind]);
         uploadFirst(bornAt, n);
+        // …and when it goes (the erosion's tick)
+        let goneAt = mesh.geometry.getAttribute("aGone") as THREE.InstancedBufferAttribute | undefined;
+        if (!goneAt) mesh.geometry.setAttribute("aGone", (goneAt = new THREE.InstancedBufferAttribute(new Float32Array(PART_CAPACITY[kind]).fill(1e9), 1)));
+        (goneAt.array as Float32Array).set(p.gone[kind]);
+        uploadFirst(goneAt, n);
         mesh.count = n;
       }
       arriveEpoch.current = p.bornEpochMs;
@@ -2939,6 +2944,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // ONE LIFE PER PART (erode.ts lifeSec; the artist, 2026-11-15): placed → wait → plants → erosion and mass, in order
       erLife: { value: 180, min: 0, max: 1800, step: 10, label: "진행에 걸리는 시간 (가장 깊은 곳 기준 · 실제 초 · 얕을수록 더 오래 · 0 = 놓이자마자 다)" },
       erWait: { value: 12, min: 0, max: 120, step: 1, label: "놓인 뒤 아무 일 없는 시간 (초 · 깊이와 무관)" },
+      // THE TICK (spaceModel: each part goes at its own moment; the artist, 2026-11-15: "침식도 티커 적용해서 부드럽게")
+      erSpread: { value: true, label: "한 단계에 깎일 부재를 그 단계에 걸쳐 하나씩 (끄면 예전처럼 한꺼번에)" },
+      erLeaveSec: { value: 1.2, min: 0, max: 10, step: 0.1, label: "부재 하나가 줄어들어 사라지는 시간 (s · 0 = 뚝)" },
       erStart: { value: DEFAULT_ERODE.start, min: 0, max: 1, step: 0.01, label: "시작 깊이 (꼭대기에서 · 덩어리 높이의 비율)" },
       erFull: { value: DEFAULT_ERODE.full, min: 0.02, max: 1.5, step: 0.01, label: "다 깎이는 깊이 (덩어리 높이의 비율 · 1 넘으면 바닥에서도 덜 깎임)" },
       erAmount: { value: DEFAULT_ERODE.amount, min: 0, max: 1, step: 0.05, label: "다 깎였을 때 사라지는 몫 (1 = 전부)" },
@@ -2968,14 +2976,16 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   }, [tAxis.secPerUnit]);
   const rising = win.shift > 0 && botDepth > 0;
   // (only in the block, whose top is known: the bots' block height)
+  // (the arrival's uniforms carry the leaving too: how long a part takes to go — only with the erosion on)
+  const arriveLeave = useMemo(() => ({ ...arriveView, leave: er.erOn ? er.erLeaveSec : 0 }), [arriveView, er.erOn, er.erLeaveSec]);
   const weatherEr = useMemo<WeatherConfig>(
     () =>
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait } }
+        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread } }
         : weather,
-    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait],
+    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread],
   );
   // (the unlived share is read by the gatherings and by the erosion alike)
   const unlivedOn = vg.gaOn || er.erOn;
@@ -3831,7 +3841,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           noAxis={isV2}
           walk={walkView}
           walkLook={walkLook}
-          arrive={arriveView}
+          arrive={arriveLeave}
           clock={clk}
           local={lab}
         />
