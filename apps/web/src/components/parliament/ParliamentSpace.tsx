@@ -1940,6 +1940,9 @@ function Vegetation({
   }, [mat, tex, D, unit, size, full, colorA, colorB]);
   const timer = useRef(10);
   const moveTimer = useRef(0);
+  /** When each built cell-slot was first seen here (s), and whether this is the first look (what stands then is old). */
+  const vegBorn = useRef(new Map<number, number>());
+  const vegFirst = useRef(true);
   useFrame((_, dt) => {
     // a point's size in pixels for its size in the world, at its distance
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 40;
@@ -1956,8 +1959,38 @@ function Vegetation({
       if (v > data[i]) data[i] = v;
     };
     // (what erodes is given back: a building's share is less by its erosion × how much of it goes × feed)
+    // AFTER THE BUILDING, AS IT GOES ON (the artist, 2026-11-15: "식생이 건물보다 먼저 보였음"): this read the place
+    // alone — deep in the block a building's share was cut the moment the people's density was there, before the
+    // building itself had come, so the plants stood in its place first. Now it follows the cell-slot's progress as the
+    // wall's own parts do (spaceModel: one life per part): nothing while it is being built and for the wait after,
+    // then as fast as its place weighs. What stood when the view opened is taken as having lived its life.
     const eb = erode && erode.feed > 0 ? erode : null;
-    botGround.built?.eachShare(eb ? (cx, cz, k, share) => put(cx, cz, k, share * (1 - eb.feed * eb.amount * erosionAt(k, 0, eb))) : put);
+    const nowS = performance.now() / 1000;
+    const born = vegBorn.current;
+    const first = vegFirst.current;
+    const life = Math.max(0, eb?.lifeSec ?? 0), wait = Math.max(0, eb?.waitSec ?? 0);
+    const seen = new Set<number>();
+    botGround.built?.eachShare(
+      eb
+        ? (cx, cz, k, share) => {
+            if (share < 1 || k < 0 || k >= D) {
+              put(cx, cz, k, share);
+              return;
+            }
+            const i = cx + N / 2 + N * (cz + N / 2 + N * k);
+            seen.add(i);
+            let b = born.get(i);
+            if (b === undefined) born.set(i, (b = first ? -Infinity : nowS));
+            const w = erosionAt(k, 0, eb);
+            const prog = life > 0 && b !== -Infinity ? Math.min(1, (w * Math.max(0, nowS - b - wait)) / life) : w;
+            put(cx, cz, k, share * (1 - eb.feed * eb.amount * prog));
+          }
+        : put,
+    );
+    if (eb) {
+      if (botGround.built) vegFirst.current = false;
+      if (born.size > seen.size) for (const i of born.keys()) if (!seen.has(i)) born.delete(i);
+    }
     const at = Math.max(0.1, pathAt);
     tailField.each((cx, cz, k, level) => put(cx, cz, k, level / at));
     tex.needsUpdate = true;
