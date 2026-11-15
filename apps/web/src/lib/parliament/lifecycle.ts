@@ -135,8 +135,11 @@ export interface HerdConfig {
    * otherwise (abandoned; a new one founded). The lines are out of step, so no time of the block is a border of eras.
    * A herd whose village ends while it lives walks over to the one that follows it: a way between the two. Sites keep
    * `gap` from the sites alive at the same time. lifeSec 0 = every site for the whole block (a column).
+   * WAYS BETWEEN THEM (step 2): roaming herds and loners have a home village; leaving a stay at home, they go to a
+   * neighbour alive at their time with `travel` (the nearer, much the likelier: the same pairs again and again), stay
+   * there a while and come back — the walks between two villages are taken again and again and become the roads.
    */
-  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number };
+  villages?: { count: number; radius: number; gap: number; lifeSec?: number; carry?: number; travel?: number };
   /** HOW THEY MOVE, as shares of the herds: settlers (long stays, short hops, back to their places), roamers (short
    *  stays, long walks) and those on a round (the same three or four places, again and again — paths between them). */
   mix: { settle: number; roam: number; tour: number };
@@ -160,7 +163,7 @@ export const DEFAULT_HERD: HerdConfig = {
   layout: "strata",
   origin: "villages",
   originR: 60,
-  villages: { count: 5, radius: 12, gap: 40, lifeSec: 400, carry: 0.5 },
+  villages: { count: 5, radius: 12, gap: 40, lifeSec: 400, carry: 0.5, travel: 0.5 },
   mix: { settle: 1, roam: 1, tour: 1 },
   loose: 0.3,
   drift: 0,
@@ -250,8 +253,10 @@ export interface Visitor {
   drift?: number;
   hx?: number;
   hz?: number;
-  /** VILLAGES: the village it belongs to (an index of villageSites); absent = none. */
+  /** VILLAGES: the village it is in now (an index of villageSites; absent = none), and the one it lives in (a
+   *  roamer's or loner's home, which it leaves to visit a neighbour and comes back to; absent = vil). */
   vil?: number;
+  home?: number;
   lag?: number;
   tx?: number;
   tz?: number;
@@ -789,6 +794,41 @@ function pointAlong(r: readonly number[], d: number): [number, number] {
   return [r[r.length - 2], r[r.length - 1]];
 }
 
+/**
+ * VILLAGES, WAYS BETWEEN THEM: a roaming herd's leader or a loner, leaving a stay — at home it goes to a neighbour alive
+ * at its time with `travel` (weight (1 + d / gap)^−3: the nearest by far the likeliest), away it goes home again half
+ * the time (else it stays about the village it visits). Null = it goes about where it is.
+ */
+function villageTrip(v: Visitor, wallMs: number, epochMs: number, h: HerdConfig | undefined): [number, number] | null {
+  if (!h?.villages || v.vil === undefined || !(v.temper === "roam" || v.kind === "loner")) return null;
+  const travel = Math.max(0, Math.min(1, h.villages.travel ?? 0));
+  if (!(travel > 0)) return null;
+  const home = v.home ?? v.vil;
+  v.home = home;
+  const sites = villageSites(epochMs, h);
+  if (v.vil !== home) {
+    if (draw(v, epochMs, 160) >= 0.5) return null;
+    v.vil = home;
+  } else {
+    if (draw(v, epochMs, 161) >= travel) return null;
+    const t = blockSecOf(v, wallMs, epochMs), me = sites[home];
+    if (!me) return null;
+    const cands: number[] = [], ws: number[] = [];
+    let tot = 0;
+    sites.forEach((s, i) => {
+      if (i === home || !(s.from <= t && t < s.to)) return;
+      cands.push(i);
+      ws.push((tot += Math.pow(1 + wrapDist(me.x, me.z, s.x, s.z) / Math.max(1, h.villages!.gap), -3)));
+    });
+    if (!cands.length) return null;
+    const u = draw(v, epochMs, 162) * tot;
+    v.vil = cands[Math.max(0, ws.findIndex((w) => w >= u))];
+  }
+  v.stops = [];
+  const vil = villageOf(v, epochMs, h);
+  return vil ? spotIn(v, vil, epochMs, 0.6, 163) : null;
+}
+
 /** Where `v` goes next: someone else's place, its own earlier place, or somewhere new within its range. */
 function destination(v: Visitor, places: readonly Place[], attractors: readonly Attractor[], wallMs: number, epochMs: number, cfg: LifecycleConfig): [number, number] {
   // ON A ROUND: the next of its places
@@ -797,7 +837,10 @@ function destination(v: Visitor, places: readonly Place[], attractors: readonly 
     v.ti = ((v.ti ?? 0) + 1) % n;
     return [wrapCoord(v.tour[v.ti * 2] + (draw(v, epochMs, 36) - 0.5)), wrapCoord(v.tour[v.ti * 2 + 1] + (draw(v, epochMs, 37) - 0.5))];
   }
-  // VILLAGES: it goes about inside its village — the places it follows are the village's, a new place a spot of it
+  // VILLAGES: to a neighbour village and back (roamers, loners) …
+  const trip = villageTrip(v, wallMs, epochMs, cfg.herd);
+  if (trip) return trip;
+  // … else it goes about inside its village — the places it follows are the village's, a new place a spot of it
   const vil = villageOf(v, epochMs, cfg.herd);
   if (draw(v, epochMs, 30) < v.ch.follow) {
     const cands: [number, number, number][] = [];
@@ -990,8 +1033,11 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
     // leader's); a stay is cut short so it sets off now, a round is laid anew in the new village
     if (hc && v.vil !== undefined) {
       const sites = villageSites(epochMs, hc);
-      const site = sites[v.vil];
-      const to = leader ? leader.vil : site && site.next >= 0 && blockSecOf(v, wallMs, epochMs) >= site.to ? site.next : v.vil;
+      const t = blockSecOf(v, wallMs, epochMs);
+      const after = (i: number) => (sites[i] && sites[i].next >= 0 && t >= sites[i].to ? sites[i].next : i);
+      // its home too (a roamer away from it comes back to the one that follows it)
+      if (v.home !== undefined) v.home = after(v.home);
+      const to = leader ? leader.vil : after(v.vil);
       if (to !== undefined && to !== v.vil) {
         v.vil = to;
         // its own earlier places were the old village's

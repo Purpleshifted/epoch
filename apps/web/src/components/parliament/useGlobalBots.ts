@@ -149,6 +149,7 @@ export function useGlobalBots(
           hVillageGap: { value: DEFAULT_HERD.villages!.gap, min: 0, max: 120, step: 1, label: "마을 사이 최소 거리 (월드)" },
           hVillageLife: { value: DEFAULT_HERD.villages!.lifeSec! / SLOT_SEC, min: 0, max: 240, step: 1, label: "마을 하나가 사는 시간 (단 · 0 = 블록 내내 같은 자리)" },
           hVillageCarry: { value: DEFAULT_HERD.villages!.carry!, min: 0, max: 1, step: 0.05, label: "끝난 마을이 옆으로 옮겨 가는 비율 (나머지는 버려지고 딴 데 새로)" },
+          hVillageTravel: { value: DEFAULT_HERD.villages!.travel!, min: 0, max: 1, step: 0.05, label: "유랑 무리·외톨이가 이웃 마을로 다녀오는 비율 (집에서 머물다 떠날 때마다)" },
           hGap: { value: DEFAULT_HERD.gap, min: 0, max: 120, step: 1, label: "무리 사이 거리 (3차원)" },
           hRadius: { value: DEFAULT_HERD.radius, min: 0, max: 20, step: 0.25, label: "무리 반경 (3차원)" },
         },
@@ -203,13 +204,13 @@ export function useGlobalBots(
         layout: b.hLayout,
         origin: b.hOrigin,
         originR: b.hOriginR,
-        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry },
+        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel },
         mix: { settle: b.hSettle, roam: b.hRoam, tour: b.hTour },
         loose: b.hLoose,
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
+    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   useEffect(() => {
     botGround.trail = b.hTrail;
