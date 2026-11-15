@@ -39,6 +39,9 @@ export const EDGE_CAP = 40000;
 export const NATURE_CHUNK = 10;
 /** Fused chunks (re)built per request at most; the rest follow on the next requests. */
 export const FUSE_NEW_PER_CALL = 2;
+/** THE BLOCK: the ways and the pipes are laid again at most this often (ms), and one call fuses for about this long. */
+const SLOW_MS = 8000;
+const FUSE_BUDGET_MS = 350;
 
 /** sRGB hex pairs (low, high shade) per NATURE_KIND. */
 export const NATURE_PALETTE: [string, string][] = [
@@ -488,8 +491,44 @@ export class SpaceModel {
    * where plants gather — what is BUILT BUT NOT LIVED IN (Seed.gather, density.ts liveAt). That is read in its place:
    * per cell-slot the unlived share, and a little of it on the cells right beside (it sticks from the side too).
    */
+  /**
+   * WHERE THE TIME GOES (the artist, 2026-11-15: "지금 성능이 너무 떨어져서"): milliseconds per stage of the last
+   * request, shown in the wall's readout. Stages of computeParts: seeds (the density / the fold), parts (the
+   * buildings' boxes), water (the pipes), walk (the ways), emit (erosion, wear and the buffers); then the other
+   * calls of the request (nature, reclaim, paths, fuse).
+   */
+  stages: Record<string, number> = {};
+  private lap(name: string, t0: number): number {
+    const t = performance.now();
+    this.stages[name] = (this.stages[name] ?? 0) + t - t0;
+    return t;
+  }
   /** The parts still standing, as of the fuse being computed (tubesOf reads it: eroded steel leaves no mass). */
   private standingNow: Set<Box> | null = null;
+  /**
+   * WHEN EACH PART WAS FIRST THERE, in real seconds (fuse.ts fossilSec: a part fossilises from then on) — by the
+   * part's own key, so a part made again is the same part; kept through the forgetting of old samples, emptied with
+   * the world. `ageClock` only ever goes forward.
+   */
+  private bornT = new Map<number, number>();
+  private ageClock = 0;
+  /** What is made again whole in the block (the ways, the pipes): when it was last made, and of how many events. */
+  private slow = new Map<string, { cfg: string; at: number; version: number; n: number }>();
+  /** A key that moves when the rule changed — or, no sooner than SLOW_MS after the last time, when anything was written. */
+  private slowKey(name: string, cfg: string): string {
+    const now = Date.now();
+    let st = this.slow.get(name);
+    if (!st || st.cfg !== cfg || (st.version !== this.version && now - st.at >= SLOW_MS)) {
+      st = { cfg, at: now, version: this.version, n: (st?.n ?? 0) + 1 };
+      this.slow.set(name, st);
+    }
+    return `${st.n}:${cfg}`;
+  }
+  /** fuseTiled stops fusing districts again past this (performance.now()); what it left is done at the next call. */
+  private fuseDeadline = Infinity;
+  private fuseLeft: Set<number> | null = null;
+  /** The mass of each district of each chunk, with the signature of what went into it (fuseTiled). */
+  private districtMass = new Map<string, { key: string; mesh: FuseMesh }>();
   private blockHist: { key: string; h: NatureHistory | null } | null = null;
   private blockHistory(top: number): NatureHistory | null {
     const key = `${this.seedsKey}:${top}`;
@@ -597,6 +636,7 @@ export class SpaceModel {
     sed: NonNullable<ReturnType<typeof sedimentOf>>,
     layerDecay: ((k: number) => number) | undefined,
     fuse: FuseConfig,
+    cfgKey = "",
   ): FuseMesh {
     const byAngle = new Map<number, typeof w.ps>();
     for (const e of w.ps) {
@@ -627,9 +667,40 @@ export class SpaceModel {
       return { x0, z0, nx: Math.ceil(b / CELL) + M - x0, nz: Math.ceil(d / CELL) + M - z0 };
     };
     if (!byAngle.has(0) && w.tubes.length) byAngle.set(0, []);
+    // ONLY WHAT CHANGED IS FUSED AGAIN (2026-11-15: in the block somebody is always writing somewhere in every chunk,
+    // so every chunk was made again whole, all the time — two chunks of a dozen districts each, ~3.5 s a call, while
+    // one building had changed). A district's mass is kept with a signature of what went into it: its parts (where
+    // they lie, how far gone, standing or not), the layers' ages, the vegetation at its parts, the pipes and ways
+    // (for the parts at no angle) and the look. A district whose signature stands is not fused again.
+    let layers = "";
+    if (layerDecay) for (let k = w.c0 - 12; k <= w.c1 + 12; k++) layers += Math.round(layerDecay(k) * 20).toString(36);
+    const used = new Set<string>();
     for (const [ang, list] of byAngle) {
+      let sum = 0;
+      for (const e of list) {
+        const veg = h ? (natureAt(h, Math.floor(e.b.x / CELL), Math.floor(e.b.z / CELL), e.b.slot) ?? 0) : 0;
+        sum += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + e.d * 13 + (e.up ? 19 : 0) + (e.sk ? 23 : 0) + veg * 5;
+      }
+      if (!ang) for (const tb of w.tubes) sum += tb.decay * 13 + tb.x0 + tb.z1 + tb.y0 * 3 + tb.r * 17;
+      const id = `${w.c0}:${ang}`;
+      const key = `${list.length}:${!ang ? w.tubes.length : 0}:${sum.toFixed(3)}:${layers}:${cfgKey}`;
+      used.add(id);
+      const kept = this.districtMass.get(id);
+      if (kept && kept.key === key) {
+        out.push(kept.mesh);
+        continue;
+      }
+      // (out of time for this call: the district keeps the mass it had — or none yet — and is done at the next)
+      if (performance.now() > this.fuseDeadline) {
+        if (kept) out.push(kept.mesh);
+        (this.fuseLeft ??= new Set()).add(ang);
+        continue;
+      }
+      this.stages["fuse districts (n)"] = (this.stages["fuse districts (n)"] ?? 0) + 1;
       if (!ang) {
-        out.push(this.fuseTiles({ ...w, ps: list, ...extent(list, w.tubes) }, h, u, sed, layerDecay, fuse));
+        const m0 = this.fuseTiles({ ...w, ps: list, ...extent(list, w.tubes) }, h, u, sed, layerDecay, fuse);
+        this.districtMass.set(id, { key, mesh: m0 });
+        out.push(m0);
         continue;
       }
       // into the district's frame (the inverse of seeds.ts' turn, about the origin), and the mesh back out of it
@@ -644,8 +715,11 @@ export class SpaceModel {
           arr[i + 2] = -x * sn + z * c;
         }
       }
+      this.districtMass.set(id, { key, mesh: m });
       out.push(m);
     }
+    // (districts that are no longer in this chunk are let go)
+    for (const id of this.districtMass.keys()) if (id.startsWith(`${w.c0}:`) && !used.has(id)) this.districtMass.delete(id);
     return mergeMeshes(out);
   }
 
@@ -663,13 +737,38 @@ export class SpaceModel {
     const cellOf = (v: number) => Math.floor(v / CELL);
     for (let tz = w.z0; tz < w.z0 + w.nz; tz += TILE) {
       for (let tx = w.x0; tx < w.x0 + w.nx; tx += TILE) {
-        const ax = tx - MARGIN, bx = tx + TILE + MARGIN, az = tz - MARGIN, bz = tz + TILE + MARGIN;
+        let ax = tx - MARGIN, bx = tx + TILE + MARGIN, az = tz - MARGIN, bz = tz + TILE + MARGIN;
         const ps = w.ps.filter(({ b }) => {
           const r = Math.max(b.sx, b.sy, b.sz) / 2;
           return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
         });
         const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
         if (!ps.length && !tubes.length) continue; // empty ground costs nothing
+        // THE GRID IS AS LARGE AS WHAT IS IN IT (2026-11-15: a tile was always 32 × 32 cells, and its cost is its
+        // volume — a district's few cells of building paid for the whole square, ~150 ms a tile): the tile's grid is
+        // cut down to its parts and tubes, with the same margin round them. What the tile emits (`own`) is unchanged.
+        {
+          let a = Infinity, b2 = -Infinity, c = Infinity, d = -Infinity;
+          for (const { b } of ps) {
+            const r = Math.max(b.sx, b.sy, b.sz) / 2;
+            a = Math.min(a, cellOf(b.x - r));
+            b2 = Math.max(b2, cellOf(b.x + r));
+            c = Math.min(c, cellOf(b.z - r));
+            d = Math.max(d, cellOf(b.z + r));
+          }
+          for (const t of tubes) {
+            a = Math.min(a, cellOf(Math.min(t.x0, t.x1) - t.r));
+            b2 = Math.max(b2, cellOf(Math.max(t.x0, t.x1) + t.r));
+            c = Math.min(c, cellOf(Math.min(t.z0, t.z1) - t.r));
+            d = Math.max(d, cellOf(Math.max(t.z0, t.z1) + t.r));
+          }
+          ax = Math.max(ax, a - MARGIN);
+          bx = Math.min(bx, b2 + 1 + MARGIN);
+          az = Math.max(az, c - MARGIN);
+          bz = Math.min(bz, d + 1 + MARGIN);
+        }
+        this.stages["fuse tiles (n)"] = (this.stages["fuse tiles (n)"] ?? 0) + 1;
+        this.stages["fuse cells (n)"] = (this.stages["fuse cells (n)"] ?? 0) + (bx - ax) * (bz - az);
         meshes.push(
           fuseChunk({
             parts: ps.map((e) => e.b),
@@ -962,6 +1061,7 @@ export class SpaceModel {
       this.densityState = null;
       this.densitySeen = null;
     }
+    if (!keepBuilt) this.bornT.clear();
     this.events = [];
     this.ids.clear();
     this.t = 0;
@@ -1037,9 +1137,11 @@ export class SpaceModel {
 
   /** The parts, as per-kind instance buffers; null when nothing changed since the last call. */
   computeParts(input: PartsInput): PartsResult | null {
+    let lapT = performance.now();
     this.densityCfg = input.density ?? null;
     const { box, lod } = input;
     const seeds = this.ensureSeeds(input.fold);
+    lapT = this.lap("seeds", lapT);
     const t = this.t;
     /** The same config without slat bundles and drips, for far seeds. */
     const solid = (s: Seed): BoxConfig => {
@@ -1068,7 +1170,11 @@ export class SpaceModel {
         if (lv === 2) far.add(s.id);
       }
     }
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
+    // (the block's fossilising goes by the clock: the parts are read again every few seconds of it)
+    const fossilSec = this.densityCfg ? Math.max(0, input.fuse.fossilSec ?? 0) : 0;
+    // (real seconds: the world's clock is set back whenever the lab's world is trimmed, and a part's age must not be)
+    this.ageClock = Math.max(this.ageClock, (Date.now() - this.arriveEpoch) / 1000);
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${fossilSec > 0 && input.fuse.enabled ? Math.floor(this.ageClock / 4) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
     // ARRIVAL (arrive.ts): parts first seen now are being built — unless a knob of the parts or of the buildings' rule
@@ -1144,7 +1250,12 @@ export class SpaceModel {
     this.foldTau = input.fold.tauSlabYears;
     // water from the sealed ground: open streams and buried pipes, laid anew where the quarter changed (rebuilt once
     // per slot, or when the buildings or the rule change)
-    const dKey = `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${seeds.length}:${presentSlots}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
+    // (THE BLOCK: nothing laid is kept there — the whole is laid again — and somebody is always writing: at every new
+    // cell and every slot it cost 0.1–0.9 s of the worker, more as the world grew. There it is laid again at most
+    // every SLOW_MS, when anything was written since: slowKey)
+    const dCfg = `${box.secPerUnit}:${presentSlots}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
+    const dKey = this.densityCfg ? this.slowKey("drain", dCfg) : `${Math.floor(t / box.secPerUnit)}:${seeds.length}:${dCfg}`;
+    lapT = this.lap("parts", lapT);
     if (dKey !== this.drainKey) {
       this.drainKey = dKey;
       const rule = `${box.secPerUnit}:${presentSlots}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
@@ -1163,7 +1274,9 @@ export class SpaceModel {
     this.nearWater = this.drain.streams.size ? waterField(this.drain, 0, Math.floor(t / box.secPerUnit), input.water) : null;
     // V2: walkways where the flow is sustained (laid where the walked network changed; rebuilt once per slot)
     const wk = input.walk && input.fold.flow?.enabled ? input.walk : null;
-    const wKey = wk ? `${Math.floor(t / box.secPerUnit)}:${box.secPerUnit}:${box.unit}:${seeds.length}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}:${presentSlots}` : "-";
+    const wCfg = `${box.secPerUnit}:${box.unit}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow)}:${presentSlots}`;
+    const wKey = wk ? (this.densityCfg ? this.slowKey("walk", wCfg) : `${Math.floor(t / box.secPerUnit)}:${seeds.length}:${wCfg}`) : "-";
+    lapT = this.lap("water", lapT);
     if (wKey !== this.walkKey) {
       this.walkKey = wKey;
       const rule = `${box.secPerUnit}:${box.unit}:${presentSlots}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}`;
@@ -1209,6 +1322,7 @@ export class SpaceModel {
         this.erodeMemo = new WeakMap();
       }
     }
+    lapT = this.lap("walk", lapT);
     const ero = ec ? erosion(seeds, ec, this.erodeMemo) : null;
     // (the count of layers is multiplied in — fuse.ts freshSlots: a factor 0 at the top … 1 from that many slots down,
     // the depth it is whole at differing from place to place in the erosion's patches)
@@ -1229,7 +1343,29 @@ export class SpaceModel {
       if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
       return 1 + spread * (1 - 2 * th);
     };
-    this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z) * own(b))), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
+    // …AND IN TIME: the layer is a weight on how fast (fuse.ts fossilSec). A part's value grows from when it was first
+    // there towards what its place gives it — the deeper (the more its place gives), the sooner
+    const ageNow = this.ageClock;
+    if (ec && fossilSec > 0) {
+      for (const b of built) {
+        const key = SpaceModel.partKey(b);
+        if (!this.bornT.has(key)) this.bornT.set(key, arriveQuiet ? -Infinity : ageNow);
+      }
+      // (parts long gone are let go now and then)
+      if (this.bornT.size > 4 * built.length + 20000) {
+        const live = new Set(built.map((b) => SpaceModel.partKey(b)));
+        for (const key of this.bornT.keys()) if (!live.has(key)) this.bornT.delete(key);
+      }
+    }
+    const place = (b: Box): number => (ero ? Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z) * own(b))) : 0);
+    const grown = (b: Box): number => {
+      const w = place(b);
+      if (!(fossilSec > 0) || w <= 0) return w;
+      const born = this.bornT.get(SpaceModel.partKey(b));
+      if (born === undefined || born === -Infinity) return w;
+      return w * Math.min(1, (w * Math.max(0, ageNow - born)) / fossilSec);
+    };
+    this.blockClock = ec && ero ? { top: ec.topSlot, decay: grown, layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
     const stands = ero ? built.filter((b) => !ero.gone(b)) : built;
@@ -1362,6 +1498,7 @@ export class SpaceModel {
       };
       return { anchored, decayOf, snap };
     })();
+    this.lap("emit", lapT);
     return {
       counts: fill,
       matrices,
@@ -1431,13 +1568,17 @@ export class SpaceModel {
       this.fuseSig = sig;
       this.fuseChunks.clear();
       this.fusedAt.clear();
+      this.districtMass.clear();
       return mergeMeshes(fuse.enabled ? bakedMeshes : []);
     }
     const u = box.unit;
     const kNow = bc ? bc.top : Math.floor(this.t / box.secPerUnit);
     // V2: one clock — the layers' age for the resin and the look of the old layers is the parts' corrosion
     // (the block: the erosion of the parts' places; a slot without parts is read by its depth alone)
-    const layerDecay = input.oneClock ? this.layerClockOf(bc ? bc.layer : layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears)) : undefined;
+    // (…read by its depth alone, not as the mean of the parts lying in it: in the block the two are one clock already —
+    // and a mean over the whole slot moved whenever anybody wrote anywhere in it, which made every district of the
+    // chunk be fused again for a look that had changed by a hair)
+    const layerDecay = input.oneClock ? (bc ? bc.layer : this.layerClockOf(layerDecayOf(sed.tNow, box.secPerUnit, input.weather, input.tauSlabYears ?? DEFAULT_FOLD.tauSlabYears))) : undefined;
     const kA = h ? h.k0 : 0;
     const kB = h ? h.k0 + h.nk - 1 : kNow;
     // extent: the vegetation's, or the parts' (cells)
@@ -1625,16 +1766,40 @@ export class SpaceModel {
     const builtAt = (w: Want) => this.fuseChunks.get(w.c0)?.built ?? -1;
     todo.sort((a, b) => Number(leaving(b)) - Number(leaving(a)) || Number(this.fuseChunks.has(a.c0)) - Number(this.fuseChunks.has(b.c0)) || builtAt(a) - builtAt(b) || dist(a) - dist(b));
     const perCall = Math.max(1, input.perCall ?? FUSE_NEW_PER_CALL);
+    this.stages["fuse chunks waiting (n)"] = todo.length;
+    const fuseKey = JSON.stringify(fuse);
+    // THE BLOCK: a call fuses for about FUSE_BUDGET_MS (the paused view: as long as it takes) — a chunk that ran out of
+    // time keeps a key that is not its own, so it comes round again, and its districts already done are not done twice
+    this.fuseDeadline = bc && perCall <= FUSE_NEW_PER_CALL ? performance.now() + FUSE_BUDGET_MS : Infinity;
+    let partial = false;
     for (const w of todo.slice(0, perCall)) {
-      const mesh = this.fuseTiled(w, h, u, sed, layerDecay, fuse);
+      this.stages["fuse chunks (n)"] = (this.stages["fuse chunks (n)"] ?? 0) + 1;
+      this.fuseLeft = null;
+      const mesh = this.fuseTiled(w, h, u, sed, layerDecay, fuse, fuseKey);
+      const left = this.fuseLeft as Set<number> | null;
+      if (left) partial = true;
       this.fuseBuilt++;
-      this.fuseChunks.set(w.c0, { key: w.key, mesh, built: this.fuseBuilt });
+      this.fuseChunks.set(w.c0, { key: left ? `${w.key}~` : w.key, mesh, built: this.fuseBuilt });
+      // (the parts of a district left for the next call are absorbed only as far as its last mass went)
+      const was = left ? this.fusedAt.get(w.c0) : undefined;
       const fa = new Map<number, number>();
-      for (const e of w.ps) if (e.b.slot >= w.c0 && e.b.slot <= w.c1) fa.set(SpaceModel.partKey(e.b), e.d);
+      for (const e of w.ps) {
+        if (e.b.slot < w.c0 || e.b.slot > w.c1) continue;
+        const key = SpaceModel.partKey(e.b);
+        if (left && left.has(Math.round(e.ang * 1e4) / 1e4)) {
+          const d0 = was?.get(key);
+          if (d0 !== undefined) fa.set(key, d0);
+        } else fa.set(key, e.d);
+      }
       for (const tb of w.tubes) if (tb.box && tb.k >= w.c0 && tb.k <= w.c1) fa.set(SpaceModel.partKey(tb.box), tb.decay);
       this.fusedAt.set(w.c0, fa);
+      if (performance.now() > this.fuseDeadline) {
+        partial = true; // (what is left of this call's chunks waits for the next)
+        break;
+      }
     }
-    let pending = todo.length > perCall;
+    this.fuseDeadline = Infinity;
+    let pending = todo.length > perCall || partial;
     // WORK MODE (rebake): the baked layers rendered again with the current look, within what is left of this call's
     // budget — the world below stays, its rendering follows the settings
     let budget = Math.max(1, perCall - Math.min(todo.length, perCall));
@@ -1676,6 +1841,7 @@ export class SpaceModel {
       const ch = this.fuseChunks.get(c)!;
       this.fuseChunks.delete(c);
       this.fusedAt.delete(c);
+      for (const id of this.districtMass.keys()) if (id.startsWith(`${c}:`)) this.districtMass.delete(id);
       // ORPHAN: a chunk with a mesh that is no longer asked for — its parts went with a bulk window move, or the
       // window moved past it before it was baked — keeps its last mesh for good rather than vanishing (the artist,
       // 2026-10-31: "the fossils vanish after a while"); no material, so it neither ages nor re-renders
@@ -1760,6 +1926,8 @@ export function mergeComputeRequests<T extends Extract<SpaceRequest, { type: "co
 
 /** What the space worker posts back for a compute request. */
 export interface SpaceResponse {
+  /** Milliseconds per stage of this request (SpaceModel.stages). */
+  stages?: Record<string, number>;
   type: "result";
   id: number;
   /** undefined = not asked; null = unchanged. */
@@ -1784,6 +1952,13 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     return null;
   }
   const t0 = performance.now();
+  model.stages = {};
+  const timed = <T>(name: string, f: () => T): T => {
+    const a = performance.now();
+    const r = f();
+    model.stages[name] = (model.stages[name] ?? 0) + performance.now() - a;
+    return r;
+  };
   if (m.now !== undefined) model.setNow(m.now);
   const out: SpaceResponse = { type: "result", id: m.id, ms: 0 };
   const transfer = new Set<ArrayBuffer>();
@@ -1799,21 +1974,22 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     }
   }
   if (m.nature) {
-    out.nature = model.computeNature(m.nature);
+    out.nature = timed("nature", () => model.computeNature(m.nature!));
     if (out.nature) transfer.add(out.nature.position.buffer as ArrayBuffer).add(out.nature.color.buffer as ArrayBuffer);
   }
   if (m.reclaim) {
-    out.reclaim = model.computeReclaim(m.reclaim);
+    out.reclaim = timed("reclaim", () => model.computeReclaim(m.reclaim!));
     if (out.reclaim) transfer.add(out.reclaim.position.buffer as ArrayBuffer).add(out.reclaim.color.buffer as ArrayBuffer);
   }
   if (m.paths && m.parts) {
-    out.paths = model.computePaths(m.parts.box.unit, m.paths.rise, m.paths.smooth ?? 4);
+    out.paths = timed("paths", () => model.computePaths(m.parts!.box.unit, m.paths!.rise, m.paths!.smooth ?? 4));
     if (out.paths) transfer.add(out.paths.buffer as ArrayBuffer);
   }
   if (m.fuse) {
-    out.fuse = model.computeFuse(m.fuse);
+    out.fuse = timed("fuse", () => model.computeFuse(m.fuse!));
     if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
+  out.stages = { ...model.stages };
   return { out, transfer: [...transfer] };
 }

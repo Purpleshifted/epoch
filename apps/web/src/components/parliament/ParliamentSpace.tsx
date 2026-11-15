@@ -236,6 +236,8 @@ interface Stats {
   pipeRuns: number;
   /** How long the worker's last computation took. */
   workerMs: number;
+  /** The slowest request of the last few seconds, by stage (ms). */
+  stages?: { ms: number; stages: Record<string, number> };
   /** Where it ran. */
   runner: string;
 }
@@ -960,6 +962,7 @@ function SpaceWorld({
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
   const fuseStats = useRef({ fuseTris: 0, fuseResin: 0 });
+  const stageMax = useRef<{ ms: number; at: number; stages: Record<string, number> }>({ ms: 0, at: 0, stages: {} });
   // the ticker reads the latest props through this ref
   const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats });
   const walkLive = useRef<THREE.LineSegments>(null);
@@ -1122,7 +1125,9 @@ function SpaceWorld({
     setFused(fused.current, r.fuse, { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current });
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
-    if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms });
+    // where the worker's time went: the slowest request of the last few is kept, so a heavy one can be read
+    if (r.stages && (r.ms >= stageMax.current.ms || performance.now() - stageMax.current.at > 8000)) stageMax.current = { ms: r.ms, at: performance.now(), stages: r.stages };
+    if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms, stages: stageMax.current });
   };
 
   useEffect(() => {
@@ -3028,6 +3033,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         // 되면 안 되는데" → "딱 잘려보이는데, 다른 로직에 곱하거나 하는 식으로(단수를)") — new names: a factor now, not a line
         layerSlots: { value: 24, min: 0, max: 240, step: 1, label: "층수를 곱함: 꼭대기 0 → 이 단수 아래에서 1 (0 = 층수 안 봄)", render: () => REDESIGN },
         layerSpread: { value: 0.5, min: 0, max: 1, step: 0.05, label: "자리마다 · 부재마다 다르게 (0 = 같은 단은 한꺼번에 → 잘려 보임)", render: () => REDESIGN },
+        // THE BLOCK: the layer is a weight on how fast (fuse.ts fossilSec; the artist, 2026-11-15: "층이 가중치가 되는 게 맞는데")
+        fossilSec: { value: 180, min: 0, max: 1800, step: 10, label: "화석화에 걸리는 시간 (가장 깊은 층 기준 · 실제 초 · 얕을수록 더 오래 · 0 = 지어지자마자)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: () => REDESIGN },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
@@ -3250,7 +3257,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, fossilSec: fu.fossilSec } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3305,7 +3312,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.fossilSec, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -3608,6 +3615,16 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div>
           {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · baked {stats.baked} chunk(s) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{testPerf !== "off" ? ` · TEST RENDER (${testPerf})` : perf ? " · PERF MODE" : ""}
         </div>
+        {stats.stages && stats.stages.ms > 0 && (
+          <div>
+            slowest of late {Math.round(stats.stages.ms)} ms:{" "}
+            {Object.entries(stats.stages.stages)
+              .filter(([, v]) => v >= 1)
+              .sort((a, b) => b[1] - a[1])
+              .map(([k, v]) => `${k} ${Math.round(v)}`)
+              .join(" · ")}
+          </div>
+        )}
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}

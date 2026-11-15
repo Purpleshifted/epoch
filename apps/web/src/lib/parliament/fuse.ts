@@ -110,6 +110,16 @@ export interface FuseConfig {
    * 열리면 거기로 오래된 부재가 드러나도록 하는 거였는데 지금은 어찌 다 덩어리라 그 매력이 없어짐").
    */
   goneMass?: number;
+  /**
+   * THE BLOCK — THE LAYER IS A WEIGHT ON HOW FAST (the artist, 2026-11-15: "생성되면서 바로 화석화되는 것도 좀 그래 …
+   * 층마다 화석화 속도가 다른 거면 몰라도", "층이 가중치가 되는 게 맞는데"). Read as a place alone, a building written
+   * deep in the block was a fossil the moment it stood. Now a part's value GROWS from when it was first there, towards
+   * what its place gives it (the erosion of its place × the count of layers × its own share): after `fossilSec`
+   * real seconds a part of the deepest places is all the way there; one whose place gives it half
+   * takes twice as long to get to its half — the layer weighs on the speed, and where it ends is the place's as
+   * before. What was already there when the wall opened is taken as arrived. 0 / absent = at once (the place alone).
+   */
+  fossilSec?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
