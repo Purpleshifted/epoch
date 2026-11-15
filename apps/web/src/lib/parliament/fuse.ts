@@ -86,6 +86,15 @@ export interface FuseConfig {
   skeleton: number;
   /** Decay up to which the skeleton stands out of the mass (after it, it is swallowed too). */
   skeletonUntil: number;
+  /**
+   * THE BLOCK — THE NEWEST LAYERS DO NOT FOSSILISE (the artist, 2026-11-15: "융합은 층수 로직도 섞어서", "제일 최신
+   * 층은 화석화 되면 안 되는데"). The fusion's clock there is the erosion of a part's place (spaceModel blockClock);
+   * it is read as nothing within `freshSlots` slots of the block's top, and comes in over the `freshRamp` slots below
+   * (the count of layers, whatever the place's own value — an unlived place near the top does not fuse either).
+   * Absent / 0 = no such band. Not read outside the block.
+   */
+  freshSlots?: number;
+  freshRamp?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */

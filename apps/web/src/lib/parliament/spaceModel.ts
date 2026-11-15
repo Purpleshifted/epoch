@@ -427,7 +427,7 @@ export class SpaceModel {
    * block's top, and how little it was lived in). So a part fuses by where it lies; nothing else decides when.
    * null = not the block (the wear model's corrosion is read, as before).
    */
-  private blockClock: { top: number; decay: (b: Box) => number; layer: (k: number) => number; erode: ErodeConfig } | null = null;
+  private blockClock: { top: number; decay: (b: Box) => number; layer: (k: number) => number; old: (slot: number) => number; erode: ErodeConfig } | null = null;
   private erodeKey = "";
   private history: NatureHistory | null = null;
   /** The waterways of the last computed parts, and their nearness per (cell, slot). */
@@ -675,7 +675,7 @@ export class SpaceModel {
         if (p.k < kLo || p.k > kHi) continue;
         // (the block: a run's erosion, by where it lies — as it is drawn, computeParts)
         const bc = this.blockClock;
-        const decay = quant20(bc && bc.erode.pipes !== false ? pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - wc.pipeDepth), bc.erode) : this.pipeDecayAt(p.k, w));
+        const decay = quant20(bc && bc.erode.pipes !== false ? pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - wc.pipeDepth), bc.erode) * bc.old(p.k) : this.pipeDecayAt(p.k, w));
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
       }
@@ -1056,7 +1056,16 @@ export class SpaceModel {
       }
     }
     const ero = ec ? erosion(seeds, ec, this.erodeMemo) : null;
-    this.blockClock = ec && ero ? { top: ec.topSlot, decay: ero.at, layer: (k) => erosionAt(k, 0, ec), erode: ec } : null;
+    // (the count of layers is mixed in: nothing fuses in the newest slots, fuse.ts freshSlots — a factor on the place's
+    // value by how many slots below the top the part lies)
+    const fresh = Math.max(0, input.fuse.freshSlots ?? 0), ramp = Math.max(0, input.fuse.freshRamp ?? 0);
+    const old = (slot: number): number => {
+      if (!ec || fresh <= 0) return 1;
+      const q = ramp > 0 ? (ec.topSlot - (slot + 0.5) - fresh) / ramp : ec.topSlot - (slot + 0.5) >= fresh ? 1 : 0;
+      const c = q <= 0 ? 0 : q >= 1 ? 1 : q;
+      return c * c * (3 - 2 * c);
+    };
+    this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => ero.at(b) * old(b.slot), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
     this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
     const stands = ero ? built.filter((b) => !ero.gone(b)) : built;
