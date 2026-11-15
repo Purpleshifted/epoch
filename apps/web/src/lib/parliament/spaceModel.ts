@@ -514,6 +514,8 @@ export class SpaceModel {
    */
   private bornT = new Map<number, number>();
   private ageClock = 0;
+  /** Whether the parts' ages have begun to be kept: until then what is found standing is taken as long there. */
+  private ageBegun = false;
   /** What is made again whole in the block (the ways, the pipes): when it was last made, and of how many events. */
   private slow = new Map<string, { cfg: string; at: number; version: number; n: number }>();
   /** A key that moves when the rule changed — or, no sooner than SLOW_MS after the last time, when anything was written. */
@@ -1092,7 +1094,11 @@ export class SpaceModel {
       this.densityState = null;
       this.densitySeen = null;
     }
-    if (!keepBuilt) this.bornT.clear();
+    // (the world was emptied while the wall runs: whatever is built from now on is new)
+    if (!keepBuilt) {
+      this.bornT.clear();
+      this.ageBegun = true;
+    }
     this.events = [];
     this.ids.clear();
     this.t = 0;
@@ -1378,15 +1384,20 @@ export class SpaceModel {
     // there towards what its place gives it — the deeper (the more its place gives), the sooner
     const ageNow = this.ageClock;
     if (ec && fossilSec > 0) {
+      // A PART IS PLACED, THEN IT FOSSILISES (the artist, 2026-11-15: "화석화가 건물보다 먼저 보일 때도 있고. 일단
+      // 부재가 놓이고 진행되는 게 로직상 정상인데"). Only a world found standing when the wall opened counts as long
+      // there (the first reading, if it holds a world and not a first building) — not what is first seen after old
+      // samples were forgotten, which is as new as anything. And a part that is gone gives its time back: built
+      // again in the same place later (the budget recycles the oldest), it is a new part, not one already old.
+      const old = !this.ageBegun && built.length > 200;
+      if (built.length) this.ageBegun = true;
+      const live = new Set<number>();
       for (const b of built) {
         const key = SpaceModel.partKey(b);
-        if (!this.bornT.has(key)) this.bornT.set(key, arriveQuiet ? -Infinity : ageNow);
+        live.add(key);
+        if (!this.bornT.has(key)) this.bornT.set(key, old ? -Infinity : ageNow);
       }
-      // (parts long gone are let go now and then)
-      if (this.bornT.size > 4 * built.length + 20000) {
-        const live = new Set(built.map((b) => SpaceModel.partKey(b)));
-        for (const key of this.bornT.keys()) if (!live.has(key)) this.bornT.delete(key);
-      }
+      if (this.bornT.size > live.size) for (const key of this.bornT.keys()) if (!live.has(key)) this.bornT.delete(key);
     }
     const place = (b: Box): number => (ero ? Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z) * own(b))) : 0);
     const grown = (b: Box): number => {
