@@ -1697,6 +1697,12 @@ const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8
  * walkways (길), the vegetation as clouds, the erosion (침식) and the pipes (배관, 2026-11-15). Still off: the fusion.
  */
 const REDESIGN = true;
+/** The test render mode (세계 › 테스트 렌더): off = the picture as saved; light = 1 device pixel per CSS pixel, no
+ *  post-processing (AO, grain, depth of field), no shadows, no refraction; min = 0.6 pixels, a third of the vegetation
+ *  points, on top of that. */
+type TestPerf = "off" | "light" | "min";
+const TEST_PERF_KEY = "parliament.testPerf";
+const TEST_PERF_OPTIONS: Record<string, TestPerf> = { "끔 (저장된 화질 그대로)": "off", "가볍게 (해상도 1× · AO · 그림자 · 굴절 끔)": "light", "아주 가볍게 (해상도 0.6× · 식생 점 1/3까지)": "min" };
 const useControls: typeof useLevaControls = ((...args: unknown[]) => {
   if (REDESIGN && typeof args[0] === "string") {
     const hide = { render: () => false };
@@ -2592,7 +2598,35 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     log.clear();
     setWorldResets((n) => n + 1);
   };
-  useLevaControls("세계", { "지우고 다시 생성하기": button(() => resetWorld.current()) }, { order: 0.4, render: () => isV2 });
+  // A RENDER MODE FOR TESTING (the artist, 2026-11-15: "테스트 할 때 쓸 퍼포먼스 렌더모드 좀 도입해줘. 이리저리
+  // 이터레이션 돌려보는 것도 이게 랙이 적어야 가능한 거니까"): what is computed stays the same — the picture is drawn
+  // cheaper. Remembered in this browser (not with the saved looks, and never on the exhibition wall, ?ui=0);
+  // `?perf=light|min` sets it by the link.
+  const perfFirst = useMemo<TestPerf>(() => {
+    try {
+      const q = params.get("perf") ?? window.localStorage.getItem(TEST_PERF_KEY);
+      return q === "light" || q === "min" ? q : "off";
+    } catch {
+      return "off";
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const world = useLevaControls(
+    "세계",
+    {
+      "지우고 다시 생성하기": button(() => resetWorld.current()),
+      testPerf: { options: TEST_PERF_OPTIONS, value: perfFirst, label: "테스트 렌더 (가볍게)" },
+    },
+    { order: 0.4, render: () => isV2 },
+  );
+  const testPerf: TestPerf = hideUi ? "off" : (world.testPerf as TestPerf);
+  useEffect(() => {
+    if (hideUi) return;
+    try {
+      window.localStorage.setItem(TEST_PERF_KEY, world.testPerf as string);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [hideUi, world.testPerf]);
   // THE BUILDINGS' RULE (lib/parliament/density.ts): a threshold on what has been put into each cell-slot. Off = the fold.
   const DENSITY_GROUP = "건물 생성 (칸 밀도 계단)";
   const dn = useLevaControls(
@@ -3322,9 +3356,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     { order: 9, collapsed: true },
   );
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
-  const composerOn = rnd.aoOn || rnd.grain > 0 || v.dof;
+  // (the test render mode: no post-processing at all)
+  const composerOn = (rnd.aoOn || rnd.grain > 0 || v.dof) && testPerf === "off";
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
-  const perf = rnd.perfMode;
+  const perf = rnd.perfMode || testPerf !== "off";
   // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
   // ×1.5 a full-screen wall is 3000×1700 and the GPU falls behind; the main thread then stalls (twice a second, when the
   // worker's new buffers are uploaded) until the frame is done, which starved the room's sound (2026-10-29)
@@ -3427,7 +3462,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={[1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
+      <Canvas shadows="percentage" dpr={testPerf === "min" ? 0.6 : testPerf === "light" ? 1 : [1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
@@ -3545,7 +3580,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
+          <Vegetation erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
@@ -3569,7 +3604,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div ref={shotLine} />
         <div>{PART_KINDS.map((k) => `${k} ${stats.kinds[k]}`).join(" · ")}</div>
         <div>
-          {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · baked {stats.baked} chunk(s) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{perf ? " · PERF MODE" : ""}
+          {fps} fps · LOD: {stats.farSeeds}/{stats.seeds} seeds solid · baked {stats.baked} chunk(s) · computed in {stats.runner}, {Math.round(stats.workerMs)} ms{testPerf !== "off" ? ` · TEST RENDER (${testPerf})` : perf ? " · PERF MODE" : ""}
         </div>
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>

@@ -481,6 +481,67 @@ export class SpaceModel {
    * typical exposed part on the layer clock — covered parts corrode slower, and the two clocks drifted apart as the
    * world aged. Slots without parts fall back to the formula.
    */
+  /**
+   * THE BLOCK'S VEGETATION FOR THE MASS (the artist, 2026-11-15: "그렇게 적용해서 어떻게 보이는지 확인하면 좋을듯").
+   * The mass used to take the vegetation's sediment from the vegetation's history (fuse.ts natureWeight: it sticks to
+   * decaying concrete, the lumps that made the fossil organic). The redesign has no such history; what it has is
+   * where plants gather — what is BUILT BUT NOT LIVED IN (Seed.gather, density.ts liveAt). That is read in its place:
+   * per cell-slot the unlived share, and a little of it on the cells right beside (it sticks from the side too).
+   */
+  private blockHist: { key: string; h: NatureHistory | null } | null = null;
+  private blockHistory(top: number): NatureHistory | null {
+    const key = `${this.seedsKey}:${top}`;
+    if (this.blockHist && this.blockHist.key === key) return this.blockHist.h;
+    let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity, any = false;
+    for (const sd of this.seeds) {
+      if (!sd.gather) continue;
+      any = true;
+      const cx = Math.floor(sd.x / CELL), cz = Math.floor(sd.z / CELL);
+      a = Math.min(a, cx);
+      b = Math.max(b, cx);
+      c = Math.min(c, cz);
+      d = Math.max(d, cz);
+    }
+    let h: NatureHistory | null = null;
+    if (any) {
+      const x0 = a - 2, z0 = c - 2, nx = b - a + 5, nz = d - c + 5, nk = Math.max(1, Math.round(top) + 2);
+      const V = new Float32Array(nx * nz * nk);
+      for (const sd of this.seeds) {
+        if (!sd.gather) continue;
+        const i = Math.floor(sd.x / CELL) - x0, j = Math.floor(sd.z / CELL) - z0;
+        for (const [k, g] of sd.gather) {
+          if (k < 0 || k >= nk || !(g > 0)) continue;
+          const off = k * nx * nz;
+          for (let dj = -1; dj <= 1; dj++) {
+            for (let di = -1; di <= 1; di++) {
+              const p = off + (j + dj) * nx + i + di, v = di || dj ? g * 0.6 : g;
+              if (V[p] < v) V[p] = v;
+            }
+          }
+        }
+      }
+      h = { x0, z0, nx, nz, k0: 0, nk, V, P: new Float32Array(0) };
+    }
+    this.blockHist = { key, h };
+    return h;
+  }
+
+  /** A history as a turned district's frame sees it (fuseTiled): the cells of `ext` in that frame, the slots lo … hi. */
+  private static turnedHistory(h: NatureHistory, c: number, sn: number, ext: { x0: number; z0: number; nx: number; nz: number }, lo: number, hi: number): NatureHistory {
+    const k0 = Math.max(h.k0, lo), k1 = Math.min(h.k0 + h.nk - 1, hi), nk = Math.max(0, k1 - k0 + 1);
+    const V = new Float32Array(ext.nx * ext.nz * nk);
+    for (let j = 0; j < ext.nz; j++) {
+      for (let i = 0; i < ext.nx; i++) {
+        // the cell's middle in the frame, turned forward into the world
+        const x = (ext.x0 + i + 0.5) * CELL, z = (ext.z0 + j + 0.5) * CELL;
+        const wi = Math.floor((x * c + z * sn) / CELL) - h.x0, wj = Math.floor((-x * sn + z * c) / CELL) - h.z0;
+        if (wi < 0 || wj < 0 || wi >= h.nx || wj >= h.nz) continue;
+        for (let k = 0; k < nk; k++) V[k * ext.nx * ext.nz + j * ext.nx + i] = h.V[(k0 + k - h.k0) * h.nx * h.nz + wj * h.nx + wi];
+      }
+    }
+    return { ...ext, k0, nk, V, P: new Float32Array(0) };
+  }
+
   /** What the fusion reads a part's corrosion from: the wear model — or, in the block, the erosion of its place. */
   private fuseWear(): { survival: (b: Box) => number; basis: (b: Box) => WearBasis | null } | null {
     if (this.wear) return this.wear;
@@ -572,7 +633,8 @@ export class SpaceModel {
       // into the district's frame (the inverse of seeds.ts' turn, about the origin), and the mesh back out of it
       const c = Math.cos(ang), sn = Math.sin(ang);
       const turned = list.map((e) => ({ ...e, b: { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } }));
-      const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...extent(turned, []) }, null, u, sed, layerDecay, fuse);
+      const ext = extent(turned, []);
+      const m = this.fuseTiles({ ...w, ps: turned, tubes: [], ...ext }, h ? SpaceModel.turnedHistory(h, c, sn, ext, w.c0 - 12, w.c1 + 12) : null, u, sed, layerDecay, fuse);
       for (const arr of [m.position, m.normal]) {
         for (let i = 0; i < arr.length; i += 3) {
           const x = arr[i], z = arr[i + 2];
@@ -1345,7 +1407,8 @@ export class SpaceModel {
     // THE BLOCK: its clock is a place — the "present" the layers are read against is the block's top, which stands
     const bc = this.blockClock;
     const sed = bc ? { tNow: bc.top * box.secPerUnit, secPerUnit: box.secPerUnit, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, graceSlots: 0 } : sedimentOf(this.t, box, input.weather);
-    const h = this.history;
+    // (the block has no vegetation history: what gathers there is read in its place — blockHistory)
+    const h = this.history ?? (bc && fuse.natureWeight > 0 ? this.blockHistory(bc.top) : null);
     const wm = this.fuseWear();
     const sig = `${this.partsSig}:${this.natureSig}:${JSON.stringify(input)}`;
     if (sig === this.fuseSig) return null;
