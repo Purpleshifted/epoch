@@ -43,6 +43,14 @@ export interface ErodeConfig {
   feed: number;
   /** The pipes erode too (pipeErosion); false = they stay whole. Absent = they erode. */
   pipes?: boolean;
+  /**
+   * ONE LIFE PER PART (spaceModel computeParts): a part's PROGRESS grows with the real seconds since it was placed —
+   * nothing for `waitSec`, then all the way in `lifeSec` where its place weighs most (the deepest, the least lived
+   * in), slower where it weighs less. The erosion, the plants and the mass all read that one number.
+   * lifeSec 0 / absent = the place alone, at once (as before).
+   */
+  lifeSec?: number;
+  waitSec?: number;
 }
 
 export const DEFAULT_ERODE: Omit<ErodeConfig, "topSlot"> = { start: 0.15, full: 0.9, amount: 0.75, vegPull: 0.3, order: 0.6, patch: 0.6, grain: 4, shade: 0.25, feed: 0.6 };

@@ -86,6 +86,7 @@ import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/ero
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
+import { EXHIBITION_FUSION } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botKinds, botReadout, useGlobalBots, type BotKind } from "./useGlobalBots";
@@ -2639,7 +2640,13 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
     savable(DENSITY_GROUP, {
       densityOn: { value: true, label: "새 규칙 (끄면 예전 접기)" },
       dVisitors: { value: DEFAULT_DENSITY.minVisitors, min: 1, max: 10, step: 1, label: "필요한 사람 수 (서로 다른)" },
-      dStep: { value: DEFAULT_DENSITY.step, min: 5, max: 200, step: 5, label: "문턱 (머묾의 양 · 넘으면 지어지고, 그 뒤로는 그대로)" },
+      dStep: { value: DEFAULT_DENSITY.step, min: 5, max: 200, step: 5, label: "문턱 (머묾의 양 · 넘으면 지어짐)" },
+      // A BUILDING GROWS WITH WHAT IS STAYED (the artist, 2026-11-15: "더 머물러도 건물이 너무 일찍 성장을 멈춤",
+      // "어차피 침식 가져왔으니 건물도 더 지어져도 상관없어"): the levels are back — every doubling of what was put
+      // into a cell-slot is one more level (bigger and more parts), and one person may put in more than before, so one
+      // herd that stays on raises it too. 1 level = a threshold and nothing after (as on 11/12).
+      dLevels: { value: 4, min: 1, max: 6, step: 1, label: "머물수록 커짐: 계단 수 (머묾이 두 배가 될 때마다 한 계단 · 1 = 문턱만 넘으면 그대로)" },
+      dCap: { value: 60, min: 10, max: 200, step: 5, label: "한 사람이 한 칸에 보탤 수 있는 최대 (클수록 한 무리가 오래 머물러 더 키움)" },
       dRadius: { value: DEFAULT_DENSITY.radius, min: 1, max: 8, step: 0.25, label: "옆으로 닿는 반경 (월드)" },
       dTime: { value: DEFAULT_DENSITY.timeSec, min: 0, max: 300, step: 10, label: "시간으로 닿는 범위 (s)" },
       dMaxBuilt: { value: 8000, min: 0, max: 60000, step: 500, label: "남기는 건물 칸 수 (넘으면 가장 먼저 지어진 칸부터 사라짐 · 0 = 한도 없음)" },
@@ -2723,6 +2730,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     ERODE_GROUP,
     savable(ERODE_GROUP, {
       erOn: { value: true, label: "켜기" },
+      // ONE LIFE PER PART (erode.ts lifeSec; the artist, 2026-11-15): placed → wait → plants → erosion and mass, in order
+      erLife: { value: 180, min: 0, max: 1800, step: 10, label: "진행에 걸리는 시간 (가장 깊은 곳 기준 · 실제 초 · 얕을수록 더 오래 · 0 = 놓이자마자 다)" },
+      erWait: { value: 12, min: 0, max: 120, step: 1, label: "놓인 뒤 아무 일 없는 시간 (초 · 깊이와 무관)" },
       erStart: { value: DEFAULT_ERODE.start, min: 0, max: 1, step: 0.01, label: "시작 깊이 (꼭대기에서 · 덩어리 높이의 비율)" },
       erFull: { value: DEFAULT_ERODE.full, min: 0.02, max: 1.5, step: 0.01, label: "다 깎이는 깊이 (덩어리 높이의 비율 · 1 넘으면 바닥에서도 덜 깎임)" },
       erAmount: { value: DEFAULT_ERODE.amount, min: 0, max: 1, step: 0.05, label: "다 깎였을 때 사라지는 몫 (1 = 전부)" },
@@ -2743,9 +2753,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes } }
+        ? { ...weather, erode: { topSlot: botDepth, start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait } }
         : weather,
-    [weather, botDepth, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes],
+    [weather, botDepth, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait],
   );
   // (the unlived share is read by the gatherings and by the erosion alike)
   const unlivedOn = vg.gaOn || er.erOn;
@@ -2753,9 +2763,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () =>
       dn.densityOn && isV2
         // (steps are not presences — walking does not build; the density's own paths are never asked for: step 1e9)
-        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, mergeGap: dn.dMerge, mergeThick: dn.dMergeThick, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: 1, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
+        ? { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: 1e9 }, slotSec: tAxis.secPerUnit, gapSec: tAxis.emptyGapSec, maxBuilt: dn.dMaxBuilt, mergeGap: dn.dMerge, mergeThick: dn.dMergeThick, liveAt: unlivedOn ? vg.gaLiveAt : 0, minVisitors: dn.dVisitors, step: dn.dStep, maxLevel: dn.dLevels, visitorCap: dn.dCap, radius: dn.dRadius, timeSec: dn.dTime, down: dn.dDown }
         : null,
-    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.dMerge, dn.dMergeThick, dn.densityOn, dn.dVisitors, dn.dStep, dn.dRadius, dn.dTime, dn.dDown],
+    [isV2, unlivedOn, vg.gaLiveAt, tAxis.secPerUnit, tAxis.emptyGapSec, dn.dMaxBuilt, dn.dMerge, dn.dMergeThick, dn.densityOn, dn.dVisitors, dn.dStep, dn.dLevels, dn.dCap, dn.dRadius, dn.dTime, dn.dDown],
   );
   // WHERE IT IS BUILT, FOR THE BOTS (botGround.ts): a copy of the wall's density field on this thread, with
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
@@ -3033,13 +3043,14 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         // 되면 안 되는데" → "딱 잘려보이는데, 다른 로직에 곱하거나 하는 식으로(단수를)") — new names: a factor now, not a line
         layerSlots: { value: 24, min: 0, max: 240, step: 1, label: "층수를 곱함: 꼭대기 0 → 이 단수 아래에서 1 (0 = 층수 안 봄)", render: () => REDESIGN },
         layerSpread: { value: 0.5, min: 0, max: 1, step: 0.05, label: "자리마다 · 부재마다 다르게 (0 = 같은 단은 한꺼번에 → 잘려 보임)", render: () => REDESIGN },
-        // THE BLOCK: the layer is a weight on how fast (fuse.ts fossilSec; the artist, 2026-11-15: "층이 가중치가 되는 게 맞는데")
-        fossilSec: { value: 180, min: 0, max: 1800, step: 10, label: "화석화에 걸리는 시간 (가장 깊은 층 기준 · 실제 초 · 얕을수록 더 오래 · 0 = 지어지자마자)", render: () => REDESIGN },
+        // THE BLOCK: how much of a fused part the mass takes the place of (fuse.ts absorb; the artist, 2026-11-15:
+        // "건물이 녹는 게 아니라 건물에 엉겨붙도록 하는 게 예전 느낌에 더 맞는 것 같은데")
+        absorb: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (1 = 전시 버전처럼 서서히 녹음 … 0 = 부재는 그대로, 덩어리만 엉겨 붙음)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: () => REDESIGN },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리로 녹기 시작하는 부식 (0 새것 … 1 사라짐; 작용 층 안에서)" },
         fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 부식 (1 = 끝까지 천천히; 낮출수록 문턱을 넘자마자 차오름)" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => !REDESIGN && get(SKEL_PATH) > 0 },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 부식 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
       [FU_MASS]: folder({
@@ -3224,7 +3235,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         },
         { collapsed: false },
       ),
-    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }] : []),
+    }, [], isV2 ? [{ tag: "no-growths-2026-10-19", set: { accretion: 0 } }, { tag: "resin-colour-back-2026-10-19", set: { resinColor: KIND_COLOR.slab } }, { tag: "resin-glass-2026-10-19", set: { resinMode: "glass" } }, { tag: "resin-opaque-2026-10-19", set: { resinOpacity: 1 } }, { tag: "resin-frost-2026-10-19", set: { resinMode: "frost", resinOpacity: 0.7 } }, { tag: "fossil-opt-in-2026-10-20", set: { blocky: 0, cavity: 0 } }, ...(REDESIGN ? [{ tag: "exhibition-fusion-2026-11-15", set: EXHIBITION_FUSION }] : [])] : []),
     { order: REDESIGN ? (lab ? 7.97 : 4.4) : lab ? 2 : 8, collapsed: REDESIGN },
   );
   // (the redesign's wall: only in the block — the density's buildings and a block whose top is known)
@@ -3257,7 +3268,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, fossilSec: fu.fossilSec } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.absorb } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3312,7 +3323,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.fossilSec, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.absorb, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({

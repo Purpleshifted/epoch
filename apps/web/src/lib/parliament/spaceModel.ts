@@ -42,7 +42,7 @@ export const FUSE_NEW_PER_CALL = 2;
 /** THE BLOCK: the ways and the pipes are laid again at most this often (ms), and one call fuses for about this long. */
 const SLOW_MS = 8000;
 const FUSE_BUDGET_MS = 450;
-/** THE BLOCK: a part's age is read in this many steps to `fossilSec` (the steps are the clock's: all parts move at once). */
+/** THE BLOCK: a part's age is read in this many steps to `lifeSec` (the steps are the clock's: all parts move at once). */
 const AGE_STEPS = 8;
 
 /** sRGB hex pairs (low, high shade) per NATURE_KIND. */
@@ -508,11 +508,13 @@ export class SpaceModel {
   /** The parts still standing, as of the fuse being computed (tubesOf reads it: eroded steel leaves no mass). */
   private standingNow: Set<Box> | null = null;
   /**
-   * WHEN EACH PART WAS FIRST THERE, in real seconds (fuse.ts fossilSec: a part fossilises from then on) — by the
-   * part's own key, so a part made again is the same part; kept through the forgetting of old samples, emptied with
+   * WHEN EACH CELL-SLOT WAS BUILT, in real seconds (erode.ts lifeSec: its parts' progress counts from then on) — by
+   * the cell (seed id) and the slot, with the level it had; kept through the forgetting of old samples, emptied with
    * the world. `ageClock` only ever goes forward.
    */
-  private bornT = new Map<number, number>();
+  private bornT = new Map<number, Map<number, { born: number; level: number }>>();
+  /** How far a part's plants have come since it was built (0 during its wait … 1): the gatherings read it. */
+  private partSettled: ((b: Box) => number) | null = null;
   private ageClock = 0;
   /** Whether the parts' ages have begun to be kept: until then what is found standing is taken as long there. */
   private ageBegun = false;
@@ -1207,11 +1209,12 @@ export class SpaceModel {
         if (lv === 2) far.add(s.id);
       }
     }
-    // (the block's fossilising goes by the clock: the parts are read again every few seconds of it)
-    const fossilSec = this.densityCfg ? Math.max(0, input.fuse.fossilSec ?? 0) : 0;
+    // (the block's parts go on by the clock: they are read again at every step of it)
+    const lifeSec = this.densityCfg && input.weather.erode ? Math.max(0, input.weather.erode.lifeSec ?? 0) : 0;
+    const waitSec = Math.max(0, input.weather.erode?.waitSec ?? 0);
     // (real seconds: the world's clock is set back whenever the lab's world is trimmed, and a part's age must not be)
     this.ageClock = Math.max(this.ageClock, (Date.now() - this.arriveEpoch) / 1000);
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${fossilSec > 0 && input.fuse.enabled ? Math.floor(this.ageClock / (fossilSec / AGE_STEPS)) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${lifeSec > 0 ? Math.floor(this.ageClock / (lifeSec / AGE_STEPS)) : "-"}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
     // ARRIVAL (arrive.ts): parts first seen now are being built — unless a knob of the parts or of the buildings' rule
@@ -1380,43 +1383,93 @@ export class SpaceModel {
       if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
       return 1 + spread * (1 - 2 * th);
     };
-    // …AND IN TIME: the layer is a weight on how fast (fuse.ts fossilSec). A part's value grows from when it was first
-    // there towards what its place gives it — the deeper (the more its place gives), the sooner
+    // ONE LIFE PER PART (the artist, 2026-11-15: "프로세듀럴하게 건물이 지어지고, 조건에 따라 식생이 모이고, 침식과
+    // 융합이 진행되고 — 이전이랑 바뀐 것도 뭐 없어, 그냥 여기서 전 시간대에 대해 이걸 진행하는데 더 깊은 곳에선 빨리
+    // 되도록 한다 정도? 근데 지금 함수로만 돌리니까 식생 먼저 렌더되고 건물 보이고 개판"). Read as functions of the
+    // place alone, everything about a part was there the moment the part was — eroded, overgrown, fused — in whatever
+    // order the results happened to reach the screen. Now a part has ONE number, its PROGRESS: nothing for `waitSec`
+    // after it was placed (it is being built), then growing with the time since — as fast as its place weighs (the
+    // erosion of its place: depth below the top × how little it was lived in, × the count of layers), all the way in
+    // `lifeSec` at the deepest places. Everything that happens to a part is a threshold of that number, so it happens
+    // in order: the plants gather, the part erodes when the progress passes its own threshold, the mass grows on it.
     const ageNow = this.ageClock;
-    if (ec && fossilSec > 0) {
-      // A PART IS PLACED, THEN IT FOSSILISES (the artist, 2026-11-15: "화석화가 건물보다 먼저 보일 때도 있고. 일단
-      // 부재가 놓이고 진행되는 게 로직상 정상인데"). Only a world found standing when the wall opened counts as long
-      // there (the first reading, if it holds a world and not a first building) — not what is first seen after old
-      // samples were forgotten, which is as new as anything. And a part that is gone gives its time back: built
-      // again in the same place later (the budget recycles the oldest), it is a new part, not one already old.
-      const old = !this.ageBegun && built.length > 200;
+    if (ec && lifeSec > 0) {
+      // WHEN A CELL-SLOT WAS BUILT — its parts share that time (a building's parts are made again whenever it grows:
+      // kept part by part, every growth would have been a new building). A cell-slot found standing when the wall
+      // opened (the first reading, if it holds a world and not a first building) has lived one whole life of the
+      // deepest places: its progress is its place's weight. One built MORE (its level rose: people came back and
+      // stayed) is built anew — it starts over; what is lived in does not fossilise. One that is gone gives its time
+      // back: built again later in the same place, it is new.
+      const found = !this.ageBegun && built.length > 200;
       if (built.length) this.ageBegun = true;
       const live = new Set<number>();
-      for (const b of built) {
-        const key = SpaceModel.partKey(b);
-        live.add(key);
-        if (!this.bornT.has(key)) this.bornT.set(key, old ? -Infinity : ageNow);
+      for (const sd of seeds) {
+        if (!sd.levels) continue;
+        live.add(sd.id);
+        let m = this.bornT.get(sd.id);
+        if (!m) this.bornT.set(sd.id, (m = new Map()));
+        for (const [k, lv] of sd.levels) {
+          const e = m.get(k);
+          if (!e) m.set(k, { born: found ? ageNow - lifeSec - waitSec : ageNow, level: lv });
+          else if (lv > e.level) {
+            e.born = ageNow;
+            e.level = lv;
+          }
+        }
+        if (m.size > sd.levels.size) for (const k of m.keys()) if (!sd.levels.has(k)) m.delete(k);
       }
-      if (this.bornT.size > live.size) for (const key of this.bornT.keys()) if (!live.has(key)) this.bornT.delete(key);
+      if (this.bornT.size > live.size) for (const id of this.bornT.keys()) if (!live.has(id)) this.bornT.delete(id);
     }
-    const place = (b: Box): number => (ero ? Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z) * own(b))) : 0);
-    const grown = (b: Box): number => {
-      const w = place(b);
-      if (!(fossilSec > 0) || w <= 0) return w;
-      const born = this.bornT.get(SpaceModel.partKey(b));
-      if (born === undefined || born === -Infinity) return w;
-      // (the age is read in steps of the clock that every part shares — AGE_STEPS to `fossilSec`: read to the second,
-      // each part crossed its next twentieth at its own moment, so every fossilising district was fused again all
-      // the time, and the deepest — the fastest and the most — fell furthest behind: "깊을수록 오히려 화석화가 느려
-      // 보이는데", the artist, 2026-11-15)
-      const step = fossilSec / AGE_STEPS;
-      const age = Math.max(0, Math.floor(ageNow / step) - Math.floor(born / step)) * step;
-      return w * Math.min(1, (w * age) / fossilSec);
+    /** Seconds a part's cell-slot has been there past its wait, in the clock's shared steps (AGE_STEPS to `lifeSec`:
+     *  all parts move at once, so nothing is worked out again between two steps). A part below its building's slots
+     *  (a pile, a basement) goes with the building's first slot. */
+    const step = lifeSec > 0 ? lifeSec / AGE_STEPS : 1;
+    const aged = (b: Box): number => {
+      const m = this.bornT.get(b.seed);
+      if (!m) return 0;
+      let e = m.get(b.slot);
+      if (!e) {
+        let lo = Infinity;
+        for (const k of m.keys()) if (k < lo) lo = k;
+        e = m.get(lo);
+        if (!e) return 0;
+      }
+      return Math.max(0, Math.floor(ageNow / step) - Math.floor((e.born + waitSec) / step)) * step;
     };
-    this.blockClock = ec && ero ? { top: ec.topSlot, decay: grown, layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
+    /** How fast a part's place lets it go on (0 … 1). */
+    const weight = (b: Box): number => (ero ? Math.max(0, Math.min(1, ero.at(b) * old(b.slot, b.x, b.z))) : 0);
+    /** A part's progress, 0 … 1. Without a life time (lifeSec 0) the place alone, as before. */
+    const progMemo = new Map<Box, number>();
+    const progress = (b: Box): number => {
+      let v = progMemo.get(b);
+      if (v === undefined) {
+        const wgt = weight(b);
+        v = lifeSec > 0 ? Math.min(1, (wgt * aged(b)) / lifeSec) : wgt;
+        progMemo.set(b, v);
+      }
+      return v;
+    };
+    // the erosion reads the progress: a part is gone when it has passed the part's own threshold
+    const amount = ec ? Math.min(1, Math.max(0, ec.amount)) : 0;
+    const life: Erosion | null =
+      ec && ero
+        ? {
+            at: progress,
+            gone: (b) => {
+              const e = progress(b) * amount;
+              if (e <= 0) return false;
+              let th = this.erodeMemo.get(b);
+              if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
+              return th < e;
+            },
+          }
+        : null;
+    // the plants come once the part is built: nothing during the wait, all of them a few steps on
+    this.partSettled = ec && lifeSec > 0 ? (b: Box) => Math.min(1, aged(b) / (2 * step)) : null;
+    this.blockClock = ec && ero ? { top: ec.topSlot, decay: (b) => Math.max(0, Math.min(1, progress(b) * own(b))), layer: (k) => erosionAt(k, 0, ec) * old(k), old, erode: ec } : null;
     const pipeErode = ec && ec.pipes !== false ? (p: PipeRun) => pipeErosion((p.ax + p.bx) / 2, (p.az + p.bz) / 2, Math.floor(p.k - input.water.pipeDepth), ec) : null;
-    this.eroded = ero && ec ? { ...ero, feed: ec.feed } : null;
-    const stands = ero ? built.filter((b) => !ero.gone(b)) : built;
+    this.eroded = life && ec ? { ...life, feed: ec.feed } : null;
+    const stands = life ? built.filter((b) => !life.gone(b)) : built;
     const worn = wm ? wearParts(stands, seeds, t, wearCfg, wm) : stands;
     // the weathering of every part: what it turns into (fuse.ts) follows it, on the structure itself
     this.wear = wm;
@@ -1430,8 +1483,7 @@ export class SpaceModel {
     // a part being fused is absorbed into the mass, little by little (by a fixed hash): the mass takes its place.
     // Steel stays (it sticks out of the mass), and so does the skeleton until late (its form kept inside the mass).
     const fu = input.fuse;
-    // (the block: the skeleton is never swallowed by the clock — fuse.ts goneMass)
-    const fuSk = this.blockClock ? { ...fu, skeletonUntil: 2 } : fu;
+    const fuSk = fu;
     const absorbed = (b: Box) => {
       // the steel stays out of the mass (it rusts and falls) — but for the share that fuses as fossil
       if (!survival || !fu.enabled || !(w.strata || this.blockClock) || (STEEL_KINDS.has(b.kind) && !(fu.steelFossil > 0 && partHash(b) < fu.steelFossil))) return false;
@@ -1439,7 +1491,10 @@ export class SpaceModel {
       if (isSkeleton(b, d, fuSk)) return false;
       // only as far as the mass that takes its place is already drawn (it is built a few chunks at a time)
       const f = fusedShare(Math.min(d, this.fusedAtOf(b) ?? 0), fu);
-      return f > 0 && partHash(b) < Math.min(1, f * 1.6);
+      // (THE BLOCK: the mass CLINGS to the building — fuse.ts absorb: how much of a fused part the mass takes the
+      // place of; 0 = the part stays as it is under what has grown on it)
+      const take = this.blockClock ? Math.max(0, Math.min(1, fu.absorb ?? 1)) : 1;
+      return f > 0 && take > 0 && partHash(b) < Math.min(1, f * 1.6) * take;
     };
     const shown = worn.filter((b) => !absorbed(b));
     this.shown = shown;
@@ -1651,7 +1706,7 @@ export class SpaceModel {
     this.standingNow = standing;
     // THE BLOCK: what the erosion has taken leaves no mass (or `goneMass` of it), and the skeleton stays inside
     const gone = bc ? Math.max(0, Math.min(1, fuse.goneMass ?? 0)) : 1;
-    const skCfg = bc ? { ...fuse, skeletonUntil: 2 } : fuse;
+    const skCfg = fuse;
     const q20 = (v: number) => Math.round(v * 20) / 20;
     type P = { b: Box; d: number; up: boolean; sk: boolean; ang: number };
     // the angle each seed's district is turned by (fuseTiled)
@@ -1930,7 +1985,9 @@ export class SpaceModel {
       const byId = new Map(this.seeds.map((sd) => [sd.id, sd] as const));
       // tied to the erosion (erode.ts feed): plants gather where it erodes — and stay in the place of what is gone
       const er = this.eroded;
-      gathering = er && er.feed > 0 ? (b: Box) => Math.min(1, (byId.get(b.seed)?.gather?.get(b.slot) ?? 0) + er.feed * er.at(b)) : (b: Box) => byId.get(b.seed)?.gather?.get(b.slot) ?? 0;
+      // (a part's plants come after the part: nothing while it is being built — partSettled)
+      const settled = this.partSettled ?? (() => 1);
+      gathering = er && er.feed > 0 ? (b: Box) => settled(b) * Math.min(1, (byId.get(b.seed)?.gather?.get(b.slot) ?? 0) + er.feed * er.at(b)) : (b: Box) => settled(b) * (byId.get(b.seed)?.gather?.get(b.slot) ?? 0);
     }
     const { fuse: _f, unlived: _u, ...cfg } = input;
     void _f;

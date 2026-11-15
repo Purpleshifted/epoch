@@ -104,22 +104,15 @@ export interface FuseConfig {
    * prism however much of it was gone. Now the mass is of what still stands: the erosion's patches cut it, and what
    * is left are the plates, the columns and the rooms between them. 0 / absent = an eroded part leaves nothing;
    * up to 1 = it leaves that much of its mass (1 = as before). Not read outside the block.
-   *
-   * And THE SKELETON STAYS INSIDE in the block: `skeletonUntil` is not read there — what goes is the erosion's to say,
-   * and the skeleton is what the openings of the shell show (the artist, the same day: "보로노이셀 넣은 이유가 공동이
-   * 열리면 거기로 오래된 부재가 드러나도록 하는 거였는데 지금은 어찌 다 덩어리라 그 매력이 없어짐").
    */
   goneMass?: number;
   /**
-   * THE BLOCK — THE LAYER IS A WEIGHT ON HOW FAST (the artist, 2026-11-15: "생성되면서 바로 화석화되는 것도 좀 그래 …
-   * 층마다 화석화 속도가 다른 거면 몰라도", "층이 가중치가 되는 게 맞는데"). Read as a place alone, a building written
-   * deep in the block was a fossil the moment it stood. Now a part's value GROWS from when it was first there, towards
-   * what its place gives it (the erosion of its place × the count of layers × its own share): after `fossilSec`
-   * real seconds a part of the deepest places is all the way there; one whose place gives it half
-   * takes twice as long to get to its half — the layer weighs on the speed, and where it ends is the place's as
-   * before. What was already there when the wall opened is taken as arrived. 0 / absent = at once (the place alone).
+   * THE BLOCK — THE MASS CLINGS (the artist, 2026-11-15: "융합덩어리가 건물이 녹는 게 아니라 건물에 엉겨붙도록 하는
+   * 게 예전 느낌에 더 맞는 것 같은데"). How much of a fused part the mass takes the place of: 1 / absent = as before the
+   * redesign (a fused part is hidden little by little as the mass covers it; the skeleton and the steel stay); 0 = no
+   * part is hidden — the building stands whole under what has grown on it. Not read outside the block.
    */
-  fossilSec?: number;
+  absorb?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
