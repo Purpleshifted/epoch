@@ -211,6 +211,41 @@ describe("pipes join only what is still in use (reach, re-laying)", () => {
   });
 });
 
+describe("the block: the ground is read per slot from what stands in it", () => {
+  // two dense quarters far apart in time: one stands in slots 0 … 10, the other in slots 20 … 30
+  const early = [...block(1, 0, 0, 6, 6, 0), ...block(100, 8, 0, 5, 6, 0)].map((s) => ({ ...s, t1: 219 }));
+  const late = [...block(200, 0, 0, 6, 6, 400), ...block(300, 8, 0, 5, 6, 400)].map((s) => ({ ...s, t1: 619 }));
+  const inBlock = { ...opts, block: true };
+
+  it("a building sheds water only in the slots it stands in: nothing is laid in the empty time between", () => {
+    const d = drainage([], [...early, ...late], DEFAULT_WATER, inBlock);
+    const ks = new Set(d.pipes.map((p) => p.k));
+    expect([...ks].some((k) => k <= 10)).toBe(true);
+    expect([...ks].some((k) => k >= 20 && k <= 30)).toBe(true);
+    for (const k of ks) expect(k <= 10 || (k >= 20 && k <= 30)).toBe(true);
+    // (the old reading keeps a building for good once it is born: there, pipes are laid on into the empty time)
+    const old = drainage([], [...early, ...late], { ...DEFAULT_WATER, persistSec: 1e9 }, opts);
+    expect(old.pipes.some((p) => p.k > 10 && p.k < 20)).toBe(true);
+  });
+
+  it("what stood below is no obstacle above: a later network may run where an earlier building was", () => {
+    // early: a wall of cells right beside the late quarter's west edge; in the block it is gone by the late slots
+    const wall = block(500, -1, -2, 1, 10, 0).map((s) => ({ ...s, t1: 219 }));
+    const d = drainage([], [...wall, ...late], DEFAULT_WATER, inBlock);
+    const lateRuns = d.pipes.filter((p) => p.k >= 20 && p.k0 === undefined);
+    expect(lateRuns.length).toBeGreaterThan(0);
+    const alone = drainage([], late, DEFAULT_WATER, inBlock).pipes.filter((p) => p.k >= 20 && p.k0 === undefined);
+    expect(lateRuns.map((p) => [p.ax, p.az, p.bx, p.bz])).toEqual(alone.map((p) => [p.ax, p.az, p.bx, p.bz]));
+  });
+
+  it("it is read as high as it is built, whatever the clock says, and the same whenever it is asked", () => {
+    const a = drainage([], [...early, ...late], DEFAULT_WATER, { ...inBlock, tNow: 0 });
+    const b = drainage([], [...late, ...early], DEFAULT_WATER, { ...inBlock, tNow: 99999 });
+    expect(a.pipes.length).toBeGreaterThan(0);
+    expect(b.pipes).toEqual(a.pipes);
+  });
+});
+
 describe("pipes as plumbing (the wrapper)", () => {
   it("every run a straight cylinder on its axis (right angles kept), a fitting at every bend, manholes upright with covers", () => {
     const seeds = [...block(1, 0, 0, 6, 6), ...block(100, 8, 0, 5, 6), ...block(200, 0, 8, 6, 5), ...block(300, 8, 8, 5, 5, 300)];

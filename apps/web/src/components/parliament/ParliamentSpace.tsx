@@ -1628,7 +1628,8 @@ const BOT_KIND_COLOR: Record<BotKind, string> = { settle: "#2a62ff", roam: "#ff8
  * 옮겨와. 식생, 융합, 길, 파이프: 지금 안 쓰잖아"). While this is on, every folder this view declares with `useControls`
  * is NOT SHOWN (its saved values still apply, so the picture's settings are what they were), and the vegetation, the
  * fusion, the walkways and the pipes are off. What the redesign has brought over is declared with `useLevaControls`
- * and shown: the time axis, the bots (useGlobalBots), the buildings' density rule, the markers.
+ * and shown: the time axis, the bots (useGlobalBots), the buildings' density rule, the markers — and since then the
+ * walkways (길), the vegetation as clouds, the erosion (침식) and the pipes (배관, 2026-11-15). Still off: the fusion.
  */
 const REDESIGN = true;
 const useControls: typeof useLevaControls = ((...args: unknown[]) => {
@@ -2747,72 +2748,74 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         : null,
     [isV2, wlk.walkOn, wlk.buildAt, wlk.maxSpan, wlk.walkJoin, wlk.walkChange, wlk.walkGap, wlk.rampLen, wlk.smooth, wlk.joinReach, wlk.grace, wlk.joinShare, wlk.resurfaceOn, wlk.resurface],
   );
-  // ── 물 → 배관 (V1 + V2): the sealed ground → its rain piped below (dense) / open streams (sparse, past outfalls) ──
-  const WATER_GROUP = "물 → 배관";
-  const wtr = useControls(
+  // ── 배관: the sealed ground → its rain piped away, from the buildings to where the ground is open (water.ts) ──
+  // BROUGHT OVER (the artist, 2026-11-15: "배관 먼저"), onto the density's buildings: in the block the ground is read
+  // per slot from what stands in it (DrainageOptions.block). The folder is today's — only what does something now;
+  // what was saved under the old name is read as before. Not used now and not shown: the open streams (they shaped
+  // the old vegetation), the pipes' corrosion (wear is off), the brightness of kept pipes (the block has no present).
+  const WATER_GROUP = "배관";
+  const WATER_GROUP_OLD = "물 → 배관";
+  const wtr = useLevaControls(
     WATER_GROUP,
     savable(
       WATER_GROUP,
       {
-        waterOn: { value: DEFAULT_WATER.enabled, label: "켜기" },
-        "① 땅: 덮인 땅 (빗물이 못 스밈)": folder(
+        "어디에 깔리나 (덮인 땅의 건물에서 열린 땅 쪽으로)": folder(
           {
+            pipesOn: { value: true, label: "켜기" },
+            burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "관이 깔리는 덮인 비율 (건물 둘레가 이만큼 덮여야 · 관은 여기까지만 감)" },
             imperviousRadius: { value: DEFAULT_WATER.imperviousRadius, min: 1, max: 10, step: 1, label: "덮인 비율을 재는 범위 (칸)" },
-            pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "덮인 땅이 되는 길 세기 (포장된 길)" },
+            openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "관이 향하는 열린 땅 (덮인 비율이 이보다 낮은 곳)" },
+            pathAt: { value: DEFAULT_WATER.pathAt, min: 0.05, max: 1, step: 0.01, label: "덮인 땅으로 치는 길 (밟힘 세기)" },
             join: { value: DEFAULT_WATER.join, min: 1, max: 4, step: 1, label: "한 건물로 볼 거리 (칸)" },
-            persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 비어도 물이 나오는 시간 (s)" },
+            quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
+            diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "45° 꺾임 (0 = 직각만)" },
+            pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "묻히는 깊이 (깔린 단보다 몇 단 아래)" },
           },
           { order: 1 },
         ),
-        "② 배관: 어디에 깔리나": folder(
+        "층 · 이어짐": folder(
           {
-            burial: { value: DEFAULT_WATER.burial, min: 0.02, max: 1, step: 0.01, label: "배관이 되는 덮인 비율 (건물 주변)" },
-            quarterGap: { value: DEFAULT_WATER.quarterGap, min: 1, max: 40, step: 0.5, label: "한 관망으로 묶는 건물 간 거리 (월드)" },
-            diagonal: { value: DEFAULT_WATER.diagonal, min: 0, max: 1, step: 0.05, label: "45° 꺾임 (0 = 직각만)" },
-            pipeDepth: { value: DEFAULT_WATER.pipeDepth, min: 0, max: 10, step: 0.5, label: "묻히는 깊이 (깔린 층보다 몇 단 아래 — 늘 다리 아래)" },
+            change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (덮인 땅이 이만큼 바뀌면 · 건물이 오고 가도)" },
+            minGapSlots: { value: DEFAULT_WATER.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)" },
+            // (a new input: the old one's 0 meant "the present's thickness", and the block has no present)
+            pipeJoinReach: { value: 20, min: 1, max: 120, step: 1, label: "이만큼 아래의 옛 관까지 이음 (단 · 맨홀로)" },
+            pipeGrace: { value: DEFAULT_WATER.grace, min: 0, max: 60, step: 1, label: "이만큼 안 쓰여도 같은 관 (단)" },
+            relayOn: { value: DEFAULT_WATER.relay >= 0, label: "오래 쓰는 관망을 다시 깖" },
+            relay: { value: DEFAULT_WATER.relay, min: 0, max: 120, step: 1, label: "다시 까는 간격 (단 · 0 = 위의 '옛 관까지'와 같게)" },
           },
           { order: 2 },
         ),
-        "③ 배관: 층 · 이어짐 · 남음": folder(
+        "관": folder(
           {
-            [PRESENT]: presentMonitor,
-            change: { value: DEFAULT_WATER.change, min: 0.01, max: 1, step: 0.01, label: "새 층이 놓이는 변화 (덮인 땅이 이만큼 바뀌면; 건물이 오고 가도)" },
-            minGapSlots: { value: DEFAULT_WATER.minGapSlots, min: 1, max: 30, step: 1, label: "새 층 최소 간격 (단)" },
-            pipeReach: { value: DEFAULT_WATER.reach, min: 0, max: 120, step: 1, label: "이보다 오래된 관은 과거: 잇지 않음 (단, 0 = '현재' 두께)" },
-            pipeGrace: { value: DEFAULT_WATER.grace, min: 0, max: 60, step: 1, label: "이만큼 안 쓰여도 같은 관 (단)" },
-            relayOn: { value: DEFAULT_WATER.relay >= 0, label: "재부설: 오래 쓰는 관망을 다시 깖" },
-            relay: { value: DEFAULT_WATER.relay, min: 0, max: 120, step: 1, label: "재부설 간격 (단, 0 = 과거가 되는 나이와 같게)" },
-          },
-          { order: 3 },
-        ),
-        "④ 배관 모양 · 재질 · 부식": folder(
-          {
-            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.2, step: 0.005, label: "관 굵기 (건물 하나 몫, 반지름)" },
+            pipeRadius: { value: DEFAULT_WATER.pipeRadius, min: 0.01, max: 0.2, step: 0.005, label: "굵기 (건물 한 칸 몫, 반지름)" },
             flowGain: { value: DEFAULT_WATER.flowGain, min: 0, max: 1, step: 0.05, label: "모일수록 굵어짐 (0 = 다 같게, 0.5 = √)" },
-            elbow: { value: DEFAULT_WATER.elbow, min: 0.5, max: 3, step: 0.05, label: "엘보 반지름 (관 굵기 배; 작을수록 급한 직각)" },
+            elbow: { value: DEFAULT_WATER.elbow, min: 0.5, max: 3, step: 0.05, label: "엘보 반지름 (관 굵기 배 · 작을수록 급한 직각)" },
             shaftRadius: { value: DEFAULT_WATER.shaftRadius, min: 0.5, max: 4, step: 0.05, label: "맨홀 세로관 굵기 (관 굵기 배)" },
             coverRadius: { value: DEFAULT_WATER.coverRadius, min: 1, max: 4, step: 0.05, label: "맨홀 뚜껑 너비 (세로관 배)" },
             coverHeight: { value: DEFAULT_WATER.coverHeight, min: 0, max: 2, step: 0.05, label: "맨홀 뚜껑 두께 (세로관 반지름 배)" },
             collarRadius: { value: DEFAULT_WATER.collarRadius, min: 1, max: 2.5, step: 0.05, label: "칼라(T 이음쇠) 굵기 (관 배)" },
             collarLength: { value: DEFAULT_WATER.collarLength, min: 0.2, max: 4, step: 0.1, label: "칼라 길이 (관 반지름 배, 반쪽)" },
-            pipeColor: { value: "#7c7f84", label: "관 색 (무채색)" },
-            pipeRoughness: { value: 0.55, min: 0, max: 1, step: 0.01, label: "관 거칠기" },
-            pipeMetalness: { value: 0.35, min: 0, max: 1, step: 0.01, label: "관 금속성" },
-            pipeKeptDim: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "굳은 관의 밝기 (현재 대비)" },
-            "부식 (오래된 관부터, 부재와 같은 시계)": folder({
-              pipeLife: { value: DEFAULT_WATER.pipeLife, min: 0, max: 5, step: 0.05, label: "관 수명 (철골 대비; 0 = 부식 없음)" },
-              thin: { value: DEFAULT_WATER.thin, min: 0, max: 0.9, step: 0.05, label: "다 부식하면 얇아지는 비율" },
-              pipeHoleOnset: { value: 0.2, min: 0, max: 0.95, step: 0.05, label: "구멍이 나기 시작하는 부식 정도" },
-              pipeHoles: { value: 0.95, min: 0, max: 1, step: 0.05, label: "다 부식하면 먹히는 벽 비율" },
-              pipeGrain: { value: 23, min: 3, max: 80, step: 1, label: "구멍 결 (클수록 잘고 많음)" },
-              pipeDarken: { value: 0.55, min: 0, max: 1, step: 0.05, label: "부식할수록 어두워짐" },
-            }),
+            pipeColor: { value: "#7c7f84", label: "색 (무채색)" },
+            pipeRoughness: { value: 0.55, min: 0, max: 1, step: 0.01, label: "거칠기" },
+            pipeMetalness: { value: 0.35, min: 0, max: 1, step: 0.01, label: "금속성" },
           },
-          { order: 4, collapsed: true },
+          { order: 3, collapsed: true },
         ),
-        "⑤ 열린 물길: 식생 · 부식 (남음: 식생 속 물길)": folder(
+        // NOT USED NOW (kept so the saved values and the old wall still have them)
+        "쓰지 않음": folder(
           {
-            openShare: { value: DEFAULT_WATER.openShare, min: 0, max: 0.6, step: 0.01, label: "물이 다시 스미는 덮인 비율 (배출구)" },
+            waterOn: { value: DEFAULT_WATER.enabled, label: "켜기 (예전 벽)" },
+            persistSec: { value: DEFAULT_WATER.persistSec, min: 0, max: 3600, step: 10, label: "건물이 비어도 물이 나오는 시간 (s)" },
+            [PRESENT]: presentMonitor,
+            pipeReach: { value: DEFAULT_WATER.reach, min: 0, max: 120, step: 1, label: "이보다 오래된 관은 과거: 잇지 않음 (단, 0 = '현재' 두께)" },
+            pipeKeptDim: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "굳은 관의 밝기 (현재 대비)" },
+            pipeLife: { value: DEFAULT_WATER.pipeLife, min: 0, max: 5, step: 0.05, label: "관 수명 (철골 대비; 0 = 부식 없음)" },
+            thin: { value: DEFAULT_WATER.thin, min: 0, max: 0.9, step: 0.05, label: "다 부식하면 얇아지는 비율" },
+            pipeHoleOnset: { value: 0.2, min: 0, max: 0.95, step: 0.05, label: "구멍이 나기 시작하는 부식 정도" },
+            pipeHoles: { value: 0.95, min: 0, max: 1, step: 0.05, label: "다 부식하면 먹히는 벽 비율" },
+            pipeGrain: { value: 23, min: 3, max: 80, step: 1, label: "구멍 결 (클수록 잘고 많음)" },
+            pipeDarken: { value: 0.55, min: 0, max: 1, step: 0.05, label: "부식할수록 어두워짐" },
             streamLength: { value: DEFAULT_WATER.streamLength, min: 0, max: 40, step: 0.5, label: "배출구 너머로 흐르는 거리 (월드)" },
             channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
             meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이" },
@@ -2821,16 +2824,18 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             wetShare: { value: DEFAULT_WATER.wetShare, min: 0, max: 1, step: 0.05, label: "물가 식생 중 습지색 비율" },
             corrode: { value: DEFAULT_WATER.corrode, min: 0, max: 5, step: 0.1, label: "물에 닿은 부품이 빨리 부식하는 정도" },
           },
-          { order: 5, collapsed: true },
+          { render: () => false },
         ),
       },
-      ["수로 (덮인 땅의 물)", "길 · 다리"],
+      [WATER_GROUP_OLD, "수로 (덮인 땅의 물)", "길 · 다리"],
     ),
-    { order: 5, collapsed: true, render: () => !lab },
+    // (shown in the lab too, as the paths are)
+    { order: lab ? 7.85 : 4.2, collapsed: true },
   );
   const waterView = useMemo<WaterConfig | null>(
     () =>
-      wtr.waterOn
+      // (the redesign's wall: its own switch, and only on the V2 wall; otherwise the old one)
+      (REDESIGN ? isV2 && wtr.pipesOn : wtr.waterOn)
         ? {
             enabled: true,
             join: wtr.join,
@@ -2852,7 +2857,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             corrode: wtr.corrode,
             pipeRadius: wtr.pipeRadius,
             quarterGap: wtr.quarterGap,
-            reach: wtr.pipeReach,
+            reach: REDESIGN ? wtr.pipeJoinReach : wtr.pipeReach,
             grace: wtr.pipeGrace,
             relay: wtr.relayOn ? wtr.relay : -1,
             elbow: wtr.elbow,
@@ -2866,11 +2871,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             thin: wtr.thin,
           }
         : null,
-    [wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
+    [isV2, wtr.pipesOn, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(
-    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
+    () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
   );
   const { cfg: natureCfg } = useNatureControls({ hidden: REDESIGN, folder: "식생 규칙 (개인 뷰와 공유)", rulesOnly: true, collapsed: true, order: lab ? 8.5 : 6.5 });
@@ -3402,7 +3407,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           immutable={fu.immutable}
           bake={fu.bake}
           resin={resinView}
-          water={REDESIGN ? null : waterView}
+          water={waterView}
           density={densityCfg}
           pathLook={pathLook}
           nearFade={v.nearFade}

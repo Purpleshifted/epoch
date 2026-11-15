@@ -977,8 +977,11 @@ export class SpaceModel {
     if (dKey !== this.drainKey) {
       this.drainKey = dKey;
       const rule = `${box.secPerUnit}:${presentSlots}:${JSON.stringify(input.water)}:${JSON.stringify(input.fold.flow ?? null)}`;
-      const kept = this.drainKept && this.drainKept.rule === rule ? this.drainKept : undefined;
-      this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t, frozen: kept, present: presentSlots });
+      // (THE BLOCK: with the density's buildings anybody may write at any depth, so nothing laid is kept as it was,
+      // and the ground is read per slot from what stands in it — water.ts DrainageOptions.block)
+      const inBlock = !!this.densityCfg;
+      const kept = !inBlock && this.drainKept && this.drainKept.rule === rule ? this.drainKept : undefined;
+      this.drain = drainage(this.events, seeds, input.water, { secPerUnit: box.secPerUnit, flow: input.fold.flow ?? DEFAULT_FLOW, tNow: t, frozen: kept, present: presentSlots, block: inBlock });
       // the slots before the present are done: what was laid there stays
       // only what lies below the present thickness is done; the present keeps changing
       const upToK = Math.floor(t / box.secPerUnit) - presentSlots;

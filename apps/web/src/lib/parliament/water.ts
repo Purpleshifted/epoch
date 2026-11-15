@@ -231,6 +231,22 @@ export interface DrainageOptions {
   frozen?: { pipes: readonly PipeRun[]; streams: ReadonlyMap<number, Float32Array[]>; upToK: number };
   /** The present thickness (slots): `reach` = 0 means this (default 18). */
   present?: number;
+  /**
+   * THE BLOCK (the redesign's wall, density.ts: one fixed piece of spacetime; the artist, 2026-11-15: "배관 먼저").
+   * A building is not something that is born and then stands for good: it is the cell-slots that are built. So the
+   * ground is read per slot from what STANDS IN THAT SLOT — a cell is sealed in slot k when its seed has a span
+   * there, and a building sheds water in slot k when some of its cells stand in it (with those cells only;
+   * `persistSec` is not read: a building that is not there sheds nothing). The slots run from the lowest to the
+   * highest one built, whatever the clock says (`tNow` is not read), and the whole is laid again at every call —
+   * anybody may write at any depth, so nothing is `frozen`.
+   */
+  block?: boolean;
+}
+
+/** The slots a seed stands in, as [first, last] runs (its spans; one span t0 … t1 when it has none). */
+function slotRuns(s: Seed, spu: number): [number, number][] {
+  const spans = s.spans && s.spans.length ? s.spans : [[s.t0, s.t1] as [number, number]];
+  return spans.map(([a, b]) => [Math.floor(Math.max(a, s.t0) / spu), Math.floor(Math.min(b, s.t1) / spu)] as [number, number]);
 }
 
 /** Cells of room around everything (sources, buildings) in which routes may run. */
@@ -269,6 +285,14 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const centre = (c: number): [number, number] => [(x0 + (c % nx) + 0.5) * CELL_SIZE, (z0 + Math.floor(c / nx) + 0.5) * CELL_SIZE];
 
   const buildings = buildingsOf(seeds, cfg);
+  // THE BLOCK: what stands in a slot (a seed's runs of slots, worked out once)
+  const inBlock = !!opts.block;
+  const runsOf = new Map<Seed, [number, number][]>();
+  if (inBlock) for (const s of seeds) runsOf.set(s, slotRuns(s, spu));
+  const stands = (s: Seed, k: number): boolean => {
+    for (const [a, b] of runsOf.get(s)!) if (a <= k && k <= b) return true;
+    return false;
+  };
   const piped = new Uint8Array(n); // cells a pipe has been laid through (persist)
   const inGrid = (cx: number, cz: number) => cx >= x0 && cz >= z0 && cx < x0 + nx && cz < z0 + nz;
   // the kept pipes are there already: new routes join them
@@ -292,8 +316,9 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const streams = new Map<number, Float32Array[]>();
   const pipes: PipeRun[] = [];
 
-  const kLast = Math.floor(opts.tNow / spu);
   const kFirst = Math.floor(Math.min(...buildings.map((b) => b.t0)) / spu);
+  // (the block is read as high as it is built, not up to the clock)
+  const kLast = inBlock ? Math.floor(Math.max(...buildings.map((b) => b.lastS)) / spu) : Math.floor(opts.tNow / spu);
   // paths, read slot by slot: each track's decayed sum carried forward (one pass over its treads)
   const trackList = [...tracks].filter(([key]) => {
     const [cx, cz] = key.split(",").map(Number);
@@ -307,23 +332,28 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const tau = opts.flow.tauSec;
   // the state the network was last laid for (laid anew only when it changes enough)
   let laidSealed: Uint8Array | null = null;
+  // (one set of buffers for every slot: the block is read over a few hundred slots at every call)
+  const sealed = new Uint8Array(n), path = new Uint8Array(n), laidBuf = new Uint8Array(n);
+  const block = new Int32Array(n); // building on the cell (impassable)
+  const sat = new Float64Array((nx + 1) * (nz + 1));
+  const share = new Float32Array(n);
   let laidDense = "";
   let laidK = -Infinity;
   let courses: Float32Array[] = [];
   for (let k = kFirst; k <= kLast; k++) {
     const t = k * spu;
     // sealed ground at t: standing buildings and paved paths
-    const sealed = new Uint8Array(n);
-    const block = new Int32Array(n).fill(-1); // building on the cell (impassable)
+    sealed.fill(0);
+    block.fill(-1);
     for (const b of buildings) {
       for (const s of b.seeds) {
-        if (s.t0 > t) continue;
+        if (inBlock ? !stands(s, k) : s.t0 > t) continue;
         const c = idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE));
         sealed[c] = 1;
         block[c] = b.id;
       }
     }
-    const path = new Uint8Array(n);
+    path.fill(0);
     for (let i = 0; i < trackList.length; i++) {
       const tr = trackList[i][1];
       const dec = Math.exp(-(t - tAt[i]) / tau);
@@ -343,16 +373,19 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     }
     // sealed share (box sum over the radius, via a summed-area table)
     const R = Math.max(1, Math.round(cfg.imperviousRadius));
-    const sat = new Float64Array((nx + 1) * (nz + 1));
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) sat[(j + 1) * (nx + 1) + i + 1] = sealed[j * nx + i] + sat[j * (nx + 1) + i + 1] + sat[(j + 1) * (nx + 1) + i] - sat[j * (nx + 1) + i];
-    const share = new Float32Array(n);
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
       const a = Math.max(0, i - R), b = Math.min(nx - 1, i + R), c = Math.max(0, j - R), d = Math.min(nz - 1, j + R);
       const sum = sat[(d + 1) * (nx + 1) + b + 1] - sat[c * (nx + 1) + b + 1] - sat[(d + 1) * (nx + 1) + a] + sat[c * (nx + 1) + a];
       share[j * nx + i] = sum / ((b - a + 1) * (d - c + 1));
     }
     // sources: buildings in use
-    const live = buildings.filter((b) => b.t0 <= t && b.lastS + cfg.persistSec >= t).sort((p, q) => q.seeds.length - p.seeds.length || p.id - q.id);
+    // (the block: a building is, in this slot, the cells of it that stand here — and it is a source only if some do)
+    const live = (
+      inBlock
+        ? buildings.map((b) => ({ ...b, seeds: b.seeds.filter((s) => stands(s, k)) })).filter((b) => b.seeds.length > 0)
+        : buildings.filter((b) => b.t0 <= t && b.lastS + cfg.persistSec >= t)
+    ).sort((p, q) => q.seeds.length - p.seeds.length || p.id - q.id);
     if (!live.length) {
       courses = [];
       continue;
@@ -379,7 +412,8 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       if (courses.length) streams.set(k, courses);
       continue;
     }
-    laidSealed = sealed;
+    laidBuf.set(sealed);
+    laidSealed = laidBuf;
     laidDense = denseKey;
     laidK = k;
     const e = k;
