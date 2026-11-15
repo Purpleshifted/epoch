@@ -121,6 +121,19 @@ export interface FuseConfig {
    */
   perBuilding?: boolean;
   unitChange?: number;
+  /**
+   * THE CRUST (the artist, 2026-11-15: "화석 속에 보존됐던 직교 형태가 깨진 셀 바깥으로 드러나거나 … 보로노이랑 리브를
+   * 그 목적으로", "식생 기여 포함" → "1단계 시작"). The mass is no longer a skin round every part: it is ONE SHELL OVER
+   * THE BUILDING'S OUTLINE — the hull of its plates and parts, hollow, the parts standing whole inside it — and it is
+   * there only where the crust has come: `decay` is then how far the crust has come at each part (the model hands the
+   * part's progress × the vegetation gathered at its place: spaceModel computeFuse, `crustVeg`), and it spreads from
+   * spots as that rises. The Voronoi cells open in it, the ribs stay, and through them the building is seen.
+   * Not used with it: the parts' own skins and tubes, the growths, the filled rooms, the cavities, the envelope's cut,
+   * the vegetation's thickening.
+   */
+  crust?: boolean;
+  /** How much the vegetation makes the crust (0 = the progress alone … 1 = only where vegetation gathered). */
+  crustVeg?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
@@ -397,6 +410,12 @@ const smoothRamp = (x: number, a: number, b: number) => {
 };
 
 /** How much of a part has itself turned into mass, from its decay (1 − survival). */
+/** THE CRUST: its reach at which it is there (against a noise 0.55 … 1.45 of it), the noise's frequency (per world
+ *  unit: spots a couple of units across), and the least a loose piece must be of the largest to stay. */
+const CRUST_AT = 0.3;
+const CRUST_PATCH = 0.45;
+const CRUST_BODY = 0.15;
+
 /** The most of the mass the noise openings take (fuseChunk: above it what is left is islands, not a sponge). */
 const NOISE_OPEN_MAX = 0.55;
 
@@ -707,6 +726,9 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   };
   const st = cfg.study;
+  /** THE CRUST (FuseConfig.crust): the field is the building's hull, and V how far the crust has come at each place. */
+  const crust = !!cfg.crust && !!st;
+  const V = crust ? new Float32Array(n) : null;
   /** SIZE CURVES: per sample, the size reading t (0 … 1) of the part that fused there (the largest wins). */
   const T = st && (st.shell || st.foam) ? new Float32Array(n) : null;
   /** The parts' full boxes as fused (whatever their frame share): what lies under the skin (ghost), the membranes. */
@@ -750,6 +772,19 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const hx = Math.max(b.sx, vs) / 2, hz = Math.max(b.sz, vs) / 2, hy = Math.max(2 * hh, vs) / 2;
     // 2 FUSION: the part becomes mass as it decays (also once it has fallen away: its mass stays in its place)
     const f = fusedShare(input.decay ? input.decay[pi] : 1, cfg);
+    if (crust && V) {
+      // THE CRUST: every part is part of the hull, whatever its progress; how far the crust has come there is V
+      // (a voxel wider than the part: the crust stands just off it)
+      fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, 1);
+      if (f > 0) fill(V, b.x - hx - vs, b.x + hx + vs, b.y - hy - vs, b.y + hy + vs, b.z - hz - vs, b.z + hz + vs, f);
+      if (Praw) fill(Praw, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, 1);
+      if (T && st) {
+        const e = (cfg.blur + 2) * vs;
+        fill(T, b.x - hx - e, b.x + hx + e, b.y - hy - e, b.y + hy + e, b.z - hz - e, b.z + hz + e, sizeT(b, hx, hy, hz));
+      }
+      if (f > 0.02) any = true;
+      continue;
+    }
     if (f > 0) {
       const v = input.skeleton?.[pi] ? f * cfg.skeletonWrap : f;
       const t = st ? sizeT(b, hx, hy, hz) : 0;
@@ -806,12 +841,39 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   }
   if (!any) return EMPTY;
 
+  // THE CRUST'S HULL: between two consecutive plates of one building the union of their footprints is the building's
+  // body too (the same outline as the ENVELOPE below) — a room is inside the hull, and the shell is taken off the
+  // hull's outside, not off every plate
+  if (crust && V) {
+    const bySeed = new Map<number, number[]>();
+    for (let pi = 0; pi < input.parts.length; pi++) {
+      const b = input.parts[pi];
+      if (b.tilt || !FRAME_KINDS.has(b.kind)) continue;
+      const l = bySeed.get(b.seed);
+      if (l) l.push(pi);
+      else bySeed.set(b.seed, [pi]);
+    }
+    for (const plates of bySeed.values()) {
+      plates.sort((a, b) => input.parts[a].y - input.parts[b].y);
+      for (let t = 0; t + 1 < plates.length; t++) {
+        const lo = input.parts[plates[t]], hi = input.parts[plates[t + 1]];
+        const yb = lo.y - halfHeight(lo), yt = hi.y + halfHeight(hi);
+        if (yt - yb > (FILL_MAX_GAP + 1) * unit || yt < yLo || yb > yHi) continue;
+        const x0 = Math.min(lo.x - lo.sx / 2, hi.x - hi.sx / 2), x1 = Math.max(lo.x + lo.sx / 2, hi.x + hi.sx / 2);
+        const z0 = Math.min(lo.z - lo.sz / 2, hi.z - hi.sz / 2), z1 = Math.max(lo.z + lo.sz / 2, hi.z + hi.sz / 2);
+        fill(C, x0, x1, yb, yt, z0, z1, 1);
+        const fv = Math.max(fusedShare(input.decay ? input.decay[plates[t]] : 1, cfg), fusedShare(input.decay ? input.decay[plates[t + 1]] : 1, cfg));
+        if (fv > 0) fill(V, x0 - vs, x1 + vs, yb - vs, yt + vs, z0 - vs, z1 + vs, fv);
+      }
+    }
+  }
+
   // B FILL: the rooms between a building's plates. A room spans from the top of one plate to the underside of the next
   // one up (the same seed, at most FILL_MAX_GAP slots: never across empty time), under the upper plate's footprint, and
   // only where the building's masses stood. As those masses fuse, the mass hangs from the ceiling and grows down to the
   // floor, its sides lumpy and kept back from the plate's edges; drips differ from column to column.
-  const cav = st ? Math.max(0, Math.min(1, st.cavity ?? 0)) : 0;
-  const Fl = st?.fill ? new Float32Array(n) : null;
+  const cav = st && !crust ? Math.max(0, Math.min(1, st.cavity ?? 0)) : 0;
+  const Fl = st?.fill && !crust ? new Float32Array(n) : null;
   const room = st && (st.fill || cav > 0) ? new Uint8Array(n) : null;
   if (st && room) {
     const bySeed = new Map<number, number[]>();
@@ -874,7 +936,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   }
   // ENVELOPE: the building's outline — between two consecutive plates of one building the union of their footprints,
   // and every part's box a voxel wider; softened by a voxel so the cut faces come out as planes
-  const env = st ? Math.max(0, Math.min(1, st.envelope ?? 0)) : 0;
+  const env = st && !crust ? Math.max(0, Math.min(1, st.envelope ?? 0)) : 0;
   let E: Float32Array | null = null;
   if (env > 0 && st) {
     E = new Float32Array(n);
@@ -921,6 +983,18 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       }
     }
   }
+  // (THE CRUST: how far it has come, smoothed over the rooms' sides — and it reaches down with what hangs)
+  let Vb: Float32Array | null = null;
+  if (V) {
+    Vb = V;
+    blur3(Vb, tmp, nx, ny, nz, 2);
+    for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
+      for (let j = ny - 2; j >= 0; j--) {
+        const p = idx(i, j, k), up = Vb[p + nx] * 0.9;
+        if (up > Vb[p]) Vb[p] = up;
+      }
+    }
+  }
   // growths are lumpy and start as sparse specks: only where the noise exceeds (1 − progress) do they show, so a
   // young growth is a few small lumps and a full one a continuous crust
   const lf = 1 / Math.max(0.1, cfg.lump);
@@ -935,7 +1009,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   blur3(A, tmp, nx, ny, nz, 1);
 
   // vegetation sediment sticks to decaying concrete (never a slab of its own)
-  if (h && cfg.natureWeight > 0) {
+  if (h && cfg.natureWeight > 0 && !crust) {
     for (let k = 0; k < nz; k++) {
       const cz = Math.floor(((K0 + k) * vs) / CELL_SIZE);
       for (let i = 0; i < nx; i++) {
@@ -997,8 +1071,8 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   // C SHELL: hollow the mass (whatever lies deeper than the shell's thickness), then open some of the cells that touch
   // each other so only ribs remain between them; old layers are opened most. FOAM: the same cells carved through the
   // volume without hollowing (sponge bone, ref 9579)
-  if (st?.shell || st?.foam) {
-    if (st.shell) {
+  if (st && (st.shell || st.foam || crust)) {
+    if (st.shell || crust) {
     // two thicknesses: thin in the young layers, thick in the old ones (blended over a short band of layer age)
     const rOld = Math.max(1, Math.round(st.shellThick)), rYoung = Math.max(1, Math.round(st.shellThickYoung));
     const inside = new Float32Array(n);
@@ -1020,6 +1094,17 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         if (w > 0) F[p] -= (F[p] - iso + 0.25) * w;
       }
     }
+    }
+    // THE CRUST IS THERE ONLY WHERE IT HAS COME: its reach at a place against a slow noise — a little of it is a few
+    // spots, more of it spreads from them, all of it covers the hull
+    if (crust && Vb) {
+      for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const p = idx(i, j, k);
+        if (F[p] <= iso - 0.25) continue;
+        const c = Vb[p] * (0.55 + 0.9 * noise3((I0 + i) * vs * CRUST_PATCH, (J0 + j) * vs * CRUST_PATCH, (K0 + k) * vs * CRUST_PATCH, 133));
+        const keep = smoothRamp(c, CRUST_AT, CRUST_AT + 0.2);
+        if (keep < 1) F[p] -= (F[p] - iso + 0.25) * (1 - keep);
+      }
     }
     const vo = new Float64Array(3);
     // NO CRUMBS (the artist, 2026-11-15, a screenshot of fields of pebbles: "보로노이 또 이러네"). Where nearly every
@@ -1068,14 +1153,18 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       }
     }
     // (3) the loose bits: every piece of mass that touches no side of the grid (a piece cut by the grid's side may go
-    // on in the next tile) and is smaller than a fifth of a cell across goes
+    // on in the next tile) and is smaller than a fifth of a cell across goes — and THE CRUST IS ONE BODY: there, what
+    // is not at least CRUST_BODY of the largest piece goes too
     const minVox = Math.max(27, Math.round(Math.pow((0.2 * st.ribCell) / vs, 3)));
     const seen = new Uint8Array(n);
     const queue = new Int32Array(n);
     const nxy = nx * ny;
+    const comps: [number, number, boolean][] = []; // [first in the queue, how many, touches a side]
+    let tail = 0, largest = 0;
     for (let p0 = 0; p0 < n; p0++) {
       if (seen[p0] || !(F[p0] > iso)) continue;
-      let head = 0, tail = 0, edge = false;
+      const first = tail;
+      let head = tail, edge = false;
       queue[tail++] = p0;
       seen[p0] = 1;
       while (head < tail) {
@@ -1092,7 +1181,13 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
           queue[tail++] = q;
         }
       }
-      if (!edge && tail < minVox) for (let t = 0; t < tail; t++) F[queue[t]] = iso - 0.25;
+      comps.push([first, tail - first, edge]);
+      if (tail - first > largest) largest = tail - first;
+    }
+    const least = Math.max(minVox, crust ? CRUST_BODY * largest : 0);
+    for (const [first, count, edge] of comps) {
+      if (edge || count >= least) continue;
+      for (let t = first; t < first + count; t++) F[queue[t]] = iso - 0.25;
     }
   }
 

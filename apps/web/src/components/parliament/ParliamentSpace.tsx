@@ -186,6 +186,7 @@ const FU_FOSSIL = "④ 건축 → 화석 (진행이 깊을수록 둥글게)";
 const FU_HOLLOW = "⑤ 구멍 (껍질 · 거품 · 보로노이)";
 const FU_PITS = "⑥ 곰보 (표면의 작은 자국)";
 const FU_MAT = "⑦ 재질 (덩어리의 색 · 빛)";
+const BODY_PATH = `${FU}.fuseBody`;
 const MODE_PATH = `${FU}.${FU_WAY}.massMode`;
 const WALKS_PATH = `${FU}.${FU_WAY}.배관 · 다리 · 철골도 녹음.fuseWalks`;
 const FILL_PATH = `${FU}.${FU_WAY}.판 사이 채우기.fill`;
@@ -3278,6 +3279,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       fuseFade: { value: 2, min: 0, max: 10, step: 0.25, label: "덩어리가 바뀔 때 녹아드는 시간 (s · 0 = 바로)" },
       // BUILDING BY BUILDING, FROM A STATE KEPT (spaceModel fuseBuildings; the artist, 2026-11-15: "건물 상태를 기점마다
       // 굽고 일정 변화 이상이 감지되면 변화하는 식으로")
+      // THE CRUST (fuse.ts crust; the artist, 2026-11-15: "1단계 시작"): one shell over the building's outline, where
+      // the vegetation gathered — instead of a skin round every part
+      fuseBody: {
+        options: { "껍질 (건물 윤곽을 덮는 한 몸 · 식생이 모인 곳에)": "crust", "부재마다 감싸기 (예전)": "wrap" },
+        value: "crust" as "crust" | "wrap",
+        label: "덩어리의 재료",
+        render: () => REDESIGN,
+      },
+      crustVeg: { value: 0.6, min: 0, max: 1, step: 0.05, label: "식생이 껍질을 만드는 정도 (0 = 식생과 무관하게 진행만큼 … 1 = 식생이 모인 곳에만)", render: (get: (path: string) => unknown) => REDESIGN && get(BODY_PATH) === "crust" },
       fuseUnit: {
         options: { "건물마다 (건물 상태가 달라지면 그 건물만 다시)": "building", "묶음 · 타일 (예전: 10단 × 14칸 × 구역 각도)": "tile" },
         value: "building" as "building" | "tile",
@@ -3307,12 +3317,12 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         // 거라고!!". A new name, so what was saved as 1 does not keep it so.)
         cling: { value: 0, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (0 = 부재는 그대로 보이고 덩어리가 엉겨 붙음 … 1 = 전시 버전처럼 부재가 녹아 사라짐)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
-        goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: () => REDESIGN },
+        goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: (get) => REDESIGN && get(BODY_PATH) !== "crust" },
         fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "덩어리가 생기기 시작하는 진행 (0 = 지어지자마자 … 1 = 끝에서야)" },
         // (THE REDESIGN, 2026-11-15: 0.9 — the mass thickens over most of a part's progress, a thin skin first; the
         // exhibition's 0.49 was full two steps after it began)
         fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "덩어리가 다 차는 진행 (위 값에 가까울수록 한꺼번에 차오름 · 1 = 끝까지 천천히)" },
-        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 진행 (>1 = 끝까지 남음)", render: (get) => get(SKEL_PATH) > 0 },
+        skeletonUntil: { value: DEFAULT_FUSE.skeletonUntil, min: 0.3, max: 1.01, step: 0.01, label: "뼈대까지 삼켜지는 진행 (>1 = 끝까지 남음)", render: (get) => get(BODY_PATH) !== "crust" && get(SKEL_PATH) > 0 },
         resinShare: { value: DEFAULT_FUSE.resinShare, min: 0.1, max: 1.01, step: 0.01, label: "레진이 되는 층 (퇴적 비율; 오래될수록 1에 가까움, >1 = 레진 없음)", render: () => !isV2 },
       }),
       [FU_MASS]: folder({
@@ -3324,11 +3334,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             // (0 in the redesign since 2026-11-15: it breaks thin, young mass into pieces by a noise — and in the block
             // nearly all the mass is thin and young by its look: fields of pebbles. The artist: "절대 이 조약돌 덩어리를
             // 원한 게 아님")
-            scatter: { value: REDESIGN ? 0 : DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "얇은 덩어리를 조각냄 (0 = 안 함 · 올리면 조약돌처럼 부서짐)" },
+            scatter: { value: REDESIGN ? 0 : DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "얇은 덩어리를 조각냄 (0 = 안 함 · 올리면 조약돌처럼 부서짐)", render: (get) => get(BODY_PATH) !== "crust" },
             porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "둥근 구멍 양 (오래된 층일수록 많이)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
             poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드; 껍질 · 거품의 '둥근 구멍' 모양도 이 크기)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
-            skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)" },
-            skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)", render: (get) => get(SKEL_PATH) > 0 },
+            skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)", render: (get) => get(BODY_PATH) !== "crust" },
+            skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)", render: (get) => get(BODY_PATH) !== "crust" && get(SKEL_PATH) > 0 },
             spikes: { value: DEFAULT_FUSE.spikes, min: 0, max: 1, step: 0.01, label: "가시: 표면에서 뻗어 나오는 양 (0 = 없음)" },
             spikeLen: { value: DEFAULT_FUSE.spikeLen, min: 0.2, max: 4, step: 0.1, label: "가시: 가장 긴 길이 (월드)", render: (get) => get(SPIKES_PATH) > 0 },
             // V2: off by default (the artist, 2026-10-19: the soil-coloured band before the resin is not wanted)
@@ -3337,7 +3347,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
                 voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "격자 간격 (월드; 작을수록 세밀하고 무거움)" },
                 iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
                 smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
-                natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양" },
+                natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양", render: (get) => get(BODY_PATH) !== "crust" },
               },
               { collapsed: true },
             ),
@@ -3357,17 +3367,18 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             },
             value: "wrap" as "wrap" | "pipe" | "size",
             label: "부재가 녹는 꼴",
+            render: (get) => get(BODY_PATH) !== "crust",
           },
-          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "관 굵기 (월드; ② 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(MODE_PATH) !== "wrap" },
-          pipeSmall: { value: DEFAULT_STUDY.pipeSmall, min: 0, max: 1, step: 0.05, label: "관 비율 · 작은 부재 (0 = 통째로, 1 = 관만; 사이 = 관 안에 너덜한 판)", render: (get) => get(MODE_PATH) === "size" },
-          pipeLarge: { value: DEFAULT_STUDY.pipeLarge, min: 0, max: 1, step: 0.05, label: "관 비율 · 큰 부재", render: (get) => get(MODE_PATH) === "size" },
-          platesStay: { value: DEFAULT_STUDY.platesStay, label: "판은 판으로 (슬래브 · 기단은 테두리만 관, 판은 남음)", render: (get) => get(MODE_PATH) !== "wrap" },
+          pipeRadius: { value: DEFAULT_STUDY.pipeRadius, min: 0.1, max: 1.5, step: 0.05, label: "관 굵기 (월드; ② 이어 붙는 세기 1 근처에서 관이 살아남)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
+          pipeSmall: { value: DEFAULT_STUDY.pipeSmall, min: 0, max: 1, step: 0.05, label: "관 비율 · 작은 부재 (0 = 통째로, 1 = 관만; 사이 = 관 안에 너덜한 판)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) === "size" },
+          pipeLarge: { value: DEFAULT_STUDY.pipeLarge, min: 0, max: 1, step: 0.05, label: "관 비율 · 큰 부재", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) === "size" },
+          platesStay: { value: DEFAULT_STUDY.platesStay, label: "판은 판으로 (슬래브 · 기단은 테두리만 관, 판은 남음)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
           "고급": folder(
             {
-              pipeThickLarge: { value: DEFAULT_STUDY.pipeThickLarge, min: 1, max: 4, step: 0.1, label: "관 굵기 · 큰 부재 배율 (큰 부재 = 굵은 뼈)", render: (get) => get(MODE_PATH) !== "wrap" },
-              pipeJoint: { value: DEFAULT_STUDY.pipeJoint, min: 0, max: 3, step: 0.1, label: "마디: 관이 만나는 모서리의 구 (관 굵기 배, 0 = 없음)", render: (get) => get(MODE_PATH) !== "wrap" },
+              pipeThickLarge: { value: DEFAULT_STUDY.pipeThickLarge, min: 1, max: 4, step: 0.1, label: "관 굵기 · 큰 부재 배율 (큰 부재 = 굵은 뼈)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
+              pipeJoint: { value: DEFAULT_STUDY.pipeJoint, min: 0, max: 3, step: 0.1, label: "마디: 관이 만나는 모서리의 구 (관 굵기 배, 0 = 없음)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
             },
-            { collapsed: true, render: (get) => get(MODE_PATH) !== "wrap" },
+            { collapsed: true, render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
           ),
           // SIZE CURVES (the artist, 2026-10-19: the look was growing uniform): a part's size, read on this band,
           // decides how much of each feature it gets (the pairs sit next to their feature)
@@ -3391,9 +3402,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           ),
           "판 사이 채우기": folder(
             {
-              fill: { value: DEFAULT_STUDY.fill, label: "B 판 사이 채우기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게" },
-              fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(FILL_PATH) },
-              fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)", render: (get) => get(FILL_PATH) },
+              fill: { value: DEFAULT_STUDY.fill, label: "B 판 사이 채우기: 슬래브 · 기단 사이 방을 위에서부터 채움, 판은 날카롭게", render: (get) => get(BODY_PATH) !== "crust" },
+              fillAmount: { value: DEFAULT_STUDY.fillAmount, min: 0.1, max: 1.5, step: 0.05, label: "채워지는 깊이 (1 = 아래 판까지)", render: (get) => get(BODY_PATH) !== "crust" && get(FILL_PATH) },
+              fillInset: { value: DEFAULT_STUDY.fillInset, min: 0, max: 1.5, step: 0.05, label: "판 가장자리에서 물러남 (월드)", render: (get) => get(BODY_PATH) !== "crust" && get(FILL_PATH) },
             },
             { collapsed: true },
           ),
@@ -3408,11 +3419,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           fossilFrom: { value: DEFAULT_STUDY.fossilFrom, min: 0, max: 1, step: 0.01, label: "화석이 되기 시작하는 층의 나이 (부식 정도)" },
           fossilTo: { value: DEFAULT_STUDY.fossilTo, min: 0.05, max: 1, step: 0.01, label: "다 화석이 되는 층의 나이" },
           blocky: { value: 0, min: 0, max: 1, step: 0.05, label: "젊은 층의 블로키 (복셀 계단 = 건축; 0 = 다 둥글게 — 껍질 · 리브를 쓰면 0.3 아래로, 계단이 리브를 뭉갬)" },
-          cavity: { value: 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음; 9579 레시피 0.7–1)" },
-          cavityRound: { value: DEFAULT_STUDY.cavityRound, min: 1, max: 5, step: 1, label: "공동의 둥글기 (복셀)", render: (get) => get(CAV_PATH) > 0 },
-          pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "관 뼈대가 오래된 층에서 묻힘 (0 = 끝까지 뼈대, 1 = 다 묻힘)", render: (get) => get(MODE_PATH) !== "wrap" },
+          cavity: { value: 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음; 9579 레시피 0.7–1)", render: (get) => get(BODY_PATH) !== "crust" },
+          cavityRound: { value: DEFAULT_STUDY.cavityRound, min: 1, max: 5, step: 1, label: "공동의 둥글기 (복셀)", render: (get) => get(BODY_PATH) !== "crust" && get(CAV_PATH) > 0 },
+          pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "관 뼈대가 오래된 층에서 묻힘 (0 = 끝까지 뼈대, 1 = 다 묻힘)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
           // SUBTRACTIVE (refs 9706–9708, 9579; 2026-10-20): the outline stays the building's, the organic is inside
-          envelope: { value: 0, min: 0, max: 1, step: 0.05, label: "겉면은 건물 윤곽대로 (0 = 부재 밖으로 부풀림 … 1 = 윤곽에서 잘라냄; 유기물은 안에서 — 방 채움 · 방 → 공동 · 거품)" },
+          envelope: { value: 0, min: 0, max: 1, step: 0.05, label: "겉면은 건물 윤곽대로 (0 = 부재 밖으로 부풀림 … 1 = 윤곽에서 잘라냄; 유기물은 안에서 — 방 채움 · 방 → 공동 · 거품)", render: (get) => get(BODY_PATH) !== "crust" },
           fossilNoise: { value: isV2 ? 0.15 : 0, min: 0, max: 0.6, step: 0.01, label: "화석화 경계의 흔들림 (나이 단위; 0 = 평평한 띠)" },
         },
         { render: () => isV2 },
@@ -3533,7 +3544,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.crustVeg } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3588,7 +3599,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.crustVeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({

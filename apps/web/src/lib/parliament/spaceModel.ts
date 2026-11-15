@@ -704,7 +704,8 @@ export class SpaceModel {
         else lists.set(best.id, [e]);
       }
     }
-    const fusing = (list: readonly { d: number }[]): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || accretionShare(e.d, fuse) > 0.01);
+    // (the crust has no growths: only where it has come)
+    const fusing = (list: readonly { d: number }[]): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || (!fuse.crust && accretionShare(e.d, fuse) > 0.01));
     const value = (d: number) => 0.7 * fusedShare(d, fuse) + 0.3 * d;
     const key = (b: Box) => SpaceModel.partKey(b);
     // A BUILDING UNDER ANOTHER NAME (it grew a cell older than its oldest, or its foot went with the window's floor):
@@ -2321,16 +2322,25 @@ export class SpaceModel {
     const angleOf = new Map<number, number>();
     if (box.variety) for (const sd of this.seeds) angleOf.set(sd.id, districtOf(sd.x, sd.z, box.variety).angle);
     const bySlot = new Map<number, P[]>();
+    // THE CRUST (fuse.ts crust): what the fusion is handed for a part is how far the crust has come there — the
+    // part's progress × the vegetation gathered at its cell-slot (the unlived share: where nobody stayed the plants
+    // gathered, and there the crust grows; `crustVeg` 0 = the progress alone). Every part goes in, whatever its
+    // progress (the hull is the whole building's), and those the erosion has taken too: the crust stays over what
+    // stood there.
+    const crustOn = !!bc && !!fuse.crust;
+    const crustVeg = Math.max(0, Math.min(1, fuse.crustVeg ?? 0.6));
+    const gatherOfSeed = crustOn ? new Map(this.seeds.map((sd) => [sd.id, sd.gather] as const)) : null;
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       const up = standing.has(b);
       let d = q20(1 - wm.survival(b));
-      if (!up && gone < 1) {
+      if (gatherOfSeed) d = q20(d * (1 - crustVeg * (1 - (gatherOfSeed.get(b.seed)?.get(b.slot) ?? 0))));
+      else if (!up && gone < 1) {
         if (gone <= 0) continue;
         d = q20(d * gone);
       }
       // not corroding yet: nothing grows on it (B FILL: the plates are kept, they bound the rooms of the parts below)
-      if (fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
+      if (!gatherOfSeed && fusedShare(d, fuse) <= 0 && accretionShare(d, fuse) <= 0.01 && !(fuse.study?.fill && FRAME_KINDS.has(b.kind))) continue;
       const e: P = { b, d, up, sk: isSkeleton(b, d, skCfg), ang: angleOf.get(b.seed) ?? 0 };
       const l = bySlot.get(b.slot);
       if (l) l.push(e);
