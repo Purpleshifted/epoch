@@ -507,6 +507,8 @@ export interface UnitStats {
   chunks: number;
   units: number;
   voxel: number;
+  /** The hardened pipes and ways that are in the grounds' fields now. */
+  tubes?: number;
 }
 
 /** To the view: the chunks of the space whose mass is other than it was (a chunk with nothing left is dropped). */
@@ -729,7 +731,7 @@ export class FuseUnits {
       set: [],
       drop: [],
       clock0: this.clock0,
-      stats: { waiting: fresh, remake: again, made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel },
+      stats: { waiting: fresh, remake: again, made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel, tubes: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.length ?? 0), 0) },
     };
     if (this.cleared) {
       out.clear = true;
