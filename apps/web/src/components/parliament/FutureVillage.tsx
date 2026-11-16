@@ -80,8 +80,11 @@ export function FutureVillage({ unit, top }: { unit: number; top: THREE.IUniform
   useFrame(() => {
     const g = group.current;
     if (!g) return;
-    // it rides above the window's top, the gap apart (the top: the same number the fossil's shader reads)
-    g.position.y = (top.value + Math.max(0, k.gap)) * unit;
+    // it rides above THE COLUMN'S TOP — where the building has come to (FutureResult.k), not the window's top, which
+    // may stand many slots of air above it — the gap apart, and follows it softly as it rises
+    const r0 = futureLink.result;
+    const want = ((r0 && r0.boxes.length ? r0.k + 1 : top.value) + Math.max(0, k.gap)) * unit;
+    g.position.y = Math.abs(want - g.position.y) > 40 * unit ? want : g.position.y + (want - g.position.y) * 0.04;
     if (seen.current === futureLink.version) return;
     seen.current = futureLink.version;
     const r = futureLink.result;

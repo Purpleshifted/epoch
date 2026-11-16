@@ -836,14 +836,32 @@ export class SpaceModel {
       this.futureKey = "-";
       return inferFuture({ k: 0, cells: [], pathAt: () => false, streams: new Map(), cfg });
     }
-    const K = Math.floor(bc.top) - 1;
+    // THE COLUMN'S TOP IS WHERE THE BUILDING HAS COME TO, not the window's top (seen in the artist's window,
+    // 2026-11-16: the window's top stood at slot 2846 while nothing was built above 2835 — in a young world, 50 slots
+    // of air; read from the window's top, the latest slots were empty and nothing was inferred). The newest slot in
+    // which more than a stray cell is built: at least three cells, and a fiftieth of the fullest slot.
+    const count = new Map<number, number>();
+    let most = 0;
+    for (const sd of this.seeds) {
+      if (!sd.levels) continue;
+      for (const [kk, lv] of sd.levels) {
+        if (lv < 1) continue;
+        const c = (count.get(kk) ?? 0) + 1;
+        count.set(kk, c);
+        if (c > most) most = c;
+      }
+    }
+    let K = -Infinity;
+    const need = Math.max(3, most / 50);
+    for (const [kk, c] of count) if (c >= need && kk > K) K = kk;
+    if (K === -Infinity) K = Math.floor(bc.top) - 1;
     const now = performance.now();
     const key = `${K}:${JSON.stringify(cfg)}`, full = `${key}:${this.version}`;
     if (full === this.futureKey || (this.futureKey.startsWith(`${key}:`) && now - this.futureAt < 6000)) return null;
     this.futureKey = full;
     this.futureAt = now;
     const r = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => field.pathAt(cx, cz, k), streams: this.drain.streams, cfg });
-    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future plants (n)": r.veg.length / 3 });
     return r;
   }
 
