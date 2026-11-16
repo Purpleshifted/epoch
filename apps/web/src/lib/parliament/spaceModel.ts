@@ -763,7 +763,9 @@ export class SpaceModel {
    */
   private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
     const bc = this.blockClock;
-    const now = this.t, hardenS = Math.max(30, 2 * (bc?.erode.lodSec ?? 40));
+    // (by the clock on the wall: the model's own time is the latest thing written, and in the block that does not
+    // run on — read against it, nothing ever hardened; seen in the artist's window, 2026-11-16: 187 hardening, none hard)
+    const now = Date.now() / 1000, hardenS = Math.max(30, 2 * (bc?.erode.lodSec ?? 40));
     const round = ++this.tubeRound;
     for (const t of this.tubesNow(fuse, u)) {
       const key = `${t.kind}:${t.x0.toFixed(1)}:${t.y0.toFixed(1)}:${t.z0.toFixed(1)}:${t.x1.toFixed(1)}:${t.y1.toFixed(1)}:${t.z1.toFixed(1)}`;
