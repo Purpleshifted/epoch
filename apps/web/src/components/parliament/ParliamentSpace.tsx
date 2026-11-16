@@ -1672,7 +1672,7 @@ function SpaceWorld({
       {/* the mass made in the worker beside: a mesh per chunk of the space (applyChunks) */}
       <group ref={chunkGroup} visible={fuse.enabled} />
       {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
-      {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} />}
+      {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />}
       {/* what the mass was, while the new comes in (setFused; hidden otherwise) */}
       <mesh ref={fusedWas} frustumCulled={false} castShadow receiveShadow visible={false} material={fusedWasMats}>
         <bufferGeometry />

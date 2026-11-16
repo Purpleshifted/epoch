@@ -829,12 +829,12 @@ export class SpaceModel {
    * when the top has come a slot further, or (at most every few seconds) when something was written or a knob turned.
    * null = as it was.
    */
-  computeFuture(cfg: FutureConfig): FutureResult | null {
+  computeFuture(cfg: FutureConfig, box: BoxConfig): FutureResult | null {
     const bc = this.blockClock, field = this.densityState?.field;
     if (!cfg.on || !bc || !field) {
       if (this.futureKey === "-") return null;
       this.futureKey = "-";
-      return inferFuture({ k: 0, cells: [], pathAt: () => false, streams: new Map(), cfg });
+      return { k: 0, parts: {}, tones: {}, roads: new Float32Array(0), water: new Float32Array(0), veg: new Float32Array(0), ground: new Float32Array(0), n: { stand: 0, left: 0, grown: 0, road: 0, blocked: 0 } };
     }
     // THE COLUMN'S TOP IS WHERE THE BUILDING HAS COME TO, not the window's top (seen in the artist's window,
     // 2026-11-16: the window's top stood at slot 2846 while nothing was built above 2835 — in a young world, 50 slots
@@ -856,11 +856,46 @@ export class SpaceModel {
     for (const [kk, c] of count) if (c >= need && kk > K) K = kk;
     if (K === -Infinity) K = Math.floor(bc.top) - 1;
     const now = performance.now();
-    const key = `${K}:${JSON.stringify(cfg)}`, full = `${key}:${this.version}`;
+    const key = `${K}:${JSON.stringify(cfg)}:${box.unit}:${box.secPerUnit}`, full = `${key}:${this.version}`;
     if (full === this.futureKey || (this.futureKey.startsWith(`${key}:`) && now - this.futureAt < 6000)) return null;
     this.futureKey = full;
     this.futureAt = now;
-    const r = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => field.pathAt(cx, cz, k), streams: this.drain.streams, cfg });
+    const plan = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => field.pathAt(cx, cz, k), streams: this.drain.streams, cfg });
+    // THE BUILDINGS ARE MADE AS THE COLUMN'S ARE (the artist, 2026-11-16, of the first version's plain boxes: "너무 좀...
+    // 단조롭고 … 건물도 마찬가지 · generative 하다고 느껴지지 않는 것도 아쉽고"): each inferred building is a Seed of
+    // its own — the built cell it is carried on from, standing in the slots above the column's top — put through the
+    // same generator (seeds.ts boxesOfSeed: its plinth, columns, slabs, masses and their bundles of slats), complete
+    // at once and without the drips. Its number is the cell's, so it stands as it is while the cell is inferred so.
+    const spu = box.secPerUnit;
+    const lists: Record<string, Box[]> = {};
+    for (const bld of plan.buildings) {
+      const sd = bld.from;
+      const rc = box.recipe ?? RECIPES[sd.material];
+      const s0 = K + 1, s1 = K + bld.h;
+      const mass = sd.masses?.get(K) ?? sd.masses?.get(K - 1) ?? sd.mass;
+      const levels = new Map<number, number>(), masses = new Map<number, number>();
+      for (let k = s0; k <= s1; k++) {
+        levels.set(k, 1);
+        masses.set(k, mass);
+      }
+      const fs: Seed = { ...sd, id: ((bld.cx * 73856093) ^ (bld.cz * 19349663) ^ sd.id) >>> 0, x: (bld.cx + 0.5) * CELL, z: (bld.cz + 0.5) * CELL, t0: s0 * spu, t1: (s1 + 1) * spu - 1, spans: [[s0 * spu, (s1 + 1) * spu - 1]], mass, levels, masses, gather: undefined, who: undefined, growth: undefined };
+      const fcfg: BoxConfig = { ...box, buildSlots: 0, timeJitter: 0, recipe: { ...rc, slat: { ...rc.slat, density: rc.slat.density * 0.5, maxPerMass: Math.min(16, rc.slat.maxPerMass) }, drip: { ...rc.drip, perArea: 0, max: 0 } } };
+      for (const b of boxesOfSeed(fs, fcfg)) (lists[b.kind] ??= []).push(b);
+    }
+    const parts: Record<string, Float32Array> = {}, tones: Record<string, Float32Array> = {};
+    for (const [kind, l] of Object.entries(lists)) {
+      const n = Math.min(l.length, 12000);
+      const m = new Float32Array(n * 16), t = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        writeMatrix(m, i * 16, l[i]);
+        t[i] = l[i].tone;
+      }
+      parts[kind] = m;
+      tones[kind] = t;
+    }
+    const { buildings: _b, ...rest } = plan;
+    void _b;
+    const r: FutureResult = { ...rest, parts, tones };
     Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future plants (n)": r.veg.length / 3 });
     return r;
   }
@@ -3340,8 +3375,8 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB]) if (a) transfer.add(a.buffer as ArrayBuffer);
   }
   if (m.future) {
-    out.future = timed("future", () => model.computeFuture(m.future!));
-    if (out.future) for (const a of [out.future.boxes, out.future.roads, out.future.water, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    out.future = m.parts ? timed("future", () => model.computeFuture(m.future!, m.parts!.box)) : null;
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.water, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };
