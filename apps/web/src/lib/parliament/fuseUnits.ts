@@ -537,6 +537,18 @@ export interface UnitChunks {
 const CHUNK_CELLS = 42;
 const CHUNK_SLOTS = 30;
 
+/**
+ * A PIECE THAT STANDS IS NOT MADE AGAIN FOR THIS LONG (2026-11-16 night; the artist: the fossil must mix with the
+ * present — "현재랑 믹스되는 것도 중요해서 … 어차피 오버랩 구간이 생김" — so it stays in the window, where people write at
+ * any depth). There every new simplified part made the pieces round it be made again at once, and with her world
+ * more pieces fell due than could be made: the queue of pieces to make again only grew. But what is newly built
+ * shows no fossil of its own for its first minutes (the wall's shader lets it out by its age), and meanwhile it
+ * simply stands in the fossil that was there — the mix. So a piece is made again at most once in this long, with
+ * everything that came into it meanwhile; a piece that has no mass yet, or whose mass was made under other
+ * settings, is made at once.
+ */
+const PIECE_REST_MS = 180000;
+
 interface Made {
   cfg: string;
   sig: string;
@@ -544,6 +556,8 @@ interface Made {
   /** When it first stood on the screen (seconds of this side's clock): it grows out of its parts from then. */
   stamp: number;
   chunk: string;
+  /** When it was made (performance.now()): it is not made again before it has stood PIECE_REST_MS. */
+  at: number;
   /** A piece of a building that joined this one: it stands until this building's own piece there is made again. */
   orphanOf?: string;
   after?: number;
@@ -579,6 +593,8 @@ export class FuseUnits {
   private madeMs = 0;
   private maxMs = 0;
   private voxel = 0;
+  /** After a `step` that made nothing: how long until a piece that is resting may be made again (ms; Infinity = none). */
+  waitMs = Infinity;
   stages: Record<string, number> = {};
 
   private now(): number {
@@ -669,10 +685,18 @@ export class FuseUnits {
    */
   step(): number[] | null {
     let unit: Unit | null = null, at = -1, cls = 2, k0 = Infinity;
+    const now = performance.now();
+    this.waitMs = Infinity;
     for (const q of this.units.values()) {
       for (let i = 0; i < q.todo.length; i++) {
         const p = q.todo[i];
-        const c = q.done.has(p.key) ? 1 : 0;
+        const m = q.done.get(p.key);
+        const c = m ? 1 : 0;
+        // (a piece that stands, made under these settings: not before it has stood its time)
+        if (m && q.job && m.cfg === q.job.cfg && now - m.at < PIECE_REST_MS) {
+          this.waitMs = Math.min(this.waitMs, PIECE_REST_MS - (now - m.at));
+          continue;
+        }
         if (c < cls || (c === cls && p.k0 < k0)) [unit, at, cls, k0] = [q, i, c, p.k0];
       }
     }
@@ -708,7 +732,7 @@ export class FuseUnits {
       const wx = mx * c + mz * sn, wz = -mx * sn + mz * c;
       chunk = `${Math.floor(wx / (CHUNK_CELLS * CELL))},${Math.floor(wz / (CHUNK_CELLS * CELL))},${Math.floor(p.k0 / CHUNK_SLOTS)}`;
     }
-    unit.done.set(p.key, { cfg: j.cfg, sig: p.sig, mesh, stamp, chunk });
+    unit.done.set(p.key, { cfg: j.cfg, sig: p.sig, mesh, stamp, chunk, at: performance.now() });
     this.dirty.add(chunk);
     // what had joined from another building stood here until now
     for (const [k, m] of unit.done) {

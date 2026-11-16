@@ -48,8 +48,10 @@ function turn(): void {
     scope.postMessage(out, transfer);
     lastEmit = now;
   }
-  if (left) schedule();
+  // (nothing was made: every piece left is one that stands and rests — looked at again when the first of them may be)
+  if (left && keys !== null) schedule();
   else if (units.hasDirty()) schedule(EMIT_MS);
+  else if (left && units.waitMs < Infinity) schedule(Math.min(units.waitMs + 20, 5000));
 }
 
 // ── the ways ──
