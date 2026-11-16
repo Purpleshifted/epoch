@@ -3375,7 +3375,15 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB]) if (a) transfer.add(a.buffer as ArrayBuffer);
   }
   if (m.future) {
-    out.future = m.parts ? timed("future", () => model.computeFuture(m.future!, m.parts!.box)) : null;
+    // (a fault in the inferred village must not take the wall with it: an exception here ended the worker, the view
+    // fell back to computing on the main thread, and a heavy world then froze the page — seen in the artist's window,
+    // 2026-11-16, when the dev server served this with the inference's older code)
+    try {
+      out.future = m.parts ? timed("future", () => model.computeFuture(m.future!, m.parts!.box)) : null;
+    } catch (e) {
+      console.warn("[parliament] the inferred village could not be made:", e);
+      out.future = null;
+    }
     if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.water, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;

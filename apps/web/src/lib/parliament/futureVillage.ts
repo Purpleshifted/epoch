@@ -30,6 +30,7 @@
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const CELL = CELL_SIZE;
+// (FuturePlan: the buildings come back as a list, and the caller generates their parts)
 
 export interface FutureConfig {
   on: boolean;
