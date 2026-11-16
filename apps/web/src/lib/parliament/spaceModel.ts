@@ -54,6 +54,8 @@ const UNIT_REST_MS = 12000;
 /** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
  *  of (the rest are told at the next call). */
 const UNIT_SEND_MS = 80;
+/** Whether the pipes and the ways fuse with the seeded mass (sendUnits): off — see there. */
+const SEEDED_TUBES: boolean = false;
 /** A round of ways asked of the other worker that has not come back within this is asked again (ms). */
 const WALK_LOST_MS = 180000;
 const LEAVE_KEEP_S = 20;
@@ -861,7 +863,12 @@ export class SpaceModel {
     const tubesOf = new Map<string, (FuseTube & { born?: number })[]>();
     const tubeSig = new Map<string, string>();
     {
-      for (const t of this.seededTubes(fuse, u)) {
+      // TAKEN OUT (the artist, 2026-11-16 evening: "아니면 길이랑 배관 화석화는 걍 빼"). Watched in her window on her own
+      // world: once the places hardened, 43 → 225,170 → 570,155 tubes were in the field within seven minutes (a way is
+      // drawn as thousands of short pieces, in every layer), a piece of the mass went from ~1 s to 7.9 s, the model's
+      // round to 14 s and the screen to 3 fps. The pipes and the ways do not fuse; what was written for it stays
+      // below, unused, until it is decided how few tubes a way may be.
+      for (const t of SEEDED_TUBES ? this.seededTubes(fuse, u) : []) {
         const id = `ground:${box.variety ? Math.round(districtOf((t.x0 + t.x1) / 2, (t.z0 + t.z1) / 2, box.variety).angle * 1e4) : 0}`;
         if (!lists.has(id)) continue;
         const l = tubesOf.get(id);
