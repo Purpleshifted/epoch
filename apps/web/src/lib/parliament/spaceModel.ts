@@ -834,7 +834,7 @@ export class SpaceModel {
     if (!cfg.on || !bc || !field) {
       if (this.futureKey === "-") return null;
       this.futureKey = "-";
-      return { k: 0, parts: {}, tones: {}, roads: new Float32Array(0), water: new Float32Array(0), veg: new Float32Array(0), ground: new Float32Array(0), n: { stand: 0, left: 0, grown: 0, road: 0, blocked: 0 } };
+      return { k: 0, parts: {}, tones: {}, roads: new Float32Array(0), roadsOld: new Float32Array(0), water: new Float32Array(0), veg: new Float32Array(0), ground: new Float32Array(0), n: { stand: 0, left: 0, grown: 0, road: 0, blocked: 0 } };
     }
     // THE COLUMN'S TOP IS WHERE THE BUILDING HAS COME TO, not the window's top (seen in the artist's window,
     // 2026-11-16: the window's top stood at slot 2846 while nothing was built above 2835 — in a young world, 50 slots
@@ -878,9 +878,15 @@ export class SpaceModel {
         levels.set(k, 1);
         masses.set(k, mass);
       }
-      const fs: Seed = { ...sd, id: ((bld.cx * 73856093) ^ (bld.cz * 19349663) ^ sd.id) >>> 0, x: (bld.cx + 0.5) * CELL, z: (bld.cz + 0.5) * CELL, t0: s0 * spu, t1: (s1 + 1) * spu - 1, spans: [[s0 * spu, (s1 + 1) * spu - 1]], mass, levels, masses, gather: undefined, who: undefined, growth: undefined };
+      // (its number is the cell's: what is found stands as it is. `fresh` — a shape drawn anew whenever the column's
+      // top came a slot further — is no longer set by the inference: nobody builds in what is found)
+      const fs: Seed = { ...sd, id: ((bld.cx * 73856093) ^ (bld.cz * 19349663) ^ sd.id ^ (bld.fresh ? Math.imul(K, 0x9e3779b1) : 0)) >>> 0, x: (bld.cx + 0.5) * CELL, z: (bld.cz + 0.5) * CELL, t0: s0 * spu, t1: (s1 + 1) * spu - 1, spans: [[s0 * spu, (s1 + 1) * spu - 1]], mass, levels, masses, gather: undefined, who: undefined, growth: undefined };
       const fcfg: BoxConfig = { ...box, buildSlots: 0, timeJitter: 0, recipe: { ...rc, slat: { ...rc.slat, density: rc.slat.density * 0.5, maxPerMass: Math.min(16, rc.slat.maxPerMass) }, drip: { ...rc.drip, perArea: 0, max: 0 } } };
-      for (const b of boxesOfSeed(fs, fcfg)) (lists[b.kind] ??= []).push(b);
+      // WHAT IS LEFT OF IT (the layer is what is found after the people are gone — futureVillage.ts): its parts are
+      // taken away as the column's own erosion takes them — each part's own threshold, in the same order of kinds —
+      // as far as the building is gone (1 − left, × how far gone the whole layer is: FutureConfig.ruin).
+      const goneTo = Math.max(0, Math.min(1, (1 - bld.left) * (0.4 + 1.2 * Math.max(0, Math.min(1, cfg.ruin ?? 0.5)))));
+      for (const b of boxesOfSeed(fs, fcfg)) if (erodeThreshold(b, bc.erode) >= goneTo) (lists[b.kind] ??= []).push(b);
     }
     const parts: Record<string, Float32Array> = {}, tones: Record<string, Float32Array> = {};
     for (const [kind, l] of Object.entries(lists)) {
@@ -896,7 +902,7 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
-    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future plants (n)": r.veg.length / 3 });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future plants (n)": r.veg.length / 3 });
     return r;
   }
 
@@ -3384,7 +3390,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.water, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };

@@ -1,5 +1,6 @@
 /**
- * THE INFERRED VILLAGE, DRAWN (lib/parliament/futureVillage.ts; the artist, 2026-11-16): a layer of what is to come
+ * THE INFERRED VILLAGE, DRAWN (lib/parliament/futureVillage.ts; the artist, 2026-11-16): a layer of what will be
+ * found after the people are gone ("인류가 멸망한 후 남겨져서 발견될 모습")
  * — two or three slots, in 3D, standing on a ground of its own — APART FROM THE COLUMN, above its top ("꼭대기는
  * 지금 기둥에서 분리된 형태여야 해"). It is worked out in the wall's worker with the parts (SpaceRequest.future) and
  * comes back through `futureLink`; here it is only drawn: the buildings as the parts the column's own generator made
@@ -46,12 +47,14 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   const k = useControls(
     GROUP,
     savable(GROUP, {
-      on: { value: DEFAULT_FUTURE.on, label: "켜기 (기둥 위에 떨어져 떠 있는, 추론된 마을)" },
+      on: { value: DEFAULT_FUTURE.on, label: "켜기 (기둥 위에 떨어져 떠 있는 층 — 인류가 사라진 뒤 남겨져 발견될 모습)" },
+      ruin: { value: 0.5, min: 0, max: 1, step: 0.05, label: "얼마나 삭았나 (0 = 서 있던 그대로 … 1 = 가장 오래 선 것의 기초만)" },
       gap: { value: 8, min: 0, max: 40, step: 1, label: "기둥 꼭대기와의 간격 (단 · 0 = 붙음)" },
       band: { value: DEFAULT_FUTURE.band, min: 4, max: 40, step: 2, label: "변화를 읽는 범위 (가장 최근에 지어진 몇 단 · 앞 절반과 뒤 절반을 비교)" },
-      gain: { value: DEFAULT_FUTURE.gain, min: 0, max: 3, step: 0.1, label: "최근 변화를 얼마나 더 밀고 가나 (0 = 지금 그대로)" },
+      gain: { value: DEFAULT_FUTURE.gain, min: 0, max: 3, step: 0.1, label: "최근 변화를 얼마나 더 밀고 가나 (성장 규칙에만 쓰임)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.edge`) },
       maxH: { value: DEFAULT_FUTURE.maxH, min: 1, max: 4, step: 1, label: "가장 높은 건물 (단)" },
-      edge: { value: DEFAULT_FUTURE.edge, label: "마을이 가장자리에서 자람 (자라는 칸 옆 · 세 면 이상 둘러싸인 빈 칸)" },
+      persist: { value: true, label: "오래 선 것일수록 많이 남음 (오래 걸은 길 = 남는 뼈대 · 갓 지은 것 · 먼저 버려진 것은 기초만 · 갓 걸은 길은 풀에 덮임)" },
+      edge: { value: DEFAULT_FUTURE.edge, label: "마을이 가장자리에서 자람 (성장 규칙 — '남겨진 모습'에는 맞지 않아 기본 끔)" },
       margin: { value: DEFAULT_FUTURE.margin, min: 1, max: 8, step: 1, label: "식생이 나는 범위 (다녀간 곳에서 몇 칸 밖까지)" },
       vegPer: { value: DEFAULT_FUTURE.vegPer, min: 0, max: 10, step: 0.5, label: "식생 구름의 짙기 (점 수)" },
       opacity: { value: 1, min: 0.1, max: 1, step: 0.05, label: "건물의 불투명도 (옅을수록 '아직 아닌 것')" },
@@ -63,7 +66,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     { collapsed: true },
   );
   // (the ticker reads the knobs from here: SpaceRequest.future)
-  futureLink.cfg = useMemo<FutureConfig>(() => ({ on: k.on, band: k.band, gain: k.gain, maxH: k.maxH, edge: k.edge, margin: k.margin, vegPer: k.vegPer }), [k.on, k.band, k.gain, k.maxH, k.edge, k.margin, k.vegPer]);
+  futureLink.cfg = useMemo<FutureConfig>(() => ({ on: k.on, band: k.band, gain: k.gain, maxH: k.maxH, edge: k.edge, margin: k.margin, vegPer: k.vegPer, persist: k.persist, ruin: k.ruin }), [k.ruin, k.persist, k.on, k.band, k.gain, k.maxH, k.edge, k.margin, k.vegPer]);
   useEffect(
     () => () => {
       futureLink.cfg = null;
@@ -74,6 +77,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   const group = useRef<THREE.Group>(null);
   const meshes = useRef<Partial<Record<PartKind, THREE.InstancedMesh | null>>>({});
   const roads = useRef<THREE.LineSegments>(null);
+  const roadsOld = useRef<THREE.LineSegments>(null);
   const water = useRef<THREE.LineSegments>(null);
   const veg = useRef<THREE.Points>(null);
   const ground = useRef<THREE.Mesh>(null);
@@ -119,6 +123,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
     setLines(roads.current, r.roads, y0 + 0.03);
+    setLines(roadsOld.current, r.roadsOld ?? new Float32Array(0), y0 + 0.04);
     setLines(water.current, r.water, y0 + 0.05);
     if (veg.current) {
       const n = r.veg.length / 4;
@@ -169,9 +174,14 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
           <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} transparent={k.opacity < 1} opacity={k.opacity} depthWrite={k.opacity >= 0.99} />
         </instancedMesh>
       ))}
+      {/* the paths: what has only just been walked, faint — and the frame (walked for half the band on end), bright */}
       <lineSegments ref={roads} frustumCulled={false}>
         <bufferGeometry />
-        <lineBasicMaterial color="#b9bcc0" />
+        <lineBasicMaterial color="#7d8187" />
+      </lineSegments>
+      <lineSegments ref={roadsOld} frustumCulled={false}>
+        <bufferGeometry />
+        <lineBasicMaterial color="#e6e7e9" />
       </lineSegments>
       <lineSegments ref={water} frustumCulled={false}>
         <bufferGeometry />
