@@ -51,6 +51,10 @@ function postLive(): void {
   const w = window as unknown as { __levaTag?: string };
   const tag = (w.__levaTag ??= `tab-${Date.now().toString(36)}`);
   let sent = "";
+  // (what went wrong in the page, as it happened: the last few)
+  const errors: string[] = [];
+  window.addEventListener("error", (e) => errors.push(`${e.message} @ ${(e.filename ?? "").split("/").pop()}:${e.lineno}`));
+  window.addEventListener("unhandledrejection", (e) => errors.push(`rejected: ${String((e as PromiseRejectionEvent).reason).slice(0, 200)}`));
   const send = () => {
     const data = levaStore.getData() as Record<string, { value?: unknown } | undefined>;
     const values: Record<string, unknown> = {};
@@ -58,7 +62,10 @@ function postLive(): void {
       const v = input?.value;
       if (v !== undefined && typeof v !== "function") values[path] = v;
     }
-    const body = JSON.stringify({ tag, page: window.location.pathname + window.location.search, ua: navigator.userAgent, values });
+    // (the wall's readout as it stands on the screen — the lines from the counts down to the legend)
+    const text = document.body.innerText, a = text.indexOf("seeds "), b = text.indexOf("x, z = ground");
+    const readout = a < 0 ? "" : text.slice(a, b > a ? b : a + 1500);
+    const body = JSON.stringify({ tag, page: window.location.pathname + window.location.search, ua: navigator.userAgent, values, readout, errors: errors.slice(-8) });
     if (body === sent || Object.keys(values).length < 5) return;
     sent = body;
     void fetch("/api/dev-leva", { method: "POST", headers: { "content-type": "application/json" }, body }).catch(() => undefined);
