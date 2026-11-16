@@ -293,6 +293,9 @@ interface ResinLook {
   fadeSec?: number;
   /** How much thinner the mass is where it is least out (world; the shader stands the surface back along its normal). */
   growThin?: number;
+  /** The fossil's progress: how much of it is the age of what stands there (0 … 1), whole over this many slots. */
+  growAgeMix?: number;
+  growAgeSlots?: number;
   color: string;
   /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
@@ -392,12 +395,16 @@ interface FuseUniforms {
   uGrowFloor: THREE.IUniform;
   /** …and how much thinner the mass is where it is least out (world, along its surface's normal). */
   uGrowThin: THREE.IUniform;
+  /** …how much of the fossil's progress is the AGE of what stands there (0 = the layer's depth alone … 1 = its age
+   *  alone), and the slots of the top's way over which that age is whole. */
+  uGrowAgeMix: THREE.IUniform;
+  uGrowAgeSpan: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
-    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeMix: { value: 0.5 }, uGrowAgeSpan: { value: 40 },
   };
 }
 
@@ -413,7 +420,7 @@ const FUSE_GROW_VERT_HEAD = `
 attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeMix, uGrowAgeSpan;
 varying float vGrow;`;
 // BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
 // 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
@@ -428,7 +435,12 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // values, 2026-11-16, most cells are unlived and "unlived first" at 0.45 put every layer past the depth the fossil
   // is whole at: the whole wall's fossil was out at once, and the layer shaped nothing)
   float growDepth = ( uGrowTop - ( fuseGrowA.x + 0.5 ) ) / max( 1.0, uGrowHeight ) + ( fuseGrowA.w - 1.0 ) * 0.15;
-  float growLayer = clamp( ( growDepth - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), 0.0, 1.0 );
+  // BY THE LAYER AND BY THE AGE OF WHAT STANDS THERE, TOGETHER (the artist, 2026-11-16: "층+각 부재의 '불변' 시기를 둘
+  // 다 종합", and of the layer alone: "일정 층 밑으로 잘려보이는 문제 … 거의 걍 예전버전 회귀 느낌"): the layer's depth alone
+  // drew a line across the wall. The age is how far the top has risen since what stands there hardened (the place's
+  // blurred value), whole over uGrowAgeSpan slots; the two are mixed before the result is kept to 0 … 1, so what is
+  // old comes out above the line and what is new stays in below it.
+  float growLayer = clamp( mix( ( growDepth - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), ( uGrowTop - fuseGrowA.y - uGrowAfter ) / max( 1.0, uGrowAgeSpan ), uGrowAgeMix ), 0.0, 1.0 );
   float growAged = clamp( ( uGrowTop - fuseGrowA.y - uGrowAfter ) / max( 0.1, uGrowOver ), 0.0, 1.0 );
   // (a piece shown a moment ago comes out of its parts over a few seconds — it does not appear at once; and what
   // the window lets go of at its foot goes back into its parts over the last two slots above it)
@@ -1119,7 +1131,8 @@ function SpaceWorld({
         n++;
         if (B[v * 2 + 1] < 0) continue;
         const depth = (U.uGrowTop.value - (A[v * 4] + 0.5)) / Math.max(1, U.uGrowHeight.value) + (A[v * 4 + 3] - 1) * 0.15;
-        const layer = Math.max(0, Math.min(1, (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value)));
+        const byLayer = (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value), byAge = (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(1, U.uGrowAgeSpan.value);
+        const layer = Math.max(0, Math.min(1, byLayer + (byAge - byLayer) * U.uGrowAgeMix.value));
         const aged = Math.max(0, Math.min(1, (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
         const shown = Math.max(0, Math.min(1, (U.uGrowClock.value - B[v * 2]) / Math.max(0.01, U.uGrowAppear.value)));
         const kept = Math.max(0, Math.min(1, (A[v * 4] - U.uGrowFloor.value) * 0.5));
@@ -1197,6 +1210,8 @@ function SpaceWorld({
     // has none — it is whole as it comes)
     fuseU.uGrowClock.value = chunkClock0.current === null ? 1e9 : (Date.now() - chunkClock0.current) / 1000;
     fuseU.uGrowThin.value = Math.max(0, resin.growThin ?? 0.6);
+    fuseU.uGrowAgeMix.value = Math.max(0, Math.min(1, resin.growAgeMix ?? 0.5));
+    fuseU.uGrowAgeSpan.value = Math.max(1, resin.growAgeSlots ?? 40);
     fuseU.uGrowFloor.value = shift > 0 && er.height ? fuseU.uGrowTop.value - er.height - Math.max(0, er.tail ?? 0) : -1e9;
   });
   // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
@@ -3614,6 +3629,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "화석 격자 ≥ 단순화 격자 × 이 값 (가볍게; 0 = 맞추지 않음 · 계단처럼 보이면 내림)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseFrom`) === "assets",
       },
+      // BY THE LAYER AND BY THE AGE TOGETHER (the shader): 0 = the layer's depth alone (a line across the wall) … 1 = the
+      // age alone of what stands there (since it hardened: was simplified / lay unchanged)
+      growAgeMix: { value: 0.5, min: 0, max: 1, step: 0.05, label: "화석 진행: 층 ↔ 나이 (0 = 층의 깊이만 · 1 = 굳은 뒤 지난 시간만)", render: () => REDESIGN },
+      growAgeSlots: { value: 40, min: 2, max: 200, step: 1, label: "나이로 다 화석이 되기까지 (꼭대기가 오르는 단 수)", render: () => REDESIGN },
       // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
       growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · 표면 전체가 함께 움직임)", render: () => REDESIGN },
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
@@ -3940,6 +3959,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () => ({
       fadeSec: fu.fuseFade,
       growThin: fu.growThin,
+      growAgeMix: fu.growAgeMix,
+      growAgeSlots: fu.growAgeSlots,
       color: fu.resinColor,
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
       opacity: fu.resinMode === "alpha" ? fu.resinOpacity : 1,
@@ -3954,7 +3975,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.fuseFade, fu.growThin, fu.growAgeMix, fu.growAgeSlots, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",

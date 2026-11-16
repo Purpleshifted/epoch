@@ -33,7 +33,7 @@ export const LEVA_FOCUS: Record<string, readonly string[]> = {
   // (2026-11-16, the artist: "아직도 레바에 부재별 감싸기/구역 옵션이 있는 게 의아해서" — the seeded mass is one field
   // over the whole ground, the exhibition's way: what it is made of and what is fused together are not choices of
   // it any more, and are no longer listed. They stand under `이 폴더의 손잡이 전부 보기` for the old way of making it.)
-  "엉김 · 융합 · 레진": ["fuseOn", "fuseGrow", "fuseOnset", "fuseFull", "fuseFrom", "voxelTie", "massVeg", "growThin", FOCUS_ALL_KEY, "__save"],
+  "엉김 · 융합 · 레진": ["fuseOn", "fuseGrow", "fuseOnset", "fuseFull", "fuseFrom", "voxelTie", "massVeg", "growAgeMix", "growAgeSlots", "growThin", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;

@@ -748,11 +748,48 @@ export class SpaceModel {
   /** What the pipes and ways of each ground were when it was last told (sendUnits). */
   private unitTubes = new Map<string, string>();
 
+  /** A pipe or a way as it lies, by its place: when it was first seen so, in which round last, and once hardened. */
+  private tubeSeen = new Map<string, { t: FuseTube & { born?: number }; first: number; round: number; hard: boolean }>();
+  private tubeRound = 0;
+
   /**
-   * THE PIPES AND WAYS THAT FUSE (the seeded mass): every run and line laid at slot `kMax` or below, whole (the mass
-   * as it will be — the wall's shader lets it out by the layer), whatever the erosion has done to the run since.
+   * THE PIPES AND WAYS HARDEN BEFORE THEY FUSE (the artist, 2026-11-16: "길이랑 파이프는 화석화 연결 안 되고 있음, 변화해서
+   * 그런지. 이것들도 '중간 굳히기' 단계 만들어야 하나?"). In the window they are laid again and again as people write, and
+   * what was handed to the fusion was other every time — its pieces were made again before they were ever shown.
+   * As a building's parts are simplified once they have stood long enough, a run or a line that has LAIN UNCHANGED
+   * for as long (twice the simplification's time) hardens: from then it is the fusion's, as it lay — whatever is
+   * laid there afterwards, until the window lets go of its slot. The fossil is of what stayed. Its age is counted
+   * from the window's top at that moment (`born`).
    */
-  private seededTubes(fuse: FuseConfig, u: number, kMax: number): FuseTube[] {
+  private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
+    const bc = this.blockClock;
+    const now = this.t, hardenS = Math.max(30, 2 * (bc?.erode.lodSec ?? 40));
+    const round = ++this.tubeRound;
+    for (const t of this.tubesNow(fuse, u)) {
+      const key = `${t.kind}:${t.x0.toFixed(1)}:${t.y0.toFixed(1)}:${t.z0.toFixed(1)}:${t.x1.toFixed(1)}:${t.y1.toFixed(1)}:${t.z1.toFixed(1)}`;
+      const e = this.tubeSeen.get(key);
+      if (e) e.round = round;
+      else this.tubeSeen.set(key, { t, first: now, round, hard: false });
+    }
+    const out: (FuseTube & { born?: number })[] = [];
+    for (const [key, e] of this.tubeSeen) {
+      if (e.hard ? e.t.k < this.floorDone : e.round !== round) {
+        this.tubeSeen.delete(key); // (let go with its slot — or, not yet hard, no longer lying there)
+        continue;
+      }
+      if (!e.hard && now - e.first >= hardenS) {
+        e.hard = true;
+        e.t = { ...e.t, born: bc ? bc.top : e.t.k };
+      }
+      if (e.hard) out.push(e.t);
+    }
+    this.stages["pipes and ways hardening (n)"] = this.tubeSeen.size - out.length;
+    return out;
+  }
+
+  /** The pipes and ways as they lie now, as tubes whole (the mass as it will be: the wall's shader lets it out). */
+  private tubesNow(fuse: FuseConfig, u: number): FuseTube[] {
+    const kMax = Infinity;
     const out: FuseTube[] = [];
     const wc = this.waterCfg;
     if (fuse.fusePipes && wc) {
@@ -775,6 +812,7 @@ export class SpaceModel {
   /** The buildings' masses are let go — here and, when it makes them, on the other side. */
   private dropUnits(): void {
     this.unitTubes.clear();
+    this.tubeSeen.clear();
     this.units.clear();
     this.unitOrphans = [];
     this.unitFused.clear();
@@ -809,14 +847,11 @@ export class SpaceModel {
     const say = (m: UnitRequest) => port.postMessage(m);
     // THE PIPES AND THE WAYS FUSE WITH THE GROUND THEY LIE IN (the artist, 2026-11-16: "사실 관이랑 길에도 화석화를
     // 적용하긴 해야하거든", "그럼 그것부터 일단 진행"): as the exhibition's did — tubes in the same field, so the mass
-    // crosses from building to building along them. Only those that lie as deep as the fossil begins: above it
-    // nothing of the mass is shown, and there they are laid again and again.
-    const tubesOf = new Map<string, FuseTube[]>();
+    // crosses from building to building along them. Those that have HARDENED (seededTubes), at whatever depth.
+    const tubesOf = new Map<string, (FuseTube & { born?: number })[]>();
     const tubeSig = new Map<string, string>();
     {
-      const bc = this.blockClock;
-      const kMax = bc ? Math.floor(bc.top - 0.5 - fuse.fuseOnset * Math.max(1, bc.erode.height ?? bc.erode.topSlot)) : -Infinity;
-      for (const t of this.seededTubes(fuse, u, kMax)) {
+      for (const t of this.seededTubes(fuse, u)) {
         const id = `ground:${box.variety ? Math.round(districtOf((t.x0 + t.x1) / 2, (t.z0 + t.z1) / 2, box.variety).angle * 1e4) : 0}`;
         if (!lists.has(id)) continue;
         const l = tubesOf.get(id);

@@ -25,7 +25,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { accretionShare, fuseChunk, fusePad, fusedShare, mergeMeshes, type FuseConfig, type FuseMesh, type FuseTube, type Sediment } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, mergeMeshes, type FuseConfig, type FuseMesh, type FuseTube, type Sediment } from "./fuse";
 import type { NatureHistory } from "./natureHistory";
 import type { Box } from "./seeds";
 
@@ -353,14 +353,27 @@ export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boole
   at: { ext: { x0: number; z0: number; nx: number; nz: number }; ka: number; kb: number },
   o: { seg: number; tile: number; padSlots: number; fusing: (list: readonly { d: number }[]) => boolean },
   /** The pipes and ways of the ground, with how far (world) a band's field reaches above and below its own slots. */
-  ext2?: { tubes: readonly FuseTube[]; unit: number; reach: number },
+  ext2?: { tubes: readonly FuseTube[]; unit: number; reach: number; parts?: { margin: number; fill: boolean } },
 ): UnitPiece<P>[] {
   const { ext, ka, kb } = at;
   const SEG = o.seg, T = o.tile, PAD = UNIT_PAD;
   const out: UnitPiece<P>[] = [];
   for (let k0 = Math.floor((ka - 8) / SEG) * SEG; k0 <= kb + 3; k0 += SEG) {
     const k1 = k0 + SEG - 1;
-    const inBand = ps.filter((e) => e.b.slot >= k0 - o.padSlots - 3 && e.b.slot <= k1 + o.padSlots + 8);
+    let inBand = ps.filter((e) => e.b.slot >= k0 - o.padSlots - 3 && e.b.slot <= k1 + o.padSlots + 8);
+    // A PIECE READS ONLY THE PARTS THAT REACH ITS FIELD (2026-11-16; the artist: "프로그래밍적 아이디어로 최적화할 방안이
+    // 없나?"): by the count of slots a band took the parts of some 49 slots (her values) — its field reaches about
+    // 20, and fuseChunk passes the rest over. But they were in the piece's signature: a part come or gone 15 slots
+    // away made the piece be made again for nothing. Now: the parts whose height reaches the field (and the plates
+    // that may close a room of it from further off, when the rooms are filled).
+    if (ext2?.parts) {
+      const lo = k0 * ext2.unit - ext2.reach - ext2.parts.margin, hi = (k1 + 1) * ext2.unit + ext2.reach + ext2.parts.margin;
+      const room = ext2.parts.fill ? (FILL_MAX_GAP + 1) * ext2.unit : 0;
+      inBand = inBand.filter(({ b }) => {
+        const hh = b.tilt ? Math.max(b.sx, b.sy, b.sz) / 2 : b.sy / 2, far = room && FRAME_KINDS.has(b.kind) ? room : 0;
+        return b.y + hh >= lo - far && b.y - hh <= hi + far;
+      });
+    }
     // (a tube is read by the band whose field it lies in — by its height, not by a count of slots: a tube that
     // changes makes only the pieces it is in be made again)
     const yLo = ext2 ? k0 * ext2.unit - ext2.reach : 0, yHi = ext2 ? (k1 + 1) * ext2.unit + ext2.reach : 0;
@@ -451,8 +464,9 @@ export interface UnitJob {
   fuse: FuseConfig;
   /** The building's parts, in the world. */
   parts: UnitPart[];
-  /** The pipes and the ways of its ground that fuse with it (in the world; fuse.ts FuseTube). */
-  tubes?: FuseTube[];
+  /** The pipes and the ways of its ground that fuse with it (in the world; fuse.ts FuseTube) — `born`: the window's
+   *  top when the tube hardened (its fossil's age is counted from then). */
+  tubes?: (FuseTube & { born?: number })[];
   /** The angle its district is turned by (it is fused in its own frame, where its boxes lie along the grid). */
   ang: number;
   /** What gathered round it (cut to the building, in its own frame). */
@@ -574,7 +588,7 @@ export class FuseUnits {
     const tubes = (j.tubes ?? []).map((t, i) => (j.ang ? { ...t, x0: t.x0 * c - t.z0 * sn, z0: t.x0 * sn + t.z0 * c, x1: t.x1 * c - t.z1 * sn, z1: t.x1 * sn + t.z1 * c, i } : { ...t, i }));
     const pad = fusePad(j.fuse);
     const pieces = ps.length
-      ? unitPieces(ps, unitExtent(ps), { seg: j.seg, tile: j.tile, padSlots: j.padSlots, fusing: unitFusing(j.fuse) }, { tubes, unit: j.u, reach: Math.max(pad.above, pad.below) * j.fuse.voxel })
+      ? unitPieces(ps, unitExtent(ps), { seg: j.seg, tile: j.tile, padSlots: j.padSlots, fusing: unitFusing(j.fuse) }, { tubes, unit: j.u, reach: Math.max(pad.above, pad.below) * j.fuse.voxel, parts: { margin: j.fuse.accDepth + 2 * j.fuse.voxel, fill: !!j.fuse.study?.fill } })
       : [];
     const keys = new Set(pieces.map((p) => p.key));
     const todo = pieces.filter((p) => {
@@ -662,7 +676,7 @@ export class FuseUnits {
         const w = (j.tubes ?? [])[(t as FuseTube & { i: number }).i];
         if (!w) continue;
         const b = { kind: "mass", seed: 0, x: (w.x0 + w.x1) / 2, y: (w.y0 + w.y1) / 2, z: (w.z0 + w.z1) / 2, sx: Math.abs(w.x1 - w.x0) + 2 * w.r, sy: Math.abs(w.y1 - w.y0) + 2 * w.r, sz: Math.abs(w.z1 - w.z0) + 2 * w.r, slot: w.k, tone: 0, along: 0 } as unknown as Box;
-        own.push({ b, d: 1, up: true, sk: false, grow: [w.k, w.k, 1, 1, 0, 1] });
+        own.push({ b, d: 1, up: true, sk: false, grow: [w.k, w.born ?? w.k, 1, 1, 0, 1] });
       }
     }
     const was = unit.done.get(p.key);
