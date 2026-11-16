@@ -748,44 +748,44 @@ export class SpaceModel {
   /** What the pipes and ways of each ground were when it was last told (sendUnits). */
   private unitTubes = new Map<string, string>();
 
-  /** A pipe or a way as it lies, by its place: when it was first seen so, in which round last, and once hardened. */
-  private tubeSeen = new Map<string, { t: FuseTube & { born?: number }; first: number; round: number; hard: boolean }>();
-  private tubeRound = 0;
+  /** THE HARDENED PIPES AND WAYS: per slot, the runs and lines laid there as they lay when the slot hardened. */
+  private tubeHard = new Map<number, (FuseTube & { born?: number })[]>();
+  private tubeHardUpTo = -Infinity;
 
   /**
    * THE PIPES AND WAYS HARDEN BEFORE THEY FUSE (the artist, 2026-11-16: "길이랑 파이프는 화석화 연결 안 되고 있음, 변화해서
    * 그런지. 이것들도 '중간 굳히기' 단계 만들어야 하나?"). In the window they are laid again and again as people write, and
-   * what was handed to the fusion was other every time — its pieces were made again before they were ever shown.
-   * As a building's parts are simplified once they have stood long enough, a run or a line that has LAIN UNCHANGED
-   * for as long (twice the simplification's time) hardens: from then it is the fusion's, as it lay — whatever is
-   * laid there afterwards, until the window lets go of its slot. The fossil is of what stayed. Its age is counted
-   * from the window's top at that moment (`born`).
+   * what was handed to the fusion was other every time. (First tried: a run hardens once it has lain unchanged for
+   * a while. Watched in the artist's window the same evening: thousands tracked, none ever hard — the lines are
+   * drawn anew every round and never lie exactly as before.) So it is the SLOT that hardens, as a building's
+   * cell-slot is simplified once it has stood long enough: when the window's top has risen far enough past a slot
+   * (the time of the simplification, twice), the runs and lines laid in it are taken AS THEY LIE AT THAT MOMENT and
+   * kept — the fusion's from then on, whatever is laid there afterwards, until the window lets go of the slot. The
+   * fossil is of what was there when it set. Its age is counted from the top at that moment (`born`).
    */
   private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
     const bc = this.blockClock;
-    // (by the clock on the wall: the model's own time is the latest thing written, and in the block that does not
-    // run on — read against it, nothing ever hardened; seen in the artist's window, 2026-11-16: 187 hardening, none hard)
-    const now = Date.now() / 1000, hardenS = Math.max(30, 2 * (bc?.erode.lodSec ?? 40));
-    const round = ++this.tubeRound;
-    for (const t of this.tubesNow(fuse, u)) {
-      const key = `${t.kind}:${t.x0.toFixed(1)}:${t.y0.toFixed(1)}:${t.z0.toFixed(1)}:${t.x1.toFixed(1)}:${t.y1.toFixed(1)}:${t.z1.toFixed(1)}`;
-      const e = this.tubeSeen.get(key);
-      if (e) e.round = round;
-      else this.tubeSeen.set(key, { t, first: now, round, hard: false });
+    if (!bc) return [];
+    const ec = bc.erode, shift = Math.max(0, ec.shift ?? 0);
+    const perTop = shift > 0 ? Math.max(1, ec.slotSec ?? 1) / shift : Infinity;
+    const after = Math.max(2, Math.ceil((2 * (ec.lodSec ?? 40)) / perTop) + 1);
+    const kHard = Math.floor(bc.top) - after;
+    if (kHard > this.tubeHardUpTo) {
+      const from = this.tubeHardUpTo;
+      for (const t of this.tubesNow(fuse, u)) {
+        if (t.k > kHard || t.k <= from || t.k < this.floorDone) continue;
+        const l = this.tubeHard.get(t.k), h = { ...t, born: bc.top };
+        if (l) l.push(h);
+        else this.tubeHard.set(t.k, [h]);
+      }
+      this.tubeHardUpTo = kHard;
     }
     const out: (FuseTube & { born?: number })[] = [];
-    for (const [key, e] of this.tubeSeen) {
-      if (e.hard ? e.t.k < this.floorDone : e.round !== round) {
-        this.tubeSeen.delete(key); // (let go with its slot — or, not yet hard, no longer lying there)
-        continue;
-      }
-      if (!e.hard && now - e.first >= hardenS) {
-        e.hard = true;
-        e.t = { ...e.t, born: bc ? bc.top : e.t.k };
-      }
-      if (e.hard) out.push(e.t);
+    for (const [k, l] of this.tubeHard) {
+      if (k < this.floorDone) this.tubeHard.delete(k);
+      else for (const t of l) out.push(t);
     }
-    this.stages["pipes and ways hardening (n)"] = this.tubeSeen.size - out.length;
+    this.stages["pipes and ways hardened (n)"] = out.length;
     return out;
   }
 
@@ -814,7 +814,8 @@ export class SpaceModel {
   /** The buildings' masses are let go — here and, when it makes them, on the other side. */
   private dropUnits(): void {
     this.unitTubes.clear();
-    this.tubeSeen.clear();
+    this.tubeHard.clear();
+    this.tubeHardUpTo = -Infinity;
     this.units.clear();
     this.unitOrphans = [];
     this.unitFused.clear();
