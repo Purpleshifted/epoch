@@ -73,6 +73,9 @@ import {
   DEFAULT_VARIETY,
   type WalkConfig,
   type WaterConfig,
+  type Border,
+  nearestOnBorder,
+  villageBorders,
   DEFAULT_FUSE,
   DEFAULT_STUDY,
   type FuseConfig,
@@ -2120,6 +2123,31 @@ void main() {
   gl_FragColor = vec4(mix(uColorA, uColorB, vShade), 1.0);
 }`;
 
+/** The time (s) of height `y` in the rising window, as the vegetation's shader takes it (round the window). */
+function windowTime(y: number, base: number, unit: number, top: number, secPerUnit: number): number {
+  const yl = (((y - base * unit) % top) + top) % top;
+  return ((base * unit + yl) / unit) * secPerUnit;
+}
+
+/** A place on a border of the time of height `y` (a border by its length, anywhere along it but its ends, a little to
+ *  either side), or null when no two villages live then. */
+function beltPoint(bl: { secPerUnit: number; at: (t: number) => Border[] }, y: number, base: number, unit: number, top: number, R: number, rnd: () => number): [number, number] | null {
+  const bs = bl.at(windowTime(y, base, unit, top, bl.secPerUnit));
+  if (!bs.length) return null;
+  let tot = 0;
+  const ws = bs.map((b) => (tot += Math.hypot(b.bx - b.ax, b.bz - b.az)));
+  const u = rnd() * tot;
+  const b = bs[Math.max(0, ws.findIndex((w) => w >= u))];
+  const ex = b.bx - b.ax, ez = b.bz - b.az, L = Math.hypot(ex, ez) || 1;
+  const along = 0.1 + 0.8 * rnd(), side = (rnd() - 0.5) * R * 0.6;
+  return [b.ax + ex * along - (ez / L) * side, b.az + ez * along + (ex / L) * side];
+}
+
+/** Whether a cloud stands on a border of its time (within its radius of one). */
+function onBelt(bl: { secPerUnit: number; at: (t: number) => Border[] }, c: { x: number; y: number; z: number }, base: number, unit: number, top: number, R: number): boolean {
+  return bl.at(windowTime(c.y, base, unit, top, bl.secPerUnit)).some((b) => nearestOnBorder(b, c.x, c.z).d <= R);
+}
+
 function Vegetation({
   unit,
   slots,
@@ -2140,7 +2168,15 @@ function Vegetation({
   margin,
   base,
   river,
+  belts,
 }: {
+  /**
+   * BELTS ON THE BORDERS (the artist, 2026-11-16: "권역 나누기"): `share` of the clouds stand on the borders between
+   * the villages alive at their own height's time (villageBorders.ts) — green belts that part one village's ground from
+   * another's, which the borders' streams wear through; a belt cloud whose border has moved on (its village gone, or the
+   * window risen past it) is seated on a border again. null = every cloud anywhere.
+   */
+  belts: { share: number; secPerUnit: number; at: (t: number) => Border[] } | null;
   /** The window's first slot (the rising block: its foot; 0 = the fixed block). */
   base: number;
   /** World units of vegetation beyond what was built or walked (< 0 = the whole ground). */
@@ -2214,6 +2250,10 @@ function Vegetation({
   /** The clouds' middles, and per point its cloud, its place in it (an offset from the middle) and its own draw —
    *  what moving a cloud needs (below). */
   const clouds = useRef<{ x: number; y: number; z: number }[]>([]);
+  /** Which clouds stand in the belts on the borders (drawn once with the clouds). */
+  const beltOf = useRef<Uint8Array>(new Uint8Array(0));
+  const beltsRef = useRef(belts);
+  beltsRef.current = belts;
   const made = useRef<{ of: Uint16Array; off: Float32Array; draw: Float32Array } | null>(null);
   const rndState = useRef(0x2f6e2b1);
   const geom = useMemo(() => {
@@ -2227,11 +2267,21 @@ function Vegetation({
     const nSpots = Math.max(0, Math.min(60000, Math.round(spots)));
     const R = Math.max(0.5, spotR), T = Math.max(0.2, spotGrow) * unit;
     const cloud: { x: number; y: number; z: number; lobed: boolean; ax: [number, number, number]; sc: number }[] = [];
+    const belt = new Uint8Array(nSpots);
+    const bl = beltsRef.current;
     for (let i = 0; i < nSpots; i++) {
       // an axis of its own for a lobed cloud (any direction of the block)
       const c = 2 * rnd() - 1, ph = rnd() * 2 * Math.PI, sn = Math.sqrt(1 - c * c);
-      cloud.push({ x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85, lobed: rnd() < spotLobed, ax: [sn * Math.cos(ph), c, sn * Math.sin(ph)], sc: 1 + (rnd() - 0.5) * 2 * Math.max(0, Math.min(0.95, spotJitter)) });
+      const cl = { x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85, lobed: rnd() < spotLobed, ax: [sn * Math.cos(ph), c, sn * Math.sin(ph)] as [number, number, number], sc: 1 + (rnd() - 0.5) * 2 * Math.max(0, Math.min(0.95, spotJitter)) };
+      // a belt cloud: on a border of its time, if there are any yet (else it is seated there when it is looked at)
+      if (bl && rnd() < bl.share) {
+        belt[i] = 1;
+        const q = beltPoint(bl, cl.y, base, unit, top, R, rnd);
+        if (q) [cl.x, cl.z] = q;
+      }
+      cloud.push(cl);
     }
+    beltOf.current = belt;
     for (let i = 0; i < n; i++) {
       let x = (rnd() - 0.5) * WORLD_SIZE, y = rnd() * top, z = (rnd() - 0.5) * WORLD_SIZE;
       let ok = true;
@@ -2287,7 +2337,7 @@ function Vegetation({
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     return g;
-  }, [count, D, unit, spots, spotR, spotGrow, spotLobed, spotJitter]);
+  }, [count, D, unit, spots, spotR, spotGrow, spotLobed, spotJitter, belts?.share]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => geom.dispose(), [geom]);
   const mat = useMemo(
     () =>
@@ -2480,15 +2530,25 @@ function Vegetation({
     let a = rndState.current;
     const rnd = () => ((a = Math.imul(a ^ (a >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296;
     const moved = new Set<number>();
-    for (let i = 0; i < clouds.current.length && moved.size < 4; i++) {
+    const bl = beltsRef.current, belt = beltOf.current;
+    for (let i = 0; i < clouds.current.length && moved.size < 6; i++) {
       const c = clouds.current[i];
-      if (around(c.x, c.y, c.z) <= moveAt) continue;
+      // a BELT cloud off any border of its time (its villages gone, or the window risen past it) is seated on one again
+      const isBelt = !!bl && belt[i] === 1;
+      const offBelt = isBelt && !onBelt(bl!, c, base, unit, top, R);
+      if (!offBelt && around(c.x, c.y, c.z) <= moveAt) continue;
       let best = c, bestH = Infinity;
       for (let t = 0; t < 24; t++) {
-        const p = { x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85 };
+        let p = { x: (rnd() - 0.5) * WORLD_SIZE * 0.85, y: rnd() * top, z: (rnd() - 0.5) * WORLD_SIZE * 0.85 };
+        if (isBelt) {
+          const q = beltPoint(bl!, p.y, base, unit, top, R, rnd);
+          if (!q) continue;
+          p = { x: q[0], y: p.y, z: q[1] };
+        }
         const h = around(p.x, p.y, p.z);
         if (h < bestH) [best, bestH] = [p, h];
       }
+      if (best === c) continue;
       clouds.current[i] = best;
       moved.add(i);
     }
@@ -3236,6 +3296,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       vegMoveSec: { value: 8, min: 0, max: 120, step: 2, label: "구름 자리를 다시 보는 간격 (s · 0 = 안 옮김)" },
       vegMoveAt: { value: 0.2, min: 0.02, max: 1, step: 0.02, label: "자리에 사람이 이만큼 차면 빈 곳으로 옮김" },
       vegCloudJit: { value: 0.4, min: 0, max: 0.9, step: 0.05, label: "구름 크기 지터 (± · 0 = 다 같은 크기)" },
+      // (the artist, 2026-11-16: "권역 나누기"): belts on the borders between the villages (villageBorders.ts)
+      vegBelt: { value: 0.6, min: 0, max: 1, step: 0.05, label: "마을 경계에 띠로 서는 구름 비율 (권역 · 0 = 아무 데나)" },
       vegLobed: { value: 0.3, min: 0, max: 1, step: 0.05, label: "두 갈래 구름의 비율 (나머지는 둥근 구름)" },
       vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
       vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
@@ -4104,6 +4166,22 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.dGrowCount, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
+  // THE BORDERS of the villages alive at a time, for the vegetation's belts (cached per set of villages)
+  const belts = useMemo(() => {
+    const vs = botVillages;
+    if (!vs || !(vg.vegBelt > 0)) return null;
+    const R = Math.max(1, ...vs.sites.map((q) => Math.hypot(q[0], q[1]) + Math.max(1, q[4] ?? vs.radius) * 1.3));
+    const cache = new Map<string, Border[]>();
+    const at = (t: number): Border[] => {
+      const alive: { i: number; x: number; z: number }[] = [];
+      vs.sites.forEach((q, i) => q[2] <= t && t < q[3] && alive.push({ i, x: q[0], z: q[1] }));
+      const key = alive.map((x) => x.i).join(",");
+      let bs = cache.get(key);
+      if (!bs) cache.set(key, (bs = alive.length >= 2 ? villageBorders(alive, R) : []));
+      return bs;
+    };
+    return { share: vg.vegBelt, secPerUnit: tAxis.secPerUnit, at };
+  }, [botVillages, vg.vegBelt, tAxis.secPerUnit]);
   const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: (v.follow && !REDESIGN) || (rising && !!world.camRise), markers: v.markers, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
@@ -4259,7 +4337,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} />
+          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} belts={belts} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene

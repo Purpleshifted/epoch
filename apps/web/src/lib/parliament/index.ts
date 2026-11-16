@@ -18,6 +18,7 @@ export * from "./natureHistory";
 export * from "./spaceModel";
 export * from "./fuse";
 export * from "./water";
+export * from "./villageBorders";
 export * from "./flow";
 export * from "./walkways";
 export * from "./session";
