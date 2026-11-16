@@ -17,7 +17,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
 import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
-import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { fuseTilesOf, growData, unitExtent, unitLook, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import { hash2, type NatureConfig } from "./nature";
@@ -745,8 +745,36 @@ export class SpaceModel {
     }
   }
 
+  /** What the pipes and ways of each ground were when it was last told (sendUnits). */
+  private unitTubes = new Map<string, string>();
+
+  /**
+   * THE PIPES AND WAYS THAT FUSE (the seeded mass): every run and line laid at slot `kMax` or below, whole (the mass
+   * as it will be — the wall's shader lets it out by the layer), whatever the erosion has done to the run since.
+   */
+  private seededTubes(fuse: FuseConfig, u: number, kMax: number): FuseTube[] {
+    const out: FuseTube[] = [];
+    const wc = this.waterCfg;
+    if (fuse.fusePipes && wc) {
+      const yOf = (k: number) => (k - wc.pipeDepth) * u;
+      for (const p of this.drain.pipes) {
+        if (p.k > kMax) continue;
+        if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay: 1, kind: "pipe", k: p.k });
+        else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k });
+      }
+    }
+    if (fuse.fuseWalks) {
+      for (const l of this.walks.layers) {
+        if (l.k > kMax) continue;
+        for (const line of l.lines) for (let i = 3; i + 2 < line.length; i += 3) out.push({ x0: line[i - 3], y0: line[i - 2], z0: line[i - 1], x1: line[i], y1: line[i + 1], z1: line[i + 2], r: fuse.walkRadius, decay: 1, kind: "walk", k: l.k });
+      }
+    }
+    return out;
+  }
+
   /** The buildings' masses are let go — here and, when it makes them, on the other side. */
   private dropUnits(): void {
+    this.unitTubes.clear();
     this.units.clear();
     this.unitOrphans = [];
     this.unitFused.clear();
@@ -775,9 +803,32 @@ export class SpaceModel {
     fuse: FuseConfig,
     padSlots: number,
     cfg: string,
+    box: BoxConfig,
   ): FuseMesh | null {
     const key = (b: Box) => SpaceModel.partKey(b);
     const say = (m: UnitRequest) => port.postMessage(m);
+    // THE PIPES AND THE WAYS FUSE WITH THE GROUND THEY LIE IN (the artist, 2026-11-16: "사실 관이랑 길에도 화석화를
+    // 적용하긴 해야하거든", "그럼 그것부터 일단 진행"): as the exhibition's did — tubes in the same field, so the mass
+    // crosses from building to building along them. Only those that lie as deep as the fossil begins: above it
+    // nothing of the mass is shown, and there they are laid again and again.
+    const tubesOf = new Map<string, FuseTube[]>();
+    const tubeSig = new Map<string, string>();
+    {
+      const bc = this.blockClock;
+      const kMax = bc ? Math.floor(bc.top - 0.5 - fuse.fuseOnset * Math.max(1, bc.erode.height ?? bc.erode.topSlot)) : -Infinity;
+      for (const t of this.seededTubes(fuse, u, kMax)) {
+        const id = `ground:${box.variety ? Math.round(districtOf((t.x0 + t.x1) / 2, (t.z0 + t.z1) / 2, box.variety).angle * 1e4) : 0}`;
+        if (!lists.has(id)) continue;
+        const l = tubesOf.get(id);
+        if (l) l.push(t);
+        else tubesOf.set(id, [t]);
+      }
+      for (const [id, l] of tubesOf) {
+        let sg = 0;
+        for (const t of l) sg += t.x0 * 3.1 + t.y0 * 7.3 + t.z0 * 11.7 + t.x1 * 13.9 + t.y1 * 17.1 + t.z1 * 19.3 + t.r * 23.9;
+        tubeSig.set(id, `${l.length}:${sg.toFixed(2)}`);
+      }
+    }
     let first = false;
     if (!this.remoteOn) {
       // (what was made here is let go: the other side makes all of it — and the one mesh of it is emptied)
@@ -812,7 +863,8 @@ export class SpaceModel {
     let waiting = 0, sent = 0;
     for (const [id, list] of lists) {
       const ent = this.units.get(id);
-      if (ent && ent.cfg === cfg && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)))) continue;
+      const tSig = tubeSig.get(id) ?? "";
+      if (ent && ent.cfg === cfg && this.unitTubes.get(id) === tSig && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)))) continue;
       waiting++;
       if ((ent && ent.cfg === cfg && nowMs - ent.madeMs < UNIT_REST_MS) || performance.now() > deadline) continue;
       const ang = list[0].ang;
@@ -833,6 +885,7 @@ export class SpaceModel {
         cfg,
         fuse,
         parts,
+        tubes: tubesOf.get(id),
         ang,
         h: h ? SpaceModel.turnedHistory(h, c, sn, at.ext, at.ka - 12, at.kb + 12) : null,
         look: layered ? unitLook(list) : null,
@@ -843,9 +896,13 @@ export class SpaceModel {
         tile: BLOCK_TILE,
       });
       this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map() });
+      this.unitTubes.set(id, tSig);
       waiting--;
       sent++;
     }
+    let nTubes = 0;
+    for (const l of tubesOf.values()) nTubes += l.length;
+    this.stages["fuse pipes and ways in the field (n)"] = nTubes;
     this.stages["fuse grounds told (n)"] = sent;
     this.stages["fuse grounds waiting to be told (n)"] = waiting;
     this.stages["fuse grounds (n, own worker)"] = lists.size;
@@ -976,7 +1033,7 @@ export class SpaceModel {
       }
     }
     // THE SEEDED MASS IS MADE IN A WORKER OF ITS OWN (fuseUnits.ts), when there is one
-    if (area && this.fusePort) return this.sendUnits(this.fusePort, lists, h, u, sed, layered, fuse, padSlots, cfg);
+    if (area && this.fusePort) return this.sendUnits(this.fusePort, lists, h, u, sed, layered, fuse, padSlots, cfg, box);
     if (this.remoteOn) this.dropUnits(); // (made here again)
     // (the crust has no growths: only where it has come)
     const fusing = (list: readonly { d: number }[]): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || (!fuse.crust && accretionShare(e.d, fuse) > 0.01));

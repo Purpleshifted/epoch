@@ -1267,7 +1267,7 @@ function SpaceWorld({
     }
     chunkClock0.current = map.size ? m.clock0 : null;
     fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
-    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current });
+    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current });
   };
   const applyChunksNow = useRef(applyChunks);
   applyChunksNow.current = applyChunks;
