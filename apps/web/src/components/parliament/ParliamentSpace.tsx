@@ -2079,6 +2079,8 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
  * is gone inside one and along a way that is walked, and is back where and when the tails have faded. Per frame
  * nothing is computed or uploaded.
  */
+/** The width of the clouds' texture (one texel per cloud, row after row). */
+const VEG_CLOUD_W = 256;
 const VEG_VERT = `
 precision highp sampler3D;
 uniform sampler3D uHuman;
@@ -2089,13 +2091,27 @@ uniform vec3 uSpan;
 uniform float uSize;
 uniform float uScale;
 uniform float uFull;
+// THE CLOUDS' MIDDLES (spots): one texel each (VEG_CLOUD_W wide); a point's position is then its offset from the
+// middle of its cloud (aCloud) — a cloud that moves is a few texels written, not every point re-uploaded
+uniform sampler2D uClouds;
+uniform float uCloudsOn;
+uniform float uHalf;
+attribute float aCloud;
 attribute float aSeed;
 varying float vShade;
 void main() {
+  vec3 wp = position;
+  float inBlock = 1.0;
+  if (uCloudsOn > 0.5) {
+    int ci = int(aCloud + 0.5);
+    wp = texelFetch(uClouds, ivec2(ci % ${VEG_CLOUD_W}, ci / ${VEG_CLOUD_W}), 0).xyz + position;
+    // (a point that falls out of the block is never alive)
+    inBlock = wp.y >= 0.0 && abs(wp.x) < uHalf && abs(wp.z) < uHalf ? 1.0 : 0.0;
+  }
   // (THE RISING WINDOW: the points fill the window, whose foot is uMin.y — a point keeps its place in the world while
   // the window rises past it, and when it drops out below it is a point of the new time at the top)
-  float yl = mod(position.y - uMin.y, uSpan.y);
-  vec3 pos = vec3(position.x, uMin.y + yl, position.z);
+  float yl = mod(wp.y - uMin.y, uSpan.y);
+  vec3 pos = vec3(wp.x, uMin.y + yl, wp.z);
   // the texture's x, y are the ground's x, z cells; its depth is the slot (the height)
   vec3 uvw = vec3((pos.x - uMin.x) / uSpan.x, (pos.z - uMin.z) / uSpan.z, yl / uSpan.y);
   float human = texture(uHuman, uvw).r;
@@ -2104,7 +2120,7 @@ void main() {
   // (the open water wears the plants away along its course: water.ts → waterNow)
   float worn = texture(uWater, uvw).r;
   float veg = (1.0 - human) * (1.0 - worn) * uFull * texture(uRange, uvw.xy).r;
-  float alive = step(aSeed, veg);
+  float alive = step(aSeed, veg) * inBlock;
   vShade = fract(aSeed * 7.31);
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = alive > 0.5 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
@@ -2214,7 +2230,8 @@ function Vegetation({
   /** The clouds' middles, and per point its cloud, its place in it (an offset from the middle) and its own draw —
    *  what moving a cloud needs (below). */
   const clouds = useRef<{ x: number; y: number; z: number }[]>([]);
-  const made = useRef<{ of: Uint16Array; off: Float32Array; draw: Float32Array } | null>(null);
+  /** The clouds' middles as a texture the vertex shader reads (spots only; VEG_VERT uClouds). */
+  const made = useRef<{ tex: THREE.DataTexture } | null>(null);
   const rndState = useRef(0x2f6e2b1);
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -2282,13 +2299,37 @@ function Vegetation({
       seed[i] = ok ? draw[i] : 2;
     }
     clouds.current = cloud.map((c) => ({ x: c.x, y: c.y, z: c.z }));
-    made.current = nSpots > 0 ? { of, off, draw } : null;
     rndState.current = a;
-    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+    if (nSpots > 0) {
+      // SPOTS ON THE GPU: a point is its offset in its cloud, its cloud's index and its own draw; the middles are a
+      // texture (moving a cloud = one texel). Whether it fell out of the block is the shader's (uHalf, y ≥ 0).
+      const H = Math.ceil(nSpots / VEG_CLOUD_W);
+      const tex = new THREE.DataTexture(new Float32Array(VEG_CLOUD_W * H * 4), VEG_CLOUD_W, H, THREE.RGBAFormat, THREE.FloatType);
+      tex.minFilter = tex.magFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      const td = tex.image.data as Float32Array;
+      cloud.forEach((c, i) => td.set([c.x, c.y, c.z, 1], i * 4));
+      tex.needsUpdate = true;
+      made.current = { tex };
+      g.userData.cloudTex = tex;
+      g.setAttribute("position", new THREE.BufferAttribute(off, 3));
+      g.setAttribute("aCloud", new THREE.BufferAttribute(Float32Array.from(of), 1));
+      g.setAttribute("aSeed", new THREE.BufferAttribute(draw, 1));
+    } else {
+      made.current = null;
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      g.setAttribute("aCloud", new THREE.BufferAttribute(new Float32Array(n), 1));
+      g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+    }
     return g;
   }, [count, D, unit, spots, spotR, spotGrow, spotLobed, spotJitter]);
-  useEffect(() => () => geom.dispose(), [geom]);
+  useEffect(
+    () => () => {
+      geom.dispose();
+      (geom.userData.cloudTex as THREE.DataTexture | undefined)?.dispose();
+    },
+    [geom],
+  );
   const mat = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -2305,6 +2346,9 @@ function Vegetation({
           uFull: { value: 1 },
           uColorA: { value: new THREE.Color() },
           uColorB: { value: new THREE.Color() },
+          uClouds: { value: null },
+          uCloudsOn: { value: 0 },
+          uHalf: { value: WORLD_HALF },
         },
       }),
     [],
@@ -2343,6 +2387,11 @@ function Vegetation({
     // a point's size in pixels for its size in the world, at its distance
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 40;
     mat.uniforms.uScale.value = gl.domElement.height / (2 * Math.tan((fov * Math.PI) / 360));
+    // the clouds' texture of the points in use (set here, before the frame is drawn, so a new set of points is never
+    // drawn with the last one's middles)
+    const cloudTex = (geom.userData.cloudTex as THREE.DataTexture | undefined) ?? null;
+    mat.uniforms.uClouds.value = cloudTex;
+    mat.uniforms.uCloudsOn.value = cloudTex ? 1 : 0;
     timer.current += dt;
     if (timer.current < 2) return;
     timer.current = 0;
@@ -2494,19 +2543,16 @@ function Vegetation({
     }
     rndState.current = a;
     if (!moved.size) return;
-    const pos = geom.getAttribute("position") as THREE.BufferAttribute, sd = geom.getAttribute("aSeed") as THREE.BufferAttribute;
-    const pa = pos.array as Float32Array, sa = sd.array as Float32Array;
-    for (let i = 0; i < m.of.length; i++) {
-      if (!moved.has(m.of[i])) continue;
-      const c = clouds.current[m.of[i]];
-      const x = c.x + m.off[i * 3], y = c.y + m.off[i * 3 + 1], z = c.z + m.off[i * 3 + 2];
-      pa[i * 3] = x;
-      pa[i * 3 + 1] = y;
-      pa[i * 3 + 2] = z;
-      sa[i] = y >= 0 && Math.abs(x) < WORLD_HALF && Math.abs(z) < WORLD_HALF ? m.draw[i] : 2;
+    // (the points follow in the vertex shader: only the moved clouds' texels are written — no loop over the points,
+    // no buffer upload)
+    const td = m.tex.image.data as Float32Array;
+    for (const i of moved) {
+      const c = clouds.current[i];
+      td[i * 4] = c.x;
+      td[i * 4 + 1] = c.y;
+      td[i * 4 + 2] = c.z;
     }
-    pos.needsUpdate = true;
-    sd.needsUpdate = true;
+    m.tex.needsUpdate = true;
   });
   return <points geometry={geom} material={mat} frustumCulled={false} />;
 }
