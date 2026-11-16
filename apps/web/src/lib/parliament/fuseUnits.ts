@@ -133,7 +133,7 @@ export function fuseTilesOf(
  * point of the box, drawn a little inside it, so the pressed mass lies within the part) and that part's growing
  * data. The parts are looked up through a coarse grid of the space (a vertex asks only the parts near it).
  */
-export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[]): void {
+export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[], unit = 0): void {
   const nv = mesh.position.length / 3;
   const anchor = new Float32Array(nv * 3), A = new Float32Array(nv * 4), B = new Float32Array(nv * 2);
   const G = 2, REACH = 3;
@@ -188,9 +188,111 @@ export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number
       B[v * 2 + 1] = g[5];
     } else B[v * 2 + 1] = -1;
   }
+  if (unit > 0) placeValues(mesh, parts, unit, A, B);
   mesh.anchor = anchor;
   mesh.growA = A;
   mesh.growB = B;
+}
+
+/** The side of a cell of the grid the parts' values are spread on (world), and the passes of a 3 × 3 × 3 box over it. */
+const PLACE_CELL = 1;
+const PLACE_PASSES = 2;
+
+/**
+ * THE VALUES OF THE PLACE, NOT OF THE PART (the artist, 2026-11-16, of the mass let out part by part: "근데 부푸는 건
+ * 진짜 개별로던데"). A vertex that carries the numbers of the one part nearest to it moves apart from its neighbour
+ * that carries another part's — the mass came out part by part, and split along the parts. The exhibition's mass was
+ * one body although every part had a value of its own, because the values were written into a field and the field
+ * BLURRED. So here: what each part's fossil grows by (the top when it was built, its own lead or lag, how much of it
+ * the vegetation makes) is spread over the cells its box covers, on a grid that is the same for every piece (a cell
+ * is where it is in the world), blurred, and read by every vertex at its own place — the nearest part's own numbers
+ * only where no part reaches. And the layer a vertex lies in is read off its own height, not its part's slot.
+ * Two pieces give a vertex they share the same values: a value depends on the parts within three cells of it, and
+ * a piece is fused with every part within four cells of the ground round its tile.
+ */
+function placeValues(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[], unit: number, A: Float32Array, B: Float32Array): void {
+  const P = mesh.position, nv = P.length / 3;
+  if (!nv) return;
+  const G = PLACE_CELL, R = PLACE_PASSES + 1;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let v = 0; v < nv; v++) {
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+    if (z < z0) z0 = z;
+    if (z > z1) z1 = z;
+  }
+  const i0 = Math.floor(x0 / G) - R, j0 = Math.floor(y0 / G) - R, k0 = Math.floor(z0 / G) - R;
+  const nx = Math.floor(x1 / G) + R + 1 - i0, ny = Math.floor(y1 / G) + R + 1 - j0, nz = Math.floor(z1 / G) + R + 1 - k0;
+  const n = nx * ny * nz;
+  if (n > 6e6) return; // (too large a piece: the nearest part's own numbers stand)
+  // the top when a part was built is some hundreds of slots: kept against the least of them (the sums stay exact)
+  let base = Infinity;
+  for (const e of parts) if (e.grow && e.grow[1] < base) base = e.grow[1];
+  if (base === Infinity) return;
+  const W = new Float32Array(n), S1 = new Float32Array(n), S2 = new Float32Array(n), S3 = new Float32Array(n);
+  for (const e of parts) {
+    const g = e.grow;
+    if (!g) continue;
+    const b = e.b, c = Math.abs(Math.cos(b.yaw ?? 0)), sn = Math.abs(Math.sin(b.yaw ?? 0));
+    const hx = (c * b.sx + sn * b.sz) / 2, hz = (sn * b.sx + c * b.sz) / 2, hy = b.sy / 2;
+    const ia = Math.max(0, Math.floor((b.x - hx) / G) - i0), ib = Math.min(nx - 1, Math.floor((b.x + hx) / G) - i0);
+    const ja = Math.max(0, Math.floor((b.y - hy) / G) - j0), jb = Math.min(ny - 1, Math.floor((b.y + hy) / G) - j0);
+    const ka = Math.max(0, Math.floor((b.z - hz) / G) - k0), kb = Math.min(nz - 1, Math.floor((b.z + hz) / G) - k0);
+    for (let k = ka; k <= kb; k++) {
+      for (let j = ja; j <= jb; j++) {
+        let q = (k * ny + j) * nx + ia;
+        for (let i = ia; i <= ib; i++, q++) {
+          W[q] += 1;
+          S1[q] += g[1] - base;
+          S2[q] += g[3];
+          S3[q] += g[5];
+        }
+      }
+    }
+  }
+  const tmp = new Float32Array(n);
+  const strides = [1, nx, nx * ny], dims = [nx, ny, nz];
+  const box = (f: Float32Array) => {
+    for (let pass = 0; pass < PLACE_PASSES; pass++) {
+      for (let ax = 0; ax < 3; ax++) {
+        const st = strides[ax], len = dims[ax];
+        for (let q = 0; q < n; q++) {
+          const at = Math.floor(q / st) % len;
+          tmp[q] = f[q] + (at > 0 ? f[q - st] : 0) + (at < len - 1 ? f[q + st] : 0);
+        }
+        f.set(tmp);
+      }
+    }
+  };
+  box(W);
+  box(S1);
+  box(S2);
+  box(S3);
+  // (a part's own numbers count for as much as this share of one cell fully covered: only where the field is all but empty)
+  const OWN = 0.02 * Math.pow(27, PLACE_PASSES);
+  for (let v = 0; v < nv; v++) {
+    if (B[v * 2 + 1] < 0) continue;
+    const fx = P[v * 3] / G - i0 - 0.5, fy = P[v * 3 + 1] / G - j0 - 0.5, fz = P[v * 3 + 2] / G - k0 - 0.5;
+    const ix = Math.max(0, Math.min(nx - 2, Math.floor(fx))), iy = Math.max(0, Math.min(ny - 2, Math.floor(fy))), iz = Math.max(0, Math.min(nz - 2, Math.floor(fz)));
+    const tx = Math.max(0, Math.min(1, fx - ix)), ty = Math.max(0, Math.min(1, fy - iy)), tz = Math.max(0, Math.min(1, fz - iz));
+    let w = 0, s1 = 0, s2 = 0, s3 = 0;
+    for (let c = 0; c < 8; c++) {
+      const dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;
+      const q = ((iz + dz) * ny + iy + dy) * nx + ix + dx;
+      const t = (dx ? tx : 1 - tx) * (dy ? ty : 1 - ty) * (dz ? tz : 1 - tz);
+      w += t * W[q];
+      s1 += t * S1[q];
+      s2 += t * S2[q];
+      s3 += t * S3[q];
+    }
+    A[v * 4] = P[v * 3 + 1] / unit - 0.5;
+    A[v * 4 + 1] = base + (s1 + OWN * (A[v * 4 + 1] - base)) / (w + OWN);
+    A[v * 4 + 3] = (s2 + OWN * A[v * 4 + 3]) / (w + OWN);
+    B[v * 2 + 1] = (s3 + OWN * B[v * 2 + 1]) / (w + OWN);
+  }
 }
 
 /** A part of a building as its mass is made from it. */
@@ -541,7 +643,7 @@ export class FuseUnits {
     const was = unit.done.get(p.key);
     const stamp = was ? was.stamp : this.now();
     if (own.some((e) => e.grow)) {
-      growData(mesh, own);
+      growData(mesh, own, j.u);
       // (the stamp rides in the growing data's free number: the wall's shader lets the piece out from then)
       const B = mesh.growB!;
       for (let v = 0; v < B.length; v += 2) B[v] = stamp;

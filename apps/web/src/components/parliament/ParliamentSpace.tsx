@@ -291,6 +291,8 @@ interface NatureParams {
 interface ResinLook {
   /** Seconds the mass takes to change from what it was to what it is (the cross-fade; 0 = at once). */
   fadeSec?: number;
+  /** How much thinner the mass is where it is least out (world; the shader stands the surface back along its normal). */
+  growThin?: number;
   color: string;
   /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
@@ -388,12 +390,14 @@ interface FuseUniforms {
   uGrowClock: THREE.IUniform;
   uGrowAppear: THREE.IUniform;
   uGrowFloor: THREE.IUniform;
+  /** …and how much thinner the mass is where it is least out (world, along its surface's normal). */
+  uGrowThin: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
-    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 },
   };
 }
 
@@ -409,7 +413,7 @@ const FUSE_GROW_VERT_HEAD = `
 attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin;
 varying float vGrow;`;
 // BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
 // 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
@@ -431,7 +435,11 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   float growShown = clamp( ( uGrowClock - fuseGrowB.x ) / max( 0.01, uGrowAppear ), 0.0, 1.0 );
   float growKept = clamp( ( fuseGrowA.x - uGrowFloor ) * 0.5, 0.0, 1.0 );
   vGrow = growLayer * growAged * fuseGrowB.y * growShown * growKept;
-  transformed = mix( fuseAnchor, transformed, vGrow * vGrow * ( 3.0 - 2.0 * vGrow ) );
+  // ONE BODY (the artist, 2026-11-16: "근데 부푸는 건 진짜 개별로던데"): a vertex is no longer pressed to its own part's
+  // box — neighbours pressed to different boxes split the mass along the parts. What it reads is the value of its
+  // PLACE (fuseUnits.ts placeValues: the parts' values blurred over the space; the layer off its own height), and it
+  // only stands back along the surface's normal by as much as it is not out: the surface moves as one.
+  transformed -= normal * uGrowThin * ( 1.0 - vGrow * vGrow * ( 3.0 - 2.0 * vGrow ) );
 }`;
 
 /**
@@ -481,6 +489,21 @@ interface FuseFade {
   side: 0 | 1;
 }
 
+/**
+ * THE MASS'S SHADOW IS OF THE MASS AS IT IS DRAWN: the same growing in the depth pass, and nothing where the mass is
+ * not out — without it the whole mass, made for every layer of the window, cast its shadow from where nothing is shown.
+ */
+function fuseDepthMaterial(u: FuseUniforms): THREE.MeshDepthMaterial {
+  const m = new THREE.MeshDepthMaterial();
+  m.customProgramCacheKey = () => "fuse-depth";
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader.replace("#include <common>", `#include <common>${FUSE_GROW_VERT_HEAD}`).replace("#include <begin_vertex>", `#include <begin_vertex>${FUSE_GROW_VERT_BODY}`);
+    shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vGrow;").replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif ( vGrow < 0.15 ) discard;");
+  };
+  return m;
+}
+
 function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: FuseUniforms, fade?: FuseFade): void {
   Object.assign(shader.uniforms, u);
   if (fade) {
@@ -498,7 +521,12 @@ function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: Fu
   // (what has not begun to grow is not drawn: the pressed mass lies inside its part, or where its part was)
   shader.fragmentShader = shader.fragmentShader
     .replace("#include <common>", "#include <common>\nvarying float vGrow;")
-    .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\nif ( vGrow < 0.02 ) discard;");
+    .replace(
+      "#include <clipping_planes_fragment>",
+      // (where it is not out it is not drawn; where it is beginning to be, it comes in grain by grain — the edge of
+      // what is shown is not a cut)
+      "#include <clipping_planes_fragment>\nif ( vGrow < 0.02 ) discard;\nif ( vGrow < 0.3 ) {\n\tfloat growGrain = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) + 0.37 ) );\n\tif ( growGrain >= smoothstep( 0.02, 0.3, vGrow ) ) discard;\n}",
+    );
   shader.fragmentShader = shader.fragmentShader
     .replace(
       "#include <common>",
@@ -1168,6 +1196,7 @@ function SpaceWorld({
     // (the stamps of the pieces made in the worker beside are seconds of ITS clock; a mass made in the model's worker
     // has none — it is whole as it comes)
     fuseU.uGrowClock.value = chunkClock0.current === null ? 1e9 : (Date.now() - chunkClock0.current) / 1000;
+    fuseU.uGrowThin.value = Math.max(0, resin.growThin ?? 0.6);
     fuseU.uGrowFloor.value = shift > 0 && er.height ? fuseU.uGrowTop.value - er.height - Math.max(0, er.tail ?? 0) : -1e9;
   });
   // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
@@ -1195,6 +1224,12 @@ function SpaceWorld({
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
   const fusedMatsNow = useRef(fusedMats);
   fusedMatsNow.current = fusedMats;
+  const fuseDepth = useMemo(() => fuseDepthMaterial(fuseU), [fuseU]);
+  useEffect(() => () => fuseDepth.dispose(), [fuseDepth]);
+  useEffect(() => {
+    if (fused.current) fused.current.customDepthMaterial = fuseDepth;
+    for (const m of chunkMeshes.current.values()) m.customDepthMaterial = fuseDepth;
+  }, [fuseDepth]);
   useEffect(() => {
     for (const m of chunkMeshes.current.values()) m.material = fusedMats;
   }, [fusedMats]);
@@ -1224,6 +1259,7 @@ function SpaceWorld({
         mesh.frustumCulled = false;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
+        mesh.customDepthMaterial = fuseDepth;
         group.add(mesh);
         map.set(id, mesh);
       }
@@ -3578,6 +3614,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "화석 격자 ≥ 단순화 격자 × 이 값 (가볍게; 0 = 맞추지 않음 · 계단처럼 보이면 내림)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseFrom`) === "assets",
       },
+      // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
+      growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · 표면 전체가 함께 움직임)", render: () => REDESIGN },
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
       fuseFrom: {
         options: { "단순화된 것에만 (갓 지은 낱낱의 부재는 융합 안 함)": "assets", "모든 부재에": "all" },
@@ -3901,6 +3939,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const resinLook = useMemo<ResinLook>(
     () => ({
       fadeSec: fu.fuseFade,
+      growThin: fu.growThin,
       color: fu.resinColor,
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
       opacity: fu.resinMode === "alpha" ? fu.resinOpacity : 1,
@@ -3915,7 +3954,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.fuseFade, fu.growThin, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",

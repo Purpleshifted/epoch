@@ -1150,7 +1150,7 @@ export class SpaceModel {
       // parts stand whole under it — a building's new mass costs the parts nothing)
       if ((fuse.absorb ?? 1) > 0) this.fuseBuilt++;
       // SEEDED: every vertex is given the part it grows from
-      if (seeded && job.parts.length) SpaceModel.growData(mesh, job.parts);
+      if (seeded && job.parts.length) growData(mesh, job.parts, u);
       this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
       this.unitJob = null;
       this.stages["fuse buildings (n)"] = (this.stages["fuse buildings (n)"] ?? 0) + 1;
@@ -1165,10 +1165,6 @@ export class SpaceModel {
     return mergeMeshes(out);
   }
 
-  /** (fuseUnits.ts growData: every vertex of a seeded mass is given the part it grows from) */
-  private static growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[]): void {
-    growData(mesh, parts);
-  }
 
   private blockHist: { key: string; h: NatureHistory | null } | null = null;
   private blockHistory(top: number): NatureHistory | null {
