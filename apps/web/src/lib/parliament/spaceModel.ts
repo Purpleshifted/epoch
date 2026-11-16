@@ -748,43 +748,50 @@ export class SpaceModel {
   /** What the pipes and ways of each ground were when it was last told (sendUnits). */
   private unitTubes = new Map<string, string>();
 
-  /** THE HARDENED PIPES AND WAYS: per slot, the runs and lines laid there as they lay when the slot hardened. */
-  private tubeHard = new Map<number, (FuseTube & { born?: number })[]>();
-  private tubeHardUpTo = -Infinity;
+  /** THE PIPES AND WAYS BY WHERE THEY LIE (kind, slot, the cell of their middle): since when something has lain there,
+   *  when it was last seen, and — once hardened — the runs and lines as they lay then. */
+  private tubeSeen = new Map<string, { k: number; first: number; seen: number; hard: (FuseTube & { born?: number })[] | null }>();
 
   /**
    * THE PIPES AND WAYS HARDEN BEFORE THEY FUSE (the artist, 2026-11-16: "길이랑 파이프는 화석화 연결 안 되고 있음, 변화해서
    * 그런지. 이것들도 '중간 굳히기' 단계 만들어야 하나?"). In the window they are laid again and again as people write, and
-   * what was handed to the fusion was other every time. (First tried: a run hardens once it has lain unchanged for
-   * a while. Watched in the artist's window the same evening: thousands tracked, none ever hard — the lines are
-   * drawn anew every round and never lie exactly as before.) So it is the SLOT that hardens, as a building's
-   * cell-slot is simplified once it has stood long enough: when the window's top has risen far enough past a slot
-   * (the time of the simplification, twice), the runs and lines laid in it are taken AS THEY LIE AT THAT MOMENT and
-   * kept — the fusion's from then on, whatever is laid there afterwards, until the window lets go of the slot. The
-   * fossil is of what was there when it set. Its age is counted from the top at that moment (`born`).
+   * what was handed to the fusion was other every time. Two rules were tried and watched in the artist's window the
+   * same evening, and neither let one in: "a run that has lain exactly so for a while" (the lines are drawn anew
+   * every round, never exactly as before), and "a slot hardens once the top has risen past it" (people write at any
+   * depth: most runs are laid in slots that had hardened empty). So, as a building's cell-slot is simplified once it
+   * has stood long enough: A PLACE — a cell of the ground in a slot — where a pipe (or a way) has lain for as long as
+   * the simplification takes, however it was redrawn meanwhile, hardens: the runs and lines through it are taken AS
+   * THEY LIE AT THAT MOMENT and kept — the fusion's from then on, whatever is laid there afterwards, until the
+   * window lets go of the slot. Their age is counted from the window's top at that moment (`born`).
    */
   private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
     const bc = this.blockClock;
-    if (!bc) return [];
-    const ec = bc.erode, shift = Math.max(0, ec.shift ?? 0);
-    const perTop = shift > 0 ? Math.max(1, ec.slotSec ?? 1) / shift : Infinity;
-    const after = Math.max(2, Math.ceil((2 * (ec.lodSec ?? 40)) / perTop) + 1);
-    const kHard = Math.floor(bc.top) - after;
-    if (kHard > this.tubeHardUpTo) {
-      const from = this.tubeHardUpTo;
-      for (const t of this.tubesNow(fuse, u)) {
-        if (t.k > kHard || t.k <= from || t.k < this.floorDone) continue;
-        const l = this.tubeHard.get(t.k), h = { ...t, born: bc.top };
-        if (l) l.push(h);
-        else this.tubeHard.set(t.k, [h]);
+    // (by the clock on the wall: the model's own time is the latest thing written, and does not run on in the block)
+    const now = Date.now() / 1000, hardenS = Math.max(20, bc?.erode.lodSec ?? 40), GRACE_S = 25;
+    const here = new Map<string, FuseTube[]>();
+    for (const t of this.tubesNow(fuse, u)) {
+      const key = `${t.kind}:${t.k}:${Math.floor((t.x0 + t.x1) / 2 / CELL)}:${Math.floor((t.z0 + t.z1) / 2 / CELL)}:${Math.abs(t.y1 - t.y0) > Math.abs(t.x1 - t.x0) + Math.abs(t.z1 - t.z0) ? "v" : "h"}`;
+      const l = here.get(key);
+      if (l) l.push(t);
+      else here.set(key, [t]);
+    }
+    for (const [key, l] of here) {
+      const e = this.tubeSeen.get(key);
+      if (!e) this.tubeSeen.set(key, { k: l[0].k, first: now, seen: now, hard: null });
+      else {
+        e.seen = now;
+        if (!e.hard && now - e.first >= hardenS) e.hard = l.map((t) => ({ ...t, born: bc ? bc.top : t.k }));
       }
-      this.tubeHardUpTo = kHard;
     }
     const out: (FuseTube & { born?: number })[] = [];
-    for (const [k, l] of this.tubeHard) {
-      if (k < this.floorDone) this.tubeHard.delete(k);
-      else for (const t of l) out.push(t);
+    let soft = 0;
+    for (const [key, e] of this.tubeSeen) {
+      // (let go with its slot; or — not yet hard — nothing has lain there for a while)
+      if (e.k < this.floorDone || (!e.hard && now - e.seen > GRACE_S)) this.tubeSeen.delete(key);
+      else if (e.hard) for (const t of e.hard) out.push(t);
+      else soft++;
     }
+    this.stages["pipes and ways hardening (places)"] = soft;
     this.stages["pipes and ways hardened (n)"] = out.length;
     return out;
   }
@@ -814,8 +821,7 @@ export class SpaceModel {
   /** The buildings' masses are let go — here and, when it makes them, on the other side. */
   private dropUnits(): void {
     this.unitTubes.clear();
-    this.tubeHard.clear();
-    this.tubeHardUpTo = -Infinity;
+    this.tubeSeen.clear();
     this.units.clear();
     this.unitOrphans = [];
     this.unitFused.clear();
@@ -2860,7 +2866,11 @@ export class SpaceModel {
           }
           if (goes[1] + (own - 1) * 0.15 <= fuse.fuseOnset) continue;
         }
-        const e: P = { b, d: 1, up: true, sk: false, ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornTop, g, own, nEff, most] };
+        // THE PARTS' TRACES STAY INSIDE THE MASS (the artist, 2026-11-16: "거품 열렸을 때 … 안에 부재 흔적이 남아있어야 의도한
+        // 느낌이 날 것 같음"): the share of parts kept as skeleton — only thinly wrapped, their orthogonal form left —
+        // is kept in the seeded mass too, for good (its mass is the mass as it will be: there is no progress at which
+        // the skeleton is swallowed). It was switched off here, and the foam opened on plain mass.
+        const e: P = { b, d: 1, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornTop, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);
         else bySlot.set(b.slot, [e]);
