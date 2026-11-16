@@ -18,6 +18,7 @@ import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
 import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
+import { WALL_BUILD } from "./build";
 import { fuseTilesOf, growData, unitExtent, unitLook, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import { hash2, type NatureConfig } from "./nature";
@@ -3217,6 +3218,8 @@ export function mergeComputeRequests<T extends Extract<SpaceRequest, { type: "co
 export interface SpaceResponse {
   /** Milliseconds per stage of this request (SpaceModel.stages). */
   stages?: Record<string, number>;
+  /** The stamp of the code this worker runs (build.ts). */
+  build?: string;
   type: "result";
   id: number;
   /** undefined = not asked; null = unchanged. */
@@ -3285,5 +3288,6 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };
+  out.build = WALL_BUILD;
   return { out, transfer: [...transfer] };
 }

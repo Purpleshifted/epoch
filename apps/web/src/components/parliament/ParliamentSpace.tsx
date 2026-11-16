@@ -83,6 +83,7 @@ import {
   blockSlots,
 } from "@/lib/parliament";
 import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
+import { WALL_BUILD } from "@/lib/parliament/build";
 import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
@@ -240,6 +241,8 @@ interface Stats {
   fuseResin: number;
   /** THE MASS MADE IN A WORKER OF ITS OWN (fuseUnits.ts), as it last said: pieces still to make, how long a piece takes, what stands. */
   fuseSide?: UnitStats;
+  /** The stamp of the code the model's worker runs (lib/parliament/build.ts; "?" = a worker from before the stamp). */
+  build?: string;
   /** Chunks of slots baked (kept as they were, below the history window too). */
   baked: number;
   /** Waterways flowing now. */
@@ -1106,6 +1109,7 @@ function SpaceWorld({
   const chunkGroup = useRef<THREE.Group>(null);
   const chunkMeshes = useRef(new Map<string, THREE.Mesh>());
   const chunkClock0 = useRef<number | null>(null);
+  const workerBuild = useRef("");
   // HOW FAR THE MASS IS OUT OF ITS PARTS (the readout): the shader's own sum on a sample of the vertices, once a
   // second — the artist, 2026-11-16: "아직 뭐가 보이질 않아서 … 피드백을 못 주겠는데"
   const growSeen = useRef(0);
@@ -1282,7 +1286,7 @@ function SpaceWorld({
     }
     chunkClock0.current = map.size ? m.clock0 : null;
     fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
-    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current });
+    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current, build: workerBuild.current });
   };
   const applyChunksNow = useRef(applyChunks);
   applyChunksNow.current = applyChunks;
@@ -1405,7 +1409,8 @@ function SpaceWorld({
     if (r.fuse) fuseStats.current = { ...fuseStats.current, fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     // where the worker's time went: the slowest request of the last few is kept, so a heavy one can be read
     if (r.stages && (r.ms >= stageMax.current.ms || performance.now() - stageMax.current.at > 8000)) stageMax.current = { ms: r.ms, at: performance.now(), stages: r.stages };
-    if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms, stages: stageMax.current });
+    workerBuild.current = r.build ?? "?";
+    if (last.current) report({ ...last.current, ...focus.current, ...fuseStats.current, workerMs: r.ms, stages: stageMax.current, build: workerBuild.current });
   };
 
   useEffect(() => {
@@ -4255,8 +4260,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
           {stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
-            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 장에 든 관·길 ${stats.fuseSide.tubes ?? 0}`
+            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 장에 든 관·길 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
+          {stats.build && stats.build !== WALL_BUILD ? ` · ⚠ 건물 워커가 옛 코드(${stats.build}) — 새로고침(⌘R) 필요` : ""}
           {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
