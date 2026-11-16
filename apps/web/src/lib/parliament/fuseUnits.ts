@@ -244,8 +244,11 @@ function placeValues(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }
       for (let j = ja; j <= jb; j++) {
         let q = (k * ny + j) * nx + ia;
         for (let i = ia; i <= ib; i++, q++) {
+          // THE YOUNGEST THING IN A CELL IS THE CELL'S AGE (the artist, 2026-11-16: "부재가 지어질 때 바로 안 보이고 바로
+          // 화석화되는 경우가 있는데"): as a mean, a new part among old ones took their age — its mass was out the
+          // moment it was made. Now what is newly there holds the fossil back round it until it has aged itself.
+          if (W[q] === 0 || g[1] - base > S1[q]) S1[q] = g[1] - base;
           W[q] += 1;
-          S1[q] += g[1] - base;
           S2[q] += g[3];
           S3[q] += g[5];
         }
@@ -266,6 +269,10 @@ function placeValues(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }
       }
     }
   };
+  // (the age is a value per covered cell, not a sum over the parts in it: its own weight)
+  const W1 = new Float32Array(n);
+  for (let q = 0; q < n; q++) if (W[q] > 0) W1[q] = 1;
+  box(W1);
   box(W);
   box(S1);
   box(S2);
@@ -277,18 +284,19 @@ function placeValues(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }
     const fx = P[v * 3] / G - i0 - 0.5, fy = P[v * 3 + 1] / G - j0 - 0.5, fz = P[v * 3 + 2] / G - k0 - 0.5;
     const ix = Math.max(0, Math.min(nx - 2, Math.floor(fx))), iy = Math.max(0, Math.min(ny - 2, Math.floor(fy))), iz = Math.max(0, Math.min(nz - 2, Math.floor(fz)));
     const tx = Math.max(0, Math.min(1, fx - ix)), ty = Math.max(0, Math.min(1, fy - iy)), tz = Math.max(0, Math.min(1, fz - iz));
-    let w = 0, s1 = 0, s2 = 0, s3 = 0;
+    let w = 0, w1 = 0, s1 = 0, s2 = 0, s3 = 0;
     for (let c = 0; c < 8; c++) {
       const dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;
       const q = ((iz + dz) * ny + iy + dy) * nx + ix + dx;
       const t = (dx ? tx : 1 - tx) * (dy ? ty : 1 - ty) * (dz ? tz : 1 - tz);
       w += t * W[q];
+      w1 += t * W1[q];
       s1 += t * S1[q];
       s2 += t * S2[q];
       s3 += t * S3[q];
     }
     A[v * 4] = P[v * 3 + 1] / unit - 0.5;
-    A[v * 4 + 1] = base + (s1 + OWN * (A[v * 4 + 1] - base)) / (w + OWN);
+    A[v * 4 + 1] = base + (s1 + OWN * (A[v * 4 + 1] - base)) / (w1 + OWN);
     A[v * 4 + 3] = (s2 + OWN * A[v * 4 + 3]) / (w + OWN);
     B[v * 2 + 1] = (s3 + OWN * B[v * 2 + 1]) / (w + OWN);
   }
