@@ -34,6 +34,7 @@
 
 import { sessionSeconds } from "./clock";
 import { hash2 } from "./nature";
+import { gateOf, villageBorders } from "./villageBorders";
 import { nearestImage, wrapCoord, wrapDist } from "./world";
 import type { Actor } from "./bots";
 
@@ -1012,17 +1013,35 @@ function planWay(v: Visitor, inp: LifecycleInputs, wallMs: number, epochMs: numb
   }
   // ROAD between two villages: the one it leaves (nearest to it) and the one it goes to (or the other way round)
   const sites = villageSites(epochMs, h);
+  // (the villages living at its time; all of them if none)
+  const living = sites.map((q, i) => i).filter((i) => sites[i].from <= sec && sec < sites[i].to);
+  const among = living.length ? living : sites.map((_, i) => i);
   const nearestSite = (x: number, z: number) => {
     let bi = -1, bd = Infinity;
-    sites.forEach((q, i) => {
-      const d = wrapDist(x, z, q.x, q.z);
+    for (const i of among) {
+      const d = wrapDist(x, z, sites[i].x, sites[i].z);
       if (d < bd) [bi, bd] = [i, d];
-    });
+    }
     return bi;
   };
   const i = nearestSite(v.x, v.z), j = nearestSite(wrapCoord(bx), wrapCoord(bz));
+  if (i < 0 || j < 0 || i === j) return search(v.x, v.z, bx, bz);
   const fluid = Math.max(0, Math.min(1, h.villages.fluid ?? 0));
-  if (i < 0 || j < 0 || i === j || !(fluid > 0)) return search(v.x, v.z, bx, bz);
+  // THROUGH THE GATE (the artist, 2026-11-16: "권역 나누기"): two neighbouring villages are parted by their border
+  // (villageBorders.ts); a road between them crosses it at its GATE — on the line between the two, drifting along the
+  // border with the block's time by up to `fluid` of its half length — so the roads of a border gather at one crossing
+  if (living.length >= 2) {
+    const R = Math.max(1, ...living.map((k) => Math.hypot(sites[k].x, sites[k].z) + siteRadius(sites[k], h) * 1.3));
+    const border = villageBorders(living.map((k) => ({ i: k, x: sites[k].x, z: sites[k].z })), R).find((b) => b.i === Math.min(i, j) && b.j === Math.max(i, j));
+    if (border) {
+      const shift = (swing(Math.max(0, sec) / 210, Math.min(i, j) * 911 + Math.max(i, j) + 7) - 0.5) * 2 * fluid;
+      const [gx, gz] = gateOf(border, sites[i].x, sites[i].z, sites[j].x, sites[j].z, shift);
+      const wx = nearestImage(gx, v.x), wz = nearestImage(gz, v.z);
+      const a = search(v.x, v.z, wx, wz), b = search(wx, wz, bx, bz);
+      return [...a, ...b.slice(2)];
+    }
+  }
+  if (!(fluid > 0)) return search(v.x, v.z, bx, bz);
   // the waypoint: the middle, swung across the line from the lower-numbered village to the other (the same side
   // whichever way it is walked), drifting with the block's time
   const [lo, hi] = i < j ? [sites[i], sites[j]] : [sites[j], sites[i]];

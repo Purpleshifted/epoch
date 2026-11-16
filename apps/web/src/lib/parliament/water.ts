@@ -45,6 +45,7 @@ import { cellKey, flowP, flowTracks, stayShares, type FlowConfig, type Track } f
 import { hash2 } from "./nature";
 import type { Seed } from "./seeds";
 import type { PEvent } from "./types";
+import { nearestOnBorder, villageBorders, type Border } from "./villageBorders";
 import { wrapDist } from "./world";
 
 export interface WaterConfig {
@@ -368,6 +369,20 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   let laidIds = new Set<number>();
   let laidK = -Infinity;
   let courses: Float32Array[] = [];
+  // THE BORDERS between the villages alive in slot k (villageBorders.ts), the same for every slot with the same villages
+  const borderCache = new Map<string, Border[]>();
+  const groundR = cfg.villages ? Math.max(1, ...cfg.villages.sites.map((q) => Math.hypot(q[0], q[1]) + Math.max(1, q[4] ?? cfg.villages!.radius) * 1.3)) : 0;
+  const bordersAt = (k: number): Border[] => {
+    const vs = cfg.villages;
+    if (!vs) return [];
+    const tm = (k + 0.5) * spu;
+    const alive: { i: number; x: number; z: number }[] = [];
+    vs.sites.forEach((q, i) => q[2] <= tm && tm < q[3] && alive.push({ i, x: q[0], z: q[1] }));
+    const key = alive.map((a) => a.i).join(",");
+    let bs = borderCache.get(key);
+    if (!bs) borderCache.set(key, (bs = alive.length >= 2 ? villageBorders(alive, groundR) : []));
+    return bs;
+  };
   for (let k = kFirst; k <= kLast; k++) {
     const t = k * spu;
     // sealed ground at t: standing buildings and paved paths
@@ -589,24 +604,19 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       if (vb !== undefined) outfallOf.set(vb, r.cells[r.cells.length - 1]);
       else courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
     }
-    // WATER BETWEEN VILLAGES (the artist, 2026-11-15: "마을과 마을 사이에 물 흐르는 게 보이도록"): each village's water
-    // runs from its outfall to the place where it meets the water of its nearest living neighbour (the middle between
-    // the two), so the streams of neighbours join; a village alone runs on as an open stream
+    // A VILLAGE'S WATER GOES TO ITS BORDER (the artist, 2026-11-16: "권역 나누기"): from its outfall the shortest way
+    // to the nearest of its borders, where the border's stream takes it on (below: bordersAt); a village with no
+    // neighbour runs on as an open stream
     if (vs)
       for (const [vi, start] of outfallOf) {
-        const [ax, az] = [vs.sites[vi][0], vs.sites[vi][1]];
-        let nb = -1, nd = Infinity;
-        vs.sites.forEach(([x, z], i) => {
-          if (i === vi || !aliveSite(i)) return;
-          const d = wrapDist(ax, az, x, z);
-          if (d < nd) [nb, nd] = [i, d];
-        });
-        if (nb < 0) {
-          courses.push(openCourse([start], share, nx, nz, centre, cfg, vi + 1, e));
-          continue;
+        const [sx, sz] = centre(start);
+        let best: { x: number; z: number; d: number } | null = null;
+        for (const b of bordersAt(k)) {
+          if (b.i !== vi && b.j !== vi) continue;
+          const q = nearestOnBorder(b, sx, sz);
+          if (!best || q.d < best.d) best = q;
         }
-        // (the sites lie well inside the world's edge: their middle is the plain average)
-        courses.push(towardCourse(start, (ax + vs.sites[nb][0]) / 2, (az + vs.sites[nb][1]) / 2, block, nx, nz, centre, cfg, Math.min(vi, nb) * 1009 + Math.max(vi, nb), e));
+        courses.push(best ? towardCourse(start, best.x, best.z, block, nx, nz, centre, cfg, vi + 1, e) : openCourse([start], share, nx, nz, centre, cfg, vi + 1, e));
       }
     // the network in use now; cells it no longer uses stay known for `grace` (a pipe briefly out of use is still there)
     if (net.size) {
@@ -616,6 +626,17 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     }
     if (courses.length) streams.set(k, courses);
   }
+  // THE BORDERS' STREAMS (the artist, 2026-11-16: "권역 나누기"): in every slot, water runs along every border between
+  // two living villages — a stream the length of the border, meandering by its own noise and the slot — so the
+  // villages are each in a ground of their own, walled by water; their own outfalls run into it (above)
+  if (cfg.villages)
+    for (let k = kFirst; k <= kLast; k++) {
+      const bs = bordersAt(k);
+      if (!bs.length) continue;
+      const list = streams.get(k)?.slice() ?? [];
+      for (const b of bs) list.push(borderCourse(b, cfg, k));
+      streams.set(k, list);
+    }
   // what was laid before stays as it was: only the later layers are new
   const fz = opts.frozen;
   if (!fz) return { streams, pipes };
@@ -842,6 +863,26 @@ function openCourse(route: number[], share: Float32Array, nx: number, nz: number
   for (let k = 0; k + 3 < pts.length; k += 2) q.push(0.75 * pts[k] + 0.25 * pts[k + 2], 0.75 * pts[k + 1] + 0.25 * pts[k + 3], 0.25 * pts[k] + 0.75 * pts[k + 2], 0.25 * pts[k + 1] + 0.75 * pts[k + 3]);
   q.push(pts[pts.length - 2], pts[pts.length - 1]);
   return Float32Array.from(q);
+}
+
+/**
+ * The stream along a border: a point every cell from one end to the other, swung sideways by a smooth noise of its own
+ * (the two villages) and of the slot (`k`: it shifts a little from slot to slot) — up to `meander` × 6 cells.
+ */
+function borderCourse(b: Border, cfg: WaterConfig, k: number): Float32Array {
+  const ex = b.bx - b.ax, ez = b.bz - b.az, L = Math.hypot(ex, ez);
+  const n = Math.max(1, Math.ceil(L / CELL_SIZE));
+  const px = -ez / (L || 1), pz = ex / (L || 1);
+  const seed = b.i * 1009 + b.j;
+  const amp = cfg.meander * CELL_SIZE * 6;
+  const pts: number[] = [];
+  for (let q = 0; q <= n; q++) {
+    const u = q / n;
+    // (the ends stay put: where borders meet, their streams join)
+    const off = (noise1(q * 0.12 + k * 0.03, seed % 100003) * 2 - 1) * amp * Math.sin(Math.PI * u);
+    pts.push(b.ax + ex * u + px * off, b.az + ez * u + pz * off);
+  }
+  return Float32Array.from(pts);
 }
 
 /**
