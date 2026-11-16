@@ -88,6 +88,7 @@ import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/ero
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
+import { RenderTuning, useRenderOptions } from "./useRenderOptions";
 import { EXHIBITION_FUSION } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
@@ -4014,8 +4015,6 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     { order: 9, collapsed: true },
   );
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
-  // (the test render mode: no post-processing at all)
-  const composerOn = (rnd.aoOn || rnd.grain > 0 || v.dof) && testPerf === "off";
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
   const perf = rnd.perfMode || testPerf !== "off";
   // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
@@ -4024,14 +4023,23 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const wall = hideUi && !lab;
   // The exhibition wall follows the rehearsal wall's 렌더링 group (the artist, 2026-10-31: "리허설보다 글로벌 해상도가 훅
   // 떨어진다"); the forced dpr 1 / no shadows of 10/29 is gone now that the per-tick full-buffer uploads are fixed.
-  const dprMax = perf ? Math.min(1.25, rnd.dprMax) : rnd.dprMax;
-  const aoHalfRes = perf || rnd.halfRes;
-  const aoQuality = perf ? ("performance" as const) : rnd.quality;
-  const shadowsOn = rnd.shadows && !perf;
-  const lodNear = perf ? Math.min(rnd.near, 25) : rnd.near;
-  const lodMid = perf ? Math.min(rnd.mid, 50) : rnd.mid;
+  // 렌더 (the artist, 2026-11-16): the pixel / GPU costs as live knobs; each on "자동" does what these lines did
+  // (the test render: no post-processing at all; performance mode: capped) — useRenderOptions.tsx
+  const ro = useRenderOptions({
+    isV2,
+    testPerf,
+    perfMode: rnd.perfMode,
+    wall,
+    saved: { dprMax: rnd.dprMax, shadows: rnd.shadows, aoOn: rnd.aoOn, aoQuality: rnd.quality, aoHalfRes: rnd.halfRes, grain: rnd.grain, dof: v.dof, transmissionScale: fu.transmissionScale, aoRadius: rnd.aoRadius, distanceFalloff: rnd.distanceFalloff, aoIntensity: rnd.aoIntensity, azimuth: rnd.azimuth, elevation: rnd.elevation, sunIntensity: rnd.sunIntensity, softness: rnd.softness, dofRange: v.dofRange, dofBokeh: v.dofBokeh, lodNear: rnd.near, lodMid: rnd.mid },
+  });
+  const composerOn = ro.composerOn;
+  const aoHalfRes = ro.aoHalfRes;
+  const aoQuality = ro.aoQuality;
+  const shadowsOn = ro.shadowsOn;
+  const lodNear = ro.detail.lodNear;
+  const lodMid = ro.detail.lodMid;
   // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
-  const resinView = useMemo<ResinLook>(() => (perf ? { ...resinLook, transmission: 0 } : resinLook), [perf, resinLook]);
+  const resinView = useMemo<ResinLook>(() => (ro.refraction ? resinLook : { ...resinLook, transmission: 0 }), [ro.refraction, resinLook]);
   // (taken back the same night: coarse voxels made the mass a staircase of facets — the very look being judged)
   const fuseView = fuseCfg;
   const fps = useFps();
@@ -4123,12 +4131,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas shadows="percentage" dpr={testPerf === "min" ? 0.6 : testPerf === "light" ? 1 : [1, dprMax]} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: true, preserveDrawingBuffer: !wall }}>
+      <Canvas key={ro.canvasKey} shadows={ro.shadowType} dpr={ro.dpr} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: ro.antialias, preserveDrawingBuffer: ro.preserveDrawingBuffer }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={rnd.azimuth} elevation={rnd.elevation} intensity={rnd.sunIntensity} softness={rnd.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
+        <Sun controls={controls} azimuth={ro.detail.azimuth} elevation={ro.detail.elevation} intensity={ro.detail.sunIntensity} softness={ro.detail.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
-        <RendererTuning transmissionScale={perf ? Math.min(0.25, fu.transmissionScale) : fu.transmissionScale} />
+        <RendererTuning transmissionScale={ro.transmissionScale} />
+        <RenderTuning shadowType={ro.shadowType} shadowMapSize={ro.shadowMapSize} shadowsOn={shadowsOn} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
         {v.seedsOn && (
@@ -4233,15 +4242,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${rnd.aoOn}:${rnd.grain > 0}:${v.dof}`}>
-            {rnd.aoOn && <N8AO aoRadius={rnd.aoRadius} distanceFalloff={rnd.distanceFalloff} intensity={rnd.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
-            {v.dof && <DepthOfField target={focusTarget} worldFocusRange={v.dofRange} bokehScale={v.dofBokeh} />}
-            {rnd.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={rnd.grain} />}
+          <EffectComposer key={`${ro.ao}:${ro.grain > 0}:${ro.dof}:${ro.composerMsaa}`} multisampling={ro.composerMsaa}>
+            {ro.ao && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
+            {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh} />}
+            {ro.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />}
           </EffectComposer>
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {vg.vegOn && (
-          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={testPerf === "min" ? Math.max(5000, Math.round(vg.vegCount / 3)) : vg.vegCount} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} />
+          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
