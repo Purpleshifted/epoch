@@ -19,6 +19,7 @@ import { DensityField, type DensityConfig } from "./density";
 import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { WALL_BUILD } from "./build";
+import { inferFuture, type FutureConfig, type FutureResult } from "./futureVillage";
 import { fuseTilesOf, growData, unitExtent, unitLook, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import { hash2, type NatureConfig } from "./nature";
@@ -819,6 +820,31 @@ export class SpaceModel {
       }
     }
     return out;
+  }
+
+  private futureKey = "";
+  private futureAt = 0;
+  /**
+   * THE INFERRED VILLAGE above the column (futureVillage.ts): read off the latest slots of the window — made again
+   * when the top has come a slot further, or (at most every few seconds) when something was written or a knob turned.
+   * null = as it was.
+   */
+  computeFuture(cfg: FutureConfig): FutureResult | null {
+    const bc = this.blockClock, field = this.densityState?.field;
+    if (!cfg.on || !bc || !field) {
+      if (this.futureKey === "-") return null;
+      this.futureKey = "-";
+      return inferFuture({ k: 0, cells: [], pathAt: () => false, streams: new Map(), cfg });
+    }
+    const K = Math.floor(bc.top) - 1;
+    const now = performance.now();
+    const key = `${K}:${JSON.stringify(cfg)}`, full = `${key}:${this.version}`;
+    if (full === this.futureKey || (this.futureKey.startsWith(`${key}:`) && now - this.futureAt < 6000)) return null;
+    this.futureKey = full;
+    this.futureAt = now;
+    const r = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => field.pathAt(cx, cz, k), streams: this.drain.streams, cfg });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked });
+    return r;
   }
 
   /** The buildings' masses are let go — here and, when it makes them, on the other side. */
@@ -3209,7 +3235,7 @@ export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean; keepBuilt?: boolean; epoch?: string | null }
   /** The workers beside the model's (SpaceModel.attachPorts): one end of a channel to each; null = none (any more). */
   | { type: "ports"; fuse?: MessagePort | null; walk?: MessagePort | null }
-  | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; paths?: { rise: number; smooth?: number } };
+  | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; paths?: { rise: number; smooth?: number }; future?: FutureConfig };
 
 /**
  * Two compute requests as one (the worker coalesces what queued up behind a long compute): the newer request's
@@ -3218,7 +3244,7 @@ export type SpaceRequest =
  */
 export function mergeComputeRequests<T extends Extract<SpaceRequest, { type: "compute" }>>(prev: T | null, next: T): T {
   if (!prev) return next;
-  return { ...next, nature: next.nature ?? prev.nature, reclaim: next.reclaim ?? prev.reclaim, fuse: next.fuse ?? prev.fuse, paths: next.paths ?? prev.paths };
+  return { ...next, nature: next.nature ?? prev.nature, reclaim: next.reclaim ?? prev.reclaim, fuse: next.fuse ?? prev.fuse, paths: next.paths ?? prev.paths, future: next.future ?? prev.future };
 }
 
 /** What the space worker posts back for a compute request. */
@@ -3234,6 +3260,8 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
+  /** The inferred village above the column (futureVillage.ts); null = as it was. */
+  future?: FutureResult | null;
   /** The paths as lines (density.ts pathLines): [x, y, z, x, y, z] per segment. */
   paths?: Float32Array | null;
   ms: number;
@@ -3292,6 +3320,10 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   if (m.fuse) {
     out.fuse = timed("fuse", () => model.computeFuse(m.fuse!));
     if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB]) if (a) transfer.add(a.buffer as ArrayBuffer);
+  }
+  if (m.future) {
+    out.future = timed("future", () => model.computeFuture(m.future!));
+    if (out.future) for (const a of [out.future.boxes, out.future.roads, out.future.water, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };

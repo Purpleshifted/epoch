@@ -84,6 +84,7 @@ import {
 } from "@/lib/parliament";
 import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
 import { WALL_BUILD } from "@/lib/parliament/build";
+import { FutureVillage, futureLink } from "./FutureVillage";
 import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
@@ -1390,6 +1391,11 @@ function SpaceWorld({
       pos.needsUpdate = true;
       g.setDrawRange(0, r.paths.length / 3);
     }
+    // (the inferred village above the column: FutureVillage.tsx draws it)
+    if (r.future) {
+      futureLink.result = r.future;
+      futureLink.version++;
+    }
     if (r.reclaim) {
       gatherCount.current = Math.min(r.reclaim.position.length / 3, GATHER_CAPACITY);
       setGatherings(gatherGeomRef.current, r.reclaim);
@@ -1553,6 +1559,7 @@ function SpaceWorld({
     if (withNature) lastNatSig.current = natSig;
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens } };
     if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
+    if (REDESIGN && dens && futureLink.cfg) req.future = futureLink.cfg;
     if (withNature && nat) {
       if (!nat.unlived) req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
       if (nat.reclaim) {
@@ -1661,6 +1668,8 @@ function SpaceWorld({
       </mesh>
       {/* the mass made in the worker beside: a mesh per chunk of the space (applyChunks) */}
       <group ref={chunkGroup} visible={fuse.enabled} />
+      {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
+      {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} />}
       {/* what the mass was, while the new comes in (setFused; hidden otherwise) */}
       <mesh ref={fusedWas} frustumCulled={false} castShadow receiveShadow visible={false} material={fusedWasMats}>
         <bufferGeometry />
