@@ -82,6 +82,7 @@ import {
   handleSpaceRequest,
   blockSlots,
 } from "@/lib/parliament";
+import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
 import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
@@ -237,6 +238,8 @@ interface Stats {
   fuseOut?: number;
   fuseOutMean?: number;
   fuseResin: number;
+  /** THE MASS MADE IN A WORKER OF ITS OWN (fuseUnits.ts), as it last said: pieces still to make, how long a piece takes, what stands. */
+  fuseSide?: UnitStats;
   /** Chunks of slots baked (kept as they were, below the history window too). */
   baked: number;
   /** Waterways flowing now. */
@@ -380,11 +383,17 @@ interface FuseUniforms {
   /** …and the slots a part stands before its fossil begins (it must have been simplified), and the slots it comes out over. */
   uGrowAfter: THREE.IUniform;
   uGrowOver: THREE.IUniform;
+  /** …the clock a piece's stamp is read against (seconds; fuseUnits.ts: a piece made in the worker beside grows out
+   *  of its parts from the moment it is shown) and the seconds it takes; and the slot the window has let go below. */
+  uGrowClock: THREE.IUniform;
+  uGrowAppear: THREE.IUniform;
+  uGrowFloor: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 },
   };
 }
 
@@ -400,7 +409,7 @@ const FUSE_GROW_VERT_HEAD = `
 attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor;
 varying float vGrow;`;
 // BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
 // 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
@@ -417,7 +426,11 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   float growDepth = ( uGrowTop - ( fuseGrowA.x + 0.5 ) ) / max( 1.0, uGrowHeight ) + ( fuseGrowA.w - 1.0 ) * 0.15;
   float growLayer = clamp( ( growDepth - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), 0.0, 1.0 );
   float growAged = clamp( ( uGrowTop - fuseGrowA.y - uGrowAfter ) / max( 0.1, uGrowOver ), 0.0, 1.0 );
-  vGrow = growLayer * growAged * fuseGrowB.y;
+  // (a piece shown a moment ago comes out of its parts over a few seconds — it does not appear at once; and what
+  // the window lets go of at its foot goes back into its parts over the last two slots above it)
+  float growShown = clamp( ( uGrowClock - fuseGrowB.x ) / max( 0.01, uGrowAppear ), 0.0, 1.0 );
+  float growKept = clamp( ( fuseGrowA.x - uGrowFloor ) * 0.5, 0.0, 1.0 );
+  vGrow = growLayer * growAged * fuseGrowB.y * growShown * growKept;
   transformed = mix( fuseAnchor, transformed, vGrow * vGrow * ( 3.0 - 2.0 * vGrow ) );
 }`;
 
@@ -872,6 +885,8 @@ interface SpaceRunner {
   post: (m: SpaceRequest) => void;
   stop: () => void;
   mode: "worker" | "main thread";
+  /** The log as the model is given it, for the worker the ways are laid in (side.worker.ts); absent = none. */
+  log?: (m: Extract<SpaceRequest, { type: "events" }>) => void;
 }
 
 /** The same protocol on the main thread (fallback): results come back on the next task, like a worker's. */
@@ -1045,7 +1060,12 @@ function SpaceWorld({
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
-  const fuseStats = useRef<{ fuseTris: number; fuseResin: number; fuseOut?: number; fuseOutMean?: number }>({ fuseTris: 0, fuseResin: 0 });
+  const fuseStats = useRef<{ fuseTris: number; fuseResin: number; fuseOut?: number; fuseOutMean?: number; fuseSide?: UnitStats }>({ fuseTris: 0, fuseResin: 0 });
+  // THE MASS MADE IN THE WORKER BESIDE (fuseUnits.ts): a mesh per chunk of the space, each replaced on its own when a
+  // piece in it is done; and the moment that worker's clock began (null = the mass comes from the model's worker)
+  const chunkGroup = useRef<THREE.Group>(null);
+  const chunkMeshes = useRef(new Map<string, THREE.Mesh>());
+  const chunkClock0 = useRef<number | null>(null);
   // HOW FAR THE MASS IS OUT OF ITS PARTS (the readout): the shader's own sum on a sample of the vertices, once a
   // second — the artist, 2026-11-16: "아직 뭐가 보이질 않아서 … 피드백을 못 주겠는데"
   const growSeen = useRef(0);
@@ -1053,24 +1073,32 @@ function SpaceWorld({
     const now = performance.now();
     if (now - growSeen.current < 1000) return;
     growSeen.current = now;
-    const g = fused.current?.geometry;
-    const A = g?.getAttribute("fuseGrowA")?.array as Float32Array | undefined, B = g?.getAttribute("fuseGrowB")?.array as Float32Array | undefined;
-    if (!A || !B || fuseU.uGrowOn.value < 0.5) {
+    // (the mass made in the model's worker is one mesh; the mass made in the worker beside, a mesh per chunk of the space)
+    const geoms = [fused.current?.geometry, ...[...chunkMeshes.current.values()].map((m) => m.geometry)].filter((g): g is THREE.BufferGeometry => !!g?.getAttribute("fuseGrowA"));
+    if (!geoms.length || fuseU.uGrowOn.value < 0.5) {
       fuseStats.current.fuseOut = -1;
       return;
     }
     const U = fuseU;
-    const nv = A.length / 4, stepV = Math.max(1, Math.floor(nv / 4000));
+    let all = 0;
+    for (const g of geoms) all += g.getAttribute("fuseGrowA").count;
+    const stepV = Math.max(1, Math.floor(all / 4000));
     let out = 0, sum = 0, n = 0;
-    for (let v = 0; v < nv; v += stepV) {
-      n++;
-      if (B[v * 2 + 1] < 0) continue;
-      const depth = (U.uGrowTop.value - (A[v * 4] + 0.5)) / Math.max(1, U.uGrowHeight.value) + (A[v * 4 + 3] - 1) * 0.15;
-      const layer = Math.max(0, Math.min(1, (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value)));
-      const aged = Math.max(0, Math.min(1, (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
-      const f = layer * aged * B[v * 2 + 1];
-      if (f >= 0.02) out++;
-      sum += f;
+    for (const g of geoms) {
+      const A = g.getAttribute("fuseGrowA").array as Float32Array, B = g.getAttribute("fuseGrowB").array as Float32Array;
+      const nv = A.length / 4;
+      for (let v = 0; v < nv; v += stepV) {
+        n++;
+        if (B[v * 2 + 1] < 0) continue;
+        const depth = (U.uGrowTop.value - (A[v * 4] + 0.5)) / Math.max(1, U.uGrowHeight.value) + (A[v * 4 + 3] - 1) * 0.15;
+        const layer = Math.max(0, Math.min(1, (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value)));
+        const aged = Math.max(0, Math.min(1, (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
+        const shown = Math.max(0, Math.min(1, (U.uGrowClock.value - B[v * 2]) / Math.max(0.01, U.uGrowAppear.value)));
+        const kept = Math.max(0, Math.min(1, (A[v * 4] - U.uGrowFloor.value) * 0.5));
+        const f = layer * aged * B[v * 2 + 1] * shown * kept;
+        if (f >= 0.02) out++;
+        sum += f;
+      }
     }
     fuseStats.current.fuseOut = n ? out / n : 0;
     fuseStats.current.fuseOutMean = n ? sum / n : 0;
@@ -1137,6 +1165,10 @@ function SpaceWorld({
     // time — and a slot more for its mass to have been made; then it comes out over three slots)
     fuseU.uGrowAfter.value = ((er.lodSec ?? 0) * 1.3) / perTop + 1;
     fuseU.uGrowOver.value = 3;
+    // (the stamps of the pieces made in the worker beside are seconds of ITS clock; a mass made in the model's worker
+    // has none — it is whole as it comes)
+    fuseU.uGrowClock.value = chunkClock0.current === null ? 1e9 : (Date.now() - chunkClock0.current) / 1000;
+    fuseU.uGrowFloor.value = shift > 0 && er.height ? fuseU.uGrowTop.value - er.height - Math.max(0, er.tail ?? 0) : -1e9;
   });
   // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
   const fuseFade = useMemo(() => ({ t: { value: 1 } as THREE.IUniform<number>, t0: 0 }), []);
@@ -1161,6 +1193,48 @@ function SpaceWorld({
     }
   }, [stoneMat, stoneWas, resin.massOpacity]);
   const fusedMats = useMemo(() => [stoneMat, resinMat], [stoneMat, resinMat]);
+  const fusedMatsNow = useRef(fusedMats);
+  fusedMatsNow.current = fusedMats;
+  useEffect(() => {
+    for (const m of chunkMeshes.current.values()) m.material = fusedMats;
+  }, [fusedMats]);
+  /**
+   * THE MASS FROM THE WORKER BESIDE (fuseUnits.ts UnitChunks): the chunks of the space that are other than they were —
+   * each a mesh of its own, replaced on its own. No fade between what was and what is: a piece new on the screen
+   * grows out of its parts (its stamp against that worker's clock, in the shader), and a piece made again stands
+   * where it stood.
+   */
+  const applyChunks = (m: UnitChunks) => {
+    const group = chunkGroup.current;
+    if (!group) return;
+    const map = chunkMeshes.current;
+    const let_go = (id: string) => {
+      const mesh = map.get(id);
+      if (!mesh) return;
+      group.remove(mesh);
+      mesh.geometry.dispose();
+      map.delete(id);
+    };
+    if (m.clear) for (const id of [...map.keys()]) let_go(id);
+    for (const id of m.drop) let_go(id);
+    for (const { id, mesh: r } of m.set) {
+      let mesh = map.get(id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(new THREE.BufferGeometry(), fusedMatsNow.current);
+        mesh.frustumCulled = false;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+        map.set(id, mesh);
+      }
+      setFused(mesh, r, undefined, fuseU);
+    }
+    chunkClock0.current = map.size ? m.clock0 : null;
+    fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
+    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current });
+  };
+  const applyChunksNow = useRef(applyChunks);
+  applyChunksNow.current = applyChunks;
   const fusedWasMats = useMemo(() => [stoneWas, resinWas], [stoneWas, resinWas]);
   useFrame(() => {
     if (!fuseFade.t0) return;
@@ -1269,7 +1343,13 @@ function SpaceWorld({
       botGround.shown = r.parts.cells;
       botGround.shownAt = performance.now();
     }
-    setFused(fused.current, r.fuse, { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current }, fuseU);
+    if (r.fuse) {
+      // (the model's worker sends its one mesh EMPTY when the worker beside takes the mass over: nothing to fade
+      // from, and the growing stays as that worker's chunks have set it)
+      const empty = !r.fuse.index.length, beside = chunkMeshes.current.size > 0;
+      if (!beside) chunkClock0.current = null;
+      setFused(fused.current, r.fuse, empty ? undefined : { mesh: fusedWas.current, fade: fuseFade, sec: fadeSec.current }, empty && beside ? undefined : fuseU);
+    }
     // what the mass is, by the numbers (the readout): a mesh that came empty is the question, not a mesh that did not come
     if (r.fuse) fuseStats.current = { ...fuseStats.current, fuseTris: r.fuse.index.length / 3, fuseResin: (r.fuse.index.length - r.fuse.resinStart) / 3 };
     // where the worker's time went: the slowest request of the last few is kept, so a heavy one can be read
@@ -1296,7 +1376,45 @@ function SpaceWorld({
         console.warn("[parliament] space worker failed, computing on the main thread:", e.message);
         fallback();
       };
-      worker.current = { mode: "worker", post: (m) => w.postMessage(m), stop: () => w.terminate() };
+      // THE WORKERS BESIDE IT (side.worker.ts; 2026-11-16): the buildings' mass and the ways are each worked out in a
+      // worker of their own — the model's worker is given one end of a channel to each, and says there what is to be
+      // worked out. The mass comes straight from its worker to this view (applyChunks); the ways go back to the model.
+      // If one cannot start, the model's worker is told so and does that work itself, as before.
+      const sides: Worker[] = [];
+      let walkSide: Worker | null = null;
+      const beside = (role: "fuse" | "walk"): MessagePort | null => {
+        try {
+          const sw = new Worker(new URL("./side.worker.ts", import.meta.url), { type: "module" });
+          const ch = new MessageChannel();
+          sw.postMessage({ type: "port", port: ch.port1 }, [ch.port1]);
+          sw.onerror = (e) => {
+            console.warn(`[parliament] the ${role} worker failed, that work goes back to the space worker:`, e.message);
+            w.postMessage({ type: "ports", [role]: null });
+            if (role === "walk") walkSide = null;
+          };
+          if (role === "fuse") sw.onmessage = (ev: MessageEvent<UnitChunks>) => ev.data.type === "fuse-chunks" && applyChunksNow.current(ev.data);
+          else walkSide = sw;
+          sides.push(sw);
+          return ch.port2;
+        } catch (e) {
+          console.warn(`[parliament] no ${role} worker, that work stays in the space worker:`, e);
+          return null;
+        }
+      };
+      if (REDESIGN) {
+        const fusePort = beside("fuse"), walkPort = beside("walk");
+        const ports = [fusePort, walkPort].filter((q): q is MessagePort => !!q);
+        if (ports.length) w.postMessage({ type: "ports", fuse: fusePort, walk: walkPort } satisfies SpaceRequest, ports);
+      }
+      worker.current = {
+        mode: "worker",
+        post: (m) => w.postMessage(m),
+        stop: () => {
+          w.terminate();
+          for (const sw of sides) sw.terminate();
+        },
+        log: (m) => walkSide?.postMessage({ type: "events", add: m.add, reset: m.reset }),
+      };
     } catch (e) {
       console.warn("[parliament] no space worker, computing on the main thread:", e);
       fallback();
@@ -1320,12 +1438,16 @@ function SpaceWorld({
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
     const epoch = local ? null : currentEpochKey();
+    const tell = (m: Extract<SpaceRequest, { type: "events" }>) => {
+      w.post(m);
+      if (m.add.length || m.reset) w.log?.(m);
+    };
     if (events.length < sent.current) {
-      w.post({ type: "events", add: events, reset: true, keepBuilt: log.lastDrop === "oldest", epoch });
+      tell({ type: "events", add: events, reset: true, keepBuilt: log.lastDrop === "oldest", epoch });
       labAnchor.current = null;
     } else if (events.length > sent.current) {
-      w.post({ type: "events", add: events.slice(sent.current), epoch });
-    } else if (epoch !== lastEpoch.current) w.post({ type: "events", add: [], epoch });
+      tell({ type: "events", add: events.slice(sent.current), epoch });
+    } else if (epoch !== lastEpoch.current) tell({ type: "events", add: [], epoch });
     lastEpoch.current = epoch;
     sent.current = events.length;
     // THE PRESENT FOLLOWS THE CLOCK: the world's "now" in session seconds — shared: the world clock against the
@@ -1480,6 +1602,8 @@ function SpaceWorld({
       <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
         <bufferGeometry />
       </mesh>
+      {/* the mass made in the worker beside: a mesh per chunk of the space (applyChunks) */}
+      <group ref={chunkGroup} visible={fuse.enabled} />
       {/* what the mass was, while the new comes in (setFused; hidden otherwise) */}
       <mesh ref={fusedWas} frustumCulled={false} castShadow receiveShadow visible={false} material={fusedWasMats}>
         <bufferGeometry />
@@ -3444,6 +3568,16 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "화석이 나타나는 방식",
         render: () => REDESIGN,
       },
+      // THE MASS'S GRID IS NO FINER THAN WHAT IT GROWS ON (fuse.ts voxelTie; 2026-11-16, the artist on making it lighter:
+      // "일단 1-3 진행해봐"). Hers to judge: a coarser grid shows as facets — 0 = the grid as set in ② › 계산
+      voxelTie: {
+        value: 0.5,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        label: "화석 격자 ≥ 단순화 격자 × 이 값 (가볍게; 0 = 맞추지 않음 · 계단처럼 보이면 내림)",
+        render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseFrom`) === "assets",
+      },
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
       fuseFrom: {
         options: { "단순화된 것에만 (갓 지은 낱낱의 부재는 융합 안 함)": "assets", "모든 부재에": "all" },
@@ -3707,7 +3841,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed" } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", voxelTie: fu.voxelTie } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -3762,7 +3896,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   const resinLook = useMemo<ResinLook>(
     () => ({
@@ -4060,7 +4194,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
-          {` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
+          {stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
+            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel}`
+            : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
           {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}

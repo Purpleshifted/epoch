@@ -152,6 +152,14 @@ export interface FuseConfig {
    * simplification (an asset's clock stands); otherwise the mass is made from the state, as before.
    */
   seeded?: boolean;
+  /**
+   * THE BLOCK: THE MASS'S GRID IS NO FINER THAN WHAT IT GROWS ON (2026-11-16, with the artist's own values: the
+   * simplification's lattice was 1 and the mass was worked out at 0.3 — more than three times finer than the boxes it
+   * wraps, a piece of a building 1.5–4.5 s). When the mass grows on the simplified bodies, `voxel` is at least this ×
+   * the lattice (spaceModel computeFuse); 0 / absent = `voxel` as it is set. A coarser grid shows as facets on the
+   * surface — the artist judges it, and turns this to 0 if it does.
+   */
+  voxelTie?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */
@@ -419,7 +427,7 @@ export function fusePad(cfg: FuseConfig): { below: number; above: number } {
   return { below: base, above: base + sagRows };
 }
 
-type Sediment = NonNullable<NaturePointOptions["sediment"]>;
+export type Sediment = NonNullable<NaturePointOptions["sediment"]>;
 
 const ramp = (x: number, a: number, b: number) => Math.max(0, Math.min(1, (x - a) / Math.max(1e-6, b - a)));
 const smoothRamp = (x: number, a: number, b: number) => {

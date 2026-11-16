@@ -18,6 +18,7 @@ import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
 import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh } from "./fuse";
+import { fuseTilesOf, growData, unitExtent, unitLook, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
 import { NATURE_KIND, burialOf, natureAt, natureHistory, type NatureHistory, naturePointLoad, naturePoints, reclaimPoints, type NaturePoints } from "./natureHistory";
 import { hash2, type NatureConfig } from "./nature";
 import { ARRIVED, Arrivals } from "./arrive";
@@ -25,7 +26,7 @@ import { PART_KINDS, RECIPES, boxesOfSeed, carrySeeds, districtOf, gatherAmount,
 import { bakedKey, clearBaked, loadBaked, saveBaked, type BakedTube } from "./bakeStore";
 import { DEFAULT_FOLD, type FoldConfig, type PEvent } from "./types";
 import { DEFAULT_FLOW } from "./flow";
-import { NO_WALKWAYS, otherLineNear, walkSegments, walkways, type WalkConfig, type WalkLayer, type Walkways } from "./walkways";
+import { NO_WALKWAYS, otherLineNear, walkSegments, walkways, type WalkConfig, type WalkLayer, type WalkRequest, type WalkResult, type Walkways } from "./walkways";
 import { NO_DRAINAGE, drainage, pipeParts, waterDistance, waterField, type Drainage, type PipeParts, type PipeRun, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
@@ -49,6 +50,11 @@ const BLOCK_TILE = 14;
 const STANDS = 1e9;
 /** SEEDED: a building's mass is not made again sooner than this after it was made (ms). */
 const UNIT_REST_MS = 12000;
+/** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
+ *  of (the rest are told at the next call). */
+const UNIT_SEND_MS = 80;
+/** A round of ways asked of the other worker that has not come back within this is asked again (ms). */
+const WALK_LOST_MS = 180000;
 const LEAVE_KEEP_S = 20;
 const FUSE_BUDGET_MS = 300;
 /** THE BLOCK: a part's age is read in this many steps to `lifeSec` (the steps are the clock's: all parts move at once). */
@@ -683,6 +689,168 @@ export class SpaceModel {
   private unitFused = new Map<number, number>();
   private unitsVersion = 0;
   private unitsEmitted = -1;
+  // ── THE MASS MADE IN A WORKER OF ITS OWN (fuseUnits.ts) ──
+  /** The other side (side.worker.ts FuseUnits); null = the mass is made here, as before. */
+  private fusePort: MessagePort | null = null;
+  /** Whether the other side is making the buildings' mass now (the seeded mass only). */
+  private remoteOn = false;
+  private remoteAbsorb = false;
+  private unitSerial = 0;
+  // ── THE WAYS LAID IN A WORKER OF THEIR OWN (side.worker.ts) ──
+  private walkPort: MessagePort | null = null;
+  /** The round asked of it (one at a time), and what its answer will be kept under. */
+  private walkAsked: { rule: string; upToK: number; serial: number; at: number } | null = null;
+  private walkSerial = 0;
+  /** Rises with every answer: the parts are read again (the ways' lines and their ends). */
+  private walkRev = 0;
+  private walkMs = 0;
+
+  /**
+   * THE WORKERS BESIDE THIS ONE (2026-11-16; the artist: "3은 중요할 것 같음"): the buildings' mass and the ways are
+   * each worked out in a worker of their own, so neither keeps the buildings waiting — with her values a round of
+   * ways was 10.8 s and a piece of mass 1.5–4.5 s, in the worker the buildings are made in. null = that work is
+   * done here again (the other side could not start).
+   */
+  attachPorts(p: { fuse?: MessagePort | null; walk?: MessagePort | null }): void {
+    if (p.fuse !== undefined) {
+      if (this.fusePort) this.fusePort.onmessage = null;
+      if (this.remoteOn) this.dropUnits();
+      this.fusePort = p.fuse;
+      if (p.fuse) {
+        p.fuse.onmessage = (ev: MessageEvent<UnitFused>) => {
+          if (ev.data.type !== "fused" || !this.remoteOn) return;
+          // these parts have a mass on the screen now: they are absorbed only as far as that (fusedAtOf)
+          for (const k of ev.data.keys) this.unitFused.set(k, 1);
+          if (this.remoteAbsorb && ev.data.keys.length) this.fuseBuilt++;
+        };
+      }
+    }
+    if (p.walk !== undefined) {
+      if (this.walkPort) this.walkPort.onmessage = null;
+      this.walkPort = p.walk;
+      this.walkAsked = null;
+      if (p.walk) {
+        p.walk.onmessage = (ev: MessageEvent<WalkResult>) => {
+          const a = this.walkAsked;
+          if (ev.data.type !== "walks" || !a || ev.data.serial !== a.serial) return;
+          this.walkAsked = null;
+          // (what the window has let go of since the round was asked is not brought back)
+          const layers = ev.data.walks.layers.filter((l) => l.k >= this.floorDone);
+          this.walks = { layers };
+          this.walkKept = { rule: a.rule, layers: layers.filter((l) => l.k <= a.upToK), upToK: a.upToK };
+          this.walkMs = ev.data.ms;
+          this.walkRev++;
+        };
+      }
+    }
+  }
+
+  /** The buildings' masses are let go — here and, when it makes them, on the other side. */
+  private dropUnits(): void {
+    this.units.clear();
+    this.unitOrphans = [];
+    this.unitFused.clear();
+    this.unitJob = null;
+    this.unitsEmitted = -1;
+    if (this.remoteOn) {
+      this.remoteOn = false;
+      this.fusePort?.postMessage({ type: "reset" } satisfies UnitRequest);
+    }
+  }
+
+  /**
+   * THE SEEDED MASS IS MADE ON THE OTHER SIDE (fuseUnits.ts): here only WHAT EACH BUILDING IS MADE OF is said, when
+   * its parts are other than they were (and not more often than every so long: its assets come one by one) — its
+   * simplified parts with what each one's fossil grows by, the vegetation gathered round it cut to its own extent,
+   * and the look of its layers. Nothing is fused in this worker, and nothing of the mass comes back through it: the
+   * other side shows every piece to the view as soon as it is done, and tells this one which parts have a mass now.
+   */
+  private sendUnits(
+    port: MessagePort,
+    lists: ReadonlyMap<string, { b: Box; d: number; up: boolean; sk: boolean; ang: number; grow?: number[] }[]>,
+    h: NatureHistory | null,
+    u: number,
+    sed: NonNullable<ReturnType<typeof sedimentOf>>,
+    layered: boolean,
+    fuse: FuseConfig,
+    padSlots: number,
+    cfg: string,
+  ): FuseMesh | null {
+    const key = (b: Box) => SpaceModel.partKey(b);
+    const say = (m: UnitRequest) => port.postMessage(m);
+    let first = false;
+    if (!this.remoteOn) {
+      // (what was made here is let go: the other side makes all of it — and the one mesh of it is emptied)
+      this.dropUnits();
+      this.remoteOn = true;
+      first = true;
+      say({ type: "reset" });
+    }
+    this.remoteAbsorb = (fuse.absorb ?? 1) > 0;
+    // a building that is no more — or under another name (it grew a cell older than its oldest, its foot went with
+    // the window's floor, it joined another): its mass goes with most of its parts
+    for (const old of [...this.units.keys()].filter((id) => !lists.has(id))) {
+      const ent = this.units.get(old)!;
+      let heir = "", most = 0;
+      if (ent.snap.size) {
+        for (const [id, list] of lists) {
+          let n = 0;
+          for (const e of list) if (ent.snap.has(key(e.b))) n++;
+          if (n > most) [heir, most] = [id, n];
+        }
+      }
+      this.units.delete(old);
+      if (!heir || most < ent.snap.size * 0.5) {
+        for (const k of ent.snap.keys()) this.unitFused.delete(k);
+        say({ type: "drop", id: old });
+        continue;
+      }
+      say({ type: "heir", from: old, to: heir });
+      if (!this.units.has(heir)) this.units.set(heir, ent);
+    }
+    const nowMs = performance.now(), deadline = nowMs + UNIT_SEND_MS;
+    let waiting = 0, sent = 0;
+    for (const [id, list] of lists) {
+      const ent = this.units.get(id);
+      if (ent && ent.cfg === cfg && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)))) continue;
+      waiting++;
+      if ((ent && ent.cfg === cfg && nowMs - ent.madeMs < UNIT_REST_MS) || performance.now() > deadline) continue;
+      const ang = list[0].ang;
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      const at = unitExtent(list, ang ? { c, sn } : undefined);
+      const snap = new Map<number, number>();
+      const parts: UnitJob["parts"] = list.map((e) => {
+        const k = key(e.b);
+        snap.set(k, e.d);
+        return { b: e.b, d: e.d, up: e.up, sk: e.sk, grow: e.grow, key: k };
+      });
+      // (parts that are no longer the building's: no mass of theirs is counted any more)
+      if (ent) for (const k of ent.snap.keys()) if (!snap.has(k)) this.unitFused.delete(k);
+      say({
+        type: "job",
+        id,
+        serial: ++this.unitSerial,
+        cfg,
+        fuse,
+        parts,
+        ang,
+        h: h ? SpaceModel.turnedHistory(h, c, sn, at.ext, at.ka - 12, at.kb + 12) : null,
+        look: layered ? unitLook(list) : null,
+        u,
+        sed,
+        padSlots,
+        seg: NATURE_CHUNK,
+        tile: BLOCK_TILE,
+      });
+      this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map() });
+      waiting--;
+      sent++;
+    }
+    this.stages["fuse grounds told (n)"] = sent;
+    this.stages["fuse grounds waiting to be told (n)"] = waiting;
+    this.stages["fuse grounds (n, own worker)"] = lists.size;
+    return first ? mergeMeshes([]) : null;
+  }
 
   /**
    * THE BUILDINGS OF THE BLOCK: the cell-runs (a Seed's run of slots) that touch — neighbours on the ground, at the
@@ -774,11 +942,27 @@ export class SpaceModel {
     // are other than they were, and not more often than every so long: its assets come one by one)
     const seeded = !!fuse.seeded;
     const cfg = JSON.stringify(fuse);
-    const runsOf = this.buildingsOfSeeds(box);
-    // every part to its building
+    // ONE FIELD OVER THE WHOLE GROUND (the artist, 2026-11-16, seeing the seeded mass made building by building: "전
+    // 구역에 '화석화' 장이 있는 거 아냐?", "전체가 한 덩어리고, 그걸 조정하는 필터함수가 지경별로 어디는 시각화하고 어디는 안
+    // 해서 … 리디자인 전 버전에서 층별로 한다며, 그거에 필터를 추가한 방식이라고 이해했는데"). The seeded mass is THE
+    // EXHIBITION'S MASS — every part of a band of slots in one field, whatever building it is of, so the mass is one
+    // body that bridges from building to building — and the wall's shader is the filter over it (where it is let
+    // out, by the layer's depth and the vegetation there). The unit is therefore not a building but the whole
+    // ground of one frame (a district's angle: its boxes lie along one grid — as the exhibition's did); it is cut
+    // into the same pieces (bands of slots × tiles), made the deepest first in the worker beside.
+    const area = seeded && !!this.fusePort;
+    const runsOf = area ? null : this.buildingsOfSeeds(box);
+    // every part to its unit: the ground of its frame — or its building
     const lists = new Map<string, P[]>();
     for (const l of bySlot.values()) {
       for (const e of l) {
+        if (!runsOf) {
+          const id = `ground:${Math.round(e.ang * 1e4)}`;
+          const li = lists.get(id);
+          if (li) li.push(e);
+          else lists.set(id, [e]);
+          continue;
+        }
         const runs = runsOf.get(e.b.seed);
         if (!runs?.length) continue;
         let best = runs[0], bd = Infinity;
@@ -791,6 +975,9 @@ export class SpaceModel {
         else lists.set(best.id, [e]);
       }
     }
+    // THE SEEDED MASS IS MADE IN A WORKER OF ITS OWN (fuseUnits.ts), when there is one
+    if (area && this.fusePort) return this.sendUnits(this.fusePort, lists, h, u, sed, layered, fuse, padSlots, cfg);
+    if (this.remoteOn) this.dropUnits(); // (made here again)
     // (the crust has no growths: only where it has come)
     const fusing = (list: readonly { d: number }[]): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || (!fuse.crust && accretionShare(e.d, fuse) > 0.01));
     const value = (d: number) => 0.7 * fusedShare(d, fuse) + 0.3 * d;
@@ -978,70 +1165,9 @@ export class SpaceModel {
     return mergeMeshes(out);
   }
 
-  /**
-   * SEEDED (fuse.ts seeded): every vertex of a building's mass is given THE PART IT GROWS FROM — the nearest of the
-   * building's parts (by its box, in the box's own turn) — as the point of that part it is pressed to (the nearest
-   * point of the box, drawn a little inside it, so the pressed mass lies within the part) and that part's growing
-   * data. The parts are looked up through a coarse grid of the space (a vertex asks only the parts near it).
-   */
+  /** (fuseUnits.ts growData: every vertex of a seeded mass is given the part it grows from) */
   private static growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[]): void {
-    const nv = mesh.position.length / 3;
-    const anchor = new Float32Array(nv * 3), A = new Float32Array(nv * 4), B = new Float32Array(nv * 2);
-    const G = 2, REACH = 3;
-    const cellKey = (ix: number, iy: number, iz: number) => ((ix & 1023) * 1024 + (iy & 1023)) * 1024 + (iz & 1023);
-    const cells = new Map<number, number[]>();
-    const cs = parts.map((e) => Math.cos(e.b.yaw ?? 0)), sn = parts.map((e) => Math.sin(e.b.yaw ?? 0));
-    parts.forEach((e, pi) => {
-      const b = e.b, r = Math.max(b.sx, b.sz) / 2 + REACH, ry = b.sy / 2 + REACH;
-      for (let ix = Math.floor((b.x - r) / G); ix <= Math.floor((b.x + r) / G); ix++)
-        for (let iy = Math.floor((b.y - ry) / G); iy <= Math.floor((b.y + ry) / G); iy++)
-          for (let iz = Math.floor((b.z - r) / G); iz <= Math.floor((b.z + r) / G); iz++) {
-            const k = cellKey(ix, iy, iz), l = cells.get(k);
-            if (l) l.push(pi);
-            else cells.set(k, [pi]);
-          }
-    });
-    const all = parts.map((_, i) => i);
-    let last = 0;
-    for (let v = 0; v < nv; v++) {
-      const px = mesh.position[v * 3], py = mesh.position[v * 3 + 1], pz = mesh.position[v * 3 + 2];
-      // (far from every part — what hangs a long way down: the part the vertex before it grew from, and its neighbours)
-      const near = cells.get(cellKey(Math.floor(px / G), Math.floor(py / G), Math.floor(pz / G))) ?? (parts.length <= 64 ? all : [last]);
-      let best = last, bd = Infinity, ax = px, ay = py, az = pz;
-      for (const pi of near) {
-        const b = parts[pi].b, c = cs[pi], s = sn[pi];
-        const dx = px - b.x, dz = pz - b.z;
-        // (into the part's own turn: writeMatrix's turn undone)
-        const lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - b.y;
-        const hx = b.sx / 2, hy = b.sy / 2, hz = b.sz / 2;
-        const qx = Math.max(-hx, Math.min(hx, lx)), qy = Math.max(-hy, Math.min(hy, ly)), qz = Math.max(-hz, Math.min(hz, lz));
-        const d2 = (lx - qx) * (lx - qx) + (ly - qy) * (ly - qy) + (lz - qz) * (lz - qz);
-        if (d2 < bd) {
-          bd = d2;
-          best = pi;
-          const ix = qx * 0.9, iy = qy * 0.9, iz = qz * 0.9;
-          ax = b.x + ix * c + iz * s;
-          ay = b.y + iy;
-          az = b.z - ix * s + iz * c;
-        }
-      }
-      last = best;
-      anchor[v * 3] = ax;
-      anchor[v * 3 + 1] = ay;
-      anchor[v * 3 + 2] = az;
-      const g = parts[best].grow;
-      if (g) {
-        A[v * 4] = g[0];
-        A[v * 4 + 1] = g[1];
-        A[v * 4 + 2] = g[2];
-        A[v * 4 + 3] = g[3];
-        B[v * 2] = g[4];
-        B[v * 2 + 1] = g[5];
-      } else B[v * 2 + 1] = -1;
-    }
-    mesh.anchor = anchor;
-    mesh.growA = A;
-    mesh.growB = B;
+    growData(mesh, parts);
   }
 
   private blockHist: { key: string; h: NatureHistory | null } | null = null;
@@ -1312,7 +1438,7 @@ export class SpaceModel {
     return mergeMeshes(out);
   }
 
-  /** A chunk's parts (all square to the grid) fused tile by tile. */
+  /** A chunk's parts (all square to the grid) fused tile by tile (fuseUnits.ts fuseTilesOf). */
   private fuseTiles(
     w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: BakedTube[]; x0: number; z0: number; nx: number; nz: number },
     h: NatureHistory | null,
@@ -1322,84 +1448,7 @@ export class SpaceModel {
     fuse: FuseConfig,
     TILE = 24,
   ): FuseMesh {
-    const MARGIN = 4;
-    const meshes: FuseMesh[] = [];
-    const cellOf = (v: number) => Math.floor(v / CELL);
-    for (let tz = w.z0; tz < w.z0 + w.nz; tz += TILE) {
-      for (let tx = w.x0; tx < w.x0 + w.nx; tx += TILE) {
-        let ax = tx - MARGIN, bx = tx + TILE + MARGIN, az = tz - MARGIN, bz = tz + TILE + MARGIN;
-        const ps = w.ps.filter(({ b }) => {
-          const r = Math.max(b.sx, b.sy, b.sz) / 2;
-          return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
-        });
-        const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
-        if (!ps.length && !tubes.length) continue; // empty ground costs nothing
-        // THE GRID IS AS LARGE AS WHAT IS IN IT (2026-11-15: a tile was always 32 × 32 cells, and its cost is its
-        // volume — a district's few cells of building paid for the whole square, ~150 ms a tile): the tile's grid is
-        // cut down to its parts and tubes, with the same margin round them. What the tile emits (`own`) is unchanged.
-        {
-          let a = Infinity, b2 = -Infinity, c = Infinity, d = -Infinity;
-          for (const { b } of ps) {
-            const r = Math.max(b.sx, b.sy, b.sz) / 2;
-            a = Math.min(a, cellOf(b.x - r));
-            b2 = Math.max(b2, cellOf(b.x + r));
-            c = Math.min(c, cellOf(b.z - r));
-            d = Math.max(d, cellOf(b.z + r));
-          }
-          for (const t of tubes) {
-            a = Math.min(a, cellOf(Math.min(t.x0, t.x1) - t.r));
-            b2 = Math.max(b2, cellOf(Math.max(t.x0, t.x1) + t.r));
-            c = Math.min(c, cellOf(Math.min(t.z0, t.z1) - t.r));
-            d = Math.max(d, cellOf(Math.max(t.z0, t.z1) + t.r));
-          }
-          ax = Math.max(ax, a - MARGIN);
-          bx = Math.min(bx, b2 + 1 + MARGIN);
-          az = Math.max(az, c - MARGIN);
-          bz = Math.min(bz, d + 1 + MARGIN);
-        }
-        this.stages["fuse tiles (n)"] = (this.stages["fuse tiles (n)"] ?? 0) + 1;
-        this.stages["fuse cells (n)"] = (this.stages["fuse cells (n)"] ?? 0) + (bx - ax) * (bz - az);
-        const tTile = performance.now();
-        const kinds: Record<string, number> = {};
-        for (const e of ps) kinds[e.b.kind] = (kinds[e.b.kind] ?? 0) + 1;
-        const tubeKinds: Record<string, number> = {};
-        for (const t of tubes) tubeKinds[t.kind] = (tubeKinds[t.kind] ?? 0) + 1;
-        let big = 0;
-        for (const e of ps) big = Math.max(big, e.b.sx, e.b.sz, e.b.sy);
-        const tileMesh = fuseChunk({
-            parts: ps.map((e) => e.b),
-            decay: ps.map((e) => e.d),
-            standing: ps.map((e) => e.up),
-            skeleton: ps.map((e) => e.sk),
-            tubes,
-            history: h,
-            k0: w.c0,
-            k1: w.c1,
-            x0: ax,
-            z0: az,
-            nx: bx - ax,
-            nz: bz - az,
-            own: { x0: tx, x1: tx + TILE, z0: tz, z1: tz + TILE },
-            unit: u,
-            sediment: sed,
-            layerDecay,
-            cfg: fuse,
-          });
-        meshes.push(tileMesh);
-        const dtTile = performance.now() - tTile;
-        if (dtTile > (this.stages["slow tile ms"] ?? 300)) {
-          let y0 = Infinity, y1 = -Infinity;
-          for (let q = 1; q < tileMesh.position.length; q += 3) {
-            y0 = Math.min(y0, tileMesh.position[q]);
-            y1 = Math.max(y1, tileMesh.position[q]);
-          }
-          Object.assign(this.stages, { "slow tile ms": dtTile, "slow tile cells": (bx - ax) * (bz - az), "slow tile parts": ps.length, "slow tile tubes": tubes.length, "slow tile tris": tileMesh.index.length / 3, "slow tile y0": y0, "slow tile y1": y1, "slow tile biggest part": big, "slow tile c0": w.c0 });
-          for (const [k, v] of Object.entries(kinds)) this.stages[`slow tile ${k}`] = v;
-          for (const [k, v] of Object.entries(tubeKinds)) this.stages[`slow tile tube ${k}`] = v;
-        }
-      }
-    }
-    return mergeMeshes(meshes);
+    return fuseTilesOf(w, h, u, sed, layerDecay, fuse, TILE, this.stages);
   }
 
   /** fuseBuilt as of the last computeParts: baking waits until the parts reflect every built chunk. */
@@ -1690,6 +1739,8 @@ export class SpaceModel {
     this.chunks.clear();
     this.drainKept = null;
     this.walkKept = null;
+    // (a round of ways asked of the other worker before this is not taken when it comes)
+    this.walkAsked = null;
   }
 
   get latest(): number {
@@ -1828,7 +1879,7 @@ export class SpaceModel {
     const waitSec = Math.max(0, input.weather.erode?.waitSec ?? 0);
     // (real seconds: the world's clock is set back whenever the lab's world is trimmed, and a part's age must not be)
     this.ageClock = Math.max(this.ageClock, (Date.now() - this.arriveEpoch) / 1000);
-    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${lifeSec > 0 ? Math.floor(this.ageClock / (lifeSec / AGE_STEPS / AGE_PHASES)) : "-"}:${this.renewals}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}`;
+    const sig = `${this.seedsKey}:${this.fuseBuilt}:${this.baked.size}:${cfgKey}:${input.wear ? Math.floor(t) : "-"}:${lifeSec > 0 ? Math.floor(this.ageClock / (lifeSec / AGE_STEPS / AGE_PHASES)) : "-"}:${this.renewals}:${JSON.stringify(input.weather)}:${JSON.stringify(input.fuse)}:${JSON.stringify(input.water)}:${level.size}:${lodSig}:${input.edges}:${this.walkRev}`;
     if (sig === this.partsSig) return null;
     this.partsSig = sig;
     // ARRIVAL (arrive.ts): parts first seen now are being built — unless a knob of the parts or of the buildings' rule
@@ -1942,14 +1993,32 @@ export class SpaceModel {
     const wKey = wk ? (this.densityCfg ? this.slowKey("walk", wCfg) : `${Math.floor(t / box.secPerUnit)}:${seeds.length}:${wCfg}`) : "-";
     lapT = this.lap("water", lapT);
     if (wKey !== this.walkKey) {
-      this.walkKey = wKey;
       const rule = `${box.secPerUnit}:${box.unit}:${presentSlots}:${JSON.stringify(wk)}:${JSON.stringify(input.fold.flow ?? null)}`;
       // (THE BLOCK: with the density's buildings anybody may write at any depth, so no layer is kept as it was)
       const kept = (!this.densityCfg || belowK !== null) && this.walkKept && this.walkKept.rule === rule ? this.walkKept : undefined;
-      this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, present: presentSlots }) : NO_WALKWAYS;
       const upToK = belowK ?? Math.floor(t / box.secPerUnit) - presentSlots;
-      this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;
+      const port = wk && this.densityCfg ? this.walkPort : null;
+      if (port && wk) {
+        // THE WAYS ARE LAID IN A WORKER OF THEIR OWN (2026-11-16: with the artist's values a round was 10.8 s of this
+        // worker's 13 — the buildings waited for it every time): the round is ASKED here and its answer taken when it
+        // comes (attachPorts); meanwhile the ways stand as they were. One round at a time: while one is out the key
+        // is left as it was, so the next is asked as soon as that one is back.
+        if (this.walkAsked && performance.now() - this.walkAsked.at > WALK_LOST_MS) this.walkAsked = null;
+        if (!this.walkAsked) {
+          this.walkKey = wKey;
+          this.walkAsked = { rule, upToK, serial: ++this.walkSerial, at: performance.now() };
+          // (the seeds without what the ways do not read: the levels, masses and gatherings of every slot)
+          const slim = seeds.map((sd) => ({ id: sd.id, material: sd.material, role: sd.role, x: sd.x, z: sd.z, t0: sd.t0, t1: sd.t1, spans: sd.spans, mass: sd.mass }));
+          port.postMessage({ type: "walk", serial: this.walkSerial, seeds: slim, cfg: wk, opts: { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept ? { layers: kept.layers, upToK: kept.upToK } : undefined, present: presentSlots } } satisfies WalkRequest);
+        }
+      } else {
+        this.walkKey = wKey;
+        this.walkAsked = null;
+        this.walks = wk ? walkways(this.events, seeds, wk, { secPerUnit: box.secPerUnit, unit: box.unit, flow: input.fold.flow!, tNow: t, frozen: kept, present: presentSlots }) : NO_WALKWAYS;
+        this.walkKept = wk ? { rule, layers: this.walks.layers.filter((l) => l.k <= upToK), upToK } : null;
+      }
     }
+    if (this.walkPort && this.walkMs) this.stages["walk round (ms, own worker)"] = this.walkMs;
     const near = this.nearWater;
     const water = near && input.water.corrode > 0 ? (b: Box) => near(Math.floor(b.x / CELL), Math.floor(b.z / CELL), b.slot) * input.water.corrode : undefined;
     const wearCfg = {
@@ -2578,9 +2647,14 @@ export class SpaceModel {
    */
   computeFuse(input: FuseInput): FuseMesh | null {
     const tFuse0 = performance.now();
-    const { box, fuse } = input;
+    const { box } = input;
     // THE BLOCK: its clock is a place — the "present" the layers are read against is the block's top, which stands
     const bc = this.blockClock;
+    // THE MASS'S GRID IS NO FINER THAN WHAT IT GROWS ON (fuse.ts voxelTie): on the simplified bodies, at least that
+    // share of their lattice
+    const tie = bc && input.fuse.assetsOnly !== false && (bc.erode.lodSec ?? 0) > 0 ? Math.max(0, input.fuse.voxelTie ?? 0) * Math.max(0, bc.erode.lodGrid ?? 0) : 0;
+    const fuse = tie > input.fuse.voxel ? { ...input.fuse, voxel: Math.round(tie * 1000) / 1000 } : input.fuse;
+    this.stages["fuse voxel"] = fuse.voxel;
     const sed = bc ? { tNow: bc.top * box.secPerUnit, secPerUnit: box.secPerUnit, timeScale: input.weather.timeScale, tauYears: input.weather.tauSedimentYears, graceSlots: 0 } : sedimentOf(this.t, box, input.weather);
     // (the block has no vegetation history: what gathers there is read in its place — blockHistory)
     const h = this.history ?? (bc && fuse.natureWeight > 0 ? this.blockHistory(bc.top) : null);
@@ -2594,11 +2668,7 @@ export class SpaceModel {
       this.fuseChunks.clear();
       this.fusedAt.clear();
       this.districtMass.clear();
-      this.units.clear();
-      this.unitOrphans = [];
-      this.unitFused.clear();
-      this.unitJob = null;
-      this.unitsEmitted = -1;
+      this.dropUnits();
       return mergeMeshes(fuse.enabled ? bakedMeshes : []);
     }
     const u = box.unit;
@@ -2732,13 +2802,7 @@ export class SpaceModel {
       // (never "unchanged" for good: the buildings go on changing — every call looks again)
       return this.fuseBuildings(bySlot, h, u, sed, !!layerDecay, fuse, padSlots, box);
     }
-    if (this.units.size || this.unitOrphans.length || this.unitJob) {
-      this.units.clear();
-      this.unitOrphans = [];
-      this.unitFused.clear();
-      this.unitJob = null;
-      this.unitsEmitted = -1;
-    }
+    if (this.units.size || this.unitOrphans.length || this.unitJob || this.remoteOn) this.dropUnits();
     // the age clock in the keys moves once per chunk of slots (it only tints and pits), not every slot
     const clockKey = Math.floor(sed.tNow / (box.secPerUnit * NATURE_CHUNK));
     // each chunk's grid covers ITS parts (± a margin), not the whole ground: as the flocks moved over the world the
@@ -3034,6 +3098,8 @@ function concat(parts: { pos: Float32Array; col: Float32Array }[]): PointsResult
 /** What the view posts to the space worker. */
 export type SpaceRequest =
   | { type: "events"; add: PEvent[]; reset?: boolean; keepBuilt?: boolean; epoch?: string | null }
+  /** The workers beside the model's (SpaceModel.attachPorts): one end of a channel to each; null = none (any more). */
+  | { type: "ports"; fuse?: MessagePort | null; walk?: MessagePort | null }
   | { type: "compute"; id: number; now?: number; parts?: PartsInput; nature?: NatureInput; reclaim?: ReclaimInput; fuse?: FuseInput; paths?: { rise: number; smooth?: number } };
 
 /**
@@ -3071,6 +3137,10 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
     if (m.epoch !== undefined) model.setEpoch(m.epoch);
     if (m.reset) model.reset(!!m.keepBuilt);
     model.add(m.add);
+    return null;
+  }
+  if (m.type === "ports") {
+    model.attachPorts(m);
     return null;
   }
   const t0 = performance.now();

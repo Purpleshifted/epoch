@@ -120,6 +120,24 @@ export interface WalkOptions {
   present?: number;
 }
 
+/**
+ * A ROUND OF THE WAYS ASKED OF A WORKER OF THEIR OWN (components/parliament/side.worker.ts; 2026-11-16), and its
+ * answer. The events are not sent with it: that worker is given the log as the model's is.
+ */
+export interface WalkRequest {
+  type: "walk";
+  serial: number;
+  seeds: Seed[];
+  cfg: WalkConfig;
+  opts: WalkOptions;
+}
+export interface WalkResult {
+  type: "walks";
+  serial: number;
+  walks: Walkways;
+  ms: number;
+}
+
 /** A drawn link still in use: its layer, its two ends, its line, and the last slot it was seen walked. */
 type Link = { key: string; flat: [number, number][]; a: [number, number]; b: [number, number]; /** Mean path strength along it (0..1). */ p: number };
 type Alive = { k: number; a: [number, number]; b: [number, number]; flat: [number, number][]; seen: number };
