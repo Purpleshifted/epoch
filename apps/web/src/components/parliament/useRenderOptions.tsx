@@ -16,10 +16,11 @@
  * when they change — the scene inside is rebuilt, the world outside the Canvas goes on.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { folder, useControls } from "leva";
 import * as THREE from "three";
+import { BlendFunction, Effect } from "postprocessing";
 import { savable } from "./levaSave";
 
 type Tri = "auto" | "on" | "off";
@@ -59,6 +60,8 @@ export interface RenderInputs {
     dofBokeh: number;
     lodNear: number;
     lodMid: number;
+    /** 전시 카메라 › 해 (자동 운행): minutes for one turn of the sun's azimuth (0 = fixed). */
+    sunTurnMin: number;
   };
 }
 
@@ -91,6 +94,10 @@ export interface RenderOptions {
   aoHalfRes: boolean;
   /** 0 = no grain pass. */
   grain: number;
+  /** The grain stands still (the same pattern every frame) instead of changing every frame. */
+  grainStill: boolean;
+  /** The sun's turn: null = as 전시 카메라 › 해 says; otherwise minutes for one turn (0 = the sun stands). */
+  sunTurnMin: number | null;
   dof: boolean;
   /** Any post-processing pass on. */
   composerOn: boolean;
@@ -139,6 +146,15 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
           { collapsed: true },
         ),
       }),
+      // THE SUN TURNS (the artist, 2026-11-17: "해 돌아가는 거 옵션 추가해 이전버전에 있던 거"): the pre-redesign wall's
+      // sun day (전시 카메라 › 해 (자동 운행)), switched and paced here
+      "해 돌기": folder(
+        {
+          sunSpin: { options: { "자동 (전시 카메라 › 해 값 따름)": "auto", "켬": "on", "끔 (해 고정)": "off" } as Record<string, Tri>, value: "auto" as Tri, label: "해가 돎" },
+          sunSpinMin: { value: saved.sunTurnMin > 0 ? saved.sunTurnMin : 90, min: 0.5, max: 480, step: 0.5, label: "해 한 바퀴 (분 · 켬일 때)" },
+        },
+        { collapsed: false },
+      ),
       "후처리": folder({
         composerMsaa: {
           options: { "0 (끔)": 0, "2": 2, "4": 4, "8 (지금까지)": 8 } as Record<string, number>,
@@ -162,6 +178,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
         ),
         grain: tri("그레인"),
         grainAmount: { value: saved.grain > 0 ? saved.grain : 0.18, min: 0.01, max: 1, step: 0.01, label: "그레인 양" },
+        // (the artist, 2026-11-17: "그레인 고정시키고")
+        grainStill: { value: true, label: "그레인 고정 (끄면 매 프레임 바뀌며 지글거림)" },
         dof: tri("피사계 심도 (흐림 · 비쌈)"),
         "피사계 심도 세부": folder(
           {
@@ -232,6 +250,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       aoQuality: perf ? "performance" : saved.aoQuality,
       aoHalfRes: perf || saved.aoHalfRes,
       grain,
+      grainStill: false,
+      sunTurnMin: null,
       dof,
       composerOn: ao || grain > 0 || dof,
       composerMsaa: 8,
@@ -266,6 +286,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
     aoQuality: q === "auto" ? (perf ? "performance" : saved.aoQuality) : q,
     aoHalfRes: pick(k.aoHalfRes as Tri, perf || saved.aoHalfRes),
     grain,
+    grainStill: k.grainStill as boolean,
+    sunTurnMin: k.sunSpin === "on" ? (k.sunSpinMin as number) : k.sunSpin === "off" ? 0 : null,
     dof,
     composerOn: ao || grain > 0 || dof,
     composerMsaa: k.composerMsaa as number,
@@ -345,4 +367,26 @@ export function RenderTuning({ shadowType, shadowMapSize, shadowsOn }: { shadowT
     sizeShadows();
   });
   return null;
+}
+
+/**
+ * THE GRAIN STANDS STILL (the artist, 2026-11-17: "그레인 고정시키고"): postprocessing's NoiseEffect draws a new pattern
+ * every frame (its random is seeded by the time); this one is seeded by the pixel alone — the same grain every frame.
+ * Premultiplied and screened as the wall's Noise was.
+ */
+class StillNoiseEffect extends Effect {
+  constructor() {
+    super(
+      "StillNoiseEffect",
+      "void mainImage(const in vec4 inputColor,const in vec2 uv,out vec4 outputColor){vec3 noise=vec3(rand(uv*1.618+0.137));outputColor=vec4(min(inputColor.rgb*noise,vec3(1.0)),inputColor.a);}",
+      { blendFunction: BlendFunction.SCREEN },
+    );
+  }
+}
+
+export function StillNoise({ opacity }: { opacity: number }) {
+  const effect = useMemo(() => new StillNoiseEffect(), []);
+  useEffect(() => () => effect.dispose(), [effect]);
+  effect.blendMode.opacity.value = opacity;
+  return <primitive object={effect} dispose={null} />;
 }
