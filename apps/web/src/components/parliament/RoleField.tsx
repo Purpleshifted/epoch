@@ -65,6 +65,7 @@ import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
+import { botServerOn, useVisitorLink } from "./useBotServer";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
@@ -184,6 +185,9 @@ export function RoleField({
     epochMs.current = getEpochMs(); // the world was cleared: join the NEW epoch (and its history window is unset)
   });
   const epochMs = useRef(0);
+  // the visitor where they stand, to the bot server: the walls see them and the bots go to them; and what is written
+  // round them (the bots, the others) comes back into this log (useBotServer.ts)
+  const toServer = useVisitorLink(typeof window !== "undefined" && botServerOn(), log);
   // the ground, folded as it grows (foldState.ts): the whole world is folded, the region only chooses what is read
   const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
   const stressAt = useStressState(log, natureCfg);
@@ -269,7 +273,10 @@ export function RoleField({
     const e: PEvent = { id: `${o}:${me.current.tag}:${seq.current++}`, o, r, k, x: wrapCoord(x), z: wrapCoord(z), s };
     log.add(e);
     pending.current.push(e);
-    if (o === me.current.id && k === "p") myEvents.current.push(e);
+    if (o === me.current.id && k === "p") {
+      myEvents.current.push(e);
+      toServer(e, epochMs.current);
+    }
   };
 
   // ── emit presence and mirror to localStorage: world clock (worldClock.ts, may run faster than the wall clock) for

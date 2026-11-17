@@ -11,8 +11,8 @@
  * the ground the wall feeds (botGround.built) and the tails, which the wall's vegetation reads.
  */
 
-import { useEffect, useRef } from "react";
-import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, type EventLog, type PEvent } from "@/lib/parliament";
+import { useCallback, useEffect, useRef } from "react";
+import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, timeRate, type EventLog, type PEvent } from "@/lib/parliament";
 import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
 import { risePause } from "@/lib/parliament/rise";
 
@@ -47,6 +47,8 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
     let gone = false, tries = 0, retry = 0;
     let epoch = 0;
     let sentSetup: string | null = null;
+    // the clock's rate as the server last said it: a rate set here (the 시간축 knob) is sent on
+    let serverRate: number | null = null;
     let openedDensity: string | null = null;
     const json = () => {
       const s = setupOf.current();
@@ -112,6 +114,7 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
           const clock = d.clock as { r: number; v: number; rate: number };
           try {
             localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify({ r: clock.r - skew, v: clock.v, rate: clock.rate }));
+            serverRate = clock.rate;
             const prev = currentEpochKey();
             if (prev !== String(d.epochMs)) {
               // (this browser's world ends: useWorld empties the log, and the server's is taken)
@@ -156,6 +159,7 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
           const clock = d.clock as { r: number; v: number; rate: number };
           try {
             localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify({ r: clock.r - skew, v: clock.v, rate: clock.rate }));
+            serverRate = clock.rate;
           } catch {
             // (this tab only)
           }
@@ -183,6 +187,12 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
       else if (pending.length > 50000) pending.length = 0;
       const ws = sock.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // the time rate set here (the wall's 시간축 knob): the world's clock follows, every view and phone with it
+      const rate = timeRate();
+      if (serverRate !== null && Math.abs(rate - serverRate) > 1e-6) {
+        serverRate = rate;
+        ws.send(JSON.stringify({ t: "rate", rate }));
+      }
       // the knobs turned here: the server's bots follow
       const mine = json();
       if (mine && mine !== sentSetup && turned()) {
@@ -219,4 +229,90 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
 /** A setup as the knobs make it, without the density's config (that comes from the wall a moment later). */
 function handKey(s: BotSetup | null): string {
   return s ? JSON.stringify({ ...s, density: null }) : "";
+}
+
+/**
+ * THE VISITOR'S SAMPLES TO THE BOT SERVER (the personal view, a phone): the phone joins the world's epoch and clock,
+ * and what it sends is its visitor where they stand, a few times a second. The walls see them, and the bots go to
+ * them. What the server writes NEAR the visitor (the bots, the others; the artist, 2026-11-17: "보여야겠지") comes
+ * back into the phone's log — not the whole world, which a phone need not hold. Returns the function the player view gives each sample of
+ * its visitor to, with the epoch it was made in (samples of another epoch — before the phone joined — are not sent).
+ */
+export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epochMs: number) => void {
+  const queue = useRef<{ e: PEvent; epochMs: number }[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    let gone = false, tries = 0, retry = 0;
+    let ws: WebSocket | null = null;
+    let epoch = 0;
+    // (the phone's own world ending: until useWorld has emptied the log, nothing of the server's is put in it)
+    let waitDrops = -1;
+    const joined = () => {
+      if (waitDrops >= 0 && log.drops !== waitDrops) waitDrops = -1;
+      return waitDrops < 0;
+    };
+    const connect = () => {
+      if (gone) return;
+      const sock = new WebSocket(`${BOT_SERVER}/${BOT_WORLD}?as=visitor`);
+      ws = sock;
+      sock.onopen = () => {
+        tries = 0;
+      };
+      sock.onmessage = (m) => {
+        let d: { t?: string; epochMs?: number; serverNow?: number; clock?: { r: number; v: number; rate: number } };
+        try {
+          d = JSON.parse(String(m.data));
+        } catch {
+          return;
+        }
+        if (d.t === "ev") {
+          // (only once the phone's own world has ended and it is in the server's: useWorld empties the log on the
+          // epoch's change, and what came before would go with it)
+          if (epoch && currentEpochKey() === String(epoch) && joined()) log.addMany((d as { events?: PEvent[] }).events ?? []);
+          return;
+        }
+        if ((d.t !== "hello" && d.t !== "clock") || !d.clock || typeof d.serverNow !== "number") return;
+        const skew = d.serverNow - Date.now();
+        try {
+          localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify({ r: d.clock.r - skew, v: d.clock.v, rate: d.clock.rate }));
+          // (the player view's own world ends and it joins the server's epoch: useWorld's onCleared)
+          if (d.t === "hello" && typeof d.epochMs === "number" && currentEpochKey() !== String(d.epochMs)) {
+            if (currentEpochKey() !== null) waitDrops = log.drops;
+            localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(d.epochMs));
+          }
+        } catch {
+          // (no storage)
+        }
+        if (d.t === "hello" && typeof d.epochMs === "number") epoch = d.epochMs;
+      };
+      sock.onclose = () => {
+        if (ws === sock) ws = null;
+        if (gone) return;
+        retry = window.setTimeout(connect, RETRY_MS[Math.min(RETRY_MS.length - 1, tries++)]);
+      };
+    };
+    connect();
+    const timer = window.setInterval(() => {
+      const q = queue.current;
+      if (!q.length || !ws || ws.readyState !== WebSocket.OPEN || !epoch) return;
+      const events = q.filter((x) => x.epochMs === epoch).map((x) => x.e);
+      q.length = 0;
+      if (events.length) ws.send(JSON.stringify({ t: "people", events }));
+    }, 250);
+    return () => {
+      gone = true;
+      window.clearTimeout(retry);
+      window.clearInterval(timer);
+      ws?.close();
+    };
+  }, [active, log]);
+  return useCallback(
+    (e: PEvent, epochMs: number) => {
+      if (!active) return;
+      const q = queue.current;
+      q.push({ e, epochMs });
+      if (q.length > 400) q.splice(0, q.length - 400);
+    },
+    [active],
+  );
 }
