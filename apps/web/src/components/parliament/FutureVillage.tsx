@@ -510,7 +510,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         <bufferGeometry />
         <lineBasicMaterial color="#6f757c" />
       </lineSegments>
-      <points ref={veg} frustumCulled={false}>
+      {/* (named: the folder 미래 마을 층 — 땅 아래 shows it or not — FutureUnder showInferred) */}
+      <points ref={veg} name="future-veg" frustumCulled={false}>
         <bufferGeometry />
         <pointsMaterial vertexColors size={k.vegSize} sizeAttenuation />
       </points>

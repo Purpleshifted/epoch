@@ -896,6 +896,15 @@ export class SpaceModel {
     return { roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld) };
   }
 
+  /** The villages alive at time `t` (s) as the wild forest's regions — [x, z, radius]; all of them if none is alive. */
+  private regionsAt(t: number): [number, number, number][] {
+    const vs = this.waterCfg?.villages;
+    if (!vs) return [];
+    const all = vs.sites.map((q) => [q[0], q[1], q[4] ?? vs.radius, q[2], q[3]] as const);
+    const alive = all.filter((q) => q[3] <= t && t < q[4]);
+    return (alive.length ? alive : all).map((q) => [q[0], q[1], q[2]]);
+  }
+
   private futureKey = "";
   private futureAt = 0;
   /**
@@ -951,7 +960,7 @@ export class SpaceModel {
     // path at all, so no frame was drawn and no ground counted as trodden. A cell is path in a slot when a way in
     // use then crosses it (waysBySlot); the pipes are every run laid.
     const ways = this.waysBySlot(K - Math.max(4, Math.round(cfg.band)), K);
-    const plan0 = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => ways.get(k)?.has(cx * 65536 + cz) ?? false, streams: this.drain.streams, pipes: this.drain.pipes, cfg });
+    const plan0 = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => ways.get(k)?.has(cx * 65536 + cz) ?? false, streams: this.drain.streams, pipes: this.drain.pipes, regions: this.regionsAt((K + 0.5) * box.secPerUnit), cfg });
     // (the ways as the walk worker's own smooth lines, unless the knob says the cells)
     const plan = cfg.smoothRoads === false ? plan0 : { ...plan0, ...this.waysLinesAt(K, Math.floor(Math.max(4, Math.round(cfg.band)) / 2)) };
     // THE BUILDINGS ARE MADE AS THE COLUMN'S ARE (the artist, 2026-11-16, of the first version's plain boxes: "너무 좀...
@@ -1010,6 +1019,9 @@ export class SpaceModel {
       if (since === 0) toEnd++;
       const stripTo = fate && since > 0 ? Math.max(goneTo, 0.8 * Math.min(1, since / 3)) : goneTo;
       for (const b of boxesOfSeed(fs, fcfg)) {
+        // (the kinds' shares: FutureConfig.partShare — a part of a kind kept at less than all is dropped by its own number)
+        const share = cfg.partShare?.[b.kind];
+        if (share !== undefined && share < 1 && hash2(Math.round(b.x * 811) ^ b.seed, Math.round(b.z * 797) ^ Math.round(b.y * 787), 6211) >= share) continue;
         const body = b.kind === "mass" || b.kind === "slab" || b.kind === "beam" || b.kind === "brace" || b.kind === "drip";
         if (rank(b) >= (body ? stripTo : goneTo)) {
           (lists[b.kind] ??= []).push(b);
@@ -3546,7 +3558,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.vegWild ? [out.future.vegWild] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };

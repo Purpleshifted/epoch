@@ -143,6 +143,9 @@ export interface FutureConfig {
   /** PLANTS OVER THE WHOLE GROUND ("애초에 전역에 식생이 있어야"): clouds on the ground anywhere, not only round what was
    *  built or walked; `density` 0 … 1 how thick (0 = none beyond the margin, as before). */
   ground?: { density: number };
+  /** THE BUILDINGS' PARTS BY THEIR KIND (the artist, 2026-11-17: "건축물 부재 비중도 간단하게 조절 가능하도록 해줘"): the
+   *  share 0 … 1 of each kind of part that is kept (absent = 1). The rule is the caller's (SpaceModel.computeFuture). */
+  partShare?: Record<string, number>;
   /** The ways as the walk worker's own smooth lines (the caller's, SpaceModel.waysLinesAt); false = cell by cell. */
   smoothRoads?: boolean;
   /** HOW FAR THINGS SPREAD from their cell (the artist, 2026-11-17: "흙이든 둔덕이든 식생이든 '퍼진 정도' 조절할 수 있게
@@ -202,9 +205,12 @@ export interface FutureResult {
   /** THE WATER'S BELT OF PLANTS (FutureConfig.water.belt): [x, y (slots above the ground), z, shade 0..1] per point.
    *  With it `water` is empty. */
   vegWater?: Float32Array;
+  /** THE WILD FOREST's plants that are not trees (FutureConfig.ground — ground nobody kept, by region): [x, y, z,
+   *  shade] per point, apart from `veg` (the inferred plants) so it can be shown or not on its own. */
+  vegWild?: Float32Array;
   /** …and what each tree is: [x, z, its foot (slots above the ground), its stem's height (slots), its crown's
    *  radius (world), where its crown begins and where it ends (slots above its foot), a number 0..1 of its own]. */
-  treeStems?: Float32Array;
+  treeStems?: Float32Array; // + [shape: 0 ball, 1 cone, 2 umbrella, wild: 1 = of the wild forest] (10 a tree)
   /** The ground it stands on: [minX, minZ, maxX, maxZ] (world), or empty when nothing is inferred. */
   ground: Float32Array;
   /** How much of each there is (the readout). */
@@ -224,6 +230,8 @@ export interface FutureInput<C> {
   streams: ReadonlyMap<number, readonly Float32Array[]>;
   /** The runs of pipe laid (world; `k` = the slot a run was laid in, `k0` set = a riser, which is no run of the plan). */
   pipes?: Iterable<{ ax: number; az: number; bx: number; bz: number; k: number; k0?: number }>;
+  /** The villages alive at the slot read: [x, z, radius] (world) — the regions the wild forest is told apart by. */
+  regions?: readonly [number, number, number][];
   cfg: FutureConfig;
 }
 
@@ -548,10 +556,12 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const kindAt = (cx: number, cz: number, salt: number): number => {
     if (!succ) return -1;
     const q = key(cx, cz), st = stand.get(q);
+    // (the wild forest: ground nobody kept is further along — scrub and trees)
+    const wildBoost = wildCells.has(q) ? 0.45 : 0;
     // (a place built only before the band was left longest of all)
     const cq = cells.get(q);
     const away = cq ? Math.min(1, cq.since / band) : dep.has(q) ? 1 : 0;
-    const v = 0.15 + 0.9 * ruinT + 0.35 * away + 0.35 * (damp.get(q) ?? 0) + (piped.has(q) ? 0.2 : 0) - (st && st.left > 0.45 ? 0.35 : 0) + (hash(cx, cz, salt + 9) - 0.5) * 0.3;
+    const v = wildBoost + 0.15 + 0.9 * ruinT + 0.35 * away + 0.35 * (damp.get(q) ?? 0) + (piped.has(q) ? 0.2 : 0) - (st && st.left > 0.45 ? 0.35 : 0) + (hash(cx, cz, salt + 9) - 0.5) * 0.3;
     return v < 0.6 ? 0 : v < treeAt ? 1 : 2;
   };
   // THE GROUND REMEMBERS WHAT IT WAS USED FOR (stage 5 of the order of 2026-11-17; the artist: "5단계 진행";
@@ -567,7 +577,8 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const d = soil ? dep.get(key(cx, cz)) : undefined;
     return d ? Math.min(1, (d.total / Math.max(1, cfg.moundAt ?? 12) + 0.5 * (d.ep - 1)) / 2) : 0;
   };
-  const clouds: { x: number; z: number; r: number; tall: number; n: number; kind: number; used: number; shape?: string; asp?: number }[] = [];
+  const clouds: { x: number; z: number; r: number; tall: number; n: number; kind: number; used: number; shape?: string; asp?: number; wild?: boolean }[] = [];
+  const wildCells = new Set<number>();
   const clouded = new Set<number>();
   const per = Math.max(0, cfg.vegPer);
   const kinds = [0, 0, 0];
@@ -587,11 +598,12 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     // (a tree's shape: one of the three by their shares; and its crown's own proportion)
     const shape = kind !== 2 ? undefined : shapeOf(hash(cx, cz, salt + 12));
     const asp = kind !== 2 ? 1 : Math.max(0.3, 1 + (hash(cx, cz, salt + 13) - 0.5) * 1.4 * shapeJ);
-    clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp });
+    const wild = wildCells.has(key(cx, cz));
+    clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp, wild });
     // (some are two-lobed)
     if (hash(cx, cz, salt + 3) < 0.3) {
       const t = hash(cx, cz, salt + 4) * Math.PI * 2, u5 = hash(cx, cz, salt + 5);
-      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp });
+      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp, wild });
     }
   };
   // THE WATER AS EMPTINESS and PLANTS EVERYWHERE (FutureConfig.water.gap, .ground): how far each cell near the
@@ -611,6 +623,25 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     }
   }
   const everywhere = Math.max(0, Math.min(1, cfg.ground?.density ?? 0));
+  // (the wild forest's weight at a cell, 0 … 1: by the nearest village — its own character — how far from its middle,
+  // and whether the cell lies on the seam between two regions)
+  const regs = input.regions ?? [];
+  const wildAt = (cx: number, cz: number): number => {
+    if (!regs.length) return 0.5;
+    const x = (cx + 0.5) * CELL, z = (cz + 0.5) * CELL;
+    let i1 = -1, d1 = Infinity, d2 = Infinity;
+    regs.forEach(([rx, rz], i) => {
+      const d = Math.hypot(x - rx, z - rz);
+      if (d < d1) [d2, d1, i1] = [d1, d, i];
+      else if (d < d2) d2 = d;
+    });
+    const r = Math.max(CELL, regs[i1][2]);
+    const t = Math.max(0, Math.min(1, (d1 - r * 0.6) / Math.max(1e-6, r * 1.2)));
+    const away = t * t * (3 - 2 * t);
+    const own = 0.35 + 0.9 * hash(i1, 7, 91);
+    const seam = d2 - d1 < CELL * (1.5 + spread * 2) ? 0.3 : 1;
+    return Math.min(1, (0.15 + 0.85 * away) * own * seam);
+  };
   const HALF = 80;
   const [gx0, gx1, gz0, gz1] = everywhere > 0 ? [-HALF, HALF - 1, -HALF, HALF - 1] : [x0, x1, z0, z1];
   for (let cz = gz0; cz <= gz1; cz++) {
@@ -633,8 +664,16 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
         }
       }
       if (!inNear) {
-        // (anywhere on the ground: thin, grass and scrub — and, with a spread, the margin's own clouds spill over here by chance)
-        if (free && h1 < everywhere * 0.12) cloud(cx, cz, 0.9 + 1.8 * hash(cx, cz, 45), 900);
+        // THE WILD FOREST (the artist, 2026-11-17: "물길과 무관하게 자라는 식생이라는 게 … 사람 없이 놔두면 자라는 숲 같은
+        // 느낌으로 권역 구분도 느껴질 겸 조성하라는 거였음"): ground nobody kept turns to forest — the thicker the further
+        // from where a village lived (its core stays open longest), each REGION (the ground nearest one village) with a
+        // forest of its own density, and the seam between two regions a thinner strip — so the regions read in it
+        if (!free) continue;
+        const w = wildAt(cx, cz);
+        if (w > 0 && h1 < everywhere * w * 0.55) {
+          wildCells.add(q);
+          cloud(cx, cz, 1.0 + 1.6 * hash(cx, cz, 45), 900);
+        }
         continue;
       }
       // THE PLANTS TAKE WHAT IS LEFT: the less is left of a building, the surer a cloud begins on it
@@ -681,7 +720,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     if (cracked.size) layRoads(cracked);
   }
   Object.assign(n, { grass: kinds[0], shrub: kinds[1], tree: kinds[2], cracked: cracked.size });
-  const veg: number[] = [], vegOld: number[] = [], vegTree: number[] = [], treeStems: number[] = [];
+  const veg: number[] = [], vegOld: number[] = [], vegTree: number[] = [], treeStems: number[] = [], vegWild: number[] = [];
   // (the cap on the points: the trees' apart from the rest — the artist, 2026-11-17: "나무에 달리는 점 양 조절은 또 왜 안
   // 됨": with plants over the whole ground the one cap thinned the trees with everything else, and their knob did nothing)
   const CAP = 60000, TREE_CAP = 40000;
@@ -695,7 +734,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     if (apart && c.kind === 2) {
       const sb = stand.get(key(cellOf(c.x), cellOf(c.z))), a = c.asp ?? 1;
       const [lo, hi] = c.shape === "cone" ? [c.tall * 0.45, c.tall * 0.45 + c.r * 1.7 * a] : c.shape === "umbrella" ? [c.tall, c.tall + c.r * 0.3 * a] : [c.tall - c.r * 0.06 * a, c.tall + c.r * 0.54 * a];
-      treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(ci, 7, 8));
+      treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(ci, 7, 8), c.shape === "cone" ? 1 : c.shape === "umbrella" ? 2 : 0, c.wild ? 1 : 0);
     }
     for (let i = 0; i < nPts; i++) {
       // (thick in its middle, thinning to its edge)
@@ -728,7 +767,9 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       // (stage 5: of ground that was used, that share of the points are the other plants)
       const other = c.used > 0 && hash(ci, i, 6) < c.used;
       // (a tree's points apart, when the drawer asks for them so: FutureConfig.tree.apart)
-      if (apart && c.kind === 2) vegTree.push(x, y, z, 0.4 * u4, other ? 1 : 0);
+      // (the trees' own colours: no longer the other plants' of used ground; 2 = of the wild forest)
+      if (apart && c.kind === 2) vegTree.push(x, y, z, 0.4 * u4, c.wild ? 2 : 0);
+      else if (c.wild) vegWild.push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : 0.25 + 0.5 * u4);
       else (other ? vegOld : veg).push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : c.kind === 1 ? 0.25 + 0.5 * u4 : c.kind === 2 ? 0.4 * u4 : u4);
     }
   });
@@ -772,5 +813,5 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
 
   const buildings: FutureBuilding<C>[] = [];
   for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
-  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt || gapR + edgeR > 0 ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
+  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt || gapR + edgeR > 0 ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), vegWild: Float32Array.from(vegWild), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }
