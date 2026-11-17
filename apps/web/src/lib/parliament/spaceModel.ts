@@ -3378,7 +3378,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   }
   if (m.fuse) {
     out.fuse = timed("fuse", () => model.computeFuse(m.fuse!));
-    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB]) if (a) transfer.add(a.buffer as ArrayBuffer);
+    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB, out.fuse.late]) if (a) transfer.add(a.buffer as ArrayBuffer);
   }
   if (m.future) {
     // (a fault in the inferred village must not take the wall with it: an exception here ended the worker, the view

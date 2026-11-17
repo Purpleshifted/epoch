@@ -304,6 +304,10 @@ interface ResinLook {
   /** The fossil's progress: how much of it is the age of what stands there (0 … 1), whole over this many slots. */
   growAgeMix?: number;
   growAgeSlots?: number;
+  /** THE FRAME FIRST (fuse.ts FuseMesh.late): how far into the fossil's progress the filling (boxes, plates, rooms)
+   *  waits behind the frame (0 = all at once … 0.9), and how much it fills from each layer's floor upward (0 … 1). */
+  growLate?: number;
+  growRise?: number;
   color: string;
   /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
@@ -407,12 +411,16 @@ interface FuseUniforms {
    *  alone), and the slots of the top's way over which that age is whole. */
   uGrowAgeMix: THREE.IUniform;
   uGrowAgeSpan: THREE.IUniform;
+  /** …how far the filling waits behind the frame, and how much it rises from each layer's floor (ResinLook.growLate). */
+  uGrowLate: THREE.IUniform;
+  uGrowRise: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
     uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeMix: { value: 0.5 }, uGrowAgeSpan: { value: 40 },
+    uGrowLate: { value: 0 }, uGrowRise: { value: 0 },
   };
 }
 
@@ -428,7 +436,8 @@ const FUSE_GROW_VERT_HEAD = `
 attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeMix, uGrowAgeSpan;
+attribute float fuseLate;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeMix, uGrowAgeSpan, uGrowLate, uGrowRise;
 varying float vGrow;`;
 // BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
 // 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
@@ -454,7 +463,13 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // the window lets go of at its foot goes back into its parts over the last two slots above it)
   float growShown = clamp( ( uGrowClock - fuseGrowB.x ) / max( 0.01, uGrowAppear ), 0.0, 1.0 );
   float growKept = clamp( ( fuseGrowA.x - uGrowFloor ) * 0.5, 0.0, 1.0 );
-  vGrow = growLayer * growAged * fuseGrowB.y * growShown * growKept;
+  // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form): the
+  // progress is the frame's; the filling (fuseLate 1: a box, a plate, a room, what the blur adds) begins only once
+  // the frame is that far out, and the higher it lies in its layer the later (it fills from the floor up). The
+  // vegetation's factor stays an amount, not a time: it is applied after.
+  float growTime = growLayer * growAged * growShown * growKept;
+  float growWait = uGrowLate * fuseLate * ( 1.0 - uGrowRise + uGrowRise * fract( fuseGrowA.x + 0.5 ) );
+  vGrow = clamp( ( growTime - growWait ) / max( 0.05, 1.0 - growWait ), 0.0, 1.0 ) * fuseGrowB.y;
   // ONE BODY (the artist, 2026-11-16: "근데 부푸는 건 진짜 개별로던데"): a vertex is no longer pressed to its own part's
   // box — neighbours pressed to different boxes split the mass along the parts. What it reads is the value of its
   // PLACE (fuseUnits.ts placeValues: the parts' values blurred over the space; the layer off its own height), and it
@@ -631,6 +646,8 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?:
     g.setAttribute("fuseAnchor", new THREE.BufferAttribute(r.anchor!, 3));
     g.setAttribute("fuseGrowA", new THREE.BufferAttribute(r.growA!, 4));
     g.setAttribute("fuseGrowB", new THREE.BufferAttribute(r.growB!, 2));
+    // (the frame-first mark; none = all frame)
+    g.setAttribute("fuseLate", new THREE.BufferAttribute(r.late && r.late.length * 3 === r.position.length ? r.late : new Float32Array(r.position.length / 3), 1));
     // (the vertices move in the shader: the mesh's bounds are not where it is drawn)
     mesh.frustumCulled = false;
   }
@@ -1135,6 +1152,7 @@ function SpaceWorld({
     let out = 0, sum = 0, n = 0;
     for (const g of geoms) {
       const A = g.getAttribute("fuseGrowA").array as Float32Array, B = g.getAttribute("fuseGrowB").array as Float32Array;
+      const L = g.getAttribute("fuseLate")?.array as Float32Array | undefined;
       const nv = A.length / 4;
       for (let v = 0; v < nv; v += stepV) {
         n++;
@@ -1145,7 +1163,11 @@ function SpaceWorld({
         const aged = Math.max(0, Math.min(1, (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
         const shown = Math.max(0, Math.min(1, (U.uGrowClock.value - B[v * 2]) / Math.max(0.01, U.uGrowAppear.value)));
         const kept = Math.max(0, Math.min(1, (A[v * 4] - U.uGrowFloor.value) * 0.5));
-        const f = layer * aged * B[v * 2 + 1] * shown * kept;
+        // (as the shader: the filling waits behind the frame)
+        const time = layer * aged * shown * kept;
+        const yIn = A[v * 4] + 0.5 - Math.floor(A[v * 4] + 0.5);
+        const wait = U.uGrowLate.value * (L ? L[v] : 0) * (1 - U.uGrowRise.value + U.uGrowRise.value * yIn);
+        const f = Math.max(0, Math.min(1, (time - wait) / Math.max(0.05, 1 - wait))) * B[v * 2 + 1];
         if (f >= 0.02) out++;
         sum += f;
       }
@@ -1221,6 +1243,8 @@ function SpaceWorld({
     fuseU.uGrowThin.value = Math.max(0, resin.growThin ?? 0.6);
     fuseU.uGrowAgeMix.value = Math.max(0, Math.min(1, resin.growAgeMix ?? 0.5));
     fuseU.uGrowAgeSpan.value = Math.max(1, resin.growAgeSlots ?? 40);
+    fuseU.uGrowLate.value = Math.max(0, Math.min(0.9, resin.growLate ?? 0));
+    fuseU.uGrowRise.value = Math.max(0, Math.min(1, resin.growRise ?? 0));
     fuseU.uGrowFloor.value = shift > 0 && er.height ? fuseU.uGrowTop.value - er.height - Math.max(0, er.tail ?? 0) : -1e9;
   });
   // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
@@ -3758,6 +3782,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growAgeSlots: { value: 40, min: 2, max: 200, step: 1, label: "나이로 다 화석이 되기까지 (꼭대기가 오르는 단 수)", render: () => REDESIGN },
       // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
       growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · 표면 전체가 함께 움직임)", render: () => REDESIGN },
+      // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form back;
+      // fuse.ts FuseMesh.late, the shader's growWait). Shown with the seeded mass; the frame is ③'s tubes (꼴 = 관 /
+      // 크기에 따라) and the pipes and ways
+      growLate: { value: 0.5, min: 0, max: 0.9, step: 0.05, label: "관이 먼저, 판·방은 나중에 (판·방이 기다리는 진행; 0 = 한꺼번에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      growRise: { value: 0.6, min: 0, max: 1, step: 0.05, label: "판·방이 층 바닥부터 차오름 (0 = 높이 상관없이)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
       fuseFrom: {
         options: { "단순화된 것에만 (갓 지은 낱낱의 부재는 융합 안 함)": "assets", "모든 부재에": "all" },
@@ -4084,6 +4113,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growThin: fu.growThin,
       growAgeMix: fu.growAgeMix,
       growAgeSlots: fu.growAgeSlots,
+      growLate: fu.growLate,
+      growRise: fu.growRise,
       color: fu.resinColor,
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
       opacity: fu.resinMode === "alpha" ? fu.resinOpacity : 1,
@@ -4098,7 +4129,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, fu.growAgeMix, fu.growAgeSlots, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.fuseFade, fu.growThin, fu.growAgeMix, fu.growAgeSlots, fu.growLate, fu.growRise, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
