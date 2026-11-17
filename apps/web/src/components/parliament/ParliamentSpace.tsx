@@ -414,6 +414,9 @@ interface FuseUniforms {
   uGrowAgeSpan: THREE.IUniform;
   /** …how far the filling waits behind the frame, and how much it rises from each layer's floor (ResinLook.growLate). */
   uGrowLate: THREE.IUniform;
+  /** …and how far the top would have risen while its rise was stopped (rise.ts; slots): the fossil's AGE is read off
+   *  the top's way plus this, its depth off the top alone. */
+  uGrowStood: THREE.IUniform;
   uGrowRise: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
@@ -421,7 +424,7 @@ function makeFuseUniforms(): FuseUniforms {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowOnset: { value: 0.2 }, uGrowFullAt: { value: 1 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
     uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeMix: { value: 0.5 }, uGrowAgeSpan: { value: 40 },
-    uGrowLate: { value: 0 }, uGrowRise: { value: 0 },
+    uGrowLate: { value: 0 }, uGrowRise: { value: 0 }, uGrowStood: { value: 0 },
   };
 }
 
@@ -438,7 +441,7 @@ attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
 attribute float fuseLate;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeMix, uGrowAgeSpan, uGrowLate, uGrowRise;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowOnset, uGrowFullAt, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeMix, uGrowAgeSpan, uGrowLate, uGrowRise, uGrowStood;
 varying float vGrow;`;
 // BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
 // 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
@@ -458,8 +461,8 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // drew a line across the wall. The age is how far the top has risen since what stands there hardened (the place's
   // blurred value), whole over uGrowAgeSpan slots; the two are mixed before the result is kept to 0 … 1, so what is
   // old comes out above the line and what is new stays in below it.
-  float growLayer = clamp( mix( ( growDepth - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), ( uGrowTop - fuseGrowA.y - uGrowAfter ) / max( 1.0, uGrowAgeSpan ), uGrowAgeMix ), 0.0, 1.0 );
-  float growAged = clamp( ( uGrowTop - fuseGrowA.y - uGrowAfter ) / max( 0.1, uGrowOver ), 0.0, 1.0 );
+  float growLayer = clamp( mix( ( growDepth - uGrowOnset ) / max( 0.01, uGrowFullAt - uGrowOnset ), ( uGrowTop + uGrowStood - fuseGrowA.y - uGrowAfter ) / max( 1.0, uGrowAgeSpan ), uGrowAgeMix ), 0.0, 1.0 );
+  float growAged = clamp( ( uGrowTop + uGrowStood - fuseGrowA.y - uGrowAfter ) / max( 0.1, uGrowOver ), 0.0, 1.0 );
   // (a piece shown a moment ago comes out of its parts over a few seconds — it does not appear at once; and what
   // the window lets go of at its foot goes back into its parts over the last two slots above it)
   float growShown = clamp( ( uGrowClock - fuseGrowB.x ) / max( 0.01, uGrowAppear ), 0.0, 1.0 );
@@ -1159,9 +1162,9 @@ function SpaceWorld({
         n++;
         if (B[v * 2 + 1] < 0) continue;
         const depth = (U.uGrowTop.value - (A[v * 4] + 0.5)) / Math.max(1, U.uGrowHeight.value) + (A[v * 4 + 3] - 1) * 0.15;
-        const byLayer = (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value), byAge = (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(1, U.uGrowAgeSpan.value);
+        const byLayer = (depth - U.uGrowOnset.value) / Math.max(0.01, U.uGrowFullAt.value - U.uGrowOnset.value), byAge = (U.uGrowTop.value + U.uGrowStood.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(1, U.uGrowAgeSpan.value);
         const layer = Math.max(0, Math.min(1, byLayer + (byAge - byLayer) * U.uGrowAgeMix.value));
-        const aged = Math.max(0, Math.min(1, (U.uGrowTop.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
+        const aged = Math.max(0, Math.min(1, (U.uGrowTop.value + U.uGrowStood.value - A[v * 4 + 1] - U.uGrowAfter.value) / Math.max(0.1, U.uGrowOver.value)));
         const shown = Math.max(0, Math.min(1, (U.uGrowClock.value - B[v * 2]) / Math.max(0.01, U.uGrowAppear.value)));
         const kept = Math.max(0, Math.min(1, (A[v * 4] - U.uGrowFloor.value) * 0.5));
         // (as the shader: the filling waits behind the frame)
@@ -1226,6 +1229,9 @@ function SpaceWorld({
     const perTop = shift > 0 ? slotSec / shift : slotSec;
     const w = botGround.window?.();
     fuseU.uGrowTop.value = w && w.shift > 0 ? Math.max(er.height ?? 0, w.top / slotSec) : er.topSlot;
+    // (the rise stopped — rise.ts: what stands in the window goes on ageing, the fossil with it. The clock the model
+    // stamped each part's building with: erode.ts stood — every frame here, in quarters of a slot there)
+    fuseU.uGrowStood.value = w && w.shift > 0 ? Math.max(0, w.stood ?? 0) / slotSec : Math.max(0, er.stood ?? 0);
     fuseU.uGrowHeight.value = Math.max(1, er.height ?? er.topSlot);
     fuseU.uGrowStart.value = er.start;
     fuseU.uGrowFull.value = er.full;
@@ -3418,12 +3424,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   // THE THICK PRESENT RISES (lifecycle.ts shift): where the block's top is now (slots, in quarters — the parts are read
   // again at every quarter), from the bots' own clock; with no bots here, or a block that stands, its height.
-  const [win, setWin] = useState<{ top: number; shift: number; tail: number }>({ top: 0, shift: 0, tail: 0 });
+  const [win, setWin] = useState<{ top: number; shift: number; tail: number; stood: number }>({ top: 0, shift: 0, tail: 0, stood: 0 });
   useEffect(() => {
     const read = () => {
       const w = botGround.window?.();
-      const next = w && w.shift > 0 ? { top: Math.round((w.top / Math.max(1, tAxis.secPerUnit)) * 4) / 4, shift: w.shift, tail: w.tail } : { top: 0, shift: 0, tail: 0 };
-      setWin((cur) => (cur.top === next.top && cur.shift === next.shift && cur.tail === next.tail ? cur : next));
+      // (…and, while the rise is stopped, how far it would have gone — in quarters too: the ages go on by it)
+      const next = w && w.shift > 0 ? { top: Math.round((w.top / Math.max(1, tAxis.secPerUnit)) * 4) / 4, shift: w.shift, tail: w.tail, stood: Math.round((Math.max(0, w.stood ?? 0) / Math.max(1, tAxis.secPerUnit)) * 4) / 4 } : { top: 0, shift: 0, tail: 0, stood: 0 };
+      setWin((cur) => (cur.top === next.top && cur.shift === next.shift && cur.tail === next.tail && cur.stood === next.stood ? cur : next));
     };
     read();
     const iv = window.setInterval(read, 500);
@@ -3452,9 +3459,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0, lodGrid: sm.lodGrid } }
+        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail, stood: win.stood } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0, lodGrid: sm.lodGrid } }
         : weather,
-    [weather, botDepth, rising, win.top, win.shift, win.tail, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread, sm.lodOn, sm.lodSec, sm.lodGrid],
+    [weather, botDepth, rising, win.top, win.shift, win.tail, win.stood, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread, sm.lodOn, sm.lodSec, sm.lodGrid],
   );
   // (the unlived share is read by the gatherings and by the erosion alike)
   const unlivedOn = vg.gaOn || er.erOn;

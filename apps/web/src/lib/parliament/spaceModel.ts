@@ -489,7 +489,7 @@ export class SpaceModel {
    *  assets in it are the same. */
   private assetGroups = new Map<string, { sig: string; boxes: Box[] }>();
   /** An asset's boxes go on by the clock of what they were first made from, whatever is built over them later. */
-  private assetClock = new WeakMap<Box, { born: number; top: number }>();
+  private assetClock = new WeakMap<Box, { born: number; top: number; stood?: number }>();
   /** New building over an asset: when each of its parts arrives ([born, order], as arrive.ts). */
   private lodArrive = new WeakMap<Box, [number, number]>();
   /** A building's parts in another layout (generation g: what is built over an asset is not what was built first). */
@@ -631,7 +631,7 @@ export class SpaceModel {
    * the cell (seed id) and the slot, with the level it had; kept through the forgetting of old samples, emptied with
    * the world. `ageClock` only ever goes forward.
    */
-  private bornT = new Map<number, Map<number, { born: number; level: number; top: number }>>();
+  private bornT = new Map<number, Map<number, { born: number; level: number; top: number; stood?: number }>>();
   /** How far a part's plants have come since it was built (0 during its wait … 1): the gatherings read it. */
   private partSettled: ((b: Box) => number) | null = null;
   private ageClock = 0;
@@ -2172,6 +2172,7 @@ export class SpaceModel {
         if (nowAge - e.born > (input.weather.erode?.waitSec ?? 0)) this.renewals++;
         e.born = nowAge;
         e.top = input.weather.erode?.topSlot ?? 0;
+        e.stood = Math.max(0, input.weather.erode?.stood ?? 0);
       }
     }
     // (the block's parts go on by the clock: they are read again at every step of it)
@@ -2386,6 +2387,11 @@ export class SpaceModel {
     // `lifeSec` at the deepest places. Everything that happens to a part is a threshold of that number, so it happens
     // in order: the plants gather, the part erodes when the progress passes its own threshold, the mass grows on it.
     const ageNow = this.ageClock;
+    // THE AGE'S CLOCK WHILE THE RISE STANDS (erode.ts stood): a cell-slot's age is the top's way since it was built —
+    // and, with the rise stopped, the way the top would have gone meanwhile. Kept beside where the top stood (`top`:
+    // the depth is still read off that) as what this clock stood at then (`stood`). The assets, the erosion's progress,
+    // the plants' coming and the fossil's age all go by the two together.
+    const stoodE = ec ? Math.max(0, ec.stood ?? 0) : 0;
     if (ec && lifeSec > 0) {
       // WHEN A CELL-SLOT WAS BUILT — its parts share that time (a building's parts are made again whenever it grows:
       // kept part by part, every growth would have been a new building). A cell-slot found standing when the wall
@@ -2405,13 +2411,14 @@ export class SpaceModel {
           const e = m.get(k);
           // (the rising window: what was found standing is taken as built when the top was at its own slot — it has
           // sunk all the way since)
-          if (!e) m.set(k, { born: found ? ageNow - lifeSec - waitSec : ageNow, level: lv, top: found ? k + 0.5 : ec.topSlot });
+          if (!e) m.set(k, { born: found ? ageNow - lifeSec - waitSec : ageNow, level: lv, top: found ? k + 0.5 : ec.topSlot, stood: stoodE });
           else if (lv > e.level) {
             e.level = lv;
             // (where an asset stands the building's growing elsewhere builds nothing: only people coming back do)
             if (!this.assets.get(sd.id)?.has(k)) {
               e.born = ageNow;
               e.top = ec.topSlot;
+              e.stood = stoodE;
             }
           }
         }
@@ -2488,14 +2495,14 @@ export class SpaceModel {
             continue;
           }
           if (e) {
-            const age = perTopL > 0 ? (ec.topSlot - e.top) * perTopL : ageNow - e.born;
+            const age = perTopL > 0 ? (ec.topSlot - e.top + stoodE - (e.stood ?? 0)) * perTopL : ageNow - e.born;
             const old = age >= lodSec * (0.7 + 0.6 * hash2(seed, k, 4421));
             if (!st) {
               if (!old) {
                 for (const b of parts) out.push(b);
                 continue;
               }
-              const clock = { born: e.born, top: e.top };
+              const clock = { born: e.born, top: e.top, stood: e.stood };
               st = { src: parts.filter(isMass), kept: parts.filter(isKept).map((b) => ({ ...b })), clock, seenBorn: e.born, over: null, gen: 0, swapAt: arriveQuiet ? -Infinity : arriveNow, swapped: parts };
               for (const q of st.kept) this.assetClock.set(q, clock);
               if (!states) this.assets.set(seed, (states = new Map()));
@@ -2605,7 +2612,7 @@ export class SpaceModel {
     }
     const sunkMemo = new Map<number, Map<number, [number, number]>>();
     /** [progress, how far past its wait the cell-slot is, in steps] of a cell-slot in the rising window. */
-    const sunk = (seed: number, slot: number, clock?: { top: number }): [number, number] => {
+    const sunk = (seed: number, slot: number, clock?: { top: number; stood?: number }): [number, number] => {
       let ms = sunkMemo.get(seed);
       if (!ms) sunkMemo.set(seed, (ms = new Map()));
       // (an asset goes by its own clock — the one of what it was first made from: kept beside the cell-slot's)
@@ -2614,7 +2621,7 @@ export class SpaceModel {
       if (hit) return hit;
       let out: [number, number] = [0, 0];
       const m = this.bornT.get(seed);
-      let e: { top: number } | undefined = clock ?? m?.get(slot);
+      let e: { top: number; stood?: number } | undefined = clock ?? m?.get(slot);
       if (!clock && m && !e) {
         let lo = Infinity;
         for (const k of m.keys()) if (k < lo) lo = k;
@@ -2626,14 +2633,17 @@ export class SpaceModel {
         const stepTop = lifeTop / AGE_STEPS;
         const [sx, sz] = xzOfSeed.get(seed) ?? [0, 0];
         const ph = (phaseOf(sx, sz, slot) * stepTop) / AGE_PHASES;
-        const t0 = e.top + waitTop;
-        const t1 = Math.floor((ec.topSlot + ph) / stepTop) * stepTop - ph;
+        // (on the age's clock — the top's way plus what went on while the rise stood, erode.ts stood. The depth at
+        // each moment is read below the top where it really was: taken as risen first, then standing where it is)
+        const sb = e.stood ?? 0;
+        const t0 = e.top + sb + waitTop;
+        const t1 = Math.floor((ec.topSlot + stoodE + ph) / stepTop) * stepTop - ph;
         if (t1 > t0) {
           const g = gatherOfSeed.get(seed)?.get(slot) ?? 0;
           const N = 8;
           let sum = 0;
           for (let q = 0; q < N; q++) {
-            const top = t0 + ((q + 0.5) / N) * (t1 - t0);
+            const top = Math.min(ec.topSlot, t0 + ((q + 0.5) / N) * (t1 - t0) - sb);
             sum += Math.max(0, Math.min(1, erosionAt(slot, g, { ...ec, topSlot: top }) * old(slot, sx, sz, top)));
           }
           out = [Math.min(1, ((sum / N) * (t1 - t0)) / lifeTop), (t1 - t0) / stepTop];
@@ -3032,7 +3042,7 @@ export class SpaceModel {
     const seedXZ = seeded ? new Map(this.seeds.map((sd) => [sd.id, [sd.x, sd.z] as const] as const)) : null;
     const spreadS = Math.max(0, Math.min(1, fuse.freshSpread ?? 0)), freshS = Math.max(0, fuse.freshSlots ?? 0);
     const amountS = bc ? Math.min(1, Math.max(0, bc.erode.amount)) : 0;
-    const goneKey = bc ? `${JSON.stringify({ ...bc.erode, topSlot: 0 })}:${fuse.fuseOnset}:${freshS}:${spreadS}` : "";
+    const goneKey = bc ? `${JSON.stringify({ ...bc.erode, topSlot: 0, stood: 0 })}:${fuse.fuseOnset}:${freshS}:${spreadS}` : "";
     for (const b of this.built) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       if (assetsOnly && !this.assetClock.has(b)) continue;
@@ -3046,7 +3056,10 @@ export class SpaceModel {
         if (most < 0.05) continue;
         const [sx, sz] = seedXZ.get(b.seed) ?? [b.x, b.z];
         const nEff = freshS > 0 ? freshS * (spreadS > 0 ? 1 + spreadS * (placeNoise(sx, sz, b.slot, bc.erode.grain * 2) * 2 - 1) : 1) : 0;
-        const bornTop = this.assetClock.get(b)?.top ?? bc.top;
+        const ac = this.assetClock.get(b);
+        const bornTop = ac?.top ?? bc.top;
+        // (what the shader reads the fossil's age off: the age's clock at its building — erode.ts stood)
+        const bornAge = bornTop + Math.max(0, ac ? (ac.stood ?? 0) : (bc.erode.stood ?? 0));
         // A PART THAT GOES BEFORE ITS FOSSIL BEGINS LEAVES NONE (the wall's shader lets the fossil out by the layer's
         // depth: FUSE_GROW_VERT_BODY): how deep the part lies when the erosion takes it — its progress summed slot by
         // slot of the top's way, as computeParts does — against the depth its fossil begins at (kept per part: it
@@ -3073,7 +3086,7 @@ export class SpaceModel {
         // 느낌이 날 것 같음"): the share of parts kept as skeleton — only thinly wrapped, their orthogonal form left —
         // is kept in the seeded mass too, for good (its mass is the mass as it will be: there is no progress at which
         // the skeleton is swallowed). It was switched off here, and the foam opened on plain mass.
-        const e: P = { b, d: 1, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornTop, g, own, nEff, most] };
+        const e: P = { b, d: 1, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);
         else bySlot.set(b.slot, [e]);
