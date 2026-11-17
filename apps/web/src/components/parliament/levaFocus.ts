@@ -18,6 +18,11 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 
 /** The folders the view of the layer above alone lists: the layer's own and what is left under its ground. */
 const FUTURE_GROUPS = ["미래 마을 층"] as const;
+/** The layer's knobs that no longer fit what it is (growth at the edge, "not yet" opacity) or are superseded (the
+ *  plants' colours: grass, scrub and trees have their own in 미래 마을 층 — 땅 아래). They still hold their values. */
+const LAYER_RETIRED = new Set(["edge", "gain", "opacity", "vegColorA", "vegColorB"]);
+/** The pit and its light: not drawn in the view of the layer alone. */
+const LAYER_NO_PIT = new Set(["pit", "pitAbove", "beamGlow", "beamFall", "beamTaper", "beamSoft", "beamDeep", "pitDepth", "pitWide", "pitShaft", "pitLight", "pitDark", "pitWall", "pitFall", "pitBands"]);
 
 /** The key of the checkbox, in a group that is cut down, that lists all of the group again. */
 export const FOCUS_ALL_KEY = "allKnobs";
@@ -86,6 +91,13 @@ function postLive(): void {
 function listed(path: string, data: Record<string, { value?: unknown } | undefined>): boolean {
   // THE LAYER ABOVE ALONE (/rehearsal/future, lib/parliament/futureOnly.ts; the artist, 2026-11-17: "관련없는 레바는
   // 다 빼고"): only that layer's folders are listed — every other knob keeps its value and still applies
+  // (knobs of the layer's own folder that no longer fit it — the growth rules, the plants' old colours, now each kind
+  // of plant's own — and, in the view of the layer alone, the pit it does not draw: the artist, 2026-11-17: "지금 수정
+  // 현황이랑 안 맞는 레버 혹은 미래 뷰에서 쓸 일 없는 레바 뭔지 파악해서 빼고")
+  if (path.startsWith("미래 마을 층.")) {
+    const leaf = path.slice(path.lastIndexOf(".") + 1);
+    if (LAYER_RETIRED.has(leaf) || (futureOnly() && LAYER_NO_PIT.has(leaf))) return false;
+  }
   if (futureOnly()) return FUTURE_GROUPS.some((g) => path.startsWith(g));
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;

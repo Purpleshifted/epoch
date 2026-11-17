@@ -233,6 +233,11 @@ export interface FutureResult {
   /** THE WILD FOREST's plants that are not trees (FutureConfig.ground — ground nobody kept, by region): [x, y, z,
    *  shade] per point, apart from `veg` (the inferred plants) so it can be shown or not on its own. */
   vegWild?: Float32Array;
+  /** GRASS AND SCRUB, APART (FutureConfig.tree.apart — the drawer gives each its own colours, size and jitter; the
+   *  artist, 2026-11-17: "덤불은 따로 조정 가능해야함(색상도)"): [x, y (slots), z, shade 0..1, 1 = of the wild forest]
+   *  per point. With them `veg` and `vegWild` hold no grass or scrub. */
+  vegGrass?: Float32Array;
+  vegScrub?: Float32Array;
   /** THE STONES BY THE WATER (FutureConfig.stones): [x, y (slots above the ground), z, size 0..1, shade 0..1] each. */
   stones?: Float32Array;
   /** …and what each tree is: [x, z, its foot (slots above the ground), its stem's height (slots), its crown's
@@ -775,7 +780,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     if (cracked.size) layRoads(cracked);
   }
   Object.assign(n, { grass: kinds[0], shrub: kinds[1], tree: kinds[2], cracked: cracked.size });
-  const veg: number[] = [], vegOld: number[] = [], vegTree: number[] = [], treeStems: number[] = [], vegWild: number[] = [];
+  const veg: number[] = [], vegOld: number[] = [], vegTree: number[] = [], treeStems: number[] = [], vegWild: number[] = [], vegGrass: number[] = [], vegScrub: number[] = [];
   // (the cap on the points: the trees' apart from the rest — the artist, 2026-11-17: "나무에 달리는 점 양 조절은 또 왜 안
   // 됨": with plants over the whole ground the one cap thinned the trees with everything else, and their knob did nothing)
   const CAP = 60000, TREE_CAP = 40000;
@@ -828,6 +833,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       // (a tree's points apart, when the drawer asks for them so: FutureConfig.tree.apart)
       // (the trees' own colours: no longer the other plants' of used ground; 2 = of the wild forest)
       if (apart && c.kind === 2) vegTree.push(x, y, z, 0.4 * u4, c.wild ? 2 : 0);
+      else if (apart && !other && (c.kind === 0 || c.kind === 1)) (c.kind === 0 ? vegGrass : vegScrub).push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : 0.25 + 0.5 * u4, c.wild ? 1 : 0);
       else if (c.wild) vegWild.push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : 0.25 + 0.5 * u4);
       else (other ? vegOld : veg).push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : c.kind === 1 ? 0.25 + 0.5 * u4 : c.kind === 2 ? 0.4 * u4 : u4);
     }
@@ -848,7 +854,11 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const len = Math.hypot(bx - ax, bz - az), nS = Math.round((len / CELL) * 6 * per1 * (0.5 + hash(i, 3, 61)));
       const nx = len > 1e-6 ? -(bz - az) / len : 0, nz = len > 1e-6 ? (bx - ax) / len : 0;
       for (let q = 0; q < nS; q++) {
-        const f = hash(i, q, 62), side = (hash(i, q, 63) - 0.5) * 2, off = Math.sign(side) * Math.pow(Math.abs(side), 1.6) * wideS;
+        // ON THE BANKS (the artist, 2026-11-17: "돌은 물길 '가에' 있어야 하는 거고"): at the edge of the water's emptiness
+        // — `gap` cells out from the course on either side, or half a cell when the water has no gap — scattered
+        // over the knob's width round that line, never in the water
+        const bank = Math.max(0.45, gapR) * CELL, f = hash(i, q, 62), side = hash(i, q, 63) < 0.5 ? -1 : 1;
+        const off = side * Math.max(bank * 0.75, bank + (hash(i, q, 67) - 0.35) * wideS);
         stones.push(ax + (bx - ax) * f + nx * off, hash(i, q, 64) * 0.04, az + (bz - az) * f + nz * off, Math.pow(hash(i, q, 65), 2.2), hash(i, q, 66));
       }
     }
@@ -886,5 +896,5 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
 
   const buildings: FutureBuilding<C>[] = [];
   for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
-  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt || gapR + edgeR > 0 ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), stones: Float32Array.from(stones), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), vegWild: Float32Array.from(vegWild), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
+  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt || gapR + edgeR > 0 ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), stones: Float32Array.from(stones), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), vegWild: Float32Array.from(vegWild), ...(apart ? { vegGrass: Float32Array.from(vegGrass), vegScrub: Float32Array.from(vegScrub) } : {}), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }

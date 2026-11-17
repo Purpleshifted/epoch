@@ -144,6 +144,8 @@ const knob = (path: string): unknown => {
 export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<number> }) {
   // (the button: the camera goes to the layer on the next frame)
   const goTo = useRef(false);
+  // (the screenshot button: set once the canvas is known)
+  const shoot = useRef<(() => void) | null>(null);
   const k = useControls(
     GROUP,
     savable(GROUP, {
@@ -153,6 +155,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           "미래 층으로 카메라 이동": button(() => {
             goTo.current = true;
           }),
+          // ("미래 뷰에도 스크린샷 버튼 넣고") — the canvas as it is now, saved as a PNG
+          "스크린샷 (PNG로 저장)": button(() => shoot.current?.()),
           showInferred: { value: true, label: "보이기 — 추론된 식생 (다녀간 곳 둘레 · 물가 · 버려진 자리)" },
           // ("전체에 흩어진 식생 '실제 추론된 식생'이랑 분리해서 껐다 켤 수 있게 해줘. 헷갈림")
           showWild: { value: true, label: "보이기 — 사람 없이 놔둔 땅의 숲 (나무 포함)" },
@@ -206,6 +210,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           grassDense: { value: 1, min: 0.1, max: 5, step: 0.05, label: "풀 — 짙기 (점 수의 배수)" },
           grassFlat: { value: 0.5, min: 0, max: 1, step: 0.05, label: "풀 — 납작함 (0 = 가운데 볼록 · 1 = 깔린 깔개)" },
           grassJitter: { value: 0.3, min: 0, max: 1, step: 0.05, label: "풀 — 크기의 지터" },
+          // ("덤불은 따로 조정 가능해야함(색상도)") — grass and scrub each drawn with their own colours
+          grassColorA: { value: "#6f9a3c", label: "풀 — 색 1 (자연색 · 안쪽 · 아래)" },
+          grassColorB: { value: "#c3d46a", label: "풀 — 색 2 (자연색 · 바깥 · 위)" },
+          grassDot: { value: 0.1, min: 0.02, max: 0.6, step: 0.01, label: "풀 — 점의 크기 (월드)" },
+          grassDotJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "풀 — 점 크기의 지터" },
         },
         { collapsed: true },
       ),
@@ -217,6 +226,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           scrubDense: { value: 1, min: 0.1, max: 5, step: 0.05, label: "덤불 — 짙기 (점 수의 배수)" },
           scrubFlat: { value: 0, min: 0, max: 1, step: 0.05, label: "덤불 — 퍼짐 (0 = 둥근 더미 · 1 = 낮게 흩어진 덤불)" },
           scrubJitter: { value: 0.3, min: 0, max: 1, step: 0.05, label: "덤불 — 크기의 지터" },
+          scrubColorA: { value: "#3e6b3a", label: "덤불 — 색 1 (자연색 · 안쪽 · 아래)" },
+          scrubColorB: { value: "#8fae55", label: "덤불 — 색 2 (자연색 · 바깥 · 위)" },
+          scrubDot: { value: 0.13, min: 0.02, max: 0.6, step: 0.01, label: "덤불 — 점의 크기 (월드)" },
+          scrubDotJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "덤불 — 점 크기의 지터" },
         },
         { collapsed: true },
       ),
@@ -230,7 +243,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeHeight: { value: 1, min: 0.2, max: 5, step: 0.1, label: "나무 — 키 (줄기 높이의 배수)" },
           treeCrown: { value: 1, min: 0.2, max: 5, step: 0.1, label: "나무 — 수관의 너비 (배수)" },
           treeStem: { value: 1, min: 0, max: 6, step: 0.1, label: "나무 — 줄기의 굵기 (배수)" },
-          treeStemShare: { value: 0.1, min: 0, max: 0.6, step: 0.02, label: "나무 — 줄기에 쓰는 점의 몫" },
+          treeStemShare: { value: 0.1, min: 0, max: 0.6, step: 0.02, label: "나무 — 줄기에 쓰는 점의 몫", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeStemMode`) === "points" },
           treeDense: { value: 1, min: 0.2, max: 4, step: 0.1, label: "나무 — 짙기 (점 수의 배수)" },
           treeAt: { value: 1.05, min: 0.6, max: 1.8, step: 0.05, label: "나무 — 서는 문턱 (낮을수록 일찍 · 많이 · 0.6 = 덤불 없이 바로 나무)" },
           // (the artist, the same day: "나무 모양이나 사이즈 지터도 옵션 넣어줘")
@@ -238,17 +251,17 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeShapeJitter: { value: 0, min: 0, max: 1.5, step: 0.05, label: "나무 — 모양의 지터 (수관이 나무마다 더 길쭉하거나 납작함)" },
           // ("점 사이즈랑 지터, 밀도 지터도") — the trees' points are drawn here, apart from the other plants'
           treeDenseJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 짙기의 지터 (나무마다 점이 많고 적은 정도)" },
-          treePointSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "나무 — 점의 크기 (월드 · 다른 식생과 따로)" },
-          treePointJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 점 크기의 지터 (점마다 크고 작은 정도)" },
+          treePointSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "나무 — 점의 크기 (월드 · 다른 식생과 따로)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) !== "clumps" },
+          treePointJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 점 크기의 지터 (점마다 크고 작은 정도)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) !== "clumps" },
           // ("줄기 점 대신 다른걸로 시각화 할 방법 있는지 고민해봐") — ways to try; the first is how it was
           treeStemMode: { options: { "점 (지금까지 — 줄기에 쓰는 점의 몫)": "points", "선 하나 (발치에서 수관 속까지)": "line", "가지 뻗은 선 (줄기에서 수관 속으로 갈라짐)": "branch", "없음 (수관만)": "none" }, value: "points" as "points" | "line" | "branch" | "none", label: "나무 — 줄기를 그리는 방식" },
-          treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기의 색 (자연색 · 선으로 그릴 때 · 끝으로 갈수록 수관의 색으로 풀림)" },
-          treeStemRough: { value: 1, min: 0, max: 1, step: 0.05, label: "나무 — 줄기의 거칠기 (0 = 매끈하게 빛을 받음 · 1 = 거침)" },
-          treeStemThickJitter: { value: 0.3, min: 0, max: 1, step: 0.05, label: "나무 — 줄기 굵기의 지터 (나무마다 굵고 가는 정도)" },
-          treeStemColorJitter: { value: 0.2, min: 0, max: 1, step: 0.05, label: "나무 — 줄기 색의 지터 (나무마다 밝고 어두운 정도)" },
+          treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기의 색 (자연색 · 선으로 그릴 때 · 끝으로 갈수록 수관의 색으로 풀림)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
+          treeStemRough: { value: 1, min: 0, max: 1, step: 0.05, label: "나무 — 줄기의 거칠기 (0 = 매끈하게 빛을 받음 · 1 = 거침)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
+          treeStemThickJitter: { value: 0.3, min: 0, max: 1, step: 0.05, label: "나무 — 줄기 굵기의 지터 (나무마다 굵고 가는 정도)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
+          treeStemColorJitter: { value: 0.2, min: 0, max: 1, step: 0.05, label: "나무 — 줄기 색의 지터 (나무마다 밝고 어두운 정도)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           // ("나무에 쓰이는 점 느낌이 안 사는데. 이거 '현재' 층에서 건물에 모이는 식생이랑 같은 방식으로") — the crown as clumps:
           // small soft balls of points, each drawn by the GPU from one centre (as the present's gatherings are)
-          treeCrownMode: { options: { "잎 (가지에 붙은 점 — 가볍고 줄기와 이어짐)": "leaves", "덩이 (현재 층 식생처럼 — 작은 점 뭉치들)": "clumps", "점 (지금까지)": "points" }, value: "leaves" as "leaves" | "clumps" | "points", label: "나무 — 수관을 그리는 방식" },
+          treeCrownMode: { options: { "잎 (가지에 붙은 점 — 가볍고 줄기와 이어짐)": "leaves", "덩이 (현재 층 식생처럼 — 작은 점 뭉치들)": "clumps", "점 (지금까지)": "points" }, value: "clumps" as "leaves" | "clumps" | "points", label: "나무 — 수관을 그리는 방식" },
           treeClumps: { value: 7, min: 1, max: 24, step: 1, label: "나무 — 수관의 덩이 수", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
           treeClumpSize: { value: 0.45, min: 0.1, max: 1.5, step: 0.05, label: "나무 — 덩이의 크기 (수관 반지름의 몇 배)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
           treeClumpJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "나무 — 덩이 크기의 지터", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
@@ -260,21 +273,27 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeKinFar: { value: 2.2, min: 1, max: 6, step: 0.1, label: "나무 — 어린 나무까지의 거리 (큰 나무 수관 반지름의 몇 배)" },
           treeKinSize: { value: 0.45, min: 0.1, max: 1, step: 0.05, label: "나무 — 어린 나무의 크기 (큰 나무에 대한 비)" },
           // ("식생다양화가 진짜 절실하다") — kinds of tree: each tree is one of them, its colours turned its kind's way
-          treeSpecies: { value: 4, min: 1, max: 8, step: 1, label: "나무 — 종류 수 (종류마다 수관 색이 다름)" },
-          treeSpeciesSpread: { value: 0.18, min: 0, max: 0.5, step: 0.01, label: "나무 — 종류 사이 색 차이 (색상환에서 벌어지는 정도)" },
+          treeSpecies: { value: 4, min: 1, max: 6, step: 1, label: "나무 — 종류 수 (아래 종류마다의 색 중 앞에서부터 몇 개)" },
+          // ("나무 종류 따라 색을 내가 지정할 수 있는 게 좋을 것 같은데") — each kind's crown colour; a crown shades from a
+          // darker to a lighter of it (나무 — 수관의 명암 폭)
+          treeKind1: { value: "#3f6a34", label: "나무 — 종류 1의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 1 },
+          treeKind2: { value: "#76a33f", label: "나무 — 종류 2의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 2 },
+          treeKind3: { value: "#9aa63a", label: "나무 — 종류 3의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 3 },
+          treeKind4: { value: "#4f8068", label: "나무 — 종류 4의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 4 },
+          treeKind5: { value: "#b08436", label: "나무 — 종류 5의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 5 },
+          treeKind6: { value: "#a2432f", label: "나무 — 종류 6의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 6 },
+          treeKindShade: { value: 0.18, min: 0, max: 0.4, step: 0.01, label: "나무 — 수관의 명암 폭 (아래·안쪽은 어둡게, 위·바깥은 밝게)" },
           treeLeaves: { value: 10, min: 1, max: 40, step: 1, label: "나무 — 잎 (가지 한 마디에 점 몇 개)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "leaves" },
           treeLeafSpread: { value: 1, min: 0.2, max: 4, step: 0.05, label: "나무 — 잎이 가지에서 퍼진 정도", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "leaves" },
           // ("물가 식생 색 다르게 하는거 나무에 적용돼서 느낌이 안 삶") — the trees' own two colours, whatever ground they stand on
-          treeColorA: { value: "#3f6a34", label: "나무 — 수관의 색 1 (자연색 · 아래 · 안쪽)" },
-          treeColorB: { value: "#93b25e", label: "나무 — 수관의 색 2 (자연색 · 위 · 바깥)" },
           treeColorJitter: { value: 0.25, min: 0, max: 1, step: 0.05, label: "나무 — 수관 색의 지터" },
           // ("나무 기둥이랑 줄기 굵기 따로 조절할 수 있게 해") — the stem is thin cylinders, each kind its thickness
-          treeTrunkR: { value: 0.035, min: 0.002, max: 0.4, step: 0.002, label: "나무 — 기둥의 굵기 (월드, 반지름)" },
-          treeBoughR: { value: 0.014, min: 0.001, max: 0.2, step: 0.001, label: "나무 — 가지의 굵기 (반지름)" },
-          treeTwigR: { value: 0.006, min: 0.001, max: 0.1, step: 0.001, label: "나무 — 잔가지의 굵기 (반지름)" },
+          treeTrunkR: { value: 0.035, min: 0.002, max: 0.4, step: 0.002, label: "나무 — 기둥의 굵기 (월드, 반지름)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
+          treeBoughR: { value: 0.014, min: 0.001, max: 0.2, step: 0.001, label: "나무 — 가지의 굵기 (반지름)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
+          treeTwigR: { value: 0.006, min: 0.001, max: 0.1, step: 0.001, label: "나무 — 잔가지의 굵기 (반지름)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           // ("줄기 갈라지는 거 좋긴 한데... 좀 더 유기물같이 안 되나...?") — the forking stem grows: growStem
-          treeBend: { value: 1, min: 0, max: 2.5, step: 0.05, label: "나무 — 가지의 굽이 (가지 뻗은 선 · 0 = 곧은 선 · 클수록 휘고 기욺)" },
-          treeTwigs: { value: 2, min: 0, max: 3, step: 1, label: "나무 — 잔가지 (가지 하나에 몇 개)" },
+          treeBend: { value: 1, min: 0, max: 2.5, step: 0.05, label: "나무 — 가지의 굽이 (가지 뻗은 선 · 0 = 곧은 선 · 클수록 휘고 기욺)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeStemMode`) === "branch" },
+          treeTwigs: { value: 2, min: 0, max: 3, step: 1, label: "나무 — 잔가지 (가지 하나에 몇 개)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeStemMode`) === "branch" },
         },
         { collapsed: true },
       ),
@@ -284,11 +303,6 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           waterGap: { value: 1, min: 0, max: 6, step: 1, label: "물길 — 비움 (물길에서 몇 칸까지 식생이 없음 · 0 = 비우지 않음)" },
           waterEdge: { value: 2, min: 0, max: 6, step: 1, label: "물길 — 가장자리의 빽빽한 식생 (비움 바깥 몇 칸)" },
           // THE WATER AS A BELT OF PLANTS ("물길은 그냥 선 말고 식생 띠로 보이게 해줘")
-          waterBelt: { value: true, label: "물길을 선 대신 식생 띠로 (끄면 회색 선)" },
-          waterWide: { value: 1, min: 0.3, max: 4, step: 0.05, label: "물가 식생 띠 — 너비 (배수)" },
-          waterDense: { value: 1, min: 0.1, max: 4, step: 0.05, label: "물가 식생 띠 — 짙기 (배수)" },
-          waterColorA: { value: "#2f7d73", label: "물가 식생의 색 1 (자연색 · 어두운 쪽)" },
-          waterColorB: { value: "#7fcfb8", label: "물가 식생의 색 2 (자연색 · 밝은 쪽)" },
           // ("물가 근처에는 돌 같이 보이도록 추가 점 배열")
           stones: { value: true, label: "물가의 돌 (물길을 따라 흩어진 점)" },
           stoneDense: { value: 1, min: 0.1, max: 5, step: 0.1, label: "물가의 돌 — 밀도", render: (get: (path: string) => unknown) => !!get(`${GROUP}.물.stones`) },
@@ -307,24 +321,24 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           moundMax: { value: 0.6, min: 0.05, max: 3, step: 0.05, label: "둔덕의 가장 두꺼운 높이 (단)" },
           moundColor: { value: "#5b5e63", label: "둔덕의 색 (무채색)" },
           // ("둔덕도 지금 썩 마음에 들진 않아서 다양한 옵션 추가해주고") — the defaults are the mound as it was
-          moundShape: { options: { "반구 (지금까지)": "dome", "납작한 대 (윗면이 평평한 둔덕)": "mesa", "원뿔 더미": "cone", "각진 판 (무너진 기단처럼)": "slab" }, value: "dome" as "dome" | "mesa" | "cone" | "slab", label: "둔덕 — 모양" },
+          moundShape: { options: { "반구 (지금까지)": "dome", "납작한 대 (윗면이 평평한 둔덕)": "mesa", "원뿔 더미": "cone", "각진 판 (무너진 기단처럼)": "slab", render: (get: (path: string) => unknown) => !get(`${GROUP}.둔덕 · 흙.depositPoints`) }, value: "dome" as "dome" | "mesa" | "cone" | "slab", label: "둔덕 — 모양" },
           moundWide: { value: 1, min: 0.3, max: 4, step: 0.05, label: "둔덕 — 너비 (배수)" },
-          moundSizeJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 크기의 지터 (둔덕마다 크고 작은 정도)" },
-          moundSquash: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 찌그러짐 (둥글지 않고 길쭉한 정도 · 제각각 돌아감)" },
-          moundTiers: { value: 1, min: 1, max: 5, step: 1, label: "둔덕 — 단 (거듭 지어진 자리일수록 여러 겹으로 쌓임 · 1 = 한 덩이)" },
+          moundSizeJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 크기의 지터 (둔덕마다 크고 작은 정도)", render: (get: (path: string) => unknown) => !get(`${GROUP}.둔덕 · 흙.depositPoints`) },
+          moundSquash: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 찌그러짐 (둥글지 않고 길쭉한 정도 · 제각각 돌아감)", render: (get: (path: string) => unknown) => !get(`${GROUP}.둔덕 · 흙.depositPoints`) },
+          moundTiers: { value: 1, min: 1, max: 5, step: 1, label: "둔덕 — 단 (거듭 지어진 자리일수록 여러 겹으로 쌓임 · 1 = 한 덩이)", render: (get: (path: string) => unknown) => !get(`${GROUP}.둔덕 · 흙.depositPoints`) },
           moundStep: { value: 0.25, min: 0.05, max: 0.6, step: 0.05, label: "둔덕 — 단마다 줄어드는 정도", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.둔덕 · 흙.moundTiers`)) > 1 },
-          moundScatter: { value: 0.5, min: 0, max: 2, step: 0.05, label: "둔덕 — 자리의 흐트러짐 (칸 한가운데에서 벗어나는 정도)" },
+          moundScatter: { value: 0.5, min: 0, max: 2, step: 0.05, label: "둔덕 — 자리의 흐트러짐 (칸 한가운데에서 벗어나는 정도)", render: (get: (path: string) => unknown) => !get(`${GROUP}.둔덕 · 흙.depositPoints`) },
           moundTone: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 명도의 지터 (둔덕마다 밝고 어두운 정도)" },
           // ("둔덕이랑 흙 이런 건 다 점으로 하는 게 나을 것 같은데 — 사이즈랑 지터 조절 가능한!! 밀도도!!")
           depositPoints: { value: true, label: "둔덕과 어두운 흙을 점으로 (끄면 덩어리)" },
-          moundPtDense: { value: 1, min: 0.1, max: 6, step: 0.1, label: "둔덕 점 — 밀도 (배수)" },
-          moundPtSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "둔덕 점 — 크기 (월드)" },
-          moundPtJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "둔덕 점 — 크기의 지터" },
+          moundPtDense: { value: 1, min: 0.1, max: 6, step: 0.1, label: "둔덕 점 — 밀도 (배수)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.둔덕 · 흙.depositPoints`) },
+          moundPtSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "둔덕 점 — 크기 (월드)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.둔덕 · 흙.depositPoints`) },
+          moundPtJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "둔덕 점 — 크기의 지터", render: (get: (path: string) => unknown) => !!get(`${GROUP}.둔덕 · 흙.depositPoints`) },
           stain: { value: true, label: "가볍게 스친 자리에 어두운 흙 한 겹 (기준에 못 미치고 건물이 거의 남지 않은 칸)" },
           stainColor: { value: "#17181a", label: "어두운 흙의 색 (무채색)" },
-          stainPtDense: { value: 1, min: 0.1, max: 6, step: 0.1, label: "어두운 흙 점 — 밀도 (배수)" },
-          stainPtSize: { value: 0.1, min: 0.02, max: 1, step: 0.01, label: "어두운 흙 점 — 크기 (월드)" },
-          stainPtJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "어두운 흙 점 — 크기의 지터" },
+          stainPtDense: { value: 1, min: 0.1, max: 6, step: 0.1, label: "어두운 흙 점 — 밀도 (배수)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.둔덕 · 흙.depositPoints`) },
+          stainPtSize: { value: 0.1, min: 0.02, max: 1, step: 0.01, label: "어두운 흙 점 — 크기 (월드)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.둔덕 · 흙.depositPoints`) },
+          stainPtJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "어두운 흙 점 — 크기의 지터", render: (get: (path: string) => unknown) => !!get(`${GROUP}.둔덕 · 흙.depositPoints`) },
         },
         { collapsed: true },
       ),
@@ -356,7 +370,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       stones: k.stones ? { dense: k.stoneDense, wide: k.stoneWide } : undefined,
       succession: k.succession,
       soil: k.soil,
-      water: { belt: k.waterBelt, wide: k.waterWide, dense: k.waterDense, gap: k.waterGap, edge: k.waterEdge },
+      water: { belt: false, gap: k.waterGap, edge: k.waterEdge },
       ground: { density: k.groundVeg },
       grass: { wide: k.grassWide, high: k.grassHigh, dense: k.grassDense, flat: k.grassFlat, jitter: k.grassJitter },
       scrub: { at: k.scrubAt, wide: k.scrubWide, high: k.scrubHigh, dense: k.scrubDense, flat: k.scrubFlat, jitter: k.scrubJitter },
@@ -367,7 +381,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
       tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true, kin: k.treeKin, kinFar: k.treeKinFar, kinSize: k.treeKinSize },
     }),
-    [k.grassWide, k.grassHigh, k.grassDense, k.grassFlat, k.grassJitter, k.scrubAt, k.scrubWide, k.scrubHigh, k.scrubDense, k.scrubFlat, k.scrubJitter, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterBelt, k.waterWide, k.waterDense, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
+    [k.grassWide, k.grassHigh, k.grassDense, k.grassFlat, k.grassJitter, k.scrubAt, k.scrubWide, k.scrubHigh, k.scrubDense, k.scrubFlat, k.scrubJitter, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
@@ -420,6 +434,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   useEffect(() => () => clumpMat.dispose(), [clumpMat]);
   // (the wild forest's other plants: FutureResult.vegWild, in the layer's own two colours)
   const wildPts = useRef<THREE.Points>(null);
+  // (grass and scrub, apart: FutureResult.vegGrass / vegScrub)
+  const grassPts = useRef<THREE.Points>(null);
+  const scrubPts = useRef<THREE.Points>(null);
+  const drawnGS = useRef("");
   // (the stones by the water: FutureResult.stones)
   const stonePts = useRef<THREE.Points>(null);
   const drawnStones = useRef("");
@@ -431,6 +449,23 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // down at its ground from a side — and then left to the hand
   const three = useThree();
   const placed = useRef(false);
+  // THE SCREENSHOT: the scene drawn once more and read straight back (the canvas keeps no picture between frames),
+  // saved as a PNG named by the time
+  shoot.current = () => {
+    try {
+      three.gl.render(three.scene, three.camera);
+      three.gl.domElement.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement("a"), d = new Date(), z = (v: number) => String(v).padStart(2, "0");
+        a.href = URL.createObjectURL(blob);
+        a.download = `future-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.png`;
+        a.click();
+        window.setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      }, "image/png");
+    } catch (e) {
+      console.warn("[parliament] the screenshot could not be taken:", e);
+    }
+  };
   // (the mound's unit shape, standing on y = 0 and 1 high: the knob's)
   const moundGeo = useMemo(() => {
     if (k.moundShape === "mesa") return new THREE.CylinderGeometry(0.78, 1, 1, 14).translate(0, 0.5, 0);
@@ -627,36 +662,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         ctl.update();
       }
     }
+    // (the water's belt of plants is retired: the water is shown as emptiness — 물 › 비움)
     const wp = waterPts.current;
-    if (wp) {
-      wp.visible = layerOn && k.waterBelt;
-      if (r && layerOn && k.waterBelt) {
-        wp.position.y = base + 0.04;
-        const size = Number(knob(`${LAYER}.vegSize`) ?? 0.12), mat = wp.material as THREE.PointsMaterial;
-        if (Number.isFinite(size) && mat.size !== size) mat.size = size;
-        const sig = `${futureLink.version}:${unit}:${k.waterColorA}:${k.waterColorB}`;
-        if (sig !== drawnWater.current) {
-          drawnWater.current = sig;
-          const v = r.vegWater ?? new Float32Array(0), np = Math.floor(v.length / 4);
-          const pos = new Float32Array(np * 3), col = new Float32Array(np * 3);
-          const a = new THREE.Color(k.waterColorA), b = new THREE.Color(k.waterColorB);
-          for (let i = 0; i < np; i++) {
-            pos[i * 3] = v[i * 4];
-            pos[i * 3 + 1] = v[i * 4 + 1] * unit;
-            pos[i * 3 + 2] = v[i * 4 + 2];
-            const sh = v[i * 4 + 3];
-            col[i * 3] = a.r + (b.r - a.r) * sh;
-            col[i * 3 + 1] = a.g + (b.g - a.g) * sh;
-            col[i * 3 + 2] = a.b + (b.b - a.b) * sh;
-          }
-          const geo = new THREE.BufferGeometry();
-          geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-          geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
-          wp.geometry.dispose();
-          wp.geometry = geo;
-        }
-      }
-    }
+    if (wp) wp.visible = false;
     // THE STONES BY THE WATER: grey points of their own sizes, darker and lighter by their own number
     const stp = stonePts.current;
     if (stp) {
@@ -684,6 +692,40 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           geo.setAttribute("psize", new THREE.BufferAttribute(ps, 1));
           stp.geometry.dispose();
           stp.geometry = geo;
+        }
+      }
+    }
+    // GRASS AND SCRUB, each in its own colours, dot size and jitter; the wild forest's shown or not with its knob,
+    // the inferred ones with theirs
+    const gp = grassPts.current, sp2 = scrubPts.current;
+    if (gp && sp2) {
+      gp.visible = sp2.visible = layerOn;
+      if (r && layerOn) {
+        gp.position.y = sp2.position.y = base + 0.04;
+        const sig = `${futureLink.version}:${unit}:${k.grassColorA}:${k.grassColorB}:${k.grassDot}:${k.grassDotJitter}:${k.scrubColorA}:${k.scrubColorB}:${k.scrubDot}:${k.scrubDotJitter}:${k.showWild}:${k.showInferred}:${plantTone.version}`;
+        if (sig !== drawnGS.current) {
+          drawnGS.current = sig;
+          const fill = (pt: THREE.Points, v: Float32Array, ca: string, cb: string, dot: number, jit: number, salt: number) => {
+            const a = new THREE.Color(ca), b = new THREE.Color(cb), c = new THREE.Color();
+            const pos: number[] = [], col: number[] = [], ps: number[] = [];
+            for (let i = 0; i * 5 + 4 < v.length; i++) {
+              const wild = v[i * 5 + 4] > 0.5;
+              if (wild ? !k.showWild : !k.showInferred) continue;
+              pos.push(v[i * 5], v[i * 5 + 1] * unit, v[i * 5 + 2]);
+              const sh = v[i * 5 + 3];
+              plantColor(c, a.r + (b.r - a.r) * sh, a.g + (b.g - a.g) * sh, a.b + (b.b - a.b) * sh, rnd(i, salt));
+              col.push(c.r, c.g, c.b);
+              ps.push(dot * Math.max(0.15, 1 + (rnd(i, salt + 1.3) - 0.5) * 2 * jit));
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+            geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 3));
+            geo.setAttribute("psize", new THREE.BufferAttribute(new Float32Array(ps), 1));
+            pt.geometry.dispose();
+            pt.geometry = geo;
+          };
+          fill(gp, r.vegGrass ?? new Float32Array(0), k.grassColorA, k.grassColorB, k.grassDot, k.grassDotJitter, 2.1);
+          fill(sp2, r.vegScrub ?? new Float32Array(0), k.scrubColorA, k.scrubColorB, k.scrubDot, k.scrubDotJitter, 3.7);
         }
       }
     }
@@ -733,10 +775,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         tp.position.y = tl.position.y = cl.position.y = base + 0.04;
         clumpMat.size = k.treeClumpDot;
         (tl.material as THREE.MeshStandardMaterial).roughness = k.treeStemRough;
-        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeColorA}:${k.treeColorB}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeSpeciesSpread}`;
+        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}`;
         if (sig !== drawnTrees.current) {
           drawnTrees.current = sig;
-          const a = new THREE.Color(k.treeColorA), b = new THREE.Color(k.treeColorB), tc = new THREE.Color();
+          const kindCols = [k.treeKind1, k.treeKind2, k.treeKind3, k.treeKind4, k.treeKind5, k.treeKind6].map((c) => new THREE.Color(c));
+          const a = kindCols[0].clone().offsetHSL(0, 0, -k.treeKindShade), b = kindCols[0].clone().offsetHSL(0, 0.04, k.treeKindShade), tc = new THREE.Color();
           const asLeaves = k.treeCrownMode === "leaves";
           // THE CROWN AS POINTS (as before; the trees' own colours — the wild forest's left out when it is hidden)
           const pos: number[] = [], col: number[] = [], ps: number[] = [];
@@ -764,8 +807,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             const tr: StemTree = { x: st[i], z: st[i + 1], foot: st[i + 2] * unit, tall: st[i + 3] * unit, R: st[i + 4], lo: st[i + 5] * unit, hi: st[i + 6] * unit, own: st[i + 7], cone: st[i + 8] > 0.5 && st[i + 8] < 1.5 };
             const shape = st[i + 8];
             // (its kind: the crown's two colours turned along the hue its kind's way — treeSpecies)
-            const sp = Math.min(k.treeSpecies - 1, Math.floor(rnd(tr.own * 31.7, 4.4) * k.treeSpecies)), turn = k.treeSpecies > 1 ? (sp / (k.treeSpecies - 1) - 0.5) * 2 * k.treeSpeciesSpread : 0;
-            const sa = a.clone().offsetHSL(turn, (rnd(sp, 1.9) - 0.5) * 0.25, (rnd(sp, 2.9) - 0.5) * 0.12), sb = b.clone().offsetHSL(turn, (rnd(sp, 3.9) - 0.5) * 0.25, (rnd(sp, 4.9) - 0.5) * 0.12);
+            const sp = Math.min(k.treeSpecies - 1, Math.floor(rnd(tr.own * 31.7, 4.4) * k.treeSpecies));
+            const kc = kindCols[sp] ?? a, sa = kc.clone().offsetHSL(0, 0, -k.treeKindShade), sb = kc.clone().offsetHSL(0, 0.04, k.treeKindShade);
             // (the stem)
             const before = kinds.length;
             if (k.treeStemMode === "line") {
@@ -969,6 +1012,14 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
       </instancedMesh>
       <points ref={clumps} geometry={clumpGeo} material={clumpMat} frustumCulled={false} />
+      <points ref={grassPts} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
+      </points>
+      <points ref={scrubPts} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
+      </points>
       <points ref={stonePts} frustumCulled={false}>
         <bufferGeometry />
         <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />

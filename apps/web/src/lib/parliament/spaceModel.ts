@@ -3574,7 +3574,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.vegWild ? [out.future.vegWild] : []), ...(out.future.stones ? [out.future.stones] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.vegWild ? [out.future.vegWild] : []), ...(out.future.vegGrass ? [out.future.vegGrass] : []), ...(out.future.vegScrub ? [out.future.vegScrub] : []), ...(out.future.stones ? [out.future.stones] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };
