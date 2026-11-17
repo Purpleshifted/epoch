@@ -21,7 +21,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { levaStore, useControls } from "leva";
+import { button, levaStore, useControls } from "leva";
 import * as THREE from "three";
 import type { FutureConfig } from "@/lib/parliament/futureVillage";
 import { FUTURE_ONLY } from "@/lib/parliament/futureOnly";
@@ -30,7 +30,7 @@ import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "water"> | null } = { cfg: null };
+export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "water" | "ground" | "smoothRoads" | "spread"> | null } = { cfg: null };
 
 /** A number 0 … 1 of a thing's own, by two numbers. */
 const rnd = (a: number, b: number): number => {
@@ -63,12 +63,15 @@ interface StemTree {
  * tree it is into `far` (0 at the foot … 1 at a twig's tip: the line fades into the crown's colour by it).
  * `bend` 0 = straight lines, 1 = as meant, more = wilder; `twigs` a bough (0 … 3).
  */
-function growStem(seg: number[], far: number[], t: StemTree, i: number, bend: number, twigs: number): void {
+function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: number, bend: number, twigs: number): void {
   const r = (a: number) => rnd(i * 7.13 + a, t.own * 91.7 + a * 0.37);
+  // (what a segment is: 0 the trunk, 1 a bough, 2 a twig — each has a thickness of its own)
+  let cur = 0;
   const H = Math.max(1e-4, t.hi - t.lo);
   const line = (a: V3, b: V3, fa: number, fb: number) => {
     seg.push(a[0], a[1], a[2], b[0], b[1], b[2]);
     far.push(fa, fb);
+    kind.push(cur);
   };
   // (a curve from a to b that bows by `c` at its middle, in `n` pieces; returns its points)
   const bow = (a: V3, b: V3, c: V3, n: number, fa: number, fb: number): V3[] => {
@@ -106,7 +109,9 @@ function growStem(seg: number[], far: number[], t: StemTree, i: number, bend: nu
     // (it bows: up — a cone's down — and to one side)
     const side = (r(50 + j) - 0.5) * 0.5 * bend * d;
     const C: V3 = [-Math.sin(th) * side, (t.cone ? -0.1 : 0.2) * bend * d, Math.cos(th) * side];
+    cur = 1;
     const pts = bow(S, T, C, 5, 0.3, 0.75);
+    cur = 2;
     // THE TWIGS: off the bough's outer half, turned aside, bending on
     for (let w = 0; w < twigs; w++) {
       const at = pts[Math.min(pts.length - 2, 2 + ((w + Math.floor(r(60 + j * 4 + w) * 2)) % 3))];
@@ -121,6 +126,7 @@ const GROUP = "미래 마을 층 — 땅 아래";
 /** The layer's own folder (FutureVillage.tsx): where it stands is read from there. */
 const LAYER = "미래 마을 층";
 const CAP = 6000;
+const STEM_CAP = 40000;
 /** The most mounds, and the most patches of dark earth, that are drawn (the world is 160 × 160 ground cells). */
 const DEP_CAP = 12000;
 
@@ -133,9 +139,15 @@ const knob = (path: string): unknown => {
 };
 
 export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<number> }) {
+  // (the button: the camera goes to the layer on the next frame)
+  const goTo = useRef(false);
   const k = useControls(
     GROUP,
     savable(GROUP, {
+      // (the artist, 2026-11-17: "처음에 어딘지 모르겠는 이슈 있어서; 카메라 자동 찾아가기 버튼좀")
+      "미래 층으로 카메라 이동": button(() => {
+        goTo.current = true;
+      }),
       under: { value: true, label: "땅 위가 먼저 사라지고 땅 아래가 남음 (위에서부터 몸체 → 바닥판 → 보 → 기둥 · 기단은 거의 남고 지하실과 말뚝은 남음 · 끄면 기둥의 침식 순서)" },
       pipes: { value: true, label: "묻힌 관을 그림 (층의 땅 아래 · 놓였던 것 전부)" },
       depth: { value: 1, min: 0, max: 6, step: 0.25, label: "관의 깊이 (단 · 층의 땅에서 아래로)" },
@@ -155,6 +167,22 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       moundStep: { value: 0.25, min: 0.05, max: 0.6, step: 0.05, label: "둔덕 — 단마다 줄어드는 정도", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.moundTiers`)) > 1 },
       moundScatter: { value: 0.5, min: 0, max: 2, step: 0.05, label: "둔덕 — 자리의 흐트러짐 (칸 한가운데에서 벗어나는 정도)" },
       moundTone: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 명도의 지터 (둔덕마다 밝고 어두운 정도)" },
+      // ("둔덕이랑 흙 이런 건 다 점으로 하는 게 나을 것 같은데 — 사이즈랑 지터 조절 가능한!! 밀도도!!")
+      depositPoints: { value: true, label: "둔덕과 어두운 흙을 점으로 (끄면 덩어리)" },
+      moundPtDense: { value: 1, min: 0.1, max: 6, step: 0.1, label: "둔덕 점 — 밀도 (배수)" },
+      moundPtSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "둔덕 점 — 크기 (월드)" },
+      moundPtJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "둔덕 점 — 크기의 지터" },
+      stainPtDense: { value: 1, min: 0.1, max: 6, step: 0.1, label: "어두운 흙 점 — 밀도 (배수)" },
+      stainPtSize: { value: 0.1, min: 0.02, max: 1, step: 0.01, label: "어두운 흙 점 — 크기 (월드)" },
+      stainPtJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "어두운 흙 점 — 크기의 지터" },
+      // ("물길은 '비움'으로 … 그 경계에 식생이 더 빽빽하게") and ("전역에 식생이 있어야")
+      waterGap: { value: 1, min: 0, max: 6, step: 1, label: "물길 — 비움 (물길에서 몇 칸까지 식생이 없음 · 0 = 비우지 않음)" },
+      waterEdge: { value: 2, min: 0, max: 6, step: 1, label: "물길 — 가장자리의 빽빽한 식생 (비움 바깥 몇 칸)" },
+      groundVeg: { value: 0.5, min: 0, max: 1, step: 0.05, label: "땅 전체의 식생 (지어진 곳 둘레 밖에도 · 0 = 둘레에만)" },
+      // ("매끄러운 선이 나음")
+      smoothRoads: { value: true, label: "길 — 걷는 길의 매끄러운 선 그대로 (끄면 칸 격자)" },
+      // ("퍼진 정도 조절할 수 있게 해줘, 권역별 딱딱 나뉘는 느낌에서")
+      spread: { value: 0.5, min: 0, max: 3, step: 0.05, label: "퍼진 정도 (식생 · 둔덕 · 흙이 제 칸에서 벗어나는 정도 · 물길 비움의 가장자리도 부드럽게 · 0 = 칸에 딱딱)" },
       // THE WATER AS A BELT OF PLANTS ("물길은 그냥 선 말고 식생 띠로 보이게 해줘")
       waterBelt: { value: true, label: "물길을 선 대신 식생 띠로 (끄면 회색 선)" },
       waterWide: { value: 1, min: 0.3, max: 4, step: 0.05, label: "물가 식생 띠 — 너비 (배수)" },
@@ -191,7 +219,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       treePointJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 점 크기의 지터 (점마다 크고 작은 정도)" },
       // ("줄기 점 대신 다른걸로 시각화 할 방법 있는지 고민해봐") — ways to try; the first is how it was
       treeStemMode: { options: { "점 (지금까지 — 줄기에 쓰는 점의 몫)": "points", "선 하나 (발치에서 수관 속까지)": "line", "가지 뻗은 선 (줄기에서 수관 속으로 갈라짐)": "branch", "없음 (수관만)": "none" }, value: "points" as "points" | "line" | "branch" | "none", label: "나무 — 줄기를 그리는 방식" },
-      treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기 선의 색 (자연색 · 선으로 그릴 때 · 끝으로 갈수록 수관의 색으로 풀림)" },
+      treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기의 색 (자연색 · 선으로 그릴 때 · 끝으로 갈수록 수관의 색으로 풀림)" },
+      // ("나무 기둥이랑 줄기 굵기 따로 조절할 수 있게 해") — the stem is thin cylinders, each kind its thickness
+      treeTrunkR: { value: 0.035, min: 0.002, max: 0.4, step: 0.002, label: "나무 — 기둥의 굵기 (월드, 반지름)" },
+      treeBoughR: { value: 0.014, min: 0.001, max: 0.2, step: 0.001, label: "나무 — 가지의 굵기 (반지름)" },
+      treeTwigR: { value: 0.006, min: 0.001, max: 0.1, step: 0.001, label: "나무 — 잔가지의 굵기 (반지름)" },
       // ("줄기 갈라지는 거 좋긴 한데... 좀 더 유기물같이 안 되나...?") — the forking stem grows: growStem
       treeBend: { value: 1, min: 0, max: 2.5, step: 0.05, label: "나무 — 가지의 굽이 (가지 뻗은 선 · 0 = 곧은 선 · 클수록 휘고 기욺)" },
       treeTwigs: { value: 2, min: 0, max: 3, step: 1, label: "나무 — 잔가지 (가지 하나에 몇 개)" },
@@ -205,11 +237,14 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       fate: k.fate,
       succession: k.succession,
       soil: k.soil,
-      water: { belt: k.waterBelt, wide: k.waterWide, dense: k.waterDense },
+      water: { belt: k.waterBelt, wide: k.waterWide, dense: k.waterDense, gap: k.waterGap, edge: k.waterEdge },
+      ground: { density: k.groundVeg },
+      smoothRoads: k.smoothRoads,
+      spread: k.spread,
       // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
       tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true },
     }),
-    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.waterBelt, k.waterWide, k.waterDense, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter],
+    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.waterBelt, k.waterWide, k.waterDense, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
@@ -219,7 +254,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // points (FutureResult.vegTree) with a size of their own, each point larger or smaller by its own number; their
   // stems (treeStems), when not points, as lines — one from the foot into the crown, or one that forks into it
   const treePts = useRef<THREE.Points>(null);
-  const treeLines = useRef<THREE.LineSegments>(null);
+  const treeStemMesh = useRef<THREE.InstancedMesh>(null);
+  const depPts = useRef<THREE.Points>(null);
+  const drawnDepPts = useRef("");
   const drawnTrees = useRef("");
   // THE LAYER ALONE (/rehearsal/future, lib/parliament/futureOnly.ts): the camera is set on the layer once — looking
   // down at its ground from a side — and then left to the hand
@@ -270,9 +307,55 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     // THE DEPOSIT (stage 2): on the layer's ground a mound where a place was built for long or again and again — a
     // low heap, the higher and wider the longer — and a patch of dark earth where one was only lightly built
     const mm = mounds.current, sm = stains.current;
-    if (mm) mm.visible = layerOn && k.mound;
-    if (sm) sm.visible = layerOn && k.stain;
-    if (mm && sm && r && layerOn) {
+    if (mm) mm.visible = layerOn && k.mound && !k.depositPoints;
+    if (sm) sm.visible = layerOn && k.stain && !k.depositPoints;
+    const dp = depPts.current;
+    if (dp) {
+      dp.visible = layerOn && k.depositPoints && (k.mound || k.stain);
+      if (r && dp.visible) {
+        dp.position.y = base + 0.02;
+        const sig = `${futureLink.version}:${unit}:${k.mound}:${k.stain}:${k.moundMax}:${k.moundWide}:${k.moundColor}:${k.stainColor}:${k.moundPtDense}:${k.moundPtSize}:${k.moundPtJitter}:${k.stainPtDense}:${k.stainPtSize}:${k.stainPtJitter}:${k.moundTone}`;
+        if (sig !== drawnDepPts.current) {
+          drawnDepPts.current = sig;
+          // A MOUND AS POINTS: a heap of them, thick at its middle and low at its rim, as high as the mound; DARK
+          // EARTH as a flat scatter — every point its own size (the size knob × its jitter)
+          const ms = r.mounds ?? new Float32Array(0), ss = r.stains ?? new Float32Array(0);
+          const pos: number[] = [], col: number[] = [], ps: number[] = [];
+          const mc = new THREE.Color(k.moundColor), sc0 = new THREE.Color("#2a2d31"), sc1 = new THREE.Color(k.stainColor);
+          const CAPP = 120000;
+          if (k.mound) for (let i = 0; i * 4 + 3 < ms.length && pos.length < CAPP * 3; i++) {
+            const f = Math.min(1, (ms[i * 4 + 2] - 1) / 3), own = ms[i * 4 + 3];
+            const rad = CELL_SIZE * (0.7 + 0.35 * own + 0.35 * f) * k.moundWide, high = k.moundMax * unit * (0.3 + 0.7 * f) * (0.8 + 0.4 * own);
+            const np = Math.round((14 + 30 * f) * k.moundPtDense);
+            const shade = Math.max(0.3, 1 + (rnd(own * 7, i) - 0.5) * k.moundTone);
+            for (let j = 0; j < np; j++) {
+              const u = rnd(i + 0.5, j), th = rnd(j, i + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
+              pos.push(ms[i * 4] + Math.cos(th) * rr, high * Math.sqrt(Math.max(0, 1 - u)) * rnd(j * 3, i), ms[i * 4 + 1] + Math.sin(th) * rr);
+              col.push(mc.r * shade, mc.g * shade, mc.b * shade);
+              ps.push((k.moundPtSize / 1) * Math.max(0.15, 1 + (rnd(i, j * 1.7) - 0.5) * 2 * k.moundPtJitter));
+            }
+          }
+          if (k.stain) for (let i = 0; i * 4 + 3 < ss.length && pos.length < CAPP * 3; i++) {
+            const t = Math.max(0, Math.min(1, ss[i * 4 + 2])), own = ss[i * 4 + 3];
+            const rad = CELL_SIZE * (0.55 + 0.5 * own) * (0.6 + 0.4 * t), np = Math.round((6 + 14 * t) * k.stainPtDense);
+            tone.c.copy(sc0).lerp(sc1, 0.35 + 0.65 * t);
+            for (let j = 0; j < np; j++) {
+              const u = rnd(i + 0.25, j), th = rnd(j + 0.5, i + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
+              pos.push(ss[i * 4] + Math.cos(th) * rr, 0.01 * rnd(j, i), ss[i * 4 + 1] + Math.sin(th) * rr);
+              col.push(tone.c.r, tone.c.g, tone.c.b);
+              ps.push(k.stainPtSize * Math.max(0.15, 1 + (rnd(i * 1.3, j) - 0.5) * 2 * k.stainPtJitter));
+            }
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+          geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 3));
+          geo.setAttribute("psize", new THREE.BufferAttribute(new Float32Array(ps), 1));
+          dp.geometry.dispose();
+          dp.geometry = geo;
+        }
+      }
+    }
+    if (mm && sm && r && layerOn && !k.depositPoints) {
       mm.position.y = base;
       sm.position.y = base + 0.012;
       const sig = `${futureLink.version}:${k.moundMax}:${k.stainColor}:${unit}:${k.moundColor}:${k.moundWide}:${k.moundSizeJitter}:${k.moundSquash}:${k.moundTiers}:${k.moundStep}:${k.moundScatter}:${k.moundTone}`;
@@ -365,10 +448,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
 
-    if (FUTURE_ONLY && !placed.current && r && top.value > 0) {
+    if (((FUTURE_ONLY && !placed.current) || goTo.current) && r && top.value > 0) {
       const ctl = three.controls as unknown as { target: THREE.Vector3; update: () => void } | null;
       if (ctl) {
         placed.current = true;
+        goTo.current = false;
         ctl.target.set(0, base, 0);
         three.camera.position.set(70, base + 75, 95);
         ctl.update();
@@ -404,7 +488,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         }
       }
     }
-    const tp = treePts.current, tl = treeLines.current;
+    const tp = treePts.current, tl = treeStemMesh.current;
     if (tp && tl) {
       const lined = k.treeStemMode === "line" || k.treeStemMode === "branch";
       tp.visible = layerOn;
@@ -414,7 +498,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         tl.position.y = base + 0.04;
         // (the layer's own two colours of plants, and this folder's two for ground that was used)
         const cA = String(knob(`${LAYER}.vegColorA`) ?? "#5f7a3a"), cB = String(knob(`${LAYER}.vegColorB`) ?? "#a9b56a");
-        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${cA}:${cB}:${k.soilColorA}:${k.soilColorB}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}`;
+        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${cA}:${cB}:${k.soilColorA}:${k.soilColorB}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}`;
         if (sig !== drawnTrees.current) {
           drawnTrees.current = sig;
           const v = r.vegTree ?? new Float32Array(0);
@@ -442,27 +526,35 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // growStem. Every end carries how far along the tree it is: the line is the stem's colour at the foot and
           // goes over into the crown's towards the tips
           const st = lined ? (r.treeStems ?? new Float32Array(0)) : new Float32Array(0);
-          const seg: number[] = [], far: number[] = [];
+          const seg: number[] = [], far: number[] = [], kinds: number[] = [];
           for (let i = 0; i + 7 < st.length; i += 8) {
             const tr: StemTree = { x: st[i], z: st[i + 1], foot: st[i + 2] * unit, tall: st[i + 3] * unit, R: st[i + 4], lo: st[i + 5] * unit, hi: st[i + 6] * unit, own: st[i + 7], cone: st[i + 5] < st[i + 3] * 0.8 };
             if (k.treeStemMode === "line") {
               seg.push(tr.x, tr.foot, tr.z, tr.x, tr.foot + tr.lo + (tr.hi - tr.lo) * (tr.cone ? 0.92 : 0.5), tr.z);
               far.push(0, 0.6);
-            } else growStem(seg, far, tr, i / 8, k.treeBend, k.treeTwigs);
+              kinds.push(0);
+            } else growStem(seg, far, kinds, tr, i / 8, k.treeBend, k.treeTwigs);
           }
-          const sc = new THREE.Color(k.treeStemColor), lc = new Float32Array(far.length * 3);
-          for (let i = 0; i < far.length; i++) {
-            // (towards the tips: three fifths of the way to the darker of the plants' two colours)
-            const w = Math.pow(Math.max(0, Math.min(1, far[i])), 1.5) * 0.6;
-            lc[i * 3] = sc.r + (a.r - sc.r) * w;
-            lc[i * 3 + 1] = sc.g + (a.g - sc.g) * w;
-            lc[i * 3 + 2] = sc.b + (a.b - sc.b) * w;
+          // THE STEM AS THIN CYLINDERS, one a segment — the trunk, the boughs and the twigs each as thick as its knob
+          // says, thinning a little towards the tips; the colour from the stem's at the foot into the crown's
+          const sc = new THREE.Color(k.treeStemColor), { m, p, q, s: sv, up, d } = tmp;
+          const n = Math.min(STEM_CAP, Math.floor(seg.length / 6));
+          for (let i = 0; i < n; i++) {
+            const ax = seg[i * 6], ay = seg[i * 6 + 1], az = seg[i * 6 + 2], bx = seg[i * 6 + 3], by = seg[i * 6 + 4], bz = seg[i * 6 + 5];
+            const len = Math.hypot(bx - ax, by - ay, bz - az);
+            p.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+            if (len > 1e-5) q.setFromUnitVectors(up, d.set((bx - ax) / len, (by - ay) / len, (bz - az) / len));
+            else q.identity();
+            const f = (far[i * 2] + far[i * 2 + 1]) / 2, kd = kinds[i];
+            const rr = (kd === 0 ? k.treeTrunkR : kd === 1 ? k.treeBoughR : k.treeTwigR) * (1 - 0.45 * f);
+            sv.set(rr, Math.max(1e-4, len * 1.04), rr);
+            tl.setMatrixAt(i, m.compose(p, q, sv));
+            const w = Math.pow(f, 1.5) * 0.6;
+            tl.setColorAt(i, tone.c.set(sc.r + (a.r - sc.r) * w, sc.g + (a.g - sc.g) * w, sc.b + (a.b - sc.b) * w));
           }
-          const lg = new THREE.BufferGeometry();
-          lg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(seg), 3));
-          lg.setAttribute("color", new THREE.BufferAttribute(lc, 3));
-          tl.geometry.dispose();
-          tl.geometry = lg;
+          tl.count = n;
+          tl.instanceMatrix.needsUpdate = true;
+          if (tl.instanceColor) tl.instanceColor.needsUpdate = true;
         }
       }
     }
@@ -544,10 +636,23 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         <bufferGeometry />
         <pointsMaterial vertexColors size={k.treePointSize} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
       </points>
-      <lineSegments ref={treeLines} frustumCulled={false}>
+      <instancedMesh
+        ref={(im) => {
+          treeStemMesh.current = im;
+          if (im && !im.instanceColor) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(STEM_CAP * 3).fill(1), 3);
+          if (im && !drawnTrees.current) im.count = 0;
+        }}
+        args={[undefined, undefined, STEM_CAP]}
+        frustumCulled={false}
+      >
+        <cylinderGeometry args={[1, 1, 1, 5]} />
+        <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
+      </instancedMesh>
+      {/* the mounds and the dark earth as points (the knob depositPoints), each point with its own size */}
+      <points ref={depPts} frustumCulled={false}>
         <bufferGeometry />
-        <lineBasicMaterial vertexColors />
-      </lineSegments>
+        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
+      </points>
       {/* the other plants, of ground that was built on for long (stage 5) */}
       <points ref={other} frustumCulled={false}>
         <bufferGeometry />

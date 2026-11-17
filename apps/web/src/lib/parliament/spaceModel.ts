@@ -870,6 +870,32 @@ export class SpaceModel {
     return out;
   }
 
+  /**
+   * THE WAYS AS THEIR OWN LINES (the artist, 2026-11-17, of the layer's paths drawn cell by cell: "길 격자 없다가 이건
+   * 뭐 어디서 생긴 거야??" → "매끄러운 선이 나음"): the lines the walk worker laid, as they lie — those in use at slot
+   * `k`, each as [x0, z0, x1, z1] stretches; the ones also in use at `k - half` are the frame (`old`).
+   */
+  private waysLinesAt(k: number, half: number): { roads: Float32Array; roadsOld: Float32Array } {
+    const layers = [...this.walks.layers].sort((a, b) => a.k - b.k);
+    const lineOf = new Map<string, Float32Array>();
+    let atK: string[] = [], atHalf: string[] = [];
+    for (const l of layers) {
+      if (l.k > k) break;
+      for (let q = Math.min(l.drawn.length, l.lines.length) - 1; q >= 0; q--) lineOf.set(l.drawn[q], l.lines[q]);
+      atK = l.links;
+      if (l.k <= k - half) atHalf = l.links;
+    }
+    const old = new Set(atHalf);
+    const roads: number[] = [], roadsOld: number[] = [];
+    for (const key of atK) {
+      const line = lineOf.get(key);
+      if (!line) continue;
+      const out = old.has(key) ? roadsOld : roads;
+      for (let i = 3; i + 2 < line.length; i += 3) out.push(line[i - 3], line[i - 1], line[i], line[i + 2]);
+    }
+    return { roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld) };
+  }
+
   private futureKey = "";
   private futureAt = 0;
   /**
@@ -925,7 +951,9 @@ export class SpaceModel {
     // path at all, so no frame was drawn and no ground counted as trodden. A cell is path in a slot when a way in
     // use then crosses it (waysBySlot); the pipes are every run laid.
     const ways = this.waysBySlot(K - Math.max(4, Math.round(cfg.band)), K);
-    const plan = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => ways.get(k)?.has(cx * 65536 + cz) ?? false, streams: this.drain.streams, pipes: this.drain.pipes, cfg });
+    const plan0 = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => ways.get(k)?.has(cx * 65536 + cz) ?? false, streams: this.drain.streams, pipes: this.drain.pipes, cfg });
+    // (the ways as the walk worker's own smooth lines, unless the knob says the cells)
+    const plan = cfg.smoothRoads === false ? plan0 : { ...plan0, ...this.waysLinesAt(K, Math.floor(Math.max(4, Math.round(cfg.band)) / 2)) };
     // THE BUILDINGS ARE MADE AS THE COLUMN'S ARE (the artist, 2026-11-16, of the first version's plain boxes: "너무 좀...
     // 단조롭고 … 건물도 마찬가지 · generative 하다고 느껴지지 않는 것도 아쉽고"): each inferred building is a Seed of
     // its own — the built cell it is carried on from, standing in the slots above the column's top — put through the

@@ -130,7 +130,25 @@ export interface FutureConfig {
    * course is given as points along it (FutureResult.vegWater) and its line is not; `wide` the band's width, `dense`
    * its points (multipliers, 1 = as meant). Absent = the line, as it was.
    */
-  water?: { belt: boolean; wide?: number; dense?: number };
+  water?: {
+    belt: boolean;
+    wide?: number;
+    dense?: number;
+    /** THE WATER AS EMPTINESS (the artist, 2026-11-17: "물길은 '비움'으로 나타내자고, 그 경계에 식생이 더 빽빽하게 자라게
+     *  해서"): no line and no belt — the ground within `gap` cells of the course carries no plants, and the `edge`
+     *  cells beyond that carry them thickest. Needs the plants everywhere (`ground`), or there is nothing to be empty of. */
+    gap?: number;
+    edge?: number;
+  };
+  /** PLANTS OVER THE WHOLE GROUND ("애초에 전역에 식생이 있어야"): clouds on the ground anywhere, not only round what was
+   *  built or walked; `density` 0 … 1 how thick (0 = none beyond the margin, as before). */
+  ground?: { density: number };
+  /** The ways as the walk worker's own smooth lines (the caller's, SpaceModel.waysLinesAt); false = cell by cell. */
+  smoothRoads?: boolean;
+  /** HOW FAR THINGS SPREAD from their cell (the artist, 2026-11-17: "흙이든 둔덕이든 식생이든 '퍼진 정도' 조절할 수 있게
+   *  해줘, 권역별 딱딱 나뉘는 느낌에서"): 0 = each cloud, mound and patch of earth at its own cell and every edge (the
+   *  water's gap, the margin) sharp; 1 = each wanders up to two cells and the edges are soft; more = further. */
+  spread?: number;
 }
 
 export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12, fate: true, succession: true, soil: true };
@@ -293,7 +311,8 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const mounds: number[] = [], stains: number[] = [];
     for (const [q, d] of dep) {
       const score = d.total / at + 0.5 * (d.ep - 1);
-      const x = (d.cx + 0.5) * CELL, z = (d.cz + 0.5) * CELL;
+      const sp = Math.max(0, cfg.spread ?? 0);
+      const x = (d.cx + 0.5 + (hash(d.cx, d.cz, 73) - 0.5) * 4 * sp) * CELL, z = (d.cz + 0.5 + (hash(d.cx, d.cz, 74) - 0.5) * 4 * sp) * CELL;
       if (score >= 1) mounds.push(x, z, score, hash(d.cx, d.cz, 71));
       // (dark earth where little or nothing of a building stands: under one that stands it is not seen)
       else if ((standLeft(q) ?? 0) < 0.5) stains.push(x, z, score, hash(d.cx, d.cz, 72));
@@ -507,6 +526,9 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const wBall = pos(tk.weights?.ball, 1), wCone = pos(tk.weights?.cone, 0), wUmb = pos(tk.weights?.umbrella, 0), wAll = wBall + wCone + wUmb;
   const shapeOf = (u: number): "ball" | "cone" | "umbrella" => (wAll <= 0 || u * wAll < wBall ? "ball" : u * wAll < wBall + wCone ? "cone" : "umbrella");
   const apart = tk.apart === true;
+  const spread = Math.max(0, cfg.spread ?? 0);
+  // (a wander of up to 2 × spread cells, by two numbers of the thing's own)
+  const wander = (a: number, b: number, salt: number): [number, number] => [(hash(a, b, salt) - 0.5) * 4 * spread, (hash(a, b, salt + 1) - 0.5) * 4 * spread];
   // (damp: the water's cells, and less so the cells two round them; piped: the cells a run of pipe passes under)
   const damp = new Map<number, number>();
   const piped = new Set<number>();
@@ -550,7 +572,8 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const per = Math.max(0, cfg.vegPer);
   const kinds = [0, 0, 0];
   const cloud = (cx: number, cz: number, r: number, salt: number) => {
-    const x = (cx + hash(cx, cz, salt)) * CELL, z = (cz + hash(cx, cz, salt + 1)) * CELL;
+    const [wx, wz] = wander(cx, cz, salt + 30);
+    const x = (cx + hash(cx, cz, salt) + wx) * CELL, z = (cz + hash(cx, cz, salt + 1) + wz) * CELL;
     const kind = kindAt(cx, cz, salt), u = hash(cx, cz, salt + 2), used = usedAt(cx, cz);
     if (kind >= 0) kinds[kind]++;
     clouded.add(key(cx, cz));
@@ -571,17 +594,53 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp });
     }
   };
-  for (let cz = z0; cz <= z1; cz++) {
-    for (let cx = x0; cx <= x1; cx++) {
+  // THE WATER AS EMPTINESS and PLANTS EVERYWHERE (FutureConfig.water.gap, .ground): how far each cell near the
+  // course lies from it (in cells, up to gap + edge)
+  const gapR = Math.max(0, Math.round(cfg.water?.gap ?? 0)), edgeR = Math.max(0, Math.round(cfg.water?.edge ?? 0));
+  const waterDist = new Map<number, number>();
+  if (gapR + edgeR > 0) {
+    const R = gapR + edgeR;
+    for (let i = 0; i + 1 < water.length; i += 2) {
+      const cx = cellOf(water[i]), cz = cellOf(water[i + 1]);
+      for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+        const d = Math.round(Math.hypot(dx, dz));
+        if (d > R) continue;
+        const qq = key(cx + dx, cz + dz);
+        if ((waterDist.get(qq) ?? Infinity) > d) waterDist.set(qq, d);
+      }
+    }
+  }
+  const everywhere = Math.max(0, Math.min(1, cfg.ground?.density ?? 0));
+  const HALF = 80;
+  const [gx0, gx1, gz0, gz1] = everywhere > 0 ? [-HALF, HALF - 1, -HALF, HALF - 1] : [x0, x1, z0, z1];
+  for (let cz = gz0; cz <= gz1; cz++) {
+    for (let cx = gx0; cx <= gx1; cx++) {
       const q = key(cx, cz);
+      const inNear = near.has(q);
+      if (!inNear && everywhere <= 0) continue;
       // (only the frame — a path walked long — stays clear; a path that had only just been walked is grown over)
-      if (!near.has(q) || (keep ? oldRoad.has(q) : road.has(q))) continue;
+      if (keep ? oldRoad.has(q) : road.has(q)) continue;
       const c = cells.get(q), free = !stand.has(q);
       const h1 = hash(cx, cz, 41);
+      // (the water's emptiness, and its thick edge)
+      // (a soft edge: the distance read with a wander of its own)
+      const wd0 = waterDist.get(q), wd = wd0 === undefined ? undefined : wd0 + (hash(cx, cz, 77) - 0.5) * 2 * spread * 1.5;
+      if (wd !== undefined && gapR + edgeR > 0) {
+        if (wd <= gapR) continue;
+        if (free && h1 < 0.9) {
+          cloud(cx, cz, 0.9 + 1.1 * hash(cx, cz, 43), 100);
+          continue;
+        }
+      }
+      if (!inNear) {
+        // (anywhere on the ground: thin, grass and scrub — and, with a spread, the margin's own clouds spill over here by chance)
+        if (free && h1 < everywhere * 0.12) cloud(cx, cz, 0.9 + 1.8 * hash(cx, cz, 45), 900);
+        continue;
+      }
       // THE PLANTS TAKE WHAT IS LEFT: the less is left of a building, the surer a cloud begins on it
       const st = stand.get(q);
       if (st && h1 < (1 - st.left) * 0.75) cloud(cx, cz, 0.8 + 1.6 * (1 - st.left) * hash(cx, cz, 47), 500);
-      else if (wet.has(q) && free && h1 < 0.55) cloud(cx, cz, 1.2 + 1.6 * hash(cx, cz, 43), 100);
+      else if (wet.has(q) && free && gapR === 0 && h1 < 0.55) cloud(cx, cz, 1.2 + 1.6 * hash(cx, cz, 43), 100);
       else if (c && c.a > 0.3 && free && h1 < 0.8) cloud(cx, cz, 0.9 + 1.2 * hash(cx, cz, 44), 200);
       else if (free && h1 < 0.06) cloud(cx, cz, 1 + 2.4 * hash(cx, cz, 45), 300);
       else if (free && h1 < 0.3) {
@@ -623,12 +682,14 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   }
   Object.assign(n, { grass: kinds[0], shrub: kinds[1], tree: kinds[2], cracked: cracked.size });
   const veg: number[] = [], vegOld: number[] = [], vegTree: number[] = [], treeStems: number[] = [];
-  const CAP = 60000;
-  let all = 0;
-  for (const c of clouds) all += c.n;
-  const thin = all > CAP ? CAP / all : 1;
+  // (the cap on the points: the trees' apart from the rest — the artist, 2026-11-17: "나무에 달리는 점 양 조절은 또 왜 안
+  // 됨": with plants over the whole ground the one cap thinned the trees with everything else, and their knob did nothing)
+  const CAP = 60000, TREE_CAP = 40000;
+  let all = 0, allTrees = 0;
+  for (const c of clouds) if (c.kind === 2) allTrees += c.n; else all += c.n;
+  const thin = all > CAP ? CAP / all : 1, thinTrees = allTrees > TREE_CAP ? TREE_CAP / allTrees : 1;
   clouds.forEach((c, ci) => {
-    const nPts = Math.round(c.n * thin);
+    const nPts = Math.round(c.n * (c.kind === 2 ? thinTrees : thin));
     // (a tree, told apart: where it stands — on the roof of what still stands there — its stem, its crown's width,
     // and from where to where above its foot its crown reaches, by its shape)
     if (apart && c.kind === 2) {
@@ -678,7 +739,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   // and carries plants of its own in a band (Richardson et al. 2005: 식생 V6) — so the course is drawn as that band:
   // points all along it, thickest at the water and thinning to the band's edge, low at the edge and taller at the
   // water; where the water stands (a pool before what blocks it) a round stand of them. The line itself is not given.
-  const belt = cfg.water?.belt === true;
+  const belt = cfg.water?.belt === true && gapR + edgeR === 0;
   const vegWater: number[] = [];
   if (belt) {
     const wide = Math.max(0.2, cfg.water?.wide ?? 1), dense = Math.max(0, cfg.water?.dense ?? 1);
@@ -711,5 +772,5 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
 
   const buildings: FutureBuilding<C>[] = [];
   for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
-  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
+  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt || gapR + edgeR > 0 ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }
