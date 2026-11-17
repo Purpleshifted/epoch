@@ -781,7 +781,7 @@ export class FuseUnits {
       const mesh = mergeMeshes(list);
       this.shown.set(id, mesh.index.length / 3);
       out.set.push({ id, mesh });
-      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB]) if (a) transfer.push(a.buffer as ArrayBuffer);
+      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late]) if (a) transfer.push(a.buffer as ArrayBuffer);
     }
     for (const n of this.shown.values()) out.stats.tris += n;
     out.stats.chunks = this.shown.size;

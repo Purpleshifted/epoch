@@ -488,6 +488,14 @@ export interface FuseMesh {
   anchor?: Float32Array;
   growA?: Float32Array;
   growB?: Float32Array;
+  /**
+   * SEEDED — THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2": the multipipe's melting form
+   * back — the tubes come out first, the plates and rooms fill in later). Per vertex: 0 = the surface here is the
+   * frame's (the parts' edge tubes, the pipes and ways would make it on their own) … 1 = it is the filling's (a part's
+   * box, a plate, a filled room, what the blur and the sag add). The wall's shader lets the filling out later.
+   * Absent = all frame (no delay).
+   */
+  late?: Float32Array;
   resinStart: number;
 }
 
@@ -765,6 +773,36 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const T = st && (st.shell || st.foam) ? new Float32Array(n) : null;
   /** The parts' full boxes as fused (whatever their frame share): what lies under the skin (ghost), the membranes. */
   const Praw = st ? new Float32Array(n) : null;
+  /** SEEDED (FuseMesh.late): how much each sample is the FRAME's — near a part's edges (whatever its tubes' thickness:
+   *  with the artist's values the tubes alone swallowed the whole box, and every vertex read as frame), or in a pipe or
+   *  a way — against the middles of the part's faces, the plates, the rooms (0). Per vertex: the most of its cube. */
+  const Fr = st && !crust && cfg.seeded ? new Float32Array(n) : null;
+  /** …and how far the part that wrote it is (a sample takes the NEAREST part's reading: beyond a box's edge every
+   *  sample clamps onto that edge, and the stacked boxes of a building made the whole surface read as frame). */
+  const FrD = Fr ? new Float32Array(n).fill(Infinity) : null;
+  /** A part's frame band around its edges, written into Fr over the part's box widened by `reach`: a sample is
+   *  clamped onto the box, and the box point's distance to its nearest edge (the second-smallest of its margins) is
+   *  read against `band` — the frame within it, the face beyond. */
+  const frameBand = (arr: Float32Array, dist: Float32Array, b: Box, hx: number, hy: number, hz: number, band: number, reach: number) => {
+    const ia = Math.max(0, Math.ceil((b.x - hx - reach) / vs) - I0), ib = Math.min(nx - 1, Math.floor((b.x + hx + reach) / vs) - I0);
+    const ja = Math.max(0, Math.ceil((b.y - hy - reach) / vs) - J0), jb = Math.min(ny - 1, Math.floor((b.y + hy + reach) / vs) - J0);
+    const ka = Math.max(0, Math.ceil((b.z - hz - reach) / vs) - K0), kb = Math.min(nz - 1, Math.floor((b.z + hz + reach) / vs) - K0);
+    const lo = band * 0.6, hi = Math.max(lo + vs * 0.5, band * 1.3);
+    for (let k = ka; k <= kb; k++) for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) {
+      const ax = Math.abs((I0 + i) * vs - b.x), ay = Math.abs((J0 + j) * vs - b.y), az = Math.abs((K0 + k) * vs - b.z);
+      const ox = Math.max(0, ax - hx), oy = Math.max(0, ay - hy), oz = Math.max(0, az - hz);
+      const d = Math.hypot(ox, oy, oz);
+      const p = idx(i, j, k);
+      if (d > dist[p] + 1e-4) continue;
+      const mx = hx - Math.min(hx, ax), my = hy - Math.min(hy, ay), mz = hz - Math.min(hz, az);
+      // (the middle of the three margins: on a face one margin is 0, and the next is how far the edge is)
+      const edge = mx + my + mz - Math.min(mx, my, mz) - Math.max(mx, my, mz);
+      const v = band <= 0 ? 0 : 1 - smoothRamp(edge, lo, hi);
+      // (as near as the part before: the two meet here — an edge of both — the more frame of them)
+      arr[p] = d < dist[p] - 1e-4 ? v : Math.max(arr[p], v);
+      dist[p] = Math.min(dist[p], d);
+    }
+  };
   /** FOSSIL CURVE: 0 = young (architecture) … 1 = fossil, of a layer age. */
   const fossilOf = (q: number): number => (st ? smoothRamp(q, st.fossilFrom ?? 0.3, Math.max((st.fossilFrom ?? 0.3) + 0.05, st.fossilTo ?? 0.8)) : 1);
   const fossilNoise = st ? Math.max(0, st.fossilNoise ?? 0) : 0;
@@ -837,6 +875,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         for (const x of xs) for (const y of ys) tube(C, x, y, zs[0], x, y, zs[1], r, v);
         const jr = r * (st.pipeJoint ?? 0);
         if (jr > r) for (const x of xs) for (const y of ys) for (const z of zs) tube(C, x, y, z, x, y, z, jr, v);
+        // (THE FRAME FIRST: the band round its edges — no wider than the tube, nor than 45 % of the part's thinnest
+        // half, so a face keeps a middle that comes later. A plate that stays a plate is all filling: "판은 나중에" —
+        // it only claims the samples nearest to it)
+        if (Fr && FrD) frameBand(Fr, FrD, b, hx, hy, hz, st.platesStay && FRAME_KINDS.has(b.kind) ? 0 : Math.max(vs * 0.75, Math.min(r, 0.45 * Math.min(hx, hy, hz))), Math.max(r, jr) + (cfg.blur + 2) * vs);
       }
       // the box, fainter the more the part is frame (between: a ragged plate within the tubes)
       if (w < 1) fill(C, b.x - hx, b.x + hx, b.y - hy, b.y + hy, b.z - hz, b.z + hz, v * (1 - w));
@@ -866,6 +908,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const r = Math.max(vs * 0.6, tb.r);
     if (Math.max(tb.y0, tb.y1) + r < yLo || Math.min(tb.y0, tb.y1) - r > yHi) continue;
     tube(C, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r, f);
+    if (Fr) tube(Fr, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r + (cfg.blur + 2) * vs, 1);
     if (Praw) tube(Praw, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r, f);
     if (Dk && tb.kind !== "walk") tube(Dk, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r + vs, 1);
     if (T && st) tube(T, tb.x0, tb.y0, tb.z0, tb.x1, tb.y1, tb.z1, r + (cfg.blur + 2) * vs, smoothRamp(2 * r, st.sizeSmall ?? 1.5, Math.max((st.sizeSmall ?? 1.5) + 0.1, st.sizeLarge ?? 8)));
@@ -1260,6 +1303,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const col: number[] = [];
   const ext: number[] = []; // per vertex: ghost, flat, pits, rib distance
   const wgt: number[] = []; // per vertex: smoothing weight (0 = blocky)
+  const lateV: number[] = []; // per vertex (seeded): 0 = the frame's surface … 1 = the filling's (FuseMesh.late)
   // PITS (drawn by the material): per vertex how much of the pits' coverage applies — by the part's size, gathered
   // in patches — and how far from the ribs (none across them)
   const pitsOn = !!st && (st.shell || st.foam) && st.pits > 0;
@@ -1305,6 +1349,12 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         cubeVert[cidx(i, j, k)] = pos.length / 3;
         pos.push(vx, vy, vz);
         wgt.push(1 - bl);
+        // THE FRAME FIRST (FuseMesh.late): how much of the frame is at the cube's corners (the most of them)
+        if (Fr) {
+          let fm = 0;
+          for (let c = 0; c < 8; c++) fm = Math.max(fm, Fr[idx(i + (c & 1), j + ((c >> 1) & 1), k + ((c >> 2) & 1))]);
+          lateV.push(1 - fm);
+        }
         // normal: −gradient (the field grows inwards)
         const gx = cornerF[1] + cornerF[3] + cornerF[5] + cornerF[7] - cornerF[0] - cornerF[2] - cornerF[4] - cornerF[6];
         const gy = cornerF[2] + cornerF[3] + cornerF[6] + cornerF[7] - cornerF[0] - cornerF[1] - cornerF[4] - cornerF[5];
@@ -1410,6 +1460,23 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  // (the frame's border on the surface is softened over the vertex's neighbours: no speckle where the two meet)
+  let late: Float32Array | undefined;
+  if (Fr && NV > 0 && lateV.length === NV) {
+    late = Float32Array.from(lateV);
+    const { start, list } = neighbours(quads, NV);
+    const next = new Float32Array(NV);
+    for (let pass = 0; pass < 2; pass++) {
+      for (let v = 0; v < NV; v++) {
+        const a = start[v], b = start[v + 1];
+        let s = late[v];
+        for (let e = a; e < b; e++) s += late[list[e]];
+        next[v] = s / (1 + b - a);
+      }
+      late.set(next);
+    }
+  }
+
   const ind: number[] = [];
   const resinInd: number[] = [];
   for (let t = 0; t < quads.length; t += 6) {
@@ -1426,18 +1493,19 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const index = new Uint32Array(ind.length + resinInd.length);
   index.set(ind);
   index.set(resinInd, ind.length);
-  return { position: P, normal: Nn, color: Float32Array.from(col), extra: Float32Array.from(ext), index, resinStart: ind.length };
+  return { position: P, normal: Nn, color: Float32Array.from(col), extra: Float32Array.from(ext), index, resinStart: ind.length, ...(late ? { late } : {}) };
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
 export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   let nv = 0, ni = 0, nr = 0;
-  let seeded = false;
+  let seeded = false, anyLate = false;
   for (const p of parts) {
     nv += p.position.length;
     ni += p.index.length;
     nr += p.index.length - p.resinStart;
     if (p.anchor) seeded = true;
+    if (p.late) anyLate = true;
   }
   const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 4), index: new Uint32Array(ni), resinStart: ni - nr };
   // (the growing data rides along when any part has it; a part without it is whole as it is)
@@ -1446,8 +1514,11 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
     out.growA = new Float32Array((nv / 3) * 4);
     out.growB = new Float32Array((nv / 3) * 2);
   }
+  // (the frame-first mark rides along when any part has it; a part without it is all frame: 0)
+  if (anyLate) out.late = new Float32Array(nv / 3);
   let ov = 0, oo = 0, or = ni - nr;
   for (const p of parts) {
+    if (out.late && p.late) out.late.set(p.late, ov / 3);
     out.position.set(p.position, ov);
     out.normal.set(p.normal, ov);
     out.color.set(p.color, ov);
