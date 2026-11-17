@@ -1025,7 +1025,9 @@ export class SpaceModel {
       const fate = cfg.fate !== false, since = bld.since ?? 0;
       if (since === 0) toEnd++;
       const lastSteel = Math.max(0, Math.min(1, cfg.last?.steel ?? 0)), lastPile = Math.max(0, Math.min(1, cfg.last?.pile ?? 0));
-      const stripTo = fate && since > 0 ? Math.max(goneTo, 0.8 * Math.min(1, since / 3)) : goneTo;
+      // (how far: the knob's share, reached over half the band after it was left — FutureConfig.strip)
+      const stripMax = Math.max(0, Math.min(1, cfg.strip ?? 0.4)), stripHalf = Math.max(3, Math.round(cfg.band) / 2);
+      const stripTo = fate && since > 0 ? Math.max(goneTo, stripMax * Math.min(1, since / stripHalf)) : goneTo;
       for (const b of boxesOfSeed(fs, fcfg)) {
         // (the kinds' shares: FutureConfig.partShare — a part of a kind kept at less than all is dropped by its own number)
         const share = cfg.partShare?.[b.kind];
@@ -3572,7 +3574,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.vegWild ? [out.future.vegWild] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.vegWild ? [out.future.vegWild] : []), ...(out.future.stones ? [out.future.stones] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };

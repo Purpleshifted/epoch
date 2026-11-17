@@ -18,6 +18,7 @@ import * as THREE from "three";
 import { PART_KINDS, WORLD_SIZE, type PartKind } from "@/lib/parliament";
 import { DEFAULT_FUTURE, type FutureConfig, type FutureResult } from "@/lib/parliament/futureVillage";
 import { futureOnly } from "@/lib/parliament/futureOnly";
+import { plantTone, tone } from "@/lib/parliament/plantTone";
 import { savable } from "./levaSave";
 
 /** Between the wall's ticker (which asks for it with these knobs) and its answer (which is drawn here). */
@@ -303,7 +304,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   const tint = useMemo(() => new THREE.Color(), []);
   const colA = useMemo(() => new THREE.Color(), []);
   const colB = useMemo(() => new THREE.Color(), []);
-  const colors = useRef({ a: "", b: "" });
+  const colors = useRef({ a: "", b: "", t: -1 });
 
   useFrame((state) => {
     const g = group.current;
@@ -430,10 +431,10 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         faceMat.uniforms.uFall.value = k.pitFall;
       }
     }
-    const recolour = colors.current.a !== k.vegColorA || colors.current.b !== k.vegColorB;
+    const recolour = colors.current.a !== k.vegColorA || colors.current.b !== k.vegColorB || colors.current.t !== plantTone.version;
     if (seen.current === futureLink.version && !recolour) return;
     seen.current = futureLink.version;
-    colors.current = { a: k.vegColorA, b: k.vegColorB };
+    colors.current = { a: k.vegColorA, b: k.vegColorB, t: plantTone.version };
     if (!r) return;
     const y0 = (r.k + 1) * unit;
     for (const kind of PART_KINDS) {
@@ -466,9 +467,11 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         pos[i * 3 + 1] = y0 + r.veg[i * 4 + 1] * unit + 0.04;
         pos[i * 3 + 2] = r.veg[i * 4 + 2];
         const sh = r.veg[i * 4 + 3];
-        col[i * 3] = ar + (colB.r - ar) * sh;
-        col[i * 3 + 1] = ag + (colB.g - ag) * sh;
-        col[i * 3 + 2] = ab + (colB.b - ab) * sh;
+        // (livelier, each point turned its own way: plantTone.ts — the knobs of 미래 마을 층 — 땅 아래)
+        tone(tint, ar + (colB.r - ar) * sh, ag + (colB.g - ag) * sh, ab + (colB.b - ab) * sh, (r.veg[i * 4] * 7.13 + r.veg[i * 4 + 2] * 3.71) % 1);
+        col[i * 3] = tint.r;
+        col[i * 3 + 1] = tint.g;
+        col[i * 3 + 2] = tint.b;
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
