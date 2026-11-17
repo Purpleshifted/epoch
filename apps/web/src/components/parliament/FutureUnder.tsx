@@ -28,7 +28,7 @@ import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-export const futureUnder: { cfg: { under: boolean; moundAt: number; fate?: boolean; succession?: boolean } | null } = { cfg: null };
+export const futureUnder: { cfg: { under: boolean; moundAt: number; fate?: boolean; succession?: boolean; soil?: boolean } | null } = { cfg: null };
 
 const GROUP = "미래 마을 층 — 땅 아래";
 /** The layer's own folder (FutureVillage.tsx): where it stands is read from there. */
@@ -65,10 +65,18 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       fate: { value: true, label: "끝까지 서 있던 건물은 빠진 자재가 제 발치에 쓰러져 남고 · 끝나기 전에 버려진 건물은 몸체 · 바닥판 · 보가 뜯겨 나가 기둥과 기초만 (오래전에 버려졌을수록 많이)" },
       // THE ORDER IN WHICH THE PLANTS TAKE IT (stage 4; the artist, 2026-11-17: "4단계 진행")
       succession: { value: true, label: "식생이 차지하는 순서: 풀 → 덤불 → 나무 (층이 삭을수록 · 먼저 버려진 자리 · 물가 · 관 위에서 빨리, 지붕 위에서는 늦게 · 오래 걸은 길과 관을 따라 덤불 · 나무 옆의 길은 뿌리에 갈라짐)" },
+      // THE GROUND REMEMBERS WHAT IT WAS USED FOR (stage 5; the artist, 2026-11-17: "5단계 진행")
+      soil: { value: true, label: "오래 쓰인 땅에는 다른 식생 (오래 · 거듭 지어졌던 자리일수록 그 몫이 크고 짙음 · 건물이 사라진 옛 자리에도 남)" },
+      soilColorA: { value: "#3c6e58", label: "다른 식생의 색 1 (자연색 · 어두운 쪽)" },
+      soilColorB: { value: "#86b59a", label: "다른 식생의 색 2 (자연색 · 밝은 쪽)" },
     }),
     { collapsed: true },
   );
-  futureUnder.cfg = useMemo(() => ({ under: k.under, moundAt: k.moundAt, fate: k.fate, succession: k.succession }), [k.under, k.moundAt, k.fate, k.succession]);
+  futureUnder.cfg = useMemo(() => ({ under: k.under, moundAt: k.moundAt, fate: k.fate, succession: k.succession, soil: k.soil }), [k.under, k.moundAt, k.fate, k.succession, k.soil]);
+  // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
+  // same size, at the same heights — in the two colours of this folder
+  const other = useRef<THREE.Points>(null);
+  const drawnOther = useRef("");
   useEffect(
     () => () => {
       futureUnder.cfg = null;
@@ -132,6 +140,40 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         sm.count = ns;
         sm.instanceMatrix.needsUpdate = true;
         if (sm.instanceColor) sm.instanceColor.needsUpdate = true;
+      }
+    }
+
+    const op = other.current;
+    if (op) {
+      op.visible = layerOn && k.soil;
+      if (r && layerOn) {
+        op.position.y = base + 0.04;
+        const size = Number(knob(`${LAYER}.vegSize`) ?? 0.12);
+        const mat = op.material as THREE.PointsMaterial;
+        if (Number.isFinite(size) && mat.size !== size) mat.size = size;
+        const sig = `${futureLink.version}:${k.soilColorA}:${k.soilColorB}:${unit}`;
+        if (sig !== drawnOther.current) {
+          drawnOther.current = sig;
+          const v = r.vegOld ?? new Float32Array(0);
+          const np = Math.floor(v.length / 4);
+          const pos = new Float32Array(np * 3), col = new Float32Array(np * 3);
+          tone.a.set(k.soilColorA);
+          tone.b.set(k.soilColorB);
+          for (let i = 0; i < np; i++) {
+            pos[i * 3] = v[i * 4];
+            pos[i * 3 + 1] = v[i * 4 + 1] * unit;
+            pos[i * 3 + 2] = v[i * 4 + 2];
+            const sh = v[i * 4 + 3];
+            col[i * 3] = tone.a.r + (tone.b.r - tone.a.r) * sh;
+            col[i * 3 + 1] = tone.a.g + (tone.b.g - tone.a.g) * sh;
+            col[i * 3 + 2] = tone.a.b + (tone.b.b - tone.a.b) * sh;
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+          geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+          op.geometry.dispose();
+          op.geometry = geo;
+        }
       }
     }
 
@@ -201,6 +243,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         <cylinderGeometry args={[1, 1, 1, 14]} />
         <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
       </instancedMesh>
+      {/* the other plants, of ground that was built on for long (stage 5) */}
+      <points ref={other} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial vertexColors size={0.12} sizeAttenuation />
+      </points>
     </>
   );
 }
