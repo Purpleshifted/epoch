@@ -822,6 +822,51 @@ export class SpaceModel {
     return out;
   }
 
+  /**
+   * THE GROUND CELLS THE WAYS CROSS, per slot k0 … k1 (keys cx × 65536 + cz, as futureVillage.ts has them). The walk
+   * worker's layers are written only where a way is laid or the ways in use change (walkways.ts), so a slot without
+   * a layer of its own is read from the last one at or under it; a way's line is the one it was last drawn with.
+   */
+  private waysBySlot(k0: number, k1: number): Map<number, Set<number>> {
+    const out = new Map<number, Set<number>>();
+    const layers = [...this.walks.layers].sort((a, b) => a.k - b.k);
+    if (!layers.length) return out;
+    const lineOf = new Map<string, Float32Array>();
+    const cellsOf = new Map<Float32Array, number[]>();
+    const cells = (line: Float32Array): number[] => {
+      let c = cellsOf.get(line);
+      if (c) return c;
+      c = [];
+      for (let i = 3; i + 2 < line.length; i += 3) {
+        const ax = line[i - 3], az = line[i - 1], bx = line[i], bz = line[i + 2];
+        const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / (CELL * 0.5)));
+        for (let q = 0; q <= n; q++) c.push(Math.floor((ax + ((bx - ax) * q) / n) / CELL) * 65536 + Math.floor((az + ((bz - az) * q) / n) / CELL));
+      }
+      cellsOf.set(line, c);
+      return c;
+    };
+    let i = 0, cur: WalkLayer | null = null, set: Set<number> | null = null;
+    for (let k = k0; k <= k1; k++) {
+      let moved = false;
+      while (i < layers.length && layers[i].k <= k) {
+        const l = layers[i++];
+        for (let q = Math.min(l.drawn.length, l.lines.length) - 1; q >= 0; q--) lineOf.set(l.drawn[q], l.lines[q]);
+        cur = l;
+        moved = true;
+      }
+      if (!cur) continue;
+      if (moved || !set) {
+        set = new Set<number>();
+        for (const key of cur.links) {
+          const line = lineOf.get(key);
+          if (line) for (const c of cells(line)) set.add(c);
+        }
+      }
+      out.set(k, set);
+    }
+    return out;
+  }
+
   private futureKey = "";
   private futureAt = 0;
   /**
@@ -834,7 +879,7 @@ export class SpaceModel {
     if (!cfg.on || !bc || !field) {
       if (this.futureKey === "-") return null;
       this.futureKey = "-";
-      return { k: 0, parts: {}, tones: {}, roads: new Float32Array(0), roadsOld: new Float32Array(0), water: new Float32Array(0), veg: new Float32Array(0), ground: new Float32Array(0), n: { stand: 0, left: 0, grown: 0, road: 0, blocked: 0 } };
+      return { k: 0, parts: {}, tones: {}, roads: new Float32Array(0), roadsOld: new Float32Array(0), water: new Float32Array(0), pipes: new Float32Array(0), veg: new Float32Array(0), ground: new Float32Array(0), n: { stand: 0, left: 0, grown: 0, road: 0, blocked: 0 } };
     }
     // THE COLUMN'S TOP IS WHERE THE BUILDING HAS COME TO, not the window's top (seen in the artist's window,
     // 2026-11-16: the window's top stood at slot 2846 while nothing was built above 2835 — in a young world, 50 slots
@@ -854,13 +899,30 @@ export class SpaceModel {
     let K = -Infinity;
     const need = Math.max(3, most / 50);
     for (const [kk, c] of count) if (c >= need && kk > K) K = kk;
+    // …BUT NOT ABOVE THE WINDOW'S TOP (seen in the artist's window, 2026-11-17, the rise stopped at a top of slot 90:
+    // the layer read slot 94 — the upper storeys of buildings begun under the top stand above it, where nobody
+    // lives. Read from there, the half of the band called "lately" was those storeys only, and all but 4 of 243
+    // buildings counted as left before the end). The newest slot at or under the top's that is built so; none
+    // there (a view that is told no top): as it was.
+    const under = Math.floor(bc.top) - 1;
+    if (K > under) {
+      let k2 = -Infinity;
+      for (const [kk, c] of count) if (c >= need && kk <= under && kk > k2) k2 = kk;
+      if (k2 !== -Infinity) K = k2;
+    }
     if (K === -Infinity) K = Math.floor(bc.top) - 1;
     const now = performance.now();
     const key = `${K}:${JSON.stringify(cfg)}:${box.unit}:${box.secPerUnit}`, full = `${key}:${this.version}`;
     if (full === this.futureKey || (this.futureKey.startsWith(`${key}:`) && now - this.futureAt < 6000)) return null;
     this.futureKey = full;
     this.futureAt = now;
-    const plan = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => field.pathAt(cx, cz, k), streams: this.drain.streams, cfg });
+    // THE WAYS AND THE PIPES ARE GIVEN TO IT (stage 0 of the order of 2026-11-17; the artist: "0단계 시작"). The layer
+    // asked the density's field for the paths — and the field has had none since the ways are laid by the walk worker
+    // (its own paths are off: ParliamentSpace, path.step 1e9): in every readout since the layer was made it found no
+    // path at all, so no frame was drawn and no ground counted as trodden. A cell is path in a slot when a way in
+    // use then crosses it (waysBySlot); the pipes are every run laid.
+    const ways = this.waysBySlot(K - Math.max(4, Math.round(cfg.band)), K);
+    const plan = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => ways.get(k)?.has(cx * 65536 + cz) ?? false, streams: this.drain.streams, pipes: this.drain.pipes, cfg });
     // THE BUILDINGS ARE MADE AS THE COLUMN'S ARE (the artist, 2026-11-16, of the first version's plain boxes: "너무 좀...
     // 단조롭고 … 건물도 마찬가지 · generative 하다고 느껴지지 않는 것도 아쉽고"): each inferred building is a Seed of
     // its own — the built cell it is carried on from, standing in the slots above the column's top — put through the
@@ -902,7 +964,7 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
-    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future plants (n)": r.veg.length / 3 });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
 
@@ -3390,7 +3452,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };
