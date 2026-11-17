@@ -63,6 +63,14 @@ export interface ErodeConfig {
   slotSec?: number;
   /** THE RISING WINDOW: slots of record kept below its foot (0 = what leaves the window is let go). */
   tail?: number;
+  /**
+   * THE RISE STOPPED (rise.ts) — AND WHAT STANDS IN THE WINDOW GOES ON AGEING (the artist, 2026-11-17, the rise
+   * stopped for a day: "3020 에서 화석이 걍 안 생기고 있음"). Every age in the rising window was read off the top's
+   * way, so with the top standing nothing built since grew old: no asset, no fossil, no erosion, no plants. This is
+   * how far the top WOULD have risen while it stood (slots): a cell-slot's age is the top's way since it was built
+   * PLUS this clock's — its depth is still read below the top where it really is. Absent / 0 = the rise never stood.
+   */
+  stood?: number;
   /** THE TICK (spaceModel): the parts of a step go one after another over the step's length, each at the moment it
    *  passed its threshold (false = all at the step, as before). */
   spread?: boolean;

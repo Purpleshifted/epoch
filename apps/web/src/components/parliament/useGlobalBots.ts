@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { riseOf, syncRisePause } from "@/lib/parliament/rise";
+import { riseOf, riseSeconds, syncRisePause } from "@/lib/parliament/rise";
 import { folder, levaStore, useControls } from "leva";
 import {
   DEFAULT_HERD,
@@ -250,7 +250,9 @@ export function useGlobalBots(
       const elapsed = epochMs.current ? Math.max(0, (clock.now() - epochMs.current) / 1000) : 0;
       // (the rise stopped or let go: rise.ts — the seating of the bots, lifecycle.ts, reads the same state)
       syncRisePause(stop, elapsed, epochMs.current);
-      return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail };
+      // (…and what stands in the window goes on ageing while the rise is stopped: how far the top would have gone —
+      // erode.ts stood)
+      return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail, stood: Math.max(0, Math.min(1, shift)) * Math.max(0, elapsed - riseSeconds(elapsed)) };
     };
     botGround.window = f;
     return () => {

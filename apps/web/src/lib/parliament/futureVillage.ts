@@ -73,9 +73,64 @@ export interface FutureConfig {
    * of this again — to leave a mound. Less leaves dark earth.
    */
   moundAt?: number;
+  /**
+   * LIVED IN TO THE END, OR LEFT BEFORE IT (stage 3; the literature's T9, S6, T7): a building that stood when the
+   * end came is found with its own material — what has gone from it lies at its foot, nothing was carried off (the
+   * people left all at once and far); one left before the end was stripped by those who lived on — its body, slabs
+   * and beams taken for use elsewhere, the longer ago the more — and stands as columns and footings. Off = what has
+   * gone from a building is gone, whichever it was. The rule is the caller's (SpaceModel.computeFuture).
+   */
+  fate?: boolean;
+  /**
+   * THE ORDER IN WHICH THE PLANTS TAKE IT (stage 4; the literature's V4, V5, V8, V2, V3): grass first, then scrub,
+   * trees late — sooner where the place was left earlier, by the water and over the pipes, later on a roof; scrub
+   * along the frame of ways and the runs of pipe; a tree beside the frame breaks it. Off = every cloud the one soft
+   * ball it was.
+   */
+  succession?: boolean;
+  /**
+   * THE GROUND REMEMBERS WHAT IT WAS USED FOR (stage 5; the literature's V9): on ground that was built on for long
+   * other plants grow, the more of them the harder it was used, and thicker — and such ground has its clouds
+   * wherever it lies. Off = the plants are the same everywhere.
+   */
+  soil?: boolean;
+  /**
+   * HOW A TREE OF THE LAYER LOOKS (the artist, 2026-11-17: "나무 비주얼이랑 사이즈 조절하는 옵션 추가하고(레바)") —
+   * every one optional, 1 = as it was: `at` how far along a place must be to carry a tree (1.05; lower = trees
+   * sooner and more of them, never under scrub's 0.6); `height` its stem, `crown` its crown's width, `stem` its
+   * stem's thickness, `dense` its points (multipliers); `stemShare` the share of its points that are its stem (0.1);
+   * `shape` its crown — a ball, a cone (a conifer), an umbrella (wide and flat), a column (narrow and long).
+   */
+  tree?: {
+    at?: number;
+    height?: number;
+    crown?: number;
+    stem?: number;
+    stemShare?: number;
+    dense?: number;
+    shape?: "ball" | "cone" | "umbrella" | "column";
+    /** (the artist, the same day: "나무 모양이나 사이즈 지터도 옵션 넣어줘") How much one tree's SIZE differs from
+     *  another's: 0 = every tree the same height and width, 1 = as it was, more = wilder. */
+    sizeJitter?: number;
+    /** The share of trees (0 … 1) that take another of the four SHAPES than the one chosen, each its own. */
+    shapeMix?: number;
+    /** How much a crown's own proportion (its height against its width) differs from tree to tree: 0 = none. */
+    shapeJitter?: number;
+  };
+  /**
+   * TREES IN THE COLUMN OF THE PRESENT — a trial (the artist, 2026-11-17: "1·2부터 넣어 봐"; docs/world-review
+   * §29-13, the literature's N1 – N5). In the column the vertical is time, so a tree there is a LIFE along it: a stem
+   * from the slot it began in to the slot it ended in. Asked with the layer's knobs and answered with its result
+   * (FutureResult.trees) only because that road was there; it is no part of the layer above. `density` the share of
+   * ground cells that carry trees at all; `slotsPerYear` how many slots a tree's year is; `young` / `old` the chance
+   * a year that it ends, in its first five years and after (Hilbert et al. 2019: about 0.07 and 0.03); `regrow` the
+   * chance a year that a new one begins on a cell that has none (Smith et al. 2019: planting about keeps up with
+   * dying). A building on its cell ends it, and none begins under one. The rule is the caller's (SpaceModel).
+   */
+  trees?: { on: boolean; density: number; slotsPerYear: number; young: number; old: number; regrow: number };
 }
 
-export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12 };
+export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12, fate: true, succession: true, soil: true };
 
 /** A building of the inferred village: its ground cell, its height in slots, and the built cell it is carried on from. */
 export interface FutureBuilding<C> {
@@ -87,6 +142,8 @@ export interface FutureBuilding<C> {
   fresh: boolean;
   /** How much of it is left, 0 … 1 (its parts are taken away by it, in the order the column's erosion takes them). */
   left: number;
+  /** For how many slots it had been left when the end came (0 = it stood to the end). Absent = 0. */
+  since?: number;
   from: C;
 }
 
@@ -115,10 +172,17 @@ export interface FutureResult {
   stains: Float32Array;
   /** [x, y (slots above the ground), z, shade 0..1] per plant. */
   veg: Float32Array;
+  /** The same per plant of the OTHER kind — what grows on ground that was built on for long (stage 5): drawn in
+   *  colours of its own. Absent in a result of a worker started before it was written. */
+  vegOld?: Float32Array;
+  /** THE TREES OF THE COLUMN OF THE PRESENT (FutureConfig.trees — no part of this layer; they come with its answer):
+   *  [x, z, the slot it began in, the slot it ended in (the newest slot + 1 = it lives), a number 0..1 of its own]
+   *  per stem. Absent = none asked for. */
+  trees?: Float32Array;
   /** The ground it stands on: [minX, minZ, maxX, maxZ] (world), or empty when nothing is inferred. */
   ground: Float32Array;
   /** How much of each there is (the readout). */
-  n: { stand: number; left: number; grown: number; road: number; blocked: number; lasting?: number; roadOld?: number; pipe?: number; mound?: number; stain?: number };
+  n: { stand: number; left: number; grown: number; road: number; blocked: number; lasting?: number; roadOld?: number; pipe?: number; mound?: number; stain?: number; grass?: number; shrub?: number; tree?: number; cracked?: number; used?: number };
 }
 
 /** What inferFuture gives: everything of FutureResult but the buildings' parts — those are generated by the caller. */
@@ -333,18 +397,26 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const oldRoad = new Set<number>();
   if (keep) for (const [cx, cz] of roadCells) if (pathAge(cx, cz) >= half) oldRoad.add(key(cx, cz));
   const roads: number[] = [], roadsOld: number[] = [];
-  for (const [cx, cz] of roadCells) {
-    const x = (cx + 0.5) * CELL, z = (cz + 0.5) * CELL, q = key(cx, cz);
-    let any = false;
-    for (const [dx, dz] of [[1, 0], [0, 1]] as const) {
-      const q2 = key(cx + dx, cz + dz);
-      if (road.has(q2)) {
-        (oldRoad.has(q) && oldRoad.has(q2) ? roadsOld : roads).push(x, z, x + dx * CELL, z + dz * CELL);
-        any = true;
+  // (laid again once the plants are known — stage 4: where a tree's roots have broken the frame, `cracked`, a stretch
+  // of it is no longer the frame's)
+  const layRoads = (cracked: ReadonlySet<number> | null) => {
+    roads.length = 0;
+    roadsOld.length = 0;
+    const whole = (q: number) => oldRoad.has(q) && !cracked?.has(q);
+    for (const [cx, cz] of roadCells) {
+      const x = (cx + 0.5) * CELL, z = (cz + 0.5) * CELL, q = key(cx, cz);
+      let any = false;
+      for (const [dx, dz] of [[1, 0], [0, 1]] as const) {
+        const q2 = key(cx + dx, cz + dz);
+        if (road.has(q2)) {
+          (whole(q) && whole(q2) ? roadsOld : roads).push(x, z, x + dx * CELL, z + dz * CELL);
+          any = true;
+        }
       }
+      if (!any && !road.has(key(cx - 1, cz)) && !road.has(key(cx, cz - 1))) (whole(q) ? roadsOld : roads).push(x - CELL * 0.3, z, x + CELL * 0.3, z);
     }
-    if (!any && !road.has(key(cx - 1, cz)) && !road.has(key(cx, cz - 1))) (oldRoad.has(q) ? roadsOld : roads).push(x - CELL * 0.3, z, x + CELL * 0.3, z);
-  }
+  };
+  layRoads(null);
   n.road = roadCells.length;
   Object.assign(n, { lasting, roadOld: oldRoad.size });
 
@@ -401,15 +473,89 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   };
   for (const c of cells.values()) mark(c.cx, c.cz);
   for (const [cx, cz] of roadCells) mark(cx, cz);
-  const clouds: { x: number; z: number; r: number; tall: number; n: number }[] = [];
+  //
+  // THE ORDER IN WHICH THEY TAKE IT (stage 4 of the order of 2026-11-17; the artist: "4단계 진행"; FutureConfig
+  // .succession). Left land is grass for long, then scrub, and trees late — sooner where there is something to
+  // spread from (Matsala et al. 2021, Broughton et al. 2022: V4); on a building the first are what needs least, in
+  // its cracks and where dust and water gather (Cozzolino et al. 2022: V5); it gathers along the unmanaged edges of
+  // the ways and on left plots (Del Tredici 2010: V8); roots lift and crack what is paved within a few metres of a
+  // tree that has stood for years (Randrup et al. 2003: V2), and grow towards the damp, along the pipes (Randrup et
+  // al. 2001: V3). So every cloud is of one of three KINDS — a low carpet of grass, a dome of scrub, a tree (a stem
+  // and a crown) — by HOW FAR ALONG its place is: the layer's decay is the time since the end (`ruin`); a place left
+  // before the end has had longer; by the water and over the pipes it goes faster; on a roof slower. Scrub lines the
+  // frame of ways and the runs of pipe; a tree beside the frame breaks it there (`cracked`: that stretch is drawn as
+  // a faint path, and plants stand on it).
+  const succ = cfg.succession !== false;
+  const ruinT = Math.max(0, Math.min(1, cfg.ruin ?? 0.5));
+  // (how a tree looks: FutureConfig.tree — the knobs)
+  const tk = cfg.tree ?? {};
+  const pos = (v: number | undefined, d: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d);
+  const treeAt = Math.max(0.6, pos(tk.at, 1.05)), treeH = pos(tk.height, 1), treeC = pos(tk.crown, 1), treeS = pos(tk.stem, 1), treeN = pos(tk.dense, 1);
+  const stemShare = Math.min(0.9, pos(tk.stemShare, 0.1)), treeShape = tk.shape ?? "ball";
+  const sizeJ = pos(tk.sizeJitter, 1), shapeMix = Math.min(1, pos(tk.shapeMix, 0)), shapeJ = pos(tk.shapeJitter, 0);
+  const SHAPES = ["ball", "cone", "umbrella", "column"] as const;
+  // (damp: the water's cells, and less so the cells two round them; piped: the cells a run of pipe passes under)
+  const damp = new Map<number, number>();
+  const piped = new Set<number>();
+  if (succ) {
+    for (const q of wet) {
+      const cx = Math.floor(q / 65536 + 0.5), cz = q - cx * 65536;
+      for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (!damp.has(key(cx + dx, cz + dz))) damp.set(key(cx + dx, cz + dz), 0.5);
+    }
+    for (const q of wet) damp.set(q, 1);
+    for (const p of input.pipes ?? []) {
+      if (p.k0 !== undefined || p.k > K) continue;
+      const len = Math.hypot(p.bx - p.ax, p.bz - p.az), steps = Math.max(1, Math.ceil(len / (CELL * 0.5)));
+      for (let s = 0; s <= steps; s++) piped.add(key(cellOf(p.ax + ((p.bx - p.ax) * s) / steps), cellOf(p.az + ((p.bz - p.az) * s) / steps)));
+    }
+  }
+  /** 0 = grass, 1 = scrub, 2 = a tree; −1 = as the clouds were before the kinds (the knob off). */
+  const kindAt = (cx: number, cz: number, salt: number): number => {
+    if (!succ) return -1;
+    const q = key(cx, cz), st = stand.get(q);
+    // (a place built only before the band was left longest of all)
+    const cq = cells.get(q);
+    const away = cq ? Math.min(1, cq.since / band) : dep.has(q) ? 1 : 0;
+    const v = 0.15 + 0.9 * ruinT + 0.35 * away + 0.35 * (damp.get(q) ?? 0) + (piped.has(q) ? 0.2 : 0) - (st && st.left > 0.45 ? 0.35 : 0) + (hash(cx, cz, salt + 9) - 0.5) * 0.3;
+    return v < 0.6 ? 0 : v < treeAt ? 1 : 2;
+  };
+  // THE GROUND REMEMBERS WHAT IT WAS USED FOR (stage 5 of the order of 2026-11-17; the artist: "5단계 진행";
+  // FutureConfig.soil). Land farmed under Rome and forest ever since still carries other plants, by how hard it was
+  // used — the soil was changed for good (Dupouey et al. 2002: 식생 V9). So the plants of ground that was built on
+  // for long are OTHER PLANTS: `used` (0 … 1) is the place's deposit (the score a mound is read from, stage 2: half
+  // of it at the mound's threshold, all of it at twice that), and that share of a cloud's points are of the other
+  // kind (FuturePlan.vegOld — drawn in colours of their own), and it is the thicker for it. And such ground gets its
+  // clouds wherever it lies, also where nothing has stood for longer than the band: when the buildings are gone, the
+  // village is still read in what grows there.
+  const soil = cfg.soil !== false;
+  const usedAt = (cx: number, cz: number): number => {
+    const d = soil ? dep.get(key(cx, cz)) : undefined;
+    return d ? Math.min(1, (d.total / Math.max(1, cfg.moundAt ?? 12) + 0.5 * (d.ep - 1)) / 2) : 0;
+  };
+  const clouds: { x: number; z: number; r: number; tall: number; n: number; kind: number; used: number; shape?: string; asp?: number }[] = [];
+  const clouded = new Set<number>();
   const per = Math.max(0, cfg.vegPer);
+  const kinds = [0, 0, 0];
   const cloud = (cx: number, cz: number, r: number, salt: number) => {
     const x = (cx + hash(cx, cz, salt)) * CELL, z = (cz + hash(cx, cz, salt + 1)) * CELL;
-    clouds.push({ x, z, r, tall: 0.4 + 1.6 * hash(cx, cz, salt + 2), n: Math.round(per * 5 * r * r) });
+    const kind = kindAt(cx, cz, salt), u = hash(cx, cz, salt + 2), used = usedAt(cx, cz);
+    if (kind >= 0) kinds[kind]++;
+    clouded.add(key(cx, cz));
+    // (grass: wide and low; scrub: a dome; a tree: `tall` is its stem, its crown stands on that)
+    // (a tree's size: its stem 0.9 … 2.2 slots and its crown by the place's rule, as it was, at a jitter of 1; at 0
+    // every tree the mean of those — 1.55 slots, a crown of 1.3; more than 1 = further from the mean)
+    const treeR = Math.max(0.4, 1.3 + (Math.max(0.9, r * 0.85) - 1.3) * sizeJ), treeT = Math.max(0.3, 1.55 + (u - 0.5) * 1.3 * sizeJ);
+    const [rk, tall, nk] = kind === 0 ? [r * 1.25, 0.1 + 0.12 * u, 1] : kind === 1 ? [r, 0.4 + 0.7 * u, 1] : kind === 2 ? [treeR * treeC, treeT * treeH, 1.3 * treeN] : [r, 0.4 + 1.6 * u, 1];
+    const thick = nk * (1 + 0.5 * used);
+    // (a tree's shape: the one chosen — or, for the knob's share of them, another of the four; and its crown's own
+    // proportion)
+    const shape = kind !== 2 ? undefined : hash(cx, cz, salt + 11) < shapeMix ? SHAPES[Math.min(3, Math.floor(hash(cx, cz, salt + 12) * 4))] : treeShape;
+    const asp = kind !== 2 ? 1 : Math.max(0.3, 1 + (hash(cx, cz, salt + 13) - 0.5) * 1.4 * shapeJ);
+    clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp });
     // (some are two-lobed)
     if (hash(cx, cz, salt + 3) < 0.3) {
-      const t = hash(cx, cz, salt + 4) * Math.PI * 2;
-      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: r * 0.7, tall: 0.3 + hash(cx, cz, salt + 5), n: Math.round(per * 2.5 * r * r) });
+      const t = hash(cx, cz, salt + 4) * Math.PI * 2, u5 = hash(cx, cz, salt + 5);
+      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp });
     }
   };
   for (let cz = z0; cz <= z1; cz++) {
@@ -433,10 +579,37 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
           if (nb && nb.a > 0.5 && nb.b > 0.5) edge = true;
         }
         if (edge) cloud(cx, cz, 0.7 + 0.9 * hash(cx, cz, 46), 400);
+      } else if (succ && free && h1 < 0.62) {
+        // (stage 4) THE VERGE OF THE FRAME and THE LINE OF A PIPE: free ground beside a way walked long, or over a run
+        // of pipe — narrow clouds, so they read as lines along them
+        let verge = false;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (oldRoad.has(key(cx + dx, cz + dz))) verge = true;
+        if (verge) cloud(cx, cz, 0.55 + 0.5 * hash(cx, cz, 48), 700);
+        else if (piped.has(q) && h1 < 0.5) cloud(cx, cz, 0.6 + 0.6 * hash(cx, cz, 49), 600);
       }
     }
   }
-  const veg: number[] = [];
+  // (stage 5) GROUND THAT WAS BUILT ON, WHEREVER IT LIES: a cloud on every such cell that has none yet — the surer
+  // the more it was used; not on the frame, not where a building still mostly stands
+  if (soil) {
+    for (const [q, d] of dep) {
+      if (clouded.has(q) || (keep ? oldRoad.has(q) : road.has(q)) || (stand.get(q)?.left ?? 0) > 0.45) continue;
+      const used = usedAt(d.cx, d.cz);
+      if (used >= 0.1 && hash(d.cx, d.cz, 51) < 0.3 + 0.6 * used) cloud(d.cx, d.cz, 0.8 + 1.1 * used * hash(d.cx, d.cz, 52), 800);
+    }
+  }
+  // (stage 4) WHERE THE ROOTS HAVE BROKEN THE FRAME: its cells within a cell of a tree
+  const cracked = new Set<number>();
+  if (succ && keep) {
+    for (const c of clouds) {
+      if (c.kind !== 2) continue;
+      const cx = cellOf(c.x), cz = cellOf(c.z);
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (oldRoad.has(key(cx + dx, cz + dz))) cracked.add(key(cx + dx, cz + dz));
+    }
+    if (cracked.size) layRoads(cracked);
+  }
+  Object.assign(n, { grass: kinds[0], shrub: kinds[1], tree: kinds[2], cracked: cracked.size });
+  const veg: number[] = [], vegOld: number[] = [];
   const CAP = 60000;
   let all = 0;
   for (const c of clouds) all += c.n;
@@ -446,18 +619,37 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     for (let i = 0; i < nPts; i++) {
       // (thick in its middle, thinning to its edge)
       const u1 = hash(ci, i, 1), u2 = hash(ci, i, 2), u3 = hash(ci, i, 3), u4 = hash(ci, i, 4);
-      const rr = c.r * CELL * Math.pow(u1, 0.75), th = u2 * Math.PI * 2;
+      const th = u2 * Math.PI * 2;
+      // (a tree: one point in ten is of its stem; the rest of its crown, a ball standing on the stem)
+      const stem = c.kind === 2 && hash(ci, i, 5) < stemShare, crown = c.kind === 2 && !stem, v = 2 * u3 - 1;
+      // THE CROWN'S SHAPE (the knob): how far out a point is (a share of the crown's radius) and how high (slots) —
+      // a ball on the stem; a cone from half way up the stem, wide below and to a point; an umbrella, a wide flat
+      // cap on the stem's top; a column, narrow, from a third up the stem
+      let cr = 0, cy = 0;
+      if (crown) {
+        // (its own shape and proportion: `asp` stretches the crown's height)
+        const s1 = Math.sqrt(u1), sh = c.shape ?? treeShape, a = c.asp ?? 1;
+        if (sh === "cone") [cr, cy] = [s1 * (1 - u3) * 0.95, c.tall * 0.45 + u3 * c.r * 1.7 * a];
+        else if (sh === "umbrella") [cr, cy] = [s1 * 1.3, c.tall + ((1 - u1) * 0.22 + u3 * 0.08) * c.r * a];
+        else if (sh === "column") [cr, cy] = [s1 * 0.42 * Math.sqrt(1 - v * v * 0.6), c.tall * 0.35 + u3 * c.r * 2 * a];
+        else [cr, cy] = [s1 * Math.sqrt(1 - v * v), c.tall + (v * 0.5 + 0.4) * c.r * 0.6 * a];
+      }
+      const rr = stem ? c.r * CELL * 0.07 * treeS * u1 : crown ? c.r * CELL * cr : c.r * CELL * Math.pow(u1, c.kind === 0 ? 0.6 : 0.75);
       const x = c.x + Math.cos(th) * rr, z = c.z + Math.sin(th) * rr;
       const q = key(cellOf(x), cellOf(z));
-      // (not on trodden ground; and inside a building's cell only above its roof)
-      if (keep ? oldRoad.has(q) : road.has(q)) continue;
+      // (not on trodden ground — but through a stretch of the frame the roots have broken; and inside a building's
+      // cell only above its roof)
+      if (keep ? oldRoad.has(q) && !cracked.has(q) : road.has(q)) continue;
       const b = stand.get(q);
       // (through what is mostly gone, from the ground up; over what still stands, on its roof)
       const roof = b && b.left > 0.45 ? b.h : 0;
-      const y = roof + u3 * c.tall * (1 - Math.pow(u1, 2)) * (roof ? 0.5 : 1);
-      veg.push(x, y, z, u4);
+      const y = stem ? roof + u3 * c.tall : crown ? roof + cy : roof + u3 * c.tall * (1 - Math.pow(u1, 2)) * (roof ? 0.5 : 1);
+      // (the shade: grass the lighter of the two colours, a tree the darker, scrub between; before the kinds, any)
+      // (stage 5: of ground that was used, that share of the points are the other plants)
+      (c.used > 0 && hash(ci, i, 6) < c.used ? vegOld : veg).push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : c.kind === 1 ? 0.25 + 0.5 * u4 : c.kind === 2 ? 0.4 * u4 : u4);
     }
   });
+  Object.assign(n, { used: vegOld.length / 4 });
 
   // ── pipes: every run laid up to the slot read lies under this ground (carried, not drawn yet — stage 0 of the order
   // of 2026-11-17: the rules of what is left under the ground read them) ──
@@ -467,6 +659,6 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   Object.assign(n, { pipe: pipes.length / 4, mound: left.mounds.length / 4, stain: left.stains.length / 4 });
 
   const buildings: FutureBuilding<C>[] = [];
-  for (const b of stand.values()) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, from: b.from });
-  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: Float32Array.from(water), pipes: Float32Array.from(pipes), ...left, veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
+  for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
+  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: Float32Array.from(water), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }

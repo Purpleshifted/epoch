@@ -6,8 +6,13 @@
  * speed to 0 is another thing altogether — the fixed block of 11/12, with its own way of eroding and fusing — so the
  * rise is STOPPED instead: the seconds the rise is counted by stand still while it is stopped, and go on from where
  * they stood when it is let go again. The window's top stays where it is; the bots go on being born into the
- * window and building in it; nothing leaves at its foot; what is read off the top's way (the erosion's progress, the
- * fossil's age) stands with it.
+ * window and building in it; nothing leaves at its foot.
+ *
+ * WHAT STANDS IN THE WINDOW GOES ON AGEING (the same day: "3020 에서 화석이 걍 안 생기고 있음"). Every age in the
+ * rising window was read off the top's way, so at first all of it stood with the rise — nothing built after the stop
+ * was ever simplified, eroded, overgrown or fossilised. Now the ages go by the top's way PLUS the way it would have
+ * gone while stopped (erode.ts `stood`, from `elapsed − riseSeconds(elapsed)`); only the DEPTH stays read off the top
+ * where it really is.
  *
  * One state for the page: the bots' hook keeps it (useGlobalBots: its knob, and this browser's storage), the seating
  * of bots and the window's top read it.

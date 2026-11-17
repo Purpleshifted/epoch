@@ -201,7 +201,15 @@ export function walkways(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   const reach = cfg.reach > 0 ? cfg.reach : (opts.present ?? 18);
   const grace = Math.max(0, cfg.grace);
   const resurfaceEvery = cfg.resurface < 0 ? 0 : cfg.resurface > 0 ? cfg.resurface : reach;
-  const kFirst = Math.floor(Math.min(...seeds.map((s) => s.t0)) / spu), kLast = Math.floor(opts.tNow / spu);
+  // THE ROUND ENDS WHERE THE BUILDINGS DO, NOT AT THE CLOCK (2026-11-17; the artist: "처리하는 데이터가 일정하면 시간
+  // 지났을 때 느려지면 안 되지 않나"). It went on to the clock's slot — and since the column's rise can be stopped
+  // (rise.ts) the clock runs on while the block stands: seen in the artist's window 64 minutes into a world whose
+  // block is 90 slots, 386 slots were walked through, each with every track's sum and the standing buildings worked
+  // out again, and more every minute with nothing new in them. Above the last slot a building stands in there is
+  // nothing to arrive at: the ways go once they have been unseen for `grace` slots, and nothing changes after.
+  let kEnd = -Infinity;
+  for (const s of seeds) if (s.t1 > kEnd) kEnd = s.t1;
+  const kFirst = Math.floor(Math.min(...seeds.map((s) => s.t0)) / spu), kLast = Math.min(Math.floor(opts.tNow / spu), Math.floor(kEnd / spu) + Math.ceil(grace) + 2);
   const P = new Float32Array(n);
   let lastSig = "";
   let now: Link[] = [];
