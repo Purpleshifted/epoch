@@ -1,0 +1,11 @@
+name = "anthropocene-bots"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[[durable_objects.bindings]]
+name = "WORLDS"
+class_name = "BotServer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BotServer"]
