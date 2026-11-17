@@ -870,6 +870,74 @@ export class SpaceModel {
     return out;
   }
 
+  /**
+   * THE TREES OF THE COLUMN OF THE PRESENT — a trial (FutureConfig.trees; the artist, 2026-11-17: "1·2부터 넣어 봐";
+   * docs/world-review §29-13 ideas 1 and 2). In the column the vertical is time: a tree is a life along it, [x, z,
+   * the slot it began in, the slot it ended in, a number of its own] a stem. A share of the ground cells round where
+   * anything is built carry trees; on such a cell, slot by slot from the first built slot of the block to the
+   * window's top: where there is none, one begins by chance (`regrow` a year); where one stands, it ends by chance —
+   * more in its first five years than after (`young`, `old` a year: Hilbert et al. 2019, 식생·나무 N2), so most
+   * stems are short and thin and a few long; a new one begins on the cell again (Smith et al. 2019, N3). A building
+   * on the cell ends the tree and none begins under one. Every chance is drawn from the cell and the slot alone, so
+   * a tree is the same tree whenever it is worked out.
+   */
+  private presentTrees(t: NonNullable<FutureConfig["trees"]>, kTop: number): Float32Array {
+    const none = new Float32Array(0);
+    if (!t.on || !this.seeds.length) return none;
+    const built = new Map<number, Set<number>>();
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, kMin = Infinity;
+    for (const sd of this.seeds) {
+      if (!sd.levels) continue;
+      const cx = Math.floor(sd.x / CELL), cz = Math.floor(sd.z / CELL), q = cx * 65536 + cz;
+      let s = built.get(q);
+      if (!s) built.set(q, (s = new Set<number>()));
+      for (const [k, lv] of sd.levels) {
+        if (lv < 1) continue;
+        s.add(k);
+        if (k < kMin) kMin = k;
+      }
+      if (cx < x0) x0 = cx;
+      if (cx > x1) x1 = cx;
+      if (cz < z0) z0 = cz;
+      if (cz > z1) z1 = cz;
+    }
+    if (!built.size || !(kMin <= kTop)) return none;
+    const M = 6;
+    [x0, x1, z0, z1] = [x0 - M, x1 + M, z0 - M, z1 + M];
+    if ((x1 - x0 + 1) * (z1 - z0 + 1) > 220 * 220) return none;
+    const unit01 = (v: number) => Math.max(0, Math.min(0.99, Number.isFinite(v) ? v : 0));
+    const spy = Math.max(0.1, Number.isFinite(t.slotsPerYear) ? t.slotsPerYear : 1), dens = unit01(t.density);
+    // (a chance a year → a chance a slot)
+    const slot = (perYear: number) => 1 - Math.pow(1 - unit01(perYear), 1 / spy);
+    const pYoung = slot(t.young), pOld = slot(t.old), pBorn = slot(t.regrow);
+    const out: number[] = [];
+    const CAPN = 6000 * 5;
+    for (let cz = z0; cz <= z1 && out.length < CAPN; cz++) {
+      for (let cx = x0; cx <= x1 && out.length < CAPN; cx++) {
+        if (hash2(cx, cz, 9001) >= dens) continue;
+        const here = built.get(cx * 65536 + cz);
+        const x = (cx + 0.2 + 0.6 * hash2(cx, cz, 9003)) * CELL, z = (cz + 0.2 + 0.6 * hash2(cx, cz, 9004)) * CELL;
+        let k0 = -1;
+        for (let k = kMin; k <= kTop; k++) {
+          if (here?.has(k)) {
+            if (k0 >= 0) out.push(x, z, k0, k, hash2(cx * 31 + k0, cz, 9005));
+            k0 = -1;
+            continue;
+          }
+          const u = hash2(cx * 7919 + cz, k, 9002);
+          if (k0 < 0) {
+            if (u < pBorn) k0 = k;
+          } else if (u < ((k - k0) / spy < 5 ? pYoung : pOld)) {
+            out.push(x, z, k0, k + 1, hash2(cx * 31 + k0, cz, 9005));
+            k0 = -1;
+          }
+        }
+        if (k0 >= 0) out.push(x, z, k0, kTop + 1, hash2(cx * 31 + k0, cz, 9005));
+      }
+    }
+    return Float32Array.from(out);
+  }
+
   private futureKey = "";
   private futureAt = 0;
   /**
@@ -1011,7 +1079,10 @@ export class SpaceModel {
     // (the rest of the plan — the paths, the water, the pipes, the mounds and the dark earth — goes as it is)
     const { buildings: _b, ...rest } = plan;
     void _b;
-    const r: FutureResult = { ...rest, parts, tones };
+    // (the trees of the column of the present come with this answer: presentTrees)
+    const trees = cfg.trees?.on ? this.presentTrees(cfg.trees, Math.floor(bc.top) - 1) : undefined;
+    const r: FutureResult = { ...rest, parts, tones, ...(trees ? { trees } : {}) };
+    if (trees) this.stages["trees of the present (stems)"] = trees.length / 5;
     Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future stood to the end (n)": toEnd, "future parts fallen (n)": fallen,"future footings kept (n)": footings, "future plants of used ground (n)": r.n.used ?? 0, "future grass (clouds)": r.n.grass ?? 0,"future scrub (clouds)": r.n.shrub ?? 0, "future trees (clouds)": r.n.tree ?? 0, "future frame broken by roots (cells)": r.n.cracked ?? 0, "future mounds (n)": r.n.mound ?? 0,"future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
@@ -3513,7 +3584,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.trees ? [out.future.trees] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };

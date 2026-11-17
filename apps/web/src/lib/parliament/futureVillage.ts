@@ -101,7 +101,33 @@ export interface FutureConfig {
    * stem's thickness, `dense` its points (multipliers); `stemShare` the share of its points that are its stem (0.1);
    * `shape` its crown — a ball, a cone (a conifer), an umbrella (wide and flat), a column (narrow and long).
    */
-  tree?: { at?: number; height?: number; crown?: number; stem?: number; stemShare?: number; dense?: number; shape?: "ball" | "cone" | "umbrella" | "column" };
+  tree?: {
+    at?: number;
+    height?: number;
+    crown?: number;
+    stem?: number;
+    stemShare?: number;
+    dense?: number;
+    shape?: "ball" | "cone" | "umbrella" | "column";
+    /** (the artist, the same day: "나무 모양이나 사이즈 지터도 옵션 넣어줘") How much one tree's SIZE differs from
+     *  another's: 0 = every tree the same height and width, 1 = as it was, more = wilder. */
+    sizeJitter?: number;
+    /** The share of trees (0 … 1) that take another of the four SHAPES than the one chosen, each its own. */
+    shapeMix?: number;
+    /** How much a crown's own proportion (its height against its width) differs from tree to tree: 0 = none. */
+    shapeJitter?: number;
+  };
+  /**
+   * TREES IN THE COLUMN OF THE PRESENT — a trial (the artist, 2026-11-17: "1·2부터 넣어 봐"; docs/world-review
+   * §29-13, the literature's N1 – N5). In the column the vertical is time, so a tree there is a LIFE along it: a stem
+   * from the slot it began in to the slot it ended in. Asked with the layer's knobs and answered with its result
+   * (FutureResult.trees) only because that road was there; it is no part of the layer above. `density` the share of
+   * ground cells that carry trees at all; `slotsPerYear` how many slots a tree's year is; `young` / `old` the chance
+   * a year that it ends, in its first five years and after (Hilbert et al. 2019: about 0.07 and 0.03); `regrow` the
+   * chance a year that a new one begins on a cell that has none (Smith et al. 2019: planting about keeps up with
+   * dying). A building on its cell ends it, and none begins under one. The rule is the caller's (SpaceModel).
+   */
+  trees?: { on: boolean; density: number; slotsPerYear: number; young: number; old: number; regrow: number };
 }
 
 export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12, fate: true, succession: true, soil: true };
@@ -149,6 +175,10 @@ export interface FutureResult {
   /** The same per plant of the OTHER kind — what grows on ground that was built on for long (stage 5): drawn in
    *  colours of its own. Absent in a result of a worker started before it was written. */
   vegOld?: Float32Array;
+  /** THE TREES OF THE COLUMN OF THE PRESENT (FutureConfig.trees — no part of this layer; they come with its answer):
+   *  [x, z, the slot it began in, the slot it ended in (the newest slot + 1 = it lives), a number 0..1 of its own]
+   *  per stem. Absent = none asked for. */
+  trees?: Float32Array;
   /** The ground it stands on: [minX, minZ, maxX, maxZ] (world), or empty when nothing is inferred. */
   ground: Float32Array;
   /** How much of each there is (the readout). */
@@ -462,6 +492,8 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const pos = (v: number | undefined, d: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d);
   const treeAt = Math.max(0.6, pos(tk.at, 1.05)), treeH = pos(tk.height, 1), treeC = pos(tk.crown, 1), treeS = pos(tk.stem, 1), treeN = pos(tk.dense, 1);
   const stemShare = Math.min(0.9, pos(tk.stemShare, 0.1)), treeShape = tk.shape ?? "ball";
+  const sizeJ = pos(tk.sizeJitter, 1), shapeMix = Math.min(1, pos(tk.shapeMix, 0)), shapeJ = pos(tk.shapeJitter, 0);
+  const SHAPES = ["ball", "cone", "umbrella", "column"] as const;
   // (damp: the water's cells, and less so the cells two round them; piped: the cells a run of pipe passes under)
   const damp = new Map<number, number>();
   const piped = new Set<number>();
@@ -500,7 +532,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const d = soil ? dep.get(key(cx, cz)) : undefined;
     return d ? Math.min(1, (d.total / Math.max(1, cfg.moundAt ?? 12) + 0.5 * (d.ep - 1)) / 2) : 0;
   };
-  const clouds: { x: number; z: number; r: number; tall: number; n: number; kind: number; used: number }[] = [];
+  const clouds: { x: number; z: number; r: number; tall: number; n: number; kind: number; used: number; shape?: string; asp?: number }[] = [];
   const clouded = new Set<number>();
   const per = Math.max(0, cfg.vegPer);
   const kinds = [0, 0, 0];
@@ -510,13 +542,20 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     if (kind >= 0) kinds[kind]++;
     clouded.add(key(cx, cz));
     // (grass: wide and low; scrub: a dome; a tree: `tall` is its stem, its crown stands on that)
-    const [rk, tall, nk] = kind === 0 ? [r * 1.25, 0.1 + 0.12 * u, 1] : kind === 1 ? [r, 0.4 + 0.7 * u, 1] : kind === 2 ? [Math.max(0.9, r * 0.85) * treeC, (0.9 + 1.3 * u) * treeH, 1.3 * treeN] : [r, 0.4 + 1.6 * u, 1];
+    // (a tree's size: its stem 0.9 … 2.2 slots and its crown by the place's rule, as it was, at a jitter of 1; at 0
+    // every tree the mean of those — 1.55 slots, a crown of 1.3; more than 1 = further from the mean)
+    const treeR = Math.max(0.4, 1.3 + (Math.max(0.9, r * 0.85) - 1.3) * sizeJ), treeT = Math.max(0.3, 1.55 + (u - 0.5) * 1.3 * sizeJ);
+    const [rk, tall, nk] = kind === 0 ? [r * 1.25, 0.1 + 0.12 * u, 1] : kind === 1 ? [r, 0.4 + 0.7 * u, 1] : kind === 2 ? [treeR * treeC, treeT * treeH, 1.3 * treeN] : [r, 0.4 + 1.6 * u, 1];
     const thick = nk * (1 + 0.5 * used);
-    clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used });
+    // (a tree's shape: the one chosen — or, for the knob's share of them, another of the four; and its crown's own
+    // proportion)
+    const shape = kind !== 2 ? undefined : hash(cx, cz, salt + 11) < shapeMix ? SHAPES[Math.min(3, Math.floor(hash(cx, cz, salt + 12) * 4))] : treeShape;
+    const asp = kind !== 2 ? 1 : Math.max(0.3, 1 + (hash(cx, cz, salt + 13) - 0.5) * 1.4 * shapeJ);
+    clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp });
     // (some are two-lobed)
     if (hash(cx, cz, salt + 3) < 0.3) {
       const t = hash(cx, cz, salt + 4) * Math.PI * 2, u5 = hash(cx, cz, salt + 5);
-      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used });
+      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp });
     }
   };
   for (let cz = z0; cz <= z1; cz++) {
@@ -588,11 +627,12 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       // cap on the stem's top; a column, narrow, from a third up the stem
       let cr = 0, cy = 0;
       if (crown) {
-        const s1 = Math.sqrt(u1);
-        if (treeShape === "cone") [cr, cy] = [s1 * (1 - u3) * 0.95, c.tall * 0.45 + u3 * c.r * 1.7];
-        else if (treeShape === "umbrella") [cr, cy] = [s1 * 1.3, c.tall + (1 - u1) * c.r * 0.22 + u3 * c.r * 0.08];
-        else if (treeShape === "column") [cr, cy] = [s1 * 0.42 * Math.sqrt(1 - v * v * 0.6), c.tall * 0.35 + u3 * c.r * 2];
-        else [cr, cy] = [s1 * Math.sqrt(1 - v * v), c.tall + (v * 0.5 + 0.4) * c.r * 0.6];
+        // (its own shape and proportion: `asp` stretches the crown's height)
+        const s1 = Math.sqrt(u1), sh = c.shape ?? treeShape, a = c.asp ?? 1;
+        if (sh === "cone") [cr, cy] = [s1 * (1 - u3) * 0.95, c.tall * 0.45 + u3 * c.r * 1.7 * a];
+        else if (sh === "umbrella") [cr, cy] = [s1 * 1.3, c.tall + ((1 - u1) * 0.22 + u3 * 0.08) * c.r * a];
+        else if (sh === "column") [cr, cy] = [s1 * 0.42 * Math.sqrt(1 - v * v * 0.6), c.tall * 0.35 + u3 * c.r * 2 * a];
+        else [cr, cy] = [s1 * Math.sqrt(1 - v * v), c.tall + (v * 0.5 + 0.4) * c.r * 0.6 * a];
       }
       const rr = stem ? c.r * CELL * 0.07 * treeS * u1 : crown ? c.r * CELL * cr : c.r * CELL * Math.pow(u1, c.kind === 0 ? 0.6 : 0.75);
       const x = c.x + Math.cos(th) * rr, z = c.z + Math.sin(th) * rr;
