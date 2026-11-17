@@ -854,6 +854,17 @@ export class SpaceModel {
     let K = -Infinity;
     const need = Math.max(3, most / 50);
     for (const [kk, c] of count) if (c >= need && kk > K) K = kk;
+    // …BUT NOT ABOVE THE WINDOW'S TOP (seen in the artist's window, 2026-11-17, the rise stopped at a top of slot 90:
+    // the layer read slot 94 — the upper storeys of buildings begun under the top stand above it, where nobody
+    // lives. Read from there, the half of the band called "lately" was those storeys only, and all but 4 of 243
+    // buildings counted as left before the end). The newest slot at or under the top's that is built so; none
+    // there (a view that is told no top): as it was.
+    const under = Math.floor(bc.top) - 1;
+    if (K > under) {
+      let k2 = -Infinity;
+      for (const [kk, c] of count) if (c >= need && kk <= under && kk > k2) k2 = kk;
+      if (k2 !== -Infinity) K = k2;
+    }
     if (K === -Infinity) K = Math.floor(bc.top) - 1;
     const now = performance.now();
     const key = `${K}:${JSON.stringify(cfg)}:${box.unit}:${box.secPerUnit}`, full = `${key}:${this.version}`;
