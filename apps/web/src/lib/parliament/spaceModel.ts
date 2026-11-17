@@ -882,7 +882,7 @@ export class SpaceModel {
     if (!cfg.on || !bc || !field) {
       if (this.futureKey === "-") return null;
       this.futureKey = "-";
-      return { k: 0, parts: {}, tones: {}, roads: new Float32Array(0), roadsOld: new Float32Array(0), water: new Float32Array(0), pipes: new Float32Array(0), veg: new Float32Array(0), ground: new Float32Array(0), n: { stand: 0, left: 0, grown: 0, road: 0, blocked: 0 } };
+      return { k: 0, parts: {}, tones: {}, roads: new Float32Array(0), roadsOld: new Float32Array(0), water: new Float32Array(0), pipes: new Float32Array(0), mounds: new Float32Array(0), stains: new Float32Array(0), veg: new Float32Array(0), ground: new Float32Array(0), n: { stand: 0, left: 0, grown: 0, road: 0, blocked: 0 } };
     }
     // THE COLUMN'S TOP IS WHERE THE BUILDING HAS COME TO, not the window's top (seen in the artist's window,
     // 2026-11-16: the window's top stood at slot 2846 while nothing was built above 2835 — in a young world, 50 slots
@@ -987,10 +987,11 @@ export class SpaceModel {
       parts[kind] = m;
       tones[kind] = t;
     }
+    // (the rest of the plan — the paths, the water, the pipes, the mounds and the dark earth — goes as it is)
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
-    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future footings kept (n)": footings, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future footings kept (n)": footings, "future mounds (n)": r.n.mound ?? 0, "future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
 
@@ -3478,7 +3479,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };
