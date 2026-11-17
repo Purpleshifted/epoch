@@ -93,7 +93,7 @@ import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/ero
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
-import { RenderTuning, useRenderOptions } from "./useRenderOptions";
+import { RenderTuning, StillNoise, useRenderOptions } from "./useRenderOptions";
 import { EXHIBITION_FUSION } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
@@ -2007,13 +2007,17 @@ function Sun({
   // THE SUN'S DAY (the artist, 2026-10-30): on the wall the azimuth turns and the elevation swings slowly around the
   // sliders' values, by the clock (a stall moves it at most 0.1 s worth), from the "전시 카메라" values
   const driftT = useRef(0);
+  // (the turn is summed frame by frame: a new pace — 렌더 › 해 돌기 — goes on from where the sun stands, no jump)
+  const turnDeg = useRef(0);
   useFrame((_, dt) => {
     const l = light.current;
     const t = controls.current?.target;
     if (!l || !t) return;
-    if (drift.active) driftT.current += Math.min(dt, 0.1);
+    const step = Math.min(dt, 0.1);
+    if (drift.active) driftT.current += step;
     const s = driftT.current;
-    const turn = drift.active && drift.turnMin > 0 ? (drift.dir * 360 * s) / (drift.turnMin * 60) : 0;
+    if (drift.active && drift.turnMin > 0) turnDeg.current = (turnDeg.current + (drift.dir * 360 * step) / (drift.turnMin * 60)) % 360;
+    const turn = turnDeg.current;
     const swing = drift.active && drift.swingDeg > 0 && drift.swingMin > 0 ? drift.swingDeg * Math.sin((2 * Math.PI * s) / (drift.swingMin * 60)) : 0;
     const az = (azimuth + turn) * DEG;
     const el = THREE.MathUtils.clamp(elevation + swing, 2, 89) * DEG;
@@ -4181,7 +4185,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     testPerf,
     perfMode: rnd.perfMode,
     wall,
-    saved: { dprMax: rnd.dprMax, shadows: rnd.shadows, aoOn: rnd.aoOn, aoQuality: rnd.quality, aoHalfRes: rnd.halfRes, grain: rnd.grain, dof: v.dof, transmissionScale: fu.transmissionScale, aoRadius: rnd.aoRadius, distanceFalloff: rnd.distanceFalloff, aoIntensity: rnd.aoIntensity, azimuth: rnd.azimuth, elevation: rnd.elevation, sunIntensity: rnd.sunIntensity, softness: rnd.softness, dofRange: v.dofRange, dofBokeh: v.dofBokeh, lodNear: rnd.near, lodMid: rnd.mid },
+    saved: { dprMax: rnd.dprMax, shadows: rnd.shadows, aoOn: rnd.aoOn, aoQuality: rnd.quality, aoHalfRes: rnd.halfRes, grain: rnd.grain, dof: v.dof, transmissionScale: fu.transmissionScale, aoRadius: rnd.aoRadius, distanceFalloff: rnd.distanceFalloff, aoIntensity: rnd.aoIntensity, azimuth: rnd.azimuth, elevation: rnd.elevation, sunIntensity: rnd.sunIntensity, softness: rnd.softness, dofRange: v.dofRange, dofBokeh: v.dofBokeh, lodNear: rnd.near, lodMid: rnd.mid, sunTurnMin: cam.sunTurnMin },
   });
   const composerOn = ro.composerOn;
   const aoHalfRes = ro.aoHalfRes;
@@ -4301,7 +4305,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       <Canvas key={ro.canvasKey} shadows={ro.shadowType} dpr={ro.dpr} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: ro.antialias, preserveDrawingBuffer: ro.preserveDrawingBuffer }}>
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
-        <Sun controls={controls} azimuth={ro.detail.azimuth} elevation={ro.detail.elevation} intensity={ro.detail.sunIntensity} softness={ro.detail.softness} shadows={shadowsOn} drift={{ turnMin: cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab }} />
+        <Sun controls={controls} azimuth={ro.detail.azimuth} elevation={ro.detail.elevation} intensity={ro.detail.sunIntensity} softness={ro.detail.softness} shadows={shadowsOn} drift={{ turnMin: ro.sunTurnMin ?? cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: ro.sunTurnMin === 0 ? 0 : cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab || (ro.sunTurnMin ?? 0) > 0 }} />
         <directionalLight position={[-18, 10, -12]} intensity={0.35} />
         <RendererTuning transmissionScale={ro.transmissionScale} />
         <RenderTuning shadowType={ro.shadowType} shadowMapSize={ro.shadowMapSize} shadowsOn={shadowsOn} />
@@ -4409,10 +4413,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${ro.ao}:${ro.grain > 0}:${ro.dof}:${ro.composerMsaa}`} multisampling={ro.composerMsaa}>
+          <EffectComposer key={`${ro.ao}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}`} multisampling={ro.composerMsaa}>
             {ro.ao && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh} />}
-            {ro.grain > 0 && <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />}
+            {ro.grain > 0 && (ro.grainStill ? <StillNoise opacity={ro.grain} /> : <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />)}
           </EffectComposer>
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
