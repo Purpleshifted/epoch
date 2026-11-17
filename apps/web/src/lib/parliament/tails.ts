@@ -122,6 +122,31 @@ export class TailField {
     this.steps++;
   }
 
+  /**
+   * THE RISING WINDOW HAS PASSED: the cell-slots below slot `floor` are forgotten (nobody walks there any more —
+   * without this the field grows with every slot the window rises through: 200,000 cell-slots in half an hour).
+   * Returns how many went.
+   */
+  dropBelow(floor: number): number {
+    let n = 0;
+    for (const [ck, col] of this.cols) {
+      for (const k of col.keys())
+        if (k < floor) {
+          col.delete(k);
+          n++;
+        }
+      if (!col.size) this.cols.delete(ck);
+    }
+    // (and the walkers last seen below it: gone, their walks under way with them)
+    const before = floor * Math.max(1, this.cfg.slotSec);
+    for (const [o, l] of this.last)
+      if (l.s < before) {
+        this.last.delete(o);
+        this.open.delete(o);
+      }
+    return n;
+  }
+
   /** Every cell-slot a tail lies on, with its level. */
   each(cb: (cx: number, cz: number, k: number, level: number) => void): void {
     for (const [ck, col] of this.cols) {

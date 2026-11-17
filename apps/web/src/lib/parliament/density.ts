@@ -139,6 +139,9 @@ export interface PathConfig {
   joinRadius: number;
   joinThreshold: number;
 }
+/** A path threshold at or above this: no cell can ever be path (the sum of walkers' shares never gets there). */
+export const NO_PATHS = 1e8;
+
 export const DEFAULT_PATH: PathConfig = { minStep: 0.6, maxGapSec: 3, radius: 1.5, upSec: 120, downSec: 20, minWalkers: 4, walkerMin: 0.5, walkerCap: 2, step: 6.5, minLeg: 3, joinRadius: 4, joinThreshold: 0.4 };
 
 export const DEFAULT_DENSITY: DensityConfig = {
@@ -281,6 +284,10 @@ export class DensityField {
         const step = dt > 0 && dt <= pc.maxGapSec && d >= pc.minStep;
         // (a step over the world's edge is short round the torus but long on the map: the walk ends before it)
         if (step && d <= wrapDist(prev.x, prev.z, x, z) + 1e-6) {
+          // PATHS NEVER ASKED FOR (step ≥ NO_PATHS: the wall and the bots' copy, where the walkways are the paths): a
+          // way can never become path then, so its walk is not kept — the routes it would join grew without end, and
+          // every walk was matched against all of them (the bot server measured it, 2026-11-17)
+          if (pc.step >= NO_PATHS) return;
           const leg = this.open.get(o) ?? [prev.x, prev.z, prev.s];
           leg.push(x, z, e.s);
           this.open.set(o, leg);
@@ -899,6 +906,14 @@ export class DensityField {
     }
     for (const m of [this.builtIn, this.joinedIn]) for (const [k, set] of m) if (k < floor && !set.size) m.delete(k);
     for (const k of this.mergeDirty) if (k < hard) this.mergeDirty.delete(k);
+    // (the queue of what was built keeps only what still stands, and the walkers last seen below the floor are gone:
+    // both grew with every slot the window rose through — the bot server measured it, 2026-11-17)
+    if (n) {
+      this.built = this.built.slice(this.builtAt).filter((b) => b[2].level >= 1);
+      this.builtAt = 0;
+    }
+    const gone = floor * Math.max(1, c.slotSec);
+    for (const [o, l] of this.last) if (l.s < gone) this.last.delete(o);
     if (n) {
       this.stats.cellSlots -= n;
       this.listDirty = true;

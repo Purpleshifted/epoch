@@ -28,6 +28,8 @@ export const LS_EVENTS_EPOCH_KEY = "anthropocene:parliament:events-epoch:v1";
  */
 export const LS_EVENTS_TOKEN_KEY = "anthropocene:parliament:events-token:v1";
 export const MAX_EVENTS = 30000;
+/** Dispatched on the window by clearWorld, in the tab where the world was emptied. */
+export const WORLD_CLEARED_EVENT = "anthropocene:world-cleared";
 
 export class EventLog {
   private m = new Map<string, PEvent>();
@@ -350,6 +352,12 @@ export function getEpochMs(): number {
 
 /** Empty the shared world and start a new epoch (the old stratum code shares the epoch key). */
 export function clearWorld(): void {
+  // (the bot server, when the bots run there, is told by the view that cleared: useBotServer)
+  try {
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(WORLD_CLEARED_EVENT));
+  } catch {
+    /* no window */
+  }
   cache = null;
   lastToken = null;
   try {

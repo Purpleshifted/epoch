@@ -3578,6 +3578,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   // everything the log holds at first — after that the bots feed it as they stand (useGlobalBots). They go round what
   // it says is built, or stop at it.
   useEffect(() => {
+    botGround.densityCfg = densityCfg;
     if (!densityCfg) {
       botGround.built = null;
       botGround.shown = null;
@@ -4590,7 +4591,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         <div>preset: {presetSource()}{tabModified ? " · tab-modified" : ""}{params.get("cam") === "band" ? " · cam=band" : ""}</div>
-        {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} running from this view ({lab ? "lab, this tab only" : "global"})</div>}
+        {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} ({lab ? "lab, this tab only" : "global"})</div>}
         {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
         {depths && (
           <div>

@@ -20,7 +20,7 @@
  * only until the tab is closed (then ×1 again).
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { riseOf, riseSeconds, syncRisePause } from "@/lib/parliament/rise";
 import { folder, levaStore, useControls } from "leva";
 import {
@@ -63,6 +63,8 @@ import {
 import { savable } from "./levaSave";
 import { useTicker } from "./useTicker";
 import { useFoldState } from "./useWorld";
+import { botServerOn, useBotServer } from "./useBotServer";
+import type { BotSetup } from "@/lib/parliament/botWorld";
 
 const TICK_MS = 250;
 const SAVE_EVERY_MS = 1000;
@@ -105,8 +107,9 @@ const GROUP = "봇 (글로벌에서 돌리기)";
 /** The session bots as one line for the view's readout (null when they are not running here). */
 export function botReadout(): string | null {
   if (typeof window === "undefined") return null;
-  const l = (window as unknown as { __lifecycle?: { present: number; maxPresent: number; arrived: number; departed: number; places: number; slowPerMin: number } }).__lifecycle;
+  const l = (window as unknown as { __lifecycle?: { present: number; maxPresent: number; arrived: number; departed: number; places: number; slowPerMin: number; server?: boolean } }).__lifecycle;
   if (!l) return null;
+  if (l.server) return `bots (herds, on the bot server): ${l.present} now / max ${l.maxPresent} · arrived ${l.arrived} · left ${l.departed} · places ${l.places}`;
   return `bots (herds): ${l.present} now / max ${l.maxPresent} · arrived ${l.arrived} · left ${l.departed} · places ${l.places} · stalls ${l.slowPerMin}/min`;
 }
 
@@ -196,7 +199,12 @@ export function useGlobalBots(
     }),
     { order, collapsed: !enabled },
   );
-  const on = enabled && b.botOn;
+  // THE BOTS RUN ON THE BOT SERVER (useBotServer, relay/bots; the artist, 2026-11-17: "봇 자체를 따로 돌려서 늘 어디서
+  // 열든 봇은 돌아간 상태여야"): this view only reads them. They run in this tab only in the lab (its own world) or
+  // with ?botserver=0. `sees`: the bots are in this view's world (its window, its depth, its readout).
+  const server = useMemo(() => !local && botServerOn(), [local]);
+  const on = enabled && b.botOn && !server;
+  const sees = enabled && b.botOn;
   const session = true;
   const sizeMin = Math.min(b.hSizeMin, b.hSizeMax), sizeMax = Math.max(b.hSizeMin, b.hSizeMax);
   /** The most at once: every herd at its largest and the loners (the hard ceiling is 60 events a second). */
@@ -249,14 +257,15 @@ export function useGlobalBots(
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   // (where the block's top is now, in seconds of its time axis: the wall reads it — botGround.topSec)
   const shiftRef = useRef({ shift: 0, depthSec: 0, tail: 0, stop: false });
-  shiftRef.current = { shift: on ? b.hShift : 0, depthSec: b.hDepth * slotSec, tail: b.hTail, stop: !!b.hRiseStop };
+  shiftRef.current = { shift: sees ? b.hShift : 0, depthSec: b.hDepth * slotSec, tail: b.hTail, stop: !!b.hRiseStop };
   useEffect(() => {
-    if (!on) return;
+    if (!sees) return;
     const f = () => {
       const { shift, depthSec, tail, stop } = shiftRef.current;
       const elapsed = epochMs.current ? Math.max(0, (clock.now() - epochMs.current) / 1000) : 0;
       // (the rise stopped or let go: rise.ts — the seating of the bots, lifecycle.ts, reads the same state)
-      syncRisePause(stop, elapsed, epochMs.current, !local);
+      // (on the bot server the server keeps it, and useBotServer puts it here)
+      if (!server) syncRisePause(stop, elapsed, epochMs.current, !local);
       // (…and what stands in the window goes on ageing while the rise is stopped: how far the top would have gone —
       // erode.ts stood)
       return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail, stood: Math.max(0, Math.min(1, shift)) * Math.max(0, elapsed - riseSeconds(elapsed)) };
@@ -265,9 +274,9 @@ export function useGlobalBots(
     return () => {
       if (botGround.window === f) botGround.window = null;
     };
-  }, [on, clock]);
+  }, [sees, server, clock]);
   const setDepth = opts?.setDepth;
-  const deep = on ? b.hDepth : 0;
+  const deep = sees ? b.hDepth : 0;
   useEffect(() => {
     setDepth?.(deep);
   }, [setDepth, deep]);
@@ -388,6 +397,8 @@ export function useGlobalBots(
       }
     }
     const { on: isOn, cfg: foldCfg, fold: theFold, lc: lcCfg } = live.current;
+    // (on the bot server: the world's epoch is the server's, as this browser keeps it — never made here)
+    if (server) epochMs.current = Number(currentEpochKey()) || 0;
     const isSession = true;
     // THE VILLAGES, for the pipes (water.ts WaterConfig.villages: pipes in villages only) — told whenever the epoch or
     // the village knobs change, the bots on here or not (a view that only watches lays the same pipes)
@@ -569,6 +580,24 @@ export function useGlobalBots(
     }
   });
 
+  // THE BOT SERVER: what this view's knobs make of the bots (the density field's config is the wall's, as it builds
+  // with it), sent there when it changes
+  const setupRef = useRef<BotSetup | null>(null);
+  setupRef.current = {
+    on: !!b.botOn,
+    lc,
+    tails: { ...DEFAULT_TAILS, slotSec, tailSec: b.hTailSec, minLeg: b.hTailLeg },
+    trail: b.hTrail,
+    keep: b.hKeep,
+    density: null,
+    flow: cfg.flow ?? null,
+    sampleSec: cfg.sampleSec,
+    riseStop: !!b.hRiseStop,
+    tailSlots: b.hTail,
+  };
+  const getSetup = useCallback(() => (setupRef.current ? { ...setupRef.current, density: botGround.densityCfg } : null), []);
+  useBotServer(log, enabled && server, getSetup, botKinds);
+
   // the readout: how many bots (session: the most at once the knob allows, as a stable number; resident: the count)
-  return on ? Math.max(1, most) : 0;
+  return sees ? Math.max(1, most) : 0;
 }
