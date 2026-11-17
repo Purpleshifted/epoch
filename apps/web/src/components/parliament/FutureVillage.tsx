@@ -104,8 +104,8 @@ function pitGeometry(light: string, dark: string, fall: number, wall = 1, floor 
  * (`uTaper`), thinning towards its sides (`uSoft`) so that it has no edge of its own.
  *
  * The fall with depth is taken exactly (the samples are spread evenly over ITS integral, so a fall of 40 is as smooth
- * as a fall of 2); only the thinning towards the sides is sampled, a few steps, shifted from pixel to pixel so that no
- * bands show. Drawn on the box's far faces with the depth test on: what stands in the light (the column, what is
+ * as a fall of 2); only the thinning towards the sides is sampled — THREE steps, no more (the artist: "굳이 '그것처럼
+ * 보이게 하는' 목적의 요소들에 렌더 리소스 많이 쓰지 마"), shifted from pixel to pixel so that no bands show. Drawn on the box's far faces with the depth test on: what stands in the light (the column, what is
  * found on the layer) is not washed by it — it stands dark before it.
  */
 // (where the box stands in the world and how large it is are read from its own matrix: it is never turned)
@@ -115,6 +115,7 @@ const BEAM_FRAGMENT = [
   "uniform vec3 uLight;",
   "varying vec3 vCentre;",
   "varying vec3 vSize;",
+  "uniform float uCap;",
   "uniform float uFall;",
   "uniform float uGlow;",
   "uniform float uTaper;",
@@ -122,8 +123,9 @@ const BEAM_FRAGMENT = [
   "varying vec3 vW;",
   "float ign( vec2 p ) { return fract( 52.9829189 * fract( dot( p, vec2( 0.06711056, 0.00583715 ) ) ) ); }",
   "void main() {",
-  "  vec3 uCentre = vCentre;",
-  "  vec3 uSize = max( vSize, vec3( 1e-4 ) );",
+  // (the light itself: the box that is drawn, less the part of it above the bright square)
+  "  vec3 uCentre = vCentre - vec3( 0.0, 0.5 * uCap, 0.0 );",
+  "  vec3 uSize = max( vSize - vec3( 0.0, uCap, 0.0 ), vec3( 1e-4 ) );",
   "  vec3 ro = cameraPosition;",
   "  vec3 rd = normalize( vW - ro );",
   "  rd += vec3( 1e-6 ) * ( 1.0 - step( 1e-6, abs( rd ) ) );",
@@ -148,8 +150,8 @@ const BEAM_FRAGMENT = [
   "  float fallSum = level ? pow( 1.0 - h0, F ) : abs( u1 - u0 ) / ( ( F + 1.0 ) * abs( dh ) );",
   "  float j = ign( gl_FragCoord.xy );",
   "  float sum = 0.0;",
-  "  for ( int i = 0; i < 8; i++ ) {",
-  "    float f = ( float( i ) + j ) / 8.0;",
+  "  for ( int i = 0; i < 3; i++ ) {",
+  "    float f = ( float( i ) + j ) / 3.0;",
   "    float h = level ? h0 : 1.0 - pow( mix( u0, u1, f ), 1.0 / ( F + 1.0 ) );",
   "    float t = level ? mix( tn, tf, f ) : tn + ( h - h0 ) / dh * ( tf - tn );",
   "    vec3 q = ( ro + rd * t - uCentre ) / uSize;",
@@ -157,7 +159,7 @@ const BEAM_FRAGMENT = [
   "    float m = max( abs( q.x ), abs( q.z ) ) / max( 1e-4, 0.5 * ( 1.0 - uTaper * h ) );",
   "    sum += 1.0 - smoothstep( 1.0 - uSoft, 1.0, m );",
   "  }",
-  "  float lit = uGlow * fallSum * ( sum / 8.0 ) * ( tf - tn ) / uSize.x;",
+  "  float lit = uGlow * fallSum * ( sum / 3.0 ) * ( tf - tn ) / uSize.x;",
   "  gl_FragColor = vec4( max( vec3( 0.0 ), uLight * lit + ( j - 0.5 ) / 255.0 * step( 1e-4, lit ) ), 1.0 );",
   "  #include <colorspace_fragment>",
   "}",
@@ -256,7 +258,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         depthWrite: false,
         blending: THREE.AdditiveBlending,
         toneMapped: false,
-        uniforms: { uLight: { value: new THREE.Color() }, uFall: { value: 14 }, uGlow: { value: 1 }, uTaper: { value: 0.7 }, uSoft: { value: 0.8 } },
+        uniforms: { uLight: { value: new THREE.Color() }, uCap: { value: 0 }, uFall: { value: 14 }, uGlow: { value: 1 }, uTaper: { value: 0.7 }, uSoft: { value: 0.8 } },
         vertexShader: BEAM_VERTEX,
         fragmentShader: BEAM_FRAGMENT,
       }),
@@ -352,21 +354,34 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       shaft.current.scale.set(WORLD_SIZE, Math.max(1e-3, up), WORLD_SIZE);
     }
     // 4: no ground outside — the mouth itself is a bright square, a little above what is found (a ceiling of light)
-    const lidY = foot + 6 * unit;
+    // Under the layer's ground (version 6) THE BRIGHT SQUARE IS A BACKGROUND, AT THE HEIGHT OF WHAT IS FOUND (the artist,
+    // 2026-11-17: "상자 윗면보다 미래 마을이 더 낮게 형성되고 있음, 높이 같아야", "애초에 빛나는 네모가 배경 에셋이도록
+    // 하면 성능 덜 먹고 좋을 듯"): it stands in the layer's own ground plane, is drawn before everything else and
+    // neither reads nor writes depth — so whatever is drawn after it (the column, what is found, from below too) is
+    // seen before it, and it costs a fill of its pixels and no more.
+    const back = style === "beam";
+    const lidY = back ? foot : foot + 6 * unit;
     if (lid.current) {
-      lid.current.visible = style === "lid" || style === "beam";
+      lid.current.visible = style === "lid" || back;
       lid.current.position.set(0, lidY, 0);
       lid.current.scale.set(WORLD_SIZE, WORLD_SIZE, 1);
+      lid.current.renderOrder = back ? -1000 : 0;
+      const m = lid.current.material as THREE.MeshBasicMaterial;
+      m.depthTest = !back;
+      m.depthWrite = !back;
     }
     // 6: under that ceiling nothing but its light — a body of it, strongest under the ceiling, narrowing and gone with
     // depth (the shader reads where the box stands from the box's own matrix)
     if (beam.current) {
       const long = Math.max(1, k.beamDeep) * unit;
       beam.current.visible = style === "beam" && k.beamGlow > 0;
-      // (a hair under the ceiling: its top face is not the ceiling's own plane)
-      beam.current.position.set(0, lidY - 0.02 - long / 2, 0);
-      beam.current.scale.set(WORLD_SIZE, long, WORLD_SIZE);
+      // (the box that is drawn reaches a little ABOVE the square — over what is found — though the light begins at the
+      // square (uCap): seen from below, what is found then stands before the box's far face and is not washed by it)
+      const cap = 6 * unit;
+      beam.current.position.set(0, lidY + cap - (long + cap) / 2, 0);
+      beam.current.scale.set(WORLD_SIZE, long + cap, WORLD_SIZE);
       const u = beamMat.uniforms;
+      u.uCap.value = cap;
       (u.uLight.value as THREE.Color).set(k.pitLight);
       u.uFall.value = k.beamFall;
       u.uGlow.value = k.beamGlow;
