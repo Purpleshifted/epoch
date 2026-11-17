@@ -14,6 +14,10 @@
  */
 
 import { levaStore } from "leva";
+import { FUTURE_ONLY } from "@/lib/parliament/futureOnly";
+
+/** The folders the view of the layer above alone lists: the layer's own and what is left under its ground. */
+const FUTURE_GROUPS = ["미래 마을 층"] as const;
 
 /** The key of the checkbox, in a group that is cut down, that lists all of the group again. */
 export const FOCUS_ALL_KEY = "allKnobs";
@@ -80,6 +84,9 @@ function postLive(): void {
 /** Whether a path is listed: every path of a group that is not cut down; of one that is, the knobs under review —
  *  or all of it, with its checkbox on. */
 function listed(path: string, data: Record<string, { value?: unknown } | undefined>): boolean {
+  // THE LAYER ABOVE ALONE (/rehearsal/future, lib/parliament/futureOnly.ts; the artist, 2026-11-17: "관련없는 레바는
+  // 다 빼고"): only that layer's folders are listed — every other knob keeps its value and still applies
+  if (FUTURE_ONLY) return FUTURE_GROUPS.some((g) => path.startsWith(g));
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;
     if (data[`${group}.${FOCUS_ALL_KEY}`]?.value) return true;

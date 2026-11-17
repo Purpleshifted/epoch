@@ -17,6 +17,7 @@ import { useControls } from "leva";
 import * as THREE from "three";
 import { PART_KINDS, WORLD_SIZE, type PartKind } from "@/lib/parliament";
 import { DEFAULT_FUTURE, type FutureConfig, type FutureResult } from "@/lib/parliament/futureVillage";
+import { FUTURE_ONLY } from "@/lib/parliament/futureOnly";
 import { savable } from "./levaSave";
 
 /** Between the wall's ticker (which asks for it with these knobs) and its answer (which is drawn here). */
@@ -330,7 +331,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     // looking from the side or from underneath.
     const groundY = g.position.y + foot;
     const cam = state.camera.position;
-    const style: PitStyle = !k.pit ? "none" : cam.y >= groundY ? k.pitAbove : "beam";
+    // (the layer alone — /rehearsal/future, lib/parliament/futureOnly.ts: no pit and none of its light, whatever the knob)
+    const style: PitStyle = !k.pit || FUTURE_ONLY ? "none" : cam.y >= groundY ? k.pitAbove : "beam";
     const deep = Math.max(1, k.pitDepth) * unit;
     const up = style === "shaft" ? Math.max(1, k.pitShaft) * unit : 0;
     if (plate) plate.visible = k.ground && style === "none";

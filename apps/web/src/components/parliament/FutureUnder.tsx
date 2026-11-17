@@ -20,10 +20,11 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { levaStore, useControls } from "leva";
 import * as THREE from "three";
 import type { FutureConfig } from "@/lib/parliament/futureVillage";
+import { FUTURE_ONLY } from "@/lib/parliament/futureOnly";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
@@ -204,6 +205,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const treePts = useRef<THREE.Points>(null);
   const treeLines = useRef<THREE.LineSegments>(null);
   const drawnTrees = useRef("");
+  // THE LAYER ALONE (/rehearsal/future, lib/parliament/futureOnly.ts): the camera is set on the layer once — looking
+  // down at its ground from a side — and then left to the hand
+  const three = useThree();
+  const placed = useRef(false);
   const sizedPoints = useMemo(
     () => (shader: { vertexShader: string }) => {
       shader.vertexShader = shader.vertexShader.replace("void main() {", "attribute float psize;\nvoid main() {").replace("gl_PointSize = size;", "gl_PointSize = size * psize;");
@@ -310,6 +315,15 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
 
+    if (FUTURE_ONLY && !placed.current && r && top.value > 0) {
+      const ctl = three.controls as unknown as { target: THREE.Vector3; update: () => void } | null;
+      if (ctl) {
+        placed.current = true;
+        ctl.target.set(0, base, 0);
+        three.camera.position.set(70, base + 75, 95);
+        ctl.update();
+      }
+    }
     const tp = treePts.current, tl = treeLines.current;
     if (tp && tl) {
       const lined = k.treeStemMode === "line" || k.treeStemMode === "branch";

@@ -89,6 +89,7 @@ import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
+import { FUTURE_ONLY } from "@/lib/parliament/futureOnly";
 import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
@@ -1721,6 +1722,8 @@ function SpaceWorld({
 
   return (
     <>
+      {/* (the wall opened for the layer above alone — lib/parliament/futureOnly.ts — draws nothing of the column) */}
+      <group visible={!FUTURE_ONLY}>
       {PART_KINDS.map((kind) => (
         <instancedMesh
           key={kind}
@@ -1779,15 +1782,18 @@ function SpaceWorld({
       </mesh>
       {/* the mass made in the worker beside: a mesh per chunk of the space (applyChunks) */}
       <group ref={chunkGroup} visible={fuse.enabled} />
+      </group>
       {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
       {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />}
       {REDESIGN && !!density && <FutureUnder unit={boxCfg.unit} top={fuseU.uGrowTop} />}
+      <group visible={!FUTURE_ONLY}>
       {/* what the mass was, while the new comes in (setFused; hidden otherwise) */}
       <mesh ref={fusedWas} frustumCulled={false} castShadow receiveShadow visible={false} material={fusedWasMats}>
         <bufferGeometry />
       </mesh>
       <lineSegments geometry={pathGeom} material={pathMat} frustumCulled={false} visible={!!pathLook} renderOrder={3} />
       <points geometry={gatherGeom} material={gatherMat} frustumCulled={false} visible={!!nature && nature.reclaim} />
+      </group>
     </>
   );
 }
@@ -4429,7 +4435,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <RenderTuning shadowType={ro.shadowType} shadowMapSize={ro.shadowMapSize} shadowsOn={shadowsOn} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
-        {v.seedsOn && (
+        {v.seedsOn && !FUTURE_ONLY && (
           <Dandelions
             log={log}
             secPerUnit={c.secPerUnit}
@@ -4488,7 +4494,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           boxCfg={boxCfg}
           showEdges={c.showEdges}
           wear={c.wear}
-          follow={c.follow}
+          follow={c.follow && !FUTURE_ONLY}
           followLift={camView.camLift}
           link={camLink}
           followWho={cam.camFollow as FollowWho}
@@ -4525,7 +4531,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           turnSec={camView.camTurnSec}
           dir={cam.camDir as 1 | -1}
           maxPolarDeg={isV2 ? 179.5 : 89.8}
-          active={!lab}
+          active={!lab && !FUTURE_ONLY}
           auto={camView.camAuto ? shotSeq : null}
           link={camLink}
           status={shotLine}
@@ -4538,13 +4544,14 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           </EffectComposer>
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
-        {vg.vegOn && (
+        {/* (not in the view of the layer above alone: futureOnly.ts) */}
+        {vg.vegOn && !FUTURE_ONLY && (
           <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} belts={belts} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
-        {c.markers && (
+        {c.markers && !FUTURE_ONLY && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
           </Hud>
