@@ -1,0 +1,222 @@
+"use client";
+
+/**
+ * A VIEW OF THE BOTS THAT RUN ON THEIR OWN (the artist, 2026-11-17: "봇 자체를 따로 돌려서 늘 어디서 열든 봇은 돌아간
+ * 상태여야" — "딜레이 없는 게 제일 중요"). The bots run on the bot server (relay/bots, lib/parliament/botWorld.ts),
+ * whether any view is open or not; a view joins it and only reads: the world's epoch and clock, every event the
+ * moment it is written, the bots' kinds, the column's rise stop. It sends the bots' setup when its knobs change,
+ * people's samples it has (the visitors the bots go to), and a clear of the world. docs/bot-server.md.
+ *
+ * What the view holds follows as before: its log (and this browser's storage, for the views that read only that),
+ * the ground the wall feeds (botGround.built) and the tails, which the wall's vegetation reads.
+ */
+
+import { useEffect, useRef } from "react";
+import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, type EventLog, type PEvent } from "@/lib/parliament";
+import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
+import { risePause } from "@/lib/parliament/rise";
+
+/** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
+export const BOT_SERVER = process.env.NEXT_PUBLIC_BOT_SERVER ?? "wss://anthropocene-bots.anthropocene-hesse.workers.dev";
+export const BOT_WORLD = process.env.NEXT_PUBLIC_BOT_WORLD ?? "redesign";
+export function botServerOn(): boolean {
+  if (typeof window === "undefined") return false;
+  return !!BOT_SERVER && new URLSearchParams(window.location.search).get("botserver") !== "0";
+}
+
+const SAVE_EVERY_MS = 2000;
+const PEOPLE_EVERY_MS = 1000;
+const RETRY_MS = [1000, 2000, 5000, 10000];
+
+/**
+ * Joins the bot server while `active`. `getSetup` is what this view's knobs make of the bots, looked at every second
+ * and sent when it changes — not on joining (the world goes on as it was set), unless the server was never told.
+ * `kinds` is filled with the bots' kinds as the server says them.
+ */
+export function useBotServer(log: EventLog, active: boolean, getSetup: () => BotSetup | null, kinds: Map<string, BotKind>): void {
+  const sock = useRef<WebSocket | null>(null);
+  const setupOf = useRef(getSetup);
+  setupOf.current = getSetup;
+  // WHAT THIS VIEW OPENED WITH (its saved knobs), taken at its first render: the server's bots follow this view only
+  // once its knobs differ from it — turned by hand, or by the address's link — not merely because it opened
+  const opened = useRef<string | null>(null);
+  if (opened.current === null) opened.current = handKey(getSetup());
+
+  useEffect(() => {
+    if (!active) return;
+    let gone = false, tries = 0, retry = 0;
+    let epoch = 0;
+    let sentSetup: string | null = null;
+    let openedDensity: string | null = null;
+    const json = () => {
+      const s = setupOf.current();
+      return s ? JSON.stringify(s) : "";
+    };
+    /** The knobs differ from what the view opened with (the density's: from the first config the wall gave). */
+    const turned = () => {
+      const s = setupOf.current();
+      if (!s) return false;
+      const d = JSON.stringify(s.density);
+      if (openedDensity === null && s.density) openedDensity = d;
+      return handKey(s) !== opened.current || (openedDensity !== null && d !== openedDensity);
+    };
+    const pending: PEvent[] = [];
+    // what came from the server (not sent back as people) and how far the log was looked through for people
+    const fromServer = new Set<string>();
+    let looked = 0, lookedDrops = log.drops;
+    // (a new epoch here: the view's own world ends first — useWorld empties the log on its next look — and what the
+    // server sends meanwhile waits, or it would be emptied with it)
+    let waitDrops = -1, waitUntil = 0;
+    const held: PEvent[] = [];
+    const waiting = () => {
+      if (waitDrops < 0) return false;
+      if (log.drops !== waitDrops || Date.now() > waitUntil) {
+        waitDrops = -1;
+        const list = held.splice(0);
+        take(list);
+        return false;
+      }
+      return true;
+    };
+    const take = (list: PEvent[]) => {
+      if (waiting()) {
+        held.push(...list);
+        return;
+      }
+      for (const e of list) {
+        fromServer.add(e.id);
+        if (!log.add(e)) continue;
+        pending.push(e);
+        // (the ground the wall feeds, and the tails: the vegetation reads them)
+        botGround.built?.add(e);
+        tailField.add(e);
+      }
+    };
+    const connect = () => {
+      if (gone) return;
+      const ws = new WebSocket(`${BOT_SERVER}/${BOT_WORLD}`);
+      sock.current = ws;
+      ws.onopen = () => {
+        tries = 0;
+      };
+      ws.onmessage = (m) => {
+        let d: Record<string, unknown>;
+        try {
+          d = JSON.parse(String(m.data));
+        } catch {
+          return;
+        }
+        if (d.t === "hello") {
+          // THE WORLD IS THE SERVER'S: its epoch and its clock (anchored to this browser's wall clock)
+          const skew = (d.serverNow as number) - Date.now();
+          const clock = d.clock as { r: number; v: number; rate: number };
+          try {
+            localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify({ r: clock.r - skew, v: clock.v, rate: clock.rate }));
+            const prev = currentEpochKey();
+            if (prev !== String(d.epochMs)) {
+              // (this browser's world ends: useWorld empties the log, and the server's is taken)
+              localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(d.epochMs));
+              if (prev !== null) {
+                waitDrops = log.drops;
+                waitUntil = Date.now() + 4000;
+              }
+            }
+          } catch {
+            // (no storage: this tab follows the server all the same)
+          }
+          epoch = d.epochMs as number;
+          // (the block is the times 0 … its height: nothing in it is too old — as the bots' hook kept it)
+          setKeepFrom(keepWindowSec());
+          if (d.rise) Object.assign(risePause, d.rise);
+          kinds.clear();
+          for (const [id, k] of Object.entries((d.kinds as Record<string, BotKind>) ?? {})) kinds.set(id, k);
+          (window as unknown as { __lifecycle?: unknown }).__lifecycle = d.readout ? { ...(d.readout as object), slowPerMin: 0, server: true } : undefined;
+          // (a server that has never been told the bots' setup: this view's)
+          const mine = json();
+          if (mine && (!d.setup || turned())) {
+            sentSetup = mine;
+            ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+          }
+          return;
+        }
+        if (d.t === "ev") {
+          take((d.events as PEvent[]) ?? []);
+          if (d.rise) Object.assign(risePause, d.rise);
+          if (d.kinds) {
+            kinds.clear();
+            for (const [id, k] of Object.entries(d.kinds as Record<string, BotKind>)) kinds.set(id, k);
+          }
+          if (d.readout) (window as unknown as { __lifecycle?: unknown }).__lifecycle = { ...(d.readout as object), slowPerMin: 0, server: true };
+          // the block forgot its oldest: so does this view
+          if (typeof d.keep === "number") log.dropOldest(Math.floor(Math.max(1000, d.keep) * 0.9));
+          return;
+        }
+        if (d.t === "clock") {
+          const skew = (d.serverNow as number) - Date.now();
+          const clock = d.clock as { r: number; v: number; rate: number };
+          try {
+            localStorage.setItem(LS_TIME_RATE_KEY, JSON.stringify({ r: clock.r - skew, v: clock.v, rate: clock.rate }));
+          } catch {
+            // (this tab only)
+          }
+        }
+      };
+      ws.onclose = () => {
+        if (sock.current === ws) sock.current = null;
+        if (gone) return;
+        retry = window.setTimeout(connect, RETRY_MS[Math.min(RETRY_MS.length - 1, tries++)]);
+      };
+    };
+    connect();
+    // THE WORLD WAS EMPTIED HERE (the wall's 지우고 다시 생성하기): the server begins a new one, and every view follows
+    const onCleared = () => {
+      const ws = sock.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "clear" }));
+    };
+    window.addEventListener(WORLD_CLEARED_EVENT, onCleared);
+
+    // this browser's storage, for the views that read only that (the personal view), and people's samples to the
+    // server (the visitors the bots go to)
+    const timer = window.setInterval(() => {
+      waiting();
+      if (pending.length && epoch && currentEpochKey() === String(epoch)) saveMerged(pending.splice(0), epoch);
+      else if (pending.length > 50000) pending.length = 0;
+      const ws = sock.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // the knobs turned here: the server's bots follow
+      const mine = json();
+      if (mine && mine !== sentSetup && turned()) {
+        sentSetup = mine;
+        ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+      }
+      const all = log.all();
+      if (lookedDrops !== log.drops) {
+        lookedDrops = log.drops;
+        looked = Math.min(looked, all.length);
+      }
+      const people: PEvent[] = [];
+      let i = looked;
+      for (; i < all.length && people.length < 400; i++) {
+        const e = all[i];
+        if (!e.o.startsWith("bot") && !fromServer.has(e.id)) people.push(e);
+      }
+      looked = i;
+      if (people.length) ws.send(JSON.stringify({ t: "people", events: people }));
+    }, Math.min(SAVE_EVERY_MS, PEOPLE_EVERY_MS));
+
+    return () => {
+      gone = true;
+      window.removeEventListener(WORLD_CLEARED_EVENT, onCleared);
+      window.clearTimeout(retry);
+      window.clearInterval(timer);
+      sock.current?.close();
+      sock.current = null;
+      if (pending.length && epoch) saveMerged(pending, epoch);
+    };
+  }, [active, log, kinds]);
+}
+
+/** A setup as the knobs make it, without the density's config (that comes from the wall a moment later). */
+function handKey(s: BotSetup | null): string {
+  return s ? JSON.stringify({ ...s, density: null }) : "";
+}

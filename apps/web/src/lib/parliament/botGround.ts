@@ -8,6 +8,7 @@
  * Set by the wall's view, read by useGlobalBots.
  */
 
+import type { DensityConfig } from "./density";
 import type { PEvent } from "./types";
 
 export const botGround: {
@@ -24,4 +25,6 @@ export const botGround: {
    *  risen while its rise was stopped (rise.ts; seconds of the axis, as `top`) — what the ages go on by meanwhile
    *  (erode.ts stood). */
   window: (() => { top: number; shift: number; tail: number; stood?: number }) | null;
-} = { built: null, slotSec: 20, trail: 1, shown: null, shownAt: 0, window: null };
+  /** The config the wall builds `built` with: the bot server builds its own with the same (useBotServer). */
+  densityCfg: DensityConfig | null;
+} = { built: null, slotSec: 20, trail: 1, shown: null, shownAt: 0, window: null, densityCfg: null };
