@@ -48,6 +48,41 @@ const PRESET: Record<string, Record<string, unknown>> = exhibitionPreset as Reco
 /** Read once per page load and storage key (the schema is rebuilt every render; Leva only reads it at mount). */
 const cache = new Map<string, Record<string, unknown> | null>();
 
+/**
+ * DEV ONLY — ANOTHER TAB'S VALUES, TAKEN OVER (2026-11-17: a session's dev server is another origin, so the artist's
+ * values saved on :3020 are not there, and a look was judged on the defaults). `?leva=<tag>` reads the values that tab
+ * posted (app/api/dev-leva, `.leva-live/<tag>.json` of this server) and saves them here as the page's groups, once per
+ * tab, before Leva reads anything. Never in a production build (the route answers 404 there and this does not run).
+ */
+function takeOverLiveValues(): void {
+  if (typeof window === "undefined" || process.env.NODE_ENV !== "development") return;
+  try {
+    const tag = new URLSearchParams(window.location.search).get("leva");
+    if (!tag || !/^[a-zA-Z0-9_-]{1,24}$/.test(tag)) return;
+    const done = `${PREFIX}:took:${tag}:${window.location.pathname}`;
+    if (window.sessionStorage.getItem(done)) return;
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", `/api/dev-leva?tag=${tag}`, false); // (sync: before the first group is read)
+    xhr.send();
+    if (xhr.status !== 200) return;
+    const values = (JSON.parse(xhr.responseText) as { values?: Record<string, unknown> }).values ?? {};
+    const groups: Record<string, Record<string, unknown>> = {};
+    for (const [path, v] of Object.entries(values)) {
+      const parts = path.split(".");
+      (groups[parts[0]] ??= {})[parts[parts.length - 1]] = v;
+    }
+    for (const [group, v] of Object.entries(groups)) {
+      const key = `${PREFIX}:${window.location.pathname}:${group}`;
+      window.localStorage.setItem(key, JSON.stringify(v));
+      window.localStorage.setItem(`${key}:savedAt`, String(Date.now()));
+    }
+    window.sessionStorage.setItem(done, "1");
+  } catch {
+    /* no such tab, or storage unavailable: the values as they are */
+  }
+}
+takeOverLiveValues();
+
 /** A page whose saved values another page shares (the lab tunes the shared global view's): set before Leva mounts. */
 let pageOverride: string | null = null;
 export function setLevaPage(path: string | null): void {
