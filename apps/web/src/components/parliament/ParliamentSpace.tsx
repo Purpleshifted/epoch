@@ -2450,7 +2450,7 @@ function Vegetation({
   }, [mat, tex, wTex, D, unit, size, full, colorA, colorB, base]);
   const timer = useRef(10);
   const moveTimer = useRef(0);
-  // where the vegetation is at all: a map of the ground (N × N), and two scratch maps for widening it
+  // where the vegetation is, and how thick: a map of the ground (N × N), and a scratch map of the ground in use
   const rangeTex = useMemo(() => {
     const t = new THREE.DataTexture(new Uint8Array(N * N).fill(255), N, N, THREE.RedFormat, THREE.UnsignedByteType);
     t.magFilter = THREE.LinearFilter;
@@ -2460,11 +2460,7 @@ function Vegetation({
   }, [N]);
   useEffect(() => () => rangeTex.dispose(), [rangeTex]);
   const rangeUsed = useRef(new Uint8Array(0));
-  const rangeTmp = useRef(new Uint8Array(0));
-  if (rangeUsed.current.length !== N * N) {
-    rangeUsed.current = new Uint8Array(N * N);
-    rangeTmp.current = new Uint8Array(N * N);
-  }
+  if (rangeUsed.current.length !== N * N) rangeUsed.current = new Uint8Array(N * N);
 
   useFrame((_, dt) => {
     // a point's size in pixels for its size in the world, at its distance
@@ -2523,26 +2519,41 @@ function Vegetation({
           const off = N * N * k;
           for (let i = 0; i < N * N; i++) if (data[off + i]) used[i] = 1;
         }
-        // (a square of the margin round every used cell: two passes, along x and along z)
-        const tmp = rangeTmp.current;
+        // THE RANGE HAS NO EDGE (the artist, 2026-11-17: "식생 배치가 경계가 있어 보이고... 녹아드는 느낌이 아님"). It
+        // was a square of the margin round every used cell, all or nothing: the plants stopped on a straight outline,
+        // a wall of them up the whole block. Now it is how far a cell lies from the used ground (round, not square —
+        // a chamfer over the map, there and back), and the plants THIN with that distance: all of them close by, half
+        // at the margin, none from 1.7 margins on. A point lives where its own draw is under the share (VEG_VERT), so
+        // a falling share is fewer and fewer plants, with no line where they end.
+        const dist = new Float32Array(N * N), DIAG = Math.SQRT2;
+        for (let i = 0; i < N * N; i++) dist[i] = used[i] ? 0 : 1e9;
         for (let j = 0; j < N; j++) {
           for (let i = 0; i < N; i++) {
-            let v = 0;
-            for (let d = -m; d <= m && !v; d++) {
-              const ii = i + d;
-              if (ii >= 0 && ii < N && used[j * N + ii]) v = 1;
+            const c = j * N + i;
+            let v = dist[c];
+            if (i > 0) v = Math.min(v, dist[c - 1] + 1);
+            if (j > 0) {
+              v = Math.min(v, dist[c - N] + 1);
+              if (i > 0) v = Math.min(v, dist[c - N - 1] + DIAG);
+              if (i < N - 1) v = Math.min(v, dist[c - N + 1] + DIAG);
             }
-            tmp[j * N + i] = v;
+            dist[c] = v;
           }
         }
-        for (let j = 0; j < N; j++) {
-          for (let i = 0; i < N; i++) {
-            let v = 0;
-            for (let d = -m; d <= m && !v; d++) {
-              const jj = j + d;
-              if (jj >= 0 && jj < N && tmp[jj * N + i]) v = 1;
+        const lo = 0.3 * m, hi = Math.max(lo + 1, 1.7 * m);
+        for (let j = N - 1; j >= 0; j--) {
+          for (let i = N - 1; i >= 0; i--) {
+            const c = j * N + i;
+            let v = dist[c];
+            if (i < N - 1) v = Math.min(v, dist[c + 1] + 1);
+            if (j < N - 1) {
+              v = Math.min(v, dist[c + N] + 1);
+              if (i < N - 1) v = Math.min(v, dist[c + N + 1] + DIAG);
+              if (i > 0) v = Math.min(v, dist[c + N - 1] + DIAG);
             }
-            R[j * N + i] = v ? 255 : 0;
+            dist[c] = v;
+            const q = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+            R[c] = Math.round(255 * (1 - q * q * (3 - 2 * q)));
           }
         }
       }
@@ -3367,7 +3378,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       vegOn: { value: true, label: "켜기" },
       vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
       // (the artist, 2026-11-15: "식생반경이 알아서 돌아다닌 범위 살짝 바깥에만 마진 두고 생성되게")
-      vegMargin: { value: 8, min: -1, max: 60, step: 1, label: "돌아다닌 범위 바깥으로 식생이 나는 폭 (월드 · -1 = 땅 전체에)" },
+      vegMargin: { value: 8, min: -1, max: 60, step: 1, label: "돌아다닌 범위 바깥으로 식생이 옅어지며 나는 폭 (월드 · 이 거리에서 절반, 1.7배에서 없음 · -1 = 땅 전체에)" },
       vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
       vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)" },
       vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)" },
