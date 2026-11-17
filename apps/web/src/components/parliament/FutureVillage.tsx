@@ -43,14 +43,15 @@ const setLines = (m: THREE.LineSegments | null, flat: Float32Array, y: number) =
   m.geometry = g;
 };
 
-/** The versions of the pit (FutureVillage's knobs 위에서 볼 때 / 옆 · 아래에서 볼 때): which is drawn is set every frame. */
+/** The versions of the pit: which is drawn is set every frame. From the side and from below it is always "beam" (the
+ *  artist, 2026-11-17: "옆에서 본 뷰는 그걸로 고정하고"); from above, the one chosen with the knob 위에서 볼 때. */
 type PitStyle = "lit" | "dark" | "shaft" | "lid" | "beam" | "section" | "none";
 const PIT_STYLES: Record<string, PitStyle> = {
   "1 · 밝은 땅에 뚫린 구멍 — 벽 위쪽에 빛이 묻음": "lit",
   "2 · 밝은 땅 + 벽까지 어두운 상자": "dark",
   "3 · 어두운 상자 위로 솟은 네모난 통로 — 그 벽을 타고 빛이 내려옴": "shaft",
   "4 · 빛나는 네모 천장 (바깥 땅 없음 · 입구가 빛의 면)": "lid",
-  "6 · 빛나는 네모 천장 + 그 아래 빛기둥 (벽 · 바닥 없음, 가벼움)": "beam",
+  "6 · 빛나는 네모 천장 + 그 아래 빛기둥 (옆 · 아래에서 볼 때와 같은 것 — 위에서는 천장이 기둥을 가림)": "beam",
   "5 · 땅속 단면 (상자 밖에서 볼 때 앞쪽 땅이 잘리고 지층 띠가 보임)": "section",
   "0 · 없음 (예전의 반투명 판)": "none",
 };
@@ -96,30 +97,71 @@ function pitGeometry(light: string, dark: string, fall: number, wall = 1, floor 
 /**
  * THE PILLAR OF LIGHT under the bright ceiling (the artist, 2026-11-17, of the lit walls: "빛이 내려올 때 벽 모서리가
  * 너무 좀 그래서 비용도 줄일 겸 그냥 '그라디언트기둥'이 모서리 사이즈에 맞춰서 보이게 하는 게 나을지도"): no walls, no
- * floor — only the four sides of the ceiling's square carried down as a veil of its light, brightest under the
- * ceiling and gone with depth (a unit box, ±0.5; the alpha is in the colours).
+ * floor — only the ceiling's light in the air under it. First it was a veil along the square's four sides; then (the
+ * same day: "아래 경계 좀 퍼지게 해서 자연스럽게", "감쇠 훨씬 빡세게 … 아래로 가면 거의 그냥 핀조명효과처럼 사라지고
+ * 좁아지게 보여야") A BODY OF LIGHT: a box under the ceiling whose brightness along each line of sight is summed in the
+ * fragment shader — strongest right under the ceiling and gone with depth (`uFall`), narrowing as it goes down
+ * (`uTaper`), thinning towards its sides (`uSoft`) so that it has no edge of its own.
+ *
+ * The fall with depth is taken exactly (the samples are spread evenly over ITS integral, so a fall of 40 is as smooth
+ * as a fall of 2); only the thinning towards the sides is sampled, a few steps, shifted from pixel to pixel so that no
+ * bands show. Drawn on the box's far faces with the depth test on: what stands in the light (the column, what is
+ * found on the layer) is not washed by it — it stands dark before it.
  */
-function beamGeometry(light: string, fall: number, glow: number): THREE.BufferGeometry {
-  const L = new THREE.Color(light);
-  const pos: number[] = [], col: number[] = [];
-  const corners: [number, number][] = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]];
-  const ROWS = 16;
-  const a = (t: number) => Math.max(0, Math.min(1, glow)) * Math.pow(1 - t, Math.max(0.25, fall));
-  for (let s = 0; s < 4; s++) {
-    const [x0, z0] = corners[s], [x1, z1] = corners[(s + 1) % 4];
-    for (let r = 0; r < ROWS; r++) {
-      const t0 = r / ROWS, t1 = (r + 1) / ROWS, y0 = 0.5 - t0, y1 = 0.5 - t1;
-      for (const [x, y, z, t] of [[x0, y0, z0, t0], [x1, y0, z1, t0], [x1, y1, z1, t1], [x0, y0, z0, t0], [x1, y1, z1, t1], [x0, y1, z0, t1]] as const) {
-        pos.push(x, y, z);
-        col.push(L.r, L.g, L.b, a(t));
-      }
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
-  g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 4));
-  return g;
-}
+// (where the box stands in the world and how large it is are read from its own matrix: it is never turned)
+const BEAM_VERTEX =
+  "varying vec3 vW;\nvarying vec3 vCentre;\nvarying vec3 vSize;\nvoid main() {\n  vec4 w = modelMatrix * vec4( position, 1.0 );\n  vW = w.xyz;\n  vCentre = modelMatrix[ 3 ].xyz;\n  vSize = vec3( length( modelMatrix[ 0 ].xyz ), length( modelMatrix[ 1 ].xyz ), length( modelMatrix[ 2 ].xyz ) );\n  gl_Position = projectionMatrix * viewMatrix * w;\n}";
+const BEAM_FRAGMENT = [
+  "uniform vec3 uLight;",
+  "varying vec3 vCentre;",
+  "varying vec3 vSize;",
+  "uniform float uFall;",
+  "uniform float uGlow;",
+  "uniform float uTaper;",
+  "uniform float uSoft;",
+  "varying vec3 vW;",
+  "float ign( vec2 p ) { return fract( 52.9829189 * fract( dot( p, vec2( 0.06711056, 0.00583715 ) ) ) ); }",
+  "void main() {",
+  "  vec3 uCentre = vCentre;",
+  "  vec3 uSize = max( vSize, vec3( 1e-4 ) );",
+  "  vec3 ro = cameraPosition;",
+  "  vec3 rd = normalize( vW - ro );",
+  "  rd += vec3( 1e-6 ) * ( 1.0 - step( 1e-6, abs( rd ) ) );",
+  // (the line of sight inside the box: from where it enters — or from the eye, inside it — to where it leaves)
+  "  vec3 a = ( uCentre - 0.5 * uSize - ro ) / rd;",
+  "  vec3 b = ( uCentre + 0.5 * uSize - ro ) / rd;",
+  "  vec3 lo = min( a, b );",
+  "  vec3 hi = max( a, b );",
+  "  float tn = max( max( lo.x, lo.y ), max( lo.z, 0.0 ) );",
+  "  float tf = min( min( hi.x, hi.y ), hi.z );",
+  "  if ( tf <= tn ) discard;",
+  // (h: 0 under the ceiling … 1 at the light's end; along the line it goes evenly from h0 to h1)
+  "  float top = uCentre.y + 0.5 * uSize.y;",
+  "  float h0 = clamp( ( top - ( ro.y + rd.y * tn ) ) / uSize.y, 0.0, 1.0 );",
+  "  float h1 = clamp( ( top - ( ro.y + rd.y * tf ) ) / uSize.y, 0.0, 1.0 );",
+  "  float F = max( 0.25, uFall );",
+  "  float u0 = pow( 1.0 - h0, F + 1.0 );",
+  "  float u1 = pow( 1.0 - h1, F + 1.0 );",
+  "  float dh = h1 - h0;",
+  "  bool level = abs( dh ) < 1e-4;",
+  // (the whole of the fall along the line, exactly)
+  "  float fallSum = level ? pow( 1.0 - h0, F ) : abs( u1 - u0 ) / ( ( F + 1.0 ) * abs( dh ) );",
+  "  float j = ign( gl_FragCoord.xy );",
+  "  float sum = 0.0;",
+  "  for ( int i = 0; i < 8; i++ ) {",
+  "    float f = ( float( i ) + j ) / 8.0;",
+  "    float h = level ? h0 : 1.0 - pow( mix( u0, u1, f ), 1.0 / ( F + 1.0 ) );",
+  "    float t = level ? mix( tn, tf, f ) : tn + ( h - h0 ) / dh * ( tf - tn );",
+  "    vec3 q = ( ro + rd * t - uCentre ) / uSize;",
+  // (how far from the middle, against the light's half-width at this depth: 1 = its side)
+  "    float m = max( abs( q.x ), abs( q.z ) ) / max( 1e-4, 0.5 * ( 1.0 - uTaper * h ) );",
+  "    sum += 1.0 - smoothstep( 1.0 - uSoft, 1.0, m );",
+  "  }",
+  "  float lit = uGlow * fallSum * ( sum / 8.0 ) * ( tf - tn ) / uSize.x;",
+  "  gl_FragColor = vec4( max( vec3( 0.0 ), uLight * lit + ( j - 0.5 ) / 255.0 * step( 1e-4, lit ) ), 1.0 );",
+  "  #include <colorspace_fragment>",
+  "}",
+].join("\n");
 
 /** The ground round the pit's mouth: a square of half-side `R` with the mouth (half-side `h`) cut out of it. */
 function rimGeometry(h: number, R: number): THREE.BufferGeometry {
@@ -157,18 +199,24 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       // "봇이 활동하는 범위 배경이 어두운 게 더 맞고 그 바깥 땅에 더 밝은 색", "꼭 어두운 상자 위에 네모난 통로로 빛
       // 들어오는 것처럼", and: "옆에서 본 렌더랑 위에서 봤을 때 렌더를 (지면 기준) 좀 나누면 좋을 것 같음. 일단 여러
       // 버전을 넣어서 한 번 어떤지 좀 보고싶어") — SEVERAL VERSIONS, chosen apart for the eye above the layer's
-      // ground and for the eye below it.
-      pit: { value: false, label: "파인 상자 (아래 두 줄에서 버전을 고름 — 눈이 미래 땅보다 위일 때 / 아래일 때 따로)" },
+      // ground and for the eye below it. Then, having seen them: "옆에서 본 뷰는 그걸로 고정하고" — FROM THE SIDE AND
+      // FROM BELOW IT IS THE BRIGHT CEILING WITH ITS LIGHT UNDER IT (version 6), no longer chosen; from above it still is.
+      pit: { value: false, label: "파인 상자 (눈이 미래 땅보다 아래 = 빛나는 네모 천장 + 빛기둥으로 고정 · 위일 때는 아래 줄에서 고름)" },
       pitAbove: { options: PIT_STYLES, value: "lit" as PitStyle, label: "위에서 볼 때 (눈이 미래 땅보다 위)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
-      pitSide: { options: PIT_STYLES, value: "beam" as PitStyle, label: "옆 · 아래에서 볼 때 (눈이 미래 땅보다 아래)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
-      pitDepth: { value: 160, min: 10, max: 400, step: 5, label: "상자의 깊이 (단 · 미래 땅에서 아래로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      // THE LIGHT UNDER THE CEILING ("감쇠 훨씬 빡세게 넣을 수 있게 … 아래로 가면 거의 그냥 핀조명효과처럼 사라지고
+      // 좁아지게"): its own knobs, apart from the box's (which the versions seen from above go on using)
+      beamGlow: { value: 1, min: 0, max: 4, step: 0.05, label: "빛기둥의 세기 (1 = 천장 바로 아래를 가로질러 보면 천장만큼 밝음)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      beamFall: { value: 14, min: 0.5, max: 80, step: 0.5, label: "빛기둥의 감쇠 (클수록 천장 바로 아래에서만 빛나고 곧 사라짐)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      beamTaper: { value: 0.7, min: 0, max: 1, step: 0.02, label: "빛기둥이 아래로 좁아지는 정도 (0 = 곧게 … 1 = 끝에서 한 점)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      beamSoft: { value: 0.8, min: 0.05, max: 1, step: 0.05, label: "빛기둥 옆 가장자리의 번짐 (작으면 또렷한 네모 기둥 … 1 = 가운데부터 옅어짐)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      beamDeep: { value: 120, min: 5, max: 400, step: 5, label: "빛기둥의 길이 (단 · 천장에서 아래로 — 좁아짐은 이 끝에서 다함)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      pitDepth: { value: 160, min: 10, max: 400, step: 5, label: "상자의 깊이 (단 · 미래 땅에서 아래로 — 위에서 볼 때의 버전들)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitWide: { value: 6, min: 1.5, max: 20, step: 0.5, label: "바깥 땅의 넓이 (상자 한 변의 몇 배)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitShaft: { value: 40, min: 2, max: 200, step: 2, label: "통로의 높이 (단 · 버전 3: 상자 위로 솟은 네모난 통로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitLight: { value: "#a9adb3", label: "밝은 쪽 — 바깥 땅 · 통로 위 · 천장 (해와 무관한 제 빛)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitDark: { value: "#101214", label: "어두운 쪽 — 상자 안 (봇이 다니는 범위의 배경)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitWall: { value: 0.12, min: 0, max: 1, step: 0.02, label: "'어두운 상자'의 벽 위쪽에 묻는 빛 (0 = 벽 전체가 어두움)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
-      pitFall: { value: 2, min: 0.5, max: 6, step: 0.25, label: "빛이 깊이에 따라 줄어드는 정도 (클수록 맨 위만 밝음)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
-      pitGlow: { value: 0.3, min: 0, max: 1, step: 0.02, label: "빛기둥의 세기 (버전 6 · 천장 바로 아래에서의 밝기)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      pitFall: { value: 2, min: 0.5, max: 6, step: 0.25, label: "벽의 빛이 깊이에 따라 줄어드는 정도 (위에서 볼 때의 버전들 · 클수록 맨 위만 밝음)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitBands: { value: 26, min: 0, max: 80, step: 1, label: "단면의 지층 띠 수 (버전 5 · 0 = 띠 없음)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "식생 점 크기 (월드)" },
       vegColorA: { value: "#5f7a3a", label: "식생 색 1 (자연색)" },
@@ -199,8 +247,22 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   const shaft = useRef<THREE.Mesh>(null);
   const lid = useRef<THREE.Mesh>(null);
   const beam = useRef<THREE.Mesh>(null);
-  const beamGeo = useMemo(() => beamGeometry(k.pitLight, k.pitFall, k.pitGlow), [k.pitLight, k.pitFall, k.pitGlow]);
-  useEffect(() => () => beamGeo.dispose(), [beamGeo]);
+  const beamMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        // (the box's far faces, so that it is drawn with the eye inside it too; what stands before them hides it)
+        side: THREE.BackSide,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+        uniforms: { uLight: { value: new THREE.Color() }, uFall: { value: 14 }, uGlow: { value: 1 }, uTaper: { value: 0.7 }, uSoft: { value: 0.8 } },
+        vertexShader: BEAM_VERTEX,
+        fragmentShader: BEAM_FRAGMENT,
+      }),
+    [],
+  );
+  useEffect(() => () => beamMat.dispose(), [beamMat]);
   const litGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, 1), [k.pitLight, k.pitDark, k.pitFall]);
   const darkGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, k.pitWall), [k.pitLight, k.pitDark, k.pitFall, k.pitWall]);
   const shaftGeo = useMemo(() => pitGeometry(k.pitLight, k.pitDark, k.pitFall, 1, false), [k.pitLight, k.pitDark, k.pitFall]);
@@ -266,7 +328,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     // looking from the side or from underneath.
     const groundY = g.position.y + foot;
     const cam = state.camera.position;
-    const style: PitStyle = !k.pit ? "none" : cam.y >= groundY ? k.pitAbove : k.pitSide;
+    const style: PitStyle = !k.pit ? "none" : cam.y >= groundY ? k.pitAbove : "beam";
     const deep = Math.max(1, k.pitDepth) * unit;
     const up = style === "shaft" ? Math.max(1, k.pitShaft) * unit : 0;
     if (plate) plate.visible = k.ground && style === "none";
@@ -296,11 +358,20 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       lid.current.position.set(0, lidY, 0);
       lid.current.scale.set(WORLD_SIZE, WORLD_SIZE, 1);
     }
-    // 6: under that ceiling nothing but its light, carried down along the square's four sides and fading with depth
+    // 6: under that ceiling nothing but its light — a body of it, strongest under the ceiling, narrowing and gone with
+    // depth (the shader reads where the box stands from the box's own matrix)
     if (beam.current) {
-      beam.current.visible = style === "beam";
-      beam.current.position.set(0, lidY - deep / 2, 0);
-      beam.current.scale.set(WORLD_SIZE, deep, WORLD_SIZE);
+      const long = Math.max(1, k.beamDeep) * unit;
+      beam.current.visible = style === "beam" && k.beamGlow > 0;
+      // (a hair under the ceiling: its top face is not the ceiling's own plane)
+      beam.current.position.set(0, lidY - 0.02 - long / 2, 0);
+      beam.current.scale.set(WORLD_SIZE, long, WORLD_SIZE);
+      const u = beamMat.uniforms;
+      (u.uLight.value as THREE.Color).set(k.pitLight);
+      u.uFall.value = k.beamFall;
+      u.uGlow.value = k.beamGlow;
+      u.uTaper.value = k.beamTaper;
+      u.uSoft.value = k.beamSoft;
     }
     // 5: the section's plane, by where the eye is — its normal points away from the eye (what is beyond it is kept)
     const fg = face.current;
@@ -445,8 +516,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         <planeGeometry args={[1, 1]} />
         <meshBasicMaterial color={k.pitLight} toneMapped={false} side={THREE.DoubleSide} />
       </mesh>
-      <mesh ref={beam} visible={false} geometry={beamGeo} frustumCulled={false} renderOrder={2}>
-        <meshBasicMaterial vertexColors transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} side={THREE.DoubleSide} />
+      <mesh ref={beam} visible={false} material={beamMat} frustumCulled={false} renderOrder={2}>
+        <boxGeometry args={[1, 1, 1]} />
       </mesh>
       <group ref={face} visible={false}>
         {[0, 1, 2].map((i) => (
