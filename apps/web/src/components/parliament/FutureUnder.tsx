@@ -30,7 +30,7 @@ import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "water" | "ground" | "smoothRoads" | "spread" | "partShare"> | null } = { cfg: null };
+export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "water" | "ground" | "smoothRoads" | "spread" | "partShare" | "last"> | null } = { cfg: null };
 
 /** A number 0 … 1 of a thing's own, by two numbers. */
 const rnd = (a: number, b: number): number => {
@@ -191,6 +191,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       shareBeam: { value: 1, min: 0, max: 1, step: 0.05, label: "부재 비중 — 보 · 가새 (beam · brace)" },
       shareFoot: { value: 1, min: 0, max: 1, step: 0.05, label: "부재 비중 — 기단 · 지하실 · 말뚝" },
       shareDrip: { value: 1, min: 0, max: 1, step: 0.05, label: "부재 비중 — 늘어진 것 (drip)" },
+      // ("철골이랑 말뚝만 관리하는 것도 추가해줘. 걔들은 오래 남을 것 같아서")
+      lastSteel: { value: 0.6, min: 0, max: 1, step: 0.05, label: "오래 남음 — 철골 (기둥 · 보 · 가새가 삭음과 뜯김을 버티는 정도 · 1 = 다른 것이 다 사라져도 섬)" },
+      lastPile: { value: 0.8, min: 0, max: 1, step: 0.05, label: "오래 남음 — 말뚝 (1 = 끝까지 남음)" },
+      sharePile: { value: 1, min: 0, max: 1, step: 0.05, label: "부재 비중 — 말뚝 (기단 · 지하실과 따로)" },
       // ("매끄러운 선이 나음")
       smoothRoads: { value: true, label: "길 — 걷는 길의 매끄러운 선 그대로 (끄면 칸 격자)" },
       // ("퍼진 정도 조절할 수 있게 해줘, 권역별 딱딱 나뉘는 느낌에서")
@@ -266,13 +270,14 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       soil: k.soil,
       water: { belt: k.waterBelt, wide: k.waterWide, dense: k.waterDense, gap: k.waterGap, edge: k.waterEdge },
       ground: { density: k.groundVeg },
-      partShare: { mass: k.shareMass, slab: k.shareSlab, column: k.shareColumn, beam: k.shareBeam, brace: k.shareBeam, plinth: k.shareFoot, basement: k.shareFoot, pile: k.shareFoot, drip: k.shareDrip },
+      last: { steel: k.lastSteel, pile: k.lastPile },
+      partShare: { mass: k.shareMass, slab: k.shareSlab, column: k.shareColumn, beam: k.shareBeam, brace: k.shareBeam, plinth: k.shareFoot, basement: k.shareFoot, pile: k.sharePile, drip: k.shareDrip },
       smoothRoads: k.smoothRoads,
       spread: k.spread,
       // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
       tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true },
     }),
-    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.waterBelt, k.waterWide, k.waterDense, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter],
+    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.waterBelt, k.waterWide, k.waterDense, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder

@@ -1017,13 +1017,19 @@ export class SpaceModel {
       // lies there; its columns and footings stand as the decay leaves them.
       const fate = cfg.fate !== false, since = bld.since ?? 0;
       if (since === 0) toEnd++;
+      const lastSteel = Math.max(0, Math.min(1, cfg.last?.steel ?? 0)), lastPile = Math.max(0, Math.min(1, cfg.last?.pile ?? 0));
       const stripTo = fate && since > 0 ? Math.max(goneTo, 0.8 * Math.min(1, since / 3)) : goneTo;
       for (const b of boxesOfSeed(fs, fcfg)) {
         // (the kinds' shares: FutureConfig.partShare — a part of a kind kept at less than all is dropped by its own number)
         const share = cfg.partShare?.[b.kind];
         if (share !== undefined && share < 1 && hash2(Math.round(b.x * 811) ^ b.seed, Math.round(b.z * 797) ^ Math.round(b.y * 787), 6211) >= share) continue;
         const body = b.kind === "mass" || b.kind === "slab" || b.kind === "beam" || b.kind === "brace" || b.kind === "drip";
-        if (rank(b) >= (body ? stripTo : goneTo)) {
+        // STEEL AND PILES LAST (the artist, 2026-11-17: "철골이랑 말뚝만 관리하는 것도 추가해줘. 걔들은 오래 남을 것 같아서";
+        // FutureConfig.last): by their knob's share they hold against the layer's decay — and steel against being
+        // stripped too — 1 = they stand whatever else has gone
+        const lastBy = STEEL_KINDS.has(b.kind) ? lastSteel : b.kind === "pile" ? lastPile : 0;
+        const r0 = rank(b), held = r0 + (2 - r0) * lastBy;
+        if (held >= (body ? stripTo : goneTo) * (1 - (STEEL_KINDS.has(b.kind) ? lastSteel : 0))) {
           (lists[b.kind] ??= []).push(b);
           if (b.kind === "basement" || b.kind === "pile" || b.kind === "plinth") footings++;
           continue;

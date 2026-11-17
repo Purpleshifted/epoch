@@ -146,6 +146,10 @@ export interface FutureConfig {
   /** THE BUILDINGS' PARTS BY THEIR KIND (the artist, 2026-11-17: "건축물 부재 비중도 간단하게 조절 가능하도록 해줘"): the
    *  share 0 … 1 of each kind of part that is kept (absent = 1). The rule is the caller's (SpaceModel.computeFuture). */
   partShare?: Record<string, number>;
+  /** HOW LONG STEEL AND PILES LAST (the artist, 2026-11-17: "철골이랑 말뚝만 관리하는 것도 추가해줘. 걔들은 오래 남을 것
+   *  같아서"): 0 … 1, how far the steel (columns, beams, braces) and the piles hold against the layer's decay — and the
+   *  steel against being stripped — 0 = as every other part, 1 = they stand whatever else has gone. */
+  last?: { steel?: number; pile?: number };
   /** The ways as the walk worker's own smooth lines (the caller's, SpaceModel.waysLinesAt); false = cell by cell. */
   smoothRoads?: boolean;
   /** HOW FAR THINGS SPREAD from their cell (the artist, 2026-11-17: "흙이든 둔덕이든 식생이든 '퍼진 정도' 조절할 수 있게
