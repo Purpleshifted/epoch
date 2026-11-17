@@ -23,12 +23,13 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { levaStore, useControls } from "leva";
 import * as THREE from "three";
+import type { FutureConfig } from "@/lib/parliament/futureVillage";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-export const futureUnder: { cfg: { under: boolean; moundAt: number; fate?: boolean; succession?: boolean; soil?: boolean } | null } = { cfg: null };
+export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree"> | null } = { cfg: null };
 
 const GROUP = "미래 마을 층 — 땅 아래";
 /** The layer's own folder (FutureVillage.tsx): where it stands is read from there. */
@@ -69,10 +70,21 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       soil: { value: true, label: "오래 쓰인 땅에는 다른 식생 (오래 · 거듭 지어졌던 자리일수록 그 몫이 크고 짙음 · 건물이 사라진 옛 자리에도 남)" },
       soilColorA: { value: "#3c6e58", label: "다른 식생의 색 1 (자연색 · 어두운 쪽)" },
       soilColorB: { value: "#86b59a", label: "다른 식생의 색 2 (자연색 · 밝은 쪽)" },
+      // HOW A TREE LOOKS (the artist, 2026-11-17: "나무 비주얼이랑 사이즈 조절하는 옵션 추가하고(레바)") — FutureConfig.tree
+      treeShape: { options: { "둥근 공": "ball", "원뿔 (침엽수 — 줄기 중간부터 뾰족하게)": "cone", "우산 (넓고 납작한 갓)": "umbrella", "기둥 (좁고 긺)": "column" }, value: "ball" as "ball" | "cone" | "umbrella" | "column", label: "나무 — 수관의 모양" },
+      treeHeight: { value: 1, min: 0.2, max: 5, step: 0.1, label: "나무 — 키 (줄기 높이의 배수)" },
+      treeCrown: { value: 1, min: 0.2, max: 5, step: 0.1, label: "나무 — 수관의 너비 (배수)" },
+      treeStem: { value: 1, min: 0, max: 6, step: 0.1, label: "나무 — 줄기의 굵기 (배수)" },
+      treeStemShare: { value: 0.1, min: 0, max: 0.6, step: 0.02, label: "나무 — 줄기에 쓰는 점의 몫" },
+      treeDense: { value: 1, min: 0.2, max: 4, step: 0.1, label: "나무 — 짙기 (점 수의 배수 · 점의 크기는 미래 마을 층 › 식생 점 크기)" },
+      treeAt: { value: 1.05, min: 0.6, max: 1.8, step: 0.05, label: "나무 — 서는 문턱 (낮을수록 일찍 · 많이 · 0.6 = 덤불 없이 바로 나무)" },
     }),
     { collapsed: true },
   );
-  futureUnder.cfg = useMemo(() => ({ under: k.under, moundAt: k.moundAt, fate: k.fate, succession: k.succession, soil: k.soil }), [k.under, k.moundAt, k.fate, k.succession, k.soil]);
+  futureUnder.cfg = useMemo(
+    () => ({ under: k.under, moundAt: k.moundAt, fate: k.fate, succession: k.succession, soil: k.soil, tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemShare, dense: k.treeDense, shape: k.treeShape as NonNullable<FutureConfig["tree"]>["shape"] } }),
+    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeDense, k.treeShape],
+  );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
   const other = useRef<THREE.Points>(null);

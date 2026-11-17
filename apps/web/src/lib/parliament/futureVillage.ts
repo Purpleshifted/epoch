@@ -94,6 +94,14 @@ export interface FutureConfig {
    * wherever it lies. Off = the plants are the same everywhere.
    */
   soil?: boolean;
+  /**
+   * HOW A TREE OF THE LAYER LOOKS (the artist, 2026-11-17: "나무 비주얼이랑 사이즈 조절하는 옵션 추가하고(레바)") —
+   * every one optional, 1 = as it was: `at` how far along a place must be to carry a tree (1.05; lower = trees
+   * sooner and more of them, never under scrub's 0.6); `height` its stem, `crown` its crown's width, `stem` its
+   * stem's thickness, `dense` its points (multipliers); `stemShare` the share of its points that are its stem (0.1);
+   * `shape` its crown — a ball, a cone (a conifer), an umbrella (wide and flat), a column (narrow and long).
+   */
+  tree?: { at?: number; height?: number; crown?: number; stem?: number; stemShare?: number; dense?: number; shape?: "ball" | "cone" | "umbrella" | "column" };
 }
 
 export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12, fate: true, succession: true, soil: true };
@@ -449,6 +457,11 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   // a faint path, and plants stand on it).
   const succ = cfg.succession !== false;
   const ruinT = Math.max(0, Math.min(1, cfg.ruin ?? 0.5));
+  // (how a tree looks: FutureConfig.tree — the knobs)
+  const tk = cfg.tree ?? {};
+  const pos = (v: number | undefined, d: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d);
+  const treeAt = Math.max(0.6, pos(tk.at, 1.05)), treeH = pos(tk.height, 1), treeC = pos(tk.crown, 1), treeS = pos(tk.stem, 1), treeN = pos(tk.dense, 1);
+  const stemShare = Math.min(0.9, pos(tk.stemShare, 0.1)), treeShape = tk.shape ?? "ball";
   // (damp: the water's cells, and less so the cells two round them; piped: the cells a run of pipe passes under)
   const damp = new Map<number, number>();
   const piped = new Set<number>();
@@ -472,7 +485,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const cq = cells.get(q);
     const away = cq ? Math.min(1, cq.since / band) : dep.has(q) ? 1 : 0;
     const v = 0.15 + 0.9 * ruinT + 0.35 * away + 0.35 * (damp.get(q) ?? 0) + (piped.has(q) ? 0.2 : 0) - (st && st.left > 0.45 ? 0.35 : 0) + (hash(cx, cz, salt + 9) - 0.5) * 0.3;
-    return v < 0.6 ? 0 : v < 1.05 ? 1 : 2;
+    return v < 0.6 ? 0 : v < treeAt ? 1 : 2;
   };
   // THE GROUND REMEMBERS WHAT IT WAS USED FOR (stage 5 of the order of 2026-11-17; the artist: "5단계 진행";
   // FutureConfig.soil). Land farmed under Rome and forest ever since still carries other plants, by how hard it was
@@ -497,7 +510,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     if (kind >= 0) kinds[kind]++;
     clouded.add(key(cx, cz));
     // (grass: wide and low; scrub: a dome; a tree: `tall` is its stem, its crown stands on that)
-    const [rk, tall, nk] = kind === 0 ? [r * 1.25, 0.1 + 0.12 * u, 1] : kind === 1 ? [r, 0.4 + 0.7 * u, 1] : kind === 2 ? [Math.max(0.9, r * 0.85), 0.9 + 1.3 * u, 1.3] : [r, 0.4 + 1.6 * u, 1];
+    const [rk, tall, nk] = kind === 0 ? [r * 1.25, 0.1 + 0.12 * u, 1] : kind === 1 ? [r, 0.4 + 0.7 * u, 1] : kind === 2 ? [Math.max(0.9, r * 0.85) * treeC, (0.9 + 1.3 * u) * treeH, 1.3 * treeN] : [r, 0.4 + 1.6 * u, 1];
     const thick = nk * (1 + 0.5 * used);
     clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used });
     // (some are two-lobed)
@@ -569,8 +582,19 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const u1 = hash(ci, i, 1), u2 = hash(ci, i, 2), u3 = hash(ci, i, 3), u4 = hash(ci, i, 4);
       const th = u2 * Math.PI * 2;
       // (a tree: one point in ten is of its stem; the rest of its crown, a ball standing on the stem)
-      const stem = c.kind === 2 && hash(ci, i, 5) < 0.1, crown = c.kind === 2 && !stem, v = 2 * u3 - 1;
-      const rr = stem ? c.r * CELL * 0.07 * u1 : crown ? c.r * CELL * Math.sqrt(u1) * Math.sqrt(1 - v * v) : c.r * CELL * Math.pow(u1, c.kind === 0 ? 0.6 : 0.75);
+      const stem = c.kind === 2 && hash(ci, i, 5) < stemShare, crown = c.kind === 2 && !stem, v = 2 * u3 - 1;
+      // THE CROWN'S SHAPE (the knob): how far out a point is (a share of the crown's radius) and how high (slots) —
+      // a ball on the stem; a cone from half way up the stem, wide below and to a point; an umbrella, a wide flat
+      // cap on the stem's top; a column, narrow, from a third up the stem
+      let cr = 0, cy = 0;
+      if (crown) {
+        const s1 = Math.sqrt(u1);
+        if (treeShape === "cone") [cr, cy] = [s1 * (1 - u3) * 0.95, c.tall * 0.45 + u3 * c.r * 1.7];
+        else if (treeShape === "umbrella") [cr, cy] = [s1 * 1.3, c.tall + (1 - u1) * c.r * 0.22 + u3 * c.r * 0.08];
+        else if (treeShape === "column") [cr, cy] = [s1 * 0.42 * Math.sqrt(1 - v * v * 0.6), c.tall * 0.35 + u3 * c.r * 2];
+        else [cr, cy] = [s1 * Math.sqrt(1 - v * v), c.tall + (v * 0.5 + 0.4) * c.r * 0.6];
+      }
+      const rr = stem ? c.r * CELL * 0.07 * treeS * u1 : crown ? c.r * CELL * cr : c.r * CELL * Math.pow(u1, c.kind === 0 ? 0.6 : 0.75);
       const x = c.x + Math.cos(th) * rr, z = c.z + Math.sin(th) * rr;
       const q = key(cellOf(x), cellOf(z));
       // (not on trodden ground — but through a stretch of the frame the roots have broken; and inside a building's
@@ -579,7 +603,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const b = stand.get(q);
       // (through what is mostly gone, from the ground up; over what still stands, on its roof)
       const roof = b && b.left > 0.45 ? b.h : 0;
-      const y = stem ? roof + u3 * c.tall : crown ? roof + c.tall + (v * 0.5 + 0.4) * c.r * 0.6 : roof + u3 * c.tall * (1 - Math.pow(u1, 2)) * (roof ? 0.5 : 1);
+      const y = stem ? roof + u3 * c.tall : crown ? roof + cy : roof + u3 * c.tall * (1 - Math.pow(u1, 2)) * (roof ? 0.5 : 1);
       // (the shade: grass the lighter of the two colours, a tree the darker, scrub between; before the kinds, any)
       // (stage 5: of ground that was used, that share of the points are the other plants)
       (c.used > 0 && hash(ci, i, 6) < c.used ? vegOld : veg).push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : c.kind === 1 ? 0.25 + 0.5 * u4 : c.kind === 2 ? 0.4 * u4 : u4);
