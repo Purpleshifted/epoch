@@ -28,7 +28,7 @@ import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-export const futureUnder: { cfg: { under: boolean; moundAt: number; fate?: boolean } | null } = { cfg: null };
+export const futureUnder: { cfg: { under: boolean; moundAt: number; fate?: boolean; succession?: boolean } | null } = { cfg: null };
 
 const GROUP = "미래 마을 층 — 땅 아래";
 /** The layer's own folder (FutureVillage.tsx): where it stands is read from there. */
@@ -63,10 +63,12 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       stainColor: { value: "#17181a", label: "어두운 흙의 색 (무채색)" },
       // LIVED IN TO THE END, OR LEFT BEFORE IT (stage 3; the artist, 2026-11-17: "3단계 진행")
       fate: { value: true, label: "끝까지 서 있던 건물은 빠진 자재가 제 발치에 쓰러져 남고 · 끝나기 전에 버려진 건물은 몸체 · 바닥판 · 보가 뜯겨 나가 기둥과 기초만 (오래전에 버려졌을수록 많이)" },
+      // THE ORDER IN WHICH THE PLANTS TAKE IT (stage 4; the artist, 2026-11-17: "4단계 진행")
+      succession: { value: true, label: "식생이 차지하는 순서: 풀 → 덤불 → 나무 (층이 삭을수록 · 먼저 버려진 자리 · 물가 · 관 위에서 빨리, 지붕 위에서는 늦게 · 오래 걸은 길과 관을 따라 덤불 · 나무 옆의 길은 뿌리에 갈라짐)" },
     }),
     { collapsed: true },
   );
-  futureUnder.cfg = useMemo(() => ({ under: k.under, moundAt: k.moundAt, fate: k.fate }), [k.under, k.moundAt, k.fate]);
+  futureUnder.cfg = useMemo(() => ({ under: k.under, moundAt: k.moundAt, fate: k.fate, succession: k.succession }), [k.under, k.moundAt, k.fate, k.succession]);
   useEffect(
     () => () => {
       futureUnder.cfg = null;
