@@ -9,3 +9,7 @@ class_name = "BotServer"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["BotServer"]
+
+# Workers Paid (2026-11-17): the bots step twice a second all day (about 170k requests); CPU per wake as the paid default
+[limits]
+cpu_ms = 30000
