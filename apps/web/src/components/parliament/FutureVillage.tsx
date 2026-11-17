@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useControls } from "leva";
 import * as THREE from "three";
-import { PART_KINDS, type PartKind } from "@/lib/parliament";
+import { PART_KINDS, WORLD_SIZE, type PartKind } from "@/lib/parliament";
 import { DEFAULT_FUTURE, type FutureConfig, type FutureResult } from "@/lib/parliament/futureVillage";
 import { savable } from "./levaSave";
 
@@ -49,7 +49,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     savable(GROUP, {
       on: { value: DEFAULT_FUTURE.on, label: "켜기 (기둥 위에 떨어져 떠 있는 층 — 인류가 사라진 뒤 남겨져 발견될 모습)" },
       ruin: { value: 0.5, min: 0, max: 1, step: 0.05, label: "얼마나 삭았나 (0 = 서 있던 그대로 … 1 = 가장 오래 선 것의 기초만)" },
-      gap: { value: 8, min: 0, max: 40, step: 1, label: "기둥 꼭대기와의 간격 (단 · 0 = 붙음)" },
+      anchor: { options: { "창의 꼭대기 위 (고정 — 기둥 상승을 멈추면 움직이지 않음)": "window", "지어진 꼭대기 위 (건물이 올라오면 따라감)": "built" }, value: "window" as "window" | "built", label: "층의 자리" },
+      gap: { value: 8, min: 0, max: 40, step: 1, label: "그 자리와의 간격 (단 · 0 = 붙음)" },
       band: { value: DEFAULT_FUTURE.band, min: 4, max: 40, step: 2, label: "변화를 읽는 범위 (가장 최근에 지어진 몇 단 · 앞 절반과 뒤 절반을 비교)" },
       gain: { value: DEFAULT_FUTURE.gain, min: 0, max: 3, step: 0.1, label: "최근 변화를 얼마나 더 밀고 가나 (성장 규칙에만 쓰임)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.edge`) },
       maxH: { value: DEFAULT_FUTURE.maxH, min: 1, max: 4, step: 1, label: "가장 높은 건물 (단)" },
@@ -58,7 +59,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       margin: { value: DEFAULT_FUTURE.margin, min: 1, max: 8, step: 1, label: "식생이 나는 범위 (다녀간 곳에서 몇 칸 밖까지)" },
       vegPer: { value: DEFAULT_FUTURE.vegPer, min: 0, max: 10, step: 0.5, label: "식생 구름의 짙기 (점 수)" },
       opacity: { value: 1, min: 0.1, max: 1, step: 0.05, label: "건물의 불투명도 (옅을수록 '아직 아닌 것')" },
-      ground: { value: true, label: "제 땅을 그림 (기둥에서 떨어진 판)" },
+      ground: { value: true, label: "제 땅을 그림 (기둥에서 떨어진 판 · 처음부터 땅 전체 크기)" },
       vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "식생 점 크기 (월드)" },
       vegColorA: { value: "#5f7a3a", label: "식생 색 1 (자연색)" },
       vegColorB: { value: "#a9b56a", label: "식생 색 2 (자연색)" },
@@ -93,13 +94,24 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     const g = group.current;
     if (!g) return;
     const r = futureLink.result;
-    // its parts stand at their own slots (above where the building has come to: FutureResult.k); the whole is lifted
-    // by the gap — and, when the column has come a slot further, rises to its new place softly
+    // WHERE IT STANDS (the artist, 2026-11-17: "미래 층을 고정시켜"): above THE WINDOW'S TOP, the gap apart — a place
+    // that does not move while the column's rise is stopped (rise.ts), whatever is built below it. (Or, as before:
+    // above where the building has come to, following that softly.) Its parts are made at their own slots (above
+    // FutureResult.k); the whole is moved so that their foot is at that place.
     const madeFor = r && r.ground.length ? r.k : null;
     if (madeFor === null) shownK.current = null;
     else if (shownK.current === null || Math.abs(madeFor - shownK.current) > 30) shownK.current = madeFor;
     else shownK.current += (madeFor - shownK.current) * 0.05;
-    g.position.y = (Math.max(0, k.gap) + (madeFor === null || shownK.current === null ? 0 : shownK.current - madeFor)) * unit;
+    const foot = madeFor === null ? 0 : (madeFor + 1) * unit;
+    const base = (k.anchor === "built" && shownK.current !== null ? shownK.current + 1 : top.value) + Math.max(0, k.gap);
+    g.position.y = base * unit - foot;
+    // ITS GROUND IS THE WHOLE GROUND OF THE WORLD, FROM THE START ("마을 땅을 보여주는 땅 크기가 처음부터 큰 게 맞는 것 같고") — not
+    // the square round what happens to be built so far, which grew as the village did
+    const plate = ground.current;
+    if (plate) {
+      plate.position.set(0, foot - 0.06, 0);
+      plate.scale.set(WORLD_SIZE, 0.1, WORLD_SIZE);
+    }
     const recolour = colors.current.a !== k.vegColorA || colors.current.b !== k.vegColorB;
     if (seen.current === futureLink.version && !recolour) return;
     seen.current = futureLink.version;
@@ -145,13 +157,6 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
       veg.current.geometry.dispose();
       veg.current.geometry = geo;
-    }
-    const gm = ground.current;
-    if (gm) {
-      if (r.ground.length === 4) {
-        gm.position.set((r.ground[0] + r.ground[2]) / 2, y0 - 0.06, (r.ground[1] + r.ground[3]) / 2);
-        gm.scale.set(r.ground[2] - r.ground[0], 0.1, r.ground[3] - r.ground[1]);
-      } else gm.scale.set(0, 0, 0);
     }
   });
 

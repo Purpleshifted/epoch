@@ -1,0 +1,67 @@
+/**
+ * parliament/rise.ts
+ *
+ * THE COLUMN'S RISE CAN BE STOPPED (the artist, 2026-11-17: "기둥이 천천히 올라가는 속도를 일단... 끄고, 미래 층을
+ * 고정시켜"). The window of the block rises with the clock (HerdConfig.shift × the seconds gone by). Setting that
+ * speed to 0 is another thing altogether — the fixed block of 11/12, with its own way of eroding and fusing — so the
+ * rise is STOPPED instead: the seconds the rise is counted by stand still while it is stopped, and go on from where
+ * they stood when it is let go again. The window's top stays where it is; the bots go on being born into the
+ * window and building in it; nothing leaves at its foot; what is read off the top's way (the erosion's progress, the
+ * fossil's age) stands with it.
+ *
+ * One state for the page: the bots' hook keeps it (useGlobalBots: its knob, and this browser's storage), the seating
+ * of bots and the window's top read it.
+ */
+
+export const risePause: { at: number | null; lost: number; epoch: number } = { at: null, lost: 0, epoch: 0 };
+
+const LS_RISE = "parliament.riseStop";
+
+/** The seconds the rise is counted by, of `elapsed` seconds gone by. */
+export function riseSeconds(elapsed: number): number {
+  return Math.max(0, (risePause.at !== null ? Math.min(risePause.at, elapsed) : elapsed) - risePause.lost);
+}
+
+/**
+ * Where the window's foot is (`bottom`, seconds of the axis) and how fast a life rises against it (`still`: 1 − shift
+ * while the window rises, 1 while it is stopped).
+ */
+export function riseOf(shift: number | undefined, elapsed: number): { bottom: number; still: number } {
+  const s = Math.max(0, Math.min(1, shift ?? 0));
+  return { bottom: s * riseSeconds(elapsed), still: risePause.at !== null ? 1 : 1 - s };
+}
+
+/**
+ * Keeps the state in step with the knob (called with the clock, once the world's epoch is known): taken from this
+ * browser's storage when the page comes back to the same world, begun anew for another world, and written whenever
+ * the rise is stopped or let go.
+ */
+export function syncRisePause(stop: boolean, elapsed: number, epoch: number): void {
+  if (!epoch) return;
+  let changed = false;
+  if (risePause.epoch !== epoch) {
+    let at: number | null = null, lost = 0;
+    try {
+      const raw = JSON.parse((typeof localStorage !== "undefined" && localStorage.getItem(LS_RISE)) || "null") as { at: number | null; lost: number; epoch: number } | null;
+      if (raw && raw.epoch === epoch && Number.isFinite(raw.lost)) [at, lost] = [typeof raw.at === "number" ? raw.at : null, raw.lost];
+    } catch {
+      // (no storage: the rise begins as the knob says)
+    }
+    Object.assign(risePause, { at, lost, epoch });
+  }
+  if (stop && risePause.at === null) {
+    risePause.at = elapsed;
+    changed = true;
+  } else if (!stop && risePause.at !== null) {
+    risePause.lost += Math.max(0, elapsed - risePause.at);
+    risePause.at = null;
+    changed = true;
+  }
+  if (changed) {
+    try {
+      if (typeof localStorage !== "undefined") localStorage.setItem(LS_RISE, JSON.stringify(risePause));
+    } catch {
+      // (not kept: the stop holds for this page)
+    }
+  }
+}

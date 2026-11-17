@@ -33,6 +33,7 @@
  */
 
 import { sessionSeconds } from "./clock";
+import { riseOf } from "./rise";
 import { hash2 } from "./nature";
 import { gateOf, villageBorders } from "./villageBorders";
 import { nearestImage, wrapCoord, wrapDist } from "./world";
@@ -713,14 +714,16 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   const depth = Math.max(0, h.depthSec);
   // (the window's bottom is at shift × elapsed; a life rises 1 − shift faster than it, and begins low enough to end
   // within it)
-  const shift = Math.max(0, Math.min(1, h.shift ?? 0)), still = 1 - shift;
+  // (…or stands, while the rise is stopped — rise.ts, 2026-11-17: the foot is then where it stood, and a life rises
+  // a second a second against it)
+  const { bottom, still } = riseOf(h.shift, elapsed);
   const span = Math.max(0, depth - still * (v.lifeMs / 1000));
   const leaders = st.present.filter((p) => p.kind === "leader" && p.id !== v.id);
   const offNow = (p: Visitor) => p.off + (p.drift ?? 0) * ((wallMs - p.bornMs) / 1000);
   // STRATA: the bands of the depth and how many herds live in each
   const bands = Math.max(1, Math.round(h.count));
   const inBand = new Array<number>(bands).fill(0);
-  if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((still * elapsed + offNow(p)) / depth) * bands)))]++;
+  if (depth > 0) for (const p of leaders) inBand[Math.min(bands - 1, Math.max(0, Math.floor(((elapsed - bottom + offNow(p)) / depth) * bands)))]++;
   const fewest = Math.min(...inBand);
   const free = inBand.map((n, i) => (n === fewest ? i : -1)).filter((i) => i >= 0);
   let best: [number, number, number] = [v.x, v.z, v.off], bestD = -1, bestVil: number | undefined;
@@ -729,8 +732,8 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
     if (depth > 0) {
       if (h.layout === "strata") {
         const band = free[Math.min(free.length - 1, Math.floor(draw(v, epochMs, 60 + c) * free.length))];
-        off = Math.min(span, ((band + draw(v, epochMs, 110 + c)) / bands) * depth) - still * elapsed;
-      } else off = draw(v, epochMs, 60 + c) * span - still * elapsed;
+        off = Math.min(span, ((band + draw(v, epochMs, 110 + c)) / bands) * depth) - (elapsed - bottom);
+      } else off = draw(v, epochMs, 60 + c) * span - (elapsed - bottom);
     }
     // VILLAGES: one alive at this try's time (its ground candidates are spots of it)
     if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "leader", Math.max(0, elapsed + off));
@@ -780,8 +783,9 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
 function seatLoner(v: Visitor, st: LifecycleState, wallMs: number, epochMs: number, cfg: LifecycleConfig, h: HerdConfig): void {
   const depth = Math.max(0, h.depthSec);
   // (a time of the fixed block, as a herd's: seatHerd)
-  const still = 1 - Math.max(0, Math.min(1, h.shift ?? 0));
-  if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - still * (v.lifeMs / 1000)) - still * Math.max(0, (wallMs - epochMs) / 1000);
+  const gone = Math.max(0, (wallMs - epochMs) / 1000);
+  const { bottom, still } = riseOf(h.shift, gone);
+  if (depth > 0) v.off = draw(v, epochMs, 60) * Math.max(0, depth - still * (v.lifeMs / 1000)) - (gone - bottom);
   // (its time on the axis: the clock + off, in the fixed block and in the rising window alike)
   if (h.origin === "villages") v.vil = chooseVillage(v, st, epochMs, h, "loner", Math.max(0, (wallMs - epochMs) / 1000 + v.off));
   const site = v.vil !== undefined ? villageSites(epochMs, h)[v.vil] : undefined;
@@ -1154,7 +1158,7 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
   const nowSec = Math.floor((wallMs - epochMs) / 1000);
   const hc = cfg.herd;
   // (the rising window: the villages' sites are laid as far as its top before anybody asks for one)
-  if (hc && (hc.shift ?? 0) > 0) villageSites(epochMs, hc, Math.max(0, Math.min(1, hc.shift ?? 0)) * Math.max(0, (wallMs - epochMs) / 1000) + Math.max(0, hc.depthSec));
+  if (hc && (hc.shift ?? 0) > 0) villageSites(epochMs, hc, riseOf(hc.shift, Math.max(0, (wallMs - epochMs) / 1000)).bottom + Math.max(0, hc.depthSec));
   if (hc) {
     // THE POPULATION: `count` herds and `loners` bots; who is gone is replaced — a herd at the seconds ≡ 0 (mod 4),
     // a loner at ≡ 3, one at a time (so the draws of those born in one second never overlap, and nobody comes in a crowd)
