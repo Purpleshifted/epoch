@@ -303,7 +303,8 @@ function ColumnTrees({ unit }: { unit: number }) {
   const k = useControls(
     TREES,
     savable(TREES, {
-      on: { value: true, label: "켜기 (기둥 안의 나무 = 선 단에서 죽은 단까지 오르는 줄기 · 살수록 굵음 · 미래 마을 층이 켜져 있어야 나옴)" },
+      // (off by default since the artist saw it, 2026-11-17: "아; 이건 좀 아닌 것 같은데?")
+      on: { value: false, label: "켜기 (기둥 안의 나무 = 선 단에서 죽은 단까지 오르는 줄기 · 살수록 굵음 · 미래 마을 층이 켜져 있어야 나옴)" },
       density: { value: 0.04, min: 0, max: 0.3, step: 0.005, label: "나무가 서는 땅 칸의 몫 (지어진 곳 둘레 여섯 칸 안에서)" },
       slotsPerYear: { value: 1, min: 0.2, max: 6, step: 0.1, label: "나무의 1년 = 몇 단 (모든 숫자가 여기에 달림)" },
       young: { value: 0.07, min: 0, max: 0.5, step: 0.01, label: "처음 5년 동안 한 해에 죽을 확률 (문헌: 약 0.07)" },
