@@ -32,6 +32,9 @@ import { NO_WALKWAYS, otherLineNear, walkSegments, walkways, type WalkConfig, ty
 import { NO_DRAINAGE, drainage, pipeParts, waterDistance, waterField, type Drainage, type PipeParts, type PipeRun, type WaterConfig } from "./water";
 
 const CELL = CELL_SIZE;
+/** In the layer above the column (computeFuture, FutureConfig.under): when a kind of part that stands on the ground
+ *  goes, 0 (first) … 1 (last) — the body before the slabs, those before the beams and braces, the columns last. */
+const FUTURE_GO: Record<string, number> = { drip: 0, mass: 0.2, slab: 0.5, beam: 0.7, brace: 0.7, column: 1 };
 const STEEL_KINDS: ReadonlySet<string> = new Set(["column", "beam", "brace"]);
 
 /** Instance capacity per part kind (what the view allocates). */
@@ -930,6 +933,7 @@ export class SpaceModel {
     // at once and without the drips. Its number is the cell's, so it stands as it is while the cell is inferred so.
     const spu = box.secPerUnit;
     const lists: Record<string, Box[]> = {};
+    let gone = 0, footings = 0;
     for (const bld of plan.buildings) {
       const sd = bld.from;
       const rc = box.recipe ?? RECIPES[sd.material];
@@ -948,7 +952,29 @@ export class SpaceModel {
       // taken away as the column's own erosion takes them — each part's own threshold, in the same order of kinds —
       // as far as the building is gone (1 − left, × how far gone the whole layer is: FutureConfig.ruin).
       const goneTo = Math.max(0, Math.min(1, (1 - bld.left) * (0.4 + 1.2 * Math.max(0, Math.min(1, cfg.ruin ?? 0.5)))));
-      for (const b of boxesOfSeed(fs, fcfg)) if (erodeThreshold(b, bc.erode) >= goneTo) (lists[b.kind] ??= []).push(b);
+      // WHAT STANDS ON THE GROUND GOES FIRST, WHAT IS UNDER IT STAYS (stage 1 of the order of 2026-11-17; the artist:
+      // "1단계 진행"; FutureConfig.under). Shallow buried things are out of erosion's reach and far likelier to be kept
+      // than what stands on the surface (Zalasiewicz et al. 2014: 지층 T5; the foundations' cuts are part of the
+      // deposit themselves: Edgeworth et al. 2015, T4). So a part goes by its kind AND ITS HEIGHT: from the top down
+      // the body, the slabs, the beams and braces, the columns; the plinth (on the ground) all but never; the basement
+      // and the piles (under it) not at all. The patches of the column's erosion still say which corner goes first.
+      // Off: the column's own order (erodeThreshold), as before.
+      const under = cfg.under !== false;
+      const footY = s0 * box.unit, spanY = Math.max(1e-6, (s1 + 1 - s0) * box.unit);
+      const rank = (b: Box): number => {
+        if (!under) return erodeThreshold(b, bc.erode);
+        if (b.kind === "basement" || b.kind === "pile") return 2;
+        const own = erodeThreshold(b, { ...bc.erode, order: 0 });
+        if (b.kind === "plinth") return 0.9 + 0.2 * own;
+        const up = Math.max(0, Math.min(1, (b.y - footY) / spanY));
+        return (FUTURE_GO[b.kind] ?? 0.5) * 0.5 + (1 - up) * 0.3 + own * 0.2;
+      };
+      for (const b of boxesOfSeed(fs, fcfg)) {
+        if (rank(b) >= goneTo) {
+          (lists[b.kind] ??= []).push(b);
+          if (b.kind === "basement" || b.kind === "pile" || b.kind === "plinth") footings++;
+        } else if (b.kind === "mass") gone++;
+      }
     }
     const parts: Record<string, Float32Array> = {}, tones: Record<string, Float32Array> = {};
     for (const [kind, l] of Object.entries(lists)) {
@@ -964,7 +990,7 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
-    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future footings kept (n)": footings, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
 

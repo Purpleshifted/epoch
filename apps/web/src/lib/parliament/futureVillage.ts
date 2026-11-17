@@ -60,9 +60,16 @@ export interface FutureConfig {
   persist?: boolean;
   /** How far gone what is found is, 0 (as it stood) … 1 (little but the foundations of the longest-standing). */
   ruin?: number;
+  /**
+   * WHAT STANDS ON THE GROUND GOES FIRST, WHAT IS UNDER IT STAYS (stage 1 of the order of 2026-11-17; docs/world-review
+   * §29-7, the literature's T5, T4): a building's parts go from its top down — its body, its slabs, its beams, its
+   * columns — its plinth nearly never, and what it has under the ground (basement, piles) not at all. Off = the parts
+   * go in the order the column's own erosion takes them. The rule is the caller's (SpaceModel.computeFuture).
+   */
+  under?: boolean;
 }
 
-export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5 };
+export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true };
 
 /** A building of the inferred village: its ground cell, its height in slots, and the built cell it is carried on from. */
 export interface FutureBuilding<C> {
