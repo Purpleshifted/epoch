@@ -85,10 +85,12 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
     if (halo)
       shader.fragmentShader = shader.fragmentShader
         .replace("#include <common>", "#include <common>\nuniform vec3 uHalo;")
-        // (a soft round spot: brightest at its middle, nothing past its rim; uHalo.x its strength, uHalo.z how fast it fades)
+        // (a soft round spot: brightest at its middle, nothing past its rim; uHalo.x its strength, uHalo.z how fast it fades —
+        // the alpha SET here: the vertex part above writes only vColor's colour, so its alpha is nothing to multiply by.
+        // The artist, 2026-11-17: "꽃 블룸패스 안보여" — it was multiplied, and so came out 0)
         .replace(
           "#include <color_fragment>",
-          "#include <color_fragment>\nfloat hd = length(gl_PointCoord - 0.5) * 2.0;\nif (hd > 1.0) discard;\ndiffuseColor.a *= uHalo.x * exp(-hd * hd * uHalo.z) * (1.0 - hd);",
+          "#include <color_fragment>\nfloat hd = length(gl_PointCoord - 0.5) * 2.0;\nif (hd > 1.0) discard;\ndiffuseColor.a = uHalo.x * exp(-hd * hd * uHalo.z) * (1.0 - hd);",
         );
     shader.vertexShader = shader.vertexShader
       .replace(

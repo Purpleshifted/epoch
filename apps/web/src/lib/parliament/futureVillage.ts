@@ -119,6 +119,9 @@ export interface FutureConfig {
     /** HOW MANY OF THE PLACES THAT WOULD GROW A TREE DO (the artist, 2026-11-17: "걍 나무 수를 줄이고 원래 조각대로 가지
      *  그리는 게 나을 것 같은데"): 0 … 1, the rest scrub. Absent = all of them. */
     share?: number;
+    /** GRASS AND SCRUB UNDER EVERY TREE (the artist, 2026-11-17: "나무 밑에 덤불이나 풀 없어도 좀 어색한듯"): 0 … 1, how
+     *  thick the low plants round a tree's foot are (GPU plants only). Absent = none. */
+    under?: number;
     /** THE CROWN'S SHAPES AND THEIR SHARES (the artist, 2026-11-17: "기둥모양 나무는 아예 빼버리고 모양 비율도 정할 수
      *  있게 해줘"): a ball, a cone (a conifer), an umbrella (wide and flat) — each tree takes one, by these weights
      *  (only their ratio counts; all 0 or absent = every tree a ball). */
@@ -843,6 +846,12 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const sb = stand.get(key(cellOf(c.x), cellOf(c.z))), a = c.asp ?? 1;
       const [lo, hi] = c.shape === "cone" ? [c.tall * 0.45, c.tall * 0.45 + c.r * 1.7 * a] : c.shape === "umbrella" ? [c.tall, c.tall + c.r * 0.3 * a] : [c.tall - c.r * 0.06 * a, c.tall + c.r * 0.54 * a];
       treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(ci, 7, 8), c.shape === "cone" ? 1 : c.shape === "umbrella" ? 2 : 0, c.wild ? 1 : 0, c.sp ?? 0);
+      // (its foot not bare: a low cloud of scrub or grass under its crown — few flowers in its shade — FutureConfig.tree.under)
+      const underK = Math.max(0, Math.min(1, tk.under ?? 0));
+      if (gpu && underK > 0) {
+        const h = hash(ci, 11, 3), sc = h < 0.55, rb = Math.max(0.5, Math.min(2.2, c.r * 0.75)), hu = hash(ci, 12, 3);
+        plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, rb * CELL, sc ? 0.1 + 0.12 * hu : 0.03 + 0.05 * hu, sc ? 1 : 0, 0.15 * (1 - h), c.used, c.wild ? 1 : 0, hash(ci, 13, 3), Math.min(1, (per * 5 * rb * rb * (1 + 0.5 * c.used)) / 64) * underK, 0);
+      }
     }
     for (let i = 0; i < nPts; i++) {
       // (thick in its middle, thinning to its edge)

@@ -521,9 +521,10 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
         <bufferGeometry />
         <pointsMaterial vertexColors size={k.vegSize} sizeAttenuation />
       </points>
-      <mesh ref={ground} visible={false} receiveShadow>
+      {/* (no shadow on it while it is see-through at all — the artist, 2026-11-17: "반투명 땅에는 그림자 없어도 될 듯") */}
+      <mesh ref={ground} visible={false} receiveShadow={k.groundOpacity >= 0.99}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={k.groundColor} roughness={1} metalness={0} transparent={k.groundOpacity < 0.99} opacity={k.groundOpacity} depthWrite={k.groundOpacity >= 0.99} />
+        <meshStandardMaterial key={k.groundOpacity >= 0.99 ? "solid" : "clear"} color={k.groundColor} roughness={1} metalness={0} transparent={k.groundOpacity < 0.99} opacity={k.groundOpacity} depthWrite={k.groundOpacity >= 0.99} />
       </mesh>
       {/* THE PIT (which of these is drawn is set every frame, by the version and where the eye is): its walls and floor
           seen from inside, the wide ground round its mouth, the passage above it, the bright ceiling, the cut face */}
