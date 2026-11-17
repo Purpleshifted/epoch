@@ -98,8 +98,9 @@ export interface FutureConfig {
    * HOW A TREE OF THE LAYER LOOKS (the artist, 2026-11-17: "나무 비주얼이랑 사이즈 조절하는 옵션 추가하고(레바)") —
    * every one optional, 1 = as it was: `at` how far along a place must be to carry a tree (1.05; lower = trees
    * sooner and more of them, never under scrub's 0.6); `height` its stem, `crown` its crown's width, `stem` its
-   * stem's thickness, `dense` its points (multipliers); `stemShare` the share of its points that are its stem (0.1);
-   * `shape` its crown — a ball, a cone (a conifer), an umbrella (wide and flat), a column (narrow and long).
+   * stem's thickness, `dense` its points (multipliers); `stemShare` the share of its points that are its stem (0.1).
+   * (Trees in the column of the present were tried the same day and taken out again — the artist: "걍 지금 구름대로
+   * 두고": the present keeps its clouds. docs/world-review §29-14, §29-15.)
    */
   tree?: {
     at?: number;
@@ -108,26 +109,22 @@ export interface FutureConfig {
     stem?: number;
     stemShare?: number;
     dense?: number;
-    shape?: "ball" | "cone" | "umbrella" | "column";
+    /** THE CROWN'S SHAPES AND THEIR SHARES (the artist, 2026-11-17: "기둥모양 나무는 아예 빼버리고 모양 비율도 정할 수
+     *  있게 해줘"): a ball, a cone (a conifer), an umbrella (wide and flat) — each tree takes one, by these weights
+     *  (only their ratio counts; all 0 or absent = every tree a ball). */
+    weights?: { ball?: number; cone?: number; umbrella?: number };
     /** (the artist, the same day: "나무 모양이나 사이즈 지터도 옵션 넣어줘") How much one tree's SIZE differs from
      *  another's: 0 = every tree the same height and width, 1 = as it was, more = wilder. */
     sizeJitter?: number;
-    /** The share of trees (0 … 1) that take another of the four SHAPES than the one chosen, each its own. */
-    shapeMix?: number;
     /** How much a crown's own proportion (its height against its width) differs from tree to tree: 0 = none. */
     shapeJitter?: number;
+    /** ("밀도 지터도") How much the number of a tree's points differs from tree to tree: 0 = none … 1 = from a
+     *  sixth of them to nearly twice. */
+    denseJitter?: number;
+    /** The trees' points come APART from the other plants' (FutureResult.vegTree), with a line of what each tree
+     *  is (treeStems) — for a drawer that gives them a point size and a stem of their own. Absent = among `veg`. */
+    apart?: boolean;
   };
-  /**
-   * TREES IN THE COLUMN OF THE PRESENT — a trial (the artist, 2026-11-17: "1·2부터 넣어 봐"; docs/world-review
-   * §29-13, the literature's N1 – N5). In the column the vertical is time, so a tree there is a LIFE along it: a stem
-   * from the slot it began in to the slot it ended in. Asked with the layer's knobs and answered with its result
-   * (FutureResult.trees) only because that road was there; it is no part of the layer above. `density` the share of
-   * ground cells that carry trees at all; `slotsPerYear` how many slots a tree's year is; `young` / `old` the chance
-   * a year that it ends, in its first five years and after (Hilbert et al. 2019: about 0.07 and 0.03); `regrow` the
-   * chance a year that a new one begins on a cell that has none (Smith et al. 2019: planting about keeps up with
-   * dying). A building on its cell ends it, and none begins under one. The rule is the caller's (SpaceModel).
-   */
-  trees?: { on: boolean; density: number; slotsPerYear: number; young: number; old: number; regrow: number };
 }
 
 export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12, fate: true, succession: true, soil: true };
@@ -175,10 +172,12 @@ export interface FutureResult {
   /** The same per plant of the OTHER kind — what grows on ground that was built on for long (stage 5): drawn in
    *  colours of its own. Absent in a result of a worker started before it was written. */
   vegOld?: Float32Array;
-  /** THE TREES OF THE COLUMN OF THE PRESENT (FutureConfig.trees — no part of this layer; they come with its answer):
-   *  [x, z, the slot it began in, the slot it ended in (the newest slot + 1 = it lives), a number 0..1 of its own]
-   *  per stem. Absent = none asked for. */
-  trees?: Float32Array;
+  /** THE TREES' POINTS, apart (FutureConfig.tree.apart): [x, y (slots above the ground), z, shade 0..1, 1 = of the
+   *  other plants (ground that was used) else 0] per point. Absent = they are among `veg` / `vegOld`. */
+  vegTree?: Float32Array;
+  /** …and what each tree is: [x, z, its foot (slots above the ground), its stem's height (slots), its crown's
+   *  radius (world), where its crown begins and where it ends (slots above its foot), a number 0..1 of its own]. */
+  treeStems?: Float32Array;
   /** The ground it stands on: [minX, minZ, maxX, maxZ] (world), or empty when nothing is inferred. */
   ground: Float32Array;
   /** How much of each there is (the readout). */
@@ -491,9 +490,12 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const tk = cfg.tree ?? {};
   const pos = (v: number | undefined, d: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d);
   const treeAt = Math.max(0.6, pos(tk.at, 1.05)), treeH = pos(tk.height, 1), treeC = pos(tk.crown, 1), treeS = pos(tk.stem, 1), treeN = pos(tk.dense, 1);
-  const stemShare = Math.min(0.9, pos(tk.stemShare, 0.1)), treeShape = tk.shape ?? "ball";
-  const sizeJ = pos(tk.sizeJitter, 1), shapeMix = Math.min(1, pos(tk.shapeMix, 0)), shapeJ = pos(tk.shapeJitter, 0);
-  const SHAPES = ["ball", "cone", "umbrella", "column"] as const;
+  const stemShare = Math.min(0.9, pos(tk.stemShare, 0.1));
+  const sizeJ = pos(tk.sizeJitter, 1), shapeJ = pos(tk.shapeJitter, 0), denseJ = Math.min(1, pos(tk.denseJitter, 0));
+  // (the crown's three shapes by their shares: a number 0 … 1 of the tree's own picks one)
+  const wBall = pos(tk.weights?.ball, 1), wCone = pos(tk.weights?.cone, 0), wUmb = pos(tk.weights?.umbrella, 0), wAll = wBall + wCone + wUmb;
+  const shapeOf = (u: number): "ball" | "cone" | "umbrella" => (wAll <= 0 || u * wAll < wBall ? "ball" : u * wAll < wBall + wCone ? "cone" : "umbrella");
+  const apart = tk.apart === true;
   // (damp: the water's cells, and less so the cells two round them; piped: the cells a run of pipe passes under)
   const damp = new Map<number, number>();
   const piped = new Set<number>();
@@ -546,10 +548,10 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     // every tree the mean of those — 1.55 slots, a crown of 1.3; more than 1 = further from the mean)
     const treeR = Math.max(0.4, 1.3 + (Math.max(0.9, r * 0.85) - 1.3) * sizeJ), treeT = Math.max(0.3, 1.55 + (u - 0.5) * 1.3 * sizeJ);
     const [rk, tall, nk] = kind === 0 ? [r * 1.25, 0.1 + 0.12 * u, 1] : kind === 1 ? [r, 0.4 + 0.7 * u, 1] : kind === 2 ? [treeR * treeC, treeT * treeH, 1.3 * treeN] : [r, 0.4 + 1.6 * u, 1];
-    const thick = nk * (1 + 0.5 * used);
-    // (a tree's shape: the one chosen — or, for the knob's share of them, another of the four; and its crown's own
-    // proportion)
-    const shape = kind !== 2 ? undefined : hash(cx, cz, salt + 11) < shapeMix ? SHAPES[Math.min(3, Math.floor(hash(cx, cz, salt + 12) * 4))] : treeShape;
+    // (…and how thick with points: of a tree, its own share more or fewer — the knob's jitter)
+    const thick = nk * (1 + 0.5 * used) * (kind === 2 ? Math.max(0.15, 1 + (hash(cx, cz, salt + 14) - 0.5) * 1.7 * denseJ) : 1);
+    // (a tree's shape: one of the three by their shares; and its crown's own proportion)
+    const shape = kind !== 2 ? undefined : shapeOf(hash(cx, cz, salt + 12));
     const asp = kind !== 2 ? 1 : Math.max(0.3, 1 + (hash(cx, cz, salt + 13) - 0.5) * 1.4 * shapeJ);
     clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp });
     // (some are two-lobed)
@@ -609,29 +611,35 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     if (cracked.size) layRoads(cracked);
   }
   Object.assign(n, { grass: kinds[0], shrub: kinds[1], tree: kinds[2], cracked: cracked.size });
-  const veg: number[] = [], vegOld: number[] = [];
+  const veg: number[] = [], vegOld: number[] = [], vegTree: number[] = [], treeStems: number[] = [];
   const CAP = 60000;
   let all = 0;
   for (const c of clouds) all += c.n;
   const thin = all > CAP ? CAP / all : 1;
   clouds.forEach((c, ci) => {
     const nPts = Math.round(c.n * thin);
+    // (a tree, told apart: where it stands — on the roof of what still stands there — its stem, its crown's width,
+    // and from where to where above its foot its crown reaches, by its shape)
+    if (apart && c.kind === 2) {
+      const sb = stand.get(key(cellOf(c.x), cellOf(c.z))), a = c.asp ?? 1;
+      const [lo, hi] = c.shape === "cone" ? [c.tall * 0.45, c.tall * 0.45 + c.r * 1.7 * a] : c.shape === "umbrella" ? [c.tall, c.tall + c.r * 0.3 * a] : [c.tall - c.r * 0.06 * a, c.tall + c.r * 0.54 * a];
+      treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(ci, 7, 8));
+    }
     for (let i = 0; i < nPts; i++) {
       // (thick in its middle, thinning to its edge)
       const u1 = hash(ci, i, 1), u2 = hash(ci, i, 2), u3 = hash(ci, i, 3), u4 = hash(ci, i, 4);
       const th = u2 * Math.PI * 2;
       // (a tree: one point in ten is of its stem; the rest of its crown, a ball standing on the stem)
       const stem = c.kind === 2 && hash(ci, i, 5) < stemShare, crown = c.kind === 2 && !stem, v = 2 * u3 - 1;
-      // THE CROWN'S SHAPE (the knob): how far out a point is (a share of the crown's radius) and how high (slots) —
-      // a ball on the stem; a cone from half way up the stem, wide below and to a point; an umbrella, a wide flat
-      // cap on the stem's top; a column, narrow, from a third up the stem
+      // THE CROWN'S SHAPE: how far out a point is (a share of the crown's radius) and how high (slots) — a ball on
+      // the stem; a cone from half way up the stem, wide below and to a point; an umbrella, a wide flat cap on the
+      // stem's top. (A fourth, a narrow column, was taken out: "기둥모양 나무는 아예 빼버리고".)
       let cr = 0, cy = 0;
       if (crown) {
         // (its own shape and proportion: `asp` stretches the crown's height)
-        const s1 = Math.sqrt(u1), sh = c.shape ?? treeShape, a = c.asp ?? 1;
+        const s1 = Math.sqrt(u1), sh = c.shape ?? "ball", a = c.asp ?? 1;
         if (sh === "cone") [cr, cy] = [s1 * (1 - u3) * 0.95, c.tall * 0.45 + u3 * c.r * 1.7 * a];
         else if (sh === "umbrella") [cr, cy] = [s1 * 1.3, c.tall + ((1 - u1) * 0.22 + u3 * 0.08) * c.r * a];
-        else if (sh === "column") [cr, cy] = [s1 * 0.42 * Math.sqrt(1 - v * v * 0.6), c.tall * 0.35 + u3 * c.r * 2 * a];
         else [cr, cy] = [s1 * Math.sqrt(1 - v * v), c.tall + (v * 0.5 + 0.4) * c.r * 0.6 * a];
       }
       const rr = stem ? c.r * CELL * 0.07 * treeS * u1 : crown ? c.r * CELL * cr : c.r * CELL * Math.pow(u1, c.kind === 0 ? 0.6 : 0.75);
@@ -646,7 +654,10 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const y = stem ? roof + u3 * c.tall : crown ? roof + cy : roof + u3 * c.tall * (1 - Math.pow(u1, 2)) * (roof ? 0.5 : 1);
       // (the shade: grass the lighter of the two colours, a tree the darker, scrub between; before the kinds, any)
       // (stage 5: of ground that was used, that share of the points are the other plants)
-      (c.used > 0 && hash(ci, i, 6) < c.used ? vegOld : veg).push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : c.kind === 1 ? 0.25 + 0.5 * u4 : c.kind === 2 ? 0.4 * u4 : u4);
+      const other = c.used > 0 && hash(ci, i, 6) < c.used;
+      // (a tree's points apart, when the drawer asks for them so: FutureConfig.tree.apart)
+      if (apart && c.kind === 2) vegTree.push(x, y, z, 0.4 * u4, other ? 1 : 0);
+      else (other ? vegOld : veg).push(x, y, z, c.kind === 0 ? 0.55 + 0.45 * u4 : c.kind === 1 ? 0.25 + 0.5 * u4 : c.kind === 2 ? 0.4 * u4 : u4);
     }
   });
   Object.assign(n, { used: vegOld.length / 4 });
@@ -660,5 +671,5 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
 
   const buildings: FutureBuilding<C>[] = [];
   for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
-  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: Float32Array.from(water), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
+  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: Float32Array.from(water), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }

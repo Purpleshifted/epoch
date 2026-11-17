@@ -29,16 +29,12 @@ import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-type UnderConfig = Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "trees">;
-/** (two folders write it: this layer's — `base` — and the trees of the column of the present — `trees`) */
-const under: { base: UnderConfig | null; trees: FutureConfig["trees"] | null } = { base: null, trees: null };
-export const futureUnder: { cfg: UnderConfig | null } = {
-  get cfg() {
-    return under.base ? (under.trees ? { ...under.base, trees: under.trees } : under.base) : null;
-  },
-  set cfg(v) {
-    under.base = v;
-  },
+export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree"> | null } = { cfg: null };
+
+/** A number 0 … 1 of a thing's own, by two numbers. */
+const rnd = (a: number, b: number): number => {
+  const s = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
+  return s - Math.floor(s);
 };
 
 const GROUP = "미래 마을 층 — 땅 아래";
@@ -81,28 +77,57 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       soilColorA: { value: "#3c6e58", label: "다른 식생의 색 1 (자연색 · 어두운 쪽)" },
       soilColorB: { value: "#86b59a", label: "다른 식생의 색 2 (자연색 · 밝은 쪽)" },
       // HOW A TREE LOOKS (the artist, 2026-11-17: "나무 비주얼이랑 사이즈 조절하는 옵션 추가하고(레바)") — FutureConfig.tree
-      treeShape: { options: { "둥근 공": "ball", "원뿔 (침엽수 — 줄기 중간부터 뾰족하게)": "cone", "우산 (넓고 납작한 갓)": "umbrella", "기둥 (좁고 긺)": "column" }, value: "ball" as "ball" | "cone" | "umbrella" | "column", label: "나무 — 수관의 모양" },
+      // THE CROWN'S SHAPES AND THEIR SHARES (the artist, 2026-11-17: "기둥모양 나무는 아예 빼버리고 모양 비율도 정할 수 있게 해줘")
+      treeBall: { value: 1, min: 0, max: 10, step: 0.1, label: "나무 — 둥근 공의 비율 (세 모양의 비율만 뜻이 있음 · 셋 다 0이면 모두 공)" },
+      treeCone: { value: 0, min: 0, max: 10, step: 0.1, label: "나무 — 원뿔의 비율 (침엽수 — 줄기 중간부터 뾰족하게)" },
+      treeUmbrella: { value: 0, min: 0, max: 10, step: 0.1, label: "나무 — 우산의 비율 (넓고 납작한 갓)" },
       treeHeight: { value: 1, min: 0.2, max: 5, step: 0.1, label: "나무 — 키 (줄기 높이의 배수)" },
       treeCrown: { value: 1, min: 0.2, max: 5, step: 0.1, label: "나무 — 수관의 너비 (배수)" },
       treeStem: { value: 1, min: 0, max: 6, step: 0.1, label: "나무 — 줄기의 굵기 (배수)" },
       treeStemShare: { value: 0.1, min: 0, max: 0.6, step: 0.02, label: "나무 — 줄기에 쓰는 점의 몫" },
-      treeDense: { value: 1, min: 0.2, max: 4, step: 0.1, label: "나무 — 짙기 (점 수의 배수 · 점의 크기는 미래 마을 층 › 식생 점 크기)" },
+      treeDense: { value: 1, min: 0.2, max: 4, step: 0.1, label: "나무 — 짙기 (점 수의 배수)" },
       treeAt: { value: 1.05, min: 0.6, max: 1.8, step: 0.05, label: "나무 — 서는 문턱 (낮을수록 일찍 · 많이 · 0.6 = 덤불 없이 바로 나무)" },
       // (the artist, the same day: "나무 모양이나 사이즈 지터도 옵션 넣어줘")
       treeSizeJitter: { value: 1, min: 0, max: 3, step: 0.1, label: "나무 — 크기의 지터 (0 = 모든 나무가 같은 키 · 너비 · 1 = 지금까지처럼 · 클수록 들쭉날쭉)" },
-      treeShapeMix: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 모양 섞기 (이 몫의 나무는 네 모양 중 제각각 다른 것)" },
       treeShapeJitter: { value: 0, min: 0, max: 1.5, step: 0.05, label: "나무 — 모양의 지터 (수관이 나무마다 더 길쭉하거나 납작함)" },
+      // ("점 사이즈랑 지터, 밀도 지터도") — the trees' points are drawn here, apart from the other plants'
+      treeDenseJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 짙기의 지터 (나무마다 점이 많고 적은 정도)" },
+      treePointSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "나무 — 점의 크기 (월드 · 다른 식생과 따로)" },
+      treePointJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 점 크기의 지터 (점마다 크고 작은 정도)" },
+      // ("줄기 점 대신 다른걸로 시각화 할 방법 있는지 고민해봐") — ways to try; the first is how it was
+      treeStemMode: { options: { "점 (지금까지 — 줄기에 쓰는 점의 몫)": "points", "선 하나 (발치에서 수관 속까지)": "line", "가지 뻗은 선 (줄기에서 수관 속으로 갈라짐)": "branch", "없음 (수관만)": "none" }, value: "points" as "points" | "line" | "branch" | "none", label: "나무 — 줄기를 그리는 방식" },
+      treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기 선의 색 (자연색 · 선으로 그릴 때)" },
     }),
     { collapsed: true },
   );
   futureUnder.cfg = useMemo(
-    () => ({ under: k.under, moundAt: k.moundAt, fate: k.fate, succession: k.succession, soil: k.soil, tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemShare, dense: k.treeDense, shape: k.treeShape as NonNullable<FutureConfig["tree"]>["shape"], sizeJitter: k.treeSizeJitter, shapeMix: k.treeShapeMix, shapeJitter: k.treeShapeJitter } }),
-    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeDense, k.treeShape, k.treeSizeJitter, k.treeShapeMix, k.treeShapeJitter],
+    () => ({
+      under: k.under,
+      moundAt: k.moundAt,
+      fate: k.fate,
+      succession: k.succession,
+      soil: k.soil,
+      // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
+      tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true },
+    }),
+    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
   const other = useRef<THREE.Points>(null);
   const drawnOther = useRef("");
+  // THE TREES, DRAWN APART (the artist, 2026-11-17: "점 사이즈랑 지터 … 줄기 점 대신 다른걸로 시각화 할 방법"): their
+  // points (FutureResult.vegTree) with a size of their own, each point larger or smaller by its own number; their
+  // stems (treeStems), when not points, as lines — one from the foot into the crown, or one that forks into it
+  const treePts = useRef<THREE.Points>(null);
+  const treeLines = useRef<THREE.LineSegments>(null);
+  const drawnTrees = useRef("");
+  const sizedPoints = useMemo(
+    () => (shader: { vertexShader: string }) => {
+      shader.vertexShader = shader.vertexShader.replace("void main() {", "attribute float psize;\nvoid main() {").replace("gl_PointSize = size;", "gl_PointSize = size * psize;");
+    },
+    [],
+  );
   useEffect(
     () => () => {
       futureUnder.cfg = null;
@@ -203,6 +228,70 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
 
+    const tp = treePts.current, tl = treeLines.current;
+    if (tp && tl) {
+      const lined = k.treeStemMode === "line" || k.treeStemMode === "branch";
+      tp.visible = layerOn;
+      tl.visible = layerOn && lined;
+      if (r && layerOn) {
+        tp.position.y = base + 0.04;
+        tl.position.y = base + 0.04;
+        // (the layer's own two colours of plants, and this folder's two for ground that was used)
+        const cA = String(knob(`${LAYER}.vegColorA`) ?? "#5f7a3a"), cB = String(knob(`${LAYER}.vegColorB`) ?? "#a9b56a");
+        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${cA}:${cB}:${k.soilColorA}:${k.soilColorB}`;
+        if (sig !== drawnTrees.current) {
+          drawnTrees.current = sig;
+          const v = r.vegTree ?? new Float32Array(0);
+          const np = Math.floor(v.length / 5);
+          const pos = new Float32Array(np * 3), col = new Float32Array(np * 3), ps = new Float32Array(np);
+          const a = new THREE.Color(cA), b = new THREE.Color(cB), oa = new THREE.Color(k.soilColorA), ob = new THREE.Color(k.soilColorB);
+          for (let i = 0; i < np; i++) {
+            pos[i * 3] = v[i * 5];
+            pos[i * 3 + 1] = v[i * 5 + 1] * unit;
+            pos[i * 3 + 2] = v[i * 5 + 2];
+            const sh = v[i * 5 + 3], [c0, c1] = v[i * 5 + 4] > 0.5 ? [oa, ob] : [a, b];
+            col[i * 3] = c0.r + (c1.r - c0.r) * sh;
+            col[i * 3 + 1] = c0.g + (c1.g - c0.g) * sh;
+            col[i * 3 + 2] = c0.b + (c1.b - c0.b) * sh;
+            ps[i] = Math.max(0.15, 1 + (rnd(i, 3.1) - 0.5) * 2 * k.treePointJitter);
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+          geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+          geo.setAttribute("psize", new THREE.BufferAttribute(ps, 1));
+          tp.geometry.dispose();
+          tp.geometry = geo;
+          // THE STEMS AS LINES: [x, z, foot, stem, crown's radius, crown from, crown to, its own number] a tree. One
+          // line: from its foot to the middle of its crown (a cone: nearly to its tip). Forking: the trunk to where
+          // the crown begins, and four or five boughs from there to places inside the crown — a cone keeps its
+          // trunk to the tip and sends short boughs out along it
+          const st = lined ? (r.treeStems ?? new Float32Array(0)) : new Float32Array(0);
+          const seg: number[] = [];
+          for (let i = 0; i + 7 < st.length; i += 8) {
+            const x = st[i], z = st[i + 1], foot = st[i + 2] * unit, tall = st[i + 3] * unit, R = st[i + 4], lo = st[i + 5] * unit, hi = st[i + 6] * unit, own = st[i + 7];
+            const cone = lo < tall * 0.8;
+            if (k.treeStemMode === "line") {
+              seg.push(x, foot, z, x, foot + (cone ? lo + (hi - lo) * 0.92 : lo + (hi - lo) * 0.5), z);
+              continue;
+            }
+            const fork = foot + (cone ? lo + (hi - lo) * 0.92 : Math.max(tall * 0.45, lo));
+            seg.push(x, foot, z, x, fork, z);
+            const nb = 4 + (own > 0.6 ? 1 : 0);
+            for (let j = 0; j < nb; j++) {
+              const th = ((j + own) / nb) * Math.PI * 2 + (rnd(i, j) - 0.5) * 0.9, f = 0.25 + 0.55 * rnd(j, i + own);
+              const y1 = foot + lo + f * (hi - lo), rad = R * (cone ? 0.75 * (1 - f) : 0.45 + 0.3 * rnd(i + 2, j));
+              // (a cone's bough leaves the trunk a little under its tip's height; the others leave from the fork)
+              seg.push(x, cone ? y1 - (hi - lo) * 0.06 : fork, z, x + Math.cos(th) * rad, y1, z + Math.sin(th) * rad);
+            }
+          }
+          const lg = new THREE.BufferGeometry();
+          lg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(seg), 3));
+          tl.geometry.dispose();
+          tl.geometry = lg;
+        }
+      }
+    }
+
     const im = mesh.current;
     if (!im) return;
     const on = layerOn && k.pipes;
@@ -269,147 +358,19 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         <cylinderGeometry args={[1, 1, 1, 14]} />
         <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
       </instancedMesh>
+      {/* the trees: their points, each with its own size, and their stems as lines (when the knob says so) */}
+      <points ref={treePts} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial vertexColors size={k.treePointSize} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
+      </points>
+      <lineSegments ref={treeLines} frustumCulled={false}>
+        <bufferGeometry />
+        <lineBasicMaterial color={k.treeStemColor} />
+      </lineSegments>
       {/* the other plants, of ground that was built on for long (stage 5) */}
       <points ref={other} frustumCulled={false}>
         <bufferGeometry />
         <pointsMaterial vertexColors size={0.12} sizeAttenuation />
-      </points>
-      <ColumnTrees unit={unit} />
-    </>
-  );
-}
-
-const TREES = "현재 덩어리의 나무 (시험)";
-const STEM_CAP = 6000;
-const CROWN_CAP = 60000;
-/** A number 0 … 1 of a stem's own, by two numbers. */
-const rnd = (a: number, b: number): number => {
-  const s = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
-  return s - Math.floor(s);
-};
-
-/**
- * THE TREES OF THE COLUMN OF THE PRESENT — a trial (the artist, 2026-11-17: "1·2부터 넣어 봐"; docs/world-review
- * §29-13 ideas 1 and 2; SpaceModel.presentTrees works the lives out). In the column the vertical is time, so a tree
- * is drawn as ITS LIFE: a stem from the slot it began in up to the slot it ended in, a point at its foot and THE
- * THICKER THE OLDER it was at each height — its cross-section grows as a power of its age (Pretzsch et al. 2017:
- * 나무 N5), so a level cut through the column shows every tree's age as its width — and round it a cloud of points
- * as wide as the stem is thick there (the crown follows the stem: McPherson et al. 2016, N4). Most stems are short
- * and thin, a few long and thick (the chances of ending: Hilbert et al. 2019, N2). In colours of nature, so a stem
- * is not taken for a column of a building. They come with the answer of the layer above the column (FutureResult
- * .trees), so they are there only while that layer is on. A folder of its own.
- */
-function ColumnTrees({ unit }: { unit: number }) {
-  const k = useControls(
-    TREES,
-    savable(TREES, {
-      // (off by default since the artist saw it, 2026-11-17: "아; 이건 좀 아닌 것 같은데?")
-      on: { value: false, label: "켜기 (기둥 안의 나무 = 선 단에서 죽은 단까지 오르는 줄기 · 살수록 굵음 · 미래 마을 층이 켜져 있어야 나옴)" },
-      density: { value: 0.04, min: 0, max: 0.3, step: 0.005, label: "나무가 서는 땅 칸의 몫 (지어진 곳 둘레 여섯 칸 안에서)" },
-      slotsPerYear: { value: 1, min: 0.2, max: 6, step: 0.1, label: "나무의 1년 = 몇 단 (모든 숫자가 여기에 달림)" },
-      young: { value: 0.07, min: 0, max: 0.5, step: 0.01, label: "처음 5년 동안 한 해에 죽을 확률 (문헌: 약 0.07)" },
-      old: { value: 0.03, min: 0, max: 0.3, step: 0.005, label: "그 뒤 한 해에 죽을 확률 (문헌: 약 0.03)" },
-      regrow: { value: 0.1, min: 0, max: 1, step: 0.01, label: "빈 자리에 한 해에 새 나무가 설 확률" },
-      radius: { value: 0.05, min: 0.005, max: 0.4, step: 0.005, label: "한 살 줄기의 굵기 (월드, 반지름)" },
-      power: { value: 0.5, min: 0.1, max: 1.2, step: 0.05, label: "나이에 따라 굵어지는 정도 (반지름 = 굵기 × 나이^이 값 · 0.5 = 단면적이 나이에 비례)" },
-      radiusJitter: { value: 0.4, min: 0, max: 1, step: 0.05, label: "굵기의 지터 (나무마다 굵고 가는 정도)" },
-      stemColor: { value: "#6b5a3e", label: "줄기의 색 (자연색)" },
-      crown: { value: true, label: "줄기 둘레에 수관의 구름 (점)" },
-      crownWidth: { value: 6, min: 1, max: 30, step: 0.5, label: "수관의 폭 (그 높이의 줄기 굵기의 몇 배)" },
-      crownPts: { value: 3, min: 0, max: 20, step: 0.5, label: "수관의 짙기 (산 단 하나에 점 몇 개)" },
-      crownJitter: { value: 0.5, min: 0, max: 1, step: 0.05, label: "수관의 지터 (나무마다 폭이 다른 정도)" },
-      crownSize: { value: 0.1, min: 0.02, max: 0.6, step: 0.01, label: "수관 점의 크기 (월드)" },
-      crownColorA: { value: "#4f7a3a", label: "수관의 색 1 (자연색)" },
-      crownColorB: { value: "#9fb86a", label: "수관의 색 2 (자연색)" },
-    }),
-    { collapsed: true },
-  );
-  under.trees = useMemo(() => ({ on: k.on, density: k.density, slotsPerYear: k.slotsPerYear, young: k.young, old: k.old, regrow: k.regrow }), [k.on, k.density, k.slotsPerYear, k.young, k.old, k.regrow]);
-  useEffect(
-    () => () => {
-      under.trees = null;
-    },
-    [],
-  );
-  // THE STEM'S SHAPE: a body of revolution, a point at its foot (the slot it began in) and as wide as 1 at its top —
-  // its radius at the share t of its life is t^power; an instance is scaled to its life and to its radius at the end
-  const stemGeo = useMemo(() => {
-    const p = Math.max(0.05, k.power), N = 10;
-    const pts: THREE.Vector2[] = [];
-    for (let i = 0; i <= N; i++) pts.push(new THREE.Vector2(Math.pow(i / N, p), i / N));
-    return new THREE.LatheGeometry(pts, 7);
-  }, [k.power]);
-  useEffect(() => () => stemGeo.dispose(), [stemGeo]);
-  const stems = useRef<THREE.InstancedMesh>(null);
-  const crowns = useRef<THREE.Points>(null);
-  const drawn = useRef("");
-  const tmp = useMemo(() => ({ m: new THREE.Matrix4(), p: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3(), a: new THREE.Color(), b: new THREE.Color() }), []);
-
-  useFrame(() => {
-    const im = stems.current, pt = crowns.current;
-    if (!im || !pt) return;
-    const r = futureLink.result;
-    const t = k.on ? r?.trees : undefined;
-    im.visible = !!t;
-    pt.visible = !!t && k.crown;
-    if (!t) return;
-    const sig = `${futureLink.version}:${unit}:${k.slotsPerYear}:${k.radius}:${k.power}:${k.radiusJitter}:${k.crown}:${k.crownWidth}:${k.crownPts}:${k.crownJitter}:${k.crownColorA}:${k.crownColorB}`;
-    if (sig === drawn.current) return;
-    drawn.current = sig;
-    const n = Math.min(STEM_CAP, Math.floor(t.length / 5));
-    const { m, p, q, s, a, b } = tmp;
-    q.identity();
-    const spy = Math.max(0.1, k.slotsPerYear), pw = Math.max(0.05, k.power);
-    const pos: number[] = [], col: number[] = [];
-    a.set(k.crownColorA);
-    b.set(k.crownColorB);
-    // (the points are shared out so that the whole stays under the cap)
-    let lives = 0;
-    for (let i = 0; i < n; i++) lives += Math.max(0, t[i * 5 + 3] - t[i * 5 + 2]);
-    const per = k.crown ? Math.min(k.crownPts, CROWN_CAP / Math.max(1, lives)) : 0;
-    for (let i = 0; i < n; i++) {
-      const x = t[i * 5], z = t[i * 5 + 1], k0 = t[i * 5 + 2], life = Math.max(0.05, t[i * 5 + 3] - k0), own = t[i * 5 + 4];
-      // (its radius at the end of its life: the knob's × its age in years ^ power, thicker or thinner by its own number)
-      const R = k.radius * Math.pow(life / spy, pw) * Math.max(0.2, 1 + (own - 0.5) * 2 * k.radiusJitter * 0.7);
-      p.set(x, k0 * unit, z);
-      s.set(R, life * unit, R);
-      im.setMatrixAt(i, m.compose(p, q, s));
-      const wide = k.crownWidth * Math.max(0.2, 1 + (rnd(own * 91, i) - 0.5) * 2 * k.crownJitter * 0.8);
-      const np = Math.round(life * per);
-      for (let j = 0; j < np; j++) {
-        const u = rnd(i + own, j), th = rnd(j, i + 7 * own) * Math.PI * 2;
-        // (at the share u of its life: the stem is R·u^power thick there, and the cloud that many times as wide)
-        const rr = R * Math.pow(u, pw) * wide * Math.sqrt(rnd(i * 3 + j, own)) + R * Math.pow(u, pw);
-        pos.push(x + Math.cos(th) * rr, (k0 + u * life) * unit, z + Math.sin(th) * rr);
-        const sh = rnd(j * 5 + i, own * 13);
-        col.push(a.r + (b.r - a.r) * sh, a.g + (b.g - a.g) * sh, a.b + (b.b - a.b) * sh);
-      }
-    }
-    im.count = n;
-    im.instanceMatrix.needsUpdate = true;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
-    geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 3));
-    pt.geometry.dispose();
-    pt.geometry = geo;
-  });
-
-  return (
-    <>
-      <instancedMesh
-        ref={(im) => {
-          stems.current = im;
-          if (im && !drawn.current) im.count = 0;
-        }}
-        args={[undefined, undefined, STEM_CAP]}
-        geometry={stemGeo}
-        frustumCulled={false}
-      >
-        <meshStandardMaterial color={k.stemColor} roughness={1} metalness={0} side={THREE.DoubleSide} />
-      </instancedMesh>
-      <points ref={crowns} frustumCulled={false}>
-        <bufferGeometry />
-        <pointsMaterial vertexColors size={k.crownSize} sizeAttenuation />
       </points>
     </>
   );
