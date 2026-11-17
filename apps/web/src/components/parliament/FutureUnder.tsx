@@ -30,7 +30,7 @@ import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree"> | null } = { cfg: null };
+export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "water"> | null } = { cfg: null };
 
 /** A number 0 … 1 of a thing's own, by two numbers. */
 const rnd = (a: number, b: number): number => {
@@ -146,6 +146,21 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       moundAt: { value: 12, min: 2, max: 60, step: 1, label: "둔덕이 생기는 기준 (그 칸이 지어져 있던 단 수 · 다시 지어질 때마다 절반씩 더 침)" },
       moundMax: { value: 0.6, min: 0.05, max: 3, step: 0.05, label: "둔덕의 가장 두꺼운 높이 (단)" },
       moundColor: { value: "#5b5e63", label: "둔덕의 색 (무채색)" },
+      // ("둔덕도 지금 썩 마음에 들진 않아서 다양한 옵션 추가해주고") — the defaults are the mound as it was
+      moundShape: { options: { "반구 (지금까지)": "dome", "납작한 대 (윗면이 평평한 둔덕)": "mesa", "원뿔 더미": "cone", "각진 판 (무너진 기단처럼)": "slab" }, value: "dome" as "dome" | "mesa" | "cone" | "slab", label: "둔덕 — 모양" },
+      moundWide: { value: 1, min: 0.3, max: 4, step: 0.05, label: "둔덕 — 너비 (배수)" },
+      moundSizeJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 크기의 지터 (둔덕마다 크고 작은 정도)" },
+      moundSquash: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 찌그러짐 (둥글지 않고 길쭉한 정도 · 제각각 돌아감)" },
+      moundTiers: { value: 1, min: 1, max: 5, step: 1, label: "둔덕 — 단 (거듭 지어진 자리일수록 여러 겹으로 쌓임 · 1 = 한 덩이)" },
+      moundStep: { value: 0.25, min: 0.05, max: 0.6, step: 0.05, label: "둔덕 — 단마다 줄어드는 정도", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.moundTiers`)) > 1 },
+      moundScatter: { value: 0.5, min: 0, max: 2, step: 0.05, label: "둔덕 — 자리의 흐트러짐 (칸 한가운데에서 벗어나는 정도)" },
+      moundTone: { value: 0, min: 0, max: 1, step: 0.05, label: "둔덕 — 명도의 지터 (둔덕마다 밝고 어두운 정도)" },
+      // THE WATER AS A BELT OF PLANTS ("물길은 그냥 선 말고 식생 띠로 보이게 해줘")
+      waterBelt: { value: true, label: "물길을 선 대신 식생 띠로 (끄면 회색 선)" },
+      waterWide: { value: 1, min: 0.3, max: 4, step: 0.05, label: "물가 식생 띠 — 너비 (배수)" },
+      waterDense: { value: 1, min: 0.1, max: 4, step: 0.05, label: "물가 식생 띠 — 짙기 (배수)" },
+      waterColorA: { value: "#2f7d73", label: "물가 식생의 색 1 (자연색 · 어두운 쪽)" },
+      waterColorB: { value: "#7fcfb8", label: "물가 식생의 색 2 (자연색 · 밝은 쪽)" },
       stain: { value: true, label: "가볍게 스친 자리에 어두운 흙 한 겹 (기준에 못 미치고 건물이 거의 남지 않은 칸)" },
       stainColor: { value: "#17181a", label: "어두운 흙의 색 (무채색)" },
       // LIVED IN TO THE END, OR LEFT BEFORE IT (stage 3; the artist, 2026-11-17: "3단계 진행")
@@ -190,10 +205,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       fate: k.fate,
       succession: k.succession,
       soil: k.soil,
+      water: { belt: k.waterBelt, wide: k.waterWide, dense: k.waterDense },
       // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
       tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true },
     }),
-    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter],
+    [k.under, k.moundAt, k.fate, k.succession, k.soil, k.waterBelt, k.waterWide, k.waterDense, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
@@ -209,6 +225,18 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // down at its ground from a side — and then left to the hand
   const three = useThree();
   const placed = useRef(false);
+  // (the mound's unit shape, standing on y = 0 and 1 high: the knob's)
+  const moundGeo = useMemo(() => {
+    if (k.moundShape === "mesa") return new THREE.CylinderGeometry(0.78, 1, 1, 14).translate(0, 0.5, 0);
+    if (k.moundShape === "cone") return new THREE.ConeGeometry(1, 1, 12).translate(0, 0.5, 0);
+    if (k.moundShape === "slab") return new THREE.BoxGeometry(1.7, 1, 1.7).translate(0, 0.5, 0);
+    return new THREE.SphereGeometry(1, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+  }, [k.moundShape]);
+  useEffect(() => () => moundGeo.dispose(), [moundGeo]);
+  // (the water's belt of plants: FutureResult.vegWater, in this folder's two colours of the water's edge, at the size
+  // of the layer's other plants)
+  const waterPts = useRef<THREE.Points>(null);
+  const drawnWater = useRef("");
   const sizedPoints = useMemo(
     () => (shader: { vertexShader: string }) => {
       shader.vertexShader = shader.vertexShader.replace("void main() {", "attribute float psize;\nvoid main() {").replace("gl_PointSize = size;", "gl_PointSize = size * psize;");
@@ -247,23 +275,45 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     if (mm && sm && r && layerOn) {
       mm.position.y = base;
       sm.position.y = base + 0.012;
-      const sig = `${futureLink.version}:${k.moundMax}:${k.stainColor}:${unit}`;
+      const sig = `${futureLink.version}:${k.moundMax}:${k.stainColor}:${unit}:${k.moundColor}:${k.moundWide}:${k.moundSizeJitter}:${k.moundSquash}:${k.moundTiers}:${k.moundStep}:${k.moundScatter}:${k.moundTone}`;
       if (sig !== drawnDep.current) {
         drawnDep.current = sig;
         const { m, p, q, s } = tmp;
-        q.identity();
         const ms = r.mounds ?? new Float32Array(0), ss = r.stains ?? new Float32Array(0);
-        const nm = Math.min(DEP_CAP, Math.floor(ms.length / 4)), ns = Math.min(DEP_CAP, Math.floor(ss.length / 4));
-        for (let i = 0; i < nm; i++) {
+        const ns = Math.min(DEP_CAP, Math.floor(ss.length / 4));
+        // THE MOUND'S LOOK (the artist, 2026-11-17: "둔덕도 지금 썩 마음에 들진 않아서 다양한 옵션 추가해주고") — its
+        // shape is the mesh's (the knob: a dome, a flat mesa, a cone, a slab with corners); here its width, how much
+        // one differs from the next in size, how far from round it is (and turned its own way), TIERS — a place built
+        // again and again leaves a layer each time (Dueppen & Gallagher 2023: 지층 T6), each tier smaller, set on the
+        // one under it — how far it lies from its cell's middle, and its own shade
+        const tiers = Math.max(1, Math.round(k.moundTiers)), base0 = new THREE.Color(k.moundColor);
+        let nm = 0;
+        for (let i = 0; i * 4 + 3 < ms.length && nm < DEP_CAP; i++) {
           // (score 1 = it has only just become a mound … 4 and more = as thick as a mound gets)
-          const f = Math.min(1, (ms[i * 4 + 2] - 1) / 3), rnd = ms[i * 4 + 3];
-          const rad = CELL_SIZE * (0.7 + 0.35 * rnd + 0.35 * f);
-          p.set(ms[i * 4] + (rnd - 0.5) * CELL_SIZE * 0.4, 0, ms[i * 4 + 1] + (((rnd * 7.31) % 1) - 0.5) * CELL_SIZE * 0.4);
-          s.set(rad, Math.max(0.01, k.moundMax * unit * (0.3 + 0.7 * f) * (0.8 + 0.4 * rnd)), rad);
-          mm.setMatrixAt(i, m.compose(p, q, s));
+          const f = Math.min(1, (ms[i * 4 + 2] - 1) / 3), own = ms[i * 4 + 3];
+          const j1 = rnd(own * 53, i), j2 = rnd(i, own * 71), j3 = rnd(own * 13 + 1, i * 3);
+          const size = Math.max(0.2, 1 + (j1 - 0.5) * 2 * k.moundSizeJitter);
+          const rad = CELL_SIZE * (0.7 + 0.35 * own + 0.35 * f) * k.moundWide * size;
+          const high = Math.max(0.01, k.moundMax * unit * (0.3 + 0.7 * f) * (0.8 + 0.4 * own) * size);
+          const sq = 1 + (j2 - 0.5) * 2 * k.moundSquash * 0.8;
+          const cx = ms[i * 4] + (own - 0.5) * CELL_SIZE * 0.8 * k.moundScatter, cz = ms[i * 4 + 1] + (j3 - 0.5) * CELL_SIZE * 0.8 * k.moundScatter;
+          q.setFromAxisAngle(tmp.up, j3 * Math.PI);
+          // (how many tiers this one has: more the higher its score, up to the knob's)
+          const nt = Math.max(1, Math.min(tiers, 1 + Math.floor(f * tiers + own * 0.5)));
+          const shade = 1 + (j2 - 0.5) * 2 * k.moundTone * 0.5;
+          for (let t = 0; t < nt && nm < DEP_CAP; t++) {
+            const sh = Math.pow(Math.max(0.2, 1 - k.moundStep), t), th = high / nt;
+            p.set(cx + (rnd(i, t + 9) - 0.5) * rad * 0.25 * t * k.moundScatter, th * t, cz + (rnd(t + 4, i) - 0.5) * rad * 0.25 * t * k.moundScatter);
+            s.set(rad * sh * Math.max(0.3, sq), nt > 1 ? th * 1.15 : high, (rad * sh) / Math.max(0.3, sq));
+            mm.setMatrixAt(nm, m.compose(p, q, s));
+            mm.setColorAt(nm, tone.c.copy(base0).multiplyScalar(Math.max(0.2, shade * (1 + t * 0.06))));
+            nm++;
+          }
         }
+        q.identity();
         mm.count = nm;
         mm.instanceMatrix.needsUpdate = true;
+        if (mm.instanceColor) mm.instanceColor.needsUpdate = true;
         // (the darker the longer the place was built; the lightest is the layer's own ground)
         tone.a.set("#2a2d31");
         tone.b.set(k.stainColor);
@@ -322,6 +372,36 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         ctl.target.set(0, base, 0);
         three.camera.position.set(70, base + 75, 95);
         ctl.update();
+      }
+    }
+    const wp = waterPts.current;
+    if (wp) {
+      wp.visible = layerOn && k.waterBelt;
+      if (r && layerOn && k.waterBelt) {
+        wp.position.y = base + 0.04;
+        const size = Number(knob(`${LAYER}.vegSize`) ?? 0.12), mat = wp.material as THREE.PointsMaterial;
+        if (Number.isFinite(size) && mat.size !== size) mat.size = size;
+        const sig = `${futureLink.version}:${unit}:${k.waterColorA}:${k.waterColorB}`;
+        if (sig !== drawnWater.current) {
+          drawnWater.current = sig;
+          const v = r.vegWater ?? new Float32Array(0), np = Math.floor(v.length / 4);
+          const pos = new Float32Array(np * 3), col = new Float32Array(np * 3);
+          const a = new THREE.Color(k.waterColorA), b = new THREE.Color(k.waterColorB);
+          for (let i = 0; i < np; i++) {
+            pos[i * 3] = v[i * 4];
+            pos[i * 3 + 1] = v[i * 4 + 1] * unit;
+            pos[i * 3 + 2] = v[i * 4 + 2];
+            const sh = v[i * 4 + 3];
+            col[i * 3] = a.r + (b.r - a.r) * sh;
+            col[i * 3 + 1] = a.g + (b.g - a.g) * sh;
+            col[i * 3 + 2] = a.b + (b.b - a.b) * sh;
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+          geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+          wp.geometry.dispose();
+          wp.geometry = geo;
+        }
       }
     }
     const tp = treePts.current, tl = treeLines.current;
@@ -427,18 +507,24 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         <cylinderGeometry args={[1, 1, 1, 8]} />
         <meshStandardMaterial color={k.color} roughness={0.9} metalness={0} />
       </instancedMesh>
-      {/* the mounds: low domes on the layer's ground (a unit half-sphere, scaled a mound) */}
+      {/* the water's belt of plants (stage: "물길은 … 식생 띠로") */}
+      <points ref={waterPts} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial vertexColors size={0.12} sizeAttenuation />
+      </points>
+      {/* the mounds on the layer's ground: a unit shape standing on y = 0 (the knob's), scaled a mound, a tier */}
       <instancedMesh
         ref={(im) => {
           mounds.current = im;
+          if (im && !im.instanceColor) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(DEP_CAP * 3).fill(1), 3);
           if (im && !drawnDep.current) im.count = 0;
         }}
         args={[undefined, undefined, DEP_CAP]}
+        geometry={moundGeo}
         frustumCulled={false}
         receiveShadow
       >
-        <sphereGeometry args={[1, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color={k.moundColor} roughness={1} metalness={0} />
+        <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
       </instancedMesh>
       {/* the dark earth: flat discs just over the layer's ground, each with its own darkness */}
       <instancedMesh

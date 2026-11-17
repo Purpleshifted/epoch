@@ -125,6 +125,12 @@ export interface FutureConfig {
      *  is (treeStems) — for a drawer that gives them a point size and a stem of their own. Absent = among `veg`. */
     apart?: boolean;
   };
+  /**
+   * THE WATER AS A BELT OF PLANTS (the artist, 2026-11-17: "물길은 그냥 선 말고 식생 띠로 보이게 해줘"): `belt` = the
+   * course is given as points along it (FutureResult.vegWater) and its line is not; `wide` the band's width, `dense`
+   * its points (multipliers, 1 = as meant). Absent = the line, as it was.
+   */
+  water?: { belt: boolean; wide?: number; dense?: number };
 }
 
 export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12, fate: true, succession: true, soil: true };
@@ -175,6 +181,9 @@ export interface FutureResult {
   /** THE TREES' POINTS, apart (FutureConfig.tree.apart): [x, y (slots above the ground), z, shade 0..1, 1 = of the
    *  other plants (ground that was used) else 0] per point. Absent = they are among `veg` / `vegOld`. */
   vegTree?: Float32Array;
+  /** THE WATER'S BELT OF PLANTS (FutureConfig.water.belt): [x, y (slots above the ground), z, shade 0..1] per point.
+   *  With it `water` is empty. */
+  vegWater?: Float32Array;
   /** …and what each tree is: [x, z, its foot (slots above the ground), its stem's height (slots), its crown's
    *  radius (world), where its crown begins and where it ends (slots above its foot), a number 0..1 of its own]. */
   treeStems?: Float32Array;
@@ -424,7 +433,9 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   for (let k = K; k > K - band && !course.length; k--) course = input.streams.get(k) ?? [];
   const water: number[] = [];
   const wet = new Set<number>();
+  const pools: [number, number, number][] = [];
   const pool = (x: number, z: number, r: number) => {
+    pools.push([x, z, r]);
     const SEG = 14;
     for (let i = 0; i < SEG; i++) {
       const t0 = (i / SEG) * Math.PI * 2, t1 = ((i + 1) / SEG) * Math.PI * 2;
@@ -662,6 +673,35 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   });
   Object.assign(n, { used: vegOld.length / 4 });
 
+  // THE WATER AS A BELT OF PLANTS, NOT A LINE (the artist, 2026-11-17, twice asking what the lines of the layer were:
+  // "물길은 그냥 선 말고 식생 띠로 보이게 해줘"; FutureConfig.water). Along a watercourse the ground is fed from below
+  // and carries plants of its own in a band (Richardson et al. 2005: 식생 V6) — so the course is drawn as that band:
+  // points all along it, thickest at the water and thinning to the band's edge, low at the edge and taller at the
+  // water; where the water stands (a pool before what blocks it) a round stand of them. The line itself is not given.
+  const belt = cfg.water?.belt === true;
+  const vegWater: number[] = [];
+  if (belt) {
+    const wide = Math.max(0.2, cfg.water?.wide ?? 1), dense = Math.max(0, cfg.water?.dense ?? 1);
+    const put = (x: number, z: number, r: number, count: number, salt: number) => {
+      for (let i = 0; i < count && vegWater.length < 30000 * 4; i++) {
+        const u1 = hash(salt, i, 21), th = hash(salt, i, 22) * Math.PI * 2, rr = r * Math.pow(u1, 0.8);
+        vegWater.push(x + Math.cos(th) * rr, hash(salt, i, 23) * (0.15 + 0.75 * (1 - u1)), z + Math.sin(th) * rr, hash(salt, i, 24));
+      }
+    };
+    let s = 0;
+    // (every stretch of the course — the pools' rims among them: `water` holds both — a stand of points every half
+    // cell along it)
+    for (let i = 0; i + 3 < water.length; i += 4) {
+      const ax = water[i], az = water[i + 1], bx = water[i + 2], bz = water[i + 3];
+      const len = Math.hypot(bx - ax, bz - az), steps = Math.max(1, Math.round(len / (CELL * 0.5)));
+      for (let q = 0; q < steps; q++) {
+        const f = (q + hash(i, q, 25)) / steps;
+        put(ax + (bx - ax) * f, az + (bz - az) * f, CELL * (0.6 + 0.5 * hash(i, q, 26)) * wide, Math.round(per * 2.2 * dense), ++s + 5000);
+      }
+    }
+    for (const [x, z, r] of pools) put(x, z, r * 1.15 * wide, Math.round(per * 14 * dense * Math.max(1, (r / CELL) * (r / CELL))), ++s + 5000);
+  }
+
   // ── pipes: every run laid up to the slot read lies under this ground (carried, not drawn yet — stage 0 of the order
   // of 2026-11-17: the rules of what is left under the ground read them) ──
   const pipes: number[] = [];
@@ -671,5 +711,5 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
 
   const buildings: FutureBuilding<C>[] = [];
   for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
-  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: Float32Array.from(water), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
+  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }
