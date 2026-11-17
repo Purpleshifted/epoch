@@ -116,6 +116,9 @@ export interface FutureConfig {
     stem?: number;
     stemShare?: number;
     dense?: number;
+    /** HOW MANY OF THE PLACES THAT WOULD GROW A TREE DO (the artist, 2026-11-17: "걍 나무 수를 줄이고 원래 조각대로 가지
+     *  그리는 게 나을 것 같은데"): 0 … 1, the rest scrub. Absent = all of them. */
+    share?: number;
     /** THE CROWN'S SHAPES AND THEIR SHARES (the artist, 2026-11-17: "기둥모양 나무는 아예 빼버리고 모양 비율도 정할 수
      *  있게 해줘"): a ball, a cone (a conifer), an umbrella (wide and flat) — each tree takes one, by these weights
      *  (only their ratio counts; all 0 or absent = every tree a ball). */
@@ -642,7 +645,10 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const cloud = (cx: number, cz: number, r: number, salt: number) => {
     const [wx, wz] = wander(cx, cz, salt + 30);
     const x = (cx + hash(cx, cz, salt) + wx) * CELL, z = (cz + hash(cx, cz, salt + 1) + wz) * CELL;
-    const kind = kindAt(cx, cz, salt), u = hash(cx, cz, salt + 2), used = usedAt(cx, cz), v0 = lastV;
+    let kind = kindAt(cx, cz, salt);
+    const u = hash(cx, cz, salt + 2), used = usedAt(cx, cz), v0 = lastV;
+    // (fewer trees: of the places that would grow one, only `share` do — the rest stay scrub, as they were)
+    if (kind === 2 && hash(cx, cz, salt + 23) >= Math.max(0, Math.min(1, tk.share ?? 1))) kind = 1;
     if (kind >= 0) kinds[kind]++;
     // FLOWERS (the artist chose rules 1 and 4: docs/future-village-literature.md F3, F5): how much of a grass or scrub
     // cloud flowers — most where grass meets scrub, less towards bare grass, none as the woods close (Fantinato et
