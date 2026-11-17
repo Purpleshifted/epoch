@@ -299,3 +299,101 @@
 - **규칙**: 입력: 버려진 건물 칸과, 그 둘레 일정 반경 안에 아직 쓰이는 건물의 수. → 이웃이 살고 있으면 버려진 건물은 빨리 낮아지고(재료가 가까운 새 건물로 옮겨 감) 그 빈 자리는 쓰레기 메움으로 찬다. 마을이 한꺼번에 비면 건물은 온전한 채 서서 천천히 무너지고 쓰레기 메움은 없다. 즉 폐허의 모양은 그 건물이 아니라 이웃의 상태가 정한다.
 - 어디: Headings 'Roof Treatment', 'Kivas With Salvaged Roofs', 'Secondary Refuse in Kiva Fill'. Read through a page extractor.
 - 링크: https://sandbox.crowcanyon.org/ResearchReports/WoodsCanyon/Text/wcpw_abandonment (조사자: secondary source)
+
+---
+
+# 현재의 덩어리에 나무를 넣을 수 있는가 — 문헌조사 (2026-11-17)
+
+작가의 요청: "나무를 아래 '현재' 시대 덩어리에도 넣을 수 있는지 문헌조사/아이디어 내봐".
+
+기둥에서는 세로가 시간이다. 그 안의 나무는 높이를 가진 모양이 아니라 **시간축을 따라 사는 것** — 언제 서고, 얼마나 빨리 굵어지고, 얼마나 살고, 무엇에 죽고, 마을의 어디에 서는가 — 이라서 그 다섯 가지를 찾았다. 두 갈래(N: 시간 속의 나무, M: 마을 안의 자리)이고, 조사자가 출처를 직접 열어 확인한 것만 **확인됨**으로 적었다. `규칙`은 조사자의 제안이고 "연 → 단"의 환산은 모두 조사자의 해석이다 — 무엇을 반영할지, 환산을 어떻게 둘지는 작가가 정한다. 아이디어는 docs/world-review-2026-11-15.md §29-13.
+
+## 나무 — 시간 속에서 (N)
+
+### N1. Roman, L.A. & Scatena, F.N. (2011). Street tree survival rates: Meta-analysis of previous studies and application to a field survey in Philadelphia, PA, USA. Urban Forestry & Urban Greening 10(4): 269–274.
+
+- **확인**: 초록만 확인 — 펜실베이니아대 학과의 논문 소개 페이지에서 초록을 읽었다. 본문은 열지 못했다(ScienceDirect · UPenn 저장소 403). 수치는 전문을 연 N2("typical annual mortality to be 3.5 to 5.1%")와 N3("half-life … is only 13–20 years")의 인용과 일치한다.
+- **내용**: 선행 연구 16건의 가로수 생존율을 모아 회귀했다. 연 생존율 94.9–96.5%(연 사망률 3.5–5.1%), 심은 무리의 절반이 죽는 반감기 13–20년, 평균 기대수명 19–28년. 그전에 통용되던 "가로수 평균 수명 7년 또는 13년"보다 훨씬 길다.
+- **규칙**: 길가 · 집 앞에 심긴 나무는 정해진 수명이 아니라 매 "나무 해"마다 3.5–5.1% 확률로 끝난다. 기둥 속 나무의 길이는 지수분포가 되어 짧은 것이 많고 긴 것이 드물다.
+- 어디: 초록(본문의 표는 확인하지 못함).
+- 링크: https://earth.sas.upenn.edu/content/street-tree-survival-rates-meta-analysis-previous-studies-and-application-field-survey
+
+### N2. Hilbert, D.R., Roman, L.A., Koeser, A.K., Vogt, J. & van Doorn, N.S. (2019). Urban tree mortality: A literature review. Arboriculture & Urban Forestry 45(5): 167–200.
+
+- **확인**: 확인됨 — 인디애나대에 올라온 전문 PDF를 읽었다. 초록, Table 2, Table 3, "Mortality Rates", "Mortality Curves", Table 4.
+- **내용**: 56개 연구의 검토. 심은 무리의 연 사망률 중앙값 4.4–6.5%. 심은 뒤 첫 5년(활착기)은 6.6–7.0%, 그 뒤는 2.8–3.8%. 자리별 중앙값은 가로수 2.5–2.6%, 주택 마당 4.6%, 공원 2.2%. 반감기는 나쁜 경우 7–11년, 보통 13–18년, 좋은 경우 33–38년(20년 이후는 외삽이라고 명시). 크기별로는 작을 때 많이 죽거나, 가장 작을 때와 가장 클 때 많이 죽는 U자. 세입 · 압류 · 빈집처럼 소유가 불안정한 필지에서 더 죽고, 돌봄은 생존에 좋다.
+- **규칙**: 사망 확률을 두 단계로 — 시작 뒤 첫 5년분은 연 약 7%, 그 뒤는 약 3%. 기둥 아래쪽에 짧게 끊긴 가는 줄기가 많고 일부만 길게 오른다. 집이 비거나 헐린 칸 옆의 나무는 더 죽고 사람이 오래 머무는 집 옆은 덜 죽는다(조사자의 해석).
+- 어디: 초록; Table 2; Table 3; "Mortality Curves"와 Fig. 5; Table 4.
+- 링크: https://urbanforestry.indiana.edu/doc/publications/nrs_2019_hilbert_001.pdf
+
+### N3. Smith, I.A., Dearborn, V.K. & Hutyra, L.R. (2019). Live fast, die young: Accelerated growth, mortality, and turnover in street trees. PLoS ONE 14(5): e0215846.
+
+- **확인**: 확인됨 — PubMed Central 전문(PMC6505744). Results "Growth, mortality, & planting", Table 1, Discussion.
+- **내용**: 보스턴 가로수 3,500그루를 2005–06년과 2014년에 비교. 지름 생장은 가로수 0.78 cm/년, 인근 숲 0.21 cm/년(약 4배)이고 도시에서는 굵을수록 느려진다. 사망률은 가로수 3.06%/년, 숲 1.41%/년. 8년간 75%가 살아남았고 심는 비율(2.9%/년)이 사망률과 거의 같다. 지름 10 cm 나무는 35년 뒤 도시에서 37.7 cm, 숲에서 15.7 cm가 되고, 35년을 사는 확률은 도시 35.1%, 숲 44.2%.
+- **규칙**: 마을 안(집 · 길 옆)의 나무와 마을 밖 띠 · 빈 땅의 나무를 다른 종류로 — 안쪽은 빨리 굵어지되 더 자주 끊기고, 바깥은 4분의 1 속도로 가늘게 오래 간다. 죽은 자리에 가는 새 나무가 거의 같은 비율로 다시 선다(같은 칸에서 굵은 몸이 끊기고 가는 줄기가 다시 시작하는 모양은 조사자의 해석).
+- 어디: Results "Growth, mortality, & planting"; Table 1; Discussion.
+- 링크: https://pmc.ncbi.nlm.nih.gov/articles/PMC6505744/
+
+### N4. McPherson, E.G., van Doorn, N.S. & Peper, P.J. (2016). Urban tree database and allometric equations. USDA Forest Service Gen. Tech. Rep. PSW-GTR-253. 보조: McPherson, E.G. & Peper, P.J. (2012). Urban tree growth modeling. Arboriculture & Urban Forestry 38(5): 172–180.
+
+- **확인**: 초록만 확인 — 보고서 PDF는 용량 한도를 넘어 열지 못했고 Treesearch 등록 페이지의 초록만 읽었다. 보조 논문은 학술지 사이트 본문을 요약으로 읽었다.
+- **내용**: 14년간 미국 17개 도시에서 14,000그루 이상을 같은 방법으로 재어 171종, 365벌의 생장식을 만들었다. 식은 "나이 → 줄기 지름", "지름 → 키 · 수관 높이 · 수관 지름" 순으로 예측한다. 같은 종도 도시마다 다르다.
+- **규칙**: 나무의 몸을 두 단계로 — 나이(시작 뒤 단 수) → 줄기 굵기, 굵기 → 수관 폭. 구체적 계수는 보고서 본문에 있고 이번에는 읽지 못했다.
+- 어디: GTR-253 초록; 보조 논문의 "USDA Forest Service Reference City Research" 절.
+- 링크: https://research.fs.usda.gov/treesearch/52933 ; https://auf.isa-arbor.com/content/38/5/172
+
+### N5. Pretzsch, H., Biber, P., Uhl, E., Dahlhausen, J., et al. (2017). Climate change accelerates growth of urban trees in metropolises worldwide. Scientific Reports 7: 15403.
+
+- **확인**: 확인됨 — PubMed Central 전문(PMC5684322). Results, Discussion "Generalizability", Methods.
+- **내용**: 10개 대도시의 1,383그루에서 나이테 73,685개 연 관측으로 150년까지 생장을 복원했다. 줄기 단면적은 나이의 거듭제곱(단면적 = e^a · 나이^b) 꼴로 잘 맞는다. 같은 나이에서 도시의 나무가 주변 농촌의 나무보다 크다 — 50년에 약 25%, 100년에 18%, 150년에 14%. 건강한 나무만 뽑았으므로 수명 · 사망은 말하지 못한다고 명시한다.
+- **규칙**: 줄기 단면적을 나이의 거듭제곱으로 키우면 식 하나로 끝난다. 기둥을 수평으로 자른 면의 나무 굵기가 그 높이까지의 나이를 말하므로 나무가 기둥의 눈금자가 된다(조사자의 해석).
+- 어디: Results 2–3문단; Methods; Discussion "Generalizability".
+- 링크: https://pmc.ncbi.nlm.nih.gov/articles/PMC5684322/
+
+### N6. Boone, C.G., Cadenasso, M.L., Grove, J.M., Schwarz, K. & Buckley, G.L. (2010). Landscape, vegetation characteristics, and group identity in an urban and suburban watershed: why the 60s matter. Urban Ecosystems 13(3): 255–271.
+
+- **확인**: 확인됨 — eScholarship의 공개 전문 PDF. 초록, Results "Legacy effects", Table 2, Discussion.
+- **내용**: 볼티모어의 한 유역에서 1999년의 나무 피복을 1960년과 2000년의 인구조사로 각각 설명했더니 39년 전 자료가 더 잘 맞았다(adj. R² .342 대 .222). 풀(잔디) 피복은 반대로 지금의 생활양식이 잘 설명한다. "나무가 우거진 동네는 과거 주민이 원한 풍경을 물려받은 것". 다만 "오래될수록 많다"가 아니라 뒤집힌 U다(1950년경 지은 집에서 가장 높고 더 오래된 집과 더 새 집에서 낮다 — 인용한 Troy 외 2007).
+- **규칙**: 풀 · 덤불의 구름은 지금의 쓰임에 바로 반응하고, 나무는 수십 단 전의 상태에 반응한다. 집이 선 뒤 일정 단 안에 그 집 둘레에서만 나무가 시작되고 집이 헐려도 나무는 남는다(조사자의 해석). 처음부터 빽빽이 지어 빈 땅이 없던 마을 중심에는 나무가 거의 없다.
+- 어디: 초록; Results 첫 절과 Table 2; "Legacy effects on urban landscapes"; Discussion 첫 문단.
+- 링크: https://escholarship.org/content/qt8hw304xw/qt8hw304xw.pdf
+
+### N7. Roman, L.A., Pearsall, H., Eisenman, T.S., Conway, T.M., Fahey, R.T., Landry, S., Vogt, J., van Doorn, N.S., Grove, J.M., Locke, D.H., et al. (2018). Human and biophysical legacies shape contemporary urban forests: A literature synthesis. Urban Forestry & Urban Greening 31: 157–168.
+
+- **확인**: 확인됨 — Treesearch의 전문 PDF. 초록, 1절, 2절, 4절 끝, 5절. 개별 수치는 이 종설이 인용한 2차 정보이고 인용 원전은 열지 않았다.
+- **내용**: 오늘의 성숙한 수관은 여러 해 전의 조건과 결정을 반영한다. 건물 나이와 나무 피복은 포물선 관계 — 볼티모어에서 40–50년에 최대가 된 뒤 줄어든다. 집주인은 입주 첫 5년에 나무를 가장 많이 심는다. 버려진 농지 · 필지에는 숲이 저절로 돌아온다. 느릅나무병으로 밀워키의 가로수 피복은 1963–1979년에 반으로 줄었고 40년 뒤에야 회복됐다.
+- **규칙**: 마을 나이별 나무의 양을 뒤집힌 U로 — 마을이 선 뒤 40–50년분에서 정점, 그 뒤 같은 때 심긴 나무가 함께 늙어 빠진다. 나무의 시작은 건물이 선 직후 5년분에 몰린다. 드물게 한 종류가 한꺼번에 끊기는 사건(병 · 폭풍)을 두면 기둥에 수평 단절면이 생긴다(조사자의 해석).
+- 어디: 초록; 1절 2–3문단; 2절; 4절 마지막 문단들; 5절.
+- 링크: https://research.fs.usda.gov/download/treesearch/56212.pdf
+
+### N8. Nowak, D.J. (2012). Contrasting natural regeneration and tree planting in fourteen North American cities. Urban Forestry & Urban Greening 11(4): 374–382.
+
+- **확인**: 확인됨 — Treesearch의 전문 PDF. 초록, Table 2, Table 4, Table 7, Results, "Urban tree influx". 기존 나무 집단의 분석은 12개 도시다.
+- **내용**: 12개 도시 평균 32.7%만 심긴 나무이고 약 3분의 2는 저절로 났다. 토지 이용별 심긴 비율은 주거 74.8%, 상업 · 공업 61.2%, 공원 10.7%, 빈 땅 7.1%, 습지 · 물가 0.8%. 사람과 포장이 많을수록 심긴 비율이 높다(불투수면 r = 0.67). 저절로 나는 것은 주로 개척종으로 작고 수명이 짧다. 크고 오래 사는 나무를 유지하려면 심고 돌봐야 한다고 결론짓는다.
+- **규칙**: 나무의 출신을 둘로 — (가) 저절로 난 나무: 오래 밟히지 않은 칸, 마을 사이의 띠, 물가에서 시작하고 가늘고 짧고 많다. (나) 심긴 나무: 집 · 길 바로 옆에서만 시작하고 적지만 굵고 길다. 전체의 약 3분의 2가 (가)이되 집 주변만 보면 4분의 3이 (나). (가)의 수명을 얼마나 짧게 둘지는 문헌에 수치가 없다.
+- 어디: 초록; Table 2; Table 4; Table 7; Results.
+- 링크: https://research.fs.usda.gov/download/treesearch/42243.pdf
+
+### N9. Fraver, S. & White, A.S. (2005). Identifying growth releases in dendrochronological studies of forest disturbance. Canadian Journal of Forest Research 35(7): 1648–1656.
+
+- **확인**: 확인됨 — 버몬트대에 올라온 전문 PDF. 초록, Introduction, "The standard percent-increase method", "An alternative method", Table 1.
+- **내용**: 살아남은 나무의 나이테에서 생장이 갑자기 늘어난 해(해방)는 위를 덮던 이웃 나무가 사라진 사건의 날짜를 알려 준다. 여러 나무의 해방 연도를 모으면 그 숲의 교란 이력이 복원된다. 가장 흔한 기준은 사건 전후 각 10년의 평균을 비교해 100% 이상 늘면 해방으로 보는 것이다.
+- **규칙**: 나무가 굵어지는 속도를 이웃에 반응하게 한다 — 옆 칸의 건물이나 큰 나무가 사라지면 그 단부터 빨리 굵어지고(해방), 옆에 건물이 서면 가늘게 정체한다. 줄기의 굵기 변화가 이웃 사건의 날짜를 새긴다. 문헌은 숲의 수관 교란에 관한 것이고 건물로 옮긴 것은 조사자의 해석이다.
+- 어디: 초록; Introduction 1문단; "The standard percent-increase method"; Table 1.
+- 링크: https://www.uvm.edu/femc/dendro_files/project/27/Fraver_Growth_Releases_2005.pdf
+
+### N10. Chauchard, S., Guibal, F. & Carcaillet, C. (2013). Land-use legacies: multi-centuries years-old management control of between-stands variability at the landscape scale in Mediterranean mountain forests, France. Journal of Forest Science 59(1): 1–7.
+
+- **확인**: 확인됨 — 학술지의 공개 전문 PDF. 초록, "Land-use history", Results "Age structure versus former land uses", Discussion. 경작지에 나무가 들어오기 시작한 때가 Results에는 1890년대, Discussion에는 1930년대로 적혀 본문 안에서 어긋난다.
+- **내용**: 프랑스 남서 알프스의 한 산지에서 옛 토지 이용별로 모든 나무의 나이를 나이테로 셌다. 이농은 1880년대부터. 나무가 들어온 순서는 옛 왜림(1800년대부터), 옛 방목지(1870년대부터), 옛 경작지(가장 늦게, 정점 1950년대). 가장 기름진 경작지가 가장 늦었다 — 쟁기질한 깊은 흙에 풀이 빽빽해 소나무가 못 들어왔다고 해석한다. 후기종은 버려진 뒤 수십 년 늦게 온다. 문서에 없는 "버려진 시점과 속도"를 나무의 나이가 알려 준다.
+- **규칙**: 칸이 버려진 뒤 나무가 시작되기까지의 지연을 그 칸의 이전 쓰임으로 정한다 — 길 · 밟힌 땅이던 칸은 일찍, 건물 · 밭이던 칸은 풀에 먼저 덮여 늦게. 지연의 수치는 이 한 지역의 관찰이고 일반화는 조사자의 해석이다.
+- 어디: 초록; "Land-use history"; Results와 Fig. 2; Discussion.
+- 링크: https://jfs.agriculturejournals.cz/pdfs/jfs/2013/01/02.pdf
+
+### N갈래에서 찾았으나 얻지 못한 것
+
+- Roman & Scatena 2011의 본문, GTR-253의 본문(종별 계수 · 나이별 수관 지름)은 열지 못했다.
+- "마을이 오래될수록 수관이 많다"의 1차 연구(Troy 외 2007, Lowry 외 2012)는 직접 열지 않았다 — N6 · N7의 인용으로만 확인했고, 실제 관계는 40–50년에 정점인 뒤집힌 U다.
+- 정착지 안에서 건물의 철거 · 신축을 나무의 해방 · 억압으로 연대 측정한 연구는 찾지 못했다(N9는 숲의 방법이다).
+- 저절로 난 나무와 심긴 나무의 수명 차이의 수치, 물까지의 거리와 나무의 생존 · 생장의 정량 관계는 찾지 못했다.
+- 정량 자료는 모두 북미 · 유럽 도시의 것이다. 촌락의 나무, 한국의 마을숲 · 당산나무는 M갈래에서 따로 찾는다.
