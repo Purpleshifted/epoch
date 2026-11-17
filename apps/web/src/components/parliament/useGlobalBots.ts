@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
+import { riseOf, syncRisePause } from "@/lib/parliament/rise";
 import { folder, levaStore, useControls } from "leva";
 import {
   DEFAULT_HERD,
@@ -146,6 +147,9 @@ export function useGlobalBots(
           hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 높이 = 현재의 두께 (단 · 60 = 20분)" },
           // THE THICK PRESENT RISES (lifecycle.ts shift; the artist, 2026-11-15: "실제 시간으로")
           hShift: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 올라가는 속도 (1 = 실제 시간: 20초에 한 단 · 0 = 고정된 덩어리)" },
+          // THE RISE STOPPED (rise.ts; the artist, 2026-11-17: "기둥이 천천히 올라가는 속도를 일단... 끄고") — not the speed
+          // at 0 (that is the fixed block, another way of eroding and fusing): the top stands where it is
+          hRiseStop: { value: true, label: "기둥이 올라가는 것을 멈춤 (꼭대기가 지금 자리에 섬 · 봇은 계속 지음 · 침식과 화석의 진행도 같이 섬)" },
           // (what has left the window: nothing of it is kept by default — every slot kept is a slot of buildings, ways
           // and pipes the wall goes on working out: measured 2026-11-15, three windows' length = 9 s a round of ways)
           hTail: { value: 0, min: 0, max: 120, step: 1, label: "올라간 덩어리 아래로 남기는 기록 (단 · 0 = 창을 벗어나면 버림 · 길수록 무거움)" },
@@ -237,14 +241,16 @@ export function useGlobalBots(
   }, [enabled, log, b.hTailSec, b.hTailLeg]);
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   // (where the block's top is now, in seconds of its time axis: the wall reads it — botGround.topSec)
-  const shiftRef = useRef({ shift: 0, depthSec: 0, tail: 0 });
-  shiftRef.current = { shift: on ? b.hShift : 0, depthSec: b.hDepth * SLOT_SEC, tail: b.hTail };
+  const shiftRef = useRef({ shift: 0, depthSec: 0, tail: 0, stop: false });
+  shiftRef.current = { shift: on ? b.hShift : 0, depthSec: b.hDepth * SLOT_SEC, tail: b.hTail, stop: !!b.hRiseStop };
   useEffect(() => {
     if (!on) return;
     const f = () => {
-      const { shift, depthSec, tail } = shiftRef.current;
+      const { shift, depthSec, tail, stop } = shiftRef.current;
       const elapsed = epochMs.current ? Math.max(0, (clock.now() - epochMs.current) / 1000) : 0;
-      return { top: shift * elapsed + depthSec, shift, tail };
+      // (the rise stopped or let go: rise.ts — the seating of the bots, lifecycle.ts, reads the same state)
+      syncRisePause(stop, elapsed, epochMs.current);
+      return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail };
     };
     botGround.window = f;
     return () => {
