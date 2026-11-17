@@ -610,10 +610,24 @@ export function villageSites(epochMs: number, h: HerdConfig | undefined, until?:
   return sites;
 }
 
+/**
+ * THE WINDOW'S TOP IS A CEILING (the artist, 2026-11-17: "미래 도시랑 현재 인터랙션(봇 배정, 식생 배정 등) 떨어져있는
+ * 구간은 불가침으로 좀 정해, 지금 띄워놔도 그 사이로 봇 배정되고 해서 자꾸 침범됨"). A herd's pace (drift), its members
+ * seated above the leader in time and living a little longer than it, and a depth turned down while bots lived all
+ * carried bots past the top — and what they built stood in the gap under the layer above. The last second of the
+ * window is now the highest time a bot can have (its samples and its village's time alike); Infinity where there is
+ * no block.
+ */
+function ceilSec(h: HerdConfig | undefined, wallMs: number, epochMs: number): number {
+  const depth = h ? Math.max(0, h.depthSec) : 0;
+  if (!h || depth <= 0) return Infinity;
+  return riseOf(h.shift, Math.max(0, (wallMs - epochMs) / 1000)).bottom + Math.max(0, depth - 1);
+}
+
 /** v's place in the block's time now (the seconds its samples carry: lifecycleActor). */
-function blockSecOf(v: Visitor, wallMs: number, epochMs: number): number {
+function blockSecOf(v: Visitor, wallMs: number, epochMs: number, h?: HerdConfig): number {
   const drift = (v.drift ?? 0) * ((wallMs - v.bornMs) / 1000);
-  return Math.max(0, (wallMs - epochMs) / 1000 + v.off + (v.off < 0 ? Math.min(-v.off, drift) : 0));
+  return Math.min(ceilSec(h, wallMs, epochMs), Math.max(0, (wallMs - epochMs) / 1000 + v.off + (v.off < 0 ? Math.min(-v.off, drift) : 0)));
 }
 
 /** The centre and radius of v's village, or null (no village). */
@@ -717,7 +731,11 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   // (…or stands, while the rise is stopped — rise.ts, 2026-11-17: the foot is then where it stood, and a life rises
   // a second a second against it)
   const { bottom, still } = riseOf(h.shift, elapsed);
-  const span = Math.max(0, depth - still * (v.lifeMs / 1000));
+  // (…whatever its pace: its drift — drawn here, before the seat — and the members seated above it in time (the herd's
+  // radius) who live a little longer are taken off the room it may be born in, so the herd ends under the top)
+  const drift = (draw(v, epochMs, 120) - 0.5) * 2 * Math.max(0, Math.min(0.9, h.drift));
+  const over = h.metersPerSec > 0 ? Math.max(0, h.radius) / h.metersPerSec : 0;
+  const span = Math.max(0, depth - over - (still + Math.max(0, drift)) * 1.1 * (v.lifeMs / 1000));
   const leaders = st.present.filter((p) => p.kind === "leader" && p.id !== v.id);
   const offNow = (p: Visitor) => p.off + (p.drift ?? 0) * ((wallMs - p.bornMs) / 1000);
   // STRATA: the bands of the depth and how many herds live in each
@@ -752,7 +770,7 @@ function seatHerd(v: Visitor, st: LifecycleState, wallMs: number, epochMs: numbe
   v.ex = v.x;
   v.ez = v.z;
   v.kind = "leader";
-  v.drift = (draw(v, epochMs, 120) - 0.5) * 2 * Math.max(0, Math.min(0.9, h.drift));
+  v.drift = drift;
   // HOW IT MOVES: one of three ways, by the shares (in a village: leaning as the village does, settlers or roamers)
   const site = v.vil !== undefined ? villageSites(epochMs, h)[v.vil] : undefined;
   const lean = site?.ch.settled ?? 0;
@@ -925,7 +943,7 @@ function villageTrip(v: Visitor, wallMs: number, epochMs: number, h: HerdConfig 
     v.vil = home;
   } else {
     if (draw(v, epochMs, 161) >= travel) return null;
-    const t = blockSecOf(v, wallMs, epochMs), me = sites[home];
+    const t = blockSecOf(v, wallMs, epochMs, h), me = sites[home];
     if (!me) return null;
     const cands: number[] = [], ws: number[] = [];
     let tot = 0;
@@ -1223,7 +1241,7 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
     // leader's); a stay is cut short so it sets off now, a round is laid anew in the new village
     if (hc && v.vil !== undefined) {
       const sites = villageSites(epochMs, hc);
-      const t = blockSecOf(v, wallMs, epochMs);
+      const t = blockSecOf(v, wallMs, epochMs, hc);
       const after = (i: number) => (sites[i] && sites[i].next >= 0 && t >= sites[i].to ? sites[i].next : i);
       // its home too (a roamer away from it comes back to the one that follows it)
       if (v.home !== undefined) v.home = after(v.home);
@@ -1303,11 +1321,12 @@ export function stepLifecycle(prev: LifecycleState, wallMs: number, inp: Lifecyc
 }
 
 /** A bot as an actor at wall time `wallMs`: its presence sample (a worker, at its own assigned time). */
-export function lifecycleActor(v: Visitor, wallMs: number, epochMs: number): Actor {
+export function lifecycleActor(v: Visitor, wallMs: number, epochMs: number, h?: HerdConfig): Actor {
   // a herd may rise a little faster or slower than the clock (drift) — never before time 0, never ahead of its start
   const drift = (v.drift ?? 0) * ((wallMs - v.bornMs) / 1000);
   const s = sessionSeconds(wallMs, epochMs, v.off + (v.off < 0 ? Math.min(-v.off, drift) : 0));
-  return { o: v.id, r: "worker", x: v.x, z: v.z, s: Math.max(0, s) };
+  // (…and never above the window's top: ceilSec)
+  return { o: v.id, r: "worker", x: v.x, z: v.z, s: Math.min(ceilSec(h, wallMs, epochMs), Math.max(0, s)) };
 }
 
 /**

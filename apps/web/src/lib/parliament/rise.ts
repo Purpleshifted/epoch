@@ -39,14 +39,14 @@ export function riseOf(shift: number | undefined, elapsed: number): { bottom: nu
 /**
  * Keeps the state in step with the knob (called with the clock, once the world's epoch is known): taken from this
  * browser's storage when the page comes back to the same world, begun anew for another world, and written whenever
- * the rise is stopped or let go.
+ * the rise is stopped or let go. `persist` false (the lab): this page's state only.
  */
-export function syncRisePause(stop: boolean, elapsed: number, epoch: number): void {
+export function syncRisePause(stop: boolean, elapsed: number, epoch: number, persist = true): void {
   if (!epoch) return;
   let changed = false;
   if (risePause.epoch !== epoch) {
     let at: number | null = null, lost = 0;
-    try {
+    if (persist) try {
       const raw = JSON.parse((typeof localStorage !== "undefined" && localStorage.getItem(LS_RISE)) || "null") as { at: number | null; lost: number; epoch: number } | null;
       if (raw && raw.epoch === epoch && Number.isFinite(raw.lost)) [at, lost] = [typeof raw.at === "number" ? raw.at : null, raw.lost];
     } catch {
@@ -62,7 +62,9 @@ export function syncRisePause(stop: boolean, elapsed: number, epoch: number): vo
     risePause.at = null;
     changed = true;
   }
-  if (changed) {
+  // (a lab's world is its tab's only: it neither reads nor writes the one entry the wall keeps — it used to replace it,
+  // and the wall then came back with its foot moved by all the seconds its rise had stood)
+  if (changed && persist) {
     try {
       if (typeof localStorage !== "undefined") localStorage.setItem(LS_RISE, JSON.stringify(risePause));
     } catch {

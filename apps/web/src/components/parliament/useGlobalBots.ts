@@ -87,7 +87,8 @@ const BOT_FOLD_OPTS = { lateMarginSec: 35 };
 
 const LAYOUT_OPTIONS: Record<string, "strata" | "any"> = { "층마다 고르게 (무리 수만큼 나눠 빈 층에)": "strata", "아무 높이나": "any" };
 const ORIGIN_OPTIONS: Record<string, "even" | "built" | "doors" | "villages"> = { "마을 터 (정해진 몇 곳, 무리는 자기 마을 안에서만)": "villages", "세계에 고르게": "even", "지어진 곳 가까이": "built", "원점과 문 네 곳": "doors" };
-/** The wall's time axis as the herds read it: one slot is 20 s and 1 world unit high (SPACE_BOXES). */
+/** The wall's time axis as the herds read it where no wall says otherwise: one slot is 20 s and 1 world unit high
+ *  (SPACE_BOXES). On the wall the herds take the wall's own (opts.slotSec, opts.unit — the 시간축 knobs). */
 const SLOT_SEC = 20;
 const SLOT_HEIGHT = 1;
 
@@ -114,8 +115,14 @@ export function useGlobalBots(
   cfg: FoldConfig,
   enabled: boolean,
   order = 1.5,
-  opts?: { clock?: Clock; local?: boolean; setDepth?: (slots: number) => void; setVillages?: (v: WaterConfig["villages"] | null) => void },
+  opts?: { clock?: Clock; local?: boolean; setDepth?: (slots: number) => void; setVillages?: (v: WaterConfig["villages"] | null) => void; slotSec?: number; unit?: number },
 ): number {
+  // ONE 단 FOR EVERYTHING (the artist, 2026-11-17: "레바에서 조정한 단 값이 전체에 다 적용되도록 해"). The herds counted
+  // their 단 as 20 s whatever the wall's time axis said; with the axis at 10 s the bots lived in a window twice as deep
+  // as the one the wall drew (hDepth 35 = 700 s for the bots, 35 slots = 350 s for the wall: buildings, ways, plants and
+  // fossil only in its upper half), the tails were laid in rows of 20 s and read as rows of 10. A 단 is now the wall's
+  // — the window's depth, a village's life, the tails' rows and the height a second is worth (the herds' 3D distances).
+  const slotSec = Math.max(1, opts?.slotSec ?? SLOT_SEC), slotHeight = Math.max(0.01, opts?.unit ?? SLOT_HEIGHT);
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
   const local = !!opts?.local;
@@ -144,9 +151,9 @@ export function useGlobalBots(
       // the wall's 3D space: the ground and time as height (1 단 = 20 s = 높이 1)
       "자리 (3차원 · 1단 = 높이 1)": folder(
         {
-          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 높이 = 현재의 두께 (단 · 60 = 20분)" },
+          hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 높이 = 현재의 두께 (단 · 시간축의 '한 단 = 몇 초'를 따름)" },
           // THE THICK PRESENT RISES (lifecycle.ts shift; the artist, 2026-11-15: "실제 시간으로")
-          hShift: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 올라가는 속도 (1 = 실제 시간: 20초에 한 단 · 0 = 고정된 덩어리)" },
+          hShift: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 올라가는 속도 (1 = 실제 시간: 한 단의 초마다 한 단 · 0 = 고정된 덩어리)" },
           // THE RISE STOPPED (rise.ts; the artist, 2026-11-17: "기둥이 천천히 올라가는 속도를 일단... 끄고") — not the speed
           // at 0 (that is the fixed block, another way of eroding and fusing): the top stands where it is
           hRiseStop: { value: true, label: "기둥이 올라가는 것을 멈춤 (꼭대기가 지금 자리에 섬 · 봇은 계속 지음 · 침식과 화석의 진행도 같이 섬)" },
@@ -214,19 +221,19 @@ export function useGlobalBots(
         sizeMax,
         radius: b.hRadius,
         gap: b.hGap,
-        metersPerSec: SLOT_HEIGHT / SLOT_SEC,
-        depthSec: b.hDepth * SLOT_SEC,
+        metersPerSec: slotHeight / slotSec,
+        depthSec: b.hDepth * slotSec,
         shift: b.hShift,
         layout: b.hLayout,
         origin: b.hOrigin,
         originR: b.hOriginR,
-        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * SLOT_SEC, carry: b.hVillageCarry, travel: b.hVillageTravel, plots: b.hVillagePlots, fluid: b.hVillageFluid, character: b.hVillageChar },
+        villages: { count: b.hVillages, radius: b.hVillageR, gap: b.hVillageGap, lifeSec: b.hVillageLife * slotSec, carry: b.hVillageCarry, travel: b.hVillageTravel, plots: b.hVillagePlots, fluid: b.hVillageFluid, character: b.hVillageChar },
         mix: { settle: b.hSettle, roam: b.hRoam, tour: b.hTour },
         loose: b.hLoose,
         drift: b.hDrift,
       },
     }),
-    [most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hShift, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hVillagePlots, b.hVillageFluid, b.hVillageChar, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
+    [slotSec, slotHeight, most, sizeMin, sizeMax, herdsMax, herdsMin, b.hCountWave, b.hLoners, b.hLifeMin, b.hLifeMax, b.hFollow, b.hSpread, b.hRadius, b.hGap, b.hDepth, b.hShift, b.hLayout, b.hOrigin, b.hOriginR, b.hVillages, b.hVillageR, b.hVillageGap, b.hVillageLife, b.hVillageCarry, b.hVillageTravel, b.hVillagePlots, b.hVillageFluid, b.hVillageChar, b.hSettle, b.hRoam, b.hTour, b.hLoose, b.hDrift, b.hMeetStay],
   );
   useEffect(() => {
     botGround.trail = b.hTrail;
@@ -234,22 +241,22 @@ export function useGlobalBots(
   // the tails' rules; when they change (and at first) the field is laid again from everything the log holds
   useEffect(() => {
     if (!enabled) return;
-    const changed = tailField.configure({ ...DEFAULT_TAILS, slotSec: SLOT_SEC, tailSec: b.hTailSec, minLeg: b.hTailLeg });
+    const changed = tailField.configure({ ...DEFAULT_TAILS, slotSec, tailSec: b.hTailSec, minLeg: b.hTailLeg });
     if (!changed && tailField.steps > 0) return;
     tailField.clear();
     for (const e of [...log.all()].sort((p, q) => p.s - q.s)) tailField.add(e);
-  }, [enabled, log, b.hTailSec, b.hTailLeg]);
+  }, [enabled, log, slotSec, b.hTailSec, b.hTailLeg]);
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   // (where the block's top is now, in seconds of its time axis: the wall reads it — botGround.topSec)
   const shiftRef = useRef({ shift: 0, depthSec: 0, tail: 0, stop: false });
-  shiftRef.current = { shift: on ? b.hShift : 0, depthSec: b.hDepth * SLOT_SEC, tail: b.hTail, stop: !!b.hRiseStop };
+  shiftRef.current = { shift: on ? b.hShift : 0, depthSec: b.hDepth * slotSec, tail: b.hTail, stop: !!b.hRiseStop };
   useEffect(() => {
     if (!on) return;
     const f = () => {
       const { shift, depthSec, tail, stop } = shiftRef.current;
       const elapsed = epochMs.current ? Math.max(0, (clock.now() - epochMs.current) / 1000) : 0;
       // (the rise stopped or let go: rise.ts — the seating of the bots, lifecycle.ts, reads the same state)
-      syncRisePause(stop, elapsed, epochMs.current);
+      syncRisePause(stop, elapsed, epochMs.current, !local);
       // (…and what stands in the window goes on ageing while the rise is stopped: how far the top would have gone —
       // erode.ts stood)
       return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail, stood: Math.max(0, Math.min(1, shift)) * Math.max(0, elapsed - riseSeconds(elapsed)) };
@@ -513,7 +520,7 @@ export function useGlobalBots(
       for (const w of due) {
         // (the END event, k = "x", of who leaves comes with the role controls: docs/session-logic.md §2b)
         st = stepLifecycle(st, w, { attractors: g?.visitors ?? [], planRoute, meet }, lcCfg).state;
-        for (const v of st.present) add(lifecycleActor(v, w, epochMs.current));
+        for (const v of st.present) add(lifecycleActor(v, w, epochMs.current, lcCfg.herd));
       }
       // who is of which kind now (a member is of its leader's)
       botKinds.clear();

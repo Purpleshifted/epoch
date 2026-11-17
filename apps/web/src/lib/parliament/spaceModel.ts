@@ -2267,6 +2267,11 @@ export class SpaceModel {
     // (the density keeps what it has built whatever samples were forgotten since: nothing of it is below a window —
     // but the RISING window's floor: a building standing across it keeps its slots below for its size, not its parts)
     const floorK = this.densityCfg ? floorNow : Number.isFinite(this.cutS) ? Math.floor(this.cutS / box.secPerUnit) : -Infinity;
+    // …AND NOTHING ABOVE THE WINDOW'S TOP (the artist, 2026-11-17: "미래 도시랑 현재 인터랙션 … 떨어져있는 구간은
+    // 불가침으로", "그 위로도 봇이 돌아다니고 건물이 생기는 게 문제"). The bots are kept under the top where they are
+    // seated (lifecycle.ts ceilSec); this is for what was built above it before — a herd's pace, a depth turned down, a
+    // slot length changed: no part of a slot at or above the top is on the wall.
+    const ceilK = this.densityCfg && we0 && (we0.shift ?? 0) > 0 && we0.height ? Math.ceil(we0.topSlot) - 1 : Infinity;
     for (const s0 of order) {
       // a building's mass grows with every sample: the parts follow it in steps of a quarter, so a living building is
       // not rebuilt (every part regenerated) twice a second
@@ -2315,7 +2320,7 @@ export class SpaceModel {
         parts = out;
       }
       // nothing below the history window (a carried seed still has its slots below it), nothing in a baked chunk
-      for (const b of parts) if (b.slot >= floorK && !this.isBaked(b.slot)) built.push(b);
+      for (const b of parts) if (b.slot >= floorK && b.slot <= ceilK && !this.isBaked(b.slot)) built.push(b);
     }
     for (const id of this.partCache.keys()) if (!live.has(id)) this.partCache.delete(id);
     this.arrivals.keep(live);

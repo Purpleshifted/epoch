@@ -3278,7 +3278,11 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [botDepth, setBotDepth] = useState(0);
   // the bots' village sites: the pipes are laid in villages only (water.ts WaterConfig.villages)
   const [botVillages, setBotVillages] = useState<WaterConfig["villages"] | null>(null);
-  const botOpts = useMemo(() => (lab ? { clock: clk, local: true, setDepth: setBotDepth, setVillages: setBotVillages } : { setDepth: setBotDepth, setVillages: setBotVillages }), [lab, clk]);
+  // (the herds count a 단 as the wall's time axis does — its seconds and its height: useGlobalBots slotSec)
+  const botOpts = useMemo(
+    () => ({ ...(lab ? { clock: clk, local: true } : {}), setDepth: setBotDepth, setVillages: setBotVillages, slotSec: tAxis.secPerUnit, unit: tAxis.unit }),
+    [lab, clk, tAxis.secPerUnit, tAxis.unit],
+  );
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
   // EMPTY THE WORLD AND LET IT BE MADE AGAIN (the artist, 2026-11-15: "지우고 다시 생성하기 레바 버튼 넣기"), at the top
   // of the panel. The lab's world is this tab's only; the wall's is the shared one (every open tab follows), so there
@@ -3541,9 +3545,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   // the history window reaches as deep as the bots write (the lab keeps everything)
   useEffect(() => {
     if (lab || botDepth <= 0) return;
-    const need = botDepth * 20 + 240;
+    const need = botDepth * Math.max(1, tAxis.secPerUnit) + 240;
     if (keepWindowSec() < need) setKeepWindowSec(need);
-  }, [lab, botDepth]);
+  }, [lab, botDepth, tAxis.secPerUnit]);
   // THE MARKERS: the bots' names (off: no text over them) and their colours by how their herd moves
   const mk = useLevaControls(
     "마커",
