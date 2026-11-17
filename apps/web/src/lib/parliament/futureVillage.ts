@@ -73,9 +73,17 @@ export interface FutureConfig {
    * of this again — to leave a mound. Less leaves dark earth.
    */
   moundAt?: number;
+  /**
+   * LIVED IN TO THE END, OR LEFT BEFORE IT (stage 3; the literature's T9, S6, T7): a building that stood when the
+   * end came is found with its own material — what has gone from it lies at its foot, nothing was carried off (the
+   * people left all at once and far); one left before the end was stripped by those who lived on — its body, slabs
+   * and beams taken for use elsewhere, the longer ago the more — and stands as columns and footings. Off = what has
+   * gone from a building is gone, whichever it was. The rule is the caller's (SpaceModel.computeFuture).
+   */
+  fate?: boolean;
 }
 
-export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12 };
+export const DEFAULT_FUTURE: FutureConfig = { on: true, band: 12, gain: 1, maxH: 3, edge: false, margin: 3, vegPer: 3, persist: true, ruin: 0.5, under: true, moundAt: 12, fate: true };
 
 /** A building of the inferred village: its ground cell, its height in slots, and the built cell it is carried on from. */
 export interface FutureBuilding<C> {
@@ -87,6 +95,8 @@ export interface FutureBuilding<C> {
   fresh: boolean;
   /** How much of it is left, 0 … 1 (its parts are taken away by it, in the order the column's erosion takes them). */
   left: number;
+  /** For how many slots it had been left when the end came (0 = it stood to the end). Absent = 0. */
+  since?: number;
   from: C;
 }
 
@@ -467,6 +477,6 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   Object.assign(n, { pipe: pipes.length / 4, mound: left.mounds.length / 4, stain: left.stains.length / 4 });
 
   const buildings: FutureBuilding<C>[] = [];
-  for (const b of stand.values()) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, from: b.from });
+  for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
   return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: Float32Array.from(water), pipes: Float32Array.from(pipes), ...left, veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }

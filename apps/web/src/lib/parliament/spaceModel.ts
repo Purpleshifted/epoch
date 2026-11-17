@@ -933,7 +933,7 @@ export class SpaceModel {
     // at once and without the drips. Its number is the cell's, so it stands as it is while the cell is inferred so.
     const spu = box.secPerUnit;
     const lists: Record<string, Box[]> = {};
-    let gone = 0, footings = 0;
+    let gone = 0, footings = 0, fallen = 0, toEnd = 0;
     for (const bld of plan.buildings) {
       const sd = bld.from;
       const rc = box.recipe ?? RECIPES[sd.material];
@@ -969,11 +969,32 @@ export class SpaceModel {
         const up = Math.max(0, Math.min(1, (b.y - footY) / spanY));
         return (FUTURE_GO[b.kind] ?? 0.5) * 0.5 + (1 - up) * 0.3 + own * 0.2;
       };
+      // LIVED IN TO THE END, OR LEFT BEFORE IT (stage 3 of the order of 2026-11-17; the artist: "3단계 진행";
+      // FutureConfig.fate). Where the people went away all at once and far, a structure's timbers are found in place;
+      // where they moved near and the village lived on, a left structure's roof is found stripped — reused (the rule
+      // of thumb of the Pueblo studies, Churchill 2002 after Varien and Schiffer: 지층 T9; a village shrinks plot by
+      // plot while its frame stays, Jones et al. 2006: 정주 S6). So: of a building that STOOD WHEN THE END CAME, what
+      // has gone from it has FALLEN — it lies at its foot, laid flat and broken smaller, nothing carried off. One LEFT
+      // BEFORE the end was STRIPPED by those who lived on: its body, slabs, beams and braces are gone whatever the
+      // layer's decay says — the more the longer it had been left (all of it after three slots) — and nothing of it
+      // lies there; its columns and footings stand as the decay leaves them.
+      const fate = cfg.fate !== false, since = bld.since ?? 0;
+      if (since === 0) toEnd++;
+      const stripTo = fate && since > 0 ? Math.max(goneTo, 0.8 * Math.min(1, since / 3)) : goneTo;
       for (const b of boxesOfSeed(fs, fcfg)) {
-        if (rank(b) >= goneTo) {
+        const body = b.kind === "mass" || b.kind === "slab" || b.kind === "beam" || b.kind === "brace" || b.kind === "drip";
+        if (rank(b) >= (body ? stripTo : goneTo)) {
           (lists[b.kind] ??= []).push(b);
           if (b.kind === "basement" || b.kind === "pile" || b.kind === "plinth") footings++;
-        } else if (b.kind === "mass") gone++;
+          continue;
+        }
+        if (b.kind === "mass") gone++;
+        if (!fate || since > 0 || b.kind === "drip" || b.kind === "pile") continue;
+        // (fallen: its thinnest side up, on the ground beside where it stood, a little askew)
+        const h = (salt: number) => hash2(Math.round(b.x * 997) ^ b.seed, Math.round(b.z * 991) ^ Math.round(b.y * 983), salt);
+        const d = [b.sx, b.sy, b.sz].sort((p, q) => p - q);
+        (lists[b.kind] ??= []).push({ ...b, sx: d[2] * 0.7, sy: d[0], sz: d[1] * 0.7, x: b.x + (h(6101) - 0.5) * CELL * 0.9, z: b.z + (h(6102) - 0.5) * CELL * 0.9, y: footY + d[0] / 2 + h(6103) * 0.25 * box.unit, yaw: h(6104) * Math.PI, tilt: (h(6105) - 0.5) * 0.35 });
+        fallen++;
       }
     }
     const parts: Record<string, Float32Array> = {}, tones: Record<string, Float32Array> = {};
@@ -991,7 +1012,7 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
-    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future footings kept (n)": footings, "future mounds (n)": r.n.mound ?? 0, "future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future stood to the end (n)": toEnd, "future parts fallen (n)": fallen,"future footings kept (n)": footings, "future mounds (n)": r.n.mound ?? 0, "future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
 
