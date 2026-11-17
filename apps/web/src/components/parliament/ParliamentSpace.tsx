@@ -89,7 +89,7 @@ import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
-import { FUTURE_ONLY } from "@/lib/parliament/futureOnly";
+import { futureOnly } from "@/lib/parliament/futureOnly";
 import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
@@ -1557,6 +1557,8 @@ function SpaceWorld({
       const sides: Worker[] = [];
       let walkSide: Worker | null = null;
       const beside = (role: "fuse" | "walk"): MessagePort | null => {
+        // (the layer above alone: no fossil, so no worker for it)
+        if (futureOnly() && role === "fuse") return null;
         try {
           const sw = new Worker(new URL("./side.worker.ts", import.meta.url), { type: "module" });
           const ch = new MessageChannel();
@@ -1668,11 +1670,12 @@ function SpaceWorld({
     const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens, futureOnly: futureOnly() } };
     if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
     // (…with what is left under the ground: FutureUnder.tsx's knob)
     if (REDESIGN && dens && futureLink.cfg) req.future = futureUnder.cfg ? { ...futureLink.cfg, ...futureUnder.cfg } : futureLink.cfg;
-    if (withNature && nat) {
+    // (the layer above alone — futureOnly.ts: no vegetation of the present, no fossil)
+    if (withNature && nat && !futureOnly()) {
       if (!nat.unlived) req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
       if (nat.reclaim) {
         req.reclaim = {
@@ -1691,7 +1694,7 @@ function SpaceWorld({
     // and nothing about a fossil is in a hurry)
     // (BUILDING BY BUILDING: a call fuses no longer than its budget and one building at a time, so it is asked for
     // every other tick — the buildings waiting get their turn sooner)
-    if (frozen || id % (REDESIGN ? (fu.perBuilding ? 2 : NATURE_EVERY * 2) : NATURE_EVERY) === 1) {
+    if (!futureOnly() && (frozen || id % (REDESIGN ? (fu.perBuilding ? 2 : NATURE_EVERY * 2) : NATURE_EVERY) === 1)) {
       // the history window must reach below the immutable line (plus two chunks), or a layer would be cut before it is baked
       if (oneClk && bake && !local) {
         const need = (immutable + 20) * cfg.secPerUnit;
@@ -1723,7 +1726,7 @@ function SpaceWorld({
   return (
     <>
       {/* (the wall opened for the layer above alone — lib/parliament/futureOnly.ts — draws nothing of the column) */}
-      <group visible={!FUTURE_ONLY}>
+      <group visible={!futureOnly()}>
       {PART_KINDS.map((kind) => (
         <instancedMesh
           key={kind}
@@ -1786,7 +1789,7 @@ function SpaceWorld({
       {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
       {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />}
       {REDESIGN && !!density && <FutureUnder unit={boxCfg.unit} top={fuseU.uGrowTop} />}
-      <group visible={!FUTURE_ONLY}>
+      <group visible={!futureOnly()}>
       {/* what the mass was, while the new comes in (setFused; hidden otherwise) */}
       <mesh ref={fusedWas} frustumCulled={false} castShadow receiveShadow visible={false} material={fusedWasMats}>
         <bufferGeometry />
@@ -4436,7 +4439,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <RenderTuning shadowType={ro.shadowType} shadowMapSize={ro.shadowMapSize} shadowsOn={shadowsOn} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
-        {v.seedsOn && !FUTURE_ONLY && (
+        {v.seedsOn && !futureOnly() && (
           <Dandelions
             log={log}
             secPerUnit={c.secPerUnit}
@@ -4495,7 +4498,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           boxCfg={boxCfg}
           showEdges={c.showEdges}
           wear={c.wear}
-          follow={c.follow && !FUTURE_ONLY}
+          follow={c.follow && !futureOnly()}
           followLift={camView.camLift}
           link={camLink}
           followWho={cam.camFollow as FollowWho}
@@ -4532,7 +4535,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           turnSec={camView.camTurnSec}
           dir={cam.camDir as 1 | -1}
           maxPolarDeg={isV2 ? 179.5 : 89.8}
-          active={!lab && !FUTURE_ONLY}
+          active={!lab && !futureOnly()}
           auto={camView.camAuto ? shotSeq : null}
           link={camLink}
           status={shotLine}
@@ -4546,13 +4549,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {/* (not in the view of the layer above alone: futureOnly.ts) */}
-        {vg.vegOn && !FUTURE_ONLY && (
+        {vg.vegOn && !futureOnly() && (
           <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} belts={belts} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
             (no composer); with the composer on (priority 1, it renders the scene) the overlay follows at 2. */}
-        {c.markers && !FUTURE_ONLY && (
+        {c.markers && !futureOnly() && (
           <Hud key={composerOn ? "after-composer" : "plain"} renderPriority={composerOn ? 2 : 1}>
             <Markers log={log} secPerUnit={c.secPerUnit} unit={c.unit} holdSec={c.markerHold} labels={!hideUi && mk.names} tint={mk.byKind} onActive={setActive} onMe={setMeStatus} />
           </Hud>

@@ -24,7 +24,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { button, levaStore, useControls } from "leva";
 import * as THREE from "three";
 import type { FutureConfig } from "@/lib/parliament/futureVillage";
-import { FUTURE_ONLY } from "@/lib/parliament/futureOnly";
+import { futureOnly } from "@/lib/parliament/futureOnly";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
 import { savable } from "./levaSave";
@@ -524,7 +524,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
 
-    if (((FUTURE_ONLY && !placed.current) || goTo.current) && r && top.value > 0) {
+    if (((futureOnly() && !placed.current) || goTo.current) && r && top.value > 0) {
       const ctl = three.controls as unknown as { target: THREE.Vector3; update: () => void } | null;
       if (ctl) {
         placed.current = true;

@@ -204,6 +204,13 @@ function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
 }
 
 export interface PartsInput {
+  /**
+   * THE LAYER ABOVE ALONE (the artist, 2026-11-17: "합치고 미래 워커 나눠"; the view `?only=future`, lib/parliament
+   * /futureOnly.ts, docs/world-review-2026-11-17-future-worker.md): no part of the present is made — the buildings'
+   * density, the water and the ways (what the layer reads) still are, and the layer is asked for with them; every
+   * part, its erosion, its fossil and its assets are left out. The bots run on the bot server; this view only reads.
+   */
+  futureOnly?: boolean;
   fold: FoldConfig;
   box: BoxConfig;
   wear: boolean;
@@ -2247,7 +2254,8 @@ export class SpaceModel {
     // seated (lifecycle.ts ceilSec); this is for what was built above it before — a herd's pace, a depth turned down, a
     // slot length changed: no part of a slot at or above the top is on the wall.
     const ceilK = this.densityCfg && we0 && (we0.shift ?? 0) > 0 && we0.height ? Math.ceil(we0.topSlot) - 1 : Infinity;
-    for (const s0 of order) {
+    // (the layer above alone: no part of the present is made — PartsInput.futureOnly)
+    for (const s0 of input.futureOnly ? [] : order) {
       // a building's mass grows with every sample: the parts follow it in steps of a quarter, so a living building is
       // not rebuilt (every part regenerated) twice a second
       const s: Seed = { ...s0, mass: Math.round(s0.mass * 4) / 4 };
