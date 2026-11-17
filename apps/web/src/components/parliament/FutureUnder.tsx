@@ -37,6 +37,85 @@ const rnd = (a: number, b: number): number => {
   return s - Math.floor(s);
 };
 
+type V3 = [number, number, number];
+/** A tree as its stem is drawn from: its place, its foot, its stem's height, its crown's radius, from where to where
+ *  above its foot the crown reaches (all world), a number of its own, and whether its crown is a cone. */
+interface StemTree {
+  x: number;
+  z: number;
+  foot: number;
+  tall: number;
+  R: number;
+  lo: number;
+  hi: number;
+  own: number;
+  cone: boolean;
+}
+
+/**
+ * A STEM THAT GREW (the artist, 2026-11-17, of the stem that forked from one point in straight lines: "줄기 갈라지는
+ * 거 좋긴 한데... 좀 더 유기물같이 안 되나...?"). Nothing of it is straight or even: THE TRUNK leans and sways as it
+ * rises; THE BOUGHS leave it at heights of their own, turned round it by the golden angle (as buds stand round a
+ * shoot), and ARCH — out and up, then over — to places of their own inside the crown, some long, some short; each
+ * bough bears TWIGS that turn off it and bend on. A cone keeps its trunk to its tip and its boughs droop before
+ * they lift. Written as line segments into `seg` ([x, y, z, x, y, z] each), and for every end how far along the
+ * tree it is into `far` (0 at the foot … 1 at a twig's tip: the line fades into the crown's colour by it).
+ * `bend` 0 = straight lines, 1 = as meant, more = wilder; `twigs` a bough (0 … 3).
+ */
+function growStem(seg: number[], far: number[], t: StemTree, i: number, bend: number, twigs: number): void {
+  const r = (a: number) => rnd(i * 7.13 + a, t.own * 91.7 + a * 0.37);
+  const H = Math.max(1e-4, t.hi - t.lo);
+  const line = (a: V3, b: V3, fa: number, fb: number) => {
+    seg.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+    far.push(fa, fb);
+  };
+  // (a curve from a to b that bows by `c` at its middle, in `n` pieces; returns its points)
+  const bow = (a: V3, b: V3, c: V3, n: number, fa: number, fb: number): V3[] => {
+    const pts: V3[] = [a];
+    for (let q = 1; q <= n; q++) {
+      const u = q / n, w = 4 * u * (1 - u);
+      const p: V3 = [a[0] + (b[0] - a[0]) * u + c[0] * w, a[1] + (b[1] - a[1]) * u + c[1] * w, a[2] + (b[2] - a[2]) * u + c[2] * w];
+      line(pts[q - 1], p, fa + ((fb - fa) * (q - 1)) / n, fa + ((fb - fa) * q) / n);
+      pts.push(p);
+    }
+    return pts;
+  };
+  // (the crown's half-width at the share f of its height)
+  const wide = (f: number) => (t.cone ? t.R * 0.95 * (1 - f) : t.R * Math.sqrt(Math.max(0.06, 1 - Math.pow(2 * f - 1, 2))));
+  // THE TRUNK: to the middle of the crown (a cone: nearly to its tip), leaning one way and swaying
+  const trunkH = t.lo + H * (t.cone ? 0.92 : 0.5);
+  const sway = bend * 0.14 * t.R, a1 = r(1) * 6.283, a2 = r(2) * 6.283;
+  const trunk = (s: number): V3 => {
+    const lean = s * s * sway * 1.4, wob = Math.sin(s * 3.4 + a1) * sway * s;
+    return [t.x + Math.cos(a2) * lean + Math.cos(a1 + 1.7) * wob, t.foot + s * trunkH, t.z + Math.sin(a2) * lean + Math.sin(a1 + 1.7) * wob];
+  };
+  const NT = 6;
+  for (let q = 1; q <= NT; q++) line(trunk((q - 1) / NT), trunk(q / NT), ((q - 1) / NT) * 0.3, (q / NT) * 0.3);
+  // THE BOUGHS
+  const nb = 4 + Math.floor(r(3) * 3);
+  for (let j = 0; j < nb; j++) {
+    // (where it leaves the trunk: a cone's all the way up it, the others' from where the crown begins)
+    const s0 = t.cone ? 0.28 + 0.66 * ((j + r(10 + j)) / nb) : Math.min(0.97, Math.max(0.35, t.lo / trunkH - 0.15) + (1 - Math.max(0.35, t.lo / trunkH - 0.15)) * r(10 + j));
+    const S = trunk(s0);
+    const th = j * 2.39996 + (r(20 + j) - 0.5) * 1.1 * Math.max(0.3, bend) + a1;
+    const f = t.cone ? Math.min(0.96, Math.max(0.02, (S[1] - t.foot - t.lo) / H + 0.03 + 0.08 * r(30 + j))) : 0.22 + 0.68 * r(30 + j);
+    const rad = wide(f) * (0.5 + 0.45 * r(40 + j));
+    const T: V3 = [t.x + Math.cos(th) * rad, t.foot + t.lo + f * H, t.z + Math.sin(th) * rad];
+    const d = Math.hypot(T[0] - S[0], T[1] - S[1], T[2] - S[2]);
+    // (it bows: up — a cone's down — and to one side)
+    const side = (r(50 + j) - 0.5) * 0.5 * bend * d;
+    const C: V3 = [-Math.sin(th) * side, (t.cone ? -0.1 : 0.2) * bend * d, Math.cos(th) * side];
+    const pts = bow(S, T, C, 5, 0.3, 0.75);
+    // THE TWIGS: off the bough's outer half, turned aside, bending on
+    for (let w = 0; w < twigs; w++) {
+      const at = pts[Math.min(pts.length - 2, 2 + ((w + Math.floor(r(60 + j * 4 + w) * 2)) % 3))];
+      const tw = th + (w % 2 ? 1 : -1) * (0.5 + 0.7 * r(70 + j * 4 + w)), len = d * (0.25 + 0.3 * r(80 + j * 4 + w));
+      const E: V3 = [at[0] + Math.cos(tw) * len, at[1] + len * (t.cone ? 0.05 : 0.25 + 0.3 * r(90 + j * 4 + w)), at[2] + Math.sin(tw) * len];
+      bow(at, E, [0, (t.cone ? -0.06 : 0.12) * bend * len, 0], 3, 0.6, 1);
+    }
+  }
+}
+
 const GROUP = "미래 마을 층 — 땅 아래";
 /** The layer's own folder (FutureVillage.tsx): where it stands is read from there. */
 const LAYER = "미래 마을 층";
@@ -96,7 +175,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       treePointJitter: { value: 0, min: 0, max: 1, step: 0.05, label: "나무 — 점 크기의 지터 (점마다 크고 작은 정도)" },
       // ("줄기 점 대신 다른걸로 시각화 할 방법 있는지 고민해봐") — ways to try; the first is how it was
       treeStemMode: { options: { "점 (지금까지 — 줄기에 쓰는 점의 몫)": "points", "선 하나 (발치에서 수관 속까지)": "line", "가지 뻗은 선 (줄기에서 수관 속으로 갈라짐)": "branch", "없음 (수관만)": "none" }, value: "points" as "points" | "line" | "branch" | "none", label: "나무 — 줄기를 그리는 방식" },
-      treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기 선의 색 (자연색 · 선으로 그릴 때)" },
+      treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기 선의 색 (자연색 · 선으로 그릴 때 · 끝으로 갈수록 수관의 색으로 풀림)" },
+      // ("줄기 갈라지는 거 좋긴 한데... 좀 더 유기물같이 안 되나...?") — the forking stem grows: growStem
+      treeBend: { value: 1, min: 0, max: 2.5, step: 0.05, label: "나무 — 가지의 굽이 (가지 뻗은 선 · 0 = 곧은 선 · 클수록 휘고 기욺)" },
+      treeTwigs: { value: 2, min: 0, max: 3, step: 1, label: "나무 — 잔가지 (가지 하나에 몇 개)" },
     }),
     { collapsed: true },
   );
@@ -238,7 +320,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         tl.position.y = base + 0.04;
         // (the layer's own two colours of plants, and this folder's two for ground that was used)
         const cA = String(knob(`${LAYER}.vegColorA`) ?? "#5f7a3a"), cB = String(knob(`${LAYER}.vegColorB`) ?? "#a9b56a");
-        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${cA}:${cB}:${k.soilColorA}:${k.soilColorB}`;
+        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${cA}:${cB}:${k.soilColorA}:${k.soilColorB}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}`;
         if (sig !== drawnTrees.current) {
           drawnTrees.current = sig;
           const v = r.vegTree ?? new Float32Array(0);
@@ -262,30 +344,29 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           tp.geometry.dispose();
           tp.geometry = geo;
           // THE STEMS AS LINES: [x, z, foot, stem, crown's radius, crown from, crown to, its own number] a tree. One
-          // line: from its foot to the middle of its crown (a cone: nearly to its tip). Forking: the trunk to where
-          // the crown begins, and four or five boughs from there to places inside the crown — a cone keeps its
-          // trunk to the tip and sends short boughs out along it
+          // line: from its foot to the middle of its crown (a cone: nearly to its tip). Forking: a stem that grew —
+          // growStem. Every end carries how far along the tree it is: the line is the stem's colour at the foot and
+          // goes over into the crown's towards the tips
           const st = lined ? (r.treeStems ?? new Float32Array(0)) : new Float32Array(0);
-          const seg: number[] = [];
+          const seg: number[] = [], far: number[] = [];
           for (let i = 0; i + 7 < st.length; i += 8) {
-            const x = st[i], z = st[i + 1], foot = st[i + 2] * unit, tall = st[i + 3] * unit, R = st[i + 4], lo = st[i + 5] * unit, hi = st[i + 6] * unit, own = st[i + 7];
-            const cone = lo < tall * 0.8;
+            const tr: StemTree = { x: st[i], z: st[i + 1], foot: st[i + 2] * unit, tall: st[i + 3] * unit, R: st[i + 4], lo: st[i + 5] * unit, hi: st[i + 6] * unit, own: st[i + 7], cone: st[i + 5] < st[i + 3] * 0.8 };
             if (k.treeStemMode === "line") {
-              seg.push(x, foot, z, x, foot + (cone ? lo + (hi - lo) * 0.92 : lo + (hi - lo) * 0.5), z);
-              continue;
-            }
-            const fork = foot + (cone ? lo + (hi - lo) * 0.92 : Math.max(tall * 0.45, lo));
-            seg.push(x, foot, z, x, fork, z);
-            const nb = 4 + (own > 0.6 ? 1 : 0);
-            for (let j = 0; j < nb; j++) {
-              const th = ((j + own) / nb) * Math.PI * 2 + (rnd(i, j) - 0.5) * 0.9, f = 0.25 + 0.55 * rnd(j, i + own);
-              const y1 = foot + lo + f * (hi - lo), rad = R * (cone ? 0.75 * (1 - f) : 0.45 + 0.3 * rnd(i + 2, j));
-              // (a cone's bough leaves the trunk a little under its tip's height; the others leave from the fork)
-              seg.push(x, cone ? y1 - (hi - lo) * 0.06 : fork, z, x + Math.cos(th) * rad, y1, z + Math.sin(th) * rad);
-            }
+              seg.push(tr.x, tr.foot, tr.z, tr.x, tr.foot + tr.lo + (tr.hi - tr.lo) * (tr.cone ? 0.92 : 0.5), tr.z);
+              far.push(0, 0.6);
+            } else growStem(seg, far, tr, i / 8, k.treeBend, k.treeTwigs);
+          }
+          const sc = new THREE.Color(k.treeStemColor), lc = new Float32Array(far.length * 3);
+          for (let i = 0; i < far.length; i++) {
+            // (towards the tips: three fifths of the way to the darker of the plants' two colours)
+            const w = Math.pow(Math.max(0, Math.min(1, far[i])), 1.5) * 0.6;
+            lc[i * 3] = sc.r + (a.r - sc.r) * w;
+            lc[i * 3 + 1] = sc.g + (a.g - sc.g) * w;
+            lc[i * 3 + 2] = sc.b + (a.b - sc.b) * w;
           }
           const lg = new THREE.BufferGeometry();
           lg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(seg), 3));
+          lg.setAttribute("color", new THREE.BufferAttribute(lc, 3));
           tl.geometry.dispose();
           tl.geometry = lg;
         }
@@ -365,7 +446,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       </points>
       <lineSegments ref={treeLines} frustumCulled={false}>
         <bufferGeometry />
-        <lineBasicMaterial color={k.treeStemColor} />
+        <lineBasicMaterial vertexColors />
       </lineSegments>
       {/* the other plants, of ground that was built on for long (stage 5) */}
       <points ref={other} frustumCulled={false}>
