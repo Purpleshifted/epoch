@@ -122,6 +122,9 @@ export interface FutureConfig {
     /** GRASS AND SCRUB UNDER EVERY TREE (the artist, 2026-11-17: "나무 밑에 덤불이나 풀 없어도 좀 어색한듯"): 0 … 1, how
      *  thick the low plants round a tree's foot are (GPU plants only). Absent = none. */
     under?: number;
+    /** (the artist, the same day: "큰 나무 아래 덤불을 더 짙게") How much thicker, and the more of scrub, the low plants
+     *  under a big tree are than under the middle one: 0 = the same under every tree. */
+    underBig?: number;
     /** THE CROWN'S SHAPES AND THEIR SHARES (the artist, 2026-11-17: "기둥모양 나무는 아예 빼버리고 모양 비율도 정할 수
      *  있게 해줘"): a ball, a cone (a conifer), an umbrella (wide and flat) — each tree takes one, by these weights
      *  (only their ratio counts; all 0 or absent = every tree a ball). */
@@ -832,6 +835,9 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const thin = all > CAP ? CAP / all : 1, thinTrees = allTrees > TREE_CAP ? TREE_CAP / allTrees : 1;
   const plantClouds: number[] = [];
   const gpu = tk.gpu === true, treePts = tk.points === true;
+  // (the middle tree's size: the low plants under a tree thicker the bigger it is: FutureConfig.tree.underBig)
+  const treeSizes = clouds.filter((c) => c.kind === 2).map((c) => c.r * c.tall).sort((p, q) => p - q);
+  const midTree = Math.max(1e-6, treeSizes[Math.floor(treeSizes.length / 2)] ?? 1), underBig = Math.max(0, tk.underBig ?? 0);
   clouds.forEach((c, ci) => {
     // (grass and scrub for the GPU: one record, no point — FutureResult.plantClouds)
     if (gpu && (c.kind === 0 || c.kind === 1)) {
@@ -849,8 +855,10 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       // (its foot not bare: a low cloud of scrub or grass under its crown — few flowers in its shade — FutureConfig.tree.under)
       const underK = Math.max(0, Math.min(1, tk.under ?? 0));
       if (gpu && underK > 0) {
-        const h = hash(ci, 11, 3), sc = h < 0.55, rb = Math.max(0.5, Math.min(2.2, c.r * 0.75)), hu = hash(ci, 12, 3);
-        plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, rb * CELL, sc ? 0.1 + 0.12 * hu : 0.03 + 0.05 * hu, sc ? 1 : 0, 0.15 * (1 - h), c.used, c.wild ? 1 : 0, hash(ci, 13, 3), Math.min(1, (per * 5 * rb * rb * (1 + 0.5 * c.used)) / 64) * underK, 0);
+        const big = Math.sqrt((c.r * c.tall) / midTree) - 1;
+        const h = hash(ci, 11, 3), sc = h < Math.max(0.2, Math.min(0.95, 0.55 + 0.3 * underBig * big)), rb = Math.max(0.5, Math.min(2.6, c.r * 0.75 * (1 + 0.3 * underBig * Math.max(0, big)))), hu = hash(ci, 12, 3);
+        const thick = Math.max(0.3, Math.min(2.5, 1 + underBig * big));
+        plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, rb * CELL, sc ? 0.1 + 0.12 * hu : 0.03 + 0.05 * hu, sc ? 1 : 0, 0.15 * (1 - h), c.used, c.wild ? 1 : 0, hash(ci, 13, 3), Math.min(1, ((per * 5 * rb * rb * (1 + 0.5 * c.used)) / 64) * underK * thick), 0);
       }
     }
     for (let i = 0; i < nPts; i++) {

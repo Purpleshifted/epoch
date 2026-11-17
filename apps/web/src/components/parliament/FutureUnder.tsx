@@ -28,7 +28,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone as plantColor } from "@/lib/parliament/plantTone";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
-import { plantBaseGeometry, plantMaterial, setPlantClouds } from "./plantCloudsGpu";
+import { plantBaseGeometry, plantMaterial, setFlowerBloom, setPlantClouds } from "./plantCloudsGpu";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
@@ -249,6 +249,12 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // than its dot — only the flowers, and no pass over the whole screen
           flowerGlow: { value: 0.3, min: 0, max: 3, step: 0.02, label: "꽃 — 빛 번짐의 세기 (0 = 없음 · 꽃에만)" },
           flowerGlowSize: { value: 6, min: 1, max: 24, step: 0.5, label: "꽃 — 빛 번짐의 크기 (꽃 점의 배수)" },
+          // (a real bloom pass: "아직도 블룸패스... 빛나는 느낌이 잘 안 느껴짐")
+          flowerBloom: { value: 0.5, min: 0, max: 5, step: 0.05, label: "꽃 — 블룸의 세기 (화면에 번지는 빛 · 0 = 끔 · 꽃만 밝게 그려 꽃만 번짐)" },
+          flowerBloomBright: { value: 1.8, min: 1, max: 10, step: 0.1, label: "꽃 — 블룸에서 꽃의 밝기 (흰색의 몇 배 · 문턱을 넘는 만큼 번짐)" },
+          flowerBloomThreshold: { value: 1.1, min: 0.3, max: 4, step: 0.05, label: "꽃 — 블룸의 문턱 (이보다 밝은 것만 번짐 · 낮추면 건물 등도 번짐)" },
+          flowerBloomRadius: { value: 0.65, min: 0, max: 1, step: 0.05, label: "꽃 — 블룸이 퍼지는 넓이" },
+          flowerBloomWall: { value: false, label: "꽃 — 블룸을 전시 벽에서도 (끄면 미래 뷰에서만 · 화면 전체에 한 번 더 그리는 비용)" },
           flowerGlowFall: { value: 2, min: 0.2, max: 8, step: 0.1, label: "꽃 — 빛 번짐이 가장자리로 옅어지는 정도 (클수록 가운데만)" },
         },
         { collapsed: true },
@@ -296,7 +302,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // ("큰 나무 근처로 잎 몰아주기랑 … 밀집지역에 몰아주기 인터폴레이션도"; "나무 밑에 덤불이나 풀 없어도 좀 어색한듯")
           treeGather: { value: 0.7, min: 0, max: 2, step: 0.05, label: "나무 — 큰 나무에 덩이 몰아주기 (0 = 모든 나무 같은 수 · 클수록 큰 나무는 짙고 작은 나무는 성김)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
           treeCrowd: { value: 0.6, min: 0, max: 2, step: 0.05, label: "나무 — 빽빽한 숲일수록 수관이 크고 짙음 (이웃 나무 수로 보간 · 숲이 닫혀 수관이 이어짐 · 외딴 나무는 그대로)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
+          // ("숲 가장자리 나무의 수관이 바깥쪽으로 더 뻗게")
+          treeEdgeLean: { value: 0.6, min: 0, max: 2, step: 0.05, label: "나무 — 숲 가장자리 나무의 수관이 바깥(빈 쪽)으로 뻗는 정도 (빛을 향해)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
           treeCrowdR: { value: 3, min: 1, max: 8, step: 0.5, label: "나무 — 이웃으로 세는 거리 (칸)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
+          // ("큰 나무 아래 덤불을 더 짙게")
+          treeUnderBig: { value: 0.8, min: 0, max: 2, step: 0.05, label: "나무 — 큰 나무일수록 밑의 덤불이 짙고 덤불이 많음 (0 = 크기와 무관)" },
           treeUnder: { value: 0.7, min: 0, max: 1, step: 0.05, label: "나무 — 밑의 덤불 · 풀 (나무 발치를 덮는 낮은 식물의 짙기 · 0 = 맨땅)" },
           treeKinSize: { value: 0.45, min: 0.1, max: 1, step: 0.05, label: "나무 — 어린 나무의 크기 (큰 나무에 대한 비)" },
           // ("식생다양화가 진짜 절실하다") — kinds of tree: each tree is one of them, its colours turned its kind's way
@@ -420,9 +430,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       smoothRoads: k.smoothRoads,
       spread: k.spread,
       // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
-      tree: { share: k.treeShare, under: k.treeUnder, at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true, kin: k.treeKin, kinFar: k.treeKinFar, kinSize: k.treeKinSize, gpu: true, points: k.treeCrownMode === "points", kinds: { count: k.treeSpecies, link: k.treeKindLink, shapes: [k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6] as ("ball" | "cone" | "umbrella")[], scale: [k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6] } },
+      tree: { share: k.treeShare, under: k.treeUnder, underBig: k.treeUnderBig, at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true, kin: k.treeKin, kinFar: k.treeKinFar, kinSize: k.treeKinSize, gpu: true, points: k.treeCrownMode === "points", kinds: { count: k.treeSpecies, link: k.treeKindLink, shapes: [k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6] as ("ball" | "cone" | "umbrella")[], scale: [k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6] } },
     }),
-    [k.scrubAt, k.treeShare, k.treeUnder, k.treeKindLink, k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6, k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6, k.treeSpecies, k.treeCrownMode, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
+    [k.scrubAt, k.treeShare, k.treeUnder, k.treeUnderBig, k.treeKindLink, k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6, k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6, k.treeSpecies, k.treeCrownMode, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
@@ -783,6 +793,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         (U.uFlower.value as THREE.Vector4).set(k.flowerAmount, k.flowerWhite, k.flowerDot, 0);
         (U.uShow.value as THREE.Vector2).set(k.showInferred ? 1 : 0, k.showWild ? 1 : 0);
         (U.uHalo.value as THREE.Vector3).set(k.flowerGlow, k.flowerGlowSize, k.flowerGlowFall);
+        const bloomOn = k.flowerBloom > 0 && k.flowerAmount > 0 && (futureOnly() || k.flowerBloomWall);
+        (U.uBright.value as THREE.Vector2).set(bloomOn ? k.flowerBloomBright : 1, bloomOn ? k.flowerBloomBright : 1);
+        setFlowerBloom({ on: bloomOn && layerOn, intensity: k.flowerBloom, threshold: k.flowerBloomThreshold, radius: k.flowerBloomRadius });
       }
     }
     const gw = glowPts.current;
@@ -790,6 +803,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       gw.visible = !!pp?.visible && k.flowerGlow > 0 && k.flowerAmount > 0;
       if (pp) gw.position.y = pp.position.y;
     }
+    // (no layer drawn, no bloom pass)
+    if (!(pp && r && layerOn)) setFlowerBloom({ on: false, intensity: 1, threshold: 1, radius: 0.6 });
     const gp = grassPts.current, sp2 = scrubPts.current;
     if (gp && sp2) {
       gp.visible = sp2.visible = layerOn;
@@ -868,7 +883,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         tp.position.y = tl.position.y = cl.position.y = base + 0.04;
         clumpMat.size = k.treeClumpDot;
         (tl.material as THREE.MeshStandardMaterial).roughness = k.treeStemRough;
-        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}`;
+        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}:${k.treeEdgeLean}`;
         if (sig !== drawnTrees.current) {
           drawnTrees.current = sig;
           const kindCols = [k.treeKind1, k.treeKind2, k.treeKind3, k.treeKind4, k.treeKind5, k.treeKind6].map((c) => new THREE.Color(c));
@@ -897,7 +912,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // (each tree's size against the middle one's, and how many trees stand round it — the crowns fuller on the big
           // trees and where the wood is thick, so that they close over it; a lone tree stays as it is)
           const nTree = Math.floor(st.length / STRIDE), relSize = new Float32Array(nTree).fill(1), crowd = new Float32Array(nTree);
-          if (asClumps && nTree > 1 && (k.treeGather > 0 || k.treeCrowd > 0)) {
+          // (and which way the wood is open from it: away from its neighbours' middle, by how lopsided they stand — a
+          // tree at the wood's edge reaches out to the light, one inside or alone does not)
+          const leanX = new Float32Array(nTree), leanZ = new Float32Array(nTree);
+          if (asClumps && nTree > 1 && (k.treeGather > 0 || k.treeCrowd > 0 || k.treeEdgeLean > 0)) {
             const reach = Math.max(0.5, k.treeCrowdR) * 1.2, grid = new Map<string, number[]>();
             for (let q = 0; q < nTree; q++) {
               const o = q * STRIDE, g = `${Math.floor(st[o] / reach)},${Math.floor(st[o + 1] / reach)}`;
@@ -909,11 +927,24 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             const mid = Math.max(1e-6, Array.from(relSize).sort((p, q) => p - q)[Math.floor(nTree / 2)]);
             for (let q = 0; q < nTree; q++) {
               const o = q * STRIDE, gx = Math.floor(st[o] / reach), gz = Math.floor(st[o + 1] / reach);
-              let near = 0;
+              let near = 0, mx = 0, mz = 0;
               for (let dx = -1; dx <= 1; dx++)
                 for (let dz = -1; dz <= 1; dz++)
-                  for (const w of grid.get(`${gx + dx},${gz + dz}`) ?? []) if (w !== q && Math.hypot(st[w * STRIDE] - st[o], st[w * STRIDE + 1] - st[o + 1]) < reach) near++;
+                  for (const w of grid.get(`${gx + dx},${gz + dz}`) ?? []) {
+                    const ox = st[w * STRIDE] - st[o], oz = st[w * STRIDE + 1] - st[o + 1];
+                    if (w === q || Math.hypot(ox, oz) >= reach) continue;
+                    near++;
+                    mx += ox;
+                    mz += oz;
+                  }
               crowd[q] = Math.min(1, near / 6);
+              if (near > 0) {
+                // (the neighbours' middle, against the reach: 0 = all round it … 1 = all on one side)
+                mx /= near * reach;
+                mz /= near * reach;
+                leanX[q] = -mx;
+                leanZ[q] = -mz;
+              }
               relSize[q] /= mid;
             }
           }
@@ -992,9 +1023,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
                 rad = tr.R * k.treeClumpSize;
               }
               rad *= Math.max(0.2, 1 + (rnd(c, t * 1.7) - 0.5) * 2 * k.treeClumpJitter) * (1 + 0.35 * k.treeCrowd * crowd[t]);
-              ca[nc * 4] = tr.x + Math.cos(th) * rx;
+              // (reaching out at the wood's edge: the upper clumps the more)
+              const out = k.treeEdgeLean * tr.R * 1.2 * (0.4 + 0.6 * Math.max(0, Math.min(1, (y - tr.lo) / H)));
+              ca[nc * 4] = tr.x + Math.cos(th) * rx + leanX[t] * out;
               ca[nc * 4 + 1] = tr.foot + y;
-              ca[nc * 4 + 2] = tr.z + Math.sin(th) * rx;
+              ca[nc * 4 + 2] = tr.z + Math.sin(th) * rx + leanZ[t] * out;
               ca[nc * 4 + 3] = rad;
               const up = Math.max(0, Math.min(1, (y - tr.lo) / H * 0.7 + (rx / Math.max(1e-4, tr.R)) * 0.3));
               const jit = 1 + (rnd(t, c * 2.3) - 0.5) * 2 * k.treeColorJitter * 0.5;

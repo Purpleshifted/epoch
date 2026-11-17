@@ -20,7 +20,8 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Hud, OrbitControls } from "@react-three/drei";
 import { Dandelions } from "./Dandelions";
 import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
-import { DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
+import { Bloom, DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
+import { useFlowerBloom } from "./plantCloudsGpu";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls as useLevaControls } from "leva";
 import * as THREE from "three";
@@ -4315,7 +4316,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     wall,
     saved: { dprMax: rnd.dprMax, shadows: rnd.shadows, aoOn: rnd.aoOn, aoQuality: rnd.quality, aoHalfRes: rnd.halfRes, grain: rnd.grain, dof: v.dof, transmissionScale: fu.transmissionScale, aoRadius: rnd.aoRadius, distanceFalloff: rnd.distanceFalloff, aoIntensity: rnd.aoIntensity, azimuth: rnd.azimuth, elevation: rnd.elevation, sunIntensity: rnd.sunIntensity, softness: rnd.softness, dofRange: v.dofRange, dofBokeh: v.dofBokeh, lodNear: rnd.near, lodMid: rnd.mid, sunTurnMin: cam.sunTurnMin },
   });
-  const composerOn = ro.composerOn;
+  // (the flowers' bloom — plantCloudsGpu.ts: the layer's knobs turn the composer on for it, in the view of the layer alone)
+  const flowerBloom = useFlowerBloom();
+  const composerOn = ro.composerOn || flowerBloom.on;
   const aoHalfRes = ro.aoHalfRes;
   const aoQuality = ro.aoQuality;
   const shadowsOn = ro.shadowsOn;
@@ -4541,9 +4544,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${ro.ao}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}`} multisampling={ro.composerMsaa}>
+          <EffectComposer key={`${ro.ao}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}`} multisampling={ro.composerMsaa}>
             {ro.ao && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh} />}
+            {flowerBloom.on && <Bloom mipmapBlur intensity={flowerBloom.intensity} luminanceThreshold={flowerBloom.threshold} luminanceSmoothing={0.2} radius={flowerBloom.radius} />}
             {ro.grain > 0 && (ro.grainStill ? <StillNoise opacity={ro.grain} /> : <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />)}
           </EffectComposer>
         )}

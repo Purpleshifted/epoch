@@ -7,6 +7,37 @@
  * where grass meets scrub, white on long-used ground). Every knob is a uniform: turning it redraws nothing on the CPU.
  */
 import * as THREE from "three";
+import { useSyncExternalStore } from "react";
+
+/**
+ * THE FLOWERS' BLOOM (the artist, 2026-11-17: "아직도 블룸패스... 빛나는 느낌이 잘 안 느껴짐"): a real bloom pass —
+ * selective by brightness — the flowers (and their glow) are drawn brighter than white while it is on, and the pass
+ * takes only what is brighter than its threshold. Its knobs are the layer's (FutureUnder, 꽃); the pass is the wall's
+ * (ParliamentSpace's composer), which reads them here.
+ */
+export interface FlowerBloom {
+  on: boolean;
+  intensity: number;
+  threshold: number;
+  radius: number;
+}
+let bloom: FlowerBloom = { on: false, intensity: 1, threshold: 1, radius: 0.6 };
+const bloomSubs = new Set<() => void>();
+export function setFlowerBloom(next: FlowerBloom): void {
+  if (next.on === bloom.on && next.intensity === bloom.intensity && next.threshold === bloom.threshold && next.radius === bloom.radius) return;
+  bloom = next;
+  bloomSubs.forEach((f) => f());
+}
+export function useFlowerBloom(): FlowerBloom {
+  return useSyncExternalStore(
+    (f) => {
+      bloomSubs.add(f);
+      return () => bloomSubs.delete(f);
+    },
+    () => bloom,
+    () => bloom,
+  );
+}
 
 export const PLANT_PTS = 64;
 const STRIDE = 12;
@@ -72,6 +103,8 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
     uDense: { value: new THREE.Vector2(1, 1) }, uDot: { value: new THREE.Vector2(0.1, 0.13) }, uDotJit: { value: new THREE.Vector2(0.4, 0.4) },
     uFlower: { value: new THREE.Vector4(0.35, 0.8, 1.4, 0) }, uShow: { value: new THREE.Vector2(1, 1) }, uSoilOn: { value: 1 },
     uHalo: { value: new THREE.Vector3(0, 6, 2) },
+    // (how much brighter than its colour a flower is drawn — x its dot, y its glow; 1 = as it is, more only with the bloom)
+    uBright: { value: new THREE.Vector2(1, 1) },
   };
   const mat = new THREE.PointsMaterial({ vertexColors: true, size: 1, sizeAttenuation: true });
   if (halo) {
@@ -106,6 +139,7 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           "uniform vec2 uDense, uDot, uDotJit, uShow;",
           "uniform float uSoilOn;",
           "uniform vec3 uHalo;",
+          "uniform vec2 uBright;",
         ].join("\n"),
       )
       .replace(
@@ -140,12 +174,12 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           "  vec3 fc = pick < 0.25 ? uF1 : pick < 0.5 ? uF2 : pick < 0.75 ? uF3 : uF4;",
           // (rule 4: on long-used ground the flowers go white — colour 1)
           "  if (fract(pu * 41.3 + own) < iB.w * uFlower.y) fc = uF1;",
-          "  base = fc;",
+          "  base = fc * uBright.x;",
           "}",
           // (vColor is a vec3 or a vec4 by the three.js build — a vec4 in this one: its colour part, either way)
           "vColor.rgb = base;",
           // (the glow: only the flowers, larger — uHalo.y times their dot; the rest not drawn)
-          halo ? "pScale = flower ? pScale * uHalo.y : 0.0;" : "",
+          halo ? "pScale = flower ? pScale * uHalo.y : 0.0;\nvColor.rgb *= uBright.y / max(uBright.x, 1e-3);" : "",
         ].join("\n"),
       )
       .replace("#include <begin_vertex>", "vec3 transformed = tPos;")
