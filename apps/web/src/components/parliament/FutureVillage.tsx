@@ -198,6 +198,9 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       vegPer: { value: DEFAULT_FUTURE.vegPer, min: 0, max: 10, step: 0.5, label: "식생 구름의 짙기 (점 수)" },
       opacity: { value: 1, min: 0.1, max: 1, step: 0.05, label: "건물의 불투명도 (옅을수록 '아직 아닌 것')" },
       ground: { value: true, label: "제 땅을 그림 (기둥에서 떨어진 판 · 처음부터 땅 전체 크기)" },
+      // (the artist, 2026-11-17: "땅 transparency 조절 가능해야 하고" — the plate's opacity and colour)
+      groundOpacity: { value: 0.5, min: 0, max: 1, step: 0.05, label: "땅의 불투명도 (0 = 안 보임 … 1 = 꽉 참)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.ground`) },
+      groundColor: { value: "#2a2d31", label: "땅의 색", render: (get: (path: string) => unknown) => !!get(`${GROUP}.ground`) },
       // THE PIT (the artist, 2026-11-17: "배경에 미래 땅이랑 맞는 직육면체 벽처럼 보이게 넣어서 '파인 상자 속을 내려다본다'
       // 느낌 가능하게 만드는 레바 스위치"; then, seeing it: "미래 땅이 훨씬 넓고 … 상자 밖이 더 밝아야 '파였'다고 보일 듯",
       // "봇이 활동하는 범위 배경이 어두운 게 더 맞고 그 바깥 땅에 더 밝은 색", "꼭 어두운 상자 위에 네모난 통로로 빛
@@ -336,7 +339,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     const style: PitStyle = !k.pit || futureOnly() ? "none" : cam.y >= groundY ? k.pitAbove : "beam";
     const deep = Math.max(1, k.pitDepth) * unit;
     const up = style === "shaft" ? Math.max(1, k.pitShaft) * unit : 0;
-    if (plate) plate.visible = k.ground && style === "none";
+    if (plate) plate.visible = k.ground && k.groundOpacity > 0.001 && style === "none";
     const box = pit.current;
     if (box) {
       // (drawn from the inside only: a wall between the eye and the column is not drawn)
@@ -520,7 +523,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       </points>
       <mesh ref={ground} visible={false} receiveShadow>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#2a2d31" roughness={1} metalness={0} transparent opacity={0.5} depthWrite={false} />
+        <meshStandardMaterial color={k.groundColor} roughness={1} metalness={0} transparent={k.groundOpacity < 0.99} opacity={k.groundOpacity} depthWrite={k.groundOpacity >= 0.99} />
       </mesh>
       {/* THE PIT (which of these is drawn is set every frame, by the version and where the eye is): its walls and floor
           seen from inside, the wide ground round its mouth, the passage above it, the bright ceiling, the cut face */}

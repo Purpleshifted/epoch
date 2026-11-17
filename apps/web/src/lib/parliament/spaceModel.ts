@@ -977,7 +977,7 @@ export class SpaceModel {
     // at once and without the drips. Its number is the cell's, so it stands as it is while the cell is inferred so.
     const spu = box.secPerUnit;
     const lists: Record<string, Box[]> = {};
-    let gone = 0, footings = 0, fallen = 0, toEnd = 0;
+    let gone = 0, footings = 0, fallen = 0, toEnd = 0, unheld = 0;
     for (const bld of plan.buildings) {
       const sd = bld.from;
       const rc = box.recipe ?? RECIPES[sd.material];
@@ -1028,6 +1028,7 @@ export class SpaceModel {
       // (how far: the knob's share, reached over half the band after it was left — FutureConfig.strip)
       const stripMax = Math.max(0, Math.min(1, cfg.strip ?? 0.4)), stripHalf = Math.max(3, Math.round(cfg.band) / 2);
       const stripTo = fate && since > 0 ? Math.max(goneTo, stripMax * Math.min(1, since / stripHalf)) : goneTo;
+      const standing: Box[] = [];
       for (const b of boxesOfSeed(fs, fcfg)) {
         // (the kinds' shares: FutureConfig.partShare — a part of a kind kept at less than all is dropped by its own number)
         const share = cfg.partShare?.[b.kind];
@@ -1039,8 +1040,7 @@ export class SpaceModel {
         const lastBy = STEEL_KINDS.has(b.kind) ? lastSteel : b.kind === "pile" ? lastPile : 0;
         const r0 = rank(b), held = r0 + (2 - r0) * lastBy;
         if (held >= (body ? stripTo : goneTo) * (1 - (STEEL_KINDS.has(b.kind) ? lastSteel : 0))) {
-          (lists[b.kind] ??= []).push(b);
-          if (b.kind === "basement" || b.kind === "pile" || b.kind === "plinth") footings++;
+          standing.push(b);
           continue;
         }
         if (b.kind === "mass") gone++;
@@ -1051,6 +1051,38 @@ export class SpaceModel {
         (lists[b.kind] ??= []).push({ ...b, sx: d[2] * 0.7, sy: d[0], sz: d[1] * 0.7, x: b.x + (h(6101) - 0.5) * CELL * 0.9, z: b.z + (h(6102) - 0.5) * CELL * 0.9, y: footY + d[0] / 2 + h(6103) * 0.25 * box.unit, yaw: h(6104) * Math.PI, tilt: (h(6105) - 0.5) * 0.35 });
         fallen++;
       }
+      // NOTHING HANGS IN THE AIR (the artist, 2026-11-17: "허공에 남는 건축부재는 없어야 할 것 같은데"): what stands is
+      // kept from the ground up — a part stays only if it rests on the ground (its foot at the building's foot, or
+      // below it: the foundations) or on a part kept under it whose footprint it overlaps; a drip only if what it
+      // hangs from is kept. What lost its support has fallen — beside where it stood, if the building stood to the
+      // end (nothing carried off), and gone if it was left before.
+      const tol = 0.15 * box.unit;
+      const ext = (q: Box): [number, number] => (q.tilt ? [Math.max(q.sx, q.sy, q.sz) / 2, Math.max(q.sx, q.sy, q.sz) / 2] : [q.sx / 2, q.sz / 2]);
+      const over = (a: Box, q: Box) => {
+        const [ax, az] = ext(a), [qx, qz] = ext(q);
+        return Math.abs(a.x - q.x) <= ax + qx && Math.abs(a.z - q.z) <= az + qz;
+      };
+      const bot = (q: Box) => q.y - halfHeight(q), top = (q: Box) => q.y + halfHeight(q);
+      const kept: Box[] = [], drips: Box[] = [], lost: Box[] = [];
+      for (const a of standing.filter((q) => q.kind !== "drip").sort((p, q) => bot(p) - bot(q))) {
+        if (bot(a) <= footY + tol || kept.some((q) => top(q) >= bot(a) - tol && bot(q) < bot(a) && over(a, q))) kept.push(a);
+        else lost.push(a);
+      }
+      for (const a of standing) if (a.kind === "drip") (kept.some((q) => bot(q) <= top(a) + tol && top(q) >= top(a) - tol && over(a, q)) ? drips : lost).push(a);
+      for (const b of [...kept, ...drips]) {
+        (lists[b.kind] ??= []).push(b);
+        if (b.kind === "basement" || b.kind === "pile" || b.kind === "plinth") footings++;
+      }
+      if (fate && since === 0) {
+        for (const b of lost) {
+          if (b.kind === "drip" || b.kind === "pile") continue;
+          const h = (salt: number) => hash2(Math.round(b.x * 997) ^ b.seed, Math.round(b.z * 991) ^ Math.round(b.y * 983), salt);
+          const d = [b.sx, b.sy, b.sz].sort((p, q) => p - q);
+          (lists[b.kind] ??= []).push({ ...b, sx: d[2] * 0.7, sy: d[0], sz: d[1] * 0.7, x: b.x + (h(6101) - 0.5) * CELL * 0.9, z: b.z + (h(6102) - 0.5) * CELL * 0.9, y: footY + d[0] / 2 + h(6103) * 0.25 * box.unit, yaw: h(6104) * Math.PI, tilt: (h(6105) - 0.5) * 0.35 });
+          fallen++;
+        }
+      }
+      unheld += lost.length;
     }
     const parts: Record<string, Float32Array> = {}, tones: Record<string, Float32Array> = {};
     for (const [kind, l] of Object.entries(lists)) {
@@ -1067,7 +1099,7 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
-    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future stood to the end (n)": toEnd, "future parts fallen (n)": fallen,"future footings kept (n)": footings, "future plants of used ground (n)": r.n.used ?? 0, "future water belt points (n)": (r.vegWater?.length ?? 0) / 4, "future tree points (n)": (r.vegTree?.length ?? 0) / 5,"future grass (clouds)": r.n.grass ?? 0,"future scrub (clouds)": r.n.shrub ?? 0, "future trees (clouds)": r.n.tree ?? 0, "future frame broken by roots (cells)": r.n.cracked ?? 0, "future mounds (n)": r.n.mound ?? 0,"future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
+    Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future stood to the end (n)": toEnd, "future parts fallen (n)": fallen, "future parts that lost their support (n)": unheld,"future footings kept (n)": footings, "future plants of used ground (n)": r.n.used ?? 0, "future water belt points (n)": (r.vegWater?.length ?? 0) / 4, "future tree points (n)": (r.vegTree?.length ?? 0) / 5,"future grass (clouds)": r.n.grass ?? 0,"future scrub (clouds)": r.n.shrub ?? 0, "future trees (clouds)": r.n.tree ?? 0, "future frame broken by roots (cells)": r.n.cracked ?? 0, "future mounds (n)": r.n.mound ?? 0,"future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
 
@@ -3574,7 +3606,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
       console.warn("[parliament] the inferred village could not be made:", e);
       out.future = null;
     }
-    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.vegWild ? [out.future.vegWild] : []), ...(out.future.vegGrass ? [out.future.vegGrass] : []), ...(out.future.vegScrub ? [out.future.vegScrub] : []), ...(out.future.stones ? [out.future.stones] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
+    if (out.future) for (const a of [...Object.values(out.future.parts), ...Object.values(out.future.tones), out.future.roads, out.future.roadsOld, out.future.water, out.future.pipes, out.future.mounds, out.future.stains, ...(out.future.vegOld ? [out.future.vegOld] : []), ...(out.future.vegTree ? [out.future.vegTree] : []), ...(out.future.vegWater ? [out.future.vegWater] : []), ...(out.future.vegWild ? [out.future.vegWild] : []), ...(out.future.vegGrass ? [out.future.vegGrass] : []), ...(out.future.plantClouds ? [out.future.plantClouds] : []), ...(out.future.vegScrub ? [out.future.vegScrub] : []), ...(out.future.stones ? [out.future.stones] : []), ...(out.future.treeStems ? [out.future.treeStems] : []), out.future.veg, out.future.ground]) transfer.add(a.buffer as ArrayBuffer);
   }
   out.ms = performance.now() - t0;
   out.stages = { ...model.stages };

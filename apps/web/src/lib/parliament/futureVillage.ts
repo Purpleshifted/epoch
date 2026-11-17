@@ -138,6 +138,17 @@ export interface FutureConfig {
     kin?: number;
     kinFar?: number;
     kinSize?: number;
+    /** THE PLANTS ON THE GPU (the artist, 2026-11-17: "느리게 느껴져. gpu 너 잘 쓸 방법 없나?" → "한꺼번에 넣어"): grass
+     *  and scrub come as one record a cloud (FutureResult.plantClouds) and the drawer makes their points in the shader;
+     *  no point of them is made here. */
+    gpu?: boolean;
+    /** The trees' crowns as points here (the drawer's crown mode "points"); otherwise none are made. */
+    points?: boolean;
+    /** KINDS OF TREE, EACH WITH ITS SHAPE AND SIZE (the artist, the same evening: "나무 종류(색)랑 모양이랑 어느정도
+     *  연동되도록"): how many kinds; each kind's crown shape and size (a multiplier); `link` 0 … 1 how far a tree's
+     *  shape is its kind's (0 = by the shares above, as before; 1 = always its kind's). The drawer colours a tree by
+     *  its kind (FutureResult.treeStems' 11th number). */
+    kinds?: { count: number; shapes: ("ball" | "cone" | "umbrella")[]; scale: number[]; link: number };
   };
   /** GRASS AND SCRUB, EACH WITH ITS OWN LOOK (the artist, 2026-11-17: "어떤 스탭으로 덤불에서 나무 되는 건지는 모르겠는데
    *  걔들도 형태 차별화 하려면 요소별 레바 다 따로 있어야 할 듯"). A place's plants are grass while how far along it is
@@ -238,11 +249,16 @@ export interface FutureResult {
    *  per point. With them `veg` and `vegWild` hold no grass or scrub. */
   vegGrass?: Float32Array;
   vegScrub?: Float32Array;
+  /** GRASS AND SCRUB AS CLOUDS for the GPU (FutureConfig.tree.gpu): 12 a cloud — [x, z, foot (slots above the ground),
+   *  radius (world), height (slots), kind (0 grass, 1 scrub), flower share 0..1 (by how far along its place is: most
+   *  between grass and scrub), used 0..1 (how long the ground was built on), 1 = of the wild forest, its own number,
+   *  how full of points 0..1 (by its size), 0]. */
+  plantClouds?: Float32Array;
   /** THE STONES BY THE WATER (FutureConfig.stones): [x, y (slots above the ground), z, size 0..1, shade 0..1] each. */
   stones?: Float32Array;
   /** …and what each tree is: [x, z, its foot (slots above the ground), its stem's height (slots), its crown's
    *  radius (world), where its crown begins and where it ends (slots above its foot), a number 0..1 of its own]. */
-  treeStems?: Float32Array; // + [shape: 0 ball, 1 cone, 2 umbrella, wild: 1 = of the wild forest] (10 a tree)
+  treeStems?: Float32Array; // + [shape: 0 ball, 1 cone, 2 umbrella, wild: 1 = of the wild forest, its kind 0 … 5] (11 a tree)
   /** The ground it stands on: [minX, minZ, maxX, maxZ] (world), or empty when nothing is inferred. */
   ground: Float32Array;
   /** How much of each there is (the readout). */
@@ -273,6 +289,8 @@ const hash = (a: number, b: number, c = 0) => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 const cellOf = (v: number) => Math.floor(v / CELL);
+/** A coordinate on the world's ground (it wraps: world.ts — 160 cells). */
+const wrapX = (v: number) => v - 160 * CELL * Math.floor((v + 80 * CELL) / (160 * CELL));
 const key = (cx: number, cz: number) => cx * 65536 + cz;
 
 export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyMap<number, number> }>(input: FutureInput<C>): FuturePlan<C> {
@@ -588,6 +606,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     }
   }
   /** 0 = grass, 1 = scrub, 2 = a tree; −1 = as the clouds were before the kinds (the knob off). */
+  let lastV = 0;
   const kindAt = (cx: number, cz: number, salt: number): number => {
     if (!succ) return -1;
     const q = key(cx, cz), st = stand.get(q);
@@ -597,6 +616,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const cq = cells.get(q);
     const away = cq ? Math.min(1, cq.since / band) : dep.has(q) ? 1 : 0;
     const v = wildBoost + 0.15 + 0.9 * ruinT + 0.35 * away + 0.35 * (damp.get(q) ?? 0) + (piped.has(q) ? 0.2 : 0) - (st && st.left > 0.45 ? 0.35 : 0) + (hash(cx, cz, salt + 9) - 0.5) * 0.3;
+    lastV = v;
     return v < scrubAt ? 0 : v < treeAt ? 1 : 2;
   };
   // THE GROUND REMEMBERS WHAT IT WAS USED FOR (stage 5 of the order of 2026-11-17; the artist: "5단계 진행";
@@ -612,7 +632,9 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const d = soil ? dep.get(key(cx, cz)) : undefined;
     return d ? Math.min(1, (d.total / Math.max(1, cfg.moundAt ?? 12) + 0.5 * (d.ep - 1)) / 2) : 0;
   };
-  const clouds: { x: number; z: number; r: number; tall: number; n: number; kind: number; used: number; shape?: string; asp?: number; wild?: boolean }[] = [];
+  const clouds: { x: number; z: number; r: number; tall: number; n: number; kind: number; used: number; shape?: string; asp?: number; wild?: boolean; fl?: number; sp?: number; rb?: number; tb?: number; own?: number }[] = [];
+  // (kinds of tree: FutureConfig.tree.kinds)
+  const kk = tk.kinds, nKinds = Math.max(1, Math.min(6, Math.round(kk?.count ?? 1)));
   const wildCells = new Set<number>();
   const clouded = new Set<number>();
   const per = Math.max(0, cfg.vegPer);
@@ -620,27 +642,39 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const cloud = (cx: number, cz: number, r: number, salt: number) => {
     const [wx, wz] = wander(cx, cz, salt + 30);
     const x = (cx + hash(cx, cz, salt) + wx) * CELL, z = (cz + hash(cx, cz, salt + 1) + wz) * CELL;
-    const kind = kindAt(cx, cz, salt), u = hash(cx, cz, salt + 2), used = usedAt(cx, cz);
+    const kind = kindAt(cx, cz, salt), u = hash(cx, cz, salt + 2), used = usedAt(cx, cz), v0 = lastV;
     if (kind >= 0) kinds[kind]++;
+    // FLOWERS (the artist chose rules 1 and 4: docs/future-village-literature.md F3, F5): how much of a grass or scrub
+    // cloud flowers — most where grass meets scrub, less towards bare grass, none as the woods close (Fantinato et
+    // al. 2023: floral resources hump-shaped along succession). Its colours are the drawer's (used ground → white).
+    const fl = kind > 1 || kind < 0 ? 0 : v0 < scrubAt ? Math.max(0, Math.min(1, (v0 - 0.15) / Math.max(0.05, scrubAt - 0.15))) : Math.max(0, 1 - (v0 - scrubAt) / Math.max(0.05, treeAt - scrubAt));
+    // (a tree's kind, and — by the link — its kind's shape and size)
+    const sp = kind === 2 ? Math.min(nKinds - 1, Math.floor(hash(cx, cz, salt + 17) * nKinds)) : 0;
+    const kScale = kind === 2 && kk ? Math.max(0.2, kk.scale[sp] ?? 1) : 1;
     clouded.add(key(cx, cz));
     // (grass: wide and low; scrub: a dome; a tree: `tall` is its stem, its crown stands on that)
     // (a tree's size: its stem 0.9 … 2.2 slots and its crown by the place's rule, as it was, at a jitter of 1; at 0
     // every tree the mean of those — 1.55 slots, a crown of 1.3; more than 1 = further from the mean)
-    const treeR = Math.max(0.4, 1.3 + (Math.max(0.9, r * 0.85) - 1.3) * sizeJ), treeT = Math.max(0.3, 1.55 + (u - 0.5) * 1.3 * sizeJ);
+    const treeR = Math.max(0.4, 1.3 + (Math.max(0.9, r * 0.85) - 1.3) * sizeJ) * kScale, treeT = Math.max(0.3, 1.55 + (u - 0.5) * 1.3 * sizeJ) * kScale;
     // (grass and scrub, each by its own knobs and jitter: one plant wider or narrower than the next by its own number)
     const jg = 1 + (hash(cx, cz, salt + 15) - 0.5) * 2 * pos(gk.jitter, 0), js = 1 + (hash(cx, cz, salt + 16) - 0.5) * 2 * pos(sk.jitter, 0);
-    const [rk, tall, nk] = kind === 0 ? [r * 1.25 * pos(gk.wide, 1) * Math.max(0.2, jg), (0.1 + 0.12 * u) * pos(gk.high, 1), pos(gk.dense, 1)] : kind === 1 ? [r * pos(sk.wide, 1) * Math.max(0.2, js), (0.4 + 0.7 * u) * pos(sk.high, 1) * Math.max(0.3, js), pos(sk.dense, 1)] : kind === 2 ? [treeR * treeC, treeT * treeH, 1.3 * treeN] : [r, 0.4 + 1.6 * u, 1];
+    const [rk, tall, nk] = kind === 0 ? [r * 1.25 * pos(gk.wide, 1) * Math.max(0.2, jg), (0.03 + 0.05 * u) * pos(gk.high, 1), pos(gk.dense, 1)] : kind === 1 ? [r * pos(sk.wide, 1) * Math.max(0.2, js), (0.12 + 0.2 * u) * pos(sk.high, 1) * Math.max(0.3, js), pos(sk.dense, 1)] : kind === 2 ? [treeR * treeC, treeT * treeH, 1.3 * treeN] : [r, 0.4 + 1.6 * u, 1];
     // (…and how thick with points: of a tree, its own share more or fewer — the knob's jitter)
     const thick = nk * (1 + 0.5 * used) * (kind === 2 ? Math.max(0.15, 1 + (hash(cx, cz, salt + 14) - 0.5) * 1.7 * denseJ) : 1);
     // (a tree's shape: one of the three by their shares; and its crown's own proportion)
-    const shape = kind !== 2 ? undefined : shapeOf(hash(cx, cz, salt + 12));
+    const shape = kind !== 2 ? undefined : kk && hash(cx, cz, salt + 18) < Math.max(0, Math.min(1, kk.link)) ? (kk.shapes[sp] ?? "ball") : shapeOf(hash(cx, cz, salt + 12));
     const asp = kind !== 2 ? 1 : Math.max(0.3, 1 + (hash(cx, cz, salt + 13) - 0.5) * 1.4 * shapeJ);
     const wild = wildCells.has(key(cx, cz));
-    clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp, wild });
+    // (rb, tb: grass's and scrub's size before their knobs — on the GPU the knobs are the shader's)
+    // (HEIGHTS IN SLOTS, and a slot stands 1.8 high where a cell is 1.2 wide: scrub of 0.4 – 1.1 slots stood as tall as
+    // a tree's stem — the artist: "덤불이 도대체 왜 이렇게 높게 생기는 건지 모르겠다". Grass a few hundredths of a slot,
+    // scrub a tenth to a third — under a tree's stem of 0.9 – 2.2)
+    const [rb, tb] = kind === 0 ? [r * 1.25, 0.03 + 0.05 * u] : [r, 0.12 + 0.2 * u];
+    clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp, wild, fl, sp, rb, tb, own: hash(cx, cz, salt + 19) });
     // (some are two-lobed)
     if (hash(cx, cz, salt + 3) < 0.3) {
       const t = hash(cx, cz, salt + 4) * Math.PI * 2, u5 = hash(cx, cz, salt + 5);
-      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp, wild });
+      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp, wild, fl, sp, rb: rb * 0.7, tb: tb * (0.6 + 0.4 * u5), own: hash(cx, cz, salt + 20) });
     }
   };
   // THE WATER AS EMPTINESS and PLANTS EVERYWHERE (FutureConfig.water.gap, .ground): how far each cell near the
@@ -787,14 +821,22 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   let all = 0, allTrees = 0;
   for (const c of clouds) if (c.kind === 2) allTrees += c.n; else all += c.n;
   const thin = all > CAP ? CAP / all : 1, thinTrees = allTrees > TREE_CAP ? TREE_CAP / allTrees : 1;
+  const plantClouds: number[] = [];
+  const gpu = tk.gpu === true, treePts = tk.points === true;
   clouds.forEach((c, ci) => {
-    const nPts = Math.round(c.n * (c.kind === 2 ? thinTrees : thin));
+    // (grass and scrub for the GPU: one record, no point — FutureResult.plantClouds)
+    if (gpu && (c.kind === 0 || c.kind === 1)) {
+      const sb = stand.get(key(cellOf(c.x), cellOf(c.z)));
+      plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, (c.rb ?? c.r) * CELL, c.tb ?? c.tall, c.kind, c.fl ?? 0, c.used, c.wild ? 1 : 0, c.own ?? hash(ci, 3, 9), Math.min(1, (per * 5 * (c.rb ?? c.r) * (c.rb ?? c.r) * (1 + 0.5 * c.used)) / 64), 0);
+      return;
+    }
+    const nPts = c.kind === 2 && apart && !treePts ? 0 : Math.round(c.n * (c.kind === 2 ? thinTrees : thin));
     // (a tree, told apart: where it stands — on the roof of what still stands there — its stem, its crown's width,
     // and from where to where above its foot its crown reaches, by its shape)
     if (apart && c.kind === 2) {
       const sb = stand.get(key(cellOf(c.x), cellOf(c.z))), a = c.asp ?? 1;
       const [lo, hi] = c.shape === "cone" ? [c.tall * 0.45, c.tall * 0.45 + c.r * 1.7 * a] : c.shape === "umbrella" ? [c.tall, c.tall + c.r * 0.3 * a] : [c.tall - c.r * 0.06 * a, c.tall + c.r * 0.54 * a];
-      treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(ci, 7, 8), c.shape === "cone" ? 1 : c.shape === "umbrella" ? 2 : 0, c.wild ? 1 : 0);
+      treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(ci, 7, 8), c.shape === "cone" ? 1 : c.shape === "umbrella" ? 2 : 0, c.wild ? 1 : 0, c.sp ?? 0);
     }
     for (let i = 0; i < nPts; i++) {
       // (thick in its middle, thinning to its edge)
@@ -896,5 +938,5 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
 
   const buildings: FutureBuilding<C>[] = [];
   for (const [q, b] of stand) buildings.push({ cx: b.cx, cz: b.cz, h: b.h, grown: b.grown, fresh: b.fresh, left: b.left, since: b.grown ? 0 : (cells.get(q)?.since ?? 0), from: b.from });
-  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt || gapR + edgeR > 0 ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), stones: Float32Array.from(stones), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), vegWild: Float32Array.from(vegWild), ...(apart ? { vegGrass: Float32Array.from(vegGrass), vegScrub: Float32Array.from(vegScrub) } : {}), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
+  return { k: K, buildings, roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld), water: belt || gapR + edgeR > 0 ? new Float32Array(0) : Float32Array.from(water), ...(belt ? { vegWater: Float32Array.from(vegWater) } : {}), stones: Float32Array.from(stones), pipes: Float32Array.from(pipes), ...left, vegOld: Float32Array.from(vegOld), vegWild: Float32Array.from(vegWild), ...(apart ? { vegGrass: Float32Array.from(vegGrass), vegScrub: Float32Array.from(vegScrub) } : {}), ...(gpu ? { plantClouds: Float32Array.from(plantClouds) } : {}), ...(apart ? { vegTree: Float32Array.from(vegTree), treeStems: Float32Array.from(treeStems) } : {}), veg: Float32Array.from(veg), ground: Float32Array.from([x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL]), n };
 }

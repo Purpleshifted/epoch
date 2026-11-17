@@ -28,6 +28,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone as plantColor } from "@/lib/parliament/plantTone";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
+import { plantBaseGeometry, plantMaterial, setPlantClouds } from "./plantCloudsGpu";
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
@@ -94,7 +95,8 @@ function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: 
     const lean = s * s * sway * 1.4, wob = Math.sin(s * 3.4 + a1) * sway * s;
     return [t.x + Math.cos(a2) * lean + Math.cos(a1 + 1.7) * wob, t.foot + s * trunkH, t.z + Math.sin(a2) * lean + Math.sin(a1 + 1.7) * wob];
   };
-  const NT = 6;
+  // (four pieces: every tree's trunk is drawn first, and there are thousands of trees in a wild forest)
+  const NT = 4;
   for (let q = 1; q <= NT; q++) line(trunk((q - 1) / NT), trunk(q / NT), ((q - 1) / NT) * 0.3, (q / NT) * 0.3);
   // THE BOUGHS
   const nb = 4 + Math.floor(r(3) * 3);
@@ -233,6 +235,24 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         },
         { collapsed: true },
       ),
+      // FLOWERS (the artist chose rules 1 and 4, 2026-11-17): most where grass meets scrub, white on long-used ground
+      "꽃": folder(
+        {
+          flowerAmount: { value: 0.35, min: 0, max: 1, step: 0.01, label: "꽃 — 양 (풀과 덤불이 만나는 단계에서 가장 많음 · 숲이 닫히면 없음)" },
+          flowerWhite: { value: 0.8, min: 0, max: 1, step: 0.05, label: "꽃 — 오래 쓰인 땅에서 흰 꽃으로 모이는 정도" },
+          flowerDot: { value: 1.4, min: 0.3, max: 4, step: 0.05, label: "꽃 — 점 크기 (식물 점의 배수)" },
+          flowerColor1: { value: "#f3f1e7", label: "꽃 — 색 1 (흰색 · 오래 쓰인 땅의 꽃)" },
+          flowerColor2: { value: "#e8c547", label: "꽃 — 색 2" },
+          flowerColor3: { value: "#e7a7c0", label: "꽃 — 색 3" },
+          flowerColor4: { value: "#9a7fd0", label: "꽃 — 색 4" },
+          // THE FLOWERS' GLOW ("꽃에 selective bloom 이나 glow 적용 가능?"): each flower a soft spot of added light, larger
+          // than its dot — only the flowers, and no pass over the whole screen
+          flowerGlow: { value: 0.6, min: 0, max: 3, step: 0.05, label: "꽃 — 빛 번짐의 세기 (0 = 없음 · 꽃에만)" },
+          flowerGlowSize: { value: 6, min: 1, max: 24, step: 0.5, label: "꽃 — 빛 번짐의 크기 (꽃 점의 배수)" },
+          flowerGlowFall: { value: 2, min: 0.2, max: 8, step: 0.1, label: "꽃 — 빛 번짐이 가장자리로 옅어지는 정도 (클수록 가운데만)" },
+        },
+        { collapsed: true },
+      ),
       "나무": folder(
         {
           // HOW A TREE LOOKS (the artist, 2026-11-17: "나무 비주얼이랑 사이즈 조절하는 옵션 추가하고(레바)") — FutureConfig.tree
@@ -258,7 +278,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeStemColor: { value: "#8a7a5c", label: "나무 — 줄기의 색 (자연색 · 선으로 그릴 때 · 끝으로 갈수록 수관의 색으로 풀림)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           treeStemRough: { value: 1, min: 0, max: 1, step: 0.05, label: "나무 — 줄기의 거칠기 (0 = 매끈하게 빛을 받음 · 1 = 거침)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           treeStemThickJitter: { value: 0.3, min: 0, max: 1, step: 0.05, label: "나무 — 줄기 굵기의 지터 (나무마다 굵고 가는 정도)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
-          treeStemColorJitter: { value: 0.2, min: 0, max: 1, step: 0.05, label: "나무 — 줄기 색의 지터 (나무마다 밝고 어두운 정도)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
+          treeStemColorJitter: { value: 0.8, min: 0, max: 2, step: 0.05, label: "나무 — 줄기 명암의 지터 (나무마다 · 가지마다 밝고 어두운 정도 · 1 = 거의 검은 것부터 두 배 밝은 것까지)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           // ("나무에 쓰이는 점 느낌이 안 사는데. 이거 '현재' 층에서 건물에 모이는 식생이랑 같은 방식으로") — the crown as clumps:
           // small soft balls of points, each drawn by the GPU from one centre (as the present's gatherings are)
           treeCrownMode: { options: { "잎 (가지에 붙은 점 — 가볍고 줄기와 이어짐)": "leaves", "덩이 (현재 층 식생처럼 — 작은 점 뭉치들)": "clumps", "점 (지금까지)": "points" }, value: "clumps" as "leaves" | "clumps" | "points", label: "나무 — 수관을 그리는 방식" },
@@ -283,6 +303,20 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeKind5: { value: "#b08436", label: "나무 — 종류 5의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 5 },
           treeKind6: { value: "#a2432f", label: "나무 — 종류 6의 색", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 6 },
           treeKindShade: { value: 0.18, min: 0, max: 0.4, step: 0.01, label: "나무 — 수관의 명암 폭 (아래·안쪽은 어둡게, 위·바깥은 밝게)" },
+          // ("나무 종류(색)랑 모양이랑 어느정도 연동되도록") — each kind its own shape and size; how strictly kind decides shape
+          treeKindLink: { value: 0.8, min: 0, max: 1, step: 0.05, label: "나무 — 종류와 모양의 연동 (0 = 모양은 위의 비율대로 · 1 = 늘 그 종류의 모양)" },
+          treeKindShape1: { options: { "둥근 공": "ball", "원뿔": "cone", "우산": "umbrella" }, value: "cone" as "ball" | "cone" | "umbrella", label: "나무 — 종류 1의 모양", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 1 },
+          treeKindScale1: { value: 1.2, min: 0.3, max: 2.5, step: 0.05, label: "나무 — 종류 1의 크기 (배수)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 1 },
+          treeKindShape2: { options: { "둥근 공": "ball", "원뿔": "cone", "우산": "umbrella" }, value: "ball" as "ball" | "cone" | "umbrella", label: "나무 — 종류 2의 모양", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 2 },
+          treeKindScale2: { value: 1, min: 0.3, max: 2.5, step: 0.05, label: "나무 — 종류 2의 크기 (배수)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 2 },
+          treeKindShape3: { options: { "둥근 공": "ball", "원뿔": "cone", "우산": "umbrella" }, value: "umbrella" as "ball" | "cone" | "umbrella", label: "나무 — 종류 3의 모양", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 3 },
+          treeKindScale3: { value: 0.9, min: 0.3, max: 2.5, step: 0.05, label: "나무 — 종류 3의 크기 (배수)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 3 },
+          treeKindShape4: { options: { "둥근 공": "ball", "원뿔": "cone", "우산": "umbrella" }, value: "ball" as "ball" | "cone" | "umbrella", label: "나무 — 종류 4의 모양", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 4 },
+          treeKindScale4: { value: 1, min: 0.3, max: 2.5, step: 0.05, label: "나무 — 종류 4의 크기 (배수)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 4 },
+          treeKindShape5: { options: { "둥근 공": "ball", "원뿔": "cone", "우산": "umbrella" }, value: "ball" as "ball" | "cone" | "umbrella", label: "나무 — 종류 5의 모양", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 5 },
+          treeKindScale5: { value: 0.8, min: 0.3, max: 2.5, step: 0.05, label: "나무 — 종류 5의 크기 (배수)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 5 },
+          treeKindShape6: { options: { "둥근 공": "ball", "원뿔": "cone", "우산": "umbrella" }, value: "umbrella" as "ball" | "cone" | "umbrella", label: "나무 — 종류 6의 모양", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 6 },
+          treeKindScale6: { value: 0.9, min: 0.3, max: 2.5, step: 0.05, label: "나무 — 종류 6의 크기 (배수)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.나무.treeSpecies`)) >= 6 },
           treeLeaves: { value: 10, min: 1, max: 40, step: 1, label: "나무 — 잎 (가지 한 마디에 점 몇 개)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "leaves" },
           treeLeafSpread: { value: 1, min: 0.2, max: 4, step: 0.05, label: "나무 — 잎이 가지에서 퍼진 정도", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "leaves" },
           // ("물가 식생 색 다르게 하는거 나무에 적용돼서 느낌이 안 삶") — the trees' own two colours, whatever ground they stand on
@@ -372,16 +406,16 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       soil: k.soil,
       water: { belt: false, gap: k.waterGap, edge: k.waterEdge },
       ground: { density: k.groundVeg },
-      grass: { wide: k.grassWide, high: k.grassHigh, dense: k.grassDense, flat: k.grassFlat, jitter: k.grassJitter },
-      scrub: { at: k.scrubAt, wide: k.scrubWide, high: k.scrubHigh, dense: k.scrubDense, flat: k.scrubFlat, jitter: k.scrubJitter },
+      // (grass and scrub: only the threshold is the worker's — their shapes are the shader's, plantCloudsGpu.ts)
+      scrub: { at: k.scrubAt },
       last: { steel: k.lastSteel, pile: k.lastPile },
       partShare: { mass: k.shareMass, slab: k.shareSlab, column: k.shareColumn, beam: k.shareBeam, brace: k.shareBeam, plinth: k.shareFoot, basement: k.shareFoot, pile: k.sharePile, drip: k.shareDrip },
       smoothRoads: k.smoothRoads,
       spread: k.spread,
       // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
-      tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true, kin: k.treeKin, kinFar: k.treeKinFar, kinSize: k.treeKinSize },
+      tree: { at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true, kin: k.treeKin, kinFar: k.treeKinFar, kinSize: k.treeKinSize, gpu: true, points: k.treeCrownMode === "points", kinds: { count: k.treeSpecies, link: k.treeKindLink, shapes: [k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6] as ("ball" | "cone" | "umbrella")[], scale: [k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6] } },
     }),
-    [k.grassWide, k.grassHigh, k.grassDense, k.grassFlat, k.grassJitter, k.scrubAt, k.scrubWide, k.scrubHigh, k.scrubDense, k.scrubFlat, k.scrubJitter, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
+    [k.scrubAt, k.treeKindLink, k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6, k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6, k.treeSpecies, k.treeCrownMode, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterGap, k.waterEdge, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
@@ -436,6 +470,19 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const wildPts = useRef<THREE.Points>(null);
   // (grass and scrub, apart: FutureResult.vegGrass / vegScrub)
   const grassPts = useRef<THREE.Points>(null);
+  // GRASS AND SCRUB ON THE GPU (plantCloudsGpu.ts): one record a cloud, the points made in the shader
+  const plantGeo = useMemo(() => plantBaseGeometry(), []);
+  const plant = useMemo(() => plantMaterial(), []);
+  // (the flowers' glow: the same clouds and the same uniforms, its own material)
+  const glow = useMemo(() => plantMaterial(true, plant.u), [plant]);
+  useEffect(() => () => {
+    plantGeo.dispose();
+    plant.mat.dispose();
+    glow.mat.dispose();
+  }, [plantGeo, plant, glow]);
+  const glowPts = useRef<THREE.Points>(null);
+  const plantPts = useRef<THREE.Points>(null);
+  const plantSeen = useRef(-1);
   const scrubPts = useRef<THREE.Points>(null);
   const drawnGS = useRef("");
   // (the stones by the water: FutureResult.stones)
@@ -697,6 +744,45 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     }
     // GRASS AND SCRUB, each in its own colours, dot size and jitter; the wild forest's shown or not with its knob,
     // the inferred ones with theirs
+    const pp = plantPts.current;
+    if (pp) {
+      pp.visible = layerOn;
+      if (r && layerOn) {
+        pp.position.y = base + 0.04;
+        if (plantSeen.current !== futureLink.version) {
+          plantSeen.current = futureLink.version;
+          setPlantClouds(plantGeo, r.plantClouds ?? new Float32Array(0), unit);
+        }
+        // (every knob a uniform: the colours made livelier by plantTone on the CPU, ten of them)
+        const U = plant.u, col = (key: string, hex: string) => {
+          const c = new THREE.Color(hex);
+          plantColor(U[key].value as THREE.Color, c.r, c.g, c.b, 0.5);
+        };
+        col("uGrassA", k.grassColorA);
+        col("uGrassB", k.grassColorB);
+        col("uScrubA", k.scrubColorA);
+        col("uScrubB", k.scrubColorB);
+        col("uSoilA", k.soilColorA);
+        col("uSoilB", k.soilColorB);
+        (U.uF1.value as THREE.Color).set(k.flowerColor1);
+        (U.uF2.value as THREE.Color).set(k.flowerColor2);
+        (U.uF3.value as THREE.Color).set(k.flowerColor3);
+        (U.uF4.value as THREE.Color).set(k.flowerColor4);
+        (U.uGrass.value as THREE.Vector4).set(k.grassWide, k.grassHigh, k.grassFlat, k.grassJitter);
+        (U.uScrub.value as THREE.Vector4).set(k.scrubWide, k.scrubHigh, k.scrubFlat, k.scrubJitter);
+        (U.uDense.value as THREE.Vector2).set(k.grassDense, k.scrubDense);
+        (U.uDot.value as THREE.Vector2).set(k.grassDot, k.scrubDot);
+        (U.uDotJit.value as THREE.Vector2).set(k.grassDotJitter, k.scrubDotJitter);
+        (U.uFlower.value as THREE.Vector4).set(k.flowerAmount, k.flowerWhite, k.flowerDot, 0);
+        (U.uShow.value as THREE.Vector2).set(k.showInferred ? 1 : 0, k.showWild ? 1 : 0);
+        (U.uHalo.value as THREE.Vector3).set(k.flowerGlow, k.flowerGlowSize, k.flowerGlowFall);
+      }
+    }
+    const gw = glowPts.current;
+    if (gw) {
+      gw.visible = !!pp?.visible && k.flowerGlow > 0 && k.flowerAmount > 0;
+      if (pp) gw.position.y = pp.position.y;
+    }
     const gp = grassPts.current, sp2 = scrubPts.current;
     if (gp && sp2) {
       gp.visible = sp2.visible = layerOn;
@@ -794,8 +880,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
               ps.push(Math.max(0.15, 1 + (rnd(i, 3.1) - 0.5) * 2 * k.treePointJitter));
             }
           }
-          // EACH TREE: [x, z, foot, stem, crown's radius, crown from, crown to, its own number, shape, wild] (10)
-          const st = r.treeStems ?? new Float32Array(0), STRIDE = 10;
+          // EACH TREE: [x, z, foot, stem, crown's radius, crown from, crown to, its own number, shape, wild, kind] (11)
+          const st = r.treeStems ?? new Float32Array(0), STRIDE = 11;
           const seg: number[] = [], far: number[] = [], kinds: number[] = [], owner: number[] = [];
           const cen = clumpGeo.getAttribute("iCenter") as THREE.InstancedBufferAttribute, ccol = clumpGeo.getAttribute("color") as THREE.InstancedBufferAttribute;
           const ca = cen.array as Float32Array, cc = ccol.array as Float32Array;
@@ -807,7 +893,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             const tr: StemTree = { x: st[i], z: st[i + 1], foot: st[i + 2] * unit, tall: st[i + 3] * unit, R: st[i + 4], lo: st[i + 5] * unit, hi: st[i + 6] * unit, own: st[i + 7], cone: st[i + 8] > 0.5 && st[i + 8] < 1.5 };
             const shape = st[i + 8];
             // (its kind: the crown's two colours turned along the hue its kind's way — treeSpecies)
-            const sp = Math.min(k.treeSpecies - 1, Math.floor(rnd(tr.own * 31.7, 4.4) * k.treeSpecies));
+            // (its kind: the worker's — FutureConfig.tree.kinds — so its colour goes with its shape and size)
+            const sp = Math.max(0, Math.min(k.treeSpecies - 1, Math.round(st[i + 10] ?? 0)));
             const kc = kindCols[sp] ?? a, sa = kc.clone().offsetHSL(0, 0, -k.treeKindShade), sb = kc.clone().offsetHSL(0, 0.04, k.treeKindShade);
             // (the stem)
             const before = kinds.length;
@@ -900,8 +987,13 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // little towards the tips, each tree thicker or thinner and lighter or darker by its own number; the colour
           // from the stem's at the foot into the crown's
           const sc = new THREE.Color(k.treeStemColor), { m, p, q, s: sv, up, d } = tmp;
-          const n = Math.min(STEM_CAP, Math.floor(seg.length / 6));
-          for (let i = 0; i < n; i++) {
+          // EVERY TREE ITS TRUNK FIRST (the artist, 2026-11-17: "어떤 나무는 줄기가 안 보임" — the pieces past the cap were
+          // the later trees' whole stems): all trunks, then the boughs, then the twigs, as far as the cap goes
+          const total = Math.floor(seg.length / 6), order: number[] = [];
+          for (const want of [0, 1, 2]) for (let j = 0; j < total && order.length < STEM_CAP; j++) if (kinds[j] === want) order.push(j);
+          const n = order.length;
+          for (let o = 0; o < n; o++) {
+            const i = order[o];
             const ax = seg[i * 6], ay = seg[i * 6 + 1], az = seg[i * 6 + 2], bx = seg[i * 6 + 3], by = seg[i * 6 + 4], bz = seg[i * 6 + 5];
             const len = Math.hypot(bx - ax, by - ay, bz - az);
             p.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
@@ -911,9 +1003,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             const thick = Math.max(0.2, 1 + (rnd(own * 97, 5.3) - 0.5) * 2 * k.treeStemThickJitter);
             const rr = (kd === 0 ? k.treeTrunkR : kd === 1 ? k.treeBoughR : k.treeTwigR) * (1 - 0.45 * f) * thick;
             sv.set(rr, Math.max(1e-4, len * 1.04), rr);
-            tl.setMatrixAt(i, m.compose(p, q, sv));
-            const w = Math.pow(f, 1.5) * 0.6, lum = Math.max(0.2, 1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter * 0.6);
-            tl.setColorAt(i, tone.c.set((sc.r + (a.r - sc.r) * w) * lum, (sc.g + (a.g - sc.g) * w) * lum, (sc.b + (a.b - sc.b) * w) * lum));
+            tl.setMatrixAt(o, m.compose(p, q, sv));
+            // (light and dark: a tree its own, and each piece of it a little of its own on top — the artist: "줄기 색 지터는 더
+            // 빡세게 넣어줘, 명암")
+            const w = Math.pow(f, 1.5) * 0.6, lum = Math.max(0.08, (1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * (1 + (rnd(i * 0.37, own * 7.7) - 0.5) * 0.6 * k.treeStemColorJitter));
+            tl.setColorAt(o, tone.c.set((sc.r + (a.r - sc.r) * w) * lum, (sc.g + (a.g - sc.g) * w) * lum, (sc.b + (a.b - sc.b) * w) * lum));
           }
           tl.count = n;
           tl.instanceMatrix.needsUpdate = true;
@@ -1012,6 +1106,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
       </instancedMesh>
       <points ref={clumps} geometry={clumpGeo} material={clumpMat} frustumCulled={false} />
+      <points ref={plantPts} geometry={plantGeo} material={plant.mat} frustumCulled={false} />
+      <points ref={glowPts} geometry={plantGeo} material={glow.mat} frustumCulled={false} renderOrder={2} />
       <points ref={grassPts} frustumCulled={false}>
         <bufferGeometry />
         <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
