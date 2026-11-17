@@ -16,7 +16,25 @@ const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object
 export async function GET(req: Request) {
   const page = new URL(req.url).searchParams.get("page") ?? "";
   if (!page.startsWith("/")) return NextResponse.json({ error: "page must be a path" }, { status: 400 });
-  if (!hasPresetsDb()) return NextResponse.json({ presets: {}, server: false });
+  if (!hasPresetsDb()) {
+    // A PREVIEW READS THE PRODUCTION'S SAVES (the artist, 2026-11-17: "로컬보다 프로덕션 프리뷰가 더 성능이 좋아서 거기로
+    // 확인"): a branch's preview deployment has no database, and a look was judged there on the defaults. With none
+    // configured, a preview asks its project's production for the page's saves — read only (a save made on the
+    // preview stays in that browser: PUT has no database here).
+    const prod = process.env.VERCEL_ENV === "preview" ? process.env.VERCEL_PROJECT_PRODUCTION_URL : undefined;
+    if (prod) {
+      try {
+        const r = await fetch(`https://${prod}/api/presets?page=${encodeURIComponent(page)}`, { cache: "no-store", signal: AbortSignal.timeout(4000) });
+        if (r.ok) {
+          const { presets } = (await r.json()) as { presets?: Record<string, unknown> };
+          return NextResponse.json({ presets: isObj(presets) ? presets : {}, server: false, from: prod }, { headers: { "cache-control": "no-store" } });
+        }
+      } catch {
+        /* production unreachable: the defaults, as before */
+      }
+    }
+    return NextResponse.json({ presets: {}, server: false });
+  }
   try {
     const rows = (await readPresets(page)) ?? [];
     const presets: Record<string, { json: Record<string, unknown>; updatedAt: number }> = {};
