@@ -924,7 +924,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
               if (cellList) cellList.push(q);
               else grid.set(g, [q]);
             }
-            const mid = Math.max(1e-6, Array.from(relSize).sort((p, q) => p - q)[Math.floor(nTree / 2)]);
+            // (against the mean tree of the knobs — not the middle one of the trees there are now, which moved with each)
+            const mid = Math.max(1e-6, 1.3 * k.treeCrown * CELL_SIZE * 0.6 * 1.3 * k.treeCrown);
             for (let q = 0; q < nTree; q++) {
               const o = q * STRIDE, gx = Math.floor(st[o] / reach), gz = Math.floor(st[o + 1] / reach);
               let near = 0, mx = 0, mz = 0;
@@ -950,7 +951,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           }
           for (let i = 0; i + STRIDE - 1 < st.length; i += STRIDE) {
             if (!k.showWild && st[i + 9] > 0.5) continue;
-            const t = i / STRIDE;
+            // (ti: its place among the trees now, for the arrays of this pass; t: ITS OWN NUMBER, for everything drawn by
+            // chance — not its place, which moved with every tree that came or went: step 1, 2026-11-18)
+            const ti = i / STRIDE, t = (st[i + 7] * 997.13) % 1000;
             const tr: StemTree = { x: st[i], z: st[i + 1], foot: st[i + 2] * unit, tall: st[i + 3] * unit, R: st[i + 4], lo: st[i + 5] * unit, hi: st[i + 6] * unit, own: st[i + 7], cone: st[i + 8] > 0.5 && st[i + 8] < 1.5 };
             const shape = st[i + 8];
             // (its kind: the crown's two colours turned along the hue its kind's way — treeSpecies)
@@ -1001,7 +1004,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             // (the crown's clumps, by its shape: a ball round the crown's middle, a cone narrowing upward, an umbrella flat
             // at the top — each clump its own size, the colour lighter up and out)
             if (!asClumps) continue;
-            const fuller = Math.max(0.3, Math.min(3, 1 + k.treeGather * (Math.sqrt(relSize[t]) - 1))) * (1 + k.treeCrowd * crowd[t]);
+            const fuller = Math.max(0.3, Math.min(3, 1 + k.treeGather * (Math.sqrt(relSize[ti]) - 1))) * (1 + k.treeCrowd * crowd[ti]);
             const nClump = Math.max(1, Math.round(k.treeClumps * (shape > 1.5 ? 1.3 : 1) * fuller));
             for (let c = 0; c < nClump && nc < CLUMP_CAP; c++) {
               const u1 = rnd(t * 3.7 + c, 1.3), u2 = rnd(c * 1.9, t + 0.7), u3 = rnd(t + c * 0.31, 2.9);
@@ -1022,12 +1025,12 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
                 y = tr.lo + H * (0.5 + 0.35 * rr * v2);
                 rad = tr.R * k.treeClumpSize;
               }
-              rad *= Math.max(0.2, 1 + (rnd(c, t * 1.7) - 0.5) * 2 * k.treeClumpJitter) * (1 + 0.35 * k.treeCrowd * crowd[t]);
+              rad *= Math.max(0.2, 1 + (rnd(c, t * 1.7) - 0.5) * 2 * k.treeClumpJitter) * (1 + 0.35 * k.treeCrowd * crowd[ti]);
               // (reaching out at the wood's edge: the upper clumps the more)
               const out = k.treeEdgeLean * tr.R * 1.2 * (0.4 + 0.6 * Math.max(0, Math.min(1, (y - tr.lo) / H)));
-              ca[nc * 4] = tr.x + Math.cos(th) * rx + leanX[t] * out;
+              ca[nc * 4] = tr.x + Math.cos(th) * rx + leanX[ti] * out;
               ca[nc * 4 + 1] = tr.foot + y;
-              ca[nc * 4 + 2] = tr.z + Math.sin(th) * rx + leanZ[t] * out;
+              ca[nc * 4 + 2] = tr.z + Math.sin(th) * rx + leanZ[ti] * out;
               ca[nc * 4 + 3] = rad;
               const up = Math.max(0, Math.min(1, (y - tr.lo) / H * 0.7 + (rx / Math.max(1e-4, tr.R)) * 0.3));
               const jit = 1 + (rnd(t, c * 2.3) - 0.5) * 2 * k.treeColorJitter * 0.5;
@@ -1070,7 +1073,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             tl.setMatrixAt(o, m.compose(p, q, sv));
             // (light and dark: a tree its own, and each piece of it a little of its own on top — the artist: "줄기 색 지터는 더
             // 빡세게 넣어줘, 명암")
-            const w = Math.pow(f, 1.5) * 0.6, lum = Math.max(0.08, (1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * (1 + (rnd(i * 0.37, own * 7.7) - 0.5) * 0.6 * k.treeStemColorJitter));
+            const w = Math.pow(f, 1.5) * 0.6, lum = Math.max(0.08, (1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * (1 + (rnd(f * 13.1 + kd * 3.7, own * 7.7) - 0.5) * 0.6 * k.treeStemColorJitter));
             tl.setColorAt(o, tone.c.set((sc.r + (a.r - sc.r) * w) * lum, (sc.g + (a.g - sc.g) * w) * lum, (sc.b + (a.b - sc.b) * w) * lum));
           }
           tl.count = n;

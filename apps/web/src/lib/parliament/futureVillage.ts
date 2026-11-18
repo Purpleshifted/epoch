@@ -288,7 +288,7 @@ export interface FutureInput<C> {
   /** The runs of pipe laid (world; `k` = the slot a run was laid in, `k0` set = a riser, which is no run of the plan). */
   pipes?: Iterable<{ ax: number; az: number; bx: number; bz: number; k: number; k0?: number }>;
   /** The villages alive at the slot read: [x, z, radius] (world) — the regions the wild forest is told apart by. */
-  regions?: readonly [number, number, number][];
+  regions?: readonly (readonly [number, number, number] | readonly [number, number, number, number])[];
   cfg: FutureConfig;
 }
 
@@ -721,7 +721,9 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const r = Math.max(CELL, regs[i1][2]);
     const t = Math.max(0, Math.min(1, (d1 - r * 0.6) / Math.max(1e-6, r * 1.2)));
     const away = t * t * (3 - 2 * t);
-    const own = 0.35 + 0.9 * hash(i1, 7, 91);
+    // (each region's forest by ITS village's own number — not its place among those alive now, which changed as villages
+    // came and went and turned every region's forest at once)
+    const own = 0.35 + 0.9 * hash(regs[i1][3] ?? i1, 7, 91);
     const seam = d2 - d1 < CELL * (1.5 + spread * 2) ? 0.3 : 1;
     return Math.min(1, (0.15 + 0.85 * away) * own * seam);
   };
@@ -796,20 +798,25 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   // ring outside the crown — not under it (its shade, and the pests and seed-eaters that gather at a parent, keep
   // its own young away close by: the Janzen–Connell pattern; recruits stand thickest at a distance) — smaller, of
   // the same kind or of another, on free ground only
+  // (a cloud's own number, from its place and salt — step 1: nothing of a cloud drawn by its index)
+  const seedOf = (c: { own?: number; x: number; z: number }): number => Math.floor((c.own ?? hash(Math.round(c.x * 10), Math.round(c.z * 10), 87)) * 1e7);
+  // (THE MEAN TREE — the size every tree is weighed against: the knobs', not the middle one of the trees there are now,
+  // which moved with every tree that came or went and made the young trees and the plants under them jump everywhere)
+  const refTree = Math.max(1e-6, 1.3 * treeC * 1.55 * treeH);
   const kinN = Math.max(0, Math.round(tk.kin ?? 0));
   if (succ && kinN > 0) {
     const kinFar = Math.max(1, tk.kinFar ?? 2.2), kinSize = Math.max(0.1, Math.min(1, tk.kinSize ?? 0.45));
     const big = clouds.filter((c) => c.kind === 2);
-    const sizes = big.map((c) => c.r * c.tall).sort((p, q) => p - q), cut = sizes[Math.floor(sizes.length * 0.5)] ?? Infinity;
     const added: typeof clouds = [];
-    big.forEach((c, bi) => {
-      if (c.r * c.tall < cut) return;
+    big.forEach((c) => {
+      if (c.r * c.tall < refTree) return;
+      const bi = seedOf(c);
       for (let j = 0; j < kinN; j++) {
         const th = (j / kinN) * Math.PI * 2 + hash(bi, j, 81) * 1.4, d = c.r * CELL * (kinFar + (hash(bi, j, 82) - 0.3) * kinFar * 0.6);
         const x = c.x + Math.cos(th) * d, z = c.z + Math.sin(th) * d, q = key(cellOf(x), cellOf(z));
         if (stand.has(q) || (keep ? oldRoad.has(q) : road.has(q))) continue;
         const f = kinSize * (0.6 + 0.8 * hash(bi, j, 83));
-        added.push({ ...c, x, z, r: Math.max(0.35, c.r * f), tall: Math.max(0.3, c.tall * f), n: Math.max(4, Math.round(c.n * f * f)), shape: hash(bi, j, 84) < 0.6 ? c.shape : shapeOf(hash(bi, j, 85)), asp: c.asp });
+        added.push({ ...c, x, z, r: Math.max(0.35, c.r * f), tall: Math.max(0.3, c.tall * f), n: Math.max(4, Math.round(c.n * f * f)), shape: hash(bi, j, 84) < 0.6 ? c.shape : shapeOf(hash(bi, j, 85)), asp: c.asp, own: hash(bi, j, 86) });
       }
     });
     for (const c of added) clouds.push(c);
@@ -836,13 +843,16 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const plantClouds: number[] = [];
   const gpu = tk.gpu === true, treePts = tk.points === true;
   // (the middle tree's size: the low plants under a tree thicker the bigger it is: FutureConfig.tree.underBig)
-  const treeSizes = clouds.filter((c) => c.kind === 2).map((c) => c.r * c.tall).sort((p, q) => p - q);
-  const midTree = Math.max(1e-6, treeSizes[Math.floor(treeSizes.length / 2)] ?? 1), underBig = Math.max(0, tk.underBig ?? 0);
-  clouds.forEach((c, ci) => {
+  const midTree = refTree, underBig = Math.max(0, tk.underBig ?? 0);
+  clouds.forEach((c) => {
+    // (ITS OWN NUMBER, not its place in the list — step 1 of re-laying only what changed, the artist, 2026-11-18: "미래
+    // 모습 변화시킬 때 시간 구간 정해서 변한 곳만 재배치하도록": a cloud's points, its tree's stem and the plants under
+    // it were drawn by its index among all clouds, so one cloud more or fewer anywhere moved every cloud after it)
+    const sd = seedOf(c);
     // (grass and scrub for the GPU: one record, no point — FutureResult.plantClouds)
     if (gpu && (c.kind === 0 || c.kind === 1)) {
       const sb = stand.get(key(cellOf(c.x), cellOf(c.z)));
-      plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, (c.rb ?? c.r) * CELL, c.tb ?? c.tall, c.kind, c.fl ?? 0, c.used, c.wild ? 1 : 0, c.own ?? hash(ci, 3, 9), Math.min(1, (per * 5 * (c.rb ?? c.r) * (c.rb ?? c.r) * (1 + 0.5 * c.used)) / 64), 0);
+      plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, (c.rb ?? c.r) * CELL, c.tb ?? c.tall, c.kind, c.fl ?? 0, c.used, c.wild ? 1 : 0, c.own ?? hash(sd, 3, 9), Math.min(1, (per * 5 * (c.rb ?? c.r) * (c.rb ?? c.r) * (1 + 0.5 * c.used)) / 64), 0);
       return;
     }
     const nPts = c.kind === 2 && apart && !treePts ? 0 : Math.round(c.n * (c.kind === 2 ? thinTrees : thin));
@@ -851,22 +861,22 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     if (apart && c.kind === 2) {
       const sb = stand.get(key(cellOf(c.x), cellOf(c.z))), a = c.asp ?? 1;
       const [lo, hi] = c.shape === "cone" ? [c.tall * 0.45, c.tall * 0.45 + c.r * 1.7 * a] : c.shape === "umbrella" ? [c.tall, c.tall + c.r * 0.3 * a] : [c.tall - c.r * 0.06 * a, c.tall + c.r * 0.54 * a];
-      treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(ci, 7, 8), c.shape === "cone" ? 1 : c.shape === "umbrella" ? 2 : 0, c.wild ? 1 : 0, c.sp ?? 0);
+      treeStems.push(c.x, c.z, sb && sb.left > 0.45 ? sb.h : 0, c.tall, c.r * CELL * (c.shape === "umbrella" ? 1.3 : 1), lo, hi, hash(sd, 7, 8), c.shape === "cone" ? 1 : c.shape === "umbrella" ? 2 : 0, c.wild ? 1 : 0, c.sp ?? 0);
       // (its foot not bare: a low cloud of scrub or grass under its crown — few flowers in its shade — FutureConfig.tree.under)
       const underK = Math.max(0, Math.min(1, tk.under ?? 0));
       if (gpu && underK > 0) {
         const big = Math.sqrt((c.r * c.tall) / midTree) - 1;
-        const h = hash(ci, 11, 3), sc = h < Math.max(0.2, Math.min(0.95, 0.55 + 0.3 * underBig * big)), rb = Math.max(0.5, Math.min(2.6, c.r * 0.75 * (1 + 0.3 * underBig * Math.max(0, big)))), hu = hash(ci, 12, 3);
+        const h = hash(sd, 11, 3), sc = h < Math.max(0.2, Math.min(0.95, 0.55 + 0.3 * underBig * big)), rb = Math.max(0.5, Math.min(2.6, c.r * 0.75 * (1 + 0.3 * underBig * Math.max(0, big)))), hu = hash(sd, 12, 3);
         const thick = Math.max(0.3, Math.min(2.5, 1 + underBig * big));
-        plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, rb * CELL, sc ? 0.1 + 0.12 * hu : 0.03 + 0.05 * hu, sc ? 1 : 0, 0.15 * (1 - h), c.used, c.wild ? 1 : 0, hash(ci, 13, 3), Math.min(1, ((per * 5 * rb * rb * (1 + 0.5 * c.used)) / 64) * underK * thick), 0);
+        plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, rb * CELL, sc ? 0.1 + 0.12 * hu : 0.03 + 0.05 * hu, sc ? 1 : 0, 0.15 * (1 - h), c.used, c.wild ? 1 : 0, hash(sd, 13, 3), Math.min(1, ((per * 5 * rb * rb * (1 + 0.5 * c.used)) / 64) * underK * thick), 0);
       }
     }
     for (let i = 0; i < nPts; i++) {
       // (thick in its middle, thinning to its edge)
-      const u1 = hash(ci, i, 1), u2 = hash(ci, i, 2), u3 = hash(ci, i, 3), u4 = hash(ci, i, 4);
+      const u1 = hash(sd, i, 1), u2 = hash(sd, i, 2), u3 = hash(sd, i, 3), u4 = hash(sd, i, 4);
       const th = u2 * Math.PI * 2;
       // (a tree: one point in ten is of its stem; the rest of its crown, a ball standing on the stem)
-      const stem = c.kind === 2 && hash(ci, i, 5) < stemShare, crown = c.kind === 2 && !stem, v = 2 * u3 - 1;
+      const stem = c.kind === 2 && hash(sd, i, 5) < stemShare, crown = c.kind === 2 && !stem, v = 2 * u3 - 1;
       // THE CROWN'S SHAPE: how far out a point is (a share of the crown's radius) and how high (slots) — a ball on
       // the stem; a cone from half way up the stem, wide below and to a point; an umbrella, a wide flat cap on the
       // stem's top. (A fourth, a narrow column, was taken out: "기둥모양 나무는 아예 빼버리고".)
@@ -890,11 +900,11 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const b = stand.get(q);
       // (through what is mostly gone, from the ground up; over what still stands, on its roof)
       const roof = b && b.left > 0.45 ? b.h : 0;
-      const lift = c.kind === 0 ? 1 - 0.7 * flatG : c.kind === 1 ? 1 - 0.5 * flatS * hash(ci, i, 9) : 1;
+      const lift = c.kind === 0 ? 1 - 0.7 * flatG : c.kind === 1 ? 1 - 0.5 * flatS * hash(sd, i, 9) : 1;
       const y = stem ? roof + u3 * c.tall : crown ? roof + cy : roof + u3 * c.tall * (1 - Math.pow(u1, 2)) * (roof ? 0.5 : 1) * lift;
       // (the shade: grass the lighter of the two colours, a tree the darker, scrub between; before the kinds, any)
       // (stage 5: of ground that was used, that share of the points are the other plants)
-      const other = c.used > 0 && hash(ci, i, 6) < c.used;
+      const other = c.used > 0 && hash(sd, i, 6) < c.used;
       // (a tree's points apart, when the drawer asks for them so: FutureConfig.tree.apart)
       // (the trees' own colours: no longer the other plants' of used ground; 2 = of the wild forest)
       if (apart && c.kind === 2) vegTree.push(x, y, z, 0.4 * u4, c.wild ? 2 : 0);

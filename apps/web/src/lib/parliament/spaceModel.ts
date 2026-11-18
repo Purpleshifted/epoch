@@ -903,17 +903,22 @@ export class SpaceModel {
     return { roads: Float32Array.from(roads), roadsOld: Float32Array.from(roadsOld) };
   }
 
-  /** The villages alive at time `t` (s) as the wild forest's regions — [x, z, radius]; all of them if none is alive. */
-  private regionsAt(t: number): [number, number, number][] {
+  /** The villages that have lived by time `t` (s) as the wild forest's regions — [x, z, radius, its number]; all of
+   *  them if none has yet. A village gone keeps its region (its ground is still its own forest's), so the regions
+   *  change only when one is born — step 1 of re-laying only what changed (the artist, 2026-11-18). */
+  private regionsAt(t: number): [number, number, number, number][] {
     const vs = this.waterCfg?.villages;
     if (!vs) return [];
-    const all = vs.sites.map((q) => [q[0], q[1], q[4] ?? vs.radius, q[2], q[3]] as const);
-    const alive = all.filter((q) => q[3] <= t && t < q[4]);
-    return (alive.length ? alive : all).map((q) => [q[0], q[1], q[2]]);
+    const all = vs.sites.map((q, i) => [q[0], q[1], q[4] ?? vs.radius, q[2], i] as const);
+    const born = all.filter((q) => q[3] <= t);
+    return (born.length ? born : all).map((q) => [q[0], q[1], q[2], q[4]]);
   }
 
   private futureKey = "";
   private futureAt = 0;
+  /** The plants and trees of the last layer made, each by its place, kind and size — to tell how much of the layer the
+   *  next one keeps as it was (readout "future plants kept from the last (%)": step 1 of re-laying only what changed). */
+  private futureSeen: Set<string> | null = null;
   /**
    * THE INFERRED VILLAGE above the column (futureVillage.ts): read off the latest slots of the window — made again
    * when the top has come a slot further, or (at most every few seconds) when something was written or a knob turned.
@@ -1099,6 +1104,19 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
+    // (how much of the last layer's plants and trees this one keeps exactly as they were — step 1's measure)
+    {
+      const seen = new Set<string>(), pc = r.plantClouds, ts = r.treeStems;
+      if (pc) for (let i = 0; i + 11 < pc.length; i += 12) seen.add(`p${pc[i].toFixed(2)},${pc[i + 1].toFixed(2)},${pc[i + 5]},${pc[i + 3].toFixed(2)}`);
+      if (ts) for (let i = 0; i + 10 < ts.length; i += 11) seen.add(`t${ts[i].toFixed(2)},${ts[i + 1].toFixed(2)},${ts[i + 3].toFixed(2)},${ts[i + 7].toFixed(4)}`);
+      const was = this.futureSeen;
+      if (was && seen.size) {
+        let kept = 0;
+        for (const s of seen) if (was.has(s)) kept++;
+        this.stages["future plants kept from the last (%)"] = Math.round((100 * kept) / seen.size);
+      }
+      this.futureSeen = seen;
+    }
     Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future stood to the end (n)": toEnd, "future parts fallen (n)": fallen, "future parts that lost their support (n)": unheld,"future footings kept (n)": footings, "future plants of used ground (n)": r.n.used ?? 0, "future water belt points (n)": (r.vegWater?.length ?? 0) / 4, "future tree points (n)": (r.vegTree?.length ?? 0) / 5,"future grass (clouds)": r.n.grass ?? 0,"future scrub (clouds)": r.n.shrub ?? 0, "future trees (clouds)": r.n.tree ?? 0, "future frame broken by roots (cells)": r.n.cracked ?? 0, "future mounds (n)": r.n.mound ?? 0,"future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
