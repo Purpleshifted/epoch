@@ -4377,7 +4377,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     perfMode: rnd.perfMode,
     wall,
     hero: hero.on,
-    shot: hero.shot ? { dpr: hero.shot.dpr, msaa: hero.shot.msaa } : null,
+    // (the shot's ratio only once the canvas stands on the frame alone: HeroShot.tsx, in two steps)
+    shot: hero.shot?.armed ? { dpr: hero.shot.dpr, msaa: hero.shot.msaa } : null,
     saved: { dprMax: rnd.dprMax, shadows: rnd.shadows, aoOn: rnd.aoOn, aoQuality: rnd.quality, aoHalfRes: rnd.halfRes, grain: rnd.grain, dof: v.dof, transmissionScale: fu.transmissionScale, aoRadius: rnd.aoRadius, distanceFalloff: rnd.distanceFalloff, aoIntensity: rnd.aoIntensity, azimuth: rnd.azimuth, elevation: rnd.elevation, sunIntensity: rnd.sunIntensity, softness: rnd.softness, dofRange: 24, dofBokeh: 4, lodNear: rnd.near, lodMid: rnd.mid, sunTurnMin: cam.sunTurnMin },
   });
   // (the flowers' bloom — plantCloudsGpu.ts: the layer's knobs turn the composer on for it, in the view of the layer alone)
@@ -4500,7 +4501,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div ref={rootBox} className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      <Canvas key={ro.canvasKey} shadows={ro.shadowType} dpr={ro.dpr} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: ro.antialias, preserveDrawingBuffer: ro.preserveDrawingBuffer }}>
+      {/* (while a hero shot saves, the canvas stands on the frame alone, sized to it — HeroShot.tsx: only what is kept is drawn large) */}
+      <Canvas
+        key={ro.canvasKey}
+        shadows={ro.shadowType}
+        dpr={ro.dpr}
+        camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }}
+        gl={{ antialias: ro.antialias, preserveDrawingBuffer: ro.preserveDrawingBuffer }}
+        style={hero.shot ? { position: "absolute", left: hero.shot.rect.x, top: hero.shot.rect.y, width: hero.shot.rect.w, height: hero.shot.rect.h } : undefined}
+      >
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
         <Sun controls={controls} azimuth={ro.detail.azimuth} elevation={ro.detail.elevation} intensity={ro.detail.sunIntensity} softness={ro.detail.softness} shadows={shadowsOn} drift={{ turnMin: ro.sunTurnMin ?? cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: ro.sunTurnMin === 0 ? 0 : cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab || (ro.sunTurnMin ?? 0) > 0 }} />
@@ -4605,7 +4614,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           resetTick={focusResets}
           fixedDist={ro.detail.dofFocus === "dist" ? ro.detail.dofDist : null}
         />
-        {hero.shot && <HeroCapture shot={hero.shot} composerOn={composerOn} onDone={hero.done} />}
+        {hero.shot && <HeroCapture shot={hero.shot} composerOn={composerOn} onDone={hero.done} onArm={hero.arm} />}
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
         <StageCamera
           controls={controls}
@@ -4649,7 +4658,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
           {stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
-            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 장에 든 관·길 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
+            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${stats.fuseSide.held ? ` · 이웃 기다리는 것 ${stats.fuseSide.held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 장에 든 관·길 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
           {stats.build && stats.build !== WALL_BUILD ? ` · ⚠ 건물 워커가 옛 코드(${stats.build}) — 새로고침(⌘R) 필요` : ""}
           {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}

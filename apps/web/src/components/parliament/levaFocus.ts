@@ -101,7 +101,17 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
   // (…and the world's 지우고 다시 생성하기 — the artist: "미래에도 다시 생성하기는 있어야 할 것 같음"; it tells the bot
   // server to begin a new world, and every view follows)
   // (…and the render options: "프덕에도 미래뷰 렌더옵션이랑 스크린캡처 버튼 넣고", 2026-11-18)
-  if (futureOnly()) return FUTURE_GROUPS.some((g) => path.startsWith(g)) || path === "세계" || path === "세계.지우고 다시 생성하기" || path === "렌더" || path.startsWith("렌더.");
+  // (…and the hero shot, HeroShot.tsx: "렌더샷이.. 사라짐...?", 2026-11-18 — it was listed in the whole view only)
+  if (futureOnly())
+    return (
+      FUTURE_GROUPS.some((g) => path.startsWith(g)) ||
+      path === "세계" ||
+      path === "세계.지우고 다시 생성하기" ||
+      path === "렌더" ||
+      path.startsWith("렌더.") ||
+      path === "히어로샷" ||
+      path.startsWith("히어로샷.")
+    );
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;
     if (data[`${group}.${FOCUS_ALL_KEY}`]?.value) return true;
