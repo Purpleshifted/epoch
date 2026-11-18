@@ -4501,14 +4501,12 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
     <div ref={rootBox} className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
-      {/* (while a hero shot saves, the canvas stands on the frame alone, sized to it — HeroShot.tsx: only what is kept is drawn large) */}
       <Canvas
         key={ro.canvasKey}
         shadows={ro.shadowType}
         dpr={ro.dpr}
         camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }}
         gl={{ antialias: ro.antialias, preserveDrawingBuffer: ro.preserveDrawingBuffer }}
-        style={hero.shot ? { position: "absolute", left: hero.shot.rect.x, top: hero.shot.rect.y, width: hero.shot.rect.w, height: hero.shot.rect.h } : undefined}
       >
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />
@@ -4629,10 +4627,12 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         />
         {composerOn && (
           <EffectComposer key={`${aoOn}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}`} multisampling={ro.composerMsaa}>
+            {/* (what these measure in pixels — the blur, the grain — is scaled by hero.fx while a hero shot is drawn at a
+                larger ratio than the screen's: the same look in the larger picture, HeroShot.tsx) */}
             {aoOn && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
-            {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh} />}
+            {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh * hero.fx} />}
             {flowerBloom.on && <Bloom mipmapBlur intensity={flowerBloom.intensity} luminanceThreshold={flowerBloom.threshold} luminanceSmoothing={0.2} radius={flowerBloom.radius} />}
-            {ro.grain > 0 && (ro.grainStill ? <StillNoise opacity={ro.grain} /> : <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />)}
+            {ro.grain > 0 && (ro.grainStill ? <StillNoise opacity={ro.grain} cell={hero.fx} /> : <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />)}
           </EffectComposer>
         )}
         {/* the vegetation fills the block the bots live in (a little above it too) */}

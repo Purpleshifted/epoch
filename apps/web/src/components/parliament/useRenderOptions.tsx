@@ -446,15 +446,18 @@ class StillNoiseEffect extends Effect {
   constructor() {
     super(
       "StillNoiseEffect",
-      "void mainImage(const in vec4 inputColor,const in vec2 uv,out vec4 outputColor){vec3 noise=vec3(rand(uv*1.618+0.137));outputColor=vec4(min(inputColor.rgb*noise,vec3(1.0)),inputColor.a);}",
-      { blendFunction: BlendFunction.SCREEN },
+      // (uCell: the grain's grain in pixels — 1 on the screen, as before; a hero shot drawn at a larger ratio sets it to
+      // that ratio over the screen's, so its grain is as coarse as the screen's: HeroShot.tsx)
+      "uniform float uCell;\nvoid mainImage(const in vec4 inputColor,const in vec2 uv,out vec4 outputColor){vec2 q=uCell>1.001?(floor(uv*resolution/uCell)+0.5)*uCell/resolution:uv;vec3 noise=vec3(rand(q*1.618+0.137));outputColor=vec4(min(inputColor.rgb*noise,vec3(1.0)),inputColor.a);}",
+      { blendFunction: BlendFunction.SCREEN, uniforms: new Map([["uCell", new THREE.Uniform(1)]]) },
     );
   }
 }
 
-export function StillNoise({ opacity }: { opacity: number }) {
+export function StillNoise({ opacity, cell = 1 }: { opacity: number; cell?: number }) {
   const effect = useMemo(() => new StillNoiseEffect(), []);
   useEffect(() => () => effect.dispose(), [effect]);
   effect.blendMode.opacity.value = opacity;
+  (effect.uniforms.get("uCell") as THREE.Uniform<number>).value = cell;
   return <primitive object={effect} dispose={null} />;
 }

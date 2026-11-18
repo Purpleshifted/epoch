@@ -9,15 +9,16 @@
  *   - a dashed frame for the picture's shape (the rest of the screen dimmed), and a button that draws the frame's
  *     picture once at a large size and saves it as a PNG.
  *
- * ONLY THE FRAME IS DRAWN LARGE (the artist, the same day: Chrome froze and the picture went on saving — "파일이 커서
- * 크롬이 갑자기 먹통되는 건가"): at first the whole canvas was drawn at the raised pixel ratio and the frame cut out of
- * it — a 6144 px shot of a 9 : 16 frame on a landscape screen drew a canvas of some 40 M pixels, with the context's
- * own 4× MSAA buffer and the composer's full-size buffers on top: gigabytes of GPU memory on an 8 GB Mac, seconds a
- * frame, and up to 120 such frames waited. Now, while it saves, the canvas itself is moved onto the frame and sized to
- * it, and the camera zoomed by the screen's height over the frame's — the same picture, and no pixel drawn that is not
- * kept; the pixels are capped lower and the wait is a few frames. IN TWO STEPS: the canvas first takes the frame's size
- * at the screen's ratio, and only then (`armed`) the shot's ratio — raised together, the canvas was for a frame the
- * whole screen at the shot's ratio (3736 × 4452 on the test of a 2304 × 4096 shot: the very spike this avoids).
+ * HOW THE PICTURE IS DRAWN (three tries on 2026-11-18). First the whole canvas at the shot's pixel ratio, the frame
+ * cut out — a 6144 px shot of a 9 : 16 frame on a landscape screen made some 40 M pixels with the composer's buffers
+ * on top, and Chrome froze ("파일이 커서 크롬이 갑자기 먹통되는 건가"). Then only the frame, the canvas moved onto it
+ * and the camera zoomed — but three.js sizes its points by the canvas's height, not by the camera's zoom, so the plant
+ * points came out smaller than on the screen. NOW: the whole canvas again, at a ratio that keeps it under 16 M pixels
+ * (the frame's picture is as large as that allows); what the post-processing measures in PIXELS — the depth of
+ * field's blur, the grain — is scaled by the shot's ratio over the screen's (2), so the green
+ * blur of the plants and the grain read as on the screen ("렌더샷에 이펙트랑 피사계심도 반영이 안 돼", "식생 점에 심도
+ * 들어가서 초록색으로 번진 느낌이 좋은건데"); and the edges are smoothed by FOUR renders, each moved by a quarter
+ * pixel, averaged ("픽셀 계단이 좀 심하게 보임") — so the composer's MSAA can stay low (memory).
  *
  * NEVER SAVED: the group has no save row, so a reload always comes back without it — the exhibition wall reads the
  * saved values and must never open in this mode. Only where the panel is shown (not on the wall, ui=0).
@@ -37,10 +38,10 @@ export interface Rect {
   h: number;
 }
 
-/** A shot being saved: the pixel ratio the canvas is drawn at, the composer's MSAA, the frame (where the canvas stands
- *  while it saves), the whole canvas's height before (for the camera's zoom), the expected size. */
+/** A shot being saved: the pixel ratio the whole canvas is drawn at, the composer's MSAA, the frame (the region kept),
+ *  the canvas's height, the expected size. */
 export interface Shot {
-  /** The canvas stands on the frame: the shot's ratio and MSAA may now be applied. */
+  /** The shot's ratio and MSAA apply (always, now: the canvas stays where it is). */
   armed: boolean;
   dpr: number;
   msaa: number;
@@ -69,8 +70,8 @@ const LONGS: Record<string, number> = {
   "긴 변 6144 (무거움 · 1600만 픽셀에서 멈춤)": 6144,
 };
 
-/** The largest side the frame is drawn at, and the most pixels (8 GB of memory shared with the GPU: the context's MSAA
- *  buffer and the composer's are several of these each). */
+/** The largest side the canvas is drawn at, and the most pixels of the WHOLE canvas (8 GB of memory shared with the
+ *  GPU: the context's MSAA buffer and the composer's are several of these each). */
 const MAX_SIDE = 8192;
 const MAX_PIXELS = 16e6;
 
@@ -86,17 +87,26 @@ export function heroRect(W: number, H: number, aspect: number, fill: number): Re
   return { x: (W - w) / 2, y: (H - h) / 2, w, h };
 }
 
-/** How a shot of `rect` (in a canvas H CSS px high) is drawn so that its long side is `long` px (0 = the screen × 2):
- *  only the frame is drawn, so its pixels are the picture's. */
-export function shotSize(H: number, rect: Rect, long: number): Shot {
+/** How a shot of `rect` (in a canvas of W × H CSS px) is drawn so that its long side is `long` px (0 = the screen × 2):
+ *  the whole canvas is drawn at the ratio, so the ratio is capped by the whole canvas's pixels. */
+export function shotSize(W: number, H: number, rect: Rect, long: number): Shot {
   const w = Math.max(1, rect.w), h = Math.max(1, rect.h);
+  W = Math.max(1, W);
+  H = Math.max(1, H);
   let dpr = long > 0 ? long / Math.max(w, h) : 2;
-  dpr = Math.max(1, Math.min(dpr, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_PIXELS / (w * h))));
-  const px = w * h * dpr * dpr;
-  // (MSAA on top of a picture drawn this large is memory more than it is smoothness: the large ratio already smooths)
-  const msaa = px <= 6e6 ? 8 : px <= 10e6 ? 4 : 0;
-  return { armed: false, dpr, msaa, rect, fullH: H, outW: Math.round(w * dpr), outH: Math.round(h * dpr) };
+  dpr = Math.max(1, Math.min(dpr, MAX_SIDE / W, MAX_SIDE / H, Math.sqrt(MAX_PIXELS / (W * H))));
+  // (the four shifted renders smooth the edges: the composer's MSAA only has to help, and costs memory)
+  const msaa = W * H * dpr * dpr <= 6e6 ? 4 : 2;
+  return { armed: true, dpr, msaa, rect, fullH: H, outW: Math.round(w * dpr), outH: Math.round(h * dpr) };
 }
+
+/** The four quarter-pixel shifts the picture is averaged over (a 2 × 2 grid inside one pixel). */
+const JITTER: [number, number][] = [
+  [-0.25, -0.25],
+  [0.25, -0.25],
+  [-0.25, 0.25],
+  [0.25, 0.25],
+];
 
 export interface HeroShot {
   /** The mode is on (or a shot is being saved). */
@@ -112,6 +122,8 @@ export interface HeroShot {
   done: (status: string) => void;
   /** Called by HeroCapture once the canvas stands on the frame (the shot's ratio may be applied). */
   arm: () => void;
+  /** What the post-processing measures in pixels is scaled by (the shot's ratio over the screen's 2; 1 otherwise). */
+  fx: number;
 }
 
 /** The 히어로샷 Leva group and the mode's state. `box` is the element the canvas fills. */
@@ -134,7 +146,7 @@ export function useHeroShot(enabled: boolean, box: RefObject<HTMLElement | null>
     const el = box.current;
     if (!enabled || !el || shot) return;
     const W = el.clientWidth, H = el.clientHeight;
-    const s = shotSize(H, heroRect(W, H, k.aspect as number, k.fill as number), k.long as number);
+    const s = shotSize(W, H, heroRect(W, H, k.aspect as number, k.fill as number), k.long as number);
     setStatus(`저장 중… ${s.outW} × ${s.outH} (몇 초 걸림)`);
     setShot(s);
   };
@@ -150,6 +162,7 @@ export function useHeroShot(enabled: boolean, box: RefObject<HTMLElement | null>
       setShot(null);
     },
     arm: () => setShot((x) => (x && !x.armed ? { ...x, armed: true } : x)),
+    fx: shot ? shot.dpr / 2 : 1,
   };
 }
 
@@ -160,80 +173,86 @@ const stamp = () => {
 };
 
 /**
- * Inside the Canvas, mounted only while a shot is being saved (the canvas then stands on the frame, sized to it —
- * ParliamentSpace's Canvas style): zooms the camera so that the frame's picture fills it, waits until the canvas is
- * drawn at the shot's size (and a few frames more, for the passes made anew at that size), then — in the same frame,
- * right after the picture is drawn — copies it out and downloads it; the zoom goes back when it unmounts.
+ * Inside the Canvas, mounted only while a shot is being saved: waits until the canvas is drawn at the shot's ratio (and
+ * a few frames more, for the passes made anew at that size), then draws the picture four times, each moved by a quarter
+ * pixel (the camera's view offset), and averages the frame's region of the four into the picture it downloads. Each
+ * copy is taken in the same frame, right after the picture is drawn. The offset goes back when it unmounts.
  */
-export function HeroCapture({ shot, composerOn, onDone, onArm }: { shot: Shot; composerOn: boolean; onDone: (status: string) => void; onArm?: () => void }) {
+export function HeroCapture({ shot, composerOn, onDone }: { shot: Shot; composerOn: boolean; onDone: (status: string) => void; onArm?: () => void }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   const frames = useRef(0);
   const done = useRef(false);
-  // the frame's picture fills the smaller canvas: the field of view narrowed by the screen's height over the frame's
-  useEffect(() => {
-    const cam = camera as typeof camera & { zoom: number; updateProjectionMatrix?: () => void };
-    const was = cam.zoom;
-    cam.zoom = was * (shot.fullH / Math.max(1, shot.rect.h));
-    cam.updateProjectionMatrix?.();
-    return () => {
-      cam.zoom = was;
-      cam.updateProjectionMatrix?.();
-    };
-  }, [camera, shot.fullH, shot.rect.h]);
+  /** The next of the four renders to be copied (-1: not started). */
+  const sample = useRef(-1);
+  const acc = useRef<{ out: HTMLCanvasElement; ctx: CanvasRenderingContext2D; x: number; y: number; w: number; h: number } | null>(null);
+  const cam = camera as typeof camera & { setViewOffset?: (fw: number, fh: number, x: number, y: number, w: number, h: number) => void; clearViewOffset?: () => void };
+  useEffect(() => () => cam.clearViewOffset?.(), [cam]);
   // (a priority above the composer's: this runs after it has drawn; with no composer nothing else draws, so this does)
   useFrame(() => {
     if (done.current) return;
     if (!composerOn) gl.render(scene, camera);
     const c = gl.domElement;
-    const onFrame = Math.abs(size.width - shot.rect.w) <= 2 && Math.abs(size.height - shot.rect.h) <= 2;
-    // step one: the canvas takes the frame's size at the screen's ratio; then the shot's ratio is applied
-    if (onArm && !shot.armed) {
-      if (onFrame) {
-        frames.current = 0;
-        onArm();
-      } else if (++frames.current > 60) {
-        done.current = true;
-        onDone("저장 안 함: 화면이 점선 크기로 바뀌지 않음");
-      }
-      return;
-    }
     frames.current++;
-    // (the canvas has taken the frame's size and the shot's ratio)
-    const ready = onFrame && Math.abs(c.width - Math.round(size.width * shot.dpr)) <= 2;
-    if (frames.current < 4 || (!ready && frames.current < 30)) return;
-    done.current = true;
-    if (!ready) {
-      onDone("저장 안 함: 화면이 그 크기로 바뀌지 않음 (저장 크기를 줄여 보기)");
+    const ready = Math.abs(c.width - Math.round(size.width * shot.dpr)) <= 2;
+    if (sample.current < 0) {
+      if (frames.current < 4 || (!ready && frames.current < 30)) return;
+      if (!ready) {
+        done.current = true;
+        onDone("저장 안 함: 화면이 그 해상도로 바뀌지 않음 (저장 크기를 줄여 보기)");
+        return;
+      }
+      try {
+        const sx = c.width / Math.max(1, size.width), sy = c.height / Math.max(1, size.height);
+        const r = shot.rect;
+        const x = Math.round(r.x * sx), y = Math.round(r.y * sy);
+        const w = Math.max(1, Math.min(c.width - x, Math.round(r.w * sx))), h = Math.max(1, Math.min(c.height - y, Math.round(r.h * sy)));
+        const out = document.createElement("canvas");
+        out.width = w;
+        out.height = h;
+        const ctx = out.getContext("2d");
+        if (!ctx) throw new Error("no 2d context");
+        acc.current = { out, ctx, x, y, w, h };
+      } catch (e) {
+        done.current = true;
+        onDone(`저장 실패: ${String(e).slice(0, 120)}`);
+        return;
+      }
+      // the first shift, for the next frame's picture
+      sample.current = 0;
+      cam.setViewOffset?.(c.width, c.height, JITTER[0][0], JITTER[0][1], c.width, c.height);
       return;
     }
-    try {
-      const w = c.width, h = c.height;
-      const out = document.createElement("canvas");
-      out.width = w;
-      out.height = h;
-      const ctx = out.getContext("2d");
-      if (!ctx) throw new Error("no 2d context");
-      ctx.drawImage(c, 0, 0);
-      out.toBlob((b) => {
-        if (!b) {
-          onDone("저장 실패: 이미지를 만들지 못함 (크기를 줄여 보기)");
-          return;
-        }
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(b);
-        a.download = `hero-${stamp()}-${w}x${h}.png`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-        onDone(`저장함: ${w} × ${h} px`);
-      }, "image/png");
-    } catch (e) {
-      onDone(`저장 실패: ${String(e).slice(0, 120)}`);
+    const a = acc.current;
+    if (!a) return;
+    // this frame's picture was drawn with shift `sample`: averaged in (the n-th at weight 1/n)
+    a.ctx.globalAlpha = 1 / (sample.current + 1);
+    a.ctx.drawImage(c, a.x, a.y, a.w, a.h, 0, 0, a.w, a.h);
+    sample.current++;
+    if (sample.current < JITTER.length) {
+      const [jx, jy] = JITTER[sample.current];
+      cam.setViewOffset?.(c.width, c.height, jx, jy, c.width, c.height);
+      return;
     }
+    cam.clearViewOffset?.();
+    done.current = true;
+    const { out, w, h } = a;
+    out.toBlob((b) => {
+      if (!b) {
+        onDone("저장 실패: 이미지를 만들지 못함 (크기를 줄여 보기)");
+        return;
+      }
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(b);
+      link.download = `hero-${stamp()}-${w}x${h}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+      onDone(`저장함: ${w} × ${h} px`);
+    }, "image/png");
   }, 100);
   return null;
 }
@@ -253,7 +272,7 @@ export function HeroFrame({ hero, children }: { hero: HeroShot; children?: React
   if (!hero.on) return null;
   const [W, H] = wh;
   const r = heroRect(W, H, hero.aspect, hero.fill);
-  const s = shotSize(H, r, hero.long);
+  const s = shotSize(W, H, r, hero.long);
   const whole = !(hero.aspect > 0);
   return (
     <div ref={root} className="pointer-events-none absolute inset-0 overflow-hidden select-none">
