@@ -1161,7 +1161,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     const inferred = three.scene.getObjectByName("future-veg");
     if (inferred) inferred.visible = k.showInferred;
     const tp = treePts.current, tl = treeStemMesh.current, cl = clumps.current;
-    if (process.env.NODE_ENV === "development") (window as unknown as { __futureTrees?: unknown }).__futureTrees = { tp, tl, cl, clumpGeo, life: lifeU.value, r, three };
+    // (a handle for measuring — what each part of the layer costs is found by hiding it: perf is measured on the real world)
+    (window as unknown as { __futureTrees?: unknown }).__futureTrees = { tp, tl, cl, clumpGeo, life: lifeU.value, r, three };
     if (tp && tl && cl) {
       const lined = k.treeStemMode === "line" || k.treeStemMode === "branch";
       const asClumps = k.treeCrownMode === "clumps";
