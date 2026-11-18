@@ -542,6 +542,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // stems (treeStems), when not points, as lines — one from the foot into the crown, or one that forks into it
   const treePts = useRef<THREE.Points>(null);
   const footPts = useRef<THREE.Points>(null);
+  const depCache = useRef<{ sig: string; map: Map<string, { p: Float32Array; c: Float32Array; s: Float32Array }> }>({ sig: "", map: new Map() });
   const treeCache = useRef<{ sig: string; map: Map<string, { seg: Float32Array; far: Float32Array; kinds: Uint8Array; lp: Float32Array; lc: Float32Array; lz: Float32Array }>; used: Set<string> }>({ sig: "", map: new Map(), used: new Set() });
   const treeStemMesh = useRef<THREE.InstancedMesh>(null);
   // THE CROWN AS CLUMPS: one soft ball of points (a gaussian spread, thick at its middle) drawn once per clump by the
@@ -850,60 +851,87 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // A MOUND AS POINTS: a heap of them, thick at its middle and low at its rim, as high as the mound; DARK
           // EARTH as a flat scatter — every point its own size (the size knob × its jitter)
           const ms = r.mounds ?? new Float32Array(0), ss = r.stains ?? new Float32Array(0);
-          const pos: number[] = [], col: number[] = [], ps: number[] = [];
           const mc = new THREE.Color(k.moundColor), sc0 = new THREE.Color("#2a2d31"), sc1 = new THREE.Color(k.stainColor);
           const CAPP = 120000;
-          if (k.mound) for (let i = 0; i * 4 + 3 < ms.length && pos.length < CAPP * 3; i++) {
-            const f = Math.min(1, (ms[i * 4 + 2] - 1) / 3), own = ms[i * 4 + 3];
-            const rad = CELL_SIZE * (0.7 + 0.35 * own + 0.35 * f) * k.moundWide, high = k.moundMax * unit * (0.3 + 0.7 * f) * (0.8 + 0.4 * own);
-            const np = Math.round((14 + 30 * f) * k.moundPtDense);
-            // (every number of a mound's own by its place's — not by where it stands in the list, which moves as mounds
-            // come and go — so that one that stays keeps its points)
-            const sd = own * 997.13;
-            const shade = Math.max(0.3, 1 + (rnd(own * 7, sd) - 0.5) * k.moundTone);
-            for (let j = 0; j < np; j++) {
-              const u = rnd(sd + 0.5, j), th = rnd(j, sd + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
-              pos.push(ms[i * 4] + Math.cos(th) * rr, high * Math.sqrt(Math.max(0, 1 - u)) * rnd(j * 3, sd), ms[i * 4 + 1] + Math.sin(th) * rr);
-              col.push(mc.r * shade, mc.g * shade, mc.b * shade);
-              ps.push((k.moundPtSize / 1) * Math.max(0.15, 1 + (rnd(sd, j * 1.7) - 0.5) * 2 * k.moundPtJitter));
+          // EACH MOUND MADE ONCE, COMING AND GOING WHOLE (the artist, 2026-11-18: "여튼 최적화가 진짜 큰 문제" — on the
+          // artist's world this took 530 ms, up to a second, every layer: every point of every mound made again and
+          // traced one by one): a mound's (or a patch of dark earth's) points depend only on its record and the knobs,
+          // so they are kept by both; what comes and goes is the mound, by its place and score — [kind 0 mound / 1
+          // earth, x, z, score, own] a record (futureLife.ts)
+          const DC = depCache.current, dSig = sig.slice(sig.indexOf(":") + 1);
+          if (DC.sig !== dSig) {
+            DC.map.clear();
+            DC.sig = dSig;
+          }
+          const nM = k.mound ? Math.floor(ms.length / 4) : 0, nSt = k.stain ? Math.floor(ss.length / 4) : 0, drec = new Float32Array((nM + nSt) * 5);
+          for (let i = 0; i < nM; i++) drec.set([0, ms[i * 4], ms[i * 4 + 1], ms[i * 4 + 2], ms[i * 4 + 3]], i * 5);
+          for (let i = 0; i < nSt; i++) drec.set([1, ss[i * 4], ss[i * 4 + 1], ss[i * 4 + 2], ss[i * 4 + 3]], (nM + i) * 5);
+          const lv = liveAndFading(depPtLife.current, futureLink.version, drec, 5, (a, o) => placeKey(a[o + 1], a[o + 2], a[o] * 2048 + Math.round(a[o + 3] * 16)), performance.now() / 1000, k.lifeFade);
+          const made = (o: number): { p: Float32Array; c: Float32Array; s: Float32Array } => {
+            const a = lv.recs, key = `${a[o]}|${a[o + 1]}|${a[o + 2]}|${a[o + 3]}|${a[o + 4]}`;
+            let m = DC.map.get(key);
+            if (m) return m;
+            const p: number[] = [], c: number[] = [], z: number[] = [];
+            const x0 = a[o + 1], z0 = a[o + 2], own = a[o + 4];
+            if (a[o] < 0.5) {
+              const f = Math.min(1, (a[o + 3] - 1) / 3);
+              const rad = CELL_SIZE * (0.7 + 0.35 * own + 0.35 * f) * k.moundWide, high = k.moundMax * unit * (0.3 + 0.7 * f) * (0.8 + 0.4 * own);
+              const np = Math.round((14 + 30 * f) * k.moundPtDense);
+              // (every number of a mound's own by its place's — not by where it stands in the list, which moves as mounds
+              // come and go — so that one that stays keeps its points)
+              const sd = own * 997.13;
+              const shade = Math.max(0.3, 1 + (rnd(own * 7, sd) - 0.5) * k.moundTone);
+              for (let j = 0; j < np; j++) {
+                const u = rnd(sd + 0.5, j), th = rnd(j, sd + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
+                p.push(x0 + Math.cos(th) * rr, high * Math.sqrt(Math.max(0, 1 - u)) * rnd(j * 3, sd), z0 + Math.sin(th) * rr);
+                c.push(mc.r * shade, mc.g * shade, mc.b * shade);
+                z.push(k.moundPtSize * Math.max(0.15, 1 + (rnd(sd, j * 1.7) - 0.5) * 2 * k.moundPtJitter));
+              }
+            } else {
+              const t = Math.max(0, Math.min(1, a[o + 3]));
+              const rad = CELL_SIZE * (0.55 + 0.5 * own) * (0.6 + 0.4 * t), np = Math.round((6 + 14 * t) * k.stainPtDense);
+              tone.c.copy(sc0).lerp(sc1, 0.35 + 0.65 * t);
+              const sd = own * 991.71;
+              for (let j = 0; j < np; j++) {
+                const u = rnd(sd + 0.25, j), th = rnd(j + 0.5, sd + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
+                p.push(x0 + Math.cos(th) * rr, 0.01 * rnd(j, sd), z0 + Math.sin(th) * rr);
+                c.push(tone.c.r, tone.c.g, tone.c.b);
+                z.push(k.stainPtSize * Math.max(0.15, 1 + (rnd(sd * 1.3, j) - 0.5) * 2 * k.stainPtJitter));
+              }
             }
+            m = { p: Float32Array.from(p), c: Float32Array.from(c), s: Float32Array.from(z) };
+            DC.map.set(key, m);
+            return m;
+          };
+          // (the points: all of each mound, with the mound's [born, died])
+          const parts: { p: Float32Array; c: Float32Array; s: Float32Array }[] = [];
+          let total = 0;
+          for (let i = 0; i < lv.n && total < CAPP; i++) {
+            const m = made(i * 5);
+            parts.push(m);
+            total += m.s.length;
           }
-          if (k.stain) for (let i = 0; i * 4 + 3 < ss.length && pos.length < CAPP * 3; i++) {
-            const t = Math.max(0, Math.min(1, ss[i * 4 + 2])), own = ss[i * 4 + 3];
-            const rad = CELL_SIZE * (0.55 + 0.5 * own) * (0.6 + 0.4 * t), np = Math.round((6 + 14 * t) * k.stainPtDense);
-            tone.c.copy(sc0).lerp(sc1, 0.35 + 0.65 * t);
-            const sd = own * 991.71;
-            for (let j = 0; j < np; j++) {
-              const u = rnd(sd + 0.25, j), th = rnd(j + 0.5, sd + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
-              pos.push(ss[i * 4] + Math.cos(th) * rr, 0.01 * rnd(j, sd), ss[i * 4 + 1] + Math.sin(th) * rr);
-              col.push(tone.c.r, tone.c.g, tone.c.b);
-              ps.push(k.stainPtSize * Math.max(0.15, 1 + (rnd(sd * 1.3, j) - 0.5) * 2 * k.stainPtJitter));
+          const P = new Float32Array(total * 3), C = new Float32Array(total * 3), S = new Float32Array(total), Lf = new Float32Array(total * 2);
+          let w = 0;
+          parts.forEach((m, i) => {
+            const n = Math.min(m.s.length, total - w);
+            P.set(m.p.subarray(0, n * 3), w * 3);
+            C.set(m.c.subarray(0, n * 3), w * 3);
+            S.set(m.s.subarray(0, n), w);
+            const b = lv.life[i * 2], d = lv.life[i * 2 + 1];
+            for (let q = 0; q < n; q++) {
+              Lf[(w + q) * 2] = b;
+              Lf[(w + q) * 2 + 1] = d;
             }
-          }
-          // (each point comes and goes by its own place: a mound that grows gains points and its old ones give way to
-          // the new softly; futureLife.ts)
-          const np0 = ps.length, rec = new Float32Array(np0 * 7);
-          for (let i = 0, o = 0; i < np0; i++, o += 7) {
-            rec[o] = pos[i * 3];
-            rec[o + 1] = pos[i * 3 + 1];
-            rec[o + 2] = pos[i * 3 + 2];
-            rec[o + 3] = col[i * 3];
-            rec[o + 4] = col[i * 3 + 1];
-            rec[o + 5] = col[i * 3 + 2];
-            rec[o + 6] = ps[i];
-          }
-          const lv = liveAndFading(depPtLife.current, futureLink.version, rec, 7, (a, o) => placeKey(a[o], a[o + 2], a[o + 1] * 256), performance.now() / 1000, k.lifeFade);
-          const P = new Float32Array(lv.n * 3), C = new Float32Array(lv.n * 3), S = new Float32Array(lv.n);
-          for (let i = 0; i < lv.n; i++) {
-            P.set(lv.recs.subarray(i * 7, i * 7 + 3), i * 3);
-            C.set(lv.recs.subarray(i * 7 + 3, i * 7 + 6), i * 3);
-            S[i] = lv.recs[i * 7 + 6];
-          }
+            w += n;
+          });
+          // (what is no longer drawn is let go: a mound gone and faded is not kept)
+          if (DC.map.size > 4 * (lv.n + 64)) DC.map.clear();
           const geo = new THREE.BufferGeometry();
           geo.setAttribute("position", new THREE.BufferAttribute(P, 3));
           geo.setAttribute("color", new THREE.BufferAttribute(C, 3));
           geo.setAttribute("psize", new THREE.BufferAttribute(S, 1));
-          geo.setAttribute("aLife", new THREE.BufferAttribute(lv.life, 2));
+          geo.setAttribute("aLife", new THREE.BufferAttribute(Lf, 2));
           dp.geometry.dispose();
           dp.geometry = geo;
         }
