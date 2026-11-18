@@ -486,6 +486,9 @@ export interface UnitJob {
   padSlots: number;
   seg: number;
   tile: number;
+  /** THE FOSSIL'S CLOCK at the job's time (slots: the window's top + the stopped rise's clock — spaceModel bornAge), and
+   *  the age after which a place's fossil begins to come out (the wall's uGrowAfter): what is out is made first. */
+  age?: { now: number; after: number };
 }
 
 export type UnitRequest =
@@ -507,6 +510,8 @@ export interface UnitStats {
   /** Pieces still to make: with no mass yet / to be made again. */
   waiting: number;
   remake: number;
+  /** Pieces made and held until their neighbours are (not on the screen yet). */
+  held?: number;
   /** Pieces made since the last message, the longest of them (ms), and the mean. */
   made: number;
   pieceMaxMs: number;
@@ -561,6 +566,25 @@ interface Made {
   /** A piece of a building that joined this one: it stands until this building's own piece there is made again. */
   orphanOf?: string;
   after?: number;
+  /** THE OPEN FACES (fadeEdges): how much of the fossil the vegetation makes, per vertex, as made (fuseGrowB.y) — and
+   *  which of the six faces it is faded towards now (bits: above, below, +x, −x, +z, −z). */
+  veg?: Float32Array;
+  mask?: number;
+}
+/**
+ * A PIECE MADE AGAIN IS NOT SHOWN AT ONCE (2026-11-18; the artist: "아니 화석 위에가 잘려 보일 때가 있다니깐??" — then,
+ * of the ways out, "2, 3 진행"). A piece draws only its own slots and its own tile: the mass beyond is its neighbours'.
+ * A piece made again from other parts no longer meets its neighbours made from the old ones. So it is HELD until no
+ * neighbour it meets face to face is still to be made, and is then shown TOGETHER with the held pieces it meets (one
+ * swap) — what stood stays until the whole is ready, as the exhibition's mass did ("the stale one until its turn
+ * comes"). `made: null` — a piece that is no more, let go together with its neighbours in the same way.
+ */
+interface Staged {
+  made: Made | null;
+  /** The parts' keys that have a mass once it is shown (UnitFused). */
+  keys: number[];
+  /** performance.now() when it was held. */
+  since: number;
 }
 interface Turned {
   b: Box;
@@ -577,11 +601,33 @@ interface Unit {
   todo: UnitPiece<Turned>[];
   done: Map<string, Made>;
   serial: number;
+  /** The pieces the building is made of now (their keys). */
+  keys: Set<string>;
+  /** Pieces made again and held (Staged). */
+  staged: Map<string, Staged>;
+  /** How far past being pressed each piece's oldest part is (slots of the fossil's age, at the job's time): what is
+   *  out on the screen is made first. */
+  vis: Map<string, number>;
 }
 
 /**
- * THE MASSES BEING MADE (this side's state): every building's latest job, its pieces done and those still to do.
- * `step` makes one piece; `flush` gives what is to be sent to the view.
+ * A HELD PIECE IS SHOWN AFTER THIS LONG WHATEVER ITS NEIGHBOURS (ms): a neighbour that keeps changing must not keep
+ * the whole from the screen. Longer than PIECE_REST_MS — a neighbour resting is made within it.
+ */
+const HOLD_MAX_MS = 240000;
+/** How far in from a face whose neighbour is not there yet the fossil is pressed back into its parts (world: about
+ *  two slots of the artist's, 1.8 each — wide enough that the open rim lies under the shader's discard). */
+const EDGE_FADE = 3;
+
+/** The pieces a piece meets face to face — above, below, +x, −x, +z, −z (its key: `${k0}:${tx}:${tz}`). */
+function faceNeighbours(key: string, seg: number, tile: number): string[] {
+  const [k0, tx, tz] = key.split(":").map(Number);
+  return [`${k0 + seg}:${tx}:${tz}`, `${k0 - seg}:${tx}:${tz}`, `${k0}:${tx + tile}:${tz}`, `${k0}:${tx - tile}:${tz}`, `${k0}:${tx}:${tz + tile}`, `${k0}:${tx}:${tz - tile}`];
+}
+
+/**
+ * THE MASSES BEING MADE (this side's state): every building's latest job, its pieces done, held and still to do.
+ * `step` makes one piece; `takeFused` gives the parts that came onto the screen; `flush` what is to be sent to the view.
  */
 export class FuseUnits {
   readonly clock0 = Date.now();
@@ -593,6 +639,7 @@ export class FuseUnits {
   private madeMs = 0;
   private maxMs = 0;
   private voxel = 0;
+  private fused: number[] = [];
   /** After a `step` that made nothing: how long until a piece that is resting may be made again (ms; Infinity = none). */
   waitMs = Infinity;
   stages: Record<string, number> = {};
@@ -610,7 +657,7 @@ export class FuseUnits {
 
   private job(j: UnitJob): void {
     let unit = this.units.get(j.id);
-    if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1 }));
+    if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), staged: new Map(), vis: new Map() }));
     const c = Math.cos(j.ang), sn = Math.sin(j.ang);
     // (a turned district is fused in its own frame, where its boxes lie along the grid: seeds.ts' turn undone)
     const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, i }));
@@ -619,18 +666,41 @@ export class FuseUnits {
     const pieces = ps.length
       ? unitPieces(ps, unitExtent(ps), { seg: j.seg, tile: j.tile, padSlots: j.padSlots, fusing: unitFusing(j.fuse) }, { tubes, unit: j.u, reach: Math.max(pad.above, pad.below) * j.fuse.voxel, parts: { margin: j.fuse.accDepth + 2 * j.fuse.voxel, fill: !!j.fuse.study?.fill } })
       : [];
-    const keys = new Set(pieces.map((p) => p.key));
+    const want = new Map(pieces.map((p) => [p.key, p] as const));
+    // (what was held for parts that are no longer so is made again; a piece let go that is wanted again, too)
+    for (const [k, s] of unit.staged) {
+      const p = want.get(k);
+      if (s.made ? !p || s.made.sig !== p.sig || s.made.cfg !== j.cfg : !!p) unit.staged.delete(k);
+    }
     const todo = pieces.filter((p) => {
       const m = unit.done.get(p.key);
-      return !(m && m.cfg === j.cfg && m.sig === p.sig);
+      return !(m && m.cfg === j.cfg && m.sig === p.sig) && !unit.staged.has(p.key);
     });
     const again = new Set(todo.map((p) => p.key));
+    const now = performance.now();
     for (const [k, m] of unit.done) {
-      // a piece that is no more; and what joined from another building, where this building's own piece is not made
-      // again for it (its parts are gone)
-      if (m.orphanOf === undefined ? !keys.has(k) : !again.has(m.orphanOf)) {
-        unit.done.delete(k);
-        this.dirty.add(m.chunk);
+      // what joined from another building, where this building's own piece is not made again for it (its parts are gone)
+      if (m.orphanOf !== undefined) {
+        if (!again.has(m.orphanOf) && !unit.staged.has(m.orphanOf)) {
+          unit.done.delete(k);
+          this.dirty.add(m.chunk);
+        }
+        continue;
+      }
+      // a piece that is no more: let go together with its neighbours (held, as an empty piece)
+      if (!want.has(k) && !unit.staged.has(k)) unit.staged.set(k, { made: null, keys: [], since: now });
+    }
+    // HOW MUCH OF EACH PIECE IS OUT (idea 2): the fossil comes out by the age since its place hardened; a piece whose
+    // parts are all younger than that is pressed on the screen — a change there is seen by nobody yet, and waits
+    unit.vis = new Map();
+    if (j.age) {
+      for (const p of pieces) {
+        let born = Infinity;
+        for (const e of p.ps) {
+          const g = j.parts[e.i]?.grow;
+          if (g && g[1] < born) born = g[1];
+        }
+        unit.vis.set(p.key, born === Infinity ? 0 : j.age.now - j.age.after - born);
       }
     }
     unit.job = j;
@@ -638,7 +708,11 @@ export class FuseUnits {
     unit.look = j.look ? lookFn(j.look) : undefined;
     unit.todo = todo;
     unit.serial = j.serial;
+    unit.keys = new Set(want.keys());
     this.voxel = j.fuse.voxel;
+    this.commit(unit);
+    // (a neighbour wanted now that was not, or the other way round: the faces open or close)
+    for (const k of unit.done.keys()) this.fadeEdges(unit, k);
   }
 
   private heir(from: string, to: string): void {
@@ -664,6 +738,7 @@ export class FuseUnits {
   private reset(): void {
     this.units.clear();
     this.dirty.clear();
+    this.fused = [];
     this.cleared = true;
   }
 
@@ -674,30 +749,198 @@ export class FuseUnits {
     return [fresh, again];
   }
 
+  /** Pieces made again and held (not on the screen yet). */
+  held(): number {
+    let n = 0;
+    for (const unit of this.units.values()) n += unit.staged.size;
+    return n;
+  }
+
   hasDirty(): boolean {
     return this.cleared || this.dirty.size > 0;
   }
 
+  /** The parts that have a mass on the screen since the last call (UnitFused). */
+  takeFused(): number[] {
+    const out = this.fused;
+    this.fused = [];
+    return out;
+  }
+
   /**
-   * ONE PIECE: the deepest of those that have no mass yet — the fossil comes out by its layer's depth, so the deepest
-   * is what is seen first — and only then those to be made again (what stands of them is nearly right meanwhile).
-   * Returns the keys of the parts that have a mass now, or null when nothing is left to make.
+   * NO OPEN FACE (2026-11-18): a piece on the screen whose neighbour across a face is wanted but not made yet would
+   * end there in a flat, open cut. Instead its fossil is pressed back into its parts towards that face — the share the
+   * vegetation makes (fuseGrowB.y, what the wall's shader multiplies the coming-out by) falls to nothing over
+   * EDGE_FADE: the mass thins out where its neighbour will be, and comes out there when the neighbour is shown. Only the
+   * numbers are written again (no fusing); the piece's chunk is sent again when a face opens or closes.
+   */
+  private fadeEdges(q: Unit, key: string): void {
+    const m = q.done.get(key), j = q.job;
+    if (!m || m.orphanOf !== undefined || !j) return;
+    const B = m.mesh.growB, P = m.mesh.position;
+    if (!B || !P.length) return;
+    let mask = 0;
+    faceNeighbours(key, j.seg, j.tile).forEach((n, f) => {
+      if (q.keys.has(n) && !q.done.has(n)) mask |= 1 << f;
+    });
+    if ((m.mask ?? 0) === mask) return;
+    if (!m.veg) {
+      m.veg = new Float32Array(B.length / 2);
+      for (let v = 0; v < m.veg.length; v++) m.veg[v] = B[v * 2 + 1];
+    }
+    m.mask = mask;
+    const [k0, tx, tz] = key.split(":").map(Number);
+    const vs = j.fuse.voxel;
+    // the piece's own bounds, as fuseChunk keeps them (its rows; its tile, in the district's own frame)
+    const y0 = Math.floor((k0 * j.u) / vs) * vs, y1 = Math.floor(((k0 + j.seg) * j.u) / vs) * vs;
+    const x0 = Math.floor((tx * CELL) / vs) * vs, x1 = Math.floor(((tx + j.tile) * CELL) / vs) * vs;
+    const z0 = Math.floor((tz * CELL) / vs) * vs, z1 = Math.floor(((tz + j.tile) * CELL) / vs) * vs;
+    const c = Math.cos(j.ang), sn = Math.sin(j.ang);
+    const ramp = (d: number) => {
+      const t = Math.max(0, Math.min(1, d / EDGE_FADE));
+      return t * t * (3 - 2 * t);
+    };
+    for (let v = 0; v < m.veg.length; v++) {
+      const g = m.veg[v];
+      if (!mask || g < 0) {
+        B[v * 2 + 1] = g;
+        continue;
+      }
+      const wx = P[v * 3], y = P[v * 3 + 1], wz = P[v * 3 + 2];
+      const x = wx * c - wz * sn, z = wx * sn + wz * c;
+      let f = 1;
+      if (mask & 1) f *= ramp(y1 - y);
+      if (mask & 2) f *= ramp(y - y0);
+      if (mask & 4) f *= ramp(x1 - x);
+      if (mask & 8) f *= ramp(x - x0);
+      if (mask & 16) f *= ramp(z1 - z);
+      if (mask & 32) f *= ramp(z - z0);
+      B[v * 2 + 1] = g * f;
+    }
+    this.dirty.add(m.chunk);
+  }
+
+  /** A piece comes onto the screen: stamped (one new on the screen grows out of its parts from now; one made again
+   *  keeps its stamp), what joined from another building there let go, its parts absorbed, its faces and its
+   *  neighbours' faces looked at again. */
+  private show(q: Unit, k: string, made: Made, keys: readonly number[], stampNow: number): void {
+    const was = q.done.get(k);
+    const stamp = was ? was.stamp : stampNow;
+    if (made.stamp !== stamp) {
+      made.stamp = stamp;
+      const B = made.mesh.growB;
+      if (B) for (let v = 0; v < B.length; v += 2) B[v] = stamp;
+    }
+    q.done.set(k, made);
+    this.dirty.add(made.chunk);
+    if (was && was.chunk !== made.chunk) this.dirty.add(was.chunk);
+    for (const [ok, m] of q.done) {
+      if (m.orphanOf === k && q.serial > (m.after ?? -1)) {
+        q.done.delete(ok);
+        this.dirty.add(m.chunk);
+      }
+    }
+    for (const key of keys) this.fused.push(key);
+    this.fadeEdges(q, k);
+    if (q.job) for (const n of faceNeighbours(k, q.job.seg, q.job.tile)) this.fadeEdges(q, n);
+  }
+
+  /**
+   * THE HELD PIECES ARE SHOWN, A WHOLE AT A TIME: the held pieces that meet face to face are one group, and a group is
+   * shown when none of its pieces meets a piece still to be made (or it has waited HOLD_MAX_MS).
+   */
+  private commit(q: Unit): void {
+    if (!q.staged.size || !q.job) return;
+    const { seg, tile } = q.job;
+    const todoKeys = new Set(q.todo.map((p) => p.key));
+    const seen = new Set<string>();
+    const now = performance.now();
+    for (const start of [...q.staged.keys()]) {
+      if (seen.has(start)) continue;
+      const group: string[] = [];
+      const stack = [start];
+      seen.add(start);
+      let blocked = false, oldest = Infinity;
+      while (stack.length) {
+        const k = stack.pop()!;
+        group.push(k);
+        oldest = Math.min(oldest, q.staged.get(k)!.since);
+        for (const n of faceNeighbours(k, seg, tile)) {
+          if (todoKeys.has(n)) blocked = true;
+          if (q.staged.has(n) && !seen.has(n)) {
+            seen.add(n);
+            stack.push(n);
+          }
+        }
+      }
+      if (blocked && now - oldest < HOLD_MAX_MS) continue;
+      const stampNow = this.now();
+      const toShow: [string, Made, number[]][] = [];
+      for (const k of group) {
+        const s = q.staged.get(k)!;
+        q.staged.delete(k);
+        if (s.made) {
+          toShow.push([k, s.made, s.keys]);
+          continue;
+        }
+        const was = q.done.get(k);
+        if (was) {
+          q.done.delete(k);
+          this.dirty.add(was.chunk);
+        }
+      }
+      // (the empty ones are gone first, so a shown piece's faces are read against what is left)
+      for (const [k, made, keys] of toShow) this.show(q, k, made, keys, stampNow);
+      // (a piece let go: the faces of those round it may open)
+      for (const k of group) for (const n of faceNeighbours(k, seg, tile)) this.fadeEdges(q, n);
+    }
+  }
+
+  /**
+   * ONE PIECE. The order (2026-11-18, "2, 3 진행"):
+   *  1. a piece that a held piece waits for — so what was begun is shown soon, whole;
+   *  2. a piece that is out on the screen (its oldest part older than the fossil's beginning) before one that is still
+   *     pressed — a change nobody can see yet waits;
+   *  3. a piece with no mass yet before one only made again;
+   *  4. a piece next to one on the screen whose face towards it is pressed — so the mass closes up;
+   *  5. the more out, then the deepest.
+   * A piece that stands and was made under these settings is not made again before it has stood PIECE_REST_MS (even
+   * when a held piece waits for it — HOLD_MAX_MS is longer). A piece with no mass yet is shown at once (its faces
+   * towards what is not there yet pressed: fadeEdges); one made again is held (commit). Returns null when nothing was
+   * made.
    */
   step(): number[] | null {
-    let unit: Unit | null = null, at = -1, cls = 2, k0 = Infinity;
     const now = performance.now();
     this.waitMs = Infinity;
+    // (groups whose waiting is over — or that were waiting for nothing any more)
+    for (const q of this.units.values()) this.commit(q);
+    let unit: Unit | null = null, at = -1;
+    let best: number[] | null = null;
     for (const q of this.units.values()) {
+      if (!q.todo.length || !q.job) continue;
+      const needed = new Set<string>();
+      for (const k of q.staged.keys()) for (const n of faceNeighbours(k, q.job.seg, q.job.tile)) needed.add(n);
+      const closing = new Set<string>();
+      for (const [k, m] of q.done) if (m.mask) for (const n of faceNeighbours(k, q.job.seg, q.job.tile)) closing.add(n);
       for (let i = 0; i < q.todo.length; i++) {
         const p = q.todo[i];
         const m = q.done.get(p.key);
-        const c = m ? 1 : 0;
-        // (a piece that stands, made under these settings: not before it has stood its time)
-        if (m && q.job && m.cfg === q.job.cfg && now - m.at < PIECE_REST_MS) {
+        if (m && m.cfg === q.job.cfg && now - m.at < PIECE_REST_MS) {
           this.waitMs = Math.min(this.waitMs, PIECE_REST_MS - (now - m.at));
           continue;
         }
-        if (c < cls || (c === cls && p.k0 < k0)) [unit, at, cls, k0] = [q, i, c, p.k0];
+        const vis = q.vis.get(p.key) ?? 0;
+        const rank = [needed.has(p.key) ? 0 : 1, vis > 0 ? 0 : 1, m ? 1 : 0, closing.has(p.key) ? 0 : 1, -vis, p.k0];
+        let better = !best;
+        if (best) {
+          for (let r = 0; r < rank.length; r++) {
+            if (rank[r] !== best[r]) {
+              better = rank[r] < best[r];
+              break;
+            }
+          }
+        }
+        if (better) [unit, at, best] = [q, i, rank];
       }
     }
     if (!unit || !unit.job) return null;
@@ -717,10 +960,10 @@ export class FuseUnits {
       }
     }
     const was = unit.done.get(p.key);
-    const stamp = was ? was.stamp : this.now();
+    // (the stamp is written when it is shown: show)
+    const stamp = was ? was.stamp : -1;
     if (own.some((e) => e.grow)) {
       growData(mesh, own, j.u);
-      // (the stamp rides in the growing data's free number: the wall's shader lets the piece out from then)
       const B = mesh.growB!;
       for (let v = 0; v < B.length; v += 2) B[v] = stamp;
     }
@@ -732,21 +975,17 @@ export class FuseUnits {
       const wx = mx * c + mz * sn, wz = -mx * sn + mz * c;
       chunk = `${Math.floor(wx / (CHUNK_CELLS * CELL))},${Math.floor(wz / (CHUNK_CELLS * CELL))},${Math.floor(p.k0 / CHUNK_SLOTS)}`;
     }
-    unit.done.set(p.key, { cfg: j.cfg, sig: p.sig, mesh, stamp, chunk, at: performance.now() });
-    this.dirty.add(chunk);
-    // what had joined from another building stood here until now
-    for (const [k, m] of unit.done) {
-      if (m.orphanOf === p.key && j.serial > (m.after ?? -1)) {
-        unit.done.delete(k);
-        this.dirty.add(m.chunk);
-      }
-    }
+    const keys: number[] = [];
+    for (const e of own) if (e.key !== undefined) keys.push(e.key);
+    const made: Made = { cfg: j.cfg, sig: p.sig, mesh, stamp, chunk, at: performance.now() };
+    if (was && was.orphanOf === undefined) {
+      unit.staged.set(p.key, { made, keys, since: performance.now() });
+      this.commit(unit);
+    } else this.show(unit, p.key, made, keys, this.now());
     const ms = performance.now() - t0;
     this.made++;
     this.madeMs += ms;
     this.maxMs = Math.max(this.maxMs, ms);
-    const keys: number[] = [];
-    for (const e of own) if (e.key !== undefined) keys.push(e.key);
     return keys;
   }
 
@@ -766,7 +1005,7 @@ export class FuseUnits {
       set: [],
       drop: [],
       clock0: this.clock0,
-      stats: { waiting: fresh, remake: again, made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel, build: WALL_BUILD, tubes: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.length ?? 0), 0) },
+      stats: { waiting: fresh, remake: again, held: this.held(), made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel, build: WALL_BUILD, tubes: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.length ?? 0), 0) },
     };
     if (this.cleared) {
       out.clear = true;

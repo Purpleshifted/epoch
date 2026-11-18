@@ -1297,6 +1297,14 @@ export class SpaceModel {
         padSlots,
         seg: NATURE_CHUNK,
         tile: BLOCK_TILE,
+        // (the fossil's clock now and where it begins to come out — as the wall's shader reads it: what is out on the
+        // screen is made first, fuseUnits step)
+        age: (() => {
+          const bc = this.blockClock, ec = bc?.erode;
+          if (!bc || !ec || !((ec.shift ?? 0) > 0)) return undefined;
+          const perTop = Math.max(1, ec.slotSec ?? box.secPerUnit) / (ec.shift ?? 1);
+          return { now: bc.top + Math.max(0, ec.stood ?? 0), after: ((ec.lodSec ?? 0) * 1.3) / perTop + 1 };
+        })(),
       });
       this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map() });
       this.unitTubes.set(id, tSig);

@@ -38,8 +38,10 @@ function schedule(ms = 0): void {
  *  a building is no more) is taken before the next piece is chosen. */
 function turn(): void {
   scheduled = false;
-  const keys = units.step();
-  if (keys && keys.length) port?.postMessage({ type: "fused", keys } satisfies UnitFused);
+  const made = units.step();
+  // (the parts that came onto the screen — a piece is held until its neighbours are made: fuseUnits commit)
+  const keys = units.takeFused();
+  if (keys.length) port?.postMessage({ type: "fused", keys } satisfies UnitFused);
   const now = performance.now();
   const [fresh, again] = units.pending();
   const left = fresh + again > 0;
@@ -49,7 +51,7 @@ function turn(): void {
     lastEmit = now;
   }
   // (nothing was made: every piece left is one that stands and rests — looked at again when the first of them may be)
-  if (left && keys !== null) schedule();
+  if (left && made !== null) schedule();
   else if (units.hasDirty()) schedule(EMIT_MS);
   else if (left && units.waitMs < Infinity) schedule(Math.min(units.waitMs + 20, 5000));
 }
