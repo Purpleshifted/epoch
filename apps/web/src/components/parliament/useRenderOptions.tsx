@@ -39,6 +39,11 @@ export interface RenderInputs {
   perfMode: boolean;
   /** The exhibition wall (ui=0): the drawing buffer is not kept by default. */
   wall: boolean;
+  /** THE HERO SHOT (HeroShot.tsx): every knob on 자동 takes its best, whatever the test render or performance mode
+   *  says; a knob set to 끔 by hand stays off (it is part of the look). */
+  hero?: boolean;
+  /** While a hero shot is being saved: the pixel ratio it is drawn at and the composer's MSAA (lower above a size). */
+  shot?: { dpr: number; msaa: number } | null;
   /** The values the picture used so far (the hidden groups' saved values). */
   saved: {
     dprMax: number;
@@ -76,6 +81,10 @@ export interface RenderDetail {
   softness: number;
   dofRange: number;
   dofBokeh: number;
+  /** Where the focus is: following the click / the view's centre, or at `dofDist` from the camera. */
+  dofFocus: "follow" | "dist";
+  /** The focus's distance from the camera (world), when `dofFocus` is "dist". */
+  dofDist: number;
   lodNear: number;
   lodMid: number;
 }
@@ -113,7 +122,11 @@ export interface RenderOptions {
 const pick = (t: Tri, auto: boolean) => (t === "auto" ? auto : t === "on");
 
 export function useRenderOptions(inp: RenderInputs): RenderOptions {
-  const { isV2, testPerf, perfMode, wall, saved } = inp;
+  const { isV2, wall, saved } = inp;
+  const hero = !!inp.hero && isV2;
+  // (the hero shot: no test render, no performance mode)
+  const testPerf: TestPerf = hero ? "off" : inp.testPerf;
+  const perfMode = hero ? false : inp.perfMode;
   const k = useControls(
     GROUP,
     savable(GROUP, {
@@ -181,10 +194,19 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
         // (the artist, 2026-11-17: "그레인 고정시키고")
         grainStill: { value: true, label: "그레인 고정 (끄면 매 프레임 바뀌며 지글거림)" },
         dof: tri("피사계 심도 (흐림 · 비쌈)"),
+        // THE FOCUS: WHERE IT IS AND HOW DEEP, APART (the artist, 2026-11-18: "초점 맞는 거리가 아니라 '폭'이랑 '거리'
+        // 따로 … 지금 80까지로 걸려서 원하는 곳에 포커스 못 맞추고"): the distance is either followed (the click, the
+        // view's centre — 보기 › 초점 · 시야) or set here; the width is how deep the sharp band is around it
         "피사계 심도 세부": folder(
           {
-            dofRange: { value: saved.dofRange, min: 1, max: 80, step: 1, label: "초점이 맞는 깊이 (월드)" },
-            dofBokeh: { value: saved.dofBokeh, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
+            dofFocus: {
+              options: { "따라감 — 클릭한 곳 · 화면 중앙 (보기 › 초점 · 시야)": "follow", "거리로 정함 (아래 '초점 거리')": "dist" } as Record<string, "follow" | "dist">,
+              value: "follow" as "follow" | "dist",
+              label: "초점의 자리",
+            },
+            dofDist: { value: 120, min: 1, max: 800, step: 1, label: "초점 거리 (카메라에서 · 월드 · '거리로 정함'일 때)" },
+            dofRange: { value: saved.dofRange, min: 0.5, max: 400, step: 0.5, label: "초점 폭 (초점 앞뒤로 이만큼이 또렷 · 월드 · 작을수록 얕은 심도)" },
+            dofBokeh: { value: saved.dofBokeh, min: 0, max: 15, step: 0.5, label: "흐림 정도 (초점 밖이 얼마나 번지나)" },
           },
           { collapsed: true },
         ),
@@ -229,6 +251,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
     softness: saved.softness,
     dofRange: saved.dofRange,
     dofBokeh: saved.dofBokeh,
+    dofFocus: "follow",
+    dofDist: 120,
     lodNear: perf ? Math.min(saved.lodNear, 25) : saved.lodNear,
     lodMid: perf ? Math.min(saved.lodMid, 50) : saved.lodMid,
   };
@@ -264,16 +288,58 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
 
   const dprPick = k.dpr as number;
   // an explicit ratio is an upper bound (a screen with fewer device pixels gets its own); below 1 it is exact
-  const dpr: number | [number, number] = dprPick > 0 ? (dprPick < 1 ? dprPick : [1, dprPick]) : autoDpr;
-  const antialias = k.antialias as boolean;
+  // (the hero shot: 2 while composing — every screen pixel drawn four times over — and the shot's own while saving)
+  const dpr: number | [number, number] = hero ? (inp.shot ? inp.shot.dpr : 2) : dprPick > 0 ? (dprPick < 1 ? dprPick : [1, dprPick]) : autoDpr;
+  const antialias = hero ? true : (k.antialias as boolean);
   const preserveDrawingBuffer = pick(k.keepBuffer as Tri, !wall);
-  const ao = pick(k.ao as Tri, saved.aoOn && post);
+  const ao = pick(k.ao as Tri, (saved.aoOn || hero) && post);
   const grainOn = pick(k.grain as Tri, saved.grain > 0 && post);
   const grain = grainOn ? (k.grainAmount as number) : 0;
   const dof = pick(k.dof as Tri, saved.dof && post);
   const q = k.aoQuality as "auto" | AoQuality;
   const share = k.vegShare as number;
   const ts = k.refractScale as number;
+  if (hero) {
+    // THE HERO SHOT: the best of every knob left on 자동 — shadows, a large shadow map, AO at full resolution and its
+    // highest quality, the refraction at full size, every vegetation point, the full detail at any distance, MSAA 8
+    const shadowsOn = pick(k.shadows as Tri, true);
+    return {
+      dpr,
+      antialias,
+      preserveDrawingBuffer,
+      canvasKey: `gl:aa:${preserveDrawingBuffer ? "keep" : "nokeep"}`,
+      shadowsOn,
+      shadowType: k.shadowType as ShadowType,
+      shadowMapSize: Math.max(4096, k.shadowMap as number),
+      ao,
+      aoQuality: q === "auto" ? "ultra" : q,
+      aoHalfRes: pick(k.aoHalfRes as Tri, false),
+      grain,
+      grainStill: k.grainStill as boolean,
+      sunTurnMin: k.sunSpin === "on" ? (k.sunSpinMin as number) : k.sunSpin === "off" ? 0 : null,
+      dof,
+      composerOn: ao || grain > 0 || dof,
+      composerMsaa: inp.shot ? inp.shot.msaa : 8,
+      refraction: pick(k.refraction as Tri, true),
+      transmissionScale: ts > 0 ? ts : 1,
+      vegCount: share > 0 ? (n: number) => Math.max(1, Math.round(n * share)) : (n: number) => n,
+      detail: {
+        aoRadius: k.aoRadius as number,
+        distanceFalloff: k.distanceFalloff as number,
+        aoIntensity: k.aoIntensity as number,
+        azimuth: k.azimuth as number,
+        elevation: k.elevation as number,
+        sunIntensity: k.sunIntensity as number,
+        softness: k.softness as number,
+        dofRange: k.dofRange as number,
+        dofBokeh: k.dofBokeh as number,
+        dofFocus: k.dofFocus as "follow" | "dist",
+        dofDist: k.dofDist as number,
+        lodNear: Math.max(400, k.lodNear as number),
+        lodMid: Math.max(600, k.lodMid as number),
+      },
+    };
+  }
   return {
     dpr,
     antialias,
@@ -304,6 +370,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       softness: k.softness as number,
       dofRange: k.dofRange as number,
       dofBokeh: k.dofBokeh as number,
+      dofFocus: k.dofFocus as "follow" | "dist",
+      dofDist: k.dofDist as number,
       lodNear: perf ? Math.min(k.lodNear as number, 25) : (k.lodNear as number),
       lodMid: perf ? Math.min(k.lodMid as number, 50) : (k.lodMid as number),
     },
