@@ -542,6 +542,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // stems (treeStems), when not points, as lines — one from the foot into the crown, or one that forks into it
   const treePts = useRef<THREE.Points>(null);
   const footPts = useRef<THREE.Points>(null);
+  const treeCache = useRef<{ sig: string; map: Map<string, { seg: Float32Array; far: Float32Array; kinds: Uint8Array; lp: Float32Array; lc: Float32Array; lz: Float32Array }>; used: Set<string> }>({ sig: "", map: new Map(), used: new Set() });
   const treeStemMesh = useRef<THREE.InstancedMesh>(null);
   // THE CROWN AS CLUMPS: one soft ball of points (a gaussian spread, thick at its middle) drawn once per clump by the
   // GPU from the clump's centre, radius and colour — as the present's gatherings are (ParliamentSpace cloudGeometry)
@@ -1248,6 +1249,13 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           TL.dying.forEach((dd, j) => st.set(dd.rec, (nLive + j) * STRIDE));
           const lifeOf = (ti: number): [number, number] => (ti < nLive ? [TL.born.get(st[ti * STRIDE + 7]) ?? -1e9, -1] : [TL.dying[ti - nLive].born, TL.dying[ti - nLive].died]);
           const seg: number[] = [], far: number[] = [], kinds: number[] = [], owner: number[] = [], ownerSize: number[] = [], ownerLife: number[] = [], ownerKind: number[] = [];
+          // (the trees grown so far, by what they are and the knobs they were grown with — kept while those knobs stay)
+          const TC = treeCache.current, shapeSig = sig.slice(sig.indexOf(":") + 1);
+          if (TC.sig !== shapeSig) {
+            TC.map.clear();
+            TC.sig = shapeSig;
+          }
+          TC.used.clear();
           // (THE FOOT: dark earth and stones round a big tree's foot — points of their own, coming and going with it)
           const footP: number[] = [], footC: number[] = [], footS: number[] = [], footL: number[] = [];
           const footSoil = new THREE.Color(k.stainColor), footStone = new THREE.Color(k.stoneColor);
@@ -1321,19 +1329,66 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             // (its kind: the worker's — FutureConfig.tree.kinds — so its colour goes with its shape and size)
             const sp = Math.max(0, Math.min(k.treeSpecies - 1, Math.round(st[i + 10] ?? 0)));
             const kc = kindCols[sp] ?? a, sa = kc.clone().offsetHSL(0, 0, -k.treeKindShade), sb = kc.clone().offsetHSL(0, 0.04, k.treeKindShade);
-            // (the stem)
-            const before = kinds.length;
-            if (k.treeStemMode === "line") {
-              seg.push(tr.x, tr.foot, tr.z, tr.x, tr.foot + tr.lo + (tr.hi - tr.lo) * (tr.cone ? 0.92 : 0.5), tr.z);
-              far.push(0, 0.6);
-              kinds.push(0);
-            }
             // (and the tree's size against the knobs' mean tree — its crown's width and its stem's height: a stem as thick
             // as its tree is big)
             const sizeF = Math.sqrt(Math.max(0.01, (st[i + 4] / Math.max(1e-4, 1.3 * k.treeCrown * CELL_SIZE)) * (st[i + 3] / Math.max(1e-4, 1.55 * k.treeHeight))));
             // (how big it is for its foot: nothing under the mean tree, all of it at twice its size)
             const bigF = Math.max(0, Math.min(1, (sizeF - 0.8) / 0.9));
-            if (k.treeStemMode === "branch") growStem(seg, far, kinds, tr, t, k.treeBend, k.treeTwigs, Math.round(k.treeRoots * bigF));
+            // EACH TREE GROWN ONCE (the artist, 2026-11-18: "여튼 최적화가 진짜 큰 문제" — measured on the artist's world, the
+            // trees took 190 ms, up to 450, every time a layer came, every tree's branches and leaves grown again): a tree's
+            // wood and leaves depend only on its record and the knobs, so they are kept by both and only a tree that is
+            // new, or changed, is grown
+            const gKey = `${st[i + 7]}|${st[i]}|${st[i + 1]}|${st[i + 2]}|${st[i + 3]}|${st[i + 4]}|${st[i + 5]}|${st[i + 6]}|${st[i + 8]}|${st[i + 10]}`;
+            let g = TC.map.get(gKey);
+            if (!g) {
+              const gs: number[] = [], gf: number[] = [], gk: number[] = [];
+              if (k.treeStemMode === "line") {
+                gs.push(tr.x, tr.foot, tr.z, tr.x, tr.foot + tr.lo + (tr.hi - tr.lo) * (tr.cone ? 0.92 : 0.5), tr.z);
+                gf.push(0, 0.6);
+                gk.push(0);
+              } else if (k.treeStemMode === "branch") growStem(gs, gf, gk, tr, t, k.treeBend, k.treeTwigs, Math.round(k.treeRoots * bigF));
+              const lp: number[] = [], lc: number[] = [], lz: number[] = [];
+              // LEAVES ON THE TWIGS (the artist, 2026-11-17: "어떻게 하면 자연스럽게 줄기에 붙은 잎 느낌 낼 수 있을지" — and the
+              // clumps cost more): a few points on the outer half of every bough and along every twig, thickest at the
+              // tips, held close to the wood — the crown is where the branches end. The branches are grown for it even
+              // when they are not drawn.
+              if (asLeaves) {
+                let ls = gs, lf = gf, lk = gk;
+                if (k.treeStemMode !== "branch") {
+                  ls = [];
+                  lf = [];
+                  lk = [];
+                  growStem(ls, lf, lk, tr, t, k.treeBend, Math.max(1, k.treeTwigs));
+                }
+                const H = Math.max(1e-4, tr.hi - tr.lo), hold = tr.R * 0.18 * k.treeLeafSpread;
+                for (let q2 = 0; q2 < lk.length; q2++) {
+                  const f0 = lf[q2 * 2], f1 = lf[q2 * 2 + 1];
+                  if (f1 < 0.45) continue;
+                  const nL = Math.round(k.treeLeaves * (lk[q2] === 2 ? 1 : 0.6) * (0.5 + f1));
+                  for (let j = 0; j < nL; j++) {
+                    const u = Math.pow(rnd(q2 + t * 13.1, j), 0.6), th = rnd(j * 3.1, q2 + t) * 6.2832, rr = hold * Math.sqrt(rnd(q2, j * 1.7 + t));
+                    const ax = ls[q2 * 6], ay = ls[q2 * 6 + 1], az = ls[q2 * 6 + 2], bx = ls[q2 * 6 + 3], by = ls[q2 * 6 + 4], bz = ls[q2 * 6 + 5];
+                    const y = ay + (by - ay) * u + (rnd(j, q2 * 2.3) - 0.35) * hold;
+                    lp.push(ax + (bx - ax) * u + Math.cos(th) * rr, y, az + (bz - az) * u + Math.sin(th) * rr);
+                    const upS = Math.max(0, Math.min(1, ((y - tr.foot - tr.lo) / H) * 0.7 + (f0 + (f1 - f0) * u) * 0.3));
+                    const jit = 1 + (rnd(t, j * 0.7 + q2) - 0.5) * 2 * k.treeColorJitter * 0.5;
+                    plantColor(tc, (sa.r + (sb.r - sa.r) * upS) * jit, (sa.g + (sb.g - sa.g) * upS) * jit, (sa.b + (sb.b - sa.b) * upS) * jit, rnd(t * 1.3, j + q2));
+                    lc.push(tc.r, tc.g, tc.b);
+                    lz.push(Math.max(0.15, 1 + (rnd(j * 1.1, q2 + 0.3) - 0.5) * 2 * k.treePointJitter));
+                  }
+                }
+              }
+              g = { seg: Float32Array.from(gs), far: Float32Array.from(gf), kinds: Uint8Array.from(gk), lp: Float32Array.from(lp), lc: Float32Array.from(lc), lz: Float32Array.from(lz) };
+              TC.map.set(gKey, g);
+            }
+            TC.used.add(gKey);
+            // (the stem)
+            const before = kinds.length;
+            for (let q2 = 0; q2 < g.kinds.length; q2++) {
+              for (let e = 0; e < 6; e++) seg.push(g.seg[q2 * 6 + e]);
+              far.push(g.far[q2 * 2], g.far[q2 * 2 + 1]);
+              kinds.push(g.kinds[q2]);
+            }
             for (let q2 = before; q2 < kinds.length; q2++) {
               owner.push(tr.own);
               ownerSize.push(sizeF);
@@ -1354,39 +1409,15 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
                 footL.push(bornT < -1e8 ? -1e9 : bornT, diedT >= 0 ? diedT + 0.45 : 0);
               }
             }
-            const H = Math.max(1e-4, tr.hi - tr.lo);
-            // LEAVES ON THE TWIGS (the artist, 2026-11-17: "어떻게 하면 자연스럽게 줄기에 붙은 잎 느낌 낼 수 있을지" — and the
-            // clumps cost more): a few points on the outer half of every bough and along every twig, thickest at the
-            // tips, held close to the wood — the crown is where the branches end. The branches are grown for it even
-            // when they are not drawn.
             if (asLeaves) {
-              let ls = seg, lf = far, lk = kinds, from = before;
-              if (k.treeStemMode !== "branch") {
-                ls = [];
-                lf = [];
-                lk = [];
-                from = 0;
-                growStem(ls, lf, lk, tr, t, k.treeBend, Math.max(1, k.treeTwigs));
-              }
-              const hold = tr.R * 0.18 * k.treeLeafSpread;
-              for (let q2 = from; q2 < lk.length && pos.length < LEAF_CAP * 3; q2++) {
-                const f0 = lf[q2 * 2], f1 = lf[q2 * 2 + 1];
-                if (f1 < 0.45) continue;
-                const nL = Math.round(k.treeLeaves * (lk[q2] === 2 ? 1 : 0.6) * (0.5 + f1));
-                for (let j = 0; j < nL; j++) {
-                  const u = Math.pow(rnd(q2 + t * 13.1, j), 0.6), th = rnd(j * 3.1, q2 + t) * 6.2832, rr = hold * Math.sqrt(rnd(q2, j * 1.7 + t));
-                  const ax = ls[q2 * 6], ay = ls[q2 * 6 + 1], az = ls[q2 * 6 + 2], bx = ls[q2 * 6 + 3], by = ls[q2 * 6 + 4], bz = ls[q2 * 6 + 5];
-                  const y = ay + (by - ay) * u + (rnd(j, q2 * 2.3) - 0.35) * hold;
-                  pos.push(ax + (bx - ax) * u + Math.cos(th) * rr, y, az + (bz - az) * u + Math.sin(th) * rr);
-                  const upS = Math.max(0, Math.min(1, (y - tr.foot - tr.lo) / H * 0.7 + (f0 + (f1 - f0) * u) * 0.3));
-                  const jit = 1 + (rnd(t, j * 0.7 + q2) - 0.5) * 2 * k.treeColorJitter * 0.5;
-                  plantColor(tc, (sa.r + (sb.r - sa.r) * upS) * jit, (sa.g + (sb.g - sa.g) * upS) * jit, (sa.b + (sb.b - sa.b) * upS) * jit, rnd(t * 1.3, j + q2));
-                  col.push(tc.r, tc.g, tc.b);
-                  ps.push(Math.max(0.15, 1 + (rnd(j * 1.1, q2 + 0.3) - 0.5) * 2 * k.treePointJitter));
-                }
+              for (let q2 = 0; q2 < g.lz.length && pos.length < LEAF_CAP * 3; q2++) {
+                pos.push(g.lp[q2 * 3], g.lp[q2 * 3 + 1], g.lp[q2 * 3 + 2]);
+                col.push(g.lc[q2 * 3], g.lc[q2 * 3 + 1], g.lc[q2 * 3 + 2]);
+                ps.push(g.lz[q2]);
               }
               continue;
             }
+            const H = Math.max(1e-4, tr.hi - tr.lo);
             // (the crown's clumps, by its shape: a ball round the crown's middle, a cone narrowing upward, an umbrella flat
             // at the top — each clump its own size, the colour lighter up and out)
             if (!asClumps) continue;
@@ -1428,6 +1459,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
               nc++;
             }
           }
+          for (const key of TC.map.keys()) if (!TC.used.has(key)) TC.map.delete(key);
           cen.needsUpdate = true;
           cLifeA.needsUpdate = true;
           ccol.needsUpdate = true;
