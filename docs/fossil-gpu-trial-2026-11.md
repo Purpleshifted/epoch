@@ -90,4 +90,4 @@
 ## 프리뷰
 
 - 브랜치 `claude/sweet-payne-386f4e` (redesign 브랜치 `8b27eb4` 위)
-- 프리뷰: PREVIEW_LINK
+- 프리뷰: https://anthropocene-redesign-git-claude-sw-7501b9-hesse-parks-projects.vercel.app/trial/fossil-gpu/index.html (격자 0.35는 `?res=0.35`, 세로 TV 크기는 `&w=1080&h=1920`)
