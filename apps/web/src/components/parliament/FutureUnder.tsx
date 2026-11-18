@@ -28,7 +28,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone as plantColor } from "@/lib/parliament/plantTone";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
-import { DISSOLVE_GLSL, futureLifeU, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
+import { futureLifeU, futureTicker, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
 import { newPlantLife, plantBaseGeometry, plantMaterial, setFlowerBloom, setPlantClouds } from "./plantCloudsGpu";
 import { savable } from "./levaSave";
 
@@ -66,7 +66,7 @@ interface StemTree {
  * tree it is into `far` (0 at the foot … 1 at a twig's tip: the line fades into the crown's colour by it).
  * `bend` 0 = straight lines, 1 = as meant, more = wilder; `twigs` a bough (0 … 3).
  */
-function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: number, bend: number, twigs: number): void {
+function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: number, bend: number, twigs: number, roots = 0): void {
   const r = (a: number) => rnd(i * 7.13 + a, t.own * 91.7 + a * 0.37);
   // (what a segment is: 0 the trunk, 1 a bough, 2 a twig — each has a thickness of its own)
   let cur = 0;
@@ -99,6 +99,16 @@ function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: 
   // (six pieces, as it was — the artist chose fewer trees instead: 나무 — 수; every tree's trunk is still drawn first)
   const NT = 6;
   for (let q = 1; q <= NT; q++) line(trunk((q - 1) / NT), trunk(q / NT), ((q - 1) / NT) * 0.3, (q / NT) * 0.3);
+  // ROOTS (the artist, 2026-11-18: "나무 아래 돌이나 흙, 덤불, 뿌리도 (특히 큰 나무는) 있어야 자연스러울 듯"): a big
+  // tree's foot spreads — buttresses leave the trunk a little above the ground, arch out over it and go into it,
+  // turned round the trunk by the golden angle, some long, some short (they come with the trunk: kind 0)
+  for (let j = 0; j < roots; j++) {
+    const th = j * 2.39996 + (r(200 + j) - 0.5) * 1.3 + a1, L = t.R * (0.3 + 0.35 * r(210 + j));
+    const S = trunk(0.01);
+    S[1] = t.foot + trunkH * (0.025 + 0.04 * r(230 + j));
+    const E: V3 = [t.x + Math.cos(th) * L, t.foot - trunkH * 0.015, t.z + Math.sin(th) * L];
+    bow(S, E, [0, 0.05 * L, 0], 3, 0.12, 0.62);
+  }
   // THE BOUGHS
   const nb = 4 + Math.floor(r(3) * 3);
   for (let j = 0; j < nb; j++) {
@@ -179,6 +189,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           walkEye: { value: 0.9, min: 0.1, max: 10, step: 0.05, label: "걷기 — 눈높이 (월드 · 땅에서)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.보기.walk`) },
           // ("미래뷰 식생점에 lod 추가하면 비용 덜 드는지"): the plants' points thin with distance, each the bigger
           // (step 3 of re-laying only what changed: what comes grows in, what goes fades — "더 자연스러워 보일 방법")
+          // ("건물이 막 서서히 나타날 이유는 없음, 티커로 차자자작 지어지는 느낌이면 되는데. 나무도 그렇고", 2026-11-18)
+          ticker: { value: 3, min: 0, max: 12, step: 0.5, label: "건물 · 나무가 바뀌는 차례가 다 도는 시간 (초 · 하나씩 탁탁 붙고 떨어짐 · 0 = 한꺼번에)" },
           lifeGrow: { value: 8, min: 0, max: 60, step: 0.5, label: "식생이 새로 나타나는 데 걸리는 시간 (초 · 점이 하나씩 · 0 = 곧바로)" },
           lifeFade: { value: 8, min: 0, max: 60, step: 0.5, label: "식생이 사라지는 데 걸리는 시간 (초 · 0 = 곧바로)" },
           lod: { value: 0.6, min: 0, max: 0.95, step: 0.05, label: "식생 점 LOD — 먼 곳에서 줄이는 몫 (0 = 끔 · 먼 점일수록 크게 그려 덮임은 유지)" },
@@ -338,6 +350,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeKin: { value: 3, min: 0, max: 10, step: 1, label: "나무 — 큰 나무 둘레의 어린 나무 수 (수관 밖에 거리를 두고 · 0 = 없음)" },
           treeKinFar: { value: 2.2, min: 1, max: 6, step: 0.1, label: "나무 — 어린 나무까지의 거리 (큰 나무 수관 반지름의 몇 배)" },
           // ("큰 나무 근처로 잎 몰아주기랑 … 밀집지역에 몰아주기 인터폴레이션도"; "나무 밑에 덤불이나 풀 없어도 좀 어색한듯")
+          // (the artist, 2026-11-18: "큰 나무면 점도 많아야 자연스러울 듯": its clumps — so its points — by its crown's size)
+          treeDotsBySize: { value: 0.7, min: 0, max: 2, step: 0.05, label: "나무 — 큰 나무일수록 점이 많음 (크기에 비례하는 정도 · 0 = 크기와 무관 · 1 = 수관 크기에 그대로 비례)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
           treeGather: { value: 0.7, min: 0, max: 2, step: 0.05, label: "나무 — 큰 나무에 덩이 몰아주기 (0 = 모든 나무 같은 수 · 클수록 큰 나무는 짙고 작은 나무는 성김)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
           treeCrowd: { value: 0.6, min: 0, max: 2, step: 0.05, label: "나무 — 빽빽한 숲일수록 수관이 크고 짙음 (이웃 나무 수로 보간 · 숲이 닫혀 수관이 이어짐 · 외딴 나무는 그대로)", render: (get: (path: string) => unknown) => get(`${GROUP}.나무.treeCrownMode`) === "clumps" },
           // ("숲 가장자리 나무의 수관이 바깥쪽으로 더 뻗게")
@@ -378,6 +392,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           treeColorJitter: { value: 0.25, min: 0, max: 1, step: 0.05, label: "나무 — 수관 색의 지터" },
           // ("나무 기둥이랑 줄기 굵기 따로 조절할 수 있게 해") — the stem is thin cylinders, each kind its thickness
           // (the artist, 2026-11-18: "나무 사이즈랑 줄기 두께 연동을 좀 해야할듯")
+          // ("줄기 명도도 나무 종류랑 코릴레이션 있게 해줘", 2026-11-18): a kind's stem lighter or darker as its crown's colour is
+          treeStemKindLink: { value: 0.8, min: 0, max: 2, step: 0.05, label: "나무 — 줄기 명도를 나무 종류(수관 색의 밝기)에 맞춤 (0 = 종류와 무관)" },
+          // (the foot of a big tree: "나무 아래 돌이나 흙, 덤불, 뿌리도 (특히 큰 나무는)")
+          treeRoots: { value: 6, min: 0, max: 12, step: 1, label: "나무 — 뿌리 (가장 큰 나무의 갈래 수 · 작은 나무는 없음 · 줄기 방식이 가지일 때)" },
+          treeFoot: { value: 1, min: 0, max: 4, step: 0.05, label: "나무 — 발치의 흙과 돌 (큰 나무일수록 넓고 많음 · 0 = 없음)" },
           treeStemBySize: { value: 0.9, min: 0, max: 2, step: 0.05, label: "나무 — 줄기 굵기를 나무 크기에 맞춤 (0 = 모든 나무 같은 굵기 · 1 = 크기에 비례 · 어린 나무는 가늘게)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           treeTrunkR: { value: 0.035, min: 0.002, max: 0.4, step: 0.002, label: "나무 — 기둥의 굵기 (월드, 반지름)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
           treeBoughR: { value: 0.014, min: 0.001, max: 0.2, step: 0.001, label: "나무 — 가지의 굵기 (반지름)", render: (get: (path: string) => unknown) => ["line", "branch"].includes(String(get(`${GROUP}.나무.treeStemMode`))) },
@@ -489,6 +508,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // points (FutureResult.vegTree) with a size of their own, each point larger or smaller by its own number; their
   // stems (treeStems), when not points, as lines — one from the foot into the crown, or one that forks into it
   const treePts = useRef<THREE.Points>(null);
+  const footPts = useRef<THREE.Points>(null);
   const treeStemMesh = useRef<THREE.InstancedMesh>(null);
   // THE CROWN AS CLUMPS: one soft ball of points (a gaussian spread, thick at its middle) drawn once per clump by the
   // GPU from the clump's centre, radius and colour — as the present's gatherings are (ParliamentSpace cloudGeometry)
@@ -530,11 +550,12 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             "float hB = fract(sin(dot(iCenter.xyz, vec3(39.346, 11.135, 83.155))) * 24634.6345);",
             "float ca = cos(hB * 6.2832), sa = sin(hB * 6.2832);",
             "vec3 off = vec3(ca * position.x - sa * position.z, position.y, sa * position.x + ca * position.z);",
-            "cLife = uLife.y > 0.0 ? smoothstep(0.0, uLife.y, uLife.x - iLife.x) : 1.0;",
-            // (a tree gone: its crown thins out, point by point all over it, over the first part of the fade — its
-            // leaves fall before its wood goes; the clumps keep their size)
-            "cDie = iLife.y >= 0.0 ? (uLife.z > 0.0 ? 1.0 - smoothstep(0.0, 0.6 * uLife.z, uLife.x - iLife.y) : 0.0) : 1.0;",
-            "vec3 transformed = iCenter.xyz + off * iCenter.w * mix(0.25, 1.0, cLife);",
+            // (THE TICKER — the artist, 2026-11-18: "티커로 차자자작 지어지는 느낌이면 되는데. 나무도 그렇고": at its tree's
+            // turn and after its wood, each clump snaps on; a tree gone, its clumps snap off, then its wood whole)
+            "float cH = fract(sin(dot(iCenter.xz, vec2(12.9898, 78.233))) * 43758.5453);",
+            "cLife = step(iLife.x + 0.4 + 0.3 * cH, uLife.x);",
+            "cDie = iLife.y >= 0.0 ? 1.0 - step(iLife.y + 0.25 * cH, uLife.x) : 1.0;",
+            "vec3 transformed = iCenter.xyz + off * iCenter.w;",
           ].join("\n"),
         )
         .replace("#include <color_vertex>", "#include <color_vertex>\nvColor.rgb *= 0.82 + 0.25 * position.y;")
@@ -543,7 +564,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           [
             "float cLod = 1.0 - uLod.z * smoothstep(uLod.x, uLod.y, -mvPosition.z);",
             "float cU = fract(sin(dot(position, vec3(12.9898, 78.233, 37.719)) + iCenter.x * 0.37) * 43758.5453);",
-            "gl_PointSize *= cLife * (cU > cLod * cDie ? 0.0 : inversesqrt(max(cLod, 0.1)));",
+            "gl_PointSize *= cLife * cDie * (cU > cLod ? 0.0 : inversesqrt(max(cLod, 0.1)));",
             "#include <fog_vertex>",
           ].join("\n"),
         );
@@ -588,18 +609,18 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       shader.uniforms.uLife = lifeU;
       shader.uniforms.uLod = lodU;
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\nattribute vec3 iStem;\nuniform vec3 uLife, uLod;\nvarying float vFutureLife;")
+        .replace("#include <common>", "#include <common>\nattribute vec3 iStem;\nuniform vec3 uLife, uLod;")
         .replace(
           "#include <begin_vertex>",
           [
             "#include <begin_vertex>",
-            "float sLife = 1.0;",
-            "if (uLife.y > 0.0) sLife *= smoothstep(0.0, uLife.y, uLife.x - iStem.y);",
-            // (A TREE GONE IS NOT TAKEN APART — the artist, 2026-11-18: "나무 줄기 사라질 때 줄기줄기 사라지면 안 되지 않냐?
-            // 허공에서 분해되는 느낌": its wood stands whole and dissolves all over at once, after its crown has thinned)
-            "vFutureLife = iStem.z >= 0.0 ? (uLife.z > 0.0 ? 1.0 - smoothstep(0.35 * uLife.z, uLife.z, uLife.x - iStem.z) : 0.0) : 1.0;",
-            // (the trunk over the first part of the tree's life, the boughs after, the twigs last)
-            "float kG = clamp((sLife - iStem.x * 0.3) / 0.4, 0.0, 1.0);",
+            // (THE TICKER — the artist, 2026-11-18: "티커로 차자자작 지어지는 느낌이면 되는데. 나무도 그렇고": at its tree's
+            // turn the trunk snaps on, a moment later the boughs, then the twigs, one by one. A TREE GONE IS NOT TAKEN
+            // APART ("줄기줄기 사라지면 안 되지 않냐? 허공에서 분해되는 느낌"): after its crown, its wood goes whole, at once)
+            "float sH = fract(float(gl_InstanceID) * 0.754877);",
+            "float sAt = iStem.x < 0.5 ? 0.0 : iStem.x < 1.5 ? 0.12 + 0.1 * sH : 0.25 + 0.15 * sH;",
+            "float kG = step(iStem.y + sAt, uLife.x);",
+            "if (iStem.z >= 0.0 && uLife.x >= iStem.z + 0.45) kG = 0.0;",
             // (far off: the twigs go first, then the boughs — by a number of each piece's own)
             "vec4 sW = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);",
             "float sFar = smoothstep(uLod.x, uLod.y, distance(cameraPosition, sW.xyz)) * uLod.z;",
@@ -609,7 +630,6 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             "transformed.y = (transformed.y + 0.5) * kG - 0.5;",
           ].join("\n"),
         );
-      shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vFutureLife;").replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n${DISSOLVE_GLSL}`);
     };
     m.customProgramCacheKey = () => "future-tree-stems";
     return m;
@@ -1030,6 +1050,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         (U.uLod.value as THREE.Vector3).set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
         (U.uLife.value as THREE.Vector3).set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
         lifeU.value.set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
+        futureTicker.sec = k.ticker;
         lodU.value.set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
         (U.uHalo.value as THREE.Vector3).set(k.flowerGlow, k.flowerGlowSize, k.flowerGlowFall);
         const bloomOn = k.flowerBloom > 0 && k.flowerAmount > 0 && (futureOnly() || k.flowerBloomWall);
@@ -1111,6 +1132,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     const inferred = three.scene.getObjectByName("future-veg");
     if (inferred) inferred.visible = k.showInferred;
     const tp = treePts.current, tl = treeStemMesh.current, cl = clumps.current;
+    if (process.env.NODE_ENV === "development") (window as unknown as { __futureTrees?: unknown }).__futureTrees = { tp, tl, cl, clumpGeo, life: lifeU.value, r, three };
     if (tp && tl && cl) {
       const lined = k.treeStemMode === "line" || k.treeStemMode === "branch";
       const asClumps = k.treeCrownMode === "clumps";
@@ -1118,11 +1140,13 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       // (the leaves are points too: treePts)
       tl.visible = layerOn && lined;
       cl.visible = layerOn && asClumps;
+      if (footPts.current) footPts.current.visible = layerOn && k.treeFoot > 0;
       if (r && layerOn) {
         tp.position.y = tl.position.y = cl.position.y = base + 0.04;
+        if (footPts.current) footPts.current.position.y = base + 0.03;
         clumpMat.size = k.treeClumpDot;
         (tl.material as THREE.MeshStandardMaterial).roughness = k.treeStemRough;
-        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}:${k.treeEdgeLean}:${k.treeStemBySize}`;
+        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}:${k.treeEdgeLean}:${k.treeStemBySize}:${k.treeDotsBySize}:${k.treeStemKindLink}:${k.treeRoots}:${k.treeFoot}:${k.stainColor}:${k.stoneColor}:${k.stoneSize}:${k.stainPtSize}`;
         if (sig !== drawnTrees.current) {
           drawnTrees.current = sig;
           const kindCols = [k.treeKind1, k.treeKind2, k.treeKind3, k.treeKind4, k.treeKind5, k.treeKind6].map((c) => new THREE.Color(c));
@@ -1146,11 +1170,14 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // (the trees that came and those that went, by their own number — kept from one layer to the next)
           const TL = treeLife.current, nowS = performance.now() / 1000;
           if (TL.version !== futureLink.version) {
+            // (the trees that come take their turns one after another over the ticker's seconds, those that go too —
+            // in an order of their own numbers: a wood fills and empties tree by tree, 차자자작)
+            const T = Math.max(0, k.ticker), turn = (id: number) => nowS + rnd(id * 13.7, 4.1) * T;
             const recs = new Map<number, Float32Array>(), born = new Map<number, number>();
             for (let i = 0; i + STRIDE - 1 < st0.length; i += STRIDE) recs.set(st0[i + 7], st0.subarray(i, i + STRIDE));
-            for (const id of recs.keys()) born.set(id, TL.first ? -1e9 : (TL.born.get(id) ?? nowS));
-            const dying = TL.dying.filter((dd) => nowS - dd.died < k.lifeFade);
-            if (!TL.first && k.lifeFade > 0) for (const [id, rec] of TL.recs) if (!recs.has(id)) dying.push({ rec: Float32Array.from(rec), born: TL.born.get(id) ?? -1e9, died: nowS });
+            for (const id of recs.keys()) born.set(id, TL.first ? -1e9 : (TL.born.get(id) ?? turn(id)));
+            const dying = TL.dying.filter((dd) => nowS - dd.died < T + 1);
+            if (!TL.first) for (const [id, rec] of TL.recs) if (!recs.has(id)) dying.push({ rec: Float32Array.from(rec), born: TL.born.get(id) ?? -1e9, died: turn(id) });
             Object.assign(TL, { version: futureLink.version, first: false, recs, born, dying });
           }
           const nLive = Math.floor(st0.length / STRIDE);
@@ -1158,14 +1185,19 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           st.set(st0.subarray(0, nLive * STRIDE));
           TL.dying.forEach((dd, j) => st.set(dd.rec, (nLive + j) * STRIDE));
           const lifeOf = (ti: number): [number, number] => (ti < nLive ? [TL.born.get(st[ti * STRIDE + 7]) ?? -1e9, -1] : [TL.dying[ti - nLive].born, TL.dying[ti - nLive].died]);
-          const seg: number[] = [], far: number[] = [], kinds: number[] = [], owner: number[] = [], ownerSize: number[] = [], ownerLife: number[] = [];
+          const seg: number[] = [], far: number[] = [], kinds: number[] = [], owner: number[] = [], ownerSize: number[] = [], ownerLife: number[] = [], ownerKind: number[] = [];
+          // (THE FOOT: dark earth and stones round a big tree's foot — points of their own, coming and going with it)
+          const footP: number[] = [], footC: number[] = [], footS: number[] = [], footL: number[] = [];
+          const footSoil = new THREE.Color(k.stainColor), footStone = new THREE.Color(k.stoneColor);
+          // (each kind's crown lightness against the mean of the kinds: its stem as much lighter or darker)
+          const kindL = kindCols.map((c) => c.getHSL({ h: 0, s: 0, l: 0 }).l), meanL = kindL.slice(0, Math.max(1, Math.min(6, k.treeSpecies))).reduce((x, y) => x + y, 0) / Math.max(1, Math.min(6, k.treeSpecies));
           const cen = clumpGeo.getAttribute("iCenter") as THREE.InstancedBufferAttribute, ccol = clumpGeo.getAttribute("color") as THREE.InstancedBufferAttribute;
           const cLifeA = clumpGeo.getAttribute("iLife") as THREE.InstancedBufferAttribute, cla = cLifeA.array as Float32Array;
           const ca = cen.array as Float32Array, cc = ccol.array as Float32Array;
           let nc = 0;
           const LEAF_CAP = 90000;
           // (how many clumps a tree's crown wants: by its size and by the wood round it)
-          const plannedClumps = (q: number, shape: number): number => Math.max(1, Math.round(k.treeClumps * (shape > 1.5 ? 1.3 : 1) * Math.max(0.3, Math.min(3, 1 + k.treeGather * (Math.sqrt(relSize[q]) - 1))) * (1 + k.treeCrowd * crowd[q])));
+          const plannedClumps = (q: number, shape: number): number => Math.max(1, Math.round(k.treeClumps * (shape > 1.5 ? 1.3 : 1) * Math.max(0.3, Math.min(3, 1 + k.treeGather * (Math.sqrt(relSize[q]) - 1))) * (1 + k.treeCrowd * crowd[q]) * Math.max(0.25, Math.min(6, Math.pow(Math.max(0.1, relSize[q]), k.treeDotsBySize)))));
           let clumpShare = 1;
           // (each tree's size against the middle one's, and how many trees stand round it — the crowns fuller on the big
           // trees and where the wood is thick, so that they close over it; a lone tree stays as it is)
@@ -1173,7 +1205,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // (and which way the wood is open from it: away from its neighbours' middle, by how lopsided they stand — a
           // tree at the wood's edge reaches out to the light, one inside or alone does not)
           const leanX = new Float32Array(nTree), leanZ = new Float32Array(nTree);
-          if (asClumps && nTree > 1 && (k.treeGather > 0 || k.treeCrowd > 0 || k.treeEdgeLean > 0)) {
+          if (asClumps && nTree > 1 && (k.treeGather > 0 || k.treeCrowd > 0 || k.treeEdgeLean > 0 || k.treeDotsBySize > 0)) {
             const reach = Math.max(0.5, k.treeCrowdR) * 1.2, grid = new Map<string, number[]>();
             for (let q = 0; q < nTree; q++) {
               const o = q * STRIDE, g = `${Math.floor(st[o] / reach)},${Math.floor(st[o + 1] / reach)}`;
@@ -1233,14 +1265,32 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
               seg.push(tr.x, tr.foot, tr.z, tr.x, tr.foot + tr.lo + (tr.hi - tr.lo) * (tr.cone ? 0.92 : 0.5), tr.z);
               far.push(0, 0.6);
               kinds.push(0);
-            } else if (k.treeStemMode === "branch") growStem(seg, far, kinds, tr, t, k.treeBend, k.treeTwigs);
+            }
             // (and the tree's size against the knobs' mean tree — its crown's width and its stem's height: a stem as thick
             // as its tree is big)
             const sizeF = Math.sqrt(Math.max(0.01, (st[i + 4] / Math.max(1e-4, 1.3 * k.treeCrown * CELL_SIZE)) * (st[i + 3] / Math.max(1e-4, 1.55 * k.treeHeight))));
+            // (how big it is for its foot: nothing under the mean tree, all of it at twice its size)
+            const bigF = Math.max(0, Math.min(1, (sizeF - 0.8) / 0.9));
+            if (k.treeStemMode === "branch") growStem(seg, far, kinds, tr, t, k.treeBend, k.treeTwigs, Math.round(k.treeRoots * bigF));
             for (let q2 = before; q2 < kinds.length; q2++) {
               owner.push(tr.own);
               ownerSize.push(sizeF);
               ownerLife.push(bornT, diedT);
+              ownerKind.push(sp);
+            }
+            // THE FOOT: dark earth spread round it, thickest at the trunk, and stones among it — the more and the wider
+            // the bigger the tree (the earth its leaves have made, the stones its roots have lifted)
+            if (k.treeFoot > 0 && bigF > 0) {
+              const nS = Math.round(40 * bigF * k.treeFoot), nR = Math.round(6 * bigF * k.treeFoot), rad = tr.R * (0.35 + 0.35 * bigF);
+              for (let j = 0; j < nS + nR; j++) {
+                const stone = j >= nS, u = rnd(t + j * 0.71, 3.3), th = rnd(j * 1.37, t + 5.1) * 6.2832, rr = rad * (stone ? 0.25 + 0.6 * u : Math.pow(u, 0.8));
+                footP.push(tr.x + Math.cos(th) * rr, tr.foot + (stone ? 0.02 : 0.005) * unit * rnd(j, t), tr.z + Math.sin(th) * rr);
+                const sh = stone ? 0.75 + 0.5 * rnd(t, j * 2.3) : 0.8 + 0.3 * rnd(j * 3.1, t);
+                const c = stone ? footStone : footSoil;
+                footC.push(c.r * sh, c.g * sh, c.b * sh);
+                footS.push(stone ? k.stoneSize * (0.6 + 0.9 * rnd(j, t * 1.3)) : k.stainPtSize * (0.6 + 0.8 * rnd(t * 0.7, j)));
+                footL.push(bornT < -1e8 ? -1e9 : bornT, diedT >= 0 ? diedT + 0.45 : 0);
+              }
             }
             const H = Math.max(1e-4, tr.hi - tr.lo);
             // LEAVES ON THE TWIGS (the artist, 2026-11-17: "어떻게 하면 자연스럽게 줄기에 붙은 잎 느낌 낼 수 있을지" — and the
@@ -1354,10 +1404,22 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             // (ONE COLOUR A TREE — the artist, 2026-11-18: "줄기 명도 지터는 ㅋㅋㅋ 한 나무 안에서는 색이 같아야지...": the
             // light and dark is the tree's own, the same in every piece of it; no piece of its own, no turning towards
             // the crown's colour at the tips)
-            const lum = Math.max(0.08, 1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter);
+            const kl = ownerKind[i] ?? 0, kindF = Math.max(0.4, Math.min(1.8, 1 + k.treeStemKindLink * ((kindL[kl] ?? meanL) - meanL) * 2.5));
+            const lum = Math.max(0.08, (1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * kindF);
             tl.setColorAt(o, tone.c.set(sc.r * lum, sc.g * lum, sc.b * lum));
           }
           tl.count = n;
+          // (the feet)
+          const fp = footPts.current;
+          if (fp) {
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(footP), 3));
+            geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(footC), 3));
+            geo.setAttribute("psize", new THREE.BufferAttribute(new Float32Array(footS), 1));
+            geo.setAttribute("aLife", new THREE.BufferAttribute(new Float32Array(footL), 2));
+            fp.geometry.dispose();
+            fp.geometry = geo;
+          }
           stemInfoA.needsUpdate = true;
           tl.instanceMatrix.needsUpdate = true;
           if (tl.instanceColor) tl.instanceColor.needsUpdate = true;
@@ -1438,6 +1500,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} onBeforeCompile={lifeDissolve} customProgramCacheKey={() => "future-life-dissolve"} />
       </instancedMesh>
       {/* the trees: their points, each with its own size, and their stems as lines (when the knob says so) */}
+      {/* the feet of the big trees: their dark earth and stones (나무 › treeFoot) */}
+      <points ref={footPts} frustumCulled={false}>
+        <bufferGeometry />
+        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={lifePoints} customProgramCacheKey={() => "future-life-points"} />
+      </points>
       <points ref={treePts} frustumCulled={false}>
         <bufferGeometry />
         <pointsMaterial vertexColors size={k.treePointSize} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />

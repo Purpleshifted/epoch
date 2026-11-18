@@ -616,11 +616,20 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const damp = new Map<number, number>();
   const piped = new Set<number>();
   if (succ) {
+    // (THE BANK IS WHERE IT IS DAMP — the artist, 2026-11-18: "나무 안 그려짐": since nothing grows in the water's
+    // emptiness, the damp cells — the course's own and the two round it — all lay inside it, and the trees of a young
+    // layer, which stood mostly by the water, were gone. The damp ground is measured from the emptiness' edge: wet just
+    // outside it, damp two cells further)
+    const gapD = Math.max(0, Math.round(cfg.water?.gap ?? 0)), wetR = gapD + 1, dampR = gapD + 3;
     for (const q of wet) {
       const cx = Math.floor(q / 65536 + 0.5), cz = q - cx * 65536;
-      for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (!damp.has(key(cx + dx, cz + dz))) damp.set(key(cx + dx, cz + dz), 0.5);
+      for (let dz = -dampR; dz <= dampR; dz++) for (let dx = -dampR; dx <= dampR; dx++) {
+        const d = Math.hypot(dx, dz);
+        if (d > dampR) continue;
+        const qq = key(cx + dx, cz + dz), v = d <= wetR ? 1 : 0.5;
+        if ((damp.get(qq) ?? 0) < v) damp.set(qq, v);
+      }
     }
-    for (const q of wet) damp.set(q, 1);
     for (const p of input.pipes ?? []) {
       if (p.k0 !== undefined || p.k > K) continue;
       const len = Math.hypot(p.bx - p.ax, p.bz - p.az), steps = Math.max(1, Math.ceil(len / (CELL * 0.5)));

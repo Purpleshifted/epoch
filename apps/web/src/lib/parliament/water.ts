@@ -75,6 +75,13 @@ export interface WaterConfig {
    *  끝나서"): where a stream soaks away it spreads into a pool of this radius (world) — drawn as rings round its end,
    *  so its channel in the vegetation is a round clearing. 0 = none. */
   endPool?: number;
+  /** THE BED REMEMBERS (the artist, 2026-11-18: "물줄기는 알고리즘상으로 손볼 방법 없는지?" — the water jumped to a new
+   *  course whenever its network was laid anew): an open stream laid anew keeps to the bed the water ran in before,
+   *  as water does (a channel cut into the ground draws the flow back into it, and a stream leaves it — avulsion —
+   *  only where it is blocked). 0 = every course found afresh; 1 = held hard to the old bed. */
+  bed?: number;
+  /** How many slots a bed no longer used is still remembered (it silts up). */
+  bedSlots?: number;
   /** Seconds a building keeps shedding water after it was last used. */
   persistSec: number;
   /** How far an open stream bends sideways (× cell). */
@@ -154,6 +161,8 @@ export const DEFAULT_WATER: WaterConfig = {
   diagonal: 0,
   streamLength: 8,
   endPool: 1.2,
+  bed: 0.7,
+  bedSlots: 30,
   persistSec: 300,
   meander: 0.18,
   channel: 0.9,
@@ -374,6 +383,15 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   let laidIds = new Set<number>();
   let laidK = -Infinity;
   let courses: Float32Array[] = [];
+  // THE BED: the last slot each cell carried an open stream (WaterConfig.bed) — how strongly it still draws the water,
+  // 1 just used … 0 after bedSlots
+  const bedLast = new Float64Array(n).fill(-Infinity);
+  const bedW = Math.max(0, Math.min(1, cfg.bed ?? 0)), bedSlots = Math.max(1, cfg.bedSlots ?? 30);
+  let bedK = 0;
+  const bedAt = (c: number): number => (bedW > 0 ? bedW * Math.max(0, 1 - (bedK - bedLast[c]) / bedSlots) : 0);
+  // (the cells the courses in use run through: marked as the bed up to the slot they are laid anew)
+  let courseCells: number[] = [];
+  const bed: CourseBed = { at: bedAt, cells: [] };
   // THE BORDERS between the villages alive in slot k (villageBorders.ts), the same for every slot with the same villages
   const borderCache = new Map<string, Border[]>();
   const groundR = cfg.villages ? Math.max(1, ...cfg.villages.sites.map((q) => Math.hypot(q[0], q[1]) + Math.max(1, q[4] ?? cfg.villages!.radius) * 1.3)) : 0;
@@ -492,6 +510,10 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       if (courses.length) streams.set(k, courses);
       continue;
     }
+    // (the courses in use until now are the bed the new ones are laid by)
+    for (const c of courseCells) bedLast[c] = k - 1;
+    bedK = k;
+    bed.cells = [];
     laidBuf.set(sealed);
     laidSealed = laidBuf;
     laidDense = denseKey;
@@ -597,7 +619,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       const vq = villageOfB.get(quarter[0].id);
       if (vq !== undefined) {
         if (!outfallOf.has(vq)) outfallOf.set(vq, trunk.cells[trunk.cells.length - 1]);
-      } else courses.push(openCourse([trunk.cells[trunk.cells.length - 1]], share, nx, nz, centre, cfg, quarter[0].id, e));
+      } else courses.push(openCourse([trunk.cells[trunk.cells.length - 1]], share, nx, nz, centre, cfg, quarter[0].id, bed));
     }
     // buildings in open land: an open stream from their edge (in a village: its stream starts at the largest one when it
     // has no sewer)
@@ -607,7 +629,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       const r = routeOut([b], block, path, piped, nx, nz, idx, cfg, isOpen);
       if (!r) continue;
       if (vb !== undefined) outfallOf.set(vb, r.cells[r.cells.length - 1]);
-      else courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, e));
+      else courses.push(openCourse(r.cells, share, nx, nz, centre, cfg, b.id, bed));
     }
     // A VILLAGE'S WATER GOES TO ITS BORDER (the artist, 2026-11-16: "권역 나누기"): from its outfall the shortest way
     // to the nearest of its borders, where the border's stream takes it on (below: bordersAt); a village with no
@@ -621,8 +643,9 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
           const q = nearestOnBorder(b, sx, sz);
           if (!best || q.d < best.d) best = q;
         }
-        courses.push(best ? towardCourse(start, best.x, best.z, block, nx, nz, centre, cfg, vi + 1, e) : openCourse([start], share, nx, nz, centre, cfg, vi + 1, e));
+        courses.push(best ? towardCourse(start, best.x, best.z, block, nx, nz, centre, cfg, vi + 1, bed) : openCourse([start], share, nx, nz, centre, cfg, vi + 1, bed));
       }
+    courseCells = bed.cells;
     // the network in use now; cells it no longer uses stay known for `grace` (a pipe briefly out of use is still there)
     if (net.size) {
       for (const [c, v] of lastNet) if (!net.has(c) && e - v.seen <= grace) net.set(c, { ...v });
@@ -844,6 +867,24 @@ export function straightRuns(route: readonly number[], nx: number): [number, num
   return runs;
 }
 
+/** What a course is laid by: how strongly a cell is the old bed (0 … 1), and the cells the courses laid now run through. */
+type CourseBed = { at: (c: number) => number; cells: number[] };
+
+/** A cell's world cell (the grid's own index moves as the ground it covers grows: never a seed of anything). */
+const worldCell = (centre: (c: number) => [number, number], c: number): [number, number] => {
+  const [x, z] = centre(c);
+  return [Math.floor(x / CELL_SIZE), Math.floor(z / CELL_SIZE)];
+};
+/** A smooth noise over the ground (value noise on a lattice `scale` cells apart), 0 … 1 — the same at the same place. */
+function noisePlace(x: number, z: number, scale: number, seed: number): number {
+  const u = x / (CELL_SIZE * scale), v = z / (CELL_SIZE * scale), i = Math.floor(u), j = Math.floor(v), fu = smooth(u - i), fv = smooth(v - j);
+  const a = hash2(i, j, seed), b = hash2(i + 1, j, seed), c = hash2(i, j + 1, seed), d = hash2(i + 1, j + 1, seed);
+  return a + (b - a) * fu + (c - a) * fv + (a - b - c + d) * fu * fv;
+}
+/** The sideways swing of a course at a point: by the place, not by how far along the course it is — so a stretch that
+ *  runs where it ran before lies where it lay (two noises, x and z, of the stream's own seed). */
+const swing = (x: number, z: number, id: number, amp: number): [number, number] => [(noisePlace(x, z, 2.5, (id % 100003) * 2 + 1) * 2 - 1) * amp, (noisePlace(x, z, 2.5, (id % 100003) * 2 + 2) * 2 - 1) * amp];
+
 const smooth = (t: number) => t * t * (3 - 2 * t);
 function noise1(t: number, seed: number): number {
   const i = Math.floor(t);
@@ -855,7 +896,7 @@ function noise1(t: number, seed: number): number {
  * An open stream: the open part of a route, then on down the falling sealed share for `streamLength` (it soaks
  * away), as a meandering polyline through the cell centres (corners rounded).
  */
-function openCourse(route: number[], share: Float32Array, nx: number, nz: number, centre: (c: number) => [number, number], cfg: WaterConfig, id: number, e: number): Float32Array {
+function openCourse(route: number[], share: Float32Array, nx: number, nz: number, centre: (c: number) => [number, number], cfg: WaterConfig, id: number, bed: CourseBed): Float32Array {
   const cells = route.slice();
   // on, away from the sealed ground
   let cur = cells[cells.length - 1];
@@ -869,7 +910,9 @@ function openCourse(route: number[], share: Float32Array, nx: number, nz: number
       if (vi < 0 || vj < 0 || vi >= nx || vj >= nz) continue;
       const v = vj * nx + vi;
       if (seen.has(v)) continue;
-      const s = share[v] + hash2(v, e, 5) * 0.02;
+      // (down the falling sealed share — and into the old bed, where there is one; the ties broken by the place)
+      const [wx, wz] = worldCell(centre, v);
+      const s = share[v] + hash2(wx, wz, 5) * 0.02 - bed.at(v) * 0.3;
       if (s < bs) {
         bs = s;
         best = v;
@@ -881,11 +924,12 @@ function openCourse(route: number[], share: Float32Array, nx: number, nz: number
     cur = best;
     left -= 1;
   }
+  for (const c of cells) bed.cells.push(c);
   const pts: number[] = [];
   for (let i = 0; i < cells.length; i++) {
     const [x, z] = centre(cells[i]);
-    const b = (noise1(i * 0.5 + e * 0.03, id % 100003) * 2 - 1) * cfg.meander * CELL_SIZE * 2;
-    pts.push(x + b, z - b);
+    const [bx, bz] = swing(x, z, id, cfg.meander * CELL_SIZE * 2);
+    pts.push(x + bx, z + bz);
   }
   // round the corners (Chaikin, once), ends kept
   if (pts.length < 6) return soaks(Float32Array.from(pts));
@@ -928,7 +972,7 @@ function borderCourse(b: Border, cfg: WaterConfig, k: number): Float32Array {
  * (never through a standing building), swung a little by noise so it meanders; at most 160 cells. A polyline [x, z, …],
  * corners rounded as an open course's.
  */
-function towardCourse(start: number, tx: number, tz: number, block: Int32Array, nx: number, nz: number, centre: (c: number) => [number, number], cfg: WaterConfig, id: number, e: number): Float32Array {
+function towardCourse(start: number, tx: number, tz: number, block: Int32Array, nx: number, nz: number, centre: (c: number) => [number, number], cfg: WaterConfig, id: number, bed: CourseBed): Float32Array {
   const cells = [start];
   const seen = new Set(cells);
   let cur = start;
@@ -943,7 +987,9 @@ function towardCourse(start: number, tx: number, tz: number, block: Int32Array, 
       const v = vj * nx + vi;
       if (seen.has(v) || block[v] >= 0) continue;
       const [vx, vz] = centre(v);
-      const s = Math.hypot(tx - vx, tz - vz) + (hash2(v, e + id, 9) - 0.5) * CELL_SIZE * 1.2;
+      // (towards the border — and along the old bed, where there is one; swung by the place, not by the slot it is laid in)
+      const [wx, wz] = worldCell(centre, v);
+      const s = Math.hypot(tx - vx, tz - vz) + (hash2(wx, wz, 9 + (id % 1009)) - 0.5) * CELL_SIZE * 1.2 - bed.at(v) * CELL_SIZE * 1.6;
       if (s < bs) {
         bs = s;
         best = v;
@@ -954,11 +1000,12 @@ function towardCourse(start: number, tx: number, tz: number, block: Int32Array, 
     seen.add(best);
     cur = best;
   }
+  for (const c of cells) bed.cells.push(c);
   const pts: number[] = [];
   for (let i = 0; i < cells.length; i++) {
     const [x, z] = centre(cells[i]);
-    const b = (noise1(i * 0.35 + e * 0.02, id % 100003) * 2 - 1) * cfg.meander * CELL_SIZE * 2;
-    pts.push(x + b, z - b);
+    const [bx, bz] = swing(x, z, id, cfg.meander * CELL_SIZE * 2);
+    pts.push(x + bx, z + bz);
   }
   if (pts.length < 6) return Float32Array.from(pts);
   const q: number[] = [pts[0], pts[1]];
