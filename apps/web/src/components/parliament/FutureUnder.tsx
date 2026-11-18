@@ -788,6 +788,13 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     if (ms > 4) markSpan("future layer (FutureUnder)", ms);
   });
   const frame = (state: RootState, dt: number): void => {
+    // (each section's time, kept as a span when it is long — what stalls the screen when a layer arrives)
+    let lapAt = performance.now();
+    const lap = (name: string) => {
+      const now = performance.now();
+      if (now - lapAt > 3) markSpan(`future layer › ${name}`, now - lapAt);
+      lapAt = now;
+    };
     const r = futureLink.result;
     const layerOn = !!r && knob(`${LAYER}.on`) !== false;
     // WHERE THE LAYER'S GROUND IS — as FutureVillage places it: above the window's top (or above the slot it was read
@@ -825,6 +832,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
 
+    lap("walk");
     // THE DEPOSIT (stage 2): on the layer's ground a mound where a place was built for long or again and again — a
     // low heap, the higher and wider the longer — and a patch of dark earth where one was only lightly built
     const mm = mounds.current, sm = stains.current;
@@ -971,6 +979,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
 
+    lap("deposit");
     const op = other.current;
     if (op) {
       op.visible = layerOn && k.soil && k.showInferred;
@@ -1015,6 +1024,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         ctl.update();
       }
     }
+    lap("other plants");
     // (the water's belt of plants is retired: the water is shown as emptiness — 물 › 비움)
     const wp = waterPts.current;
     if (wp) wp.visible = false;
@@ -1051,6 +1061,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         }
       }
     }
+    lap("stones");
     // GRASS AND SCRUB, each in its own colours, dot size and jitter; the wild forest's shown or not with its knob,
     // the inferred ones with theirs
     const pp = plantPts.current;
@@ -1170,6 +1181,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
     // (the inferred plants are the layer's own points — FutureVillage — shown or not by this folder's knob)
+    lap("plant clouds");
     const inferred = three.scene.getObjectByName("future-veg");
     if (inferred) inferred.visible = k.showInferred;
     const tp = treePts.current, tl = treeStemMesh.current, cl = clumps.current;
@@ -1469,6 +1481,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       }
     }
 
+    lap("trees");
     const im = mesh.current;
     if (!im) return;
     const on = layerOn && k.pipes;
