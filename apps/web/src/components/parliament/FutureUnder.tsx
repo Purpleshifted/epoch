@@ -148,6 +148,18 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const goTo = useRef(false);
   // (the screenshot button: set once the canvas is known)
   const shoot = useRef<(() => void) | null>(null);
+  // THE SCREENSHOT, WHERE IT IS SEEN (the artist, 2026-11-18: "스샷버튼은 언제 넣어줄래" — it was inside 보기, folded up):
+  // a group of its own, open, at the top of the view of the layer alone
+  useControls(
+    "미래 마을 층 — 스크린샷",
+    {
+      "스크린샷 (PNG로 저장)": button(() => shoot.current?.()),
+      "미래 층으로 카메라 이동": button(() => {
+        goTo.current = true;
+      }),
+    },
+    { collapsed: false, order: -10 },
+  );
   const k = useControls(
     GROUP,
     savable(GROUP, {
@@ -654,7 +666,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // saved as a PNG named by the time
   shoot.current = () => {
     try {
-      three.gl.render(three.scene, three.camera);
+      // (with the drawing buffer kept — 렌더 › preserveDrawingBuffer — the frame as it is on the screen, bloom and all;
+      // without it the scene is drawn once more, plain, and read straight back)
+      if (!three.gl.getContextAttributes()?.preserveDrawingBuffer) three.gl.render(three.scene, three.camera);
       three.gl.domElement.toBlob((blob) => {
         if (!blob) return;
         const a = document.createElement("a"), d = new Date(), z = (v: number) => String(v).padStart(2, "0");
@@ -1286,8 +1300,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             stemInfo.set([kd, ownerLife[i * 2] ?? -1e9, ownerLife[i * 2 + 1] ?? -1], o * 3);
             // (light and dark: a tree its own, and each piece of it a little of its own on top — the artist: "줄기 색 지터는 더
             // 빡세게 넣어줘, 명암")
-            const w = Math.pow(f, 1.5) * 0.6, lum = Math.max(0.08, (1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * (1 + (rnd(f * 13.1 + kd * 3.7, own * 7.7) - 0.5) * 0.6 * k.treeStemColorJitter));
-            tl.setColorAt(o, tone.c.set((sc.r + (a.r - sc.r) * w) * lum, (sc.g + (a.g - sc.g) * w) * lum, (sc.b + (a.b - sc.b) * w) * lum));
+            // (ONE COLOUR A TREE — the artist, 2026-11-18: "줄기 명도 지터는 ㅋㅋㅋ 한 나무 안에서는 색이 같아야지...": the
+            // light and dark is the tree's own, the same in every piece of it; no piece of its own, no turning towards
+            // the crown's colour at the tips)
+            const lum = Math.max(0.08, 1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter);
+            tl.setColorAt(o, tone.c.set(sc.r * lum, sc.g * lum, sc.b * lum));
           }
           tl.count = n;
           stemInfoA.needsUpdate = true;
