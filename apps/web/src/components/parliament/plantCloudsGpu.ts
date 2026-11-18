@@ -66,8 +66,56 @@ export function plantBaseGeometry(): THREE.InstancedBufferGeometry {
   return g;
 }
 
-/** Puts the clouds of a result in: three instanced attributes from the 12-a-cloud records (foot and height in world). */
-export function setPlantClouds(g: THREE.InstancedBufferGeometry, rec: Float32Array, unit: number): void {
+/**
+ * WHAT COMES GROWS IN; WHAT GOES FADES (step 3 of re-laying only what changed — the artist, 2026-11-18: "미래 모습
+ * 변화시킬 때 … 더 자연스러워 보일 방법"): each cloud is known from one layer to the next by its place, kind and own
+ * number (step 1 made those stable), and remembers when it came; one that is no longer there stays a while as it was,
+ * fading. The shader grows a cloud in over `uLife.y` seconds — its points coming one by one, rising and widening —
+ * and fades one out over `uLife.z`. The clouds there when the view opens are there already.
+ */
+export interface PlantLife {
+  recs: Map<string, Float32Array>;
+  born: Map<string, number>;
+  dying: { rec: Float32Array; born: number; died: number }[];
+  first: boolean;
+}
+export const newPlantLife = (): PlantLife => ({ recs: new Map(), born: new Map(), dying: [], first: true });
+const recKey = (r: Float32Array, o: number) => `${r[o].toFixed(2)},${r[o + 1].toFixed(2)},${r[o + 5]},${r[o + 9].toFixed(5)}`;
+
+/** Puts the clouds of a result in: three instanced attributes from the 12-a-cloud records (foot and height in world),
+ *  and, with `life`, a fourth — when each came and when it went (−1: it has not). */
+export function setPlantClouds(g: THREE.InstancedBufferGeometry, rec0: Float32Array, unit: number, life?: PlantLife, now = 0, fadeSec = 0): void {
+  let rec = rec0, lifeD: Float32Array | null = null;
+  if (life) {
+    const n0 = Math.floor(rec0.length / STRIDE), recs = new Map<string, Float32Array>(), born = new Map<string, number>();
+    for (let i = 0; i < n0; i++) {
+      const o = i * STRIDE, key = recKey(rec0, o);
+      recs.set(key, rec0.subarray(o, o + STRIDE));
+      born.set(key, life.born.get(key) ?? (life.first ? -1e9 : now));
+    }
+    // (those gone since: fading from now; those gone before, still fading if their time is not up)
+    const dying = life.dying.filter((d) => now - d.died < fadeSec);
+    if (!life.first && fadeSec > 0) for (const [key, r] of life.recs) if (!recs.has(key)) dying.push({ rec: Float32Array.from(r), born: life.born.get(key) ?? -1e9, died: now });
+    life.recs = recs;
+    life.born = born;
+    life.dying = dying;
+    life.first = false;
+    rec = new Float32Array((n0 + dying.length) * STRIDE);
+    rec.set(rec0.subarray(0, n0 * STRIDE));
+    lifeD = new Float32Array((n0 + dying.length) * 2);
+    let i = 0;
+    for (const key of recs.keys()) {
+      lifeD[i * 2] = born.get(key) ?? -1e9;
+      lifeD[i * 2 + 1] = -1;
+      i++;
+    }
+    for (const d of dying) {
+      rec.set(d.rec, i * STRIDE);
+      lifeD[i * 2] = d.born;
+      lifeD[i * 2 + 1] = d.died;
+      i++;
+    }
+  }
   const n = Math.floor(rec.length / STRIDE);
   const a = new Float32Array(n * 4), b = new Float32Array(n * 4), c = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
@@ -75,6 +123,15 @@ export function setPlantClouds(g: THREE.InstancedBufferGeometry, rec: Float32Arr
     a.set([rec[o], rec[o + 2] * unit, rec[o + 1], rec[o + 3]], i * 4);
     b.set([rec[o + 4] * unit, rec[o + 5], rec[o + 6], rec[o + 7]], i * 4);
     c.set([rec[o + 8], rec[o + 9], rec[o + 10], rec[o + 11]], i * 4);
+  }
+  if (!lifeD) {
+    lifeD = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) [lifeD[i * 2], lifeD[i * 2 + 1]] = [-1e9, -1];
+  }
+  {
+    const old = g.getAttribute("iD");
+    g.setAttribute("iD", new THREE.InstancedBufferAttribute(lifeD, 2));
+    if (old) (old as THREE.BufferAttribute).array = new Float32Array(0);
   }
   for (const [name, arr] of [["iA", a], ["iB", b], ["iC", c]] as const) {
     const old = g.getAttribute(name);
@@ -111,6 +168,8 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
     // DISTANCE LOD ("미래뷰 식생점에 lod 추가하면 비용 덜 드는지"): past x the points thin, to (1 − z) of them at y, each
     // the bigger for it so the ground stays covered
     uLod: { value: new THREE.Vector3(30, 140, 0) },
+    // (the time now, seconds; how long a cloud takes to grow in, and to fade — PlantLife)
+    uLife: { value: new THREE.Vector3(0, 0, 0) },
   };
   const mat = new THREE.PointsMaterial({ vertexColors: true, size: 1, sizeAttenuation: true });
   if (halo) {
@@ -140,6 +199,8 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           "attribute vec4 iA;",
           "attribute vec4 iB;",
           "attribute vec4 iC;",
+          "attribute vec2 iD;",
+          "uniform vec3 uLife;",
           "uniform vec3 uGrassA, uGrassB, uScrubA, uScrubB, uSoilA, uSoilB, uF1, uF2, uF3, uF4;",
           "uniform vec4 uGrass, uScrub, uFlower;",
           "uniform vec2 uDense, uDot, uDotJit, uShow;",
@@ -160,9 +221,13 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           "float hB = fract(own * 91.7);",
           "float ca = cos(hB * 6.2832), sa = sin(hB * 6.2832);",
           "vec3 o = position;",
+          // (its life: 0 → 1 as it grows in, 1 → 0 as it fades)
+          "float life = 1.0;",
+          "if (uLife.y > 0.0) life *= smoothstep(0.0, uLife.y, uLife.x - iD.x);",
+          "if (iD.y >= 0.0) life *= uLife.z > 0.0 ? 1.0 - smoothstep(0.0, uLife.z, uLife.x - iD.y) : 0.0;",
           "vec2 xz = vec2(ca * o.x - sa * o.z, sa * o.x + ca * o.z);",
-          "float rad = iA.w * P.x * jit;",
-          "float h = iB.x * P.y * (scrub ? jit : 1.0);",
+          "float rad = iA.w * P.x * jit * mix(0.45, 1.0, life);",
+          "float h = iB.x * P.y * (scrub ? jit : 1.0) * mix(0.2, 1.0, life);",
           "float fl = P.z;",
           "vec3 tPos;",
           // (grass: a carpet, low and wide; scrub: a dome sitting on the ground — or, flatter, an open low spread)
@@ -177,7 +242,7 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           "  float up = o.y * 0.5 + 0.5;",
           "  if (fract(pu * 5.1 + own * 3.7) < 0.3) { sq = o.xz * 1.6; up = 1.0 + 0.04 * fract(pu * 9.7); off = 1.0; }",
           "  float hh = 1.0 - pow(1.0 - up, 1.0 + uCover.y * 2.0);",
-          "  tPos = vec3(iA.x + clamp(sq.x, -1.0, 1.0) * iA.w * off, iA.y + (up > 1.0 ? up : hh) * iB.x, iA.z + clamp(sq.y, -1.0, 1.0) * iC.w * off);",
+          "  tPos = vec3(iA.x + clamp(sq.x, -1.0, 1.0) * iA.w * off, iA.y + (up > 1.0 ? up : hh) * iB.x * mix(0.2, 1.0, life), iA.z + clamp(sq.y, -1.0, 1.0) * iC.w * off);",
           "}",
           "float vis = (pu < iC.z * (cover ? uCover.z : scrub ? uDense.y : uDense.x)) ? 1.0 : 0.0;",
           "vis *= iC.x > 0.5 ? uShow.y : uShow.x;",
@@ -185,6 +250,7 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           "float dist = -(modelViewMatrix * vec4(tPos, 1.0)).z;",
           "float lod = 1.0 - uLod.z * smoothstep(uLod.x, uLod.y, dist);",
           "if (fract(pu * 61.7 + own * 5.3) > lod) vis = 0.0;",
+          "if (fract(pu * 37.3 + own * 2.9) > life) vis = 0.0;",
           "float fu = fract(pu * 13.37 + own * 7.1);",
           "bool flower = !cover && fu < iB.z * uFlower.x;",
           "float pScale = vis * (cover ? uCover.w : scrub ? uDot.y : uDot.x) * max(0.15, 1.0 + (fract(pu * 5.3 + own) - 0.5) * 2.0 * (scrub ? uDotJit.y : uDotJit.x)) * (flower ? uFlower.z : 1.0) * inversesqrt(max(lod, 0.1));",

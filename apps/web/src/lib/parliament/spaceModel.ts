@@ -916,6 +916,8 @@ export class SpaceModel {
 
   private futureKey = "";
   private futureAt = 0;
+  /** What the last layer read, summed up (computeFuture: made again only when it changed). */
+  private futureDigest = "";
   /** The plants and trees of the last layer made, each by its place, kind and size — to tell how much of the layer the
    *  next one keeps as it was (readout "future plants kept from the last (%)": step 1 of re-laying only what changed). */
   private futureSeen: Set<string> | null = null;
@@ -972,6 +974,37 @@ export class SpaceModel {
     // path at all, so no frame was drawn and no ground counted as trodden. A cell is path in a slot when a way in
     // use then crosses it (waysBySlot); the pipes are every run laid.
     const ways = this.waysBySlot(K - Math.max(4, Math.round(cfg.band)), K);
+    // NOTHING IT READS HAS CHANGED, SO NOTHING IS MADE AGAIN (step 2 of re-laying only what changed — the artist,
+    // 2026-11-18: "변한 곳만 재배치하도록 해서 리소스 덜 쓰고"): the layer reads the slots up to K — the buildings' levels
+    // there, the ways, the water — and the bots write into the present, above it. So what it reads is summed up (in
+    // an order that does not matter) and, the same as last time with the same knobs, the last layer stands: the
+    // worker is spared the whole inference every few seconds while the slot has not moved.
+    {
+      let hs = 0, ns = 0, hw = 0, hr = 0;
+      const mix = (a: number, b: number) => Math.imul(a ^ (b + 0x9e3779b9), 0x85ebca6b) ^ Math.imul(b, 0xc2b2ae35);
+      for (const s of this.seeds) {
+        if (!s.levels) continue;
+        const sx = Math.round(s.x * 97), sz = Math.round(s.z * 89);
+        for (const [kk, l] of s.levels)
+          if (kk <= K) {
+            hs = (hs + mix(mix(sx, sz), kk * 131 + Math.round(l * 7))) | 0;
+            ns++;
+          }
+      }
+      for (const [kk, set] of ways) for (const c of set) hw = (hw + mix(kk, c)) | 0;
+      const backK = K - Math.max(4, Math.round(cfg.band)) - Math.ceil(Math.max(cfg.water?.grow ?? 0, cfg.water?.fade ?? 0)) - 2;
+      for (const [kk, list] of this.drain.streams) {
+        if (kk > K || kk < backK) continue;
+        for (const line of list) if (line.length >= 2) hr = (hr + mix(mix(kk, line.length), mix(Math.round(line[0] * 50), Math.round(line[line.length - 1] * 50)))) | 0;
+      }
+      const digest = `${key}|${hs}:${ns}|${hw}|${hr}|${this.drain.pipes.length}|${JSON.stringify(bc.erode)}`;
+      if (digest === this.futureDigest) {
+        this.stages["future skipped, nothing it reads changed (n)"] = (this.stages["future skipped, nothing it reads changed (n)"] ?? 0) + 1;
+        return null;
+      }
+      this.futureDigest = digest;
+    }
+    const tInfer = performance.now();
     const plan0 = inferFuture({ k: K, cells: this.seeds, pathAt: (cx, cz, k) => ways.get(k)?.has(cx * 65536 + cz) ?? false, streams: this.drain.streams, pipes: this.drain.pipes, regions: this.regionsAt((K + 0.5) * box.secPerUnit), cfg });
     // (the ways as the walk worker's own smooth lines, unless the knob says the cells)
     const plan = cfg.smoothRoads === false ? plan0 : { ...plan0, ...this.waysLinesAt(K, Math.floor(Math.max(4, Math.round(cfg.band)) / 2)) };
@@ -1134,6 +1167,7 @@ export class SpaceModel {
       }
       this.futureSeen = seen;
     }
+    this.stages["future made in (ms)"] = Math.round(performance.now() - tInfer);
     Object.assign(this.stages, { "future buildings (n)": r.n.stand + r.n.grown, "future left (n)": r.n.left, "future water blocked (n)": r.n.blocked, "future lasting buildings (n)": r.n.lasting ?? 0, "future frame of paths (cells)": r.n.roadOld ?? 0, "future reads slot": K, "future slots under the window's top": Math.floor(bc.top) - 1 - K, "future roads (n)": r.n.road, "future masses gone (n)": gone, "future stood to the end (n)": toEnd, "future parts fallen (n)": fallen, "future parts that lost their support (n)": unheld,"future footings kept (n)": footings, "future plants of used ground (n)": r.n.used ?? 0, "future water belt points (n)": (r.vegWater?.length ?? 0) / 4, "future tree points (n)": (r.vegTree?.length ?? 0) / 5,"future grass (clouds)": r.n.grass ?? 0,"future scrub (clouds)": r.n.shrub ?? 0, "future trees (clouds)": r.n.tree ?? 0, "future frame broken by roots (cells)": r.n.cracked ?? 0, "future mounds (n)": r.n.mound ?? 0,"future dark earth (n)": r.n.stain ?? 0, "future pipe runs (n)": r.n.pipe ?? 0, "future ways read (slots)": ways.size,"future plants (n)": r.veg.length / 3 });
     return r;
   }
