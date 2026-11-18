@@ -301,13 +301,16 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
   const ts = k.refractScale as number;
   if (hero) {
     // THE HERO SHOT: the best of every knob left on 자동 — shadows, a large shadow map, AO at full resolution and its
-    // highest quality, the refraction at full size, every vegetation point, the full detail at any distance, MSAA 8
+    // highest quality, the refraction at full size, every vegetation point, the full detail at any distance
     const shadowsOn = pick(k.shadows as Tri, true);
+    // (the context's own MSAA does nothing while the composer draws the picture — it only costs memory, a buffer four
+    // samples deep at the hero shot's size: off then; changing it makes the canvas anew, once, as the mode turns)
+    const post = ao || grain > 0 || dof;
     return {
       dpr,
-      antialias,
+      antialias: !post,
       preserveDrawingBuffer,
-      canvasKey: `gl:aa:${preserveDrawingBuffer ? "keep" : "nokeep"}`,
+      canvasKey: `gl:${post ? "noaa" : "aa"}:${preserveDrawingBuffer ? "keep" : "nokeep"}`,
       shadowsOn,
       shadowType: k.shadowType as ShadowType,
       shadowMapSize: Math.max(4096, k.shadowMap as number),
@@ -319,7 +322,9 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       sunTurnMin: k.sunSpin === "on" ? (k.sunSpinMin as number) : k.sunSpin === "off" ? 0 : null,
       dof,
       composerOn: ao || grain > 0 || dof,
-      composerMsaa: inp.shot ? inp.shot.msaa : 8,
+      // (one value for the whole mode, the shot included: a change makes the composer anew — all its buffers again, the
+      // old ones still held — and that peak, at the shot's size, lost the WebGL context on the test, 2026-11-18)
+      composerMsaa: 4,
       refraction: pick(k.refraction as Tri, true),
       transmissionScale: ts > 0 ? ts : 1,
       vegCount: share > 0 ? (n: number) => Math.max(1, Math.round(n * share)) : (n: number) => n,

@@ -2600,8 +2600,9 @@ function Vegetation({
 
   useFrame((_, dt) => {
     // a point's size in pixels for its size in the world, at its distance
+    // (times the camera's zoom: 1 but while a hero shot draws its frame alone, zoomed — HeroShot.tsx)
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 40;
-    mat.uniforms.uScale.value = gl.domElement.height / (2 * Math.tan((fov * Math.PI) / 360));
+    mat.uniforms.uScale.value = ((camera as THREE.PerspectiveCamera).zoom ?? 1) * (gl.domElement.height / (2 * Math.tan((fov * Math.PI) / 360)));
     // the clouds' texture of the points in use (set here, before the frame is drawn, so a new set of points is never
     // drawn with the last one's middles)
     const cloudTex = (geom.userData.cloudTex as THREE.DataTexture | undefined) ?? null;
@@ -4507,6 +4508,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         dpr={ro.dpr}
         camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }}
         gl={{ antialias: ro.antialias, preserveDrawingBuffer: ro.preserveDrawingBuffer }}
+        // (while a hero shot saves, the canvas stands on the frame alone, sized to it: HeroShot.tsx)
+        style={hero.shot ? { position: "absolute", left: hero.shot.rect.x, top: hero.shot.rect.y, width: hero.shot.rect.w, height: hero.shot.rect.h } : undefined}
       >
         <color attach="background" args={[theme.bg]} />
         <ambientLight intensity={0.85} />

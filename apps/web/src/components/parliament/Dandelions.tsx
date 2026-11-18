@@ -186,7 +186,8 @@ export function Dandelions({ log, secPerUnit, unit, look }: { log: EventLog; sec
   const heightOf = (s: number) => (s / secPerUnit) * unit;
   useFrame((state, dt) => {
     const cam = state.camera as THREE.PerspectiveCamera;
-    scale.current.value = state.gl.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360));
+    // (times the camera's zoom: 1 but while a hero shot draws its frame alone, zoomed — HeroShot.tsx)
+    scale.current.value = (cam.zoom ?? 1) * (state.gl.domElement.height / (2 * Math.tan((cam.fov * Math.PI) / 360)));
     const { lines, dots, dust, lineMat, ghostLineMat, dotMat, ghostDotMat, dustMat, ghostLine, ghostDot } = parts;
     // the knobs that need no redrawing
     lineMat.linewidth = ghostLineMat.linewidth = look.lineWidth;
