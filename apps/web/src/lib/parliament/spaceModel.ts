@@ -1019,6 +1019,10 @@ export class SpaceModel {
     // (the plants over the ruins: records of the plants' own kind, laid on the layer's ground, at (K + 1) slots in the
     // parts' frame — and joined to the plants' records below)
     const cover: number[] = [], coverK = Math.max(0, Math.min(1, cfg.cover ?? 0)), groundY = (K + 1) * box.unit;
+    // (the surfaces that are left to stand on — the kept bodies, slabs and plinths — by their ground cell, the world
+    // wrapping: what the plants and trees on the ruins are set on, below)
+    const WORLD = 160 * CELL, wrapCell = (c: number) => ((c % 160) + 160) % 160, surfKey = (cx: number, cz: number) => wrapCell(cx) * 160 + wrapCell(cz);
+    const surf = new Map<number, Box[]>();
     for (const bld of plan.buildings) {
       const sd = bld.from;
       const rc = box.recipe ?? RECIPES[sd.material];
@@ -1110,6 +1114,16 @@ export class SpaceModel {
         else lost.push(a);
       }
       for (const a of standing) if (a.kind === "drip") (kept.some((q) => bot(q) <= top(a) + tol && top(q) >= top(a) - tol && over(a, q)) ? drips : lost).push(a);
+      for (const b of kept) {
+        if (b.kind !== "mass" && b.kind !== "slab" && b.kind !== "plinth") continue;
+        const [hx, hz] = ext(b);
+        for (let cx = Math.floor((b.x - hx) / CELL); cx <= Math.floor((b.x + hx) / CELL); cx++)
+          for (let cz = Math.floor((b.z - hz) / CELL); cz <= Math.floor((b.z + hz) / CELL); cz++) {
+            const l = surf.get(surfKey(cx, cz));
+            if (l) l.push(b);
+            else surf.set(surfKey(cx, cz), [b]);
+          }
+      }
       for (const b of [...kept, ...drips]) {
         (lists[b.kind] ??= []).push(b);
         if (b.kind === "basement" || b.kind === "pile" || b.kind === "plinth") footings++;
@@ -1148,6 +1162,29 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
+    // NOTHING GROWS IN THE AIR (the artist, 2026-11-18: "허공에 가끔 식생 생기는 거 해결 안 됐어"): the plants and the
+    // trees were set on a building's roof by how high it had stood — but what is left of it is decided only here, and
+    // its body and slabs may be gone, stripped or fallen. So each plant and tree that stands above the ground is set
+    // on the highest surface that is still there under it (a kept body, slab or plinth whose footprint holds its
+    // place), or on the ground when nothing is
+    const reground = (a: Float32Array | undefined, stride: number) => {
+      if (!a) return;
+      for (let o = 0; o + stride - 1 < a.length; o += stride) {
+        if (!(a[o + 2] > 0)) continue;
+        const x = a[o], z = a[o + 1];
+        let topS = 0;
+        for (const b of surf.get(surfKey(Math.floor(x / CELL), Math.floor(z / CELL))) ?? []) {
+          const hx = b.tilt ? Math.max(b.sx, b.sy, b.sz) / 2 : b.sx / 2, hz = b.tilt ? hx : b.sz / 2;
+          let dx = x - b.x, dz = z - b.z;
+          dx -= WORLD * Math.round(dx / WORLD);
+          dz -= WORLD * Math.round(dz / WORLD);
+          if (Math.abs(dx) <= hx + 0.05 && Math.abs(dz) <= hz + 0.05) topS = Math.max(topS, (b.y + halfHeight(b) - groundY) / box.unit);
+        }
+        a[o + 2] = Math.max(0, topS);
+      }
+    };
+    reground(r.plantClouds, 12);
+    reground(r.treeStems, 11);
     if (cover.length) {
       const pc = r.plantClouds ?? new Float32Array(0), all = new Float32Array(pc.length + cover.length);
       all.set(pc);
