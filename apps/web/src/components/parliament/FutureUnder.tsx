@@ -480,6 +480,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // THE CROWN AS CLUMPS: one soft ball of points (a gaussian spread, thick at its middle) drawn once per clump by the
   // GPU from the clump's centre, radius and colour — as the present's gatherings are (ParliamentSpace cloudGeometry)
   const clumps = useRef<THREE.Points>(null);
+  // (the time and the life's lengths, and the distance LOD, shared by the crowns' and the stems' shaders)
+  const lifeU = useMemo(() => ({ value: new THREE.Vector3(0, 0, 0) }), []);
+  const lodU = useMemo(() => ({ value: new THREE.Vector3(30, 140, 0) }), []);
   const clumpGeo = useMemo(() => {
     const g = new THREE.InstancedBufferGeometry();
     const n = Math.max(6, Math.round(k.treeClumpPts)), off = new Float32Array(n * 3);
@@ -493,36 +496,45 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     g.setAttribute("position", new THREE.BufferAttribute(off, 3));
     g.setAttribute("iCenter", new THREE.InstancedBufferAttribute(new Float32Array(CLUMP_CAP * 4), 4));
     g.setAttribute("color", new THREE.InstancedBufferAttribute(new Float32Array(CLUMP_CAP * 3), 3));
-    g.setAttribute("iBorn", new THREE.InstancedBufferAttribute(new Float32Array(CLUMP_CAP).fill(-1e9), 1));
+    g.setAttribute("iLife", new THREE.InstancedBufferAttribute(new Float32Array(CLUMP_CAP * 2), 2));
     g.instanceCount = 0;
     return g;
   }, [k.treeClumpPts]);
   useEffect(() => () => clumpGeo.dispose(), [clumpGeo]);
   const clumpMat = useMemo(() => {
     const m = new THREE.PointsMaterial({ vertexColors: true, size: 0.08, sizeAttenuation: true });
-    // (a tree that has come grows in: its clumps widen from small, their points from nothing — uLife as the plants')
-    const life = new THREE.Vector3(0, 0, 0);
-    m.userData.life = life;
+    // (a tree that has come grows in: its clumps widen from small, their points from nothing; one gone fades the same
+    // way back — uLife as the plants'; and far off fewer points, each the bigger — uLod as the plants')
     m.onBeforeCompile = (shader) => {
-      shader.uniforms.uLife = { value: life };
+      shader.uniforms.uLife = lifeU;
+      shader.uniforms.uLod = lodU;
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\nattribute vec4 iCenter;\nattribute float iBorn;\nuniform vec3 uLife;\nfloat cLife;")
+        .replace("#include <common>", "#include <common>\nattribute vec4 iCenter;\nattribute vec2 iLife;\nuniform vec3 uLife, uLod;\nfloat cLife;")
         .replace(
           "#include <begin_vertex>",
           [
             "float hB = fract(sin(dot(iCenter.xyz, vec3(39.346, 11.135, 83.155))) * 24634.6345);",
             "float ca = cos(hB * 6.2832), sa = sin(hB * 6.2832);",
             "vec3 off = vec3(ca * position.x - sa * position.z, position.y, sa * position.x + ca * position.z);",
-            "cLife = uLife.y > 0.0 ? smoothstep(0.0, uLife.y, uLife.x - iBorn) : 1.0;",
+            "cLife = uLife.y > 0.0 ? smoothstep(0.0, uLife.y, uLife.x - iLife.x) : 1.0;",
+            "if (iLife.y >= 0.0) cLife *= uLife.z > 0.0 ? 1.0 - smoothstep(0.0, uLife.z, uLife.x - iLife.y) : 0.0;",
             "vec3 transformed = iCenter.xyz + off * iCenter.w * mix(0.25, 1.0, cLife);",
           ].join("\n"),
         )
         .replace("#include <color_vertex>", "#include <color_vertex>\nvColor.rgb *= 0.82 + 0.25 * position.y;")
-        .replace("#include <fog_vertex>", "gl_PointSize *= cLife;\n#include <fog_vertex>");
+        .replace(
+          "#include <fog_vertex>",
+          [
+            "float cLod = 1.0 - uLod.z * smoothstep(uLod.x, uLod.y, -mvPosition.z);",
+            "float cU = fract(sin(dot(position, vec3(12.9898, 78.233, 37.719)) + iCenter.x * 0.37) * 43758.5453);",
+            "gl_PointSize *= cLife * (cU > cLod ? 0.0 : inversesqrt(max(cLod, 0.1)));",
+            "#include <fog_vertex>",
+          ].join("\n"),
+        );
     };
     m.customProgramCacheKey = () => "future-tree-clumps";
     return m;
-  }, []);
+  }, [lifeU, lodU]);
   useEffect(() => () => clumpMat.dispose(), [clumpMat]);
   // (the wild forest's other plants: FutureResult.vegWild, in the layer's own two colours)
   const wildPts = useRef<THREE.Points>(null);
@@ -542,7 +554,48 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const plantPts = useRef<THREE.Points>(null);
   // (which clouds were there, and since when: plantCloudsGpu PlantLife; the trees' the same, by their own number)
   const plantLife = useRef(newPlantLife());
-  const treeBorn = useRef<Map<number, number> | null>(null);
+  // (the trees of the last layer by their own number, when each came, and those gone, fading — as the plants')
+  const treeLife = useRef<{ version: number; first: boolean; recs: Map<number, Float32Array>; born: Map<number, number>; dying: { rec: Float32Array; born: number; died: number }[] }>({ version: -1, first: true, recs: new Map(), born: new Map(), dying: [] });
+  // THE STEMS' OWN SHADER (the artist, 2026-11-18: "lod 는 식생 점이랑 가지에 적용 가능하냐는 거였는데", and "바로 나타나고
+  // 사라지는 것들 중에 더 연속적으로"): each piece knows its kind (0 trunk, 1 bough, 2 twig) and its tree's coming and
+  // going — a tree grows its trunk first, then its boughs, then its twigs, each piece lengthening from its base; and
+  // far off the twigs, then the boughs, thin out
+  const stemGeo = useMemo(() => {
+    const g = new THREE.CylinderGeometry(1, 1, 1, 5);
+    g.setAttribute("iStem", new THREE.InstancedBufferAttribute(new Float32Array(STEM_CAP * 3), 3));
+    return g;
+  }, []);
+  useEffect(() => () => stemGeo.dispose(), [stemGeo]);
+  const stemMat = useMemo(() => {
+    const m = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 1, metalness: 0 });
+    m.onBeforeCompile = (shader) => {
+      shader.uniforms.uLife = lifeU;
+      shader.uniforms.uLod = lodU;
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute vec3 iStem;\nuniform vec3 uLife, uLod;")
+        .replace(
+          "#include <begin_vertex>",
+          [
+            "#include <begin_vertex>",
+            "float sLife = 1.0;",
+            "if (uLife.y > 0.0) sLife *= smoothstep(0.0, uLife.y, uLife.x - iStem.y);",
+            "if (iStem.z >= 0.0) sLife *= uLife.z > 0.0 ? 1.0 - smoothstep(0.0, uLife.z, uLife.x - iStem.z) : 0.0;",
+            // (the trunk over the first part of the tree's life, the boughs after, the twigs last)
+            "float kG = clamp((sLife - iStem.x * 0.3) / 0.4, 0.0, 1.0);",
+            // (far off: the twigs go first, then the boughs — by a number of each piece's own)
+            "vec4 sW = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);",
+            "float sFar = smoothstep(uLod.x, uLod.y, distance(cameraPosition, sW.xyz)) * uLod.z;",
+            "float sKeep = iStem.x > 1.5 ? 1.0 - 1.2 * sFar : iStem.x > 0.5 ? 1.0 - 0.7 * sFar : 1.0;",
+            "if (fract(float(gl_InstanceID) * 0.6180339) > sKeep) kG = 0.0;",
+            "transformed.xz *= kG;",
+            "transformed.y = (transformed.y + 0.5) * kG - 0.5;",
+          ].join("\n"),
+        );
+    };
+    m.customProgramCacheKey = () => "future-tree-stems";
+    return m;
+  }, [lifeU, lodU]);
+  useEffect(() => () => stemMat.dispose(), [stemMat]);
   const plantSeen = useRef(-1);
   const scrubPts = useRef<THREE.Points>(null);
   const drawnGS = useRef("");
@@ -911,7 +964,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         (U.uCover.value as THREE.Vector4).set(k.coverOff, k.coverHigh, k.coverDense, k.coverDot);
         (U.uLod.value as THREE.Vector3).set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
         (U.uLife.value as THREE.Vector3).set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
-        (clumpMat.userData.life as THREE.Vector3).set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
+        lifeU.value.set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
+        lodU.value.set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
         (U.uHalo.value as THREE.Vector3).set(k.flowerGlow, k.flowerGlowSize, k.flowerGlowFall);
         const bloomOn = k.flowerBloom > 0 && k.flowerAmount > 0 && (futureOnly() || k.flowerBloomWall);
         (U.uBright.value as THREE.Vector2).set(bloomOn ? k.flowerBloomBright : 1, bloomOn ? k.flowerBloomBright : 1);
@@ -1023,12 +1077,25 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             }
           }
           // EACH TREE: [x, z, foot, stem, crown's radius, crown from, crown to, its own number, shape, wild, kind] (11)
-          const st = r.treeStems ?? new Float32Array(0), STRIDE = 11;
-          const seg: number[] = [], far: number[] = [], kinds: number[] = [], owner: number[] = [], ownerSize: number[] = [];
+          const st0 = r.treeStems ?? new Float32Array(0), STRIDE = 11;
+          // (the trees that came and those that went, by their own number — kept from one layer to the next)
+          const TL = treeLife.current, nowS = performance.now() / 1000;
+          if (TL.version !== futureLink.version) {
+            const recs = new Map<number, Float32Array>(), born = new Map<number, number>();
+            for (let i = 0; i + STRIDE - 1 < st0.length; i += STRIDE) recs.set(st0[i + 7], st0.subarray(i, i + STRIDE));
+            for (const id of recs.keys()) born.set(id, TL.first ? -1e9 : (TL.born.get(id) ?? nowS));
+            const dying = TL.dying.filter((dd) => nowS - dd.died < k.lifeFade);
+            if (!TL.first && k.lifeFade > 0) for (const [id, rec] of TL.recs) if (!recs.has(id)) dying.push({ rec: Float32Array.from(rec), born: TL.born.get(id) ?? -1e9, died: nowS });
+            Object.assign(TL, { version: futureLink.version, first: false, recs, born, dying });
+          }
+          const nLive = Math.floor(st0.length / STRIDE);
+          const st = new Float32Array((nLive + TL.dying.length) * STRIDE);
+          st.set(st0.subarray(0, nLive * STRIDE));
+          TL.dying.forEach((dd, j) => st.set(dd.rec, (nLive + j) * STRIDE));
+          const lifeOf = (ti: number): [number, number] => (ti < nLive ? [TL.born.get(st[ti * STRIDE + 7]) ?? -1e9, -1] : [TL.dying[ti - nLive].born, TL.dying[ti - nLive].died]);
+          const seg: number[] = [], far: number[] = [], kinds: number[] = [], owner: number[] = [], ownerSize: number[] = [], ownerLife: number[] = [];
           const cen = clumpGeo.getAttribute("iCenter") as THREE.InstancedBufferAttribute, ccol = clumpGeo.getAttribute("color") as THREE.InstancedBufferAttribute;
-          // (when each tree came: kept by its own number from one layer to the next — the ones there at the start, always)
-          const cBorn = clumpGeo.getAttribute("iBorn") as THREE.InstancedBufferAttribute, cba = cBorn.array as Float32Array;
-          const nowS = performance.now() / 1000, firstTrees = treeBorn.current === null, bornMap = new Map<number, number>();
+          const cLifeA = clumpGeo.getAttribute("iLife") as THREE.InstancedBufferAttribute, cla = cLifeA.array as Float32Array;
           const ca = cen.array as Float32Array, cc = ccol.array as Float32Array;
           let nc = 0;
           const LEAF_CAP = 90000;
@@ -1088,8 +1155,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             // (ti: its place among the trees now, for the arrays of this pass; t: ITS OWN NUMBER, for everything drawn by
             // chance — not its place, which moved with every tree that came or went: step 1, 2026-11-18)
             const ti = i / STRIDE, t = (st[i + 7] * 997.13) % 1000;
-            const bornT = firstTrees ? -1e9 : (treeBorn.current?.get(st[i + 7]) ?? nowS);
-            bornMap.set(st[i + 7], bornT);
+            const [bornT, diedT] = lifeOf(ti);
             const tr: StemTree = { x: st[i], z: st[i + 1], foot: st[i + 2] * unit, tall: st[i + 3] * unit, R: st[i + 4], lo: st[i + 5] * unit, hi: st[i + 6] * unit, own: st[i + 7], cone: st[i + 8] > 0.5 && st[i + 8] < 1.5 };
             const shape = st[i + 8];
             // (its kind: the crown's two colours turned along the hue its kind's way — treeSpecies)
@@ -1109,6 +1175,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             for (let q2 = before; q2 < kinds.length; q2++) {
               owner.push(tr.own);
               ownerSize.push(sizeF);
+              ownerLife.push(bornT, diedT);
             }
             const H = Math.max(1e-4, tr.hi - tr.lo);
             // LEAVES ON THE TWIGS (the artist, 2026-11-17: "어떻게 하면 자연스럽게 줄기에 붙은 잎 느낌 낼 수 있을지" — and the
@@ -1173,7 +1240,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
               ca[nc * 4 + 1] = tr.foot + y;
               ca[nc * 4 + 2] = tr.z + Math.sin(th) * rx + leanZ[ti] * out;
               ca[nc * 4 + 3] = rad;
-              cba[nc] = bornT;
+              cla[nc * 2] = bornT;
+              cla[nc * 2 + 1] = diedT;
               const up = Math.max(0, Math.min(1, (y - tr.lo) / H * 0.7 + (rx / Math.max(1e-4, tr.R)) * 0.3));
               const jit = 1 + (rnd(t, c * 2.3) - 0.5) * 2 * k.treeColorJitter * 0.5;
               plantColor(tc, (sa.r + (sb.r - sa.r) * up) * jit, (sa.g + (sb.g - sa.g) * up) * jit, (sa.b + (sb.b - sa.b) * up) * jit, rnd(t * 2.1, c));
@@ -1184,8 +1252,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             }
           }
           cen.needsUpdate = true;
-          cBorn.needsUpdate = true;
-          treeBorn.current = bornMap;
+          cLifeA.needsUpdate = true;
           ccol.needsUpdate = true;
           clumpGeo.instanceCount = nc;
           const geo = new THREE.BufferGeometry();
@@ -1201,6 +1268,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // EVERY TREE ITS TRUNK FIRST (the artist, 2026-11-17: "어떤 나무는 줄기가 안 보임" — the pieces past the cap were
           // the later trees' whole stems): all trunks, then the boughs, then the twigs, as far as the cap goes
           const total = Math.floor(seg.length / 6), order: number[] = [];
+          const stemInfoA = stemGeo.getAttribute("iStem") as THREE.InstancedBufferAttribute, stemInfo = stemInfoA.array as Float32Array;
           for (const want of [0, 1, 2]) for (let j = 0; j < total && order.length < STEM_CAP; j++) if (kinds[j] === want) order.push(j);
           const n = order.length;
           for (let o = 0; o < n; o++) {
@@ -1215,12 +1283,14 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             const rr = (kd === 0 ? k.treeTrunkR : kd === 1 ? k.treeBoughR : k.treeTwigR) * (1 - 0.45 * f) * thick;
             sv.set(rr, Math.max(1e-4, len * 1.04), rr);
             tl.setMatrixAt(o, m.compose(p, q, sv));
+            stemInfo.set([kd, ownerLife[i * 2] ?? -1e9, ownerLife[i * 2 + 1] ?? -1], o * 3);
             // (light and dark: a tree its own, and each piece of it a little of its own on top — the artist: "줄기 색 지터는 더
             // 빡세게 넣어줘, 명암")
             const w = Math.pow(f, 1.5) * 0.6, lum = Math.max(0.08, (1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * (1 + (rnd(f * 13.1 + kd * 3.7, own * 7.7) - 0.5) * 0.6 * k.treeStemColorJitter));
             tl.setColorAt(o, tone.c.set((sc.r + (a.r - sc.r) * w) * lum, (sc.g + (a.g - sc.g) * w) * lum, (sc.b + (a.b - sc.b) * w) * lum));
           }
           tl.count = n;
+          stemInfoA.needsUpdate = true;
           tl.instanceMatrix.needsUpdate = true;
           if (tl.instanceColor) tl.instanceColor.needsUpdate = true;
         }
@@ -1310,12 +1380,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           if (im && !im.instanceColor) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(STEM_CAP * 3).fill(1), 3);
           if (im && !drawnTrees.current) im.count = 0;
         }}
-        args={[undefined, undefined, STEM_CAP]}
+        args={[stemGeo, stemMat, STEM_CAP]}
         frustumCulled={false}
-      >
-        <cylinderGeometry args={[1, 1, 1, 5]} />
-        <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
-      </instancedMesh>
+      />
       <points ref={clumps} geometry={clumpGeo} material={clumpMat} frustumCulled={false} />
       <points ref={plantPts} geometry={plantGeo} material={plant.mat} frustumCulled={false} />
       <points ref={glowPts} geometry={plantGeo} material={glow.mat} frustumCulled={false} renderOrder={2} />
