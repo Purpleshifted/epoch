@@ -882,7 +882,15 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // (each point comes and goes by its own place: a mound that grows gains points and its old ones give way to
           // the new softly; futureLife.ts)
           const np0 = ps.length, rec = new Float32Array(np0 * 7);
-          for (let i = 0; i < np0; i++) rec.set([pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], col[i * 3], col[i * 3 + 1], col[i * 3 + 2], ps[i]], i * 7);
+          for (let i = 0, o = 0; i < np0; i++, o += 7) {
+            rec[o] = pos[i * 3];
+            rec[o + 1] = pos[i * 3 + 1];
+            rec[o + 2] = pos[i * 3 + 2];
+            rec[o + 3] = col[i * 3];
+            rec[o + 4] = col[i * 3 + 1];
+            rec[o + 5] = col[i * 3 + 2];
+            rec[o + 6] = ps[i];
+          }
           const lv = liveAndFading(depPtLife.current, futureLink.version, rec, 7, (a, o) => placeKey(a[o], a[o + 2], a[o + 1] * 256), performance.now() / 1000, k.lifeFade);
           const P = new Float32Array(lv.n * 3), C = new Float32Array(lv.n * 3), S = new Float32Array(lv.n);
           for (let i = 0; i < lv.n; i++) {

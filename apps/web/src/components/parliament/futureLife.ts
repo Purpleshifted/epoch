@@ -53,11 +53,13 @@ export type KeyedLife = {
   /** the keys of the last layer's things, in their order, and when each came */
   keys: Float64Array;
   born: Map<number, number>;
-  prev: Map<number, Float32Array>;
+  /** where each of the last layer's things lies in its records (no copy of each: a layer can be 100 000 points) */
+  prev: Map<number, number>;
+  prevRecs: Float32Array;
   dying: { key: number; rec: Float32Array; born: number; died: number }[];
 };
 
-export const newKeyedLife = (): KeyedLife => ({ version: -1, first: true, keys: new Float64Array(0), born: new Map(), prev: new Map(), dying: [] });
+export const newKeyedLife = (): KeyedLife => ({ version: -1, first: true, keys: new Float64Array(0), born: new Map(), prev: new Map(), prevRecs: new Float32Array(0), dying: [] });
 
 /** A key of a place (to a 64th of a world unit) and a small number more (0 … 4095). */
 export const placeKey = (x: number, z: number, more = 0): number => (Math.round(x * 64) * 65536 + Math.round(z * 64)) * 4096 + (Math.round(more) & 4095);
@@ -84,7 +86,7 @@ export function liveAndFading(L: KeyedLife, version: number, recs: Float32Array,
       ord.forEach((e, r) => t.set(e.i, now + (r / ord.length) * ticker));
       return t;
     };
-    const keys = new Float64Array(n), born = new Map<number, number>(), prev = new Map<number, Float32Array>();
+    const keys = new Float64Array(n), born = new Map<number, number>(), prev = new Map<number, number>();
     // (one still standing — gone from the last layer but not yet fading, its turn not come — and back in this one never left)
     const waiting = new Map<number, number>();
     for (const d of L.dying) if (d.died > now) waiting.set(d.key, d.born);
@@ -96,18 +98,19 @@ export function liveAndFading(L: KeyedLife, version: number, recs: Float32Array,
       const was = L.first ? -1e9 : (L.born.get(kk) ?? waiting.get(kk));
       if (was === undefined) fresh.push({ o: i * stride, a: recs, i: fresh.length, k: kk });
       born.set(kk, was ?? now);
-      prev.set(kk, recs.slice(i * stride, (i + 1) * stride));
+      prev.set(kk, i * stride);
     }
     const tIn = turns(fresh, false);
     for (const e of fresh) born.set(e.k, tIn.get(e.i) ?? now);
     const dying = L.dying.filter((d) => now - d.died < fade && !(d.died > now && born.has(d.key)));
     if (!L.first && fade > 0) {
       const gone: { o: number; a: Float32Array; i: number; k: number }[] = [];
-      for (const [kk, rec] of L.prev) if (!born.has(kk)) gone.push({ o: 0, a: rec, i: gone.length, k: kk });
+      for (const [kk, off] of L.prev) if (!born.has(kk)) gone.push({ o: 0, a: L.prevRecs.slice(off, off + stride), i: gone.length, k: kk });
       const tOut = turns(gone, true);
       for (const e of gone) dying.push({ key: e.k, rec: e.a, born: L.born.get(e.k) ?? -1e9, died: tOut.get(e.i) ?? now });
     }
-    Object.assign(L, { version, first: false, keys, born, prev, dying });
+    // (the records are kept as they came — the caller makes a new array for every layer and never writes into it)
+    Object.assign(L, { version, first: false, keys, born, prev, prevRecs: recs, dying });
   }
   const all = n + L.dying.length;
   const out = new Float32Array(all * stride), life = new Float32Array(all * 2);
