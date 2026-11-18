@@ -29,7 +29,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone as plantColor } from "@/lib/parliament/plantTone";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
-import { futureLifeU, futureTicker, setFutureRender, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
+import { futureLifeU, futureTicker, recSum, setFutureRender, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
 import { newPlantLife, plantBaseGeometry, plantMaterial, setFlowerBloom, setPlantClouds } from "./plantCloudsGpu";
 import { savable } from "./levaSave";
 
@@ -845,7 +845,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       dp.visible = layerOn && k.depositPoints && (k.mound || k.stain);
       if (r && dp.visible) {
         dp.position.y = base + 0.02;
-        const sig = `${futureLink.version}:${unit}:${k.mound}:${k.stain}:${k.moundMax}:${k.moundWide}:${k.moundColor}:${k.stainColor}:${k.moundPtDense}:${k.moundPtSize}:${k.moundPtJitter}:${k.stainPtDense}:${k.stainPtSize}:${k.stainPtJitter}:${k.moundTone}`;
+        // (drawn again only when its own records or its knobs changed — futureLife.ts recSum)
+        const dKnobs = `${unit}:${k.mound}:${k.stain}:${k.moundMax}:${k.moundWide}:${k.moundColor}:${k.stainColor}:${k.moundPtDense}:${k.moundPtSize}:${k.moundPtJitter}:${k.stainPtDense}:${k.stainPtSize}:${k.stainPtJitter}:${k.moundTone}`;
+        const sig = `${recSum(r.mounds)}:${recSum(r.stains)}:${dKnobs}`;
         if (sig !== drawnDepPts.current) {
           drawnDepPts.current = sig;
           // A MOUND AS POINTS: a heap of them, thick at its middle and low at its rim, as high as the mound; DARK
@@ -858,7 +860,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // traced one by one): a mound's (or a patch of dark earth's) points depend only on its record and the knobs,
           // so they are kept by both; what comes and goes is the mound, by its place and score — [kind 0 mound / 1
           // earth, x, z, score, own] a record (futureLife.ts)
-          const DC = depCache.current, dSig = sig.slice(sig.indexOf(":") + 1);
+          const DC = depCache.current, dSig = dKnobs;
           if (DC.sig !== dSig) {
             DC.map.clear();
             DC.sig = dSig;
@@ -1071,7 +1073,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       stp.visible = layerOn && k.stones;
       if (r && stp.visible) {
         stp.position.y = base + 0.02;
-        const sig = `${futureLink.version}:${unit}:${k.stoneSize}:${k.stoneJitter}:${k.stoneColor}:${k.stoneShade}`;
+        const sig = `${recSum(r.stones)}:${unit}:${k.stoneSize}:${k.stoneJitter}:${k.stoneColor}:${k.stoneShade}`;
         if (sig !== drawnStones.current) {
           drawnStones.current = sig;
           // (a stone that was not there comes in, one no longer there goes, where it lay: futureLife.ts)
@@ -1106,8 +1108,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       pp.visible = layerOn;
       if (r && layerOn) {
         pp.position.y = base + 0.04;
-        if (plantSeen.current !== futureLink.version) {
-          plantSeen.current = futureLink.version;
+        const pSum = recSum(r.plantClouds);
+        if (plantSeen.current !== pSum) {
+          plantSeen.current = pSum;
           setPlantClouds(plantGeo, r.plantClouds ?? new Float32Array(0), unit, plantLife.current, performance.now() / 1000, k.lifeFade);
         }
         // (every knob a uniform: the colours made livelier by plantTone on the CPU, ten of them)
@@ -1237,7 +1240,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         if (footPts.current) footPts.current.position.y = base + 0.03;
         clumpMat.size = k.treeClumpDot;
         (tl.material as THREE.MeshStandardMaterial).roughness = k.treeStemRough;
-        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}:${k.treeEdgeLean}:${k.treeStemBySize}:${k.treeDotsBySize}:${k.treeStemKindLink}:${k.treeTaper}:${k.treeRoots}:${k.treeFoot}:${k.stainColor}:${k.stoneColor}:${k.stoneSize}:${k.stainPtSize}`;
+        const sig = `${recSum(r.treeStems)}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}:${k.treeEdgeLean}:${k.treeStemBySize}:${k.treeDotsBySize}:${k.treeStemKindLink}:${k.treeTaper}:${k.treeRoots}:${k.treeFoot}:${k.stainColor}:${k.stoneColor}:${k.stoneSize}:${k.stainPtSize}`;
         if (sig !== drawnTrees.current) {
           drawnTrees.current = sig;
           const kindCols = [k.treeKind1, k.treeKind2, k.treeKind3, k.treeKind4, k.treeKind5, k.treeKind6].map((c) => new THREE.Color(c));

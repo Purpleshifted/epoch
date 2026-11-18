@@ -177,3 +177,21 @@ export function setLifeAttr(geo: THREE.BufferGeometry, cap: number, life: Float3
   arr.set(life.subarray(0, Math.min(n, cap) * 2));
   a.needsUpdate = true;
 }
+
+/**
+ * A FINGERPRINT OF A LAYER'S RECORDS (the artist, 2026-11-18: "여튼 최적화가 진짜 큰 문제"): a new layer comes every slot,
+ * but much of it is as it was — the stones change only with the water, the trees only with what grows — so a part of
+ * the layer is drawn again only when its own records changed, not whenever a layer comes. Kept per array (an array is
+ * never written into once it has come).
+ */
+const sums = new WeakMap<object, number>();
+export function recSum(a: Float32Array | null | undefined): number {
+  if (!a) return 0;
+  let v = sums.get(a);
+  if (v === undefined) {
+    v = a.length;
+    for (let i = 0; i < a.length; i++) v += a[i] * (1 + (i % 7) * 0.131) + (i % 13) * 1e-7 * a[i];
+    sums.set(a, v);
+  }
+  return v;
+}

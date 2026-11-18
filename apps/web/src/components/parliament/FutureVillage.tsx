@@ -22,7 +22,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone } from "@/lib/parliament/plantTone";
 // (the parts come and go softly: futureLife.ts)
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { futureLifeU, futureTicker, futureTickU, lifeTick, liveAndFading, newKeyedLife, placeKey, setLifeAttr, tick, type KeyedLife } from "./futureLife";
+import { futureLifeU, futureTicker, futureTickU, lifeTick, recSum, liveAndFading, newKeyedLife, placeKey, setLifeAttr, tick, type KeyedLife } from "./futureLife";
 import { savable } from "./levaSave";
 
 /** Between the wall's ticker (which asks for it with these knobs) and its answer (which is drawn here). */
@@ -450,8 +450,14 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       }
     }
     const recolour = colors.current.a !== k.vegColorA || colors.current.b !== k.vegColorB || colors.current.t !== plantTone.version;
-    if (seen.current === futureLink.version && !recolour) return;
-    seen.current = futureLink.version;
+    // (drawn again only when what it draws changed — not whenever a layer comes: futureLife.ts recSum)
+    let fp = 0;
+    if (r) {
+      PART_KINDS.forEach((kd, q) => (fp += recSum(r.parts[kd]) * (q + 1) + recSum(r.tones[kd]) * (q + 11)));
+      fp += recSum(r.roads) * 31 + recSum(r.roadsOld ?? null) * 37 + recSum(r.water) * 41 + recSum(r.veg) * 43;
+    }
+    if (seen.current === fp && !recolour) return;
+    seen.current = fp;
     colors.current = { a: k.vegColorA, b: k.vegColorB, t: plantTone.version };
     if (!r) return;
     const y0 = (r.k + 1) * unit;
