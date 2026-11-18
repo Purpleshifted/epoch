@@ -22,6 +22,7 @@ import { Dandelions } from "./Dandelions";
 import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { Bloom, DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { useFlowerBloom } from "./plantCloudsGpu";
+import { useFutureRender } from "./futureLife";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls as useLevaControls } from "leva";
 import * as THREE from "three";
@@ -96,6 +97,7 @@ import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { presetSource, savable } from "./levaSave";
 import { RenderTuning, StillNoise, useRenderOptions } from "./useRenderOptions";
+import { HeroCapture, HeroFrame, useHeroShot } from "./HeroShot";
 import { EXHIBITION_FUSION } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
@@ -1821,12 +1823,30 @@ function SpaceWorld({
  * the fused mass, a point — or, if nothing was hit, on the depth of the orbit target along that ray; the focus glides
  * there (`speed`). Without it, or after "resetFocus", it follows the orbit target (the centre of the view).
  */
+/** Where the focus is now (FocusFollow writes it; FocusLine reads it): its distance from the camera, and how it is set. */
+const focusNow = { dist: 0, fixed: false };
+
+/** One line: the focus's distance from the camera, its width and blur — read four times a second. */
+function FocusLine({ range, bokeh }: { range: number; bokeh: number }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => tick((n) => n + 1), 250);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <div>
+      초점: 카메라에서 {Math.round(focusNow.dist)} ({focusNow.fixed ? "거리로 정함" : "따라감"}) · 폭 {range} · 흐림 {bokeh}
+    </div>
+  );
+}
+
 function FocusFollow({
   controls,
   target,
   clickFocus,
   speed,
   resetTick,
+  fixedDist = null,
 }: {
   controls: React.MutableRefObject<Orbit | null>;
   target: THREE.Vector3;
@@ -1834,6 +1854,8 @@ function FocusFollow({
   speed: number;
   /** Changes when the focus should go back to the centre of the view. */
   resetTick: number;
+  /** The focus at this distance from the camera, straight ahead (렌더 › 피사계 심도 세부 › 거리로 정함); null = follow. */
+  fixedDist?: number | null;
 }) {
   const { gl, camera, scene } = useThree();
   const want = useRef<THREE.Vector3 | null>(null);
@@ -1876,11 +1898,21 @@ function FocusFollow({
       el.removeEventListener("pointerup", onUp);
     };
   }, [clickFocus, gl, camera, scene, controls]);
+  const ahead = useMemo(() => new THREE.Vector3(), []);
   useFrame((_, dt) => {
+    focusNow.fixed = fixedDist !== null;
+    if (fixedDist !== null) {
+      // (straight ahead of the camera at that distance: the focus moves with the camera, no easing)
+      camera.getWorldDirection(ahead);
+      target.copy(camera.position).addScaledVector(ahead, Math.max(0.1, fixedDist));
+      focusNow.dist = fixedDist;
+      return;
+    }
     const t = controls.current?.target;
     const goal = want.current ?? (t ? new THREE.Vector3(t.x, t.y, t.z) : null);
     if (!goal) return;
     target.lerp(goal, 1 - Math.exp(-dt * speed));
+    focusNow.dist = camera.position.distanceTo(target);
   });
   return null;
 }
@@ -2892,6 +2924,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   }, [hideUi, lab, clk]);
   useReloadOnContextLoss(hideUi && !lab);
   const controls = useRef<Orbit | null>(null);
+  /** The element the canvas fills (the hero shot measures its frame on it). */
+  const rootBox = useRef<HTMLDivElement>(null);
   /** The exhibition camera's auto run ↔ the time-axis follow (CamLink), and the readout line that names the shot. */
   const camLink = useRef<CamLink>({ lift: null, focusY: null });
   const shotLine = useRef<HTMLDivElement | null>(null);
@@ -2985,10 +3019,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
         }),
       }),
       "초점 · 시야": folder({
-        dof: { value: false, label: "초점 흐림 (피사계 심도)" },
-        clickFocus: { value: true, label: "클릭한 곳에 초점 (끄면 화면 중앙)" },
-        dofRange: { value: 24, min: 1, max: 80, step: 1, label: "초점이 맞는 깊이 (월드)" },
-        dofBokeh: { value: 4, min: 0, max: 10, step: 0.5, label: "흐림 정도" },
+        // (the focus's distance, width and blur are in 렌더 › 후처리 › 피사계 심도 세부 alone since 2026-11-18 — two copies of
+        // the width, one of which did nothing once 렌더 was saved, were half of "심도조절도 되는지 아닌지 헷갈림")
+        dof: { value: false, label: "초점 흐림 (피사계 심도 · 거리 · 폭 · 흐림은 렌더 › 후처리 › 피사계 심도 세부)" },
+        clickFocus: { value: true, label: "클릭한 곳에 초점 (렌더에서 '따라감'일 때 · 끄면 화면 중앙)" },
         focusSpeed: { value: 4, min: 0.5, max: 20, step: 0.5, label: "초점 옮겨가는 속도" },
         "초점 초기화": button(() => setFocusResets((n) => n + 1)),
         nearFade: { value: [2, 24] as [number, number], min: 0, max: 60, step: 0.5, label: "카메라 가까운 식생 사라짐 (거리)" },
@@ -4325,8 +4359,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     { order: 9, collapsed: true },
   );
   const focusTarget = useMemo(() => new THREE.Vector3(0, 4, 0), []);
+  // THE HERO SHOT (HeroShot.tsx): markers and text hidden, the camera left to the hand, every render knob at its best
+  const hero = useHeroShot(isV2 && !hideUi, rootBox);
   // PERFORMANCE MODE: the same knobs, capped — fewer pixels, cheaper AO, no shadows, fewer vegetation points, closer LOD
-  const perf = rnd.perfMode || testPerf !== "off";
+  const perf = !hero.on && (rnd.perfMode || testPerf !== "off");
   // THE WALL (ui=0, the exhibition): one device pixel per CSS pixel and no shadows, whatever the rehearsal saved — at
   // ×1.5 a full-screen wall is 3000×1700 and the GPU falls behind; the main thread then stalls (twice a second, when the
   // worker's new buffers are uploaded) until the frame is done, which starved the room's sound (2026-10-29)
@@ -4340,14 +4376,19 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     testPerf,
     perfMode: rnd.perfMode,
     wall,
-    saved: { dprMax: rnd.dprMax, shadows: rnd.shadows, aoOn: rnd.aoOn, aoQuality: rnd.quality, aoHalfRes: rnd.halfRes, grain: rnd.grain, dof: v.dof, transmissionScale: fu.transmissionScale, aoRadius: rnd.aoRadius, distanceFalloff: rnd.distanceFalloff, aoIntensity: rnd.aoIntensity, azimuth: rnd.azimuth, elevation: rnd.elevation, sunIntensity: rnd.sunIntensity, softness: rnd.softness, dofRange: v.dofRange, dofBokeh: v.dofBokeh, lodNear: rnd.near, lodMid: rnd.mid, sunTurnMin: cam.sunTurnMin },
+    hero: hero.on,
+    shot: hero.shot ? { dpr: hero.shot.dpr, msaa: hero.shot.msaa } : null,
+    saved: { dprMax: rnd.dprMax, shadows: rnd.shadows, aoOn: rnd.aoOn, aoQuality: rnd.quality, aoHalfRes: rnd.halfRes, grain: rnd.grain, dof: v.dof, transmissionScale: fu.transmissionScale, aoRadius: rnd.aoRadius, distanceFalloff: rnd.distanceFalloff, aoIntensity: rnd.aoIntensity, azimuth: rnd.azimuth, elevation: rnd.elevation, sunIntensity: rnd.sunIntensity, softness: rnd.softness, dofRange: 24, dofBokeh: 4, lodNear: rnd.near, lodMid: rnd.mid, sunTurnMin: cam.sunTurnMin },
   });
   // (the flowers' bloom — plantCloudsGpu.ts: the layer's knobs turn the composer on for it, in the view of the layer alone)
   const flowerBloom = useFlowerBloom();
   const composerOn = ro.composerOn || flowerBloom.on;
   const aoHalfRes = ro.aoHalfRes;
   const aoQuality = ro.aoQuality;
-  const shadowsOn = ro.shadowsOn;
+  // (the view of the layer alone: no AO and no sun's shadows unless its own knobs ask — futureLife.ts FutureRender)
+  const futureRender = useFutureRender(), alone = futureOnly();
+  const aoOn = ro.ao && (!alone || futureRender.ao);
+  const shadowsOn = ro.shadowsOn && (!alone || futureRender.shadows);
   const lodNear = ro.detail.lodNear;
   const lodMid = ro.detail.lodMid;
   // …and no transmission on the resin (its refraction pass re-renders the whole opaque scene every frame)
@@ -4423,7 +4464,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     };
     return { share: vg.vegBelt, secPerUnit: tAxis.secPerUnit, at };
   }, [botVillages, vg.vegBelt, tAxis.secPerUnit]);
-  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: (v.follow && !REDESIGN) || (rising && !!world.camRise), markers: v.markers, markerHold: v.markerHold };
+  const c = { ...tAxis, showEdges: v.showEdges, wear: wx.wear && !REDESIGN, follow: !hero.on && ((v.follow && !REDESIGN) || (rising && !!world.camRise)), markers: v.markers && !hero.on, markerHold: v.markerHold };
   // heights on the time axis, read by the "toLatest" / "toMe" buttons
   topRef.current = Math.max(stats.top, (stats.t / c.secPerUnit) * c.unit);
   focusRef.current = (stats.focusS / c.secPerUnit) * c.unit;
@@ -4457,7 +4498,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
 
   return (
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
-    <div className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
+    <div ref={rootBox} className="relative h-full w-full" style={{ background: theme.bg, cursor: hideUi ? "none" : undefined }}>
       <Leva hidden={hideUi} theme={LEVA_THEME} />
       <Canvas key={ro.canvasKey} shadows={ro.shadowType} dpr={ro.dpr} camera={{ position: [16, 12, 22], fov: 40, near: 0.1, far: 800 }} gl={{ antialias: ro.antialias, preserveDrawingBuffer: ro.preserveDrawingBuffer }}>
         <color attach="background" args={[theme.bg]} />
@@ -4556,7 +4597,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           local={lab}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
-        <FocusFollow controls={controls} target={focusTarget} clickFocus={v.clickFocus && !wall} speed={v.focusSpeed} resetTick={focusResets} />
+        <FocusFollow
+          controls={controls}
+          target={focusTarget}
+          clickFocus={v.clickFocus && !wall}
+          speed={v.focusSpeed}
+          resetTick={focusResets}
+          fixedDist={ro.detail.dofFocus === "dist" ? ro.detail.dofDist : null}
+        />
+        {hero.shot && <HeroCapture shot={hero.shot} composerOn={composerOn} onDone={hero.done} />}
         <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={0.12} target={[0, 4, 0]} maxPolarAngle={isV2 ? Math.PI : Math.PI * 0.499} enableRotate={!wall} enableZoom={!wall} enablePan={!wall} />
         <StageCamera
           controls={controls}
@@ -4570,8 +4619,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${ro.ao}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}`} multisampling={ro.composerMsaa}>
-            {ro.ao && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
+          <EffectComposer key={`${aoOn}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}`} multisampling={ro.composerMsaa}>
+            {aoOn && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
             {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh} />}
             {flowerBloom.on && <Bloom mipmapBlur intensity={flowerBloom.intensity} luminanceThreshold={flowerBloom.threshold} luminanceSmoothing={0.2} radius={flowerBloom.radius} />}
             {ro.grain > 0 && (ro.grainStill ? <StillNoise opacity={ro.grain} /> : <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />)}
@@ -4591,9 +4640,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           </Hud>
         )}
       </Canvas>
+      <HeroFrame hero={hero}>{ro.dof && <FocusLine range={ro.detail.dofRange} bokeh={ro.detail.dofBokeh} />}</HeroFrame>
       {/* THE WALL (ui=0, the exhibition): no text at all — the readout and the markers' names are debugging (the artist,
           2026-10-28); the TEST entry (no ui parameter) keeps them */}
-      {!hideUi && (
+      {!hideUi && !hero.on && (
       <div className={`pointer-events-none absolute bottom-3 left-3 select-none font-mono text-[10px] leading-4 ${theme.text}`}>
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
@@ -4621,6 +4671,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           </div>
         )}
         <div>water: {stats.links} open stream(s) now · {stats.pipeRuns} pipe run(s) laid</div>
+        {ro.dof && <FocusLine range={ro.detail.dofRange} bokeh={ro.detail.dofBokeh} />}
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         <div>preset: {presetSource()}{tabModified ? " · tab-modified" : ""}{params.get("cam") === "band" ? " · cam=band" : ""}</div>

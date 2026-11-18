@@ -11,7 +11,34 @@
  * (a screen-door: the fewer of their pixels the further gone), never piece by piece.
  */
 
+import { useSyncExternalStore } from "react";
 import * as THREE from "three";
+
+/**
+ * WHAT THE VIEW OF THE LAYER ALONE SPENDS ON THE SCREEN (the artist, 2026-11-18: "여튼 최적화가 진짜 큰 문제"). Measured
+ * on the artist's world and values (2048 × 1536): 13.7 fps as it was; the AO pass off 38; AO and the sun's shadows off
+ * 51 (the AO at its lowest and at half resolution still 17 — its pass itself is the cost). In /rehearsal/future the layer
+ * is points over a see-through ground that takes no shadow, so both are off there unless its own knobs say otherwise
+ * (FutureUnder 보기); the wall keeps the 렌더 values as they are.
+ */
+export type FutureRender = { ao: boolean; shadows: boolean };
+let futureRender: FutureRender = { ao: false, shadows: false };
+const renderSubs = new Set<() => void>();
+export function setFutureRender(v: FutureRender): void {
+  if (v.ao === futureRender.ao && v.shadows === futureRender.shadows) return;
+  futureRender = v;
+  for (const f of renderSubs) f();
+}
+export function useFutureRender(): FutureRender {
+  return useSyncExternalStore(
+    (f) => {
+      renderSubs.add(f);
+      return () => renderSubs.delete(f);
+    },
+    () => futureRender,
+    () => futureRender,
+  );
+}
 
 /** [now (s), grow (s), fade (s)] — set every frame by the layer (FutureUnder), read by every shader below. */
 export const futureLifeU = { value: new THREE.Vector3(0, 0, 0) };

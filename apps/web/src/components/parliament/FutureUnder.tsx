@@ -28,7 +28,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone as plantColor } from "@/lib/parliament/plantTone";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
-import { futureLifeU, futureTicker, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
+import { futureLifeU, futureTicker, setFutureRender, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
 import { newPlantLife, plantBaseGeometry, plantMaterial, setFlowerBloom, setPlantClouds } from "./plantCloudsGpu";
 import { savable } from "./levaSave";
 
@@ -217,6 +217,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // ("미래뷰 식생점에 lod 추가하면 비용 덜 드는지"): the plants' points thin with distance, each the bigger
           // (step 3 of re-laying only what changed: what comes grows in, what goes fades — "더 자연스러워 보일 방법")
           // ("건물이 막 서서히 나타날 이유는 없음, 티커로 차자자작 지어지는 느낌이면 되는데. 나무도 그렇고", 2026-11-18)
+          // (the screen's two dearest passes, in this view alone — futureLife.ts FutureRender: off = 13.7 → 51 fps measured)
+          renderAo: { value: false, label: "AO (그늘 패스 · 미래 뷰에서만 · 켜면 가장 무거움)" },
+          renderShadows: { value: false, label: "해 그림자 (미래 뷰에서만 · 켜면 무거움)" },
           ticker: { value: 3, min: 0, max: 12, step: 0.5, label: "건물 · 나무가 바뀌는 차례가 다 도는 시간 (초 · 하나씩 탁탁 붙고 떨어짐 · 0 = 한꺼번에)" },
           lifeGrow: { value: 8, min: 0, max: 60, step: 0.5, label: "식생이 새로 나타나는 데 걸리는 시간 (초 · 점이 하나씩 · 0 = 곧바로)" },
           lifeFade: { value: 8, min: 0, max: 60, step: 0.5, label: "식생이 사라지는 데 걸리는 시간 (초 · 0 = 곧바로)" },
@@ -1080,6 +1083,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         (U.uLife.value as THREE.Vector3).set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
         lifeU.value.set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
         futureTicker.sec = k.ticker;
+        setFutureRender({ ao: k.renderAo, shadows: k.renderShadows });
         lodU.value.set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
         (U.uHalo.value as THREE.Vector3).set(k.flowerGlow, k.flowerGlowSize, k.flowerGlowFall);
         const bloomOn = k.flowerBloom > 0 && k.flowerAmount > 0 && (futureOnly() || k.flowerBloomWall);
