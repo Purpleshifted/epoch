@@ -19,6 +19,8 @@ import { PART_KINDS, WORLD_SIZE, type PartKind } from "@/lib/parliament";
 import { DEFAULT_FUTURE, type FutureConfig, type FutureResult } from "@/lib/parliament/futureVillage";
 import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone } from "@/lib/parliament/plantTone";
+// (the parts come and go softly: futureLife.ts)
+import { futureLifeU, lifeDissolve, liveAndFading, newKeyedLife, placeKey, setLifeAttr, type KeyedLife } from "./futureLife";
 import { savable } from "./levaSave";
 
 /** Between the wall's ticker (which asks for it with these knobs) and its answer (which is drawn here). */
@@ -302,6 +304,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   );
   useEffect(() => () => faceMat.dispose(), [faceMat]);
   const seen = useRef(-1);
+  // (each kind of part's coming and going, by its place: futureLife.ts)
+  const partLife = useRef<Partial<Record<PartKind, KeyedLife>>>({});
   /** The slot the layer is drawn above, following the slot it was made for softly. */
   const shownK = useRef<number | null>(null);
   const tint = useMemo(() => new THREE.Color(), []);
@@ -313,6 +317,8 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     const g = group.current;
     if (!g) return;
     const r = futureLink.result;
+    // (the clock the parts come and go by — the lengths are the layer's knobs, FutureUnder's 보기)
+    futureLifeU.value.x = performance.now() / 1000;
     // WHERE IT STANDS (the artist, 2026-11-17: "미래 층을 고정시켜"): above THE WINDOW'S TOP, the gap apart — a place
     // that does not move while the column's rise is stopped (rise.ts), whatever is built below it. (Or, as before:
     // above where the building has come to, following that softly.) Its parts are made at their own slots (above
@@ -444,14 +450,26 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       const im = meshes.current[kind];
       if (!im) continue;
       const m = r.parts[kind], t = r.tones[kind];
-      const n = m ? Math.min(KIND_CAP, m.length / 16) : 0;
-      if (m && n) (im.instanceMatrix.array as Float32Array).set(m.subarray(0, n * 16));
+      const n0 = m ? Math.min(KIND_CAP, m.length / 16) : 0;
+      // A PART THAT COMES OR GOES DOES SO SOFTLY (the artist, 2026-11-18: "여튼 그것들도 이어서 처리해"): known by its
+      // place and its size from one layer to the next, one new dissolves in, one gone dissolves away where it stood
+      // (futureLife.ts) — [its matrix, its tone] a part
+      const rec = new Float32Array(n0 * 17);
+      for (let i = 0; i < n0; i++) {
+        rec.set(m!.subarray(i * 16, i * 16 + 16), i * 17);
+        rec[i * 17 + 16] = t ? t[i] : 0.5;
+      }
+      const L = (partLife.current[kind] ??= newKeyedLife());
+      const lv = liveAndFading(L, futureLink.version, rec, 17, (a, o) => placeKey(a[o + 12], a[o + 14], a[o + 13] * 64 + (a[o] + a[o + 5] + a[o + 10]) * 256), performance.now() / 1000, futureLifeU.value.z);
+      const n = Math.min(KIND_CAP, lv.n), arr = im.instanceMatrix.array as Float32Array;
       tint.set(kindColor[kind]);
       for (let i = 0; i < n; i++) {
+        arr.set(lv.recs.subarray(i * 17, i * 17 + 16), i * 16);
         // (the column's own shading of a part by its tone)
-        const v = 0.86 + 0.14 * (t ? t[i] : 0.5);
+        const v = 0.86 + 0.14 * lv.recs[i * 17 + 16];
         im.setColorAt(i, colA.setRGB(tint.r * v, tint.g * v, tint.b * v));
       }
+      setLifeAttr(im.geometry, KIND_CAP, lv.life, n);
       im.count = n;
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
@@ -500,7 +518,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
           receiveShadow
         >
           {kind === "pile" ? <cylinderGeometry args={[0.5, 0.5, 1, 10]} /> : <boxGeometry args={[1, 1, 1]} />}
-          <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} transparent={k.opacity < 1} opacity={k.opacity} depthWrite={k.opacity >= 0.99} />
+          <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} transparent={k.opacity < 1} opacity={k.opacity} depthWrite={k.opacity >= 0.99} onBeforeCompile={lifeDissolve} customProgramCacheKey={() => "future-life-dissolve"} />
         </instancedMesh>
       ))}
       {/* the paths: what has only just been walked, faint — and the frame (walked for half the band on end), bright */}

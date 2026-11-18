@@ -982,18 +982,22 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   // STONES BY THE WATER: along every stretch of the course, a scatter of them — most at the water, fewer further out
   const stones: number[] = [];
   if (cfg.stones && cfg.stones.dense > 0) {
+    // (each stretch's stones by its own number — see sd below)
     const wideS = Math.max(0.2, cfg.stones.wide) * CELL, per1 = Math.max(0, cfg.stones.dense);
     for (let i = 0; i + 3 < water.length && stones.length < 40000 * 5; i += 4) {
       const ax = water[i], az = water[i + 1], bx = water[i + 2], bz = water[i + 3];
-      const len = Math.hypot(bx - ax, bz - az), nS = Math.round((len / CELL) * 6 * per1 * (0.5 + hash(i, 3, 61)));
+      // (the stretch's own number by where it runs — not by its place in the list, which moves as the water changes —
+      // so that a stretch that stays keeps its stones, and they come and go only with it: FutureUnder, futureLife.ts)
+      const sd = Math.floor(hash(Math.round(ax * 16) ^ Math.imul(Math.round(bz * 16), 31), Math.round(az * 16) ^ Math.imul(Math.round(bx * 16), 17), 60) * 2147483647);
+      const len = Math.hypot(bx - ax, bz - az), nS = Math.round((len / CELL) * 6 * per1 * (0.5 + hash(sd, 3, 61)));
       const nx = len > 1e-6 ? -(bz - az) / len : 0, nz = len > 1e-6 ? (bx - ax) / len : 0;
       for (let q = 0; q < nS; q++) {
         // ON THE BANKS (the artist, 2026-11-17: "돌은 물길 '가에' 있어야 하는 거고"): at the edge of the water's emptiness
         // — `gap` cells out from the course on either side, or half a cell when the water has no gap — scattered
         // over the knob's width round that line, never in the water
-        const bank = Math.max(0.45, gapR) * CELL, f = hash(i, q, 62), side = hash(i, q, 63) < 0.5 ? -1 : 1;
-        const off = side * Math.max(bank * 0.75, bank + (hash(i, q, 67) - 0.35) * wideS);
-        stones.push(ax + (bx - ax) * f + nx * off, hash(i, q, 64) * 0.04, az + (bz - az) * f + nz * off, Math.pow(hash(i, q, 65), 2.2), hash(i, q, 66));
+        const bank = Math.max(0.45, gapR) * CELL, f = hash(sd, q, 62), side = hash(sd, q, 63) < 0.5 ? -1 : 1;
+        const off = side * Math.max(bank * 0.75, bank + (hash(sd, q, 67) - 0.35) * wideS);
+        stones.push(ax + (bx - ax) * f + nx * off, hash(sd, q, 64) * 0.04, az + (bz - az) * f + nz * off, Math.pow(hash(sd, q, 65), 2.2), hash(sd, q, 66));
       }
     }
   }

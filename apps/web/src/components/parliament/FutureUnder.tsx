@@ -28,6 +28,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone as plantColor } from "@/lib/parliament/plantTone";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
+import { DISSOLVE_GLSL, futureLifeU, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
 import { newPlantLife, plantBaseGeometry, plantMaterial, setFlowerBloom, setPlantClouds } from "./plantCloudsGpu";
 import { savable } from "./levaSave";
 
@@ -492,8 +493,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // THE CROWN AS CLUMPS: one soft ball of points (a gaussian spread, thick at its middle) drawn once per clump by the
   // GPU from the clump's centre, radius and colour — as the present's gatherings are (ParliamentSpace cloudGeometry)
   const clumps = useRef<THREE.Points>(null);
-  // (the time and the life's lengths, and the distance LOD, shared by the crowns' and the stems' shaders)
-  const lifeU = useMemo(() => ({ value: new THREE.Vector3(0, 0, 0) }), []);
+  // (the time and the life's lengths, and the distance LOD, shared by the crowns' and the stems' shaders —
+  // the life's uniform is the layer's one: futureLife.ts — the ground's things and the buildings' parts read it too)
+  const lifeU = futureLifeU;
   const lodU = useMemo(() => ({ value: new THREE.Vector3(30, 140, 0) }), []);
   const clumpGeo = useMemo(() => {
     const g = new THREE.InstancedBufferGeometry();
@@ -521,7 +523,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       shader.uniforms.uLife = lifeU;
       shader.uniforms.uLod = lodU;
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\nattribute vec4 iCenter;\nattribute vec2 iLife;\nuniform vec3 uLife, uLod;\nfloat cLife;")
+        .replace("#include <common>", "#include <common>\nattribute vec4 iCenter;\nattribute vec2 iLife;\nuniform vec3 uLife, uLod;\nfloat cLife, cDie;")
         .replace(
           "#include <begin_vertex>",
           [
@@ -529,7 +531,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             "float ca = cos(hB * 6.2832), sa = sin(hB * 6.2832);",
             "vec3 off = vec3(ca * position.x - sa * position.z, position.y, sa * position.x + ca * position.z);",
             "cLife = uLife.y > 0.0 ? smoothstep(0.0, uLife.y, uLife.x - iLife.x) : 1.0;",
-            "if (iLife.y >= 0.0) cLife *= uLife.z > 0.0 ? 1.0 - smoothstep(0.0, uLife.z, uLife.x - iLife.y) : 0.0;",
+            // (a tree gone: its crown thins out, point by point all over it, over the first part of the fade — its
+            // leaves fall before its wood goes; the clumps keep their size)
+            "cDie = iLife.y >= 0.0 ? (uLife.z > 0.0 ? 1.0 - smoothstep(0.0, 0.6 * uLife.z, uLife.x - iLife.y) : 0.0) : 1.0;",
             "vec3 transformed = iCenter.xyz + off * iCenter.w * mix(0.25, 1.0, cLife);",
           ].join("\n"),
         )
@@ -539,7 +543,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           [
             "float cLod = 1.0 - uLod.z * smoothstep(uLod.x, uLod.y, -mvPosition.z);",
             "float cU = fract(sin(dot(position, vec3(12.9898, 78.233, 37.719)) + iCenter.x * 0.37) * 43758.5453);",
-            "gl_PointSize *= cLife * (cU > cLod ? 0.0 : inversesqrt(max(cLod, 0.1)));",
+            "gl_PointSize *= cLife * (cU > cLod * cDie ? 0.0 : inversesqrt(max(cLod, 0.1)));",
             "#include <fog_vertex>",
           ].join("\n"),
         );
@@ -584,14 +588,16 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       shader.uniforms.uLife = lifeU;
       shader.uniforms.uLod = lodU;
       shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\nattribute vec3 iStem;\nuniform vec3 uLife, uLod;")
+        .replace("#include <common>", "#include <common>\nattribute vec3 iStem;\nuniform vec3 uLife, uLod;\nvarying float vFutureLife;")
         .replace(
           "#include <begin_vertex>",
           [
             "#include <begin_vertex>",
             "float sLife = 1.0;",
             "if (uLife.y > 0.0) sLife *= smoothstep(0.0, uLife.y, uLife.x - iStem.y);",
-            "if (iStem.z >= 0.0) sLife *= uLife.z > 0.0 ? 1.0 - smoothstep(0.0, uLife.z, uLife.x - iStem.z) : 0.0;",
+            // (A TREE GONE IS NOT TAKEN APART — the artist, 2026-11-18: "나무 줄기 사라질 때 줄기줄기 사라지면 안 되지 않냐?
+            // 허공에서 분해되는 느낌": its wood stands whole and dissolves all over at once, after its crown has thinned)
+            "vFutureLife = iStem.z >= 0.0 ? (uLife.z > 0.0 ? 1.0 - smoothstep(0.35 * uLife.z, uLife.z, uLife.x - iStem.z) : 0.0) : 1.0;",
             // (the trunk over the first part of the tree's life, the boughs after, the twigs last)
             "float kG = clamp((sLife - iStem.x * 0.3) / 0.4, 0.0, 1.0);",
             // (far off: the twigs go first, then the boughs — by a number of each piece's own)
@@ -603,6 +609,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             "transformed.y = (transformed.y + 0.5) * kG - 0.5;",
           ].join("\n"),
         );
+      shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vFutureLife;").replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n${DISSOLVE_GLSL}`);
     };
     m.customProgramCacheKey = () => "future-tree-stems";
     return m;
@@ -614,6 +621,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // (the stones by the water: FutureResult.stones)
   const stonePts = useRef<THREE.Points>(null);
   const drawnStones = useRef("");
+  // (the stones', the deposit's and the dark earth's coming and going, by their places: futureLife.ts)
+  const stoneLife = useRef(newKeyedLife());
+  const depPtLife = useRef(newKeyedLife());
+  const moundLife = useRef(newKeyedLife());
+  const stainLife = useRef(newKeyedLife());
   const drawnWild = useRef("");
   const depPts = useRef<THREE.Points>(null);
   const drawnDepPts = useRef("");
@@ -776,29 +788,45 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             const f = Math.min(1, (ms[i * 4 + 2] - 1) / 3), own = ms[i * 4 + 3];
             const rad = CELL_SIZE * (0.7 + 0.35 * own + 0.35 * f) * k.moundWide, high = k.moundMax * unit * (0.3 + 0.7 * f) * (0.8 + 0.4 * own);
             const np = Math.round((14 + 30 * f) * k.moundPtDense);
-            const shade = Math.max(0.3, 1 + (rnd(own * 7, i) - 0.5) * k.moundTone);
+            // (every number of a mound's own by its place's — not by where it stands in the list, which moves as mounds
+            // come and go — so that one that stays keeps its points)
+            const sd = own * 997.13;
+            const shade = Math.max(0.3, 1 + (rnd(own * 7, sd) - 0.5) * k.moundTone);
             for (let j = 0; j < np; j++) {
-              const u = rnd(i + 0.5, j), th = rnd(j, i + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
-              pos.push(ms[i * 4] + Math.cos(th) * rr, high * Math.sqrt(Math.max(0, 1 - u)) * rnd(j * 3, i), ms[i * 4 + 1] + Math.sin(th) * rr);
+              const u = rnd(sd + 0.5, j), th = rnd(j, sd + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
+              pos.push(ms[i * 4] + Math.cos(th) * rr, high * Math.sqrt(Math.max(0, 1 - u)) * rnd(j * 3, sd), ms[i * 4 + 1] + Math.sin(th) * rr);
               col.push(mc.r * shade, mc.g * shade, mc.b * shade);
-              ps.push((k.moundPtSize / 1) * Math.max(0.15, 1 + (rnd(i, j * 1.7) - 0.5) * 2 * k.moundPtJitter));
+              ps.push((k.moundPtSize / 1) * Math.max(0.15, 1 + (rnd(sd, j * 1.7) - 0.5) * 2 * k.moundPtJitter));
             }
           }
           if (k.stain) for (let i = 0; i * 4 + 3 < ss.length && pos.length < CAPP * 3; i++) {
             const t = Math.max(0, Math.min(1, ss[i * 4 + 2])), own = ss[i * 4 + 3];
             const rad = CELL_SIZE * (0.55 + 0.5 * own) * (0.6 + 0.4 * t), np = Math.round((6 + 14 * t) * k.stainPtDense);
             tone.c.copy(sc0).lerp(sc1, 0.35 + 0.65 * t);
+            const sd = own * 991.71;
             for (let j = 0; j < np; j++) {
-              const u = rnd(i + 0.25, j), th = rnd(j + 0.5, i + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
-              pos.push(ss[i * 4] + Math.cos(th) * rr, 0.01 * rnd(j, i), ss[i * 4 + 1] + Math.sin(th) * rr);
+              const u = rnd(sd + 0.25, j), th = rnd(j + 0.5, sd + own) * Math.PI * 2, rr = rad * Math.sqrt(u);
+              pos.push(ss[i * 4] + Math.cos(th) * rr, 0.01 * rnd(j, sd), ss[i * 4 + 1] + Math.sin(th) * rr);
               col.push(tone.c.r, tone.c.g, tone.c.b);
-              ps.push(k.stainPtSize * Math.max(0.15, 1 + (rnd(i * 1.3, j) - 0.5) * 2 * k.stainPtJitter));
+              ps.push(k.stainPtSize * Math.max(0.15, 1 + (rnd(sd * 1.3, j) - 0.5) * 2 * k.stainPtJitter));
             }
           }
+          // (each point comes and goes by its own place: a mound that grows gains points and its old ones give way to
+          // the new softly; futureLife.ts)
+          const np0 = ps.length, rec = new Float32Array(np0 * 7);
+          for (let i = 0; i < np0; i++) rec.set([pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], col[i * 3], col[i * 3 + 1], col[i * 3 + 2], ps[i]], i * 7);
+          const lv = liveAndFading(depPtLife.current, futureLink.version, rec, 7, (a, o) => placeKey(a[o], a[o + 2], a[o + 1] * 256), performance.now() / 1000, k.lifeFade);
+          const P = new Float32Array(lv.n * 3), C = new Float32Array(lv.n * 3), S = new Float32Array(lv.n);
+          for (let i = 0; i < lv.n; i++) {
+            P.set(lv.recs.subarray(i * 7, i * 7 + 3), i * 3);
+            C.set(lv.recs.subarray(i * 7 + 3, i * 7 + 6), i * 3);
+            S[i] = lv.recs[i * 7 + 6];
+          }
           const geo = new THREE.BufferGeometry();
-          geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
-          geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 3));
-          geo.setAttribute("psize", new THREE.BufferAttribute(new Float32Array(ps), 1));
+          geo.setAttribute("position", new THREE.BufferAttribute(P, 3));
+          geo.setAttribute("color", new THREE.BufferAttribute(C, 3));
+          geo.setAttribute("psize", new THREE.BufferAttribute(S, 1));
+          geo.setAttribute("aLife", new THREE.BufferAttribute(lv.life, 2));
           dp.geometry.dispose();
           dp.geometry = geo;
         }
@@ -807,7 +835,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     if (mm && sm && r && layerOn && !k.depositPoints) {
       mm.position.y = base;
       sm.position.y = base + 0.012;
-      const sig = `${futureLink.version}:${k.moundMax}:${k.stainColor}:${unit}:${k.moundColor}:${k.moundWide}:${k.moundSizeJitter}:${k.moundSquash}:${k.moundTiers}:${k.moundStep}:${k.moundScatter}:${k.moundTone}`;
+      const sig = `${futureLink.version}:${k.moundMax}:${k.stainColor}:${unit}:${k.moundColor}:${k.moundWide}:${k.moundSizeJitter}:${k.moundSquash}:${k.moundTiers}:${k.moundStep}:${k.moundScatter}:${k.moundTone}:${moundGeo.id}`;
       if (sig !== drawnDep.current) {
         drawnDep.current = sig;
         const { m, p, q, s } = tmp;
@@ -819,6 +847,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         // again and again leaves a layer each time (Dueppen & Gallagher 2023: 지층 T6), each tier smaller, set on the
         // one under it — how far it lies from its cell's middle, and its own shade
         const tiers = Math.max(1, Math.round(k.moundTiers)), base0 = new THREE.Color(k.moundColor);
+        // (each tier as [its matrix, its colour] — then kept from one layer to the next by its place: futureLife.ts)
+        const MS = 19, mrec = new Float32Array(DEP_CAP * MS);
         let nm = 0;
         for (let i = 0; i * 4 + 3 < ms.length && nm < DEP_CAP; i++) {
           // (score 1 = it has only just become a mound … 4 and more = as thick as a mound gets)
@@ -837,27 +867,45 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             const sh = Math.pow(Math.max(0.2, 1 - k.moundStep), t), th = high / nt;
             p.set(cx + (rnd(i, t + 9) - 0.5) * rad * 0.25 * t * k.moundScatter, th * t, cz + (rnd(t + 4, i) - 0.5) * rad * 0.25 * t * k.moundScatter);
             s.set(rad * sh * Math.max(0.3, sq), nt > 1 ? th * 1.15 : high, (rad * sh) / Math.max(0.3, sq));
-            mm.setMatrixAt(nm, m.compose(p, q, s));
-            mm.setColorAt(nm, tone.c.copy(base0).multiplyScalar(Math.max(0.2, shade * (1 + t * 0.06))));
+            m.compose(p, q, s).toArray(mrec, nm * MS);
+            tone.c.copy(base0).multiplyScalar(Math.max(0.2, shade * (1 + t * 0.06))).toArray(mrec, nm * MS + 16);
             nm++;
           }
         }
         q.identity();
-        mm.count = nm;
+        const nowS = performance.now() / 1000;
+        // (a mound that comes rises out of the ground's dissolve, one gone dissolves where it was; one grown higher gives
+        // way to its new self the same way)
+        const ml = liveAndFading(moundLife.current, futureLink.version, mrec.subarray(0, nm * MS), MS, (a, o) => placeKey(a[o + 12], a[o + 14], a[o + 13] * 64 + a[o + 5] * 512), nowS, k.lifeFade);
+        const nM = Math.min(DEP_CAP, ml.n);
+        for (let i = 0; i < nM; i++) {
+          mm.setMatrixAt(i, m.fromArray(ml.recs, i * MS));
+          mm.setColorAt(i, tone.c.fromArray(ml.recs, i * MS + 16));
+        }
+        setLifeAttr(mm.geometry, DEP_CAP, ml.life, nM);
+        mm.count = nM;
         mm.instanceMatrix.needsUpdate = true;
         if (mm.instanceColor) mm.instanceColor.needsUpdate = true;
         // (the darker the longer the place was built; the lightest is the layer's own ground)
         tone.a.set("#2a2d31");
         tone.b.set(k.stainColor);
+        const srec = new Float32Array(ns * MS);
         for (let i = 0; i < ns; i++) {
           const t = Math.max(0, Math.min(1, ss[i * 4 + 2])), rnd = ss[i * 4 + 3];
           const rad = CELL_SIZE * (0.55 + 0.5 * rnd) * (0.6 + 0.4 * t);
           p.set(ss[i * 4] + (rnd - 0.5) * CELL_SIZE * 0.5, 0, ss[i * 4 + 1] + (((rnd * 5.17) % 1) - 0.5) * CELL_SIZE * 0.5);
           s.set(rad, 0.01, rad);
-          sm.setMatrixAt(i, m.compose(p, q, s));
-          sm.setColorAt(i, tone.c.copy(tone.a).lerp(tone.b, 0.35 + 0.65 * t));
+          m.compose(p, q, s).toArray(srec, i * MS);
+          tone.c.copy(tone.a).lerp(tone.b, 0.35 + 0.65 * t).toArray(srec, i * MS + 16);
         }
-        sm.count = ns;
+        const sl = liveAndFading(stainLife.current, futureLink.version, srec, MS, (a, o) => placeKey(a[o + 12], a[o + 14], a[o] * 512), nowS, k.lifeFade);
+        const nS = Math.min(DEP_CAP, sl.n);
+        for (let i = 0; i < nS; i++) {
+          sm.setMatrixAt(i, m.fromArray(sl.recs, i * MS));
+          sm.setColorAt(i, tone.c.fromArray(sl.recs, i * MS + 16));
+        }
+        setLifeAttr(sm.geometry, DEP_CAP, sl.life, nS);
+        sm.count = nS;
         sm.instanceMatrix.needsUpdate = true;
         if (sm.instanceColor) sm.instanceColor.needsUpdate = true;
       }
@@ -919,7 +967,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         const sig = `${futureLink.version}:${unit}:${k.stoneSize}:${k.stoneJitter}:${k.stoneColor}:${k.stoneShade}`;
         if (sig !== drawnStones.current) {
           drawnStones.current = sig;
-          const v = r.stones ?? new Float32Array(0), np = Math.floor(v.length / 5), c0 = new THREE.Color(k.stoneColor);
+          // (a stone that was not there comes in, one no longer there goes, where it lay: futureLife.ts)
+          const lv = liveAndFading(stoneLife.current, futureLink.version, r.stones ?? new Float32Array(0), 5, (a, o) => placeKey(a[o], a[o + 2], a[o + 3] * 4000), performance.now() / 1000, k.lifeFade);
+          const v = lv.recs, np = lv.n, c0 = new THREE.Color(k.stoneColor);
           const pos = new Float32Array(np * 3), col = new Float32Array(np * 3), ps = new Float32Array(np);
           for (let i = 0; i < np; i++) {
             pos[i * 3] = v[i * 5];
@@ -935,6 +985,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
           geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
           geo.setAttribute("psize", new THREE.BufferAttribute(ps, 1));
+          geo.setAttribute("aLife", new THREE.BufferAttribute(lv.life, 2));
           stp.geometry.dispose();
           stp.geometry = geo;
         }
@@ -1371,7 +1422,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         frustumCulled={false}
         receiveShadow
       >
-        <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
+        <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} onBeforeCompile={lifeDissolve} customProgramCacheKey={() => "future-life-dissolve"} />
       </instancedMesh>
       {/* the dark earth: flat discs just over the layer's ground, each with its own darkness */}
       <instancedMesh
@@ -1384,7 +1435,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         frustumCulled={false}
       >
         <cylinderGeometry args={[1, 1, 1, 14]} />
-        <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} />
+        <meshStandardMaterial color="#ffffff" roughness={1} metalness={0} onBeforeCompile={lifeDissolve} customProgramCacheKey={() => "future-life-dissolve"} />
       </instancedMesh>
       {/* the trees: their points, each with its own size, and their stems as lines (when the knob says so) */}
       <points ref={treePts} frustumCulled={false}>
@@ -1413,7 +1464,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       </points>
       <points ref={stonePts} frustumCulled={false}>
         <bufferGeometry />
-        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
+        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={lifePoints} customProgramCacheKey={() => "future-life-points"} />
       </points>
       <points ref={wildPts} frustumCulled={false}>
         <bufferGeometry />
@@ -1422,7 +1473,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       {/* the mounds and the dark earth as points (the knob depositPoints), each point with its own size */}
       <points ref={depPts} frustumCulled={false}>
         <bufferGeometry />
-        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={sizedPoints} customProgramCacheKey={() => "future-tree-points"} />
+        <pointsMaterial vertexColors size={1} sizeAttenuation onBeforeCompile={lifePoints} customProgramCacheKey={() => "future-life-points"} />
       </points>
       {/* the other plants, of ground that was built on for long (stage 5) */}
       <points ref={other} frustumCulled={false}>
