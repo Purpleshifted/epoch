@@ -155,6 +155,17 @@ function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: 
 }
 
 const GROUP = "미래 마을 층 — 땅 아래";
+
+/** A tree as grown and laid out once (FutureUnder's tree cache): its pieces' kinds and matrices, its stem's lightness,
+ *  its leaves' points. */
+interface TreeGrown {
+  kinds: Uint8Array;
+  mat: Float32Array;
+  lum: number;
+  lp: Float32Array;
+  lc: Float32Array;
+  lz: Float32Array;
+}
 /** The layer's own folder (FutureVillage.tsx): where it stands is read from there. */
 const LAYER = "미래 마을 층";
 const CAP = 6000;
@@ -543,7 +554,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const treePts = useRef<THREE.Points>(null);
   const footPts = useRef<THREE.Points>(null);
   const depCache = useRef<{ sig: string; map: Map<string, { p: Float32Array; c: Float32Array; s: Float32Array }> }>({ sig: "", map: new Map() });
-  const treeCache = useRef<{ sig: string; map: Map<string, { seg: Float32Array; far: Float32Array; kinds: Uint8Array; lp: Float32Array; lc: Float32Array; lz: Float32Array }>; used: Set<string> }>({ sig: "", map: new Map(), used: new Set() });
+  const treeCache = useRef<{ sig: string; map: Map<string, TreeGrown>; used: Set<string> }>({ sig: "", map: new Map(), used: new Set() });
   const treeStemMesh = useRef<THREE.InstancedMesh>(null);
   // THE CROWN AS CLUMPS: one soft ball of points (a gaussian spread, thick at its middle) drawn once per clump by the
   // GPU from the clump's centre, radius and colour — as the present's gatherings are (ParliamentSpace cloudGeometry)
@@ -1279,7 +1290,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           st.set(st0.subarray(0, nLive * STRIDE));
           TL.dying.forEach((dd, j) => st.set(dd.rec, (nLive + j) * STRIDE));
           const lifeOf = (ti: number): [number, number] => (ti < nLive ? [TL.born.get(st[ti * STRIDE + 7]) ?? -1e9, -1] : [TL.dying[ti - nLive].born, TL.dying[ti - nLive].died]);
-          const seg: number[] = [], far: number[] = [], kinds: number[] = [], owner: number[] = [], ownerSize: number[] = [], ownerLife: number[] = [], ownerKind: number[] = [];
+          // (every piece of wood drawn: its kind, the tree it is of and its place there, and the tree's coming and going;
+          // the trees whose leaves are drawn)
+          const kinds: number[] = [], ownerLife: number[] = [], pieceG: TreeGrown[] = [], pieceL: number[] = [], leafG: TreeGrown[] = [];
           // (the trees grown so far, by what they are and the knobs they were grown with — kept while those knobs stay)
           const TC = treeCache.current, shapeSig = sig.slice(sig.indexOf(":") + 1);
           if (TC.sig !== shapeSig) {
@@ -1409,22 +1422,35 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
                   }
                 }
               }
-              g = { seg: Float32Array.from(gs), far: Float32Array.from(gf), kinds: Uint8Array.from(gk), lp: Float32Array.from(lp), lc: Float32Array.from(lc), lz: Float32Array.from(lz) };
+              // (its pieces laid out once: each as thick as its kind's knob, thinning to the tips, the tree thicker or
+              // thinner by its own number and by its size; and its stem's one lightness, by its own number and its kind)
+              const gm = new Float32Array(gk.length * 16), { m: M, p: P3, q: Q, s: SV, up: UP, d: D } = tmp;
+              const thick = Math.max(0.2, 1 + (rnd(tr.own * 97, 5.3) - 0.5) * 2 * k.treeStemThickJitter) * Math.pow(Math.max(0.05, sizeF), k.treeStemBySize);
+              for (let q2 = 0; q2 < gk.length; q2++) {
+                const ax = gs[q2 * 6], ay = gs[q2 * 6 + 1], az = gs[q2 * 6 + 2], bx = gs[q2 * 6 + 3], by = gs[q2 * 6 + 4], bz = gs[q2 * 6 + 5];
+                const len = Math.hypot(bx - ax, by - ay, bz - az);
+                P3.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+                if (len > 1e-5) Q.setFromUnitVectors(UP, D.set((bx - ax) / len, (by - ay) / len, (bz - az) / len));
+                else Q.identity();
+                const f = (gf[q2 * 2] + gf[q2 * 2 + 1]) / 2, kd = gk[q2];
+                const rr = (kd === 0 ? k.treeTrunkR : kd === 1 ? k.treeBoughR : k.treeTwigR) * (1 - k.treeTaper * f) * thick;
+                SV.set(rr, Math.max(1e-4, len * 1.04), rr);
+                M.compose(P3, Q, SV).toArray(gm, q2 * 16);
+              }
+              Q.identity();
+              const kindF = Math.max(0.4, Math.min(1.8, 1 + k.treeStemKindLink * ((kindL[sp] ?? meanL) - meanL) * 2.5));
+              const lum = Math.max(0.08, (1 + (rnd(tr.own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * kindF);
+              g = { kinds: Uint8Array.from(gk), mat: gm, lum, lp: Float32Array.from(lp), lc: Float32Array.from(lc), lz: Float32Array.from(lz) };
               TC.map.set(gKey, g);
             }
             TC.used.add(gKey);
             // (the stem)
             const before = kinds.length;
             for (let q2 = 0; q2 < g.kinds.length; q2++) {
-              for (let e = 0; e < 6; e++) seg.push(g.seg[q2 * 6 + e]);
-              far.push(g.far[q2 * 2], g.far[q2 * 2 + 1]);
               kinds.push(g.kinds[q2]);
-            }
-            for (let q2 = before; q2 < kinds.length; q2++) {
-              owner.push(tr.own);
-              ownerSize.push(sizeF);
+              pieceG.push(g);
+              pieceL.push(q2);
               ownerLife.push(bornT, diedT);
-              ownerKind.push(sp);
             }
             // THE FOOT: dark earth spread round it, thickest at the trunk, and stones among it — the more and the wider
             // the bigger the tree (the earth its leaves have made, the stones its roots have lifted)
@@ -1441,11 +1467,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
               }
             }
             if (asLeaves) {
-              for (let q2 = 0; q2 < g.lz.length && pos.length < LEAF_CAP * 3; q2++) {
-                pos.push(g.lp[q2 * 3], g.lp[q2 * 3 + 1], g.lp[q2 * 3 + 2]);
-                col.push(g.lc[q2 * 3], g.lc[q2 * 3 + 1], g.lc[q2 * 3 + 2]);
-                ps.push(g.lz[q2]);
-              }
+              leafG.push(g);
               continue;
             }
             const H = Math.max(1e-4, tr.hi - tr.lo);
@@ -1496,42 +1518,54 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           ccol.needsUpdate = true;
           clumpGeo.instanceCount = nc;
           const geo = new THREE.BufferGeometry();
-          geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
-          geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 3));
-          geo.setAttribute("psize", new THREE.BufferAttribute(new Float32Array(ps), 1));
+          if (asLeaves) {
+            // (the leaves, copied whole from each tree's — as far as the cap goes)
+            let nl = 0;
+            for (const lg of leafG) nl += lg.lz.length;
+            nl = Math.min(nl, LEAF_CAP);
+            const LP = new Float32Array(nl * 3), LC = new Float32Array(nl * 3), LZ = new Float32Array(nl);
+            let w = 0;
+            for (const lg of leafG) {
+              const c = Math.min(lg.lz.length, nl - w);
+              if (c <= 0) break;
+              LP.set(lg.lp.subarray(0, c * 3), w * 3);
+              LC.set(lg.lc.subarray(0, c * 3), w * 3);
+              LZ.set(lg.lz.subarray(0, c), w);
+              w += c;
+            }
+            geo.setAttribute("position", new THREE.BufferAttribute(LP, 3));
+            geo.setAttribute("color", new THREE.BufferAttribute(LC, 3));
+            geo.setAttribute("psize", new THREE.BufferAttribute(LZ, 1));
+          } else {
+            geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+            geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 3));
+            geo.setAttribute("psize", new THREE.BufferAttribute(new Float32Array(ps), 1));
+          }
           tp.geometry.dispose();
           tp.geometry = geo;
           // THE STEM AS THIN CYLINDERS — the trunk, the boughs and the twigs each as thick as its knob says, thinning a
           // little towards the tips, each tree thicker or thinner and lighter or darker by its own number; the colour
           // from the stem's at the foot into the crown's
-          const sc = new THREE.Color(k.treeStemColor), { m, p, q, s: sv, up, d } = tmp;
+          const sc = new THREE.Color(k.treeStemColor);
           // EVERY TREE ITS TRUNK FIRST (the artist, 2026-11-17: "어떤 나무는 줄기가 안 보임" — the pieces past the cap were
           // the later trees' whole stems): all trunks, then the boughs, then the twigs, as far as the cap goes
-          const total = Math.floor(seg.length / 6), order: number[] = [];
+          const total = kinds.length, order: number[] = [];
           const stemInfoA = stemGeo.getAttribute("iStem") as THREE.InstancedBufferAttribute, stemInfo = stemInfoA.array as Float32Array;
           for (const want of [0, 1, 2]) for (let j = 0; j < total && order.length < STEM_CAP; j++) if (kinds[j] === want) order.push(j);
-          const n = order.length;
+          const n = order.length, marr = tl.instanceMatrix.array as Float32Array, carr = tl.instanceColor ? (tl.instanceColor.array as Float32Array) : null;
+          // (each piece copied as its tree laid it out — the tree's one lightness; ONE COLOUR A TREE, the artist,
+          // 2026-11-18: "줄기 명도 지터는 ㅋㅋㅋ 한 나무 안에서는 색이 같아야지...")
           for (let o = 0; o < n; o++) {
-            const i = order[o];
-            const ax = seg[i * 6], ay = seg[i * 6 + 1], az = seg[i * 6 + 2], bx = seg[i * 6 + 3], by = seg[i * 6 + 4], bz = seg[i * 6 + 5];
-            const len = Math.hypot(bx - ax, by - ay, bz - az);
-            p.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
-            if (len > 1e-5) q.setFromUnitVectors(up, d.set((bx - ax) / len, (by - ay) / len, (bz - az) / len));
-            else q.identity();
-            const f = (far[i * 2] + far[i * 2 + 1]) / 2, kd = kinds[i], own = owner[i] ?? 0.5;
-            const thick = Math.max(0.2, 1 + (rnd(own * 97, 5.3) - 0.5) * 2 * k.treeStemThickJitter) * Math.pow(Math.max(0.05, ownerSize[i] ?? 1), k.treeStemBySize);
-            const rr = (kd === 0 ? k.treeTrunkR : kd === 1 ? k.treeBoughR : k.treeTwigR) * (1 - k.treeTaper * f) * thick;
-            sv.set(rr, Math.max(1e-4, len * 1.04), rr);
-            tl.setMatrixAt(o, m.compose(p, q, sv));
-            stemInfo.set([kd, ownerLife[i * 2] ?? -1e9, ownerLife[i * 2 + 1] ?? -1], o * 3);
-            // (light and dark: a tree its own, and each piece of it a little of its own on top — the artist: "줄기 색 지터는 더
-            // 빡세게 넣어줘, 명암")
-            // (ONE COLOUR A TREE — the artist, 2026-11-18: "줄기 명도 지터는 ㅋㅋㅋ 한 나무 안에서는 색이 같아야지...": the
-            // light and dark is the tree's own, the same in every piece of it; no piece of its own, no turning towards
-            // the crown's colour at the tips)
-            const kl = ownerKind[i] ?? 0, kindF = Math.max(0.4, Math.min(1.8, 1 + k.treeStemKindLink * ((kindL[kl] ?? meanL) - meanL) * 2.5));
-            const lum = Math.max(0.08, (1 + (rnd(own * 53, 9.1) - 0.5) * 2 * k.treeStemColorJitter) * kindF);
-            tl.setColorAt(o, tone.c.set(sc.r * lum, sc.g * lum, sc.b * lum));
+            const i = order[o], g2 = pieceG[i], li = pieceL[i];
+            marr.set(g2.mat.subarray(li * 16, li * 16 + 16), o * 16);
+            stemInfo[o * 3] = kinds[i];
+            stemInfo[o * 3 + 1] = ownerLife[i * 2] ?? -1e9;
+            stemInfo[o * 3 + 2] = ownerLife[i * 2 + 1] ?? -1;
+            if (carr) {
+              carr[o * 3] = sc.r * g2.lum;
+              carr[o * 3 + 1] = sc.g * g2.lum;
+              carr[o * 3 + 2] = sc.b * g2.lum;
+            }
           }
           tl.count = n;
           // (the feet)
