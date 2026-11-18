@@ -12,7 +12,8 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame, useThree, type RootState } from "@react-three/fiber";
+import { markSpan } from "./usePerfMeter";
 import { useControls } from "leva";
 import * as THREE from "three";
 import { PART_KINDS, WORLD_SIZE, type PartKind } from "@/lib/parliament";
@@ -315,6 +316,13 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   const colors = useRef({ a: "", b: "", t: -1 });
 
   useFrame((state) => {
+    const t0 = performance.now();
+    frame(state);
+    const ms = performance.now() - t0;
+    if (ms > 4) markSpan("future parts (FutureVillage)", ms);
+  });
+  // (its frame, timed as FutureUnder's)
+  const frame = (state: RootState): void => {
     const g = group.current;
     if (!g) return;
     const r = futureLink.result;
@@ -504,7 +512,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       veg.current.geometry.dispose();
       veg.current.geometry = geo;
     }
-  });
+  };
 
   return (
     <group ref={group} visible={k.on}>

@@ -20,7 +20,8 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame, useThree, type RootState } from "@react-three/fiber";
+import { markSpan } from "./usePerfMeter";
 import { button, folder, levaStore, useControls } from "leva";
 import * as THREE from "three";
 import type { FutureConfig } from "@/lib/parliament/futureVillage";
@@ -779,7 +780,14 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const drawnDep = useRef("");
   const tone = useMemo(() => ({ a: new THREE.Color(), b: new THREE.Color(), c: new THREE.Color() }), []);
 
+  // (its frame, timed: a frame of it over 4 ms is kept as a span — __perfSpans() — to find what stalls the screen)
   useFrame((state, dt) => {
+    const t0 = performance.now();
+    frame(state, dt);
+    const ms = performance.now() - t0;
+    if (ms > 4) markSpan("future layer (FutureUnder)", ms);
+  });
+  const frame = (state: RootState, dt: number): void => {
     const r = futureLink.result;
     const layerOn = !!r && knob(`${LAYER}.on`) !== false;
     // WHERE THE LAYER'S GROUND IS — as FutureVillage places it: above the window's top (or above the slot it was read
@@ -1486,7 +1494,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
     }
     im.count = n;
     im.instanceMatrix.needsUpdate = true;
-  });
+  };
 
   return (
     <>
