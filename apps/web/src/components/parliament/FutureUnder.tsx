@@ -133,6 +133,23 @@ function growStem(seg: number[], far: number[], kind: number[], t: StemTree, i: 
       const E: V3 = [at[0] + Math.cos(tw) * len, at[1] + len * (t.cone ? 0.05 : 0.25 + 0.3 * r(90 + j * 4 + w)), at[2] + Math.sin(tw) * len];
       bow(at, E, [0, (t.cone ? -0.06 : 0.12) * bend * len, 0], 3, 0.6, 1);
     }
+    // (NO BOUGH ENDS IN A STUMP — the artist, 2026-11-18: "줄기 끝은 무조건 잔가지로 갈라지게 하거나 굵기 좀 줄이면 안 돼?
+    // 막대기 같아서": its tip forks into two short twigs, whatever the twigs knob)
+    fork(pts[pts.length - 1], th, d * 0.22, 100 + j * 3);
+  }
+  // (…and the trunk's top forks into three)
+  {
+    cur = 2;
+    const top = trunk(1);
+    for (let w = 0; w < 3; w++) fork(top, a1 + w * 2.0944, t.R * 0.35, 150 + w * 5, 1);
+  }
+  function fork(at: V3, th: number, len: number, salt: number, n = 2): void {
+    cur = 2;
+    for (let w = 0; w < n; w++) {
+      const tw = th + (n === 1 ? (r(salt) - 0.5) * 0.8 : (w ? 1 : -1) * (0.35 + 0.4 * r(salt + w))), l = len * (0.7 + 0.6 * r(salt + 2 + w));
+      const E: V3 = [at[0] + Math.cos(tw) * l, at[1] + l * (t.cone ? 0.1 : 0.45 + 0.3 * r(salt + 4 + w)), at[2] + Math.sin(tw) * l];
+      bow(at, E, [0, (t.cone ? -0.04 : 0.08) * bend * l, 0], 2, 0.8, 1);
+    }
   }
 }
 
@@ -393,6 +410,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           // ("나무 기둥이랑 줄기 굵기 따로 조절할 수 있게 해") — the stem is thin cylinders, each kind its thickness
           // (the artist, 2026-11-18: "나무 사이즈랑 줄기 두께 연동을 좀 해야할듯")
           // ("줄기 명도도 나무 종류랑 코릴레이션 있게 해줘", 2026-11-18): a kind's stem lighter or darker as its crown's colour is
+          // ("막대기 같아서 굵기 올리기 부담스러울 때가 있음", 2026-11-18): how much thinner the wood gets towards its tips
+          treeTaper: { value: 0.85, min: 0, max: 0.97, step: 0.01, label: "나무 — 끝으로 갈수록 가늘어지는 정도 (0 = 끝까지 같은 굵기 · 0.85 = 잔가지 끝은 밑동의 1/7)" },
           treeStemKindLink: { value: 0.8, min: 0, max: 2, step: 0.05, label: "나무 — 줄기 명도를 나무 종류(수관 색의 밝기)에 맞춤 (0 = 종류와 무관)" },
           // (the foot of a big tree: "나무 아래 돌이나 흙, 덤불, 뿌리도 (특히 큰 나무는)")
           treeRoots: { value: 6, min: 0, max: 12, step: 1, label: "나무 — 뿌리 (가장 큰 나무의 갈래 수 · 작은 나무는 없음 · 줄기 방식이 가지일 때)" },
@@ -1146,7 +1165,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         if (footPts.current) footPts.current.position.y = base + 0.03;
         clumpMat.size = k.treeClumpDot;
         (tl.material as THREE.MeshStandardMaterial).roughness = k.treeStemRough;
-        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}:${k.treeEdgeLean}:${k.treeStemBySize}:${k.treeDotsBySize}:${k.treeStemKindLink}:${k.treeRoots}:${k.treeFoot}:${k.stainColor}:${k.stoneColor}:${k.stoneSize}:${k.stainPtSize}`;
+        const sig = `${futureLink.version}:${unit}:${k.treePointJitter}:${k.treeStemMode}:${k.treeCrownMode}:${k.treeKind1}:${k.treeKind2}:${k.treeKind3}:${k.treeKind4}:${k.treeKind5}:${k.treeKind6}:${k.treeKindShade}:${k.treeColorJitter}:${k.treeStemColor}:${k.treeBend}:${k.treeTwigs}:${k.treeTrunkR}:${k.treeBoughR}:${k.treeTwigR}:${k.treeStemThickJitter}:${k.treeStemColorJitter}:${k.treeClumps}:${k.treeClumpSize}:${k.treeClumpJitter}:${k.showWild}:${clumpGeo.id}:${k.treeLeaves}:${k.treeLeafSpread}:${plantTone.version}:${k.treeSpecies}:${k.treeGather}:${k.treeCrowd}:${k.treeCrowdR}:${k.treeEdgeLean}:${k.treeStemBySize}:${k.treeDotsBySize}:${k.treeStemKindLink}:${k.treeTaper}:${k.treeRoots}:${k.treeFoot}:${k.stainColor}:${k.stoneColor}:${k.stoneSize}:${k.stainPtSize}`;
         if (sig !== drawnTrees.current) {
           drawnTrees.current = sig;
           const kindCols = [k.treeKind1, k.treeKind2, k.treeKind3, k.treeKind4, k.treeKind5, k.treeKind6].map((c) => new THREE.Color(c));
@@ -1395,7 +1414,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             else q.identity();
             const f = (far[i * 2] + far[i * 2 + 1]) / 2, kd = kinds[i], own = owner[i] ?? 0.5;
             const thick = Math.max(0.2, 1 + (rnd(own * 97, 5.3) - 0.5) * 2 * k.treeStemThickJitter) * Math.pow(Math.max(0.05, ownerSize[i] ?? 1), k.treeStemBySize);
-            const rr = (kd === 0 ? k.treeTrunkR : kd === 1 ? k.treeBoughR : k.treeTwigR) * (1 - 0.45 * f) * thick;
+            const rr = (kd === 0 ? k.treeTrunkR : kd === 1 ? k.treeBoughR : k.treeTwigR) * (1 - k.treeTaper * f) * thick;
             sv.set(rr, Math.max(1e-4, len * 1.04), rr);
             tl.setMatrixAt(o, m.compose(p, q, sv));
             stemInfo.set([kd, ownerLife[i * 2] ?? -1e9, ownerLife[i * 2 + 1] ?? -1], o * 3);
