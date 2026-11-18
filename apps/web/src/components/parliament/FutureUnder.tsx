@@ -181,6 +181,16 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   useControls(
     "미래 마을 층 — 스크린샷",
     {
+      // THE LAYER ON AND OFF, WHERE IT IS SEEN (the artist, 2026-11-18: "미래 모습 껐다 켜는 옵션 추가해줘"): the layer's
+      // own switch (미래 마을 층 › 켜기 — it also stops the layer being worked out) was the first knob of a folded
+      // folder; this button turns that same switch
+      "미래 모습 켜기 / 끄기": button(() => {
+        try {
+          levaStore.setValueAtPath(`${LAYER}.on`, knob(`${LAYER}.on`) === false, true);
+        } catch {
+          // (the layer's folder is not there: nothing to switch)
+        }
+      }),
       "스크린샷 (PNG로 저장)": button(() => shoot.current?.()),
       "미래 층으로 카메라 이동": button(() => {
         goTo.current = true;

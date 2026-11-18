@@ -323,6 +323,9 @@ interface ResinLook {
   /** …and HOW it goes: 0 = it thins back into its parts … 1 = holes eat through it (as the pipes'); the holes' size (world). */
   growDieHoles?: number;
   growDieGrain?: number;
+  /** …how ragged the edge of the going is (patches ahead of and behind it), and the patches' size (world). */
+  growDieRag?: number;
+  growDiePatch?: number;
   color: string;
   /** Transmission (refraction) — 0 = a plain translucent body with `opacity`. */
   transmission: number;
@@ -444,6 +447,9 @@ interface FuseUniforms {
   /** …how much of that going is HOLES eaten through the mass (0 = it thins … 1 = holes), and the holes' size (world). */
   uGrowDieHoles: THREE.IUniform;
   uGrowDieGrain: THREE.IUniform;
+  /** …and how far the going is ahead or behind from patch to patch (0 = one line across the wall), the patches' size (world). */
+  uGrowDieRag: THREE.IUniform;
+  uGrowDiePatch: THREE.IUniform;
 }
 function makeFuseUniforms(): FuseUniforms {
   return {
@@ -452,7 +458,7 @@ function makeFuseUniforms(): FuseUniforms {
     uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeMix: { value: 0.5 }, uGrowAgeSpan: { value: 40 },
     uGrowLate: { value: 0 }, uGrowRise: { value: 0 }, uGrowStood: { value: 0 },
     uGrowDie: { value: 0 }, uGrowDieMix: { value: 0.5 }, uGrowDieAt: { value: 0.75 }, uGrowDieOver: { value: 0.3 }, uGrowDieAfter: { value: 60 }, uGrowDieSpan: { value: 30 },
-    uGrowDieHoles: { value: 0 }, uGrowDieGrain: { value: 1.2 },
+    uGrowDieHoles: { value: 0 }, uGrowDieGrain: { value: 1.2 }, uGrowDieRag: { value: 0 }, uGrowDiePatch: { value: 9 },
   };
 }
 
@@ -483,7 +489,7 @@ const FUSE_GONE_FRAG_HEAD = `
 varying float vGrow;
 varying float vGone;
 varying vec3 vGonePos;
-uniform float uGrowDieGrain;
+uniform float uGrowDieGrain, uGrowDieRag, uGrowDiePatch;
 float goneHash( vec3 p ) { p = fract( p * 0.1031 + vec3( 0.71, 0.113, 0.419 ) ); p += dot( p, p.yzx + 33.33 ); return fract( ( p.x + p.y ) * p.z ); }
 float goneNoise( vec3 p ) {
   vec3 i = floor( p ), f = fract( p );
@@ -492,11 +498,16 @@ float goneNoise( vec3 p ) {
               mix( mix( goneHash( i + vec3( 0.0, 0.0, 1.0 ) ), goneHash( i + vec3( 1.0, 0.0, 1.0 ) ), f.x ), mix( goneHash( i + vec3( 0.0, 1.0, 1.0 ) ), goneHash( i + vec3( 1.0, 1.0, 1.0 ) ), f.x ), f.y ), f.z );
 }`;
 const FUSE_GONE_FRAG_BODY = `
-if ( vGone > 0.001 ) {
+// NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): where everything of a layer is as
+// old as its depth, the going was one value per layer — holes over a few slots, and nothing below: a cut. Each PATCH of
+// the world is now ahead of or behind the going by its own amount (a wide noise), so the going's edge wanders up
+// and down the column patch by patch and the holes begin here long before there. (vGone comes unclamped.)
+float goneAt = vGone == 0.0 ? 0.0 : clamp( vGone + ( goneNoise( vGonePos / max( 0.5, uGrowDiePatch ) + 7.7 ) - 0.5 ) * 3.0 * uGrowDieRag, 0.0, 1.0 );
+if ( goneAt > 0.001 ) {
   vec3 goneP = vGonePos / max( 0.05, uGrowDieGrain );
   // (an average of hashes crowds round the middle: spread back out, so the first holes come early and the last late)
   float goneN = clamp( ( 0.65 * goneNoise( goneP ) + 0.35 * goneNoise( goneP * 2.7 + 11.3 ) - 0.5 ) * 1.9 + 0.5, 0.0, 0.999 );
-  if ( goneN < vGone ) discard;
+  if ( goneN < goneAt ) discard;
 }`;
 // BY ITS LAYER AND THE VEGETATION THERE, CONTINUOUSLY (the artist, 2026-11-16: "왜 그정도나 기다려야해? 층이랑 식생양따라
 // 연속적 가중치 넣어"): how far a vertex is out is read straight off where its part lies — how deep in the window
@@ -537,7 +548,8 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   float growGone = uGrowDie * clamp( mix( ( growDepth - uGrowDieAt ) / max( 0.01, uGrowDieOver ), ( uGrowTop + uGrowStood - fuseGrowA.y - uGrowAfter - uGrowDieAfter ) / max( 1.0, uGrowDieSpan ), uGrowDieMix ), 0.0, 1.0 );
   // (…IN HOLES — "구멍으로 삭게": as much of the going as uGrowDieHoles says is not a thinning but holes, eaten through
   // the mass in the fragment shader — FUSE_GONE_FRAG_BODY; the mass keeps its body until the holes have it all)
-  vGone = growGone * uGrowDieHoles;
+  // (unclamped, so that the fragment's patches can be ahead of it or behind: FUSE_GONE_FRAG_BODY; 0 = no life at all)
+  vGone = uGrowDie * uGrowDieHoles * clamp( mix( ( growDepth - uGrowDieAt ) / max( 0.01, uGrowDieOver ), ( uGrowTop + uGrowStood - fuseGrowA.y - uGrowAfter - uGrowDieAfter ) / max( 1.0, uGrowDieSpan ), uGrowDieMix ), -4.0, 4.0 );
   float growTime = growLayer * growAged * growShown * growKept * ( 1.0 - growGone * ( 1.0 - uGrowDieHoles ) );
   float growWait = uGrowLate * fuseLate * ( 1.0 - uGrowRise + uGrowRise * fract( fuseGrowA.x + 0.5 ) );
   vGrow = clamp( ( growTime - growWait ) / max( 0.05, 1.0 - growWait ), 0.0, 1.0 ) * fuseGrowB.y;
@@ -1330,6 +1342,8 @@ function SpaceWorld({
     fuseU.uGrowDieSpan.value = Math.max(1, resin.growDieSpan ?? 30);
     fuseU.uGrowDieHoles.value = Math.max(0, Math.min(1, resin.growDieHoles ?? 0));
     fuseU.uGrowDieGrain.value = Math.max(0.05, resin.growDieGrain ?? 1.2);
+    fuseU.uGrowDieRag.value = Math.max(0, resin.growDieRag ?? 0);
+    fuseU.uGrowDiePatch.value = Math.max(0.5, resin.growDiePatch ?? 9);
     fuseU.uGrowFloor.value = shift > 0 && er.height ? fuseU.uGrowTop.value - er.height - Math.max(0, er.tail ?? 0) : -1e9;
   });
   // (the mass changes softly: what it is, and what it was — two sets of the same materials, one fade between them)
@@ -3922,6 +3936,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // IN HOLES (the artist, 2026-11-17: "구멍으로 삭게"): how the going is drawn — holes eaten through the mass, as the pipes'
       growDieHoles: { value: 1, min: 0, max: 1, step: 0.05, label: "삭는 모습: 얇아짐 ↔ 구멍 (0 = 얇아지며 들어감 · 1 = 구멍이 먹어 들어감)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
       growDieGrain: { value: 1.2, min: 0.1, max: 8, step: 0.05, label: "삭는 구멍의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
+      // NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): patches ahead of and behind the going
+      growDieRag: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "삭는 경계의 얼룩 (0 = 한 층에서 한꺼번에 — 가로로 잘림 · 클수록 자리마다 먼저 · 나중에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
+      growDiePatch: { value: 9, min: 1, max: 60, step: 0.5, label: "삭는 얼룩의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
       fuseFrom: {
         options: { "단순화된 것에만 (갓 지은 낱낱의 부재는 융합 안 함)": "assets", "모든 부재에": "all" },
@@ -4258,6 +4275,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growDieSpan: fu.growDieSpan,
       growDieHoles: fu.growDieHoles,
       growDieGrain: fu.growDieGrain,
+      growDieRag: fu.growDieRag,
+      growDiePatch: fu.growDiePatch,
       color: fu.resinColor,
       transmission: fu.resinMode === "refract" ? fu.transmission : 0,
       opacity: fu.resinMode === "alpha" ? fu.resinOpacity : 1,
@@ -4272,7 +4291,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, fu.growAgeMix, fu.growAgeSlots, fu.growLate, fu.growRise, fu.growDie, fu.growDieMix, fu.growDieAt, fu.growDieOver, fu.growDieAfter, fu.growDieSpan, fu.growDieHoles, fu.growDieGrain, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.fuseFade, fu.growThin, fu.growAgeMix, fu.growAgeSlots, fu.growLate, fu.growRise, fu.growDie, fu.growDieMix, fu.growDieAt, fu.growDieOver, fu.growDieAfter, fu.growDieSpan, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",

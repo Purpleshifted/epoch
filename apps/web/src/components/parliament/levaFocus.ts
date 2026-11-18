@@ -45,7 +45,7 @@ export const LEVA_FOCUS: Record<string, readonly string[]> = {
   // …and the foam's walls and the parts' traces inside it (2026-11-16: "거품벽에도 두께가 좀 있고, 안에 부재 흔적이")
   // …and the frame first, the plates and rooms after (2026-11-17, "A2"): the wait and the rise, and the frame they wait
   // behind — ③'s tubes (꼴, their thickness, their share by size, how much the old layers embed them again)
-  "엉김 · 융합 · 레진": ["fuseOn", "fuseGrow", "fuseOnset", "fuseFull", "fuseFrom", "voxelTie", "massVeg", "growAgeMix", "growAgeSlots", "growThin", "growLate", "growRise", "growDie", "growDieMix", "growDieAt", "growDieOver", "growDieAfter", "growDieSpan", "growDieHoles", "growDieGrain", "massMode", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", FOCUS_ALL_KEY, "__save"],
+  "엉김 · 융합 · 레진": ["fuseOn", "fuseGrow", "fuseOnset", "fuseFull", "fuseFrom", "voxelTie", "massVeg", "growAgeMix", "growAgeSlots", "growThin", "growLate", "growRise", "growDie", "growDieMix", "growDieAt", "growDieOver", "growDieAfter", "growDieSpan", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;
