@@ -180,6 +180,9 @@ export interface FutureConfig {
      *  cells beyond that carry them thickest. Needs the plants everywhere (`ground`), or there is nothing to be empty of. */
     gap?: number;
     edge?: number;
+    /** (the artist, 2026-11-18: "물가 식생이 물가 바깥으로 퍼지는 정도 지터") How much the thick edge's width differs along
+     *  the course, 0 … 1: 0 = `edge` cells everywhere, 1 = from none to twice that, stretch by stretch. */
+    edgeJitter?: number;
   };
   /** PLANTS OVER THE WHOLE GROUND ("애초에 전역에 식생이 있어야"): clouds on the ground anywhere, not only round what was
    *  built or walked; `density` 0 … 1 how thick (0 = none beyond the margin, as before). */
@@ -651,6 +654,12 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const cloud = (cx: number, cz: number, r: number, salt: number) => {
     const [wx, wz] = wander(cx, cz, salt + 30);
     const x = (cx + hash(cx, cz, salt) + wx) * CELL, z = (cz + hash(cx, cz, salt + 1) + wz) * CELL;
+    // NOTHING GROWS IN THE WATER (the artist, 2026-11-18: "물길 위에 나는 풀이나 꽃은 대체 뭐야;"): a cloud whose middle
+    // has wandered into the water's emptiness is not made, and one beside it is no wider than the room it has — a
+    // cloud of two cells' radius two cells from the course reached over it
+    const room = waterRoom(x, z);
+    if (room <= 0) return;
+    r = Math.min(r, Math.max(0.3, room * 0.75));
     let kind = kindAt(cx, cz, salt);
     const u = hash(cx, cz, salt + 2), used = usedAt(cx, cz), v0 = lastV;
     // (fewer trees: of the places that would grow one, only `share` do — the rest stay scrub, as they were)
@@ -684,15 +693,26 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
     const [rb, tb] = kind === 0 ? [r * 1.25, 0.03 + 0.05 * u] : [r, 0.12 + 0.2 * u];
     clouds.push({ x, z, r: rk, tall, n: Math.round(per * 5 * r * r * thick), kind, used, shape, asp, wild, fl, sp, rb, tb, own: hash(cx, cz, salt + 19) });
     // (some are two-lobed)
-    if (hash(cx, cz, salt + 3) < 0.3) {
-      const t = hash(cx, cz, salt + 4) * Math.PI * 2, u5 = hash(cx, cz, salt + 5);
-      clouds.push({ x: x + Math.cos(t) * r * CELL * 0.9, z: z + Math.sin(t) * r * CELL * 0.9, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp, wild, fl, sp, rb: rb * 0.7, tb: tb * (0.6 + 0.4 * u5), own: hash(cx, cz, salt + 20) });
+    const t2 = hash(cx, cz, salt + 4) * Math.PI * 2, x2 = x + Math.cos(t2) * r * CELL * 0.9, z2 = z + Math.sin(t2) * r * CELL * 0.9;
+    // (…and not where its second lobe would lie in the water)
+    if (hash(cx, cz, salt + 3) < 0.3 && waterRoom(x2, z2) > 0) {
+      const u5 = hash(cx, cz, salt + 5);
+      clouds.push({ x: x2, z: z2, r: rk * 0.7, tall: kind < 0 ? 0.3 + u5 : tall * (0.6 + 0.4 * u5), n: Math.round(per * 2.5 * r * r * thick), kind, used, shape, asp, wild, fl, sp, rb: rb * 0.7, tb: tb * (0.6 + 0.4 * u5), own: hash(cx, cz, salt + 20) });
     }
   };
   // THE WATER AS EMPTINESS and PLANTS EVERYWHERE (FutureConfig.water.gap, .ground): how far each cell near the
   // course lies from it (in cells, up to gap + edge)
-  const gapR = Math.max(0, Math.round(cfg.water?.gap ?? 0)), edgeR = Math.max(0, Math.round(cfg.water?.edge ?? 0));
+  const gapR = Math.max(0, Math.round(cfg.water?.gap ?? 0)), edgeR0 = Math.max(0, Math.round(cfg.water?.edge ?? 0));
+  const edgeJit = Math.max(0, Math.min(1, cfg.water?.edgeJitter ?? 0));
+  // (as far as the edge may reach anywhere — its width varies along the course by edgeJitter)
+  const edgeR = Math.ceil(edgeR0 * (1 + edgeJit));
   const waterDist = new Map<number, number>();
+  /** How far, in cells, a point is from the water's emptiness (Infinity: none near; ≤ 0: in it). */
+  const waterRoom = (x: number, z: number): number => {
+    if (gapR <= 0) return Infinity;
+    const d = waterDist.get(key(cellOf(x), cellOf(z)));
+    return d === undefined ? Infinity : d - gapR - 0.25;
+  };
   if (gapR + edgeR > 0) {
     const R = gapR + edgeR;
     for (let i = 0; i + 1 < water.length; i += 2) {
@@ -743,7 +763,9 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const wd0 = waterDist.get(q), wd = wd0 === undefined ? undefined : wd0 + (hash(cx, cz, 77) - 0.5) * 2 * spread * 1.5;
       if (wd !== undefined && gapR + edgeR > 0) {
         if (wd <= gapR) continue;
-        if (free && h1 < 0.9) {
+        // (the edge's width here, stretch by stretch — a few cells share one — wider or narrower)
+        const reach = edgeR0 * Math.max(0, 1 + (hash(Math.floor(cx / 3), Math.floor(cz / 3), 79) - 0.5) * 2 * edgeJit);
+        if (free && h1 < 0.9 && wd <= gapR + reach) {
           cloud(cx, cz, 0.9 + 1.1 * hash(cx, cz, 43), 100);
           continue;
         }
@@ -814,7 +836,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       for (let j = 0; j < kinN; j++) {
         const th = (j / kinN) * Math.PI * 2 + hash(bi, j, 81) * 1.4, d = c.r * CELL * (kinFar + (hash(bi, j, 82) - 0.3) * kinFar * 0.6);
         const x = c.x + Math.cos(th) * d, z = c.z + Math.sin(th) * d, q = key(cellOf(x), cellOf(z));
-        if (stand.has(q) || (keep ? oldRoad.has(q) : road.has(q))) continue;
+        if (stand.has(q) || (keep ? oldRoad.has(q) : road.has(q)) || waterRoom(x, z) < 0.5) continue;
         const f = kinSize * (0.6 + 0.8 * hash(bi, j, 83));
         added.push({ ...c, x, z, r: Math.max(0.35, c.r * f), tall: Math.max(0.3, c.tall * f), n: Math.max(4, Math.round(c.n * f * f)), shape: hash(bi, j, 84) < 0.6 ? c.shape : shapeOf(hash(bi, j, 85)), asp: c.asp, own: hash(bi, j, 86) });
       }
@@ -866,7 +888,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       const underK = Math.max(0, Math.min(1, tk.under ?? 0));
       if (gpu && underK > 0) {
         const big = Math.sqrt((c.r * c.tall) / midTree) - 1;
-        const h = hash(sd, 11, 3), sc = h < Math.max(0.2, Math.min(0.95, 0.55 + 0.3 * underBig * big)), rb = Math.max(0.5, Math.min(2.6, c.r * 0.75 * (1 + 0.3 * underBig * Math.max(0, big)))), hu = hash(sd, 12, 3);
+        const h = hash(sd, 11, 3), sc = h < Math.max(0.2, Math.min(0.95, 0.55 + 0.3 * underBig * big)), rb = Math.max(0.3, Math.min(2.6, c.r * 0.75 * (1 + 0.3 * underBig * Math.max(0, big)), waterRoom(c.x, c.z) * 0.75)), hu = hash(sd, 12, 3);
         const thick = Math.max(0.3, Math.min(2.5, 1 + underBig * big));
         plantClouds.push(wrapX(c.x), wrapX(c.z), sb && sb.left > 0.45 ? sb.h : 0, rb * CELL, sc ? 0.1 + 0.12 * hu : 0.03 + 0.05 * hu, sc ? 1 : 0, 0.15 * (1 - h), c.used, c.wild ? 1 : 0, hash(sd, 13, 3), Math.min(1, ((per * 5 * rb * rb * (1 + 0.5 * c.used)) / 64) * underK * thick), 0);
       }
