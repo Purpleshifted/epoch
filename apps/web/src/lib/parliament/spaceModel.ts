@@ -983,6 +983,9 @@ export class SpaceModel {
     const spu = box.secPerUnit;
     const lists: Record<string, Box[]> = {};
     let gone = 0, footings = 0, fallen = 0, toEnd = 0, unheld = 0;
+    // (the plants over the ruins: records of the plants' own kind, laid on the layer's ground, at (K + 1) slots in the
+    // parts' frame — and joined to the plants' records below)
+    const cover: number[] = [], coverK = Math.max(0, Math.min(1, cfg.cover ?? 0)), groundY = (K + 1) * box.unit;
     for (const bld of plan.buildings) {
       const sd = bld.from;
       const rc = box.recipe ?? RECIPES[sd.material];
@@ -1077,6 +1080,14 @@ export class SpaceModel {
       for (const b of [...kept, ...drips]) {
         (lists[b.kind] ??= []).push(b);
         if (b.kind === "basement" || b.kind === "pile" || b.kind === "plinth") footings++;
+        // (the plants over it: on what stands above the layer's ground — FutureConfig.cover)
+        if (coverK > 0 && b.kind !== "basement" && b.kind !== "pile" && b.kind !== "drip" && top(b) > groundY + tol) {
+          const ch = hash2(Math.round(b.x * 977) ^ b.seed, Math.round(b.z * 971) ^ Math.round(b.y * 967), 6301);
+          if (ch < coverK * (0.35 + 0.65 * (1 - bld.left))) {
+            const [hx, hz] = ext(b), lo = Math.max(bot(b), groundY);
+            cover.push(b.x, b.z, (lo - groundY) / box.unit, hx, (top(b) - lo) / box.unit, 3, 0, 0, 0, hash2(Math.round(b.x * 967) ^ b.seed, Math.round(b.z * 953), 6302), Math.min(1, 0.45 + 0.55 * (1 - bld.left)), hz);
+          }
+        }
       }
       if (fate && since === 0) {
         for (const b of lost) {
@@ -1104,6 +1115,12 @@ export class SpaceModel {
     const { buildings: _b, ...rest } = plan;
     void _b;
     const r: FutureResult = { ...rest, parts, tones };
+    if (cover.length) {
+      const pc = r.plantClouds ?? new Float32Array(0), all = new Float32Array(pc.length + cover.length);
+      all.set(pc);
+      all.set(cover, pc.length);
+      r.plantClouds = all;
+    }
     // (how much of the last layer's plants and trees this one keeps exactly as they were — step 1's measure)
     {
       const seen = new Set<string>(), pc = r.plantClouds, ts = r.treeStems;

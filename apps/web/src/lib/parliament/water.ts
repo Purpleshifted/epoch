@@ -71,6 +71,10 @@ export interface WaterConfig {
   diagonal: number;
   /** World length an open stream runs on beyond its outlet. */
   streamLength: number;
+  /** A POOL WHERE A STREAM ENDS (the artist, 2026-11-18: "물길 가닥 끝부분에는 웅덩이가 생기도록 — 지금은 한 가닥으로 그냥
+   *  끝나서"): where a stream soaks away it spreads into a pool of this radius (world) — drawn as rings round its end,
+   *  so its channel in the vegetation is a round clearing. 0 = none. */
+  endPool?: number;
   /** Seconds a building keeps shedding water after it was last used. */
   persistSec: number;
   /** How far an open stream bends sideways (× cell). */
@@ -149,6 +153,7 @@ export const DEFAULT_WATER: WaterConfig = {
   pathAt: 0.35,
   diagonal: 0,
   streamLength: 8,
+  endPool: 1.2,
   persistSec: 300,
   meander: 0.18,
   channel: 0.9,
@@ -626,6 +631,31 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
     }
     if (courses.length) streams.set(k, courses);
   }
+  // THE POOLS AT THE STREAMS' ENDS (WaterConfig.endPool): rings round each course's last point, from its rim in to
+  // its middle, as close as half a channel — a slot's list shared by several slots gets them once
+  const endPool = Math.max(0, cfg.endPool ?? 0);
+  if (endPool > 0) {
+    const done = new Map<Float32Array[], Float32Array[]>();
+    const step = Math.max(0.2, cfg.channel * 0.45);
+    for (const [k, list] of streams) {
+      let out = done.get(list);
+      if (!out) {
+        out = list.slice();
+        for (const line of list) {
+          if (line.length < 4 || !SOAKS.has(line)) continue;
+          const ex = line[line.length - 2], ez = line[line.length - 1];
+          for (let r = endPool; r > step * 0.3; r -= step) {
+            const n = Math.max(6, Math.round((2 * Math.PI * r) / Math.max(0.15, step))), ring = new Float32Array((n + 1) * 2);
+            for (let i = 0; i <= n; i++) ring.set([ex + Math.cos((i / n) * Math.PI * 2) * r, ez + Math.sin((i / n) * Math.PI * 2) * r], i * 2);
+            out.push(ring);
+          }
+          out.push(Float32Array.from([ex, ez, ex + 0.01, ez]));
+        }
+        done.set(list, out);
+      }
+      streams.set(k, out);
+    }
+  }
   // THE BORDERS' STREAMS (the artist, 2026-11-16: "권역 나누기"): in every slot, water runs along every border between
   // two living villages — a stream the length of the border, meandering by its own noise and the slot — so the
   // villages are each in a ground of their own, walled by water; their own outfalls run into it (above)
@@ -858,11 +888,19 @@ function openCourse(route: number[], share: Float32Array, nx: number, nz: number
     pts.push(x + b, z - b);
   }
   // round the corners (Chaikin, once), ends kept
-  if (pts.length < 6) return Float32Array.from(pts);
+  if (pts.length < 6) return soaks(Float32Array.from(pts));
   const q: number[] = [pts[0], pts[1]];
   for (let k = 0; k + 3 < pts.length; k += 2) q.push(0.75 * pts[k] + 0.25 * pts[k + 2], 0.75 * pts[k + 1] + 0.25 * pts[k + 3], 0.25 * pts[k] + 0.75 * pts[k + 2], 0.25 * pts[k + 1] + 0.75 * pts[k + 3]);
   q.push(pts[pts.length - 2], pts[pts.length - 1]);
-  return Float32Array.from(q);
+  return soaks(Float32Array.from(q));
+}
+
+/** The courses that end by soaking away (an open stream's), told apart from those that end by joining another — only they
+ *  get a pool at their end (WaterConfig.endPool). */
+const SOAKS = new WeakSet<Float32Array>();
+function soaks(line: Float32Array): Float32Array {
+  SOAKS.add(line);
+  return line;
 }
 
 /**

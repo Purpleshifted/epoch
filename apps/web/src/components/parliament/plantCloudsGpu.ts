@@ -74,7 +74,7 @@ export function setPlantClouds(g: THREE.InstancedBufferGeometry, rec: Float32Arr
     const o = i * STRIDE;
     a.set([rec[o], rec[o + 2] * unit, rec[o + 1], rec[o + 3]], i * 4);
     b.set([rec[o + 4] * unit, rec[o + 5], rec[o + 6], rec[o + 7]], i * 4);
-    c.set([rec[o + 8], rec[o + 9], rec[o + 10], 0], i * 4);
+    c.set([rec[o + 8], rec[o + 9], rec[o + 10], rec[o + 11]], i * 4);
   }
   for (const [name, arr] of [["iA", a], ["iB", b], ["iC", c]] as const) {
     const old = g.getAttribute(name);
@@ -105,6 +105,12 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
     uHalo: { value: new THREE.Vector3(0, 6, 2) },
     // (how much brighter than its colour a flower is drawn — x its dot, y its glow; 1 = as it is, more only with the bloom)
     uBright: { value: new THREE.Vector2(1, 1) },
+    // THE RUINS' COVER (kind 3 — the artist, 2026-11-18: "건물 잔해에 식생 덮이는 거"): the points on the sides and top of a
+    // part that is left, x its spread past the part's faces, y its height share, z how thick, w its dot; and its colours
+    uCover: { value: new THREE.Vector4(1, 1, 1, 0.09) }, uCoverA: v3(), uCoverB: v3(),
+    // DISTANCE LOD ("미래뷰 식생점에 lod 추가하면 비용 덜 드는지"): past x the points thin, to (1 − z) of them at y, each
+    // the bigger for it so the ground stays covered
+    uLod: { value: new THREE.Vector3(30, 140, 0) },
   };
   const mat = new THREE.PointsMaterial({ vertexColors: true, size: 1, sizeAttenuation: true });
   if (halo) {
@@ -140,6 +146,8 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           "uniform float uSoilOn;",
           "uniform vec3 uHalo;",
           "uniform vec2 uBright;",
+          "uniform vec4 uCover;",
+          "uniform vec3 uCoverA, uCoverB, uLod;",
         ].join("\n"),
       )
       .replace(
@@ -160,14 +168,29 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
           // (grass: a carpet, low and wide; scrub: a dome sitting on the ground — or, flatter, an open low spread)
           "if (scrub) tPos = vec3(iA.x + xz.x * rad * (1.0 + fl * 0.6), iA.y + (o.y * 0.5 + 0.5) * h * (1.0 - 0.5 * fl), iA.z + xz.y * rad * (1.0 + fl * 0.6));",
           "else tPos = vec3(iA.x + xz.x * rad, iA.y + abs(o.y) * h * (1.0 - 0.7 * fl), iA.z + xz.y * rad);",
-          "float vis = (pu < iC.z * (scrub ? uDense.y : uDense.x)) ? 1.0 : 0.0;",
+          // (the ruins' cover: on the four sides of the part's box (its half widths iA.w, iC.w, its height iB.x) and a
+          // share on its top; each point a little off the face, as a creeper or moss hangs)
+          "bool cover = iB.y > 2.5;",
+          "if (cover) {",
+          "  vec2 sq = o.xz / max(max(abs(o.x), abs(o.z)), 1e-3);",
+          "  float off = 1.0 + (0.04 + 0.1 * fract(pu * 17.3 + own)) * uCover.x;",
+          "  float up = o.y * 0.5 + 0.5;",
+          "  if (fract(pu * 5.1 + own * 3.7) < 0.3) { sq = o.xz * 1.6; up = 1.0 + 0.04 * fract(pu * 9.7); off = 1.0; }",
+          "  float hh = 1.0 - pow(1.0 - up, 1.0 + uCover.y * 2.0);",
+          "  tPos = vec3(iA.x + clamp(sq.x, -1.0, 1.0) * iA.w * off, iA.y + (up > 1.0 ? up : hh) * iB.x, iA.z + clamp(sq.y, -1.0, 1.0) * iC.w * off);",
+          "}",
+          "float vis = (pu < iC.z * (cover ? uCover.z : scrub ? uDense.y : uDense.x)) ? 1.0 : 0.0;",
           "vis *= iC.x > 0.5 ? uShow.y : uShow.x;",
+          // (the LOD: fewer points the further, each the bigger)
+          "float dist = -(modelViewMatrix * vec4(tPos, 1.0)).z;",
+          "float lod = 1.0 - uLod.z * smoothstep(uLod.x, uLod.y, dist);",
+          "if (fract(pu * 61.7 + own * 5.3) > lod) vis = 0.0;",
           "float fu = fract(pu * 13.37 + own * 7.1);",
-          "bool flower = fu < iB.z * uFlower.x;",
-          "float pScale = vis * (scrub ? uDot.y : uDot.x) * max(0.15, 1.0 + (fract(pu * 5.3 + own) - 0.5) * 2.0 * (scrub ? uDotJit.y : uDotJit.x)) * (flower ? uFlower.z : 1.0);",
+          "bool flower = !cover && fu < iB.z * uFlower.x;",
+          "float pScale = vis * (cover ? uCover.w : scrub ? uDot.y : uDot.x) * max(0.15, 1.0 + (fract(pu * 5.3 + own) - 0.5) * 2.0 * (scrub ? uDotJit.y : uDotJit.x)) * (flower ? uFlower.z : 1.0) * inversesqrt(max(lod, 0.1));",
           "float sh = fract(pu * 3.17 + own * 1.9);",
-          "vec3 base = scrub ? mix(uScrubA, uScrubB, sh) : mix(uGrassA, uGrassB, sh);",
-          "if (fract(pu * 7.77 + own * 2.3) < iB.w * uSoilOn) base = mix(uSoilA, uSoilB, sh);",
+          "vec3 base = cover ? mix(uCoverA, uCoverB, sh) : scrub ? mix(uScrubA, uScrubB, sh) : mix(uGrassA, uGrassB, sh);",
+          "if (!cover && fract(pu * 7.77 + own * 2.3) < iB.w * uSoilOn) base = mix(uSoilA, uSoilB, sh);",
           "base *= 0.82 + 0.28 * (o.y * 0.5 + 0.5);",
           "if (flower) {",
           "  float pick = fract(pu * 29.1 + own * 3.3);",

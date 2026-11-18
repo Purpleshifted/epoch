@@ -32,7 +32,7 @@ import { plantBaseGeometry, plantMaterial, setFlowerBloom, setPlantClouds } from
 import { savable } from "./levaSave";
 
 /** What the wall's ticker adds to the layer's knobs when it asks for the layer (FutureConfig.under). */
-export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "water" | "ground" | "smoothRoads" | "spread" | "partShare" | "last" | "strip" | "stones" | "grass" | "scrub"> | null } = { cfg: null };
+export const futureUnder: { cfg: Pick<FutureConfig, "under" | "moundAt" | "fate" | "succession" | "soil" | "tree" | "water" | "ground" | "smoothRoads" | "spread" | "partShare" | "last" | "strip" | "stones" | "grass" | "scrub" | "cover"> | null } = { cfg: null };
 
 /** A number 0 … 1 of a thing's own, by two numbers. */
 const rnd = (a: number, b: number): number => {
@@ -159,9 +159,31 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           }),
           // ("미래 뷰에도 스크린샷 버튼 넣고") — the canvas as it is now, saved as a PNG
           "스크린샷 (PNG로 저장)": button(() => shoot.current?.()),
+          // WALKING ON THE LAYER (the artist, 2026-11-18: "워크인뷰 모드 토글도 가능하면 추가"): the eye on the layer's ground
+          // — W A S D (or the arrows) to walk, Shift to run, drag to look round; off: back to turning round the layer
+          walk: { value: false, label: "걷기 모드 (W A S D · 방향키로 걷기 · Shift 달리기 · 끌어서 둘러보기)" },
+          walkSpeed: { value: 4, min: 0.5, max: 30, step: 0.5, label: "걷기 — 빠르기 (월드 / 초)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.보기.walk`) },
+          walkEye: { value: 0.9, min: 0.1, max: 10, step: 0.05, label: "걷기 — 눈높이 (월드 · 땅에서)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.보기.walk`) },
+          // ("미래뷰 식생점에 lod 추가하면 비용 덜 드는지"): the plants' points thin with distance, each the bigger
+          lod: { value: 0.6, min: 0, max: 0.95, step: 0.05, label: "식생 점 LOD — 먼 곳에서 줄이는 몫 (0 = 끔 · 먼 점일수록 크게 그려 덮임은 유지)" },
+          lodNear: { value: 30, min: 2, max: 200, step: 1, label: "식생 점 LOD — 줄이기 시작하는 거리 (월드)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.보기.lod`)) > 0 },
+          lodFar: { value: 140, min: 10, max: 600, step: 5, label: "식생 점 LOD — 가장 많이 줄이는 거리 (월드)", render: (get: (path: string) => unknown) => Number(get(`${GROUP}.보기.lod`)) > 0 },
           showInferred: { value: true, label: "보이기 — 추론된 식생 (다녀간 곳 둘레 · 물가 · 버려진 자리)" },
           // ("전체에 흩어진 식생 '실제 추론된 식생'이랑 분리해서 껐다 켤 수 있게 해줘. 헷갈림")
           showWild: { value: true, label: "보이기 — 사람 없이 놔둔 땅의 숲 (나무 포함)" },
+        },
+        { collapsed: true },
+      ),
+      // THE RUINS' COVER (the artist, 2026-11-18: "건물 잔해에 식생 덮이는 거")
+      "잔해를 덮는 식생": folder(
+        {
+          cover: { value: 0.6, min: 0, max: 1, step: 0.05, label: "덮인 잔해의 몫 (남은 부재 중 덩굴 · 이끼가 오른 것 · 오래 버려진 건물일수록 많음 · 0 = 없음)" },
+          coverDense: { value: 1, min: 0.1, max: 3, step: 0.05, label: "덮개 — 짙기 (점 수의 배수)" },
+          coverHigh: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덮개 — 아래에 몰린 정도 (0 = 고르게 · 클수록 밑동에 짙고 위는 성김)" },
+          coverOff: { value: 1, min: 0, max: 4, step: 0.1, label: "덮개 — 면에서 떠 있는 정도 (늘어진 덩굴)" },
+          coverDot: { value: 0.07, min: 0.01, max: 0.4, step: 0.005, label: "덮개 — 점의 크기 (월드)" },
+          coverColorA: { value: "#3f5a2c", label: "덮개 — 색 1 (자연색 · 그늘진 이끼)" },
+          coverColorB: { value: "#7d9a46", label: "덮개 — 색 2 (자연색 · 덩굴 잎)" },
         },
         { collapsed: true },
       ),
@@ -354,6 +376,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         {
           // ("물길은 '비움'으로 … 그 경계에 식생이 더 빽빽하게") and ("전역에 식생이 있어야")
           waterGap: { value: 1, min: 0, max: 6, step: 1, label: "물길 — 비움 (물길에서 몇 칸까지 식생이 없음 · 0 = 비우지 않음)" },
+          // ("물길 생길 때 여전히 갑작스러운 변화로 느껴짐 … 변화되는 정도가 비슷하게 느껴져야")
+          waterGrow: { value: 4, min: 0, max: 20, step: 1, label: "물길 — 새 물길이 열리는 데 걸리는 단 (0 = 곧바로)" },
+          waterFade: { value: 6, min: 0, max: 30, step: 1, label: "물길 — 마른 물길이 식생에 덮이는 데 걸리는 단 (0 = 곧바로)" },
           waterEdgeJitter: { value: 0.5, min: 0, max: 1, step: 0.05, label: "물길 — 가장자리 식생이 바깥으로 퍼진 폭의 지터 (물길을 따라 넓고 좁아짐 · 0 = 어디나 같은 폭)" },
           waterEdge: { value: 2, min: 0, max: 6, step: 1, label: "물길 — 가장자리의 빽빽한 식생 (비움 바깥 몇 칸)" },
           // THE WATER AS A BELT OF PLANTS ("물길은 그냥 선 말고 식생 띠로 보이게 해줘")
@@ -423,10 +448,11 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       moundAt: k.moundAt,
       fate: k.fate,
       strip: k.strip,
+      cover: k.cover,
       stones: k.stones ? { dense: k.stoneDense, wide: k.stoneWide } : undefined,
       succession: k.succession,
       soil: k.soil,
-      water: { belt: false, gap: k.waterGap, edge: k.waterEdge, edgeJitter: k.waterEdgeJitter },
+      water: { belt: false, gap: k.waterGap, edge: k.waterEdge, edgeJitter: k.waterEdgeJitter, grow: k.waterGrow, fade: k.waterFade },
       ground: { density: k.groundVeg },
       // (grass and scrub: only the threshold is the worker's — their shapes are the shader's, plantCloudsGpu.ts)
       scrub: { at: k.scrubAt },
@@ -437,7 +463,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       // (the stem as points only in that mode: drawn another way, none of the tree's points are spent on it)
       tree: { share: k.treeShare, under: k.treeUnder, underBig: k.treeUnderBig, at: k.treeAt, height: k.treeHeight, crown: k.treeCrown, stem: k.treeStem, stemShare: k.treeStemMode === "points" ? k.treeStemShare : 0, dense: k.treeDense, weights: { ball: k.treeBall, cone: k.treeCone, umbrella: k.treeUmbrella }, sizeJitter: k.treeSizeJitter, shapeJitter: k.treeShapeJitter, denseJitter: k.treeDenseJitter, apart: true, kin: k.treeKin, kinFar: k.treeKinFar, kinSize: k.treeKinSize, gpu: true, points: k.treeCrownMode === "points", kinds: { count: k.treeSpecies, link: k.treeKindLink, shapes: [k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6] as ("ball" | "cone" | "umbrella")[], scale: [k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6] } },
     }),
-    [k.scrubAt, k.treeShare, k.treeUnder, k.treeUnderBig, k.treeKindLink, k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6, k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6, k.treeSpecies, k.treeCrownMode, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterGap, k.waterEdge, k.waterEdgeJitter, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
+    [k.scrubAt, k.treeShare, k.treeUnder, k.treeUnderBig, k.treeKindLink, k.treeKindShape1, k.treeKindShape2, k.treeKindShape3, k.treeKindShape4, k.treeKindShape5, k.treeKindShape6, k.treeKindScale1, k.treeKindScale2, k.treeKindScale3, k.treeKindScale4, k.treeKindScale5, k.treeKindScale6, k.treeSpecies, k.treeCrownMode, k.under, k.moundAt, k.fate, k.strip, k.stones, k.stoneDense, k.stoneWide, k.succession, k.soil, k.waterGap, k.waterEdge, k.waterEdgeJitter, k.waterGrow, k.waterFade, k.groundVeg, k.smoothRoads, k.spread, k.shareMass, k.shareSlab, k.shareColumn, k.shareBeam, k.shareFoot, k.shareDrip, k.sharePile, k.lastSteel, k.lastPile, k.cover, k.treeAt, k.treeHeight, k.treeCrown, k.treeStem, k.treeStemShare, k.treeStemMode, k.treeDense, k.treeBall, k.treeCone, k.treeUmbrella, k.treeSizeJitter, k.treeShapeJitter, k.treeDenseJitter, k.treeKin, k.treeKinFar, k.treeKinSize],
   );
   // THE OTHER PLANTS (stage 5): the points of FutureResult.vegOld, as FutureVillage draws the layer's plants — the
   // same size, at the same heights — in the two colours of this folder
@@ -517,6 +543,46 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   // THE LAYER ALONE (/rehearsal/future, lib/parliament/futureOnly.ts): the camera is set on the layer once — looking
   // down at its ground from a side — and then left to the hand
   const three = useThree();
+  // (walking: the keys held and where the eye looks — 보기 › walk)
+  const walkKeys = useRef(new Set<string>());
+  const walkState = useRef({ on: false, yaw: 0, pitch: 0, drag: false, lx: 0, ly: 0 });
+  useEffect(() => {
+    if (!k.walk) return;
+    const el = three.gl.domElement, L = walkState.current;
+    const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    const kd = (e: KeyboardEvent) => {
+      if (!typing(e)) walkKeys.current.add(e.code);
+    };
+    const ku = (e: KeyboardEvent) => walkKeys.current.delete(e.code);
+    const pd = (e: PointerEvent) => {
+      L.drag = true;
+      L.lx = e.clientX;
+      L.ly = e.clientY;
+    };
+    const pm = (e: PointerEvent) => {
+      if (!L.drag) return;
+      L.yaw -= (e.clientX - L.lx) * 0.004;
+      L.pitch = Math.max(-1.3, Math.min(1.3, L.pitch - (e.clientY - L.ly) * 0.004));
+      L.lx = e.clientX;
+      L.ly = e.clientY;
+    };
+    const pu = () => {
+      L.drag = false;
+    };
+    window.addEventListener("keydown", kd);
+    window.addEventListener("keyup", ku);
+    el.addEventListener("pointerdown", pd);
+    window.addEventListener("pointermove", pm);
+    window.addEventListener("pointerup", pu);
+    return () => {
+      walkKeys.current.clear();
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
+      el.removeEventListener("pointerdown", pd);
+      window.removeEventListener("pointermove", pm);
+      window.removeEventListener("pointerup", pu);
+    };
+  }, [k.walk, three.gl]);
   const placed = useRef(false);
   // THE SCREENSHOT: the scene drawn once more and read straight back (the canvas keeps no picture between frames),
   // saved as a PNG named by the time
@@ -569,13 +635,43 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const drawnDep = useRef("");
   const tone = useMemo(() => ({ a: new THREE.Color(), b: new THREE.Color(), c: new THREE.Color() }), []);
 
-  useFrame(() => {
+  useFrame((state, dt) => {
     const r = futureLink.result;
     const layerOn = !!r && knob(`${LAYER}.on`) !== false;
     // WHERE THE LAYER'S GROUND IS — as FutureVillage places it: above the window's top (or above the slot it was read
     // from), the gap apart
     const gap = Number(knob(`${LAYER}.gap`) ?? 8);
     const base = ((knob(`${LAYER}.anchor`) === "built" && r ? r.k + 1 : top.value) + Math.max(0, Number.isFinite(gap) ? gap : 8)) * unit;
+    // WALKING ON THE LAYER: the turning round it stops; the eye stands on its ground and goes by the keys and the drag
+    {
+      const L = walkState.current, ctl = three.controls as unknown as { enabled: boolean; target: THREE.Vector3; update: () => void } | null, cam = state.camera;
+      if (k.walk && r) {
+        if (!L.on) {
+          L.on = true;
+          if (ctl) {
+            ctl.enabled = false;
+            L.yaw = Math.atan2(cam.position.x - ctl.target.x, cam.position.z - ctl.target.z);
+            cam.position.set(ctl.target.x, 0, ctl.target.z);
+          }
+          L.pitch = -0.08;
+        }
+        const keys = walkKeys.current, fx = -Math.sin(L.yaw), fz = -Math.cos(L.yaw);
+        const fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
+        const side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
+        const v = k.walkSpeed * (keys.has("ShiftLeft") || keys.has("ShiftRight") ? 3 : 1) * Math.min(0.1, dt);
+        cam.position.x += (fx * fwd - fz * side) * v;
+        cam.position.z += (fz * fwd + fx * side) * v;
+        cam.position.y = base + k.walkEye;
+        cam.rotation.set(L.pitch, L.yaw, 0, "YXZ");
+      } else if (L.on) {
+        L.on = false;
+        if (ctl) {
+          ctl.target.set(cam.position.x - Math.sin(L.yaw) * 12, base, cam.position.z - Math.cos(L.yaw) * 12);
+          ctl.enabled = true;
+          ctl.update();
+        }
+      }
+    }
 
     // THE DEPOSIT (stage 2): on the layer's ground a mound where a place was built for long or again and again — a
     // low heap, the higher and wider the longer — and a patch of dark earth where one was only lightly built
@@ -797,6 +893,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         (U.uDotJit.value as THREE.Vector2).set(k.grassDotJitter, k.scrubDotJitter);
         (U.uFlower.value as THREE.Vector4).set(k.flowerAmount, k.flowerWhite, k.flowerDot, 0);
         (U.uShow.value as THREE.Vector2).set(k.showInferred ? 1 : 0, k.showWild ? 1 : 0);
+        col("uCoverA", k.coverColorA);
+        col("uCoverB", k.coverColorB);
+        (U.uCover.value as THREE.Vector4).set(k.coverOff, k.coverHigh, k.coverDense, k.coverDot);
+        (U.uLod.value as THREE.Vector3).set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
         (U.uHalo.value as THREE.Vector3).set(k.flowerGlow, k.flowerGlowSize, k.flowerGlowFall);
         const bloomOn = k.flowerBloom > 0 && k.flowerAmount > 0 && (futureOnly() || k.flowerBloomWall);
         (U.uBright.value as THREE.Vector2).set(bloomOn ? k.flowerBloomBright : 1, bloomOn ? k.flowerBloomBright : 1);

@@ -85,6 +85,10 @@ export interface FutureConfig {
    *  거야" — it was stripped to the foundations after three slots, whatever the decay): 0 = not at all … 1 = all of its
    *  body, slabs and beams; reached over half the band after it was left. Absent = 0.4. */
   strip?: number;
+  /** PLANTS OVER THE RUINS (the artist, 2026-11-18: "건물 잔해에 식생 덮이는 거"): 0 … 1, how many of the parts that
+   *  are left — and those fallen at their foot — creepers and moss have climbed; the more, the longer the building had
+   *  been left. Drawn as clouds of their own kind on the parts' faces (FutureResult.plantClouds, kind 3). */
+  cover?: number;
   /** STONES BY THE WATER (the artist, the same evening: "물가 근처에는 돌 같이 보이도록 추가 점 배열"): points along the
    *  watercourse, in its gap — `dense` how many, `wide` how far from the course (cells). Absent = none. */
   stones?: { dense: number; wide: number };
@@ -183,6 +187,12 @@ export interface FutureConfig {
     /** (the artist, 2026-11-18: "물가 식생이 물가 바깥으로 퍼지는 정도 지터") How much the thick edge's width differs along
      *  the course, 0 … 1: 0 = `edge` cells everywhere, 1 = from none to twice that, stretch by stretch. */
     edgeJitter?: number;
+    /** THE WATER CHANGES AT AN EVEN PACE (the artist, 2026-11-18: "물길 생길 때 여전히 갑작스러운 변화로 느껴짐 … 변화되는
+     *  정도가 비슷하게 느껴져야"): a new course opens its emptiness over `grow` slots, and a course left dry closes
+     *  over `fade` slots — the plants coming back into the bed — instead of the layer taking the latest slot's
+     *  courses whole. 0 and 0 = the latest course only, as before. */
+    grow?: number;
+    fade?: number;
   };
   /** PLANTS OVER THE WHOLE GROUND ("애초에 전역에 식생이 있어야"): clouds on the ground anywhere, not only round what was
    *  built or walked; `density` 0 … 1 how thick (0 = none beyond the margin, as before). */
@@ -706,22 +716,49 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   const edgeJit = Math.max(0, Math.min(1, cfg.water?.edgeJitter ?? 0));
   // (as far as the edge may reach anywhere — its width varies along the course by edgeJitter)
   const edgeR = Math.ceil(edgeR0 * (1 + edgeJit));
-  const waterDist = new Map<number, number>();
+  // (per cell near the water: how far beyond the emptiness it lies, in cells — ≤ 0 = in it — and how strong the water
+  // that makes it is, 0 … 1)
+  const waterDist = new Map<number, number>(), waterS = new Map<number, number>();
   /** How far, in cells, a point is from the water's emptiness (Infinity: none near; ≤ 0: in it). */
   const waterRoom = (x: number, z: number): number => {
     if (gapR <= 0) return Infinity;
     const d = waterDist.get(key(cellOf(x), cellOf(z)));
-    return d === undefined ? Infinity : d - gapR - 0.25;
+    return d === undefined ? Infinity : d - 0.25;
   };
   if (gapR + edgeR > 0) {
+    // THE WATER'S CELLS AND THEIR STRENGTH: the latest course's, all of it at full strength — or, with grow / fade, every
+    // course of the last slots, each cell opening as long as it has carried water and closing as long as it has not
+    const src = new Map<number, number>();
+    const growS = Math.max(0, cfg.water?.grow ?? 0), fadeS = Math.max(0, cfg.water?.fade ?? 0);
+    if (growS + fadeS > 0) {
+      const back = Math.ceil(Math.max(growS, fadeS)) + 1, first = new Map<number, number>(), last = new Map<number, number>();
+      for (let k = K - back; k <= K; k++) {
+        for (const line of input.streams.get(k) ?? []) {
+          for (let i = 0; i + 1 < line.length; i += 2) {
+            const q = key(cellOf(line[i]), cellOf(line[i + 1]));
+            if (stand.has(q)) continue;
+            if (!first.has(q)) first.set(q, k);
+            last.set(q, k);
+          }
+        }
+      }
+      for (const [q, f] of first) {
+        const l = last.get(q) ?? f;
+        const s = (growS > 0 ? Math.min(1, (K - f + 1) / growS) : 1) * (fadeS > 0 ? Math.max(0, 1 - (K - l) / fadeS) : l === K ? 1 : 0);
+        if (s > 0.02) src.set(q, s);
+      }
+    } else for (let i = 0; i + 1 < water.length; i += 2) src.set(key(cellOf(water[i]), cellOf(water[i + 1])), 1);
     const R = gapR + edgeR;
-    for (let i = 0; i + 1 < water.length; i += 2) {
-      const cx = cellOf(water[i]), cz = cellOf(water[i + 1]);
+    for (const [q, s] of src) {
+      const cx = Math.round(q / 65536), cz = q - cx * 65536;
       for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
         const d = Math.round(Math.hypot(dx, dz));
         if (d > R) continue;
-        const qq = key(cx + dx, cz + dz);
-        if ((waterDist.get(qq) ?? Infinity) > d) waterDist.set(qq, d);
+        const qq = key(cx + dx, cz + dz), v = d - gapR * s;
+        if ((waterDist.get(qq) ?? Infinity) > v) {
+          waterDist.set(qq, v);
+          waterS.set(qq, s);
+        }
       }
     }
   }
@@ -762,10 +799,10 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       // (a soft edge: the distance read with a wander of its own)
       const wd0 = waterDist.get(q), wd = wd0 === undefined ? undefined : wd0 + (hash(cx, cz, 77) - 0.5) * 2 * spread * 1.5;
       if (wd !== undefined && gapR + edgeR > 0) {
-        if (wd <= gapR) continue;
+        if (wd <= 0) continue;
         // (the edge's width here, stretch by stretch — a few cells share one — wider or narrower)
         const reach = edgeR0 * Math.max(0, 1 + (hash(Math.floor(cx / 3), Math.floor(cz / 3), 79) - 0.5) * 2 * edgeJit);
-        if (free && h1 < 0.9 && wd <= gapR + reach) {
+        if (free && h1 < 0.9 && wd <= reach * (waterS.get(q) ?? 1)) {
           cloud(cx, cz, 0.9 + 1.1 * hash(cx, cz, 43), 100);
           continue;
         }

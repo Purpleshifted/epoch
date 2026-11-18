@@ -3781,6 +3781,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             pipeGrain: { value: 23, min: 3, max: 80, step: 1, label: "구멍 결 (클수록 잘고 많음)" },
             pipeDarken: { value: 0.55, min: 0, max: 1, step: 0.05, label: "부식할수록 어두워짐" },
             streamLength: { value: DEFAULT_WATER.streamLength, min: 0, max: 40, step: 0.5, label: "배출구 너머로 흐르는 거리 (월드)" },
+            endPool: { value: DEFAULT_WATER.endPool ?? 1.2, min: 0, max: 6, step: 0.1, label: "물길 끝의 웅덩이 (반지름, 월드 · 물이 스며드는 끝에서 퍼짐 · 0 = 없음)" },
             channel: { value: DEFAULT_WATER.channel, min: 0, max: 4, step: 0.05, label: "물길 폭 (식생이 비는 너비)" },
             meander: { value: DEFAULT_WATER.meander, min: 0, max: 0.6, step: 0.01, label: "굽이" },
             radius: { value: DEFAULT_WATER.radius, min: 0.5, max: 8, step: 0.1, label: "습지 폭 (물길에서 영향 범위, 월드)" },
@@ -3814,6 +3815,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             pathAt: wtr.pathAt,
             diagonal: wtr.diagonal,
             streamLength: wtr.streamLength,
+            endPool: wtr.endPool,
             persistSec: wtr.persistSec,
             meander: wtr.meander,
             channel: wtr.channel,
@@ -3839,7 +3841,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             ...(REDESIGN && botVillages ? { villages: botVillages } : {}),
           }
         : null,
-    [botVillages, isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipePathPull, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
+    [botVillages, isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipePathPull, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.endPool, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
   const walkLook = useMemo<WalkLook>(
