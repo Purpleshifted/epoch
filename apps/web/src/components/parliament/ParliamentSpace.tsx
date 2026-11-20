@@ -23,7 +23,7 @@ import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { Bloom, DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { useFlowerBloom } from "./plantCloudsGpu";
 import { useFutureRender } from "./futureLife";
-import { BONE_GLSL, boneU, FOSSIL_AT_GLSL, pickClock, wayBoneShader, type FossilClock } from "./boneLook";
+import { BONE_GLSL, boneLight, boneU, FOSSIL_AT_GLSL, pickClock, wayBoneShader, type FossilClock } from "./boneLook";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls as useLevaControls } from "leva";
 import * as THREE from "three";
@@ -758,8 +758,10 @@ function makeResinMaterial(u: FuseUniforms, fade?: FuseFade): THREE.MeshPhysical
       .replace("#include <common>", `#include <common>${BONE_GLSL}`)
       .replace(
         "#include <emissivemap_fragment>",
-        "#include <emissivemap_fragment>\nif ( uBoneMass > 0.0 ) {\n\tvec3 boneShade = diffuseColor.rgb / max( diffuse, vec3( 1e-3 ) );\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, boneColour( vFusePos, clamp( vGrow, 0.0, 1.0 ) ) * boneShade, uBoneMass );\n\ttotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * uBoneMass;\n}",
-      );
+        // (round the holes the fossil's going eats, a band where it is porous — the going's own noise, as FUSE_GONE_FRAG_BODY)
+        "#include <emissivemap_fragment>\nif ( uBoneMass > 0.0 ) {\n\tfloat boneBand = 0.0;\n\tfloat boneGoneAt = vGone == 0.0 ? 0.0 : clamp( vGone + ( goneNoise( vGonePos / max( 0.5, uGrowDiePatch ) + 7.7 ) - 0.5 ) * 3.0 * uGrowDieRag, 0.0, 1.0 );\n\tif ( boneGoneAt > 0.001 ) {\n\t\tvec3 boneGP = vGonePos / max( 0.05, uGrowDieGrain );\n\t\tfloat boneGN = clamp( ( 0.65 * goneNoise( boneGP ) + 0.35 * goneNoise( boneGP * 2.7 + 11.3 ) - 0.5 ) * 1.9 + 0.5, 0.0, 0.999 );\n\t\tboneBand = 1.0 - smoothstep( 0.0, 0.14, boneGN - boneGoneAt );\n\t}\n\tvec3 boneShade = diffuseColor.rgb / max( diffuse, vec3( 1e-3 ) );\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, boneColour( vFusePos, clamp( vGrow, 0.0, 1.0 ), boneBand ) * boneShade, uBoneMass );\n\ttotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * uBoneMass;\n}",
+      )
+      .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>${boneLight("uBoneMass")}`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nuniform float uShade;\nuniform float uRim;")
       .replace("#include <color_fragment>", "#if defined( USE_COLOR )\n\tdiffuseColor.rgb *= mix( vec3( 1.0 ), clamp( vColor.rgb / 0.42, 0.0, 1.2 ), uShade );\n#endif")
@@ -912,15 +914,16 @@ function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: numb
       .replace("#include <common>", "#include <common>\nattribute float aDecay;\nvarying float vDecay;\nvarying vec3 vWorldP;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvDecay = aDecay;\nvWorldP = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain, uUnit, uDepth;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }" + (clock ? `${BONE_GLSL}${FOSSIL_AT_GLSL}` : "\nconst float uBonePipes = 0.0;\nfloat fossilAt( float s ) { return 0.0; }\nvec3 boneColour( vec3 p, float a ) { return vec3( 1.0 ); }\nconst float uBoneFill = 0.0;"))
+      .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain, uUnit, uDepth;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }" + (clock ? `${BONE_GLSL}${FOSSIL_AT_GLSL}` : "\nconst float uBonePipes = 0.0;\nfloat fossilAt( float s ) { return 0.0; }\nvec3 boneColour( vec3 p, float a, float b ) { return vec3( 1.0 ); }\nconst float uBoneFill = 0.0;"))
       .replace(
         "#include <clipping_planes_fragment>",
-        "#include <clipping_planes_fragment>\nfloat pipeF = fossilAt(vWorldP.y / max(1e-4, uUnit) + uDepth) * uBonePipes;\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish — none once it is bone\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nif (pn < eat * uHoles * (1.0 - pipeF)) discard;",
+        "#include <clipping_planes_fragment>\nfloat pipeF = fossilAt(vWorldP.y / max(1e-4, uUnit) + uDepth) * uBonePipes;\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish — none once it is bone\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nfloat pipeEat = eat * uHoles * (1.0 - 0.6 * pipeF);\nif (pn < pipeEat) discard;",
       )
-      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay * (1.0 - pipeF);\nif (pipeF > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, boneColour(vWorldP, pipeF), pipeF);")
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay * (1.0 - pipeF);\nif (pipeF > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, boneColour(vWorldP, pipeF, pipeEat > 0.0 ? 1.0 - smoothstep(0.0, 0.1, pn - pipeEat) : 0.0), pipeF);")
       .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= 1.0 - pipeF;")
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.7, pipeF);")
-      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * pipeF;");
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * pipeF;")
+      .replace("#include <lights_fragment_end>", clock ? `#include <lights_fragment_end>${boneLight("pipeF")}` : "#include <lights_fragment_end>");
   };
   return m;
 }
@@ -4121,6 +4124,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       bonePores: { value: 0.6, min: 0, max: 1, step: 0.05, label: "해면질 구멍 (0 = 매끈 … 1 = 구멍마다 짙음)" },
       bonePoreSize: { value: 0.35, min: 0.05, max: 2, step: 0.01, label: "구멍의 크기 (월드)" },
       boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "속빛 (빛이 뼈를 조금 지나오는 듯 · 그늘을 덜어 줌)" },
+      boneWrap: { value: 0.5, min: 0, max: 1, step: 0.05, label: "빛이 그늘 쪽으로 감겨 듦 (반투명 · 따뜻하게 · 0 = 보통 재질처럼)" },
+      boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "가장자리가 따뜻하게 밝아짐 (눈에서 돌아가는 면)" },
     }),
     { order: lab ? 7.97 : 1.78, collapsed: true, render: () => isV2 },
   );
@@ -4133,7 +4138,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     boneU.uBonePores.value = bone.bonePores;
     boneU.uBonePoreSize.value = bone.bonePoreSize;
     boneU.uBoneFill.value = bone.boneFill;
-  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.boneIvory, bone.boneStain, bone.bonePores, bone.bonePoreSize, bone.boneFill]);
+    boneU.uBoneWrap.value = bone.boneWrap;
+    boneU.uBoneRim.value = bone.boneRim;
+  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.boneIvory, bone.boneStain, bone.bonePores, bone.bonePoreSize, bone.boneFill, bone.boneWrap, bone.boneRim]);
   const walkLook = useMemo<WalkLook>(
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],

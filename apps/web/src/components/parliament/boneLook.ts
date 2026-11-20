@@ -4,10 +4,14 @@
  *
  * CHEAP: nothing is drawn again and no pass is added — it is a few lines in the materials' own fragment shaders.
  * - ivory, stained ochre where it is old and in its pores (iron seeping in from the ground);
- * - SPONGY: the pores of cancellous bone as a cellular noise in world space (eight cells a pixel: the 2×2×2 of
- *   Worley's nearest neighbours), dark in their middles, the struts between them a little lighter;
- * - the light that seems to come through it (bone is a little translucent) as a fill of its own colour — no
- *   transmission pass (the resin's refraction draws the scene again and is the heaviest thing the wall had).
+ * - SPONGY: the pores of cancellous bone as a cellular texture made ONCE (32³, eight cells a side, tiling — the
+ *   distances to the nearest and second-nearest cell point) and read by world position: one texture fetch a pixel,
+ *   dark in the pores' middles, the struts between them a little lighter; and round the edge of every hole the
+ *   fossil and the pipes already have (the decay's, the corrosion's) a band where it is porous, darker, stained;
+ * - TRANSLUCENT without a transmission pass (the resin's refraction draws the scene again and is the heaviest thing
+ *   the wall had): the sun's light WRAPS a little round to the shadowed side (as light scattered under the surface
+ *   comes out past the terminator), warm; a warm RIM where the surface turns away from the eye; and a fill of its
+ *   own colour.
  *
  * THE PIPES AND THE WAYS FOSSILISE ON THE MASS'S OWN RULER (FUSE_GROW_VERT_BODY in ParliamentSpace): the age since
  * their slot, slowed by the depth — read from where they lie, with the mass's uniforms, so they turn to bone when
@@ -19,7 +23,44 @@
 import * as THREE from "three";
 
 /** The bone's knobs (the folder 뼈 재질), shared by reference by every material that reads them. */
+/** The pores' texture: per texel the distance to the nearest cell point and the gap to the second (in cells). */
+function poreTexture(): THREE.Data3DTexture {
+  const N = 32, C = 8, S = N / C;
+  const pts = new Float32Array(C * C * C * 3);
+  let seed = 1234567;
+  const rnd = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
+  for (let i = 0; i < pts.length; i++) pts[i] = rnd();
+  const data = new Uint8Array(N * N * N * 2);
+  for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const px = (x + 0.5) / S, py = (y + 0.5) / S, pz = (z + 0.5) / S;
+    const cx = Math.floor(px), cy = Math.floor(py), cz = Math.floor(pz);
+    let d1 = 9, d2 = 9;
+    for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const gx = cx + dx, gy = cy + dy, gz = cz + dz;
+      const w = (((gz % C) + C) % C) * C * C + (((gy % C) + C) % C) * C + (((gx % C) + C) % C);
+      const qx = gx + pts[w * 3] - px, qy = gy + pts[w * 3 + 1] - py, qz = gz + pts[w * 3 + 2] - pz;
+      const d = Math.hypot(qx, qy, qz);
+      if (d < d1) [d2, d1] = [d1, d];
+      else if (d < d2) d2 = d;
+    }
+    const o = (z * N * N + y * N + x) * 2;
+    data[o] = Math.min(255, Math.round((d1 / 1.2) * 255));
+    data[o + 1] = Math.min(255, Math.round(((d2 - d1) / 0.6) * 255));
+  }
+  const t = new THREE.Data3DTexture(data, N, N, N);
+  t.format = THREE.RGFormat;
+  t.type = THREE.UnsignedByteType;
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
+  t.unpackAlignment = 1;
+  t.needsUpdate = true;
+  return t;
+}
+
 export const boneU = {
+  uBoneTex: { value: typeof window === "undefined" ? null : poreTexture() },
+  uBoneWrap: { value: 0.5 },
+  uBoneRim: { value: 0.35 },
   uBoneIvory: { value: new THREE.Color("#e6dccb") },
   uBoneStain: { value: new THREE.Color("#94764e") },
   uBonePores: { value: 0.6 },
@@ -34,31 +75,35 @@ export const boneU = {
 /** The bone's colour at a point (GLSL): ivory, its pores dark and stained, more stained the older (0 … 1). */
 export const BONE_GLSL = `
 uniform vec3 uBoneIvory, uBoneStain;
-uniform float uBonePores, uBonePoreSize, uBoneFill, uBoneMass, uBonePipes, uBoneWays;
-vec3 boneH3( vec3 p ) {
-  return fract( sin( vec3( dot( p, vec3( 127.1, 311.7, 74.7 ) ), dot( p, vec3( 269.5, 183.3, 246.1 ) ), dot( p, vec3( 113.5, 271.9, 124.6 ) ) ) ) * 43758.5453 );
-}
-// (the nearest and second-nearest of the cells' points: the eight cells round the nearest corner)
-vec2 boneCells( vec3 p ) {
-  vec3 i = floor( p ), f = fract( p ), o = step( 0.5, f ) - 1.0;
-  float d1 = 9.0, d2 = 9.0;
-  for ( int z = 0; z < 2; z ++ ) for ( int y = 0; y < 2; y ++ ) for ( int x = 0; x < 2; x ++ ) {
-    vec3 g = o + vec3( float( x ), float( y ), float( z ) );
-    vec3 r = g + boneH3( i + g ) - f;
-    float d = dot( r, r );
-    if ( d < d1 ) { d2 = d1; d1 = d; } else if ( d < d2 ) d2 = d;
-  }
-  return vec2( sqrt( d1 ), sqrt( d2 ) - sqrt( d1 ) );
-}
-vec3 boneColour( vec3 wp, float age ) {
-  vec2 c = boneCells( wp / max( 0.02, uBonePoreSize ) );
-  float pore = ( 1.0 - smoothstep( 0.06, 0.3, c.x ) ) * uBonePores;
-  float fine = boneH3( floor( wp / max( 0.02, uBonePoreSize ) * 5.0 ) ).x;
-  float stain = clamp( 0.15 + 0.45 * age + 0.7 * pore + 0.25 * ( fine - 0.5 ), 0.0, 1.0 );
+uniform float uBonePores, uBonePoreSize, uBoneFill, uBoneMass, uBonePipes, uBoneWays, uBoneWrap, uBoneRim;
+uniform highp sampler3D uBoneTex;
+// (the colour of bone at a point: ivory, its pores dark and stained, more stained the older — age 0 … 1 — and,
+// where it is \`band\` (0 … 1) near the edge of a hole, porous through and darker)
+vec3 boneColour( vec3 wp, float age, float band ) {
+  vec2 c = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.125 ).rg * vec2( 1.2, 0.6 );
+  float open = clamp( uBonePores + 0.6 * band, 0.0, 1.0 );
+  float pore = ( 1.0 - smoothstep( 0.06 + 0.12 * band, 0.3 + 0.2 * band, c.x ) ) * open;
+  float fine = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.6 + 0.37 ).r;
+  float stain = clamp( 0.15 + 0.45 * age + 0.7 * pore + 0.5 * band + 0.25 * ( fine - 0.4 ), 0.0, 1.0 );
   vec3 col = mix( uBoneIvory, uBoneStain, stain * 0.6 );
-  col *= ( 1.0 - 0.6 * pore ) * ( 0.95 + 0.1 * smoothstep( 0.0, 0.1, c.y ) );
+  col *= ( 1.0 - 0.6 * pore ) * ( 1.0 - 0.3 * band ) * ( 0.95 + 0.1 * smoothstep( 0.0, 0.1, c.y ) );
   return col;
 }
+`;
+
+/** THE LIGHT THROUGH IT (GLSL, after <lights_fragment_end> of a standard / physical material): the sun wraps round
+ *  to the shadowed side, warm; and a warm rim where the surface turns from the eye. \`amt\`: how much it is bone. */
+export const boneLight = (amt: string): string => `
+#if NUM_DIR_LIGHTS > 0
+if ( ${amt} > 0.0 ) {
+  vec3 boneWarm = vec3( 1.0, 0.8, 0.64 );
+  float boneNdl = dot( normal, directionalLights[ 0 ].direction );
+  float boneWrapT = max( 0.0, ( boneNdl + uBoneWrap ) / ( 1.0 + uBoneWrap ) ) - max( 0.0, boneNdl );
+  reflectedLight.directDiffuse += diffuseColor.rgb * boneWarm * directionalLights[ 0 ].color * boneWrapT * ${amt} * 0.6;
+  float boneFres = pow( 1.0 - saturate( dot( normalize( vViewPosition ), normal ) ), 3.0 );
+  reflectedLight.indirectDiffuse += diffuseColor.rgb * boneWarm * boneFres * uBoneRim * ${amt} * 1.5;
+}
+#endif
 `;
 
 /** How far a thing of slot `slot` has fossilised (GLSL, 0 … 1): the mass's ruler, with the mass's uniforms. */
