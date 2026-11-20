@@ -224,10 +224,11 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       pitDepth: { value: 160, min: 10, max: 400, step: 5, label: "상자의 깊이 (단 · 미래 땅에서 아래로 — 위에서 볼 때의 버전들)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitWide: { value: 6, min: 1.5, max: 20, step: 0.5, label: "바깥 땅의 넓이 (상자 한 변의 몇 배)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitShaft: { value: 40, min: 2, max: 200, step: 2, label: "통로의 높이 (단 · 버전 3: 상자 위로 솟은 네모난 통로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
-      pitLight: { value: "#a9adb3", label: "밝은 쪽 — 바깥 땅 · 통로 위 · 단면 (해와 무관한 제 빛)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
-      // (the light that comes down from the layer — the beam and the bright ceiling it falls from — apart from the
-      // ground's: the artist, 2026-11-20: "미래 층에서 내려오는 빛 색이랑 땅 색은 별개로 지정할 수 있게 해줘")
-      beamLight: { value: "#a9adb3", label: "내려오는 빛의 색 — 빛기둥 · 밝은 천장 (땅 색과 따로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      pitLight: { value: "#a9adb3", label: "땅 — 바깥 땅 · 통로 위 · 단면 · 아래에서 올려다본 땅(밝은 네모) (해와 무관한 제 빛)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
+      // (the light that comes down from the layer — the beam — apart from the ground's: the artist, 2026-11-20: "미래 층에서
+      // 내려오는 빛 색이랑 땅 색은 별개로 지정할 수 있게 해줘"; the bright square it falls from is the layer's ground seen
+      // from below, and takes the ground's colour — "Yes, ground colour")
+      beamLight: { value: "#a9adb3", label: "내려오는 빛의 색 — 빛기둥 (땅 색과 따로)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitDark: { value: "#101214", label: "어두운 쪽 — 상자 안 (봇이 다니는 범위의 배경)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitWall: { value: 0.12, min: 0, max: 1, step: 0.02, label: "'어두운 상자'의 벽 위쪽에 묻는 빛 (0 = 벽 전체가 어두움)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
       pitFall: { value: 2, min: 0.5, max: 6, step: 0.25, label: "벽의 빛이 깊이에 따라 줄어드는 정도 (위에서 볼 때의 버전들 · 클수록 맨 위만 밝음)", render: (get: (path: string) => unknown) => !!get(`${GROUP}.pit`) },
@@ -578,7 +579,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
       </mesh>
       <mesh ref={lid} visible={false} rotation={[-Math.PI / 2, 0, 0]} frustumCulled={false}>
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial color={k.beamLight} toneMapped={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={k.pitLight} toneMapped={false} side={THREE.DoubleSide} />
       </mesh>
       <mesh ref={beam} visible={false} material={beamMat} frustumCulled={false} renderOrder={2}>
         <boxGeometry args={[1, 1, 1]} />
