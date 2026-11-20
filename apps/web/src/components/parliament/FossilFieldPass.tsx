@@ -42,7 +42,7 @@ uniform mat4 uProjInv, uCamWorld, uView;
 uniform vec2 uDepthTexel;
 uniform float uDH, uDB, uDS, uVB, uVS, uR, uBornBase, uBornRange, uUnit;
 uniform float uTop, uStood, uHeight, uAfter, uOver, uAgeSpan, uDeep, uLate, uMelt, uReach, uPress, uPad, uFloor;
-uniform float uDie, uDieAfter, uDieSpan, uDieHoles, uGrain, uRag, uPatch, uPipe, uRound, uGlow;
+uniform float uDie, uDieAfter, uDieSpan, uDieHoles, uGrain, uRag, uPatch, uPipe, uRound, uGlow, uShadow;
 uniform int uSteps;
 const float PAGE = ${PAGE}.0;
 float goneHash( vec3 p ) { p = fract( p * 0.1031 + vec3( 0.71, 0.113, 0.419 ) ); p += dot( p, p.yzx + 33.33 ); return fract( ( p.x + p.y ) * p.z ); }
@@ -163,7 +163,22 @@ void main() {
   if ( dot( n, rd ) > 0.0 ) n = -n;
   // lit as the wall's stone is (a matte surface under the scene's own lights; linear — the composer has no tone mapping)
   float open = clamp( 0.55 + 0.45 * massAt( p + n * 0.7 ).x / 0.7, 0.35, 1.0 );
-  vec3 light = uAmb * open + uL1c * max( dot( n, uL1 ), 0.0 ) + uL2c * max( dot( n, uL2 ), 0.0 );
+  // THE FOSSIL SHADOWS ITSELF (the mesh took the sun's shadow map; the field is asked along the way to the sun: what
+  // of it stands between — a soft edge by how near the way passes). The buildings' shadows on it are not in this.
+  float sun = max( dot( n, uL1 ), 0.0 );
+  if ( sun > 0.0 && uShadow > 0.0 ) {
+    float sh = 1.0, ts = 0.3;
+    vec3 ps = p + n * 0.12;
+    for ( int i = 0; i < 12; i++ ) {
+      float m = massAt( ps + uL1 * ts ).x;
+      if ( m < 0.01 ) { sh = 0.0; break; }
+      sh = min( sh, 5.0 * m / ts );
+      ts += clamp( m, 0.2, 1.6 );
+      if ( ts > 16.0 ) break;
+    }
+    sun *= mix( 1.0, clamp( sh, 0.0, 1.0 ), uShadow );
+  }
+  vec3 light = uAmb * open + uL1c * sun + uL2c * max( dot( n, uL2 ), 0.0 );
   vec3 col = uColor * light * 0.31830989 + uColor * uGlow;
   // (the distance along the view's axis: what its depth is worked out of when it is put over the scene)
   fragColor = vec4( col, -( uView * vec4( p, 1.0 ) ).z );
@@ -190,7 +205,10 @@ void main() {
   float lo = min( min( a.a, b.a ), min( c.a, d.a ) ), hi = max( max( a.a, b.a ), max( c.a, d.a ) );
   if ( lo > 0.0 && hi - lo < 0.02 * hi + 0.05 ) o = mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
   fragColor = vec4( o.rgb, 1.0 );
-  gl_FragDepth = clamp( ( ( -uP22 * o.a + uP32 ) / o.a ) * 0.5 + 0.5, 0.0, 1.0 );
+  // (a little behind where it was found: where the fossil's face lies in a building's own face — it comes out of the
+  // inside of its unit — the building's is the one seen, not a stipple of the two at this pass's coarser size)
+  float vz = o.a * 1.003 + 0.06;
+  gl_FragDepth = clamp( ( ( -uP22 * vz + uP32 ) / vz ) * 0.5 + 0.5, 0.0, 1.0 );
 }`;
 
 const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -218,6 +236,8 @@ export class FossilFieldPass extends Pass {
   private lightsAt = 0;
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
+  private frames = 0;
+  private query: WebGLQuery | null = null;
 
   constructor() {
     super("FossilFieldPass");
@@ -234,7 +254,7 @@ export class FossilFieldPass extends Pass {
         uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uDepthTexel: { value: new THREE.Vector2() },
         uDH: F(), uDB: F(), uDS: F(), uVB: F(), uVS: F(), uR: F(FIELD_REACH), uBornBase: F(), uBornRange: F(1024), uUnit: F(1.8),
         uTop: F(), uStood: F(), uHeight: F(1), uAfter: F(), uOver: F(3), uAgeSpan: F(40), uDeep: F(), uLate: F(), uMelt: F(), uReach: F(2), uPress: F(1), uPad: F(0.6), uFloor: F(-1e9),
-        uDie: F(), uDieAfter: F(60), uDieSpan: F(30), uDieHoles: F(), uGrain: F(1.2), uRag: F(), uPatch: F(9), uPipe: F(0.3), uRound: F(1), uGlow: F(0.1), uSteps: { value: 200 },
+        uDie: F(), uDieAfter: F(60), uDieSpan: F(30), uDieHoles: F(), uGrain: F(1.2), uRag: F(), uPatch: F(9), uPipe: F(0.3), uRound: F(1), uGlow: F(0.1), uShadow: F(1), uSteps: { value: 200 },
       },
       false,
     );
@@ -281,6 +301,7 @@ export class FossilFieldPass extends Pass {
         if (l.isLight && l.visible && (l.type === "AmbientLight" || l.type === "DirectionalLight")) this.lights.push(l);
       });
     }
+    this.lights.sort((a, b) => b.intensity - a.intensity);
     const amb = (u.uAmb.value as THREE.Vector3).set(0, 0, 0);
     const dirs = [
       [u.uL1.value as THREE.Vector3, u.uL1c.value as THREE.Vector3],
@@ -360,6 +381,24 @@ export class FossilFieldPass extends Pass {
         (u.uColor.value as THREE.Vector3).set(look.color.r, look.color.g, look.color.b);
         this.light();
         renderer.autoClear = false;
+        // (what the drawing costs the GPU, measured now and then — for the status line: fossilLink.gpuMs)
+        const gl = renderer.getContext() as WebGL2RenderingContext, ext = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+        let timing = false;
+        if (ext) {
+          if (this.query) {
+            if (gl.getQueryParameter(this.query, gl.QUERY_RESULT_AVAILABLE)) {
+              if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) fossilLink.gpuMs = (gl.getQueryParameter(this.query, gl.QUERY_RESULT) as number) / 1e6;
+              gl.deleteQuery(this.query);
+              this.query = null;
+            }
+          } else if (++this.frames % 20 === 0) {
+            this.query = gl.createQuery();
+            if (this.query) {
+              gl.beginQuery(ext.TIME_ELAPSED_EXT, this.query);
+              timing = true;
+            }
+          }
+        }
         renderer.setRenderTarget(this.half);
         renderer.render(this.march.scene, quadCam);
         const cu = this.compose.mat.uniforms, pe = cam.projectionMatrix.elements;
@@ -367,6 +406,7 @@ export class FossilFieldPass extends Pass {
         cu.uP32.value = pe[14];
         renderer.setRenderTarget(inputBuffer);
         renderer.render(this.compose.scene, quadCam);
+        if (timing && ext) gl.endQuery(ext.TIME_ELAPSED_EXT);
       }
       renderer.autoClear = auto;
     }

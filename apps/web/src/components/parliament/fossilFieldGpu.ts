@@ -161,13 +161,12 @@ class FieldGpu {
     this.grid.pageDirty = true;
   }
 
-  /** The atlas is as tall as the bricks need (twice as tall each time it grows; what it held is copied over). */
+  /** The atlas is as tall as the bricks need (a little taller each time it grows; what it held is copied over). */
   private fit(renderer: THREE.WebGLRenderer): void {
     const need = Math.max(1, this.grid.slabs);
     if (this.rt && need <= this.slabsAlloc) return;
-    let slabs = Math.max(2, this.slabsAlloc);
-    while (slabs < need) slabs *= 2;
-    slabs = Math.min(slabs, this.spec.slabsMax);
+    // (two slabs more than are needed: a slab of the distances is 13 MB — the atlas follows the world, not ahead of it)
+    const slabs = Math.min(Math.max(2, need + 2), this.spec.slabsMax);
     const w = this.spec.A * this.S;
     const rt = new THREE.WebGL3DRenderTarget(w, w, slabs * this.S, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false });
     rt.texture.wrapS = rt.texture.wrapT = rt.texture.wrapR = THREE.ClampToEdgeWrapping;
@@ -384,6 +383,8 @@ export const fossilLink = {
   clock: null as FieldClock | null,
   /** A slot's height (world), the pipes' radius, how round an old layer is, the fossil's colour and glow. */
   look: { unit: 1.8, pipe: 0.3, round: 1, color: new THREE.Color("#fbfbfa"), glow: 0.1, scale: 0.5, steps: 200 },
+  /** What drawing the field cost the GPU when it was last measured (ms; the march and putting it over the scene). */
+  gpuMs: 0,
 };
 let tokens = 0;
 /** A new, empty field (the old one is let go). Returns its token: what the model is asked with (fuse.ts field). */
