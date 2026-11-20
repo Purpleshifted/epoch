@@ -245,8 +245,8 @@ export class FossilFieldPass extends Pass {
   override setDepthTexture(depthTexture: THREE.Texture): void {
     this.depthTex = depthTexture;
   }
-  override getDepthTexture(): THREE.Texture | null {
-    return this.depthTex;
+  override getDepthTexture(): THREE.Texture {
+    return this.depthTex as THREE.Texture;
   }
   override initialize(renderer: THREE.WebGLRenderer, alpha: boolean, frameBufferType: number): void {
     this.copy.initialize(renderer, alpha, frameBufferType);

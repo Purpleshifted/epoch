@@ -761,7 +761,7 @@ function makeResinMaterial(u: FuseUniforms, fade?: FuseFade): THREE.MeshPhysical
       .replace(
         "#include <emissivemap_fragment>",
         // (round the holes the fossil's going eats, a band where it is porous — the going's own noise, as FUSE_GONE_FRAG_BODY)
-        "#include <emissivemap_fragment>\nif ( uBoneMass > 0.0 ) {\n\tfloat boneBand = 0.0;\n\tfloat boneGoneAt = vGone == 0.0 ? 0.0 : clamp( vGone + ( goneNoise( vGonePos / max( 0.5, uGrowDiePatch ) + 7.7 ) - 0.5 ) * 3.0 * uGrowDieRag, 0.0, 1.0 );\n\tif ( boneGoneAt > 0.001 ) {\n\t\tvec3 boneGP = vGonePos / max( 0.05, uGrowDieGrain );\n\t\tfloat boneGN = clamp( ( 0.65 * goneNoise( boneGP ) + 0.35 * goneNoise( boneGP * 2.7 + 11.3 ) - 0.5 ) * 1.9 + 0.5, 0.0, 0.999 );\n\t\tboneBand = 1.0 - smoothstep( 0.0, 0.14, boneGN - boneGoneAt );\n\t}\n\tvec3 boneShade = diffuseColor.rgb / max( diffuse, vec3( 1e-3 ) );\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, boneColour( vFusePos, clamp( vGrow, 0.0, 1.0 ), boneBand ) * boneShade, uBoneMass );\n\ttotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * uBoneMass;\n}",
+        "#include <emissivemap_fragment>\nif ( uBoneMass > 0.0 ) {\n\tfloat boneBand = 0.0;\n\tfloat boneGoneAt = vGone == 0.0 ? 0.0 : clamp( vGone + ( goneNoise( vGonePos / max( 0.5, uGrowDiePatch ) + 7.7 ) - 0.5 ) * 3.0 * uGrowDieRag, 0.0, 1.0 );\n\tif ( boneGoneAt > 0.001 ) {\n\t\tvec3 boneGP = vGonePos / max( 0.05, uGrowDieGrain );\n\t\tfloat boneGN = clamp( ( 0.65 * goneNoise( boneGP ) + 0.35 * goneNoise( boneGP * 2.7 + 11.3 ) - 0.5 ) * 1.9 + 0.5, 0.0, 0.999 );\n\t\tboneBand = 1.0 - smoothstep( 0.0, 0.14, boneGN - boneGoneAt );\n\t}\n\tdiffuseColor.rgb *= mix( 1.0, bonePattern( vFusePos, boneBand ), uBoneMass );\n\ttotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * uBoneMass;\n}",
       )
       .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>${boneLight("uBoneMass")}`);
     shader.fragmentShader = shader.fragmentShader
@@ -916,12 +916,12 @@ function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: numb
       .replace("#include <common>", "#include <common>\nattribute float aDecay;\nvarying float vDecay;\nvarying vec3 vWorldP;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvDecay = aDecay;\nvWorldP = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain, uUnit, uDepth;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }" + (clock ? `${BONE_GLSL}${FOSSIL_AT_GLSL}` : "\nconst float uBonePipes = 0.0;\nfloat fossilAt( float s ) { return 0.0; }\nvec3 boneColour( vec3 p, float a, float b ) { return vec3( 1.0 ); }\nconst float uBoneFill = 0.0;"))
+      .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain, uUnit, uDepth;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }" + (clock ? `${BONE_GLSL}${FOSSIL_AT_GLSL}` : "\nconst float uBonePipes = 0.0;\nfloat fossilAt( float s ) { return 0.0; }\nfloat bonePattern( vec3 p, float b ) { return 1.0; }\nconst float uBoneFill = 0.0;"))
       .replace(
         "#include <clipping_planes_fragment>",
         "#include <clipping_planes_fragment>\nfloat pipeF = fossilAt(vWorldP.y / max(1e-4, uUnit) + uDepth) * uBonePipes;\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish — none once it is bone\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nfloat pipeEat = eat * uHoles * (1.0 - 0.6 * pipeF);\nif (pn < pipeEat) discard;",
       )
-      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay * (1.0 - pipeF);\nif (pipeF > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, boneColour(vWorldP, pipeF, pipeEat > 0.0 ? 1.0 - smoothstep(0.0, 0.1, pn - pipeEat) : 0.0), pipeF);")
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay * (1.0 - pipeF);\nif (pipeF > 0.0) diffuseColor.rgb *= mix(1.0, bonePattern(vWorldP, pipeEat > 0.0 ? 1.0 - smoothstep(0.0, 0.1, pn - pipeEat) : 0.0), pipeF);")
       .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= 1.0 - pipeF;")
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.7, pipeF);")
       .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * pipeF;")
@@ -4171,16 +4171,17 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const bone = useLevaControls(
     "뼈 재질 — 화석 · 관 · 길",
     savable("뼈 재질 — 화석 · 관 · 길", {
-      boneMass: { value: 1, min: 0, max: 1, step: 0.05, label: "화석 덩어리를 뼈로 (0 = 레진의 색 그대로 · 1 = 뼈)" },
-      bonePipes: { value: 1, min: 0, max: 1, step: 0.05, label: "배관이 뼈가 됨 (화석이 될 나이에 · 0 = 끝까지 녹슬어 구멍 남)" },
-      boneWays: { value: 1, min: 0, max: 1, step: 0.05, label: "길이 뼈 빛의 흔적으로 굳음 (화석이 될 나이에 · 0 = 그대로)" },
-      boneIvory: { value: "#e6dccb", label: "뼈의 색 (상아)" },
-      boneStain: { value: "#94764e", label: "스민 얼룩의 색 (오래될수록 · 구멍 속일수록)" },
+      // (its own colour stays — "지금 뼈 색은 끔찍해 무늬랑 반투명 가장자리 느낌 말한 거야": only the pattern and the light)
+      boneMass: { value: 1, min: 0, max: 1, step: 0.05, label: "화석 덩어리에 뼈 무늬 · 빛 (색은 그대로 · 0 = 끔)" },
+      bonePipes: { value: 1, min: 0, max: 1, step: 0.05, label: "배관이 화석이 됨 (화석이 될 나이에 · 녹슨 구멍 대신 뼈 무늬 · 0 = 끝까지 녹슬어 구멍 남)" },
+      boneWays: { value: 1, min: 0, max: 1, step: 0.05, label: "길이 흔적으로 굳음 (화석이 될 나이에 · 비치던 선이 진해짐 · 0 = 그대로)" },
       bonePores: { value: 0.6, min: 0, max: 1, step: 0.05, label: "해면질 구멍 (0 = 매끈 … 1 = 구멍마다 짙음)" },
       bonePoreSize: { value: 0.35, min: 0.05, max: 2, step: 0.01, label: "구멍의 크기 (월드)" },
       boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "속빛 (빛이 뼈를 조금 지나오는 듯 · 그늘을 덜어 줌)" },
       boneWrap: { value: 0.5, min: 0, max: 1, step: 0.05, label: "빛이 그늘 쪽으로 감겨 듦 (반투명 · 따뜻하게 · 0 = 보통 재질처럼)" },
-      boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "가장자리가 따뜻하게 밝아짐 (눈에서 돌아가는 면)" },
+      boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "가장자리가 밝아짐 (눈에서 돌아가는 면)" },
+      // ("이거 색이 왜 묘하게 핑크색이지? … 표면 색 말고"): the tint of that light — it was a fixed warm peach
+      boneWarm: { value: "#ffffff", label: "그늘로 감겨 드는 빛 · 가장자리 빛의 색 (흰색 = 중성 · 따뜻하게 하면 분홍빛이 돎)" },
     }),
     { order: lab ? 7.97 : 1.78, collapsed: true, render: () => isV2 },
   );
@@ -4188,14 +4189,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     boneU.uBoneMass.value = bone.boneMass;
     boneU.uBonePipes.value = bone.bonePipes;
     boneU.uBoneWays.value = bone.boneWays;
-    boneU.uBoneIvory.value.set(bone.boneIvory);
-    boneU.uBoneStain.value.set(bone.boneStain);
     boneU.uBonePores.value = bone.bonePores;
     boneU.uBonePoreSize.value = bone.bonePoreSize;
     boneU.uBoneFill.value = bone.boneFill;
     boneU.uBoneWrap.value = bone.boneWrap;
     boneU.uBoneRim.value = bone.boneRim;
-  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.boneIvory, bone.boneStain, bone.bonePores, bone.bonePoreSize, bone.boneFill, bone.boneWrap, bone.boneRim]);
+    boneU.uBoneWarm.value.set(bone.boneWarm);
+  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.bonePores, bone.bonePoreSize, bone.boneFill, bone.boneWrap, bone.boneRim, bone.boneWarm]);
   const walkLook = useMemo<WalkLook>(
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
@@ -4652,10 +4652,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
-  // A SHAPE KNOB TURNED SHOWS NOTHING AT ONCE (the artist, 2026-11-20, of the shell's thickness: "레바 손잡이 바꿔도 뭐가 확
-  // 보이질 않으니"): the mass's shape is made in the worker beside, piece after piece — minutes for the whole wall —
-  // and a turned knob looked as if it did nothing. The wall says so when the fusion's settings have changed: what is
-  // on the screen is the old shape until its piece has been made again (the status line counts them down).
+    }),
+    [fieldToken, fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+  );
   // (what the field's pass reads of the look: the pipes' radius, the fossil's colour and glow, its share of the screen)
   useEffect(() => {
     const l = fossilLink.look;
@@ -4664,6 +4663,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     l.glow = fu.resinMode === "frost" ? fu.resinGlow : 0;
     l.scale = fu.fieldScale;
   }, [fu.pipeRadius, fu.resinColor, fu.resinMode, fu.resinGlow, fu.fieldScale]);
+  // A SHAPE KNOB TURNED SHOWS NOTHING AT ONCE (the artist, 2026-11-20, of the shell's thickness: "레바 손잡이 바꿔도 뭐가 확
+  // 보이질 않으니"): the mass's shape is made in the worker beside, piece after piece — minutes for the whole wall —
+  // and a turned knob looked as if it did nothing. The wall says so when the fusion's settings have changed: what is
+  // on the screen is the old shape until its piece has been made again (the status line counts them down).
   const fuseCfgSeen = useRef("");
   useEffect(() => {
     const key = JSON.stringify(fuseCfg);
@@ -4672,9 +4675,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     if (!was || was === key || !REDESIGN || !fuseCfg.enabled || fuseCfg.field) return;
     showNote("화석의 모양 값이 바뀜 — 조각을 차례로 다시 만드는 중 (지금 보이는 것은 아직 옛 모양 · 상태 줄의 '남은 조각'이 0이 되면 다 바뀐 것 · 몇 분)", true);
   }, [fuseCfg]);
-    }),
-    [fieldToken, fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
-  );
+  // THE NEW WAY ONLY (the artist, 2026-11-20, with the wall saved on the old way — 화석이 나타나는 방식 = 예전, 덩어리를
+  // 만드는 단위 = 묶음 · 타일: "지금 화석 방식 레바는 이렇게 하는 거 아냐??? … 어디서 꼬인 거지??"). That switch chose
+  // between two fossils, and on the old one nothing built since 11/16 runs — the age, the life, the fossil's units,
+  // the swelling out of them, the pieces' size, the letting go of what has gone. It is no longer listed (levaFocus
+  // FUSION_UNLISTED), and whatever was saved for it, the wall puts it — and the old unit's knob with it — on the
+  // new way here: there is one fossil.
+  useEffect(() => {
+    if (REDESIGN && (fu.fuseGrow !== "seed" || fu.fuseUnit !== "building")) applyValues(FU, { fuseGrow: "seed", fuseUnit: "building" });
+  }, [fu.fuseGrow, fu.fuseUnit]);
   // A SET OF VALUES CHOSEN (the fusion folder's 값 묶음 불러오기): put on the folder's knobs when the choice CHANGES —
   // not when the page opens with a choice saved (what is saved may have been moved since it was chosen)
   const presetSeen = useRef(fu.fusePreset);

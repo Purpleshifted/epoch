@@ -3,7 +3,8 @@
  * 값싸게 만들 수 있을지도", and of the pipes and ways' fossilisation: "둘 다 해").
  *
  * CHEAP: nothing is drawn again and no pass is added — it is a few lines in the materials' own fragment shaders.
- * - ivory, stained ochre where it is old and in its pores (iron seeping in from the ground);
+ * ITS OWN COLOUR STAYS (the artist, 2026-11-20, of the first version's ivory and ochre: "지금 뼈 색은 끔찍해 무늬랑
+ * 반투명 가장자리 느낌 말한 거야"): only the pattern and the light are bone's —
  * - SPONGY: the pores of cancellous bone as a cellular texture made ONCE (32³, eight cells a side, tiling — the
  *   distances to the nearest and second-nearest cell point) and read by world position: one texture fetch a pixel,
  *   dark in the pores' middles, the struts between them a little lighter; and round the edge of every hole the
@@ -60,9 +61,10 @@ function poreTexture(): THREE.Data3DTexture {
 export const boneU = {
   uBoneTex: { value: typeof window === "undefined" ? null : poreTexture() },
   uBoneWrap: { value: 0.5 },
+  /** the colour of the light that wraps round and of the rim — white = neutral (it was a fixed warm peach, and on the
+   *  grey fossil that read as an odd pink: the artist, 2026-11-20, "이거 색이 왜 묘하게 핑크색이지?") */
+  uBoneWarm: { value: new THREE.Color("#ffffff") },
   uBoneRim: { value: 0.35 },
-  uBoneIvory: { value: new THREE.Color("#e6dccb") },
-  uBoneStain: { value: new THREE.Color("#94764e") },
   uBonePores: { value: 0.6 },
   uBonePoreSize: { value: 0.35 },
   uBoneFill: { value: 0.25 },
@@ -74,20 +76,17 @@ export const boneU = {
 
 /** The bone's colour at a point (GLSL): ivory, its pores dark and stained, more stained the older (0 … 1). */
 export const BONE_GLSL = `
-uniform vec3 uBoneIvory, uBoneStain;
 uniform float uBonePores, uBonePoreSize, uBoneFill, uBoneMass, uBonePipes, uBoneWays, uBoneWrap, uBoneRim;
+uniform vec3 uBoneWarm;
 uniform highp sampler3D uBoneTex;
-// (the colour of bone at a point: ivory, its pores dark and stained, more stained the older — age 0 … 1 — and,
-// where it is \`band\` (0 … 1) near the edge of a hole, porous through and darker)
-vec3 boneColour( vec3 wp, float age, float band ) {
+// (how much of its own colour bone leaves at a point — the pores dark in their middles, the struts a little lighter,
+// a fine grain; and where it is \`band\` (0 … 1) near the edge of a hole, porous through and darker)
+float bonePattern( vec3 wp, float band ) {
   vec2 c = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.125 ).rg * vec2( 1.2, 0.6 );
   float open = clamp( uBonePores + 0.6 * band, 0.0, 1.0 );
   float pore = ( 1.0 - smoothstep( 0.06 + 0.12 * band, 0.3 + 0.2 * band, c.x ) ) * open;
   float fine = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.6 + 0.37 ).r;
-  float stain = clamp( 0.15 + 0.45 * age + 0.7 * pore + 0.5 * band + 0.25 * ( fine - 0.4 ), 0.0, 1.0 );
-  vec3 col = mix( uBoneIvory, uBoneStain, stain * 0.6 );
-  col *= ( 1.0 - 0.6 * pore ) * ( 1.0 - 0.3 * band ) * ( 0.95 + 0.1 * smoothstep( 0.0, 0.1, c.y ) );
-  return col;
+  return ( 1.0 - 0.6 * pore ) * ( 1.0 - 0.3 * band ) * ( 0.95 + 0.1 * smoothstep( 0.0, 0.1, c.y ) ) * ( 0.96 + 0.08 * fine );
 }
 `;
 
@@ -96,7 +95,7 @@ vec3 boneColour( vec3 wp, float age, float band ) {
 export const boneLight = (amt: string): string => `
 #if NUM_DIR_LIGHTS > 0
 if ( ${amt} > 0.0 ) {
-  vec3 boneWarm = vec3( 1.0, 0.8, 0.64 );
+  vec3 boneWarm = uBoneWarm;
   float boneNdl = dot( normal, directionalLights[ 0 ].direction );
   float boneWrapT = max( 0.0, ( boneNdl + uBoneWrap ) / ( 1.0 + uBoneWrap ) ) - max( 0.0, boneNdl );
   reflectedLight.directDiffuse += diffuseColor.rgb * boneWarm * directionalLights[ 0 ].color * boneWrapT * ${amt} * 0.6;
@@ -123,8 +122,8 @@ export type FossilClock = Record<"uGrowOn" | "uGrowTop" | "uGrowHeight" | "uGrow
 export const pickClock = (u: FossilClock): FossilClock => ({ uGrowOn: u.uGrowOn, uGrowTop: u.uGrowTop, uGrowHeight: u.uGrowHeight, uGrowStood: u.uGrowStood, uGrowAfter: u.uGrowAfter, uGrowDeep: u.uGrowDeep, uGrowAgeSpan: u.uGrowAgeSpan });
 
 /**
- * THE WAYS' LINES TURN TO BONE (a lineBasicMaterial's onBeforeCompile): an old way's line goes from its own grey,
- * see-through, to the bone's ivory and solid, as the mass round it fossilises — the trace kept in the stone. `unit`
+ * THE WAYS' LINES ARE KEPT IN THE STONE (a lineBasicMaterial's onBeforeCompile): an old way's line, see-through, goes
+ * solid in its own colour as the mass round it fossilises — the trace kept in the stone. `unit`
  * is the height of a slot (the line's height / unit = its slot).
  */
 export function wayBoneShader(clock: () => FossilClock, unit: () => number) {
@@ -137,7 +136,7 @@ export function wayBoneShader(clock: () => FossilClock, unit: () => number) {
       .replace("#include <common>", `#include <common>\nvarying vec3 vWayP;\nuniform float uWayUnit;${BONE_GLSL}${FOSSIL_AT_GLSL}`)
       .replace(
         "#include <color_fragment>",
-        "#include <color_fragment>\nfloat wayF = fossilAt( vWayP.y / max( 1e-4, uWayUnit ) ) * uBoneWays;\nif ( wayF > 0.0 ) {\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, mix( uBoneIvory, uBoneStain, 0.25 * wayF ), wayF );\n\tdiffuseColor.a = mix( diffuseColor.a, 1.0, 0.85 * wayF );\n}",
+        "#include <color_fragment>\nfloat wayF = fossilAt( vWayP.y / max( 1e-4, uWayUnit ) ) * uBoneWays;\nif ( wayF > 0.0 ) diffuseColor.a = mix( diffuseColor.a, 1.0, 0.85 * wayF );",
       );
   };
 }
