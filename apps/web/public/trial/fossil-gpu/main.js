@@ -17,12 +17,15 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import GUI from "lil-gui";
-import { generate, loadDump, brickLists, primAabb, UNIT } from "./gen.js";
+import { generate, loadDump, brickLists, primAabb, rooms, units, UNIT } from "./gen.js";
 
 const q = new URLSearchParams(location.search);
 const num = (k, d) => (q.has(k) ? Number(q.get(k)) : d);
 // ?data=<name>: the wall's own boxes (data/<name>.json + .f32, gen.js loadDump) instead of a generated block
 const DUMP = q.get("data") ? await loadDump(q.get("data")) : null;
+// THE EXHIBITION'S TWO SETS OF FUSION VALUES (plan §5: ① the exhibition server's saves 11/01, ② the artist's export
+// 11/15) — stage A reads its knobs from the one chosen (?set=1101|1115), and the panel changes them in place
+const SETS = await (await fetch("./presets/exhibition-fusion.json")).json();
 
 const canvas = document.getElementById("c");
 const outEl = document.getElementById("out");
@@ -66,8 +69,20 @@ const P = {
   patch: 9,
   parts: q.get("parts") !== "0",
   fossil: true,
-  steps: num("steps", 220),
+  steps: num("steps", q.get("mass") === "smooth" ? 220 : 360),
+  // STAGE A (2026-11-20): "exhibit" = the exhibition's density field (fuse.ts: max(occupancy, gain · blur), cut at
+  // iso, sag, outline, rooms) with the age read per pixel; "smooth" = the trial's first field (a smooth union swollen
+  // by the wall's new filter)
+  mass: q.get("mass") === "smooth" ? "smooth" : "exhibit",
+  set: q.get("set") === "1115" ? "1115" : "1101",
+  // the exhibition's layer age 0 … 1 is read here as the depth in the window (top → bottom) × this
+  ageK: num("agek", 1),
+  // the fossil's units: the boxes joined on a lattice this wide (world; 0 = the simplified boxes as dumped)
+  unit: num("unit", 2),
 };
+/** The exhibition knobs in use (a copy of the chosen set, changed by the panel). */
+let X = { ...SETS[P.set] };
+const EXHIBIT = P.mass === "exhibit";
 if (DUMP) {
   P.slots = DUMP.slots;
   if (!P.top) P.top = DUMP.top;
@@ -96,9 +111,19 @@ precision highp float; precision highp int; precision highp sampler2D;
 uniform sampler2D uPrims, uLists, uInfo;
 uniform int uLayer, uA, uS, uNb;
 uniform float uH, uB, uR, uK, uKv, uBornBase, uBornRange;
+uniform float uVs, uW, uWe, uSag, uSkel, uWrap, uDown;
 uniform vec3 uOrigin;
 out vec4 fragColor;
 vec4 fetch( sampler2D t, int i ) { return texelFetch( t, ivec2( i & 4095, i >> 12 ), 0 ); }
+float hash13( vec3 p ) { p = fract( p * 0.1031 ); p += dot( p, p.zyx + 31.32 ); return fract( ( p.x + p.y ) * p.z ); }
+float vnoise( vec3 p ) {
+  vec3 i = floor( p ), f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( mix( hash13( i ), hash13( i + vec3( 1, 0, 0 ) ), f.x ), mix( hash13( i + vec3( 0, 1, 0 ) ), hash13( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+              mix( mix( hash13( i + vec3( 0, 0, 1 ) ), hash13( i + vec3( 1, 0, 1 ) ), f.x ), mix( hash13( i + vec3( 0, 1, 1 ) ), hash13( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+}
+// a box of half size h along one axis, seen through a box filter of half width w: the share of the filter inside it
+float ov( float l, float h, float w ) { return clamp( min( l + w, h ) - max( l - w, -h ), 0.0, 2.0 * w ) / ( 2.0 * w ); }
 void main() {
   ivec2 fc = ivec2( gl_FragCoord.xy );
   int bx = fc.x / uS, by = fc.y / uS, bz = uLayer / uS;
@@ -109,18 +134,62 @@ void main() {
   vec3 p = uOrigin + ( i0.xyz * uB + vec3( j ) - 0.5 ) * uH;
   int off = int( i0.w ), cnt = int( i1.x );
   float sumE = 0.0;
+#ifdef DENSITY
+  // THE EXHIBITION'S FIELD (fuse.ts fuseChunk), each part's share worked out in closed form instead of filled and
+  // blurred voxel by voxel: C = the parts (a skeleton part only skeletonWrap of it), Bs = the parts seen through the
+  // box blur (blur voxels each way) and hanging down (sag: each row keeps a share of the row above, more in some
+  // columns), Rm = the rooms between plates, Ea = the parts a little wider (the outline; plates exact)
+  float C = 0.0, Bs = 0.0, Rm = 0.0, Ea = 0.0;
+  float scol = uSag * ( 0.55 + 0.45 * vnoise( vec3( p.x * 0.8, 0.0, p.z * 0.8 ) ) );
+  float hv = 0.5 * uVs;
+#endif
 #ifdef VALUES
   float wsum = 0.0, veg = 0.0, late = 0.0, bm = -1e9, bs = 0.0, bws = 0.0;
 #endif
   for ( int n = 0; n < cnt; n++ ) {
     int pi = int( fetch( uLists, off + n ).r );
     vec4 a = fetch( uPrims, pi * 3 ), b = fetch( uPrims, pi * 3 + 1 ), c = fetch( uPrims, pi * 3 + 2 );
+#ifdef DENSITY
+    if ( c.w < 0.5 || c.w > 1.5 ) {
+      vec3 dp = p - a.xyz;
+      vec3 l = vec3( dp.x * a.w - dp.z * b.w, dp.y, dp.x * b.w + dp.z * a.w );
+      vec3 h = max( b.xyz, vec3( hv ) );
+      if ( c.w > 1.5 ) { Rm = max( Rm, ov( l.x, h.x, uWe ) * ov( l.y, h.y, uWe ) * ov( l.z, h.z, uWe ) ); continue; }
+      // a plate is the frame when the rooms are filled (isSkeleton); the others by their own hash
+      float sk = c.z < 0.5 ? 1.0 : step( hash13( a.xyz * 7.31 + 0.5 ), uSkel );
+      float wt = mix( 1.0, uWrap, sk );
+      C = max( C, wt * ov( l.x, h.x, hv ) * ov( l.y, h.y, hv ) * ov( l.z, h.z, hv ) );
+      float fy = ov( l.y, h.y, uW );
+      if ( scol > 0.0 && l.y < uW - h.y ) fy = max( fy, pow( scol, ( uW - h.y - l.y ) / uVs ) );
+      Bs += wt * ov( l.x, h.x, uW ) * fy * ov( l.z, h.z, uW );
+      float dd = c.z < 0.5 ? 0.0 : hv;
+      Ea = max( Ea, ov( l.x, h.x + dd, uWe ) * ov( l.y, h.y + dd, uWe ) * ov( l.z, h.z + dd, uWe ) );
+    } else {
+      vec3 pa = p - a.xyz, ba = b.xyz - a.xyz;
+      float hh = clamp( dot( pa, ba ) / max( dot( ba, ba ), 1e-6 ), 0.0, 1.0 );
+      float dc = length( pa - ba * hh ) - max( a.w, 0.6 * uVs );
+      C = max( C, clamp( 0.5 - dc / uVs, 0.0, 1.0 ) );
+      Bs += clamp( 0.5 - dc / ( 2.0 * uW ), 0.0, 1.0 );
+      Ea = max( Ea, clamp( 0.5 - ( dc - uVs ) / ( 3.0 * uVs ), 0.0, 1.0 ) );
+    }
+    continue;
+#endif
+    if ( c.w > 1.5 ) continue; // (a room: only the density field reads it)
     float d;
     if ( c.w < 0.5 ) {
       // a box in its own turn (writeMatrix's turn undone)
       vec3 dp = p - a.xyz;
+#ifdef VALUES
+      // (the density field's sag hangs below the boxes: the distance kept here is to the box made that much longer
+      // downwards, so the march's steps never jump into it)
+      dp.y += 0.5 * uDown;
+#endif
       vec3 l = vec3( dp.x * a.w - dp.z * b.w, dp.y, dp.x * b.w + dp.z * a.w );
+#ifdef VALUES
+      vec3 qd = abs( l ) - ( b.xyz + vec3( 0.0, 0.5 * uDown, 0.0 ) );
+#else
       vec3 qd = abs( l ) - b.xyz;
+#endif
       d = length( max( qd, 0.0 ) ) + min( max( qd.x, max( qd.y, qd.z ) ), 0.0 );
     } else {
       // a pipe or a way
@@ -138,6 +207,10 @@ void main() {
     float e = w * exp( t - bm ); bs += e * ( c.x - uBornBase ); bws += e;
 #endif
   }
+#ifdef DENSITY
+  fragColor = vec4( C, min( Bs, 1.0 ), Rm, Ea );
+  return;
+#endif
   float d = sumE > 0.0 ? -uK * log( sumE ) : uR;
 #ifdef VALUES
   fragColor = vec4( bws > 0.0 ? clamp( bs / bws / uBornRange, 0.0, 1.0 ) : 0.0, wsum > 0.0 ? veg / wsum : 0.0, wsum > 0.0 ? late / wsum : 0.0, clamp( d / uR * 0.5 + 0.5, 0.0, 1.0 ) );
@@ -149,22 +222,27 @@ void main() {
 const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 class Field {
-  constructor(name, h, B, values) {
+  constructor(name, h, B, values, dens = null, R = P.R, down = 0) {
     this.name = name;
     this.h = h;
     this.B = B;
     this.S = B + 2;
     this.values = values;
+    this.dens = dens;
+    this.R = R;
+    this.down = down;
     this.mat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: QUAD_VERT,
       fragmentShader: SPLAT_FRAG,
-      defines: values ? { VALUES: 1 } : {},
+      defines: values ? { VALUES: 1 } : dens ? { DENSITY: 1 } : {},
       uniforms: {
         uPrims: { value: null }, uLists: { value: null }, uInfo: { value: null },
         uLayer: { value: 0 }, uA: { value: 1 }, uS: { value: this.S }, uNb: { value: 0 },
         uH: { value: h }, uB: { value: B }, uR: { value: P.R }, uK: { value: P.k }, uKv: { value: P.kv },
         uBornBase: { value: 0 }, uBornRange: { value: 1 }, uOrigin: { value: new THREE.Vector3() },
+        uVs: { value: dens?.vs ?? h }, uW: { value: dens?.w ?? h }, uWe: { value: dens?.we ?? h }, uSag: { value: dens?.sag ?? 0 },
+        uSkel: { value: dens?.skel ?? 0 }, uWrap: { value: dens?.wrap ?? 1 }, uDown: { value: down },
       },
       depthTest: false,
       depthWrite: false,
@@ -188,7 +266,7 @@ class Field {
   build(w) {
     this.dispose();
     const t0 = performance.now();
-    const L = brickLists(w.prims, w.count, w.bounds, this.h, this.B, P.R);
+    const L = brickLists(w.prims, w.count, w.bounds, this.h, this.B, this.R, this.down);
     this.L = L;
     const keys = [...L.lists.keys()].sort((a, b) => a - b);
     const nb = keys.length;
@@ -230,7 +308,7 @@ class Field {
     this.infoTex.needsUpdate = true;
     const S = this.S;
     this.rt = new THREE.WebGL3DRenderTarget(A * S, A * S, AZ * S, {
-      format: this.values ? THREE.RGBAFormat : THREE.RedFormat,
+      format: this.values || this.dens ? THREE.RGBAFormat : THREE.RedFormat,
       type: THREE.UnsignedByteType,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
@@ -267,7 +345,7 @@ class Field {
       bricks: nb,
       of: nx * ny * nz,
       voxels: nb * this.B ** 3,
-      atlasMB: (A * S * A * S * AZ * S * (this.values ? 4 : 1)) / 1e6,
+      atlasMB: (A * S * A * S * AZ * S * (this.values || this.dens ? 4 : 1)) / 1e6,
       pageMB: (nx * ny * nz * 4) / 1e6,
       listMB: (this.lists.byteLength + this.info.byteLength) / 1e6,
       listAvg: total / nb,
@@ -310,6 +388,9 @@ class Field {
     const [nx, ny, nz] = L.dims;
     const bw = this.B * this.h, [ox, oy, oz] = L.origin;
     const now = primAabb(w.prims, i, L.m);
+    now[1] -= this.down;
+    was = [...was];
+    was[1] -= this.down;
     const range = (a) => [
       Math.max(0, Math.floor((a[0] - ox) / bw)), Math.min(nx - 1, Math.floor((a[3] - ox) / bw)),
       Math.max(0, Math.floor((a[1] - oy) / bw)), Math.min(ny - 1, Math.floor((a[4] - oy) / bw)),
@@ -503,6 +584,60 @@ vec2 grow( vec3 p, vec3 v ) {
   float vGrow = clamp( ( growTime - growWait ) / max( 0.05, 1.0 - growWait ), 0.0, 1.0 ) * v.g;
   return vec2( vGrow, vGone );
 }
+#ifdef DENSITY
+uniform float uVs, uW, uIso, uGain, uFOn, uFFull, uFFrom, uFTo, uFNoise, uBlocky, uScatter, uEnv, uFillOut, uAgeK, uReach;
+vec4 dAt4( vec3 p ) {
+  vec3 c = floor( ( p - uDOrigin ) / ( uDB * uDH ) );
+  if ( any( lessThan( c, vec3( 0.0 ) ) ) || any( greaterThanEqual( c, vec3( uDDims ) ) ) ) return vec4( 0.0 );
+  vec4 pg = texelFetch( uDPage, ivec3( c ), 0 );
+  if ( pg.a < 0.5 ) return vec4( 0.0 );
+  vec3 local = ( p - uDOrigin ) / uDH - c * uDB;
+  return texture( uDAtlas, ( floor( pg.rgb * 255.0 + 0.5 ) * uDS + local + 1.0 ) / uDAtlasTex );
+}
+vec4 vAt4( vec3 p ) {
+  vec3 c = floor( ( p - uVOrigin ) / ( uVB * uVH ) );
+  if ( any( lessThan( c, vec3( 0.0 ) ) ) || any( greaterThanEqual( c, vec3( uVDims ) ) ) ) return vec4( 0.0, 0.0, 0.0, 1.0 );
+  vec4 pg = texelFetch( uVPage, ivec3( c ), 0 );
+  if ( pg.a < 0.5 ) return vec4( 0.0, 0.0, 0.0, 1.0 );
+  vec3 local = ( p - uVOrigin ) / uVH - c * uVB;
+  return texture( uVAtlas, ( floor( pg.rgb * 255.0 + 0.5 ) * uVS + local + 1.0 ) / uVAtlasTex );
+}
+float ramp01( float x, float a, float b ) { return clamp( ( x - a ) / max( 1e-4, b - a ), 0.0, 1.0 ); }
+float sramp( float x, float a, float b ) { float t = ramp01( x, a, b ); return t * t * ( 3.0 - 2.0 * t ); }
+// the exhibition's field at p (fuse.ts: the concrete mass, kept back outside the rooms, cut at the outline, broken up
+// at the young edges) for a layer of this age
+float fieldF( vec3 p, float fused, float g, float scat ) {
+  vec4 s = dAt4( p );
+  float f = fused * max( s.r, g * s.g * mix( uFillOut, 1.0, s.b ) );
+  if ( uEnv > 0.0 ) { float E = max( s.a, s.b ); if ( E < 0.5 ) f += ( min( f, uIso * E / 0.5 ) - f ) * uEnv; }
+  if ( scat > 0.0 && f > uIso * 0.5 ) {
+    float edge = 1.0 - clamp( ( f - uIso ) / 0.6, 0.0, 1.0 );
+    f -= scat * edge * max( 0.0, 0.7 - goneNoise( p * 1.6 + 5.3 ) ) * 1.6;
+  }
+  return f;
+}
+// THE MASS AS THE EXHIBITION MADE IT, its age read here (the layer's depth in the window: 0 at the top … 1 at the
+// bottom). x = the implicit (solid < 0, roughly in world units), y = a safe step
+vec2 massAt( vec3 p ) {
+  vec4 v = vAt4( p );
+  float dv = ( v.a * 2.0 - 1.0 ) * uR;
+  if ( dv > uReach ) return vec2( dv - uReach + 0.01, dv - uReach );
+  float born = uBornBase + v.r * uBornRange;
+  float q = clamp( ( uTop - born ) / max( 1.0, uHeight ) * uAgeK, 0.0, 1.0 );
+  float fused = ramp01( q, uFOn, max( uFOn + 0.01, uFFull ) );
+  if ( fused <= 0.001 ) return vec2( uVH * 0.4, uVH * 0.4 );
+  // (the fossil curve only says how blocky a young layer is: not worked out when nothing is blocky)
+  float young = uBlocky > 0.0 ? uBlocky * ( 1.0 - sramp( q + ( goneNoise( p * 0.35 + 3.1 ) - 0.5 ) * uFNoise, uFFrom, max( uFFrom + 0.05, uFTo ) ) ) : 0.0;
+  float g = uGain * ( 0.55 + 0.9 * q ) * ( 1.0 - 0.6 * young );
+  float scat = uScatter * ( 1.0 - q );
+  float f = fieldF( p, fused, g, scat );
+  // the young layers keep the voxel steps (blocky)
+  if ( young > 0.01 ) f = mix( f, fieldF( ( floor( p / uVs ) + 0.5 ) * uVs, fused, g, scat ), young );
+  float L = fused * max( 1.0 / uVs, g / ( 2.0 * uW ) ) * 1.3 + 1e-3;
+  float m = ( uIso - f ) / L;
+  return vec2( m, max( uVs * 0.35, m ) );
+}
+#else
 // THE MASS: the parts' smooth union swollen by how far it is out, nothing where it is not out, holes where it has gone.
 // x = the implicit (solid < 0), y = a safe step
 vec2 massAt( vec3 p ) {
@@ -523,6 +658,7 @@ vec2 massAt( vec3 p ) {
   }
   return vec2( f, step );
 }
+#endif
 void main() {
   vec3 ro = cameraPosition, rd = normalize( vW - ro );
   vec3 inv = 1.0 / rd;
@@ -587,7 +723,11 @@ const marchMat = new THREE.ShaderMaterial({
   vertexShader: MARCH_VERT,
   fragmentShader: MARCH_FRAG,
   side: THREE.BackSide,
+  defines: EXHIBIT ? { DENSITY: 1 } : {},
   uniforms: {
+    uVs: { value: 0.3 }, uW: { value: 0.45 }, uIso: { value: 0.39 }, uGain: { value: 1 }, uFOn: { value: 0.2 }, uFFull: { value: 0.5 },
+    uFFrom: { value: 0.16 }, uFTo: { value: 0.66 }, uFNoise: { value: 0 }, uBlocky: { value: 0 }, uScatter: { value: 0 }, uEnv: { value: 0 },
+    uFillOut: { value: 1 }, uAgeK: { value: 1 }, uReach: { value: 1 },
     uDAtlas: { value: null }, uDPage: { value: null }, uVAtlas: { value: null }, uVPage: { value: null },
     uDOrigin: { value: new THREE.Vector3() }, uVOrigin: { value: new THREE.Vector3() },
     uDAtlasTex: { value: new THREE.Vector3() }, uVAtlasTex: { value: new THREE.Vector3() },
@@ -626,6 +766,10 @@ function makeParts(w) {
 }
 function partMatrix(Pr, i, M, Q, S, T, Y) {
   const o = i * 12;
+  if (Pr[o + 11] > 1.5) {
+    M.makeScale(0, 0, 0); // a room is not a part
+    return;
+  }
   if (Pr[o + 11] < 0.5) {
     T.set(Pr[o], Pr[o + 1], Pr[o + 2]);
     Q.setFromAxisAngle(Y, Math.atan2(Pr[o + 7], Pr[o + 3]));
@@ -643,6 +787,7 @@ function partMatrix(Pr, i, M, Q, S, T, Y) {
 
 // ───────────────────────── building it all ─────────────────────────
 let fieldD = null, fieldV = null;
+let builtSig = "";
 let last = {};
 let dirty = true;
 
@@ -669,8 +814,34 @@ function setUniforms() {
   look();
 }
 
+/** The density field's shape numbers from the exhibition knobs (fuse.ts: the blur a box of 2r+1 voxels, the sag's rows). */
+function densParams() {
+  const vs = X.voxel, r = Math.max(0, Math.round(X.blur));
+  const sag = Math.min(0.95, X.sag);
+  const rows = X.sag > 0.01 ? Math.min(10, Math.ceil(Math.log(0.03) / Math.log(sag))) : 0;
+  return { vs, w: (r + 0.5) * vs, we: 1.5 * vs, sag: X.sag > 0.01 ? sag : 0, skel: X.skeleton, wrap: X.skeletonWrap, down: rows * vs, sig: [vs, r, rows, sag, X.skeleton, X.skeletonWrap, P.unit].join() };
+}
+
 function look() {
   const u = marchMat.uniforms;
+  if (EXHIBIT) {
+    const dp = densParams();
+    u.uVs.value = dp.vs;
+    u.uW.value = dp.w;
+    u.uIso.value = X.iso;
+    u.uGain.value = X.gain;
+    u.uFOn.value = X.fuseOnset;
+    u.uFFull.value = X.fuseFull;
+    u.uFFrom.value = X.fossilFrom;
+    u.uFTo.value = X.fossilTo;
+    u.uFNoise.value = X.fossilNoise;
+    u.uBlocky.value = X.blocky;
+    u.uScatter.value = X.scatter;
+    u.uEnv.value = X.envelope;
+    u.uFillOut.value = X.fill ? 0.35 : 1; // FILL_OUTSIDE: outside the rooms the mass hardly swells past its parts
+    u.uAgeK.value = P.ageK;
+    u.uReach.value = 2 * dp.vs + 0.5 * P.vh;
+  }
   u.uTop.value = P.top;
   u.uHeight.value = world.slots;
   u.uPad.value = P.pad;
@@ -702,6 +873,16 @@ function look() {
 function buildAll() {
   const t0 = performance.now();
   world = DUMP ? { ...DUMP, prims: DUMP.prims.slice() } : generate({ n: P.n, slots: P.slots, seed: P.seed });
+  const dp = EXHIBIT ? densParams() : null;
+  if (EXHIBIT && P.unit > 0) {
+    const u = units(world.prims, world.count, P.unit, world.unit ?? UNIT);
+    world = { ...world, prims: u.prims, count: u.count, units: u.units };
+  }
+  if (EXHIBIT) {
+    // the rooms between plates (fuse.ts B FILL: at most FILL_MAX_GAP = 6 slots, at least two voxels)
+    const r = rooms(world.prims, world.count, { maxGap: 6 * (world.unit ?? UNIT), minGap: 2 * dp.vs });
+    world = { ...world, prims: r.prims, count: r.count, rooms: r.rooms };
+  }
   const t1 = performance.now();
   bornBase = Infinity;
   let bmax = -Infinity;
@@ -716,8 +897,16 @@ function buildAll() {
   fieldD?.dispose();
   fieldV?.dispose();
   // a brick of 16 at the fine grid (lists stay short to make; 8 at the coarse)
-  fieldD = new Field("distance", P.res, P.res < 0.5 ? 16 : 8, false);
-  fieldV = new Field("values", P.vh, 8, true);
+  if (EXHIBIT) {
+    // the density field on the exhibition's own grid (voxel); what it holds reaches two voxels past a part, and the
+    // sag's rows below it
+    fieldD = new Field("density", dp.vs, 16, false, dp, Math.max(dp.w, dp.we + 0.5 * dp.vs) + dp.vs, dp.down);
+    fieldV = new Field("values", P.vh, 8, true, null, P.R, dp.down);
+    builtSig = dp.sig;
+  } else {
+    fieldD = new Field("distance", P.res, P.res < 0.5 ? 16 : 8, false);
+    fieldV = new Field("values", P.vh, 8, true);
+  }
   const sd = fieldD.build(world);
   const sv = fieldV.build(world);
   makeParts(world);
@@ -766,7 +955,26 @@ function size(w, h, scale = P.scale) {
   dirty = true;
 }
 
+/** The two views of the gallery shots: from above (shot1) and from the side (shot3), the column filling the frame. */
+function cam(kind) {
+  const b = world.bounds;
+  const c = new THREE.Vector3((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
+  const ext = Math.max(b[3] - b[0], b[4] - b[1], b[5] - b[2]);
+  const vf = THREE.MathUtils.degToRad(camera.fov) / 2, hf = Math.atan(Math.tan(vf) * camera.aspect);
+  const dist = (0.62 * ext) / Math.tan(Math.min(vf, hf));
+  const dir = kind === "top" ? new THREE.Vector3(0.18, 1, 0.3) : new THREE.Vector3(1, 0.1, 0.35);
+  camera.position.copy(c).addScaledVector(dir.normalize(), dist);
+  controls.target.copy(c);
+  camera.lookAt(c);
+  controls.update();
+  P.cam = kind;
+  const img = document.getElementById("shotimg");
+  if (img) img.src = `./gallery/${kind === "top" ? "shot1" : "shot3"}.webp`;
+  dirty = true;
+}
+
 function frameView() {
+  if (EXHIBIT) return cam(P.cam);
   const b = world.bounds;
   const c = new THREE.Vector3((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
   controls.target.copy(c);
@@ -891,7 +1099,8 @@ function report() {
   const lines = [];
   if (b) {
     const d = b.d, v = b.v, g = gpuMB();
-    lines.push(`<b>${b.boxes} boxes + ${b.tubes} pipes/ways</b> (${b.buildings} buildings) · fine grid ${P.res} · values ${P.vh}`);
+    if (EXHIBIT) lines.push(`<b>A · 덩어리</b> — 값 ${P.set === "1101" ? "① 전시 서버 저장값 11/01" : "② 작가의 11/15 내보내기"} · 격자 ${+X.voxel.toFixed(2)} · 단위 ${P.unit ? `${P.unit} 월드 (몸통 ${world.units})` : "없음"} · 방 ${world.rooms ?? 0}개`);
+    lines.push(`<b>${b.boxes} boxes + ${b.tubes} pipes/ways</b> (${b.buildings} buildings) · fine grid ${EXHIBIT ? +X.voxel.toFixed(2) : P.res} · values ${P.vh}`);
     lines.push(`distance: ${d.bricks}/${d.of} bricks (${((100 * d.bricks) / d.of).toFixed(0)}%) · ${(d.voxels / 1e6).toFixed(1)} M voxels · atlas ${d.atlasMB.toFixed(0)} MB · list ${d.listAvg.toFixed(0)}/brick`);
     lines.push(`build: lists ${d.cpuListsMs.toFixed(0)} ms + GPU ${d.gpuMs?.toFixed(0) ?? "…"} ms · values lists ${v.cpuListsMs.toFixed(0)} + GPU ${v.gpuMs?.toFixed(0) ?? "…"} ms · waited for, all ${b.totalMs.toFixed(0)} ms`);
     lines.push(`GPU memory ≈ field ${g.fieldMB.toFixed(0)} MB + canvas ${g.canvasMB.toFixed(0)} MB`);
@@ -905,16 +1114,74 @@ function report() {
 }
 
 // ───────────────────────── controls ─────────────────────────
-const gui = new GUI({ title: "fossil GPU trial" });
-gui.add(P, "top", 1, P.slots + 40, 0.5).name("창의 꼭대기 (단)").onChange(look);
-gui.add(P, "parts").name("부재 보기").onChange(look);
-gui.add(P, "fossil").name("화석 보기").onChange(look);
-const fb = gui.addFolder("필드 (다시 만듦)");
-fb.add(P, "res", [0.35, 0.5, 0.7, 1.0]).name("격자 (world)");
-fb.add(P, "n", 2000, 30000, 1000).name("상자 수");
+P.cam = q.get("cam") === "top" ? "top" : "side";
+P.shot = q.get("shot") === "1";
+const gui = new GUI({ title: EXHIBIT ? "화석 GPU 장 — A 덩어리" : "fossil GPU trial" });
+if (EXHIBIT) {
+  // THE STAGE'S KNOBS ONLY (the exhibition's names; plan §6 A): the set of values, then each knob in place
+  let rebuildTimer = 0;
+  const knob = () => {
+    if (densParams().sig !== builtSig) {
+      clearTimeout(rebuildTimer);
+      rebuildTimer = setTimeout(() => buildAll(), 350);
+    }
+    look();
+    report();
+  };
+  const fa = gui.addFolder("A · 덩어리 — 전시 값");
+  const setCtl = fa.add(P, "set", { "① 전시 서버 저장값 (11/01)": "1101", "② 작가의 11/15 내보내기": "1115" }).name("값 벌");
+  const ks = [];
+  const add = (k, a, b, st, name) => ks.push(fa.add(X, k, a, b, st).name(name).onChange(knob));
+  add("voxel", 0.2, 0.5, 0.05, "격자 간격 (월드 · 다시 만듦)");
+  add("blur", 0, 3, 1, "메워지는 틈의 너비 (복셀 · 다시 만듦)");
+  add("gain", 0.5, 6, 0.1, "이어 붙는 세기");
+  add("iso", 0.05, 0.9, 0.01, "덩어리로 치는 밀도 기준 (낮출수록 두꺼움)");
+  add("sag", 0, 0.95, 0.01, "아래로 흘러내림 (다시 만듦)");
+  add("envelope", 0, 1, 0.05, "겉면은 건물 윤곽대로");
+  ks.push(fa.add(X, "fill").name("판 사이 방 밖에서는 덜 부풂 (채우기 켬)").onChange(knob));
+  add("skeleton", 0, 1, 0.01, "뼈대로 남는 부재 비율 (다시 만듦)");
+  add("skeletonWrap", 0, 1, 0.05, "뼈대가 덩어리에 덮이는 정도 (다시 만듦)");
+  add("blocky", 0, 1, 0.05, "젊은 층의 블로키 (복셀 계단)");
+  add("scatter", 0, 2, 0.05, "얇은 덩어리를 조각냄 (젊은 층)");
+  add("fuseOnset", 0, 1, 0.01, "덩어리가 나오기 시작하는 층의 나이");
+  add("fuseFull", 0, 1, 0.01, "덩어리가 다 나온 층의 나이");
+  add("fossilFrom", 0, 1, 0.01, "화석이 되기 시작하는 층의 나이");
+  add("fossilTo", 0.05, 1, 0.01, "다 화석이 되는 층의 나이");
+  add("fossilNoise", 0, 0.6, 0.01, "화석화 경계의 흔들림");
+  fa.add(P, "ageK", 0.3, 2, 0.05).name("층의 나이 = 창 깊이 × 이 값").onChange(knob);
+  fa.add(P, "unit", { "덤프된 상자 그대로 (0.2 격자)": 0, "1 월드": 1, "2 월드 (벽의 기본)": 2, "3 월드": 3 }).name("화석의 단위 — 더 크게 어림한 몸통 (다시 만듦)").onChange((v) => ((P.unit = Number(v)), knob()));
+  setCtl.onChange(() => {
+    Object.assign(X, SETS[P.set]);
+    for (const c of ks) c.updateDisplay();
+    knob();
+  });
+  const fv = gui.addFolder("보기 · 재기");
+  fv.add({ go: () => cam("top") }, "go").name("위에서 (전시 사진 1처럼)");
+  fv.add({ go: () => cam("side") }, "go").name("옆에서 (전시 사진 3처럼)");
+  fv.add(P, "shot").name("전시 사진을 옆에 띄움").onChange((v) => (document.getElementById("shot").style.display = v ? "block" : "none"));
+  fv.add(P, "parts").name("부재 보기").onChange(look);
+  fv.add(P, "fossil").name("화석 보기").onChange(look);
+  fv.add(P, "top", 1, P.slots + 40, 0.5).name("창의 꼭대기 (단)").onChange(look);
+  fv.add(P, "scale", { "제 해상도": 1, "절반 해상도": 0.5 }).name("화석 해상도").onChange((v) => size(P.w, P.h, Number(v)));
+  fv.add({ go: () => { P.w = 1080; P.h = 1920; size(P.w, P.h, P.scale); cam(P.cam); } }, "go").name("세로 TV 크기 (1080 × 1920)");
+  fv.add({ go: () => { P.w = 0; P.h = 0; size(0, 0, P.scale); cam(P.cam); } }, "go").name("창 크기에 맞춤");
+  fv.add({ go: async () => { await bench(P.w, P.h, 3, Number(P.scale)); cam(P.cam); } }, "go").name("이 크기에서 한 프레임 재기");
+  fv.add(P, "steps", 64, 800, 1).name("광선 걸음 수").onChange(look);
+}
+if (!EXHIBIT) {
+  gui.add(P, "top", 1, P.slots + 40, 0.5).name("창의 꼭대기 (단)").onChange(look);
+  gui.add(P, "parts").name("부재 보기").onChange(look);
+  gui.add(P, "fossil").name("화석 보기").onChange(look);
+}
+const fb = gui.addFolder(EXHIBIT ? "시험 (값 재기)" : "필드 (다시 만듦)");
+if (!EXHIBIT) {
+  fb.add(P, "res", [0.35, 0.5, 0.7, 1.0]).name("격자 (world)");
+  fb.add(P, "n", 2000, 30000, 1000).name("상자 수");
+}
 fb.add({ go: () => buildAll() }, "go").name("다시 만들기");
 fb.add({ go: () => changeOne() }, "go").name("상자 하나 바꾸기");
 const fl = gui.addFolder("모양 (작가 값)");
+if (EXHIBIT) fl.hide();
 fl.add(P, "pad", 0, 1.5, 0.05).name("덩어리 두께").onChange(look);
 fl.add(P, "onset", 0, 1, 0.01).onChange(look);
 fl.add(P, "fullAt", 0, 1, 0.01).onChange(look);
@@ -928,6 +1195,7 @@ fl.add(P, "grain", 0.1, 4, 0.05).onChange(look);
 fl.add(P, "rag", 0, 1, 0.05).onChange(look);
 fl.add(P, "steps", 32, 512, 1).name("광선 걸음 수").onChange(look);
 fl.close();
+fb.close();
 if (q.get("gui") === "0") gui.hide();
 
 window.addEventListener("resize", () => {
@@ -953,4 +1221,14 @@ function loop() {
 }
 requestAnimationFrame(loop);
 
-window.__trial = { yieldNow, pause: (v) => (paused = v), settle, gpuTime, P, buildAll, changeOne, bench, size, look, report, gpuMB, last: () => last, timer: !!timerExt, renderer, controls, camera };
+if (EXHIBIT && P.shot) document.getElementById("shot").style.display = "block";
+/** One frame drawn and read back small (a check of the look while the page is hidden). */
+function snap(w = 900) {
+  frame();
+  const src = renderer.domElement, c = document.createElement("canvas");
+  c.width = w;
+  c.height = Math.round((w * src.height) / src.width);
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.82);
+}
+window.__trial = { snap, cam, X, SETS, densParams, yieldNow, pause: (v) => (paused = v), settle, gpuTime, P, buildAll, changeOne, bench, size, look, report, gpuMB, last: () => last, timer: !!timerExt, renderer, controls, camera };

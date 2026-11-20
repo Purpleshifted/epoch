@@ -8,6 +8,8 @@
 // prim layout (12 floats): [x, y, z, cos|r, hx, hy, hz, sin, born, veg, late, type]
 //   type 0 = box (centre, half sizes, turn); type 1 = capsule (x,y,z = one end, [3] = radius, [4..6] = the other end)
 //   late: 0 = frame (pipes, ways, columns: out first), 1 = fill (masses, plates: after) — fuseLate on the wall
+//   type 2 = a ROOM between two plates of a building (a box like type 0; the density field's room and outline only —
+//   rooms(), 2026-11-20)
 
 export const CELL = 1.2;
 export const UNIT = 1.8;
@@ -139,7 +141,7 @@ export function generate(o = {}) {
 /** A prim's bounds (world), widened by `m`. */
 export function primAabb(P, i, m) {
   const o = i * 12;
-  if (P[o + 11] < 0.5) {
+  if (P[o + 11] < 0.5 || P[o + 11] > 1.5) {
     const c = Math.abs(P[o + 3]), s = Math.abs(P[o + 7]);
     const hx = c * P[o + 4] + s * P[o + 6], hz = s * P[o + 4] + c * P[o + 6], hy = P[o + 5];
     return [P[o] - hx - m, P[o + 1] - hy - m, P[o + 2] - hz - m, P[o] + hx + m, P[o + 1] + hy + m, P[o + 2] + hz + m];
@@ -153,15 +155,16 @@ export function primAabb(P, i, m) {
  * kept, each with the list of the prims that reach it (a box's bounds turned, so a list may hold one that is just
  * out of reach: the field is right, only a little more is read). Returns the brick grid and the lists.
  */
-export function brickLists(P, count, bounds, h, B, R) {
+export function brickLists(P, count, bounds, h, B, R, down = 0) {
   const bw = B * h;
-  const ox = bounds[0] - R, oy = bounds[1] - R, oz = bounds[2] - R;
-  const nx = Math.ceil((bounds[3] - bounds[0] + 2 * R) / bw), ny = Math.ceil((bounds[4] - bounds[1] + 2 * R) / bw), nz = Math.ceil((bounds[5] - bounds[2] + 2 * R) / bw);
+  const ox = bounds[0] - R, oy = bounds[1] - R - down, oz = bounds[2] - R;
+  const nx = Math.ceil((bounds[3] - bounds[0] + 2 * R) / bw), ny = Math.ceil((bounds[4] - bounds[1] + 2 * R + down) / bw), nz = Math.ceil((bounds[5] - bounds[2] + 2 * R) / bw);
   const lists = new Map();
   // (the brick's own apron of one voxel is in reach too)
   const m = R + h * 1.5;
   for (let i = 0; i < count; i++) {
     const a = primAabb(P, i, m);
+    a[1] -= down; // (what hangs below a box: the sag)
     const i0 = Math.max(0, Math.floor((a[0] - ox) / bw)), i1 = Math.min(nx - 1, Math.floor((a[3] - ox) / bw));
     const j0 = Math.max(0, Math.floor((a[1] - oy) / bw)), j1 = Math.min(ny - 1, Math.floor((a[4] - oy) / bw));
     const k0 = Math.max(0, Math.floor((a[2] - oz) / bw)), k1 = Math.min(nz - 1, Math.floor((a[5] - oz) / bw));
@@ -188,4 +191,99 @@ export async function loadDump(name) {
   const buf = await (await fetch(`./data/${name}.f32`)).arrayBuffer();
   const prims = new Float32Array(buf);
   return { ...meta, prims, count: prims.length / 12 };
+}
+
+/**
+ * THE ROOMS BETWEEN A BUILDING'S PLATES (the exhibition's fuse.ts B FILL, for the density field — 2026-11-20): from the
+ * top of one plate (slab, plinth: late 0) to the underside of the next one up of the same building, under the upper
+ * plate's footprint, at most `maxGap` world apart and at least two voxels. The dump has no building ids, so a plate's
+ * building is read from its turn and its place: the plate below is the highest one turned the same way whose centre
+ * lies under the upper plate (or the upper's centre over it). Appended to the prims as type 2.
+ */
+export function rooms(prims, count, { maxGap, minGap }) {
+  const plates = [];
+  for (let i = 0; i < count; i++) {
+    const o = i * 12;
+    if (prims[o + 11] === 0 && prims[o + 10] < 0.5) plates.push(i);
+  }
+  const CELL = 4;
+  const grid = new Map();
+  const key = (x, z) => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
+  for (const i of plates) {
+    const o = i * 12, k = key(prims[o], prims[o + 2]);
+    (grid.get(k) ?? grid.set(k, []).get(k)).push(i);
+  }
+  const inside = (o, x, z, m) => {
+    const dx = x - prims[o], dz = z - prims[o + 2], c = prims[o + 3], s = prims[o + 7];
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    return Math.abs(lx) <= prims[o + 4] + m && Math.abs(lz) <= prims[o + 6] + m;
+  };
+  const out = [];
+  for (const hi of plates) {
+    const oh = hi * 12, yt = prims[oh + 1] - prims[oh + 5];
+    let best = -1, by = -Infinity;
+    const cx = Math.floor(prims[oh] / CELL), cz = Math.floor(prims[oh + 2] / CELL);
+    for (let a = -2; a <= 2; a++)
+      for (let b = -2; b <= 2; b++)
+        for (const lo of grid.get(`${cx + a},${cz + b}`) ?? []) {
+          if (lo === hi) continue;
+          const ol = lo * 12, yb = prims[ol + 1] + prims[ol + 5];
+          if (yb >= yt || yb <= by || yt - yb > maxGap) continue;
+          if (Math.abs(prims[ol + 3] - prims[oh + 3]) > 1e-3 || Math.abs(prims[ol + 7] - prims[oh + 7]) > 1e-3) continue;
+          if (!inside(oh, prims[ol], prims[ol + 2], 0.3) && !inside(ol, prims[oh], prims[oh + 2], 0.3)) continue;
+          best = lo;
+          by = yb;
+        }
+    if (best < 0 || yt - by < minGap) continue;
+    out.push([prims[oh], (yt + by) / 2, prims[oh + 2], prims[oh + 3], prims[oh + 4], (yt - by) / 2, prims[oh + 6], prims[oh + 7], prims[oh + 8], prims[oh + 9], 0, 2]);
+  }
+  const all = new Float32Array((count + out.length) * 12);
+  all.set(prims.subarray(0, count * 12));
+  out.forEach((r, k) => all.set(r, (count + k) * 12));
+  return { prims: all, count: count + out.length, rooms: out.length };
+}
+
+/**
+ * THE FOSSIL'S UNITS, ROUGHLY (the wall's spaceModel fossilUnits, 2026-11-20: a building's masses of one slot joined
+ * again on a wider lattice — latticeUnion with ErodeConfig.lodUnit; the fossil is made of those few bodies, not of the
+ * many small simplified boxes). The dump has no building ids, so the boxes are joined by their turn, their slot and
+ * the lattice cell of `G` (world) in their own frame: every cell some mass touches becomes one body, as wide as the cell
+ * and as high as the masses in it. Plates (late 0), pipes and rooms are kept as they are.
+ */
+export function units(prims, count, G, unit) {
+  const cells = new Map();
+  const keep = [];
+  for (let i = 0; i < count; i++) {
+    const o = i * 12;
+    if (prims[o + 11] !== 0 || prims[o + 10] < 0.5) {
+      keep.push(i);
+      continue;
+    }
+    const c = prims[o + 3], s = prims[o + 7];
+    const lx = prims[o] * c - prims[o + 2] * s, lz = prims[o] * s + prims[o + 2] * c;
+    const hx = prims[o + 4], hy = prims[o + 5], hz = prims[o + 6];
+    const slot = Math.floor(prims[o + 1] / unit);
+    const yaw = `${c.toFixed(4)},${s.toFixed(4)}`;
+    for (let a = Math.floor((lx - hx) / G); a <= Math.floor((lx + hx - 1e-4) / G); a++)
+      for (let b = Math.floor((lz - hz) / G); b <= Math.floor((lz + hz - 1e-4) / G); b++) {
+        const k = `${yaw}|${slot}|${a}|${b}`;
+        let e = cells.get(k);
+        if (!e) cells.set(k, (e = { c, s, a, b, y0: Infinity, y1: -Infinity, born: -Infinity, veg: 0, n: 0 }));
+        e.y0 = Math.min(e.y0, prims[o + 1] - hy);
+        e.y1 = Math.max(e.y1, prims[o + 1] + hy);
+        e.born = Math.max(e.born, prims[o + 8]);
+        e.veg += prims[o + 9];
+        e.n++;
+      }
+  }
+  const out = new Float32Array((keep.length + cells.size) * 12);
+  let n = 0;
+  for (const i of keep) out.set(prims.subarray(i * 12, i * 12 + 12), n++ * 12);
+  for (const e of cells.values()) {
+    const lx = (e.a + 0.5) * G, lz = (e.b + 0.5) * G;
+    // (back from the turned frame: the inverse of lx = x c − z s, lz = x s + z c)
+    const x = lx * e.c + lz * e.s, z = -lx * e.s + lz * e.c;
+    out.set([x, (e.y0 + e.y1) / 2, z, e.c, G / 2, (e.y1 - e.y0) / 2, G / 2, e.s, e.born, e.veg / e.n, 1, 0], n++ * 12);
+  }
+  return { prims: out, count: n, units: cells.size };
 }
