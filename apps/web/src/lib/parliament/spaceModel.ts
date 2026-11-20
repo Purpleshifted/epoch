@@ -706,7 +706,7 @@ export class SpaceModel {
   /** Which building a cell-run belongs to: per Seed, its runs of slots with the building's id. */
   private buildingRuns: { key: string; of: Map<number, { k0: number; k1: number; id: string }[]> } | null = null;
   /** Each building's mass as shown, with the state it was made from (part → decay) and its pieces kept for reuse. */
-  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }> }>();
+  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }>; born?: Map<number, number | undefined> }>();
   /** The one building being made now: the state it is made from, the pieces still to do and those done. */
   private unitJob: {
     id: string;
@@ -1339,16 +1339,20 @@ export class SpaceModel {
     for (const [id, list] of lists) {
       const ent = this.units.get(id);
       const tSig = tubeSig.get(id) ?? "";
-      if (ent && ent.cfg === cfg && this.unitTubes.get(id) === tSig && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)))) continue;
+      // (…and each part's age as it was told: a cell-slot lived in again starts its clock over with the same parts —
+      // computeParts takeLived — and its fossil must be made again from the new age, not keep the old one)
+      if (ent && ent.cfg === cfg && this.unitTubes.get(id) === tSig && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)) && ent.born?.get(key(e.b)) === e.grow?.[1])) continue;
       waiting++;
       if ((ent && ent.cfg === cfg && nowMs - ent.madeMs < UNIT_REST_MS) || performance.now() > deadline) continue;
       const ang = list[0].ang;
       const c = Math.cos(ang), sn = Math.sin(ang);
       const at = unitExtent(list, ang ? { c, sn } : undefined);
       const snap = new Map<number, number>();
+      const born = new Map<number, number | undefined>();
       const parts: UnitJob["parts"] = list.map((e) => {
         const k = key(e.b);
         snap.set(k, e.d);
+        born.set(k, e.grow?.[1]);
         return { b: e.b, d: e.d, up: e.up, sk: e.sk, grow: e.grow, key: k };
       });
       // (parts that are no longer the building's: no mass of theirs is counted any more)
@@ -1379,7 +1383,7 @@ export class SpaceModel {
           return { now: bc.top + Math.max(0, ec.stood ?? 0), after: (fossilWaitSec(ec) * 1.3) / perTop + 1 };
         })(),
       });
-      this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map() });
+      this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map(), born });
       this.unitTubes.set(id, tSig);
       waiting--;
       sent++;

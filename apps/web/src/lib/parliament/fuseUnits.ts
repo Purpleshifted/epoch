@@ -368,7 +368,7 @@ export function unitExtent(ps: readonly { b: Box }[], turn?: { c: number; sn: nu
  * it (masses hang ≤ 3 slots, foundations ≤ 8 below their slot — as the chunks did) and a signature of them: a piece
  * whose parts stand exactly as they did is kept as it was.
  */
-export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boolean }>(
+export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boolean; born?: number }>(
   ps: readonly P[],
   at: { ext: { x0: number; z0: number; nx: number; nz: number }; ka: number; kb: number },
   o: { seg: number; tile: number; padSlots: number; fusing: (list: readonly { d: number }[]) => boolean; grown?: number },
@@ -411,8 +411,16 @@ export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boole
         if (!o.fusing(mine) && !tubes.length) continue;
         let sg = 0;
         for (const t of tubes) sg += t.x0 * 3.1 + t.y0 * 7.3 + t.z0 * 11.7 + t.x1 * 13.9 + t.y1 * 17.1 + t.z1 * 19.3 + t.r * 23.9;
-        for (const e of mine) sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
-        out.push({ key: `${k0}:${tx}:${tz}`, sig: `${mine.length}:${tubes.length}:${sg.toFixed(3)}`, k0, k1, tx, tz, ps: mine, tubes });
+        // (THE AGE IS PART OF WHAT A PIECE IS MADE FROM, 2026-11-20: the fossil's age is written into the piece's mesh —
+        // growData — so a part whose clock starts over with the same box (its cell-slot lived in again: spaceModel
+        // takeLived, or the slot built higher) makes its piece be made again; otherwise the old age would stay in it)
+        let bornSig = 0;
+        for (const e of mine) {
+          sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
+          // (a sum, as `sg` is: the same parts in another order are the same piece)
+          if (e.born !== undefined) bornSig += e.born * (1.9 + e.b.x * 0.37 + e.b.y * 0.53 + e.b.z * 0.71);
+        }
+        out.push({ key: `${k0}:${tx}:${tz}`, sig: `${mine.length}:${tubes.length}:${sg.toFixed(3)}:${bornSig.toFixed(3)}`, k0, k1, tx, tz, ps: mine, tubes });
       }
     }
   }
@@ -661,6 +669,8 @@ interface Turned {
   sk: boolean;
   /** Its place in the job's parts. */
   i: number;
+  /** SEEDED: the age its fossil is counted from (growData's grow[1]) — in the piece's signature (unitPieces). */
+  born?: number;
 }
 interface Unit {
   job: UnitJob | null;
@@ -741,7 +751,7 @@ export class FuseUnits {
     if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), sigs: new Map(), staged: new Map(), vis: new Map() }));
     const c = Math.cos(j.ang), sn = Math.sin(j.ang);
     // (a turned district is fused in its own frame, where its boxes lie along the grid: seeds.ts' turn undone)
-    const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, i }));
+    const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, i, born: e.grow?.[1] }));
     const tubes = (j.tubes ?? []).map((t, i) => (j.ang ? { ...t, x0: t.x0 * c - t.z0 * sn, z0: t.x0 * sn + t.z0 * c, x1: t.x1 * c - t.z1 * sn, z1: t.x1 * sn + t.z1 * c, i } : { ...t, i }));
     const pad = fusePad(j.fuse);
     const pieces = ps.length
