@@ -239,6 +239,8 @@ function migrateSaved(key: string, m: SavedMigration): void {
  */
 const savers = new Map<string, (get: (path: string) => unknown) => void>();
 const reloaders = new Map<string, () => void>();
+/** …and how a set of values brought in from elsewhere is put on a root's knobs (applyValues): how many it took. */
+const appliers = new Map<string, (values: Record<string, unknown>) => number>();
 /** Every registered root of the group `root` belongs to (the group itself and the folders inside it that keep their
  *  own values): any save row of a group saves the whole group — 길's own row and the one inside 길 › 밟힘 alike. */
 const groupOf = (root: string) => {
@@ -294,6 +296,19 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
           }
         }
   });
+  appliers.set(root, (values) => {
+        let n = 0;
+        for (const [k, path] of paths) {
+          if (!(k in values)) continue;
+          try {
+            levaStore.setValueAtPath(path, values[k], true);
+            n++;
+          } catch {
+            /* an input that is not rendered */
+          }
+        }
+        return n;
+  });
   out["__save"] = buttonGroup({
     label: null,
     opts: {
@@ -306,6 +321,22 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
     },
   });
   return out as S;
+}
+
+/**
+ * A SET OF VALUES PUT ON A GROUP'S KNOBS (the artist, 2026-11-20: "프리셋 선택할 수 있게 레바 추가하고 거기 전시 버전
+ * 넣어줘"): every knob of the group `top` (and of the folders in it that keep their own values) whose key is in
+ * `values` takes that value, in this tab — as if moved by hand: nothing is saved until the group's save is pressed.
+ * Knobs the set does not name stay as they are. Returns how many knobs it set.
+ */
+export function applyValues(top: string, values: Record<string, unknown>): number {
+  let n = 0;
+  for (const r of groupOf(top)) n += appliers.get(r)?.(values) ?? 0;
+  return n;
+}
+/** …and back to what is saved for the group (its reload row). */
+export function reloadSaved(top: string): void {
+  for (const r of groupOf(top)) reloaders.get(r)?.();
 }
 
 // ── THE SERVER (the artist, 2026-10-30): "save in Leva should send the value to the DB, and the exhibition should use

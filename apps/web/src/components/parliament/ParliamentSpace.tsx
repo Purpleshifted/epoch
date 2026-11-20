@@ -95,10 +95,10 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
-import { presetSource, savable } from "./levaSave";
+import { applyValues, presetSource, reloadSaved, savable, showNote } from "./levaSave";
 import { RenderTuning, StillNoise, useRenderOptions } from "./useRenderOptions";
 import { HeroCapture, HeroFrame, useHeroShot } from "./HeroShot";
-import { EXHIBITION_FUSION } from "@/presets/exhibitionFusion";
+import { EXHIBITION_FUSION, FUSION_PRESETS } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
@@ -3954,6 +3954,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     FU,
     savable(FU, {
       fuseOn: { value: DEFAULT_FUSE.enabled, label: REDESIGN ? "켜기 (덩어리: 부식 = 침식의 자리 값 · 작용 띠는 '침식'의 시작 … 다 깎이는 깊이)" : "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
+      // A SET OF VALUES TO CHOOSE (presets/exhibitionFusion.ts FUSION_PRESETS; the artist, 2026-11-20: "프리셋 선택할 수 있게
+      // 레바 추가하고 거기 전시 버전 넣어줘"): choosing one puts its values on this folder's knobs, in this tab — saved
+      // only by the folder's save. What it shows afterwards is the set last chosen, not a promise nothing was moved since.
+      fusePreset: {
+        options: { "— (고르면 이 폴더의 손잡이가 그 값으로)": "", [FUSION_PRESETS.exhibition.label]: "exhibition", [FUSION_PRESETS.exhibitionServer.label]: "exhibitionServer", "저장된 값으로 되돌리기": "saved" },
+        value: "",
+        label: "값 묶음 불러오기 (이 탭에서만 바뀜 · 남기려면 아래 save · 화석을 전부 다시 만듦)",
+        render: () => REDESIGN,
+      },
       // THE MASS CHANGES SOFTLY (FuseFade): what it was dissolves into what it is over this long
       // (levaFocus.ts: this folder lists only the knobs under review; this lists all of it again)
       allKnobs: { value: false, label: "이 폴더의 손잡이 전부 보기 (끄면 지금 손보는 것만)", render: () => REDESIGN },
@@ -4342,6 +4351,25 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
+  // A SET OF VALUES CHOSEN (the fusion folder's 값 묶음 불러오기): put on the folder's knobs when the choice CHANGES —
+  // not when the page opens with a choice saved (what is saved may have been moved since it was chosen)
+  const presetSeen = useRef(fu.fusePreset);
+  useEffect(() => {
+    if (fu.fusePreset === presetSeen.current) return;
+    presetSeen.current = fu.fusePreset;
+    if (!fu.fusePreset) return;
+    if (fu.fusePreset === "saved") {
+      reloadSaved(FU);
+      // (the choice goes back to none — "되돌리기" is a thing done, not a set that stands)
+      applyValues(FU, { fusePreset: "" });
+      showNote("융합: 저장된 값으로 되돌림", true);
+      return;
+    }
+    const set = FUSION_PRESETS[fu.fusePreset];
+    if (!set) return;
+    const n = applyValues(FU, set.values);
+    showNote(`융합: ${set.label} — 손잡이 ${n}개를 바꿈 (남기려면 save)`, true);
+  }, [fu.fusePreset]);
   const resinLook = useMemo<ResinLook>(
     () => ({
       fadeSec: fu.fuseFade,

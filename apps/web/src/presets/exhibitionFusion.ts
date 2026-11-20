@@ -94,3 +94,17 @@ export const EXHIBITION_FUSION: Record<string, unknown> = {
   "attenuationDistance": 7.4,
   "accretion": 0
 };
+
+import serverSaved from "./fusion-exhibition-server-2026-11-01.json";
+
+/**
+ * THE FUSION'S SETS OF VALUES TO CHOOSE FROM (the fusion folder's 값 묶음 불러오기; the artist, 2026-11-20: "프리셋 선택할
+ * 수 있게 레바 추가하고 거기 전시 버전 넣어줘"). Two things are called "the exhibition's values" and they differ in 38
+ * knobs: the artist's export of 11/15 (above — what was made the redesign's default that day) and what the
+ * exhibition's server has saved (11/01 18:06: what a machine with nothing of its own saved loads at the venue).
+ * A set names only the knobs the exhibition has: the redesign's own (the fossil's age, its units, its life) stay.
+ */
+export const FUSION_PRESETS: Record<string, { label: string; values: Record<string, unknown> }> = {
+  exhibition: { label: "전시 버전 (11/15 내보내기)", values: EXHIBITION_FUSION },
+  exhibitionServer: { label: "전시 버전 (전시 서버 저장값 11/01)", values: serverSaved as Record<string, unknown> },
+};
