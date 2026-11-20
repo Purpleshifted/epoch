@@ -189,7 +189,9 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   const k = useControls(
     GROUP,
     savable(GROUP, {
-      on: { value: DEFAULT_FUTURE.on, label: "켜기 (기둥 위에 떨어져 떠 있는 층 — 인류가 사라진 뒤 남겨져 발견될 모습)" },
+      // (OFF BY DEFAULT — the artist, 2026-11-20: "디폴트로 미래 모습은 안 보이게 하고"; the view of the layer alone,
+      // /rehearsal/future, shows it whatever this says)
+      on: { value: false, label: "켜기 (기둥 위에 떨어져 떠 있는 층 — 인류가 사라진 뒤 남겨져 발견될 모습 · 미래 뷰에서는 늘 켜짐)" },
       ruin: { value: 0.5, min: 0, max: 1, step: 0.05, label: "얼마나 삭았나 (0 = 서 있던 그대로 … 1 = 가장 오래 선 것의 기초만)" },
       anchor: { options: { "창의 꼭대기 위 (고정 — 기둥 상승을 멈추면 움직이지 않음)": "window", "지어진 꼭대기 위 (건물이 올라오면 따라감)": "built" }, value: "window" as "window" | "built", label: "층의 자리" },
       gap: { value: 8, min: 0, max: 40, step: 1, label: "그 자리와의 간격 (단 · 0 = 붙음)" },
@@ -240,7 +242,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
     { collapsed: true },
   );
   // (the ticker reads the knobs from here: SpaceRequest.future)
-  futureLink.cfg = useMemo<FutureConfig>(() => ({ on: k.on, band: k.band, gain: k.gain, maxH: k.maxH, edge: k.edge, margin: k.margin, vegPer: k.vegPer, persist: k.persist, ruin: k.ruin }), [k.ruin, k.persist, k.on, k.band, k.gain, k.maxH, k.edge, k.margin, k.vegPer]);
+  futureLink.cfg = useMemo<FutureConfig>(() => ({ on: k.on || futureOnly(), band: k.band, gain: k.gain, maxH: k.maxH, edge: k.edge, margin: k.margin, vegPer: k.vegPer, persist: k.persist, ruin: k.ruin }), [k.ruin, k.persist, k.on, k.band, k.gain, k.maxH, k.edge, k.margin, k.vegPer]);
   useEffect(
     () => () => {
       futureLink.cfg = null;
@@ -525,7 +527,7 @@ export function FutureVillage({ unit, top, kindColor }: { unit: number; top: THR
   };
 
   return (
-    <group ref={group} visible={k.on}>
+    <group ref={group} visible={k.on || futureOnly()}>
       {PART_KINDS.map((kind) => (
         <instancedMesh
           key={kind}

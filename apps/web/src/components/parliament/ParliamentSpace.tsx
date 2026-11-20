@@ -1781,7 +1781,8 @@ function SpaceWorld({
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens, futureOnly: futureOnly() } };
     if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
     // (…with what is left under the ground: FutureUnder.tsx's knob)
-    if (REDESIGN && dens && futureLink.cfg) req.future = futureUnder.cfg ? { ...futureLink.cfg, ...futureUnder.cfg } : futureLink.cfg;
+    // (not asked for at all while the layer is off — off by default since 2026-11-20, "디폴트로 미래 모습은 안 보이게")
+    if (REDESIGN && dens && futureLink.cfg?.on) req.future = futureUnder.cfg ? { ...futureLink.cfg, ...futureUnder.cfg } : futureLink.cfg;
     // (the layer above alone — futureOnly.ts: no vegetation of the present, no fossil)
     if (withNature && nat && !futureOnly()) {
       if (!nat.unlived) req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };

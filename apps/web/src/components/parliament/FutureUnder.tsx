@@ -809,7 +809,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       lapAt = now;
     };
     const r = futureLink.result;
-    const layerOn = !!r && knob(`${LAYER}.on`) !== false;
+    const layerOn = !!r && (knob(`${LAYER}.on`) === true || futureOnly());
     // WHERE THE LAYER'S GROUND IS — as FutureVillage places it: above the window's top (or above the slot it was read
     // from), the gap apart
     const gap = Number(knob(`${LAYER}.gap`) ?? 8);
