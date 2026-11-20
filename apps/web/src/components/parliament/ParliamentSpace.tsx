@@ -97,7 +97,7 @@ import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/ero
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { applyValues, presetSource, reloadSaved, savable, showNote } from "./levaSave";
-import { RenderTuning, StillNoise, useRenderOptions } from "./useRenderOptions";
+import { LevelsPass, RenderLights, RenderTuning, StillNoise, TonePass, useRenderOptions } from "./useRenderOptions";
 import { HeroCapture, HeroFrame, useHeroShot } from "./HeroShot";
 import { EXHIBITION_FUSION, FUSION_PRESETS } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
@@ -4932,11 +4932,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         style={hero.shot ? { position: "absolute", left: hero.shot.rect.x, top: hero.shot.rect.y, width: hero.shot.rect.w, height: hero.shot.rect.h } : undefined}
       >
         <color attach="background" args={[theme.bg]} />
-        <ambientLight intensity={0.85} />
+        {/* (the lights beside the sun's, the exposure, the tone: 렌더 › 밝기 · 톤 — as they were until a knob moves) */}
+        <ambientLight intensity={ro.look.ambient} />
         <Sun controls={controls} azimuth={ro.detail.azimuth} elevation={ro.detail.elevation} intensity={ro.detail.sunIntensity} softness={ro.detail.softness} shadows={shadowsOn} drift={{ turnMin: ro.sunTurnMin ?? cam.sunTurnMin, dir: cam.sunDir as 1 | -1, swingDeg: ro.sunTurnMin === 0 ? 0 : cam.sunSwing, swingMin: cam.sunSwingMin, active: !lab || (ro.sunTurnMin ?? 0) > 0 }} />
-        <directionalLight position={[-18, 10, -12]} intensity={0.35} />
+        <directionalLight position={[-18, 10, -12]} intensity={ro.look.fill} />
+        <RenderLights look={ro.look} />
         <RendererTuning transmissionScale={ro.transmissionScale} />
-        <RenderTuning shadowType={ro.shadowType} shadowMapSize={ro.shadowMapSize} shadowsOn={shadowsOn} />
+        <RenderTuning shadowType={ro.shadowType} shadowMapSize={ro.shadowMapSize} shadowsOn={shadowsOn} exposure={ro.look.exposure} />
         {/* V2: no ground plane and no time axis — the timespace floats */}
         {!isV2 && <gridHelper key={v.theme} args={[80, 80, theme.grid[0], theme.grid[1]]} position={[0, -0.01, 0]} />}
         {v.seedsOn && !futureOnly() && (
@@ -5050,12 +5052,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${aoOn}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}`} multisampling={ro.composerMsaa}>
+          <EffectComposer key={`${aoOn}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}:${ro.tonePass}:${ro.levelsPass}`} multisampling={ro.composerMsaa}>
             {/* (what these measure in pixels — the blur, the grain — is scaled by hero.fx while a hero shot is drawn at a
                 larger ratio than the screen's: the same look in the larger picture, HeroShot.tsx) */}
-            {aoOn && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
+            {aoOn && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color={ro.aoColor} />}
             {ro.dof && <DepthOfField target={focusTarget} worldFocusRange={ro.detail.dofRange} bokehScale={ro.detail.dofBokeh * hero.fx} />}
             {flowerBloom.on && <Bloom mipmapBlur intensity={flowerBloom.intensity} luminanceThreshold={flowerBloom.threshold} luminanceSmoothing={0.2} radius={flowerBloom.radius} />}
+            {/* (the exposure and the curve, then the levels: on the finished picture, under the grain) */}
+            {ro.tonePass && <TonePass curve={ro.look.toneMap} />}
+            {ro.levelsPass && <LevelsPass lift={ro.look.lift} gamma={ro.look.gamma} contrast={ro.look.contrast} />}
             {ro.grain > 0 && (ro.grainStill ? <StillNoise opacity={ro.grain} cell={hero.fx} /> : <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={ro.grain} />)}
           </EffectComposer>
         )}
