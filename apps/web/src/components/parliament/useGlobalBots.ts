@@ -159,7 +159,7 @@ export function useGlobalBots(
           hShift: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 올라가는 속도 (1 = 실제 시간: 한 단의 초마다 한 단 · 0 = 꼭대기가 서 있음 — 아래 '멈춤'과 같은 방식)" },
           // THE RISE STOPPED (rise.ts; the artist, 2026-11-17: "기둥이 천천히 올라가는 속도를 일단... 끄고") — not the speed
           // at 0 (that is the fixed block, another way of eroding and fusing): the top stands where it is
-          hRiseStop: { value: true, label: "기둥이 올라가는 것을 멈춤 (꼭대기가 지금 자리에 섬 · 봇은 계속 지음 · 침식과 화석의 진행도 같이 섬)" },
+          hRiseStop: { value: true, label: "기둥이 올라가는 것을 멈춤 (꼭대기가 지금 자리에 섬 · 봇은 계속 지음 · 서 있는 것은 계속 늙음: 침식 · 화석)" },
           // (what has left the window: nothing of it is kept by default — every slot kept is a slot of buildings, ways
           // and pipes the wall goes on working out: measured 2026-11-15, three windows' length = 9 s a round of ways)
           hTail: { value: 0, min: 0, max: 120, step: 1, label: "올라간 덩어리 아래로 남기는 기록 (단 · 0 = 창을 벗어나면 버림 · 길수록 무거움)" },

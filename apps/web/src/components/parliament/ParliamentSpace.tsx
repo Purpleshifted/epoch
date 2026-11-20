@@ -309,8 +309,15 @@ interface ResinLook {
   /** THE FOSSIL'S ONE RULER IS THE AGE (2026-11-20): the slots since what stands there hardened over which it is whole,
    *  and how much the DEPTH slows that ageing (0 = the age alone, the same speed everywhere … 1 = at the window's top
    *  nothing fossilises; the foot always at full speed). */
-  growAgeSlots?: number;
+  /** (in MINUTES of the clock since 2026-11-20 — "시간 단위여야 하는 게 단인 것들도 있음": the wall turns them into slots of
+   *  the top's way) */
+  growAgeMin?: number;
   growDeep?: number;
+  /** IT MELTS OUT OF ITS PARTS (the shader's growFar): how far into the progress the fossil's farthest surface waits
+   *  behind what lies on the part (0 = the whole surface at once), and the distance from the part that counts as
+   *  farthest (world). */
+  growMelt?: number;
+  growReach?: number;
   /** THE FRAME FIRST (fuse.ts FuseMesh.late): how far into the fossil's progress the filling (boxes, plates, rooms)
    *  waits behind the frame (0 = all at once … 0.9), and how much it fills from each layer's floor upward (0 … 1). */
   growLate?: number;
@@ -318,8 +325,8 @@ interface ResinLook {
   /** THE FOSSIL HAS A LIFE (the shader's growGone): whether it goes back into its parts at all before the window's
    *  foot; the slots of the same ruler (its age, slowed by the depth) after which it begins, and goes over. */
   growDie?: boolean;
-  growDieAfter?: number;
-  growDieSpan?: number;
+  growDieAfterMin?: number;
+  growDieSpanMin?: number;
   /** …and HOW it goes: 0 = it thins back into its parts … 1 = holes eat through it (as the pipes'); the holes' size (world). */
   growDieHoles?: number;
   growDieGrain?: number;
@@ -427,6 +434,9 @@ interface FuseUniforms {
    *  the depth slows that ageing (ResinLook.growDeep). */
   uGrowAgeSpan: THREE.IUniform;
   uGrowDeep: THREE.IUniform;
+  /** …and how far the fossil's farthest surface waits behind what lies on its part, and that distance (ResinLook.growMelt). */
+  uGrowMelt: THREE.IUniform;
+  uGrowReach: THREE.IUniform;
   /** …how far the filling waits behind the frame, and how much it rises from each layer's floor (ResinLook.growLate). */
   uGrowLate: THREE.IUniform;
   /** …and how far the top would have risen while its rise was stopped (rise.ts; slots): the fossil's AGE is read off
@@ -449,7 +459,7 @@ function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
-    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 2.5 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 },
     uGrowLate: { value: 0 }, uGrowRise: { value: 0 }, uGrowStood: { value: 0 },
     uGrowDie: { value: 0 }, uGrowDieAfter: { value: 60 }, uGrowDieSpan: { value: 30 },
     uGrowDieHoles: { value: 0 }, uGrowDieGrain: { value: 1.2 }, uGrowDieRag: { value: 0 }, uGrowDiePatch: { value: 9 },
@@ -469,7 +479,7 @@ attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
 attribute float fuseLate;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowMelt, uGrowReach, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
 varying float vGrow;
 varying float vGone;
 varying vec3 vGonePos;`;
@@ -551,7 +561,21 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   vGone = uGrowDie * uGrowDieHoles * clamp( growGoneAt, -4.0, 4.0 );
   float growTime = growLayer * growAged * growShown * growKept * ( 1.0 - growGone * ( 1.0 - uGrowDieHoles ) );
   float growWait = uGrowLate * fuseLate * ( 1.0 - uGrowRise + uGrowRise * fract( fuseGrowA.x + 0.5 ) );
-  vGrow = clamp( ( growTime - growWait ) / max( 0.05, 1.0 - growWait ), 0.0, 1.0 ) * fuseGrowB.y;
+  // THE FRAME IS WHOLE BY THE TIME THE FILLING BEGINS (the artist, 2026-11-20: "이전처럼 파이프 형태로 녹지 않아서 비주얼이
+  // 획일화되는 거"). The frame used to go on coming out over the whole progress, so at the moment the plates and rooms
+  // began it was only that share out — a thin sliver along the edges, never tubes. It now comes out over the first
+  // uGrowLate of the progress and stands whole while the filling comes over the rest: a stage of pipes alone.
+  // IT MELTS OUT OF ITS PARTS (the artist, 2026-11-20, of the new fossil on the wall: "화석이 자연스럽게 녹아내려서
+  // 생기질 않고 깊은 곳에선 바로 껍데기로 생기는데"). The whole surface of the mass used to come out together — all of the
+  // final shape at once, faint, then a little thicker: a shell put on. Now what lies ON its part comes first, and
+  // the surface waits the longer the farther it has swollen from the part (and what hangs below it longer still:
+  // it runs down) — the fossil's edge creeps out of the parts and down as it goes on. One body all the same: a
+  // vertex only waits, it is not pulled to its own part. (A piece new on the screen comes the same way, over
+  // uGrowAppear seconds.)
+  vec3 growOff = position - fuseAnchor;
+  growWait = max( growWait, uGrowMelt * clamp( ( length( growOff ) + max( 0.0, - growOff.y ) ) / max( 0.1, uGrowReach ), 0.0, 1.0 ) );
+  float growSpan = min( mix( uGrowLate > 0.05 ? uGrowLate : 1.0, 1.0 - growWait, fuseLate ), 1.0 - growWait );
+  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * fuseGrowB.y;
   // ONE BODY (the artist, 2026-11-16: "근데 부푸는 건 진짜 개별로던데"): a vertex is no longer pressed to its own part's
   // box — neighbours pressed to different boxes split the mass along the parts. What it reads is the value of its
   // PLACE (fuseUnits.ts placeValues: the parts' values blurred over the space; the layer off its own height), and it
@@ -1235,6 +1259,7 @@ function SpaceWorld({
     for (const g of geoms) {
       const A = g.getAttribute("fuseGrowA").array as Float32Array, B = g.getAttribute("fuseGrowB").array as Float32Array;
       const L = g.getAttribute("fuseLate")?.array as Float32Array | undefined;
+      const P = g.getAttribute("position")?.array as Float32Array | undefined, N = g.getAttribute("fuseAnchor")?.array as Float32Array | undefined;
       const nv = A.length / 4;
       for (let v = 0; v < nv; v += stepV) {
         n++;
@@ -1251,8 +1276,12 @@ function SpaceWorld({
         const gone = U.uGrowDie.value * Math.max(0, Math.min(1, (ruler - U.uGrowDieAfter.value) / Math.max(1, U.uGrowDieSpan.value)));
         const time = layer * aged * shown * kept * (1 - gone * (1 - U.uGrowDieHoles.value));
         const yIn = A[v * 4] + 0.5 - Math.floor(A[v * 4] + 0.5);
-        const wait = U.uGrowLate.value * (L ? L[v] : 0) * (1 - U.uGrowRise.value + U.uGrowRise.value * yIn);
-        const f = Math.max(0, Math.min(1, (time - wait) / Math.max(0.05, 1 - wait))) * B[v * 2 + 1];
+        const lateV = L ? L[v] : 0, frameSpan = U.uGrowLate.value > 0.05 ? U.uGrowLate.value : 1;
+        // (as the shader: the filling waits behind the frame, and the surface the longer the farther from its part)
+        const ox = P && N ? P[v * 3] - N[v * 3] : 0, oy = P && N ? P[v * 3 + 1] - N[v * 3 + 1] : 0, oz = P && N ? P[v * 3 + 2] - N[v * 3 + 2] : 0;
+        const far = Math.max(0, Math.min(1, (Math.hypot(ox, oy, oz) + Math.max(0, -oy)) / Math.max(0.1, U.uGrowReach.value)));
+        const wait = Math.max(U.uGrowLate.value * lateV * (1 - U.uGrowRise.value + U.uGrowRise.value * yIn), U.uGrowMelt.value * far);
+        const f = Math.max(0, Math.min(1, (time - wait) / Math.max(0.05, Math.min(frameSpan + (1 - wait - frameSpan) * lateV, 1 - wait)))) * B[v * 2 + 1];
         if (f >= 0.02) out++;
         sum += f;
       }
@@ -1327,14 +1356,17 @@ function SpaceWorld({
     // has none — it is whole as it comes)
     fuseU.uGrowClock.value = chunkClock0.current === null ? 1e9 : (Date.now() - chunkClock0.current) / 1000;
     fuseU.uGrowThin.value = Math.max(0, resin.growThin ?? 0.6);
-    fuseU.uGrowAgeSpan.value = Math.max(1, resin.growAgeSlots ?? 40);
+    // (the fossil's knobs are minutes of the clock; its ruler is slots of the top's way — perTop seconds each)
+    fuseU.uGrowAgeSpan.value = Math.max(1, (Math.max(0, resin.growAgeMin ?? 2.5) * 60) / perTop);
     fuseU.uGrowDeep.value = Math.max(0, Math.min(1, resin.growDeep ?? 0.6));
+    fuseU.uGrowMelt.value = Math.max(0, Math.min(0.9, resin.growMelt ?? 0.6));
+    fuseU.uGrowReach.value = Math.max(0.1, resin.growReach ?? 2);
     fuseU.uGrowLate.value = Math.max(0, Math.min(0.9, resin.growLate ?? 0));
     fuseU.uGrowRise.value = Math.max(0, Math.min(1, resin.growRise ?? 0));
     // (the fossil's life: off unless the look says so — a look without the knobs is the fossil as it was)
     fuseU.uGrowDie.value = resin.growDie ? 1 : 0;
-    fuseU.uGrowDieAfter.value = Math.max(0, resin.growDieAfter ?? 60);
-    fuseU.uGrowDieSpan.value = Math.max(1, resin.growDieSpan ?? 30);
+    fuseU.uGrowDieAfter.value = (Math.max(0, resin.growDieAfterMin ?? 5.5) * 60) / perTop;
+    fuseU.uGrowDieSpan.value = Math.max(1, (Math.max(0, resin.growDieSpanMin ?? 8.5) * 60) / perTop);
     fuseU.uGrowDieHoles.value = Math.max(0, Math.min(1, resin.growDieHoles ?? 0));
     fuseU.uGrowDieGrain.value = Math.max(0.05, resin.growDieGrain ?? 1.2);
     fuseU.uGrowDieRag.value = Math.max(0, resin.growDieRag ?? 0);
@@ -3946,21 +3978,27 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // ONE RULER: THE AGE (the shader's growT; the artist, 2026-11-18: "나이를 세게 고민한다 — 여기에서 점점 멀어지는 기분",
       // "서로 엉킨 레바도 있는 것 같고"): the slots since what stands there hardened; the depth only slows it. The four
       // knobs of depth (나오는 깊이 둘, 삭는 깊이 둘) and the two mixes are gone from the new way.
-      growAgeSlots: { value: 40, min: 2, max: 200, step: 1, label: "굳은 뒤 다 화석이 되기까지 (단 · 화석의 눈금은 이 나이 하나)", render: () => REDESIGN },
+      // (MINUTES since 2026-11-20 — the artist: "레바 지금 시간 단위여야 하는 게 단인 것들도 있음". New keys: what was saved in
+      // slots — 12 · 28 · 43 at 12 s a slot — is their default here, in minutes: 2.5 · 5.5 · 8.5)
+      growAgeMin: { value: 2.5, min: 0.2, max: 60, step: 0.1, label: "굳은 뒤 다 화석이 되기까지 (분 · 창 바닥에서 · 화석의 눈금은 이 나이 하나)", render: () => REDESIGN },
       growDeep: { value: 0.6, min: 0, max: 1, step: 0.05, label: "깊이가 늙는 속도를 늦춤 (0 = 나이만: 어디서나 같은 속도 · 1 = 꼭대기에서는 화석이 안 됨 · 바닥은 늘 제 속도)", render: () => REDESIGN },
+      // IT MELTS OUT OF ITS PARTS (the shader's growFar; the artist, 2026-11-20: "자연스럽게 녹아내려서 생기질 않고 … 바로
+      // 껍데기로 생기는데")
+      growMelt: { value: 0.6, min: 0, max: 0.9, step: 0.05, label: "부재에서부터 번져 나옴 (0 = 화석 전체가 한꺼번에 옅게 생김 → 껍데기로 보임 · 클수록 부재에 붙은 곳부터, 멀리 부푼 곳과 아래로 처진 곳은 나중)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      growReach: { value: 2, min: 0.2, max: 8, step: 0.1, label: "번져 나오는 거리 (월드 · 화석이 부재에서 가장 멀리 부푼 두께쯤)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
       growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · 표면 전체가 함께 움직임)", render: () => REDESIGN },
       // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form back;
       // fuse.ts FuseMesh.late, the shader's growWait). Shown with the seeded mass; the frame is ③'s tubes (꼴 = 관 /
       // 크기에 따라) and the pipes and ways
-      growLate: { value: 0.5, min: 0, max: 0.9, step: 0.05, label: "관이 먼저, 판·방은 나중에 (판·방이 기다리는 진행; 0 = 한꺼번에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      growLate: { value: 0.5, min: 0, max: 0.9, step: 0.05, label: "관만 나와 있는 단계의 길이 (다 화석이 되기까지의 몫 · 그동안 관이 다 나오고, 그 뒤에 판·방이 참 · 0 = 한꺼번에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       growRise: { value: 0.6, min: 0, max: 1, step: 0.05, label: "판·방이 층 바닥부터 차오름 (0 = 높이 상관없이)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // THE FOSSIL HAS A LIFE (the artist, 2026-11-17: "수명을 준다" — docs/fossil-disappearance-review-2026-11-17.md):
       // it goes back into its parts further along the same ruler (the shader's growGone), the coming-out run
       // backwards. Off = it stays (and, while the window rises, goes over the last two slots above its foot).
-      growDie: { value: true, label: "화석에 수명 (삭아서 부재 속으로 도로 들어감 · 끄면 창의 바닥에서만)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      growDieAfter: { value: 60, min: 0, max: 400, step: 1, label: "굳은 뒤 삭기 시작하기까지 (단 · 같은 나이 눈금 — 깊은 곳이 먼저 닿음)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
-      growDieSpan: { value: 30, min: 1, max: 200, step: 1, label: "삭기 시작해서 다 삭기까지 (단 · 같은 눈금)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
+      growDie: { value: true, label: "화석에 수명 (다 나온 뒤 삭아서 사라짐 · 끄면 전시 버전처럼 오래된 것이 가장 꽉 참)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      growDieAfterMin: { value: 5.5, min: 0, max: 120, step: 0.5, label: "굳은 뒤 삭기 시작하기까지 (분 · 같은 눈금 — 깊은 곳이 먼저 닿음)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
+      growDieSpanMin: { value: 8.5, min: 0.2, max: 120, step: 0.5, label: "삭기 시작해서 다 삭기까지 (분)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
       // IN HOLES (the artist, 2026-11-17: "구멍으로 삭게"): how the going is drawn — holes eaten through the mass, as the pipes'
       growDieHoles: { value: 1, min: 0, max: 1, step: 0.05, label: "삭는 모습: 얇아짐 ↔ 구멍 (0 = 얇아지며 들어감 · 1 = 구멍이 먹어 들어감)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
       growDieGrain: { value: 1.2, min: 0.1, max: 8, step: 0.05, label: "삭는 구멍의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
@@ -4107,7 +4145,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           blocky: { value: 0, min: 0, max: 1, step: 0.05, label: "젊은 층의 블로키 (복셀 계단 = 건축; 0 = 다 둥글게 — 껍질 · 리브를 쓰면 0.3 아래로, 계단이 리브를 뭉갬)" },
           cavity: { value: 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음; 9579 레시피 0.7–1)", render: (get) => get(BODY_PATH) !== "crust" },
           cavityRound: { value: DEFAULT_STUDY.cavityRound, min: 1, max: 5, step: 1, label: "공동의 둥글기 (복셀)", render: (get) => get(BODY_PATH) !== "crust" && get(CAV_PATH) > 0 },
-          pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "관 뼈대가 오래된 층에서 묻힘 (0 = 끝까지 뼈대, 1 = 다 묻힘)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
+          pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "다 된 화석에서 관 뼈대가 덩어리에 묻힌 정도 (새 방식: 모든 화석에 똑같이 · 0 = 큰 부재는 뼈대만 남음 … 1 = 다 묻힘)", render: (get) => get(BODY_PATH) !== "crust" && get(MODE_PATH) !== "wrap" },
           // SUBTRACTIVE (refs 9706–9708, 9579; 2026-10-20): the outline stays the building's, the organic is inside
           envelope: { value: 0, min: 0, max: 1, step: 0.05, label: "겉면은 건물 윤곽대로 (0 = 부재 밖으로 부풀림 … 1 = 윤곽에서 잘라냄; 유기물은 안에서 — 방 채움 · 방 → 공동 · 거품)", render: (get) => get(BODY_PATH) !== "crust" },
           fossilNoise: { value: isV2 ? 0.15 : 0, min: 0, max: 0.6, step: 0.01, label: "화석화 경계의 흔들림 (나이 단위; 0 = 평평한 띠)" },
@@ -4291,13 +4329,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     () => ({
       fadeSec: fu.fuseFade,
       growThin: fu.growThin,
-      growAgeSlots: fu.growAgeSlots,
+      growAgeMin: fu.growAgeMin,
       growDeep: fu.growDeep,
+      growMelt: fu.growMelt,
+      growReach: fu.growReach,
       growLate: fu.growLate,
       growRise: fu.growRise,
       growDie: fu.growDie,
-      growDieAfter: fu.growDieAfter,
-      growDieSpan: fu.growDieSpan,
+      growDieAfterMin: fu.growDieAfterMin,
+      growDieSpanMin: fu.growDieSpanMin,
       growDieHoles: fu.growDieHoles,
       growDieGrain: fu.growDieGrain,
       growDieRag: fu.growDieRag,
@@ -4316,7 +4356,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, fu.growAgeSlots, fu.growDeep, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfter, fu.growDieSpan, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
   );
   const rnd = useControls(
     "렌더 · 성능",
@@ -4487,6 +4527,18 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       resin: fuseCfg.resinShare < 0 ? at(fuseCfg.fuseOnset) : fuseCfg.resinShare <= 1 ? at(fuseCfg.resinShare) : null,
     };
   }, [weather, c.wear, stats.t, boxCfg.secPerUnit, isV2, fold.tauSlabYears, fuseCfg.accOnset, fuseCfg.fuseOnset, fuseCfg.resinShare]);
+  // THE FOSSIL'S LIFE IN MINUTES (the artist, 2026-11-20: "레바도 직관적으로"): the knobs of the fossil's ruler are slots of
+  // age — what they come to on the clock is said in the status line, for what stands at the window's foot (the full
+  // speed), and how much slower the top is. As the shader reads them (uGrowAfter, uGrowAgeSpan, uGrowDie…).
+  const fossilLife = (() => {
+    if (!REDESIGN || fu.fuseGrow !== "seed" || !rising) return "";
+    const perTop = Math.max(1, tAxis.secPerUnit) / Math.max(0.01, win.shift);
+    const after = ((sm.lodOn ? sm.lodSec : 0) * 1.3 + perTop) / 60;
+    const min = (m: number) => (m < 10 ? `${m.toFixed(1)}분` : `${Math.round(m)}분`);
+    const slow = 1 - Math.max(0, Math.min(1, fu.growDeep ?? 0.6));
+    const going = fu.growDie ? ` → ${min(after + fu.growDieAfterMin)}부터 삭음 → ${min(after + fu.growDieAfterMin + fu.growDieSpanMin)}에 다 삭음` : " (삭지 않음)";
+    return ` · 화석의 일생(창 바닥 기준 · 지은 뒤): ${min(after)}에 나오기 시작 → ${min(after + fu.growAgeMin * (fu.growLate > 0.05 ? fu.growLate : 1))}에 관이 다 나옴 → ${min(after + fu.growAgeMin)}에 다 화석${going} · 꼭대기에서는 ${slow > 0.02 ? `${(1 / slow).toFixed(1)}배 느림` : "화석이 안 됨"}`;
+  })();
 
   return (
     // the wall (ui=0) shows no cursor either: nothing on it but the strata
@@ -4654,7 +4706,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 장에 든 관·길 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
           {stats.build && stats.build !== WALL_BUILD ? ` · ⚠ 건물 워커가 옛 코드(${stats.build}) — 새로고침(⌘R) 필요` : ""}
-          {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
+          {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림${fossilLife}` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
         </div>
         {/* the exhibition camera's auto run writes which shot is on (StageCamera, once a second; empty when it is off) */}
         <div ref={shotLine} />
