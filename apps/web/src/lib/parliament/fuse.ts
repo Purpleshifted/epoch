@@ -160,6 +160,15 @@ export interface FuseConfig {
    * surface — the artist judges it, and turns this to 0 if it does.
    */
   voxelTie?: number;
+  /**
+   * THE PIECES THE SEEDED MASS IS MADE IN (spaceModel sendUnits → the worker beside; the artist, 2026-11-20: "현재
+   * 상태에서도 화석 생성 단위 묶음/타일 더 촘촘하게 만들 수 있지 않나?"): cells of ground a side, and slots of height
+   * (absent: 14 × 10, as it was). A smaller piece is made sooner — a change is on the screen sooner, and less is
+   * made again for it — but there are more of them, each reading the same margin round itself: the whole takes
+   * longer to fill, and there are more faces between pieces to keep closed.
+   */
+  pieceTile?: number;
+  pieceSeg?: number;
   /** How thickly the mass wraps a skeleton part (× its fused share; 1 = like any other part). */
   skeletonWrap: number;
   /** SPIKES: share of the surface cells a thin spike of the same mass grows out of (0 = none). */

@@ -2292,11 +2292,36 @@ const useControls: typeof useLevaControls = ((...args: unknown[]) => {
  */
 /** The width of the clouds' texture (one texel per cloud, row after row). */
 const VEG_CLOUD_W = 256;
+/**
+ * THE VEGETATION COMES AND GOES SOFTLY, AS THE LAYER ABOVE'S DOES (the artist, 2026-11-20: "글로벌 식생도 미래처럼 연속적으로
+ * 움직이게 해줘"). Three things used to happen at once: every two seconds the people's share was written anew and every
+ * point whose share had crossed its draw was there or gone in that frame; a cloud seated again jumped whole to its
+ * new place; and the water's wear was laid in one go. Now —
+ *  · the last snapshot of the share (and of the range, and of the water's wear) is kept beside the new one and the
+ *    shader goes from one to the other over the time between two snapshots (uMix, uWaterMix): the share moves all
+ *    the time, never in a step;
+ *  · a point is not alive or dead but as LARGE as its share is past its own draw (over a band, uSoft): it grows in
+ *    and shrinks away, each at its own moment;
+ *  · a cloud that is seated again first goes where it stood — its points shrinking one after another over the fade
+ *    time — is moved only then, and comes at its new place the same way (the clouds' texture: w 0 = it stands, > 0 =
+ *    it came then, < 0 = it has been going since; uLife = [now, grow, fade], as futureLife.ts).
+ */
+/** Seconds between two snapshots of the people's share (and how long the shader takes from one to the next), and how
+ *  long the water's wear takes to go over to a new course. */
+const VEG_STEP = 2;
+const VEG_WATER_EASE = 3;
 const VEG_VERT = `
 precision highp sampler3D;
 uniform sampler3D uHuman;
+uniform sampler3D uHumanWas;
 uniform sampler2D uRange;
+uniform sampler2D uRangeWas;
 uniform sampler3D uWater;
+uniform sampler3D uWaterWas;
+uniform float uMix;
+uniform float uWaterMix;
+uniform float uSoft;
+uniform vec3 uLife;
 uniform vec3 uMin;
 uniform vec3 uSpan;
 uniform float uSize;
@@ -2313,11 +2338,17 @@ varying float vShade;
 void main() {
   vec3 wp = position;
   float inBlock = 1.0;
+  float cloudLife = 1.0;
   if (uCloudsOn > 0.5) {
     int ci = int(aCloud + 0.5);
-    wp = texelFetch(uClouds, ivec2(ci % ${VEG_CLOUD_W}, ci / ${VEG_CLOUD_W}), 0).xyz + position;
+    vec4 cl = texelFetch(uClouds, ivec2(ci % ${VEG_CLOUD_W}, ci / ${VEG_CLOUD_W}), 0);
+    wp = cl.xyz + position;
     // (a point that falls out of the block is never alive)
     inBlock = wp.y >= 0.0 && abs(wp.x) < uHalf && abs(wp.z) < uHalf ? 1.0 : 0.0;
+    // (its cloud coming or going: the points take their turns over the first half of the time, each half of it long)
+    float turn = 0.5 * fract(aSeed * 13.7);
+    if (cl.w > 0.0) cloudLife = smoothstep(0.0, 1.0, ((uLife.x - cl.w) / max(0.01, uLife.y) - turn) * 2.0);
+    else if (cl.w < 0.0) cloudLife = 1.0 - smoothstep(0.0, 1.0, ((uLife.x + cl.w) / max(0.01, uLife.z) - turn) * 2.0);
   }
   // (THE RISING WINDOW: the points fill the window, whose foot is uMin.y — a point keeps its place in the world while
   // the window rises past it, and when it drops out below it is a point of the new time at the top)
@@ -2325,16 +2356,17 @@ void main() {
   vec3 pos = vec3(wp.x, uMin.y + yl, wp.z);
   // the texture's x, y are the ground's x, z cells; its depth is the slot (the height)
   vec3 uvw = vec3((pos.x - uMin.x) / uSpan.x, (pos.z - uMin.z) / uSpan.z, yl / uSpan.y);
-  float human = texture(uHuman, uvw).r;
+  float human = mix(texture(uHumanWas, uvw).r, texture(uHuman, uvw).r, uMix);
   // (uFull < 1: even untouched ground is not all vegetation)
   // (only round where anybody has been — uRange: 1 within the margin of what was built or walked, 0 beyond)
   // (the open water wears the plants away along its course: water.ts → waterNow)
-  float worn = texture(uWater, uvw).r;
-  float veg = (1.0 - human) * (1.0 - worn) * uFull * texture(uRange, uvw.xy).r;
-  float alive = step(aSeed, veg) * inBlock;
+  float worn = mix(texture(uWaterWas, uvw).r, texture(uWater, uvw).r, uWaterMix);
+  float veg = (1.0 - human) * (1.0 - worn) * uFull * mix(texture(uRangeWas, uvw.xy).r, texture(uRange, uvw.xy).r, uMix);
+  // (as large as its share is past its own draw: nothing where the share is under the draw, whole a band above it)
+  float alive = smoothstep(aSeed, aSeed + max(0.001, uSoft), veg) * inBlock * cloudLife;
   vShade = fract(aSeed * 7.31);
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-  gl_Position = alive > 0.5 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
+  gl_Position = alive > 0.004 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
   gl_PointSize = alive * uSize * uScale / max(0.001, -mv.z);
 }`;
 const VEG_FRAG = `
@@ -2388,12 +2420,16 @@ function Vegetation({
   spotJitter,
   moveSec,
   moveAt,
+  ease,
   erode,
   margin,
   base,
   river,
   belts,
 }: {
+  /** Seconds a cloud takes to go where it stood and to come where it is seated again (0 = at once, and the points are
+   *  there or not, as before). */
+  ease: number;
   /**
    * BELTS ON THE BORDERS (the artist, 2026-11-16: "권역 나누기"): `share` of the clouds stand on the borders between
    * the villages alive at their own height's time (villageBorders.ts) — green belts that part one village's ground from
@@ -2437,34 +2473,48 @@ function Vegetation({
   const camera = useThree((st) => st.camera);
   const N = WORLD_CELLS;
   const D = Math.max(8, Math.min(160, Math.round(slots)));
-  // the people's share per cell-slot (x = the cell along x, y = the cell along z, depth = the slot)
-  const tex = useMemo(() => {
-    const t = new THREE.Data3DTexture(new Uint8Array(N * N * D), N, N, D);
-    t.format = THREE.RedFormat;
-    t.type = THREE.UnsignedByteType;
-    t.minFilter = THREE.LinearFilter;
-    t.magFilter = THREE.LinearFilter;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.wrapR = THREE.ClampToEdgeWrapping;
-    t.unpackAlignment = 1;
-    t.needsUpdate = true;
-    return t;
+  // the people's share per cell-slot (x = the cell along x, y = the cell along z, depth = the slot) — TWO of them:
+  // the snapshot being shown and the one before it (the shader goes from one to the other: VEG_VERT uMix); each
+  // snapshot is written into the older of the two
+  const texPair = useMemo(() => {
+    const mk = () => {
+      const t = new THREE.Data3DTexture(new Uint8Array(N * N * D), N, N, D);
+      t.format = THREE.RedFormat;
+      t.type = THREE.UnsignedByteType;
+      t.minFilter = THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.wrapR = THREE.ClampToEdgeWrapping;
+      t.unpackAlignment = 1;
+      t.needsUpdate = true;
+      return t;
+    };
+    return [mk(), mk()] as const;
   }, [N, D]);
-  useEffect(() => () => tex.dispose(), [tex]);
-  // how worn by water each cell-slot is (0 … 1), in the same layout
-  const wTex = useMemo(() => {
-    const t = new THREE.Data3DTexture(new Uint8Array(N * N * D), N, N, D);
-    t.format = THREE.RedFormat;
-    t.type = THREE.UnsignedByteType;
-    t.minFilter = THREE.LinearFilter;
-    t.magFilter = THREE.LinearFilter;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.wrapR = THREE.ClampToEdgeWrapping;
-    t.unpackAlignment = 1;
-    t.needsUpdate = true;
-    return t;
+  useEffect(() => () => texPair.forEach((t) => t.dispose()), [texPair]);
+  // how worn by water each cell-slot is (0 … 1), in the same layout — two as well
+  const wPair = useMemo(() => {
+    const mk = () => {
+      const t = new THREE.Data3DTexture(new Uint8Array(N * N * D), N, N, D);
+      t.format = THREE.RedFormat;
+      t.type = THREE.UnsignedByteType;
+      t.minFilter = THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.wrapR = THREE.ClampToEdgeWrapping;
+      t.unpackAlignment = 1;
+      t.needsUpdate = true;
+      return t;
+    };
+    return [mk(), mk()] as const;
   }, [N, D]);
-  useEffect(() => () => wTex.dispose(), [wTex]);
+  useEffect(() => () => wPair.forEach((t) => t.dispose()), [wPair]);
+  /** Which of each pair holds the snapshot being shown (−1 = none written yet). */
+  const snap = useRef({ human: -1, water: -1 });
+  /** The clock the clouds' coming and going is read against (s; begins above 0: a cloud's 0 means "it stands"), and
+   *  the clouds on their way: gone from where they stood, to be moved and to come at `at`. */
+  const lifeClock = useRef(1);
+  const pending = useRef<{ i: number; x: number; y: number; z: number; at: number }[]>([]);
   const wornOf = useRef<{ segs: Float32Array | null; key: string }>({ segs: null, key: "" });
   // the points: made once — anywhere in the block, or (spots) as CLOUDS IN SPACETIME (the artist, 2026-11-12: "이렇게
   // 말고 시공간상의 전자구름처럼 해야지"): each spot is a place and a time of the block, and its points are drawn from
@@ -2566,9 +2616,11 @@ function Vegetation({
       tex.minFilter = tex.magFilter = THREE.NearestFilter;
       tex.generateMipmaps = false;
       const td = tex.image.data as Float32Array;
-      cloud.forEach((c, i) => td.set([c.x, c.y, c.z, 1], i * 4));
+      // (w 0: every cloud stands — VEG_VERT)
+      cloud.forEach((c, i) => td.set([c.x, c.y, c.z, 0], i * 4));
       tex.needsUpdate = true;
       made.current = { tex };
+      pending.current = [];
       g.userData.cloudTex = tex;
       g.setAttribute("position", new THREE.BufferAttribute(off, 3));
       g.setAttribute("aCloud", new THREE.BufferAttribute(Float32Array.from(of), 1));
@@ -2595,8 +2647,15 @@ function Vegetation({
         fragmentShader: VEG_FRAG,
         uniforms: {
           uHuman: { value: null },
+          uHumanWas: { value: null },
           uRange: { value: null },
+          uRangeWas: { value: null },
           uWater: { value: null },
+          uWaterWas: { value: null },
+          uMix: { value: 1 },
+          uWaterMix: { value: 1 },
+          uSoft: { value: 0.15 },
+          uLife: { value: new THREE.Vector3(1, 3, 3) },
           uMin: { value: new THREE.Vector3() },
           uSpan: { value: new THREE.Vector3(1, 1, 1) },
           uSize: { value: 0.1 },
@@ -2613,27 +2672,36 @@ function Vegetation({
   );
   useEffect(() => () => mat.dispose(), [mat]);
   useEffect(() => {
-    mat.uniforms.uHuman.value = tex;
-    mat.uniforms.uRange.value = rangeTex;
-    mat.uniforms.uWater.value = wTex;
+    // (new textures — until their first snapshot is written: the pairs' first, both ways; a knob moved does not come here)
+    mat.uniforms.uHuman.value = mat.uniforms.uHumanWas.value = texPair[0];
+    mat.uniforms.uRange.value = mat.uniforms.uRangeWas.value = rangePair[0];
+    mat.uniforms.uWater.value = mat.uniforms.uWaterWas.value = wPair[0];
+    mat.uniforms.uMix.value = mat.uniforms.uWaterMix.value = 1;
+    snap.current = { human: -1, water: -1 };
+    wornOf.current = { segs: null, key: "" };
+  }, [mat, texPair, wPair]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
     mat.uniforms.uMin.value.set(-WORLD_HALF, base * unit, -WORLD_HALF);
     mat.uniforms.uSpan.value.set(WORLD_SIZE, D * unit, WORLD_SIZE);
     mat.uniforms.uSize.value = size;
     mat.uniforms.uFull.value = full;
     mat.uniforms.uColorA.value.set(colorA);
     mat.uniforms.uColorB.value.set(colorB);
-  }, [mat, tex, wTex, D, unit, size, full, colorA, colorB, base]);
+  }, [mat, D, unit, size, full, colorA, colorB, base]);
   const timer = useRef(10);
   const moveTimer = useRef(0);
   // where the vegetation is, and how thick: a map of the ground (N × N), and a scratch map of the ground in use
-  const rangeTex = useMemo(() => {
-    const t = new THREE.DataTexture(new Uint8Array(N * N).fill(255), N, N, THREE.RedFormat, THREE.UnsignedByteType);
-    t.magFilter = THREE.LinearFilter;
-    t.minFilter = THREE.LinearFilter;
-    t.needsUpdate = true;
-    return t;
+  const rangePair = useMemo(() => {
+    const mk = () => {
+      const t = new THREE.DataTexture(new Uint8Array(N * N).fill(255), N, N, THREE.RedFormat, THREE.UnsignedByteType);
+      t.magFilter = THREE.LinearFilter;
+      t.minFilter = THREE.LinearFilter;
+      t.needsUpdate = true;
+      return t;
+    };
+    return [mk(), mk()] as const;
   }, [N]);
-  useEffect(() => () => rangeTex.dispose(), [rangeTex]);
+  useEffect(() => () => rangePair.forEach((t) => t.dispose()), [rangePair]);
   const rangeUsed = useRef(new Uint8Array(0));
   if (rangeUsed.current.length !== N * N) rangeUsed.current = new Uint8Array(N * N);
 
@@ -2647,9 +2715,33 @@ function Vegetation({
     const cloudTex = (geom.userData.cloudTex as THREE.DataTexture | undefined) ?? null;
     mat.uniforms.uClouds.value = cloudTex;
     mat.uniforms.uCloudsOn.value = cloudTex ? 1 : 0;
+    // SOFTLY (VEG_VERT): the clock, the times, how far between two snapshots; with no time (ease 0) all at once, as before
+    const soft = ease > 0;
+    lifeClock.current += dt;
+    const now = lifeClock.current;
+    (mat.uniforms.uLife.value as THREE.Vector3).set(now, Math.max(0.01, ease), Math.max(0.01, ease));
+    mat.uniforms.uSoft.value = soft ? 0.15 : 0.001;
+    mat.uniforms.uMix.value = soft ? Math.min(1, (mat.uniforms.uMix.value as number) + dt / VEG_STEP) : 1;
+    mat.uniforms.uWaterMix.value = soft ? Math.min(1, (mat.uniforms.uWaterMix.value as number) + dt / VEG_WATER_EASE) : 1;
+    // (the clouds that have gone where they stood: moved now, and coming)
+    if (pending.current.length && made.current) {
+      const td = made.current.tex.image.data as Float32Array;
+      let any = false;
+      pending.current = pending.current.filter((p) => {
+        if (p.at > now) return true;
+        td.set([p.x, p.y, p.z, soft ? now : 0], p.i * 4);
+        any = true;
+        return false;
+      });
+      if (any) made.current.tex.needsUpdate = true;
+    }
     timer.current += dt;
-    if (timer.current < 2) return;
+    if (timer.current < VEG_STEP) return;
     timer.current = 0;
+    // (the snapshot is written into the older of the two; the one shown until now is what the shader comes from)
+    const hWas = snap.current.human, hNow = hWas === 0 ? 1 : 0;
+    const tex = texPair[hNow];
+    const rangeTex = rangePair[hNow];
     const data = tex.image.data as Uint8Array;
     data.fill(0);
     const put = (cx: number, cz: number, kAbs: number, share: number) => {
@@ -2681,6 +2773,12 @@ function Vegetation({
     const at = Math.max(0.1, pathAt);
     tailField.each((cx, cz, k, level) => put(cx, cz, k, level / at));
     tex.needsUpdate = true;
+    mat.uniforms.uHuman.value = tex;
+    mat.uniforms.uHumanWas.value = hWas < 0 ? tex : texPair[hWas];
+    mat.uniforms.uRange.value = rangeTex;
+    mat.uniforms.uRangeWas.value = hWas < 0 ? rangeTex : rangePair[hWas];
+    mat.uniforms.uMix.value = hWas < 0 || !soft ? 1 : 0;
+    snap.current.human = hNow;
     // WHERE THE VEGETATION IS AT ALL (the artist, 2026-11-15: "식생반경이 알아서 돌아다닌 범위 살짝 바깥에만 마진
     // 두고 생성되게"): the ground anybody has built on or walked over (at any time of the block), widened by the
     // margin — beyond it there are no plants. With margin < 0 (off) the whole ground, as before.
@@ -2740,6 +2838,12 @@ function Vegetation({
     const wKey = river ? `${river.gain}|${river.keep}|${river.width}|${unit}|${D}|${base}` : "";
     if (waterNow.segs !== wornOf.current.segs || wKey !== wornOf.current.key) {
       wornOf.current = { segs: waterNow.segs, key: wKey };
+      const wWas = snap.current.water, wNow = wWas === 0 ? 1 : 0;
+      const wTex = wPair[wNow];
+      mat.uniforms.uWater.value = wTex;
+      mat.uniforms.uWaterWas.value = wWas < 0 ? wTex : wPair[wWas];
+      mat.uniforms.uWaterMix.value = wWas < 0 || !soft ? 1 : 0;
+      snap.current.water = wNow;
       const wd = wTex.image.data as Uint8Array;
       wd.fill(0);
       const segs = waterNow.segs;
@@ -2800,7 +2904,10 @@ function Vegetation({
     const rnd = () => ((a = Math.imul(a ^ (a >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296;
     const moved = new Set<number>();
     const bl = beltsRef.current, belt = beltOf.current;
+    // (a cloud on its way is not looked at again until it has come)
+    const onWay = new Set(pending.current.map((p) => p.i));
     for (let i = 0; i < clouds.current.length && moved.size < 6; i++) {
+      if (onWay.has(i)) continue;
       const c = clouds.current[i];
       // a BELT cloud off any border of its time (its villages gone, or the window risen past it) is seated on one again
       const isBelt = !!bl && belt[i] === 1;
@@ -2828,9 +2935,16 @@ function Vegetation({
     const td = m.tex.image.data as Float32Array;
     for (const i of moved) {
       const c = clouds.current[i];
+      if (soft) {
+        // IT GOES WHERE IT STOOD FIRST (VEG_VERT: w < 0 = going since), and is moved when it has gone (above)
+        td[i * 4 + 3] = -now;
+        pending.current.push({ i, x: c.x, y: c.y, z: c.z, at: now + ease });
+        continue;
+      }
       td[i * 4] = c.x;
       td[i * 4 + 1] = c.y;
       td[i * 4 + 2] = c.z;
+      td[i * 4 + 3] = 0;
     }
     m.tex.needsUpdate = true;
   });
@@ -3567,6 +3681,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       vegCloudT: { value: 5, min: 0.5, max: 60, step: 0.5, label: "구름의 반경: 시간 (단 · 평균)" },
       vegMoveSec: { value: 8, min: 0, max: 120, step: 2, label: "구름 자리를 다시 보는 간격 (s · 0 = 안 옮김)" },
       vegMoveAt: { value: 0.2, min: 0.02, max: 1, step: 0.02, label: "자리에 사람이 이만큼 차면 빈 곳으로 옮김" },
+      // SOFTLY, AS THE LAYER ABOVE'S (VEG_VERT; the artist, 2026-11-20: "글로벌 식생도 미래처럼 연속적으로 움직이게 해줘")
+      vegEase: { value: 3, min: 0, max: 20, step: 0.5, label: "식생이 나고 지는 시간 (s · 옮겨 앉는 구름이 옛 자리에서 지고 새 자리에서 나는 데 · 0 = 예전처럼 한꺼번에 나타나고 사라짐)" },
       vegCloudJit: { value: 0.4, min: 0, max: 0.9, step: 0.05, label: "구름 크기 지터 (± · 0 = 다 같은 크기)" },
       // (the artist, 2026-11-16: "권역 나누기"): belts on the borders between the villages (villageBorders.ts)
       vegBelt: { value: 0.6, min: 0, max: 1, step: 0.05, label: "마을 경계에 띠로 서는 구름 비율 (권역 · 0 = 아무 데나)" },
@@ -3999,6 +4115,19 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "화석 격자 ≥ 단순화 격자 × 이 값 (가볍게; 0 = 맞추지 않음 · 계단처럼 보이면 내림)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseFrom`) === "assets",
       },
+      // THE PIECES' SIZE (FuseConfig.pieceTile; the artist, 2026-11-20: "화석 생성 단위 묶음/타일 더 촘촘하게 만들 수 있지 않나?")
+      pieceTile: {
+        options: { "7칸 (잘게: 바뀐 곳이 빨리 반영 · 전체가 차는 데는 더 오래)": 7, "14칸 (지금까지)": 14, "21칸 (크게)": 21 },
+        value: 14,
+        label: "화석 조각의 크기: 땅 (한 변의 칸 수 · 바꾸면 화석을 전부 다시 만듦)",
+        render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed",
+      },
+      pieceSeg: {
+        options: { "5단 (잘게)": 5, "10단 (지금까지)": 10, "15단 (크게)": 15 },
+        value: 10,
+        label: "화석 조각의 크기: 높이 (단)",
+        render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed",
+      },
       // ONE RULER: THE AGE (the shader's growT; the artist, 2026-11-18: "나이를 세게 고민한다 — 여기에서 점점 멀어지는 기분",
       // "서로 엉킨 레바도 있는 것 같고"): the slots since what stands there hardened; the depth only slows it. The four
       // knobs of depth (나오는 깊이 둘, 삭는 깊이 둘) and the two mixes are gone from the new way.
@@ -4294,7 +4423,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", voxelTie: fu.voxelTie } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", pieceTile: fu.pieceTile, pieceSeg: fu.pieceSeg, voxelTie: fu.voxelTie } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -4349,7 +4478,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   // A SET OF VALUES CHOSEN (the fusion folder's 값 묶음 불러오기): put on the folder's knobs when the choice CHANGES —
   // not when the page opens with a choice saved (what is saved may have been moved since it was chosen)
@@ -4729,7 +4858,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {/* (not in the view of the layer above alone: futureOnly.ts) */}
         {vg.vegOn && !futureOnly() && (
-          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} belts={belts} />
+          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} ease={vg.vegEase} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} belts={belts} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene

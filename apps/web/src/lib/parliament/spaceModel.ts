@@ -1341,8 +1341,9 @@ export class SpaceModel {
         u,
         sed,
         padSlots,
-        seg: NATURE_CHUNK,
-        tile: BLOCK_TILE,
+        // (the pieces' size: the fusion's own if it names one that fits the screen's chunks — FuseConfig.pieceTile)
+        seg: [5, 10, 15, 30].includes(fuse.pieceSeg ?? 0) ? fuse.pieceSeg! : NATURE_CHUNK,
+        tile: [7, 14, 21, 42].includes(fuse.pieceTile ?? 0) ? fuse.pieceTile! : BLOCK_TILE,
         // (the fossil's clock now and where it begins to come out — as the wall's shader reads it: what is out on the
         // screen is made first, fuseUnits step)
         age: (() => {
