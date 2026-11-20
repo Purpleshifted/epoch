@@ -277,6 +277,11 @@ export interface FossilFieldStats {
   /** Bricks not made: no place left in the page table / in the atlas. */
   refused: number;
   full: number;
+  /** Boxes that came / went / changed shape / only changed their values, since the field was made. */
+  came: number;
+  went: number;
+  reshaped: number;
+  said: number;
 }
 
 /** The fossil's field: the boxes, the two fields of bricks, what the model said and is not yet taken in. */
@@ -290,6 +295,8 @@ export class FossilFieldGpu {
   private shared = { prims: { value: null as THREE.Texture | null }, lists: { value: null as THREE.Texture | null } };
   private queue: { d: FossilDiff; at: number; dropAt: number }[] = [];
   bornBase = 0;
+  /** Since the field was made: boxes that came, went, came again in another shape, and only said other values of themselves. */
+  readonly count = { came: 0, went: 0, reshaped: 0, said: 0 };
   private bornSet = false;
   private renderer: THREE.WebGLRenderer | null = null;
   private tmp = [0, 0, 0, 0, 0, 0];
@@ -330,13 +337,24 @@ export class FossilFieldGpu {
         if (i === undefined) continue;
         for (const f of [this.dist, this.vals]) f.grid.remove(i, s.bounds(i, f.spec.reach + f.spec.h * 1.5, f.spec.down, t));
         s.drop(d.drop[q.dropAt]);
+        this.count.went++;
       }
       for (; q.at < d.keys.length && n < maxBoxes; q.at++, n++) {
         const key = d.keys[q.at], was = s.slot(key);
-        if (was !== undefined) for (const f of [this.dist, this.vals]) f.grid.remove(was, s.bounds(was, f.spec.reach + f.spec.h * 1.5, f.spec.down, t));
-        const i = s.set(key, d.add, q.at * FOSSIL_BOX);
         const born = d.add[q.at * FOSSIL_BOX + 9];
-        for (const f of [this.dist, this.vals]) f.grid.add(i, s.bounds(i, f.spec.reach + f.spec.h * 1.5, f.spec.down, t), born);
+        if (was !== undefined && s.sameShape(was, d.add, q.at * FOSSIL_BOX)) {
+          // ONLY WHAT IT SAYS OF ITSELF IS OTHER (when it hardened, sooner or later, how much the vegetation makes of
+          // it — the vegetation's share moves all the time): its distances stand; only its place's values are baked again
+          s.set(key, d.add, q.at * FOSSIL_BOX);
+          this.vals.grid.touch(s.bounds(was, this.vals.spec.reach + this.vals.spec.h * 1.5, this.vals.spec.down, t));
+          this.count.said++;
+        } else {
+          if (was !== undefined) for (const f of [this.dist, this.vals]) f.grid.remove(was, s.bounds(was, f.spec.reach + f.spec.h * 1.5, f.spec.down, t));
+          const i = s.set(key, d.add, q.at * FOSSIL_BOX);
+          for (const f of [this.dist, this.vals]) f.grid.add(i, s.bounds(i, f.spec.reach + f.spec.h * 1.5, f.spec.down, t), born);
+          if (was === undefined) this.count.came++;
+          else this.count.reshaped++;
+        }
         // (the hardening times are kept from a base: set by the first box, moved when what comes is out of its range)
         if (!this.bornSet || born < this.bornBase || born > this.bornBase + BORN_RANGE - 8) {
           const r = s.bornRange();
@@ -398,6 +416,7 @@ export class FossilFieldGpu {
       grid: this.h,
       refused: this.dist.grid.refused,
       full: this.dist.grid.full,
+      ...this.count,
     };
   }
 }

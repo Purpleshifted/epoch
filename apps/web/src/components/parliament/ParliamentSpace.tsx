@@ -5090,7 +5090,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
           {fuseCfg.field && fossilLink.field
-            ? ((f) => ` · 화석(GPU 장) 상자 ${f.boxes} · 벽돌 ${f.bricks} · 구울 것 ${f.toBake + f.toPlace} · ${Math.round(f.mb)} MB · 격자 ${f.grid} · 그리기 ${fossilLink.gpuMs.toFixed(1)} ms${f.refused || f.full ? ` · ⚠ 못 만든 벽돌 ${f.refused + f.full}` : ""}`)(fossilLink.field.stats)
+            ? ((f) => ` · 화석(GPU 장) 상자 ${f.boxes} · 벽돌 ${f.bricks} · 구울 것 ${f.toBake + f.toPlace} · ${Math.round(f.mb)} MB · 격자 ${f.grid} · 그리기 ${fossilLink.gpuMs.toFixed(1)} ms · 재료: 들어옴 ${f.came} · 나감 ${f.went} · 모양 바뀜 ${f.reshaped} · 값만 바뀜 ${f.said}${f.refused || f.full ? ` · ⚠ 못 만든 벽돌 ${f.refused + f.full}` : ""}`)(fossilLink.field.stats)
             : stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
             ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 장에 든 관·길 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}

@@ -1302,7 +1302,8 @@ export class SpaceModel {
         const b = e.b;
         if (b.tilt) continue;
         const k = SpaceModel.partKey(b), g = e.grow;
-        const born = g ? g[1] : nowAge, own = g ? g[3] : 1, most = g ? g[5] : 1;
+        // (how much the vegetation makes of it moves a hair at a time, all the time: said again only by twentieths)
+        const born = g ? g[1] : nowAge, own = g ? g[3] : 1, most = g ? Math.round(g[5] * 20) / 20 : 1;
         const sig = b.x * 3.1 + b.y * 7.3 + b.z * 11.7 + b.sx * 13.9 + b.sy * 17.1 + b.sz * 19.3 + born * 23.9 + own * 29.3 + most * 31.7 + (b.yaw ?? 0) * 37.1;
         seen.add(k);
         if (this.fieldSnap.get(k) === sig) continue;

@@ -81,6 +81,15 @@ export class FossilStore {
     this.touch(i);
     return i;
   }
+  /** Whether the box of slot `i` has the shape the model's 12 floats at `o` say (only its values may differ). */
+  sameShape(i: number, m: ArrayLike<number>, o: number): boolean {
+    const d = this.data, p = i * PRIM_FLOATS, yaw = m[o + 6], e = 1e-4;
+    return (
+      Math.abs(d[p] - m[o]) < e && Math.abs(d[p + 1] - m[o + 1]) < e && Math.abs(d[p + 2] - m[o + 2]) < e &&
+      Math.abs(d[p + 4] - m[o + 3] / 2) < e && Math.abs(d[p + 5] - m[o + 4] / 2) < e && Math.abs(d[p + 6] - m[o + 5] / 2) < e &&
+      Math.abs(d[p + 3] - Math.cos(yaw)) < e && Math.abs(d[p + 7] - Math.sin(yaw)) < e && d[p + 11] === m[o + 7]
+    );
+  }
   /** A box is no more. Returns the slot it had (its numbers stand until the slot is taken again), or undefined. */
   drop(key: number): number | undefined {
     const i = this.slotOf.get(key);
@@ -227,6 +236,17 @@ export class BrickGrid {
             this.pageDirty = true;
           }
           this.dirty.add(id);
+        }
+  }
+  /** What a box that reaches these bounds says of itself is other than it was (its shape is not): its bricks are baked again. */
+  touch(bounds: number[]): void {
+    const r = this.range(bounds);
+    const [x0, y0, z0, x1, y1, z1] = r;
+    for (let cz = z0; cz <= z1; cz++)
+      for (let cy = y0; cy <= y1; cy++)
+        for (let cx = x0; cx <= x1; cx++) {
+          const id = this.idOf.get(brickKey(cx, cy, cz));
+          if (id !== undefined) this.dirty.add(id);
         }
   }
   /** The box of slot `i` reached these bounds and no longer does (it went, or is about to be put elsewhere). */
