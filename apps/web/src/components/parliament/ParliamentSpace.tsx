@@ -4620,6 +4620,15 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     if (!was || was === key || !REDESIGN || !fuseCfg.enabled) return;
     showNote("화석의 모양 값이 바뀜 — 조각을 차례로 다시 만드는 중 (지금 보이는 것은 아직 옛 모양 · 상태 줄의 '남은 조각'이 0이 되면 다 바뀐 것 · 몇 분)", true);
   }, [fuseCfg]);
+  // THE NEW WAY ONLY (the artist, 2026-11-20, with the wall saved on the old way — 화석이 나타나는 방식 = 예전, 덩어리를
+  // 만드는 단위 = 묶음 · 타일: "지금 화석 방식 레바는 이렇게 하는 거 아냐??? … 어디서 꼬인 거지??"). That switch chose
+  // between two fossils, and on the old one nothing built since 11/16 runs — the age, the life, the fossil's units,
+  // the swelling out of them, the pieces' size, the letting go of what has gone. It is no longer listed (levaFocus
+  // FUSION_UNLISTED), and whatever was saved for it, the wall puts it — and the old unit's knob with it — on the
+  // new way here: there is one fossil.
+  useEffect(() => {
+    if (REDESIGN && (fu.fuseGrow !== "seed" || fu.fuseUnit !== "building")) applyValues(FU, { fuseGrow: "seed", fuseUnit: "building" });
+  }, [fu.fuseGrow, fu.fuseUnit]);
   // A SET OF VALUES CHOSEN (the fusion folder's 값 묶음 불러오기): put on the folder's knobs when the choice CHANGES —
   // not when the page opens with a choice saved (what is saved may have been moved since it was chosen)
   const presetSeen = useRef(fu.fusePreset);
