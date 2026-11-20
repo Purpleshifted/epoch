@@ -17,10 +17,12 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import GUI from "lil-gui";
-import { generate, brickLists, primAabb, UNIT } from "./gen.js";
+import { generate, loadDump, brickLists, primAabb, UNIT } from "./gen.js";
 
 const q = new URLSearchParams(location.search);
 const num = (k, d) => (q.has(k) ? Number(q.get(k)) : d);
+// ?data=<name>: the wall's own boxes (data/<name>.json + .f32, gen.js loadDump) instead of a generated block
+const DUMP = q.get("data") ? await loadDump(q.get("data")) : null;
 
 const canvas = document.getElementById("c");
 const outEl = document.getElementById("out");
@@ -66,6 +68,10 @@ const P = {
   fossil: true,
   steps: num("steps", 220),
 };
+if (DUMP) {
+  P.slots = DUMP.slots;
+  if (!P.top) P.top = DUMP.top;
+}
 if (!P.top) P.top = P.slots;
 
 // ───────────────────────── the boxes ─────────────────────────
@@ -659,6 +665,7 @@ function setUniforms() {
   }
   u.uBornBase.value = bornBase;
   u.uBornRange.value = bornRange;
+  u.uUnit.value = world.unit ?? UNIT;
   look();
 }
 
@@ -694,7 +701,7 @@ function look() {
 
 function buildAll() {
   const t0 = performance.now();
-  world = generate({ n: P.n, slots: P.slots, seed: P.seed });
+  world = DUMP ? { ...DUMP, prims: DUMP.prims.slice() } : generate({ n: P.n, slots: P.slots, seed: P.seed });
   const t1 = performance.now();
   bornBase = Infinity;
   let bmax = -Infinity;

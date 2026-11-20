@@ -176,3 +176,16 @@ export function brickLists(P, count, bounds, h, B, R) {
   }
   return { origin: [ox, oy, oz], dims: [nx, ny, nz], lists, m };
 }
+
+/**
+ * A WORLD DUMPED FROM THE WALL (2026-11-18, "실제 세계로 다시 잼"): the boxes the wall's model sent to its fossil
+ * worker (UnitJob parts: each simplified asset with its turn, slot, the window's top when it was built and its
+ * vegetation), caught on their way by a relay in a headless Chrome — nothing of the wall was changed. `data/<name>.json`
+ * holds the counts, the window and the bounds; `data/<name>.f32` the prims in the layout above.
+ */
+export async function loadDump(name) {
+  const meta = await (await fetch(`./data/${name}.json`)).json();
+  const buf = await (await fetch(`./data/${name}.f32`)).arrayBuffer();
+  const prims = new Float32Array(buf);
+  return { ...meta, prims, count: prims.length / 12 };
+}
