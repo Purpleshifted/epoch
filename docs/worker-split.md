@@ -52,6 +52,12 @@ Now:
 - `erode.fossilSec` carries 건물 단순화's seconds even when it is off; everything that times the fossil's start
   (`uGrowAfter`, the dead fossil's `after`, the pieces' order, the status line) reads `fossilWaitSec`. The seconds
   knob stays visible when the simplification is off.
+- When the clock is new and when it starts over (`computeParts`, `bornT`): a cell-slot gets a clock when it is first
+  built; it starts over when somebody stands in it again (`takeLived`) or it is built higher (its level rises);
+  it is deleted when the building no longer has that slot, when the building is gone, when the rising window lets
+  go of it (`floorNow`), and when the world is emptied. Building again in the same place at a later time is a
+  higher slot: its own new clock. Since 930429e a part's age is part of its piece's signature, so a clock that starts
+  over with the same boxes makes the fossil piece again (before, the old age stayed baked in the mesh).
 - With the defaults (단순화 on, 단순화된 것에만) nothing changes.
 - Cost to expect: without the simplification there are many more parts per piece, and `voxelTie` (the grid no finer
   than the simplified bodies) does not apply — pieces are slower; that is what the pool is for. Measure on the Mac mini.
