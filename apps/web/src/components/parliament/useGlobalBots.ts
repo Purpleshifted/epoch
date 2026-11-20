@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { riseOf, riseSeconds, syncRisePause } from "@/lib/parliament/rise";
+import { riseOf, risePause, riseSeconds, syncRisePause } from "@/lib/parliament/rise";
 import { folder, levaStore, useControls } from "leva";
 import {
   DEFAULT_HERD,
@@ -156,7 +156,7 @@ export function useGlobalBots(
         {
           hDepth: { value: DEFAULT_HERD.depthSec / SLOT_SEC, min: 0, max: 240, step: 1, label: "덩어리 높이 = 현재의 두께 (단 · 시간축의 '한 단 = 몇 초'를 따름)" },
           // THE THICK PRESENT RISES (lifecycle.ts shift; the artist, 2026-11-15: "실제 시간으로")
-          hShift: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 올라가는 속도 (1 = 실제 시간: 한 단의 초마다 한 단 · 0 = 고정된 덩어리)" },
+          hShift: { value: 1, min: 0, max: 1, step: 0.05, label: "덩어리가 올라가는 속도 (1 = 실제 시간: 한 단의 초마다 한 단 · 0 = 꼭대기가 서 있음 — 아래 '멈춤'과 같은 방식)" },
           // THE RISE STOPPED (rise.ts; the artist, 2026-11-17: "기둥이 천천히 올라가는 속도를 일단... 끄고") — not the speed
           // at 0 (that is the fixed block, another way of eroding and fusing): the top stands where it is
           hRiseStop: { value: true, label: "기둥이 올라가는 것을 멈춤 (꼭대기가 지금 자리에 섬 · 봇은 계속 지음 · 침식과 화석의 진행도 같이 섬)" },
@@ -268,7 +268,16 @@ export function useGlobalBots(
       if (!server) syncRisePause(stop, elapsed, epochMs.current, !local);
       // (…and what stands in the window goes on ageing while the rise is stopped: how far the top would have gone —
       // erode.ts stood)
-      return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail, stood: Math.max(0, Math.min(1, shift)) * Math.max(0, elapsed - riseSeconds(elapsed)) };
+      // ONE WAY OF STANDING STILL (2026-11-20). The speed at 0 used to be "the fixed block, another way of eroding and
+      // fusing": the wall then worked the fossil out of each layer's depth alone, made it again whenever a part's
+      // progress moved, and none of the new fossil's knobs (its age, its life, its holes) did anything — and that is
+      // what was saved for the show's wall on 11/17 (속도 0 · 멈춤 켬), so the fossil the artist was tuning was not the
+      // one on the screen ("서로 엉킨 레바도 있는 것 같고", "나이를 세게 고민한다 — 여기에서 점점 멀어지는 기분"). A block that never
+      // rose is the window whose rise was stopped before it began: its top at its own height, its foot at 0, and what
+      // stands in it ageing by the clock since the world began. The bots are seated the same either way (a life
+      // rises one slot a slot against a standing window: rise.ts riseOf).
+      if (!(shift > 0)) return { top: depthSec, shift: 1, tail, stood: elapsed, still: true };
+      return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail, stood: Math.max(0, Math.min(1, shift)) * Math.max(0, elapsed - riseSeconds(elapsed)), still: risePause.at !== null };
     };
     botGround.window = f;
     return () => {
