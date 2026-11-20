@@ -57,7 +57,7 @@ vec4 dAt( vec3 p ) {
   float bw = uDB * uDH;
   vec3 c = floor( p / bw );
   vec4 pg = texelFetch( uDPage, ivec3( mod( c, PAGE ) ), 0 );
-  if ( pg.a < 0.5 ) return vec4( uR );
+  if ( pg.a * 255.0 < 0.5 ) return vec4( uR );
   vec3 local = p / uDH - c * uDB;
   return ( texture( uDAtlas, ( floor( pg.rgb * 255.0 + 0.5 ) * uDS + local + 1.0 ) / uDTex ) * 2.0 - 1.0 ) * uR;
 }
@@ -65,7 +65,7 @@ vec4 dAt( vec3 p ) {
 vec3 vAt( vec3 p ) {
   vec3 c = floor( p / uVB );
   vec4 pg = texelFetch( uVPage, ivec3( mod( c, PAGE ) ), 0 );
-  if ( pg.a < 0.5 ) return vec3( 0.0 );
+  if ( pg.a * 255.0 < 0.5 ) return vec3( 0.0 );
   vec3 local = p - c * uVB;
   vec4 v = texture( uVAtlas, ( floor( pg.rgb * 255.0 + 0.5 ) * uVS + local + 1.0 ) / uVTex );
   return vec3( uBornBase + ( v.r + v.g / 255.0 ) * uBornRange, v.b * 2.0, v.a );
@@ -87,7 +87,7 @@ vec2 massAt( vec3 p ) {
   float goneAt = ( T - uDieAfter ) / max( 1.0, uDieSpan );
   float amt = clamp( age / max( 0.1, uOver ), 0.0, 1.0 ) * clamp( ( layer - uFloor ) * 0.5, 0.0, 1.0 ) * ( 1.0 - uDie * clamp( goneAt, 0.0, 1.0 ) * ( 1.0 - uDieHoles ) ) * v.z;
   // (not out here: nothing is solid until the place's values change — they change over a cell of their own)
-  if ( q <= 0.0 || amt <= 0.004 ) return vec2( 1.0, max( abs( near ), 0.4 ) );
+  if ( q <= 0.0 || amt <= 0.004 ) return vec2( 1.0, max( abs( near ), 0.8 ) );
   // THE FRAME FIRST: the edges as pipes over the first uLate of the coming-out, whole while the filling comes
   float late = uLate > 0.05 ? min( uLate, 0.95 ) : 0.0;
   float qf = ( late > 0.0 ? clamp( q / late, 0.0, 1.0 ) : clamp( q, 0.0, 1.0 ) ) * amt;
@@ -138,9 +138,11 @@ void main() {
   for ( int i = 0; i < uSteps; i++ ) {
     if ( t > tEnd ) break;
     vec3 p = ro + rd * t;
-    // an empty brick is jumped
+    // an empty brick is jumped — and one nothing of which is old enough to be out yet (the page's fourth byte: when
+    // its oldest box hardened)
     vec3 c = floor( p / bw );
-    if ( texelFetch( uDPage, ivec3( mod( c, PAGE ) ), 0 ).a < 0.5 ) {
+    float pa = texelFetch( uDPage, ivec3( mod( c, PAGE ) ), 0 ).a * 255.0;
+    if ( pa < 0.5 || uTop + uStood - uAfter - ( uBornBase + ( pa - 1.0 ) / 254.0 * uBornRange ) <= 0.0 ) {
       vec3 e = max( ( c * bw - ro ) * inv, ( c * bw + bw - ro ) * inv );
       tPrev = t;
       t = min( min( e.x, e.y ), e.z ) + 1e-3;

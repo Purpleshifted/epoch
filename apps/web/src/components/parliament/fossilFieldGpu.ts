@@ -193,6 +193,7 @@ class FieldGpu {
   bake(renderer: THREE.WebGLRenderer, lists: Float32Array, listTex: THREE.DataTexture, maxBricks: number): number {
     if (this.grid.pageDirty) {
       this.grid.pageDirty = false;
+      this.grid.stamp(this.mat.uniforms.uBornBase.value as number, BORN_RANGE);
       this.pageTex.needsUpdate = true;
     }
     if (!this.grid.dirty.size) return 0;
@@ -304,15 +305,17 @@ export class FossilFieldGpu {
         const key = d.keys[q.at], was = s.slot(key);
         if (was !== undefined) for (const f of [this.dist, this.vals]) f.grid.remove(was, s.bounds(was, f.spec.reach + f.spec.h * 1.5, f.spec.down, t));
         const i = s.set(key, d.add, q.at * FOSSIL_BOX);
-        for (const f of [this.dist, this.vals]) f.grid.add(i, s.bounds(i, f.spec.reach + f.spec.h * 1.5, f.spec.down, t));
-        // (the hardening times are kept from a base: set by the first box, moved when what comes is out of its range)
         const born = d.add[q.at * FOSSIL_BOX + 9];
+        for (const f of [this.dist, this.vals]) f.grid.add(i, s.bounds(i, f.spec.reach + f.spec.h * 1.5, f.spec.down, t), born);
+        // (the hardening times are kept from a base: set by the first box, moved when what comes is out of its range)
         if (!this.bornSet || born < this.bornBase || born > this.bornBase + BORN_RANGE - 8) {
           const r = s.bornRange();
           this.bornBase = Math.floor(Math.max(r ? r[0] : born, born - BORN_RANGE + 64)) - 8;
           this.bornSet = true;
           this.vals.bornBase = this.bornBase;
+          this.dist.bornBase = this.bornBase;
           this.vals.grid.allDirty();
+          this.dist.grid.pageDirty = true;
         }
       }
       if (q.at >= d.keys.length && q.dropAt >= d.drop.length) this.queue.shift();

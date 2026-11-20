@@ -149,7 +149,11 @@ export class BrickGrid {
   private at: ([number, number, number] | undefined)[] = [];
   private freeIds: number[] = [];
   private highId = 0;
-  /** RGBA a page entry: the brick's place in the atlas (x, y, slab) and 255 = held. */
+  /** atlas place → the earliest hardening among the boxes that ever reached the brick (slots; never later than the
+   *  truth: a brick is only ever taken for older than it is, never younger). */
+  private oldest: number[] = [];
+  /** RGBA a page entry: the brick's place in the atlas (x, y, slab) and, 0 = none, 1 … 255 = held — and how early its
+   *  oldest box hardened (stamp): a brick nothing of which is old enough to be out is jumped like an empty one. */
   readonly page = new Uint8Array(PAGE * PAGE * PAGE * 4);
   private pageOwner = new Float64Array(PAGE * PAGE * PAGE).fill(-1);
   pageDirty = true;
@@ -202,7 +206,7 @@ export class BrickGrid {
     return t;
   }
   /** A box (slot `i`) reaches these bounds (FossilStore.bounds with this field's reach): it is put in their bricks' lists. */
-  add(i: number, bounds: number[]): void {
+  add(i: number, bounds: number[], born = 0): void {
     const r = this.range(bounds);
     const [x0, y0, z0, x1, y1, z1] = r;
     for (let cz = z0; cz <= z1; cz++)
@@ -215,7 +219,12 @@ export class BrickGrid {
             this.lists.set(k, (l = []));
           }
           l.push(i);
-          this.dirty.add(this.idOf.get(k)!);
+          const id = this.idOf.get(k)!;
+          if (born < this.oldest[id]) {
+            this.oldest[id] = born;
+            this.pageDirty = true;
+          }
+          this.dirty.add(id);
         }
   }
   /** The box of slot `i` reached these bounds and no longer does (it went, or is about to be put elsewhere). */
@@ -253,6 +262,7 @@ export class BrickGrid {
     const A = this.spec.A;
     this.idOf.set(k, id);
     this.at[id] = [cx, cy, cz];
+    this.oldest[id] = Infinity;
     this.pageOwner[p] = k;
     this.page[p * 4] = id % A;
     this.page[p * 4 + 1] = Math.floor(id / A) % A;
@@ -282,6 +292,16 @@ export class BrickGrid {
     this.page[p * 4 + 3] = 0;
     this.pageDirty = true;
     this.liveStale = true;
+  }
+  /** The page table's fourth byte, written again: each brick's oldest hardening, from `base` over `range` slots. */
+  stamp(base: number, range: number): void {
+    for (let id = 0; id < this.at.length; id++) {
+      const c = this.at[id];
+      if (!c) continue;
+      const p = (mod(c[2], PAGE) * PAGE + mod(c[1], PAGE)) * PAGE + mod(c[0], PAGE);
+      const o = this.oldest[id];
+      this.page[p * 4 + 3] = 1 + Math.max(0, Math.min(254, Math.floor((((Number.isFinite(o) ? o : base) - base) / range) * 254)));
+    }
   }
   /** The world bounds of the bricks alive [x0, y0, z0, x1, y1, z1]; null = none. */
   bounds(): number[] | null {
