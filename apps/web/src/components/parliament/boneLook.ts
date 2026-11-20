@@ -61,9 +61,14 @@ function poreTexture(): THREE.Data3DTexture {
 export const boneU = {
   uBoneTex: { value: typeof window === "undefined" ? null : poreTexture() },
   uBoneWrap: { value: 0.5 },
-  /** the colour of the light that wraps round and of the rim — white = neutral (it was a fixed warm peach, and on the
-   *  grey fossil that read as an odd pink: the artist, 2026-11-20, "이거 색이 왜 묘하게 핑크색이지?") */
-  uBoneWarm: { value: new THREE.Color("#ffffff") },
+  /** the colour of the light that wraps round and of the rim — a warm peach, which on the grey fossil reads pink (the
+   *  artist, 2026-11-20: "이거 색이 왜 묘하게 핑크색이지?", then "좋다고 그냥 내가 조절 가능하게 해달라고") */
+  uBoneWarm: { value: new THREE.Color("#ffcca3") },
+  /** WHAT IS INSIDE SHOWS THROUGH (the artist, 2026-11-20: "부재나 식생 색도 비쳐보이면 멋질듯"): how see-through the
+   *  fossil is everywhere, and more where a part lies right under its skin (the mesh's ghost) — what is drawn inside
+   *  it, the parts and the clouds, in their own colours */
+  uSeeBase: { value: 0 },
+  uSeeParts: { value: 0 },
   uBoneRim: { value: 0.35 },
   uBonePores: { value: 0.6 },
   uBonePoreSize: { value: 0.35 },
@@ -78,6 +83,7 @@ export const boneU = {
 export const BONE_GLSL = `
 uniform float uBonePores, uBonePoreSize, uBoneFill, uBoneMass, uBonePipes, uBoneWays, uBoneWrap, uBoneRim;
 uniform vec3 uBoneWarm;
+uniform float uSeeBase, uSeeParts;
 uniform highp sampler3D uBoneTex;
 // (how much of its own colour bone leaves at a point — the pores dark in their middles, the struts a little lighter,
 // a fine grain; and where it is \`band\` (0 … 1) near the edge of a hole, porous through and darker)

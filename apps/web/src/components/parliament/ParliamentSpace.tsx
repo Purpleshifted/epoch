@@ -349,6 +349,8 @@ interface ResinLook {
   rim: number;
   /** How much a part right under the skin shows through it (darkening by the mesh's GHOST extra; 0 = none). */
   ghost: number;
+  /** WHAT IS INSIDE SHOWS THROUGH (boneLook.ts uSeeBase / uSeeParts): either above 0 makes the body blend. */
+  see?: number;
   /** The frosted skin's own light (emissive, in the resin's colour; 0 = none). */
   glow: number;
   /** The shell's pits, drawn by the material (see fuse.ts FuseStudy.pits): shadow, coverage, size (world), size jitter, rim softness, dent depth. */
@@ -382,7 +384,11 @@ function applyResin(m: THREE.MeshPhysicalMaterial, r: ResinLook): void {
   // transmission 0 (the glass / alpha body, also performance mode): no refraction pass — a solid body at opacity 1
   // (the artist, 2026-10-19: the translucent body was too see-through, opaque fits the intent), alpha below it
   const solid = r.transmission > 0 || r.opacity >= 1;
-  m.transparent = !solid;
+  // (what is inside showing through: the body blends — over what was drawn before it — but still writes its depth, so
+  // its own far side does not show through its near one)
+  const see = solid && (r.see ?? 0) > 0;
+  if (m.transparent !== (!solid || see)) m.needsUpdate = true;
+  m.transparent = !solid || see;
   m.opacity = solid ? 1 : r.opacity;
   m.depthWrite = solid;
   (m.userData.uShade as THREE.IUniform).value = r.shade;
@@ -761,7 +767,9 @@ function makeResinMaterial(u: FuseUniforms, fade?: FuseFade): THREE.MeshPhysical
         // (round the holes the fossil's going eats, a band where it is porous — the going's own noise, as FUSE_GONE_FRAG_BODY)
         "#include <emissivemap_fragment>\nif ( uBoneMass > 0.0 ) {\n\tfloat boneBand = 0.0;\n\tfloat boneGoneAt = vGone == 0.0 ? 0.0 : clamp( vGone + ( goneNoise( vGonePos / max( 0.5, uGrowDiePatch ) + 7.7 ) - 0.5 ) * 3.0 * uGrowDieRag, 0.0, 1.0 );\n\tif ( boneGoneAt > 0.001 ) {\n\t\tvec3 boneGP = vGonePos / max( 0.05, uGrowDieGrain );\n\t\tfloat boneGN = clamp( ( 0.65 * goneNoise( boneGP ) + 0.35 * goneNoise( boneGP * 2.7 + 11.3 ) - 0.5 ) * 1.9 + 0.5, 0.0, 0.999 );\n\t\tboneBand = 1.0 - smoothstep( 0.0, 0.14, boneGN - boneGoneAt );\n\t}\n\tdiffuseColor.rgb *= mix( 1.0, bonePattern( vFusePos, boneBand ), uBoneMass );\n\ttotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * uBoneMass;\n}",
       )
-      .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>${boneLight("uBoneMass")}`);
+      .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>${boneLight("uBoneMass")}`)
+      // (what is inside showing through: everywhere by uSeeBase, more where a part lies right under the skin)
+      .replace("#include <opaque_fragment>", "diffuseColor.a *= 1.0 - clamp( uSeeBase + uSeeParts * clamp( vExtra.x, 0.0, 1.0 ), 0.0, 0.95 );\n#include <opaque_fragment>");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nuniform float uShade;\nuniform float uRim;")
       .replace("#include <color_fragment>", "#if defined( USE_COLOR )\n\tdiffuseColor.rgb *= mix( vec3( 1.0 ), clamp( vColor.rgb / 0.42, 0.0, 1.2 ), uShade );\n#endif")
@@ -1157,6 +1165,7 @@ function SpaceWorld({
   density,
   pathLook,
   walkLook,
+  partColors,
   arrive,
   clock,
   local,
@@ -1216,6 +1225,8 @@ function SpaceWorld({
   /** The paths' lines (density.ts pathLines): the slope they may rise at, their grey and opacity; null = none. */
   pathLook: { rise: number; smooth: number; shade: number; opacity: number } | null;
   walkLook: WalkLook;
+  /** Each kind of part's colour (the folder 건물 부재의 색); absent = KIND_COLOR. */
+  partColors?: Record<PartKind, string>;
   /** How a part that was just built comes in (lib/parliament/arriveMaterial.ts); `on` false = it is simply there. */
   arrive: { on: boolean; sec: number; stagger: number; way: ArriveWay; lift: number; tick: number; leave?: number };
 }) {
@@ -1849,7 +1860,7 @@ function SpaceWorld({
           receiveShadow
         >
           {kind === "pile" ? <cylinderGeometry args={[0.5, 0.5, 1, 10]} /> : <boxGeometry args={[1, 1, 1]} />}
-          <meshStandardMaterial color={KIND_COLOR[kind]} roughness={kind === "pile" || STEEL.has(kind) ? 0.7 : 1} metalness={0} onBeforeCompile={arriveShader} />
+          <meshStandardMaterial color={partColors?.[kind] ?? KIND_COLOR[kind]} roughness={kind === "pile" || STEEL.has(kind) ? 0.7 : 1} metalness={0} onBeforeCompile={arriveShader} />
         </instancedMesh>
       ))}
       <lineSegments ref={edges} frustumCulled={false} visible={showEdges}>
@@ -3658,12 +3669,14 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // THE CAMERA GOES UP WITH THE RISING BLOCK — or stays where it is put (the artist, 2026-11-15: "카메라 자동으로
   // 따라가지는거 켜고 끌 수 있게 레바도 넣어줘"). Kept in this browser, like the test render.
+  // (OFF unless this browser has turned it on — the artist, 2026-11-20: "카메라 같이 올라가는 거 또 자동으로 켜진듯": a
+  // browser that had nothing kept, or had it cleared, came up following the block)
   const camRiseFirst = useMemo(() => {
-    if (typeof window === "undefined") return true;
+    if (typeof window === "undefined") return false;
     try {
-      return window.localStorage.getItem(CAM_RISE_KEY) !== "off";
+      return window.localStorage.getItem(CAM_RISE_KEY) === "on";
     } catch {
-      return true;
+      return false;
     }
   }, []);
   const world = useLevaControls(
@@ -4151,38 +4164,27 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     [botVillages, isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipePathPull, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.endPool, wtr.bed, wtr.bedSlots, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
-  // BONE (boneLook.ts; the artist, 2026-11-20: "좀 더 '뼈' 같은 비주얼 재질로 어떻게 값싸게", and of the pipes' and
-  // the ways' fossilisation: "둘 다 해"): one folder for the fossil's bone and what of the pipes and the ways turns to it
-  // as the mass round them fossilises — every material reads these by reference
-  // (useLevaControls: the redesign's own `useControls` hides what it declares)
-  const bone = useLevaControls(
-    "뼈 재질 — 화석 · 관 · 길",
-    savable("뼈 재질 — 화석 · 관 · 길", {
-      // (its own colour stays — "지금 뼈 색은 끔찍해 무늬랑 반투명 가장자리 느낌 말한 거야": only the pattern and the light)
-      boneMass: { value: 1, min: 0, max: 1, step: 0.05, label: "화석 덩어리에 뼈 무늬 · 빛 (색은 그대로 · 0 = 끔)" },
-      bonePipes: { value: 1, min: 0, max: 1, step: 0.05, label: "배관이 화석이 됨 (화석이 될 나이에 · 녹슨 구멍 대신 뼈 무늬 · 0 = 끝까지 녹슬어 구멍 남)" },
-      boneWays: { value: 1, min: 0, max: 1, step: 0.05, label: "길이 흔적으로 굳음 (화석이 될 나이에 · 비치던 선이 진해짐 · 0 = 그대로)" },
-      bonePores: { value: 0.6, min: 0, max: 1, step: 0.05, label: "해면질 구멍 (0 = 매끈 … 1 = 구멍마다 짙음)" },
-      bonePoreSize: { value: 0.35, min: 0.05, max: 2, step: 0.01, label: "구멍의 크기 (월드)" },
-      boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "속빛 (빛이 뼈를 조금 지나오는 듯 · 그늘을 덜어 줌)" },
-      boneWrap: { value: 0.5, min: 0, max: 1, step: 0.05, label: "빛이 그늘 쪽으로 감겨 듦 (반투명 · 따뜻하게 · 0 = 보통 재질처럼)" },
-      boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "가장자리가 밝아짐 (눈에서 돌아가는 면)" },
-      // ("이거 색이 왜 묘하게 핑크색이지? … 표면 색 말고"): the tint of that light — it was a fixed warm peach
-      boneWarm: { value: "#ffffff", label: "그늘로 감겨 드는 빛 · 가장자리 빛의 색 (흰색 = 중성 · 따뜻하게 하면 분홍빛이 돎)" },
+  // THE BUILDINGS' PARTS' COLOURS (the artist, 2026-11-20: "건물 부재 색도 조절 가능하게 해줘"): each kind's, the
+  // defaults as they were (achromatic: a human trace)
+  const pc = useLevaControls(
+    "건물 부재의 색",
+    savable("건물 부재의 색", {
+      partMass: { value: KIND_COLOR.mass, label: "몸체 (mass)" },
+      partSlab: { value: KIND_COLOR.slab, label: "바닥판 (slab)" },
+      partDrip: { value: KIND_COLOR.drip, label: "늘어진 것 (drip)" },
+      partColumn: { value: KIND_COLOR.column, label: "기둥 (column)" },
+      partBeam: { value: KIND_COLOR.beam, label: "보 (beam)" },
+      partBrace: { value: KIND_COLOR.brace, label: "가새 (brace)" },
+      partPlinth: { value: KIND_COLOR.plinth, label: "기단 (plinth)" },
+      partBasement: { value: KIND_COLOR.basement, label: "지하실 (basement)" },
+      partPile: { value: KIND_COLOR.pile, label: "말뚝 (pile)" },
     }),
-    { order: lab ? 7.97 : 1.78, collapsed: true, render: () => isV2 },
+    { order: lab ? 7.96 : 1.775, collapsed: true, render: () => isV2 },
   );
-  useEffect(() => {
-    boneU.uBoneMass.value = bone.boneMass;
-    boneU.uBonePipes.value = bone.bonePipes;
-    boneU.uBoneWays.value = bone.boneWays;
-    boneU.uBonePores.value = bone.bonePores;
-    boneU.uBonePoreSize.value = bone.bonePoreSize;
-    boneU.uBoneFill.value = bone.boneFill;
-    boneU.uBoneWrap.value = bone.boneWrap;
-    boneU.uBoneRim.value = bone.boneRim;
-    boneU.uBoneWarm.value.set(bone.boneWarm);
-  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.bonePores, bone.bonePoreSize, bone.boneFill, bone.boneWrap, bone.boneRim, bone.boneWarm]);
+  const partColors = useMemo<Record<PartKind, string>>(
+    () => ({ mass: pc.partMass, slab: pc.partSlab, drip: pc.partDrip, column: pc.partColumn, beam: pc.partBeam, brace: pc.partBrace, plinth: pc.partPlinth, basement: pc.partBasement, pile: pc.partPile }),
+    [pc.partMass, pc.partSlab, pc.partDrip, pc.partColumn, pc.partBeam, pc.partBrace, pc.partPlinth, pc.partBasement, pc.partPile],
+  );
   const walkLook = useMemo<WalkLook>(
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
@@ -4514,6 +4516,19 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           resinGhost: { value: 0.6, min: 0, max: 1, step: 0.05, label: "밑에 비치는 부재 (피부 바로 아래의 부재가 어둡게 비침)" },
           resinGlow: { value: 0.12, min: 0, max: 0.6, step: 0.01, label: "속빛 (자체 밝기; AO에 눌린 무거움을 덜어 줌)", render: (get) => get(RESIN_MODE_PATH) === "frost" },
           resinRim: { value: 0.2, min: 0, max: 1, step: 0.05, label: "가장자리 광택 (프레넬)", render: (get) => get(RESIN_MODE_PATH) === "frost" },
+          // BONE (boneLook.ts; the artist, 2026-11-20: "좀 더 '뼈' 같은 비주얼 재질로", then "매트하고 보송해보이는 게 딱
+          // 좋았는데", and "레바 새로 만들 필요 없이 아래 '재질'에 넣으면 되잖아"): what has fossilised — the mass, and the
+          // pipes and ways once they have — has bone's pores, a porous band round its holes, the light wrapping warm round
+          // to its shadowed side and a warm rim; its own colour stays. The defaults are the matte, powdery version (2790fd1)
+          boneMass: { value: 1, min: 0, max: 1, step: 0.05, label: "뼈 — 무늬 · 빛 (화석이 된 것에만 · 색은 그대로 · 0 = 끔)" },
+          bonePores: { value: 0.6, min: 0, max: 1, step: 0.05, label: "뼈 — 해면질 구멍 (0 = 매끈 … 1 = 구멍마다 짙음)" },
+          bonePoreSize: { value: 0.35, min: 0.05, max: 2, step: 0.01, label: "뼈 — 구멍의 크기 (월드)" },
+          boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "뼈 — 속빛 (빛이 조금 지나오는 듯 · 그늘을 덜어 줌)" },
+          boneWrap: { value: 0.5, min: 0, max: 1, step: 0.05, label: "뼈 — 빛이 그늘 쪽으로 감겨 듦 (반투명 · 보송함)" },
+          boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "뼈 — 가장자리가 밝아짐 (눈에서 돌아가는 면)" },
+          boneWarm: { value: "#ffcca3", label: "뼈 — 감겨 드는 빛 · 가장자리 빛의 색 (살구색 = 회색 위에서 분홍빛 · 흰색 = 중성)" },
+          boneSee: { value: 0, min: 0, max: 0.9, step: 0.05, label: "뼈 — 속이 비쳐 보임: 덩어리 전체 (속의 부재 · 식생이 제 색으로 · 0 = 불투명)" },
+          boneSeeParts: { value: 0, min: 0, max: 0.9, step: 0.05, label: "뼈 — 속이 비쳐 보임: 부재가 껍질 바로 밑일수록 더" },
           transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
           thickness: { value: 1.5, min: 0, max: 10, step: 0.1, label: "굴절 · 두께감 (굴절이 얼마나 휘는지)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
           resinOpacity: { value: 0.7, min: 0.1, max: 1, step: 0.05, label: "반투명 · 불투명도", render: (get) => get(RESIN_MODE_PATH) === "alpha" },
@@ -4688,6 +4703,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       shade: fu.resinShade,
       rim: fu.resinMode === "frost" ? fu.resinRim : 0,
       ghost: fu.resinGhost,
+      see: fu.boneSee + fu.boneSeeParts,
       glow: fu.resinMode === "frost" ? fu.resinGlow : 0,
       pits: { dark: fu.shell || fu.foam ? fu.pits : 0, cover: fu.pitCover, size: fu.pitSize, jitter: fu.pitJitter, soft: fu.pitSoft, depth: fu.shell || fu.foam ? fu.pitDepth : 0 },
       roughness: fu.resinRoughness,
@@ -4695,8 +4711,23 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance],
+    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance, fu.boneSee, fu.boneSeeParts],
   );
+  // (the bone's knobs, in the material folder, read by reference by every material that draws it — boneLook.ts; the
+  // pipes and the ways follow the mass: what has fossilised of them is bone too)
+  useEffect(() => {
+    boneU.uBoneMass.value = fu.boneMass;
+    boneU.uBonePipes.value = fu.boneMass > 0 ? 1 : 0;
+    boneU.uBoneWays.value = fu.boneMass > 0 ? 1 : 0;
+    boneU.uBonePores.value = fu.bonePores;
+    boneU.uBonePoreSize.value = fu.bonePoreSize;
+    boneU.uBoneFill.value = fu.boneFill;
+    boneU.uBoneWrap.value = fu.boneWrap;
+    boneU.uBoneRim.value = fu.boneRim;
+    boneU.uBoneWarm.value.set(fu.boneWarm);
+    boneU.uSeeBase.value = fu.boneSee;
+    boneU.uSeeParts.value = fu.boneSeeParts;
+  }, [fu.boneMass, fu.bonePores, fu.bonePoreSize, fu.boneFill, fu.boneWrap, fu.boneRim, fu.boneWarm, fu.boneSee, fu.boneSeeParts]);
   const rnd = useControls(
     "렌더 · 성능",
     savable("렌더 · 성능", {
@@ -4983,6 +5014,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           noAxis={isV2}
           walk={walkView}
           walkLook={walkLook}
+          partColors={partColors}
           arrive={arriveLeave}
           clock={clk}
           local={lab}
