@@ -4608,6 +4608,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             pipeRadius: fu.pipeRadius,
           }
         : undefined,
+    }),
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+  );
   // A SHAPE KNOB TURNED SHOWS NOTHING AT ONCE (the artist, 2026-11-20, of the shell's thickness: "레바 손잡이 바꿔도 뭐가 확
   // 보이질 않으니"): the mass's shape is made in the worker beside, piece after piece — minutes for the whole wall —
   // and a turned knob looked as if it did nothing. The wall says so when the fusion's settings have changed: what is
@@ -4620,9 +4623,6 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     if (!was || was === key || !REDESIGN || !fuseCfg.enabled) return;
     showNote("화석의 모양 값이 바뀜 — 조각을 차례로 다시 만드는 중 (지금 보이는 것은 아직 옛 모양 · 상태 줄의 '남은 조각'이 0이 되면 다 바뀐 것 · 몇 분)", true);
   }, [fuseCfg]);
-    }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
-  );
   // A SET OF VALUES CHOSEN (the fusion folder's 값 묶음 불러오기): put on the folder's knobs when the choice CHANGES —
   // not when the page opens with a choice saved (what is saved may have been moved since it was chosen)
   const presetSeen = useRef(fu.fusePreset);
