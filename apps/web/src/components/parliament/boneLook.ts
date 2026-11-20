@@ -61,6 +61,9 @@ function poreTexture(): THREE.Data3DTexture {
 export const boneU = {
   uBoneTex: { value: typeof window === "undefined" ? null : poreTexture() },
   uBoneWrap: { value: 0.5 },
+  /** the colour of the light that wraps round and of the rim — white = neutral (it was a fixed warm peach, and on the
+   *  grey fossil that read as an odd pink: the artist, 2026-11-20, "이거 색이 왜 묘하게 핑크색이지?") */
+  uBoneWarm: { value: new THREE.Color("#ffffff") },
   uBoneRim: { value: 0.35 },
   uBonePores: { value: 0.6 },
   uBonePoreSize: { value: 0.35 },
@@ -74,6 +77,7 @@ export const boneU = {
 /** The bone's colour at a point (GLSL): ivory, its pores dark and stained, more stained the older (0 … 1). */
 export const BONE_GLSL = `
 uniform float uBonePores, uBonePoreSize, uBoneFill, uBoneMass, uBonePipes, uBoneWays, uBoneWrap, uBoneRim;
+uniform vec3 uBoneWarm;
 uniform highp sampler3D uBoneTex;
 // (how much of its own colour bone leaves at a point — the pores dark in their middles, the struts a little lighter,
 // a fine grain; and where it is \`band\` (0 … 1) near the edge of a hole, porous through and darker)
@@ -91,7 +95,7 @@ float bonePattern( vec3 wp, float band ) {
 export const boneLight = (amt: string): string => `
 #if NUM_DIR_LIGHTS > 0
 if ( ${amt} > 0.0 ) {
-  vec3 boneWarm = vec3( 1.0, 0.8, 0.64 );
+  vec3 boneWarm = uBoneWarm;
   float boneNdl = dot( normal, directionalLights[ 0 ].direction );
   float boneWrapT = max( 0.0, ( boneNdl + uBoneWrap ) / ( 1.0 + uBoneWrap ) ) - max( 0.0, boneNdl );
   reflectedLight.directDiffuse += diffuseColor.rgb * boneWarm * directionalLights[ 0 ].color * boneWrapT * ${amt} * 0.6;

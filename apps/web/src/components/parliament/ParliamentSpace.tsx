@@ -4166,7 +4166,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       bonePoreSize: { value: 0.35, min: 0.05, max: 2, step: 0.01, label: "구멍의 크기 (월드)" },
       boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "속빛 (빛이 뼈를 조금 지나오는 듯 · 그늘을 덜어 줌)" },
       boneWrap: { value: 0.5, min: 0, max: 1, step: 0.05, label: "빛이 그늘 쪽으로 감겨 듦 (반투명 · 따뜻하게 · 0 = 보통 재질처럼)" },
-      boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "가장자리가 따뜻하게 밝아짐 (눈에서 돌아가는 면)" },
+      boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "가장자리가 밝아짐 (눈에서 돌아가는 면)" },
+      // ("이거 색이 왜 묘하게 핑크색이지? … 표면 색 말고"): the tint of that light — it was a fixed warm peach
+      boneWarm: { value: "#ffffff", label: "그늘로 감겨 드는 빛 · 가장자리 빛의 색 (흰색 = 중성 · 따뜻하게 하면 분홍빛이 돎)" },
     }),
     { order: lab ? 7.97 : 1.78, collapsed: true, render: () => isV2 },
   );
@@ -4179,7 +4181,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     boneU.uBoneFill.value = bone.boneFill;
     boneU.uBoneWrap.value = bone.boneWrap;
     boneU.uBoneRim.value = bone.boneRim;
-  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.bonePores, bone.bonePoreSize, bone.boneFill, bone.boneWrap, bone.boneRim]);
+    boneU.uBoneWarm.value.set(bone.boneWarm);
+  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.bonePores, bone.bonePoreSize, bone.boneFill, bone.boneWrap, bone.boneRim, bone.boneWarm]);
   const walkLook = useMemo<WalkLook>(
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
