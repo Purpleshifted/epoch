@@ -77,6 +77,29 @@ With the window standing nothing leaves at its foot, so before this the share th
 - Not yet: the ways and the pipes keep their own rules (they are not part of a place's life).
 - Readout stages: "places let go, their life over", "places whose life is over, their last parts going".
 
+## 3c. The clock is the log's, not this tab's (step 1 of docs/fusion-agreement-2026-11-20.md §7)
+
+The artist (2026-11-20): "어긋남이 발생하면 안 되지… 깊은 곳도 시간이 더 흐른 게 아니라 더 빨리 흐르는 것처럼 보이게 할 뿐이고."
+Before: a cell-slot's clock (`bornT`) began when THIS model first saw it built, and a reload estimated every standing
+slot's age from its depth — wrong in a fixed block, where a deep slot may be new.
+
+- `PEvent.w`: when an event was written — seconds of the world's clock since the epoch (the clock the window rises
+  by; `useGlobalBots` and `botWorld` write it; the log stores it as it stores the rest). Events before 11/20 have none.
+- `DensityField`: each cell-slot keeps `w0` (the sample that built it, or the latest that stood in it at its own
+  time) and `wRise` (the latest sample that raised its level — its own, or its building's below it, read by
+  `settleLevels` → `noteRises` against the levels as last read). Both go out on the `Seed` (`w0`, `wRise`); an origin
+  change rebuilds the column's Seed (the parts' cache is keyed by content, so nothing is regenerated).
+- `spaceModel`: `PartsInput.clock` (`WallClock`: now, the rise's stop, standing) from `botGround.window()`; for every
+  slot with an origin, `bornT`'s born/top/stood are read back off that time (top+stood is linear in the clock), the
+  rise ignored where an asset stands (as before). Slots without an origin keep the old estimate. On a load, the
+  density's levels are read every 5 s of the log (`REPLAY_PASS_S`) so a rise gets its time from then.
+- Checked (jiti, scratchpad): the field fed tick by tick vs. the whole log in one batch → identical `w0` on all 89
+  cell-slots, rises within the 5 s step; two `SpaceModel`s (ticked vs. reloaded) → identical clocks except 14
+  rise-based ones 2 s apart. Not yet seen on a real wall.
+- Still memory-only (step 2): the asset's copied clock, `tubeSeen` (pipe hardening), `erodeSeen`, `overSince`.
+- Still lost on reload: cell-slots whose samples the log has already dropped (`keepWindowSec`) — the field keeps them
+  live (`keepBuilt`) but cannot rebuild them; a snapshot of the field (IndexedDB, as `bakeStore`) would fix that.
+
 ## 4. Future layer in its own worker — not done
 
 Left for later: it is computed in the model's worker on `SpaceRequest.future`; moving it needs the model's parts,

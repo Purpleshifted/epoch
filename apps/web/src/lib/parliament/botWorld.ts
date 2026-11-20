@@ -174,7 +174,7 @@ export class BotWorld {
       st = stepLifecycle(st, w, { attractors, planRoute, meet }, lc).state;
       for (const v of st.present) {
         const a = lifecycleActor(v, w, this.epochMs, lc.herd);
-        const e: PEvent = { id: `${a.o}:${Math.round(w - this.epochMs)}`, o: a.o, r: a.r, k: "p", x: r2(a.x), z: r2(a.z), s: r2(a.s) };
+        const e: PEvent = { id: `${a.o}:${Math.round(w - this.epochMs)}`, o: a.o, r: a.r, k: "p", x: r2(a.x), z: r2(a.z), s: r2(a.s), w: r2(Math.max(0, (w - this.epochMs) / 1000)) };
         if (this.add(e)) out.push(e);
       }
       this.lastMs = w;

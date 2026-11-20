@@ -58,6 +58,8 @@ const UNIT_REST_MS = 12000;
 /** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
  *  of (the rest are told at the next call). */
 const UNIT_SEND_MS = 80;
+/** On a load, the density's levels are read once per this many seconds of the log (ensureSeeds; density noteRises). */
+const REPLAY_PASS_S = 5;
 /** Whether pipes fuse with the seeded mass (sendUnits): THE TRUNKS ONLY since 2026-11-20 — see seededTubes. */
 const SEEDED_TUBES: boolean = true;
 /** …and no more of them in the field than this (the ways and every lateral were 570 155 tubes within seven minutes
@@ -208,7 +210,22 @@ function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
   return { tNow: tQ, secPerUnit: box.secPerUnit, timeScale: w.timeScale, tauYears: w.tauSedimentYears, graceSlots: rotOnsetSlots(w) };
 }
 
+/**
+ * THE WORLD'S CLOCK AS THE VIEW HAS IT (2026-11-20; useGlobalBots window): seconds since the world's epoch — what
+ * PEvent.w counts — the rise's stop (rise.ts risePause), and whether the window never rises. From these the model reads
+ * off any past moment what the window's top and stopped clock were then: a cell-slot's age begins at the time its
+ * events were written, not at the time this tab first saw it.
+ */
+export interface WallClock {
+  now: number;
+  riseAt: number | null;
+  riseLost: number;
+  standing: boolean;
+}
+
 export interface PartsInput {
+  /** The world's clock (WallClock); absent = no bots' window (the lab, a world without bots): ages as before. */
+  clock?: WallClock;
   /**
    * THE LAYER ABOVE ALONE (the artist, 2026-11-17: "합치고 미래 워커 나눠"; the view `?only=future`, lib/parliament
    * /futureOnly.ts, docs/world-review-2026-11-17-future-worker.md): no part of the present is made — the buildings'
@@ -2374,9 +2391,20 @@ export class SpaceModel {
       const ds = this.densityState;
       if (ds.fed < this.events.length) {
         let cut = ds.fed === 0 ? Infinity : this.cutS;
+        // (a batch that spans a long stretch of the clock — the log on a load — has its levels read every few seconds
+        // of it, as the wall reads them every tick: a slot's level that rose then gets its clock from then — density
+        // noteRises; a tick's batch spans less than that and is read once, by seeds())
+        let pass = -Infinity;
         for (let i = ds.fed; i < this.events.length; i++) {
-          if (!this.densitySeen?.has(this.events[i].id)) ds.field.add(this.events[i]);
-          if (this.events[i].s < cut) cut = this.events[i].s;
+          const e = this.events[i];
+          if (!this.densitySeen?.has(e.id)) {
+            if (e.w !== undefined && e.w - pass >= REPLAY_PASS_S) {
+              if (pass !== -Infinity) ds.field.settleLevels();
+              pass = e.w;
+            }
+            ds.field.add(e);
+          }
+          if (e.s < cut) cut = e.s;
         }
         this.densitySeen = null;
         ds.fed = this.events.length;
@@ -2737,6 +2765,38 @@ export class SpaceModel {
         if (m.size > sd.levels.size) for (const k of m.keys()) if (!sd.levels.has(k)) m.delete(k);
       }
       if (this.bornT.size > live.size) for (const id of this.bornT.keys()) if (!live.has(id)) this.bornT.delete(id);
+      // THE CLOCK IS THE LOG'S, NOT THIS TAB'S (the artist, 2026-11-20: "어긋남이 발생하면 안 되지… 깊은 곳도 시간이 더 흐른 게
+      // 아니라 더 빨리 흐르는 것처럼 보이게 할 뿐이고"). Until now a cell-slot's clock began when THIS model first saw it
+      // built, and a reload estimated every standing slot's age from its depth — in a block that is a fixed piece of
+      // spacetime, where a deep slot may have been built a moment ago. Now the density field keeps each slot's origin
+      // off the events' own time (Seed.w0: built, or last stood in; wRise: its level last rose), and the window's top
+      // and stopped clock AT THAT TIME are read back from the clock the view hands over (WallClock): the same age
+      // whether the slot was built an hour ago in this tab or the tab was opened a minute ago. A slot whose events
+      // carry no time (written before 11/20) keeps the estimate above. Where an asset stands, a level's rise builds
+      // nothing (as above): only its people coming back (w0) begin the clock again.
+      const wc = input.clock;
+      if (wc) {
+        const spu = Math.max(1, ec.slotSec ?? box.secPerUnit), shift = Math.max(0, ec.shift ?? 0);
+        const riseSec = (t: number) => (wc.standing ? 0 : Math.max(0, (wc.riseAt !== null ? Math.min(wc.riseAt, t) : t) - wc.riseLost));
+        const rNow = riseSec(wc.now);
+        let fromLog = 0;
+        for (const sd of seeds) {
+          const m = sd.w0 ? this.bornT.get(sd.id) : undefined;
+          if (!m || !sd.w0) continue;
+          for (const [k, e] of m) {
+            const w0 = sd.w0.get(k);
+            if (w0 === undefined) continue;
+            const wr = this.assets.get(sd.id)?.has(k) ? undefined : sd.wRise?.get(k);
+            const t = Math.min(wc.now, wr !== undefined && wr > w0 ? wr : w0);
+            // (born: the origin itself — a stable mark of it, read only against itself: the assets' seenBorn)
+            e.born = t;
+            e.top = ec.topSlot - (shift * (rNow - riseSec(t))) / spu;
+            e.stood = (shift * (t - riseSec(t))) / spu;
+            fromLog++;
+          }
+        }
+        this.stages["cell-slots whose clock is the log's (n)"] = fromLog;
+      }
     }
     // SIMPLIFIED WITH TIME (the artist, 2026-11-16: "시간이 지나면 부재에 lod가 적용돼서 단순화되는 시기를 거치도록
     // 만들기 (boolean union이나): 이러면 거기 재방문해서 건물이 새로 생기더라도 이전 에셋 위에 생기는 거니까 커지는

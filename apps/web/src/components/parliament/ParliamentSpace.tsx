@@ -58,6 +58,7 @@ import {
   type Recipe,
   type RoleId,
   type SpaceRequest,
+  type WallClock,
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
@@ -1811,6 +1812,11 @@ function SpaceWorld({
     // (declared after the effect that starts the worker of the mass: it runs after it, and sees it)
   }, [fuseWorkers]);
 
+  // (the world's clock as the bots' window has it — spaceModel WallClock; none without the window)
+  const wallClock = (): WallClock | undefined => {
+    const w = botGround.window?.();
+    return w && w.elapsed !== undefined ? { now: w.elapsed, riseAt: w.riseAt ?? null, riseLost: w.riseLost ?? 0, standing: !!w.standing } : undefined;
+  };
   // ── every TICK_MS: new events → worker, then one compute request (only one in flight) ──
   useTicker(TICK_MS, () => {
     const w = worker.current;
@@ -1878,7 +1884,7 @@ function SpaceWorld({
     const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens, futureOnly: futureOnly() } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens, futureOnly: futureOnly(), clock: wallClock() } };
     if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
     // (…with what is left under the ground: FutureUnder.tsx's knob)
     if (REDESIGN && dens && futureLink.cfg) req.future = futureUnder.cfg ? { ...futureLink.cfg, ...futureUnder.cfg } : futureLink.cfg;
