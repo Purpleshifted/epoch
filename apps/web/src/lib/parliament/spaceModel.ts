@@ -520,6 +520,13 @@ export class SpaceModel {
   private fossilUnits: Box[] = [];
   /** An asset's boxes go on by the clock of what they were first made from, whatever is built over them later. */
   private assetClock = new WeakMap<Box, { born: number; top: number; stood?: number }>();
+  /** THE FOSSIL'S LIFE as computeFuse was last given it (FuseInput.dead, with the fusion's freshSpread): when a place's
+   *  fossil is surely gone — its last parts go then, and the place is let go (computeParts). null = no life. */
+  private fossilLife: { at: number; after: number; deep: number; spread: number } | null = null;
+  /** Since when (arrive seconds) each cell-slot's life has been over: let go once its last parts have shrunk. */
+  private overSince = new Map<number, Map<number, number>>();
+  /** Cell-slots let go so far, their life over (the readout). */
+  private releasedN = 0;
   /** New building over an asset: when each of its parts arrives ([born, order], as arrive.ts). */
   private lodArrive = new WeakMap<Box, [number, number]>();
   /** A building's parts in another layout (generation g: what is built over an asset is not what was built first). */
@@ -2928,11 +2935,36 @@ export class SpaceModel {
     // 있는데 화석화되는 구간도 있어야지": a part stands while its fossil grows, and may go later. With the seeded mass
     // — fuse.ts — nothing has to be kept in step: the fossil's shape stands, and a part that goes leaves it.)
     const eroded = progress;
+    // THE REST GOES WITH ITS FOSSIL (the artist, 2026-11-20: "남는 몫 0으로 해. 창 안 올리기로 했잖아. 계속 변화하는
+    // 모습이어야 해, 강 바닥의 구성처럼"). The erosion takes `amount` of the parts; what it leaves stood, until now, as long
+    // as the window held its slot — and the window stands. Now a part whose fossil is surely gone (the wall's life as
+    // computeFuse lets the fossil go: FuseInput.dead — its own clock, its own spread, its depth) goes too, at its own
+    // moment, shrinking as the eroded do (the erosion's tick below). Nothing stays: what was built, eroded, fossilised
+    // and rotted leaves the block, and the place is let go once its last part has shrunk (below).
+    const fl = ec ? this.fossilLife : null;
+    const flH = ec ? Math.max(1, ec.height ?? ec.topSlot) : 1;
+    const lifeOver = (slot: number, clock: { top: number; stood?: number } | undefined, own: number): boolean => {
+      if (!fl || !ec || !clock) return false;
+      const depth = Math.max(0, Math.min(1, (ec.topSlot - (slot + 0.5)) / flH));
+      return (ec.topSlot + stoodE - (clock.top + (clock.stood ?? 0)) - fl.after) * Math.max(0.2, own) * (1 - fl.deep * (1 - depth)) >= fl.at;
+    };
+    const overMemo = new Map<Box, boolean>();
+    const partOver = (b: Box): boolean => {
+      if (!fl || !ec) return false;
+      let v = overMemo.get(b);
+      if (v === undefined) {
+        let th = this.erodeMemo.get(b);
+        if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
+        overMemo.set(b, (v = lifeOver(b.slot, this.assetClock.get(b) ?? this.slotClock(b), fl.spread > 0 ? 1 + fl.spread * (1 - 2 * th) : 1)));
+      }
+      return v;
+    };
     const life: Erosion | null =
       ec && ero
         ? {
             at: eroded,
             gone: (b) => {
+              if (partOver(b)) return true;
               const e = eroded(b) * amount;
               if (e <= 0) return false;
               let th = this.erodeMemo.get(b);
@@ -2970,6 +3002,12 @@ export class SpaceModel {
             let th = this.erodeMemo.get(b);
             if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
             at = arriveNow + Math.max(0, Math.min(1, (th - was[0]) / (e - was[0]))) * stepSec;
+          } else if (was && !arriveQuiet && partOver(b)) {
+            // (its fossil is gone: it goes within the next step, the parts of a place one after another in the
+            // erosion's order)
+            let th = this.erodeMemo.get(b);
+            if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
+            at = arriveNow + Math.max(0, Math.min(1, th)) * stepSec;
           } else at = -Infinity;
           if (arriveNow < at + LEAVE_KEEP_S) {
             leaving.push(b);
@@ -2982,6 +3020,37 @@ export class SpaceModel {
       }
       this.erodeSeen = seen;
     } else if (this.erodeSeen.size) this.erodeSeen = new Map();
+    // THE PLACE IS LET GO (the same): a cell-slot whose slowest part's fossil is gone (the spread's slowest share), once
+    // its parts have had a step and LEAVE_KEEP_S to shrink — out of the density, and with it its clock, its asset and
+    // its parts. The ground there is empty: who stands there later builds anew, on a new clock.
+    if (fl && ec && this.densityState) {
+      const ownMin = fl.spread > 0 ? 1 - fl.spread : 1;
+      const wait = (lifeSec > 0 ? lifeSec / AGE_STEPS : 0) + LEAVE_KEEP_S + 1;
+      const out: [number, number][] = [];
+      const seen = new Map<number, Map<number, number>>();
+      for (const [id, m] of this.bornT) {
+        const states = this.assets.get(id);
+        for (const [k, e] of m) {
+          const clock = (states?.get(k)?.clock as { top: number; stood?: number } | undefined) ?? e;
+          if (!lifeOver(k, clock, ownMin)) continue;
+          const since = this.overSince.get(id)?.get(k) ?? arriveNow;
+          if (arriveNow - since >= wait) out.push([id, k]);
+          else {
+            let sm = seen.get(id);
+            if (!sm) seen.set(id, (sm = new Map()));
+            sm.set(k, since);
+          }
+        }
+      }
+      // (a place whose clock started over meanwhile — somebody stood there again — is no longer counted)
+      this.overSince = seen;
+      const n = this.densityState.field.release(out);
+      for (const [id, k] of out) this.bornT.get(id)?.delete(k);
+      this.releasedN += n;
+      this.stages["places let go, their life over (n, this round)"] = n;
+      this.stages["places let go, their life over (n, in all)"] = this.releasedN;
+      this.stages["places whose life is over, their last parts going (n)"] = [...seen.values()].reduce((q, sm) => q + sm.size, 0);
+    } else if (this.overSince.size) this.overSince = new Map();
     // (…and the parts an asset has taken the place of: drawn until they have shrunk away)
     for (const [b, at] of lodGone) {
       if (leaveAt.has(b)) continue;
@@ -3213,6 +3282,11 @@ export class SpaceModel {
    */
   computeFuse(input: FuseInput): FuseMesh | null {
     const tFuse0 = performance.now();
+    // (the fossil's life, for the parts and the places — computeParts: kept also when nothing else is to be made)
+    {
+      const d = input.dead, f = input.fuse;
+      this.fossilLife = d && d.at > 0 && f.enabled && f.seeded && !f.crust && (this.blockClock?.erode.shift ?? 0) > 0 ? { ...d, spread: Math.max(0, Math.min(1, f.freshSpread ?? 0)) } : null;
+    }
     const { box } = input;
     // THE BLOCK: its clock is a place — the "present" the layers are read against is the block's top, which stands
     const bc = this.blockClock;

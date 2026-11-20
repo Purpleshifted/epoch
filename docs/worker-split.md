@@ -62,6 +62,21 @@ Now:
 - Cost to expect: without the simplification there are many more parts per piece, and `voxelTie` (the grid no finer
   than the simplified bodies) does not apply — pieces are slower; that is what the pool is for. Measure on the Mac mini.
 
+## 3b. Nothing stays: the rest goes with its fossil, the place is let go (commit after 84f74dc)
+
+The artist (2026-11-20): "남는 몫 0으로 해. 창 안 올리기로 했잖아. 계속 변화하는 모습이어야 해, 강 바닥의 구성처럼."
+With the window standing nothing leaves at its foot, so before this the share the erosion leaves (1 − 다 깎였을 때
+사라지는 몫, 25% by default) stood for good and the block only filled up.
+
+- A part whose fossil is surely gone (the same life computeFuse lets the fossil go by — FuseInput.dead: the clock, the
+  spread, the depth) goes too, shrinking at its own moment within the next step, as eroded parts do.
+- Once a cell-slot's slowest part has gone and shrunk (a step + LEAVE_KEEP_S), the place is let go:
+  `DensityField.release` forgets what was put in and drops the cell-slot; its clock, its asset and its parts go with
+  it. Whoever stands there later builds anew on a new clock.
+- Only while the fossil has a life (융합 › 화석에 수명 on, the seeded fossil); with it off nothing changes.
+- Not yet: the ways and the pipes keep their own rules (they are not part of a place's life).
+- Readout stages: "places let go, their life over", "places whose life is over, their last parts going".
+
 ## 4. Future layer in its own worker — not done
 
 Left for later: it is computed in the model's worker on `SpaceRequest.future`; moving it needs the model's parts,

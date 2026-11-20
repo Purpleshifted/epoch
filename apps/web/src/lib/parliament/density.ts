@@ -850,6 +850,60 @@ export class DensityField {
   }
 
   /**
+   * A CELL-SLOT WHOSE LIFE IS OVER IS LET GO (2026-11-20; the artist: "남는 몫 0으로 해. 창 안 올리기로 했잖아. 계속
+   * 변화하는 모습이어야 해, 강 바닥의 구성처럼"): with the window standing nothing ever leaves at its foot, so a place leaves
+   * when its own life is over (spaceModel: its fossil has rotted away and its last parts have shrunk). Forgotten as the
+   * budget forgets (maxBuilt) — what was put in, its level — and then dropped from its column altogether: the place is
+   * empty, and whoever stands there later builds it anew, on a new clock. `cells`: [the column's Seed id, slot].
+   * Returns how many cell-slots went.
+   */
+  release(cells: readonly (readonly [number, number])[]): number {
+    if (!cells.length) return 0;
+    const want = new Map<number, number[]>();
+    for (const [id, k] of cells) {
+      const l = want.get(id);
+      if (l) l.push(k);
+      else want.set(id, [k]);
+    }
+    let n = 0;
+    for (const [ck, col] of this.cols) {
+      const ks = want.get(seedId(col.cx, col.cz, 0));
+      if (!ks) continue;
+      let hit = false;
+      for (const k of ks) {
+        const cs = col.slots.get(k);
+        if (!cs || cs.path) continue;
+        if (cs.level >= 1) {
+          this.markBuilt(ck, k, false);
+          this.nBuilt--;
+        }
+        cs.by.clear();
+        cs.direct = 0;
+        cs.level = 0;
+        // (its step is gone with it: the cells round it are read against what is left)
+        if ((cs.q ?? -1) >= 0) this.settle(col, ck, cs, k);
+        col.slots.delete(k);
+        this.lived.get(ck)?.delete(k);
+        hit = true;
+        n++;
+      }
+      if (hit) {
+        col.seed = undefined;
+        this.dirty.add(ck);
+      }
+    }
+    if (n) {
+      this.built = this.built.slice(this.builtAt).filter((b) => b[2].level >= 1);
+      this.builtAt = 0;
+      this.stats.cellSlots -= n;
+      this.stats.changes++;
+      this.listDirty = true;
+      this.version++;
+    }
+    return n;
+  }
+
+  /**
    * THE RISING WINDOW HAS PASSED (spaceModel: the thick present rises with the clock, and what is below it — and below
    * the record kept under it — is let go): everything below slot `floor` is forgotten — what was put in, what was
    * built, the paths, the joins. A BUILDING THAT STILL STANDS ACROSS THE FLOOR IS KEPT WHOLE (its size is read from
