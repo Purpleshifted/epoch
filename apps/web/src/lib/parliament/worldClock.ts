@@ -61,8 +61,14 @@ export interface Clock {
 /** The shared world clock as a Clock. */
 export const sharedClock: Clock = { now: () => worldNow(), rate: () => timeRate(), setRate: (r) => setTimeRate(r) };
 
+/** A local clock can also be PUT at a world time (the lab: the moment a world was taken, or a jump ahead). */
+export interface LocalClock extends Clock {
+  /** The clock reads `ms` (world ms) from now on; its rate stays. */
+  set(ms: number): void;
+}
+
 /** A clock of this tab only (nothing shared): the same anchor arithmetic, in memory; starts at `rate`. */
-export function makeLocalClock(rate = 1): Clock {
+export function makeLocalClock(rate = 1): LocalClock {
   let a: Anchor = { r: Date.now(), v: Date.now(), rate: Math.max(MIN_TIME_RATE, Math.min(MAX_TIME_RATE, rate)) };
   const now = () => a.v + (Date.now() - a.r) * a.rate;
   return {
@@ -72,6 +78,9 @@ export function makeLocalClock(rate = 1): Clock {
       const rr = Math.max(MIN_TIME_RATE, Math.min(MAX_TIME_RATE, Math.round(r * 100) / 100));
       if (rr === a.rate) return;
       a = { r: Date.now(), v: now(), rate: rr };
+    },
+    set: (ms) => {
+      if (Number.isFinite(ms)) a = { r: Date.now(), v: ms, rate: a.rate };
     },
   };
 }

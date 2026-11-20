@@ -102,6 +102,7 @@ import { HeroCapture, HeroFrame, useHeroShot } from "./HeroShot";
 import { EXHIBITION_FUSION, FUSION_PRESETS } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
+import { useLabWorld, type TakenWorld } from "./useLabWorld";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botKinds, botReadout, useGlobalBots, type BotKind } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
@@ -1170,12 +1171,16 @@ function SpaceWorld({
   arrive,
   clock,
   local,
+  takenEpochMs = 0,
 }: {
   log: EventLog;
   /** The clock this view runs on (rate 0 = paused: the view is pinned and settings apply at once). */
   clock: Clock;
   /** A world of this tab only (the lab): its present is the log's end moved on by `clock`, not the shared epoch's. */
   local: boolean;
+  /** …and, when that world was TAKEN from the wall's (useLabWorld.ts), the epoch it came with: its present is then
+   *  counted as the wall counts its own — the lab's clock against that epoch. 0 = a world begun here. */
+  takenEpochMs?: number;
   fold: FoldConfig;
   boxCfg: BoxConfig;
   showEdges: boolean;
@@ -1738,7 +1743,8 @@ function SpaceWorld({
     // shared epoch; lab: the column's end moved on by the lab's own clock (so the time rate ages the world even
     // with nobody in it; the model takes the later of this and its latest event)
     let nowS: number | undefined;
-    if (local) {
+    if (local && takenEpochMs > 0) nowS = Math.min(sessionSeconds(clock.now(), takenEpochMs, 0), latestS(events) + IDLE_AGE_MAX_S);
+    else if (local) {
       if (!labAnchor.current) labAnchor.current = { ms: clock.now(), s: latestS(events) };
       nowS = labAnchor.current.s + (clock.now() - labAnchor.current.ms) / 1000;
     } else nowS = Math.min(sessionSeconds(clock.now(), getEpochMs(), 0), latestS(events) + IDLE_AGE_MAX_S);
@@ -3156,9 +3162,24 @@ function Markers({
   );
 }
 
+/** The lab's line of the readout: which world it holds, how far its own clock has gone since, or why it has none. */
+function LabLine({ world, note, clock }: { world: TakenWorld | null; note: string; clock: Clock }) {
+  if (!world) return <div>랩: {note || "세계 없음"}</div>;
+  const at = new Date(world.takenAt);
+  const hhmm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}:${String(at.getSeconds()).padStart(2, "0")}`;
+  const gone = Math.max(0, Math.round((clock.now() - world.nowMs) / 1000));
+  return (
+    <div>
+      랩: 벽의 세계를 {hhmm}에 한 번 따옴 ({world.from === "server" ? "봇 서버" : "이 브라우저에 남은 기록"} · 표본 {world.count.toLocaleString()}개) · 봇 없음 · 따온 뒤 흐른 시간 {Math.floor(gone / 60)}:{String(gone % 60).padStart(2, "0")}
+      {note ? ` · ${note}` : ""} · 저장은 벽과 같은 폴더
+    </div>
+  );
+}
+
 /**
- * `lab`: the WORK ROOM (/v2/global/lab) — a world of this tab only (a test column on opening, never the shared
- * storage), its own clock (paused at first), no history window; the same Leva, saved under the shared view's key.
+ * `lab`: the WORK ROOM (/v2/global/lab) — the wall's world taken once (useLabWorld.ts: no bots, nothing built after;
+ * this tab only, never the shared storage), its own clock (standing still at first), no history window; the same
+ * Leva, saved under the shared view's key.
  */
 export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {}) {
   const isV2 = useParliamentVersion() === "v2";
@@ -3167,7 +3188,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   useKeepWindowControl(log, -2, !lab, REDESIGN); // the shared history window (log.ts), the first folder
   // (the lab's test column is gone, 2026-11-12: the lab opens empty and the bots write it — the time rate fills it fast)
   // the clock the view and its bots run on: the shared world clock, or the lab's own (this tab only)
-  const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
+  const labClock = useMemo(() => makeLocalClock(0), []);
+  const clk: Clock = lab ? labClock : sharedClock;
+  // THE LAB'S WORLD: the wall's, taken once when the lab opens — no bots here, nothing built after (useLabWorld.ts)
+  const labWorld = useLabWorld(log, labClock, lab);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   // THE FUSION'S FOLDER LISTS ONLY WHAT IS BEING WORKED ON (levaFocus.ts; every other folder is whole) — set while
@@ -3639,8 +3663,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [botVillages, setBotVillages] = useState<WaterConfig["villages"] | null>(null);
   // (the herds count a 단 as the wall's time axis does — its seconds and its height: useGlobalBots slotSec)
   const botOpts = useMemo(
-    () => ({ ...(lab ? { clock: clk, local: true } : {}), setDepth: setBotDepth, setVillages: setBotVillages, slotSec: tAxis.secPerUnit, unit: tAxis.unit }),
-    [lab, clk, tAxis.secPerUnit, tAxis.unit],
+    () => ({ ...(lab ? { clock: clk, local: true, still: true, epochMs: labWorld.world?.epochMs ?? 0, taken: labWorld.world?.id ?? 0 } : {}), setDepth: setBotDepth, setVillages: setBotVillages, slotSec: tAxis.secPerUnit, unit: tAxis.unit }),
+    [lab, clk, labWorld.world, tAxis.secPerUnit, tAxis.unit],
   );
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
   // EMPTY THE WORLD AND LET IT BE MADE AGAIN (the artist, 2026-11-15: "지우고 다시 생성하기 레바 버튼 넣기"), at the top
@@ -3649,13 +3673,33 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [worldResets, setWorldResets] = useState(0);
   const resetWorld = useRef(() => {});
   resetWorld.current = () => {
-    if (!lab) {
-      if (!window.confirm("세계를 비우고 처음부터 다시 생성할까요? (열려 있는 다른 탭도 따라옵니다)")) return;
-      clearWorld();
+    // (the lab makes no world of its own: its world is taken from the wall's again — the wall's is not touched)
+    if (lab) {
+      labWorld.retake();
+      return;
     }
+    if (!window.confirm("세계를 비우고 처음부터 다시 생성할까요? (열려 있는 다른 탭도 따라옵니다)")) return;
+    clearWorld();
     log.clear();
     setWorldResets((n) => n + 1);
   };
+  // (the bots' copy of what is built is made again from the log for every world the lab takes)
+  const takenId = labWorld.world?.id ?? 0;
+  useEffect(() => {
+    if (takenId > 0) setWorldResets((n) => n + 1);
+  }, [takenId]);
+  // THE LAB'S OWN BUTTONS (not saved): the world taken again, the moment of taking, and time jumped ahead — the rate
+  // itself is 시간축 › 시간 배율 (standing still at first)
+  useLevaControls(
+    "랩 — 벽의 세계를 한 번 따온 것 (봇 없음 · 이 탭만)",
+    {
+      "다시 따오기 (지금 벽의 세계)": button(() => labWorld.retake()),
+      "따온 순간으로 되돌리기 (같은 세계 · 시간만 처음으로)": button(() => labWorld.rewind()),
+      "시간 건너뛰기": buttonGroup({ label: "시간 건너뛰기", opts: { "+30초": () => labWorld.skip(30), "+1분": () => labWorld.skip(60), "+5분": () => labWorld.skip(300), "+20분": () => labWorld.skip(1200) } }),
+    },
+    { order: -3, collapsed: false, render: () => lab },
+    [labWorld.retake, labWorld.rewind, labWorld.skip],
+  );
   // A RENDER MODE FOR TESTING (the artist, 2026-11-15: "테스트 할 때 쓸 퍼포먼스 렌더모드 좀 도입해줘. 이리저리
   // 이터레이션 돌려보는 것도 이게 랙이 적어야 가능한 거니까"): what is computed stays the same — the picture is drawn
   // cheaper. Remembered in this browser (not with the saved looks, and never on the exhibition wall, ?ui=0);
@@ -5026,6 +5070,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           arrive={arriveLeave}
           clock={clk}
           local={lab}
+          takenEpochMs={lab ? (labWorld.world?.epochMs ?? 0) : 0}
+          // (a world the lab takes is made from nothing: a model and workers of its own for each)
+          key={lab ? `lab-${takenId}` : "wall"}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
         <FocusFollow
@@ -5108,8 +5155,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         <div>preset: {presetSource()}{tabModified ? " · tab-modified" : ""}{params.get("cam") === "band" ? " · cam=band" : ""}</div>
-        {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} ({lab ? "lab, this tab only" : "global"})</div>}
-        {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
+        {globalBots > 0 && !lab && <div>{botReadout() ?? `bots: ${globalBots}`} (global)</div>}
+        {lab && <LabLine world={labWorld.world} note={labWorld.note} clock={labClock} />}
         {depths && (
           <div>
             깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}{isV2 ? (fu.bake ? ` · 불변 ${fu.immutable}+` : " · 굽기 없음 (창 20분)") : ""}
