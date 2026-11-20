@@ -1169,7 +1169,13 @@ function SpaceWorld({
   arrive,
   clock,
   local,
+  fuseWorkers = 1,
+  uploadMB = 0,
 }: {
+  /** MB of new geometry of the mass put on the screen per frame (렌더 › 작업 분담); 0 = all of a message at once. */
+  uploadMB?: number;
+  /** How many workers make the pieces of the mass side by side (렌더 › 작업 분담); 1 = the worker of the mass alone. */
+  fuseWorkers?: number;
   log: EventLog;
   /** The clock this view runs on (rate 0 = paused: the view is pinned and settings apply at once). */
   clock: Clock;
@@ -1274,6 +1280,9 @@ function SpaceWorld({
   const focusY = useRef<number | null>(null);
   const snapped = useRef(false);
   const worker = useRef<SpaceRunner | null>(null);
+  /** The worker of the mass (side.worker.ts, "fuse"), for its pool of helpers; null = none (the model makes the mass). */
+  const fuseSide = useRef<Worker | null>(null);
+  const helperIds = useRef(0);
   const sent = useRef(0);
   const inFlight = useRef<{ id: number; at: number } | null>(null);
   /** The lab's present: the log's end when first seen, moved on by the lab's own clock since. */
@@ -1292,6 +1301,12 @@ function SpaceWorld({
   const chunkGroup = useRef<THREE.Group>(null);
   const chunkMeshes = useRef(new Map<string, THREE.Mesh>());
   const chunkClock0 = useRef<number | null>(null);
+  /** The chunks of the mass waiting for a frame (applyChunks), and the clock their worker began at. */
+  const chunkOps = useRef<({ kind: "set"; id: string; mesh: FuseMesh | null } | { kind: "drop"; id: string } | { kind: "clearRest"; keep: Set<string> })[]>([]);
+  const chunkClockAt = useRef(0);
+  /** Bytes of new geometry of the mass put on the screen per frame (렌더 › 작업 분담); 0 = all of a message at once. */
+  const uploadBudget = useRef(0);
+  uploadBudget.current = Math.max(0, uploadMB) * 1e6;
   const workerBuild = useRef("");
   // HOW FAR THE MASS IS OUT OF ITS PARTS (the readout): the shader's own sum on a sample of the vertices, once a
   // second — the artist, 2026-11-16: "아직 뭐가 보이질 않아서 … 피드백을 못 주겠는데"
@@ -1479,8 +1494,38 @@ function SpaceWorld({
    * where it stood.
    */
   const applyChunks = (m: UnitChunks) => {
+    // A BIG ARRIVAL IS PUT ON THE SCREEN A FEW MB A FRAME (2026-11-20; 렌더 › 작업 분담 › 화석 올리기): a message of
+    // the worker of the mass can be tens of MB of chunks, made into geometry and uploaded in one frame — the frame
+    // waited for all of it. Now each message's work is queued in order (what it lets go, what it sets) and done in the
+    // frame loop up to the budget a frame, at least one chunk; a chunk set again before its turn is set once, as it
+    // is last. A chunk on the screen stays as it is until its new geometry replaces it, so nothing opens meanwhile.
+    const q = chunkOps.current;
+    const supersede = (id?: string) => {
+      for (const op of q) if (op.kind === "set" && (id === undefined || op.id === id)) op.mesh = null;
+    };
+    if (m.clear) supersede();
+    for (const id of m.drop) {
+      supersede(id);
+      q.push({ kind: "drop", id });
+    }
+    for (const { id, mesh } of m.set) {
+      supersede(id);
+      q.push({ kind: "set", id, mesh });
+    }
+    // (everything that was is let go, except what this message sets — after it is set, so nothing stands empty between)
+    if (m.clear) q.push({ kind: "clearRest", keep: new Set(m.set.map((e) => e.id)) });
+    // (what was set again before its turn holds nothing any more: out of the queue, while it waits for frames)
+    if (q.length > 256) chunkOps.current = q.filter((op) => op.kind !== "set" || op.mesh);
+    chunkClockAt.current = m.clock0;
+    fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
+    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current, build: workerBuild.current });
+    if (!(uploadBudget.current > 0)) drainChunks(Infinity);
+  };
+  /** The queued chunks put on the screen, up to `budget` bytes of new geometry (at least one chunk). */
+  const drainChunks = (budget: number) => {
     const group = chunkGroup.current;
-    if (!group) return;
+    const q = chunkOps.current;
+    if (!group || !q.length) return;
     const map = chunkMeshes.current;
     const let_go = (id: string) => {
       const mesh = map.get(id);
@@ -1489,25 +1534,39 @@ function SpaceWorld({
       mesh.geometry.dispose();
       map.delete(id);
     };
-    if (m.clear) for (const id of [...map.keys()]) let_go(id);
-    for (const id of m.drop) let_go(id);
-    for (const { id, mesh: r } of m.set) {
-      let mesh = map.get(id);
-      if (!mesh) {
-        mesh = new THREE.Mesh(new THREE.BufferGeometry(), fusedMatsNow.current);
-        mesh.frustumCulled = false;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.customDepthMaterial = fuseDepth;
-        group.add(mesh);
-        map.set(id, mesh);
+    let spent = 0, sets = 0, i = 0;
+    for (; i < q.length; i++) {
+      const op = q[i];
+      if (op.kind === "drop") let_go(op.id);
+      else if (op.kind === "clearRest") {
+        for (const id of [...map.keys()]) if (!op.keep.has(id)) let_go(id);
+      } else if (op.mesh) {
+        const r = op.mesh;
+        let bytes = 0;
+        for (const a of [r.position, r.normal, r.color, r.extra, r.index, r.anchor, r.growA, r.growB, r.late]) if (a) bytes += a.byteLength;
+        if (sets > 0 && spent + bytes > budget) break;
+        spent += bytes;
+        sets++;
+        let mesh = map.get(op.id);
+        if (!mesh) {
+          mesh = new THREE.Mesh(new THREE.BufferGeometry(), fusedMatsNow.current);
+          mesh.frustumCulled = false;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.customDepthMaterial = fuseDepth;
+          group.add(mesh);
+          map.set(op.id, mesh);
+        }
+        setFused(mesh, r, undefined, fuseU);
+        op.mesh = null;
       }
-      setFused(mesh, r, undefined, fuseU);
     }
-    chunkClock0.current = map.size ? m.clock0 : null;
-    fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
-    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current, build: workerBuild.current });
+    q.splice(0, i);
+    chunkClock0.current = map.size ? chunkClockAt.current : null;
   };
+  useFrame(() => {
+    if (chunkOps.current.length) drainChunks(Math.max(1, uploadBudget.current));
+  });
   const applyChunksNow = useRef(applyChunks);
   applyChunksNow.current = applyChunks;
   const fusedWasMats = useMemo(() => [stoneWas, resinWas], [stoneWas, resinWas]);
@@ -1673,10 +1732,13 @@ function SpaceWorld({
           sw.onerror = (e) => {
             console.warn(`[parliament] the ${role} worker failed, that work goes back to the space worker:`, e.message);
             w.postMessage({ type: "ports", [role]: null });
+            if (role === "fuse") fuseSide.current = null;
             if (role === "walk") walkSide = null;
           };
-          if (role === "fuse") sw.onmessage = (ev: MessageEvent<UnitChunks>) => ev.data.type === "fuse-chunks" && applyChunksNow.current(ev.data);
-          else walkSide = sw;
+          if (role === "fuse") {
+            sw.onmessage = (ev: MessageEvent<UnitChunks>) => ev.data.type === "fuse-chunks" && applyChunksNow.current(ev.data);
+            fuseSide.current = sw;
+          } else walkSide = sw;
           sides.push(sw);
           return ch.port2;
         } catch (e) {
@@ -1695,6 +1757,7 @@ function SpaceWorld({
         stop: () => {
           w.terminate();
           for (const sw of sides) sw.terminate();
+          fuseSide.current = null;
         },
         log: (m) => walkSide?.postMessage({ type: "events", add: m.add, reset: m.reset }),
       };
@@ -1709,6 +1772,42 @@ function SpaceWorld({
     };
     // apply and the runner read everything through refs
   }, []);
+
+  // THE POOL OF THE MASS (2026-11-20; 렌더 › 작업 분담 › 화석 워커 수): with more than one, the worker of the mass keeps
+  // the order and hands the making of each piece to this many helpers (side.worker.ts) — the mass is the same, made
+  // side by side. Changing the number lets the old helpers go (their pieces go back to be made) and starts new ones.
+  useEffect(() => {
+    const coord = fuseSide.current;
+    const n = fuseWorkers >= 2 ? Math.min(8, fuseWorkers) : 0;
+    if (!coord || !n) return;
+    const mine: { id: number; w: Worker }[] = [];
+    const add: { id: number; port: MessagePort }[] = [];
+    for (let i = 0; i < n; i++) {
+      try {
+        const hw = new Worker(new URL("./side.worker.ts", import.meta.url), { type: "module" });
+        const ch = new MessageChannel();
+        const id = ++helperIds.current;
+        hw.postMessage({ type: "helper", port: ch.port1 }, [ch.port1]);
+        hw.onerror = (e) => {
+          console.warn("[parliament] a helper of the mass failed, its pieces go back to be made:", e.message);
+          hw.terminate();
+          if (fuseSide.current === coord) coord.postMessage({ type: "helpers", remove: [id] });
+        };
+        mine.push({ id, w: hw });
+        add.push({ id, port: ch.port2 });
+      } catch (e) {
+        console.warn("[parliament] no helper of the mass:", e);
+        break;
+      }
+    }
+    // (none would start: the worker of the mass makes the pieces itself, as with one)
+    if (add.length) coord.postMessage({ type: "helpers", add }, add.map((a) => a.port));
+    return () => {
+      for (const { w } of mine) w.terminate();
+      if (fuseSide.current === coord) coord.postMessage({ type: "helpers", remove: mine.map((m) => m.id) });
+    };
+    // (declared after the effect that starts the worker of the mass: it runs after it, and sees it)
+  }, [fuseWorkers]);
 
   // ── every TICK_MS: new events → worker, then one compute request (only one in flight) ──
   useTicker(TICK_MS, () => {
@@ -5018,6 +5117,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           arrive={arriveLeave}
           clock={clk}
           local={lab}
+          fuseWorkers={ro.fuseWorkers}
+          uploadMB={ro.uploadMB}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
         <FocusFollow

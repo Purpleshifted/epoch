@@ -549,6 +549,63 @@ export interface UnitChunks {
   clock0: number;
 }
 
+// ── THE POOL (2026-11-20; the artist sees the buildings' simplification as a compromise of speed and would rather
+// drop it — without it the fossil has more to make). The side that keeps the pieces (FuseUnits: what each building is,
+// what is done, held, still to do, in what order) stays ONE; only the making of a piece — fuseTilesOf, turnBack,
+// growData: the seconds — is handed to helper workers. A piece's mesh depends only on what it is made from, so it is
+// the same whoever makes it; the order they are chosen in is the same order. ──
+
+/** What every piece of a job is made with: said to a helper once per job (by its serial). */
+export interface PieceCtx {
+  type: "ctx";
+  serial: number;
+  h: NatureHistory | null;
+  u: number;
+  sed: Sed;
+  look: UnitLook | null;
+  fuse: FuseConfig;
+  tile: number;
+  ang: number;
+}
+
+/** A piece to make. */
+export interface PieceTask {
+  type: "piece";
+  ticket: number;
+  serial: number;
+  k0: number;
+  k1: number;
+  tx: number;
+  tz: number;
+  ps: { b: Box; d: number; up: boolean; sk: boolean }[];
+  tubes: FuseTube[];
+  /** The parts (and pipes and ways) it grows from (growData). */
+  own: UnitPart[];
+}
+
+/** A piece made, back to the side that keeps the pieces. */
+export interface PieceDone {
+  type: "piece-done";
+  ticket: number;
+  mesh: FuseMesh;
+  ms: number;
+  stages?: Record<string, number>;
+}
+
+/** A piece's mesh: the same function on this side (step) and in a helper. */
+export function makePiece(
+  c: { h: NatureHistory | null; u: number; sed: Sed; fuse: FuseConfig; tile: number; ang: number },
+  look: ((k: number) => number) | undefined,
+  p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: readonly FuseTube[] },
+  own: readonly UnitPart[],
+  stages: Record<string, number>,
+): FuseMesh {
+  const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: [...p.ps], tubes: p.tubes, x0: p.tx, z0: p.tz, nx: c.tile, nz: c.tile }, c.h, c.u, c.sed, look, c.fuse, c.tile, stages);
+  turnBack(mesh, c.ang);
+  if (own.some((e) => e.grow)) growData(mesh, own, c.u);
+  return mesh;
+}
+
 /** A chunk of the space on the screen: this many cells square × this many slots. */
 const CHUNK_CELLS = 42;
 const CHUNK_SLOTS = 30;
@@ -614,6 +671,8 @@ interface Unit {
   serial: number;
   /** The pieces the building is made of now (their keys). */
   keys: Set<string>;
+  /** …and each one's signature now (a piece back from a helper is taken only if it is still so). */
+  sigs: Map<string, string>;
   /** Pieces made again and held (Staged). */
   staged: Map<string, Staged>;
   /** How far past being pressed each piece's oldest part is (slots of the fossil's age, at the job's time): what is
@@ -679,7 +738,7 @@ export class FuseUnits {
 
   private job(j: UnitJob): void {
     let unit = this.units.get(j.id);
-    if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), staged: new Map(), vis: new Map() }));
+    if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), sigs: new Map(), staged: new Map(), vis: new Map() }));
     const c = Math.cos(j.ang), sn = Math.sin(j.ang);
     // (a turned district is fused in its own frame, where its boxes lie along the grid: seeds.ts' turn undone)
     const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, i }));
@@ -694,9 +753,11 @@ export class FuseUnits {
       const p = want.get(k);
       if (s.made ? !p || s.made.sig !== p.sig || s.made.cfg !== j.cfg : !!p) unit.staged.delete(k);
     }
+    // (a piece out with a helper, made from these very parts under these settings, is not asked for again: it comes)
+    const flying = this.flying(unit, j.cfg);
     const todo = pieces.filter((p) => {
       const m = unit.done.get(p.key);
-      return !(m && m.cfg === j.cfg && m.sig === p.sig) && !unit.staged.has(p.key);
+      return !(m && m.cfg === j.cfg && m.sig === p.sig) && !unit.staged.has(p.key) && flying.get(p.key) !== p.sig;
     });
     const again = new Set(todo.map((p) => p.key));
     const now = performance.now();
@@ -731,6 +792,7 @@ export class FuseUnits {
     unit.todo = todo;
     unit.serial = j.serial;
     unit.keys = new Set(want.keys());
+    unit.sigs = new Map(pieces.map((p) => [p.key, p.sig] as const));
     this.voxel = j.fuse.voxel;
     this.commit(unit);
     // (a neighbour wanted now that was not, or the other way round: the faces open or close)
@@ -759,6 +821,8 @@ export class FuseUnits {
 
   private reset(): void {
     this.units.clear();
+    // (what helpers are making now is of nothing that stands: it is let go when it comes)
+    this.flights.clear();
     this.dirty.clear();
     this.fused = [];
     this.cleared = true;
@@ -768,6 +832,8 @@ export class FuseUnits {
   pending(): [number, number] {
     let fresh = 0, again = 0;
     for (const unit of this.units.values()) for (const p of unit.todo) unit.done.has(p.key) ? again++ : fresh++;
+    // (and those out with a helper: still to come)
+    for (const f of this.flights.values()) f.unit.done.has(f.p.key) ? again++ : fresh++;
     return [fresh, again];
   }
 
@@ -876,7 +942,8 @@ export class FuseUnits {
   private commit(q: Unit): void {
     if (!q.staged.size || !q.job) return;
     const { seg, tile } = q.job;
-    const todoKeys = new Set(q.todo.map((p) => p.key));
+    // (a piece out with a helper is still to be made, as one in the list is)
+    const todoKeys = new Set([...q.todo.map((p) => p.key), ...this.flying(q).keys()]);
     const seen = new Set<string>();
     const now = performance.now();
     for (const start of [...q.staged.keys()]) {
@@ -934,6 +1001,15 @@ export class FuseUnits {
    * made.
    */
   step(): number[] | null {
+    const p = this.pick();
+    if (!p) return null;
+    const t0 = performance.now();
+    const mesh = makePiece(p.j, p.unit.look, p.p, p.own, this.stages);
+    return this.finish(p.unit, p.j, p.p, p.own, p.keys, mesh, performance.now() - t0);
+  }
+
+  /** The next piece by the order above, taken out of its building's list (null when nothing may be made now). */
+  private pick(): { unit: Unit; j: UnitJob; p: UnitPiece<Turned>; own: UnitPart[]; keys: number[] } | null {
     const now = performance.now();
     this.waitMs = Infinity;
     // (groups whose waiting is over — or that were waiting for nothing any more)
@@ -967,12 +1043,10 @@ export class FuseUnits {
         if (better) [unit, at, best] = [q, i, rank];
       }
     }
-    if (!unit || !unit.job) return null;
-    const j = unit.job;
-    const p = unit.todo.splice(at, 1)[0];
-    const t0 = performance.now();
-    const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: p.ps, tubes: p.tubes, x0: p.tx, z0: p.tz, nx: j.tile, nz: j.tile }, j.h, j.u, j.sed, unit.look, j.fuse, j.tile, this.stages);
-    turnBack(mesh, j.ang);
+    const q = unit as Unit | null;
+    if (!q || !q.job) return null;
+    const j = q.job;
+    const p = q.todo.splice(at, 1)[0];
     const own: UnitPart[] = p.ps.map((e) => j.parts[e.i]);
     // (a pipe or a way is, for what its mass grows by, a part of its own: as old as its slot, and all of it fuses)
     if (own.some((e) => e.grow)) {
@@ -983,12 +1057,18 @@ export class FuseUnits {
         own.push({ b, d: 1, up: true, sk: false, grow: [w.k, w.born ?? w.k, 1, 1, 0, 1] });
       }
     }
+    const keys: number[] = [];
+    for (const e of own) if (e.key !== undefined) keys.push(e.key);
+    return { unit: q, j, p, own, keys };
+  }
+
+  /** A piece made (here or by a helper): stamped, put in its chunk, shown — or held until its neighbours are made. */
+  private finish(unit: Unit, j: UnitJob, p: UnitPiece<Turned>, own: readonly UnitPart[], keys: number[], mesh: FuseMesh, ms: number): number[] {
     const was = unit.done.get(p.key);
     // (the stamp is written when it is shown: show)
     const stamp = was ? was.stamp : -1;
-    if (own.some((e) => e.grow)) {
-      growData(mesh, own, j.u);
-      const B = mesh.growB!;
+    if (own.some((e) => e.grow) && mesh.growB) {
+      const B = mesh.growB;
       for (let v = 0; v < B.length; v += 2) B[v] = stamp;
     }
     // where it is shown: the chunk of the space its tile's middle lies in (a piece stays in its chunk)
@@ -999,18 +1079,79 @@ export class FuseUnits {
       const wx = mx * c + mz * sn, wz = -mx * sn + mz * c;
       chunk = `${Math.floor(wx / (CHUNK_CELLS * CELL))},${Math.floor(wz / (CHUNK_CELLS * CELL))},${Math.floor(p.k0 / CHUNK_SLOTS)}`;
     }
-    const keys: number[] = [];
-    for (const e of own) if (e.key !== undefined) keys.push(e.key);
     const made: Made = { cfg: j.cfg, sig: p.sig, mesh, stamp, chunk, at: performance.now() };
     if (was && was.orphanOf === undefined) {
       unit.staged.set(p.key, { made, keys, since: performance.now() });
       this.commit(unit);
     } else this.show(unit, p.key, made, keys, this.now());
-    const ms = performance.now() - t0;
     this.made++;
     this.madeMs += ms;
     this.maxMs = Math.max(this.maxMs, ms);
     return keys;
+  }
+
+  // ── THE POOL (2026-11-20): the pieces made by helper workers, this side keeping everything else ──
+
+  /** A piece out with a helper: everything it is finished with when it comes back. */
+  private flights = new Map<number, { unit: Unit; j: UnitJob; p: UnitPiece<Turned>; own: UnitPart[]; keys: number[]; helper: number }>();
+  private ticket = 0;
+
+  /** Pieces out with a helper now. */
+  inFlight(helper?: number): number {
+    if (helper === undefined) return this.flights.size;
+    let n = 0;
+    for (const f of this.flights.values()) if (f.helper === helper) n++;
+    return n;
+  }
+
+  /**
+   * THE NEXT PIECE FOR A HELPER: chosen and taken out exactly as `step` would take it, and given a ticket; the job it
+   * is of is said once per helper (`ctx`, by the job's serial). Null when nothing may be made now (`waitMs` set).
+   */
+  dispatch(helper: number): { ctx: PieceCtx; task: PieceTask } | null {
+    const p = this.pick();
+    if (!p) return null;
+    const ticket = ++this.ticket;
+    this.flights.set(ticket, { ...p, helper });
+    const j = p.j;
+    return {
+      ctx: { type: "ctx", serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
+      task: { type: "piece", ticket, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk }) => ({ b, d, up, sk })), tubes: p.p.tubes, own: p.own },
+    };
+  }
+
+  /** A helper's piece came back: finished as `step` finishes it — if its building still wants it as it was made. */
+  complete(m: PieceDone): number[] | null {
+    const f = this.flights.get(m.ticket);
+    if (!f) return null;
+    this.flights.delete(m.ticket);
+    // (the helper's account of its piece: its slowest tile kept if slower than any here; the counts added)
+    const st = m.stages ?? {};
+    if ((st["slow tile ms"] ?? 0) > (this.stages["slow tile ms"] ?? 0)) Object.assign(this.stages, st);
+    else for (const k of ["fuse tiles (n)", "fuse cells (n)"]) if (st[k]) this.stages[k] = (this.stages[k] ?? 0) + st[k];
+    if (!this.live(f.unit) || f.unit.job?.cfg !== f.j.cfg || f.unit.sigs.get(f.p.key) !== f.p.sig) return null;
+    return this.finish(f.unit, f.j, f.p, f.own, f.keys, m.mesh, m.ms);
+  }
+
+  /** A helper is gone (failed, or the pool was made smaller) — or lost one piece: its pieces go back to be made. */
+  cancel(helper: number, ticket?: number): void {
+    for (const [t, f] of this.flights) {
+      if (f.helper !== helper || (ticket !== undefined && t !== ticket)) continue;
+      this.flights.delete(t);
+      if (this.live(f.unit) && f.unit.job?.cfg === f.j.cfg && f.unit.sigs.get(f.p.key) === f.p.sig && !f.unit.todo.some((q) => q.key === f.p.key)) f.unit.todo.push(f.p);
+    }
+  }
+
+  private live(q: Unit): boolean {
+    for (const u of this.units.values()) if (u === q) return true;
+    return false;
+  }
+
+  /** The pieces of a building out with a helper (key → signature, made under its job's settings). */
+  private flying(q: Unit, cfg?: string): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const f of this.flights.values()) if (f.unit === q && (cfg === undefined || f.j.cfg === cfg)) out.set(f.p.key, f.p.sig);
+    return out;
   }
 
   /** What is to be sent to the view: the chunks that are other than they were, each merged anew (and what to transfer). */
