@@ -23,6 +23,7 @@ import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { Bloom, DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { useFlowerBloom } from "./plantCloudsGpu";
 import { useFutureRender } from "./futureLife";
+import { BONE_GLSL, boneU, FOSSIL_AT_GLSL, pickClock, wayBoneShader, type FossilClock } from "./boneLook";
 import { BlendFunction } from "postprocessing";
 import { Leva, button, buttonGroup, folder, levaStore, monitor, useControls as useLevaControls } from "leva";
 import * as THREE from "three";
@@ -696,10 +697,21 @@ function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: Fu
         "}",
         "if ( uPitDark + uPitDepth > 0.0 && vExtra.z * vExtra.w > 0.001 ) {",
         "\tvec4 pf = fusePits( vFusePos, uPitSize, uPitJitter, uPitCover * vExtra.z );",
+        // WHERE THEY GATHER THEY CROWD (fuse.ts pitZ past 1; the artist, 2026-11-20: "곰보가 몰리는 곳은 레퍼런스 사진처럼
+        // 빡! 몰리길"): two smaller sizes of pit laid between the first, as many as the patch is gathered — the
+        // deepest of the three at a place is the one that shows
+        "\tfloat pitSize = uPitSize;",
+        "\tfloat pitCrowd = clamp( ( vExtra.z - 1.0 ) * 0.5, 0.0, 1.0 );",
+        "\tif ( pitCrowd > 0.01 ) {",
+        "\t\tvec4 p2 = fusePits( vFusePos + 3.7, uPitSize * 0.58, uPitJitter, pitCrowd * 1.2 );",
+        "\t\tif ( p2.w > pf.w ) { pf = p2; pitSize = uPitSize * 0.58; }",
+        "\t\tvec4 p3 = fusePits( vFusePos + 9.1, uPitSize * 0.34, uPitJitter, pitCrowd );",
+        "\t\tif ( p3.w > pf.w ) { pf = p3; pitSize = uPitSize * 0.34; }",
+        "\t}",
         "\tif ( pf.w > 0.0 ) {",
         "\t\tfloat dent = smoothstep( 0.0, max( 0.02, uPitSoft * 2.0 ), pf.w ) * vExtra.w;",
         "\t\tvec3 gt = pf.xyz - normal * dot( pf.xyz, normal );",
-        "\t\tnormal = normalize( normal - uPitDepth * 2.0 * uPitSize * gt * dent );",
+        "\t\tnormal = normalize( normal - uPitDepth * 2.0 * pitSize * gt * dent );",
         "\t\tdiffuseColor.rgb *= 1.0 - uPitDark * ( 0.35 + 0.65 * pf.w ) * dent;",
         "\t}",
         "}",
@@ -738,6 +750,16 @@ function makeResinMaterial(u: FuseUniforms, fade?: FuseFade): THREE.MeshPhysical
     patchFuseExtras(shader, u, fade);
     shader.uniforms.uShade = uShade;
     shader.uniforms.uRim = uRim;
+    // THE FOSSIL AS BONE (boneLook.ts; the artist, 2026-11-20: "좀 더 '뼈' 같은 비주얼 재질로 어떻게 값싸게"): its colour
+    // the bone's — the mass's own shading, stains and pits kept on it (what the resin's colour was multiplied by) —
+    // and a fill of its own colour for the light that seems to come through it. Before the lights: the colour is lit.
+    Object.assign(shader.uniforms, boneU);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>${BONE_GLSL}`)
+      .replace(
+        "#include <emissivemap_fragment>",
+        "#include <emissivemap_fragment>\nif ( uBoneMass > 0.0 ) {\n\tvec3 boneShade = diffuseColor.rgb / max( diffuse, vec3( 1e-3 ) );\n\tdiffuseColor.rgb = mix( diffuseColor.rgb, boneColour( vFusePos, clamp( vGrow, 0.0, 1.0 ) ) * boneShade, uBoneMass );\n\ttotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * uBoneMass;\n}",
+      );
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nuniform float uShade;\nuniform float uRim;")
       .replace("#include <color_fragment>", "#if defined( USE_COLOR )\n\tdiffuseColor.rgb *= mix( vec3( 1.0 ), clamp( vColor.rgb / 0.42, 0.0, 1.2 ), uShade );\n#endif")
@@ -875,22 +897,30 @@ const PIPE_CAPACITY = 12000;
  * the wall (a hash noise on the surface, discarded below the decay, the holes' edges ragged) and darkens what is
  * left towards rust-grey (achromatic). Old pipes are perforated, the oldest nearly gone: the same clock as the parts.
  */
-function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: number, metalness: number): THREE.MeshStandardMaterial {
+function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: number, metalness: number, clock?: () => FossilClock): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color, roughness, metalness, side: THREE.DoubleSide });
-  const u = { uHoles: { value: 0.95 }, uOnset: { value: 0.2 }, uDark: { value: 0.55 }, uGrain: { value: 23 } };
+  // (uUnit, uDepth: a slot's height and how many slots under its slot a pipe lies — its slot is read off its height)
+  const u = { uHoles: { value: 0.95 }, uOnset: { value: 0.2 }, uDark: { value: 0.55 }, uGrain: { value: 23 }, uUnit: { value: 1 }, uDepth: { value: 0 } };
   m.userData.u = u;
+  m.customProgramCacheKey = () => (clock ? "pipe-bone" : "pipe");
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
+    // A PIPE TURNS TO BONE (boneLook.ts; the artist, 2026-11-20: "둘 다 해"): as the mass round it fossilises — the
+    // mass's ruler, read off where it lies — it is no longer eaten through but becomes bone, pores and all
+    if (clock) Object.assign(shader.uniforms, pickClock(clock()), boneU);
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nattribute float aDecay;\nvarying float vDecay;\nvarying vec3 vWorldP;")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvDecay = aDecay;\nvWorldP = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }")
+      .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain, uUnit, uDepth;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }" + (clock ? `${BONE_GLSL}${FOSSIL_AT_GLSL}` : "\nconst float uBonePipes = 0.0;\nfloat fossilAt( float s ) { return 0.0; }\nvec3 boneColour( vec3 p, float a ) { return vec3( 1.0 ); }\nconst float uBoneFill = 0.0;"))
       .replace(
         "#include <clipping_planes_fragment>",
-        "#include <clipping_planes_fragment>\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nif (pn < eat * uHoles) discard;",
+        "#include <clipping_planes_fragment>\nfloat pipeF = fossilAt(vWorldP.y / max(1e-4, uUnit) + uDepth) * uBonePipes;\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish — none once it is bone\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nif (pn < eat * uHoles * (1.0 - pipeF)) discard;",
       )
-      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay;");
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay * (1.0 - pipeF);\nif (pipeF > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, boneColour(vWorldP, pipeF), pipeF);")
+      .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= 1.0 - pipeF;")
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.7, pipeF);")
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uBoneFill * pipeF;");
   };
   return m;
 }
@@ -1302,7 +1332,7 @@ function SpaceWorld({
   });
   const stageMax = useRef<{ ms: number; at: number; stages: Record<string, number> }>({ ms: 0, at: 0, stages: {} });
   // the ticker reads the latest props through this ref
-  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats });
+  const live = useRef({ fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats, resin });
   const walkLive = useRef<THREE.LineSegments>(null);
   const walkKept = useRef<THREE.LineSegments>(null);
   // how used each walkway is (per vertex), and its look applied (again when the look's knobs turn)
@@ -1318,15 +1348,19 @@ function SpaceWorld({
   useEffect(() => applyWalkUse(), [applyWalkUse, walk?.buildAt, walkLook.walkUseDim, walkLook.walkUseFade]);
   const endLive = useRef<THREE.Points>(null);
   const endKept = useRef<THREE.Points>(null);
+  // (the ways' lines turning to bone: the mass's ruler and a slot's height — boneLook.ts)
+  const wayBone = useMemo(() => wayBoneShader(() => fuseU, () => live.current.boxCfg.unit), []);
   const dotTex = useMemo(() => dotTexture(), []);
   useEffect(() => () => dotTex.dispose(), [dotTex]);
   useEffect(() => {
-    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats };
+    live.current = { fold, boxCfg, showEdges, wear, nature, lodNear, lodMid, farFactor, weather, fuse, immutable, bake, water, noAxis, walk, density, pathLook, onStats, resin };
   });
   const fused = useRef<THREE.Mesh>(null);
   const keptPipeColor = useMemo(() => new THREE.Color(walkLook.pipeColor).multiplyScalar(walkLook.pipeKeptDim), [walkLook.pipeColor, walkLook.pipeKeptDim]);
   const pipeMats = useMemo(
-    () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness) }),
+    // (the kept pipes — below the present — turn to bone with the mass: boneLook.ts; the mass's uniforms are read when
+    // the material is first drawn)
+    () => ({ live: corrodingPipeMaterial(walkLook.pipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness), kept: corrodingPipeMaterial(keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness, () => fuseU) }),
     [walkLook.pipeColor, keptPipeColor, walkLook.pipeRoughness, walkLook.pipeMetalness],
   );
   useEffect(() => () => { pipeMats.live.dispose(); pipeMats.kept.dispose(); }, [pipeMats]);
@@ -1337,8 +1371,11 @@ function SpaceWorld({
       u.uOnset.value = walkLook.pipeHoleOnset;
       u.uDark.value = walkLook.pipeDarken;
       u.uGrain.value = walkLook.pipeGrain;
+      const ub = m.userData.u as { uUnit: { value: number }; uDepth: { value: number } };
+      ub.uUnit.value = boxCfg.unit;
+      ub.uDepth.value = water?.pipeDepth ?? 0;
     }
-  }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain]);
+  }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain, boxCfg.unit, water?.pipeDepth]);
   const fuseU = useMemo<FuseUniforms>(() => makeFuseUniforms(), []);
   // THE MASS GROWS OUT OF ITS PARTS (fuse.ts seeded): what the shader makes each part's progress of — the window's
   // top from the bots' own clock, every frame (the model's own is in quarters of a slot), and the erosion's and the
@@ -1665,7 +1702,7 @@ function SpaceWorld({
     if (!w) return;
     const now = performance.now();
     if (inFlight.current && now - inFlight.current.at < 15000) return;
-    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, immutable, bake, water: wa, walk: wk, noAxis: oneClk, density: dens, pathLook: pl } = live.current; // noAxis = V2
+    const { fold: f, boxCfg: cfg, showEdges: e, wear: wr, nature: nat, lodNear: near, lodMid: mid, farFactor: ff, weather: wx, fuse: fu, immutable, bake, water: wa, walk: wk, noAxis: oneClk, density: dens, pathLook: pl, resin: rs } = live.current; // noAxis = V2
     const waterCfg: WaterConfig = wa ? { ...wa } : { ...DEFAULT_WATER, enabled: false };
     const events = log.all();
     // the shared world's epoch names the baked layers on disk (bakeStore); the lab's world is this tab's only
@@ -1756,7 +1793,19 @@ function SpaceWorld({
         const need = (immutable + 20) * cfg.secPerUnit;
         if (keepWindowSec() < need) setKeepWindowSec(need);
       }
-      req.fuse = { box: cfg, weather: wx, fuse: fu, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
+      // THE FOSSIL THAT HAS GONE IS LET GO (spaceModel FuseInput.dead): the life as the shader reads it — only where it
+      // surely ends (all holes, or all thinning: between the two a share of the fossil stays for good)
+      const dead = (() => {
+        const ec = wx.erode, holes = rs.growDieHoles ?? 0;
+        if (!REDESIGN || !ec || !rs.growDie || !((ec.shift ?? 0) > 0) || (holes > 0.001 && holes < 0.999)) return undefined;
+        const perTop = Math.max(1, ec.slotSec ?? cfg.secPerUnit) / (ec.shift ?? 1);
+        const slots = (min: number) => (Math.max(0, min) * 60) / perTop;
+        // (every pixel of it gone: the patches of the going are behind by at most 1.5 × their share — FUSE_GONE_FRAG_BODY;
+        // and a quarter more, for what a vertex reads of its neighbours' later hardening)
+        const at = slots(rs.growDieAfterMin ?? 5.5) + Math.max(1, slots(rs.growDieSpanMin ?? 8.5)) * (holes >= 0.999 ? 1 + 1.5 * Math.max(0, rs.growDieRag ?? 0) : 1);
+        return { deep: Math.max(0, Math.min(1, rs.growDeep ?? 0.6)), at: at * 1.25, after: ((ec.lodSec ?? 0) * 1.3) / perTop + 1 };
+      })();
+      req.fuse = { box: cfg, weather: wx, fuse: fu, dead, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
     }
     inFlight.current = { id, at: now };
     w.post(req);
@@ -1812,7 +1861,8 @@ function SpaceWorld({
       </lineSegments>
       <lineSegments ref={walkKept} frustumCulled={false} visible={!!walk}>
         <bufferGeometry />
-        <lineBasicMaterial color={walkLook.walkColor} vertexColors transparent opacity={walkLook.walkKeptOpacity} depthWrite={false} />
+        {/* (an old way turns to bone with the mass round it — the trace kept in the stone: boneLook.ts) */}
+        <lineBasicMaterial color={walkLook.walkColor} vertexColors transparent opacity={walkLook.walkKeptOpacity} depthWrite={false} onBeforeCompile={wayBone} customProgramCacheKey={() => "way-bone"} />
       </lineSegments>
       {(["live", "kept"] as const).map((w) => (
         <points key={w} ref={w === "live" ? endLive : endKept} frustumCulled={false} visible={!!walk}>
@@ -4056,6 +4106,33 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     [botVillages, isV2, wtr.pipesOn, wtr.pipeMinCells, wtr.pipePathPull, wtr.pipeJoinReach, wtr.waterOn, wtr.join, wtr.change, wtr.minGapSlots, wtr.pipeDepth, wtr.imperviousRadius, wtr.burial, wtr.openShare, wtr.pathAt, wtr.diagonal, wtr.streamLength, wtr.endPool, wtr.bed, wtr.bedSlots, wtr.persistSec, wtr.meander, wtr.channel, wtr.radius, wtr.vegBoost, wtr.wetShare, wtr.corrode, wtr.pipeRadius, wtr.quarterGap, wtr.pipeReach, wtr.pipeGrace, wtr.relayOn, wtr.relay, wtr.elbow, wtr.flowGain, wtr.shaftRadius, wtr.coverRadius, wtr.coverHeight, wtr.collarRadius, wtr.collarLength, wtr.pipeLife, wtr.thin],
   );
   const theme = THEMES[v.theme as keyof typeof THEMES] ?? THEMES.paper;
+  // BONE (boneLook.ts; the artist, 2026-11-20: "좀 더 '뼈' 같은 비주얼 재질로 어떻게 값싸게", and of the pipes' and
+  // the ways' fossilisation: "둘 다 해"): one folder for the fossil's bone and what of the pipes and the ways turns to it
+  // as the mass round them fossilises — every material reads these by reference
+  const bone = useControls(
+    "뼈 재질 — 화석 · 관 · 길",
+    savable("뼈 재질 — 화석 · 관 · 길", {
+      boneMass: { value: 1, min: 0, max: 1, step: 0.05, label: "화석 덩어리를 뼈로 (0 = 레진의 색 그대로 · 1 = 뼈)" },
+      bonePipes: { value: 1, min: 0, max: 1, step: 0.05, label: "배관이 뼈가 됨 (화석이 될 나이에 · 0 = 끝까지 녹슬어 구멍 남)" },
+      boneWays: { value: 1, min: 0, max: 1, step: 0.05, label: "길이 뼈 빛의 흔적으로 굳음 (화석이 될 나이에 · 0 = 그대로)" },
+      boneIvory: { value: "#e6dccb", label: "뼈의 색 (상아)" },
+      boneStain: { value: "#94764e", label: "스민 얼룩의 색 (오래될수록 · 구멍 속일수록)" },
+      bonePores: { value: 0.6, min: 0, max: 1, step: 0.05, label: "해면질 구멍 (0 = 매끈 … 1 = 구멍마다 짙음)" },
+      bonePoreSize: { value: 0.35, min: 0.05, max: 2, step: 0.01, label: "구멍의 크기 (월드)" },
+      boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "속빛 (빛이 뼈를 조금 지나오는 듯 · 그늘을 덜어 줌)" },
+    }),
+    { order: lab ? 7.97 : 1.78, collapsed: true, render: () => isV2 },
+  );
+  useEffect(() => {
+    boneU.uBoneMass.value = bone.boneMass;
+    boneU.uBonePipes.value = bone.bonePipes;
+    boneU.uBoneWays.value = bone.boneWays;
+    boneU.uBoneIvory.value.set(bone.boneIvory);
+    boneU.uBoneStain.value.set(bone.boneStain);
+    boneU.uBonePores.value = bone.bonePores;
+    boneU.uBonePoreSize.value = bone.bonePoreSize;
+    boneU.uBoneFill.value = bone.boneFill;
+  }, [bone.boneMass, bone.bonePipes, bone.boneWays, bone.boneIvory, bone.boneStain, bone.bonePores, bone.bonePoreSize, bone.boneFill]);
   const walkLook = useMemo<WalkLook>(
     () => ({ walkColor: wlk.walkColor, walkDot: wlk.walkDot, walkKeptOpacity: wlk.walkKeptOpacity, walkUseDim: wlk.walkUseDim, walkUseFade: wlk.walkUseFade, pipeColor: wtr.pipeColor, pipeRoughness: wtr.pipeRoughness, pipeMetalness: wtr.pipeMetalness, pipeKeptDim: REDESIGN ? 1 : wtr.pipeKeptDim, pipeHoles: wtr.pipeHoles, pipeHoleOnset: wtr.pipeHoleOnset, pipeDarken: wtr.pipeDarken, pipeGrain: wtr.pipeGrain }),
     [wlk.walkColor, wlk.walkDot, wlk.walkKeptOpacity, wlk.walkUseDim, wlk.walkUseFade, wtr.pipeColor, wtr.pipeRoughness, wtr.pipeMetalness, wtr.pipeKeptDim, wtr.pipeHoles, wtr.pipeHoleOnset, wtr.pipeDarken, wtr.pipeGrain],
@@ -4201,7 +4278,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         cling: { value: 0, min: 0, max: 1, step: 0.05, label: "덩어리가 부재를 삼키는 정도 (0 = 부재는 그대로 보이고 덩어리가 엉겨 붙음 … 1 = 전시 버전처럼 부재가 녹아 사라짐)", render: () => REDESIGN },
         // THE BLOCK: what the erosion has taken leaves no mass (fuse.ts goneMass; the artist, 2026-11-15: "덩어리도 비우도록")
         goneMass: { value: 0, min: 0, max: 1, step: 0.05, label: "깎여 사라진 부재가 남기는 덩어리 (0 = 비움 … 1 = 예전처럼 통째로)", render: (get) => REDESIGN && get(BODY_PATH) !== "crust" },
-        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "화석이 나오기 시작하는 깊이 (예전 방식에서만 · 새 방식은 나이 눈금으로 나옴)" },
+        fuseOnset: { value: DEFAULT_FUSE.fuseOnset, min: 0.02, max: 0.95, step: 0.01, label: "이보다 얕은 데서 깎여 나간 부재는 화석을 남기지 않음 (창 높이의 몫 · 새 방식에서 이 손잡이가 하는 일은 이것뿐)" },
         // (THE REDESIGN, 2026-11-15: 0.9 — the mass thickens over most of a part's progress, a thin skin first; the
         // exhibition's 0.49 was full two steps after it began)
         fuseFull: { value: 1, min: 0.1, max: 1, step: 0.01, label: "화석이 다 나온 깊이 (예전 방식에서만)" },
@@ -4352,7 +4429,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             {
               pitJitter: { value: DEFAULT_STUDY.pitJitter, min: 0, max: 1, step: 0.05, label: "크기 지터 (0 = 다 같게 … 1 = ½ ~ 2배)" },
               pitSoft: { value: DEFAULT_STUDY.pitSoft, min: 0.01, max: 0.4, step: 0.01, label: "테두리 부드러움 (0.01 = 또렷한 구멍 … 0.4 = 번진 자국)" },
-              pitGather: { value: DEFAULT_STUDY.pitGather, min: 0, max: 1, step: 0.05, label: "몰림 (0 = 고르게, 1 = 어떤 면에는 몰리고 어떤 면은 맨살)" },
+              pitGather: { value: DEFAULT_STUDY.pitGather, min: 0, max: 1, step: 0.05, label: "몰림 (0 = 고르게 … 1 = 몰린 자리에는 크고 작은 곰보가 빽빽이 붙고 나머지는 맨살)" },
               pitPatch: { value: DEFAULT_STUDY.pitPatch, min: 0.5, max: 12, step: 0.5, label: "몰리는 자리 크기 (월드)" },
             },
             { collapsed: true, render: (get) => get(PITS_PATH) > 0 },

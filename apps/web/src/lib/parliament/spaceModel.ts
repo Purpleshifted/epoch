@@ -17,7 +17,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
 import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
-import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, partReach, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { WALL_BUILD } from "./build";
 import { inferFuture, type FutureConfig, type FutureResult } from "./futureVillage";
 import { fuseTilesOf, growData, unitExtent, unitLook, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
@@ -339,6 +339,17 @@ export interface FuseInput {
   tauSlabYears?: number;
   /** WORK MODE (the paused view): baked layers are rendered again when the fuse config changed. */
   rebake?: boolean;
+  /**
+   * THE FOSSIL THAT HAS GONE IS LET GO (the artist, 2026-11-20: "삭아서 사라지는 화석 데이터를 실제로 버려서 데이터 플로우가
+   * 적정선에서 유지되도록 하고 있는가" — it was not: a fossil whose life was over was only not drawn; its mass stayed in
+   * its piece's mesh, was made again with it, and went through the vertex shader every frame). The wall's life as the
+   * shader reads it (ParliamentSpace FUSE_GROW_VERT_BODY growT): how much the depth slows the age (`deep`), the slots
+   * of the top's way a part stands before its fossil begins (`after`), and the ruler's value at which every pixel of
+   * it is surely gone (`at`). A part past that is no longer part of the seeded mass — its pieces are made again
+   * without it, in batches. Not part of the fusion's settings: moving the life's knobs makes nothing again but the
+   * pieces whose parts are other than they were. Absent = nothing is let go (no life, or one that never ends).
+   */
+  dead?: { deep: number; at: number; after: number };
 }
 
 export interface PointsResult {
@@ -1586,6 +1597,7 @@ export class SpaceModel {
         kb = Math.max(kb, b.slot);
       }
       const ext = { x0: xa - PAD, z0: za - PAD, nx: xb - xa + 1 + 2 * PAD, nz: zb - za + 1 + 2 * PAD };
+      const grownBy = partReach(fuse);
       const todo: NonNullable<SpaceModel["unitJob"]>["todo"] = [];
       for (let k0 = Math.floor((ka - 8) / SEG) * SEG; k0 <= kb + 3; k0 += SEG) {
         const k1 = k0 + SEG - 1;
@@ -1596,7 +1608,8 @@ export class SpaceModel {
           for (let tx = Math.floor(ext.x0 / T) * T; tx < ext.x0 + ext.nx; tx += T) {
             const ax = tx - PAD, bx = tx + T + PAD, az = tz - PAD, bz = tz + T + PAD;
             const mine = inBand.filter(({ b }) => {
-              const r = Math.max(b.sx, b.sy, b.sz) / 2;
+              // (…and what its mass stands out of its box by — fuse.ts partReach: as the worker beside chooses them)
+              const r = Math.max(b.sx, b.sy, b.sz) / 2 + grownBy;
               return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
             });
             // (nothing comes of a place where no part is fusing: fuseTiled)
@@ -3270,6 +3283,14 @@ export class SpaceModel {
     // (THE FOSSIL'S UNITS — fossilUnits: with them the seeded mass is made of the wider bodies, and the asset's own
     // masses — what is drawn — carry none; its plates and foundation go in as they are: they bound the rooms)
     const unitsOn = seeded && this.fossilUnits.length > 0;
+    // (the fossil that has gone — FuseInput.dead: read on a clock that moves in steps, so the parts of a piece are
+    // let go together and the piece is made again once for them, not once for each)
+    const dead = seeded && bc && input.dead && input.dead.at > 0 ? input.dead : null;
+    const deadStep = dead ? Math.max(1, dead.at / 10) : 1;
+    const deadNow = dead && bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / deadStep) * deadStep : 0;
+    const deadH = bc ? Math.max(1, bc.erode.height ?? bc.top) : 1;
+    // (how many parts were let go this time — for the readout)
+    let letGo = 0;
     const fuseOf = unitsOn ? [...this.built.filter((b) => !(b.kind === "mass" && this.assetClock.has(b))), ...this.fossilUnits] : this.built;
     for (const b of fuseOf) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
@@ -3288,6 +3309,11 @@ export class SpaceModel {
         const bornTop = ac?.top ?? bc.top;
         // (what the shader reads the fossil's age off: the age's clock at its building — erode.ts stood)
         const bornAge = bornTop + Math.max(0, ac ? (ac.stood ?? 0) : (bc.erode.stood ?? 0));
+        // (its fossil's life is over — the wall's shader draws none of it any more: not made)
+        if (dead && (deadNow - bornAge - dead.after) * Math.max(0.2, own) * (1 - dead.deep * (1 - Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH)))) >= dead.at) {
+          letGo++;
+          continue;
+        }
         // A PART THAT GOES BEFORE ITS FOSSIL BEGINS LEAVES NONE (the wall's shader lets the fossil out by the layer's
         // depth: FUSE_GROW_VERT_BODY): how deep the part lies when the erosion takes it — its progress summed slot by
         // slot of the top's way, as computeParts does — against the depth its fossil begins at (kept per part: it
@@ -3335,6 +3361,7 @@ export class SpaceModel {
     }
     const pad = fusePad(fuse);
     const padSlots = Math.ceil((Math.max(pad.above, pad.below) * fuse.voxel + fuse.accDepth) / u) + 1 + (fuse.study?.fill ? FILL_MAX_GAP : 0);
+    if (dead) this.stages["fossil parts let go, their life over (n)"] = letGo;
     // BUILDING BY BUILDING (fuse.ts perBuilding): each building's mass from a state kept — fuseBuildings
     if (bc && fuse.perBuilding) {
       if (this.fuseChunks.size || this.districtMass.size) {

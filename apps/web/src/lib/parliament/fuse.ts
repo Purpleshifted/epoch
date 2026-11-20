@@ -427,6 +427,19 @@ export function isSkeleton(b: Box, decay: number, cfg: FuseConfig): boolean {
 }
 
 /** Sample rows of padding a chunk needs: below (blur, smoothing) and above (also the sag hanging down into it). */
+/**
+ * HOW FAR A PART'S MASS LIES BEYOND ITS BOX (world): its frame's tubes and the balls at their joints stand out of the
+ * box by their radius — with thick pipes several units. Two pieces that share a face must both be made of every part
+ * whose MASS reaches the field round that face, or each draws the face from other parts and the two do not meet (the
+ * artist, 2026-11-20: "화석 표면에서 거친 모서리나 경계면 … 여기서 '열린 곡면'은 발생하면 안 되는 건데"). The pieces
+ * chose their parts by the box alone.
+ */
+export function partReach(cfg: FuseConfig): number {
+  const st = cfg.study;
+  if (!st || !(st.pipe || st.pipeSize)) return 0;
+  return Math.max(0, st.pipeRadius) * Math.max(1, st.pipeThickLarge ?? 1) * Math.max(1, st.pipeJoint ?? 0);
+}
+
 export function fusePad(cfg: FuseConfig): { below: number; above: number } {
   const st = cfg.study;
   // C: the shell's interior is found by a blur of its own; spikes reach out of the chunk's rows
@@ -518,7 +531,7 @@ export function isResin(k: number, sed: Sediment, cfg: FuseConfig, layerDecay?: 
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const lat = (x: number, y: number, z: number, salt: number) => hash2((x * 73856093) ^ z, (y * 19349663) ^ (z * 83492791), salt);
 /** Trilinear value noise, 0..1. */
-function noise3(x: number, y: number, z: number, salt: number): number {
+export function noise3(x: number, y: number, z: number, salt: number): number {
   const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z);
   const fx = smooth(x - x0), fy = smooth(y - y0), fz = smooth(z - z0);
   const a = lat(x0, y0, z0, salt), b = lat(x0 + 1, y0, z0, salt), c = lat(x0, y0 + 1, z0, salt), d = lat(x0 + 1, y0 + 1, z0, salt);
@@ -1378,9 +1391,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
           const tS = T ? T[idx(i, j, k)] : 0;
           const sizeMul = (st.pitSmall ?? 1) + ((st.pitLarge ?? 1) - (st.pitSmall ?? 1)) * tS;
           const gather = st.pitGather ?? 0;
-          // patches: where a slow noise runs high the pits double, where it runs low they thin out (the mean is kept)
-          const g = gather > 0 ? 1 - gather + gather * 2 * smoothRamp(noise3(vx / pitPatch, vy / pitPatch, vz / pitPatch, 89), 0.42, 0.62) : 1;
-          pitZ = Math.max(0, Math.min(2, sizeMul * g));
+          // WHERE THEY GATHER THEY CROWD (the artist, 2026-11-20: "곰보가 몰리는 곳은 레퍼런스 사진처럼 빡! 몰리길 원함" — ref
+          // 9664: on a few faces the pores stand shoulder to shoulder, large and small, and the rest is bare). The
+          // patches were half the surface with twice the pits — one pit a cell at most, so never crowded. Now a patch
+          // is where a slow noise runs clearly high (a third of the surface, with a short edge) and carries up to
+          // three times the share: past 1 the wall's shader lays smaller pits between the first (patchFuseExtras).
+          // Outside the patches the share falls to 1 − gather: bare at 1.
+          const g = gather > 0 ? 1 - gather + gather * 3 * smoothRamp(noise3(vx / pitPatch, vy / pitPatch, vz / pitPatch, 89), 0.54, 0.61) : 1;
+          // (0 … 3: up to 1 the share of cells with a pit; past it, how crowded the patch is)
+          pitZ = Math.max(0, Math.min(3, sizeMul * g));
           if (pitShape === "voronoi" || pitShape === "size") {
             voronoi(vx, vy, vz, st.ribCell, 1.35, voP);
             const margin = (voP[1] - voP[0]) / 2, halfRib = st.ribWidth / 2;

@@ -25,7 +25,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, mergeMeshes, type FuseConfig, type FuseMesh, type FuseTube, type Sediment } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, mergeMeshes, noise3, partReach, type FuseConfig, type FuseMesh, type FuseTube, type Sediment } from "./fuse";
 import { WALL_BUILD } from "./build";
 import type { NatureHistory } from "./natureHistory";
 import type { Box } from "./seeds";
@@ -50,11 +50,13 @@ export function fuseTilesOf(
   const MARGIN = 4;
   const meshes: FuseMesh[] = [];
   const cellOf = (v: number) => Math.floor(v / CELL);
+  // (a part is its box and what its mass stands out of it by: fuse.ts partReach)
+  const grown = partReach(fuse);
   for (let tz = w.z0; tz < w.z0 + w.nz; tz += TILE) {
     for (let tx = w.x0; tx < w.x0 + w.nx; tx += TILE) {
       let ax = tx - MARGIN, bx = tx + TILE + MARGIN, az = tz - MARGIN, bz = tz + TILE + MARGIN;
       const ps = w.ps.filter(({ b }) => {
-        const r = Math.max(b.sx, b.sy, b.sz) / 2;
+        const r = Math.max(b.sx, b.sy, b.sz) / 2 + grown;
         return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
       });
       const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
@@ -65,7 +67,7 @@ export function fuseTilesOf(
       {
         let a = Infinity, b2 = -Infinity, c = Infinity, d = -Infinity;
         for (const { b } of ps) {
-          const r = Math.max(b.sx, b.sy, b.sz) / 2;
+          const r = Math.max(b.sx, b.sy, b.sz) / 2 + grown;
           a = Math.min(a, cellOf(b.x - r));
           b2 = Math.max(b2, cellOf(b.x + r));
           c = Math.min(c, cellOf(b.z - r));
@@ -360,7 +362,7 @@ export function unitExtent(ps: readonly { b: Box }[], turn?: { c: number; sn: nu
 export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boolean }>(
   ps: readonly P[],
   at: { ext: { x0: number; z0: number; nx: number; nz: number }; ka: number; kb: number },
-  o: { seg: number; tile: number; padSlots: number; fusing: (list: readonly { d: number }[]) => boolean },
+  o: { seg: number; tile: number; padSlots: number; fusing: (list: readonly { d: number }[]) => boolean; grown?: number },
   /** The pipes and ways of the ground, with how far (world) a band's field reaches above and below its own slots. */
   ext2?: { tubes: readonly FuseTube[]; unit: number; reach: number; parts?: { margin: number; fill: boolean } },
 ): UnitPiece<P>[] {
@@ -392,7 +394,7 @@ export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boole
       for (let tx = Math.floor(ext.x0 / T) * T; tx < ext.x0 + ext.nx; tx += T) {
         const ax = tx - PAD, bx = tx + T + PAD, az = tz - PAD, bz = tz + T + PAD;
         const mine = inBand.filter(({ b }) => {
-          const r = Math.max(b.sx, b.sy, b.sz) / 2;
+          const r = Math.max(b.sx, b.sy, b.sz) / 2 + (o.grown ?? 0);
           return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
         });
         const tubes = tubesBand.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
@@ -617,7 +619,18 @@ interface Unit {
 const HOLD_MAX_MS = 240000;
 /** How far in from a face whose neighbour is not there yet the fossil is pressed back into its parts (world: about
  *  two slots of the artist's, 1.8 each — wide enough that the open rim lies under the shader's discard). */
-const EDGE_FADE = 3;
+const EDGE_FADE = 4;
+/**
+ * …AND THE EDGE IS NOT A PLANE (the artist, 2026-11-20: "여전히 잘려보이는 단면이 간간이 발생하는데, 생성 중에 보이는 비주얼도
+ * 안 잘려보이도록"). Pressed back by its distance from the open face alone, the mass ended along a straight line a few
+ * units inside the piece — still the piece's outline, only softer. The distance is now read through a noise fixed in
+ * the world (up to EDGE_RAG further in, patch by patch, EDGE_PATCH wide): where the neighbour is not made yet the mass
+ * ends in an uneven fringe — tongues of it reaching towards the face, bays reaching in — as something still growing
+ * does, and no line across it.
+ */
+const EDGE_RAG = 6;
+/** …the width of a tongue or a bay of the fringe (world). */
+const EDGE_PATCH = 3.5;
 
 /** The pieces a piece meets face to face — above, below, +x, −x, +z, −z (its key: `${k0}:${tx}:${tz}`). */
 function faceNeighbours(key: string, seg: number, tile: number): string[] {
@@ -664,7 +677,7 @@ export class FuseUnits {
     const tubes = (j.tubes ?? []).map((t, i) => (j.ang ? { ...t, x0: t.x0 * c - t.z0 * sn, z0: t.x0 * sn + t.z0 * c, x1: t.x1 * c - t.z1 * sn, z1: t.x1 * sn + t.z1 * c, i } : { ...t, i }));
     const pad = fusePad(j.fuse);
     const pieces = ps.length
-      ? unitPieces(ps, unitExtent(ps), { seg: j.seg, tile: j.tile, padSlots: j.padSlots, fusing: unitFusing(j.fuse) }, { tubes, unit: j.u, reach: Math.max(pad.above, pad.below) * j.fuse.voxel, parts: { margin: j.fuse.accDepth + 2 * j.fuse.voxel, fill: !!j.fuse.study?.fill } })
+      ? unitPieces(ps, unitExtent(ps), { seg: j.seg, tile: j.tile, padSlots: j.padSlots, fusing: unitFusing(j.fuse), grown: partReach(j.fuse) }, { tubes, unit: j.u, reach: Math.max(pad.above, pad.below) * j.fuse.voxel, parts: { margin: j.fuse.accDepth + 2 * j.fuse.voxel + partReach(j.fuse), fill: !!j.fuse.study?.fill } })
       : [];
     const want = new Map(pieces.map((p) => [p.key, p] as const));
     // (what was held for parts that are no longer so is made again; a piece let go that is wanted again, too)
@@ -808,13 +821,15 @@ export class FuseUnits {
       }
       const wx = P[v * 3], y = P[v * 3 + 1], wz = P[v * 3 + 2];
       const x = wx * c - wz * sn, z = wx * sn + wz * c;
+      // (how much further in the fringe lies here: the same for both pieces at a place — the noise is the world's)
+      const rag = EDGE_RAG * noise3(wx / EDGE_PATCH, y / EDGE_PATCH, wz / EDGE_PATCH, 97);
       let f = 1;
-      if (mask & 1) f *= ramp(y1 - y);
-      if (mask & 2) f *= ramp(y - y0);
-      if (mask & 4) f *= ramp(x1 - x);
-      if (mask & 8) f *= ramp(x - x0);
-      if (mask & 16) f *= ramp(z1 - z);
-      if (mask & 32) f *= ramp(z - z0);
+      if (mask & 1) f *= ramp(y1 - y - rag);
+      if (mask & 2) f *= ramp(y - y0 - rag);
+      if (mask & 4) f *= ramp(x1 - x - rag);
+      if (mask & 8) f *= ramp(x - x0 - rag);
+      if (mask & 16) f *= ramp(z1 - z - rag);
+      if (mask & 32) f *= ramp(z - z0 - rag);
       B[v * 2 + 1] = g * f;
     }
     this.dirty.add(m.chunk);

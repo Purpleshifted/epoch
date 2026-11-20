@@ -24,6 +24,18 @@ const LAYER_RETIRED = new Set(["edge", "gain", "opacity", "vegColorA", "vegColor
 /** The pit and its light: not drawn in the view of the layer alone. */
 const LAYER_NO_PIT = new Set(["pit", "pitAbove", "beamGlow", "beamFall", "beamTaper", "beamSoft", "beamDeep", "pitDepth", "pitWide", "pitShaft", "pitLight", "pitDark", "pitWall", "pitFall", "pitBands"]);
 
+/**
+ * WHAT DOES NOTHING IS NOT LISTED (the artist, 2026-11-20: "안 듣는 손잡이 잡아서 숨겨"). With the new fossil — its shape
+ * made once, as it will be when all of it has fused (화석이 나타나는 방식 = 새 방식) — every layer's look is the oldest
+ * layer's, and the knobs that only say WHEN along a part's progress something happens, or what a YOUNG layer looks
+ * like, are read by nothing: how full the mass is at which progress, the layers counted in, what an eroded part
+ * leaves, when the skeleton is swallowed, from which age a layer is fossil and how its edge wanders, the young
+ * layers' steps and thin shell. They keep their values and come back with the old way; `전부 보기` does not list them
+ * either — it lists what can be turned.
+ */
+const FUSION_GROUP = "엉김 · 융합 · 레진";
+const SEED_DEAD = new Set(["fuseFull", "layerSlots", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange"]);
+
 /** The key of the checkbox, in a group that is cut down, that lists all of the group again. */
 export const FOCUS_ALL_KEY = "allKnobs";
 
@@ -114,6 +126,7 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
       path === "히어로샷" ||
       path.startsWith("히어로샷.")
     );
+  if (path.startsWith(`${FUSION_GROUP}.`) && SEED_DEAD.has(path.slice(path.lastIndexOf(".") + 1)) && data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed") return false;
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;
     if (data[`${group}.${FOCUS_ALL_KEY}`]?.value) return true;
