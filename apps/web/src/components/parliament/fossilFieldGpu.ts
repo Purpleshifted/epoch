@@ -51,6 +51,8 @@ void main() {
   float ws = 0.0, own = 0.0, most = 0.0, bm = -1e9, bs = 0.0, bw = 0.0;
 #else
   float d1 = 1e3, d2 = 1e3, fr = 1e3, pl = 1e3;
+  // (the edge nearest this sample, of whatever box: where on it, and the normals of the two faces that meet in it)
+  vec3 fE = vec3( 0.0 ), fN1 = vec3( 0.0 ), fN2 = vec3( 0.0 );
 #endif
   for ( int n = 0; n < cnt; n++ ) {
     int li = off + n;
@@ -79,7 +81,19 @@ void main() {
       // THE FRAME: the box's twelve edges (a body's — the fossil's unit: a building's few wide bodies — and a plate's
       // rim), with a ball at each corner (the joints)
       float ex = length( vec3( max( q.x, 0.0 ), q.y, q.z ) ), ey = length( vec3( q.x, max( q.y, 0.0 ), q.z ) ), ez = length( vec3( q.x, q.y, max( q.z, 0.0 ) ) );
-      fr = min( fr, min( min( ex, min( ey, ez ) ), length( q ) - uJoint ) );
+      float e = min( min( ex, min( ey, ez ) ), length( q ) - uJoint );
+      if ( e < fr ) {
+        fr = e;
+        vec3 sg = vec3( l.x < 0.0 ? -1.0 : 1.0, l.y < 0.0 ? -1.0 : 1.0, l.z < 0.0 ? -1.0 : 1.0 );
+        vec3 le = sg * b.xyz, n1, n2;
+        if ( ex <= ey && ex <= ez ) { le.x = clamp( l.x, -b.x, b.x ); n1 = vec3( 0.0, sg.y, 0.0 ); n2 = vec3( 0.0, 0.0, sg.z ); }
+        else if ( ey <= ez ) { le.y = clamp( l.y, -b.y, b.y ); n1 = vec3( sg.x, 0.0, 0.0 ); n2 = vec3( 0.0, 0.0, sg.z ); }
+        else { le.z = clamp( l.z, -b.z, b.z ); n1 = vec3( sg.x, 0.0, 0.0 ); n2 = vec3( 0.0, sg.y, 0.0 ); }
+        // (back out of the box's turn)
+        fE = a.xyz + vec3( le.x * a.w + le.z * b.w, le.y, -le.x * b.w + le.z * a.w );
+        fN1 = vec3( n1.x * a.w + n1.z * b.w, n1.y, -n1.x * b.w + n1.z * a.w );
+        fN2 = vec3( n2.x * a.w + n2.z * b.w, n2.y, -n2.x * b.w + n2.z * a.w );
+      }
     }
 #endif
   }
@@ -87,6 +101,22 @@ void main() {
   float v = bw > 0.0 ? clamp( bs / bw / uBornRange, 0.0, 1.0 ) * 255.0 : 0.0;
   fragColor = ws > 0.0 ? vec4( floor( v ) / 255.0, fract( v ), clamp( own / ws * 0.5, 0.0, 1.0 ), clamp( most / ws, 0.0, 1.0 ) ) : vec4( 0.0 );
 #else
+  // THE FRAME STANDS ON THE BUILDING'S OUTER EDGES ONLY (the artist's wall, 2026-11-20: pipes round every unit read
+  // as loose bones stuck on the building): where two bodies lie side by side their shared edge is a seam, not an
+  // edge of the building — just past either of the edge's two faces lies another box. Asked of every box once more.
+  if ( fr < uR ) {
+    vec3 p1 = fE + 0.12 * ( fN1 - fN2 ), p2 = fE + 0.12 * ( fN2 - fN1 );
+    for ( int n = 0; n < cnt; n++ ) {
+      int li = off + n;
+      int pi = int( texelFetch( uLists, ivec2( li & ${LIST_W - 1}, li >> ${Math.log2(LIST_W)} ), 0 ).r );
+      vec4 a = prim( pi * 3 ), b = prim( pi * 3 + 1 ), c = prim( pi * 3 + 2 );
+      if ( c.w < -0.5 ) continue;
+      vec3 d1p = p1 - a.xyz, d2p = p2 - a.xyz;
+      vec3 q1 = abs( vec3( d1p.x * a.w - d1p.z * b.w, d1p.y, d1p.x * b.w + d1p.z * a.w ) ) - b.xyz;
+      vec3 q2 = abs( vec3( d2p.x * a.w - d2p.z * b.w, d2p.y, d2p.x * b.w + d2p.z * a.w ) ) - b.xyz;
+      if ( max( q1.x, max( q1.y, q1.z ) ) < 0.0 || max( q2.x, max( q2.y, q2.z ) ) < 0.0 ) { fr = 1e3; break; }
+    }
+  }
   // the two nearest joined softly (bounded: never more than a quarter of uSoft past the nearest, however many overlap)
   float hh = max( uSoft - abs( d1 - d2 ), 0.0 ) / uSoft;
   fragColor = vec4( enc( d1 ), enc( d1 - hh * hh * uSoft * 0.25 ), enc( fr ), enc( pl ) );
@@ -157,8 +187,7 @@ class FieldGpu {
     this.rt?.dispose();
     this.rt = null;
     this.slabsAlloc = 0;
-    this.grid.allDirty();
-    this.grid.pageDirty = true;
+    this.grid.allHidden();
   }
 
   /** The atlas is as tall as the bricks need (a little taller each time it grows; what it held is copied over). */
@@ -232,6 +261,7 @@ class FieldGpu {
       renderer.render(this.scene, quadCam);
     }
     this.baked += n;
+    this.grid.baked(b.ids);
     return n;
   }
 }
@@ -385,7 +415,7 @@ export const fossilLink = {
   /** The wall's fused uniforms (the fossil's clock and the knobs of its growing and going). */
   clock: null as FieldClock | null,
   /** A slot's height (world), the pipes' radius, how round an old layer is, the fossil's colour and glow. */
-  look: { unit: 1.8, pipe: 0.3, round: 1, color: new THREE.Color("#fbfbfa"), glow: 0.1, scale: 0.5, steps: 200 },
+  look: { unit: 1.8, pipe: 0.3, round: 1, color: new THREE.Color("#fbfbfa"), glow: 0.1, rim: 0, scale: 0.5, steps: 200 },
   /** What drawing the field cost the GPU when it was last measured (ms; the march and putting it over the scene). */
   gpuMs: 0,
 };

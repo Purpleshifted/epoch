@@ -4229,7 +4229,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         render: () => REDESIGN,
       },
       fieldScale: {
-        options: { "절반 (기본)": 0.5, "3분의 1 (가장 가벼움 · 윤곽이 무름)": 0.34, "제 해상도 (무거움)": 1 },
+        options: { "절반 (기본)": 0.5, "3분의 1 (가장 가벼움 · 윤곽이 무름)": 0.34, "4분의 3 (윤곽이 또렷 · 절반의 2배쯤 무거움)": 0.75, "제 해상도 (무거움)": 1 },
         value: 0.5,
         label: "장 화석의 해상도 (화면 픽셀에 대한 비율 · 값이 픽셀 수에 비례)",
         render: (get: (path: string) => unknown) => REDESIGN && (get(`${FU}.fossilDraw`) === "field" || FOSSIL_FIELD_URL),
@@ -4661,8 +4661,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     l.pipe = Math.max(0.12, Math.min(0.6, fu.pipeRadius * 0.7));
     l.color.set(fu.resinColor);
     l.glow = fu.resinMode === "frost" ? fu.resinGlow : 0;
+    l.rim = fu.resinMode === "frost" ? fu.resinRim : 0;
     l.scale = fu.fieldScale;
-  }, [fu.pipeRadius, fu.resinColor, fu.resinMode, fu.resinGlow, fu.fieldScale]);
+  }, [fu.pipeRadius, fu.resinColor, fu.resinMode, fu.resinGlow, fu.resinRim, fu.fieldScale]);
   // A SHAPE KNOB TURNED SHOWS NOTHING AT ONCE (the artist, 2026-11-20, of the shell's thickness: "레바 손잡이 바꿔도 뭐가 확
   // 보이질 않으니"): the mass's shape is made in the worker beside, piece after piece — minutes for the whole wall —
   // and a turned knob looked as if it did nothing. The wall says so when the fusion's settings have changed: what is

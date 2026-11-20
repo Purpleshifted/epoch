@@ -28,6 +28,7 @@ import * as THREE from "three";
 import { CopyPass, Pass } from "postprocessing";
 import { PAGE } from "@/lib/parliament/fossilField";
 import { FIELD_REACH, fossilLink } from "./fossilFieldGpu";
+import { boneU } from "./boneLook";
 
 const FULL_VERT = /* glsl */ `out vec2 vUv; void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4( position.xy, 0.0, 1.0 ); }`;
 
@@ -42,7 +43,36 @@ uniform mat4 uProjInv, uCamWorld, uView;
 uniform vec2 uDepthTexel;
 uniform float uDH, uDB, uDS, uVB, uVS, uR, uBornBase, uBornRange, uUnit;
 uniform float uTop, uStood, uHeight, uAfter, uOver, uAgeSpan, uDeep, uLate, uMelt, uReach, uPress, uPad, uFloor;
-uniform float uDie, uDieAfter, uDieSpan, uDieHoles, uGrain, uRag, uPatch, uPipe, uRound, uGlow, uShadow;
+uniform float uDie, uDieAfter, uDieSpan, uDieHoles, uGrain, uRag, uPatch, uPipe, uRound, uGlow, uShadow, uRim;
+// (the mesh fossil's own material, read by reference: the shell's pits — ParliamentSpace FUSE_PITS_GLSL — and bone — boneLook.ts)
+uniform float uPitDark, uPitCover, uPitSize, uPitJitter, uPitSoft, uPitDepth;
+uniform float uBonePores, uBonePoreSize, uBoneFill, uBoneMass, uBoneWrap, uBoneRim;
+uniform vec3 uBoneWarm;
+uniform sampler3D uBoneTex;
+float bonePattern( vec3 wp, float band ) {
+  vec2 c = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.125 ).rg * vec2( 1.2, 0.6 );
+  float open = clamp( uBonePores + 0.6 * band, 0.0, 1.0 );
+  float pore = ( 1.0 - smoothstep( 0.06 + 0.12 * band, 0.3 + 0.2 * band, c.x ) ) * open;
+  float fine = texture( uBoneTex, wp / max( 0.02, uBonePoreSize ) * 0.6 + 0.37 ).r;
+  return ( 1.0 - 0.6 * pore ) * ( 1.0 - 0.3 * band ) * ( 0.95 + 0.1 * smoothstep( 0.0, 0.1, c.y ) ) * ( 0.96 + 0.08 * fine );
+}
+float fuseHash( vec3 p ) { p = fract( p * 0.1031 + vec3( 0.11, 0.37, 0.73 ) ); p += dot( p, p.yzx + 19.19 ); return fract( ( p.x + p.y ) * p.z ); }
+vec4 fusePits( vec3 p, float size, float jitter, float cover ) {
+  float s = size * 2.2;
+  vec3 base = floor( p / s - 0.5 );
+  float best = 0.0;
+  vec3 g = vec3( 0.0 );
+  for ( int dz = 0; dz <= 1; dz++ ) for ( int dy = 0; dy <= 1; dy++ ) for ( int dx = 0; dx <= 1; dx++ ) {
+    vec3 q = base + vec3( float( dx ), float( dy ), float( dz ) );
+    if ( fuseHash( q ) > cover ) continue;
+    vec3 c = ( q + 0.15 + 0.7 * vec3( fuseHash( q + 7.1 ), fuseHash( q + 13.3 ), fuseHash( q + 29.7 ) ) ) * s;
+    float r = size * 0.5 * exp2( ( fuseHash( q + 41.2 ) - 0.5 ) * 2.0 * jitter );
+    vec3 d = p - c;
+    float dd = dot( d, d );
+    if ( dd < r * r ) { float dent = 1.0 - dd / ( r * r ); if ( dent > best ) { best = dent; g = d / ( r * r ); } }
+  }
+  return vec4( g, best );
+}
 uniform int uSteps;
 const float PAGE = ${PAGE}.0;
 float goneHash( vec3 p ) { p = fract( p * 0.1031 + vec3( 0.71, 0.113, 0.419 ) ); p += dot( p, p.yzx + 33.33 ); return fract( ( p.x + p.y ) * p.z ); }
@@ -118,6 +148,19 @@ vec2 massAt( vec3 p ) {
   }
   return vec2( f, f > 0.0 ? f : uDH * 0.5 );
 }
+// how near p is to the edge of a hole of the fossil's going (0 … 1; the bone is porous there — boneLook)
+float goneBand( vec3 p ) {
+  vec3 v = vAt( p );
+  float layer = p.y / uUnit - 0.5;
+  float depth = clamp( ( uTop - ( layer + 0.5 ) ) / max( 1.0, uHeight ), 0.0, 1.0 );
+  float T = ( uTop + uStood - v.x - uAfter ) * max( 0.2, v.y ) * ( 1.0 - uDeep * ( 1.0 - depth ) );
+  float gv = uDie * uDieHoles * clamp( ( T - uDieAfter ) / max( 1.0, uDieSpan ), -4.0, 4.0 );
+  float ga = gv == 0.0 ? 0.0 : clamp( gv + ( goneNoise( p / max( 0.5, uPatch ) + 7.7 ) - 0.5 ) * 3.0 * uRag, 0.0, 1.0 );
+  if ( ga <= 0.001 ) return 0.0;
+  vec3 gp = p / max( 0.05, uGrain );
+  float gn = clamp( ( 0.65 * goneNoise( gp ) + 0.35 * goneNoise( gp * 2.7 + 11.3 ) - 0.5 ) * 1.9 + 0.5, 0.0, 0.999 );
+  return 1.0 - smoothstep( 0.0, 0.14, gn - ga );
+}
 void main() {
   vec2 ndc = vUv * 2.0 - 1.0;
   vec4 pf = uProjInv * vec4( ndc, 1.0, 1.0 );
@@ -163,25 +206,46 @@ void main() {
     massAt( p + vec3( 0, e, 0 ) ).x - massAt( p - vec3( 0, e, 0 ) ).x,
     massAt( p + vec3( 0, 0, e ) ).x - massAt( p - vec3( 0, 0, e ) ).x ) + 1e-6 );
   if ( dot( n, rd ) > 0.0 ) n = -n;
-  // lit as the wall's stone is (a matte surface under the scene's own lights; linear — the composer has no tone mapping)
+  // THE MESH FOSSIL'S MATERIAL (the artist, 2026-11-20: "비주얼 현재 메시처럼 다듬으려면?"): its colour with the
+  // shell's pits cut into the shading and bone's pores on it, lit by the scene's own lights with bone's wrap and
+  // rim (linear — the composer has no tone mapping)
+  vec3 alb = uColor;
+  if ( uPitDark + uPitDepth > 0.0 ) {
+    vec4 pf = fusePits( p, uPitSize, uPitJitter, uPitCover );
+    if ( pf.w > 0.0 ) {
+      float dent = smoothstep( 0.0, max( 0.02, uPitSoft * 2.0 ), pf.w );
+      vec3 gt = pf.xyz - n * dot( pf.xyz, n );
+      n = normalize( n - uPitDepth * 2.0 * uPitSize * gt * dent );
+      alb *= 1.0 - uPitDark * ( 0.35 + 0.65 * pf.w ) * dent;
+    }
+  }
+  if ( uBoneMass > 0.0 ) alb *= mix( 1.0, bonePattern( p, goneBand( p ) ), uBoneMass );
   float open = clamp( 0.55 + 0.45 * massAt( p + n * 0.7 ).x / 0.7, 0.35, 1.0 );
   // THE FOSSIL SHADOWS ITSELF (the mesh took the sun's shadow map; the field is asked along the way to the sun: what
   // of it stands between — a soft edge by how near the way passes). The buildings' shadows on it are not in this.
   float sun = max( dot( n, uL1 ), 0.0 );
   if ( sun > 0.0 && uShadow > 0.0 ) {
-    float sh = 1.0, ts = 0.3;
-    vec3 ps = p + n * 0.12;
-    for ( int i = 0; i < 12; i++ ) {
+    // (wide and soft: eight asks, the first well off the surface — a hard, near one read as dark blotches)
+    float sh = 1.0, ts = 0.6;
+    vec3 ps = p + n * 0.25;
+    for ( int i = 0; i < 8; i++ ) {
       float m = massAt( ps + uL1 * ts ).x;
-      if ( m < 0.01 ) { sh = 0.0; break; }
-      sh = min( sh, 5.0 * m / ts );
-      ts += clamp( m, 0.2, 1.6 );
-      if ( ts > 16.0 ) break;
+      sh = min( sh, 2.2 * m / ts + 0.35 );
+      if ( sh < 0.36 ) break;
+      ts += clamp( m, 0.5, 2.0 );
+      if ( ts > 14.0 ) break;
     }
     sun *= mix( 1.0, clamp( sh, 0.0, 1.0 ), uShadow );
   }
   vec3 light = uAmb * open + uL1c * sun + uL2c * max( dot( n, uL2 ), 0.0 );
-  vec3 col = uColor * light * 0.31830989 + uColor * uGlow;
+  vec3 col = alb * light * 0.31830989 + alb * uGlow;
+  float fres = pow( 1.0 - clamp( dot( -rd, n ), 0.0, 1.0 ), 3.0 );
+  if ( uBoneMass > 0.0 ) {
+    float ndl = dot( n, uL1 );
+    float wrap = max( 0.0, ( ndl + uBoneWrap ) / ( 1.0 + uBoneWrap ) ) - max( 0.0, ndl );
+    col += alb * uBoneWarm * ( uL1c * wrap * 0.6 + fres * uBoneRim * 1.5 + uBoneFill ) * uBoneMass;
+  }
+  col += uRim * fres;
   // (the distance along the view's axis: what its depth is worked out of when it is put over the scene)
   fragColor = vec4( col, -( uView * vec4( p, 1.0 ) ).z );
 }`;
@@ -256,7 +320,8 @@ export class FossilFieldPass extends Pass {
         uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uView: { value: new THREE.Matrix4() }, uDepthTexel: { value: new THREE.Vector2() },
         uDH: F(), uDB: F(), uDS: F(), uVB: F(), uVS: F(), uR: F(FIELD_REACH), uBornBase: F(), uBornRange: F(1024), uUnit: F(1.8),
         uTop: F(), uStood: F(), uHeight: F(1), uAfter: F(), uOver: F(3), uAgeSpan: F(40), uDeep: F(), uLate: F(), uMelt: F(), uReach: F(2), uPress: F(1), uPad: F(0.6), uFloor: F(-1e9),
-        uDie: F(), uDieAfter: F(60), uDieSpan: F(30), uDieHoles: F(), uGrain: F(1.2), uRag: F(), uPatch: F(9), uPipe: F(0.3), uRound: F(1), uGlow: F(0.1), uShadow: F(1), uSteps: { value: 200 },
+        uDie: F(), uDieAfter: F(60), uDieSpan: F(30), uDieHoles: F(), uGrain: F(1.2), uRag: F(), uPatch: F(9), uPipe: F(0.3), uRound: F(1), uGlow: F(0.1), uShadow: F(0.8), uRim: F(), uPitDark: F(), uPitCover: F(), uPitSize: F(0.35), uPitJitter: F(0.5), uPitSoft: F(0.12), uPitDepth: F(),
+        uBonePores: boneU.uBonePores, uBonePoreSize: boneU.uBonePoreSize, uBoneFill: boneU.uBoneFill, uBoneMass: boneU.uBoneMass, uBoneWrap: boneU.uBoneWrap, uBoneRim: boneU.uBoneRim, uBoneWarm: boneU.uBoneWarm, uBoneTex: boneU.uBoneTex, uSteps: { value: 200 },
       },
       false,
     );
@@ -379,6 +444,13 @@ export class FossilFieldPass extends Pass {
         u.uPipe.value = look.pipe;
         u.uRound.value = look.round;
         u.uGlow.value = look.glow;
+        u.uRim.value = look.rim;
+        u.uPitDark.value = c("uPitDark");
+        u.uPitCover.value = c("uPitCover");
+        u.uPitSize.value = c("uPitSize", 0.35);
+        u.uPitJitter.value = c("uPitJitter", 0.5);
+        u.uPitSoft.value = c("uPitSoft", 0.12);
+        u.uPitDepth.value = c("uPitDepth");
         u.uSteps.value = look.steps;
         (u.uColor.value as THREE.Vector3).set(look.color.r, look.color.g, look.color.b);
         this.light();

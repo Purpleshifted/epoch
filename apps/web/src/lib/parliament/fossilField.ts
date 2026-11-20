@@ -152,6 +152,8 @@ export class BrickGrid {
   /** atlas place → the earliest hardening among the boxes that ever reached the brick (slots; never later than the
    *  truth: a brick is only ever taken for older than it is, never younger). */
   private oldest: number[] = [];
+  /** atlas place → whether its brick has been baked (only then is it in the page table: stamp). */
+  private shown: boolean[] = [];
   /** RGBA a page entry: the brick's place in the atlas (x, y, slab) and, 0 = none, 1 … 255 = held — and how early its
    *  oldest box hardened (stamp): a brick nothing of which is old enough to be out is jumped like an empty one. */
   readonly page = new Uint8Array(PAGE * PAGE * PAGE * 4);
@@ -241,9 +243,10 @@ export class BrickGrid {
           if (at < 0) continue;
           l[at] = l[l.length - 1];
           l.pop();
-          const id = this.idOf.get(k)!;
-          if (l.length) this.dirty.add(id);
-          else this.letGo(k, id, cx, cy, cz);
+          // (a brick left with nothing is only let go when its turn to be baked comes and it still holds nothing: a box
+          // taken out and another put in its place the same moment keep the brick, and what it showed stands until it
+          // is baked again — it does not blink)
+          this.dirty.add(this.idOf.get(k)!);
         }
   }
   private make(k: number, cx: number, cy: number, cz: number): boolean {
@@ -263,11 +266,13 @@ export class BrickGrid {
     this.idOf.set(k, id);
     this.at[id] = [cx, cy, cz];
     this.oldest[id] = Infinity;
+    this.shown[id] = false;
     this.pageOwner[p] = k;
     this.page[p * 4] = id % A;
     this.page[p * 4 + 1] = Math.floor(id / A) % A;
     this.page[p * 4 + 2] = Math.floor(id / (A * A));
-    this.page[p * 4 + 3] = 255;
+    // (not on the screen until it has been baked: its place in the atlas still holds what was there before — stamp)
+    this.page[p * 4 + 3] = 0;
     this.pageDirty = true;
     const v = this.live;
     if (!v) this.live = [cx, cy, cz, cx, cy, cz];
@@ -300,7 +305,7 @@ export class BrickGrid {
       if (!c) continue;
       const p = (mod(c[2], PAGE) * PAGE + mod(c[1], PAGE)) * PAGE + mod(c[0], PAGE);
       const o = this.oldest[id];
-      this.page[p * 4 + 3] = 1 + Math.max(0, Math.min(254, Math.floor((((Number.isFinite(o) ? o : base) - base) / range) * 254)));
+      this.page[p * 4 + 3] = !this.shown[id] ? 0 : 1 + Math.max(0, Math.min(254, Math.floor((((Number.isFinite(o) ? o : base) - base) / range) * 254)));
     }
   }
   /** The world bounds of the bricks alive [x0, y0, z0, x1, y1, z1]; null = none. */
@@ -329,6 +334,17 @@ export class BrickGrid {
   allDirty(): void {
     for (const id of this.idOf.values()) this.dirty.add(id);
   }
+  /** Nothing of the atlas stands (it was made anew, empty): no brick is on the screen until it is baked again. */
+  allHidden(): void {
+    this.shown.fill(false);
+    this.pageDirty = true;
+    this.allDirty();
+  }
+  /** These bricks have been baked: they are on the screen from the next stamp. */
+  baked(ids: readonly number[]): void {
+    for (const id of ids) this.shown[id] = true;
+    this.pageDirty = true;
+  }
   /**
    * THE NEXT BRICKS TO BAKE: of one slab of the atlas (the bake draws a slab's bricks together, a pass a slice), at
    * most `maxBricks` of them and `maxRefs` list entries. Returns their atlas places, coordinates and lists; they are
@@ -350,6 +366,10 @@ export class BrickGrid {
         continue;
       }
       const l = this.lists.get(brickKey(c[0], c[1], c[2])) ?? [];
+      if (!l.length) {
+        this.letGo(brickKey(c[0], c[1], c[2]), id, c[0], c[1], c[2]);
+        continue;
+      }
       if (ids.length && refs + l.length > maxRefs) break;
       ids.push(id);
       coords.push(c);
