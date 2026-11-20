@@ -78,6 +78,9 @@ export interface ErodeConfig {
   lodSec?: number;
   /** …and the lattice the masses of a building are joined on (world units: the width their outline is kept to). */
   lodGrid?: number;
+  /** …and THE FOSSIL'S UNITS (spaceModel fossilUnits): the wider lattice the same masses are joined on for the mass to
+   *  grow out of — not drawn (world units; 0 / absent = the asset's own boxes). */
+  lodUnit?: number;
 }
 
 export const DEFAULT_ERODE: Omit<ErodeConfig, "topSlot"> = { start: 0.15, full: 0.9, amount: 0.75, vegPull: 0.3, order: 0.6, patch: 0.6, grain: 4, shade: 0.25, feed: 0.6 };

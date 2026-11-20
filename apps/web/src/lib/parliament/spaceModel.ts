@@ -494,7 +494,16 @@ export class SpaceModel {
   private assets = new Map<number, Map<number, { src: Box[]; kept: Box[]; clock: { born: number; top: number }; seenBorn: number; over: Box[] | null; gen: number; swapAt: number; swapped: Box[] }>>();
   /** The assets of ONE BUILDING IN ONE SLOT as they are drawn: their masses joined (latticeUnion), kept while the
    *  assets in it are the same. */
-  private assetGroups = new Map<string, { sig: string; boxes: Box[] }>();
+  private assetGroups = new Map<string, { sig: string; boxes: Box[]; units: Box[] | null }>();
+  /**
+   * THE FOSSIL'S UNITS (the artist, 2026-11-20: "부재 단순화에 스텝을 정해서, '모양은 변하지 않지만 여튼 더 크게 어림한 단순화
+   * 부재' 단계를 만들고, 화석화는 그걸 단위로 진행하든가"). A second step of the simplification that is NOT drawn: the same
+   * masses of a building's slot joined on a wider lattice (ErodeConfig.lodUnit) — fewer, larger bodies with the
+   * building's outline roughly kept. The seeded mass is made of THEM instead of the asset's own boxes: each is one
+   * unit the fossil grows out of (the wall's shader presses a vertex to its unit), so the mass comes lump by lump
+   * of a building, not sliver by sliver of its many boxes. Empty = the asset's own boxes, as before.
+   */
+  private fossilUnits: Box[] = [];
   /** An asset's boxes go on by the clock of what they were first made from, whatever is built over them later. */
   private assetClock = new WeakMap<Box, { born: number; top: number; stood?: number }>();
   /** New building over an asset: when each of its parts arrives ([born, order], as arrive.ts). */
@@ -2651,6 +2660,9 @@ export class SpaceModel {
       const shiftL = Math.max(0, ec.shift ?? 0);
       const perTopL = shiftL > 0 ? Math.max(1, ec.slotSec ?? box.secPerUnit) / shiftL : 0;
       const grid = Math.max(0.1, ec.lodGrid ?? 0.5);
+      // (the fossil's units: a wider lattice than the asset's own — never finer; 0 = none)
+      const unitGrid = (ec.lodUnit ?? 0) > 0 ? Math.max(grid, ec.lodUnit ?? 0) : 0;
+      const fossilUnits: Box[] = [];
       const seedOf = new Map(seeds.map((sd) => [sd.id, sd] as const));
       const runsOf = this.buildingsOfSeeds(box);
       const isMass = (b: Box) => b.kind === "mass" && !b.tilt;
@@ -2750,7 +2762,7 @@ export class SpaceModel {
       // each building's assets of a slot as one body — made again only when the assets in it are other than they were
       for (const [bk, members] of bodies) {
         members.sort((p, q) => p.seed - q.seed);
-        const sig = `${grid}|${members.map((m) => `${m.seed}:${m.st.gen}:${m.st.src.length}`).join(",")}`;
+        const sig = `${grid}|${unitGrid}|${members.map((m) => `${m.seed}:${m.st.gen}:${m.st.src.length}`).join(",")}`;
         let body = this.assetGroups.get(bk);
         if (!body || body.sig !== sig) {
           const masses: Box[] = [];
@@ -2759,12 +2771,15 @@ export class SpaceModel {
             for (const q of m.st.src) masses.push(q);
             if (m.st.clock.born < clock.born) clock = m.st.clock; // (the oldest of them: what the body was first made from)
           }
-          body = { sig, boxes: SpaceModel.latticeUnion(masses, grid, Math.max(0.05, box.unit / 2)) };
+          body = { sig, boxes: SpaceModel.latticeUnion(masses, grid, Math.max(0.05, box.unit / 2)), units: unitGrid > 0 ? SpaceModel.latticeUnion(masses, unitGrid, Math.max(0.05, box.unit / 2)) : null };
           for (const q of body.boxes) this.assetClock.set(q, clock);
+          if (body.units) for (const q of body.units) this.assetClock.set(q, clock);
           this.assetGroups.set(bk, body);
         }
         for (const q of body.boxes) out.push(q);
+        if (body.units) for (const q of body.units) fossilUnits.push(q);
       }
+      this.fossilUnits = fossilUnits;
       for (const bk of this.assetGroups.keys()) if (!bodies.has(bk)) this.assetGroups.delete(bk);
       // (for the readout: how many cell-slots are assets, and how many parts that left of how many)
       this.stages["asset slots (n)"] = nAssets;
@@ -2774,6 +2789,7 @@ export class SpaceModel {
     } else if (this.assets.size) {
       this.assets.clear();
       this.assetGroups.clear();
+      this.fossilUnits = [];
     }
     /** Seconds a part's cell-slot has been there past its wait, in the clock's shared steps (AGE_STEPS to `lifeSec`:
      *  all parts move at once, so nothing is worked out again between two steps). A part below its building's slots
@@ -3250,7 +3266,11 @@ export class SpaceModel {
     const spreadS = Math.max(0, Math.min(1, fuse.freshSpread ?? 0)), freshS = Math.max(0, fuse.freshSlots ?? 0);
     const amountS = bc ? Math.min(1, Math.max(0, bc.erode.amount)) : 0;
     const goneKey = bc ? `${JSON.stringify({ ...bc.erode, topSlot: 0, stood: 0 })}:${fuse.fuseOnset}:${freshS}:${spreadS}` : "";
-    for (const b of this.built) {
+    // (THE FOSSIL'S UNITS — fossilUnits: with them the seeded mass is made of the wider bodies, and the asset's own
+    // masses — what is drawn — carry none; its plates and foundation go in as they are: they bound the rooms)
+    const unitsOn = seeded && this.fossilUnits.length > 0;
+    const fuseOf = unitsOn ? [...this.built.filter((b) => !(b.kind === "mass" && this.assetClock.has(b))), ...this.fossilUnits] : this.built;
+    for (const b of fuseOf) {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       if (assetsOnly && !this.assetClock.has(b)) continue;
       const up = standing.has(b);
