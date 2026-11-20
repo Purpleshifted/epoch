@@ -102,6 +102,8 @@ import { HeroCapture, HeroFrame, useHeroShot } from "./HeroShot";
 import { EXHIBITION_FUSION, FUSION_PRESETS } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
+import { FossilField } from "./FossilFieldPass";
+import { fossilClose, fossilLink, fossilOpen, type FieldClock } from "./fossilFieldGpu";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botKinds, botReadout, useGlobalBots, type BotKind } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
@@ -1380,6 +1382,13 @@ function SpaceWorld({
     }
   }, [pipeMats, walkLook.pipeHoles, walkLook.pipeHoleOnset, walkLook.pipeDarken, walkLook.pipeGrain, boxCfg.unit, water?.pipeDepth]);
   const fuseU = useMemo<FuseUniforms>(() => makeFuseUniforms(), []);
+  // (the fossil as one field reads the same clock and knobs: fossilFieldGpu fossilLink)
+  useEffect(() => {
+    fossilLink.clock = fuseU as unknown as FieldClock;
+    return () => {
+      if (fossilLink.clock === (fuseU as unknown as FieldClock)) fossilLink.clock = null;
+    };
+  }, [fuseU]);
   // THE MASS GROWS OUT OF ITS PARTS (fuse.ts seeded): what the shader makes each part's progress of — the window's
   // top from the bots' own clock, every frame (the model's own is in quarters of a slot), and the erosion's and the
   // fusion's knobs as they stand
@@ -1612,6 +1621,8 @@ function SpaceWorld({
       botGround.shown = r.parts.cells;
       botGround.shownAt = performance.now();
     }
+    // (the fossil's material, as far as it is other than it was — fuse.ts field: into the view's field)
+    if (r.fossil) fossilLink.field?.take(r.fossil);
     if (r.fuse) {
       // (the model's worker sends its one mesh EMPTY when the worker beside takes the mass over: nothing to fade
       // from, and the growing stays as that worker's chunks have set it)
@@ -1889,11 +1900,11 @@ function SpaceWorld({
         <bufferGeometry />
         <lineBasicMaterial color="#6a7078" />
       </lineSegments>
-      <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled} material={fusedMats}>
+      <mesh ref={fused} frustumCulled={false} castShadow receiveShadow visible={fuse.enabled && !fuse.field} material={fusedMats}>
         <bufferGeometry />
       </mesh>
       {/* the mass made in the worker beside: a mesh per chunk of the space (applyChunks) */}
-      <group ref={chunkGroup} visible={fuse.enabled} />
+      <group ref={chunkGroup} visible={fuse.enabled && !fuse.field} />
       </group>
       {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
       {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />}
@@ -2314,6 +2325,8 @@ const VEG_OVER = 4;
  *  post-processing (AO, grain, depth of field), no shadows, no refraction; min = 0.6 pixels, a third of the vegetation
  *  points, on top of that. */
 type TestPerf = "off" | "light" | "min";
+/** `?fossil=field`: the fossil as one field on the GPU (fuse.ts field), whatever the knob says — for a link to a preview. */
+const FOSSIL_FIELD_URL = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fossil") === "field";
 const TEST_PERF_KEY = "parliament.testPerf";
 /** Whether the camera goes up with the rising block (세계 › 카메라가 올라가는 덩어리를 따라감), kept in this browser. */
 const CAM_RISE_KEY = "parliament.camRise";
@@ -4206,6 +4219,27 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "값 묶음 불러오기 (이 탭에서만 바뀜 · 남기려면 아래 save · 화석을 전부 다시 만듦)",
         render: () => REDESIGN,
       },
+      // THE FOSSIL AS ONE FIELD ON THE GPU (fuse.ts field; branch gpu-optimized, 2026-11-20 — the artist: "건물은 그대로
+      // 두고 화석만 장으로", "실제 벽에서만 보여 주기"): the same material, the same ruler and knobs of its growing and
+      // going — only how it is made and drawn. A trial: the mesh is what stands unless this is chosen (or ?fossil=field).
+      fossilDraw: {
+        options: { "메시 (지금 방식 · 워커가 조각조각 만듦)": "mesh", "장 (GPU · 시험 중 — 건물은 그대로, 화석만 한 장으로 · 나이에 따라 모양이 바뀜)": "field" },
+        value: "mesh" as "mesh" | "field",
+        label: "화석 그리는 방식",
+        render: () => REDESIGN,
+      },
+      fieldScale: {
+        options: { "절반 (기본)": 0.5, "3분의 1 (가장 가벼움 · 윤곽이 무름)": 0.34, "제 해상도 (무거움)": 1 },
+        value: 0.5,
+        label: "장 화석의 해상도 (화면 픽셀에 대한 비율 · 값이 픽셀 수에 비례)",
+        render: (get: (path: string) => unknown) => REDESIGN && (get(`${FU}.fossilDraw`) === "field" || FOSSIL_FIELD_URL),
+      },
+      fieldGrid: {
+        options: { "0.25 (세밀 · 메모리 큼)": 0.25, "0.35 (기본)": 0.35, "0.5 (성김 · 가벼움)": 0.5 },
+        value: 0.35,
+        label: "장의 격자 (월드 · 바꾸면 장을 처음부터 다시 구움, 몇 초)",
+        render: (get: (path: string) => unknown) => REDESIGN && (get(`${FU}.fossilDraw`) === "field" || FOSSIL_FIELD_URL),
+      },
       // THE MASS CHANGES SOFTLY (FuseFade): what it was dissolves into what it is over this long
       // (levaFocus.ts: this folder lists only the knobs under review; this lists all of it again)
       allKnobs: { value: false, label: "이 폴더의 손잡이 전부 보기 (끄면 지금 손보는 것만)", render: () => REDESIGN },
@@ -4526,6 +4560,16 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   );
   // (the redesign's wall: only in the block — the density's buildings and a block whose top is known)
   const fuseInBlock = isV2 && dn.densityOn && botDepth > 0;
+  // THE FOSSIL AS ONE FIELD ON THE GPU (fuse.ts field): only with the seeded mass in the block (it is the same
+  // material and the same ruler); the token names the view's field — a new one is empty, and the model says all of
+  // the material again (spaceModel fieldMaterial)
+  const fieldOn = REDESIGN && fuseInBlock && fu.fuseOn && fu.fuseGrow === "seed" && (fu.fossilDraw === "field" || FOSSIL_FIELD_URL);
+  const fieldToken = useMemo(() => {
+    if (fieldOn) return fossilOpen(fu.fieldGrid);
+    fossilClose();
+    return 0;
+  }, [fieldOn, fu.fieldGrid]);
+  useEffect(() => () => fossilClose(), []);
   const fuseCfg = useMemo<FuseConfig>(
     () => ({
       enabled: fu.fuseOn && (!REDESIGN || fuseInBlock),
@@ -4554,7 +4598,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building" || fu.fuseGrow === "seed", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", pieceTile: fu.pieceTile, pieceSeg: fu.pieceSeg, voxelTie: fu.voxelTie } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building" || fu.fuseGrow === "seed", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", field: fieldToken || undefined, pieceTile: fu.pieceTile, pieceSeg: fu.pieceSeg, voxelTie: fu.voxelTie } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
@@ -4612,16 +4656,24 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   // 보이질 않으니"): the mass's shape is made in the worker beside, piece after piece — minutes for the whole wall —
   // and a turned knob looked as if it did nothing. The wall says so when the fusion's settings have changed: what is
   // on the screen is the old shape until its piece has been made again (the status line counts them down).
+  // (what the field's pass reads of the look: the pipes' radius, the fossil's colour and glow, its share of the screen)
+  useEffect(() => {
+    const l = fossilLink.look;
+    l.pipe = Math.max(0.12, Math.min(0.6, fu.pipeRadius * 0.7));
+    l.color.set(fu.resinColor);
+    l.glow = fu.resinMode === "frost" ? fu.resinGlow : 0;
+    l.scale = fu.fieldScale;
+  }, [fu.pipeRadius, fu.resinColor, fu.resinMode, fu.resinGlow, fu.fieldScale]);
   const fuseCfgSeen = useRef("");
   useEffect(() => {
     const key = JSON.stringify(fuseCfg);
     const was = fuseCfgSeen.current;
     fuseCfgSeen.current = key;
-    if (!was || was === key || !REDESIGN || !fuseCfg.enabled) return;
+    if (!was || was === key || !REDESIGN || !fuseCfg.enabled || fuseCfg.field) return;
     showNote("화석의 모양 값이 바뀜 — 조각을 차례로 다시 만드는 중 (지금 보이는 것은 아직 옛 모양 · 상태 줄의 '남은 조각'이 0이 되면 다 바뀐 것 · 몇 분)", true);
   }, [fuseCfg]);
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fieldToken, fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   // A SET OF VALUES CHOSEN (the fusion folder's 값 묶음 불러오기): put on the folder's knobs when the choice CHANGES —
   // not when the page opens with a choice saved (what is saved may have been moved since it was chosen)
@@ -4732,7 +4784,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   });
   // (the flowers' bloom — plantCloudsGpu.ts: the layer's knobs turn the composer on for it, in the view of the layer alone)
   const flowerBloom = useFlowerBloom();
-  const composerOn = ro.composerOn || flowerBloom.on;
+  // (the fossil's field is drawn by a pass of the composer: it stays on while that is the way the fossil is drawn)
+  const composerOn = ro.composerOn || flowerBloom.on || fieldOn;
   const aoHalfRes = ro.aoHalfRes;
   const aoQuality = ro.aoQuality;
   // (the view of the layer alone: no AO and no sun's shadows unless its own knobs ask — futureLife.ts FutureRender)
@@ -4783,6 +4836,10 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     [bld],
   );
+  // (the field's pass reads the layer off a sample's height: a slot's height)
+  useEffect(() => {
+    fossilLink.look.unit = tAxis.unit;
+  }, [tAxis.unit]);
   const boxCfg = useMemo<BoxConfig>(
     () => ({
       ...DEFAULT_BOXES,
@@ -4989,7 +5046,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           status={shotLine}
         />
         {composerOn && (
-          <EffectComposer key={`${aoOn}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}`} multisampling={ro.composerMsaa}>
+          <EffectComposer key={`${aoOn}:${ro.grain > 0}:${ro.grainStill}:${ro.dof}:${ro.composerMsaa}:${flowerBloom.on}:${fieldOn}`} multisampling={ro.composerMsaa}>
+            {/* (the fossil as one field, fuse.ts field: right after the scene, before what reads the scene's depth) */}
+            {fieldOn && <FossilField />}
             {/* (what these measure in pixels — the blur, the grain — is scaled by hero.fx while a hero shot is drawn at a
                 larger ratio than the screen's: the same look in the larger picture, HeroShot.tsx) */}
             {aoOn && <N8AO aoRadius={ro.detail.aoRadius} distanceFalloff={ro.detail.distanceFalloff} intensity={ro.detail.aoIntensity} quality={aoQuality} halfRes={aoHalfRes} color="black" />}
@@ -5020,7 +5079,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div>
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
-          {stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
+          {fuseCfg.field && fossilLink.field
+            ? ((f) => ` · 화석(GPU 장) 상자 ${f.boxes} · 벽돌 ${f.bricks} · 구울 것 ${f.toBake + f.toPlace} · ${Math.round(f.mb)} MB · 격자 ${f.grid}${f.refused || f.full ? ` · ⚠ 못 만든 벽돌 ${f.refused + f.full}` : ""}`)(fossilLink.field.stats)
+            : stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
             ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 장에 든 관·길 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
           {stats.build && stats.build !== WALL_BUILD ? ` · ⚠ 건물 워커가 옛 코드(${stats.build}) — 새로고침(⌘R) 필요` : ""}

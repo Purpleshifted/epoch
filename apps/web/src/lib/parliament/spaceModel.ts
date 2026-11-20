@@ -58,6 +58,29 @@ const UNIT_REST_MS = 12000;
 /** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
  *  of (the rest are told at the next call). */
 const UNIT_SEND_MS = 80;
+/** THE FOSSIL AS A FIELD (fuse.ts field): its material is looked over again no more often than this (ms) — a change
+ *  costs the view a few bricks of its field, not a piece of mesh, so it need not rest as long as a ground's job. */
+const FIELD_REST_MS = 2000;
+/** Floats a box of the field's material: x, y, z, sx, sy, sz, yaw, kind (0 plate · 1 body · 2 foundation), slot, the
+ *  age's clock when it hardened (slots), own (sooner or later), most (how much of it the vegetation makes). */
+export const FOSSIL_BOX = 12;
+
+/** What of the fossil's material is other than it was (fuse.ts field). A key said again = that box is other than it
+ *  was. */
+export interface FossilDiff {
+  /** The view's field this is said to (fuse.ts field). */
+  token: number;
+  /** Nothing said before stands: these are all of it. */
+  reset: boolean;
+  /** FOSSIL_BOX floats a box. */
+  add: Float32Array;
+  /** The boxes' keys (partKey), in the order of `add`. */
+  keys: Float64Array;
+  /** Boxes that are no more. */
+  drop: Float64Array;
+  /** How many boxes the material holds now. */
+  n: number;
+}
 /** Whether the pipes and the ways fuse with the seeded mass (sendUnits): off — see there. */
 const SEEDED_TUBES: boolean = false;
 /** A round of ways asked of the other worker that has not come back within this is asked again (ms). */
@@ -467,7 +490,7 @@ export class SpaceModel {
     return b.slot * 4294967296 + Math.floor(partHash(b) * 4294967296);
   }
   private fusedAtOf(b: Box): number | undefined {
-    if (this.units.size) return this.unitFused.get(SpaceModel.partKey(b));
+    if (this.units.size || this.fieldToken) return this.unitFused.get(SpaceModel.partKey(b));
     return this.fusedAt.get(Math.floor(b.slot / NATURE_CHUNK) * NATURE_CHUNK)?.get(SpaceModel.partKey(b));
   }
   /** The wear config the parts were last worn with (the baked layers age by it). */
@@ -730,6 +753,11 @@ export class SpaceModel {
   private remoteOn = false;
   private remoteAbsorb = false;
   private unitSerial = 0;
+  // ── THE FOSSIL AS A FIELD ON THE GPU (fuse.ts field): what the view has been told its material is ──
+  private fieldToken = 0;
+  private fieldSnap = new Map<number, number>();
+  private fieldOut: { reset: boolean; add: number[]; keys: number[]; drop: number[] } | null = null;
+  private fieldAt = 0;
   // ── THE WAYS LAID IN A WORKER OF THEIR OWN (side.worker.ts) ──
   private walkPort: MessagePort | null = null;
   /** The round asked of it (one at a time), and what its answer will be kept under. */
@@ -1245,6 +1273,67 @@ export class SpaceModel {
   }
 
   /**
+   * THE FOSSIL AS A FIELD (fuse.ts field): nothing is fused here or on the other side — the material is looked over
+   * and what is other than it was is kept for the next answer to the view (takeFossil). Every box said is on the
+   * screen at once (the view's field takes it within a frame or two), so its part is absorbed as far as that at once.
+   */
+  private fieldMaterial(bySlot: ReadonlyMap<number, { b: Box; grow?: number[] }[]>, fuse: FuseConfig): FuseMesh | null {
+    let first = false;
+    if (this.fieldToken !== fuse.field) {
+      // (what was made as meshes is let go, here and on the other side; the view's one mesh of it is emptied)
+      if (this.units.size || this.unitOrphans.length || this.unitJob || this.remoteOn) this.dropUnits();
+      this.fieldToken = fuse.field ?? 0;
+      this.fieldSnap.clear();
+      this.fieldOut = { reset: true, add: [], keys: [], drop: [] };
+      this.fieldAt = 0;
+      first = true;
+    }
+    const now = performance.now();
+    if (now - this.fieldAt < FIELD_REST_MS) return first ? mergeMeshes([]) : null;
+    this.fieldAt = now;
+    const out = this.fieldOut ?? (this.fieldOut = { reset: false, add: [], keys: [], drop: [] });
+    const bc = this.blockClock;
+    // (a part with nothing said of its growth — the mass is not the seeded one: it hardened now)
+    const nowAge = bc ? bc.top + Math.max(0, bc.erode.stood ?? 0) : 0;
+    const seen = new Set<number>();
+    let added = 0;
+    for (const l of bySlot.values()) {
+      for (const e of l) {
+        const b = e.b;
+        if (b.tilt) continue;
+        const k = SpaceModel.partKey(b), g = e.grow;
+        const born = g ? g[1] : nowAge, own = g ? g[3] : 1, most = g ? g[5] : 1;
+        const sig = b.x * 3.1 + b.y * 7.3 + b.z * 11.7 + b.sx * 13.9 + b.sy * 17.1 + b.sz * 19.3 + born * 23.9 + own * 29.3 + most * 31.7 + (b.yaw ?? 0) * 37.1;
+        seen.add(k);
+        if (this.fieldSnap.get(k) === sig) continue;
+        this.fieldSnap.set(k, sig);
+        this.unitFused.set(k, 1);
+        out.add.push(b.x, b.y, b.z, b.sx, b.sy, b.sz, b.yaw ?? 0, FRAME_KINDS.has(b.kind) ? 0 : b.kind === "mass" ? 1 : 2, b.slot, born, own, most);
+        out.keys.push(k);
+        added++;
+      }
+    }
+    for (const k of this.fieldSnap.keys()) {
+      if (seen.has(k)) continue;
+      this.fieldSnap.delete(k);
+      this.unitFused.delete(k);
+      out.drop.push(k);
+    }
+    // (parts that have a mass now are read again: they are absorbed as far as that)
+    if (added && (fuse.absorb ?? 1) > 0) this.fuseBuilt++;
+    this.stages["fossil field boxes (n)"] = this.fieldSnap.size;
+    return first ? mergeMeshes([]) : null;
+  }
+
+  /** The fossil's material, as far as it is other than what the view was told (fuse.ts field); null = as it was. */
+  takeFossil(): FossilDiff | null {
+    const o = this.fieldOut;
+    if (!o || (!o.reset && !o.add.length && !o.drop.length)) return null;
+    this.fieldOut = null;
+    return { token: this.fieldToken, reset: o.reset, add: Float32Array.from(o.add), keys: Float64Array.from(o.keys), drop: Float64Array.from(o.drop), n: this.fieldSnap.size };
+  }
+
+  /**
    * THE SEEDED MASS IS MADE ON THE OTHER SIDE (fuseUnits.ts): here only WHAT EACH BUILDING IS MADE OF is said, when
    * its parts are other than they were (and not more often than every so long: its assets come one by one) — its
    * simplified parts with what each one's fossil grows by, the vegetation gathered round it cut to its own extent,
@@ -1467,6 +1556,14 @@ export class SpaceModel {
     // (SEEDED: the mass is the building's whole mass, whatever its progress — it is made again only when its parts
     // are other than they were, and not more often than every so long: its assets come one by one)
     const seeded = !!fuse.seeded;
+    // THE FOSSIL AS A FIELD ON THE GPU (fuse.ts field): only its material is said — nothing is fused
+    if (fuse.field) return this.fieldMaterial(bySlot, fuse);
+    if (this.fieldToken) {
+      this.fieldToken = 0;
+      this.fieldSnap.clear();
+      this.fieldOut = null;
+      this.unitFused.clear();
+    }
     const cfg = JSON.stringify(fuse);
     // ONE FIELD OVER THE WHOLE GROUND (the artist, 2026-11-16, seeing the seeded mass made building by building: "전
     // 구역에 '화석화' 장이 있는 거 아냐?", "전체가 한 덩어리고, 그걸 조정하는 필터함수가 지경별로 어디는 시각화하고 어디는 안
@@ -3697,6 +3794,8 @@ export interface SpaceResponse {
   nature?: PointsResult | null;
   reclaim?: PointsResult | null;
   fuse?: FuseMesh | null;
+  /** The fossil's material as far as it is other than it was (fuse.ts field); absent = as it was / not that way. */
+  fossil?: FossilDiff;
   /** The inferred village above the column (futureVillage.ts); null = as it was. */
   future?: FutureResult | null;
   /** The paths as lines (density.ts pathLines): [x, y, z, x, y, z] per segment. */
@@ -3757,6 +3856,11 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   if (m.fuse) {
     out.fuse = timed("fuse", () => model.computeFuse(m.fuse!));
     if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB, out.fuse.late]) if (a) transfer.add(a.buffer as ArrayBuffer);
+    const fo = model.takeFossil();
+    if (fo) {
+      out.fossil = fo;
+      transfer.add(fo.add.buffer as ArrayBuffer).add(fo.keys.buffer as ArrayBuffer).add(fo.drop.buffer as ArrayBuffer);
+    }
   }
   if (m.future) {
     // (a fault in the inferred village must not take the wall with it: an exception here ended the worker, the view

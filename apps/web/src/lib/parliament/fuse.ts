@@ -153,6 +153,16 @@ export interface FuseConfig {
    */
   seeded?: boolean;
   /**
+   * THE FOSSIL AS ONE FIELD ON THE GPU (2026-11-20, branch gpu-optimized; the artist: "건물은 그대로 두고 화석만
+   * 장으로", "실제 벽에서만 보여 주기"): no mesh is made anywhere — the model only says WHAT THE FOSSIL IS MADE OF
+   * (the same material as the seeded mass: the fossil's units, the plates and the foundations, each with when it
+   * hardened), what is other than it was since the last time (spaceModel fieldMaterial → SpaceResponse.fossil), and
+   * the view bakes a distance field and the place's ages from it and draws it by marching rays (FossilFieldPass).
+   * The number is the view's token for its field: another number = the view's field is new and empty, all of the
+   * material is said again. 0 / absent = the mass is made as meshes, as before.
+   */
+  field?: number;
+  /**
    * THE BLOCK: THE MASS'S GRID IS NO FINER THAN WHAT IT GROWS ON (2026-11-16, with the artist's own values: the
    * simplification's lattice was 1 and the mass was worked out at 0.3 — more than three times finer than the boxes it
    * wraps, a piece of a building 1.5–4.5 s). When the mass grows on the simplified bodies, `voxel` is at least this ×
