@@ -974,8 +974,10 @@ export class FuseUnits {
     const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: p.ps, tubes: p.tubes, x0: p.tx, z0: p.tz, nx: j.tile, nz: j.tile }, j.h, j.u, j.sed, unit.look, j.fuse, j.tile, this.stages);
     turnBack(mesh, j.ang);
     const own: UnitPart[] = p.ps.map((e) => j.parts[e.i]);
-    // (a pipe or a way is, for what its mass grows by, a part of its own: as old as its slot, and all of it fuses)
-    if (own.some((e) => e.grow)) {
+    // (a pipe or a way is, for what its mass grows by, a part of its own: as old as its slot, and all of it fuses —
+    // also where a piece holds nothing but a pipe's trunk: without its growth data the wall's shader never lets it out)
+    const grows = own.some((e) => e.grow) || (!!j.fuse.seeded && p.tubes.length > 0);
+    if (grows) {
       for (const t of p.tubes) {
         const w = (j.tubes ?? [])[(t as FuseTube & { i: number }).i];
         if (!w) continue;
@@ -986,7 +988,7 @@ export class FuseUnits {
     const was = unit.done.get(p.key);
     // (the stamp is written when it is shown: show)
     const stamp = was ? was.stamp : -1;
-    if (own.some((e) => e.grow)) {
+    if (grows && own.length) {
       growData(mesh, own, j.u);
       const B = mesh.growB!;
       for (let v = 0; v < B.length; v += 2) B[v] = stamp;
