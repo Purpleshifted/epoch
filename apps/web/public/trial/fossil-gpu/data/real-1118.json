@@ -1,0 +1,26 @@
+{
+ "source": "the wall (production anthropocene-redesign, /v2/global/lab?bots=on&rate=8, the saved values), the fossil worker's job caught on 2026-11-18 2026-11-18T14:07:27.479Z",
+ "readout": "seeds 4324 · parts 137728 · t 1096 s · top 121.0 · focus latest @ 685 s · 화석(별도 워커) 5149232△ · 남은 조각 192 (다시 만들 것 168) · 조각 11060 ms (최대 11060) · 격자 0.25000000000000006 · 굳어서 장에 든 관·길 0",
+ "boxes": 128128,
+ "tubes": 0,
+ "buildings": 4324,
+ "kinds": {
+  "plinth": 4136,
+  "slab": 4229,
+  "basement": 3734,
+  "pile": 7447,
+  "mass": 108582
+ },
+ "bounds": [
+  -54.61723884163936,
+  -3,
+  -47.93777886668067,
+  56.13176645339271,
+  122,
+  55.164620080894416
+ ],
+ "unit": 2,
+ "slots": 61,
+ "top": 61,
+ "note": "born and veg were not in the job (grow empty): born = the box's slot + 0.5, veg = 0.5"
+}

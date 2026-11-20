@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fossil GPU trial</title>
+<style>
+  :root { --bg: #1d1d1c; --fg: #e8e6e1; --dim: #9a978f; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 12px/1.4 ui-monospace, Menlo, monospace; overflow: hidden; }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; max-width: 100vw; max-height: 100vh; object-fit: contain; }
+  #out { position: fixed; left: 8px; bottom: 8px; max-width: min(560px, calc(100vw - 16px)); white-space: pre-wrap; background: rgba(0,0,0,0.55); padding: 6px 8px; border-radius: 4px; color: var(--fg); pointer-events: none; }
+  #out b { color: #fff; }
+  #shot { display: none; position: fixed; right: 8px; bottom: 8px; width: min(42vw, 560px); background: rgba(0,0,0,0.55); padding: 4px; border-radius: 4px; pointer-events: none; }
+  #shot img { display: block; width: 100%; height: auto; }
+  #shot span { display: block; color: var(--dim); padding: 3px 2px 0; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+  "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.min.js"
+} }
+</script>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="out">loading…</div>
+<div id="shot"><img id="shotimg" src="./gallery/shot3.webp" alt="전시 화면 (갤러리 사진)" /><span>전시 화면 (11/01 전시 버전, 갤러리 사진)</span></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
