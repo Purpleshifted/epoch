@@ -41,7 +41,8 @@ const FUSION_GROUP = "엉김 · 융합 · 레진";
  * the age, the life, the units, the pieces. Nothing is to be chosen there any more; the value stays as saved.
  */
 const FUSION_UNLISTED = new Set(["fuseGrow"]);
-const SEED_DEAD = new Set(["fuseFull", "layerSlots", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange"]);
+// (…and the ways: they do not enter the new fossil — only the pipes' trunks do, spaceModel.ts seededTubes)
+const SEED_DEAD = new Set(["fuseFull", "layerSlots", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "fuseWalks", "walkRadius"]);
 
 /** The key of the checkbox, in a group that is cut down, that lists all of the group again. */
 export const FOCUS_ALL_KEY = "allKnobs";
@@ -66,7 +67,8 @@ export const LEVA_FOCUS: Record<string, readonly string[]> = {
   // part is one knob, growDeep, and how much each part is sooner or later, layerSpread, is listed with it)
   // …and the frame first, the plates and rooms after (2026-11-17, "A2"): the wait and the rise, and the frame they wait
   // behind — ③'s tubes (꼴, their thickness, their share by size, how much the old layers embed them again)
-  "엉김 · 융합 · 레진": ["fusePreset", "fuseOn", "fuseGrow", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
+  // …and the pipes' trunks in the mass (2026-11-20: "배관 본줄기부터"): the switch, which runs are trunks, how thick
+  "엉김 · 융합 · 레진": ["fusePipes", "trunkShare", "trunkThick", "fusePreset", "fuseOn", "fuseGrow", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;

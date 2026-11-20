@@ -589,6 +589,8 @@ export interface PieceTask {
   tubes: FuseTube[];
   /** The parts (and pipes and ways) it grows from (growData). */
   own: UnitPart[];
+  /** Whether it carries growth data (a part that grows, or — seeded — a pipe's trunk alone). */
+  grows: boolean;
 }
 
 /** A piece made, back to the side that keeps the pieces. */
@@ -607,10 +609,12 @@ export function makePiece(
   p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: readonly FuseTube[] },
   own: readonly UnitPart[],
   stages: Record<string, number>,
+  /** Whether it carries growth data (FuseUnits pick: a part that grows, or — seeded — a pipe's trunk alone). */
+  grows = own.some((e) => e.grow),
 ): FuseMesh {
   const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: [...p.ps], tubes: p.tubes, x0: p.tx, z0: p.tz, nx: c.tile, nz: c.tile }, c.h, c.u, c.sed, look, c.fuse, c.tile, stages);
   turnBack(mesh, c.ang);
-  if (own.some((e) => e.grow)) growData(mesh, own, c.u);
+  if (grows && own.length) growData(mesh, own, c.u);
   return mesh;
 }
 
@@ -1014,12 +1018,12 @@ export class FuseUnits {
     const p = this.pick();
     if (!p) return null;
     const t0 = performance.now();
-    const mesh = makePiece(p.j, p.unit.look, p.p, p.own, this.stages);
-    return this.finish(p.unit, p.j, p.p, p.own, p.keys, mesh, performance.now() - t0);
+    const mesh = makePiece(p.j, p.unit.look, p.p, p.own, this.stages, p.grows);
+    return this.finish(p.unit, p.j, p.p, p.own, p.keys, mesh, performance.now() - t0, p.grows);
   }
 
   /** The next piece by the order above, taken out of its building's list (null when nothing may be made now). */
-  private pick(): { unit: Unit; j: UnitJob; p: UnitPiece<Turned>; own: UnitPart[]; keys: number[] } | null {
+  private pick(): { unit: Unit; j: UnitJob; p: UnitPiece<Turned>; own: UnitPart[]; keys: number[]; grows: boolean } | null {
     const now = performance.now();
     this.waitMs = Infinity;
     // (groups whose waiting is over — or that were waiting for nothing any more)
@@ -1058,8 +1062,10 @@ export class FuseUnits {
     const j = q.job;
     const p = q.todo.splice(at, 1)[0];
     const own: UnitPart[] = p.ps.map((e) => j.parts[e.i]);
-    // (a pipe or a way is, for what its mass grows by, a part of its own: as old as its slot, and all of it fuses)
-    if (own.some((e) => e.grow)) {
+    // (a pipe or a way is, for what its mass grows by, a part of its own: as old as its slot, and all of it fuses —
+    // also where a piece holds nothing but a pipe's trunk: without its growth data the wall's shader never lets it out)
+    const grows = own.some((e) => e.grow) || (!!j.fuse.seeded && p.tubes.length > 0);
+    if (grows) {
       for (const t of p.tubes) {
         const w = (j.tubes ?? [])[(t as FuseTube & { i: number }).i];
         if (!w) continue;
@@ -1069,15 +1075,15 @@ export class FuseUnits {
     }
     const keys: number[] = [];
     for (const e of own) if (e.key !== undefined) keys.push(e.key);
-    return { unit: q, j, p, own, keys };
+    return { unit: q, j, p, own, keys, grows };
   }
 
   /** A piece made (here or by a helper): stamped, put in its chunk, shown — or held until its neighbours are made. */
-  private finish(unit: Unit, j: UnitJob, p: UnitPiece<Turned>, own: readonly UnitPart[], keys: number[], mesh: FuseMesh, ms: number): number[] {
+  private finish(unit: Unit, j: UnitJob, p: UnitPiece<Turned>, own: readonly UnitPart[], keys: number[], mesh: FuseMesh, ms: number, grows: boolean): number[] {
     const was = unit.done.get(p.key);
     // (the stamp is written when it is shown: show)
     const stamp = was ? was.stamp : -1;
-    if (own.some((e) => e.grow) && mesh.growB) {
+    if (grows && own.length && mesh.growB) {
       const B = mesh.growB;
       for (let v = 0; v < B.length; v += 2) B[v] = stamp;
     }
@@ -1103,7 +1109,7 @@ export class FuseUnits {
   // ── THE POOL (2026-11-20): the pieces made by helper workers, this side keeping everything else ──
 
   /** A piece out with a helper: everything it is finished with when it comes back. */
-  private flights = new Map<number, { unit: Unit; j: UnitJob; p: UnitPiece<Turned>; own: UnitPart[]; keys: number[]; helper: number }>();
+  private flights = new Map<number, { unit: Unit; j: UnitJob; p: UnitPiece<Turned>; own: UnitPart[]; keys: number[]; grows: boolean; helper: number }>();
   private ticket = 0;
 
   /** Pieces out with a helper now. */
@@ -1126,7 +1132,7 @@ export class FuseUnits {
     const j = p.j;
     return {
       ctx: { type: "ctx", serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
-      task: { type: "piece", ticket, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk }) => ({ b, d, up, sk })), tubes: p.p.tubes, own: p.own },
+      task: { type: "piece", ticket, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk }) => ({ b, d, up, sk })), tubes: p.p.tubes, own: p.own, grows: p.grows },
     };
   }
 
@@ -1140,7 +1146,7 @@ export class FuseUnits {
     if ((st["slow tile ms"] ?? 0) > (this.stages["slow tile ms"] ?? 0)) Object.assign(this.stages, st);
     else for (const k of ["fuse tiles (n)", "fuse cells (n)"]) if (st[k]) this.stages[k] = (this.stages[k] ?? 0) + st[k];
     if (!this.live(f.unit) || f.unit.job?.cfg !== f.j.cfg || f.unit.sigs.get(f.p.key) !== f.p.sig) return null;
-    return this.finish(f.unit, f.j, f.p, f.own, f.keys, m.mesh, m.ms);
+    return this.finish(f.unit, f.j, f.p, f.own, f.keys, m.mesh, m.ms, f.grows);
   }
 
   /** A helper is gone (failed, or the pool was made smaller) — or lost one piece: its pieces go back to be made. */

@@ -158,7 +158,7 @@ function onTask(from: MessagePort, ev: MessageEvent<PieceCtx | PieceTask>): void
   }
   const stages: Record<string, number> = {};
   const t0 = performance.now();
-  const mesh = makePiece(c.c, c.look, m, m.own, stages);
+  const mesh = makePiece(c.c, c.look, m, m.own, stages, m.grows);
   from.postMessage({ type: "piece-done", ticket: m.ticket, mesh, ms: performance.now() - t0, stages } satisfies PieceDone, buffersOf(mesh));
 }
 

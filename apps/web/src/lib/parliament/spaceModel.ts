@@ -58,8 +58,13 @@ const UNIT_REST_MS = 12000;
 /** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
  *  of (the rest are told at the next call). */
 const UNIT_SEND_MS = 80;
-/** Whether the pipes and the ways fuse with the seeded mass (sendUnits): off — see there. */
-const SEEDED_TUBES: boolean = false;
+/** Whether pipes fuse with the seeded mass (sendUnits): THE TRUNKS ONLY since 2026-11-20 — see seededTubes. */
+const SEEDED_TUBES: boolean = true;
+/** …and no more of them in the field than this (the ways and every lateral were 570 155 tubes within seven minutes
+ *  on 11/16: a piece of the mass 7.9 s, the screen 3 fps). Counted WHERE THEY HARDEN: a run that is in stays in, and
+ *  a place hardens only while there is room — no run is ever pushed out by another (its pieces would be made again
+ *  without it, and the trunk would blink). */
+const TRUNK_CAP = 1200;
 /** A round of ways asked of the other worker that has not come back within this is asked again (ms). */
 const WALK_LOST_MS = 180000;
 const LEAVE_KEEP_S = 20;
@@ -499,6 +504,8 @@ export class SpaceModel {
   /** THE FORM A BUILDING MELTS IN (Box.melt), kept per part with the settings it was picked under: picked once — where
    *  the part lay and how lived-in its place was when it first went into the mass — and not again as the window moves. */
   private meltOf = new WeakMap<Box, [string, number]>();
+  /** The fossil's end of life as this round was given it (FuseInput.dead), for the pipes' trunks (seededTubes). */
+  private fossilDead: FuseInput["dead"] | null = null;
   // ── SIMPLIFIED WITH TIME (computeParts) ──
   /** Per building and slot: the ASSET its parts were made into once it had stood long enough — the masses it is made
    *  of (`src`: its own, and what was built over it and taken in), its plates and foundation as they were (`kept`),
@@ -794,7 +801,7 @@ export class SpaceModel {
 
   /** THE PIPES AND WAYS BY WHERE THEY LIE (kind, slot, the cell of their middle): since when something has lain there,
    *  when it was last seen, and — once hardened — the runs and lines as they lay then. */
-  private tubeSeen = new Map<string, { k: number; first: number; seen: number; hard: (FuseTube & { born?: number })[] | null }>();
+  private tubeSeen = new Map<string, { k: number; first: number; seen: number; hard: (FuseTube & { born?: number; share?: number })[] | null }>();
 
   /**
    * THE PIPES AND WAYS HARDEN BEFORE THEY FUSE (the artist, 2026-11-16: "길이랑 파이프는 화석화 연결 안 되고 있음, 변화해서
@@ -807,36 +814,84 @@ export class SpaceModel {
    * the simplification takes, however it was redrawn meanwhile, hardens: the runs and lines through it are taken AS
    * THEY LIE AT THAT MOMENT and kept — the fusion's from then on, whatever is laid there afterwards, until the
    * window lets go of the slot. Their age is counted from the window's top at that moment (`born`).
+   *
+   * THE PIPES' TRUNKS ONLY (2026-11-20). All of it was taken out the same evening it went in (sendUnits: 570 155
+   * tubes); the artist, four days on, of the fossil that had lost its thick bones and of pipes that neither harden
+   * nor come and go: "본줄기만 하는 건 ㄱㅊ은 생각인 것 같아", "배관 본줄기부터". So: only the runs that carry the most
+   * water of their layer (trunksNow — a run is already a straight stretch of its route, a few to a layer), no
+   * manhole shafts, no ways; each a BONE in the mass, `trunkThick` times its pipe; born on the same clock as a
+   * building's part, so it comes out by its age and its life ends as theirs does (FuseInput.dead: let go for good).
    */
   private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
     const bc = this.blockClock;
     // (by the clock on the wall: the model's own time is the latest thing written, and does not run on in the block)
     const now = Date.now() / 1000, hardenS = Math.max(20, bc ? fossilWaitSec(bc.erode) : 40), GRACE_S = 25;
-    const here = new Map<string, FuseTube[]>();
-    for (const t of this.tubesNow(fuse, u)) {
+    const thick = Math.max(1, fuse.trunkThick ?? 3), least = fuse.voxel * 1.5, share = Math.max(0, Math.min(1, fuse.trunkShare ?? 0.4));
+    const here = new Map<string, (FuseTube & { share?: number })[]>();
+    for (const t of this.trunksNow(fuse, u)) {
       const key = `${t.kind}:${t.k}:${Math.floor((t.x0 + t.x1) / 2 / CELL)}:${Math.floor((t.z0 + t.z1) / 2 / CELL)}:${Math.abs(t.y1 - t.y0) > Math.abs(t.x1 - t.x0) + Math.abs(t.z1 - t.z0) ? "v" : "h"}`;
       const l = here.get(key);
       if (l) l.push(t);
       else here.set(key, [t]);
     }
+    let room = TRUNK_CAP;
+    for (const e of this.tubeSeen.values()) if (e.hard) room -= e.hard.length;
     for (const [key, l] of here) {
       const e = this.tubeSeen.get(key);
       if (!e) this.tubeSeen.set(key, { k: l[0].k, first: now, seen: now, hard: null });
       else {
         e.seen = now;
-        if (!e.hard && now - e.first >= hardenS) e.hard = l.map((t) => ({ ...t, born: bc ? bc.top : t.k }));
+        // (born on the age's clock — the top's way and what went on while it stood, as a part's is: on a standing
+        // window the top alone never moves, and every trunk would be as old as the wall)
+        if (!e.hard && now - e.first >= hardenS && room >= l.length) {
+          e.hard = l.map((t) => ({ ...t, born: bc ? bc.top + Math.max(0, bc.erode.stood ?? 0) : t.k }));
+          room -= l.length;
+        }
       }
     }
     const out: (FuseTube & { born?: number })[] = [];
     let soft = 0;
+    // (a trunk whose fossil's life is over is let go for good, as a part's is — FuseInput.dead; on the same stepped
+    // clock, so the trunks of a while go together and their ground is not told again for every one of them)
+    const dead = this.fossilDead, deadStep = dead ? Math.max(1, dead.at / 10) : 1;
+    const ageNow = bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / deadStep) * deadStep : 0, H = bc ? Math.max(1, bc.erode.height ?? bc.top) : 1;
     for (const [key, e] of this.tubeSeen) {
       // (let go with its slot; or — not yet hard — nothing has lain there for a while)
       if (e.k < this.floorDone || (!e.hard && now - e.seen > GRACE_S)) this.tubeSeen.delete(key);
-      else if (e.hard) for (const t of e.hard) out.push(t);
-      else soft++;
+      else if (e.hard) {
+        const born = e.hard[0]?.born ?? ageNow;
+        // (FOR GOOD: the place is kept, hardened and empty, until the window lets go of its slot — forgotten, it
+        // would harden again under the pipe that still lies there, and the trunk of a layer long rotted would come
+        // and go for ever)
+        if (dead && bc && (ageNow - born - dead.after) * (1 - dead.deep * (1 - Math.max(0, Math.min(1, (bc.top - (e.k + 0.5)) / H)))) >= dead.at) e.hard = [];
+        // (each a bone in the mass: `trunkThick` times its pipe's radius, never thinner than the grid — and only
+        // what is a trunk by the knob AS IT STANDS: turned up, the thinner ones leave with the next making)
+        else for (const t of e.hard) if ((t.share ?? 1) >= share) out.push({ ...t, r: Math.max(least, t.r * thick) });
+      } else soft++;
     }
-    this.stages["pipes and ways hardening (places)"] = soft;
-    this.stages["pipes and ways hardened (n)"] = out.length;
+    this.stages["pipe trunks hardening (places)"] = soft;
+    this.stages["pipe trunks in the mass (runs)"] = out.length;
+    return out;
+  }
+
+  /**
+   * THE PIPES' TRUNKS, as tubes whole: of every slot's runs those that carry at least `trunkShare` of the most any
+   * run of the slot carries (and more than one building's water) — the main lines, not the laterals; no manhole
+   * shafts, no ways.
+   */
+  private trunksNow(fuse: FuseConfig, u: number): (FuseTube & { share?: number })[] {
+    const wc = this.waterCfg;
+    if (!fuse.fusePipes || !wc) return [];
+    const share = Math.max(0, Math.min(1, fuse.trunkShare ?? 0.4));
+    const most = new Map<number, number>();
+    for (const p of this.drain.pipes) if (p.k0 === undefined && p.flow > (most.get(p.k) ?? 0)) most.set(p.k, p.flow);
+    const yOf = (k: number) => (k - wc.pipeDepth) * u;
+    const out: (FuseTube & { share?: number })[] = [];
+    for (const p of this.drain.pipes) {
+      const top = most.get(p.k) ?? 0;
+      if (p.k0 !== undefined || p.flow < Math.max(2, top * share)) continue;
+      out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k, share: top > 0 ? p.flow / top : 1 });
+    }
     return out;
   }
 
@@ -1296,8 +1351,9 @@ export class SpaceModel {
       // TAKEN OUT (the artist, 2026-11-16 evening: "아니면 길이랑 배관 화석화는 걍 빼"). Watched in her window on her own
       // world: once the places hardened, 43 → 225,170 → 570,155 tubes were in the field within seven minutes (a way is
       // drawn as thousands of short pieces, in every layer), a piece of the mass went from ~1 s to 7.9 s, the model's
-      // round to 14 s and the screen to 3 fps. The pipes and the ways do not fuse; what was written for it stays
-      // below, unused, until it is decided how few tubes a way may be.
+      // round to 14 s and the screen to 3 fps.
+      // BACK IN, THE PIPES' TRUNKS ONLY (2026-11-20, seededTubes): at most TRUNK_CAP runs. The ways stay out until
+      // it is decided how few tubes a way may be.
       for (const t of SEEDED_TUBES ? this.seededTubes(fuse, u) : []) {
         const id = `ground:${box.variety ? Math.round(districtOf((t.x0 + t.x1) / 2, (t.z0 + t.z1) / 2, box.variety).angle * 1e4) : 0}`;
         if (!lists.has(id)) continue;
@@ -3377,6 +3433,7 @@ export class SpaceModel {
     const goneKey = bc ? `${JSON.stringify({ ...bc.erode, topSlot: 0, stood: 0 })}:${fuse.fuseOnset}:${freshS}:${spreadS}` : "";
     // (THE FOSSIL'S UNITS — fossilUnits: with them the seeded mass is made of the wider bodies, and the asset's own
     // masses — what is drawn — carry none; its plates and foundation go in as they are: they bound the rooms)
+    this.fossilDead = seeded && input.dead && input.dead.at > 0 ? input.dead : null;
     const unitsOn = seeded && this.fossilUnits.length > 0;
     // (the fossil that has gone — FuseInput.dead: read on a clock that moves in steps, so the parts of a piece are
     // let go together and the piece is made again once for them, not once for each)
