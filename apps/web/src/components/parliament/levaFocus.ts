@@ -28,7 +28,7 @@ const LAYER_NO_PIT = new Set(["pit", "pitAbove", "beamGlow", "beamFall", "beamTa
  * WHAT DOES NOTHING IS NOT LISTED (the artist, 2026-11-20: "안 듣는 손잡이 잡아서 숨겨"). With the new fossil — its shape
  * made once, as it will be when all of it has fused (화석이 나타나는 방식 = 새 방식) — every layer's look is the oldest
  * layer's, and the knobs that only say WHEN along a part's progress something happens, or what a YOUNG layer looks
- * like, are read by nothing: how full the mass is at which progress, the layers counted in, what an eroded part
+ * like, are read by nothing: how full the mass is at which progress, what an eroded part
  * leaves, when the skeleton is swallowed, from which age a layer is fossil and how its edge wanders, the young
  * layers' steps and thin shell. They keep their values and come back with the old way; `전부 보기` does not list them
  * either — it lists what can be turned.
@@ -42,7 +42,23 @@ const FUSION_GROUP = "엉김 · 융합 · 레진";
  */
 const FUSION_UNLISTED = new Set(["fuseGrow"]);
 // (…and the ways: they do not enter the new fossil — only the pipes' trunks do, spaceModel.ts seededTubes)
-const SEED_DEAD = new Set(["fuseFull", "layerSlots", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "fuseWalks", "walkRadius"]);
+// GONE THROUGH AGAIN, KNOB BY KNOB, AGAINST THE CODE (the artist, 2026-11-20: "화석에서 안 헷갈리게 더이상 안 쓰는 방식은
+// 레바에서 그때그때 좀 없애줘") — and to be gone through each time the way changes:
+//  · scatter: it breaks up thin YOUNG mass — × (1 − the layer's age), and the seeded mass is made at age 1: × 0
+//  · steelFossil: the steel that fuses went in as tubes of the old way's field (tubesOf) — the seeded field takes the
+//    pipes' trunks only, and no steel part is in a unit
+//  · fuseFade: the cross-fade of the ONE mesh the model's worker made; the pieces of the worker beside are replaced
+//    each on its own, and come out of their parts instead
+// (layerSlots WAS WRONGLY HERE, from earlier the same day: nothing of the fossil reads it any more, but the BUILDINGS' erosion
+// does — spaceModel `old`: the progress of a part's place is multiplied by it. Listed again, its label saying so.)
+const SEED_DEAD = new Set(["fuseFull", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "fuseWalks", "walkRadius", "scatter", "steelFossil", "fuseFade"]);
+/**
+ * …AND THE CHOICES THAT LEAD BACK TO THE OLD WAY: what the mass is made of (the parts' own skins / the crust) and where
+ * it grows (on what has been simplified / on every part). The new fossil is the first of each — the crust or "every
+ * part" makes the mass the old way again (spaceModel computeFuse: seeded = … assetsOnly && !crust). While a choice
+ * holds the new way's value it is not listed; should it hold the other, it is — so it can be turned back.
+ */
+const OLD_WAY_CHOICE: Record<string, string> = { fuseBody: "wrap", fuseFrom: "assets" };
 
 /** The key of the checkbox, in a group that is cut down, that lists all of the group again. */
 export const FOCUS_ALL_KEY = "allKnobs";
@@ -68,7 +84,8 @@ export const LEVA_FOCUS: Record<string, readonly string[]> = {
   // …and the frame first, the plates and rooms after (2026-11-17, "A2"): the wait and the rise, and the frame they wait
   // behind — ③'s tubes (꼴, their thickness, their share by size, how much the old layers embed them again)
   // …and the pipes' trunks in the mass (2026-11-20: "배관 본줄기부터"): the switch, which runs are trunks, how thick
-  "엉김 · 융합 · 레진": ["fusePipes", "trunkShare", "trunkThick", "fusePreset", "fuseOn", "fuseGrow", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
+  // (fuseBody · fuseFrom: listed only while they hold the old way's value — OLD_WAY_CHOICE)
+  "엉김 · 융합 · 레진": ["fusePipes", "trunkShare", "trunkThick", "fusePreset", "fuseOn", "fuseGrow", "fuseBody", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;
@@ -135,8 +152,14 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
       path === "히어로샷" ||
       path.startsWith("히어로샷.")
     );
-  if (path.startsWith(`${FUSION_GROUP}.`) && FUSION_UNLISTED.has(path.slice(path.lastIndexOf(".") + 1))) return false;
-  if (path.startsWith(`${FUSION_GROUP}.`) && SEED_DEAD.has(path.slice(path.lastIndexOf(".") + 1)) && data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed") return false;
+  if (path.startsWith(`${FUSION_GROUP}.`)) {
+    const leaf = path.slice(path.lastIndexOf(".") + 1);
+    if (FUSION_UNLISTED.has(leaf)) return false;
+    if (leaf in OLD_WAY_CHOICE && data[path]?.value === OLD_WAY_CHOICE[leaf]) return false;
+    // (the new way is all three: the shape made once, of the parts' own skins, on what has been simplified)
+    const seedWay = data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed" && data[`${FUSION_GROUP}.fuseBody`]?.value !== "crust" && data[`${FUSION_GROUP}.fuseFrom`]?.value !== "all";
+    if (seedWay && SEED_DEAD.has(leaf)) return false;
+  }
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;
     if (data[`${group}.${FOCUS_ALL_KEY}`]?.value) return true;
