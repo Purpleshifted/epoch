@@ -3760,7 +3760,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       lodGrid: { value: 0.5, min: 0.2, max: 4, step: 0.1, label: "합칠 때 모양을 지키는 격자 (월드 · 작을수록 원래 모양 · 클수록 단순한 덩이)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
       // THE FOSSIL'S UNITS (spaceModel fossilUnits; the artist, 2026-11-20: "모양은 변하지 않지만 여튼 더 크게 어림한 단순화
       // 부재 단계를 만들고, 화석화는 그걸 단위로") — a second step, not drawn: the same masses on a wider lattice
-      lodUnit: { value: 2, min: 0, max: 8, step: 0.25, label: "화석의 단위 — 더 크게 어림한 몸통의 격자 (월드 · 그리지 않음: 건물 모양은 그대로 · 화석이 이 덩이마다 자라 나옴 · 0 = 단순화된 상자 그대로)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
+      lodUnit: { value: 2, min: 0, max: 8, step: 0.25, label: "화석의 재료 — 더 크게 어림한 몸통의 격자 (월드 · 그리지 않음: 건물 모양은 그대로 · 화석이 이 덩이마다 자라 나옴 · 0 = 단순화된 상자 그대로)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
     }),
     { order: lab ? 7.955 : 1.77, render: () => isV2 },
   );
@@ -4119,13 +4119,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       pieceTile: {
         options: { "7칸 (잘게: 바뀐 곳이 빨리 반영 · 전체가 차는 데는 더 오래)": 7, "14칸 (지금까지)": 14, "21칸 (크게)": 21 },
         value: 14,
-        label: "화석 조각의 크기: 땅 (한 변의 칸 수 · 바꾸면 화석을 전부 다시 만듦)",
+        label: "화석을 계산하는 조각의 크기: 땅 (한 변의 칸 수 · 모양은 같고 속도만 달라짐 · 바꾸면 전부 다시 만듦)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed",
       },
       pieceSeg: {
         options: { "5단 (잘게)": 5, "10단 (지금까지)": 10, "15단 (크게)": 15 },
         value: 10,
-        label: "화석 조각의 크기: 높이 (단)",
+        label: "화석을 계산하는 조각의 크기: 높이 (단)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed",
       },
       // ONE RULER: THE AGE (the shader's growT; the artist, 2026-11-18: "나이를 세게 고민한다 — 여기에서 점점 멀어지는 기분",
@@ -4142,7 +4142,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // OUT OF ITS OWN UNIT (the shader's press; the artist, 2026-11-20: "부재별 감싸기가 난 훨씬 좋아보여")
       growPress: { value: 1, min: 0, max: 1, step: 0.05, label: "제 단위에서 부풀어 나옴 (1 = 꼭짓점마다 제 덩이 속에 눌려 있다가 부풀어 나옴 — 11/16의 부재별 감싸기 · 0 = 표면 전체가 한 몸으로 조금씩 두꺼워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
-      growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · 위 값이 0에 가까울 때만 보임)", render: () => REDESIGN },
+      growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · '제 단위에서 부풀어 나옴'이 1보다 작을 때만)", render: (get: (path: string) => unknown) => REDESIGN && Number(get(`${FU}.growPress`) ?? 1) < 1 },
       // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form back;
       // fuse.ts FuseMesh.late, the shader's growWait). Shown with the seeded mass; the frame is ③'s tubes (꼴 = 관 /
       // 크기에 따라) and the pipes and ways
@@ -4167,13 +4167,17 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "덩어리가 자라는 곳",
         render: () => REDESIGN,
       },
+      // (THE OLD WAY'S ONLY — the artist, 2026-11-20, when the pieces' size became a knob: "그러면 '덩어리를 만드는 단위'
+      // 레바도 고쳐야 할 것 같고". With the new fossil the unit is not a choice: the ground is one field, made in the
+      // pieces of 화석 조각의 크기, of the bodies of 건물 단순화 › 화석의 단위 — and "묶음 · 타일" here made the mass
+      // without its age (all of it out at once). So in the new way this is neither listed nor read: fuseCfg perBuilding.)
       fuseUnit: {
-        options: { "건물마다 (건물 상태가 달라지면 그 건물만 다시)": "building", "묶음 · 타일 (예전: 10단 × 14칸 × 구역 각도)": "tile" },
+        options: { "건물마다 (건물 상태가 달라지면 그 건물만 다시)": "building", "묶음 · 타일 (10단 × 14칸 × 구역 각도)": "tile" },
         value: "building" as "building" | "tile",
-        label: "덩어리를 만드는 단위",
-        render: () => REDESIGN,
+        label: "덩어리를 만드는 단위 (예전 방식에서만)",
+        render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) !== "seed",
       },
-      unitChange: { value: 0.15, min: 0.03, max: 0.5, step: 0.01, label: "건물 상태가 이만큼 달라지면 덩어리를 다시 만듦 (작을수록 자주 바뀌고 무거움)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseUnit`) === "building" },
+      unitChange: { value: 0.15, min: 0.03, max: 0.5, step: 0.01, label: "건물 상태가 이만큼 달라지면 덩어리를 다시 만듦 (예전 방식에서만 · 작을수록 자주 바뀌고 무거움)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) !== "seed" && get(`${FU}.fuseUnit`) === "building" },
       // ONE CLOCK: what happens to a part is read off its corrosion (0 = new … 1 = gone), the same for every stage
       [FU_WHEN]: folder({
         // THREE BANDS (the artist, 2026-10-31 night): the present (풍화 · 지층 › 현재 두께), the layer where the processes
@@ -4423,7 +4427,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", pieceTile: fu.pieceTile, pieceSeg: fu.pieceSeg, voxelTie: fu.voxelTie } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building" || fu.fuseGrow === "seed", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", pieceTile: fu.pieceTile, pieceSeg: fu.pieceSeg, voxelTie: fu.voxelTie } : {}),
       skeletonWrap: fu.skeletonWrap,
       spikes: fu.spikes,
       spikeLen: fu.spikeLen,
