@@ -34,6 +34,13 @@ const LAYER_NO_PIT = new Set(["pit", "pitAbove", "beamGlow", "beamFall", "beamTa
  * either — it lists what can be turned.
  */
 const FUSION_GROUP = "엉김 · 융합 · 레진";
+/**
+ * …AND THE SWITCH BETWEEN THE TWO WAYS ITSELF IS NOT LISTED (the artist, 2026-11-20: "'화석이 나타나는 방식' 이건 뭐..
+ * 뭘 관리하는 거야???"). It chose how the mass is made — its shape once, let out by its age on the screen (the new
+ * way), or made again whenever a part's progress moved (the old) — and everything since 11/16 is built on the first:
+ * the age, the life, the units, the pieces. Nothing is to be chosen there any more; the value stays as saved.
+ */
+const FUSION_UNLISTED = new Set(["fuseGrow"]);
 const SEED_DEAD = new Set(["fuseFull", "layerSlots", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange"]);
 
 /** The key of the checkbox, in a group that is cut down, that lists all of the group again. */
@@ -126,6 +133,7 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
       path === "히어로샷" ||
       path.startsWith("히어로샷.")
     );
+  if (path.startsWith(`${FUSION_GROUP}.`) && FUSION_UNLISTED.has(path.slice(path.lastIndexOf(".") + 1))) return false;
   if (path.startsWith(`${FUSION_GROUP}.`) && SEED_DEAD.has(path.slice(path.lastIndexOf(".") + 1)) && data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed") return false;
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;
