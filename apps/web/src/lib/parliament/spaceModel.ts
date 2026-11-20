@@ -16,7 +16,7 @@ import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
-import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
+import { erodeThreshold, erosion, erosionAt, fossilWaitSec, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, partReach, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { WALL_BUILD } from "./build";
 import { inferFuture, type FutureConfig, type FutureResult } from "./futureVillage";
@@ -804,7 +804,7 @@ export class SpaceModel {
   private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
     const bc = this.blockClock;
     // (by the clock on the wall: the model's own time is the latest thing written, and does not run on in the block)
-    const now = Date.now() / 1000, hardenS = Math.max(20, bc?.erode.lodSec ?? 40), GRACE_S = 25;
+    const now = Date.now() / 1000, hardenS = Math.max(20, bc ? fossilWaitSec(bc.erode) : 40), GRACE_S = 25;
     const here = new Map<string, FuseTube[]>();
     for (const t of this.tubesNow(fuse, u)) {
       const key = `${t.kind}:${t.k}:${Math.floor((t.x0 + t.x1) / 2 / CELL)}:${Math.floor((t.z0 + t.z1) / 2 / CELL)}:${Math.abs(t.y1 - t.y0) > Math.abs(t.x1 - t.x0) + Math.abs(t.z1 - t.z0) ? "v" : "h"}`;
@@ -1232,6 +1232,18 @@ export class SpaceModel {
     return r;
   }
 
+  /** When a part's cell-slot was built (computeParts bornT) — a part below its building's slots (a pile, a basement)
+   *  goes with the building's first slot, as the age's clock reads it (computeParts aged). */
+  private slotClock(b: Box): { born: number; top: number; stood?: number } | undefined {
+    const m = this.bornT.get(b.seed);
+    if (!m) return undefined;
+    const e = m.get(b.slot);
+    if (e) return e;
+    let lo = Infinity;
+    for (const k of m.keys()) if (k < lo) lo = k;
+    return m.get(lo);
+  }
+
   /** The buildings' masses are let go — here and, when it makes them, on the other side. */
   private dropUnits(): void {
     this.unitTubes.clear();
@@ -1364,7 +1376,7 @@ export class SpaceModel {
           const bc = this.blockClock, ec = bc?.erode;
           if (!bc || !ec || !((ec.shift ?? 0) > 0)) return undefined;
           const perTop = Math.max(1, ec.slotSec ?? box.secPerUnit) / (ec.shift ?? 1);
-          return { now: bc.top + Math.max(0, ec.stood ?? 0), after: ((ec.lodSec ?? 0) * 1.3) / perTop + 1 };
+          return { now: bc.top + Math.max(0, ec.stood ?? 0), after: (fossilWaitSec(ec) * 1.3) / perTop + 1 };
         })(),
       });
       this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map() });
@@ -3278,7 +3290,9 @@ export class SpaceModel {
     // SEEDED (fuse.ts seeded): the mass as it will be when all of it has fused, and for every part what its progress
     // is made of — the wall works the progress out itself. A part that goes before its fossil begins (its erosion's
     // threshold comes first) leaves nothing, and is not in it; nor one where no vegetation makes mass.
-    const seeded = !!bc && !!fuse.seeded && assetsOnly && (bc.erode.shift ?? 0) > 0 && !crustOn;
+    // (…ON EVERY PART, TOO — 2026-11-20: with the simplification off, or 덩어리가 자라는 곳 = 모든 부재에, the seeded mass is
+    // made of every part, each as old as its cell-slot: below)
+    const seeded = !!bc && !!fuse.seeded && (bc.erode.shift ?? 0) > 0 && !crustOn;
     const seedXZ = seeded ? new Map(this.seeds.map((sd) => [sd.id, [sd.x, sd.z] as const] as const)) : null;
     const spreadS = Math.max(0, Math.min(1, fuse.freshSpread ?? 0)), freshS = Math.max(0, fuse.freshSlots ?? 0);
     const amountS = bc ? Math.min(1, Math.max(0, bc.erode.amount)) : 0;
@@ -3313,7 +3327,9 @@ export class SpaceModel {
         if (most < 0.05) continue;
         const [sx, sz] = seedXZ.get(b.seed) ?? [b.x, b.z];
         const nEff = freshS > 0 ? freshS * (spreadS > 0 ? 1 + spreadS * (placeNoise(sx, sz, b.slot, bc.erode.grain * 2) * 2 - 1) : 1) : 0;
-        const ac = this.assetClock.get(b);
+        // (an asset: the clock of what it was first made from; any other part: its cell-slot's — when it was built, as
+        // the asset would have been made from it — so its fossil keeps its time without the simplification)
+        const ac = this.assetClock.get(b) ?? (assetsOnly ? undefined : this.slotClock(b));
         const bornTop = ac?.top ?? bc.top;
         // (what the shader reads the fossil's age off: the age's clock at its building — erode.ts stood)
         const bornAge = bornTop + Math.max(0, ac ? (ac.stood ?? 0) : (bc.erode.stood ?? 0));

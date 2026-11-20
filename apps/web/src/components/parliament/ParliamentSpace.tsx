@@ -93,7 +93,7 @@ import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
 import { futureOnly } from "@/lib/parliament/futureOnly";
-import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
+import { DEFAULT_ERODE, erosionAt, fossilWaitSec, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { applyValues, presetSource, reloadSaved, savable, showNote } from "./levaSave";
@@ -1427,7 +1427,8 @@ function SpaceWorld({
     fuseU.uGrowWaitTop.value = Math.max(0, (er.waitSec ?? 0) / perTop);
     // (a part's fossil begins once every cell-slot of its age is surely simplified — the latest of them, 1.3 of the
     // time — and a slot more for its mass to have been made; then it comes out over three slots)
-    fuseU.uGrowAfter.value = ((er.lodSec ?? 0) * 1.3) / perTop + 1;
+    // (the same wait with the simplification off: erode fossilSec)
+    fuseU.uGrowAfter.value = (fossilWaitSec(er) * 1.3) / perTop + 1;
     fuseU.uGrowOver.value = 3;
     // (the stamps of the pieces made in the worker beside are seconds of ITS clock; a mass made in the model's worker
     // has none — it is whole as it comes)
@@ -1916,7 +1917,7 @@ function SpaceWorld({
         // (every pixel of it gone: the patches of the going are behind by at most 1.5 × their share — FUSE_GONE_FRAG_BODY;
         // and a quarter more, for what a vertex reads of its neighbours' later hardening)
         const at = slots(rs.growDieAfterMin ?? 5.5) + Math.max(1, slots(rs.growDieSpanMin ?? 8.5)) * (holes >= 0.999 ? 1 + 1.5 * Math.max(0, rs.growDieRag ?? 0) : 1);
-        return { deep: Math.max(0, Math.min(1, rs.growDeep ?? 0.6)), at: at * 1.25, after: ((ec.lodSec ?? 0) * 1.3) / perTop + 1 };
+        return { deep: Math.max(0, Math.min(1, rs.growDeep ?? 0.6)), at: at * 1.25, after: (fossilWaitSec(ec) * 1.3) / perTop + 1 };
       })();
       req.fuse = { box: cfg, weather: wx, fuse: fu, dead, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
     }
@@ -3962,7 +3963,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     SIMPLIFY_GROUP,
     savable(SIMPLIFY_GROUP, {
       lodOn: { value: true, label: "켜기 (끄면 부재가 끝까지 낱낱이)" },
-      lodSec: { value: 180, min: 10, max: 1200, step: 10, label: "지어진 뒤 이만큼 지나면 한 덩이로 (초 · 자리마다 ±30%)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
+      // (shown with the simplification off too: the fossil still begins a while after this — erode fossilSec)
+      lodSec: { value: 180, min: 10, max: 1200, step: 10, label: "지어진 뒤 이만큼 지나면 한 덩이로 (초 · 자리마다 ±30%) — 꺼도 화석이 나오기 시작하는 때는 이 값을 따름" },
       // (the lattice the masses are joined on: their outline is kept to its width — the artist, 2026-11-16: "합쳤을 때 모양 유지")
       lodGrid: { value: 0.5, min: 0.2, max: 4, step: 0.1, label: "합칠 때 모양을 지키는 격자 (월드 · 작을수록 원래 모양 · 클수록 단순한 덩이)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
       // THE FOSSIL'S UNITS (spaceModel fossilUnits; the artist, 2026-11-20: "모양은 변하지 않지만 여튼 더 크게 어림한 단순화
@@ -3978,7 +3980,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail, stood: win.stood } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0, lodGrid: sm.lodGrid, lodUnit: sm.lodOn ? sm.lodUnit : 0 } }
+        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail, stood: win.stood } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0, fossilSec: sm.lodSec, lodGrid: sm.lodGrid, lodUnit: sm.lodOn ? sm.lodUnit : 0 } }
         : weather,
     [weather, botDepth, rising, win.top, win.shift, win.tail, win.stood, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread, sm.lodOn, sm.lodSec, sm.lodGrid, sm.lodUnit],
   );
@@ -5002,7 +5004,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const fossilLife = (() => {
     if (!REDESIGN || fu.fuseGrow !== "seed" || !rising) return "";
     const perTop = Math.max(1, tAxis.secPerUnit) / Math.max(0.01, win.shift);
-    const after = ((sm.lodOn ? sm.lodSec : 0) * 1.3 + perTop) / 60;
+    const after = (sm.lodSec * 1.3 + perTop) / 60;
     const min = (m: number) => (m < 10 ? `${m.toFixed(1)}분` : `${Math.round(m)}분`);
     const slow = 1 - Math.max(0, Math.min(1, fu.growDeep ?? 0.6));
     const going = fu.growDie ? ` → ${min(after + fu.growDieAfterMin)}부터 삭음 → ${min(after + fu.growDieAfterMin + fu.growDieSpanMin)}에 다 삭음` : " (삭지 않음)";
