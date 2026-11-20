@@ -496,6 +496,9 @@ export class SpaceModel {
   private erodeSeen = new Map<number, Map<number, [number, number]>>();
   /** SEEDED: how deep in the window a part lies when the erosion takes it ([the settings it holds for, the depth]). */
   private goneDepth = new WeakMap<Box, [string, number]>();
+  /** THE FORM A BUILDING MELTS IN (Box.melt), kept per part with the settings it was picked under: picked once — where
+   *  the part lay and how lived-in its place was when it first went into the mass — and not again as the window moves. */
+  private meltOf = new WeakMap<Box, [string, number]>();
   // ── SIMPLIFIED WITH TIME (computeParts) ──
   /** Per building and slot: the ASSET its parts were made into once it had stood long enough — the masses it is made
    *  of (`src`: its own, and what was built over it and taken in), its plates and foundation as they were (`kept`),
@@ -3289,6 +3292,11 @@ export class SpaceModel {
     const deadStep = dead ? Math.max(1, dead.at / 10) : 1;
     const deadNow = dead && bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / deadStep) * deadStep : 0;
     const deadH = bc ? Math.max(1, bc.erode.height ?? bc.top) : 1;
+    // A FORM OF ITS OWN FOR EVERY BUILDING (fuse.ts StudyConfig.meltVary): the shares of the three forms, and how much
+    // the place steers the pick
+    const mv = seeded ? Math.max(0, Math.min(1, fuse.study?.meltVary ?? 0)) : 0;
+    const mFrame = Math.max(0, fuse.study?.meltFrame ?? 0.3), mLump = Math.max(0, fuse.study?.meltLump ?? 0.35), mSteer = Math.max(0, Math.min(1, fuse.study?.meltSteer ?? 0.6));
+    const meltKey = `${mv > 0 ? 1 : 0}:${mFrame}:${mLump}:${mSteer}`;
     // (how many parts were let go this time — for the readout)
     let letGo = 0;
     const fuseOf = unitsOn ? [...this.built.filter((b) => !(b.kind === "mass" && this.assetClock.has(b))), ...this.fossilUnits] : this.built;
@@ -3309,6 +3317,19 @@ export class SpaceModel {
         const bornTop = ac?.top ?? bc.top;
         // (what the shader reads the fossil's age off: the age's clock at its building — erode.ts stood)
         const bornAge = bornTop + Math.max(0, ac ? (ac.stood ?? 0) : (bc.erode.stood ?? 0));
+        // (the form its building melts in: one number a building — every slot of it alike — against the three shares,
+        // which the place leans: deep and long lived-in to the lump, shallow and hardly used to the bare frame)
+        if (mv > 0) {
+          let ml = this.meltOf.get(b);
+          if (!ml || ml[0] !== meltKey) {
+            const deepS = Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH));
+            const lean = mSteer * (0.5 * deepS + 0.5 * (1 - g)); // 0 … mSteer: towards the lump
+            const fr = Math.max(0, Math.min(1, mFrame)) * (1 - lean), lu = Math.min(1, Math.max(0, Math.min(1, mLump)) + lean * (1 - Math.max(0, Math.min(1, mLump))));
+            const u = hash2(b.seed, 0, 7717);
+            this.meltOf.set(b, (ml = [meltKey, u < fr ? 1 : u > 1 - lu ? 0 : 0.5]));
+          }
+          b.melt = ml[1];
+        } else if (b.melt !== undefined) b.melt = undefined;
         // (its fossil's life is over — the wall's shader draws none of it any more: not made)
         if (dead && (deadNow - bornAge - dead.after) * Math.max(0.2, own) * (1 - dead.deep * (1 - Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH)))) >= dead.at) {
           letGo++;

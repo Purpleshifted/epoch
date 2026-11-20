@@ -130,6 +130,10 @@ export interface Box {
   slot: number;
   yaw?: number;
   tilt?: number;
+  /** THE FORM ITS BUILDING MELTS IN (fuse.ts StudyConfig.meltVary; set by spaceModel for what the fossil is made of):
+   *  the share of the part that is its frame of tubes — 1 = the frame alone, 0.5 = a ragged plate within the tubes,
+   *  0 = the whole lump. Absent = as the fusion's settings say for every part alike. */
+  melt?: number;
   /** Drips only: the floor of their run (wear may lengthen them, never below this). */
   floorY?: number;
 }

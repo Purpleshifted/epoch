@@ -266,6 +266,18 @@ export interface FuseStudy {
   sizeLarge: number;
   /** Per-part random variation of the read size (0 = none … 1 = ×⅓ … ×3). */
   sizeJitter: number;
+  /**
+   * A FORM OF ITS OWN FOR EVERY BUILDING (the artist, 2026-11-20: "형태가 너무 획일화 된 것 같은 건 … 전에는 녹아내리는
+   * 꼴을 다르게 둬서 했는데"). The seeded mass is made once, as its oldest form, of a building's few wide bodies: one
+   * way of melting for the whole wall. With `meltVary` each building takes ONE of three forms by a number of its own
+   * (spaceModel sets Box.melt): the bare FRAME of tubes, a ragged PLATE within the tubes, or the whole round LUMP —
+   * `meltFrame` and `meltLump` of them (the rest plates), and by `meltSteer` the deep and long-lived places lean to
+   * the lump, the shallow and briefly used ones to the frame. 0 / absent = every part by the settings below, alike.
+   */
+  meltVary?: number;
+  meltFrame?: number;
+  meltLump?: number;
+  meltSteer?: number;
   /** E by size: the share of a part drawn as its frame (tubes) rather than its box — 0 = box, 1 = tubes only. */
   pipeSize: boolean;
   pipeSmall: number;
@@ -436,7 +448,7 @@ export function isSkeleton(b: Box, decay: number, cfg: FuseConfig): boolean {
  */
 export function partReach(cfg: FuseConfig): number {
   const st = cfg.study;
-  if (!st || !(st.pipe || st.pipeSize)) return 0;
+  if (!st || !(st.pipe || st.pipeSize || (st.meltVary ?? 0) > 0)) return 0;
   return Math.max(0, st.pipeRadius) * Math.max(1, st.pipeThickLarge ?? 1) * Math.max(1, st.pipeJoint ?? 0);
 }
 
@@ -882,11 +894,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       const t = st ? sizeT(b, hx, hy, hz) : 0;
       // E PIPES: how much of the part is its frame — all of it (pipe), by its size (pipeSize), or none (its box)
       let w = st?.pipeSize ? (st.pipeSmall ?? 0) + ((st.pipeLarge ?? 1) - (st.pipeSmall ?? 0)) * t : st?.pipe ? 1 : 0;
+      // (…or the form its building melts in — Box.melt: its own, whatever the size says, by as much as meltVary)
+      const own = st && b.melt !== undefined ? Math.max(0, Math.min(1, st.meltVary ?? 0)) : 0;
+      if (own > 0) w += (b.melt! - w) * own;
       // by kind: a plate (slab, plinth) stays a plate — its rim as tubes, the plate itself kept (ref 9666: plates
       // and fibres; the artist 2026-10-19: architecture, not a wire ball)
       if (w > 0 && st?.platesStay && FRAME_KINDS.has(b.kind)) w = Math.min(w, PLATE_FRAME);
       // FOSSIL: in the old layers the frame is embedded again — the box fills in around the tubes
-      if (w > 0 && st && (st.pipeFossil ?? 0) > 0) w *= 1 - st.pipeFossil * fossilAt(layerAge(b.slot), b.x, b.y, b.z);
+      // (a building's own form is its form for good: it is not embedded again by as much as it is its own)
+      if (w > 0 && st && (st.pipeFossil ?? 0) > 0) w *= 1 - (1 - own) * st.pipeFossil * fossilAt(layerAge(b.slot), b.x, b.y, b.z);
       if (st && w > 0) {
         // the part's twelve edges as tubes (its frame), the box itself left open (or drawn fainter: below); the big
         // parts' tubes are thicker (bones), and balls at the corners are the joints
