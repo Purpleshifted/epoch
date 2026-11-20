@@ -244,7 +244,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       "작업 분담 (CPU · 그림은 같음)": folder(
         {
           fuseWorkers: {
-            options: { [`자동 (코어 수로 · 이 기계 ${autoFuseWorkers()}개)`]: 0, "1 (화석 워커 하나 · 예전)": 1, "2": 2, "3": 3, "4": 4 } as Record<string, number>,
+            // (labels that are not numbers: a number-like key would be put first by the object's own order)
+            options: { [`자동 (코어 수로 · 이 기계 ${autoFuseWorkers()}개)`]: 0, "1개 (화석 워커 하나 · 예전)": 1, "2개": 2, "3개": 3, "4개": 4 } as Record<string, number>,
             value: 0,
             label: "화석 워커 수 (조각을 나란히 만듦 · 바꾸면 만들던 조각은 다시 줄 섬)",
           },
