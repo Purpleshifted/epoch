@@ -183,6 +183,13 @@ export interface FuseConfig {
    * the steel (columns, beams) stays as fossil instead of rusting away.
    */
   fusePipes: boolean;
+  /**
+   * THE PIPES' TRUNKS IN THE SEEDED MASS (spaceModel trunksNow; the artist, 2026-11-20: "본줄기만 하는 건 ㄱㅊ은 생각인 것
+   * 같아"): a pipe run is a trunk when it carries at least this share of the most any run of its slot carries; and
+   * in the mass it is this many times its own radius (a bone). Absent: 0.5, 3.
+   */
+  trunkShare?: number;
+  trunkThick?: number;
   fuseWalks: boolean;
   /** A walkway's tube radius (world). */
   walkRadius: number;

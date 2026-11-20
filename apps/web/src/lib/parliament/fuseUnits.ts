@@ -135,6 +135,8 @@ export function fuseTilesOf(
  * point of the box, drawn a little inside it, so the pressed mass lies within the part) and that part's growing
  * data. The parts are looked up through a coarse grid of the space (a vertex asks only the parts near it).
  */
+/** How far off its unit's surface a vertex of the mass is pressed (world): clear of the wall drawn there. */
+const ANCHOR_OUT = 0.08;
 export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[], unit = 0): void {
   const nv = mesh.position.length / 3;
   const anchor = new Float32Array(nv * 3), A = new Float32Array(nv * 4), B = new Float32Array(nv * 2);
@@ -170,7 +172,14 @@ export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number
       if (d2 < bd) {
         bd = d2;
         best = pi;
-        const ix = qx * 0.9, iy = qy * 0.9, iz = qz * 0.9;
+        // ON ITS UNIT, NOT IN IT (the artist, 2026-11-20: "화석 생길 때 건물벽이랑 맞물리면 플리커링이 보임"). The point a
+        // vertex is pressed to lay a tenth inside the box: swelling out, the mass's skin passed THROUGH the building's
+        // wall — for as long as the fossil takes to come, the two surfaces lay in one another and flickered. It now
+        // lies just OFF the box's surface on the vertex's side (ANCHOR_OUT), so the skin begins on the wall and only
+        // ever moves away from it. (A vertex inside the box — mass within the body — is pressed inwards as before.)
+        const off = Math.sqrt(d2);
+        const m = off > 1e-6 ? Math.min(1, ANCHOR_OUT / off) : 0;
+        const ix = off > 1e-6 ? qx + (lx - qx) * m : qx * 0.9, iy = off > 1e-6 ? qy + (ly - qy) * m : qy * 0.9, iz = off > 1e-6 ? qz + (lz - qz) * m : qz * 0.9;
         ax = b.x + ix * c + iz * s;
         ay = b.y + iy;
         az = b.z - ix * s + iz * c;
