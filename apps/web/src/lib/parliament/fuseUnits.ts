@@ -83,7 +83,7 @@ export function tubeBoxes(w: FuseTube): Box[] {
 
 /** A chunk's parts (all square to the grid) fused tile by tile. */
 export function fuseTilesOf(
-  w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: readonly FuseTube[]; x0: number; z0: number; nx: number; nz: number },
+  w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number }[]; tubes: readonly FuseTube[]; x0: number; z0: number; nx: number; nz: number },
   h: NatureHistory | null,
   u: number,
   sed: Sed,
@@ -143,6 +143,7 @@ export function fuseTilesOf(
       const tileMesh = fuseChunk({
           parts: ps.map((e) => e.b),
           decay: ps.map((e) => e.d),
+          weight: ps.map((e) => e.w ?? 1),
           standing: ps.map((e) => e.up),
           skeleton: ps.map((e) => e.sk),
           tubes,
@@ -472,7 +473,7 @@ export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boole
         // takeLived, or the slot built higher) makes its piece be made again; otherwise the old age would stay in it)
         let bornSig = 0;
         for (const e of mine) {
-          sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
+          sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + Math.round(((e as { w?: number }).w ?? 1) * 20) * 0.37 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
           // (a sum, as `sg` is: the same parts in another order are the same piece)
           if (e.born !== undefined) bornSig += e.born * (1.9 + e.b.x * 0.37 + e.b.y * 0.53 + e.b.z * 0.71);
         }
@@ -656,7 +657,8 @@ export interface PieceTask {
   k1: number;
   tx: number;
   tz: number;
-  ps: { b: Box; d: number; up: boolean; sk: boolean }[];
+  /** (`w`: the part's fossil share in the field — FuseChunkInput.weight, what the iso is read against) */
+  ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number }[];
   tubes: FuseTube[];
   /** The parts (and pipes and ways) it grows from (growData). */
   own: UnitPart[];
@@ -679,7 +681,7 @@ export interface PieceDone {
 export function makePiece(
   c: { h: NatureHistory | null; u: number; sed: Sed; fuse: FuseConfig; tile: number; ang: number },
   look: ((k: number) => number) | undefined,
-  p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: readonly FuseTube[] },
+  p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean; w?: number }[]; tubes: readonly FuseTube[] },
   own: readonly UnitPart[],
   stages: Record<string, number>,
   /** Whether it carries growth data (FuseUnits pick: a part that grows, or — seeded — a pipe's trunk alone). */
@@ -802,6 +804,8 @@ interface Turned {
   d: number;
   up: boolean;
   sk: boolean;
+  /** Its fossil share in the field (fuse.ts FuseChunkInput.weight): the seeded mass's `most`. */
+  w: number;
   /** Its place in the job's parts. */
   i: number;
   /** SEEDED: the age its fossil is counted from (growData's grow[1]) — in the piece's signature (unitPieces). */
@@ -921,7 +925,7 @@ export class FuseUnits {
     if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), sigs: new Map(), staged: new Map(), vis: new Map(), leaving: [] }));
     const c = Math.cos(j.ang), sn = Math.sin(j.ang);
     // (a turned district is fused in its own frame, where its boxes lie along the grid: seeds.ts' turn undone)
-    const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, i, born: e.grow?.[1] }));
+    const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, w: e.grow ? Math.max(0, Math.min(1, e.grow[5] ?? 1)) : 1, i, born: e.grow?.[1] }));
     const tubes = (j.tubes ?? []).map((t, i) => (j.ang ? { ...t, x0: t.x0 * c - t.z0 * sn, z0: t.x0 * sn + t.z0 * c, x1: t.x1 * c - t.z1 * sn, z1: t.x1 * sn + t.z1 * c, i } : { ...t, i }));
     const pad = fusePad(j.fuse);
     const pieces = ps.length
@@ -1449,7 +1453,7 @@ export class FuseUnits {
     const j = p.j;
     return {
       ctx: { type: "ctx", id: j.id, serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
-      task: { type: "piece", ticket, id: j.id, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk }) => ({ b, d, up, sk })), tubes: p.p.tubes, own: p.own, grows: p.grows },
+      task: { type: "piece", ticket, id: j.id, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk, w }) => ({ b, d, up, sk, w })), tubes: p.p.tubes, own: p.own, grows: p.grows },
     };
   }
 

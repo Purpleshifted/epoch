@@ -774,6 +774,14 @@ export interface FuseChunkInput {
   standing?: ArrayLike<boolean>;
   /** Per part: skeleton (isSkeleton): wrapped only thinly. Absent = none. */
   skeleton?: ArrayLike<boolean>;
+  /**
+   * Per part: how much of its fused share goes into the field (the artist, 2026-11-21: the iso — "덩어리로 치는 밀도
+   * 기준" — raised high changed nothing, "Make iso work"). The seeded mass is made as it will be when all of it has fused,
+   * so every part stood in the field at 1 and the iso only trimmed the blur between them. There it is the part's fossil
+   * share — how much of it the vegetation makes (spaceModel's `most`, massVeg) — and the iso decides which of them
+   * are mass at all: raised, the parts with the least fossil drop out first, the rest still join. Absent = 1.
+   */
+  weight?: ArrayLike<number>;
   /** Vegetation history (may be null: concrete only). */
   history: NatureHistory | null;
   /** Slots [k0, k1] of this chunk. */
@@ -938,7 +946,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     if (b.y + hh + cfg.accDepth < yLo || b.y - hh - cfg.accDepth > yHi) continue;
     const hx = Math.max(b.sx, vs) / 2, hz = Math.max(b.sz, vs) / 2, hy = Math.max(2 * hh, vs) / 2;
     // 2 FUSION: the part becomes mass as it decays (also once it has fallen away: its mass stays in its place)
-    const f = fusedShare(input.decay ? input.decay[pi] : 1, cfg);
+    const f = fusedShare(input.decay ? input.decay[pi] : 1, cfg) * (input.weight ? input.weight[pi] : 1);
     if (crust && V) {
       // THE CRUST: every part is part of the hull, whatever its progress; how far the crust has come there is V
       // (a voxel wider than the part: the crust stands just off it)
@@ -1074,11 +1082,14 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
           const m = input.parts[pi];
           if (m.kind !== "mass" || m.y <= yb || m.y >= yt) continue;
           if (m.x + m.sx / 2 < ax0 || m.x - m.sx / 2 > ax1 || m.z + m.sz / 2 < az0 || m.z - m.sz / 2 > az1) continue;
-          sum += fusedShare(input.decay ? input.decay[pi] : 1, cfg);
+          sum += fusedShare(input.decay ? input.decay[pi] : 1, cfg) * (input.weight ? input.weight[pi] : 1);
           cnt++;
         }
         const a = cnt ? sum / cnt : 0;
         if (a <= 0) continue;
+        // (by the same rule as its parts: a room whose parts' fossil share, swollen as the mass is, is under the iso is
+        // no mass — FuseChunkInput.weight; the oldest layers' swelling, as the seeded mass is old everywhere)
+        if (input.weight && a * cfg.gain * 1.45 < iso0) continue;
         const ia = Math.max(0, Math.ceil(ax0 / vs) - I0), ib = Math.min(nx - 1, Math.floor(ax1 / vs) - I0);
         const ja = Math.max(0, Math.ceil(yb / vs) - J0), jb = Math.min(ny - 1, Math.floor(yt / vs) - J0);
         const ka = Math.max(0, Math.ceil(az0 / vs) - K0), kb = Math.min(nz - 1, Math.floor(az1 / vs) - K0);
