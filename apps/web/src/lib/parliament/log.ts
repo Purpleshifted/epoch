@@ -131,6 +131,21 @@ function isEvent(e: unknown): e is PEvent {
 }
 
 /** The current epoch key as stored (null = no epoch yet). Does not create one. */
+/**
+ * Said in THIS tab when it writes the epoch key itself (a player tab's first epoch; the bot server's on joining it):
+ * storage events only reach the other tabs, and the 3 s poll can miss the first key entirely (null → its own → the
+ * server's), so a phone's first life stayed in a world of its own and saw nobody (2026-11-21). useWorld listens.
+ */
+export const EPOCH_WRITTEN_EVENT = "anthropocene:epoch-written";
+
+export function announceEpochWritten(): void {
+  try {
+    window.dispatchEvent(new Event(EPOCH_WRITTEN_EVENT));
+  } catch {
+    /* no window */
+  }
+}
+
 export function currentEpochKey(): string | null {
   try {
     return localStorage.getItem(LS_PARLIAMENT_EPOCH_KEY);
@@ -344,6 +359,7 @@ export function getEpochMs(): number {
     if (raw) return Number(raw);
     const now = worldNow();
     localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(now));
+    announceEpochWritten();
     return now;
   } catch {
     return worldNow();
