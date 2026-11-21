@@ -106,8 +106,11 @@ const M = 72;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 const f1 = (v: number) => (Math.round(v * 10) / 10).toString();
 
-const text = (x: number, y: number, s: string, size: number, fill: string, anchor: "start" | "end" = "start") =>
-  `<text x="${f1(x)}" y="${f1(y)}" font-size="${size}" fill="${fill}"${anchor === "end" ? ` text-anchor="end"` : ""}>${esc(s)}</text>`;
+/** `grow`: the letters' strokes this much heavier (an outline in their own colour, square at the corners). */
+const text = (x: number, y: number, s: string, size: number, fill: string, anchor: "start" | "end" = "start", grow = 0) =>
+  `<text x="${f1(x)}" y="${f1(y)}" font-size="${size}" fill="${fill}"${anchor === "end" ? ` text-anchor="end"` : ""}${
+    grow > 0 ? ` stroke="${fill}" stroke-width="${f1(grow)}" stroke-linejoin="miter"` : ""
+  }>${esc(s)}</text>`;
 
 /** A melody as Glyph.tsx draws it: each note a bar as long as it lasts, a high voice high in the box. */
 function glyph(dots: readonly GlyphDot[], x: number, y: number, cell: number, fill: string): string {
@@ -136,13 +139,18 @@ interface Palette {
   slab: string;
   /** One ink: no faint fills. */
   oneInk?: boolean;
+  /** Light lines on black, printed: the heated dots round a light line spread into it and eat it, so every light line
+   * of the worldline is drawn this much wider (card units) and every light dash this much longer (the first black
+   * prints, 2026-11-22: the white lines came out almost swallowed); the number's strokes too, the time labels' half (a
+   * whole one would close their digits' holes). The melody's notes and the QR are left as they are. */
+  gain?: number;
 }
 
 const PALETTES: Record<PlateTheme, Palette> = {
   paper: { bg: "#ffffff", ink: "#111111", dim: "#5e5e5a", faint: "#b4b4ae", slab: "#6a6a66" },
   screen: { bg: "#0a0a0a", ink: "#ebebe7", dim: "#9a9b96", faint: "#56574f", slab: "#bbbbbb" },
   print: { bg: "#ffffff", ink: "#000000", dim: "#000000", faint: "#000000", slab: "#ffffff", oneInk: true },
-  printBlack: { bg: "#000000", ink: "#ffffff", dim: "#ffffff", faint: "#ffffff", slab: "#000000", oneInk: true },
+  printBlack: { bg: "#000000", ink: "#ffffff", dim: "#ffffff", faint: "#ffffff", slab: "#000000", oneInk: true, gain: 4 },
 };
 
 /** Portrait (54 × 86 mm) or landscape (86 × 54 mm): the same card turned, laid out anew. */
@@ -199,10 +207,12 @@ export function plateSvg(
   const nameX = land ? qrX : MARGIN;
   const nameY = land ? H - MARGIN - NAME_BOX : qrY;
   out.push(glyph(glyphOf(p.me), nameX, nameY, NAME_BOX / GLYPH_COLS, C.ink));
-  // the number: its digits' foot on the bottom margin; left on the margin (portrait), right on it (landscape)
+  // the number: its digits' foot on the bottom margin; left on the margin (portrait), right on it (landscape); on black,
+  // printed, its strokes take the lines' gain (Palette.gain: the print eats it back to the edges set here)
   const base = H - MARGIN + DIGIT.foot * NUMBER_SIZE;
   const num = individualNo(p.me);
-  out.push(land ? text(W - MARGIN + DIGIT.bearing * NUMBER_SIZE, base, num, NUMBER_SIZE, C.ink, "end") : text(MARGIN, base, num, NUMBER_SIZE, C.ink));
+  const g = C.gain ?? 0;
+  out.push(land ? text(W - MARGIN + DIGIT.bearing * NUMBER_SIZE, base, num, NUMBER_SIZE, C.ink, "end", g) : text(MARGIN, base, num, NUMBER_SIZE, C.ink, "start", g));
 
   // the QR, dark on light whatever the paper (a code reads that way); on white the paper is its quiet zone
   if (p.qr) {
@@ -389,17 +399,26 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
   const sx = (u: number, v: number) => X0 + (u - v) * C45 * s;
   const sy = (u: number, v: number, t: number) => Y0 - (u + v) * C45 * s * SQUASH + (tEnd - t) * k;
   const pt = (u: number, v: number, t: number) => `${f1(sx(u, v))} ${f1(sy(u, v, t))}`;
+  // light lines on black, printed: heavier lines, longer dashes, so they come out as the screen shows them (Palette.gain)
+  const G = C.gain ?? 0;
+  const lw = (w: number) => f1(w + G);
+  const dash = (on: number, off: number) => `${f1(on + G)} ${f1(Math.max(2, off - G))}`;
 
   const out: string[] = [];
   // the block, quiet: the near edges down to the birth, the far ones dashed
-  out.push(`<path d="M${pt(u1, v1, tEnd)}L${pt(u1, v1, 0)}M${pt(u0, v1, 0)}L${pt(u1, v1, 0)}L${pt(u1, v0, 0)}" stroke="${C.faint}" stroke-width="${HAIR}" stroke-dasharray="6 10" fill="none"/>`);
-  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u0, v1, 0)}L${pt(u0, v0, 0)}L${pt(u1, v0, 0)}L${pt(u1, v0, tEnd)}M${pt(u0, v0, tEnd)}L${pt(u0, v0, 0)}" stroke="${C.dim}" stroke-width="${EDGE}" fill="none" stroke-linejoin="round"/>`);
+  out.push(`<path d="M${pt(u1, v1, tEnd)}L${pt(u1, v1, 0)}M${pt(u0, v1, 0)}L${pt(u1, v1, 0)}L${pt(u1, v0, 0)}" stroke="${C.faint}" stroke-width="${lw(HAIR)}" stroke-dasharray="${dash(6, 10)}" fill="none"/>`);
+  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u0, v1, 0)}L${pt(u0, v0, 0)}L${pt(u1, v0, 0)}L${pt(u1, v0, tEnd)}M${pt(u0, v0, tEnd)}L${pt(u0, v0, 0)}" stroke="${C.dim}" stroke-width="${lw(EDGE)}" fill="none" stroke-linejoin="round"/>`);
   // the strata: every minute (half minute in a short life) the near edges of that moment's layer
   const step = tEnd >= 120 ? 60 : 30;
-  for (let t = step; t < tEnd - 1; t += step) out.push(`<path d="M${pt(u0, v1, t)}L${pt(u0, v0, t)}L${pt(u1, v0, t)}" stroke="${C.faint}" stroke-width="${HAIR}" stroke-dasharray="4 12" fill="none"/>`);
+  for (let t = step; t < tEnd - 1; t += step) out.push(`<path d="M${pt(u0, v1, t)}L${pt(u0, v0, t)}L${pt(u1, v0, t)}" stroke="${C.faint}" stroke-width="${lw(HAIR)}" stroke-dasharray="${dash(4, 12)}" fill="none"/>`);
   // the ground on the top face: the cells, the trail from above, the face's edge
   const SHADE: Record<PlateCellKind, (a: number) => string> = C.oneInk
-    ? { press: () => "", tread: () => "", path: () => `fill="${C.ink}"`, slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="2"` }
+    ? {
+        press: () => "",
+        tread: () => "",
+        path: () => `fill="${C.ink}"${G ? ` stroke="${C.ink}" stroke-width="${f1(G)}" stroke-linejoin="miter"` : ""}`,
+        slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="${lw(2)}"`,
+      }
     : {
         press: (a) => `fill="${C.ink}" fill-opacity="${(0.08 + 0.2 * a).toFixed(3)}"`,
         tread: () => `fill="${C.ink}" fill-opacity="0.26"`,
@@ -407,8 +426,8 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
         slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="1"`,
       };
   for (const c of cells) if (SHADE[c.kind](c.a)) out.push(`<path d="M${pt(c.u - 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v + 0.5, tEnd)}L${pt(c.u - 0.5, c.v + 0.5, tEnd)}Z" ${SHADE[c.kind](c.a)}/>`);
-  if (pts.length > 1) out.push(`<path d="M${pts.map((q) => pt(q.u, q.v, tEnd)).join("L")}" stroke="${C.ink}" stroke-width="${HAIR}" fill="none" opacity="${C.oneInk ? 1 : 0.55}" stroke-linejoin="round"/>`);
-  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u1, v1, tEnd)}L${pt(u1, v0, tEnd)}L${pt(u0, v0, tEnd)}Z" stroke="${C.ink}" stroke-width="${EDGE}" fill="none" opacity="${C.oneInk ? 1 : 0.6}" stroke-linejoin="round"/>`);
+  if (pts.length > 1) out.push(`<path d="M${pts.map((q) => pt(q.u, q.v, tEnd)).join("L")}" stroke="${C.ink}" stroke-width="${lw(HAIR)}" fill="none" opacity="${C.oneInk ? 1 : 0.55}" stroke-linejoin="round"/>`);
+  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u1, v1, tEnd)}L${pt(u1, v0, tEnd)}L${pt(u0, v0, tEnd)}Z" stroke="${C.ink}" stroke-width="${lw(EDGE)}" fill="none" opacity="${C.oneInk ? 1 : 0.6}" stroke-linejoin="round"/>`);
 
   // how still I was at each reading (0 walking … 1 staying), over ±2 s
   const still = pts.map((q, i) => {
@@ -428,7 +447,7 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
     }
     let j = i;
     while (j + 1 < pts.length && still[j + 1] >= 0.75) j++;
-    if (pts[j].t - pts[i].t >= STAY_SEC && tEnd - pts[j].t > 2) out.push(`<path d="M${pt(pts[j].u, pts[j].v, pts[j].t)}L${pt(pts[j].u, pts[j].v, tEnd)}" stroke="${C.ink}" stroke-width="${HAIR}" stroke-dasharray="4 9" opacity="${C.oneInk ? 1 : 0.4}"/>`);
+    if (pts[j].t - pts[i].t >= STAY_SEC && tEnd - pts[j].t > 2) out.push(`<path d="M${pt(pts[j].u, pts[j].v, pts[j].t)}L${pt(pts[j].u, pts[j].v, tEnd)}" stroke="${C.ink}" stroke-width="${lw(HAIR)}" stroke-dasharray="${dash(4, 9)}" opacity="${C.oneInk ? 1 : 0.4}"/>`);
     i = j + 1;
   }
   // the worldline: thicker the stiller, in runs of one weight
@@ -438,7 +457,7 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
     const w = wOf(i);
     let j = i + 1;
     while (j < pts.length - 1 && wOf(j) === w) j++;
-    out.push(`<path d="M${pts.slice(i, j + 1).map((q) => pt(q.u, q.v, q.t)).join("L")}" stroke="${C.ink}" stroke-width="${w}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`);
+    out.push(`<path d="M${pts.slice(i, j + 1).map((q) => pt(q.u, q.v, q.t)).join("L")}" stroke="${C.ink}" stroke-width="${lw(w)}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`);
     i = j;
   }
   // the tries to stop living: a small cross on the line
@@ -447,28 +466,29 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
     const q = pts.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a));
     const x = sx(q.u, q.v), y = sy(q.u, q.v, q.t);
     const d = `M${f1(x - 11)} ${f1(y - 11)}L${f1(x + 11)} ${f1(y + 11)}M${f1(x + 11)} ${f1(y - 11)}L${f1(x - 11)} ${f1(y + 11)}`;
-    out.push(`<path d="${d}" stroke="${C.bg}" stroke-width="8"/><path d="${d}" stroke="${C.ink}" stroke-width="2.5"/>`);
+    out.push(`<path d="${d}" stroke="${C.bg}" stroke-width="${lw(8)}"/><path d="${d}" stroke="${C.ink}" stroke-width="${lw(2.5)}"/>`);
   }
   // the birth (an open ring at the bottom) and the end (a white square on the surface)
   if (pts.length) {
     const b = pts[0], e = pts[pts.length - 1];
-    out.push(`<circle cx="${f1(sx(b.u, b.v))}" cy="${f1(sy(b.u, b.v, b.t))}" r="10" fill="${C.bg}" stroke="${C.ink}" stroke-width="3"/>`);
-    out.push(`<rect x="${f1(sx(e.u, e.v) - 10)}" y="${f1(sy(e.u, e.v, tEnd) - 10)}" width="20" height="20" fill="${C.ink}"/>`);
+    out.push(`<circle cx="${f1(sx(b.u, b.v))}" cy="${f1(sy(b.u, b.v, b.t))}" r="10" fill="${C.bg}" stroke="${C.ink}" stroke-width="${lw(3)}"/>`);
+    out.push(`<rect x="${f1(sx(e.u, e.v) - 10 - G / 2)}" y="${f1(sy(e.u, e.v, tEnd) - 10 - G / 2)}" width="${f1(20 + G)}" height="${f1(20 + G)}" fill="${C.ink}"/>`);
   }
   if (look.ruler !== false) {
     // the ruler of the life's time, left of the block: 00:00 at the birth, the end level with the top face's left corner
     const lx = sx(u0, v1), ly = sy(u0, v1, tEnd);
     const rx = Math.max(M + 100, lx - 64);
     const rBot = ly + tEnd * k;
-    out.push(`<path d="M${f1(rx)} ${f1(ly)}V${f1(rBot)}" stroke="${C.dim}" stroke-width="${HAIR}"/>`);
+    out.push(`<path d="M${f1(rx)} ${f1(ly)}V${f1(rBot)}" stroke="${C.dim}" stroke-width="${lw(HAIR)}"/>`);
     for (let t = 0; t <= tEnd + 0.001; t += 10) {
       const y = rBot - t * k;
       const major = t % step === 0;
-      out.push(`<path d="M${f1(rx)} ${f1(y)}h${major ? 18 : 9}" stroke="${C.dim}" stroke-width="${HAIR}"/>`);
-      if (major && tEnd - t > 8) out.push(text(rx - 16, y + 10, fmtClock(t), 28, C.dim, "end"));
+      out.push(`<path d="M${f1(rx)} ${f1(y)}h${major ? 18 : 9}" stroke="${C.dim}" stroke-width="${lw(HAIR)}"/>`);
+      // the labels' letters take half the lines' gain: a whole one would close the digits' holes
+      if (major && tEnd - t > 8) out.push(text(rx - 16, y + 10, fmtClock(t), 28, C.dim, "end", G / 2));
     }
-    out.push(`<path d="M${f1(rx - 10)} ${f1(ly)}h22" stroke="${C.ink}" stroke-width="${EDGE}"/>`);
-    out.push(text(rx - 16, ly + 10, fmtClock(tEnd), 28, C.ink, "end"));
+    out.push(`<path d="M${f1(rx - 10)} ${f1(ly)}h22" stroke="${C.ink}" stroke-width="${lw(EDGE)}"/>`);
+    out.push(text(rx - 16, ly + 10, fmtClock(tEnd), 28, C.ink, "end", G / 2));
   }
   return out.join("");
 }
