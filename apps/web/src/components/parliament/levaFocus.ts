@@ -56,6 +56,9 @@ const FUSION_UNLISTED = new Set(["fuseGrow"]);
 /** THE FOSSIL IN STAGES (spaceModel FuseInput.stages, 2026-11-21 night): what the stages' way does not read — the shader's
  *  coming-out of the one final shape (when it is let out, in what order, how its edge looks while it comes). */
 const STAGE_DEAD = new Set(["growMelt", "growReach", "growPress", "growThin", "growSeal", "growSealGrain", "growLate", "growRise"]);
+/** THE EXHIBITION'S WAY (방식 = 전시판, 2026-11-21 night): the mass is made again from the parts' progress in the model's
+ *  worker — no fossil's ruler, no shader's coming-out, no life, no helpers' pieces: what reads those is not listed. */
+const EXHIBITION_DEAD = new Set([...STAGE_DEAD, "pieceTile", "pieceSeg"]);
 const SEED_DEAD = new Set(["fuseFull", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "walkRadius", "scatter", "steelFossil", "fuseFade"]);
 /**
  * …AND THE CHOICES THAT LEAD BACK TO THE OLD WAY: what the mass is made of (the parts' own skins / the crust) and where
@@ -163,11 +166,14 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
     if (leaf in OLD_WAY_CHOICE && data[path]?.value === OLD_WAY_CHOICE[leaf]) return false;
     // (the new way: the shape made once, of the parts' own skins — on what has been simplified OR, since 11/20, on every
     // part with its cell-slot's clock: "every part" no longer leads back to the old way, spaceModel computeFuse `seeded`)
-    const seedWay = data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed" && data[`${FUSION_GROUP}.fuseBody`]?.value !== "crust";
+    // (…and not the exhibition's way, which makes the mass again from the parts' progress — 방식 = 전시판)
+    const way = data[`${FUSION_GROUP}.화석이 생기는 과정.fuseStages`]?.value;
+    const seedWay = data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed" && data[`${FUSION_GROUP}.fuseBody`]?.value !== "crust" && way !== "exhibition";
+    if (way === "exhibition" && EXHIBITION_DEAD.has(leaf)) return false;
     if (seedWay && SEED_DEAD.has(leaf)) return false;
     // (THE FOSSIL IN STAGES: the mesh is the stage's real shape, drawn whole — the knobs of how the one final shape comes
     // out on the screen are read by nothing)
-    if (seedWay && data[`${FUSION_GROUP}.화석이 생기는 과정.fuseStages`]?.value === "stages" && STAGE_DEAD.has(leaf)) return false;
+    if (seedWay && way === "stages" && STAGE_DEAD.has(leaf)) return false;
   }
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;

@@ -4691,8 +4691,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         {
           // THE FOSSIL IN STAGES (spaceModel FuseInput.stages; 2026-11-21 night: "시험해 / 표면 뾰족한 거 진짜 싫어...")
           fuseStages: {
-            options: { "지금 — 다 된 모양이 구멍 사이로 나옴": "now", "단계 — 단계마다 실제 모양으로 바뀜": "stages" },
-            value: "now" as "now" | "stages",
+            // (…and THE EXHIBITION'S WAY — the artist, 2026-11-21 night: "전시에선 애초에 잘려보이는 거 잘 해결했었잖아" —
+            // "Add exhibition way": the mass made again from the parts' progress as it goes, building by building in the
+            // model's worker — nothing grown out of a final shape, nothing cut away; the heaviest)
+            options: { "지금 — 다 된 모양이 구멍 사이로 나옴": "now", "단계 — 단계마다 실제 모양으로 바뀜": "stages", "전시판 — 진행이 바뀔 때마다 덩어리를 다시 계산 (가장 무거움)": "exhibition" },
+            value: "now" as "now" | "stages" | "exhibition",
             label: "방식",
           },
           stageN: { value: 3, min: 2, max: 5, step: 1, label: "단계 수 (2 = 거칠게 · 5 = 촘촘히)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" },
@@ -4702,10 +4705,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           // (A WALL WITH A BODY — "애초에 그냥 벽에 두께가 있도록 하면": the stages' shell at least this thick, whatever 껍질 벽 두께 says)
           stageWall: { value: 0.75, min: 0, max: 2, step: 0.05, label: "벽 두께 (월드 · 구멍 사이로 보이는 벽의 단면 · 0 = 껍질 벽 두께대로)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" },
           stageHoles: { value: "⑤ 구멍 폴더 · 방 → 빈 공간은 ④ 폴더", editable: false, label: "구멍 · 리브 노브는", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) === "stages" },
-          "① 언제 시작하나": folder({
+          "① 언제 시작하나": folder(
+            {
               growAgeMin: { value: 2.5, min: 0.2, max: 60, step: 0.1, label: "다 나오기까지 걸리는 시간 (분 · 지은 뒤부터)", render: () => REDESIGN },
               growDeep: { value: 0.6, min: 0, max: 1, step: 0.05, label: "위쪽은 천천히 (0 = 높이 상관없이 · 1 = 꼭대기는 안 나옴)", render: () => REDESIGN },
-          }),
+            },
+            { render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) !== "exhibition" },
+          ),
           "② 어떤 순서로 나오나": folder(
             {
                 growLate: { value: 0.5, min: 0, max: 0.9, step: 0.05, label: "관이 먼저 나오는 몫 (0 = 한꺼번에 · 클수록 관만 오래)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
@@ -4740,7 +4746,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           growDieRag: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "삭는 경계의 얼룩 (0 = 한 층에서 한꺼번에 — 가로로 잘림 · 클수록 자리마다 먼저 · 나중에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
           growDiePatch: { value: 9, min: 1, max: 60, step: 0.5, label: "삭는 얼룩의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
         },
-        { collapsed: true, render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+        { collapsed: true, render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && get(`${FU}.화석이 생기는 과정.fuseStages`) !== "exhibition" },
       ),
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
       fuseFrom: {
@@ -5050,7 +5056,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       scatter: fu.scatter,
       skeleton: fu.skeleton,
       skeletonUntil: fu.skeletonUntil,
-      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building" || fu.fuseGrow === "seed", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed", pieceTile: fu.pieceTile, pieceSeg: fu.pieceSeg, voxelTie: fu.voxelTie, ...(fu.fuseStages === "stages" ? { stageN: fu.stageN, stageSweep: fu.stageSweep, roundness: fu.stageRound, stageWall: fu.stageWall } : {}) } : {}),
+      ...(REDESIGN ? { freshSlots: fu.layerSlots, freshSpread: fu.layerSpread, goneMass: fu.goneMass, absorb: fu.cling, perBuilding: fu.fuseUnit === "building" || fu.fuseGrow === "seed", unitChange: fu.unitChange, crust: fu.fuseBody === "crust", crustVeg: fu.massVeg, assetsOnly: fu.fuseFrom === "assets", seeded: fu.fuseGrow === "seed" && fu.fuseStages !== "exhibition", pieceTile: fu.pieceTile, pieceSeg: fu.pieceSeg, voxelTie: fu.voxelTie, ...(fu.fuseStages === "stages" ? { stageN: fu.stageN, stageSweep: fu.stageSweep, roundness: fu.stageRound, stageWall: fu.stageWall } : {}) } : {}),
       skeletonWrap: fu.skeletonWrap,
       // (THE FOSSIL IN STAGES: no spikes — "표면 뾰족한 거 진짜 싫어")
       spikes: REDESIGN && fu.fuseStages === "stages" ? 0 : fu.spikes,
