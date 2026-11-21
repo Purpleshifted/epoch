@@ -174,6 +174,11 @@ interface CellSlot {
   /** Per walker (index): what it trod in here; and whether the cell-slot is path (never with level ≥ 1). */
   mv?: Map<number, number>;
   path?: boolean;
+  /** THE CLOCK'S ORIGIN (2026-11-20; PEvent.w): the time of the sample that built this cell-slot or last stood in it at
+   *  its own time (`w0`), and of the sample that last raised its level — its own, or its building's below it (`wRise`).
+   *  Undefined where the events carry no time. */
+  w0?: number;
+  wRise?: number;
 }
 
 /** A way: its line (x, z pairs — the first walker's track, its corners cut), from its one end to its other. */
@@ -205,6 +210,10 @@ interface Column {
   seed?: Seed | null;
   /** The slots in which this cell is JOINED (DensityConfig.mergeGap): between near buildings, not built itself. */
   joined?: Set<number>;
+  /** The latest time (PEvent.w) of a sample that touched this column since its levels were last read (noteRises). */
+  wSince?: number;
+  /** Its slots' grown levels as last read (grownOf): a slot whose level rose since has its clock begin again. */
+  grown?: Map<number, number>;
 }
 
 /** The level of a cell-slot from what its visitors put in. */
@@ -257,6 +266,8 @@ export class DensityField {
   private mergeDirty = new Set<number>();
   /** The cell-slots somebody stood in or right beside, at their own time, since takeLived was last asked. */
   private lived = new Map<number, Set<number>>();
+  /** The columns a sample has touched since their levels were last read (settleLevels): those with a `wSince`. */
+  private touched = new Set<number>();
   private mergeBuf: [Uint8Array, Uint8Array, Uint8Array] | null = null;
 
   constructor(readonly cfg: DensityConfig) {
@@ -264,7 +275,7 @@ export class DensityField {
   }
 
   /** Adds one presence sample (any order, any time of the block). */
-  add(e: Pick<PEvent, "o" | "x" | "z" | "s" | "k">): void {
+  add(e: Pick<PEvent, "o" | "x" | "z" | "s" | "k" | "w">): void {
     if (e.k !== undefined && e.k !== "p") return;
     const c = this.cfg;
     let o = this.owners.get(e.o);
@@ -315,6 +326,10 @@ export class DensityField {
         const ck = colKey(cx, cz);
         let col = this.cols.get(ck);
         if (!col) this.cols.set(ck, (col = { cx, cz, slots: new Map() }));
+        if (e.w !== undefined) {
+          if (!(col.wSince! >= e.w)) col.wSince = e.w;
+          this.touched.add(ck);
+        }
         for (let k = k0; k <= k1; k++) {
           // the slot it stands in gets the whole weight; the others less the further their middle is from its time
           let t = 1;
@@ -339,7 +354,16 @@ export class DensityField {
             if (!lv) this.lived.set(ck, (lv = new Set()));
             lv.add(k);
           }
-          this.settle(col, ck, cs, k);
+          this.settle(col, ck, cs, k, true, e.w);
+          // (…and the clock of a built place somebody stands in begins again: what is lived in does not fossilise —
+          // the latest such sample, whatever order the samples come in)
+          if (k === kOwn && cs.level >= 1 && e.w !== undefined && !(cs.w0! >= e.w)) {
+            cs.w0 = e.w;
+            // (the Seed carries the origin: made again — cheap, and the parts' cache is keyed by its content)
+            col.seed = undefined;
+            this.dirty.add(ck);
+            this.listDirty = true;
+          }
           // the gathering's quarter: a Seed is made again when it changes (not at every sample)
           if (cs.level >= 1 && (c.liveAt ?? 0) > 0) {
             const gq = Math.round(this.gatherOf(cs) * 4);
@@ -468,7 +492,7 @@ export class DensityField {
   }
 
   /** What a cell-slot is after something was put into it: a building's level, or path, or nothing (THE CONTEST). */
-  private settle(col: Column, ck: number, cs: CellSlot, k: number, spread = true): void {
+  private settle(col: Column, ck: number, cs: CellSlot, k: number, spread = true, w?: number): void {
     const c = this.cfg, pc = c.path;
     let lv = levelOf(cs.by, c);
     const share = Math.max(0, Math.min(1, c.peakShare ?? 0));
@@ -488,7 +512,7 @@ export class DensityField {
             const pq = rose ? Math.max(ncs.pq ?? -1, q) : this.peakOf(ncol, k);
             if (pq === (ncs.pq ?? -1)) continue;
             ncs.pq = pq;
-            this.settle(ncol, nck, ncs, k, false);
+            this.settle(ncol, nck, ncs, k, false, w);
           }
         }
       }
@@ -522,6 +546,11 @@ export class DensityField {
     if (lv !== cs.level) {
       const born = cs.level < 1 && lv >= 1;
       if (born || (cs.level >= 1 && lv < 1)) this.markBuilt(ck, k, born);
+      // THE CLOCK'S ORIGIN (PEvent.w): built now — from this sample; built higher — its level's rise from this sample;
+      // gone — no clock (built again later, it is new)
+      if (born) cs.w0 = w;
+      else if (lv >= 1 && lv > cs.level && w !== undefined && !(cs.wRise! >= w)) cs.wRise = w;
+      if (lv < 1) cs.w0 = cs.wRise = undefined;
       cs.level = lv;
       col.seed = undefined;
       this.dirty.add(ck);
@@ -539,6 +568,7 @@ export class DensityField {
           ocs.by.clear();
           ocs.direct = 0;
           ocs.level = 0;
+          ocs.w0 = ocs.wRise = undefined;
           this.markBuilt(ock, ok, false);
           oc.seed = undefined;
           this.dirty.add(ock);
@@ -850,6 +880,60 @@ export class DensityField {
   }
 
   /**
+   * A CELL-SLOT WHOSE LIFE IS OVER IS LET GO (2026-11-20; the artist: "남는 몫 0으로 해. 창 안 올리기로 했잖아. 계속
+   * 변화하는 모습이어야 해, 강 바닥의 구성처럼"): with the window standing nothing ever leaves at its foot, so a place leaves
+   * when its own life is over (spaceModel: its fossil has rotted away and its last parts have shrunk). Forgotten as the
+   * budget forgets (maxBuilt) — what was put in, its level — and then dropped from its column altogether: the place is
+   * empty, and whoever stands there later builds it anew, on a new clock. `cells`: [the column's Seed id, slot].
+   * Returns how many cell-slots went.
+   */
+  release(cells: readonly (readonly [number, number])[]): number {
+    if (!cells.length) return 0;
+    const want = new Map<number, number[]>();
+    for (const [id, k] of cells) {
+      const l = want.get(id);
+      if (l) l.push(k);
+      else want.set(id, [k]);
+    }
+    let n = 0;
+    for (const [ck, col] of this.cols) {
+      const ks = want.get(seedId(col.cx, col.cz, 0));
+      if (!ks) continue;
+      let hit = false;
+      for (const k of ks) {
+        const cs = col.slots.get(k);
+        if (!cs || cs.path) continue;
+        if (cs.level >= 1) {
+          this.markBuilt(ck, k, false);
+          this.nBuilt--;
+        }
+        cs.by.clear();
+        cs.direct = 0;
+        cs.level = 0;
+        // (its step is gone with it: the cells round it are read against what is left)
+        if ((cs.q ?? -1) >= 0) this.settle(col, ck, cs, k);
+        col.slots.delete(k);
+        this.lived.get(ck)?.delete(k);
+        hit = true;
+        n++;
+      }
+      if (hit) {
+        col.seed = undefined;
+        this.dirty.add(ck);
+      }
+    }
+    if (n) {
+      this.built = this.built.slice(this.builtAt).filter((b) => b[2].level >= 1);
+      this.builtAt = 0;
+      this.stats.cellSlots -= n;
+      this.stats.changes++;
+      this.listDirty = true;
+      this.version++;
+    }
+    return n;
+  }
+
+  /**
    * THE RISING WINDOW HAS PASSED (spaceModel: the thick present rises with the clock, and what is below it — and below
    * the record kept under it — is let go): everything below slot `floor` is forgotten — what was put in, what was
    * built, the paths, the joins. A BUILDING THAT STILL STANDS ACROSS THE FLOOR IS KEPT WHOLE (its size is read from
@@ -927,13 +1011,13 @@ export class DensityField {
     return n;
   }
 
-  /** One Seed per ground cell that has anything: its runs of slots at level ≥ 1, its mass from its highest level. */
-  seeds(): Seed[] {
-    this.merge();
-    if (!this.listDirty) return this.list;
+  /**
+   * A column's living slots and their grown levels (the time stayed adds up along a building: below), its buildings'
+   * spans and its highest level; null = nothing. The one place the levels are worked out — seeds() builds the Seed
+   * from it, settleLevels() reads it between samples.
+   */
+  private grownOf(col: Column): { ks: number[]; grown: Map<number, number>; spans: [number, number][]; top: number } | null {
     const c = this.cfg;
-    for (const ck of this.dirty) {
-      const col = this.cols.get(ck)!;
       const ks: number[] = [];
       let top = 0;
       for (const [k, cs] of col.slots) {
@@ -949,10 +1033,7 @@ export class DensityField {
           if (top < 1) top = 1;
         }
       }
-      if (!ks.length) {
-        col.seed = null;
-        continue;
-      }
+      if (!ks.length) return null;
       ks.sort((p, q) => p - q);
       // THE TIME STAYED ADDS UP ALONG A BUILDING (the artist, 2026-11-15: "건물이 일정 수준 이상으로 안 커지는 건
       // 어떡함?"). A slot holds what was put into it at its own time — and time moves on: however long people stay,
@@ -999,6 +1080,96 @@ export class DensityField {
         }
       }
       for (const lv of grown.values()) if (lv > top) top = lv;
+    return { ks, grown, spans, top };
+  }
+
+  /**
+   * A SLOT WHOSE LEVEL ROSE HAS ITS CLOCK BEGIN AGAIN (spaceModel bornT: "one built MORE is built anew"): against the
+   * levels as last read, the slots risen take the latest time a sample touched this column since (`wSince` — within a
+   * tick of the sample itself while the wall runs; on a replay, spaceModel reads the levels every few seconds of the
+   * log, so it is as near).
+   */
+  private noteRises(col: Column, ck: number, grown: Map<number, number>): void {
+    const was = col.grown;
+    if (was && col.wSince !== undefined) {
+      for (const [k, lv] of grown) {
+        const old = was.get(k);
+        if (old === undefined || lv <= old) continue;
+        const cs = col.slots.get(k);
+        if (cs && cs.level >= 1 && !(cs.wRise! >= col.wSince)) {
+          cs.wRise = col.wSince;
+          col.seed = undefined;
+          this.dirty.add(ck);
+          this.listDirty = true;
+        }
+      }
+    }
+    col.grown = grown;
+    col.wSince = undefined;
+  }
+
+  /**
+   * THE LEVELS OF THE COLUMNS TOUCHED SINCE THE LAST READING, READ NOW (noteRises). The same reading whether the wall
+   * reads every tick or a load reads the log every few seconds (spaceModel ensureSeeds): what joins is closed first
+   * (merge — a building's run may bridge a gap through a joined slot), then each touched column's levels. No Seeds
+   * are made.
+   */
+  settleLevels(): void {
+    this.merge();
+    for (const ck of this.touched) {
+      const col = this.cols.get(ck);
+      if (!col) continue;
+      const g = this.grownOf(col);
+      if (g) this.noteRises(col, ck, g.grown);
+      else {
+        col.grown = undefined;
+        col.wSince = undefined;
+      }
+    }
+    this.touched.clear();
+  }
+
+  /**
+   * THE ORIGINS OF A COLUMN'S SLOTS (Seed.w0 / wRise): a built slot's own; a joined slot's the latest origin of the built
+   * cells it joins (within the merge gap, in its slot) — it is there because of them.
+   */
+  private originsOf(col: Column, ks: readonly number[]): { w0: Map<number, number>; wRise: Map<number, number> } {
+    const w0 = new Map<number, number>(), wRise = new Map<number, number>();
+    const G = Math.round(this.cfg.mergeGap ?? 0);
+    for (const k of ks) {
+      const cs = col.slots.get(k);
+      if (cs && cs.level >= 1) {
+        if (cs.w0 !== undefined) w0.set(k, cs.w0);
+        if (cs.wRise !== undefined) wRise.set(k, cs.wRise);
+        continue;
+      }
+      let best: number | undefined;
+      for (let a = -G; a <= G; a++) {
+        for (let b = -G; b <= G; b++) {
+          if (!a && !b) continue;
+          const ncs = this.cols.get(colKey(wrapCell(col.cx + a), wrapCell(col.cz + b)))?.slots.get(k);
+          if (ncs && ncs.level >= 1 && ncs.w0 !== undefined && !(best! >= ncs.w0)) best = ncs.w0;
+        }
+      }
+      if (best !== undefined) w0.set(k, best);
+    }
+    return { w0, wRise };
+  }
+
+  /** One Seed per ground cell that has anything: its runs of slots at level ≥ 1, its mass from its highest level. */
+  seeds(): Seed[] {
+    this.settleLevels();
+    if (!this.listDirty) return this.list;
+    const c = this.cfg;
+    for (const ck of this.dirty) {
+      const col = this.cols.get(ck)!;
+      const g = this.grownOf(col);
+      if (!g) {
+        col.seed = null;
+        continue;
+      }
+      const { ks, grown, spans, top } = g;
+      const origins = this.originsOf(col, ks);
       // who built it: every visitor of its living slots, first and last slot time, weight (capped per slot)
       const who = new Map<number, Contributor>();
       for (const k of ks) {
@@ -1026,6 +1197,8 @@ export class DensityField {
         mass: Math.min(MASS_MAX, c.mass * Math.pow(Math.max(1, c.massRatio), top - 1)),
         who: [...who.values()],
         levels: grown,
+        w0: origins.w0,
+        wRise: origins.wRise,
         // (the mass of each slot's parts: its own level's — seeds.ts massAt)
         // (never more than MASS_MAX — the old fold's ceiling: the parts' size and number follow it, and a factor per
         // level is an exponent)

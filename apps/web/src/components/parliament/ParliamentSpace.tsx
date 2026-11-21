@@ -58,6 +58,7 @@ import {
   type Recipe,
   type RoleId,
   type SpaceRequest,
+  type WallClock,
   type SpaceResponse,
   type WeatherConfig,
   DEFAULT_WEATHER,
@@ -88,12 +89,12 @@ import {
   handleSpaceRequest,
   blockSlots,
 } from "@/lib/parliament";
-import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
+import { FUSE_BLEND_S, type UnitChunks, type UnitStats } from "@/lib/parliament/fuseUnits";
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
 import { futureOnly } from "@/lib/parliament/futureOnly";
-import { DEFAULT_ERODE, erosionAt, type ErodeConfig } from "@/lib/parliament/erode";
+import { DEFAULT_ERODE, erosionAt, fossilWaitSec, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
 import { LEVA_THEME, useFoldControls, useNatureControls, useWorld, useKeepWindowControl } from "./useWorld";
 import { applyValues, presetSource, reloadSaved, savable, showNote } from "./levaSave";
@@ -324,6 +325,9 @@ interface ResinLook {
   /** IT SWELLS OUT OF ITS OWN UNIT (the shader's press): 0 = the whole surface stands back along its normal, one body
    *  … 1 = every vertex is pressed into its own part (unit) and swells out of it — the first seeded mass (11/16). */
   growPress?: number;
+  /** THE EDGE IS EATEN, NOT CUT (the shader's seal): below this much out, the mass goes through a noise of the world
+   *  (holes of 삭는 구멍의 크기) rather than ending in an open line (0 = off). */
+  growSeal?: number;
   /** THE FRAME FIRST (fuse.ts FuseMesh.late): how far into the fossil's progress the filling (boxes, plates, rooms)
    *  waits behind the frame (0 = all at once … 0.9), and how much it fills from each layer's floor upward (0 … 1). */
   growLate?: number;
@@ -451,6 +455,10 @@ interface FuseUniforms {
   uGrowReach: THREE.IUniform;
   /** …and how much a vertex is pressed into its own unit while it is not out (ResinLook.growPress). */
   uGrowPress: THREE.IUniform;
+  /** …and below how much out the mass is eaten through a noise of the world (ResinLook.growSeal). */
+  uGrowSeal: THREE.IUniform;
+  /** …and the seconds a change of the worker's (a skin hidden or shown, a piece made again) takes (fuseUnits FUSE_BLEND_S). */
+  uGrowBlend: THREE.IUniform;
   /** …how far the filling waits behind the frame, and how much it rises from each layer's floor (ResinLook.growLate). */
   uGrowLate: THREE.IUniform;
   /** …and how far the top would have risen while its rise was stopped (rise.ts; slots): the fossil's AGE is read off
@@ -473,7 +481,7 @@ function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
-    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 }, uGrowSeal: { value: 0 }, uGrowBlend: { value: FUSE_BLEND_S },
     uGrowLate: { value: 0 }, uGrowRise: { value: 0 }, uGrowStood: { value: 0 },
     uGrowDie: { value: 0 }, uGrowDieAfter: { value: 60 }, uGrowDieSpan: { value: 30 },
     uGrowDieHoles: { value: 0 }, uGrowDieGrain: { value: 1.2 }, uGrowDieRag: { value: 0 }, uGrowDiePatch: { value: 9 },
@@ -493,7 +501,11 @@ attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
 attribute float fuseLate;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowMelt, uGrowReach, uGrowPress, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
+attribute vec4 fuseBlend;
+varying vec2 vSwap;
+varying float vSkin;
+uniform float uGrowBlend;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowMelt, uGrowReach, uGrowPress, uGrowSeal, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
 varying float vGrow;
 varying float vGone;
 varying vec3 vGonePos;`;
@@ -504,6 +516,9 @@ varying vec3 vGonePos;`;
  * What stands inside (the parts that did not erode) shows through them.
  */
 const FUSE_GONE_FRAG_HEAD = `
+varying vec2 vSwap;
+varying float vSkin;
+uniform float uGrowSeal;
 varying float vGrow;
 varying float vGone;
 varying vec3 vGonePos;
@@ -516,6 +531,23 @@ float goneNoise( vec3 p ) {
               mix( mix( goneHash( i + vec3( 0.0, 0.0, 1.0 ) ), goneHash( i + vec3( 1.0, 0.0, 1.0 ) ), f.x ), mix( goneHash( i + vec3( 0.0, 1.0, 1.0 ) ), goneHash( i + vec3( 1.0, 1.0, 1.0 ) ), f.x ), f.y ), f.z );
 }`;
 const FUSE_GONE_FRAG_BODY = `
+// A PIECE MADE AGAIN DISSOLVES INTO THE ONE IT REPLACES (the artist, 2026-11-21: "둘 다 넣는데"; fuseUnits FUSE_BLEND_S):
+// the one coming in is drawn where a screen noise is under the time gone, the one going out where it is over it — the
+// two are drawn together, pixel by pixel one or the other, and where they are the same surface nothing changes
+if ( vSwap.x != 0.0 ) {
+  float swapN = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) + 0.71 ) );
+  if ( vSwap.x > 0.0 ? swapN >= vSwap.y : swapN < vSwap.y ) discard;
+}
+// THE EDGE IS EATEN, NOT CUT (the artist, 2026-11-21, of the first try at a closed edge: "열자마자 잘려보이는디" — a vertex
+// pressed all the way into its unit lay on the unit's box, and the boxes' faces read as flat cuts). Where the mass is
+// barely out (vGrow under uGrowSeal) and where the provisional skin thins towards its far end (vSkin), it goes through
+// a noise fixed in the world — the same holes the fossil's life eats it by (삭는 구멍의 크기): islands and bays, no plane
+float edgeK = min( uGrowSeal > 0.0 ? vGrow / uGrowSeal : 1.0, vSkin );
+if ( edgeK < 1.0 ) {
+  vec3 edgeP = vGonePos / max( 0.05, uGrowDieGrain ) + 3.1;
+  float edgeN = clamp( ( 0.65 * goneNoise( edgeP ) + 0.35 * goneNoise( edgeP * 2.7 + 5.3 ) - 0.5 ) * 1.9 + 0.5, 0.001, 0.999 );
+  if ( edgeN > edgeK ) discard;
+}
 // NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): where everything of a layer is as
 // old as its depth, the going was one value per layer — holes over a few slots, and nothing below: a cut. Each PATCH of
 // the world is now ahead of or behind the going by its own amount (a wide noise), so the going's edge wanders up
@@ -536,6 +568,8 @@ if ( goneAt > 0.001 ) {
 const FUSE_GROW_VERT_BODY = `
 vGrow = 1.0;
 vGone = 0.0;
+vSwap = vec2( 0.0 );
+vSkin = 1.0;
 vGonePos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // (the vegetation is a FACTOR of how much comes out — fuseGrowB.y — not a depth added: with the artist's own
@@ -589,7 +623,14 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   vec3 growOff = position - fuseAnchor;
   growWait = max( growWait, uGrowMelt * clamp( ( length( growOff ) + max( 0.0, - growOff.y ) ) / max( 0.1, uGrowReach ), 0.0, 1.0 ) );
   float growSpan = min( mix( uGrowLate > 0.05 ? uGrowLate : 1.0, 1.0 - growWait, fuseLate ), 1.0 - growWait );
-  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * fuseGrowB.y;
+  // WHAT CHANGES, CHANGES SOFTLY (the artist, 2026-11-21: "둘 다 넣는데"): the provisional skin's share (hidden where
+  // the neighbour is on the screen, thinning towards its far end — fuseUnits fadeEdges) goes from what it was to what it
+  // is over uGrowBlend seconds from the change (fuseBlend: the old share, the change's clock, the dissolve, the new)
+  float growBlendT = clamp( ( uGrowClock - fuseBlend.y ) / max( 0.01, uGrowBlend ), 0.0, 1.0 );
+  float growVeg = fuseGrowB.y;
+  vSkin = mix( fuseBlend.x, fuseBlend.w, growBlendT );
+  vSwap = vec2( fuseBlend.z, growBlendT );
+  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * growVeg;
   // ONE BODY (the artist, 2026-11-16: "근데 부푸는 건 진짜 개별로던데"): a vertex is no longer pressed to its own part's
   // box — neighbours pressed to different boxes split the mass along the parts. What it reads is the value of its
   // PLACE (fuseUnits.ts placeValues: the parts' values blurred over the space; the layer off its own height), and it
@@ -600,7 +641,11 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // mass (11/16), given up then because the mass split along its many small parts. The units are now a building's
   // few wide bodies (spaceModel fossilUnits), and how far each is out is still read off its place.
   float growEase = vGrow * vGrow * ( 3.0 - 2.0 * vGrow );
+  // (the barely-out edge is eaten through a noise in the fragment shader — FUSE_GONE_FRAG_BODY, uGrowSeal — instead of
+  // being pressed into its unit: pressed all the way, it lay flat on the unit's box, 2026-11-21)
   transformed = mix( transformed - normal * uGrowThin * ( 1.0 - growEase ), mix( fuseAnchor, transformed, growEase ), uGrowPress );
+  // (…and the skin thins towards its far end, as it is eaten there: a tapering body, not a sheet)
+  transformed -= normal * 0.35 * ( 1.0 - vSkin );
 }`;
 
 /**
@@ -799,6 +844,13 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?:
     g.setAttribute("fuseGrowB", new THREE.BufferAttribute(r.growB!, 2));
     // (the frame-first mark; none = all frame)
     g.setAttribute("fuseLate", new THREE.BufferAttribute(r.late && r.late.length * 3 === r.position.length ? r.late : new Float32Array(r.position.length / 3), 1));
+    // (the worker's pending changes; none = no change: its clock far in the past)
+    let blend = r.blend && r.blend.length * 3 === r.position.length * 4 ? r.blend : null;
+    if (!blend) {
+      blend = new Float32Array((r.position.length / 3) * 4);
+      for (let v = 0; v < blend.length; v += 4) [blend[v], blend[v + 1], blend[v + 3]] = [1, -1e9, 1];
+    }
+    g.setAttribute("fuseBlend", new THREE.BufferAttribute(blend, 4));
     // (the vertices move in the shader: the mesh's bounds are not where it is drawn)
     mesh.frustumCulled = false;
   }
@@ -1172,7 +1224,13 @@ function SpaceWorld({
   clock,
   local,
   takenEpochMs = 0,
+  fuseWorkers = 1,
+  uploadMB = 0,
 }: {
+  /** MB of new geometry of the mass put on the screen per frame (렌더 › 작업 분담); 0 = all of a message at once. */
+  uploadMB?: number;
+  /** How many workers make the pieces of the mass side by side (렌더 › 작업 분담); 1 = the worker of the mass alone. */
+  fuseWorkers?: number;
   log: EventLog;
   /** The clock this view runs on (rate 0 = paused: the view is pinned and settings apply at once). */
   clock: Clock;
@@ -1280,6 +1338,9 @@ function SpaceWorld({
   const focusY = useRef<number | null>(null);
   const snapped = useRef(false);
   const worker = useRef<SpaceRunner | null>(null);
+  /** The worker of the mass (side.worker.ts, "fuse"), for its pool of helpers; null = none (the model makes the mass). */
+  const fuseSide = useRef<Worker | null>(null);
+  const helperIds = useRef(0);
   const sent = useRef(0);
   const inFlight = useRef<{ id: number; at: number } | null>(null);
   /** The lab's present: the log's end when first seen, moved on by the lab's own clock since. */
@@ -1298,6 +1359,12 @@ function SpaceWorld({
   const chunkGroup = useRef<THREE.Group>(null);
   const chunkMeshes = useRef(new Map<string, THREE.Mesh>());
   const chunkClock0 = useRef<number | null>(null);
+  /** The chunks of the mass waiting for a frame (applyChunks), and the clock their worker began at. */
+  const chunkOps = useRef<({ kind: "set"; id: string; mesh: FuseMesh | null } | { kind: "drop"; id: string } | { kind: "clearRest"; keep: Set<string> })[]>([]);
+  const chunkClockAt = useRef(0);
+  /** Bytes of new geometry of the mass put on the screen per frame (렌더 › 작업 분담); 0 = all of a message at once. */
+  const uploadBudget = useRef(0);
+  uploadBudget.current = Math.max(0, uploadMB) * 1e6;
   const workerBuild = useRef("");
   // HOW FAR THE MASS IS OUT OF ITS PARTS (the readout): the shader's own sum on a sample of the vertices, once a
   // second — the artist, 2026-11-16: "아직 뭐가 보이질 않아서 … 피드백을 못 주겠는데"
@@ -1418,7 +1485,8 @@ function SpaceWorld({
     fuseU.uGrowWaitTop.value = Math.max(0, (er.waitSec ?? 0) / perTop);
     // (a part's fossil begins once every cell-slot of its age is surely simplified — the latest of them, 1.3 of the
     // time — and a slot more for its mass to have been made; then it comes out over three slots)
-    fuseU.uGrowAfter.value = ((er.lodSec ?? 0) * 1.3) / perTop + 1;
+    // (the same wait with the simplification off: erode fossilSec)
+    fuseU.uGrowAfter.value = (fossilWaitSec(er) * 1.3) / perTop + 1;
     fuseU.uGrowOver.value = 3;
     // (the stamps of the pieces made in the worker beside are seconds of ITS clock; a mass made in the model's worker
     // has none — it is whole as it comes)
@@ -1430,6 +1498,7 @@ function SpaceWorld({
     fuseU.uGrowMelt.value = Math.max(0, Math.min(0.9, resin.growMelt ?? 0.6));
     fuseU.uGrowReach.value = Math.max(0.1, resin.growReach ?? 2);
     fuseU.uGrowPress.value = Math.max(0, Math.min(1, resin.growPress ?? 1));
+    fuseU.uGrowSeal.value = Math.max(0, Math.min(1, resin.growSeal ?? 0));
     fuseU.uGrowLate.value = Math.max(0, Math.min(0.9, resin.growLate ?? 0));
     fuseU.uGrowRise.value = Math.max(0, Math.min(1, resin.growRise ?? 0));
     // (the fossil's life: off unless the look says so — a look without the knobs is the fossil as it was)
@@ -1485,8 +1554,38 @@ function SpaceWorld({
    * where it stood.
    */
   const applyChunks = (m: UnitChunks) => {
+    // A BIG ARRIVAL IS PUT ON THE SCREEN A FEW MB A FRAME (2026-11-20; 렌더 › 작업 분담 › 화석 올리기): a message of
+    // the worker of the mass can be tens of MB of chunks, made into geometry and uploaded in one frame — the frame
+    // waited for all of it. Now each message's work is queued in order (what it lets go, what it sets) and done in the
+    // frame loop up to the budget a frame, at least one chunk; a chunk set again before its turn is set once, as it
+    // is last. A chunk on the screen stays as it is until its new geometry replaces it, so nothing opens meanwhile.
+    const q = chunkOps.current;
+    const supersede = (id?: string) => {
+      for (const op of q) if (op.kind === "set" && (id === undefined || op.id === id)) op.mesh = null;
+    };
+    if (m.clear) supersede();
+    for (const id of m.drop) {
+      supersede(id);
+      q.push({ kind: "drop", id });
+    }
+    for (const { id, mesh } of m.set) {
+      supersede(id);
+      q.push({ kind: "set", id, mesh });
+    }
+    // (everything that was is let go, except what this message sets — after it is set, so nothing stands empty between)
+    if (m.clear) q.push({ kind: "clearRest", keep: new Set(m.set.map((e) => e.id)) });
+    // (what was set again before its turn holds nothing any more: out of the queue, while it waits for frames)
+    if (q.length > 256) chunkOps.current = q.filter((op) => op.kind !== "set" || op.mesh);
+    chunkClockAt.current = m.clock0;
+    fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
+    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current, build: workerBuild.current });
+    if (!(uploadBudget.current > 0)) drainChunks(Infinity);
+  };
+  /** The queued chunks put on the screen, up to `budget` bytes of new geometry (at least one chunk). */
+  const drainChunks = (budget: number) => {
     const group = chunkGroup.current;
-    if (!group) return;
+    const q = chunkOps.current;
+    if (!group || !q.length) return;
     const map = chunkMeshes.current;
     const let_go = (id: string) => {
       const mesh = map.get(id);
@@ -1495,25 +1594,39 @@ function SpaceWorld({
       mesh.geometry.dispose();
       map.delete(id);
     };
-    if (m.clear) for (const id of [...map.keys()]) let_go(id);
-    for (const id of m.drop) let_go(id);
-    for (const { id, mesh: r } of m.set) {
-      let mesh = map.get(id);
-      if (!mesh) {
-        mesh = new THREE.Mesh(new THREE.BufferGeometry(), fusedMatsNow.current);
-        mesh.frustumCulled = false;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.customDepthMaterial = fuseDepth;
-        group.add(mesh);
-        map.set(id, mesh);
+    let spent = 0, sets = 0, i = 0;
+    for (; i < q.length; i++) {
+      const op = q[i];
+      if (op.kind === "drop") let_go(op.id);
+      else if (op.kind === "clearRest") {
+        for (const id of [...map.keys()]) if (!op.keep.has(id)) let_go(id);
+      } else if (op.mesh) {
+        const r = op.mesh;
+        let bytes = 0;
+        for (const a of [r.position, r.normal, r.color, r.extra, r.index, r.anchor, r.growA, r.growB, r.late]) if (a) bytes += a.byteLength;
+        if (sets > 0 && spent + bytes > budget) break;
+        spent += bytes;
+        sets++;
+        let mesh = map.get(op.id);
+        if (!mesh) {
+          mesh = new THREE.Mesh(new THREE.BufferGeometry(), fusedMatsNow.current);
+          mesh.frustumCulled = false;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.customDepthMaterial = fuseDepth;
+          group.add(mesh);
+          map.set(op.id, mesh);
+        }
+        setFused(mesh, r, undefined, fuseU);
+        op.mesh = null;
       }
-      setFused(mesh, r, undefined, fuseU);
     }
-    chunkClock0.current = map.size ? m.clock0 : null;
-    fuseStats.current = { ...fuseStats.current, fuseSide: m.stats };
-    if (last.current) live.current.onStats({ ...last.current, ...focus.current, ...fuseStats.current, stages: stageMax.current, build: workerBuild.current });
+    q.splice(0, i);
+    chunkClock0.current = map.size ? chunkClockAt.current : null;
   };
+  useFrame(() => {
+    if (chunkOps.current.length) drainChunks(Math.max(1, uploadBudget.current));
+  });
   const applyChunksNow = useRef(applyChunks);
   applyChunksNow.current = applyChunks;
   const fusedWasMats = useMemo(() => [stoneWas, resinWas], [stoneWas, resinWas]);
@@ -1679,10 +1792,13 @@ function SpaceWorld({
           sw.onerror = (e) => {
             console.warn(`[parliament] the ${role} worker failed, that work goes back to the space worker:`, e.message);
             w.postMessage({ type: "ports", [role]: null });
+            if (role === "fuse") fuseSide.current = null;
             if (role === "walk") walkSide = null;
           };
-          if (role === "fuse") sw.onmessage = (ev: MessageEvent<UnitChunks>) => ev.data.type === "fuse-chunks" && applyChunksNow.current(ev.data);
-          else walkSide = sw;
+          if (role === "fuse") {
+            sw.onmessage = (ev: MessageEvent<UnitChunks>) => ev.data.type === "fuse-chunks" && applyChunksNow.current(ev.data);
+            fuseSide.current = sw;
+          } else walkSide = sw;
           sides.push(sw);
           return ch.port2;
         } catch (e) {
@@ -1701,6 +1817,7 @@ function SpaceWorld({
         stop: () => {
           w.terminate();
           for (const sw of sides) sw.terminate();
+          fuseSide.current = null;
         },
         log: (m) => walkSide?.postMessage({ type: "events", add: m.add, reset: m.reset }),
       };
@@ -1716,6 +1833,47 @@ function SpaceWorld({
     // apply and the runner read everything through refs
   }, []);
 
+  // THE POOL OF THE MASS (2026-11-20; 렌더 › 작업 분담 › 화석 워커 수): with more than one, the worker of the mass keeps
+  // the order and hands the making of each piece to this many helpers (side.worker.ts) — the mass is the same, made
+  // side by side. Changing the number lets the old helpers go (their pieces go back to be made) and starts new ones.
+  useEffect(() => {
+    const coord = fuseSide.current;
+    const n = fuseWorkers >= 2 ? Math.min(8, fuseWorkers) : 0;
+    if (!coord || !n) return;
+    const mine: { id: number; w: Worker }[] = [];
+    const add: { id: number; port: MessagePort }[] = [];
+    for (let i = 0; i < n; i++) {
+      try {
+        const hw = new Worker(new URL("./side.worker.ts", import.meta.url), { type: "module" });
+        const ch = new MessageChannel();
+        const id = ++helperIds.current;
+        hw.postMessage({ type: "helper", port: ch.port1 }, [ch.port1]);
+        hw.onerror = (e) => {
+          console.warn("[parliament] a helper of the mass failed, its pieces go back to be made:", e.message);
+          hw.terminate();
+          if (fuseSide.current === coord) coord.postMessage({ type: "helpers", remove: [id] });
+        };
+        mine.push({ id, w: hw });
+        add.push({ id, port: ch.port2 });
+      } catch (e) {
+        console.warn("[parliament] no helper of the mass:", e);
+        break;
+      }
+    }
+    // (none would start: the worker of the mass makes the pieces itself, as with one)
+    if (add.length) coord.postMessage({ type: "helpers", add }, add.map((a) => a.port));
+    return () => {
+      for (const { w } of mine) w.terminate();
+      if (fuseSide.current === coord) coord.postMessage({ type: "helpers", remove: mine.map((m) => m.id) });
+    };
+    // (declared after the effect that starts the worker of the mass: it runs after it, and sees it)
+  }, [fuseWorkers]);
+
+  // (the world's clock as the bots' window has it — spaceModel WallClock; none without the window)
+  const wallClock = (): WallClock | undefined => {
+    const w = botGround.window?.();
+    return w && w.elapsed !== undefined ? { now: w.elapsed, riseAt: w.riseAt ?? null, riseLost: w.riseLost ?? 0, standing: !!w.standing } : undefined;
+  };
   // ── every TICK_MS: new events → worker, then one compute request (only one in flight) ──
   useTicker(TICK_MS, () => {
     const w = worker.current;
@@ -1784,7 +1942,7 @@ function SpaceWorld({
     const natSig = frozen ? JSON.stringify([nat, wx, cfg, fu, f, waterCfg]) : "";
     const withNature = !!nat && (frozen ? natSig !== lastNatSig.current : id % NATURE_EVERY === 1);
     if (withNature) lastNatSig.current = natSig;
-    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens, futureOnly: futureOnly() } };
+    const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens, futureOnly: futureOnly(), clock: wallClock() } };
     if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
     // (…with what is left under the ground: FutureUnder.tsx's knob)
     // (not asked for at all while the layer is off — off by default since 2026-11-20, "디폴트로 미래 모습은 안 보이게")
@@ -1825,7 +1983,7 @@ function SpaceWorld({
         // (every pixel of it gone: the patches of the going are behind by at most 1.5 × their share — FUSE_GONE_FRAG_BODY;
         // and a quarter more, for what a vertex reads of its neighbours' later hardening)
         const at = slots(rs.growDieAfterMin ?? 5.5) + Math.max(1, slots(rs.growDieSpanMin ?? 8.5)) * (holes >= 0.999 ? 1 + 1.5 * Math.max(0, rs.growDieRag ?? 0) : 1);
-        return { deep: Math.max(0, Math.min(1, rs.growDeep ?? 0.6)), at: at * 1.25, after: ((ec.lodSec ?? 0) * 1.3) / perTop + 1 };
+        return { deep: Math.max(0, Math.min(1, rs.growDeep ?? 0.6)), at: at * 1.25, after: (fossilWaitSec(ec) * 1.3) / perTop + 1 };
       })();
       req.fuse = { box: cfg, weather: wx, fuse: fu, dead, tauReclaimYears: nat?.tauReclaimYears ?? 300, focusK, perCall: frozen ? PAUSED_FUSE_PER_CALL : undefined, oneClock: oneClk, tauSlabYears: f.tauSlabYears, rebake: frozen, immutable: oneClk && bake ? immutable : undefined, bake: oneClk ? bake : true, caughtUp: !last.current || t - last.current.t <= 2 * cfg.secPerUnit };
     }
@@ -3909,7 +4067,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     SIMPLIFY_GROUP,
     savable(SIMPLIFY_GROUP, {
       lodOn: { value: true, label: "켜기 (끄면 부재가 끝까지 낱낱이)" },
-      lodSec: { value: 180, min: 10, max: 1200, step: 10, label: "지어진 뒤 이만큼 지나면 한 덩이로 (초 · 자리마다 ±30%)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
+      // (shown with the simplification off too: the fossil still begins a while after this — erode fossilSec)
+      lodSec: { value: 180, min: 10, max: 1200, step: 10, label: "지어진 뒤 이만큼 지나면 한 덩이로 (초 · 자리마다 ±30%) — 꺼도 화석이 나오기 시작하는 때는 이 값을 따름" },
       // (the lattice the masses are joined on: their outline is kept to its width — the artist, 2026-11-16: "합쳤을 때 모양 유지")
       lodGrid: { value: 0.5, min: 0.2, max: 4, step: 0.1, label: "합칠 때 모양을 지키는 격자 (월드 · 작을수록 원래 모양 · 클수록 단순한 덩이)", render: (get: (path: string) => unknown) => !!get(`${SIMPLIFY_GROUP}.lodOn`) },
       // THE FOSSIL'S UNITS (spaceModel fossilUnits; the artist, 2026-11-20: "모양은 변하지 않지만 여튼 더 크게 어림한 단순화
@@ -3925,7 +4084,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       // (the place is read by the fusion too — so it is there whenever the block is; with the erosion itself off
       // nothing goes: amount 0)
       REDESIGN && dn.densityOn && botDepth > 0
-        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail, stood: win.stood } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0, lodGrid: sm.lodGrid, lodUnit: sm.lodOn ? sm.lodUnit : 0 } }
+        ? { ...weather, erode: { topSlot: rising ? Math.max(botDepth, win.top) : botDepth, ...(rising ? { height: botDepth, shift: win.shift, slotSec: tAxis.secPerUnit, tail: win.tail, stood: win.stood } : {}), start: er.erStart, full: Math.max(er.erFull, er.erStart + 0.01), amount: er.erOn ? er.erAmount : 0, vegPull: er.erVegPull, order: er.erOrder, patch: er.erPatch, grain: er.erGrain, shade: er.erOn ? er.erShade : 0, feed: er.erOn ? er.erFeed : 0, pipes: er.erOn && er.erPipes, lifeSec: er.erLife, waitSec: er.erWait, spread: er.erSpread, lodSec: sm.lodOn ? sm.lodSec : 0, fossilSec: sm.lodSec, lodGrid: sm.lodGrid, lodUnit: sm.lodOn ? sm.lodUnit : 0 } }
         : weather,
     [weather, botDepth, rising, win.top, win.shift, win.tail, win.stood, tAxis.secPerUnit, dn.densityOn, er.erOn, er.erStart, er.erFull, er.erAmount, er.erVegPull, er.erOrder, er.erPatch, er.erGrain, er.erShade, er.erFeed, er.erPipes, er.erLife, er.erWait, er.erSpread, sm.lodOn, sm.lodSec, sm.lodGrid, sm.lodUnit],
   );
@@ -4318,6 +4477,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growReach: { value: 2, min: 0.2, max: 8, step: 0.1, label: "번져 나오는 거리 (월드 · 화석이 부재에서 가장 멀리 부푼 두께쯤)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // OUT OF ITS OWN UNIT (the shader's press; the artist, 2026-11-20: "부재별 감싸기가 난 훨씬 좋아보여")
       growPress: { value: 1, min: 0, max: 1, step: 0.05, label: "제 단위에서 부풀어 나옴 (1 = 꼭짓점마다 제 덩이 속에 눌려 있다가 부풀어 나옴 — 11/16의 부재별 감싸기 · 0 = 표면 전체가 한 몸으로 조금씩 두꺼워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      // (the artist, 2026-11-20: "다시 계산하거나 기다릴 때 경계면 뚝 잘려보이는 것만 어떻게 처리하면")
+      growSeal: { value: 0.3, min: 0, max: 0.8, step: 0.05, label: "덜 나온 가장자리는 구멍이 나며 삭아 들어감 (나온 정도가 이 아래면 세계에 고정된 노이즈로 · 구멍 크기 = 삭는 구멍의 크기 · 0 = 끔)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
       growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · '제 단위에서 부풀어 나옴'이 1보다 작을 때만)", render: (get: (path: string) => unknown) => REDESIGN && Number(get(`${FU}.growPress`) ?? 1) < 1 },
       // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form back;
@@ -4752,6 +4913,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growMelt: fu.growMelt,
       growReach: fu.growReach,
       growPress: fu.growPress,
+      growSeal: fu.growSeal,
       growLate: fu.growLate,
       growRise: fu.growRise,
       growDie: fu.growDie,
@@ -4776,7 +4938,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance, fu.boneSee, fu.boneSeeParts],
+    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growSeal, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance, fu.boneSee, fu.boneSeeParts],
   );
   // (the bone's knobs, in the material folder, read by reference by every material that draws it — boneLook.ts; the
   // pipes and the ways follow the mass: what has fossilised of them is bone too)
@@ -4968,7 +5130,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const fossilLife = (() => {
     if (!REDESIGN || fu.fuseGrow !== "seed" || !rising) return "";
     const perTop = Math.max(1, tAxis.secPerUnit) / Math.max(0.01, win.shift);
-    const after = ((sm.lodOn ? sm.lodSec : 0) * 1.3 + perTop) / 60;
+    const after = (sm.lodSec * 1.3 + perTop) / 60;
     const min = (m: number) => (m < 10 ? `${m.toFixed(1)}분` : `${Math.round(m)}분`);
     const slow = 1 - Math.max(0, Math.min(1, fu.growDeep ?? 0.6));
     const going = fu.growDie ? ` → ${min(after + fu.growDieAfterMin)}부터 삭음 → ${min(after + fu.growDieAfterMin + fu.growDieSpanMin)}에 다 삭음` : " (삭지 않음)";
@@ -5088,6 +5250,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           takenEpochMs={lab ? (labWorld.world?.epochMs ?? 0) : 0}
           // (a world the lab takes is made from nothing: a model and workers of its own for each)
           key={lab ? `lab-${takenId}` : "wall"}
+          fuseWorkers={ro.fuseWorkers}
+          uploadMB={ro.uploadMB}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
         <FocusFollow

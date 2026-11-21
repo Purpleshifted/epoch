@@ -24,7 +24,20 @@ export const botGround: {
    *  stands): set by the bots, read by the wall. null = no bots running here. `stood`: how far the top would have
    *  risen while its rise was stopped (rise.ts; seconds of the axis, as `top`) — what the ages go on by meanwhile
    *  (erode.ts stood). */
-  window: (() => { top: number; shift: number; tail: number; stood?: number; /** The top stands (the rise stopped, or its speed at 0): nothing leaves at the window's foot. */ still?: boolean }) | null;
+  window: (() => {
+    top: number;
+    shift: number;
+    tail: number;
+    stood?: number;
+    /** The top stands (the rise stopped, or its speed at 0): nothing leaves at the window's foot. */
+    still?: boolean;
+    /** THE CLOCK (2026-11-20): seconds since the world's epoch (what PEvent.w counts), the rise's stop (rise.ts risePause),
+     *  and whether the window never rises (its speed at 0): spaceModel WallClock reads any moment's top and stood from these. */
+    elapsed?: number;
+    riseAt?: number | null;
+    riseLost?: number;
+    standing?: boolean;
+  }) | null;
   /** The config the wall builds `built` with: the bot server builds its own with the same (useBotServer). */
   densityCfg: DensityConfig | null;
 } = { built: null, slotSec: 20, trail: 1, shown: null, shownAt: 0, window: null, densityCfg: null };

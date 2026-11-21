@@ -76,6 +76,14 @@ export interface Seed {
   /** DENSITY: per slot, how much vegetation gathers on what stands there (0..1) — built but not lived in
    *  (density.ts liveAt). The erosion to come reads it too: what is overgrown goes first. */
   gather?: ReadonlyMap<number, number>;
+  /**
+   * WHEN EACH SLOT'S CLOCK BEGAN (2026-11-20; density.ts): per slot, the time (PEvent.w: the world's clock) of the sample
+   * that built it or last stood in it (`w0`), and of the sample that last raised its level (`wRise`) — the origins the
+   * block's ages are counted from (spaceModel bornT), read off the log and not off this tab's memory. A slot without one
+   * was built from events that carry no time: its age is estimated as before.
+   */
+  w0?: ReadonlyMap<number, number>;
+  wRise?: ReadonlyMap<number, number>;
 }
 
 /**

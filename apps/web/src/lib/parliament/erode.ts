@@ -81,6 +81,17 @@ export interface ErodeConfig {
   /** …and THE FOSSIL'S UNITS (spaceModel fossilUnits): the wider lattice the same masses are joined on for the mass to
    *  grow out of — not drawn (world units; 0 / absent = the asset's own boxes). */
   lodUnit?: number;
+  /**
+   * WHEN THE FOSSIL BEGINS, WITH OR WITHOUT THE SIMPLIFICATION (2026-11-20): the seconds a cell-slot stands before it
+   * would be simplified — the fossil comes out a while after that (the wall's uGrowAfter). The same number as `lodSec`
+   * while the simplification is on; with it off `lodSec` is 0 but this stays, so the fossil keeps its time.
+   */
+  fossilSec?: number;
+}
+
+/** The seconds after which a place's fossil may begin (erode fossilSec; before it there was only lodSec). */
+export function fossilWaitSec(ec: { lodSec?: number; fossilSec?: number } | null | undefined): number {
+  return Math.max(0, ec?.fossilSec ?? ec?.lodSec ?? 0);
 }
 
 export const DEFAULT_ERODE: Omit<ErodeConfig, "topSlot"> = { start: 0.15, full: 0.9, amount: 0.75, vegPull: 0.3, order: 0.6, patch: 0.6, grain: 4, shade: 0.25, feed: 0.6 };
