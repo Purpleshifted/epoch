@@ -25,7 +25,7 @@
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, mergeMeshes, noise3, partReach, type FuseConfig, type FuseMesh, type FuseTube, type Sediment } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, compactFuseMesh, fuseChunk, fusePad, fusedShare, mergeMeshes, noise3, partReach, type FuseConfig, type FuseMesh, type FuseTube, type Sediment } from "./fuse";
 import { WALL_BUILD } from "./build";
 import type { NatureHistory } from "./natureHistory";
 import type { Box } from "./seeds";
@@ -160,6 +160,7 @@ export function fuseTilesOf(
           layerDecay,
           ...(ring ? { ring } : {}),
           cfg: fuse,
+          stages,
         });
       meshes.push(tileMesh);
       const dtTile = performance.now() - tTile;
@@ -175,7 +176,10 @@ export function fuseTilesOf(
       }
     }
   }
-  return mergeMeshes(meshes);
+  const tMerge = performance.now();
+  const out = mergeMeshes(meshes);
+  stages["ms merge"] = (stages["ms merge"] ?? 0) + (performance.now() - tMerge);
+  return out;
 }
 
 /**
@@ -186,7 +190,7 @@ export function fuseTilesOf(
  */
 /** How far off its unit's surface a vertex of the mass is pressed (world): clear of the wall drawn there. */
 const ANCHOR_OUT = 0.08;
-export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[], unit = 0): void {
+export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[], unit = 0, stages?: Record<string, number>): void {
   const nv = mesh.position.length / 3;
   const anchor = new Float32Array(nv * 3), A = new Float32Array(nv * 4), B = new Float32Array(nv * 2);
   const G = 2, REACH = 3;
@@ -248,7 +252,11 @@ export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number
       B[v * 2 + 1] = g[5];
     } else B[v * 2 + 1] = -1;
   }
-  if (unit > 0) placeValues(mesh, parts, unit, A, B);
+  if (unit > 0) {
+    const tPlace = performance.now();
+    placeValues(mesh, parts, unit, A, B);
+    if (stages) stages["ms place values"] = (stages["ms place values"] ?? 0) + (performance.now() - tPlace);
+  }
   mesh.anchor = anchor;
   mesh.growA = A;
   mesh.growB = B;
@@ -595,6 +603,16 @@ export interface UnitStats {
   ways?: number;
   /** The stamp of the code this worker runs (build.ts). */
   build?: string;
+  /** WHERE A PIECE'S TIME GOES (2026-11-21): mean ms per piece made since the last message, by stage (fuse.ts fuseChunk's
+   *  laps: field, blur, shell, nets, quads, smooth, finish; then merge, grow (of it: place values), and a helper's
+   *  transfer); and the mean grid samples of a piece. */
+  stageMs?: Record<string, number>;
+  samples?: number;
+  /** Pieces standing (made, on the screen or held), and the vertices of the chunks shown. */
+  pieces?: number;
+  verts?: number;
+  /** Chunks on the screen in their simplified form (simplifyMesh). */
+  simplified?: number;
 }
 
 /** To the view: the chunks of the space whose mass is other than it was (a chunk with nothing left is dropped). */
@@ -606,6 +624,8 @@ export interface UnitChunks {
   stats: UnitStats;
   /** Date.now() at which this side's clock began: a piece's stamp (fuseGrowB.x) is seconds since. */
   clock0: number;
+  /** When it was sent (ms since the epoch): the view measures the transfer. */
+  sentAt?: number;
 }
 
 // ── THE POOL (2026-11-20; the artist sees the buildings' simplification as a compromise of speed and would rather
@@ -614,9 +634,10 @@ export interface UnitChunks {
 // growData: the seconds — is handed to helper workers. A piece's mesh depends only on what it is made from, so it is
 // the same whoever makes it; the order they are chosen in is the same order. ──
 
-/** What every piece of a job is made with: said to a helper once per job (by its serial). */
+/** What every piece of a job is made with: said to a helper once per job (by its serial); a helper keeps the latest per ground (`id`). */
 export interface PieceCtx {
   type: "ctx";
+  id: string;
   serial: number;
   h: NatureHistory | null;
   u: number;
@@ -631,6 +652,7 @@ export interface PieceCtx {
 export interface PieceTask {
   type: "piece";
   ticket: number;
+  id: string;
   serial: number;
   k0: number;
   k1: number;
@@ -652,6 +674,8 @@ export interface PieceDone {
   mesh: FuseMesh;
   ms: number;
   stages?: Record<string, number>;
+  /** When the helper sent it (ms since the epoch — performance.timeOrigin + now: the workers' clocks differ). */
+  sentAt?: number;
 }
 
 /** A piece's mesh: the same function on this side (step) and in a helper. */
@@ -666,9 +690,59 @@ export function makePiece(
 ): FuseMesh {
   const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: [...p.ps], tubes: p.tubes, x0: p.tx, z0: p.tz, nx: c.tile, nz: c.tile }, c.h, c.u, c.sed, look, c.fuse, c.tile, stages, c.fuse.seeded ? { reach: PROV_REACH, reachY: PROV_REACH_Y } : undefined);
   turnBack(mesh, c.ang);
-  if (grows && own.length) growData(mesh, own, c.u);
+  if (grows && own.length) {
+    const tGrow = performance.now();
+    growData(mesh, own, c.u, stages);
+    stages["ms grow"] = (stages["ms grow"] ?? 0) + (performance.now() - tGrow);
+  }
   return mesh;
 }
+
+// ── FEWER TRIANGLES FOR WHAT HAS SETTLED (2026-11-21; the coordinator chat for the artist: "굳은 조각 삼각형 줄이기") ──
+
+/** An index-only simplifier (meshoptimizer, side.worker.ts): the indices to keep of these positions, `target` of them
+ *  at most, the surface moved by at most `errorAbs` (world); vertices on open edges — a chunk's borders — and those
+ *  marked in `lock` (1) stay where they are. */
+export type Simplifier = (indices: Uint32Array, positions: Float32Array, lock: Uint8Array, target: number, errorAbs: number) => Uint32Array;
+
+/**
+ * A CHUNK'S MESH WITH FEWER TRIANGLES. Only the index is simplified (the stone's range and the resin's each on its
+ * own, so the two stay apart), then the vertices no triangle uses any more are dropped and every per-vertex array is
+ * compacted by the same remap (compactFuseMesh) — position, normal, colour, extras, and the fossil's own (anchor,
+ * growA, growB, late, blend): the wall's shader reads them as before, vertex for vertex. Locked, besides the chunk's
+ * open edges: every vertex whose place another vertex shares — the seams between the chunk's pieces (each piece has
+ * its own vertex there, with its own stamp and blend), so no seam moves and no vertex takes a neighbour piece's
+ * values. `ratio` = the share of triangles to take away.
+ */
+export function simplifyMesh(mesh: FuseMesh, ratio: number, simplify: Simplifier, errorAbs: number): FuseMesh {
+  const nv = mesh.position.length / 3;
+  const lock = new Uint8Array(nv);
+  {
+    const P = mesh.position, seen = new Map<string, number>();
+    for (let v = 0; v < nv; v++) {
+      const k = `${Math.round(P[v * 3] * 1e4)},${Math.round(P[v * 3 + 1] * 1e4)},${Math.round(P[v * 3 + 2] * 1e4)}`;
+      const o = seen.get(k);
+      if (o === undefined) seen.set(k, v);
+      else lock[o] = lock[v] = 1;
+    }
+  }
+  const part = (from: number, to: number): Uint32Array => {
+    const src = mesh.index.slice(from, to);
+    if (src.length < 12) return src;
+    const target = Math.max(0, Math.floor((src.length * (1 - ratio)) / 3)) * 3;
+    if (target >= src.length) return src;
+    return simplify(src, mesh.position, lock, target, errorAbs);
+  };
+  const stone = part(0, mesh.resinStart), resin = part(mesh.resinStart, mesh.index.length);
+  const index = new Uint32Array(stone.length + resin.length);
+  index.set(stone);
+  index.set(resin, stone.length);
+  return compactFuseMesh({ ...mesh, index, resinStart: stone.length });
+}
+
+/** A chunk is simplified once none of its pieces has changed for this long (the pieces' rest, PIECE_REST_MS, is as long:
+ *  a chunk still being made is not touched). */
+const SIMPLIFY_AFTER_MS = 180000;
 
 /** A chunk of the space on the screen: this many cells square × this many slots. */
 const CHUNK_CELLS = 42;
@@ -813,8 +887,20 @@ export class FuseUnits {
   readonly clock0 = Date.now();
   private units = new Map<string, Unit>();
   private dirty = new Set<string>();
-  private shown = new Map<string, number>();
+  /** The chunks on the screen: [triangles, vertices] each. */
+  private shown = new Map<string, [number, number]>();
   private cleared = false;
+  /** The stages' ms (and grid samples) summed over the pieces made since the last flush, and how many. */
+  private stageSum: Record<string, number> = {};
+  private stageN = 0;
+  // ── FEWER TRIANGLES FOR WHAT HAS SETTLED (simplifyMesh) ──
+  /** The share of triangles taken off a settled chunk (0 = none), and the simplifier (none until its WASM is ready). */
+  private simplifyRatio = 0;
+  simplifier: Simplifier | null = null;
+  /** The chunks on the screen in their simplified form: id → the signature of the pieces it was made from. */
+  private simplified = new Map<string, string>();
+  /** Simplified chunks made since the last flush, to be sent. */
+  private pendingSimplified = new Map<string, FuseMesh>();
   private made = 0;
   private madeMs = 0;
   private maxMs = 0;
@@ -946,7 +1032,67 @@ export class FuseUnits {
   }
 
   hasDirty(): boolean {
-    return this.cleared || this.dirty.size > 0;
+    return this.cleared || this.dirty.size > 0 || this.pendingSimplified.size > 0;
+  }
+
+  /** The knob (렌더 › 작업 분담): 0 puts every simplified chunk back as it was; another ratio has them made again. */
+  setSimplify(ratio: number): void {
+    const r = Math.max(0, Math.min(0.95, ratio));
+    if (r === this.simplifyRatio) return;
+    this.simplifyRatio = r;
+    if (r === 0) for (const id of this.simplified.keys()) this.dirty.add(id);
+    this.simplified.clear();
+    this.pendingSimplified.clear();
+  }
+
+  /** The chunk a piece is shown in (the chunk of the space its tile's middle lies in; a piece stays in its chunk). */
+  private chunkOf(j: UnitJob, p: { tx: number; tz: number; k0: number }): string {
+    const mx = (p.tx + j.tile / 2) * CELL, mz = (p.tz + j.tile / 2) * CELL;
+    const c = Math.cos(j.ang), sn = Math.sin(j.ang);
+    const wx = mx * c + mz * sn, wz = -mx * sn + mz * c;
+    return `${Math.floor(wx / (CHUNK_CELLS * CELL))},${Math.floor(wz / (CHUNK_CELLS * CELL))},${Math.floor(p.k0 / CHUNK_SLOTS)}`;
+  }
+
+  /**
+   * ONE SETTLED CHUNK SIMPLIFIED (called when nothing is to be made): a chunk on the screen that is not changing — none
+   * of its pieces made or held within SIMPLIFY_AFTER_MS, none dissolving, none of it still to be made — and not yet
+   * simplified from these very pieces, is merged anew and simplified (simplifyMesh), to be sent at the next flush.
+   * Returns whether one was. The picture's defaults leave the ratio at 0: nothing happens then.
+   */
+  settleSimplify(): boolean {
+    if (!(this.simplifyRatio > 0) || !this.simplifier) return false;
+    const now = performance.now();
+    const by = new Map<string, { list: FuseMesh[]; sig: string[]; ok: boolean }>();
+    const at = (id: string) => {
+      let e = by.get(id);
+      if (!e) by.set(id, (e = { list: [], sig: [], ok: true }));
+      return e;
+    };
+    for (const [uid, unit] of this.units) {
+      for (const [k, m] of unit.done) {
+        const e = at(m.chunk);
+        if (m.mesh.index.length) e.list.push(m.mesh);
+        e.sig.push(`${uid}/${k}@${m.at}`);
+        if (now - m.at < SIMPLIFY_AFTER_MS) e.ok = false;
+      }
+      for (const lv of unit.leaving) at(lv.made.chunk).ok = false;
+      if (unit.job) {
+        for (const p of unit.todo) at(unit.done.get(p.key)?.chunk ?? this.chunkOf(unit.job, p)).ok = false;
+        for (const k of unit.staged.keys()) at(unit.done.get(k)?.chunk ?? "?").ok = false;
+      }
+    }
+    for (const f of this.flights.values()) at(f.unit.done.get(f.p.key)?.chunk ?? this.chunkOf(f.j, f.p)).ok = false;
+    for (const [id, e] of by) {
+      if (!e.ok || !e.list.length || this.dirty.has(id) || this.pendingSimplified.has(id) || !this.shown.has(id)) continue;
+      const sig = e.sig.sort().join("|");
+      if (this.simplified.get(id) === sig) continue;
+      const merged = mergeMeshes(e.list);
+      const mesh = simplifyMesh(merged, this.simplifyRatio, this.simplifier, Math.max(0.05, this.voxel) * 0.5);
+      this.simplified.set(id, sig);
+      this.pendingSimplified.set(id, mesh);
+      return true;
+    }
+    return false;
   }
 
   /** The parts that have a mass on the screen since the last call (UnitFused). */
@@ -1183,8 +1329,18 @@ export class FuseUnits {
     const p = this.pick();
     if (!p) return null;
     const t0 = performance.now();
-    const mesh = makePiece(p.j, p.unit.look, p.p, p.own, this.stages, p.grows);
+    const st: Record<string, number> = {};
+    const mesh = makePiece(p.j, p.unit.look, p.p, p.own, st, p.grows);
+    this.takeStages(st);
     return this.finish(p.unit, p.j, p.p, p.own, p.keys, mesh, performance.now() - t0, p.grows);
+  }
+
+  /** A piece's account of its time (fuseTilesOf / fuseChunk stages): the slowest tile kept, the counts added, the stages summed. */
+  private takeStages(st: Record<string, number>): void {
+    if ((st["slow tile ms"] ?? 0) > (this.stages["slow tile ms"] ?? 0)) for (const [k, v] of Object.entries(st)) if (k.startsWith("slow tile")) this.stages[k] = v;
+    for (const k of ["fuse tiles (n)", "fuse cells (n)"]) if (st[k]) this.stages[k] = (this.stages[k] ?? 0) + st[k];
+    for (const [k, v] of Object.entries(st)) if (k.startsWith("ms ") || k === "grid samples (n)") this.stageSum[k] = (this.stageSum[k] ?? 0) + v;
+    this.stageN++;
   }
 
   /** The next piece by the order above, taken out of its building's list (null when nothing may be made now). */
@@ -1297,8 +1453,8 @@ export class FuseUnits {
     this.flights.set(ticket, { ...p, helper });
     const j = p.j;
     return {
-      ctx: { type: "ctx", serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
-      task: { type: "piece", ticket, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk, w }) => ({ b, d, up, sk, w })), tubes: p.p.tubes, own: p.own, grows: p.grows },
+      ctx: { type: "ctx", id: j.id, serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
+      task: { type: "piece", ticket, id: j.id, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk, w }) => ({ b, d, up, sk, w })), tubes: p.p.tubes, own: p.own, grows: p.grows },
     };
   }
 
@@ -1307,10 +1463,9 @@ export class FuseUnits {
     const f = this.flights.get(m.ticket);
     if (!f) return null;
     this.flights.delete(m.ticket);
-    // (the helper's account of its piece: its slowest tile kept if slower than any here; the counts added)
     const st = m.stages ?? {};
-    if ((st["slow tile ms"] ?? 0) > (this.stages["slow tile ms"] ?? 0)) Object.assign(this.stages, st);
-    else for (const k of ["fuse tiles (n)", "fuse cells (n)"]) if (st[k]) this.stages[k] = (this.stages[k] ?? 0) + st[k];
+    if (m.sentAt) st["ms transfer"] = (st["ms transfer"] ?? 0) + Math.max(0, performance.timeOrigin + performance.now() - m.sentAt);
+    this.takeStages(st);
     if (!this.live(f.unit) || f.unit.job?.cfg !== f.j.cfg || f.unit.sigs.get(f.p.key) !== f.p.sig) return null;
     return this.finish(f.unit, f.j, f.p, f.own, f.keys, m.mesh, m.ms, f.grows);
   }
@@ -1357,6 +1512,7 @@ export class FuseUnits {
       set: [],
       drop: [],
       clock0: this.clock0,
+      sentAt: performance.timeOrigin + performance.now(),
       stats: { waiting: fresh, remake: again, held: this.held(), made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel, build: WALL_BUILD, tubes: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.length ?? 0), 0), ways: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.filter((t) => t.kind === "walk").length ?? 0), 0) },
     };
     if (this.cleared) {
@@ -1371,12 +1527,37 @@ export class FuseUnits {
       }
       const mesh = mergeMeshes(list);
       delete mesh.side; // (the worker's own: the view does not read it)
-      this.shown.set(id, mesh.index.length / 3);
+      // (changed: whatever simplified form it had is stale — it is simplified again once it has settled)
+      this.simplified.delete(id);
+      this.pendingSimplified.delete(id);
+      this.shown.set(id, [mesh.index.length / 3, mesh.position.length / 3]);
       out.set.push({ id, mesh });
       for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late, mesh.blend, mesh.key0, mesh.key1, mesh.key2]) if (a) transfer.push(a.buffer as ArrayBuffer);
     }
-    for (const n of this.shown.values()) out.stats.tris += n;
+    // (the settled chunks simplified since the last flush: each replaces its chunk on the screen)
+    for (const [id, mesh] of this.pendingSimplified) {
+      if (!this.shown.has(id)) continue;
+      this.shown.set(id, [mesh.index.length / 3, mesh.position.length / 3]);
+      out.set.push({ id, mesh });
+      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late, mesh.blend]) if (a) transfer.push(a.buffer as ArrayBuffer);
+    }
+    this.pendingSimplified.clear();
+    out.stats.simplified = this.simplified.size;
+    out.stats.verts = 0;
+    for (const [n, v] of this.shown.values()) {
+      out.stats.tris += n;
+      out.stats.verts += v;
+    }
     out.stats.chunks = this.shown.size;
+    out.stats.pieces = 0;
+    for (const unit of this.units.values()) out.stats.pieces += unit.done.size + unit.staged.size;
+    if (this.stageN) {
+      out.stats.stageMs = {};
+      for (const [k, v] of Object.entries(this.stageSum)) if (k.startsWith("ms ")) out.stats.stageMs[k.slice(3)] = v / this.stageN;
+      out.stats.samples = (this.stageSum["grid samples (n)"] ?? 0) / this.stageN;
+    }
+    this.stageSum = {};
+    this.stageN = 0;
     this.dirty.clear();
     this.cleared = false;
     this.made = 0;

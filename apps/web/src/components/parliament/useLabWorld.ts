@@ -55,6 +55,23 @@ interface Taken {
 
 const TAKE_TIMEOUT_MS = 20_000;
 
+/**
+ * WHEN A SAMPLE WAS WRITTEN, WHERE THE SERVER DID NOT SAY (2026-11-21; the artist: "비주얼 랩은 근데 화석화 만지는
+ * 용도인데 거기 맞게 기능이 들어간 건지 모르겠네"). A part's age — what the fossil comes out by, and goes by — is counted
+ * from the moment its samples were written (PEvent.w, spaceModel WallClock); a part whose samples carry none is
+ * given an age estimated from its depth when a tab first sees it standing. The bot server as deployed sends no `w`
+ * (0 of 19,171 samples, measured), and the lab sees the whole block at one moment: every part's age was that
+ * estimate — deep = old, in a block where a deep part may have been built a moment ago — so the fossil the lab showed
+ * was not the wall's. But a server bot's sample carries the moment in its id, `<owner>:<ms since the epoch>`
+ * (botWorld.ts step — the same number `w` is made of), so it is read from there: the lab opens on parts of the ages
+ * they really have (measured: 0 … 14 minutes, the fossil's whole life).
+ */
+function writtenAt(e: PEvent): PEvent {
+  if (typeof e.w === "number" || !e.o.startsWith("bot") || !e.id.startsWith(`${e.o}:`)) return e;
+  const ms = e.id.slice(e.o.length + 1);
+  return /^\d+$/.test(ms) ? { ...e, w: Number(ms) / 1000 } : e;
+}
+
 /** Joins the bot server as a view, takes the world it is sent, and leaves. Sends nothing. */
 function takeFromServer(): Promise<Taken> {
   return new Promise((resolve, reject) => {
@@ -90,7 +107,7 @@ function takeFromServer(): Promise<Taken> {
         if (!head.epochMs) end("no world");
         else if (head.held === 0) end();
       } else if (d.t === "ev" && head) {
-        for (const e of (d.events as PEvent[]) ?? []) events.push(e);
+        for (const e of (d.events as PEvent[]) ?? []) events.push(writtenAt(e));
         if (events.length >= head.held) end();
       }
     };

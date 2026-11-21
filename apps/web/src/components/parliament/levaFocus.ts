@@ -160,8 +160,9 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
     const leaf = path.slice(path.lastIndexOf(".") + 1);
     if (FUSION_UNLISTED.has(leaf)) return false;
     if (leaf in OLD_WAY_CHOICE && data[path]?.value === OLD_WAY_CHOICE[leaf]) return false;
-    // (the new way is all three: the shape made once, of the parts' own skins, on what has been simplified)
-    const seedWay = data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed" && data[`${FUSION_GROUP}.fuseBody`]?.value !== "crust" && data[`${FUSION_GROUP}.fuseFrom`]?.value !== "all";
+    // (the new way: the shape made once, of the parts' own skins — on what has been simplified OR, since 11/20, on every
+    // part with its cell-slot's clock: "every part" no longer leads back to the old way, spaceModel computeFuse `seeded`)
+    const seedWay = data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed" && data[`${FUSION_GROUP}.fuseBody`]?.value !== "crust";
     if (seedWay && SEED_DEAD.has(leaf)) return false;
   }
   for (const group in LEVA_FOCUS) {

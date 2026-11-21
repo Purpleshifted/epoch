@@ -607,7 +607,23 @@ function blurLine(src: Float32Array, dst: Float32Array, o: number, st: number, n
   const inv = 1 / (2 * r + 1);
   let sum = 0;
   for (let t = -r; t <= r; t++) sum += src[o + Math.min(n - 1, Math.max(0, t)) * st];
-  for (let t = 0; t < n; t++) {
+  // (the line's two ends clamp their reads; the stretch between runs without — the blur is the volume stages' hot
+  // loop, 2026-11-21: three passes over every sample for each field blurred)
+  const a = Math.min(n, r), b = Math.max(a, n - r - 1);
+  let t = 0;
+  for (; t < a; t++) {
+    dst[o + t * st] = sum * inv;
+    sum += src[o + Math.min(n - 1, t + r + 1) * st] - src[o + Math.max(0, t - r) * st];
+  }
+  let pOut = o + t * st, pAdd = o + (t + r + 1) * st, pSub = o + (t - r) * st;
+  for (; t < b; t++) {
+    dst[pOut] = sum * inv;
+    sum += src[pAdd] - src[pSub];
+    pOut += st;
+    pAdd += st;
+    pSub += st;
+  }
+  for (; t < n; t++) {
     dst[o + t * st] = sum * inv;
     sum += src[o + Math.min(n - 1, t + r + 1) * st] - src[o + Math.max(0, t - r) * st];
   }
@@ -755,6 +771,9 @@ function faceNormals(P: Float32Array, quads: readonly number[], N: Float32Array)
 }
 
 export interface FuseChunkInput {
+  /** WHERE A PIECE'S TIME GOES (2026-11-21; the readout): each stage of the chunk adds its ms to `stages["ms <stage>"]`,
+   *  and the grid's samples to `stages["grid samples (n)"]`. Absent = not timed. */
+  stages?: Record<string, number>;
   /**
    * TILE OWNERSHIP (cells, optional): the grid covers x0 … x0 + nx (± padding) but only the faces whose edge starts in
    * own.x0 … own.x1 × own.z0 … own.z1 are kept — the same rule as the chunk's own rows (k0 … k1), across the ground, so
@@ -882,6 +901,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const { cfg, unit, sediment: sed, history: h } = input;
   if (!cfg.enabled || input.nx <= 0 || input.nz <= 0) return EMPTY;
   const vs = cfg.voxel;
+  // (the stages' clock: a lap adds the time since the last to the stage named — FuseChunkInput.stages)
+  const stg = input.stages;
+  let tLap = stg ? performance.now() : 0;
+  const lap = (name: string) => {
+    if (!stg) return;
+    const now = performance.now();
+    stg[name] = (stg[name] ?? 0) + (now - tLap);
+    tLap = now;
+  };
   const iso0 = cfg.iso;
   const GROW = cfg.growthColor ?? GROWTH;
   /** The age of a layer (0 … 1): the parts' corrosion clock when given, else the sediment clock. */
@@ -899,6 +927,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const nx = I1 - I0 + 1, ny = J1 - J0 + 1, nz = K1 - K0 + 1;
   const n = nx * ny * nz;
   if (n > 6e6) return EMPTY; // safety: refuse absurd grids
+  if (stg) stg["grid samples (n)"] = (stg["grid samples (n)"] ?? 0) + n;
   const idx = (i: number, j: number, k: number) => (k * ny + j) * nx + i;
 
   // age of each sample row (sediment share): porosity and colour
@@ -1163,6 +1192,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  lap("ms field");
   const tmp = new Float32Array(n);
   const Cb = C.slice();
   blur3(Cb, tmp, nx, ny, nz, Math.round(cfg.blur));
@@ -1236,6 +1266,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   // growths are lumpy and start as sparse specks: only where the noise exceeds (1 − progress) do they show, so a
   // young growth is a few small lumps and a full one a continuous crust
   const lf = 1 / Math.max(0.1, cfg.lump);
+  let anyA = false;
   for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const p = idx(i, j, k);
     const a = A[p];
@@ -1243,8 +1274,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const nz3 = noise3((I0 + i) * vs * lf, (J0 + j) * vs * lf, (K0 + k) * vs * lf, 21);
     const prog = Math.min(1, a / Math.max(1e-6, cfg.accretion));
     A[p] = nz3 > 1 - prog ? a * (0.6 + 1.4 * (nz3 - (1 - prog)) / Math.max(1e-6, prog)) : 0;
+    if (A[p] > 0) anyA = true;
   }
-  blur3(A, tmp, nx, ny, nz, 1);
+  // (no growths anywhere — the exhibition's accretion is 0 — and a blur of nothing is nothing: skipped)
+  if (anyA) blur3(A, tmp, nx, ny, nz, 1);
 
   // vegetation sediment sticks to decaying concrete (never a slab of its own)
   if (h && cfg.natureWeight > 0 && !crust) {
@@ -1306,6 +1339,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  lap("ms blur");
   // C SHELL: hollow the mass (whatever lies deeper than the shell's thickness), then open some of the cells that touch
   // each other so only ribs remain between them; old layers are opened most. FOAM: the same cells carved through the
   // volume without hollowing (sponge bone, ref 9579)
@@ -1320,7 +1354,11 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const S = inside.slice();
     blur3(S, tmp, nx, ny, nz, rOld);
     let S2: Float32Array | null = null;
-    if (rYoung !== rOld) {
+    // (the young thickness counts only in rows under shellSplit: the seeded mass is made at age 1 — every row old —
+    // and its blur would be mixed in at 0: skipped, 2026-11-21)
+    let anyYoung = false;
+    for (let j = 0; j < ny && !anyYoung; j++) if (rowQ[j] < st.shellSplit + 0.08) anyYoung = true;
+    if (rYoung !== rOld && anyYoung) {
       S2 = inside;
       blur3(S2, tmp, nx, ny, nz, rYoung);
     }
@@ -1460,6 +1498,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     for (const p of adds) if (F[p] < iso + 0.25) F[p] = iso + 0.25;
   }
 
+  lap("ms shell");
   // ── naive surface nets ──
   const cubeVert = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1);
   const cidx = (i: number, j: number, k: number) => (k * (ny - 1) + j) * (nx - 1) + i;
@@ -1576,6 +1615,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  lap("ms nets");
   // faces: one quad per sign-changing sample edge. All are collected (padding too) so that smoothing and normals see
   // the same neighbourhood in neighbouring chunks; each is kept by the chunk whose rows contain the edge's start.
   const quads: number[] = []; // a b c d flip owned
@@ -1629,6 +1669,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       }
     }
   }
+  lap("ms quads");
   const P = Float32Array.from(pos);
   const NV = P.length / 3;
   const Nn = Float32Array.from(nor);
@@ -1645,6 +1686,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     taubin(keys[1], quads, NV, 10);
     taubin(keys[2], quads, NV, 6);
   }
+  lap("ms smooth");
   // PITS ON THE BROAD FACES: the pits' coverage drawn toward the flat middles of the large faces — a vertex whose
   // neighbours' normals agree with its own (flat) and that lies deep in a closed cell (broadM) keeps its pits; rims,
   // ribs, edges and small curved bits lose them, by pitBroad
@@ -1739,7 +1781,51 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     sideA = new Float32Array(NT);
     for (let e = 0; e < m; e++) sideA[NV + e] = addS[e];
   }
-  return { position: Pv, normal: Nv, color: colA, extra: extA, index, resinStart: ind.length, ...(lateA ? { late: lateA } : {}), ...(sideA ? { side: sideA } : {}), ...(keys ? { key0: keys[0], key1: keys[1], key2: keys[2] } : {}) };
+  // ONLY THE VERTICES A FACE USES (2026-11-21): the nets make a vertex for every surface cube of the grid, padding
+  // included — the smoothing and the normals need them — but a chunk keeps only the faces its own rows and tile own:
+  // about two vertices in three were carried, stored, grown, transferred and uploaded for nothing. Dropped here, every
+  // per-vertex array compacted by one remap; nothing drawn changes.
+  const out = compactFuseMesh({ position: Pv, normal: Nv, color: colA, extra: extA, index, resinStart: ind.length, ...(lateA ? { late: lateA } : {}), ...(sideA ? { side: sideA } : {}), ...(keys ? { key0: keys[0], key1: keys[1], key2: keys[2] } : {}) });
+  lap("ms finish");
+  return out;
+}
+
+/**
+ * The mesh with only the vertices its index uses, every per-vertex array compacted by the same remap (first use first),
+ * the index rewritten. Nothing drawn changes. The mesh itself when nothing is unused.
+ */
+export function compactFuseMesh(mesh: FuseMesh): FuseMesh {
+  const nv = mesh.position.length / 3;
+  const remap = new Int32Array(nv).fill(-1);
+  let used = 0;
+  const index = new Uint32Array(mesh.index.length);
+  for (let i = 0; i < mesh.index.length; i++) {
+    const v = mesh.index[i];
+    if (remap[v] < 0) remap[v] = used++;
+    index[i] = remap[v];
+  }
+  if (used === nv) return mesh;
+  const take = <T extends Float32Array | undefined>(a: T, k: number): T => {
+    if (!a) return a;
+    const out = new Float32Array(used * k);
+    for (let v = 0; v < nv; v++) {
+      const t = remap[v];
+      if (t < 0) continue;
+      for (let c = 0; c < k; c++) out[t * k + c] = a[v * k + c];
+    }
+    return out as T;
+  };
+  const out: FuseMesh = { position: take(mesh.position, 3), normal: take(mesh.normal, 3), color: take(mesh.color, 3), extra: take(mesh.extra, 4), index, resinStart: mesh.resinStart };
+  if (mesh.anchor) out.anchor = take(mesh.anchor, 3);
+  if (mesh.growA) out.growA = take(mesh.growA, 4);
+  if (mesh.growB) out.growB = take(mesh.growB, 2);
+  if (mesh.late) out.late = take(mesh.late, 1);
+  if (mesh.side) out.side = take(mesh.side, 1);
+  if (mesh.blend) out.blend = take(mesh.blend, 4);
+  if (mesh.key0) out.key0 = take(mesh.key0, 3);
+  if (mesh.key1) out.key1 = take(mesh.key1, 3);
+  if (mesh.key2) out.key2 = take(mesh.key2, 3);
+  return out;
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
