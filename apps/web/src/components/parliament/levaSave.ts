@@ -89,9 +89,13 @@ export function setLevaPage(path: string | null): void {
   pageOverride = path;
 }
 
+/** The page whose saved values this tab reads and writes (its own path, or the page it shares them with). */
+export function levaPage(): string {
+  return pageOverride ?? (typeof window === "undefined" ? "" : window.location.pathname);
+}
+
 function storageKey(root: string): string {
-  const page = pageOverride ?? (typeof window === "undefined" ? "" : window.location.pathname);
-  return `${PREFIX}:${page}:${root}`;
+  return `${PREFIX}:${levaPage()}:${root}`;
 }
 
 /** Saved values of `root`, or (none saved under it yet) those of groups it was renamed from, merged. */
@@ -186,15 +190,16 @@ function fits(saved: unknown, item: unknown): boolean {
 }
 
 /** Walks a schema: the saved values put in, and every input's full Leva path (root.folder.key) collected. */
-function inject(schema: Item, prefix: string, saved: Record<string, unknown> | null, paths: Map<string, string>): Item {
+function inject(schema: Item, prefix: string, saved: Record<string, unknown> | null, paths: Map<string, string>, items?: Map<string, unknown>): Item {
   const out: Item = {};
   for (const [key, item] of Object.entries(schema)) {
     if (isObj(item) && typeof item.type === "string" && SPECIAL.has(item.type)) {
-      if (item.type === "FOLDER") out[key] = { ...item, schema: inject(item.schema as Item, `${prefix}.${key}`, saved, paths) };
+      if (item.type === "FOLDER") out[key] = { ...item, schema: inject(item.schema as Item, `${prefix}.${key}`, saved, paths, items) };
       else out[key] = item;
       continue;
     }
     paths.set(key, `${prefix}.${key}`);
+    items?.set(key, item);
     const s = saved?.[key];
     if (s === undefined || !fits(s, item)) out[key] = item;
     else if (isObj(item) && ("value" in item || "options" in item)) out[key] = { ...item, value: s };
@@ -207,12 +212,16 @@ function inject(schema: Item, prefix: string, saved: Record<string, unknown> | n
 export interface SavedMigration {
   tag: string;
   set: Record<string, unknown>;
+  /** The day it was written ("2026-10-15"), for a tag that does not end in its date. A tag is never renamed to carry
+   *  one: the marker is the tag, and a browser that has it would run the migration again under the new name. */
+  at?: string;
 }
 
-/** The end of the day a migration was written, from the date its tag ends with ("…-2026-11-15"); null = no date. */
-function migrationDay(tag: string): number | null {
-  const m = /(\d{4})-(\d{2})-(\d{2})$/.exec(tag);
-  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1).getTime() : null;
+/** The end of the day a migration was written — its `at`, or the date its tag ends with ("…-2026-11-15"); null = no
+ *  date known. */
+function migrationDay(m: SavedMigration): number | null {
+  const d = /(\d{4})-(\d{2})-(\d{2})$/.exec(m.at ?? m.tag);
+  return d ? new Date(Number(d[1]), Number(d[2]) - 1, Number(d[3]) + 1).getTime() : null;
 }
 
 /**
@@ -229,7 +238,7 @@ function migrateSaved(key: string, m: SavedMigration): void {
   try {
     if (window.localStorage.getItem(marker) !== null) return;
     window.localStorage.setItem(marker, String(Date.now()));
-    const day = migrationDay(m.tag);
+    const day = migrationDay(m);
     if (day !== null && Number(window.localStorage.getItem(`${key}:savedAt`) ?? 0) > day) return;
     const raw = window.localStorage.getItem(key);
     if (!raw) return; // nothing saved: the defaults apply anyway
@@ -264,13 +273,99 @@ const groupOf = (root: string) => {
   return [...savers.keys()].filter((r) => r === top || r.startsWith(`${top}.`));
 };
 
+// ── A FOLDER'S VALUES AS A NAMED PRESET (levaPresets.ts; the artist, 2026-11-21: "각 폴더별로 세이브 하나씩 내가 이름
+// 정해서 프리셋 저장하고 불러올 수 있도록"). A preset is everything a folder holds — the folders inside it, and the
+// knobs the panel does not list (LEVA_FOCUS, `render:`) — read from the knobs as they stand and put back on them as if
+// turned by hand: nothing is saved by loading one (the folder's `save` makes it what the wall opens with). ──
+/** A root's knobs as they stand, by key; and a set of values put on them — which keys it took, which did not fit. */
+const presetReaders = new Map<string, () => Record<string, unknown>>();
+const presetWriters = new Map<string, (values: Record<string, unknown>) => { took: string[]; misfit: string[] }>();
+/** The names a root had before (savable's `legacy`): a preset saved under one of them is still its folder's. */
+const legacyNames = new Map<string, readonly string[]>();
+/** Knobs that are not a folder's look but switches of the panel itself: never in a preset (the fusion's own chooser
+ *  of a set would put that set over the preset just loaded; the "list everything" checkbox is the panel's). */
+const NOT_IN_PRESETS = new Set(["fusePreset", "allKnobs"]);
+
+/** The folder `top` as a preset holds it: every root of the group (the folder and the folders in it that keep their
+ *  own values) → its knobs' values by key. */
+export function readGroup(top: string): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const r of groupOf(top)) {
+    const v = presetReaders.get(r)?.();
+    if (v) out[r] = v;
+  }
+  return out;
+}
+
+/**
+ * A preset's values put on the folder's knobs. A PRESET OUTLIVES THE FOLDER IT WAS SAVED FROM: a root is found by its
+ * name or a name it had before, and a knob by its key wherever in the group it sits now (a knob moved to another
+ * folder of the group is still found). What cannot be put is skipped and named: a key no knob has any more (`gone`),
+ * a value its knob no longer takes — another kind, an option that is not offered (`misfit`, by the knob's label).
+ */
+export function writeGroup(top: string, roots: Record<string, Record<string, unknown>>): { applied: number; gone: string[]; misfit: string[] } {
+  const flat: Record<string, unknown> = {};
+  for (const v of Object.values(roots)) if (isObj(v)) Object.assign(flat, v);
+  const took = new Set<string>();
+  const misfit: string[] = [];
+  let applied = 0;
+  for (const r of groupOf(top)) {
+    const write = presetWriters.get(r);
+    if (!write) continue;
+    const was = [r, ...(legacyNames.get(r) ?? [])].find((n) => isObj(roots[n]));
+    const res = write({ ...flat, ...(was ? roots[was] : {}) });
+    for (const k of res.took) took.add(k);
+    misfit.push(...res.misfit);
+    applied += res.took.length - res.misfit.length;
+  }
+  const gone = Object.keys(flat).filter((k) => !took.has(k) && !NOT_IN_PRESETS.has(k));
+  return { applied, gone, misfit };
+}
+
+/** The names the folder `top` had before: its presets saved under them are listed with its own. */
+export function legacyGroups(top: string): readonly string[] {
+  return legacyNames.get(top) ?? [];
+}
+
 export function savable<S extends object>(root: string, schema: S, legacy: readonly string[] = [], migrations: readonly SavedMigration[] = []): S {
   if (typeof window === "undefined") return schema;
   const key = storageKey(root);
   const defaultsOnly = presetsDefault();
   if (!defaultsOnly) for (const m of migrations) migrateSaved(key, m);
   const paths = new Map<string, string>();
-  const out = inject(schema as Item, root, defaultsOnly ? null : loadWithLegacy(root, legacy), paths);
+  const items = new Map<string, unknown>();
+  const out = inject(schema as Item, root, defaultsOnly ? null : loadWithLegacy(root, legacy), paths, items);
+  legacyNames.set(root, legacy);
+  presetReaders.set(root, () => {
+    // (read from the store's data, not `get`: that warns for a path that is not there)
+    const data = levaStore.getData() as Record<string, { value?: unknown } | undefined>;
+    const values: Record<string, unknown> = {};
+    for (const [k, path] of paths) {
+      const v = data[path]?.value;
+      if (v !== undefined && typeof v !== "function" && !NOT_IN_PRESETS.has(k)) values[k] = v;
+    }
+    return values;
+  });
+  presetWriters.set(root, (values) => {
+    const took: string[] = [], misfit: string[] = [];
+    const data = levaStore.getData() as Record<string, unknown>;
+    for (const [k, path] of paths) {
+      if (!(k in values) || NOT_IN_PRESETS.has(k)) continue;
+      took.push(k);
+      const item = items.get(k);
+      const label = isObj(item) && typeof item.label === "string" ? item.label.split(" (")[0] : k;
+      if (!fits(values[k], item) || !data[path]) {
+        misfit.push(label);
+        continue;
+      }
+      try {
+        levaStore.setValueAtPath(path, values[k], true);
+      } catch {
+        misfit.push(label);
+      }
+    }
+    return { took, misfit };
+  });
   savers.set(root, (get) => {
         if (defaultsOnly) {
           showNote("기본값 모드 (?presets=default): 저장하지 않음", false);
@@ -333,6 +428,10 @@ export function savable<S extends object>(root: string, schema: S, legacy: reado
       },
       reload: () => {
         for (const r of groupOf(root)) reloaders.get(r)?.();
+      },
+      // (the folder's named presets: a small panel beside this one — levaPresets.ts)
+      "프리셋…": () => {
+        void import("./levaPresets").then((m) => m.openPresetPanel(root.split(".")[0]));
       },
     },
   });
