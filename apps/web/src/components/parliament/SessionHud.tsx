@@ -7,14 +7,17 @@
  *     block, in plain words in the chosen language: the visitor's own melody written down (Glyph), who comes and goes,
  *     what the life does to the ground (lib/parliament/ledger.ts), the important lines reversed, black on white;
  *     a banner now and then saying how to stop living, the dark that comes up while X is held, and the line when it fails
- *   - at the end: the being's record card in the voice of a specimen (script.ts ended, from the record and ledger.ts
- *     ledgerSummary), the cause of death (intake.ts) and, behind a knob, the footprint map (FootprintMap)
+ *   - at the end: the being's specimen card (SpecimenCard, lib/parliament/plate.ts — 2026-11-21): the life's worldline
+ *     on the time axis and the record in the voice of a specimen (script.ts ended, from the record and ledger.ts
+ *     ledgerSummary), the cause of death (intake.ts); white or black paper (the visitor turns it), 저장 as an image on a
+ *     phone or a remote screen, the recording's QR on the gallery machine (`venue=gallery`). Behind a knob, the record
+ *     card of 11/01 with its footprint map (FootprintMap)
  * The words are lib/parliament/script.ts (ko / en), the record's too (LOG · formatEntry). VT323 has no Hangul, so the
  * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
  */
 
 import { VT323 } from "next/font/google";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CAUSE_NAME,
   GLYPH_COLS,
@@ -32,6 +35,9 @@ import {
   glyphOf,
   individualNo,
   ledgerSummary,
+  plateCells,
+  qrModules,
+  venueName,
   linesShown,
   pageDone,
   titleFor,
@@ -41,6 +47,8 @@ import {
   type LogEntry,
   type NearItemArgs,
   type Observation,
+  type PlateInput,
+  type PlateTheme,
   type RoleId,
   type SessionPhase,
   type StatusArgs,
@@ -49,6 +57,8 @@ import {
 import type { Visitor } from "./RoleField";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
+import { SpecimenCard, saveCard } from "./SpecimenCard";
+import type { CardVisual } from "./usePersonalVisuals";
 import type { LifeSession } from "./useLifeSession";
 
 const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
@@ -161,6 +171,10 @@ export function SessionHud({
   noticeLineSec = NOTICE_LINE_SEC,
   coarse = false,
   footprint = true,
+  card = { style: "card", font: "galmuri11", theme: "paper" },
+  venue = null,
+  recordingUrl,
+  cardUrl,
   onAnswer,
 }: {
   session: LifeSession;
@@ -183,8 +197,16 @@ export function SessionHud({
   noticeLineSec?: number;
   /** A phone-like device: the lines say tap / tilt / hold instead of keys, click and mouse; no pointer lock. */
   coarse?: boolean;
-  /** The end screen's footprint map (Leva 개인뷰 비주얼). */
+  /** The record card's footprint map (Leva 개인뷰 비주얼; the record card of 11/01 only). */
   footprint?: boolean;
+  /** The end screen: the specimen card or the record card of 11/01, the card's face and first paper (Leva 개인뷰 비주얼). */
+  card?: CardVisual;
+  /** The `venue` URL parameter: printed on the card; "gallery" is the exhibition's own machine (QR, no save). */
+  venue?: string | null;
+  /** The life's recording (the life-recording session's hook) and the card's own page, when there are such: the
+   * gallery machine's card shows the QR of the one there is (the recording first). */
+  recordingUrl?: string;
+  cardUrl?: string;
   /** The visitor answered someone: it leaves a seed head (RoleField). */
   onAnswer?: () => void;
 }) {
@@ -270,9 +292,12 @@ export function SessionHud({
 
   // a failed attempt to stop living goes into the record as two flat lines
   const seenAttempts = useRef(0);
+  /** The life seconds of the failed attempts (the card marks them on the worldline). */
+  const attemptsAt = useRef<number[]>([]);
   useEffect(() => {
     if (attempts <= seenAttempts.current) return;
     seenAttempts.current = attempts;
+    attemptsAt.current.push(session.lifeRef.current.t);
     log.attempt(session.lifeRef.current.t, session.lastAttemptNear);
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary() }));
   }, [attempts, log, session.lifeRef, session.lastAttemptNear]);
@@ -287,6 +312,50 @@ export function SessionHud({
       : null;
   const title = titleFor(lang);
   const sum = phase === "ended" && rec.ledger ? ledgerSummary(rec.ledger) : null;
+
+  // the specimen card: what the record and the ledger hold at the end, nothing else
+  const gallery = venue === "gallery";
+  const qrUrl = recordingUrl ?? cardUrl;
+  const lived = endedBy === "self" ? rec.t : lifeSec;
+  const plate = useMemo<PlateInput | null>(() => {
+    if (phase !== "ended" || !cause || !rec.me) return null;
+    const s = rec.ledger ? ledgerSummary(rec.ledger) : null;
+    return {
+      lang,
+      me: rec.me,
+      lifeSec: lived,
+      group: rec.group,
+      ensembleSec: rec.ensembleSec,
+      newWords: rec.newWords,
+      asked: rec.asked,
+      found: rec.found,
+      stillSec: rec.stillSec,
+      attempts: rec.attempts,
+      attemptsAt: attemptsAt.current.slice(),
+      sum: s,
+      unmet: (s?.with ?? []).filter((o) => !rec.group.includes(o)).length,
+      cause: CAUSE_NAME[lang][cause],
+      venue: venueName(venue, lang),
+      endedAt: phaseAt,
+      trail: rec.ledger?.trail ?? [],
+      cells: rec.ledger ? plateCells(rec.ledger) : [],
+      qr: gallery ? { modules: qrUrl ? qrModules(qrUrl) : null } : null,
+    };
+  }, [phase, cause, rec, lang, lived, venue, phaseAt, gallery, qrUrl]);
+  const [paper, setPaper] = useState<PlateTheme | null>(null);
+  const theme = paper ?? card.theme;
+  const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const save = useCallback(() => {
+    if (!plate || saving === "saving") return;
+    setSaving("saving");
+    const d = new Date(plate.endedAt);
+    const two = (v: number) => String(v).padStart(2, "0");
+    const name = `specimen-${individualNo(plate.me)}-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+    saveCard(plate, card.font, theme, name).then(
+      (r) => setSaving(r === "cancelled" ? "idle" : "saved"),
+      () => setSaving("failed"),
+    );
+  }, [plate, card.font, theme, saving]);
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
@@ -442,8 +511,37 @@ export function SessionHud({
         </div>
       )}
 
-      {/* the end: the being's record card, with the footprint (Leva 개인뷰 비주얼 › 퇴장 화면 발자국 지도) */}
-      {phase === "ended" && cause && (
+      {/* the end: the specimen card (Leva 개인뷰 비주얼 › 퇴장 화면). It fills the height it can at the printed card's
+          proportion; under it the paper (white / black) and 저장 — not on the gallery machine, whose card carries the QR */}
+      {phase === "ended" && cause && card.style === "card" && plate && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-hidden px-4 py-4">
+          <div className={`${say} shrink-0 text-[18px] tracking-[0.03em] text-white/80`}>{S.ended.title}</div>
+          <SpecimenCard plate={plate} font={card.font} theme={theme} className="min-h-0 shrink" style={{ height: "min(calc(100dvh - 10rem), calc((100vw - 2rem) * 86 / 54))" }} />
+          <div className={`${say} flex shrink-0 items-center gap-2 text-[15px]`}>
+            {(["paper", "screen"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                data-hud-control
+                onClick={() => setPaper(k)}
+                className={`pointer-events-auto border px-3 py-1 outline-none ${theme === k ? "border-white bg-white text-black" : "border-white/40 text-white/70"}`}
+              >
+                {k === "paper" ? S.ended.paperWhite : S.ended.paperBlack}
+              </button>
+            ))}
+            {!gallery && (
+              <button type="button" data-hud-control onClick={save} disabled={saving === "saving"} className="pointer-events-auto ml-3 border border-white px-4 py-1 text-white outline-none hover:bg-white hover:text-black">
+                {saving === "saving" ? S.ended.saving : saving === "saved" ? S.ended.saved : saving === "failed" ? S.ended.saveFailed : S.ended.save}
+              </button>
+            )}
+          </div>
+          {helpLine && cause === "suicide" && <div className={`${say} shrink-0 text-[#8c8c8c]`}>{S.ended.help}</div>}
+          <div className={`${say} h-5 shrink-0 text-[15px] tracking-[0.2em] text-white`}>{session.restartReady && <span className="hud-blink">{coarse ? S.ended.nextTouch : S.ended.next}</span>}</div>
+        </div>
+      )}
+
+      {/* the end, as it was on 11/01: the being's record card, with the footprint (Leva 개인뷰 비주얼 › 기록표의 발자국 지도) */}
+      {phase === "ended" && cause && card.style === "table" && (
         <div className="absolute inset-0 flex items-center justify-center overflow-hidden px-6">
           <div className={`${say} w-full max-w-[46rem] text-[17px] leading-[1.3] tracking-[0.03em]`}>
             <div className="mb-3 text-[24px] text-white">{S.ended.title}</div>

@@ -126,10 +126,10 @@ const FRESH: Omit<SessionView, "phase" | "sessionNo"> = {
   lastAttemptNear: 0,
 };
 
-/** A gesture on the Leva panel (tuning) does not count. */
+/** A gesture on the Leva panel (tuning) or on a control of the end screen (the card's save, its paper) does not count. */
 function onPanel(e: Event): boolean {
   const el = e.target as Element | null;
-  return !!el?.closest?.("[class*='leva-']");
+  return !!el?.closest?.("[class*='leva-'], [data-hud-control]");
 }
 
 export class SessionMachine {

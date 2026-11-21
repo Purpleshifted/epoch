@@ -315,6 +315,9 @@ export default function ParliamentScene() {
   useReloadOnContextLoss(hideChrome && !demo);
   // the language the apparatus speaks: ?lang=ko|en on the exhibition URL wins over the Leva knob
   const [langParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null));
+  // where the visitor is: ?venue=gallery is the exhibition's own machine (the card's QR, no save); any venue is printed
+  // on the card ("세지갤러리 · … 출토"); none (a remote visitor) prints the date and time only
+  const [venueParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("venue") : null));
   const [locked, setLocked] = useState(false);
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
@@ -499,7 +502,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

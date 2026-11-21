@@ -121,6 +121,17 @@ export interface Script {
     nextTouch: string;
     /** One line of help, shown after a suicide only when the knob is on. */
     help: string;
+    /** The specimen plate (plate.ts): where and when it was unearthed (the life's end) … */
+    unearthed: (where: string | null, when: string) => string;
+    /** … the gallery's QR (the life's recording), the paper the card is shown on, saving it as an image. */
+    recording: string;
+    recordingNote: string;
+    paperWhite: string;
+    paperBlack: string;
+    save: string;
+    saving: string;
+    saved: string;
+    saveFailed: string;
   };
 }
 
@@ -176,6 +187,15 @@ export const SCRIPT: Record<Lang, Script> = {
       next: "SPACE — 다음 삶",
       nextTouch: "화면을 누르면 — 다음 삶",
       help: "자살예방상담전화 109",
+      unearthed: (where, when) => `${where ? `${where} · ` : ""}${when} 출토`,
+      recording: "녹음",
+      recordingNote: "이 개체가 들은 음악",
+      paperWhite: "흰 바탕",
+      paperBlack: "검은 바탕",
+      save: "저장",
+      saving: "저장 중",
+      saved: "저장했습니다",
+      saveFailed: "저장하지 못했습니다",
     },
   },
   en: {
@@ -229,9 +249,31 @@ export const SCRIPT: Record<Lang, Script> = {
       next: "SPACE — next life",
       nextTouch: "Tap — next life",
       help: "Lifeline 109",
+      unearthed: (where, when) => `${where ? `${where} · ` : ""}${when} · unearthed`,
+      recording: "Recording",
+      recordingNote: "the music this individual heard",
+      paperWhite: "White",
+      paperBlack: "Black",
+      save: "Save",
+      saving: "Saving",
+      saved: "Saved",
+      saveFailed: "Could not save",
     },
   },
 };
+
+/**
+ * The places the card can say it was unearthed in (the `venue` URL parameter): a known key is named in the language;
+ * any other value is printed as it is (cut at 24 letters); no parameter, no place — date and time only.
+ */
+export const VENUE_NAME: Record<string, Record<Lang, string>> = {
+  gallery: { ko: "세지갤러리", en: "Seji Gallery" },
+};
+export function venueName(param: string | null | undefined, lang: Lang): string | null {
+  const v = (param ?? "").trim();
+  if (!v) return null;
+  return VENUE_NAME[v]?.[lang] ?? [...v].slice(0, 24).join("");
+}
 
 /** The title to show for a language: the English one, or the Korean working title while there is none. */
 export function titleFor(lang: Lang): { main: string; sub: string | null } {
