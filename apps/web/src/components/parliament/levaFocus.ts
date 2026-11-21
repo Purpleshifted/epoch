@@ -41,7 +41,7 @@ const FUSION_GROUP = "엉김 · 융합 · 레진";
  * the age, the life, the units, the pieces. Nothing is to be chosen there any more; the value stays as saved.
  */
 const FUSION_UNLISTED = new Set(["fuseGrow"]);
-// (…and the ways: they do not enter the new fossil — only the pipes' trunks do, spaceModel.ts seededTubes)
+// (…and, until 2026-11-21, the ways' switch: only the pipes' trunks entered the new fossil — spaceModel.ts seededTubes)
 // GONE THROUGH AGAIN, KNOB BY KNOB, AGAINST THE CODE (the artist, 2026-11-20: "화석에서 안 헷갈리게 더이상 안 쓰는 방식은
 // 레바에서 그때그때 좀 없애줘") — and to be gone through each time the way changes:
 //  · scatter: it breaks up thin YOUNG mass — × (1 − the layer's age), and the seeded mass is made at age 1: × 0
@@ -51,7 +51,9 @@ const FUSION_UNLISTED = new Set(["fuseGrow"]);
 //    each on its own, and come out of their parts instead
 // (layerSlots WAS WRONGLY HERE, from earlier the same day: nothing of the fossil reads it any more, but the BUILDINGS' erosion
 // does — spaceModel `old`: the progress of a part's place is multiplied by it. Listed again, its label saying so.)
-const SEED_DEAD = new Set(["fuseFull", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "fuseWalks", "walkRadius", "scatter", "steelFossil", "fuseFade"]);
+// (2026-11-21, "길도 넣어": the ways' main lines are in the new fossil — its switch is listed again, with which ways and
+// how thick a bone. The drawn way's own radius stays out: the bone has its own, wayThick.)
+const SEED_DEAD = new Set(["fuseFull", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "walkRadius", "scatter", "steelFossil", "fuseFade"]);
 /**
  * …AND THE CHOICES THAT LEAD BACK TO THE OLD WAY: what the mass is made of (the parts' own skins / the crust) and where
  * it grows (on what has been simplified / on every part). The new fossil is the first of each — the crust or "every
@@ -85,7 +87,7 @@ export const LEVA_FOCUS: Record<string, readonly string[]> = {
   // behind — ③'s tubes (꼴, their thickness, their share by size, how much the old layers embed them again)
   // …and the pipes' trunks in the mass (2026-11-20: "배관 본줄기부터"): the switch, which runs are trunks, how thick
   // (fuseBody · fuseFrom: listed only while they hold the old way's value — OLD_WAY_CHOICE)
-  "엉김 · 융합 · 레진": ["fusePipes", "trunkShare", "trunkThick", "fusePreset", "fuseOn", "fuseGrow", "fuseBody", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
+  "엉김 · 융합 · 레진": ["fusePipes", "trunkShare", "trunkThick", "fuseWalks", "wayShare", "wayThick", "fusePreset", "fuseOn", "fuseGrow", "fuseBody", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;

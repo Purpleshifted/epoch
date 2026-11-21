@@ -36,6 +36,51 @@ export const UNIT_PAD = 4;
 
 type Sed = Sediment;
 
+/**
+ * WHETHER A PIPE OR A WAY REACHES A RECTANGLE OF THE GROUND [ax, bx] × [az, bz] (world): the stretch itself, by its
+ * radius — not the square round it. Along x or z the two are the same; askew (a way, or a trunk joined over a turned
+ * district's ground, 2026-11-21) the square round a long stretch is whole tiles it never enters, each of which
+ * would be a piece made of nothing, and made again whenever the stretch changed.
+ */
+export function tubeInRect(t: FuseTube, ax: number, az: number, bx: number, bz: number): boolean {
+  const lo = [ax - t.r, az - t.r], hi = [bx + t.r, bz + t.r], p0 = [t.x0, t.z0], d = [t.x1 - t.x0, t.z1 - t.z0];
+  let ta = 0, tb = 1;
+  for (let q = 0; q < 2; q++) {
+    if (Math.abs(d[q]) < 1e-9) {
+      if (p0[q] < lo[q] || p0[q] > hi[q]) return false;
+      continue;
+    }
+    let a = (lo[q] - p0[q]) / d[q], b = (hi[q] - p0[q]) / d[q];
+    if (a > b) [a, b] = [b, a];
+    if (a > ta) ta = a;
+    if (b < tb) tb = b;
+    if (ta > tb) return false;
+  }
+  return true;
+}
+
+/** The longest box (world) an askew pipe or way is cut into for what its mass grows by (tubeBoxes). */
+const TUBE_BOX = 3;
+
+/**
+ * A PIPE OR A WAY AS THE PARTS ITS MASS GROWS FROM (growData; the worker's make): along x or z it is one box. Askew —
+ * a way's stretch — it is boxes of at most TUBE_BOX along it, each turned its way: one box square to the world round
+ * an askew stretch covers the whole square the stretch crosses, and the values of the place (placeValues: the
+ * youngest thing in a cell is the cell's age) would write the way's age over every building standing in it.
+ */
+export function tubeBoxes(w: FuseTube): Box[] {
+  const dx = w.x1 - w.x0, dy = w.y1 - w.y0, dz = w.z1 - w.z0, d = 2 * w.r;
+  const box = (m: number, sx: number, sy: number, sz: number, yaw: number): Box =>
+    ({ kind: "mass", seed: 0, x: w.x0 + dx * m, y: w.y0 + dy * m, z: w.z0 + dz * m, sx, sy, sz, slot: w.k, tone: 0, along: 0, ...(yaw ? { yaw } : {}) }) as unknown as Box;
+  if (Math.abs(dx) < 1e-4 || Math.abs(dz) < 1e-4) return [box(0.5, Math.abs(dx) + d, Math.abs(dy) + d, Math.abs(dz) + d, 0)];
+  const flat = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(flat / TUBE_BOX));
+  // (the box's own x along the stretch: growData turns a point into the box's frame by lx = dx·cos − dz·sin)
+  const yaw = Math.atan2(-dz, dx);
+  const out: Box[] = [];
+  for (let i = 0; i < n; i++) out.push(box((i + 0.5) / n, flat / n + d, Math.abs(dy) / n + d, d, yaw));
+  return out;
+}
+
 /** A chunk's parts (all square to the grid) fused tile by tile. */
 export function fuseTilesOf(
   w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: readonly FuseTube[]; x0: number; z0: number; nx: number; nz: number },
@@ -59,7 +104,7 @@ export function fuseTilesOf(
         const r = Math.max(b.sx, b.sy, b.sz) / 2 + grown;
         return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
       });
-      const tubes = w.tubes.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
+      const tubes = w.tubes.filter((t) => tubeInRect(t, ax * CELL, az * CELL, bx * CELL, bz * CELL));
       if (!ps.length && !tubes.length) continue; // empty ground costs nothing
       // THE GRID IS AS LARGE AS WHAT IS IN IT (2026-11-15: a tile was always 32 × 32 cells, and its cost is its
       // volume — a district's few cells of building paid for the whole square, ~150 ms a tile): the tile's grid is
@@ -406,7 +451,7 @@ export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boole
           const r = Math.max(b.sx, b.sy, b.sz) / 2 + (o.grown ?? 0);
           return cellOf(b.x + r) >= ax && cellOf(b.x - r) < bx && cellOf(b.z + r) >= az && cellOf(b.z - r) < bz;
         });
-        const tubes = tubesBand.filter((t) => cellOf(Math.max(t.x0, t.x1) + t.r) >= ax && cellOf(Math.min(t.x0, t.x1) - t.r) < bx && cellOf(Math.max(t.z0, t.z1) + t.r) >= az && cellOf(Math.min(t.z0, t.z1) - t.r) < bz);
+        const tubes = tubesBand.filter((t) => tubeInRect(t, ax * CELL, az * CELL, bx * CELL, bz * CELL));
         // (…nor where no pipe or way runs: the mass follows them across the ground between the buildings)
         if (!o.fusing(mine) && !tubes.length) continue;
         let sg = 0;
@@ -532,8 +577,9 @@ export interface UnitStats {
   chunks: number;
   units: number;
   voxel: number;
-  /** The hardened pipes and ways that are in the grounds' fields now. */
+  /** The hardened pipes and ways that are in the grounds' fields now — and how many of them are ways. */
   tubes?: number;
+  ways?: number;
   /** The stamp of the code this worker runs (build.ts). */
   build?: string;
 }
@@ -981,8 +1027,8 @@ export class FuseUnits {
       for (const t of p.tubes) {
         const w = (j.tubes ?? [])[(t as FuseTube & { i: number }).i];
         if (!w) continue;
-        const b = { kind: "mass", seed: 0, x: (w.x0 + w.x1) / 2, y: (w.y0 + w.y1) / 2, z: (w.z0 + w.z1) / 2, sx: Math.abs(w.x1 - w.x0) + 2 * w.r, sy: Math.abs(w.y1 - w.y0) + 2 * w.r, sz: Math.abs(w.z1 - w.z0) + 2 * w.r, slot: w.k, tone: 0, along: 0 } as unknown as Box;
-        own.push({ b, d: 1, up: true, sk: false, grow: [w.k, w.born ?? w.k, 1, 1, 0, 1] });
+        const grow = [w.k, w.born ?? w.k, 1, 1, 0, 1];
+        for (const b of tubeBoxes(w)) own.push({ b, d: 1, up: true, sk: false, grow });
       }
     }
     const was = unit.done.get(p.key);
@@ -1031,7 +1077,7 @@ export class FuseUnits {
       set: [],
       drop: [],
       clock0: this.clock0,
-      stats: { waiting: fresh, remake: again, held: this.held(), made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel, build: WALL_BUILD, tubes: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.length ?? 0), 0) },
+      stats: { waiting: fresh, remake: again, held: this.held(), made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel, build: WALL_BUILD, tubes: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.length ?? 0), 0), ways: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.filter((t) => t.kind === "walk").length ?? 0), 0) },
     };
     if (this.cleared) {
       out.clear = true;

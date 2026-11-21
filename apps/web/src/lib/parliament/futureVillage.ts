@@ -299,7 +299,7 @@ export interface FutureInput<C> {
   /** The open water's courses per slot ([x, z, …] polylines) and the buried runs as stretches [x0, z0, x1, z1, slot]. */
   streams: ReadonlyMap<number, readonly Float32Array[]>;
   /** The runs of pipe laid (world; `k` = the slot a run was laid in, `k0` set = a riser, which is no run of the plan). */
-  pipes?: Iterable<{ ax: number; az: number; bx: number; bz: number; k: number; k0?: number }>;
+  pipes?: Iterable<{ ax: number; az: number; bx: number; bz: number; k: number; k0?: number; drop?: true }>;
   /** The villages alive at the slot read: [x, z, radius] (world) — the regions the wild forest is told apart by. */
   regions?: readonly (readonly [number, number, number] | readonly [number, number, number, number])[];
   cfg: FutureConfig;
@@ -631,7 +631,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
       }
     }
     for (const p of input.pipes ?? []) {
-      if (p.k0 !== undefined || p.k > K) continue;
+      if (p.k0 !== undefined || p.drop || p.k > K) continue;
       const len = Math.hypot(p.bx - p.ax, p.bz - p.az), steps = Math.max(1, Math.ceil(len / (CELL * 0.5)));
       for (let s = 0; s <= steps; s++) piped.add(key(cellOf(p.ax + ((p.bx - p.ax) * s) / steps), cellOf(p.az + ((p.bz - p.az) * s) / steps)));
     }
@@ -1037,7 +1037,7 @@ export function inferFuture<C extends { x: number; z: number; levels?: ReadonlyM
   // ── pipes: every run laid up to the slot read lies under this ground (carried, not drawn yet — stage 0 of the order
   // of 2026-11-17: the rules of what is left under the ground read them) ──
   const pipes: number[] = [];
-  for (const p of input.pipes ?? []) if (p.k0 === undefined && p.k <= K) pipes.push(p.ax, p.az, p.bx, p.bz);
+  for (const p of input.pipes ?? []) if (p.k0 === undefined && !p.drop && p.k <= K) pipes.push(p.ax, p.az, p.bx, p.bz);
   const left = deposit((q) => stand.get(q)?.left);
   Object.assign(n, { pipe: pipes.length / 4, mound: left.mounds.length / 4, stain: left.stains.length / 4 });
 
