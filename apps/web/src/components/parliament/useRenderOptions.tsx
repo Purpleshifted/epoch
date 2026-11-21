@@ -157,6 +157,20 @@ export interface RenderOptions {
   tonePass: boolean;
   /** The levels pass is in the composer. */
   levelsPass: boolean;
+  /** How many workers make the fossil's pieces side by side (1 = the worker of the mass alone). */
+  fuseWorkers: number;
+  /** How much new fossil geometry is put on the screen (and uploaded) per frame, MB; 0 = all of a message at once. */
+  uploadMB: number;
+}
+
+/**
+ * THE FOSSIL'S WORKERS BY THE MACHINE (2026-11-20): the artist's laptop (M2, 8 cores, 8 GB — it swaps with the wall
+ * open) gets two, the show's Mac mini (M2 Pro, 10–12 cores) three; a machine with fewer cores, the worker of the mass
+ * alone.
+ */
+export function autoFuseWorkers(): number {
+  const hc = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
+  return hc >= 10 ? 3 : hc >= 8 ? 2 : 1;
 }
 
 const pick = (t: Tri, auto: boolean) => (t === "auto" ? auto : t === "on");
@@ -295,6 +309,21 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
         value: 0,
         label: "식생 점 비율 (그리는 점 수)",
       },
+      // THE CPU'S SHARE (2026-11-20): not the picture — how its work is spread. The fossil is made in pieces; with more
+      // workers, side by side (the same mass). Big arrivals of it are put on the screen a few MB a frame, so a frame
+      // never waits for all of them.
+      "작업 분담 (CPU · 그림은 같음)": folder(
+        {
+          fuseWorkers: {
+            // (labels that are not numbers: a number-like key would be put first by the object's own order)
+            options: { [`자동 (코어 수로 · 이 기계 ${autoFuseWorkers()}개)`]: 0, "1개 (화석 워커 하나 · 예전)": 1, "2개": 2, "3개": 3, "4개": 4 } as Record<string, number>,
+            value: 0,
+            label: "화석 워커 수 (조각을 나란히 만듦 · 바꾸면 만들던 조각은 다시 줄 섬)",
+          },
+          uploadMB: { value: 6, min: 0, max: 64, step: 1, label: "화석 올리기 (프레임당 MB · 0 = 한 번에 전부, 예전)" },
+        },
+        { collapsed: true },
+      ),
       LOD: folder(
         {
           lodNear: { value: saved.lodNear, min: 5, max: 400, step: 5, label: "이 거리 안쪽: 막대 묶음 · 드립 다 그림 (월드 · 성능 모드면 25까지)" },
@@ -364,6 +393,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       aoColor,
       tonePass: false,
       levelsPass: false,
+      fuseWorkers: autoFuseWorkers(),
+      uploadMB: 0,
     };
   }
 
@@ -446,6 +477,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       aoColor,
       tonePass,
       levelsPass,
+      fuseWorkers: (k.fuseWorkers as number) || autoFuseWorkers(),
+      uploadMB: k.uploadMB as number,
     };
   }
   return {
@@ -487,6 +520,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
     aoColor,
     tonePass,
     levelsPass,
+    fuseWorkers: (k.fuseWorkers as number) || autoFuseWorkers(),
+    uploadMB: k.uploadMB as number,
   };
 }
 

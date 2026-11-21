@@ -16,7 +16,7 @@ import { FoldState } from "./foldState";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
-import { erodeThreshold, erosion, erosionAt, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
+import { erodeThreshold, erosion, erosionAt, fossilWaitSec, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
 import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, partReach, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { WALL_BUILD } from "./build";
 import { inferFuture, type FutureConfig, type FutureResult } from "./futureVillage";
@@ -58,6 +58,8 @@ const UNIT_REST_MS = 12000;
 /** THE MASS MADE IN A WORKER OF ITS OWN: a call here spends no longer than this telling it what the buildings are made
  *  of (the rest are told at the next call). */
 const UNIT_SEND_MS = 80;
+/** On a load, the density's levels are read once per this many seconds of the log (ensureSeeds; density noteRises). */
+const REPLAY_PASS_S = 5;
 /** Whether pipes fuse with the seeded mass (sendUnits): THE TRUNKS ONLY since 2026-11-20 — see seededTubes. */
 const SEEDED_TUBES: boolean = true;
 /** …and no more of them in the field than this (the ways and every lateral were 570 155 tubes within seven minutes
@@ -307,7 +309,22 @@ function sedimentOf(t: number, box: BoxConfig, w: WeatherConfig) {
   return { tNow: tQ, secPerUnit: box.secPerUnit, timeScale: w.timeScale, tauYears: w.tauSedimentYears, graceSlots: rotOnsetSlots(w) };
 }
 
+/**
+ * THE WORLD'S CLOCK AS THE VIEW HAS IT (2026-11-20; useGlobalBots window): seconds since the world's epoch — what
+ * PEvent.w counts — the rise's stop (rise.ts risePause), and whether the window never rises. From these the model reads
+ * off any past moment what the window's top and stopped clock were then: a cell-slot's age begins at the time its
+ * events were written, not at the time this tab first saw it.
+ */
+export interface WallClock {
+  now: number;
+  riseAt: number | null;
+  riseLost: number;
+  standing: boolean;
+}
+
 export interface PartsInput {
+  /** The world's clock (WallClock); absent = no bots' window (the lab, a world without bots): ages as before. */
+  clock?: WallClock;
   /**
    * THE LAYER ABOVE ALONE (the artist, 2026-11-17: "합치고 미래 워커 나눠"; the view `?only=future`, lib/parliament
    * /futureOnly.ts, docs/world-review-2026-11-17-future-worker.md): no part of the present is made — the buildings'
@@ -626,6 +643,13 @@ export class SpaceModel {
   private fossilUnits: Box[] = [];
   /** An asset's boxes go on by the clock of what they were first made from, whatever is built over them later. */
   private assetClock = new WeakMap<Box, { born: number; top: number; stood?: number }>();
+  /** THE FOSSIL'S LIFE as computeFuse was last given it (FuseInput.dead, with the fusion's freshSpread): when a place's
+   *  fossil is surely gone — its last parts go then, and the place is let go (computeParts). null = no life. */
+  private fossilLife: { at: number; after: number; deep: number; spread: number } | null = null;
+  /** Since when (arrive seconds) each cell-slot's life has been over: let go once its last parts have shrunk. */
+  private overSince = new Map<number, Map<number, number>>();
+  /** Cell-slots let go so far, their life over (the readout). */
+  private releasedN = 0;
   /** New building over an asset: when each of its parts arrives ([born, order], as arrive.ts). */
   private lodArrive = new WeakMap<Box, [number, number]>();
   /** A building's parts in another layout (generation g: what is built over an asset is not what was built first). */
@@ -812,7 +836,7 @@ export class SpaceModel {
   /** Which building a cell-run belongs to: per Seed, its runs of slots with the building's id. */
   private buildingRuns: { key: string; of: Map<number, { k0: number; k1: number; id: string }[]> } | null = null;
   /** Each building's mass as shown, with the state it was made from (part → decay) and its pieces kept for reuse. */
-  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }> }>();
+  private units = new Map<string, { cfg: string; snap: Map<number, number>; mesh: FuseMesh; at: number; madeMs: number; pieces: Map<string, { sig: string; mesh: FuseMesh }>; born?: Map<number, number | undefined> }>();
   /** The one building being made now: the state it is made from, the pieces still to do and those done. */
   private unitJob: {
     id: string;
@@ -920,7 +944,7 @@ export class SpaceModel {
   private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
     const bc = this.blockClock;
     // (by the clock on the wall: the model's own time is the latest thing written, and does not run on in the block)
-    const now = Date.now() / 1000, hardenS = Math.max(20, bc?.erode.lodSec ?? 40), GRACE_S = 25;
+    const now = Date.now() / 1000, hardenS = Math.max(20, bc ? fossilWaitSec(bc.erode) : 40), GRACE_S = 25;
     const thick = Math.max(1, fuse.trunkThick ?? 3), least = fuse.voxel * 1.5, share = Math.max(0, Math.min(1, fuse.trunkShare ?? 0.4));
     // (a way is among the main ones while its place among its layer's — 1 the most used … 0 — is above this)
     const wayFrom = 1 - Math.max(0, Math.min(1, fuse.wayShare ?? 0.3));
@@ -1436,6 +1460,18 @@ export class SpaceModel {
     return r;
   }
 
+  /** When a part's cell-slot was built (computeParts bornT) — a part below its building's slots (a pile, a basement)
+   *  goes with the building's first slot, as the age's clock reads it (computeParts aged). */
+  private slotClock(b: Box): { born: number; top: number; stood?: number } | undefined {
+    const m = this.bornT.get(b.seed);
+    if (!m) return undefined;
+    const e = m.get(b.slot);
+    if (e) return e;
+    let lo = Infinity;
+    for (const k of m.keys()) if (k < lo) lo = k;
+    return m.get(lo);
+  }
+
   /** The buildings' masses are let go — here and, when it makes them, on the other side. */
   private dropUnits(): void {
     this.unitTubes.clear();
@@ -1540,16 +1576,20 @@ export class SpaceModel {
     for (const [id, list] of lists) {
       const ent = this.units.get(id);
       const tSig = tubeSig.get(id) ?? "";
-      if (ent && ent.cfg === cfg && this.unitTubes.get(id) === tSig && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)))) continue;
+      // (…and each part's age as it was told: a cell-slot lived in again starts its clock over with the same parts —
+      // computeParts takeLived — and its fossil must be made again from the new age, not keep the old one)
+      if (ent && ent.cfg === cfg && this.unitTubes.get(id) === tSig && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)) && ent.born?.get(key(e.b)) === e.grow?.[1])) continue;
       waiting++;
       if ((ent && ent.cfg === cfg && nowMs - ent.madeMs < UNIT_REST_MS) || performance.now() > deadline) continue;
       const ang = list[0].ang;
       const c = Math.cos(ang), sn = Math.sin(ang);
       const at = unitExtent(list, ang ? { c, sn } : undefined);
       const snap = new Map<number, number>();
+      const born = new Map<number, number | undefined>();
       const parts: UnitJob["parts"] = list.map((e) => {
         const k = key(e.b);
         snap.set(k, e.d);
+        born.set(k, e.grow?.[1]);
         return { b: e.b, d: e.d, up: e.up, sk: e.sk, grow: e.grow, key: k };
       });
       // (parts that are no longer the building's: no mass of theirs is counted any more)
@@ -1577,10 +1617,10 @@ export class SpaceModel {
           const bc = this.blockClock, ec = bc?.erode;
           if (!bc || !ec || !((ec.shift ?? 0) > 0)) return undefined;
           const perTop = Math.max(1, ec.slotSec ?? box.secPerUnit) / (ec.shift ?? 1);
-          return { now: bc.top + Math.max(0, ec.stood ?? 0), after: ((ec.lodSec ?? 0) * 1.3) / perTop + 1 };
+          return { now: bc.top + Math.max(0, ec.stood ?? 0), after: (fossilWaitSec(ec) * 1.3) / perTop + 1 };
         })(),
       });
-      this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map() });
+      this.units.set(id, { cfg, snap, mesh: mergeMeshes([]), at: ++this.unitsVersion, madeMs: nowMs, pieces: new Map(), born });
       this.unitTubes.set(id, tSig);
       waiting--;
       sent++;
@@ -2509,9 +2549,20 @@ export class SpaceModel {
       const ds = this.densityState;
       if (ds.fed < this.events.length) {
         let cut = ds.fed === 0 ? Infinity : this.cutS;
+        // (a batch that spans a long stretch of the clock — the log on a load — has its levels read every few seconds
+        // of it, as the wall reads them every tick: a slot's level that rose then gets its clock from then — density
+        // noteRises; a tick's batch spans less than that and is read once, by seeds())
+        let pass = -Infinity;
         for (let i = ds.fed; i < this.events.length; i++) {
-          if (!this.densitySeen?.has(this.events[i].id)) ds.field.add(this.events[i]);
-          if (this.events[i].s < cut) cut = this.events[i].s;
+          const e = this.events[i];
+          if (!this.densitySeen?.has(e.id)) {
+            if (e.w !== undefined && e.w - pass >= REPLAY_PASS_S) {
+              if (pass !== -Infinity) ds.field.settleLevels();
+              pass = e.w;
+            }
+            ds.field.add(e);
+          }
+          if (e.s < cut) cut = e.s;
         }
         this.densitySeen = null;
         ds.fed = this.events.length;
@@ -2872,6 +2923,38 @@ export class SpaceModel {
         if (m.size > sd.levels.size) for (const k of m.keys()) if (!sd.levels.has(k)) m.delete(k);
       }
       if (this.bornT.size > live.size) for (const id of this.bornT.keys()) if (!live.has(id)) this.bornT.delete(id);
+      // THE CLOCK IS THE LOG'S, NOT THIS TAB'S (the artist, 2026-11-20: "어긋남이 발생하면 안 되지… 깊은 곳도 시간이 더 흐른 게
+      // 아니라 더 빨리 흐르는 것처럼 보이게 할 뿐이고"). Until now a cell-slot's clock began when THIS model first saw it
+      // built, and a reload estimated every standing slot's age from its depth — in a block that is a fixed piece of
+      // spacetime, where a deep slot may have been built a moment ago. Now the density field keeps each slot's origin
+      // off the events' own time (Seed.w0: built, or last stood in; wRise: its level last rose), and the window's top
+      // and stopped clock AT THAT TIME are read back from the clock the view hands over (WallClock): the same age
+      // whether the slot was built an hour ago in this tab or the tab was opened a minute ago. A slot whose events
+      // carry no time (written before 11/20) keeps the estimate above. Where an asset stands, a level's rise builds
+      // nothing (as above): only its people coming back (w0) begin the clock again.
+      const wc = input.clock;
+      if (wc) {
+        const spu = Math.max(1, ec.slotSec ?? box.secPerUnit), shift = Math.max(0, ec.shift ?? 0);
+        const riseSec = (t: number) => (wc.standing ? 0 : Math.max(0, (wc.riseAt !== null ? Math.min(wc.riseAt, t) : t) - wc.riseLost));
+        const rNow = riseSec(wc.now);
+        let fromLog = 0;
+        for (const sd of seeds) {
+          const m = sd.w0 ? this.bornT.get(sd.id) : undefined;
+          if (!m || !sd.w0) continue;
+          for (const [k, e] of m) {
+            const w0 = sd.w0.get(k);
+            if (w0 === undefined) continue;
+            const wr = this.assets.get(sd.id)?.has(k) ? undefined : sd.wRise?.get(k);
+            const t = Math.min(wc.now, wr !== undefined && wr > w0 ? wr : w0);
+            // (born: the origin itself — a stable mark of it, read only against itself: the assets' seenBorn)
+            e.born = t;
+            e.top = ec.topSlot - (shift * (rNow - riseSec(t))) / spu;
+            e.stood = (shift * (t - riseSec(t))) / spu;
+            fromLog++;
+          }
+        }
+        this.stages["cell-slots whose clock is the log's (n)"] = fromLog;
+      }
     }
     // SIMPLIFIED WITH TIME (the artist, 2026-11-16: "시간이 지나면 부재에 lod가 적용돼서 단순화되는 시기를 거치도록
     // 만들기 (boolean union이나): 이러면 거기 재방문해서 건물이 새로 생기더라도 이전 에셋 위에 생기는 거니까 커지는
@@ -3126,11 +3209,36 @@ export class SpaceModel {
     // 있는데 화석화되는 구간도 있어야지": a part stands while its fossil grows, and may go later. With the seeded mass
     // — fuse.ts — nothing has to be kept in step: the fossil's shape stands, and a part that goes leaves it.)
     const eroded = progress;
+    // THE REST GOES WITH ITS FOSSIL (the artist, 2026-11-20: "남는 몫 0으로 해. 창 안 올리기로 했잖아. 계속 변화하는
+    // 모습이어야 해, 강 바닥의 구성처럼"). The erosion takes `amount` of the parts; what it leaves stood, until now, as long
+    // as the window held its slot — and the window stands. Now a part whose fossil is surely gone (the wall's life as
+    // computeFuse lets the fossil go: FuseInput.dead — its own clock, its own spread, its depth) goes too, at its own
+    // moment, shrinking as the eroded do (the erosion's tick below). Nothing stays: what was built, eroded, fossilised
+    // and rotted leaves the block, and the place is let go once its last part has shrunk (below).
+    const fl = ec ? this.fossilLife : null;
+    const flH = ec ? Math.max(1, ec.height ?? ec.topSlot) : 1;
+    const lifeOver = (slot: number, clock: { top: number; stood?: number } | undefined, own: number): boolean => {
+      if (!fl || !ec || !clock) return false;
+      const depth = Math.max(0, Math.min(1, (ec.topSlot - (slot + 0.5)) / flH));
+      return (ec.topSlot + stoodE - (clock.top + (clock.stood ?? 0)) - fl.after) * Math.max(0.2, own) * (1 - fl.deep * (1 - depth)) >= fl.at;
+    };
+    const overMemo = new Map<Box, boolean>();
+    const partOver = (b: Box): boolean => {
+      if (!fl || !ec) return false;
+      let v = overMemo.get(b);
+      if (v === undefined) {
+        let th = this.erodeMemo.get(b);
+        if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
+        overMemo.set(b, (v = lifeOver(b.slot, this.assetClock.get(b) ?? this.slotClock(b), fl.spread > 0 ? 1 + fl.spread * (1 - 2 * th) : 1)));
+      }
+      return v;
+    };
     const life: Erosion | null =
       ec && ero
         ? {
             at: eroded,
             gone: (b) => {
+              if (partOver(b)) return true;
               const e = eroded(b) * amount;
               if (e <= 0) return false;
               let th = this.erodeMemo.get(b);
@@ -3168,6 +3276,12 @@ export class SpaceModel {
             let th = this.erodeMemo.get(b);
             if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
             at = arriveNow + Math.max(0, Math.min(1, (th - was[0]) / (e - was[0]))) * stepSec;
+          } else if (was && !arriveQuiet && partOver(b)) {
+            // (its fossil is gone: it goes within the next step, the parts of a place one after another in the
+            // erosion's order)
+            let th = this.erodeMemo.get(b);
+            if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, ec)));
+            at = arriveNow + Math.max(0, Math.min(1, th)) * stepSec;
           } else at = -Infinity;
           if (arriveNow < at + LEAVE_KEEP_S) {
             leaving.push(b);
@@ -3180,6 +3294,37 @@ export class SpaceModel {
       }
       this.erodeSeen = seen;
     } else if (this.erodeSeen.size) this.erodeSeen = new Map();
+    // THE PLACE IS LET GO (the same): a cell-slot whose slowest part's fossil is gone (the spread's slowest share), once
+    // its parts have had a step and LEAVE_KEEP_S to shrink — out of the density, and with it its clock, its asset and
+    // its parts. The ground there is empty: who stands there later builds anew, on a new clock.
+    if (fl && ec && this.densityState) {
+      const ownMin = fl.spread > 0 ? 1 - fl.spread : 1;
+      const wait = (lifeSec > 0 ? lifeSec / AGE_STEPS : 0) + LEAVE_KEEP_S + 1;
+      const out: [number, number][] = [];
+      const seen = new Map<number, Map<number, number>>();
+      for (const [id, m] of this.bornT) {
+        const states = this.assets.get(id);
+        for (const [k, e] of m) {
+          const clock = (states?.get(k)?.clock as { top: number; stood?: number } | undefined) ?? e;
+          if (!lifeOver(k, clock, ownMin)) continue;
+          const since = this.overSince.get(id)?.get(k) ?? arriveNow;
+          if (arriveNow - since >= wait) out.push([id, k]);
+          else {
+            let sm = seen.get(id);
+            if (!sm) seen.set(id, (sm = new Map()));
+            sm.set(k, since);
+          }
+        }
+      }
+      // (a place whose clock started over meanwhile — somebody stood there again — is no longer counted)
+      this.overSince = seen;
+      const n = this.densityState.field.release(out);
+      for (const [id, k] of out) this.bornT.get(id)?.delete(k);
+      this.releasedN += n;
+      this.stages["places let go, their life over (n, this round)"] = n;
+      this.stages["places let go, their life over (n, in all)"] = this.releasedN;
+      this.stages["places whose life is over, their last parts going (n)"] = [...seen.values()].reduce((q, sm) => q + sm.size, 0);
+    } else if (this.overSince.size) this.overSince = new Map();
     // (…and the parts an asset has taken the place of: drawn until they have shrunk away)
     for (const [b, at] of lodGone) {
       if (leaveAt.has(b)) continue;
@@ -3411,6 +3556,11 @@ export class SpaceModel {
    */
   computeFuse(input: FuseInput): FuseMesh | null {
     const tFuse0 = performance.now();
+    // (the fossil's life, for the parts and the places — computeParts: kept also when nothing else is to be made)
+    {
+      const d = input.dead, f = input.fuse;
+      this.fossilLife = d && d.at > 0 && f.enabled && f.seeded && !f.crust && (this.blockClock?.erode.shift ?? 0) > 0 ? { ...d, spread: Math.max(0, Math.min(1, f.freshSpread ?? 0)) } : null;
+    }
     const { box } = input;
     // THE BLOCK: its clock is a place — the "present" the layers are read against is the block's top, which stands
     const bc = this.blockClock;
@@ -3492,7 +3642,9 @@ export class SpaceModel {
     // SEEDED (fuse.ts seeded): the mass as it will be when all of it has fused, and for every part what its progress
     // is made of — the wall works the progress out itself. A part that goes before its fossil begins (its erosion's
     // threshold comes first) leaves nothing, and is not in it; nor one where no vegetation makes mass.
-    const seeded = !!bc && !!fuse.seeded && assetsOnly && (bc.erode.shift ?? 0) > 0 && !crustOn;
+    // (…ON EVERY PART, TOO — 2026-11-20: with the simplification off, or 덩어리가 자라는 곳 = 모든 부재에, the seeded mass is
+    // made of every part, each as old as its cell-slot: below)
+    const seeded = !!bc && !!fuse.seeded && (bc.erode.shift ?? 0) > 0 && !crustOn;
     const seedXZ = seeded ? new Map(this.seeds.map((sd) => [sd.id, [sd.x, sd.z] as const] as const)) : null;
     const spreadS = Math.max(0, Math.min(1, fuse.freshSpread ?? 0)), freshS = Math.max(0, fuse.freshSlots ?? 0);
     const amountS = bc ? Math.min(1, Math.max(0, bc.erode.amount)) : 0;
@@ -3528,7 +3680,9 @@ export class SpaceModel {
         if (most < 0.05) continue;
         const [sx, sz] = seedXZ.get(b.seed) ?? [b.x, b.z];
         const nEff = freshS > 0 ? freshS * (spreadS > 0 ? 1 + spreadS * (placeNoise(sx, sz, b.slot, bc.erode.grain * 2) * 2 - 1) : 1) : 0;
-        const ac = this.assetClock.get(b);
+        // (an asset: the clock of what it was first made from; any other part: its cell-slot's — when it was built, as
+        // the asset would have been made from it — so its fossil keeps its time without the simplification)
+        const ac = this.assetClock.get(b) ?? (assetsOnly ? undefined : this.slotClock(b));
         const bornTop = ac?.top ?? bc.top;
         // (what the shader reads the fossil's age off: the age's clock at its building — erode.ts stood)
         const bornAge = bornTop + Math.max(0, ac ? (ac.stood ?? 0) : (bc.erode.stood ?? 0));

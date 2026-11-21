@@ -298,8 +298,10 @@ export function useGlobalBots(
       // rose is the window whose rise was stopped before it began: its top at its own height, its foot at 0, and what
       // stands in it ageing by the clock since the world began. The bots are seated the same either way (a life
       // rises one slot a slot against a standing window: rise.ts riseOf).
-      if (!(shift > 0)) return { top: depthSec, shift: 1, tail, stood: elapsed, still: true };
-      return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail, stood: Math.max(0, Math.min(1, shift)) * Math.max(0, elapsed - riseSeconds(elapsed)), still: risePause.at !== null };
+      // (…and the clock itself — elapsed, and the rise's stops — so the model can read any moment's top and stood
+      // off an event's own time: spaceModel WallClock)
+      if (!(shift > 0)) return { top: depthSec, shift: 1, tail, stood: elapsed, still: true, elapsed, riseAt: risePause.at, riseLost: risePause.lost, standing: true };
+      return { top: riseOf(shift, elapsed).bottom + depthSec, shift, tail, stood: Math.max(0, Math.min(1, shift)) * Math.max(0, elapsed - riseSeconds(elapsed)), still: risePause.at !== null, elapsed, riseAt: risePause.at, riseLost: risePause.lost, standing: false };
     };
     botGround.window = f;
     return () => {
@@ -493,7 +495,8 @@ export function useGlobalBots(
     if (botStartMs.current === 0) botStartMs.current = now;
 
     const add = (a: Actor) => {
-      const e: PEvent = { id: `${a.o}:${tag.current}:${seq.current++}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s };
+      // (when it is written, on the clock the window rises by: types.ts PEvent.w)
+      const e: PEvent = { id: `${a.o}:${tag.current}:${seq.current++}`, o: a.o, r: a.r, k: "p", x: a.x, z: a.z, s: a.s, w: Math.round(Math.max(0, (now - epochMs.current) / 1000) * 100) / 100 };
       log.add(e);
       pending.current.push(e);
       // where it is built, as the wall makes it (botGround.ts): what the bots go round or stop at
