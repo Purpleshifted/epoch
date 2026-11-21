@@ -193,6 +193,14 @@ export interface FuseConfig {
   fuseWalks: boolean;
   /** A walkway's tube radius (world). */
   walkRadius: number;
+  /**
+   * THE WAYS' MAIN LINES IN THE SEEDED MASS (spaceModel waysNow; the artist, 2026-11-21: "길도 넣어"): of the ways
+   * drawn in a layer, the most used ones up to this share of them (at least one) — each straightened into a few
+   * tubes of `wayRadius` (world: a bone in the mass, as a trunk is — `walkRadius` is the drawn way's, a tenth of a
+   * unit, under what the mass's grid can hold). Absent: 0.3, 0.45.
+   */
+  wayShare?: number;
+  wayRadius?: number;
   /** The share of the steel parts that fuse into the mass as fossils (0 = none: the steel rusts and falls). */
   steelFossil: number;
   /** FORM STUDY (V2): other ways for the mass; absent = none (the mass wraps the parts). */
