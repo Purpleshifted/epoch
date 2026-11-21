@@ -88,7 +88,7 @@ import {
   handleSpaceRequest,
   blockSlots,
 } from "@/lib/parliament";
-import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
+import { FUSE_BLEND_S, type UnitChunks, type UnitStats } from "@/lib/parliament/fuseUnits";
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
@@ -456,6 +456,8 @@ interface FuseUniforms {
   uGrowPress: THREE.IUniform;
   /** …and below how much out a vertex is pressed all the way in, whatever uGrowPress (ResinLook.growSeal). */
   uGrowSeal: THREE.IUniform;
+  /** …and the seconds a change of the worker's (a skin hidden or shown, a piece made again) takes (fuseUnits FUSE_BLEND_S). */
+  uGrowBlend: THREE.IUniform;
   /** …how far the filling waits behind the frame, and how much it rises from each layer's floor (ResinLook.growLate). */
   uGrowLate: THREE.IUniform;
   /** …and how far the top would have risen while its rise was stopped (rise.ts; slots): the fossil's AGE is read off
@@ -478,7 +480,7 @@ function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
-    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 }, uGrowSeal: { value: 0 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 }, uGrowSeal: { value: 0 }, uGrowBlend: { value: FUSE_BLEND_S },
     uGrowLate: { value: 0 }, uGrowRise: { value: 0 }, uGrowStood: { value: 0 },
     uGrowDie: { value: 0 }, uGrowDieAfter: { value: 60 }, uGrowDieSpan: { value: 30 },
     uGrowDieHoles: { value: 0 }, uGrowDieGrain: { value: 1.2 }, uGrowDieRag: { value: 0 }, uGrowDiePatch: { value: 9 },
@@ -498,6 +500,9 @@ attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
 attribute float fuseLate;
+attribute vec4 fuseBlend;
+varying vec2 vSwap;
+uniform float uGrowBlend;
 uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowMelt, uGrowReach, uGrowPress, uGrowSeal, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
 varying float vGrow;
 varying float vGone;
@@ -509,6 +514,7 @@ varying vec3 vGonePos;`;
  * What stands inside (the parts that did not erode) shows through them.
  */
 const FUSE_GONE_FRAG_HEAD = `
+varying vec2 vSwap;
 varying float vGrow;
 varying float vGone;
 varying vec3 vGonePos;
@@ -521,6 +527,13 @@ float goneNoise( vec3 p ) {
               mix( mix( goneHash( i + vec3( 0.0, 0.0, 1.0 ) ), goneHash( i + vec3( 1.0, 0.0, 1.0 ) ), f.x ), mix( goneHash( i + vec3( 0.0, 1.0, 1.0 ) ), goneHash( i + vec3( 1.0, 1.0, 1.0 ) ), f.x ), f.y ), f.z );
 }`;
 const FUSE_GONE_FRAG_BODY = `
+// A PIECE MADE AGAIN DISSOLVES INTO THE ONE IT REPLACES (the artist, 2026-11-21: "둘 다 넣는데"; fuseUnits FUSE_BLEND_S):
+// the one coming in is drawn where a screen noise is under the time gone, the one going out where it is over it — the
+// two are drawn together, pixel by pixel one or the other, and where they are the same surface nothing changes
+if ( vSwap.x != 0.0 ) {
+  float swapN = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) + 0.71 ) );
+  if ( vSwap.x > 0.0 ? swapN >= vSwap.y : swapN < vSwap.y ) discard;
+}
 // NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): where everything of a layer is as
 // old as its depth, the going was one value per layer — holes over a few slots, and nothing below: a cut. Each PATCH of
 // the world is now ahead of or behind the going by its own amount (a wide noise), so the going's edge wanders up
@@ -541,6 +554,7 @@ if ( goneAt > 0.001 ) {
 const FUSE_GROW_VERT_BODY = `
 vGrow = 1.0;
 vGone = 0.0;
+vSwap = vec2( 0.0 );
 vGonePos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // (the vegetation is a FACTOR of how much comes out — fuseGrowB.y — not a depth added: with the artist's own
@@ -594,7 +608,13 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   vec3 growOff = position - fuseAnchor;
   growWait = max( growWait, uGrowMelt * clamp( ( length( growOff ) + max( 0.0, - growOff.y ) ) / max( 0.1, uGrowReach ), 0.0, 1.0 ) );
   float growSpan = min( mix( uGrowLate > 0.05 ? uGrowLate : 1.0, 1.0 - growWait, fuseLate ), 1.0 - growWait );
-  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * fuseGrowB.y;
+  // WHAT CHANGES, CHANGES SOFTLY (the artist, 2026-11-21: "둘 다 넣는데"): the share the worker lets this vertex out by
+  // (fuseGrowB.y — the vegetation's, a face pressed, the provisional skin hidden or shown) goes from what it was to
+  // what it is over uGrowBlend seconds from the change (fuseBlend: the old share, the change's clock, the dissolve)
+  float growBlendT = clamp( ( uGrowClock - fuseBlend.y ) / max( 0.01, uGrowBlend ), 0.0, 1.0 );
+  float growVeg = mix( fuseBlend.x, fuseGrowB.y, growBlendT );
+  vSwap = vec2( fuseBlend.z, growBlendT );
+  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * growVeg;
   // ONE BODY (the artist, 2026-11-16: "근데 부푸는 건 진짜 개별로던데"): a vertex is no longer pressed to its own part's
   // box — neighbours pressed to different boxes split the mass along the parts. What it reads is the value of its
   // PLACE (fuseUnits.ts placeValues: the parts' values blurred over the space; the layer off its own height), and it
@@ -810,6 +830,13 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?:
     g.setAttribute("fuseGrowB", new THREE.BufferAttribute(r.growB!, 2));
     // (the frame-first mark; none = all frame)
     g.setAttribute("fuseLate", new THREE.BufferAttribute(r.late && r.late.length * 3 === r.position.length ? r.late : new Float32Array(r.position.length / 3), 1));
+    // (the worker's pending changes; none = no change: its clock far in the past)
+    let blend = r.blend && r.blend.length * 3 === r.position.length * 4 ? r.blend : null;
+    if (!blend) {
+      blend = new Float32Array((r.position.length / 3) * 4);
+      for (let v = 1; v < blend.length; v += 4) blend[v] = -1e9;
+    }
+    g.setAttribute("fuseBlend", new THREE.BufferAttribute(blend, 4));
     // (the vertices move in the shader: the mesh's bounds are not where it is drawn)
     mesh.frustumCulled = false;
   }
