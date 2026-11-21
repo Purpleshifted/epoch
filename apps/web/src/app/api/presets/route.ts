@@ -3,11 +3,13 @@
  *   GET  ?page=/v2/global/space   → { presets: { "<key>": { json, updatedAt } }, server: true }
  *                                   (server: false and no presets when no database is configured)
  *   PUT  { key, json }            → { preset: { key, json, updatedAt } }   (key must start with parliament.leva:)
+ *   DELETE ?key=parliament.leva:/presets/…  → { deleted: n }   (a NAMED preset only — levaPresets.ts; a folder's own
+ *                                   saved set cannot be deleted here)
  * Minimal on purpose: no auth (the rehearsal wall is the only writer, and the worst a stranger can do is change a
  * slider — see docs/sync-server.md §3), no caching (every wall load asks for the newest save).
  */
 import { NextResponse } from "next/server";
-import { PRESET_KEY_PREFIX, hasPresetsDb, readPresets, writePreset } from "@/lib/presets/db";
+import { NAMED_PRESET_PREFIX, PRESET_KEY_PREFIX, deleteNamedPreset, hasPresetsDb, readPresets, writePreset } from "@/lib/presets/db";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +62,17 @@ export async function PUT(req: Request) {
   try {
     const preset = await writePreset(body.key, body.json);
     return NextResponse.json({ preset });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  if (!hasPresetsDb()) return NextResponse.json({ error: "no database" }, { status: 503 });
+  const key = new URL(req.url).searchParams.get("key") ?? "";
+  if (!key.startsWith(NAMED_PRESET_PREFIX) || key.length > 300) return NextResponse.json({ error: "only a named preset (parliament.leva:/presets/…) can be deleted" }, { status: 400 });
+  try {
+    return NextResponse.json({ deleted: (await deleteNamedPreset(key)) ?? 0 });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

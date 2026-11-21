@@ -54,3 +54,20 @@ export async function writePreset(key: string, json: Record<string, unknown>): P
   const r = rows[0];
   return { key: r.key, json: r.json, updatedAt: new Date(r.updated_at).getTime() };
 }
+
+/**
+ * NAMED PRESETS (components/parliament/levaPresets.ts) are kept under a page of their own, `/presets<page>`: a wall
+ * never pulls them as a folder's values, and they are the only rows that can be deleted through the API — a folder's
+ * own saved set cannot.
+ */
+export const NAMED_PRESET_PREFIX = `${PRESET_KEY_PREFIX}/presets/`;
+
+/** One named preset, gone. Returns how many rows went (0 = no such preset); null = no database. */
+export async function deleteNamedPreset(key: string): Promise<number | null> {
+  if (!key.startsWith(NAMED_PRESET_PREFIX)) return 0;
+  const conn = db();
+  if (!conn) return null;
+  const sql = await conn;
+  const rows = (await sql`DELETE FROM presets WHERE key = ${key} RETURNING key`) as { key: string }[];
+  return rows.length;
+}

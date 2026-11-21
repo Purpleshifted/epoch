@@ -167,7 +167,7 @@ function onTask(from: MessagePort, ev: MessageEvent<PieceCtx | PieceTask>): void
 
 function buffersOf(mesh: FuseMesh): ArrayBuffer[] {
   const out = new Set<ArrayBuffer>();
-  for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late]) if (a) out.add(a.buffer as ArrayBuffer);
+  for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late, mesh.side, mesh.blend]) if (a) out.add(a.buffer as ArrayBuffer);
   return [...out];
 }
 
