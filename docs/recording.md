@@ -56,11 +56,7 @@
 
 무료 범위: 저장 10 GB · 쓰기 월 100만 · 읽기 월 1000만, 이그레스 무료. 300명 × 1.4 MB ≈ 0.4 GB, 쓰기 600번 — 무료 범위 안. Worker는 Workers Paid에 이미 포함.
 
-**버킷은 작가의 승인 뒤에 만든다**:
-
-```bash
-npx wrangler@4 r2 bucket create anthropocene-recordings
-```
+**2026-11-21 작가 승인("만들어")** → 작가가 대시보드에서 R2를 켬 → 버킷 `anthropocene-recordings` 생성, Worker 배포(`https://anthropocene-recordings.anthropocene-hesse.workers.dev`). 다시 배포할 때:
 
 ```bash
 cd relay/recordings && npx wrangler@4 deploy
@@ -69,3 +65,5 @@ cd relay/recordings && npx wrangler@4 deploy
 ## 확인 (2026-11-21, Claude의 브라우저, 소리는 스피커와 끊고)
 
 limiter → destination만 끊고(탭은 유지) 수명 시계 ×8로 삶 하나: Chrome이 `audio/mp4`를 골랐고, 39.7 s · 314 KB · 2채널, 처음 12 s는 이름의 멜로디(약 2 s 울리고 1 s 쉬는 반복, RMS 0.09), 삶 동안 0.02–0.03, 끝 뒤 잔향 6 s 동안 0으로. 마커 7개(이름 · 삶 시작 · 풀밭 · 혼자 · 풀이 사라짐 · 죽어감 · 끝)가 화면의 줄과 같은 초. 업로드는 Worker가 없어 실패 → IndexedDB 보관, `/rec/<id>`가 이 기기의 사본으로 재생·탐색. 폰(iOS Safari)은 작가의 프리뷰 테스트로.
+
+**R2 뒤 (같은 날)**: Worker 시험 — 출처 없는 쓰기·남의 출처 403, 같은 id 두 번째 쓰기 409, 읽기 200(`audio/mp4`, 바이트 그대로), Range 206(`bytes 100-199/5000`), 없는 id 404, CORS 사전 요청 204. 그리고 실제 삶 하나(무음, ×8): 33.5 s · 265 KB가 올라갔고, Worker에서 받아 디코드하면 33.4 s · RMS 0.05, 마커 7개 그대로; 이 기기의 사본을 지운 뒤 `/rec/<id>`가 Worker에서 재생·탐색. 시험으로 올린 것들은 버킷에서 지웠다.
