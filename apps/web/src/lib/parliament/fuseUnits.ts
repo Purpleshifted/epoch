@@ -635,7 +635,8 @@ export interface PieceTask {
   k1: number;
   tx: number;
   tz: number;
-  ps: { b: Box; d: number; up: boolean; sk: boolean }[];
+  /** (`w`: the part's fossil share in the field — FuseChunkInput.weight, what the iso is read against) */
+  ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number }[];
   tubes: FuseTube[];
   /** The parts (and pipes and ways) it grows from (growData). */
   own: UnitPart[];
@@ -656,7 +657,7 @@ export interface PieceDone {
 export function makePiece(
   c: { h: NatureHistory | null; u: number; sed: Sed; fuse: FuseConfig; tile: number; ang: number },
   look: ((k: number) => number) | undefined,
-  p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: readonly FuseTube[] },
+  p: { k0: number; k1: number; tx: number; tz: number; ps: readonly { b: Box; d: number; up: boolean; sk: boolean; w?: number }[]; tubes: readonly FuseTube[] },
   own: readonly UnitPart[],
   stages: Record<string, number>,
   /** Whether it carries growth data (FuseUnits pick: a part that grows, or — seeded — a pipe's trunk alone). */
@@ -1296,7 +1297,7 @@ export class FuseUnits {
     const j = p.j;
     return {
       ctx: { type: "ctx", serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
-      task: { type: "piece", ticket, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk }) => ({ b, d, up, sk })), tubes: p.p.tubes, own: p.own, grows: p.grows },
+      task: { type: "piece", ticket, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk, w }) => ({ b, d, up, sk, w })), tubes: p.p.tubes, own: p.own, grows: p.grows },
     };
   }
 
