@@ -480,7 +480,7 @@ export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boole
 export function turnBack(mesh: FuseMesh, ang: number): void {
   if (!ang) return;
   const c = Math.cos(ang), sn = Math.sin(ang);
-  for (const arr of [mesh.position, mesh.normal, mesh.key1, mesh.key2]) {
+  for (const arr of [mesh.position, mesh.normal, mesh.key0, mesh.key1, mesh.key2]) {
     if (!arr) continue;
     for (let i = 0; i < arr.length; i += 3) {
       const x = arr[i], z = arr[i + 2];
@@ -1373,7 +1373,7 @@ export class FuseUnits {
       delete mesh.side; // (the worker's own: the view does not read it)
       this.shown.set(id, mesh.index.length / 3);
       out.set.push({ id, mesh });
-      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late, mesh.blend, mesh.key1, mesh.key2]) if (a) transfer.push(a.buffer as ArrayBuffer);
+      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late, mesh.blend, mesh.key0, mesh.key1, mesh.key2]) if (a) transfer.push(a.buffer as ArrayBuffer);
     }
     for (const n of this.shown.values()) out.stats.tris += n;
     out.stats.chunks = this.shown.size;

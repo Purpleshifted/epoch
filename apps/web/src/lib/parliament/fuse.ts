@@ -411,7 +411,7 @@ export const FRAME_KINDS: ReadonlySet<Box["kind"]> = new Set<Box["kind"]>(["slab
 export const FILL_MAX_GAP = 6;
 /** THE FOSSIL AS A VOLUME (FuseMesh.key1/key2): how far out from its body's core each keyframe is — of the way from
  *  the core to where the vertex is (fuseKeys). */
-export const KEY_SHARES: readonly [number, number] = [0.3, 0.65];
+export const KEY_SHARES: readonly [number, number, number] = [0.12, 0.42, 0.74];
 
 /** B FILL: how much the blurred mass may still swell outside the rooms (× gain). */
 const FILL_OUTSIDE = 0.35;
@@ -560,11 +560,12 @@ export interface FuseMesh {
   /**
    * THE FOSSIL IS A VOLUME ALL THE WAY (the artist, 2026-11-21: "화석이 초반에 '부피가 있는 덩어리 모임'이 아니라 그냥 덜
    * 나온 얼룩 같아 … 키프레임을 두고 내내 고체로만 보이도록", "애초에 화석 자체를 열린 면이 있을 수 없도록 부피로 계산하면" —
-   * then "e 진행해보자"). Per vertex (3 each): where it lies on the first and the second keyframe — the surface drawn in
+   * then "e 진행해보자"). Per vertex (3 each): where it lies on the three keyframes — the surface drawn in
    * towards its bodies' cores along the solid field's lines, KEY_SHARES of the way out (fuseKeys): round lumps first,
    * thicker ones next. The wall's shader moves every vertex from its part through these to
    * where it is: one closed surface at every moment, nothing cut away. Absent = not seeded.
    */
+  key0?: Float32Array;
   key1?: Float32Array;
   key2?: Float32Array;
   /**
@@ -821,7 +822,7 @@ const GROWTH = [0.42, 0.38, 0.22];
  * inside a part, and its higher levels lay just under the surface — the stages were the parts' boxes.)
  */
 const KEY_BLUR = 1.5;
-function fuseKeys(P: Float32Array, Fs: Float32Array, g: { I0: number; J0: number; K0: number; nx: number; ny: number; nz: number; vs: number }): [Float32Array, Float32Array] {
+function fuseKeys(P: Float32Array, Fs: Float32Array, g: { I0: number; J0: number; K0: number; nx: number; ny: number; nz: number; vs: number }): [Float32Array, Float32Array, Float32Array] {
   const { I0, J0, K0, nx, ny, nz, vs } = g;
   const F = Fs.slice();
   blur3(F, new Float32Array(F.length), nx, ny, nz, Math.max(1, Math.round(KEY_BLUR / vs)));
@@ -837,7 +838,7 @@ function fuseKeys(P: Float32Array, Fs: Float32Array, g: { I0: number; J0: number
     return e + (f - e) * tz;
   };
   const nv = P.length / 3;
-  const k1 = new Float32Array(nv * 3), k2 = new Float32Array(nv * 3);
+  const k0 = new Float32Array(nv * 3), k1 = new Float32Array(nv * 3), k2 = new Float32Array(nv * 3);
   const step = vs * 0.5, h = vs * 0.5, MAX = Math.ceil(6 / step);
   const px: number[] = [], py: number[] = [], pz: number[] = [], len: number[] = [];
   for (let v = 0; v < nv; v++) {
@@ -863,8 +864,8 @@ function fuseKeys(P: Float32Array, Fs: Float32Array, g: { I0: number; J0: number
       len.push(L);
     }
     // keyframe k: KEY_SHARES[k] of the way out from the core — at path length (1 − share) · L from the vertex
-    for (let k = 0; k < 2; k++) {
-      const want = (1 - KEY_SHARES[k]) * L, out = k === 0 ? k1 : k2;
+    for (let k = 0; k < 3; k++) {
+      const want = (1 - KEY_SHARES[k]) * L, out = k === 0 ? k0 : k === 1 ? k1 : k2;
       let a = 0;
       while (a < len.length - 1 && len[a + 1] < want) a++;
       const b = Math.min(len.length - 1, a + 1), t = b > a ? (want - len[a]) / (len[b] - len[a]) : 0;
@@ -873,7 +874,7 @@ function fuseKeys(P: Float32Array, Fs: Float32Array, g: { I0: number; J0: number
       out[v * 3 + 2] = pz[a] + (pz[b] - pz[a]) * t;
     }
   }
-  return [k1, k2];
+  return [k0, k1, k2];
 }
 
 /** The fused surface of slots [k0, k1]. */
@@ -1634,8 +1635,16 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const anyBlocky = wgt.some((w) => w < 1);
   if (cfg.smooth > 0 && NV > 0) taubin(P, quads, NV, Math.round(cfg.smooth), anyBlocky ? Float32Array.from(wgt) : undefined);
   if (cfg.smooth > 0 && NV > 0) faceNormals(P, quads, Nn);
-  // THE FOSSIL AS A VOLUME: every vertex's place on the two keyframes (fuseKeys)
+  // THE FOSSIL AS A VOLUME: every vertex's place on the three keyframes (fuseKeys) — and each keyframe SMOOTHED as a
+  // surface along the mesh (the artist, 2026-11-21, of the first try: "중간에 너무 뾰족한 거 아냐?;;"): neighbours that
+  // climbed to different cores, or stopped at different steps, stood apart and the in-between shape bristled; the
+  // smaller the keyframe, the more it is smoothed (Taubin: no shrinking of its own)
   const keys = Fsolid && NV > 0 ? fuseKeys(P, Fsolid, { I0, J0, K0, nx, ny, nz, vs }) : null;
+  if (keys) {
+    taubin(keys[0], quads, NV, 14);
+    taubin(keys[1], quads, NV, 10);
+    taubin(keys[2], quads, NV, 6);
+  }
   // PITS ON THE BROAD FACES: the pits' coverage drawn toward the flat middles of the large faces — a vertex whose
   // neighbours' normals agree with its own (flat) and that lies deep in a closed cell (broadM) keeps its pits; rims,
   // ribs, edges and small curved bits lose them, by pitBroad
@@ -1724,12 +1733,13 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       if (keys) {
         keys[0] = grow(keys[0], 3);
         keys[1] = grow(keys[1], 3);
+        keys[2] = grow(keys[2], 3);
       }
     }
     sideA = new Float32Array(NT);
     for (let e = 0; e < m; e++) sideA[NV + e] = addS[e];
   }
-  return { position: Pv, normal: Nv, color: colA, extra: extA, index, resinStart: ind.length, ...(lateA ? { late: lateA } : {}), ...(sideA ? { side: sideA } : {}), ...(keys ? { key1: keys[0], key2: keys[1] } : {}) };
+  return { position: Pv, normal: Nv, color: colA, extra: extA, index, resinStart: ind.length, ...(lateA ? { late: lateA } : {}), ...(sideA ? { side: sideA } : {}), ...(keys ? { key0: keys[0], key1: keys[1], key2: keys[2] } : {}) };
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
@@ -1744,7 +1754,7 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
     if (p.late) anyLate = true;
     if (p.side) anySide = true;
     if (p.blend) anyBlend = true;
-    if (p.key1 && p.key2) anyKeys = true;
+    if (p.key0 && p.key1 && p.key2) anyKeys = true;
   }
   const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 4), index: new Uint32Array(ni), resinStart: ni - nr };
   // (the growing data rides along when any part has it; a part without it is whole as it is)
@@ -1760,6 +1770,7 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   if (anyBlend) out.blend = new Float32Array((nv / 3) * 4);
   // (the keyframes: a part without them stands where it is on every one)
   if (anyKeys) {
+    out.key0 = new Float32Array(nv);
     out.key1 = new Float32Array(nv);
     out.key2 = new Float32Array(nv);
   }
@@ -1767,9 +1778,11 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   for (const p of parts) {
     if (out.late && p.late) out.late.set(p.late, ov / 3);
     if (out.side && p.side) out.side.set(p.side, ov / 3);
-    if (out.key1 && out.key2) {
-      out.key1.set(p.key1 && p.key2 ? p.key1 : p.position, ov);
-      out.key2.set(p.key1 && p.key2 ? p.key2 : p.position, ov);
+    if (out.key0 && out.key1 && out.key2) {
+      const has = !!(p.key0 && p.key1 && p.key2);
+      out.key0.set(has ? p.key0! : p.position, ov);
+      out.key1.set(has ? p.key1! : p.position, ov);
+      out.key2.set(has ? p.key2! : p.position, ov);
     }
     if (out.blend) {
       if (p.blend) out.blend.set(p.blend, (ov / 3) * 4);
