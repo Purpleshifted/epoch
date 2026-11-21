@@ -17,7 +17,7 @@ import { CELL_SIZE } from "@/lib/stratum/field";
 import { geoYears } from "@/lib/stratum/geoClock";
 import { DensityField, type DensityConfig } from "./density";
 import { erodeThreshold, erosion, erosionAt, fossilWaitSec, pipeErosion, placeNoise, type ErodeConfig, type Erosion } from "./erode";
-import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, mergeMeshes, partReach, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
+import { FILL_MAX_GAP, FRAME_KINDS, accretionShare, fuseChunk, fusePad, fusedShare, gatheringShare, isSkeleton, meltMorph, mergeMeshes, partReach, type FuseConfig, type FuseMesh, type FuseTube } from "./fuse";
 import { WALL_BUILD } from "./build";
 import { inferFuture, type FutureConfig, type FutureResult } from "./futureVillage";
 import { fuseTilesOf, growData, unitExtent, unitLook, type UnitFused, type UnitJob, type UnitRequest } from "./fuseUnits";
@@ -861,6 +861,14 @@ export class SpaceModel {
   } | null = null;
   /** Masses of buildings that are no longer a building of their own (joined to another): shown until that one is made again. */
   private unitOrphans: { mesh: FuseMesh; heir: string; heirAt: number }[] = [];
+  /** WHOLE STAGES (fuse.ts wholeStages): a building's mass as it was, melting onto the new one — shown until `until`
+   *  (the morph clock's seconds), then let go. */
+  private unitLeaving: { mesh: FuseMesh; until: number }[] = [];
+  /** The morph clock (FuseMesh.morph / morphT0): seconds since this model began. */
+  private readonly morphT0 = Date.now();
+  private morphNow(): number {
+    return (Date.now() - this.morphT0) / 1000;
+  }
   /** part → the decay it has in the mass shown (fusedAtOf, building by building). */
   private unitFused = new Map<number, number>();
   private unitsVersion = 0;
@@ -1487,6 +1495,7 @@ export class SpaceModel {
     this.tubeSeen.clear();
     this.units.clear();
     this.unitOrphans = [];
+    this.unitLeaving = [];
     this.unitFused.clear();
     this.unitJob = null;
     this.unitsEmitted = -1;
@@ -1770,6 +1779,14 @@ export class SpaceModel {
     // THE SEEDED MASS IS MADE IN A WORKER OF ITS OWN (fuseUnits.ts), when there is one
     if (area && this.fusePort) return this.sendUnits(this.fusePort, lists, h, u, sed, layered, fuse, padSlots, cfg, box);
     if (this.remoteOn) this.dropUnits(); // (made here again)
+    // WHOLE STAGES: a building's new mass melts out of its old one (FuseMesh.morph); what melted away is let go
+    const melt = !!fuse.wholeStages && !seeded && (fuse.meltSec ?? 0) > 0;
+    const meltSec = Math.max(0, fuse.meltSec ?? 0);
+    if (this.unitLeaving.length) {
+      const now = this.morphNow(), n0 = this.unitLeaving.length;
+      this.unitLeaving = melt ? this.unitLeaving.filter((l) => l.until > now) : [];
+      if (this.unitLeaving.length !== n0) this.unitsVersion++;
+    }
     // (the crust has no growths: only where it has come)
     const fusing = (list: readonly { d: number }[]): boolean => list.some((e) => fusedShare(e.d, fuse) >= 0.05 || (!fuse.crust && accretionShare(e.d, fuse) > 0.01));
     const value = (d: number) => 0.7 * fusedShare(d, fuse) + 0.3 * d;
@@ -1789,7 +1806,14 @@ export class SpaceModel {
       }
       this.units.delete(old);
       this.unitsVersion++;
-      if (!heir || most < ent.snap.size * 0.5) continue; // (its parts are gone: so is its mass)
+      if (!heir || most < ent.snap.size * 0.5) {
+        // (its parts are gone: so is its mass — WHOLE STAGES: it goes back into where they were)
+        if (melt && ent.mesh.index.length) {
+          meltMorph(ent.mesh, null, this.morphNow(), true);
+          this.unitLeaving.push({ mesh: ent.mesh, until: this.morphNow() + meltSec + 0.5 });
+        }
+        continue;
+      }
       const mine = this.units.get(heir);
       if (!mine) this.units.set(heir, ent);
       else if (ent.mesh.index.length) this.unitOrphans.push({ mesh: ent.mesh, heir, heirAt: mine.at }); // (joined to another: shown until that one is made again)
@@ -1945,6 +1969,19 @@ export class SpaceModel {
       if ((fuse.absorb ?? 1) > 0) this.fuseBuilt++;
       // SEEDED: every vertex is given the part it grows from
       if (seeded && job.parts.length) growData(mesh, job.parts, u);
+      // WHOLE STAGES: the new mass comes out of the old (or, the building's first, out of its parts) and the old goes
+      // onto the new — both drawn while it melts, one body
+      if (melt) {
+        const now = this.morphNow();
+        const old = was && was.mesh.index.length ? was.mesh : null;
+        const tm = performance.now();
+        meltMorph(mesh, old, now, false);
+        if (old) {
+          meltMorph(old, mesh, now, true);
+          this.unitLeaving.push({ mesh: old, until: now + meltSec + 0.5 });
+        }
+        this.stages["melt ms (last building)"] = Math.round(performance.now() - tm);
+      }
       this.units.set(job.id, { cfg: job.cfg, snap: job.snap, mesh, at: ++this.unitsVersion, madeMs: performance.now(), pieces: job.done });
       this.unitJob = null;
       this.stages["fuse buildings (n)"] = (this.stages["fuse buildings (n)"] ?? 0) + 1;
@@ -1956,7 +1993,10 @@ export class SpaceModel {
     const out: FuseMesh[] = [];
     for (const ent of this.units.values()) if (ent.mesh.index.length) out.push(ent.mesh);
     for (const o of this.unitOrphans) out.push(o.mesh);
-    return mergeMeshes(out);
+    for (const l of this.unitLeaving) out.push(l.mesh);
+    const merged = mergeMeshes(out);
+    if (melt) merged.morphT0 = this.morphT0;
+    return merged;
   }
 
 
@@ -3655,7 +3695,13 @@ export class SpaceModel {
     // (…ON EVERY PART, TOO — 2026-11-20: with the simplification off, or 덩어리가 자라는 곳 = 모든 부재에, the seeded mass is
     // made of every part, each as old as its cell-slot: below)
     const seeded = !!bc && !!fuse.seeded && (bc.erode.shift ?? 0) > 0 && !crustOn;
-    const seedXZ = seeded ? new Map(this.seeds.map((sd) => [sd.id, [sd.x, sd.z] as const] as const)) : null;
+    // THE EXHIBITION'S MAKING IN THE STAGES' ORDER (fuse.ts wholeStages; the artist, 2026-11-21 night: "생기는 순서는
+    // 단계별이 낫거든 … 타협점 없나?" → "Build it"): the parts are chosen and stepped as the seeded mass's are — by the
+    // fossil's ruler, a stage at a time (FuseInput.stages) — but the mass is made from that state building by building,
+    // whole, as the exhibition's was (fuseBuildings, not seeded). No wider units, no life, no forms of their own.
+    const staged = !!bc && !!fuse.wholeStages && !fuse.seeded && (bc.erode.shift ?? 0) > 0 && !crustOn;
+    const ruled = seeded || staged;
+    const seedXZ = ruled ? new Map(this.seeds.map((sd) => [sd.id, [sd.x, sd.z] as const] as const)) : null;
     const spreadS = Math.max(0, Math.min(1, fuse.freshSpread ?? 0)), freshS = Math.max(0, fuse.freshSlots ?? 0);
     const amountS = bc ? Math.min(1, Math.max(0, bc.erode.amount)) : 0;
     const goneKey = bc ? `${JSON.stringify({ ...bc.erode, topSlot: 0, stood: 0 })}:${fuse.fuseOnset}:${freshS}:${spreadS}` : "";
@@ -3670,7 +3716,7 @@ export class SpaceModel {
     const deadNow = dead && bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / deadStep) * deadStep : 0;
     const deadH = bc ? Math.max(1, bc.erode.height ?? bc.top) : 1;
     // (THE FOSSIL IN STAGES — FuseInput.stages: on the same clock as the life's, stepped a quarter of a stage at a time)
-    const stg = seeded && bc && input.stages && input.stages.n > 0 ? input.stages : null;
+    const stg = ruled && bc && input.stages && input.stages.n > 0 ? input.stages : null;
     const stgStep = stg ? Math.max(0.25, stg.span / (stg.n * 4)) : 1;
     const stgNow = stg && bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / stgStep) * stgStep : 0;
     // A FORM OF ITS OWN FOR EVERY BUILDING (fuse.ts StudyConfig.meltVary): the shares of the three forms, and how much
@@ -3685,7 +3731,7 @@ export class SpaceModel {
       if (STEEL_KINDS.has(b.kind) || b.kind === "drip") continue; // too thin to carry mass or growths
       if (assetsOnly && !this.assetClock.has(b)) continue;
       const up = standing.has(b);
-      if (seeded && bc && seedXZ) {
+      if (ruled && bc && seedXZ) {
         let th = this.erodeMemo.get(b);
         if (th === undefined) this.erodeMemo.set(b, (th = erodeThreshold(b, bc.erode)));
         const own = spreadS > 0 ? 1 + spreadS * (1 - 2 * th) : 1;
@@ -3752,7 +3798,11 @@ export class SpaceModel {
         // 느낌이 날 것 같음"): the share of parts kept as skeleton — only thinly wrapped, their orthogonal form left —
         // is kept in the seeded mass too, for good (its mass is the mass as it will be: there is no progress at which
         // the skeleton is swallowed). It was switched off here, and the foam opened on plain mass.
-        const e: P = { b, d: stageD, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
+        // (WHOLE STAGES: nothing in the shader lets the mass out — what the vegetation makes of it is in its progress,
+        // as the exhibition's was: d × the share the vegetation gathered there)
+        const e: P = staged
+          ? { b, d: q20(stageD * most), up: true, sk: isSkeleton(b, q20(stageD * most), skCfg), ang: angleOf.get(b.seed) ?? 0 }
+          : { b, d: stageD, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);
         else bySlot.set(b.slot, [e]);
@@ -4168,7 +4218,7 @@ export function handleSpaceRequest(model: SpaceModel, m: SpaceRequest): { out: S
   }
   if (m.fuse) {
     out.fuse = timed("fuse", () => model.computeFuse(m.fuse!));
-    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB, out.fuse.late]) if (a) transfer.add(a.buffer as ArrayBuffer);
+    if (out.fuse) for (const a of [out.fuse.position, out.fuse.normal, out.fuse.color, out.fuse.extra, out.fuse.index, out.fuse.anchor, out.fuse.growA, out.fuse.growB, out.fuse.late, out.fuse.morph]) if (a) transfer.add(a.buffer as ArrayBuffer);
   }
   if (m.future) {
     // (a fault in the inferred village must not take the wall with it: an exception here ended the worker, the view

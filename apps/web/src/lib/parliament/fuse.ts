@@ -177,6 +177,16 @@ export interface FuseConfig {
   /** THE FOSSIL IN STAGES: the shell's wall at least this thick (world); absent / 0 = 껍질 벽의 두께 as it is. */
   stageWall?: number;
   /**
+   * THE EXHIBITION'S MAKING IN THE STAGES' ORDER (the artist, 2026-11-21 night: "비주얼은 확실히 전시판이 낫다" / "생기는
+   * 순서는 단계별이 낫거든 … 타협점 없나?" → "Build it"): the mass is not seeded — each building is made whole from one
+   * state in the model's worker, as the exhibition's was (spaceModel fuseBuildings) — but a part's progress is its STAGE
+   * on the fossil's ruler (spaceModel FuseInput.stages), not 1 − its survival; and a building's new mass melts out of
+   * the old one over `meltSec` seconds (FuseMesh.morph) instead of a cross-fade.
+   */
+  wholeStages?: boolean;
+  /** WHOLE STAGES: the seconds a building's mass takes to melt from one stage into the next (0 = at once). */
+  meltSec?: number;
+  /**
    * THE PIECES THE SEEDED MASS IS MADE IN (spaceModel sendUnits → the worker beside; the artist, 2026-11-20: "현재
    * 상태에서도 화석 생성 단위 묶음/타일 더 촘촘하게 만들 수 있지 않나?"): cells of ground a side, and slots of height
    * (absent: 14 × 10, as it was). A smaller piece is made sooner — a change is on the screen sooner, and less is
@@ -582,6 +592,17 @@ export interface FuseMesh {
    * less than whole; it dissolves the pieces over its blend time. Absent = 1, no change.
    */
   blend?: Float32Array;
+  /**
+   * THE MASS MELTS FROM ONE STAGE INTO THE NEXT (the artist, 2026-11-21 night: "차라리 전시판 키프레임 사이에 바뀔 때 녹아들도록
+   * 해서 자연스럽게 보이게 하면 안 되나" — then "Build it", the compromise: the exhibition's making, the stages' order).
+   * Per vertex (4): where the vertex is drawn from (or goes to) as an offset from its position, and the clock the change
+   * began at (spaceModel's morph clock, seconds; ≥ 0 = a surface coming in: it starts at position + offset and moves to
+   * its own; < 0 = a surface going: its clock is −w − 1, it moves from its own by the offset and is not drawn once there;
+   * −1e9 = neither). Absent = no change.
+   */
+  morph?: Float32Array;
+  /** The morph clock's origin (ms since the epoch), set on the mesh the model sends: the view reads its clock off it. */
+  morphT0?: number;
   resinStart: number;
 }
 
@@ -1784,9 +1805,89 @@ export function compactFuseMesh(mesh: FuseMesh): FuseMesh {
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
+/**
+ * THE MELT BETWEEN TWO STAGES (FuseMesh.morph; fuse.ts wholeStages): for every vertex of `mesh`, the offset to the
+ * nearest point of `other`'s surface (its vertices, a few a cell of a hash) when one lies within `reach` — else straight
+ * in along its own normal by `sink` (a mass with nothing before it comes out of its parts; one with nothing after it goes
+ * back into them). Written as a surface coming in (`going` false: it starts on the other and moves to its own) or one
+ * going (it moves from its own onto the other and is not drawn once there), from `clock` (seconds). Nearest over the
+ * 27 cells about the vertex first, wider only when nothing is that near: a shape that changed a little costs little.
+ */
+export function meltMorph(mesh: FuseMesh, other: FuseMesh | null, clock: number, going: boolean, reach = 2.4, sink = 0.6): void {
+  const P = mesh.position, N = mesh.normal, nv = P.length / 3;
+  const out = new Float32Array(nv * 4);
+  const w = going ? -clock - 1 : clock;
+  // (the other's points in a dense grid of cells over its bounds — a few a cell, kept in order of the cells)
+  const Q = other?.position ?? new Float32Array(0), nq = Q.length / 3, PER = 6;
+  let cell = Math.max(0.25, reach / 4);
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < Q.length; i += 3) {
+    x0 = Math.min(x0, Q[i]); x1 = Math.max(x1, Q[i]);
+    y0 = Math.min(y0, Q[i + 1]); y1 = Math.max(y1, Q[i + 1]);
+    z0 = Math.min(z0, Q[i + 2]); z1 = Math.max(z1, Q[i + 2]);
+  }
+  let gx = 0, gy = 0, gz = 0;
+  for (;;) {
+    gx = Math.floor((x1 - x0) / cell) + 1; gy = Math.floor((y1 - y0) / cell) + 1; gz = Math.floor((z1 - z0) / cell) + 1;
+    if (!nq || gx * gy * gz <= 4_000_000) break;
+    cell *= 1.5; // (a wide mesh: coarser cells, as many as can be held)
+  }
+  const cellOf = (x: number, y: number, z: number) => (Math.floor((x - x0) / cell) * gy + Math.floor((y - y0) / cell)) * gz + Math.floor((z - z0) / cell);
+  const nc = nq ? gx * gy * gz : 0;
+  const cnt = new Int32Array(nc + 1);
+  for (let i = 0; i < nq; i++) { const c = cellOf(Q[i * 3], Q[i * 3 + 1], Q[i * 3 + 2]); if (cnt[c] < PER) cnt[c]++; }
+  const start = new Int32Array(nc + 1);
+  for (let c = 0; c < nc; c++) start[c + 1] = start[c] + cnt[c];
+  const pts = new Float32Array(start[nc] * 3), fill = new Int32Array(nc);
+  for (let i = 0; i < nq; i++) {
+    const c = cellOf(Q[i * 3], Q[i * 3 + 1], Q[i * 3 + 2]);
+    if (fill[c] >= cnt[c]) continue;
+    const o = (start[c] + fill[c]++) * 3;
+    pts[o] = Q[i * 3]; pts[o + 1] = Q[i * 3 + 1]; pts[o + 2] = Q[i * 3 + 2];
+  }
+  const R = Math.ceil(reach / cell), reach2 = reach * reach;
+  for (let v = 0; v < nv; v++) {
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    let best = reach2, bx = 0, by = 0, bz = 0, found = false;
+    if (nc) {
+      const cx = Math.floor((x - x0) / cell), cy = Math.floor((y - y0) / cell), cz = Math.floor((z - z0) / cell);
+      for (let r = 1; r <= R; r++) {
+        for (let ix = cx - r; ix <= cx + r; ix++) {
+          if (ix < 0 || ix >= gx) continue;
+          for (let iy = cy - r; iy <= cy + r; iy++) {
+            if (iy < 0 || iy >= gy) continue;
+            for (let iz = cz - r; iz <= cz + r; iz++) {
+              if (iz < 0 || iz >= gz) continue;
+              // (ring r: only its shell — the inside was looked at already)
+              if (r > 1 && Math.abs(ix - cx) < r && Math.abs(iy - cy) < r && Math.abs(iz - cz) < r) continue;
+              const c = (ix * gy + iy) * gz + iz;
+              for (let j = start[c] * 3, e = start[c + 1] * 3; j < e; j += 3) {
+                const ex = pts[j] - x, ey = pts[j + 1] - y, ez = pts[j + 2] - z, dd = ex * ex + ey * ey + ez * ez;
+                if (dd < best) {
+                  best = dd; bx = ex; by = ey; bz = ez; found = true;
+                }
+              }
+            }
+          }
+        }
+        // (a point within this ring's reach is the nearest there is: none farther out can be nearer)
+        if (found && best <= r * cell * r * cell) break;
+      }
+    }
+    if (!found) {
+      bx = -N[v * 3] * sink; by = -N[v * 3 + 1] * sink; bz = -N[v * 3 + 2] * sink;
+    }
+    out[v * 4] = bx;
+    out[v * 4 + 1] = by;
+    out[v * 4 + 2] = bz;
+    out[v * 4 + 3] = w;
+  }
+  mesh.morph = out;
+}
+
 export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   let nv = 0, ni = 0, nr = 0;
-  let seeded = false, anyLate = false, anySide = false, anyBlend = false;
+  let seeded = false, anyLate = false, anySide = false, anyBlend = false, anyMorph = false;
   for (const p of parts) {
     nv += p.position.length;
     ni += p.index.length;
@@ -1795,6 +1896,7 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
     if (p.late) anyLate = true;
     if (p.side) anySide = true;
     if (p.blend) anyBlend = true;
+    if (p.morph) anyMorph = true;
   }
   const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 4), index: new Uint32Array(ni), resinStart: ni - nr };
   // (the growing data rides along when any part has it; a part without it is whole as it is)
@@ -1808,8 +1910,14 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   // (the provisional skin's sides, and the pending changes: none = own faces, no change — −1e9 is "no change")
   if (anySide) out.side = new Float32Array(nv / 3);
   if (anyBlend) out.blend = new Float32Array((nv / 3) * 4);
+  // (the melt between stages: none = −1e9, no change)
+  if (anyMorph) out.morph = new Float32Array((nv / 3) * 4);
   let ov = 0, oo = 0, or = ni - nr;
   for (const p of parts) {
+    if (out.morph) {
+      if (p.morph) out.morph.set(p.morph, (ov / 3) * 4);
+      else for (let v = ov / 3; v < (ov + p.position.length) / 3; v++) out.morph[v * 4 + 3] = -1e9;
+    }
     if (out.late && p.late) out.late.set(p.late, ov / 3);
     if (out.side && p.side) out.side.set(p.side, ov / 3);
     if (out.blend) {

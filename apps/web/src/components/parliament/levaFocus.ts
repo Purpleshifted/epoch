@@ -59,6 +59,10 @@ const STAGE_DEAD = new Set(["growMelt", "growReach", "growPress", "growThin", "g
 /** THE EXHIBITION'S WAY (방식 = 전시판, 2026-11-21 night): the mass is made again from the parts' progress in the model's
  *  worker — no fossil's ruler, no shader's coming-out, no life, no helpers' pieces: what reads those is not listed. */
 const EXHIBITION_DEAD = new Set([...STAGE_DEAD, "pieceTile", "pieceSeg"]);
+/** THE TWO TOGETHER (방식 = 전시판 + 단계 순서 — fuse.ts wholeStages, 2026-11-21 night): made as the exhibition's, in the
+ *  stages' order — the ruler (①) and the number of stages are read; the worker beside's sweep, the stages' roundness and
+ *  wall (the exhibition's look is kept) and the life are not. */
+const WHOLE_DEAD = new Set([...EXHIBITION_DEAD, "stageSweep", "stageRound", "stageWall", "stageHoles", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch"]);
 const SEED_DEAD = new Set(["fuseFull", "goneMass", "skeletonUntil", "fossilFrom", "fossilTo", "fossilNoise", "blocky", "shellSplit", "shellThickYoung", "fuseUnit", "unitChange", "walkRadius", "scatter", "steelFossil", "fuseFade"]);
 /**
  * …AND THE CHOICES THAT LEAD BACK TO THE OLD WAY: what the mass is made of (the parts' own skins / the crust) and where
@@ -93,7 +97,7 @@ export const LEVA_FOCUS: Record<string, readonly string[]> = {
   // behind — ③'s tubes (꼴, their thickness, their share by size, how much the old layers embed them again)
   // …and the pipes' trunks in the mass (2026-11-20: "배관 본줄기부터"): the switch, which runs are trunks, how thick
   // (fuseBody · fuseFrom: listed only while they hold the old way's value — OLD_WAY_CHOICE)
-  "엉김 · 융합 · 레진": ["fusePipes", "trunkShare", "trunkThick", "fuseWalks", "wayShare", "wayThick", "fusePreset", "fuseOn", "fuseGrow", "fuseStages", "stageN", "stageSweep", "stageRound", "stageWall", "stageHoles", "fuseBody", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "iso", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growSeal", "growSealGrain", "growCap", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "shellThick", "cavity", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
+  "엉김 · 융합 · 레진": ["fusePipes", "trunkShare", "trunkThick", "fuseWalks", "wayShare", "wayThick", "fusePreset", "fuseOn", "fuseGrow", "fuseStages", "stageN", "stageMelt", "fuseFade", "unitChange", "stageSweep", "stageRound", "stageWall", "stageHoles", "fuseBody", "fuseFrom", "voxelTie", "pieceTile", "pieceSeg", "massVeg", "iso", "growAgeMin", "growDeep", "layerSpread", "growMelt", "growReach", "growPress", "growSeal", "growSealGrain", "growCap", "growThin", "growLate", "growRise", "growDie", "growDieAfterMin", "growDieSpanMin", "growDieHoles", "growDieGrain", "growDieRag", "growDiePatch", "massMode", "meltPick", "meltFrame", "meltLump", "meltSteer", "pipeRadius", "pipeSmall", "pipeLarge", "pipeFossil", "skeleton", "skeletonWrap", "shell", "foam", "ribCell", "ribWidth", "ribOpen", "shellThick", "cavity", "holeVoronoiSmall", "holeVoronoiLarge", "boneMass", "bonePores", "bonePoreSize", "boneFill", "boneWrap", "boneRim", "boneWarm", "boneSee", "boneSeeParts", FOCUS_ALL_KEY, "__save"],
 };
 
 let installed = false;
@@ -168,8 +172,9 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
     // part with its cell-slot's clock: "every part" no longer leads back to the old way, spaceModel computeFuse `seeded`)
     // (…and not the exhibition's way, which makes the mass again from the parts' progress — 방식 = 전시판)
     const way = data[`${FUSION_GROUP}.화석이 생기는 과정.fuseStages`]?.value;
-    const seedWay = data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed" && data[`${FUSION_GROUP}.fuseBody`]?.value !== "crust" && way !== "exhibition";
+    const seedWay = data[`${FUSION_GROUP}.fuseGrow`]?.value === "seed" && data[`${FUSION_GROUP}.fuseBody`]?.value !== "crust" && way !== "exhibition" && way !== "whole";
     if (way === "exhibition" && EXHIBITION_DEAD.has(leaf)) return false;
+    if (way === "whole" && WHOLE_DEAD.has(leaf)) return false;
     if (seedWay && SEED_DEAD.has(leaf)) return false;
     // (THE FOSSIL IN STAGES: the mesh is the stage's real shape, drawn whole — the knobs of how the one final shape comes
     // out on the screen are read by nothing)
