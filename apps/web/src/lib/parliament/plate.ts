@@ -1,32 +1,35 @@
 /**
- * parliament/plate.ts — the SPECIMEN CARD of one life (the end screen, 2026-11-21): the record card set as a card the
- * visitor can take away, one face in the proportion of the printed card (54 × 86 mm, portrait; thermal transfer, so one
- * side, black on white — the screen shows the same picture, on paper or inverted). The artist (2026-11-21): minimal; the
- * same kinds of information as the card before, still told in sentences; the time axis is the one strong graphic and
- * stands on its own — the telling goes apart from it (no infographic leaders). Greys only (a human trace).
+ * parliament/plate.ts — the SPECIMEN CARD of one life (the end screen; laid out on the design canvas and approved by the
+ * artist, 2026-11-21). Minimal: the life's worldline on its time axis, the being's name (its melody), its number, and the
+ * QR of its recording — nothing else (the record's sentences stay on the end screen's record card). Printed on one side of
+ * thermal transfer paper, 54 × 86 mm, or turned, 86 × 54; on white or on black paper. The visitor picks both.
  *
- *   head       the specimen's number (개체 0417), its duration (존속 03:00), and one line anchoring it in the real world:
- *              where (the `venue` parameter, if any) and when the life ended — "세지갤러리 · 2026-12-14 15:42 출토"
+ *   portrait   the worldline across the top; at the foot the melody over the number on the left, the QR on the right
+ *   landscape  the worldline the card's full height on the left; a column on the right with the QR at its top, the
+ *              melody and the number at its foot
+ *
+ * Every element meets the margin lines by its visible edge, not by its box (the artist, 2026-11-21): the worldline is
+ * cropped to what it draws (the ruler's labels on the left line, the block's corner on the right one); on white the QR is
+ * its dark modules (its quiet zone is the paper), on black its light square; the number stands on its digits' own foot and
+ * right edge, not on the face's line box.
+ *
  *   worldline  the footprint (footprint.ts' cells) on the top face of a small block, the life hanging under it through
  *              time — later is higher, the end on the surface, the birth at the bottom (the wall's own axis). Walking
  *              is a slanted line, staying a vertical post, thicker the stiller; a dotted plumb line ties each long stay
- *              to its place on the ground; a ruler of the life's minutes on the left. On the gallery machine the QR of
- *              the life's recording stands beside it.
- *   record     the card's rows as they were (script.ts ended: 고유 어휘 · 군집 · 어휘 변화 · 발견 · 구조물 · 이동 · 식생 ·
- *              그만 살기 · 사인), the melodies drawn beside the words; the apparatus's two closing lines
+ *              to its place on the ground; a ruler of the life's minutes on the left
  *
- * plateSvg() draws it 1080 × 1720 (20 px a millimetre): the screen, the saved image and the print are one picture. It
- * reads only what the record and the ledger hold — nothing is made up. Pure.
+ * plateSvg() draws it 1080 × 1720 (20 units a millimetre): the screen, the saved image and the print are one picture.
+ * It reads only what the record and the ledger hold — nothing is made up. Pure.
  */
 
 import { CELL_SIZE } from "@/lib/stratum/field";
-import { GLYPH_COLS, GLYPH_ROWS, individualNo, type GlyphDot } from "./glyph";
+import { GLYPH_COLS, individualNo, type GlyphDot } from "./glyph";
 import { DEFAULT_LEDGER, type Ledger, type LedgerConfig, type LedgerSummary } from "./ledger";
-import { SCRIPT, type Lang } from "./script";
+import type { Lang } from "./script";
 import { fmtClock } from "./session";
 import { WORLD_CELLS, nearestImage, wrapDelta } from "./world";
 
-/** The face, in pixels: 54 × 86 mm at 20 px a millimetre. */
+/** The face, in card units: 54 × 86 mm at 20 a millimetre. */
 export const PLATE_W = 1080;
 export const PLATE_H = 1720;
 
@@ -40,11 +43,13 @@ export interface PlateCell {
   a: number;
 }
 
+/** What the card is made from: the record and the ledger at the end. The card draws the trail, the cells, the being and
+ * the QR; the rest is the record kept with it (the archive, /api/lives). */
 export interface PlateInput {
   lang: Lang;
   /** The being's id (its number and its own melody). */
   me: string;
-  /** Seconds lived (what 존속 reads). */
+  /** Seconds lived. */
   lifeSec: number;
   /** The record's totals (witness.ts summary()). */
   group: readonly string[];
@@ -68,8 +73,8 @@ export interface PlateInput {
   /** The trail (world coordinates, life seconds) and the ground cells. */
   trail: readonly { x: number; z: number; t: number }[];
   cells: readonly PlateCell[];
-  /** The gallery machine: the QR slot (`modules` = the code, qr.ts qrModules, once there is a recording). null: no slot. */
-  qr: { modules?: boolean[][] | null } | null;
+  /** The QR of the life's recording (qr.ts qrModules); null while there is none (its place is kept). */
+  qr: boolean[][] | null;
 }
 
 /** The ledger's ground cells as the footprint map classes them (footprint.ts footprintLayout, the same rules). */
@@ -86,62 +91,20 @@ export function plateCells(l: Ledger, cfg: LedgerConfig = DEFAULT_LEDGER): Plate
   return out;
 }
 
-// ── faces of type ────────────────────────────────────────────────────────────
+/** The card's one face (Galmuri 2.40, Lee Minseo, SIL OFL 1.1; public/fonts, CREDITS.md): the number and the ruler. */
+export const PLATE_FACE = { family: "GalmuriMono11", file: "/fonts/GalmuriMono11.woff2" } as const;
 
-/** The type faces the card can be set in (Leva); the files are in public/fonts. */
-export type PlateFont = "neodgm" | "galmuri11" | "galmuri9" | "galmuriMono11" | "pretendard";
-
-export const PLATE_FONTS: Record<PlateFont, { family: string; file: string; label: string; wide: number; narrow: number }> = {
-  neodgm: { family: "NeoDunggeunmo", file: "/fonts/neodgm.woff2", label: "Neo둥근모", wide: 1, narrow: 0.5 },
-  galmuri11: { family: "Galmuri11", file: "/fonts/Galmuri11.woff2", label: "갈무리11", wide: 1, narrow: 0.55 },
-  galmuri9: { family: "Galmuri9", file: "/fonts/Galmuri9.woff2", label: "갈무리9", wide: 1, narrow: 0.55 },
-  galmuriMono11: { family: "GalmuriMono11", file: "/fonts/GalmuriMono11.woff2", label: "갈무리 모노11", wide: 1, narrow: 0.5 },
-  pretendard: { family: "Pretendard", file: "/fonts/Pretendard-Regular.woff2", label: "프리텐다드", wide: 0.92, narrow: 0.56 },
-};
-export const DEFAULT_PLATE_FONT: PlateFont = "galmuri11";
+/** GalmuriMono11's digits (1200 units an em): every glyph advances half an em; a digit's ink runs from 100 to 1100
+ * units over the baseline and from the left edge to 100 units short of its advance. */
+const DIGIT = { adv: 600 / 1200, top: 1100 / 1200, foot: 100 / 1200, bearing: 100 / 1200 };
 
 // ── drawing ──────────────────────────────────────────────────────────────────
 
+/** The worldline's ruler keeps this far in from its drawing's edge. */
 const M = 72;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 const f1 = (v: number) => (Math.round(v * 10) / 10).toString();
-
-const isWide = (c: number) => c >= 0x1100 && (c <= 0x115f || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xff00 && c <= 0xff60));
-
-/** About how wide a line is in a face: Hangul and other wide letters `wide` em, the rest `narrow`. */
-export function textWidth(s: string, size: number, font: PlateFont = DEFAULT_PLATE_FONT): number {
-  const f = PLATE_FONTS[font];
-  let em = 0;
-  for (const ch of s) em += isWide(ch.codePointAt(0) ?? 0) ? f.wide : f.narrow;
-  return em * size;
-}
-
-/** Break a line to fit `maxW`: between its " · " parts where it can, else at spaces; a line never starts with "·". */
-export function wrapText(s: string, size: number, maxW: number, font: PlateFont = DEFAULT_PLATE_FONT): string[] {
-  const fits = (l: string) => textWidth(l, size, font) <= maxW;
-  const lines: string[] = [];
-  let cur = "";
-  for (const part of s.split(" · ")) {
-    const next = cur ? `${cur} · ${part}` : part;
-    if (fits(next)) {
-      cur = next;
-      continue;
-    }
-    if (cur) lines.push(`${cur} ·`);
-    cur = "";
-    // a part too long for a line of its own: at spaces
-    for (const w of part.split(" ")) {
-      const n = cur ? `${cur} ${w}` : w;
-      if (cur && !fits(n)) {
-        lines.push(cur);
-        cur = w;
-      } else cur = n;
-    }
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
 
 const text = (x: number, y: number, s: string, size: number, fill: string, anchor: "start" | "end" = "start") =>
   `<text x="${f1(x)}" y="${f1(y)}" font-size="${size}" fill="${fill}"${anchor === "end" ? ` text-anchor="end"` : ""}>${esc(s)}</text>`;
@@ -154,20 +117,16 @@ function glyph(dots: readonly GlyphDot[], x: number, y: number, cell: number, fi
     .join("")}</g>`;
 }
 
-/** 2026-12-14 15:42 (local time). */
-function stamp(ms: number): string {
-  const d = new Date(ms);
-  const two = (v: number) => String(v).padStart(2, "0");
-  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
-}
-
-/** Paper (white, the greys of the screen) or screen (light on the end screen's black); and for the thermal printer, one
+/** Paper (white, the greys of the screen) or screen (light on black: the black card); and for the thermal printer, one
  * ink only: print (black on white) and printBlack (the black card, printed solid) — every line in the one ink, the
  * ground's faint fills left out (they would come out as blots), only the paths and the concrete on the top face. */
 export type PlateTheme = "paper" | "screen" | "print" | "printBlack";
 
 /** The one-ink theme for printing a card shown on `theme`. */
 export const printTheme = (theme: PlateTheme): PlateTheme => (theme === "screen" || theme === "printBlack" ? "printBlack" : "print");
+
+/** A black card (the screen's or the print's). */
+const isBlack = (theme: PlateTheme) => theme === "screen" || theme === "printBlack";
 
 interface Palette {
   bg: string;
@@ -186,137 +145,163 @@ const PALETTES: Record<PlateTheme, Palette> = {
   printBlack: { bg: "#000000", ink: "#ffffff", dim: "#ffffff", faint: "#ffffff", slab: "#000000", oneInk: true },
 };
 
-/** One row of the record: a label and its words, a melody after them when it has one. */
-interface Row {
-  label: string;
-  words: string;
-  dots?: readonly GlyphDot[];
-  big?: boolean;
-}
-
 /** Portrait (54 × 86 mm) or landscape (86 × 54 mm): the same card turned, laid out anew. */
 export type PlateOrient = "portrait" | "landscape";
 
-/** The card's size in pixels (20 px a millimetre). */
+/** The card's size in card units (20 a millimetre). */
 export function plateSize(orient: PlateOrient = "portrait"): { w: number; h: number } {
   return orient === "landscape" ? { w: PLATE_H, h: PLATE_W } : { w: PLATE_W, h: PLATE_H };
 }
 
-/** The card (see the header). `glyphOf` names the others' melodies (glyph.ts glyphOf). Portrait: the head across the
- * top, the worldline under it, the record at the foot. Landscape: the worldline standing the card's full height on the
- * left, the head and the record in a column on the right. */
+// ── the card ─────────────────────────────────────────────────────────────────
+
+/** The card's margin (4 mm), the gap between the worldline and the foot under it (portrait). */
+const MARGIN = 80;
+const GAP = 80;
+/** The melody's box (8 × 8 notes) and the number's size. */
+const NAME_BOX = 144;
+const NUMBER_SIZE = 96;
+/** A QR module, in card units, for a code of 29 modules (a recording's address); a code with more modules gets smaller
+ * ones, so the code stays about as large. */
+const QR_MODULE = { portrait: 14, landscape: 16 } as const;
+const QR_REF = 29;
+/** The worldline's shape (width over height) on every card: the white portrait's, where it fills the width. */
+const FIG_ASPECT = 460 / 537;
+
+/** The card (see the header). `glyphOf` gives a being's melody (glyph.ts glyphOf). `fontCss`: an @font-face to embed
+ * (the saved image loads nothing from outside). */
 export function plateSvg(
   p: PlateInput,
   glyphOf: (id: string) => GlyphDot[],
-  opts: { font?: PlateFont; theme?: PlateTheme; orient?: PlateOrient; fontCss?: string } = {},
+  opts: { theme?: PlateTheme; orient?: PlateOrient; fontCss?: string } = {},
 ): string {
-  const font = opts.font ?? DEFAULT_PLATE_FONT;
-  const C = PALETTES[opts.theme ?? "paper"];
+  const theme = opts.theme ?? "paper";
+  const C = PALETTES[theme];
+  const black = isBlack(theme);
   const land = opts.orient === "landscape";
   const { w: W, h: H } = plateSize(opts.orient);
-  const S = SCRIPT[p.lang].ended;
   const out: string[] = [];
-  /** The column the head and the record are set in. */
-  const x0 = land ? 868 : M, x1 = W - M;
 
-  // ── head: which being, how long, where and when ──
-  const life = fmtClock(p.lifeSec);
-  out.push(text(x0, 128, S.who(individualNo(p.me)), 60, C.ink));
-  // 존속 and its time as one line the browser sets (no guessing at the face's widths)
-  out.push(`<text x="${x1}" y="128" text-anchor="end"><tspan font-size="28" fill="${C.dim}">${esc(S.life)}</tspan><tspan font-size="60" fill="${C.ink}" dx="16">${esc(life)}</tspan></text>`);
-  out.push(text(x0, 182, S.unearthed(p.venue, stamp(p.endedAt)), 30, C.dim));
+  // the QR's visible square: its modules on white, its light square (with the quiet zone) on black
+  const n = p.qr?.length ?? QR_REF;
+  const q = Math.max(1, Math.round((QR_MODULE[land ? "landscape" : "portrait"] * QR_REF) / n));
+  const qrSide = (black ? n + 8 : n) * q;
+  const qrX = W - MARGIN - qrSide;
+  const qrY = land ? MARGIN : H - MARGIN - qrSide;
 
-  // ── the record ──
-  const sum = p.sum;
-  const rows: Row[] = [{ label: S.own, words: "", dots: glyphOf(p.me) }];
-  rows.push({ label: S.group, words: S.groupRow(p.group.length, p.ensembleSec) });
-  rows.push({ label: S.word, words: S.wordRow(p.newWords.length, p.asked), dots: p.newWords.length ? p.newWords[p.newWords.length - 1] : undefined });
-  if (p.found.length) rows.push({ label: S.found, words: S.foundRow(individualNo(p.found[0]), p.found.length - 1), dots: glyphOf(p.found[0]) });
-  rows.push({ label: S.built, words: S.builtRow(sum?.slabs ?? 0, sum?.with.length ?? 0, p.unmet) });
-  rows.push({ label: S.moved, words: S.movedRow(sum, p.stillSec) });
-  rows.push({ label: S.veg, words: S.vegRow(sum) });
-  if (p.attempts > 0) rows.push({ label: S.stop, words: S.tried(p.attempts) });
-  rows.push({ label: S.cause, words: p.cause, big: true });
+  // the worldline, its drawn extent on the margins: top left, as wide as the card lets it (portrait), as tall (landscape)
+  const figH = land ? H - 2 * MARGIN : Math.min(H - 2 * MARGIN - qrSide - GAP, (W - 2 * MARGIN) / FIG_ASPECT);
+  const fig = figure(p, C, FIG_ASPECT);
+  const [bx, by, bw, bh] = fig.vb;
+  out.push(`<svg x="${MARGIN}" y="${MARGIN}" width="${f1(figH * FIG_ASPECT)}" height="${f1(figH)}" viewBox="${f1(bx)} ${f1(by)} ${f1(bw)} ${f1(bh)}" overflow="visible">${fig.body}</svg>`);
 
-  const LS = 26, SIZE = 30, LINE = 41, GAP = land ? 10 : 12, CELL = 7;
-  const labelW = Math.min(250, Math.max(...rows.map((r) => textWidth(r.label, LS, font))) + 26);
-  const textX = x0 + labelW, maxW = x1 - textX;
-  const gw = GLYPH_COLS * CELL, gh = GLYPH_ROWS * CELL;
-  const laid = rows.map((r) => {
-    const size = r.big ? 44 : SIZE, line = r.big ? 54 : LINE;
-    const lines = r.words ? wrapText(r.words, size, maxW, font) : [];
-    let h = Math.max(1, lines.length) * line;
-    let g: [number, number] | null = null;
-    if (r.dots) {
-      // the melody after the last line (the row grows to hold it), or on a line of its own when it does not fit
-      const last = lines[lines.length - 1] ?? "";
-      const end = last ? textWidth(last, size, font) + 18 : 0;
-      const row = Math.max(0, lines.length - 1);
-      if (end + gw <= maxW) {
-        g = [textX + end, row * line + (line - gh) / 2 - 4];
-        h = Math.max(h, row * line + gh + 2);
-      } else {
-        g = [textX, lines.length * line + 4];
-        h = lines.length * line + gh + 8;
+  // the name: the melody's box, its top level with the QR's (portrait) or its foot on the bottom margin (landscape)
+  const nameX = land ? qrX : MARGIN;
+  const nameY = land ? H - MARGIN - NAME_BOX : qrY;
+  out.push(glyph(glyphOf(p.me), nameX, nameY, NAME_BOX / GLYPH_COLS, C.ink));
+  // the number: its digits' foot on the bottom margin; left on the margin (portrait), right on it (landscape)
+  const base = H - MARGIN + DIGIT.foot * NUMBER_SIZE;
+  const num = individualNo(p.me);
+  out.push(land ? text(W - MARGIN + DIGIT.bearing * NUMBER_SIZE, base, num, NUMBER_SIZE, C.ink, "end") : text(MARGIN, base, num, NUMBER_SIZE, C.ink));
+
+  // the QR, dark on light whatever the paper (a code reads that way); on white the paper is its quiet zone
+  if (p.qr) {
+    let d = "";
+    const o = black ? 4 : 0;
+    p.qr.forEach((row, my) => row.forEach((on, mx) => on && (d += `M${mx + o} ${my + o}h1v1h-1z`)));
+    const side = black ? n + 8 : n;
+    out.push(
+      `<svg x="${qrX}" y="${qrY}" width="${qrSide}" height="${qrSide}" viewBox="0 0 ${side} ${side}" shape-rendering="crispEdges">${
+        black ? `<rect width="${side}" height="${side}" fill="${C.ink}"/><path d="${d}" fill="${C.bg}"/>` : `<path d="${d}" fill="${C.ink}"/>`
+      }</svg>`,
+    );
+  } else if (!C.oneInk) {
+    // no recording yet: the code's place, its corners (on the screen only; the print leaves it blank)
+    const k = Math.round(qrSide * 0.12), x = qrX, y = qrY, s = qrSide;
+    out.push(`<path d="M${x} ${y + k}V${y}H${x + k}M${x + s - k} ${y}H${x + s}V${y + k}M${x + s} ${y + s - k}V${y + s}H${x + s - k}M${x + k} ${y + s}H${x}V${y + s - k}" stroke="${C.dim}" stroke-width="${HAIR}" fill="none"/>`);
+  }
+
+  const style = opts.fontCss ? `<style>${opts.fontCss}</style>` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${PLATE_FACE.family}, monospace">${style}<rect width="${W}" height="${H}" fill="${C.bg}"/>${out.join("")}</svg>`;
+}
+
+/** The worldline is drawn in a box this wide and cropped to what it draws. */
+const FIG_DRAW_W = 900;
+const figureCache = new WeakMap<PlateInput, Map<number, number>>();
+
+/** The worldline drawn so that its drawn extent has the shape `aspect` (width over height): the box it is drawn in is
+ * sought (its height changes the time's depth against the top face), then cropped to the extent. Cached per life. */
+function figure(p: PlateInput, C: Palette, aspect: number): { body: string; vb: [number, number, number, number] } {
+  const draw = (h: number) => worldline(p, { left: 214, right: FIG_DRAW_W - 16, top: 16, bottom: h - 16 }, C, { face: 0.38 });
+  let known = figureCache.get(p);
+  if (!known) figureCache.set(p, (known = new Map()));
+  let h = known.get(aspect);
+  if (h === undefined) {
+    // the higher the box, the deeper the time and the narrower the drawing
+    let lo = 600, hi = 1600;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      const b = drawnBounds(draw(mid));
+      if (b[2] / b[3] > aspect) lo = mid;
+      else hi = mid;
+    }
+    h = (lo + hi) / 2;
+    known.set(aspect, h);
+  }
+  const body = draw(h);
+  return { body, vb: drawnBounds(body) };
+}
+
+/** What a drawing covers — its strokes (with their widths), marks and labels — read back from the SVG it is: x, y, w, h. */
+function drawnBounds(svg: string): [number, number, number, number] {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (x: number, y: number, r = 0) => {
+    x0 = Math.min(x0, x - r);
+    y0 = Math.min(y0, y - r);
+    x1 = Math.max(x1, x + r);
+    y1 = Math.max(y1, y + r);
+  };
+  for (const m of svg.matchAll(/<path d="([^"]*)"([^>]*)\/>/g)) {
+    const r = /stroke="(?!none)/.test(m[2]) ? Number(m[2].match(/stroke-width="([\d.]+)"/)?.[1] ?? 1) / 2 : 0;
+    let cx = 0, cy = 0;
+    for (const c of m[1].matchAll(/([MLHVZhvl])([^MLHVZhvl]*)/g)) {
+      const v = (c[2].match(/-?[\d.]+/g) ?? []).map(Number);
+      switch (c[1]) {
+        case "M":
+        case "L":
+          for (let i = 0; i + 1 < v.length; i += 2) add((cx = v[i]), (cy = v[i + 1]), r);
+          break;
+        case "l":
+          for (let i = 0; i + 1 < v.length; i += 2) add((cx += v[i]), (cy += v[i + 1]), r);
+          break;
+        case "H":
+          for (const a of v) add((cx = a), cy, r);
+          break;
+        case "V":
+          for (const a of v) add(cx, (cy = a), r);
+          break;
+        case "h":
+          for (const a of v) add((cx += a), cy, r);
+          break;
+        case "v":
+          for (const a of v) add(cx, (cy += a), r);
+          break;
       }
     }
-    return { r, size, line, lines, h, g };
-  });
-  const recH = laid.reduce((a, l) => a + l.h + GAP, -GAP);
-  // the foot: the apparatus's two lines — on the gallery machine's landscape card with the recording's caption, its QR
-  // standing in the card's bottom right corner beside them, its bottom on the foot's last line (the artist: the QR
-  // beside the worldline was awkward)
-  const gallery = p.qr !== null;
-  const QR = land ? 176 : 250;
-  const footW = land && gallery ? x1 - x0 - QR - 36 : x1 - x0;
-  const foot: { s: string; c: string }[] = [
-    ...(land && gallery ? wrapText(`${S.recording} · ${S.recordingNote}`, 24, footW, font).map((s) => ({ s, c: C.dim })) : []),
-    ...wrapText(S.kept, 24, footW, font).map((s) => ({ s, c: C.ink })),
-    ...wrapText(S.read, 24, footW, font).map((s) => ({ s, c: C.dim })),
-  ];
-  const footTop = H - M - (foot.length - 1) * 34 - 24;
-  // portrait: the record stands on the foot; landscape: it hangs from the head. The gallery's landscape card closes
-  // with a band under a hairline — the foot on the left, the QR on the right, their bottoms level — and the record's
-  // rows close up as much as they must to stay above it
-  const recTop = land ? 262 : footTop - 44 - recH;
-  const band = land && gallery ? Math.min(H - M - QR, footTop - 24) : Infinity;
-  const over = Number.isFinite(band) ? Math.max(0, recTop + recH - (band - 40)) : 0;
-  const gap = Math.max(2, GAP - over / Math.max(1, laid.length - 1));
-  let y = recTop;
-  out.push(`<path d="M${x0} ${f1(recTop - 22)}H${x1}" stroke="${C.faint}" stroke-width="1.5"/>`);
-  if (Number.isFinite(band)) out.push(`<path d="M${x0} ${f1(band - 20)}H${x1}" stroke="${C.faint}" stroke-width="1.5"/>`);
-  for (const l of laid) {
-    out.push(text(x0, y + (l.r.big ? 36 : 30), l.r.label, LS, C.dim));
-    l.lines.forEach((s, i) => out.push(text(textX, y + (l.r.big ? 40 : 31) + i * l.line, s, l.size, C.ink)));
-    if (l.r.dots && l.g) out.push(glyph(l.r.dots, l.g[0], y + l.g[1], CELL, C.ink));
-    y += l.h + gap;
   }
-  foot.forEach((f, i) => out.push(text(x0, H - M - (foot.length - 1 - i) * 34, f.s, 24, f.c)));
-
-  // ── the worldline; on the gallery machine's portrait card the recording's QR beside it ──
-  const qrBeside = gallery && !land;
-  const qrX = land ? x1 - QR : W - M - QR;
-  const fig = land ? { left: 214, top: 104, bottom: H - 104 } : { left: 214, top: 250, bottom: recTop - 66 };
-  out.push(worldline(p, { ...fig, right: qrBeside ? qrX - 24 : land ? 800 : W - M - 30 }, C));
-  if (gallery) {
-    const x = qrX, qy = land ? H - M - QR : fig.bottom - QR;
-    if (!land) out.push(text(x, qy - 50, S.recording, 24, C.dim), text(x, qy - 18, S.recordingNote, 22, C.dim));
-    const mods = p.qr?.modules;
-    if (mods) {
-      // dark on light whatever the paper (a code reads that way), with its quiet zone
-      const n = mods.length + 8;
-      let d = "";
-      mods.forEach((row, my) => row.forEach((on, mx) => on && (d += `M${mx + 4} ${my + 4}h1v1h-1z`)));
-      out.push(`<svg x="${x}" y="${qy}" width="${QR}" height="${QR}" viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges"><rect width="${n}" height="${n}" fill="#ffffff"/><path d="${d}" fill="#111111"/></svg>`);
-    } else {
-      const k = 26;
-      out.push(`<path d="M${x} ${qy + k}V${qy}H${x + k}M${x + QR - k} ${qy}H${x + QR}V${qy + k}M${x + QR} ${qy + QR - k}V${qy + QR}H${x + QR - k}M${x + k} ${qy + QR}H${x}V${qy + QR - k}" stroke="${C.dim}" stroke-width="2" fill="none"/>`);
-    }
+  for (const m of svg.matchAll(/<circle cx="([\d.-]+)" cy="([\d.-]+)" r="([\d.]+)"[^>]*stroke-width="([\d.]+)"/g)) add(+m[1], +m[2], +m[3] + +m[4] / 2);
+  for (const m of svg.matchAll(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="([\d.]+)"/g)) {
+    add(+m[1], +m[2]);
+    add(+m[1] + +m[3], +m[2] + +m[4]);
   }
-
-  const family = `${PLATE_FONTS[font].family}, NeoDunggeunmo, monospace`;
-  const style = opts.fontCss ? `<style>${opts.fontCss}</style>` : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${esc(family)}">${style}<rect width="${W}" height="${H}" fill="${C.bg}"/>${out.join("")}</svg>`;
+  // the labels (the ruler's minutes, in the card's mono face): their digits' ink
+  for (const m of svg.matchAll(/<text x="([\d.-]+)" y="([\d.-]+)" font-size="([\d.]+)"([^>]*)>([^<]*)<\/text>/g)) {
+    const x = +m[1], y = +m[2], fs = +m[3], wd = [...m[5]].length * DIGIT.adv * fs, end = /text-anchor="end"/.test(m[4]);
+    add(end ? x - wd : x, y - DIGIT.top * fs);
+    add((end ? x : x + wd) - DIGIT.bearing * fs, y - DIGIT.foot * fs);
+  }
+  if (!Number.isFinite(x0)) return [0, 0, 1, 1];
+  return [x0, y0, x1 - x0, y1 - y0];
 }
 
 // ── the worldline ────────────────────────────────────────────────────────────
@@ -488,12 +473,11 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
   return out.join("");
 }
 
-/** The worldline alone as an SVG of its own, `w` × `h` in the card's units (20 per millimetre at the card's size): for
- * a card laid out elsewhere — the minimal card on the design canvas (2026-11-21). The ruler sits in its first 214. */
-export function plateFigureSvg(p: PlateInput, opts: { w: number; h: number; theme?: PlateTheme; font?: PlateFont; ruler?: boolean; face?: number }): string {
+/** The worldline alone as an SVG of its own, `w` × `h` in card units, uncropped: for laying a card out elsewhere (the
+ * design canvas, 2026-11-21). The ruler sits in its first 214. */
+export function plateFigureSvg(p: PlateInput, opts: { w: number; h: number; theme?: PlateTheme; ruler?: boolean; face?: number }): string {
   const C = PALETTES[opts.theme ?? "paper"];
-  const family = `${PLATE_FONTS[opts.font ?? "galmuriMono11"].family}, monospace`;
   const ruler = opts.ruler !== false;
   const body = worldline(p, { left: ruler ? 214 : 16, right: opts.w - 16, top: 16, bottom: opts.h - 16 }, C, { ruler, face: opts.face });
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${opts.w} ${opts.h}" font-family="${esc(family)}">${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${opts.w} ${opts.h}" font-family="${PLATE_FACE.family}, monospace">${body}</svg>`;
 }

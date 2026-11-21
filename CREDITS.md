@@ -282,5 +282,4 @@ Self-hosted in `apps/web/public/fonts/`, unmodified except where noted.
 | File | Font | Author | Link |
 |---|---|---|---|
 | neodgm.woff2 | Neo둥근모 1.601 | Eunbin Jeong (Dalgona) | <https://neodgm.dalgona.dev> |
-| Galmuri11.woff2, Galmuri9.woff2, GalmuriMono11.woff2 | Galmuri 2.40.0 | Lee Minseo (quiple) | <https://github.com/quiple/galmuri> |
-| Pretendard-Regular.woff2 | Pretendard Regular (converted from OTF to WOFF2) | Kil Hyung-jin (orioncactus) | <https://github.com/orioncactus/pretendard> |
+| GalmuriMono11.woff2 | Galmuri 2.40.0 | Lee Minseo (quiple) | <https://github.com/quiple/galmuri> |

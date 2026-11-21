@@ -70,13 +70,9 @@ body {
   font-display: swap;
 }
 
-/* The specimen card's faces (lib/parliament/plate.ts PLATE_FONTS; Leva 개인뷰 비주얼 › 표본 카드 글꼴): Galmuri
-   (Lee Minseo, SIL OFL 1.1) and Pretendard (Kil Hyung-jin, SIL OFL 1.1), self-hosted like Neo둥근모 (CREDITS.md).
-   A face is only downloaded when a card is set in it. */
-@font-face { font-family: "Galmuri11"; src: url("/fonts/Galmuri11.woff2") format("woff2"); font-display: swap; }
-@font-face { font-family: "Galmuri9"; src: url("/fonts/Galmuri9.woff2") format("woff2"); font-display: swap; }
+/* The specimen card's face (lib/parliament/plate.ts PLATE_FACE): GalmuriMono11 (Lee Minseo, SIL OFL 1.1), self-hosted
+   like Neo둥근모 (CREDITS.md); only downloaded when a card is shown. */
 @font-face { font-family: "GalmuriMono11"; src: url("/fonts/GalmuriMono11.woff2") format("woff2"); font-display: swap; }
-@font-face { font-family: "Pretendard"; src: url("/fonts/Pretendard-Regular.woff2") format("woff2"); font-display: swap; }
 
 .hud-ko {
   font-family: "NeoDunggeunmo", "Galmuri11", "DungGeunMo", "VT323", monospace;

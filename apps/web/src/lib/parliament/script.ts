@@ -121,19 +121,20 @@ export interface Script {
     nextTouch: string;
     /** One line of help, shown after a suicide only when the knob is on. */
     help: string;
-    /** The specimen plate (plate.ts): where and when it was unearthed (the life's end) … */
-    unearthed: (where: string | null, when: string) => string;
-    /** … the gallery's QR (the life's recording), the paper the card is shown on … */
-    recording: string;
-    recordingNote: string;
+    /** The specimen card (plate.ts): the paper it is shown on … */
     paperWhite: string;
     paperBlack: string;
+    /** … which way the card stands … */
+    orientPortrait: string;
+    orientLandscape: string;
     /** … what the visitor does with the card (print on the gallery machine, save elsewhere, post), how it went, the way
      * back to the record, and what posting or printing means (the life is kept; otherwise it is not). */
     act: Record<"print" | "save" | "post", string>;
     actState: (act: "print" | "save" | "post", s: "busy" | "done" | "failed" | "noServer") => string;
     back: string;
     keepNote: string;
+    /** A print keeps the life: the two said at once. */
+    printedKept: string;
   };
 }
 
@@ -189,11 +190,10 @@ export const SCRIPT: Record<Lang, Script> = {
       next: "SPACE — 다음 삶",
       nextTouch: "화면을 누르면 — 다음 삶",
       help: "자살예방상담전화 109",
-      unearthed: (where, when) => `${where ? `${where} · ` : ""}${when} 출토`,
-      recording: "녹음",
-      recordingNote: "이 개체가 들은 음악",
       paperWhite: "흰 바탕",
       paperBlack: "검은 바탕",
+      orientPortrait: "세로",
+      orientLandscape: "가로",
       act: { print: "출력하기", save: "저장하기", post: "게시하기" },
       actState: (a, s) =>
         s === "noServer"
@@ -201,6 +201,7 @@ export const SCRIPT: Record<Lang, Script> = {
           : ({ print: ["출력 중", "출력했습니다", "출력하지 못했습니다"], save: ["저장 중", "저장했습니다", "저장하지 못했습니다"], post: ["게시 중", "게시했습니다", "게시하지 못했습니다"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
       back: "돌아가기",
       keepNote: "게시하거나 출력하면 이 기록과 녹음이 보관됩니다. 그러지 않은 삶은 보관되지 않습니다.",
+      printedKept: "출력했습니다 · 게시되었습니다",
     },
   },
   en: {
@@ -254,11 +255,10 @@ export const SCRIPT: Record<Lang, Script> = {
       next: "SPACE — next life",
       nextTouch: "Tap — next life",
       help: "Lifeline 109",
-      unearthed: (where, when) => `${where ? `${where} · ` : ""}${when} · unearthed`,
-      recording: "Recording",
-      recordingNote: "the music this individual heard",
       paperWhite: "White",
       paperBlack: "Black",
+      orientPortrait: "Portrait",
+      orientLandscape: "Landscape",
       act: { print: "Print", save: "Save", post: "Post" },
       actState: (a, s) =>
         s === "noServer"
@@ -266,13 +266,14 @@ export const SCRIPT: Record<Lang, Script> = {
           : ({ print: ["Printing", "Printed", "Could not print"], save: ["Saving", "Saved", "Could not save"], post: ["Posting", "Posted", "Could not post"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
       back: "Back",
       keepNote: "Posted or printed, this record and its recording are kept. A life that is neither is not kept.",
+      printedKept: "Printed · posted",
     },
   },
 };
 
 /**
- * The places the card can say it was unearthed in (the `venue` URL parameter): a known key is named in the language;
- * any other value is printed as it is (cut at 24 letters); no parameter, no place — date and time only.
+ * Where a life ended (the `venue` URL parameter; kept with the card in the archive): a known key is named in the
+ * language; any other value as it is (cut at 24 letters); no parameter, no place.
  */
 export const VENUE_NAME: Record<string, Record<Lang, string>> = {
   gallery: { ko: "세지갤러리", en: "Seji Gallery" },
