@@ -345,6 +345,8 @@ interface ResinLook {
   growSeal?: number;
   /** …and the size of those holes (world). */
   growSealGrain?: number;
+  /** THE CAP: the inside of the mass, seen through an opening, drawn as solid stone (false = as it is: a hollow skin). */
+  growCap?: boolean;
   /** THE FRAME FIRST (fuse.ts FuseMesh.late): how far into the fossil's progress the filling (boxes, plates, rooms)
    *  waits behind the frame (0 = all at once … 0.9), and how much it fills from each layer's floor upward (0 … 1). */
   growLate?: number;
@@ -478,6 +480,8 @@ interface FuseUniforms {
   uGrowBlend: THREE.IUniform;
   /** …and the size of the holes the barely-out edge, the skin's end and a swap go through (world; ResinLook.growSealGrain). */
   uGrowSealGrain: THREE.IUniform;
+  /** …and whether the inside of the mass, seen through an opening, is drawn as solid stone (ResinLook.growCap). */
+  uGrowCap: THREE.IUniform;
   /** …how far the filling waits behind the frame, and how much it rises from each layer's floor (ResinLook.growLate). */
   uGrowLate: THREE.IUniform;
   /** …and how far the top would have risen while its rise was stopped (rise.ts; slots): the fossil's AGE is read off
@@ -500,7 +504,7 @@ function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
-    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 }, uGrowSeal: { value: 0 }, uGrowBlend: { value: FUSE_BLEND_S }, uGrowSealGrain: { value: 0.8 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 }, uGrowSeal: { value: 0 }, uGrowBlend: { value: FUSE_BLEND_S }, uGrowSealGrain: { value: 0.8 }, uGrowCap: { value: 1 },
     uGrowLate: { value: 0 }, uGrowRise: { value: 0 }, uGrowStood: { value: 0 },
     uGrowDie: { value: 0 }, uGrowDieAfter: { value: 60 }, uGrowDieSpan: { value: 30 },
     uGrowDieHoles: { value: 0 }, uGrowDieGrain: { value: 1.2 }, uGrowDieRag: { value: 0 }, uGrowDiePatch: { value: 9 },
@@ -768,19 +772,29 @@ function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: Fu
   shader.fragmentShader = shader.fragmentShader
     .replace(
       "#include <common>",
-      "#include <common>\nuniform float uGhost;\nuniform float uPitDark;\nuniform float uPitCover;\nuniform float uPitSize;\nuniform float uPitJitter;\nuniform float uPitSoft;\nuniform float uPitDepth;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;\n" + FUSE_PITS_GLSL,
+      "#include <common>\nuniform float uGrowCap;\nuniform float uGhost;\nuniform float uPitDark;\nuniform float uPitCover;\nuniform float uPitSize;\nuniform float uPitJitter;\nuniform float uPitSoft;\nuniform float uPitDepth;\nvarying vec4 vExtra;\nvarying vec3 vFusePos;\n" + FUSE_PITS_GLSL,
     )
     .replace(
       "#include <normal_fragment_begin>",
       [
         "#include <normal_fragment_begin>",
-        "float fuseFlat = smoothstep( 0.45, 0.9, vExtra.y );",
+        // THE CAP (the artist, 2026-11-21: "중간에 잘려 보일 수 있는 표면을 닫고 노이즈로 경계면을 거칠게"): the mass is a
+        // closed surface; whatever of it is not drawn — the edge's holes while it comes out, a piece's open side, the
+        // life's holes — lets the eye in, and the far side seen from inside is a BACK face. Drawn as the stone's cut — lit
+        // flat towards the eye, darker, no pits — the opening reads as solid matter cut, not a hollow skin.
+        "bool fuseCap = uGrowCap > 0.5 && !gl_FrontFacing;",
+        "if ( fuseCap ) {",
+        "\tvec3 capN = normalize( cross( dFdx( vViewPosition ), dFdy( vViewPosition ) ) );",
+        "\tnormal = dot( capN, vViewPosition ) < 0.0 ? - capN : capN;",
+        "\tdiffuseColor.rgb *= 0.62;",
+        "}",
+        "float fuseFlat = fuseCap ? 0.0 : smoothstep( 0.45, 0.9, vExtra.y );",
         "if ( fuseFlat > 0.0 ) {",
         "\tvec3 fdx = dFdx( vViewPosition );",
         "\tvec3 fdy = dFdy( vViewPosition );",
         "\tnormal = normalize( mix( normal, normalize( cross( fdx, fdy ) ), fuseFlat ) );",
         "}",
-        "if ( uPitDark + uPitDepth > 0.0 && vExtra.z * vExtra.w > 0.001 ) {",
+        "if ( !fuseCap && uPitDark + uPitDepth > 0.0 && vExtra.z * vExtra.w > 0.001 ) {",
         "\tvec4 pf = fusePits( vFusePos, uPitSize, uPitJitter, uPitCover * vExtra.z );",
         // WHERE THEY GATHER THEY CROWD (fuse.ts pitZ past 1; the artist, 2026-11-20: "곰보가 몰리는 곳은 레퍼런스 사진처럼
         // 빡! 몰리길"): two smaller sizes of pit laid between the first, as many as the patch is gathered — the
@@ -1574,6 +1588,7 @@ function SpaceWorld({
     fuseU.uGrowPress.value = Math.max(0, Math.min(1, resin.growPress ?? 1));
     fuseU.uGrowSeal.value = Math.max(0, Math.min(1, resin.growSeal ?? 0));
     fuseU.uGrowSealGrain.value = Math.max(0.05, resin.growSealGrain ?? 0.8);
+    fuseU.uGrowCap.value = resin.growCap === false ? 0 : 1;
     fuseU.uGrowLate.value = Math.max(0, Math.min(0.9, resin.growLate ?? 0));
     fuseU.uGrowRise.value = Math.max(0, Math.min(1, resin.growRise ?? 0));
     // (the fossil's life: off unless the look says so — a look without the knobs is the fossil as it was)
@@ -4672,6 +4687,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           // (the artist, 2026-11-20: "다시 계산하거나 기다릴 때 경계면 뚝 잘려보이는 것만 어떻게 처리하면")
           growSeal: { value: 0.35, min: 0, max: 0.9, step: 0.05, label: "나오는 동안의 가장자리: 구멍이 나며 차오름 (나오는 진행의 이 몫까지 · 세계에 고정된 노이즈 · 0 = 끔)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
           growSealGrain: { value: 0.8, min: 0.1, max: 4, step: 0.05, label: "그 구멍의 크기 (월드 · 가장자리 · 임시 껍질의 끝 · 조각이 바뀔 때)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          growCap: { value: true, label: "구멍 · 열린 곳 너머의 덩어리 속을 꽉 찬 단면으로 그림 (끄면 속 빈 껍질이 보임)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
         },
         { collapsed: false, render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       ),
@@ -5109,6 +5125,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growPress: fu.growPress,
       growSeal: fu.growSeal,
       growSealGrain: fu.growSealGrain,
+      growCap: fu.growCap,
       growLate: fu.growLate,
       growRise: fu.growRise,
       growDie: fu.growDie,
@@ -5133,7 +5150,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growSeal, fu.growSealGrain, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance, fu.boneSee, fu.boneSeeParts],
+    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growSeal, fu.growSealGrain, fu.growCap, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance, fu.boneSee, fu.boneSeeParts],
   );
   // (the bone's knobs, in the material folder, read by reference by every material that draws it — boneLook.ts; the
   // pipes and the ways follow the mass: what has fossilised of them is bone too)
