@@ -212,12 +212,16 @@ function inject(schema: Item, prefix: string, saved: Record<string, unknown> | n
 export interface SavedMigration {
   tag: string;
   set: Record<string, unknown>;
+  /** The day it was written ("2026-10-15"), for a tag that does not end in its date. A tag is never renamed to carry
+   *  one: the marker is the tag, and a browser that has it would run the migration again under the new name. */
+  at?: string;
 }
 
-/** The end of the day a migration was written, from the date its tag ends with ("…-2026-11-15"); null = no date. */
-function migrationDay(tag: string): number | null {
-  const m = /(\d{4})-(\d{2})-(\d{2})$/.exec(tag);
-  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1).getTime() : null;
+/** The end of the day a migration was written — its `at`, or the date its tag ends with ("…-2026-11-15"); null = no
+ *  date known. */
+function migrationDay(m: SavedMigration): number | null {
+  const d = /(\d{4})-(\d{2})-(\d{2})$/.exec(m.at ?? m.tag);
+  return d ? new Date(Number(d[1]), Number(d[2]) - 1, Number(d[3]) + 1).getTime() : null;
 }
 
 /**
@@ -234,7 +238,7 @@ function migrateSaved(key: string, m: SavedMigration): void {
   try {
     if (window.localStorage.getItem(marker) !== null) return;
     window.localStorage.setItem(marker, String(Date.now()));
-    const day = migrationDay(m.tag);
+    const day = migrationDay(m);
     if (day !== null && Number(window.localStorage.getItem(`${key}:savedAt`) ?? 0) > day) return;
     const raw = window.localStorage.getItem(key);
     if (!raw) return; // nothing saved: the defaults apply anyway

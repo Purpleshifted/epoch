@@ -134,16 +134,21 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       ncMap: { value: DEFAULT_SOUND.ncMap, label: "패치 노브 실시간 매핑 (사람·존·콘크리트·속도·함께 → 패치의 노브 아홉 개)", render: v2 },
       ncMapDepth: { value: DEFAULT_SOUND.ncMapDepth, min: 0, max: 1, step: 0.05, label: "패치 노브가 움직이는 깊이 (0 = 작가가 저장한 값 그대로)", render: v2 },
     }, [], [
-      { tag: "v4-a1-magenta-off", set: { magenta: false } }, // a saved "on" from before v4 A1 is switched off once
-      { tag: "v4-a2b-both", set: { instrument: "both" } }, // the artist (A2 test): both instruments side by side
-      { tag: "v4-a2d-heartbeat", set: { bassLevel: 0.9 } }, // the artist: the heartbeat louder, in front
-      { tag: "v4-a2e-heartbeat2", set: { bassSpread: 0.7, bassDub: 0.45 } }, // heavier, spreading
-      { tag: "v4-a4b-scale", set: { zoneRing: 8 } }, // the harmony's scale widened (the artist: changes too fine to feel)
-      { tag: "v4-a5e-tail-5", set: { afterlifeTail: 5 } }, // the artist: 10 s was too long
-      { tag: "v4-a5p-no-breath", set: { arrivalGapMs: 0 } }, // the artist (10/31): the breath at the wave's peak = the sound eaten
-      { tag: "v4-a5v-wave-wet", set: { waveVerb: 0.85, waveHit: 0.5 } }, // the artist (11/01): the wave dry, its strike abrupt
+      // EACH WITH THE DAY IT WAS WRITTEN (`at`, from the history; the artist, 2026-11-21: "저장값으로 맞춰"). Without a
+      // date every one of these ran again on a phone that had never opened the page — over the values it had just
+      // taken from the server: a new visitor heard the heartbeat at 0.9 / 0.7 / 0.45, the tail at 5 s and no breath,
+      // where the artist had saved 0.97 / 1 / 0.7, 6.5 s and 80 ms on 11/01. A save dated after a migration's day is
+      // left as saved (levaSave migrateSaved).
+      { tag: "v4-a1-magenta-off", at: "2026-10-15", set: { magenta: false } }, // a saved "on" from before v4 A1 is switched off once
+      { tag: "v4-a2b-both", at: "2026-10-15", set: { instrument: "both" } }, // the artist (A2 test): both instruments side by side
+      { tag: "v4-a2d-heartbeat", at: "2026-10-15", set: { bassLevel: 0.9 } }, // the artist: the heartbeat louder, in front
+      { tag: "v4-a2e-heartbeat2", at: "2026-10-15", set: { bassSpread: 0.7, bassDub: 0.45 } }, // heavier, spreading
+      { tag: "v4-a4b-scale", at: "2026-10-18", set: { zoneRing: 8 } }, // the harmony's scale widened (the artist: changes too fine to feel)
+      { tag: "v4-a5e-tail-5", at: "2026-10-18", set: { afterlifeTail: 5 } }, // the artist: 10 s was too long
+      { tag: "v4-a5p-no-breath", at: "2026-10-31", set: { arrivalGapMs: 0 } }, // the artist (10/31): the breath at the wave's peak = the sound eaten
+      { tag: "v4-a5v-wave-wet", at: "2026-11-01", set: { waveVerb: 0.85, waveHit: 0.5 } }, // the artist (11/01): the wave dry, its strike abrupt
       // the artist: the motif as a signal sent into space (Interstellar, 전파) — the preset on top of saved values once
-      { tag: "v4-a2f-radio", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
+      { tag: "v4-a2f-radio", at: "2026-10-15", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),
     { collapsed: false, order: -1, render: v2 },
   ) as unknown as SoundParams & { on: boolean; sealRadius: number; pathRadius: number };
