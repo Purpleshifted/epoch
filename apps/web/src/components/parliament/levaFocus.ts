@@ -167,7 +167,7 @@ function listed(path: string, data: Record<string, { value?: unknown } | undefin
     if (seedWay && SEED_DEAD.has(leaf)) return false;
     // (THE FOSSIL IN STAGES: the mesh is the stage's real shape, drawn whole — the knobs of how the one final shape comes
     // out on the screen are read by nothing)
-    if (seedWay && data[`${FUSION_GROUP}.fuseStages`]?.value === "stages" && STAGE_DEAD.has(leaf)) return false;
+    if (seedWay && data[`${FUSION_GROUP}.화석이 생기는 과정.fuseStages`]?.value === "stages" && STAGE_DEAD.has(leaf)) return false;
   }
   for (const group in LEVA_FOCUS) {
     if (!path.startsWith(`${group}.`)) continue;
