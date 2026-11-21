@@ -22,6 +22,7 @@
 
 import { FuseUnits, lookFn, makePiece, type PieceCtx, type PieceDone, type PieceTask, type UnitFused, type UnitRequest } from "@/lib/parliament/fuseUnits";
 import type { FuseMesh } from "@/lib/parliament/fuse";
+import { MeshoptSimplifier } from "three/examples/jsm/libs/meshopt_simplifier.module.js";
 import { walkways, type WalkRequest, type WalkResult } from "@/lib/parliament/walkways";
 import type { PEvent } from "@/lib/parliament/types";
 
@@ -30,6 +31,12 @@ let port: MessagePort | null = null;
 
 // ── the mass ──
 const units = new FuseUnits();
+// (fewer triangles for the settled chunks — fuseUnits simplifyMesh: meshoptimizer's simplifier, index only, the chunk's
+// open edges locked, the surface moved by at most half a voxel; nothing until its WASM is ready, nothing at ratio 0)
+MeshoptSimplifier.ready.then(() => {
+  units.simplifier = (indices, positions, lock, target, errorAbs) => MeshoptSimplifier.simplifyWithAttributes(indices, positions, 3, new Float32Array(0), 0, [], lock, target, errorAbs, ["LockBorder", "ErrorAbsolute"])[0];
+  schedule();
+});
 /** At least this long between two messages to the view (ms): a chunk is merged and sent anew each time. */
 const EMIT_MS = 350;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -60,10 +67,9 @@ interface Helper {
   busy: boolean;
 }
 let helpers: Helper[] = [];
-/** How many jobs a helper is told of before the oldest is forgotten — fewer than it keeps (HELPER_KEEPS), so a job
- *  this side thinks it knows, it does. */
+/** How many jobs a helper is told of before the oldest is forgotten (a helper keeps the latest per ground; a job this
+ *  side thinks it knows and the helper does not is asked for again — piece-lost). */
 const TOLD_KEPT = 8;
-const HELPER_KEEPS = 16;
 
 function hand(hp: Helper, d: { ctx: PieceCtx; task: PieceTask }): void {
   if (!hp.told.includes(d.ctx.serial)) {
@@ -115,6 +121,8 @@ function turn(): void {
     scope.postMessage(out, transfer);
     lastEmit = now;
   }
+  // (nothing to make: one settled chunk may be given fewer triangles — sent at the next flush)
+  if (made === null && units.settleSimplify()) schedule(EMIT_MS);
   // (a piece dissolving off the screen is let go when its dissolve is over: fuseUnits sweep)
   const wake = units.sweep();
   // (nothing was made: every piece left is one that stands and rests — looked at again when the first of them may be)
@@ -141,28 +149,35 @@ function onPort(ev: MessageEvent<UnitRequest | WalkRequest>): void {
     return;
   }
   units.request(m);
+  // (a ground that is no more, or nothing at all: the helpers let go of what they were told of it — no dead state kept)
+  if (m.type === "drop" || m.type === "reset") for (const hp of helpers) hp.port.postMessage({ type: "forget", id: m.type === "drop" ? m.id : undefined });
   schedule();
 }
 
 // ── a helper of the mass ──
-const ctxs = new Map<number, { c: PieceCtx; look: ((k: number) => number) | undefined }>();
+/** The latest job's context per ground (a helper is handed one piece at a time, always of the ground's latest job). */
+const ctxs = new Map<string, { c: PieceCtx; look: ((k: number) => number) | undefined }>();
 
-function onTask(from: MessagePort, ev: MessageEvent<PieceCtx | PieceTask>): void {
+function onTask(from: MessagePort, ev: MessageEvent<PieceCtx | PieceTask | { type: "forget"; id?: string }>): void {
   const m = ev.data;
-  if (m.type === "ctx") {
-    ctxs.set(m.serial, { c: m, look: m.look ? lookFn(m.look) : undefined });
-    while (ctxs.size > HELPER_KEEPS) ctxs.delete(ctxs.keys().next().value!);
+  if (m.type === "forget") {
+    if (m.id === undefined) ctxs.clear();
+    else ctxs.delete(m.id);
     return;
   }
-  const c = ctxs.get(m.serial);
-  if (!c) {
+  if (m.type === "ctx") {
+    ctxs.set(m.id, { c: m, look: m.look ? lookFn(m.look) : undefined });
+    return;
+  }
+  const c = ctxs.get(m.id);
+  if (!c || c.c.serial !== m.serial) {
     from.postMessage({ type: "piece-lost", ticket: m.ticket });
     return;
   }
   const stages: Record<string, number> = {};
   const t0 = performance.now();
   const mesh = makePiece(c.c, c.look, m, m.own, stages, m.grows);
-  from.postMessage({ type: "piece-done", ticket: m.ticket, mesh, ms: performance.now() - t0, stages } satisfies PieceDone, buffersOf(mesh));
+  from.postMessage({ type: "piece-done", ticket: m.ticket, mesh, ms: performance.now() - t0, stages, sentAt: performance.timeOrigin + performance.now() } satisfies PieceDone, buffersOf(mesh));
 }
 
 function buffersOf(mesh: FuseMesh): ArrayBuffer[] {
@@ -177,7 +192,9 @@ type FromView =
   /** To the worker of the mass: helpers to hand pieces to, and helpers that are no more. */
   | { type: "helpers"; add?: { id: number; port: MessagePort }[]; remove?: number[] }
   /** To a helper: its end of the channel to the worker of the mass. */
-  | { type: "helper"; port: MessagePort };
+  | { type: "helper"; port: MessagePort }
+  /** To the worker of the mass: the share of triangles to take off the settled chunks (렌더 › 작업 분담). */
+  | { type: "simplify"; ratio: number };
 
 self.onmessage = (ev: MessageEvent<FromView>) => {
   const m = ev.data;
@@ -189,6 +206,11 @@ self.onmessage = (ev: MessageEvent<FromView>) => {
   if (m.type === "helper") {
     const p = m.port;
     p.onmessage = (e: MessageEvent<PieceCtx | PieceTask>) => onTask(p, e);
+    return;
+  }
+  if (m.type === "simplify") {
+    units.setSimplify(m.ratio);
+    schedule();
     return;
   }
   if (m.type === "helpers") {

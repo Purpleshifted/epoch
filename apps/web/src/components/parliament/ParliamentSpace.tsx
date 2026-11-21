@@ -255,6 +255,11 @@ interface Stats {
   fuseResin: number;
   /** THE MASS MADE IN A WORKER OF ITS OWN (fuseUnits.ts), as it last said: pieces still to make, how long a piece takes, what stands. */
   fuseSide?: UnitStats;
+  /** THE MASS ON THIS THREAD (2026-11-21): a message's way from the worker (ms), making a chunk's geometry (ms, mean and
+   *  the worst), and its first draw — the GPU upload (ms, mean and the worst) — over the chunks since the last message. */
+  fuseUpload?: FuseUpload;
+  /** What stands on the screen, counted on this thread: chunk meshes, their vertices and triangles. */
+  fuseScene?: { chunks: number; verts: number; tris: number };
   /** The stamp of the code the model's worker runs (lib/parliament/build.ts; "?" = a worker from before the stamp). */
   build?: string;
   /** Chunks of slots baked (kept as they were, below the history window too). */
@@ -268,6 +273,15 @@ interface Stats {
   stages?: { ms: number; stages: Record<string, number> };
   /** Where it ran. */
   runner: string;
+}
+
+interface FuseUpload {
+  transferMs: number;
+  applyMs: number;
+  applyMax: number;
+  drawMs: number;
+  drawMax: number;
+  n: number;
 }
 
 interface Orbit {
@@ -1177,6 +1191,26 @@ interface SpaceRunner {
   log?: (m: Extract<SpaceRequest, { type: "events" }>) => void;
 }
 
+/** WHERE A PIECE'S TIME GOES (the status line; UnitStats.stageMs): the stages of a piece, mean ms, in the order they run. */
+function fossilStageLine(s: UnitStats): string {
+  const m = s.stageMs;
+  if (!m) return "";
+  const names: [string, string][] = [["field", "장"], ["blur", "블러"], ["shell", "껍질·거품"], ["nets", "표면"], ["quads", "면"], ["smooth", "다듬기"], ["finish", "마무리"], ["merge", "합침"], ["grow", "자람"], ["place values", "└자리값"], ["transfer", "전송"]];
+  const parts = names.filter(([k]) => (m[k] ?? 0) >= 0.5).map(([k, l]) => `${l} ${Math.round(m[k])}`);
+  if (!parts.length) return "";
+  return ` · 조각 단계(ms) ${parts.join(" · ")}${s.samples ? ` · 격자 ${Math.round(s.samples / 1000)}k샘플` : ""}`;
+}
+
+/** WHAT STANDS ON THE SCREEN AND HOW IT GOT THERE (the status line; Stats.fuseScene / fuseUpload): counted on this thread. */
+function fossilSceneLine(st: Stats): string {
+  const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${Math.round(n)}`);
+  let out = "";
+  if (st.fuseScene) out += ` · 화면: 청크 ${st.fuseScene.chunks} · 정점 ${k(st.fuseScene.verts)} · △ ${k(st.fuseScene.tris)}${st.fuseSide?.pieces !== undefined ? ` · 조각 ${st.fuseSide.pieces}` : ""}${st.fuseSide?.simplified ? ` · 삼각형 줄인 청크 ${st.fuseSide.simplified}` : ""}`;
+  const u = st.fuseUpload;
+  if (u && u.n) out += ` · 올리기: 전송 ${Math.round(u.transferMs)} · 적용 ${Math.round(u.applyMs)} (최대 ${Math.round(u.applyMax)}) · 첫 그리기 ${Math.round(u.drawMs)} (최대 ${Math.round(u.drawMax)}) ms`;
+  return out;
+}
+
 /** The same protocol on the main thread (fallback): results come back on the next task, like a worker's. */
 function mainThreadRunner(onResult: (r: SpaceResponse) => void): SpaceRunner {
   const model = new SpaceModel();
@@ -1237,9 +1271,12 @@ function SpaceWorld({
   takenEpochMs = 0,
   fuseWorkers = 1,
   uploadMB = 0,
+  fossilSimplify = 0,
 }: {
   /** MB of new geometry of the mass put on the screen per frame (렌더 › 작업 분담); 0 = all of a message at once. */
   uploadMB?: number;
+  /** The share of triangles taken off the fossil's settled chunks (렌더 › 작업 분담); 0 = none. */
+  fossilSimplify?: number;
   /** How many workers make the pieces of the mass side by side (렌더 › 작업 분담); 1 = the worker of the mass alone. */
   fuseWorkers?: number;
   log: EventLog;
@@ -1364,7 +1401,26 @@ function SpaceWorld({
   const seq = useRef(0);
   const focus = useRef({ focusS: 0, focusIsMe: false });
   const last = useRef<Stats | null>(null);
-  const fuseStats = useRef<{ fuseTris: number; fuseResin: number; fuseOut?: number; fuseOutMean?: number; fuseSide?: UnitStats }>({ fuseTris: 0, fuseResin: 0 });
+  const fuseStats = useRef<{ fuseTris: number; fuseResin: number; fuseOut?: number; fuseOutMean?: number; fuseSide?: UnitStats; fuseUpload?: FuseUpload; fuseScene?: { chunks: number; verts: number; tris: number } }>({ fuseTris: 0, fuseResin: 0 });
+  /** The chunks' way onto the screen since the last message (Stats.fuseUpload): summed, and how many. */
+  const uploadAcc = useRef({ transfer: 0, nTransfer: 0, apply: 0, applyMax: 0, n: 0, draw: 0, drawMax: 0, nDraw: 0 });
+  const tallyScene = () => {
+    let verts = 0, tris = 0;
+    for (const mm of chunkMeshes.current.values()) {
+      const g = mm.geometry;
+      verts += g.getAttribute("position")?.count ?? 0;
+      tris += (g.index?.count ?? 0) / 3;
+    }
+    fuseStats.current = { ...fuseStats.current, fuseScene: { chunks: chunkMeshes.current.size, verts, tris } };
+  };
+  // (the chunks' geometry goes with the view: nothing of the mass is left on the GPU when it unmounts)
+  useEffect(
+    () => () => {
+      for (const mm of chunkMeshes.current.values()) mm.geometry.dispose();
+      chunkMeshes.current.clear();
+    },
+    [],
+  );
   // THE MASS MADE IN THE WORKER BESIDE (fuseUnits.ts): a mesh per chunk of the space, each replaced on its own when a
   // piece in it is done; and the moment that worker's clock began (null = the mass comes from the model's worker)
   const chunkGroup = useRef<THREE.Group>(null);
@@ -1566,6 +1622,16 @@ function SpaceWorld({
    * where it stood.
    */
   const applyChunks = (m: UnitChunks) => {
+    // (the last message's chunks: how they came and went up — then the counts begin again for this one)
+    {
+      const a = uploadAcc.current;
+      if (a.n || a.nDraw || a.nTransfer) fuseStats.current = { ...fuseStats.current, fuseUpload: { transferMs: a.nTransfer ? a.transfer / a.nTransfer : 0, applyMs: a.n ? a.apply / a.n : 0, applyMax: a.applyMax, drawMs: a.nDraw ? a.draw / a.nDraw : 0, drawMax: a.drawMax, n: a.n } };
+      uploadAcc.current = { transfer: 0, nTransfer: 0, apply: 0, applyMax: 0, n: 0, draw: 0, drawMax: 0, nDraw: 0 };
+      if (m.sentAt) {
+        uploadAcc.current.transfer += Math.max(0, performance.timeOrigin + performance.now() - m.sentAt);
+        uploadAcc.current.nTransfer++;
+      }
+    }
     // A BIG ARRIVAL IS PUT ON THE SCREEN A FEW MB A FRAME (2026-11-20; 렌더 › 작업 분담 › 화석 올리기): a message of
     // the worker of the mass can be tens of MB of chunks, made into geometry and uploaded in one frame — the frame
     // waited for all of it. Now each message's work is queued in order (what it lets go, what it sets) and done in the
@@ -1629,12 +1695,50 @@ function SpaceWorld({
           group.add(mesh);
           map.set(op.id, mesh);
         }
+        const tApply = performance.now();
         setFused(mesh, r, undefined, fuseU);
+        const dtApply = performance.now() - tApply;
+        const a = uploadAcc.current;
+        a.apply += dtApply;
+        a.applyMax = Math.max(a.applyMax, dtApply);
+        a.n++;
+        armDrawTimer(mesh);
         op.mesh = null;
       }
     }
     q.splice(0, i);
     chunkClock0.current = map.size ? chunkClockAt.current : null;
+    if (i > 0) tallyScene();
+  };
+  /**
+   * THE FIRST DRAW UPLOADS THE GEOMETRY (three.js: a new BufferAttribute's buffer is made and filled when the mesh is
+   * first drawn — in the shadow pass if there is one, else the colour pass): timed from the first before-hook to the
+   * first after-hook of this mesh, once, then the hooks are taken off.
+   */
+  const armDrawTimer = (mm: THREE.Mesh) => {
+    let t0 = 0, done = false;
+    const noop = () => {};
+    const before = () => {
+      if (!done && !t0) t0 = performance.now();
+    };
+    const after = () => {
+      if (done || !t0) return;
+      done = true;
+      const dt = performance.now() - t0;
+      const a = uploadAcc.current;
+      a.draw += dt;
+      a.drawMax = Math.max(a.drawMax, dt);
+      a.nDraw++;
+      mm.onBeforeRender = noop;
+      mm.onAfterRender = noop;
+      hooks.onBeforeShadow = noop;
+      hooks.onAfterShadow = noop;
+    };
+    const hooks = mm as unknown as { onBeforeShadow: () => void; onAfterShadow: () => void };
+    mm.onBeforeRender = before;
+    mm.onAfterRender = after;
+    hooks.onBeforeShadow = before;
+    hooks.onAfterShadow = after;
   };
   useFrame(() => {
     if (chunkOps.current.length) drainChunks(Math.max(1, uploadBudget.current));
@@ -1880,6 +1984,11 @@ function SpaceWorld({
     };
     // (declared after the effect that starts the worker of the mass: it runs after it, and sees it)
   }, [fuseWorkers]);
+  // FEWER TRIANGLES FOR THE SETTLED CHUNKS (렌더 › 작업 분담 › 굳은 화석 조각의 삼각형 줄이기): the worker of the mass does
+  // it (fuseUnits settleSimplify); 0 puts the chunks back as they were
+  useEffect(() => {
+    fuseSide.current?.postMessage({ type: "simplify", ratio: fossilSimplify });
+  }, [fossilSimplify]);
 
   // (the world's clock as the bots' window has it — spaceModel WallClock; none without the window)
   const wallClock = (): WallClock | undefined => {
@@ -5266,6 +5375,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           key={lab ? `lab-${takenId}` : "wall"}
           fuseWorkers={ro.fuseWorkers}
           uploadMB={ro.uploadMB}
+          fossilSimplify={ro.fossilSimplify}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
         <FocusFollow
@@ -5325,7 +5435,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
           {stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
-            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 덩어리에 든 배관 본줄기 ${(stats.fuseSide.tubes ?? 0) - (stats.fuseSide.ways ?? 0)} · 길 ${stats.fuseSide.ways ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
+            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)})${fossilStageLine(stats.fuseSide)} · 격자 ${stats.fuseSide.voxel} · 굳어서 덩어리에 든 배관 본줄기 ${(stats.fuseSide.tubes ?? 0) - (stats.fuseSide.ways ?? 0)} · 길 ${stats.fuseSide.ways ?? 0}${fossilSceneLine(stats)}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
           {stats.build && stats.build !== WALL_BUILD ? ` · ⚠ 건물 워커가 옛 코드(${stats.build}) — 새로고침(⌘R) 필요` : ""}
           {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림${fossilLife}` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}

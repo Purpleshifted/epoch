@@ -100,6 +100,40 @@ slot's age from its depth — wrong in a fixed block, where a deep slot may be n
 - Still lost on reload: cell-slots whose samples the log has already dropped (`keepWindowSec`) — the field keeps them
   live (`keepBuilt`) but cannot rebuild them; a snapshot of the field (IndexedDB, as `bakeStore`) would fix that.
 
+## 3d. The coordinator chat's list of 11/21 (the artist: "그렇게 하라고 전해")
+
+1. **Where a piece's time goes** (5b5ae6f): `fuseChunk` laps its stages into `FuseChunkInput.stages` — field, blur,
+   shell, nets, quads, smooth, finish — plus merge, grow (place values) and a helper piece's transfer (epoch clock:
+   the workers' `performance.now()` differ); the view times a message's way, `setFused` per chunk and the first
+   draw of a new geometry (its upload: onBefore/AfterRender + onBefore/AfterShadow, once). Status line: 조각 단계(ms)
+   …, 화면: 청크 · 정점 · △ · 조각, 올리기: 전송 · 적용 · 첫 그리기. Measured here with the artist's values (voxel 0.25,
+   shell · foam · pits · fill · envelope; 487k grid samples a piece): blur ≈ 30 %, shell ≈ 22 %, nets ≈ 23 %, quads
+   ≈ 8 %, grow ≈ 6 %, Taubin ≈ 2 % — the cost is the sample count, not one stage. (The shares held over three runs;
+   the absolute ms went 650 ms → 25 s a piece as the laptop's load rose: the Mac mini measures.)
+   Trimmed without a change to the picture (dc64906): the blur's inner loop unclamped, the blur of no growths and of
+   the shell's young thickness skipped. Bigger savings need the artist's knobs (voxel) — or the pool.
+2. **The dead fossil's flow** holds (checked with scripts): parts gone from a job → their pieces held until the
+   neighbours are remade (≤ HOLD_MAX_MS 4 min) → shown dissolving (FUSE_BLEND_S 6 s, fusion-look) → `sweep` → the
+   chunk's `drop` → the view's `let_go` disposes the geometry (`setFused` disposes a replaced one; the view disposes all
+   on unmount). Helpers keep one job context per ground (not 16 serials) and forget a dropped ground. Readout counts
+   from the meshes themselves: 화면: 청크 N · 정점 · △ · 조각. Bound: pieces standing = pieces whose parts stand.
+3. **Fewer triangles for settled chunks** (3738a77): `compactFuseMesh` at the end of `fuseChunk` drops the vertices
+   no face uses — **65 % of a chunk's vertices were padding** carried for nothing (now 0 %; picture identical).
+   `simplifyMesh` + `FuseUnits.settleSimplify` (knob 렌더 › 작업 분담 › 굳은 화석 조각의 삼각형 줄이기, default 0): one
+   chunk per idle turn whose pieces have all stood 3 min, meshoptimizer (three's `meshopt_simplifier.module.js`,
+   WASM) with LockBorder + ErrorAbsolute (half a voxel) + a lock on every vertex sharing its place (the seams between
+   pieces); index-only, compacted — the shader's per-vertex values stay. Tested: 50 % triangles, all border vertices
+   kept, no vertex with another's values. Not done: "far chunks" (the worker does not know the camera).
+4. **BatchedMesh — assessment, not built.** The chunks are 42 cells × 30 slots; the world is 160 cells → at most
+   4 × 4 ground chunks × 2 slot bands ≈ 32 chunks for the artist's 45-slot block (+ a few at seams), each 2 draw
+   calls (stone / resin groups) per pass (colour, shadow, AO depth) ≈ 200 draw calls a frame — not hundreds of
+   chunks, and the wall is pixel-bound (10/29). Not worth it now; revisit if the readout shows > 100 chunks. If ever:
+   one material per BatchedMesh → two batched meshes (stone / resin) or a per-vertex material switch; the custom
+   attributes (anchor, growA/B, late, blend) must share one layout (they do) with vertex/index capacity reserved up
+   front (chunks vary 10×); `onBeforeCompile` patches must keep `batching_pars_vertex` / `batching_vertex`; the
+   custom depth material needs the batching define; `perObjectFrustumCulled` off (the shader moves vertices); no
+   per-chunk uniforms are needed (stamps and blends are per vertex).
+
 ## 4. Future layer in its own worker — not done
 
 Left for later: it is computed in the model's worker on `SpaceRequest.future`; moving it needs the model's parts,

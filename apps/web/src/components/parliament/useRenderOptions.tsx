@@ -161,6 +161,8 @@ export interface RenderOptions {
   fuseWorkers: number;
   /** How much new fossil geometry is put on the screen (and uploaded) per frame, MB; 0 = all of a message at once. */
   uploadMB: number;
+  /** The share of triangles taken off the fossil's settled chunks (0 = none). */
+  fossilSimplify: number;
 }
 
 /**
@@ -321,6 +323,10 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
             label: "화석 워커 수 (조각을 나란히 만듦 · 바꾸면 만들던 조각은 다시 줄 섬)",
           },
           uploadMB: { value: 6, min: 0, max: 64, step: 1, label: "화석 올리기 (프레임당 MB · 0 = 한 번에 전부, 예전)" },
+          // (meshoptimizer in the worker of the mass — fuseUnits simplifyMesh: a chunk none of whose pieces has changed for
+          // three minutes is given fewer triangles once; its borders are locked, so no seam opens; the surface moves by
+          // at most half a voxel; every per-vertex value the fossil's shader reads stays with its vertex)
+          fossilSimplify: { value: 0, min: 0, max: 0.9, step: 0.05, label: "굳은 화석 조각의 삼각형 줄이기 (0 = 안 함 · 0.5 = 절반으로 · 3분 넘게 안 바뀐 조각만 · 조각 경계는 고정 · 표면 오차 ≤ 격자의 반)" },
         },
         { collapsed: true },
       ),
@@ -395,6 +401,7 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       levelsPass: false,
       fuseWorkers: autoFuseWorkers(),
       uploadMB: 0,
+      fossilSimplify: 0,
     };
   }
 
@@ -479,6 +486,7 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       levelsPass,
       fuseWorkers: (k.fuseWorkers as number) || autoFuseWorkers(),
       uploadMB: k.uploadMB as number,
+      fossilSimplify: k.fossilSimplify as number,
     };
   }
   return {
@@ -522,6 +530,7 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
     levelsPass,
     fuseWorkers: (k.fuseWorkers as number) || autoFuseWorkers(),
     uploadMB: k.uploadMB as number,
+    fossilSimplify: k.fossilSimplify as number,
   };
 }
 
