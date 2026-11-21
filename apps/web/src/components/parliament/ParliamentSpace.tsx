@@ -508,6 +508,7 @@ attribute float fuseLate;
 attribute vec4 fuseBlend;
 varying vec2 vSwap;
 varying float vSkin;
+varying float vEdge;
 uniform float uGrowBlend;
 uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowMelt, uGrowReach, uGrowPress, uGrowSeal, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
 varying float vGrow;
@@ -522,6 +523,7 @@ varying vec3 vGonePos;`;
 const FUSE_GONE_FRAG_HEAD = `
 varying vec2 vSwap;
 varying float vSkin;
+varying float vEdge;
 uniform float uGrowSeal, uGrowSealGrain;
 varying float vGrow;
 varying float vGone;
@@ -550,7 +552,7 @@ if ( vSwap.x != 0.0 ) {
 // barely out (vGrow under uGrowSeal) and where the provisional skin thins towards its far end (vSkin), it goes through
 // a noise fixed in the world — holes of their own size (uGrowSealGrain: the life's holes, 4 world with the artist's
 // values, were blotches, not an edge): islands and bays, no plane
-float edgeK = min( uGrowSeal > 0.0 ? vGrow / uGrowSeal : 1.0, vSkin );
+float edgeK = min( uGrowSeal > 0.0 ? vEdge / uGrowSeal : 1.0, vSkin );
 if ( edgeK < 1.0 ) {
   vec3 edgeP = vGonePos / max( 0.05, uGrowSealGrain ) + 3.1;
   float edgeN = clamp( ( 0.65 * goneNoise( edgeP ) + 0.35 * goneNoise( edgeP * 2.7 + 5.3 ) - 0.5 ) * 1.9 + 0.5, 0.001, 0.999 );
@@ -578,6 +580,7 @@ vGrow = 1.0;
 vGone = 0.0;
 vSwap = vec2( 0.0 );
 vSkin = 1.0;
+vEdge = 1.0;
 vGonePos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // (the vegetation is a FACTOR of how much comes out — fuseGrowB.y — not a depth added: with the artist's own
@@ -638,7 +641,10 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   float growVeg = fuseGrowB.y;
   vSkin = mix( fuseBlend.x, fuseBlend.w, growBlendT );
   vSwap = vec2( fuseBlend.z, growBlendT );
-  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * growVeg;
+  // (how far along its coming-out a vertex is, apart from how much of it the vegetation makes: the edge's holes read
+  // this — read against vGrow, a place the vegetation makes little of stood in holes for good, 2026-11-21)
+  vEdge = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 );
+  vGrow = vEdge * growVeg;
   // ONE BODY (the artist, 2026-11-16: "근데 부푸는 건 진짜 개별로던데"): a vertex is no longer pressed to its own part's
   // box — neighbours pressed to different boxes split the mass along the parts. What it reads is the value of its
   // PLACE (fuseUnits.ts placeValues: the parts' values blurred over the space; the layer off its own height), and it
@@ -4476,41 +4482,54 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         label: "화석을 계산하는 조각의 크기: 높이 (단)",
         render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed",
       },
-      // ONE RULER: THE AGE (the shader's growT; the artist, 2026-11-18: "나이를 세게 고민한다 — 여기에서 점점 멀어지는 기분",
-      // "서로 엉킨 레바도 있는 것 같고"): the slots since what stands there hardened; the depth only slows it. The four
-      // knobs of depth (나오는 깊이 둘, 삭는 깊이 둘) and the two mixes are gone from the new way.
-      // (MINUTES since 2026-11-20 — the artist: "레바 지금 시간 단위여야 하는 게 단인 것들도 있음". New keys: what was saved in
-      // slots — 12 · 28 · 43 at 12 s a slot — is their default here, in minutes: 2.5 · 5.5 · 8.5)
-      growAgeMin: { value: 2.5, min: 0.2, max: 60, step: 0.1, label: "굳은 뒤 다 화석이 되기까지 (분 · 창 바닥에서 · 화석의 눈금은 이 나이 하나)", render: () => REDESIGN },
-      growDeep: { value: 0.6, min: 0, max: 1, step: 0.05, label: "깊이가 늙는 속도를 늦춤 (0 = 나이만: 어디서나 같은 속도 · 1 = 꼭대기에서는 화석이 안 됨 · 바닥은 늘 제 속도)", render: () => REDESIGN },
-      // IT MELTS OUT OF ITS PARTS (the shader's growFar; the artist, 2026-11-20: "자연스럽게 녹아내려서 생기질 않고 … 바로
-      // 껍데기로 생기는데")
-      growMelt: { value: 0.6, min: 0, max: 0.9, step: 0.05, label: "부재에서부터 번져 나옴 (0 = 화석 전체가 한꺼번에 옅게 생김 → 껍데기로 보임 · 클수록 부재에 붙은 곳부터, 멀리 부푼 곳과 아래로 처진 곳은 나중)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      growReach: { value: 2, min: 0.2, max: 8, step: 0.1, label: "번져 나오는 거리 (월드 · 화석이 부재에서 가장 멀리 부푼 두께쯤)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      // OUT OF ITS OWN UNIT (the shader's press; the artist, 2026-11-20: "부재별 감싸기가 난 훨씬 좋아보여")
-      growPress: { value: 1, min: 0, max: 1, step: 0.05, label: "제 단위에서 부풀어 나옴 (1 = 꼭짓점마다 제 덩이 속에 눌려 있다가 부풀어 나옴 — 11/16의 부재별 감싸기 · 0 = 표면 전체가 한 몸으로 조금씩 두꺼워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      // (the artist, 2026-11-20: "다시 계산하거나 기다릴 때 경계면 뚝 잘려보이는 것만 어떻게 처리하면")
-      growSeal: { value: 0.5, min: 0, max: 0.9, step: 0.05, label: "덜 나온 가장자리는 구멍이 나며 삭아 들어감 (나온 정도가 이 아래면 세계에 고정된 노이즈로 · 0 = 끔)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      growSealGrain: { value: 0.8, min: 0.1, max: 4, step: 0.05, label: "그 구멍의 크기 (월드 · 가장자리 · 임시 껍질의 끝 · 조각이 바뀔 때)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
-      growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · '제 단위에서 부풀어 나옴'이 1보다 작을 때만)", render: (get: (path: string) => unknown) => REDESIGN && Number(get(`${FU}.growPress`) ?? 1) < 1 },
-      // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form back;
-      // fuse.ts FuseMesh.late, the shader's growWait). Shown with the seeded mass; the frame is ③'s tubes (꼴 = 관 /
-      // 크기에 따라) and the pipes and ways
-      growLate: { value: 0.5, min: 0, max: 0.9, step: 0.05, label: "관만 나와 있는 단계의 길이 (다 화석이 되기까지의 몫 · 그동안 관이 다 나오고, 그 뒤에 판·방이 참 · 0 = 한꺼번에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      growRise: { value: 0.6, min: 0, max: 1, step: 0.05, label: "판·방이 층 바닥부터 차오름 (0 = 높이 상관없이)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      // THE FOSSIL HAS A LIFE (the artist, 2026-11-17: "수명을 준다" — docs/fossil-disappearance-review-2026-11-17.md):
-      // it goes back into its parts further along the same ruler (the shader's growGone), the coming-out run
-      // backwards. Off = it stays (and, while the window rises, goes over the last two slots above its foot).
-      growDie: { value: true, label: "화석에 수명 (다 나온 뒤 삭아서 사라짐 · 끄면 전시 버전처럼 오래된 것이 가장 꽉 참)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
-      growDieAfterMin: { value: 5.5, min: 0, max: 120, step: 0.5, label: "굳은 뒤 삭기 시작하기까지 (분 · 같은 눈금 — 깊은 곳이 먼저 닿음)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
-      growDieSpanMin: { value: 8.5, min: 0.2, max: 120, step: 0.5, label: "삭기 시작해서 다 삭기까지 (분)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
-      // IN HOLES (the artist, 2026-11-17: "구멍으로 삭게"): how the going is drawn — holes eaten through the mass, as the pipes'
-      growDieHoles: { value: 1, min: 0, max: 1, step: 0.05, label: "삭는 모습: 얇아짐 ↔ 구멍 (0 = 얇아지며 들어감 · 1 = 구멍이 먹어 들어감)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
-      growDieGrain: { value: 1.2, min: 0.1, max: 8, step: 0.05, label: "삭는 구멍의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
-      // NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): patches ahead of and behind the going
-      growDieRag: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "삭는 경계의 얼룩 (0 = 한 층에서 한꺼번에 — 가로로 잘림 · 클수록 자리마다 먼저 · 나중에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
-      growDiePatch: { value: 9, min: 1, max: 60, step: 0.5, label: "삭는 얼룩의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.growDie`) },
+      // HOW THE FOSSIL COMES OUT — in one place, in the order it happens (the artist, 2026-11-21: "'화석이 나타나는 방식'
+      // 레바 노브들 지금 쓰는 것만, 적절한 설명과 함께 들어가있는 거 맞는지도 의문"): when (its age), in what order (the
+      // frame, the floor up, out of its parts), and what its edge looks like while it comes
+      "화석이 나타나는 방식 (언제 · 어떤 순서로 · 가장자리)": folder(
+        {
+          // ONE RULER: THE AGE (the shader's growT; the artist, 2026-11-18: "나이를 세게 고민한다 — 여기에서 점점 멀어지는 기분",
+          // "서로 엉킨 레바도 있는 것 같고"): the slots since what stands there hardened; the depth only slows it. The four
+          // knobs of depth (나오는 깊이 둘, 삭는 깊이 둘) and the two mixes are gone from the new way.
+          // (MINUTES since 2026-11-20 — the artist: "레바 지금 시간 단위여야 하는 게 단인 것들도 있음". New keys: what was saved in
+          // slots — 12 · 28 · 43 at 12 s a slot — is their default here, in minutes: 2.5 · 5.5 · 8.5)
+          growAgeMin: { value: 2.5, min: 0.2, max: 60, step: 0.1, label: "굳은 뒤 다 화석이 되기까지 (분 · 창 바닥에서 · 화석의 눈금은 이 나이 하나)", render: () => REDESIGN },
+          growDeep: { value: 0.6, min: 0, max: 1, step: 0.05, label: "깊이가 늙는 속도를 늦춤 (0 = 나이만: 어디서나 같은 속도 · 1 = 꼭대기에서는 화석이 안 됨 · 바닥은 늘 제 속도)", render: () => REDESIGN },
+          // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form back;
+          // fuse.ts FuseMesh.late, the shader's growWait). Shown with the seeded mass; the frame is ③'s tubes (꼴 = 관 /
+          // 크기에 따라) and the pipes and ways
+          growLate: { value: 0.5, min: 0, max: 0.9, step: 0.05, label: "관만 나와 있는 단계의 길이 (다 화석이 되기까지의 몫 · 그동안 관이 다 나오고, 그 뒤에 판·방이 참 · 0 = 한꺼번에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          growRise: { value: 0.6, min: 0, max: 1, step: 0.05, label: "판·방이 층 바닥부터 차오름 (0 = 높이 상관없이)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          // IT MELTS OUT OF ITS PARTS (the shader's growFar; the artist, 2026-11-20: "자연스럽게 녹아내려서 생기질 않고 … 바로
+          // 껍데기로 생기는데")
+          growMelt: { value: 0.6, min: 0, max: 0.9, step: 0.05, label: "부재에서부터 번져 나옴 (0 = 화석 전체가 한꺼번에 옅게 생김 → 껍데기로 보임 · 클수록 부재에 붙은 곳부터, 멀리 부푼 곳과 아래로 처진 곳은 나중)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          growReach: { value: 2, min: 0.2, max: 8, step: 0.1, label: "번져 나오는 거리 (월드 · 화석이 부재에서 가장 멀리 부푼 두께쯤)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          // OUT OF ITS OWN UNIT (the shader's press; the artist, 2026-11-20: "부재별 감싸기가 난 훨씬 좋아보여")
+          growPress: { value: 1, min: 0, max: 1, step: 0.05, label: "제 단위에서 부풀어 나옴 (1 = 꼭짓점마다 제 덩이 속에 눌려 있다가 부풀어 나옴 — 11/16의 부재별 감싸기 · 0 = 표면 전체가 한 몸으로 조금씩 두꺼워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
+          growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · '제 단위에서 부풀어 나옴'이 1보다 작을 때만)", render: (get: (path: string) => unknown) => REDESIGN && Number(get(`${FU}.화석이 나타나는 방식 (언제 · 어떤 순서로 · 가장자리).growPress`) ?? 1) < 1 },
+          // (the artist, 2026-11-20: "다시 계산하거나 기다릴 때 경계면 뚝 잘려보이는 것만 어떻게 처리하면")
+          growSeal: { value: 0.35, min: 0, max: 0.9, step: 0.05, label: "나오는 동안의 가장자리: 구멍이 나며 차오름 (나오는 진행의 이 몫까지 · 세계에 고정된 노이즈 · 0 = 끔)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          growSealGrain: { value: 0.8, min: 0.1, max: 4, step: 0.05, label: "그 구멍의 크기 (월드 · 가장자리 · 임시 껍질의 끝 · 조각이 바뀔 때)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+        },
+        { collapsed: false, render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      ),
+      "화석의 수명 (다 나온 뒤 삭아 사라짐)": folder(
+        {
+          // THE FOSSIL HAS A LIFE (the artist, 2026-11-17: "수명을 준다" — docs/fossil-disappearance-review-2026-11-17.md):
+          // it goes back into its parts further along the same ruler (the shader's growGone), the coming-out run
+          // backwards. Off = it stays (and, while the window rises, goes over the last two slots above its foot).
+          growDie: { value: true, label: "화석에 수명 (다 나온 뒤 삭아서 사라짐 · 끄면 전시 버전처럼 오래된 것이 가장 꽉 참)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          growDieAfterMin: { value: 5.5, min: 0, max: 120, step: 0.5, label: "굳은 뒤 삭기 시작하기까지 (분 · 같은 눈금 — 깊은 곳이 먼저 닿음)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
+          growDieSpanMin: { value: 8.5, min: 0.2, max: 120, step: 0.5, label: "삭기 시작해서 다 삭기까지 (분)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
+          // IN HOLES (the artist, 2026-11-17: "구멍으로 삭게"): how the going is drawn — holes eaten through the mass, as the pipes'
+          growDieHoles: { value: 1, min: 0, max: 1, step: 0.05, label: "삭는 모습: 얇아짐 ↔ 구멍 (0 = 얇아지며 들어감 · 1 = 구멍이 먹어 들어감)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
+          growDieGrain: { value: 1.2, min: 0.1, max: 8, step: 0.05, label: "삭는 구멍의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
+          // NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): patches ahead of and behind the going
+          growDieRag: { value: 0.6, min: 0, max: 1.5, step: 0.05, label: "삭는 경계의 얼룩 (0 = 한 층에서 한꺼번에 — 가로로 잘림 · 클수록 자리마다 먼저 · 나중에)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
+          growDiePatch: { value: 9, min: 1, max: 60, step: 0.5, label: "삭는 얼룩의 크기 (월드)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" && !!get(`${FU}.화석의 수명 (다 나온 뒤 삭아 사라짐).growDie`) },
+        },
+        { collapsed: true, render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      ),
       // THE MASS GROWS ON WHAT HAS BEEN SIMPLIFIED (fuse.ts assetsOnly; the artist, 2026-11-16: "융합!!!!! 일단 해보자")
       fuseFrom: {
         options: { "단순화된 것에만 (갓 지은 낱낱의 부재는 융합 안 함)": "assets", "모든 부재에": "all" },
@@ -4565,7 +4584,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         blur: { value: DEFAULT_FUSE.blur, min: 0, max: 5, step: 1, label: "메워지는 틈의 너비 (복셀; 0 = 안 메움)" },
         "고급": folder(
           {
-            sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 흘러내림 (0 = 없음; 젊은 블로키 층은 안 흐름)" },
+            sag: { value: DEFAULT_FUSE.sag, min: 0, max: 0.95, step: 0.01, label: "아래로 흘러내림 (덩어리가 부재 아래로 처지는 양 · 0 = 없음)" },
             // (0 in the redesign since 2026-11-15: it breaks thin, young mass into pieces by a noise — and in the block
             // nearly all the mass is thin and young by its look: fields of pebbles. The artist: "절대 이 조약돌 덩어리를
             // 원한 게 아님")
@@ -4677,7 +4696,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           fossilFrom: { value: DEFAULT_STUDY.fossilFrom, min: 0, max: 1, step: 0.01, label: "화석이 되기 시작하는 층의 나이 (부식 정도)" },
           fossilTo: { value: DEFAULT_STUDY.fossilTo, min: 0.05, max: 1, step: 0.01, label: "다 화석이 되는 층의 나이" },
           blocky: { value: 0, min: 0, max: 1, step: 0.05, label: "젊은 층의 블로키 (복셀 계단 = 건축; 0 = 다 둥글게 — 껍질 · 리브를 쓰면 0.3 아래로, 계단이 리브를 뭉갬)" },
-          cavity: { value: 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (오래된 층의 방이 둥근 빈 공간으로, 판은 막으로; 0 = 없음; 9579 레시피 0.7–1)", render: (get) => get(BODY_PATH) !== "crust" },
+          cavity: { value: 0, min: 0, max: 1, step: 0.05, label: "방 → 공동 (판 사이 방이 둥근 빈 공간으로, 판은 막으로 남음 · 0 = 없음)", render: (get) => get(BODY_PATH) !== "crust" },
           cavityRound: { value: DEFAULT_STUDY.cavityRound, min: 1, max: 5, step: 1, label: "공동의 둥글기 (복셀)", render: (get) => get(BODY_PATH) !== "crust" && get(CAV_PATH) > 0 },
           pipeFossil: { value: isV2 ? 1 : 0, min: 0, max: 1, step: 0.05, label: "다 된 화석에서 관 뼈대가 덩어리에 묻힌 정도 (새 방식: 모든 화석에 똑같이 · 0 = 큰 부재는 뼈대만 남음 … 1 = 다 묻힘)", render: (get) => get(BODY_PATH) !== "crust" && (get(MODE_PATH) !== "wrap" || (REDESIGN && Number(get(`${FU}.${FU_WAY}.meltPick`) ?? 0) > 0)) },
           // SUBTRACTIVE (refs 9706–9708, 9579; 2026-10-20): the outline stays the building's, the organic is inside
