@@ -31,6 +31,7 @@ import { usePerfMeter } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
 import { useLifeRecording } from "./useLifeRecording";
+import { RecordingQr } from "./RecordingQr";
 import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
@@ -506,6 +507,8 @@ export default function ParliamentScene() {
       {withSession && !demo && (
         <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
       )}
+      {/* the life's recording: its QR in the corner of the end screen once it is up (until the card carries it) */}
+      {withSession && !demo && <RecordingQr show={session.phase === "ended"} />}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
       {sound && withSession && <AfterglowSound sound={sound} />}
