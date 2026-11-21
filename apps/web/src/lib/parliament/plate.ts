@@ -73,7 +73,7 @@ export interface PlateInput {
   /** The trail (world coordinates, life seconds) and the ground cells. */
   trail: readonly { x: number; z: number; t: number }[];
   cells: readonly PlateCell[];
-  /** The QR of the life's recording (qr.ts qrModules); null while there is none (its place is kept). */
+  /** The QR of the life's recording (lib/qr.ts qrModules); null while there is none (its place is kept). */
   qr: boolean[][] | null;
 }
 

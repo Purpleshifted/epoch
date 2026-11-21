@@ -34,7 +34,6 @@ export * from "./testColumn";
 export * from "./ledger";
 export * from "./footprint";
 export * from "./plate";
-export * from "./qr";
 export * from "./marks";
 export * from "./lifecycle";
 export * from "./botLink";

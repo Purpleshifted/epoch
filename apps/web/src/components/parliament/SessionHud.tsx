@@ -39,7 +39,6 @@ import {
   individualNo,
   ledgerSummary,
   plateCells,
-  qrModules,
   venueName,
   linesShown,
   pageDone,
@@ -61,6 +60,8 @@ import {
 import type { Visitor } from "./RoleField";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
+import { qrModules } from "@/lib/qr";
+import { emitLifeEvent } from "./lifeEvents";
 import { SpecimenCard, printCard, saveCard, type CardAct } from "./SpecimenCard";
 import type { CardVisual } from "./usePersonalVisuals";
 import type { LifeSession } from "./useLifeSession";
@@ -315,6 +316,16 @@ export function SessionHud({
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary() }));
   }, [attempts, log, session.lifeRef, session.lastAttemptNear]);
 
+  // every new line of the record goes out once as an event (lifeEvents.ts): the life's recording keeps it as a marker
+  const emitted = useRef(new WeakSet<LogEntry>());
+  useEffect(() => {
+    for (const e of rec.entries) {
+      if (emitted.current.has(e)) continue;
+      emitted.current.add(e);
+      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t });
+    }
+  }, [rec.entries, lang]);
+
   const since = Math.max(0, (now - phaseAt) / 1000);
 
 
@@ -373,11 +384,13 @@ export function SessionHud({
     return `specimen-${individualNo(plate.me)}-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
   }, [plate]);
   /** Keep the life: its recording up first (if it is only here), then the card's values to the archive. */
+  /** The recording's page: here already, or sent up now (posting or printing sends it; the artist: kept only then). It
+   * waits for the afterlife's reverb if the recorder is still taking it. */
+  const recordingNow = useCallback(async () => recordingUrl ?? (uploadRecording ? await uploadRecording().catch(() => null) : null), [recordingUrl, uploadRecording]);
   const keep = useCallback(
-    async (via: "post" | "print"): Promise<"done" | "failed" | "noServer"> => {
+    async (via: "post" | "print", got?: string | null): Promise<"done" | "failed" | "noServer"> => {
       if (!plate) return "failed";
-      let url = recordingUrl ?? null;
-      if (!url && uploadRecording) url = await uploadRecording().catch(() => null);
+      const url = got !== undefined ? got : await recordingNow();
       const r = await fetch("/api/lives", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -386,7 +399,7 @@ export function SessionHud({
       if (r?.status === 503) return "noServer";
       return r?.ok ? "done" : "failed";
     },
-    [plate, recordingUrl, uploadRecording, name, look, venue],
+    [plate, recordingNow, name, look, venue],
   );
   const doAct = useCallback(
     async (a: CardAct) => {
@@ -399,8 +412,10 @@ export function SessionHud({
           set(r === "cancelled" ? undefined : "done");
           return;
         }
-        if (a === "print" && (await printCard(plate, look)) === "failed") return set("failed");
-        const k = await keep(a);
+        // the printed card carries the recording's QR: the recording goes up first
+        const url = a === "print" ? await recordingNow() : undefined;
+        if (a === "print" && (await printCard(url ? { ...plate, qr: qrModules(url) } : plate, look)) === "failed") return set("failed");
+        const k = await keep(a, url);
         if (k === "done") kept.current = true;
         // a print that the archive did not take is still a print (게시하기 stays to try again)
         set(a === "print" && k !== "done" ? "done" : k);
@@ -408,7 +423,7 @@ export function SessionHud({
         set("failed");
       }
     },
-    [plate, acts, look, name, keep],
+    [plate, acts, look, name, keep, recordingNow],
   );
   /** The print kept the life: the two said at once, no 게시하기 after it. */
   const printKept = acts.print === "done" && kept.current;

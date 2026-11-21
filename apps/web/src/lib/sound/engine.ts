@@ -321,6 +321,11 @@ export class SoundEngine {
   private me: Voice | null = null;
   /** The name's melody on its way to the limiter (announce). */
   private nameOut: GainNode | null = null;
+  /**
+   * The recording's tap (recorder.ts): a sink on the limiter's output, made once when a life is first recorded. It
+   * carries exactly what goes to the device — the name's melody included — whatever device that is; no processing.
+   */
+  private tapOut: MediaStreamAudioDestinationNode | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
   private closeness = new Map<string, number>();
@@ -358,6 +363,21 @@ export class SoundEngine {
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
+  }
+
+  /**
+   * The headset mix as a MediaStream, for the life's recording (useLifeRecording): the limiter's output tapped by a
+   * MediaStreamAudioDestinationNode, beside the device — not instead of it. Null before the graph exists (start()
+   * has not run on a gesture yet). The same stream is handed out every time.
+   */
+  tapOutput(): MediaStream | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.limiter) return null;
+    if (!this.tapOut) {
+      this.tapOut = ctx.createMediaStreamDestination();
+      this.limiter.connect(this.tapOut);
+    }
+    return this.tapOut.stream;
   }
 
   get debug(): SoundDebug {
