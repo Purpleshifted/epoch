@@ -324,6 +324,11 @@ export function plateSvg(
 const C45 = Math.SQRT1_2;
 /** How much the ground is squashed in the drawing (1 = seen from straight above, turned 45°). */
 const SQUASH = 0.5;
+/** Line weights, in the card's units (20 a millimetre). The thermal printer's dot is 300 dpi, about 1.7 units, and a
+ * line under two dots breaks up or vanishes on the label (the first prints, 2026-11-21): no line is thinner than HAIR, and
+ * the block's own edges are heavier, to read as a box. */
+const HAIR = 3.4;
+const EDGE = 4.5;
 /** Slower than this (world units / s) counts as staying. */
 const STAY_SPEED = 0.6;
 /** A stay this long gets a plumb line to its place on the ground. */
@@ -402,11 +407,11 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
 
   const out: string[] = [];
   // the block, quiet: the near edges down to the birth, the far ones dashed
-  out.push(`<path d="M${pt(u1, v1, tEnd)}L${pt(u1, v1, 0)}M${pt(u0, v1, 0)}L${pt(u1, v1, 0)}L${pt(u1, v0, 0)}" stroke="${C.faint}" stroke-width="1.2" stroke-dasharray="3 9" fill="none"/>`);
-  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u0, v1, 0)}L${pt(u0, v0, 0)}L${pt(u1, v0, 0)}L${pt(u1, v0, tEnd)}M${pt(u0, v0, tEnd)}L${pt(u0, v0, 0)}" stroke="${C.faint}" stroke-width="1.5" fill="none"/>`);
+  out.push(`<path d="M${pt(u1, v1, tEnd)}L${pt(u1, v1, 0)}M${pt(u0, v1, 0)}L${pt(u1, v1, 0)}L${pt(u1, v0, 0)}" stroke="${C.faint}" stroke-width="${HAIR}" stroke-dasharray="6 10" fill="none"/>`);
+  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u0, v1, 0)}L${pt(u0, v0, 0)}L${pt(u1, v0, 0)}L${pt(u1, v0, tEnd)}M${pt(u0, v0, tEnd)}L${pt(u0, v0, 0)}" stroke="${C.dim}" stroke-width="${EDGE}" fill="none" stroke-linejoin="round"/>`);
   // the strata: every minute (half minute in a short life) the near edges of that moment's layer
   const step = tEnd >= 120 ? 60 : 30;
-  for (let t = step; t < tEnd - 1; t += step) out.push(`<path d="M${pt(u0, v1, t)}L${pt(u0, v0, t)}L${pt(u1, v0, t)}" stroke="${C.faint}" stroke-width="1.2" stroke-dasharray="2 10" fill="none"/>`);
+  for (let t = step; t < tEnd - 1; t += step) out.push(`<path d="M${pt(u0, v1, t)}L${pt(u0, v0, t)}L${pt(u1, v0, t)}" stroke="${C.faint}" stroke-width="${HAIR}" stroke-dasharray="4 12" fill="none"/>`);
   // the ground on the top face: the cells, the trail from above, the face's edge
   const SHADE: Record<PlateCellKind, (a: number) => string> = C.oneInk
     ? { press: () => "", tread: () => "", path: () => `fill="${C.ink}"`, slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="2"` }
@@ -417,8 +422,8 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
         slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="1"`,
       };
   for (const c of cells) if (SHADE[c.kind](c.a)) out.push(`<path d="M${pt(c.u - 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v + 0.5, tEnd)}L${pt(c.u - 0.5, c.v + 0.5, tEnd)}Z" ${SHADE[c.kind](c.a)}/>`);
-  if (pts.length > 1) out.push(`<path d="M${pts.map((q) => pt(q.u, q.v, tEnd)).join("L")}" stroke="${C.ink}" stroke-width="1.2" fill="none" opacity="${C.oneInk ? 1 : 0.55}" stroke-linejoin="round"/>`);
-  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u1, v1, tEnd)}L${pt(u1, v0, tEnd)}L${pt(u0, v0, tEnd)}Z" stroke="${C.ink}" stroke-width="1.5" fill="none" opacity="${C.oneInk ? 1 : 0.6}"/>`);
+  if (pts.length > 1) out.push(`<path d="M${pts.map((q) => pt(q.u, q.v, tEnd)).join("L")}" stroke="${C.ink}" stroke-width="${HAIR}" fill="none" opacity="${C.oneInk ? 1 : 0.55}" stroke-linejoin="round"/>`);
+  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u1, v1, tEnd)}L${pt(u1, v0, tEnd)}L${pt(u0, v0, tEnd)}Z" stroke="${C.ink}" stroke-width="${EDGE}" fill="none" opacity="${C.oneInk ? 1 : 0.6}" stroke-linejoin="round"/>`);
 
   // how still I was at each reading (0 walking … 1 staying), over ±2 s
   const still = pts.map((q, i) => {
@@ -438,7 +443,7 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
     }
     let j = i;
     while (j + 1 < pts.length && still[j + 1] >= 0.75) j++;
-    if (pts[j].t - pts[i].t >= STAY_SEC && tEnd - pts[j].t > 2) out.push(`<path d="M${pt(pts[j].u, pts[j].v, pts[j].t)}L${pt(pts[j].u, pts[j].v, tEnd)}" stroke="${C.ink}" stroke-width="1.2" stroke-dasharray="2 7" opacity="${C.oneInk ? 1 : 0.4}"/>`);
+    if (pts[j].t - pts[i].t >= STAY_SEC && tEnd - pts[j].t > 2) out.push(`<path d="M${pt(pts[j].u, pts[j].v, pts[j].t)}L${pt(pts[j].u, pts[j].v, tEnd)}" stroke="${C.ink}" stroke-width="${HAIR}" stroke-dasharray="4 9" opacity="${C.oneInk ? 1 : 0.4}"/>`);
     i = j + 1;
   }
   // the worldline: thicker the stiller, in runs of one weight
@@ -470,14 +475,14 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
     const lx = sx(u0, v1), ly = sy(u0, v1, tEnd);
     const rx = Math.max(M + 100, lx - 64);
     const rBot = ly + tEnd * k;
-    out.push(`<path d="M${f1(rx)} ${f1(ly)}V${f1(rBot)}" stroke="${C.dim}" stroke-width="1.5"/>`);
+    out.push(`<path d="M${f1(rx)} ${f1(ly)}V${f1(rBot)}" stroke="${C.dim}" stroke-width="${HAIR}"/>`);
     for (let t = 0; t <= tEnd + 0.001; t += 10) {
       const y = rBot - t * k;
       const major = t % step === 0;
-      out.push(`<path d="M${f1(rx)} ${f1(y)}h${major ? 18 : 9}" stroke="${C.dim}" stroke-width="1.5"/>`);
+      out.push(`<path d="M${f1(rx)} ${f1(y)}h${major ? 18 : 9}" stroke="${C.dim}" stroke-width="${HAIR}"/>`);
       if (major && tEnd - t > 8) out.push(text(rx - 16, y + 10, fmtClock(t), 28, C.dim, "end"));
     }
-    out.push(`<path d="M${f1(rx - 10)} ${f1(ly)}h22" stroke="${C.ink}" stroke-width="2"/>`);
+    out.push(`<path d="M${f1(rx - 10)} ${f1(ly)}h22" stroke="${C.ink}" stroke-width="${EDGE}"/>`);
     out.push(text(rx - 16, ly + 10, fmtClock(tEnd), 28, C.ink, "end"));
   }
   return out.join("");
