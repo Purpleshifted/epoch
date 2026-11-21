@@ -185,25 +185,39 @@ interface Row {
   big?: boolean;
 }
 
-/** The card (see the header). `glyphOf` names the others' melodies (glyph.ts glyphOf). */
+/** Portrait (54 × 86 mm) or landscape (86 × 54 mm): the same card turned, laid out anew. */
+export type PlateOrient = "portrait" | "landscape";
+
+/** The card's size in pixels (20 px a millimetre). */
+export function plateSize(orient: PlateOrient = "portrait"): { w: number; h: number } {
+  return orient === "landscape" ? { w: PLATE_H, h: PLATE_W } : { w: PLATE_W, h: PLATE_H };
+}
+
+/** The card (see the header). `glyphOf` names the others' melodies (glyph.ts glyphOf). Portrait: the head across the
+ * top, the worldline under it, the record at the foot. Landscape: the worldline standing the card's full height on the
+ * left, the head and the record in a column on the right. */
 export function plateSvg(
   p: PlateInput,
   glyphOf: (id: string) => GlyphDot[],
-  opts: { font?: PlateFont; theme?: PlateTheme; fontCss?: string } = {},
+  opts: { font?: PlateFont; theme?: PlateTheme; orient?: PlateOrient; fontCss?: string } = {},
 ): string {
   const font = opts.font ?? DEFAULT_PLATE_FONT;
   const C = PALETTES[opts.theme ?? "paper"];
+  const land = opts.orient === "landscape";
+  const { w: W, h: H } = plateSize(opts.orient);
   const S = SCRIPT[p.lang].ended;
   const out: string[] = [];
+  /** The column the head and the record are set in. */
+  const x0 = land ? 868 : M, x1 = W - M;
 
   // ── head: which being, how long, where and when ──
   const life = fmtClock(p.lifeSec);
-  out.push(text(M, 128, S.who(individualNo(p.me)), 60, C.ink));
+  out.push(text(x0, 128, S.who(individualNo(p.me)), 60, C.ink));
   // 존속 and its time as one line the browser sets (no guessing at the face's widths)
-  out.push(`<text x="${PLATE_W - M}" y="128" text-anchor="end"><tspan font-size="28" fill="${C.dim}">${esc(S.life)}</tspan><tspan font-size="60" fill="${C.ink}" dx="16">${esc(life)}</tspan></text>`);
-  out.push(text(M, 182, S.unearthed(p.venue, stamp(p.endedAt)), 30, C.dim));
+  out.push(`<text x="${x1}" y="128" text-anchor="end"><tspan font-size="28" fill="${C.dim}">${esc(S.life)}</tspan><tspan font-size="60" fill="${C.ink}" dx="16">${esc(life)}</tspan></text>`);
+  out.push(text(x0, 182, S.unearthed(p.venue, stamp(p.endedAt)), 30, C.dim));
 
-  // ── the record, from the foot up: the worldline takes the room that is left ──
+  // ── the record ──
   const sum = p.sum;
   const rows: Row[] = [{ label: S.own, words: "", dots: glyphOf(p.me) }];
   rows.push({ label: S.group, words: S.groupRow(p.group.length, p.ensembleSec) });
@@ -215,9 +229,9 @@ export function plateSvg(
   if (p.attempts > 0) rows.push({ label: S.stop, words: S.tried(p.attempts) });
   rows.push({ label: S.cause, words: p.cause, big: true });
 
-  const LS = 26, SIZE = 30, LINE = 41, GAP = 12, CELL = 7;
+  const LS = 26, SIZE = 30, LINE = 41, GAP = land ? 10 : 12, CELL = 7;
   const labelW = Math.min(250, Math.max(...rows.map((r) => textWidth(r.label, LS, font))) + 26);
-  const textX = M + labelW, maxW = PLATE_W - M - textX;
+  const textX = x0 + labelW, maxW = x1 - textX;
   const gw = GLYPH_COLS * CELL, gh = GLYPH_ROWS * CELL;
   const laid = rows.map((r) => {
     const size = r.big ? 44 : SIZE, line = r.big ? 54 : LINE;
@@ -240,26 +254,28 @@ export function plateSvg(
     return { r, size, line, lines, h, g };
   });
   const recH = laid.reduce((a, l) => a + l.h + GAP, -GAP);
-  const foot = [S.kept, S.read].flatMap((s) => wrapText(s, 24, PLATE_W - 2 * M, font));
-  const footTop = PLATE_H - M - (foot.length - 1) * 34 - 24;
-  const recTop = footTop - 44 - recH;
+  const foot = [S.kept, S.read].flatMap((s) => wrapText(s, 24, x1 - x0, font));
+  const footTop = H - M - (foot.length - 1) * 34 - 24;
+  // portrait: the record stands on the foot; landscape: it hangs from the head
+  const recTop = land ? 262 : footTop - 44 - recH;
   let y = recTop;
-  out.push(`<path d="M${M} ${f1(recTop - 22)}H${PLATE_W - M}" stroke="${C.faint}" stroke-width="1.5"/>`);
+  out.push(`<path d="M${x0} ${f1(recTop - 22)}H${x1}" stroke="${C.faint}" stroke-width="1.5"/>`);
   for (const l of laid) {
-    out.push(text(M, y + (l.r.big ? 36 : 30), l.r.label, LS, C.dim));
+    out.push(text(x0, y + (l.r.big ? 36 : 30), l.r.label, LS, C.dim));
     l.lines.forEach((s, i) => out.push(text(textX, y + (l.r.big ? 40 : 31) + i * l.line, s, l.size, C.ink)));
     if (l.r.dots && l.g) out.push(glyph(l.r.dots, l.g[0], y + l.g[1], CELL, C.ink));
     y += l.h + GAP;
   }
-  foot.forEach((s, i) => out.push(text(M, PLATE_H - M - (foot.length - 1 - i) * 34, s, 24, i === 0 ? C.ink : C.dim)));
+  foot.forEach((s, i) => out.push(text(x0, H - M - (foot.length - 1 - i) * 34, s, 24, i === 0 ? C.ink : C.dim)));
 
-  // ── the worldline, between the head and the record; on the gallery machine the recording's QR beside it ──
+  // ── the worldline; on the gallery machine the recording's QR beside it ──
   const gallery = p.qr !== null;
-  const QR = 250;
-  const figBot = recTop - 66;
-  out.push(worldline(p, { left: 214, right: gallery ? PLATE_W - M - QR - 24 : PLATE_W - M - 30, top: 250, bottom: figBot }, C));
+  const QR = land ? 220 : 250;
+  const qrX = (land ? 800 : W - M) - QR;
+  const fig = land ? { left: 214, top: 104, bottom: H - 104 } : { left: 214, top: 250, bottom: recTop - 66 };
+  out.push(worldline(p, { ...fig, right: gallery ? qrX - 24 : land ? 800 : W - M - 30 }, C));
   if (gallery) {
-    const x = PLATE_W - M - QR, qy = figBot - QR;
+    const x = qrX, qy = fig.bottom - QR;
     out.push(text(x, qy - 50, S.recording, 24, C.dim), text(x, qy - 18, S.recordingNote, 22, C.dim));
     const mods = p.qr?.modules;
     if (mods) {
@@ -276,7 +292,7 @@ export function plateSvg(
 
   const family = `${PLATE_FONTS[font].family}, NeoDunggeunmo, monospace`;
   const style = opts.fontCss ? `<style>${opts.fontCss}</style>` : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PLATE_W} ${PLATE_H}" width="${PLATE_W}" height="${PLATE_H}" font-family="${esc(family)}">${style}<rect width="${PLATE_W}" height="${PLATE_H}" fill="${C.bg}"/>${out.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${esc(family)}">${style}<rect width="${W}" height="${H}" fill="${C.bg}"/>${out.join("")}</svg>`;
 }
 
 // ── the worldline ────────────────────────────────────────────────────────────

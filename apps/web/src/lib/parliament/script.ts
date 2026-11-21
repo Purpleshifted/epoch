@@ -123,15 +123,17 @@ export interface Script {
     help: string;
     /** The specimen plate (plate.ts): where and when it was unearthed (the life's end) … */
     unearthed: (where: string | null, when: string) => string;
-    /** … the gallery's QR (the life's recording), the paper the card is shown on, saving it as an image. */
+    /** … the gallery's QR (the life's recording), the paper the card is shown on … */
     recording: string;
     recordingNote: string;
     paperWhite: string;
     paperBlack: string;
-    save: string;
-    saving: string;
-    saved: string;
-    saveFailed: string;
+    /** … what the visitor does with the card (print on the gallery machine, save elsewhere, post), how it went, the way
+     * back to the record, and what posting or printing means (the life is kept; otherwise it is not). */
+    act: Record<"print" | "save" | "post", string>;
+    actState: (act: "print" | "save" | "post", s: "busy" | "done" | "failed" | "noServer") => string;
+    back: string;
+    keepNote: string;
   };
 }
 
@@ -192,10 +194,13 @@ export const SCRIPT: Record<Lang, Script> = {
       recordingNote: "이 개체가 들은 음악",
       paperWhite: "흰 바탕",
       paperBlack: "검은 바탕",
-      save: "저장",
-      saving: "저장 중",
-      saved: "저장했습니다",
-      saveFailed: "저장하지 못했습니다",
+      act: { print: "출력하기", save: "저장하기", post: "게시하기" },
+      actState: (a, s) =>
+        s === "noServer"
+          ? "게시할 곳이 아직 연결되지 않았습니다"
+          : ({ print: ["출력 중", "출력했습니다", "출력하지 못했습니다"], save: ["저장 중", "저장했습니다", "저장하지 못했습니다"], post: ["게시 중", "게시했습니다", "게시하지 못했습니다"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
+      back: "돌아가기",
+      keepNote: "게시하거나 출력하면 이 기록과 녹음이 보관됩니다. 그러지 않은 삶은 보관되지 않습니다.",
     },
   },
   en: {
@@ -254,10 +259,13 @@ export const SCRIPT: Record<Lang, Script> = {
       recordingNote: "the music this individual heard",
       paperWhite: "White",
       paperBlack: "Black",
-      save: "Save",
-      saving: "Saving",
-      saved: "Saved",
-      saveFailed: "Could not save",
+      act: { print: "Print", save: "Save", post: "Post" },
+      actState: (a, s) =>
+        s === "noServer"
+          ? "Nowhere to post yet"
+          : ({ print: ["Printing", "Printed", "Could not print"], save: ["Saving", "Saved", "Could not save"], post: ["Posting", "Posted", "Could not post"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
+      back: "Back",
+      keepNote: "Posted or printed, this record and its recording are kept. A life that is neither is not kept.",
     },
   },
 };

@@ -4,8 +4,9 @@
  * visitor's effect on it lands, and what stands in the frame — switchable, so the artist compares versions
  * (docs/session-logic.md §12).
  *   look        브루털: black, white, one green, hard edges, no fog / glow / grid (2026-11-01); 부드러움: what it was
- *   card        the end screen: the specimen card (SpecimenCard, lib/parliament/plate.ts — 2026-11-21), its face and paper;
- *               or the record card of 11/01 with its footprint map (FootprintMap)
+ *   footprint   the end screen's record card: its footprint map (FootprintMap)
+ *   card        the specimen card the record card leads on to (SpecimenCard, lib/parliament/plate.ts — 2026-11-21): its
+ *               face, its first paper, which way it stands
  *   grass       how the grass reacts to the walker at once and how it is drawn (DitherGround, NatureCloud)
  *   marks       the others, the concrete (Marks.tsx, lib/parliament/marks.ts), the seed heads the answers left
  *               (Dandelions.tsx); the paths stay on the ground (PathLines)
@@ -13,7 +14,7 @@
 
 import { useMemo } from "react";
 import { folder, useControls } from "leva";
-import { DEFAULT_PLATE_FONT, PLATE_FONTS, type PlateFont, type PlateTheme } from "@/lib/parliament";
+import { DEFAULT_PLATE_FONT, PLATE_FONTS, type PlateFont, type PlateOrient, type PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
@@ -52,13 +53,12 @@ export interface MarksVisual {
   on: boolean;
 }
 
-export type EndCard = "card" | "table";
-
 export interface CardVisual {
-  style: EndCard;
   font: PlateFont;
   /** The paper the card first shows on (the visitor can turn it; the print is always white). */
   theme: PlateTheme;
+  /** Which way the card stands (54 × 86 or 86 × 54 mm). */
+  orient: PlateOrient;
 }
 
 export interface PersonalVisuals {
@@ -89,16 +89,16 @@ const GRASS_STYLES: Record<string, GrassStyle> = {
   "네모 점 — 점구름, 단색, 각진 점": "squares",
 };
 
-const END_CARDS: Record<string, EndCard> = {
-  "표본 카드 — 시간축 세계선 + 기록 (11/21)": "card",
-  "기록표 — 칸 나뉜 표 + 발자국 지도 (11/01)": "table",
-};
-
 const CARD_FONTS: Record<string, PlateFont> = Object.fromEntries((Object.keys(PLATE_FONTS) as PlateFont[]).map((k) => [PLATE_FONTS[k].label, k]));
 
 const CARD_THEMES: Record<string, PlateTheme> = {
   "흰 바탕 — 인쇄(열전사)와 같음": "paper",
   "검은 바탕": "screen",
+};
+
+const CARD_ORIENTS: Record<string, PlateOrient> = {
+  "세로 — 54 × 86 mm": "portrait",
+  "가로 — 86 × 54 mm": "landscape",
 };
 
 const CONCRETE_STYLES: Record<string, ConcreteStyle> = {
@@ -113,10 +113,10 @@ export function usePersonalVisuals(): PersonalVisuals {
     ROOT,
     savable(ROOT, {
       look: { options: LOOK_OPTIONS, value: "brutal" as Look, label: "판", render: v2 },
-      endCard: { options: END_CARDS, value: "card" as EndCard, label: "퇴장 화면", render: v2 },
       cardFont: { options: CARD_FONTS, value: DEFAULT_PLATE_FONT, label: "표본 카드 글꼴", render: v2 },
       cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: v2 },
-      footprint: { value: true, label: "기록표의 발자국 지도", render: v2 },
+      cardOrient: { options: CARD_ORIENTS, value: "portrait" as PlateOrient, label: "표본 카드 방향", render: v2 },
+      footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
       "브루털": folder({
         grassStyle: { options: GRASS_STYLES, value: "field" as GrassStyle, label: "풀", render: v2 },
         grassColor: { value: "#2f8f3f", label: "풀 색", render: v2 },
@@ -207,6 +207,6 @@ export function usePersonalVisuals(): PersonalVisuals {
     }),
     [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
-  const card = useMemo<CardVisual>(() => ({ style: c.endCard, font: c.cardFont, theme: c.cardTheme }), [c.endCard, c.cardFont, c.cardTheme]);
+  const card = useMemo<CardVisual>(() => ({ font: c.cardFont, theme: c.cardTheme, orient: c.cardOrient }), [c.cardFont, c.cardTheme, c.cardOrient]);
   return { look: c.look, footprint: c.footprint, card, grass, marks };
 }
