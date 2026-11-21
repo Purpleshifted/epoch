@@ -22,6 +22,7 @@ import { Dandelions } from "./Dandelions";
 import { keepWindowSec, setKeepWindowSec } from "@/lib/parliament/log";
 import { Bloom, DepthOfField, EffectComposer, N8AO, Noise } from "@react-three/postprocessing";
 import { useFlowerBloom } from "./plantCloudsGpu";
+import { VEG_FLOW_W, VegFlow, vegFlowSupported, type VegFlowKnobs } from "./vegFlow";
 import { useFutureRender } from "./futureLife";
 import { BONE_GLSL, boneLight, boneU, FOSSIL_AT_GLSL, pickClock, wayBoneShader, type FossilClock } from "./boneLook";
 import { BlendFunction } from "postprocessing";
@@ -2571,13 +2572,18 @@ uniform float uFull;
 uniform sampler2D uClouds;
 uniform float uCloudsOn;
 uniform float uHalf;
+// THE FLOW (vegFlow.ts): no clouds — each point's place is a texel of a texture the GPU writes anew every frame
+uniform sampler2D uFlow;
+uniform float uFlowOn;
 attribute float aCloud;
 attribute float aSeed;
 varying float vShade;
 void main() {
   vec3 wp = position;
   float inBlock = 1.0;
-  if (uCloudsOn > 0.5) {
+  if (uFlowOn > 0.5) {
+    wp = texelFetch(uFlow, ivec2(gl_VertexID % ${VEG_FLOW_W}, gl_VertexID / ${VEG_FLOW_W}), 0).xyz;
+  } else if (uCloudsOn > 0.5) {
     int ci = int(aCloud + 0.5);
     ivec2 ct = ivec2(ci % ${VEG_CLOUD_W}, ci / ${VEG_CLOUD_W});
     vec4 cl = texelFetch(uClouds, ct, 0);
@@ -2678,7 +2684,14 @@ function Vegetation({
   base,
   river,
   belts,
+  flow,
 }: {
+  /**
+   * THE FLOW (vegFlow.ts; the artist, 2026-11-21: "전체 식생 생성해서 밀도장 따라 curl 처럼 몰려다니게"): the points are
+   * made over the whole block (no clouds: `spots` 0) and every frame each goes a step along a flow made from the
+   * vegetation's own density, on the GPU. null = the clouds, as before.
+   */
+  flow: VegFlowKnobs | null;
   /** Seconds a cloud takes to a place near by when it is seated again — further ones as much longer (0 = at once, and
    *  the points are there or not, as before). */
   ease: number;
@@ -2935,11 +2948,27 @@ function Vegetation({
           uClouds: { value: null },
           uCloudsOn: { value: 0 },
           uHalf: { value: WORLD_HALF },
+          uFlow: { value: null },
+          uFlowOn: { value: 0 },
         },
       }),
     [],
   );
   useEffect(() => () => mat.dispose(), [mat]);
+  // THE FLOW: the points' places as a texture the GPU steps every frame (vegFlow.ts) — made anew with the points;
+  // where the renderer cannot draw into float textures there is none, and the points stand where they were made
+  const flowOn = !!flow;
+  const flowSim = useMemo(() => {
+    if (!flowOn) return null;
+    if (!vegFlowSupported(gl)) {
+      console.warn("[vegetation] no float render targets (EXT_color_buffer_float): the flow is off");
+      return null;
+    }
+    return new VegFlow(geom.getAttribute("position").array, N, D);
+  }, [flowOn, geom, gl, N, D]);
+  useEffect(() => () => flowSim?.dispose(), [flowSim]);
+  const flowRef = useRef(flow);
+  flowRef.current = flow;
   useEffect(() => {
     // (new textures — until their first snapshot is written: the pairs' first, both ways; a knob moved does not come here)
     mat.uniforms.uHuman.value = mat.uniforms.uHumanWas.value = texPair[0];
@@ -2988,8 +3017,15 @@ function Vegetation({
     mat.uniforms.uSway.value = Math.max(0, sway);
     mat.uniforms.uSwaySpeed.value = (2 * Math.PI) / Math.max(4, swaySec);
     mat.uniforms.uOrganic.value = Math.max(0, Math.min(1, organic));
+    // THE FLOW: every point a step along it (the newest snapshots of the people's share, the water's wear and the
+    // range), then the vertex shader reads the places just written
+    if (flowSim && flowRef.current)
+      flowSim.step(gl, dt, { human: mat.uniforms.uHuman.value, water: mat.uniforms.uWater.value, range: mat.uniforms.uRange.value, min: mat.uniforms.uMin.value, span: mat.uniforms.uSpan.value, unit, knobs: flowRef.current });
+    mat.uniforms.uFlow.value = flowSim?.ready ? flowSim.texture : null;
+    mat.uniforms.uFlowOn.value = flowSim?.ready ? 1 : 0;
     // SOFTLY (VEG_VERT): the clock, the times, how far between two snapshots; with no time (ease 0) all at once, as before
-    const soft = ease > 0;
+    // (the flow is always soft: its points grow and shrink as they pass over the people's ground)
+    const soft = flowOn || ease > 0;
     lifeClock.current += dt;
     const now = lifeClock.current;
     (mat.uniforms.uLife.value as THREE.Vector3).set(now, Math.max(0.01, ease), Math.max(0.01, ease));
@@ -3046,8 +3082,10 @@ function Vegetation({
     {
       const R = rangeTex.image.data as Uint8Array;
       const m = Math.round(margin / (WORLD_SIZE / N));
-      if (margin < 0) R.fill(255);
-      else {
+      if (margin < 0) {
+        R.fill(255);
+        flowSim?.writeToward(null, 0);
+      } else {
         const used = rangeUsed.current;
         used.fill(0);
         for (let k = 0; k < D; k++) {
@@ -3091,9 +3129,13 @@ function Vegetation({
             R[c] = Math.round(255 * (1 - q * q * (3 - 2 * q)));
           }
         }
+        // (the flow: which way the ground in use lies, for the points beyond the range — vegFlow.ts)
+        flowSim?.writeToward(dist, hi);
       }
       rangeTex.needsUpdate = true;
     }
+    // (the flow: the borders' field of each slot's time, laid again only when the borders or the window moved)
+    flowSim?.writeBelts(beltsRef.current, base, WORLD_HALF);
     // THE WATER'S WEAR, laid again only when the streams or the knobs changed
     // (the rising window: a slot's row is counted from the window's first slot, as the people's share is)
     const wKey = river ? `${river.gain}|${river.keep}|${river.width}|${unit}|${D}|${base}` : "";
@@ -3975,30 +4017,41 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   // THE PATHS, STAGE 1 (lib/parliament/trails.ts): every walk as a thread through the block
   // THE VEGETATION, AS THE OPPOSITE OF PEOPLE (Vegetation above)
   const VEG_GROUP = "식생 (사람의 반대)";
+  // (a knob only one way of moving reads is listed only while that way is on; its value is kept)
+  const vegFlowOnly = (get: (path: string) => unknown) => get(`${VEG_GROUP}.vegMotion`) === "flow";
+  const vegCloudOnly = (get: (path: string) => unknown) => get(`${VEG_GROUP}.vegMotion`) !== "flow";
   const vg = useLevaControls(
     VEG_GROUP,
     savable(VEG_GROUP, {
       vegOn: { value: true, label: "켜기" },
+      // HOW IT MOVES (the artist, 2026-11-21: "식생구름 허공에서 돌아다니게 하는 것보다 그냥 전체 식생 생성해서 밀도장 따라
+      // curl 처럼 몰려다니게"): the clouds seated again (as before), or every point flowing on the GPU (vegFlow.ts)
+      vegMotion: { value: "cloud", options: { "구름 (지금 · 구름이 자리를 옮김)": "cloud", "흐름 (새 · 전체 점이 밀도장을 따라 몰려다님 · GPU)": "flow" }, label: "식생 움직임" },
+      vegFlowSpeed: { value: 2, min: 0, max: 8, step: 0.1, label: "흐름 빠르기 (대략 월드/s · 0 = 멈춤)", render: vegFlowOnly },
+      vegFlowSwirl: { value: 14, min: 3, max: 60, step: 1, label: "소용돌이 크기 (월드 · 클수록 큰 물결)", render: vegFlowOnly },
+      vegFlowFollow: { value: 1, min: 0, max: 3, step: 0.05, label: "밀도장을 따르는 세기 (건물·길·물가를 돌아 흐르고 빈 땅으로 몰림 · 범위 밖 점을 불러옴 · 0 = 소용돌이만)", render: vegFlowOnly },
+      vegFlowHerd: { value: 0.5, min: 0, max: 2, step: 0.05, label: "떼로 뭉치는 세기 (0 = 고르게 퍼져 흐름)", render: vegFlowOnly },
+      vegFlowStray: { value: 0, min: 0, max: 190, step: 2, label: "점이 만들어진 자리에서 멀어질 수 있는 거리 (월드 · 0 = 제한 없음: 사람 땅 둘레로 다 몰려옴)", render: vegFlowOnly },
       vegCount: { value: 60000, min: 5000, max: 400000, step: 5000, label: "점 수 (덩어리 전체 · 한 번만 만듦)" },
       // (the artist, 2026-11-15: "식생반경이 알아서 돌아다닌 범위 살짝 바깥에만 마진 두고 생성되게")
       vegMargin: { value: 8, min: -1, max: 60, step: 1, label: "돌아다닌 범위 바깥으로 식생이 옅어지며 나는 폭 (월드 · 이 거리에서 절반, 1.7배에서 없음 · -1 = 땅 전체에)" },
       vegSize: { value: 0.12, min: 0.02, max: 1, step: 0.01, label: "점 크기 (월드)" },
-      vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)" },
-      vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)" },
-      vegCloudT: { value: 5, min: 0.5, max: 60, step: 0.5, label: "구름의 반경: 시간 (단 · 평균)" },
-      vegMoveSec: { value: 8, min: 0, max: 120, step: 2, label: "구름 자리를 다시 보는 간격 (s · 0 = 안 옮김)" },
-      vegMoveAt: { value: 0.2, min: 0.02, max: 1, step: 0.02, label: "자리에 사람이 이만큼 차면 빈 곳으로 옮김" },
+      vegSpots: { value: 40, min: 0, max: 200, step: 1, label: "구름 수 (0 = 어디나 고르게)", render: vegCloudOnly },
+      vegCloudR: { value: 9, min: 1, max: 60, step: 0.5, label: "구름의 반경: 땅 (월드 · 평균)", render: vegCloudOnly },
+      vegCloudT: { value: 5, min: 0.5, max: 60, step: 0.5, label: "구름의 반경: 시간 (단 · 평균)", render: vegCloudOnly },
+      vegMoveSec: { value: 8, min: 0, max: 120, step: 2, label: "구름 자리를 다시 보는 간격 (s · 0 = 안 옮김)", render: vegCloudOnly },
+      vegMoveAt: { value: 0.2, min: 0.02, max: 1, step: 0.02, label: "자리에 사람이 이만큼 차면 빈 곳으로 옮김", render: vegCloudOnly },
       // SOFTLY, AS THE LAYER ABOVE'S (VEG_VERT; the artist, 2026-11-20: "글로벌 식생도 미래처럼 연속적으로 움직이게 해줘")
       // (the same key: now the time of a cloud's way to a place near by — it goes there, it no longer fades out and in)
-      vegEase: { value: 3, min: 0, max: 20, step: 0.5, label: "배경 구름이 옆 자리로 옮겨 가는 시간 (s · 사람에게 밀려난 구름이 미끄러지듯 감 · 먼 자리는 더 오래, 최대 40초 · 0 = 순간이동 · 점도 한꺼번에 나타나고 사라짐)" },
+      vegEase: { value: 3, min: 0, max: 20, step: 0.5, label: "배경 구름이 옆 자리로 옮겨 가는 시간 (s · 사람에게 밀려난 구름이 미끄러지듯 감 · 먼 자리는 더 오래, 최대 40초 · 0 = 순간이동 · 점도 한꺼번에 나타나고 사라짐)", render: vegCloudOnly },
       // THE BACKGROUND CLOUDS MOVE (VEG_VERT; the artist, 2026-11-20: "배경 구름들 유기적으로 움직이게 해달라고")
-      vegSway: { value: 3, min: 0, max: 12, step: 0.25, label: "배경 구름이 제자리에서 떠도는 폭 (월드 · 0 = 가만히)" },
-      vegSwaySec: { value: 40, min: 6, max: 240, step: 2, label: "떠도는 한 바퀴의 시간 (s · 클수록 느림 · 구름마다 조금씩 다름)" },
-      vegOrganic: { value: 0.6, min: 0, max: 1, step: 0.05, label: "구름 속 점들이 숨 쉬고 천천히 도는 정도 (0 = 구름 모양은 그대로)" },
-      vegCloudJit: { value: 0.4, min: 0, max: 0.9, step: 0.05, label: "구름 크기 지터 (± · 0 = 다 같은 크기)" },
+      vegSway: { value: 3, min: 0, max: 12, step: 0.25, label: "배경 구름이 제자리에서 떠도는 폭 (월드 · 0 = 가만히)", render: vegCloudOnly },
+      vegSwaySec: { value: 40, min: 6, max: 240, step: 2, label: "떠도는 한 바퀴의 시간 (s · 클수록 느림 · 구름마다 조금씩 다름)", render: vegCloudOnly },
+      vegOrganic: { value: 0.6, min: 0, max: 1, step: 0.05, label: "구름 속 점들이 숨 쉬고 천천히 도는 정도 (0 = 구름 모양은 그대로)", render: vegCloudOnly },
+      vegCloudJit: { value: 0.4, min: 0, max: 0.9, step: 0.05, label: "구름 크기 지터 (± · 0 = 다 같은 크기)", render: vegCloudOnly },
       // (the artist, 2026-11-16: "권역 나누기"): belts on the borders between the villages (villageBorders.ts)
-      vegBelt: { value: 0.6, min: 0, max: 1, step: 0.05, label: "마을 경계에 띠로 서는 구름 비율 (권역 · 0 = 아무 데나)" },
-      vegLobed: { value: 0.3, min: 0, max: 1, step: 0.05, label: "두 갈래 구름의 비율 (나머지는 둥근 구름)" },
+      vegBelt: { value: 0.6, min: 0, max: 1, step: 0.05, label: "마을 경계에 띠로 서는 식생 비율 (권역 · 구름: 구름의 비율 · 흐름: 점의 비율 · 0 = 아무 데나)" },
+      vegLobed: { value: 0.3, min: 0, max: 1, step: 0.05, label: "두 갈래 구름의 비율 (나머지는 둥근 구름)", render: vegCloudOnly },
       vegFull: { value: 1, min: 0.05, max: 1, step: 0.05, label: "아무도 없는 곳의 무성함 (1 = 점 전부)" },
       vegPathAt: { value: 2, min: 0.25, max: 10, step: 0.25, label: "길에서 다 사라지는 겹침 (꼬리 수)" },
       vegColorA: { value: "#5f7a3a", label: "색 1 (자연색)" },
@@ -5077,6 +5130,11 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
     }),
     [tAxis.secPerUnit, tAxis.unit, bld.partWidth, bld.partDensity, tAxis.timeJitter, recipe, dn.densityOn, dn.dGrowCount, dn.buildSlots, vr.varietyOn, vr.vSize, vr.vAngle, vr.vAngleStep, vr.vWidth, vr.vHeight, vr.vCharacter],
   );
+  // THE VEGETATION'S FLOW (vegFlow.ts): its knobs while 식생 움직임 = 흐름, else null (the clouds)
+  const vegFlowKnobs = useMemo(
+    () => (vg.vegMotion === "flow" ? { speed: vg.vegFlowSpeed, swirl: vg.vegFlowSwirl, follow: vg.vegFlowFollow, herd: vg.vegFlowHerd, stray: vg.vegFlowStray } : null),
+    [vg.vegMotion, vg.vegFlowSpeed, vg.vegFlowSwirl, vg.vegFlowFollow, vg.vegFlowHerd, vg.vegFlowStray],
+  );
   // THE BORDERS of the villages alive at a time, for the vegetation's belts (cached per set of villages)
   const belts = useMemo(() => {
     const vs = botVillages;
@@ -5291,7 +5349,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         {/* the vegetation fills the block the bots live in (a little above it too) */}
         {/* (not in the view of the layer above alone: futureOnly.ts) */}
         {vg.vegOn && !futureOnly() && (
-          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vg.vegSpots} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} ease={vg.vegEase} sway={vg.vegSway} swaySec={vg.vegSwaySec} organic={vg.vegOrganic} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} belts={belts} />
+          <Vegetation base={rising ? Math.max(0, Math.floor(win.top) - botDepth - 6) : 0} margin={vg.vegMargin} erode={weatherEr.erode ?? null} unit={c.unit} slots={Math.max(20, botDepth + 12)} count={ro.vegCount(vg.vegCount)} size={vg.vegSize} full={vg.vegFull} pathAt={vg.vegPathAt} colorA={vg.vegColorA} colorB={vg.vegColorB} spots={vegFlowKnobs ? 0 : vg.vegSpots} flow={vegFlowKnobs} spotR={vg.vegCloudR} spotGrow={vg.vegCloudT} spotLobed={vg.vegLobed} spotJitter={vg.vegCloudJit} moveSec={vg.vegMoveSec} moveAt={vg.vegMoveAt} ease={vg.vegEase} sway={vg.vegSway} swaySec={vg.vegSwaySec} organic={vg.vegOrganic} river={waterView && wtr.riverOn ? { gain: wtr.riverGain, keep: wtr.riverKeep, width: wtr.riverWidth } : null} belts={belts} />
         )}
         {/* markers are an overlay: their own scene, drawn after the parts (and after AO / grain) on a cleared depth
             buffer, so "me" is never buried inside the masses or darkened by AO. Priority 1 also renders the main scene
