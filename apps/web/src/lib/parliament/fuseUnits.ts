@@ -83,7 +83,7 @@ export function tubeBoxes(w: FuseTube): Box[] {
 
 /** A chunk's parts (all square to the grid) fused tile by tile. */
 export function fuseTilesOf(
-  w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean }[]; tubes: readonly FuseTube[]; x0: number; z0: number; nx: number; nz: number },
+  w: { c0: number; c1: number; ps: { b: Box; d: number; up: boolean; sk: boolean; w?: number }[]; tubes: readonly FuseTube[]; x0: number; z0: number; nx: number; nz: number },
   h: NatureHistory | null,
   u: number,
   sed: Sed,
@@ -143,6 +143,7 @@ export function fuseTilesOf(
       const tileMesh = fuseChunk({
           parts: ps.map((e) => e.b),
           decay: ps.map((e) => e.d),
+          weight: ps.map((e) => e.w ?? 1),
           standing: ps.map((e) => e.up),
           skeleton: ps.map((e) => e.sk),
           tubes,
@@ -459,7 +460,7 @@ export function unitPieces<P extends { b: Box; d: number; up: boolean; sk: boole
         if (!o.fusing(mine) && !tubes.length) continue;
         let sg = 0;
         for (const t of tubes) sg += t.x0 * 3.1 + t.y0 * 7.3 + t.z0 * 11.7 + t.x1 * 13.9 + t.y1 * 17.1 + t.z1 * 19.3 + t.r * 23.9;
-        for (const e of mine) sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
+        for (const e of mine) sg += e.b.x * 3 + e.b.y * 7 + e.b.z * 11 + e.b.sx * 0.7 + e.b.sy * 1.3 + e.b.sz * 1.9 + Math.round(e.d * 20) * 0.9 + Math.round(((e as { w?: number }).w ?? 1) * 20) * 0.37 + (e.up ? 19 : 0) + (e.sk ? 23 : 0);
         out.push({ key: `${k0}:${tx}:${tz}`, sig: `${mine.length}:${tubes.length}:${sg.toFixed(3)}`, k0, k1, tx, tz, ps: mine, tubes });
       }
     }
@@ -659,6 +660,8 @@ interface Turned {
   d: number;
   up: boolean;
   sk: boolean;
+  /** Its fossil share in the field (fuse.ts FuseChunkInput.weight): the seeded mass's `most`. */
+  w: number;
   /** Its place in the job's parts. */
   i: number;
 }
@@ -762,7 +765,7 @@ export class FuseUnits {
     if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), staged: new Map(), vis: new Map(), leaving: [] }));
     const c = Math.cos(j.ang), sn = Math.sin(j.ang);
     // (a turned district is fused in its own frame, where its boxes lie along the grid: seeds.ts' turn undone)
-    const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, i }));
+    const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, w: e.grow ? Math.max(0, Math.min(1, e.grow[5] ?? 1)) : 1, i }));
     const tubes = (j.tubes ?? []).map((t, i) => (j.ang ? { ...t, x0: t.x0 * c - t.z0 * sn, z0: t.x0 * sn + t.z0 * c, x1: t.x1 * c - t.z1 * sn, z1: t.x1 * sn + t.z1 * c, i } : { ...t, i }));
     const pad = fusePad(j.fuse);
     const pieces = ps.length

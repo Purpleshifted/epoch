@@ -4460,7 +4460,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             "계산": folder(
               {
                 voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "격자 간격 (월드; 작을수록 세밀하고 무거움)" },
-                iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
+                iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (부재마다 화석 몫 = 식생이 모인 정도가 이보다 낮은 곳은 덩어리에서 빠짐 · 높일수록 화석이 적은 곳부터 빠지고 · 낮출수록 두꺼워지고 더 멀리 이어짐)" },
                 smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
                 // (fuse.ts N: the vegetation gathered at a cell and slot — the block's own, spaceModel blockHistory — is
                 // added to the field's density there, × this, only close to the parts' mass: never a body of its own)
