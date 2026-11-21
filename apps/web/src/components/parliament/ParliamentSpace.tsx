@@ -521,15 +521,8 @@ attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
 attribute float fuseLate;
 attribute vec4 fuseBlend;
-attribute vec3 fuseKey0;
 attribute vec3 fuseKey1;
 attribute vec3 fuseKey2;
-varying float vMorph;
-// (a Catmull-Rom curve through b … c, a and d its neighbours: the vertex's way through the keyframes has no corners)
-vec3 fuseCR( vec3 a, vec3 b, vec3 c, vec3 d, float t ) {
-  float t2 = t * t, t3 = t2 * t;
-  return 0.5 * ( 2.0 * b + ( c - a ) * t + ( 2.0 * a - 5.0 * b + 4.0 * c - d ) * t2 + ( 3.0 * b - a - 3.0 * c + d ) * t3 );
-}
 varying vec2 vSwap;
 varying float vSkin;
 varying float vEdge;
@@ -545,7 +538,6 @@ varying vec3 vGonePos;`;
  * What stands inside (the parts that did not erode) shows through them.
  */
 const FUSE_GONE_FRAG_HEAD = `
-varying float vMorph;
 varying vec2 vSwap;
 varying float vSkin;
 varying float vEdge;
@@ -597,7 +589,6 @@ vGone = 0.0;
 vSwap = vec2( 0.0 );
 vSkin = 1.0;
 vEdge = 1.0;
-vMorph = 0.0;
 vGonePos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // (the vegetation is a FACTOR of how much comes out — fuseGrowB.y — not a depth added: with the artist's own
@@ -678,19 +669,9 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // it is — one closed surface at every moment, its shape a mass the parts could have made. How far along is the
   // coming-out times the vegetation's share (vGrow: where little gathered it stops at a smaller keyframe) times the
   // provisional skin's (vSkin: towards its far end, and where the neighbour is on the screen, it sinks into the parts).
-  // SMOOTHLY BETWEEN THEM (the artist, 2026-11-21, of the first try: "중간에 너무 뾰족한 거 아냐?;; 이거 컴퓨터 그래픽스에서
-  // 화면 보간하는 법 있지 않나"): the keyframes are smoothed surfaces (fuse.ts), the way through them a Catmull-Rom
-  // curve (small lump → lump → thick → the mass, no corner at a keyframe) on an eased clock, and the in-between shape
-  // is shaded by its own faces (vMorph: the fragment's derivatives), not by the final shape's normals.
   float growQ = vGrow * vSkin;
-  float growE = growQ * growQ * ( 3.0 - 2.0 * growQ );
-  float growU = growE * 3.0;
-  float growSeg = min( floor( growU ), 2.0 ), growT2 = growU - growSeg;
-  vec3 growP = growSeg < 0.5 ? fuseCR( fuseKey0, fuseKey0, fuseKey1, fuseKey2, growT2 )
-             : growSeg < 1.5 ? fuseCR( fuseKey0, fuseKey1, fuseKey2, transformed, growT2 )
-             : fuseCR( fuseKey1, fuseKey2, transformed, transformed, growT2 );
-  transformed = growP;
-  vMorph = 1.0 - smoothstep( 0.8, 1.0, growQ );
+  float growA0 = smoothstep( 0.0, 0.3, growQ ), growA1 = smoothstep( 0.3, 0.65, growQ ), growA2 = smoothstep( 0.65, 1.0, growQ );
+  transformed = mix( mix( mix( fuseAnchor, fuseKey1, growA0 ), fuseKey2, growA1 ), transformed, growA2 );
   vGrow = growQ;
 }`;
 
@@ -791,7 +772,7 @@ function patchFuseExtras(shader: THREE.WebGLProgramParametersWithUniforms, u: Fu
       "#include <normal_fragment_begin>",
       [
         "#include <normal_fragment_begin>",
-        "float fuseFlat = max( smoothstep( 0.45, 0.9, vExtra.y ), vMorph );",
+        "float fuseFlat = smoothstep( 0.45, 0.9, vExtra.y );",
         "if ( fuseFlat > 0.0 ) {",
         "\tvec3 fdx = dFdx( vViewPosition );",
         "\tvec3 fdy = dFdy( vViewPosition );",
@@ -901,8 +882,7 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?:
     }
     g.setAttribute("fuseBlend", new THREE.BufferAttribute(blend, 4));
     // (the keyframes of the volume — a mesh without them stands where it is on each)
-    const keysOk = !!(r.key0 && r.key1 && r.key2 && r.key0.length === r.position.length && r.key1.length === r.position.length && r.key2.length === r.position.length);
-    g.setAttribute("fuseKey0", new THREE.BufferAttribute(keysOk ? r.key0! : r.position, 3));
+    const keysOk = !!(r.key1 && r.key2 && r.key1.length === r.position.length && r.key2.length === r.position.length);
     g.setAttribute("fuseKey1", new THREE.BufferAttribute(keysOk ? r.key1! : r.position, 3));
     g.setAttribute("fuseKey2", new THREE.BufferAttribute(keysOk ? r.key2! : r.position, 3));
     // (the vertices move in the shader: the mesh's bounds are not where it is drawn)
