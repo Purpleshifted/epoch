@@ -49,6 +49,7 @@ import {
 import type { Visitor } from "./RoleField";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
+import { emitLifeEvent } from "./lifeEvents";
 import type { LifeSession } from "./useLifeSession";
 
 const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
@@ -276,6 +277,16 @@ export function SessionHud({
     log.attempt(session.lifeRef.current.t, session.lastAttemptNear);
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary() }));
   }, [attempts, log, session.lifeRef, session.lastAttemptNear]);
+
+  // every new line of the record goes out once as an event (lifeEvents.ts): the life's recording keeps it as a marker
+  const emitted = useRef(new WeakSet<LogEntry>());
+  useEffect(() => {
+    for (const e of rec.entries) {
+      if (emitted.current.has(e)) continue;
+      emitted.current.add(e);
+      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t });
+    }
+  }, [rec.entries, lang]);
 
   const since = Math.max(0, (now - phaseAt) / 1000);
 

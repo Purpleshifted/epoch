@@ -1,0 +1,10 @@
+name = "anthropocene-recordings"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# One bucket for every life's recording (docs/recording.md). R2 free tier: 10 GB stored, 1 M writes and 10 M reads a
+# month, no egress fee; 300 lives × 1.4 MB ≈ 0.4 GB. The bucket is made ONLY after the artist says yes:
+#   npx wrangler@4 r2 bucket create anthropocene-recordings
+[[r2_buckets]]
+binding = "RECS"
+bucket_name = "anthropocene-recordings"

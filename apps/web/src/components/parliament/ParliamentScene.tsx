@@ -30,6 +30,7 @@ import AfterglowSound from "@/components/sound/AfterglowSound";
 import { usePerfMeter } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
+import { useLifeRecording } from "./useLifeRecording";
 import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
@@ -61,6 +62,8 @@ import { announcePersonalOpen } from "@/lib/sound/personalOpen";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
+/** No sound (V1): nothing to record. */
+const NO_RECORDING = { on: false, kbps: 64 };
 const ORB_Y = 0.45;
 /** A phone: a horizontal drag of about 300 px is a half turn; a vertical one of 300 px runs the camera's whole pitch range. */
 const TOUCH_TURN_RAD_PER_PX = Math.PI / 300;
@@ -415,6 +418,8 @@ export default function ParliamentScene() {
   const role: RoleId = isV2 ? "worker" : roleChoice;
   // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
   const sound = useSound({ escMute: !withSession });
+  // V2: the life's sound recorded from the name to the end of the reverb (useLifeRecording.ts; the card's QR)
+  const recording = useLifeRecording(withSession ? session : null, sound, visitorRef, sound?.record ?? NO_RECORDING);
   // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
   const perf = usePerfMeter(!hideChrome);
   // a mute never carries over to the next visitor (sound wiring)
@@ -526,6 +531,7 @@ export default function ParliamentScene() {
             </div>
           )}
           {debug?.sound && <div>♪ {debug.sound}</div>}
+          {recording.phase !== "idle" && <div>● {recording.line}</div>}
           {perf && (
             <div>
               ⏱ {perf.fps} fps · 가장 느린 프레임 {perf.p95Ms} ms · 50 ms 넘는 프레임 {perf.slowPerMin}/분{perf.heapMb ? ` · heap ${perf.heapMb} MB` : ""}
