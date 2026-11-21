@@ -42,6 +42,13 @@ export interface PEvent {
   z: number;
   /** Assigned exhibition seconds of the actor when the event happened. */
   s: number;
+  /**
+   * WHEN IT WAS WRITTEN (2026-11-20): seconds of the world's clock since the world's epoch (useGlobalBots: the same
+   * clock the block's window rises by). `s` is the actor's time IN the block; this is the wall's time — what a cell-slot's
+   * age is counted from (density.ts: its origin), so that the age is the log's and not this tab's memory. Absent in
+   * events written before 11/20 (and the lab's): their age is estimated as before.
+   */
+  w?: number;
 }
 
 export interface FoldConfig {

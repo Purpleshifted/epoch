@@ -20,7 +20,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { folder, useControls } from "leva";
 import * as THREE from "three";
-import { BlendFunction, Effect } from "postprocessing";
+import { BlendFunction, Effect, ToneMappingMode } from "postprocessing";
+import { ToneMapping } from "@react-three/postprocessing";
 import { savable } from "./levaSave";
 
 type Tri = "auto" | "on" | "off";
@@ -89,6 +90,38 @@ export interface RenderDetail {
   lodMid: number;
 }
 
+/** The curve the picture's light is pressed into the screen's range by ("none" = cut off at 1, as the wall always was). */
+export type ToneCurve = "none" | "aces" | "agx" | "neutral" | "reinhard";
+
+/**
+ * THE PICTURE'S LIGHT AND TONE (렌더 › 밝기 · 톤; the artist, 2026-11-20: "전시 버전보다 부재랑 화면이 전반적으로 더
+ * 어두워보여서, 전체 조명이나 렌더 포스트 프로세싱 추가할만한 거"). The lights beside the sun, and what is done to the
+ * finished picture's brightness. Every light is white (the human-made stays achromatic); nothing here tints.
+ */
+export interface RenderLook {
+  /** The ambient light (reaches every face alike). */
+  ambient: number;
+  /** The fixed fill light from the far side, above. */
+  fill: number;
+  /** A light from where the picture is looked at from (0 = none): the faces seen are lit wherever the sun stands. */
+  camLight: number;
+  /** An even light from above / from below (a hemisphere light; 0 and 0 = none). */
+  skyFill: number;
+  groundFill: number;
+  /** The picture's light multiplied by this before it is pressed into the screen's range. */
+  exposure: number;
+  toneMap: ToneCurve;
+  /** Levels on the finished picture (as the screen shows it): the floor of black, the midtones, the contrast. */
+  lift: number;
+  gamma: number;
+  contrast: number;
+  /** The darkest the AO makes a place, as a share of its own colour (0 = to black). */
+  aoFloor: number;
+}
+
+/** The wall as it was before the folder had these knobs. */
+export const LOOK_AS_IT_WAS: RenderLook = { ambient: 0.85, fill: 0.35, camLight: 0, skyFill: 0, groundFill: 0, exposure: 1, toneMap: "none", lift: 0, gamma: 1, contrast: 0, aoFloor: 0 };
+
 export interface RenderOptions {
   dpr: number | [number, number];
   antialias: boolean;
@@ -117,6 +150,27 @@ export interface RenderOptions {
   /** The vegetation points actually drawn, from the folder's count. */
   vegCount: (n: number) => number;
   detail: RenderDetail;
+  look: RenderLook;
+  /** The AO's colour: black, or the grey of RenderLook.aoFloor (the same object while the floor stays). */
+  aoColor: THREE.Color | string;
+  /** The exposure / tone curve pass is in the composer (when the composer is on). */
+  tonePass: boolean;
+  /** The levels pass is in the composer. */
+  levelsPass: boolean;
+  /** How many workers make the fossil's pieces side by side (1 = the worker of the mass alone). */
+  fuseWorkers: number;
+  /** How much new fossil geometry is put on the screen (and uploaded) per frame, MB; 0 = all of a message at once. */
+  uploadMB: number;
+}
+
+/**
+ * THE FOSSIL'S WORKERS BY THE MACHINE (2026-11-20): the artist's laptop (M2, 8 cores, 8 GB — it swaps with the wall
+ * open) gets two, the show's Mac mini (M2 Pro, 10–12 cores) three; a machine with fewer cores, the worker of the mass
+ * alone.
+ */
+export function autoFuseWorkers(): number {
+  const hc = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
+  return hc >= 10 ? 3 : hc >= 8 ? 2 : 1;
 }
 
 const pick = (t: Tri, auto: boolean) => (t === "auto" ? auto : t === "on");
@@ -159,6 +213,36 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
           { collapsed: true },
         ),
       }),
+      // THE PICTURE'S LIGHT AND TONE (RenderLook): every default is the wall as it was — nothing changes until a knob moves
+      "밝기 · 톤": folder(
+        {
+          "조명 (해 말고 · 전부 흰빛)": folder({
+            ambient: { value: LOOK_AS_IT_WAS.ambient, min: 0, max: 3, step: 0.05, label: "주변광 (그늘까지 고르게 닿는 빛 · 지금까지 0.85)" },
+            fillLight: { value: LOOK_AS_IT_WAS.fill, min: 0, max: 3, step: 0.05, label: "보조광 (한쪽 위에서 오는 약한 고정 빛 · 지금까지 0.35)" },
+            camLight: { value: 0, min: 0, max: 3, step: 0.05, label: "정면광 (보는 쪽에서 비추는 빛 · 해가 돌아도 보이는 면이 밝음 · 0 = 없음)" },
+            skyFill: { value: 0, min: 0, max: 3, step: 0.05, label: "하늘빛 (위에서 고르게 · 윗면과 옆면 · 0 = 없음)" },
+            groundFill: { value: 0, min: 0, max: 3, step: 0.05, label: "바닥빛 (아래에서 고르게 · 아랫면과 옆면 · 0 = 없음)" },
+          }),
+          "톤 (완성된 화면에 · 후처리)": folder({
+            exposure: { value: 1, min: 0.25, max: 4, step: 0.05, label: "노출 (전체 밝기 배율 · 1 = 지금까지)" },
+            toneMap: {
+              options: {
+                "없음 — 1 넘는 밝기는 잘림 (지금까지)": "none",
+                "뉴트럴 (색 그대로 · 밝은 곳만 부드럽게 눌림)": "neutral",
+                "AgX (부드러움 · 밝은 곳 채도 낮아짐)": "agx",
+                "ACES 필름 (대비 강함)": "aces",
+                "라인하르트 (전체가 눌림)": "reinhard",
+              } as Record<string, ToneCurve>,
+              value: "none" as ToneCurve,
+              label: "톤 매핑 (노출을 올려 흰 곳이 날아갈 때)",
+            },
+            lift: { value: 0, min: 0, max: 0.5, step: 0.01, label: "어두운 곳 들어올리기 (검정의 바닥 · 0 = 지금까지)" },
+            gamma: { value: 1, min: 0.5, max: 2.5, step: 0.01, label: "중간 밝기 (감마 · 1 = 지금까지 · 클수록 중간톤이 밝음)" },
+            contrast: { value: 0, min: -0.5, max: 1, step: 0.01, label: "대비 (0 = 지금까지)" },
+          }),
+        },
+        { collapsed: false },
+      ),
       // THE SUN TURNS (the artist, 2026-11-17: "해 돌아가는 거 옵션 추가해 이전버전에 있던 거"): the pre-redesign wall's
       // sun day (전시 카메라 › 해 (자동 운행)), switched and paced here
       "해 돌기": folder(
@@ -185,7 +269,8 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
           {
             aoRadius: { value: saved.aoRadius, min: 0.1, max: 12, step: 0.1, label: "AO 반경 (월드)" },
             distanceFalloff: { value: saved.distanceFalloff, min: 0.05, max: 4, step: 0.05, label: "AO 거리 감쇠" },
-            aoIntensity: { value: saved.aoIntensity, min: 0, max: 12, step: 0.1, label: "AO 세기" },
+            aoIntensity: { value: saved.aoIntensity, min: 0, max: 12, step: 0.1, label: "AO 세기 (지수 · 클수록 그늘이 급격히 검어짐)" },
+            aoFloor: { value: 0, min: 0, max: 1, step: 0.01, label: "AO 그늘의 바닥 밝기 (0 = 검정까지 · 지금까지)" },
           },
           { collapsed: true },
         ),
@@ -224,6 +309,21 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
         value: 0,
         label: "식생 점 비율 (그리는 점 수)",
       },
+      // THE CPU'S SHARE (2026-11-20): not the picture — how its work is spread. The fossil is made in pieces; with more
+      // workers, side by side (the same mass). Big arrivals of it are put on the screen a few MB a frame, so a frame
+      // never waits for all of them.
+      "작업 분담 (CPU · 그림은 같음)": folder(
+        {
+          fuseWorkers: {
+            // (labels that are not numbers: a number-like key would be put first by the object's own order)
+            options: { [`자동 (코어 수로 · 이 기계 ${autoFuseWorkers()}개)`]: 0, "1개 (화석 워커 하나 · 예전)": 1, "2개": 2, "3개": 3, "4개": 4 } as Record<string, number>,
+            value: 0,
+            label: "화석 워커 수 (조각을 나란히 만듦 · 바꾸면 만들던 조각은 다시 줄 섬)",
+          },
+          uploadMB: { value: 6, min: 0, max: 64, step: 1, label: "화석 올리기 (프레임당 MB · 0 = 한 번에 전부, 예전)" },
+        },
+        { collapsed: true },
+      ),
       LOD: folder(
         {
           lodNear: { value: saved.lodNear, min: 5, max: 400, step: 5, label: "이 거리 안쪽: 막대 묶음 · 드립 다 그림 (월드 · 성능 모드면 25까지)" },
@@ -234,6 +334,12 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
     }),
     { order: 0.45, collapsed: true, render: () => isV2 },
   );
+
+  // THE AO'S FLOOR: the pass multiplies a shaded place by its colour — black so far; a grey leaves that share of the
+  // place's own colour in the deepest shade. (The pass reads the colour's numbers as the screen's levels: the floor is
+  // a level as seen, not a share of light.)
+  const aoFloor = isV2 ? (k.aoFloor as number) : 0;
+  const aoColor = useMemo<THREE.Color | string>(() => (aoFloor > 0 ? new THREE.Color().setScalar(Math.min(1, aoFloor)) : "black"), [aoFloor]);
 
   const perf = perfMode || testPerf !== "off";
   const post = testPerf === "off";
@@ -283,6 +389,12 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       transmissionScale: autoTransScale,
       vegCount: autoVeg,
       detail: savedDetail,
+      look: LOOK_AS_IT_WAS,
+      aoColor,
+      tonePass: false,
+      levelsPass: false,
+      fuseWorkers: autoFuseWorkers(),
+      uploadMB: 0,
     };
   }
 
@@ -299,6 +411,24 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
   const q = k.aoQuality as "auto" | AoQuality;
   const share = k.vegShare as number;
   const ts = k.refractScale as number;
+  const look: RenderLook = {
+    ambient: k.ambient as number,
+    fill: k.fillLight as number,
+    camLight: k.camLight as number,
+    skyFill: k.skyFill as number,
+    groundFill: k.groundFill as number,
+    exposure: k.exposure as number,
+    toneMap: k.toneMap as ToneCurve,
+    lift: k.lift as number,
+    gamma: k.gamma as number,
+    contrast: k.contrast as number,
+    aoFloor: k.aoFloor as number,
+  };
+  // (with no curve the exposure still needs a pass of its own while the composer draws the picture — the renderer's own
+  // tone mapping is off then; with no composer at all the renderer's exposure does it: RenderTuning)
+  const curveOn = post && look.toneMap !== "none";
+  const tonePass = post && (look.toneMap !== "none" || look.exposure !== 1);
+  const levelsPass = post && (look.lift !== 0 || look.gamma !== 1 || look.contrast !== 0);
   if (hero) {
     // THE HERO SHOT: the best of every knob left on 자동 — shadows, a large shadow map, AO at full resolution and its
     // highest quality, the refraction at full size, every vegetation point, the full detail at any distance
@@ -321,7 +451,7 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       grainStill: k.grainStill as boolean,
       sunTurnMin: k.sunSpin === "on" ? (k.sunSpinMin as number) : k.sunSpin === "off" ? 0 : null,
       dof,
-      composerOn: ao || grain > 0 || dof,
+      composerOn: ao || grain > 0 || dof || curveOn || levelsPass,
       // (one value for the whole mode, the shot included: a change makes the composer anew — all its buffers again, the
       // old ones still held — and that peak, at the shot's size, lost the WebGL context on the test, 2026-11-18)
       composerMsaa: 4,
@@ -343,6 +473,12 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
         lodNear: Math.max(400, k.lodNear as number),
         lodMid: Math.max(600, k.lodMid as number),
       },
+      look,
+      aoColor,
+      tonePass,
+      levelsPass,
+      fuseWorkers: (k.fuseWorkers as number) || autoFuseWorkers(),
+      uploadMB: k.uploadMB as number,
     };
   }
   return {
@@ -360,7 +496,7 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
     grainStill: k.grainStill as boolean,
     sunTurnMin: k.sunSpin === "on" ? (k.sunSpinMin as number) : k.sunSpin === "off" ? 0 : null,
     dof,
-    composerOn: ao || grain > 0 || dof,
+    composerOn: ao || grain > 0 || dof || curveOn || levelsPass,
     composerMsaa: k.composerMsaa as number,
     refraction: pick(k.refraction as Tri, !perf),
     transmissionScale: ts > 0 ? ts : autoTransScale,
@@ -380,6 +516,12 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
       lodNear: perf ? Math.min(k.lodNear as number, 25) : (k.lodNear as number),
       lodMid: perf ? Math.min(k.lodMid as number, 50) : (k.lodMid as number),
     },
+    look,
+    aoColor,
+    tonePass,
+    levelsPass,
+    fuseWorkers: (k.fuseWorkers as number) || autoFuseWorkers(),
+    uploadMB: k.uploadMB as number,
   };
 }
 
@@ -389,8 +531,17 @@ export function useRenderOptions(inp: RenderInputs): RenderOptions {
  * (three.js keys programs by it but does not notice the change on its own). The type itself is the Canvas's
  * `shadows` prop.
  */
-export function RenderTuning({ shadowType, shadowMapSize, shadowsOn }: { shadowType: ShadowType; shadowMapSize: number; shadowsOn: boolean }) {
+export function RenderTuning({ shadowType, shadowMapSize, shadowsOn, exposure = 1 }: { shadowType: ShadowType; shadowMapSize: number; shadowsOn: boolean; exposure?: number }) {
   const scene = useThree((s) => s.scene);
+  const gl = useThree((s) => s.gl);
+  // THE EXPOSURE (렌더 › 밝기 · 톤 › 노출): the renderer's own — what its tone mapping multiplies by when no composer
+  // draws the picture, and what the composer's tone pass (TonePass) reads, three.js handing it to every program
+  useEffect(() => {
+    gl.toneMappingExposure = exposure;
+    return () => {
+      gl.toneMappingExposure = 1;
+    };
+  }, [gl, exposure]);
   const lights = useRef<THREE.Light[]>([]);
   const frame = useRef(0);
 
@@ -464,5 +615,72 @@ export function StillNoise({ opacity, cell = 1 }: { opacity: number; cell?: numb
   useEffect(() => () => effect.dispose(), [effect]);
   effect.blendMode.opacity.value = opacity;
   (effect.uniforms.get("uCell") as THREE.Uniform<number>).value = cell;
+  return <primitive object={effect} dispose={null} />;
+}
+
+/**
+ * THE LIGHTS BESIDE THE SUN'S (RenderLook): a light from where the picture is looked at from — the faces seen are lit
+ * wherever the turning sun stands — and an even light from above and from below. Each is in the scene only while its
+ * knob is above 0: with them at 0 the materials' programs are the ones the wall always had.
+ */
+export function RenderLights({ look }: { look: RenderLook }) {
+  const light = useRef<THREE.DirectionalLight>(null);
+  const fwd = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    const l = light.current;
+    if (!l) return;
+    l.position.copy(camera.position);
+    l.target.position.copy(camera.position).add(camera.getWorldDirection(fwd));
+    l.target.updateMatrixWorld();
+  });
+  const hemi = Math.max(look.skyFill, look.groundFill);
+  // (white, by its share: linear values, no colour of their own)
+  const [sky, ground] = useMemo(() => {
+    const m = Math.max(look.skyFill, look.groundFill, 1e-6);
+    return [new THREE.Color().setScalar(look.skyFill / m), new THREE.Color().setScalar(look.groundFill / m)];
+  }, [look.skyFill, look.groundFill]);
+  return (
+    <>
+      {look.camLight > 0 && <directionalLight ref={light} intensity={look.camLight} />}
+      {hemi > 0 && <hemisphereLight color={sky} groundColor={ground} intensity={hemi} />}
+    </>
+  );
+}
+
+const TONE_MODE: Record<ToneCurve, ToneMappingMode> = {
+  // (no curve: the light times the exposure, cut off at 1 — what the screen did with it anyway)
+  none: ToneMappingMode.LINEAR,
+  aces: ToneMappingMode.ACES_FILMIC,
+  agx: ToneMappingMode.AGX,
+  neutral: ToneMappingMode.NEUTRAL,
+  reinhard: ToneMappingMode.REINHARD,
+};
+
+/** In the composer: the exposure (the renderer's, set by RenderTuning) and the curve. */
+export function TonePass({ curve }: { curve: ToneCurve }) {
+  return <ToneMapping mode={TONE_MODE[curve]} />;
+}
+
+/**
+ * LEVELS ON THE FINISHED PICTURE (렌더 › 밝기 · 톤): done on the picture as the screen shows it (the composer's light
+ * is linear: taken to the screen's curve and back), so the knobs act as they do in an image editor — the floor of
+ * black lifted, the midtones by a gamma, the contrast around the middle grey. No colour is changed but by these.
+ */
+class LevelsEffect extends Effect {
+  constructor() {
+    super(
+      "LevelsEffect",
+      "uniform float uLift;\nuniform float uGamma;\nuniform float uContrast;\nvoid mainImage(const in vec4 inputColor,const in vec2 uv,out vec4 outputColor){vec3 c=pow(max(inputColor.rgb,vec3(0.0)),vec3(1.0/2.2));c+=uLift*max(vec3(0.0),1.0-c);c=pow(c,vec3(1.0/max(uGamma,0.01)));c=(c-0.5)*(1.0+uContrast)+0.5;outputColor=vec4(pow(max(c,vec3(0.0)),vec3(2.2)),inputColor.a);}",
+      { uniforms: new Map([["uLift", new THREE.Uniform(0)], ["uGamma", new THREE.Uniform(1)], ["uContrast", new THREE.Uniform(0)]]) },
+    );
+  }
+}
+
+export function LevelsPass({ lift, gamma, contrast }: { lift: number; gamma: number; contrast: number }) {
+  const effect = useMemo(() => new LevelsEffect(), []);
+  useEffect(() => () => effect.dispose(), [effect]);
+  (effect.uniforms.get("uLift") as THREE.Uniform<number>).value = lift;
+  (effect.uniforms.get("uGamma") as THREE.Uniform<number>).value = gamma;
+  (effect.uniforms.get("uContrast") as THREE.Uniform<number>).value = contrast;
   return <primitive object={effect} dispose={null} />;
 }
