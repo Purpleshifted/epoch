@@ -330,7 +330,9 @@ const STAY_SPEED = 0.6;
 const STAY_SEC = 4;
 const KIND_ORDER: Record<PlateCellKind, number> = { press: 0, tread: 1, path: 2, slab: 3 };
 
-function worldline(p: PlateInput, box: { left: number; right: number; top: number; bottom: number }, C: Palette): string {
+/** `ruler`: the minutes' ruler on the left (off: the block alone, as wide as the box lets it); `face`: the top face's
+ * height at most this share of the figure's (more: a wider block, a shorter time). */
+function worldline(p: PlateInput, box: { left: number; right: number; top: number; bottom: number }, C: Palette, look: { ruler?: boolean; face?: number } = {}): string {
   // the trail unwrapped step by step (the world wraps, world.ts): one line, however far it went
   const pts: { u: number; v: number; t: number }[] = [];
   let px = 0, pz = 0;
@@ -387,7 +389,7 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
 
   // the scale: as wide as the box allows; the depth takes the rest of its height
   const span = 2 * side * C45;
-  const s = Math.min((box.right - box.left) / span, (0.26 * (box.bottom - box.top)) / (span * SQUASH), 60);
+  const s = Math.min((box.right - box.left) / span, ((look.face ?? 0.26) * (box.bottom - box.top)) / (span * SQUASH), 60);
   const faceH = span * s * SQUASH;
   const depth = Math.max(300, Math.min(900, box.bottom - box.top - faceH));
   const k = depth / tEnd;
@@ -463,27 +465,30 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
     out.push(`<circle cx="${f1(sx(b.u, b.v))}" cy="${f1(sy(b.u, b.v, b.t))}" r="10" fill="${C.bg}" stroke="${C.ink}" stroke-width="3"/>`);
     out.push(`<rect x="${f1(sx(e.u, e.v) - 10)}" y="${f1(sy(e.u, e.v, tEnd) - 10)}" width="20" height="20" fill="${C.ink}"/>`);
   }
-  // the ruler of the life's time, left of the block: 00:00 at the birth, the end level with the top face's left corner
-  const lx = sx(u0, v1), ly = sy(u0, v1, tEnd);
-  const rx = Math.max(M + 100, lx - 64);
-  const rBot = ly + tEnd * k;
-  out.push(`<path d="M${f1(rx)} ${f1(ly)}V${f1(rBot)}" stroke="${C.dim}" stroke-width="1.5"/>`);
-  for (let t = 0; t <= tEnd + 0.001; t += 10) {
-    const y = rBot - t * k;
-    const major = t % step === 0;
-    out.push(`<path d="M${f1(rx)} ${f1(y)}h${major ? 18 : 9}" stroke="${C.dim}" stroke-width="1.5"/>`);
-    if (major && tEnd - t > 8) out.push(text(rx - 16, y + 10, fmtClock(t), 28, C.dim, "end"));
+  if (look.ruler !== false) {
+    // the ruler of the life's time, left of the block: 00:00 at the birth, the end level with the top face's left corner
+    const lx = sx(u0, v1), ly = sy(u0, v1, tEnd);
+    const rx = Math.max(M + 100, lx - 64);
+    const rBot = ly + tEnd * k;
+    out.push(`<path d="M${f1(rx)} ${f1(ly)}V${f1(rBot)}" stroke="${C.dim}" stroke-width="1.5"/>`);
+    for (let t = 0; t <= tEnd + 0.001; t += 10) {
+      const y = rBot - t * k;
+      const major = t % step === 0;
+      out.push(`<path d="M${f1(rx)} ${f1(y)}h${major ? 18 : 9}" stroke="${C.dim}" stroke-width="1.5"/>`);
+      if (major && tEnd - t > 8) out.push(text(rx - 16, y + 10, fmtClock(t), 28, C.dim, "end"));
+    }
+    out.push(`<path d="M${f1(rx - 10)} ${f1(ly)}h22" stroke="${C.ink}" stroke-width="2"/>`);
+    out.push(text(rx - 16, ly + 10, fmtClock(tEnd), 28, C.ink, "end"));
   }
-  out.push(`<path d="M${f1(rx - 10)} ${f1(ly)}h22" stroke="${C.ink}" stroke-width="2"/>`);
-  out.push(text(rx - 16, ly + 10, fmtClock(tEnd), 28, C.ink, "end"));
   return out.join("");
 }
 
 /** The worldline alone as an SVG of its own, `w` × `h` in the card's units (20 per millimetre at the card's size): for
  * a card laid out elsewhere — the minimal card on the design canvas (2026-11-21). The ruler sits in its first 214. */
-export function plateFigureSvg(p: PlateInput, opts: { w: number; h: number; theme?: PlateTheme; font?: PlateFont }): string {
+export function plateFigureSvg(p: PlateInput, opts: { w: number; h: number; theme?: PlateTheme; font?: PlateFont; ruler?: boolean; face?: number }): string {
   const C = PALETTES[opts.theme ?? "paper"];
   const family = `${PLATE_FONTS[opts.font ?? "galmuriMono11"].family}, monospace`;
-  const body = worldline(p, { left: 214, right: opts.w - 16, top: 16, bottom: opts.h - 16 }, C);
+  const ruler = opts.ruler !== false;
+  const body = worldline(p, { left: ruler ? 214 : 16, right: opts.w - 16, top: 16, bottom: opts.h - 16 }, C, { ruler, face: opts.face });
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${opts.w} ${opts.h}" font-family="${esc(family)}">${body}</svg>`;
 }
