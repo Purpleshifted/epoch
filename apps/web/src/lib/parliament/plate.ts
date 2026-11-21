@@ -161,8 +161,13 @@ function stamp(ms: number): string {
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-/** Paper (the printed card: thermal transfer, black on white) or screen (light on the end screen's black). */
-export type PlateTheme = "paper" | "screen";
+/** Paper (white, the greys of the screen) or screen (light on the end screen's black); and for the thermal printer, one
+ * ink only: print (black on white) and printBlack (the black card, printed solid) — every line in the one ink, the
+ * ground's faint fills left out (they would come out as blots), only the paths and the concrete on the top face. */
+export type PlateTheme = "paper" | "screen" | "print" | "printBlack";
+
+/** The one-ink theme for printing a card shown on `theme`. */
+export const printTheme = (theme: PlateTheme): PlateTheme => (theme === "screen" || theme === "printBlack" ? "printBlack" : "print");
 
 interface Palette {
   bg: string;
@@ -170,11 +175,15 @@ interface Palette {
   dim: string;
   faint: string;
   slab: string;
+  /** One ink: no faint fills. */
+  oneInk?: boolean;
 }
 
 const PALETTES: Record<PlateTheme, Palette> = {
   paper: { bg: "#ffffff", ink: "#111111", dim: "#5e5e5a", faint: "#b4b4ae", slab: "#6a6a66" },
   screen: { bg: "#0a0a0a", ink: "#ebebe7", dim: "#9a9b96", faint: "#56574f", slab: "#bbbbbb" },
+  print: { bg: "#ffffff", ink: "#000000", dim: "#000000", faint: "#000000", slab: "#ffffff", oneInk: true },
+  printBlack: { bg: "#000000", ink: "#ffffff", dim: "#ffffff", faint: "#ffffff", slab: "#000000", oneInk: true },
 };
 
 /** One row of the record: a label and its words, a melody after them when it has one. */
@@ -382,15 +391,17 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
   const step = tEnd >= 120 ? 60 : 30;
   for (let t = step; t < tEnd - 1; t += step) out.push(`<path d="M${pt(u0, v1, t)}L${pt(u0, v0, t)}L${pt(u1, v0, t)}" stroke="${C.faint}" stroke-width="1.2" stroke-dasharray="2 10" fill="none"/>`);
   // the ground on the top face: the cells, the trail from above, the face's edge
-  const SHADE: Record<PlateCellKind, (a: number) => string> = {
-    press: (a) => `fill="${C.ink}" fill-opacity="${(0.08 + 0.2 * a).toFixed(3)}"`,
-    tread: () => `fill="${C.ink}" fill-opacity="0.26"`,
-    path: (a) => `fill="${C.ink}" fill-opacity="${(0.4 + 0.3 * a).toFixed(3)}"`,
-    slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="1"`,
-  };
-  for (const c of cells) out.push(`<path d="M${pt(c.u - 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v + 0.5, tEnd)}L${pt(c.u - 0.5, c.v + 0.5, tEnd)}Z" ${SHADE[c.kind](c.a)}/>`);
-  if (pts.length > 1) out.push(`<path d="M${pts.map((q) => pt(q.u, q.v, tEnd)).join("L")}" stroke="${C.ink}" stroke-width="1.2" fill="none" opacity="0.55" stroke-linejoin="round"/>`);
-  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u1, v1, tEnd)}L${pt(u1, v0, tEnd)}L${pt(u0, v0, tEnd)}Z" stroke="${C.ink}" stroke-width="1.5" fill="none" opacity="0.6"/>`);
+  const SHADE: Record<PlateCellKind, (a: number) => string> = C.oneInk
+    ? { press: () => "", tread: () => "", path: () => `fill="${C.ink}"`, slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="2"` }
+    : {
+        press: (a) => `fill="${C.ink}" fill-opacity="${(0.08 + 0.2 * a).toFixed(3)}"`,
+        tread: () => `fill="${C.ink}" fill-opacity="0.26"`,
+        path: (a) => `fill="${C.ink}" fill-opacity="${(0.4 + 0.3 * a).toFixed(3)}"`,
+        slab: () => `fill="${C.slab}" stroke="${C.ink}" stroke-width="1"`,
+      };
+  for (const c of cells) if (SHADE[c.kind](c.a)) out.push(`<path d="M${pt(c.u - 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v - 0.5, tEnd)}L${pt(c.u + 0.5, c.v + 0.5, tEnd)}L${pt(c.u - 0.5, c.v + 0.5, tEnd)}Z" ${SHADE[c.kind](c.a)}/>`);
+  if (pts.length > 1) out.push(`<path d="M${pts.map((q) => pt(q.u, q.v, tEnd)).join("L")}" stroke="${C.ink}" stroke-width="1.2" fill="none" opacity="${C.oneInk ? 1 : 0.55}" stroke-linejoin="round"/>`);
+  out.push(`<path d="M${pt(u0, v1, tEnd)}L${pt(u1, v1, tEnd)}L${pt(u1, v0, tEnd)}L${pt(u0, v0, tEnd)}Z" stroke="${C.ink}" stroke-width="1.5" fill="none" opacity="${C.oneInk ? 1 : 0.6}"/>`);
 
   // how still I was at each reading (0 walking … 1 staying), over ±2 s
   const still = pts.map((q, i) => {
@@ -410,7 +421,7 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
     }
     let j = i;
     while (j + 1 < pts.length && still[j + 1] >= 0.75) j++;
-    if (pts[j].t - pts[i].t >= STAY_SEC && tEnd - pts[j].t > 2) out.push(`<path d="M${pt(pts[j].u, pts[j].v, pts[j].t)}L${pt(pts[j].u, pts[j].v, tEnd)}" stroke="${C.ink}" stroke-width="1.2" stroke-dasharray="2 7" opacity="0.4"/>`);
+    if (pts[j].t - pts[i].t >= STAY_SEC && tEnd - pts[j].t > 2) out.push(`<path d="M${pt(pts[j].u, pts[j].v, pts[j].t)}L${pt(pts[j].u, pts[j].v, tEnd)}" stroke="${C.ink}" stroke-width="1.2" stroke-dasharray="2 7" opacity="${C.oneInk ? 1 : 0.4}"/>`);
     i = j + 1;
   }
   // the worldline: thicker the stiller, in runs of one weight

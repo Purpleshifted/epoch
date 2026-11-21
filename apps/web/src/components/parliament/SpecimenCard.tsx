@@ -8,7 +8,7 @@
  */
 
 import { useMemo } from "react";
-import { PLATE_FONTS, glyphOf, plateSize, plateSvg, type PlateFont, type PlateInput, type PlateOrient, type PlateTheme } from "@/lib/parliament";
+import { PLATE_FONTS, glyphOf, plateSize, plateSvg, printTheme, type PlateFont, type PlateInput, type PlateOrient, type PlateTheme } from "@/lib/parliament";
 
 /** What the visitor does with the card: print it (the gallery machine), save it (a phone, a remote screen), post it. */
 export type CardAct = "print" | "save" | "post";
@@ -107,7 +107,8 @@ export async function printCard(plate: PlateInput, look: CardLook): Promise<void
   const [w, h] = look.orient === "landscape" ? ["86mm", "54mm"] : ["54mm", "86mm"];
   const box = document.createElement("div");
   box.id = "specimen-card-print";
-  box.innerHTML = plateSvg(plate, glyphOf, look);
+  // one ink on the thermal printer: the paper the visitor picked, in its one-ink form
+  box.innerHTML = plateSvg(plate, glyphOf, { ...look, theme: printTheme(look.theme) });
   const style = document.createElement("style");
   style.textContent = `#specimen-card-print{display:none}@media print{@page{size:${w} ${h};margin:0}html,body{margin:0!important;padding:0!important;background:#fff!important}body>*:not(#specimen-card-print){display:none!important}#specimen-card-print{display:block!important;width:${w};height:${h};overflow:hidden}#specimen-card-print svg{display:block;width:100%;height:100%}}`;
   document.head.appendChild(style);
