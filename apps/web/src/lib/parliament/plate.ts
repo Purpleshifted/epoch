@@ -263,29 +263,44 @@ export function plateSvg(
     return { r, size, line, lines, h, g };
   });
   const recH = laid.reduce((a, l) => a + l.h + GAP, -GAP);
-  const foot = [S.kept, S.read].flatMap((s) => wrapText(s, 24, x1 - x0, font));
+  // the foot: the apparatus's two lines — on the gallery machine's landscape card with the recording's caption, its QR
+  // standing in the card's bottom right corner beside them, its bottom on the foot's last line (the artist: the QR
+  // beside the worldline was awkward)
+  const gallery = p.qr !== null;
+  const QR = land ? 176 : 250;
+  const footW = land && gallery ? x1 - x0 - QR - 36 : x1 - x0;
+  const foot: { s: string; c: string }[] = [
+    ...(land && gallery ? wrapText(`${S.recording} · ${S.recordingNote}`, 24, footW, font).map((s) => ({ s, c: C.dim })) : []),
+    ...wrapText(S.kept, 24, footW, font).map((s) => ({ s, c: C.ink })),
+    ...wrapText(S.read, 24, footW, font).map((s) => ({ s, c: C.dim })),
+  ];
   const footTop = H - M - (foot.length - 1) * 34 - 24;
-  // portrait: the record stands on the foot; landscape: it hangs from the head
+  // portrait: the record stands on the foot; landscape: it hangs from the head. The gallery's landscape card closes
+  // with a band under a hairline — the foot on the left, the QR on the right, their bottoms level — and the record's
+  // rows close up as much as they must to stay above it
   const recTop = land ? 262 : footTop - 44 - recH;
+  const band = land && gallery ? Math.min(H - M - QR, footTop - 24) : Infinity;
+  const over = Number.isFinite(band) ? Math.max(0, recTop + recH - (band - 40)) : 0;
+  const gap = Math.max(2, GAP - over / Math.max(1, laid.length - 1));
   let y = recTop;
   out.push(`<path d="M${x0} ${f1(recTop - 22)}H${x1}" stroke="${C.faint}" stroke-width="1.5"/>`);
+  if (Number.isFinite(band)) out.push(`<path d="M${x0} ${f1(band - 20)}H${x1}" stroke="${C.faint}" stroke-width="1.5"/>`);
   for (const l of laid) {
     out.push(text(x0, y + (l.r.big ? 36 : 30), l.r.label, LS, C.dim));
     l.lines.forEach((s, i) => out.push(text(textX, y + (l.r.big ? 40 : 31) + i * l.line, s, l.size, C.ink)));
     if (l.r.dots && l.g) out.push(glyph(l.r.dots, l.g[0], y + l.g[1], CELL, C.ink));
-    y += l.h + GAP;
+    y += l.h + gap;
   }
-  foot.forEach((s, i) => out.push(text(x0, H - M - (foot.length - 1 - i) * 34, s, 24, i === 0 ? C.ink : C.dim)));
+  foot.forEach((f, i) => out.push(text(x0, H - M - (foot.length - 1 - i) * 34, f.s, 24, f.c)));
 
-  // ── the worldline; on the gallery machine the recording's QR beside it ──
-  const gallery = p.qr !== null;
-  const QR = land ? 220 : 250;
-  const qrX = (land ? 800 : W - M) - QR;
+  // ── the worldline; on the gallery machine's portrait card the recording's QR beside it ──
+  const qrBeside = gallery && !land;
+  const qrX = land ? x1 - QR : W - M - QR;
   const fig = land ? { left: 214, top: 104, bottom: H - 104 } : { left: 214, top: 250, bottom: recTop - 66 };
-  out.push(worldline(p, { ...fig, right: gallery ? qrX - 24 : land ? 800 : W - M - 30 }, C));
+  out.push(worldline(p, { ...fig, right: qrBeside ? qrX - 24 : land ? 800 : W - M - 30 }, C));
   if (gallery) {
-    const x = qrX, qy = fig.bottom - QR;
-    out.push(text(x, qy - 50, S.recording, 24, C.dim), text(x, qy - 18, S.recordingNote, 22, C.dim));
+    const x = qrX, qy = land ? H - M - QR : fig.bottom - QR;
+    if (!land) out.push(text(x, qy - 50, S.recording, 24, C.dim), text(x, qy - 18, S.recordingNote, 22, C.dim));
     const mods = p.qr?.modules;
     if (mods) {
       // dark on light whatever the paper (a code reads that way), with its quiet zone
