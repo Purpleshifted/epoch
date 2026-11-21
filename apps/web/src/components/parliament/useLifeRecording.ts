@@ -6,11 +6,13 @@
  *   NAME   → the recorder starts on the engine's tap (engine.ts tapOutput: the limiter's output, the headset's mix,
  *            nothing else — no microphone) the moment the engine is running; the name's melody is the first thing on it
  *   LIVE   → a marker; from here the record's lines (SessionHud → lifeEvents.ts) become markers with the second they
- *            came up; the recordings still waiting from earlier lives are retried behind this one
+ *            came up; recordings a visitor posted but whose upload failed are retried behind this one
  *   ENDED  → a marker with how the life ended; the recorder runs on until the afterlife's reverb has rung out
  *            (engine.afterlifeOver, or `죽음의 잔향` + 4 s if the engine never says), then stops
- *   stop   → the Blob goes into IndexedDB under the life's id FIRST (recordingStore.ts), then up to the Worker
- *            (recordingUpload.ts); `url` is set only once it is there — a QR to nothing is worse than none
+ *   stop   → the Blob goes into IndexedDB under the life's id (recordingStore.ts) and STAYS here: it goes up to the
+ *            Worker (recordingUpload.ts) only when the visitor posts or prints the end card (uploadLifeRecording, called
+ *            by the card); `url` is set only once it is there. Not posted → thrown away when the next recording begins
+ *            (the artist, 2026-11-21)
  *   a visitor who walks away at the name screen (back to IDLE without living) leaves no recording; the next visitor
  *   arriving before the tail is out ends the previous recording where it is
  *
@@ -24,7 +26,7 @@ import type { SoundSetup } from "./useSound";
 import type { Visitor } from "./RoleField";
 import { onLifeEvent } from "./lifeEvents";
 import { LifeRecorder, recStatusLine, recordingFormatHere, tidyMarkers, type RecordingMarker, type RecordingMeta } from "@/lib/sound/recorder";
-import { markUploaded, putRecording } from "@/lib/sound/recordingStore";
+import { discardUnwanted, markUploaded, markWanted, putRecording } from "@/lib/sound/recordingStore";
 import { recordingPageUrl, retryPendingUploads, uploadRecording } from "@/lib/sound/recordingUpload";
 
 export type LifeRecordingPhase = "idle" | "recording" | "uploading" | "done" | "failed";
@@ -97,38 +99,74 @@ interface Run {
 
 let lastLocalUrl: string | null = null;
 
-/** The recorder stopped: keep, upload, say so. Runs on after the hook has let go of the run. */
-async function finish(r: Run, ext: string): Promise<void> {
+/** The life whose recording is finishing or finished here: what uploadLifeRecording() sends when the card is posted. */
+let latest: { id: string; done: Promise<{ blob: Blob; meta: RecordingMeta } | null> } | null = null;
+
+/**
+ * The recorder stopped: kept on this machine (IndexedDB) and nothing more — it goes up only if the visitor posts or
+ * prints the end card (uploadLifeRecording; the artist, 2026-11-21: "게시하면 … 녹음본 db로 넘기고 굳이 게시 안 하면
+ * 걍 버리고 … 출력한 경우도 게시랑 똑같이"). Runs on after the hook has let go of the run.
+ */
+function finish(r: Run, ext: string): void {
   const seconds = r.rec.seconds;
   const base = { id: r.id, seconds: +seconds.toFixed(1), uploaded: false, ext };
-  let blob: Blob;
+  const done = (async () => {
+    let blob: Blob;
+    try {
+      blob = await r.rec.stop();
+    } catch (e) {
+      publish({ ...IDLE, ...base, phase: "failed", note: `녹음 실패 (${(e as Error)?.message ?? e})`, line: recStatusLine(seconds, 0, "녹음 실패") });
+      return null;
+    }
+    const meta: RecordingMeta = {
+      id: r.id,
+      startedAt: new Date(r.startedAt).toISOString(),
+      seconds: +seconds.toFixed(2),
+      bytes: blob.size,
+      mime: blob.type || r.rec.format.mime,
+      events: tidyMarkers(r.events, seconds),
+    };
+    if (lastLocalUrl) URL.revokeObjectURL(lastLocalUrl);
+    const localUrl = URL.createObjectURL(blob);
+    lastLocalUrl = localUrl;
+    const kept = await putRecording(r.id, blob, meta);
+    // (a post pressed while the tail was still being recorded has already said so: keep its phase)
+    if (current.id !== r.id || current.phase === "recording")
+      publish({ ...base, phase: "done", bytes: blob.size, localUrl, note: kept ? undefined : "로컬 보관 못 함", line: recStatusLine(seconds, blob.size, kept ? "로컬 보관 (게시·출력하면 올라감)" : "로컬 보관 못 함") });
+    return { blob, meta };
+  })();
+  latest = { id: r.id, done };
+}
+
+/**
+ * The visitor posted or printed the end card: this life's recording goes up (waiting for the reverb's end if the
+ * recorder is still taking it). Resolves with the page the QR carries (`/rec/<id>`), or null when there is no
+ * recording or the upload failed (then it stays here, marked wanted, and is retried behind the next life).
+ */
+export async function uploadLifeRecording(): Promise<string | null> {
+  // this life's: if the reverb is still being recorded, wait for it (the card is up from the moment of death)
+  const want = current.id;
+  if (!want || current.phase === "failed") return null;
+  if (current.url) return current.url;
+  for (let i = 0; i < 300 && latest?.id !== want; i++) await new Promise((r) => setTimeout(r, 200));
+  const l = latest;
+  if (!l || l.id !== want) return null;
+  const got = await l.done;
+  if (!got) return null;
+  const { blob, meta } = got;
+  await markWanted(l.id);
+  const keep = { id: l.id, seconds: +meta.seconds.toFixed(1), bytes: blob.size, localUrl: current.id === l.id ? current.localUrl : undefined, ext: current.ext };
+  publish({ ...IDLE, ...keep, phase: "uploading", uploaded: false, line: recStatusLine(meta.seconds, blob.size, "올리는 중") });
   try {
-    blob = await r.rec.stop();
-  } catch (e) {
-    publish({ ...IDLE, ...base, phase: "failed", note: `녹음 실패 (${(e as Error)?.message ?? e})`, line: recStatusLine(seconds, 0, "녹음 실패") });
-    return;
-  }
-  const meta: RecordingMeta = {
-    id: r.id,
-    startedAt: new Date(r.startedAt).toISOString(),
-    seconds: +seconds.toFixed(2),
-    bytes: blob.size,
-    mime: blob.type || r.rec.format.mime,
-    events: tidyMarkers(r.events, seconds),
-  };
-  if (lastLocalUrl) URL.revokeObjectURL(lastLocalUrl);
-  const localUrl = URL.createObjectURL(blob);
-  lastLocalUrl = localUrl;
-  const kept = await putRecording(r.id, blob, meta);
-  publish({ ...base, phase: "uploading", bytes: blob.size, localUrl, line: recStatusLine(seconds, blob.size, "올리는 중") });
-  try {
-    await uploadRecording(r.id, blob, meta);
-    if (kept) await markUploaded(r.id);
-    const url = recordingPageUrl(r.id);
-    publish({ ...base, phase: "done", bytes: blob.size, localUrl, url, uploaded: true, line: recStatusLine(seconds, blob.size, url.replace(/^https?:\/\//, "")) });
+    await uploadRecording(l.id, blob, meta);
+    await markUploaded(l.id);
+    const url = recordingPageUrl(l.id);
+    publish({ ...IDLE, ...keep, phase: "done", url, uploaded: true, line: recStatusLine(meta.seconds, blob.size, url.replace(/^https?:\/\//, "")) });
+    return url;
   } catch (e) {
     const why = (e as Error)?.message ?? String(e);
-    publish({ ...base, phase: "done", bytes: blob.size, localUrl, note: `업로드 실패 (${why})${kept ? " · 로컬 보관, 다음 삶 때 재시도" : " · 보관 못 함"}`, line: recStatusLine(seconds, blob.size, kept ? `로컬 보관 · 업로드 실패 ${why}` : `업로드 실패 ${why}`) });
+    publish({ ...IDLE, ...keep, phase: "done", uploaded: false, note: `업로드 실패 (${why}) · 로컬 보관, 다음 삶 때 재시도`, line: recStatusLine(meta.seconds, blob.size, `업로드 실패 ${why}`) });
+    return null;
   }
 }
 
@@ -145,6 +183,11 @@ export function useLifeRecording(session: LifeSession | null, sound: SoundSetup 
   }, [session, sound, opts]);
   /** The session a failure was reported for (so it is said once, not four times a second). */
   const failedFor = useRef(-1);
+
+  // for measuring from DevTools / a headless test (the card calls uploadLifeRecording itself): no UI reads this
+  useEffect(() => {
+    (window as unknown as { __lifeRecording?: unknown }).__lifeRecording = { upload: uploadLifeRecording, state: () => current };
+  }, []);
 
   useEffect(() => {
     let ticks = 0;
@@ -204,6 +247,8 @@ export function useLifeRecording(session: LifeSession | null, sound: SoundSetup 
         events.push({ t: 0, kind: "name", text: "", level: 0 });
         const off = onLifeEvent((e) => events.push({ t: (Date.now() - startedAt) / 1000, kind: e.kind, text: e.text, level: e.level }));
         run.current = { id: v.id, sessionNo: s.sessionNo, rec, events, startedAt, lived: false, endedAt: 0, off };
+        // the last visitor's recording, if they did not post or print their card, is thrown away (the artist)
+        void discardUnwanted(v.id);
         publish({ ...IDLE, id: v.id, phase: "recording", ext: format.ext, line: recStatusLine(0, 0) });
       } catch (e) {
         failedFor.current = s.sessionNo;

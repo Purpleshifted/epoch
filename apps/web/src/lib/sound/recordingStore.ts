@@ -22,6 +22,8 @@ export interface StoredRecording {
   uploadedAt: number;
   /** Upload attempts so far. */
   tries: number;
+  /** The visitor posted or printed the card: this one goes up (and is retried until it does). Otherwise discarded. */
+  wanted?: boolean;
 }
 
 function open(): Promise<IDBDatabase | null> {
@@ -93,15 +95,39 @@ export async function markUploaded(id: string): Promise<void> {
   await tx("readwrite", (s) => s.put({ ...row, uploadedAt: Date.now() }));
 }
 
+/** The visitor posted or printed the card: keep this one and send it. */
+export async function markWanted(id: string): Promise<void> {
+  const row = await getRecording(id);
+  if (!row || row.wanted) return;
+  await tx("readwrite", (s) => s.put({ ...row, wanted: true }));
+}
+
+/**
+ * Every recording nobody asked for (not posted, not printed) is thrown away, and every posted one already on the
+ * server (its copy here is no longer needed) — except `keep` (the life now). What was posted but not yet sent stays.
+ */
+export async function discardUnwanted(keep = ""): Promise<number> {
+  const rows = await listRecordings();
+  let n = 0;
+  for (const r of rows) {
+    if (r.id === keep || (r.wanted && !r.uploadedAt)) continue;
+    await deleteRecording(r.id);
+    n++;
+  }
+  return n;
+}
+
 export async function bumpTries(id: string): Promise<void> {
   const row = await getRecording(id);
   if (!row) return;
   await tx("readwrite", (s) => s.put({ ...row, tries: row.tries + 1 }));
 }
 
-/** Recordings not yet uploaded, oldest first, at most `limit`. */
+/** Recordings asked for (posted / printed) and not yet uploaded, oldest first, at most `limit`. */
 export function listPending(limit = 5): Promise<StoredRecording[]> {
-  return tx<StoredRecording[]>("readonly", (s) => s.index("uploadedAt").getAll(IDBKeyRange.only(0), limit)).then((r) => r ?? []);
+  return tx<StoredRecording[]>("readonly", (s) => s.index("uploadedAt").getAll(IDBKeyRange.only(0))).then((r) =>
+    (r ?? []).filter((x) => x.wanted).sort((a, b) => a.storedAt - b.storedAt).slice(0, limit),
+  );
 }
 
 export async function deleteRecording(id: string): Promise<void> {

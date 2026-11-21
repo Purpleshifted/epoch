@@ -22,9 +22,12 @@
 
 ## 어디로 가나
 
-1. **먼저 이 기계에** — 녹음이 멈추는 순간 Blob을 IndexedDB(`anthropocene-recordings`)에 삶 id로 넣는다(`lib/sound/recordingStore.ts`). 업로드가 실패해도 잃지 않는다. 끝 화면용 내려받기 주소(`localUrl`, object URL)도 이때 생긴다.
-2. **바로 업로드** — Cloudflare Worker `relay/recordings`(R2 버킷 `anthropocene-recordings`)로 `PUT /rec/<id>`(오디오) 다음 `PUT /rec/<id>.json`(마커). 전시 기계는 다음 관객이 곧 누르므로 죽는 순간 바로 시작한다.
-3. **실패하면** IndexedDB에 남겨 두고, 다음 삶이 시작될 때(LIVE) 뒤에서 기다리던 것들을 하나씩 다시 올린다(`retryPendingUploads`, 한 번에 3개까지).
+**작가 결정(2026-11-21, 표본 카드 세션)**: "게시하면 내 삶요약이랑 녹음본 db로 넘기고 굳이 게시 안 하면 걍 버리고 … 출력한 경우도 게시랑 똑같이 작동". 그래서:
+
+1. **이 기계에만** — 녹음이 멈추면(잔향 끝) Blob을 IndexedDB(`anthropocene-recordings`)에 삶 id로 넣는다(`lib/sound/recordingStore.ts`). 끝 화면용 내려받기 주소(`localUrl`)도 이때 생긴다. **올리지 않는다.**
+2. **게시하기 · 출력하기를 누르면** — 카드가 `uploadLifeRecording()`(`components/parliament/useLifeRecording.ts`)을 부른다. 잔향을 아직 녹음 중이면 그 끝을 기다린 뒤, `PUT /rec/<id>`(오디오) → `PUT /rec/<id>.json`(마커)로 Worker `relay/recordings`(R2)에 올리고 `/rec/<id>` 주소를 돌려준다(실패하면 null). 카드는 그 주소를 삶 요약과 함께 `/api/lives`로 넘기고, 전시장 기계에서는 그 QR을 그린다.
+3. **게시도 출력도 안 하면** — 다음 녹음이 시작될 때(다음 관객의 이름 화면) 버린다. 이미 올라간 것의 로컬 사본도 그때 지운다.
+4. **게시했는데 업로드가 실패하면** — '원함' 표시로 남겨 두고, 다음 삶이 시작될 때 뒤에서 다시 올린다(`retryPendingUploads`).
 
 삶 id = 방문자 id(`RoleField`의 `v_xxxxx`, 모티프의 씨앗). 같은 id로 두 번 쓰는 것은 Worker가 거절한다(409) — 한 삶은 나중에 덮어쓸 수 없다.
 
@@ -52,7 +55,7 @@
 
 `SessionHud.tsx`의 끝 카드 마크업은 이 세션이 건드리지 않았다.
 
-**QR (임시, 2026-11-21 밤)**: 작가가 폰으로 찍어 보려고 — 업로드가 끝나면 끝 화면 **왼쪽 아래**에 `/rec/<id>`의 QR(`components/parliament/RecordingQr.tsx`, 132 px, 흰 바탕; 오른쪽 아래는 Leva가 가린다). 카드가 QR을 품게 되면 이것은 뺀다. QR은 라이브러리 없이 `lib/qr.ts`(바이트 모드, 오류 정정 M, 마스크 벌점)가 만든다 — 카드 세션도 이것을 쓰면 된다. 확인: 다섯 가지(짧은 주소 ~ 버전 12·H, 한글)를 PNG로 그려 Chrome의 BarcodeDetector로 읽어 모두 일치, 끝 화면의 실제 QR도 그 삶의 주소로 읽힘. 상태줄(`?ui=0`이 아닐 때 왼쪽 위)에 `● REC 1:32 · 1.1 MB` 한 줄, 끝난 뒤에는 `올리는 중` / 주소 / `로컬 보관 · 업로드 실패 …`.
+**QR (임시, 2026-11-21 밤)**: 작가가 폰으로 찍어 보려고 — 업로드가 끝나면(= 게시·출력 뒤) 끝 화면 **왼쪽 아래**에 `/rec/<id>`의 QR(`components/parliament/RecordingQr.tsx`, 132 px, 흰 바탕; 오른쪽 아래는 Leva가 가린다). 카드가 QR을 품게 되면 이것은 뺀다. QR은 라이브러리 없이 `lib/qr.ts`(바이트 모드, 오류 정정 M, 마스크 벌점)가 만든다 — 카드 세션도 이것을 쓰면 된다. 확인: 다섯 가지(짧은 주소 ~ 버전 12·H, 한글)를 PNG로 그려 Chrome의 BarcodeDetector로 읽어 모두 일치, 끝 화면의 실제 QR도 그 삶의 주소로 읽힘. 상태줄(`?ui=0`이 아닐 때 왼쪽 위)에 `● REC 1:32 · 1.1 MB` 한 줄, 끝난 뒤에는 `올리는 중` / 주소 / `로컬 보관 · 업로드 실패 …`.
 
 ## 비용 (R2)
 
@@ -69,3 +72,5 @@ cd relay/recordings && npx wrangler@4 deploy
 limiter → destination만 끊고(탭은 유지) 수명 시계 ×8로 삶 하나: Chrome이 `audio/mp4`를 골랐고, 39.7 s · 314 KB · 2채널, 처음 12 s는 이름의 멜로디(약 2 s 울리고 1 s 쉬는 반복, RMS 0.09), 삶 동안 0.02–0.03, 끝 뒤 잔향 6 s 동안 0으로. 마커 7개(이름 · 삶 시작 · 풀밭 · 혼자 · 풀이 사라짐 · 죽어감 · 끝)가 화면의 줄과 같은 초. 업로드는 Worker가 없어 실패 → IndexedDB 보관, `/rec/<id>`가 이 기기의 사본으로 재생·탐색. 폰(iOS Safari)은 작가의 프리뷰 테스트로.
 
 **R2 뒤 (같은 날)**: Worker 시험 — 출처 없는 쓰기·남의 출처 403, 같은 id 두 번째 쓰기 409, 읽기 200(`audio/mp4`, 바이트 그대로), Range 206(`bytes 100-199/5000`), 없는 id 404, CORS 사전 요청 204. 그리고 실제 삶 하나(무음, ×8): 33.5 s · 265 KB가 올라갔고, Worker에서 받아 디코드하면 33.4 s · RMS 0.05, 마커 7개 그대로; 이 기기의 사본을 지운 뒤 `/rec/<id>`가 Worker에서 재생·탐색. 시험으로 올린 것들은 버킷에서 지웠다.
+
+**게시해야 올라감 (같은 날 밤)**: 새 프로필 헤드리스 Chrome(`--mute-audio`)에서 실제 길이의 삶 하나(3:07 · 1.5 MB) — 끝난 뒤 상태 `로컬 보관 (게시·출력하면 올라감)`, Worker에는 없음(404); `uploadLifeRecording()`을 부르자 Worker에 생김(200), 주소 `/rec/<id>`가 돌아옴. 시험 녹음은 지웠다. 다음 삶에서 버려지는 것과 잔향 중에 게시한 경우는 코드로만 확인.
