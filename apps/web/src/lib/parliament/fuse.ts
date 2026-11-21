@@ -161,6 +161,13 @@ export interface FuseConfig {
    */
   voxelTie?: number;
   /**
+   * THE FOSSIL IN STAGES (spaceModel FuseInput.stages): how many stages, and over how many seconds a group of pieces
+   * made again is put on the screen — a slot at a time from the bottom up, each at once (fuseUnits show). Absent / 0 =
+   * the mass made once.
+   */
+  stageN?: number;
+  stageSweep?: number;
+  /**
    * THE PIECES THE SEEDED MASS IS MADE IN (spaceModel sendUnits → the worker beside; the artist, 2026-11-20: "현재
    * 상태에서도 화석 생성 단위 묶음/타일 더 촘촘하게 만들 수 있지 않나?"): cells of ground a side, and slots of height
    * (absent: 14 × 10, as it was). A smaller piece is made sooner — a change is on the screen sooner, and less is
@@ -1355,17 +1362,24 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const seen = new Uint8Array(n);
     const queue = new Int32Array(n);
     const nxy = nx * ny;
-    const comps: [number, number, boolean][] = []; // [first in the queue, how many, touches a side]
+    const comps: [number, number, boolean, number][] = []; // [first in the queue, how many, touches a side, thinnest extent (samples)]
     let tail = 0, largest = 0;
     for (let p0 = 0; p0 < n; p0++) {
       if (seen[p0] || !(F[p0] > iso)) continue;
       const first = tail;
       let head = tail, edge = false;
+      let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity, k0 = Infinity, k1 = -Infinity;
       queue[tail++] = p0;
       seen[p0] = 1;
       while (head < tail) {
         const p = queue[head++];
         const i = p % nx, j = ((p - i) / nx) % ny, k = (p - i - j * nx) / nxy;
+        if (i < i0) i0 = i;
+        if (i > i1) i1 = i;
+        if (j < j0) j0 = j;
+        if (j > j1) j1 = j;
+        if (k < k0) k0 = k;
+        if (k > k1) k1 = k;
         if (i === 0 || j === 0 || k === 0 || i === nx - 1 || j === ny - 1 || k === nz - 1) {
           edge = true;
           continue;
@@ -1377,12 +1391,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
           queue[tail++] = q;
         }
       }
-      comps.push([first, tail - first, edge]);
+      comps.push([first, tail - first, edge, Math.min(i1 - i0, j1 - j0, k1 - k0) + 1]);
       if (tail - first > largest) largest = tail - first;
     }
     const least = Math.max(minVox, crust ? CRUST_BODY * largest : 0);
-    for (const [first, count, edge] of comps) {
-      if (edge || count >= least) continue;
+    // (THE FOSSIL IN STAGES — "표면 뾰족한 거 진짜 싫어": a loose piece that is no thicker than two samples anywhere — a
+    // sheet, a sliver — goes too, whatever its size)
+    const stagesThin = (cfg.stageN ?? 0) > 0 ? 2 : 0;
+    for (const [first, count, edge, thinnest] of comps) {
+      if (edge || (count >= least && thinnest > stagesThin)) continue;
       for (let t = first; t < first + count; t++) F[queue[t]] = iso - 0.25;
     }
   }

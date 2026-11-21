@@ -758,6 +758,8 @@ const CHUNK_SLOTS = 30;
  * settings, is made at once.
  */
 const PIECE_REST_MS = 180000;
+/** THE FOSSIL IN STAGES (FuseConfig.stageN): a piece's rest — it is made again when a part steps on. */
+const STAGE_REST_MS = 30000;
 
 interface Made {
   cfg: string;
@@ -1185,23 +1187,38 @@ export class FuseUnits {
   }
 
   /** A piece off the screen: it dissolves out over FUSE_BLEND_S (drawn until then from `leaving`). */
-  private leave(q: Unit, m: Made): void {
+  private leave(q: Unit, m: Made, tick?: (y: number) => number): void {
     const nv = m.mesh.position.length / 3;
     if (nv) {
       const bl = (m.mesh.blend ??= blendOf(nv));
-      const tNow = this.now();
+      const tNow = this.now(), P = m.mesh.position;
       for (let v = 0; v < nv; v++) {
         // (its skin stays as it is on the screen now; the dissolve takes the whole away)
         const t = Math.max(0, Math.min(1, (tNow - bl[v * 4 + 1]) / FUSE_BLEND_S));
         const S = bl[v * 4] + (bl[v * 4 + 3] - bl[v * 4]) * t;
         bl[v * 4] = S;
         bl[v * 4 + 3] = S;
-        bl[v * 4 + 1] = tNow;
+        // (THE FOSSIL IN STAGES: gone at once, at its height's turn — as the stage replacing it comes)
+        bl[v * 4 + 1] = tick ? tick(P[v * 3 + 1]) : tNow;
         bl[v * 4 + 2] = -1;
       }
-      q.leaving.push({ made: m, until: performance.now() + FUSE_BLEND_S * 1000 + 200 });
+      const sweep = (q.job?.fuse.stageN ?? 0) > 0 ? Math.max(0, q.job?.fuse.stageSweep ?? 4) : FUSE_BLEND_S;
+      q.leaving.push({ made: m, until: performance.now() + sweep * 1000 + 400 });
     }
     this.dirty.add(m.chunk);
+  }
+
+  /**
+   * THE FOSSIL IN STAGES — WHEN EACH HEIGHT TURNS (the artist, 2026-11-21 night: the buildings' ticker, "한 동네씩,
+   * 아래에서 위로 탁탁"): over the stage sweep, a slot at a time from the foot of the band to its top, each slot at once.
+   * Null when the fossil is not in stages.
+   */
+  private tickOf(q: Unit, y0: number, y1: number): ((y: number) => number) | null {
+    const j = q.job;
+    if (!j || !((j.fuse.stageN ?? 0) > 0)) return null;
+    const sweep = Math.max(0, j.fuse.stageSweep ?? 4), tNow = this.now(), u = Math.max(0.1, j.u);
+    const steps = Math.max(1, Math.ceil((y1 - y0) / u));
+    return (y: number) => tNow + (sweep * Math.max(0, Math.min(steps - 1, Math.floor((y - y0) / u)))) / Math.max(1, steps - 1);
   }
 
   /** The pieces whose dissolve is over are let go; returns ms until the next one is (Infinity = none). */
@@ -1225,7 +1242,7 @@ export class FuseUnits {
   /** A piece comes onto the screen: stamped (one new on the screen grows out of its parts from now; one made again
    *  keeps its stamp), what joined from another building there let go, its parts absorbed, its faces and its
    *  neighbours' faces looked at again. */
-  private show(q: Unit, k: string, made: Made, keys: readonly number[], stampNow: number): void {
+  private show(q: Unit, k: string, made: Made, keys: readonly number[], stampNow: number, band?: [number, number]): void {
     const was = q.done.get(k);
     const stamp = was ? was.stamp : stampNow;
     if (made.stamp !== stamp) {
@@ -1233,16 +1250,20 @@ export class FuseUnits {
       const B = made.mesh.growB;
       if (B) for (let v = 0; v < B.length; v += 2) B[v] = stamp;
     }
-    // MADE AGAIN: it dissolves in over the one it replaces, which dissolves out (FUSE_BLEND_S)
-    if (was && was !== made) {
-      const nv = made.mesh.position.length / 3;
+    // MADE AGAIN: it dissolves in over the one it replaces, which dissolves out (FUSE_BLEND_S) — or, THE FOSSIL IN
+    // STAGES, it is put on a slot at a time from the bottom up, the old going at each height as the new comes (and a
+    // piece new on the screen comes the same way)
+    const [k0] = k.split(":").map(Number);
+    const tick = q.job ? this.tickOf(q, band ? band[0] : k0 * q.job.u, band ? band[1] : (k0 + q.job.seg) * q.job.u) : null;
+    if ((was && was !== made) || (tick && !was)) {
+      const nv = made.mesh.position.length / 3, P = made.mesh.position;
       const bl = (made.mesh.blend = blendOf(nv));
       const tNow = this.now();
       for (let v = 0; v < nv; v++) {
-        bl[v * 4 + 1] = tNow;
+        bl[v * 4 + 1] = tick ? tick(P[v * 3 + 1]) : tNow;
         bl[v * 4 + 2] = 1;
       }
-      this.leave(q, was);
+      if (was && was !== made) this.leave(q, was, tick ?? undefined);
     }
     q.done.set(k, made);
     this.dirty.add(made.chunk);
@@ -1300,12 +1321,19 @@ export class FuseUnits {
         const was = q.done.get(k);
         if (was) {
           q.done.delete(k);
-          if (was.orphanOf === undefined) this.leave(q, was);
+          if (was.orphanOf === undefined) this.leave(q, was, this.tickOf(q, Number(k.split(":")[0]) * q.job.u, (Number(k.split(":")[0]) + seg) * q.job.u) ?? undefined);
           else this.dirty.add(was.chunk);
         }
       }
       // (the empty ones are gone first, so a shown piece's faces are read against what is left)
-      for (const [k, made, keys] of toShow) this.show(q, k, made, keys, stampNow);
+      // (THE FOSSIL IN STAGES: the group goes from its lowest slot to its highest, a slot at a time — tickOf)
+      let gy0 = Infinity, gy1 = -Infinity;
+      for (const k of group) {
+        const k0 = Number(k.split(":")[0]);
+        gy0 = Math.min(gy0, k0 * q.job.u);
+        gy1 = Math.max(gy1, (k0 + seg) * q.job.u);
+      }
+      for (const [k, made, keys] of toShow) this.show(q, k, made, keys, stampNow, [gy0, gy1]);
       // (a piece let go: the faces of those round it may open)
       for (const k of group) for (const n of faceNeighbours(k, seg, tile)) this.fadeEdges(q, n);
     }
@@ -1360,8 +1388,10 @@ export class FuseUnits {
       for (let i = 0; i < q.todo.length; i++) {
         const p = q.todo[i];
         const m = q.done.get(p.key);
-        if (m && m.cfg === q.job.cfg && now - m.at < PIECE_REST_MS) {
-          this.waitMs = Math.min(this.waitMs, PIECE_REST_MS - (now - m.at));
+        // (THE FOSSIL IN STAGES: a piece steps on a few times in its life — it rests half a minute, not three)
+        const rest = (q.job.fuse.stageN ?? 0) > 0 ? STAGE_REST_MS : PIECE_REST_MS;
+        if (m && m.cfg === q.job.cfg && now - m.at < rest) {
+          this.waitMs = Math.min(this.waitMs, rest - (now - m.at));
           continue;
         }
         const vis = q.vis.get(p.key) ?? 0;

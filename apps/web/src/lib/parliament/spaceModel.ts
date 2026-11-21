@@ -471,6 +471,15 @@ export interface FuseInput {
    * pieces whose parts are other than they were. Absent = nothing is let go (no life, or one that never ends).
    */
   dead?: { deep: number; at: number; after: number };
+  /**
+   * THE FOSSIL IN STAGES (the artist, 2026-11-21 night, asked how the exhibition did it — its mass was made again as the
+   * parts' clocks went — and whether to try the way between: "시험해 / 표면 뾰족한 거 진짜 싫어..."). With this the
+   * seeded mass is not made once as it will be: each part goes in at its STAGE — its progress on the fossil's own ruler
+   * (the same as the wall's shader and `dead`: the age since it hardened, slowed by its depth, × its own factor, over
+   * `span` slots) cut into `n` steps, as its decay `d` (1/n … 1): a real shape for every stage, made again when a part
+   * steps on (the piece's signature holds `d`). A part on no step yet has no mass. Absent = made once, as it will be.
+   */
+  stages?: { n: number; span: number; deep: number; after: number };
 }
 
 export interface PointsResult {
@@ -1578,7 +1587,8 @@ export class SpaceModel {
       const tSig = tubeSig.get(id) ?? "";
       // (…and each part's age as it was told: a cell-slot lived in again starts its clock over with the same parts —
       // computeParts takeLived — and its fossil must be made again from the new age, not keep the old one)
-      if (ent && ent.cfg === cfg && this.unitTubes.get(id) === tSig && ent.snap.size === list.length && list.every((e) => ent.snap.has(key(e.b)) && ent.born?.get(key(e.b)) === e.grow?.[1])) continue;
+      // (…and each part's decay as it was told: THE FOSSIL IN STAGES steps a part on by it — FuseInput.stages)
+      if (ent && ent.cfg === cfg && this.unitTubes.get(id) === tSig && ent.snap.size === list.length && list.every((e) => ent.snap.get(key(e.b)) === e.d && ent.born?.get(key(e.b)) === e.grow?.[1])) continue;
       waiting++;
       if ((ent && ent.cfg === cfg && nowMs - ent.madeMs < UNIT_REST_MS) || performance.now() > deadline) continue;
       const ang = list[0].ang;
@@ -3659,6 +3669,10 @@ export class SpaceModel {
     const deadStep = dead ? Math.max(1, dead.at / 10) : 1;
     const deadNow = dead && bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / deadStep) * deadStep : 0;
     const deadH = bc ? Math.max(1, bc.erode.height ?? bc.top) : 1;
+    // (THE FOSSIL IN STAGES — FuseInput.stages: on the same clock as the life's, stepped a quarter of a stage at a time)
+    const stg = seeded && bc && input.stages && input.stages.n > 0 ? input.stages : null;
+    const stgStep = stg ? Math.max(0.25, stg.span / (stg.n * 4)) : 1;
+    const stgNow = stg && bc ? Math.floor((bc.top + Math.max(0, bc.erode.stood ?? 0)) / stgStep) * stgStep : 0;
     // A FORM OF ITS OWN FOR EVERY BUILDING (fuse.ts StudyConfig.meltVary): the shares of the three forms, and how much
     // the place steers the pick
     const mv = seeded ? Math.max(0, Math.min(1, fuse.study?.meltVary ?? 0)) : 0;
@@ -3704,6 +3718,14 @@ export class SpaceModel {
           letGo++;
           continue;
         }
+        // THE FOSSIL IN STAGES (FuseInput.stages): the part goes in at the step its progress has reached — none yet, no mass
+        let stageD = 1;
+        if (stg && bc) {
+          const ruler = (stgNow - bornAge - stg.after) * Math.max(0.2, own) * (1 - stg.deep * (1 - Math.max(0, Math.min(1, (bc.top - (b.slot + 0.5)) / deadH))));
+          const step = Math.min(stg.n, Math.floor((ruler / Math.max(1, stg.span)) * stg.n));
+          if (step <= 0) continue;
+          stageD = step / stg.n;
+        }
         // A PART THAT GOES BEFORE ITS FOSSIL BEGINS LEAVES NONE (the wall's shader lets the fossil out by the layer's
         // depth: FUSE_GROW_VERT_BODY): how deep the part lies when the erosion takes it — its progress summed slot by
         // slot of the top's way, as computeParts does — against the depth its fossil begins at (kept per part: it
@@ -3730,7 +3752,7 @@ export class SpaceModel {
         // 느낌이 날 것 같음"): the share of parts kept as skeleton — only thinly wrapped, their orthogonal form left —
         // is kept in the seeded mass too, for good (its mass is the mass as it will be: there is no progress at which
         // the skeleton is swallowed). It was switched off here, and the foam opened on plain mass.
-        const e: P = { b, d: 1, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
+        const e: P = { b, d: stageD, up: true, sk: isSkeleton(b, 0, fuse), ang: angleOf.get(b.seed) ?? 0, grow: [b.slot, bornAge, g, own, nEff, most] };
         const l = bySlot.get(b.slot);
         if (l) l.push(e);
         else bySlot.set(b.slot, [e]);
