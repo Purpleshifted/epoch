@@ -20,7 +20,10 @@
  *   ROUTE        a route drains to the nearest OPEN ground (trunk) or to the network (laterals) (sealed share < `openShare`, not sealed): the cheapest
  *                way over the grid — along the paths (sewers run under streets), joining the pipes already laid,
  *                never through a building that stands (past buildings are gone round). Right angles only, or 45°
- *                too (`diagonal`); straight runs, bends at the cells where the direction changes
+ *                too (`diagonal`); straight runs, bends at the cells where the direction changes. (2026-11-20) A bend
+ *                costs PIPE_TURN steps, a pipe leaves a building straight out of the middle of a face and comes down
+ *                that face from its foot (a DROP), goes round what stands at the height it lies at, joins the network
+ *                only where it runs straight, and comes up at its outfall to the ground its stream runs on
  *   PIPE / OPEN  a building in a sealed quarter (the mean sealed share over its cells ≥ `burial`) drains through a
  *                PIPE all the way to the outlet (a storm sewer and its outfall): buried, drawn as straight grey
  *                conduits — the whole network each time it is laid, a little below that slot (`pipeDepth`: buried
@@ -243,6 +246,13 @@ export interface PipeRun {
   flow: number;
   /** A RISER (a manhole shaft): vertical at (ax, az) from the network laid in slot k0 up to the one laid in k. */
   k0?: number;
+  /**
+   * A DROP (2026-11-20, "억지스러운 연결부나 건물과의 상대 포지셔닝"): vertical at (ax, az) from the network laid in slot k
+   * (buried `pipeDepth` below it) up to the ground of slot k (y = k × unit) — where a building's water comes down the
+   * face it leaves from into its pipe, and where the sewer comes up at its outfall to the ground its stream runs on.
+   * So no pipe begins or ends in the air below the thing it serves.
+   */
+  drop?: true;
   /** The route (trunk or lateral) this run belongs to, and its place along it: runs of one route join end to end. */
   route?: number;
   seq?: number;
@@ -297,6 +307,13 @@ const COST_PIPE = 0.12;
 const COST_GROUND = 1;
 /** WaterConfig.pathPull −1: a step on a path costs this many steps over open ground (beside one: half of it). */
 const PATH_AVOID = 6;
+/**
+ * A BEND COSTS (2026-11-20, "억지스러운 연결부"): turning a pipe through a right angle costs as much as this many steps
+ * over open ground (45° in proportion; turning back is never allowed). On the bare grid every staircase of one-cell
+ * steps was as short as one L, and the heap's order picked among them — so a route came out as elbow after elbow a cell
+ * apart, and a jog round a corner as a dogleg. Now a route bends only where bending saves more than this.
+ */
+const PIPE_TURN = 3;
 
 /**
  * The drainage of the history: per epoch, the sealed ground, each source's route to open ground (cheapest over the
@@ -377,6 +394,9 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   // (one set of buffers for every slot: the block is read over a few hundred slots at every call)
   const sealed = new Uint8Array(n), path = new Uint8Array(n), laidBuf = new Uint8Array(n);
   const block = new Int32Array(n); // building on the cell (impassable)
+  // (the pipes: what stands at the height they lie at and on the way up to the slot they serve; the cells this slot's
+  // networks already run through)
+  const pipeBlockBuf = inBlock ? new Int32Array(n) : block, taken = new Uint8Array(n);
   const sat = new Float64Array((nx + 1) * (nz + 1));
   const share = new Float32Array(n);
   let laidDense = "";
@@ -540,13 +560,47 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       if (l) l.push(b);
       else groups.set(g, [b]);
     }
+    // WHERE A PIPE CAN LIE (2026-11-20, "건물과의 상대 포지셔닝"): a network laid in slot e lies `pipeDepth` slots below
+    // it — in the block that is among the buildings of THOSE slots, and its drops rise through the slots between to the
+    // building's foot. It was routed round the buildings of slot e only, and so ran through the buildings standing
+    // where it was drawn. Now it goes round every cell built in any slot from the one it lies in up to e.
+    let pipeBlock = block;
+    if (inBlock) {
+      pipeBlock = pipeBlockBuf;
+      pipeBlock.fill(-1);
+      const lo = Math.floor(e - Math.max(0, cfg.pipeDepth) - 0.25);
+      for (const b of buildings) {
+        for (const s of b.seeds) {
+          for (const [a, z] of runsOf.get(s)!) {
+            if (a <= e && z >= lo) {
+              pipeBlock[idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE))] = b.id;
+              break;
+            }
+          }
+        }
+      }
+    }
+    // (THE NETWORKS DO NOT RUN THROUGH EACH OTHER: a cell a network of this slot runs through is closed to every other
+    // route — a lateral may only end on it, where it joins)
+    taken.fill(0);
     for (const quarter of [...groups.values()].flatMap((g) => quartersOf(g, cfg.quarterGap))) {
       const down = new Int32Array(n).fill(-2); // network: the next cell towards the outfall (−1 = the outfall)
       const inNet = (c: number) => down[c] !== -2;
-      const routes: number[][] = [];
+      // JOINS ONLY WHERE THE NETWORK RUNS STRAIGHT (2026-11-20, "억지스러운 연결부"): a lateral used to end on the first
+      // network cell it met — a building's entry, the outfall, the corner of an elbow, or the very cell another lateral
+      // had joined at — and there the fittings piled into a knot. Those cells are no place to join (unless nothing else
+      // can be reached).
+      const knot = new Uint8Array(n);
+      const markKnots = (cells: number[]) => {
+        knot[cells[0]] = 1;
+        knot[cells[cells.length - 1]] = 1;
+        for (let i = 1; i + 1 < cells.length; i++) if (!straightAt(cells, i, nx)) knot[cells[i]] = 1;
+        for (const c of cells) taken[c] = 1;
+      };
+      const routes: { cells: number[]; back: number; mouth: boolean }[] = [];
       const entry = new Map<number, number>(); // building → the cell its water enters the network at
       // the trunk: from the quarter's nearest building edge to open ground
-      const trunk = routeOut(quarter, block, path, piped, nx, nz, idx, cfg, isOpen);
+      const trunk = routeOut(quarter, pipeBlock, path, piped, nx, nz, idx, cfg, isOpen, taken);
       if (!trunk) continue;
       // the sewer ends at the edge of the sealed quarter (its OUTFALL: the last cell still sealed to `burial`, one
       // past it); from there the water runs on in the open — a pipe does not run out across open ground
@@ -554,7 +608,8 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
       for (let i = 0; i < trunk.cells.length; i++) if (share[trunk.cells[i]] >= cfg.burial) cut = i;
       trunk.cells = trunk.cells.slice(0, Math.min(trunk.cells.length, cut + 2));
       for (let i = 0; i < trunk.cells.length; i++) down[trunk.cells[i]] = i + 1 < trunk.cells.length ? trunk.cells[i + 1] : -1;
-      routes.push(trunk.cells);
+      routes.push({ cells: trunk.cells, back: trunk.back, mouth: true });
+      markKnots(trunk.cells);
       entry.set(trunk.from, trunk.cells[0]);
       // laterals: every other building to the network, nearest to the outfall first
       const [ox, oz] = centre(trunk.cells[trunk.cells.length - 1]);
@@ -563,10 +618,11 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
         .map((b) => ({ b, d: Math.min(...b.seeds.map((s) => Math.hypot(s.x - ox, s.z - oz))) }))
         .sort((p, q) => p.d - q.d || p.b.id - q.b.id);
       for (const { b } of rest) {
-        const lat = routeOut([b], block, path, piped, nx, nz, idx, cfg, inNet);
+        const lat = routeOut([b], pipeBlock, path, piped, nx, nz, idx, cfg, (c) => inNet(c) && !knot[c], taken) ?? routeOut([b], pipeBlock, path, piped, nx, nz, idx, cfg, inNet, taken);
         if (!lat) continue;
         for (let i = 0; i + 1 < lat.cells.length; i++) down[lat.cells[i]] = lat.cells[i + 1];
-        routes.push(lat.cells);
+        routes.push({ cells: lat.cells, back: lat.back, mouth: false });
+        markKnots(lat.cells);
         entry.set(b.id, lat.cells[0]);
       }
       // flow: every building's runoff, down the network to the outfall
@@ -578,7 +634,7 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
           c = down[c];
         }
       }
-      for (const r of routes) {
+      for (const { cells: r, back, mouth } of routes) {
         // cells of the network laid before and still in it keep their pipe (and its height): only the stretches
         // that leave it are new — each with the old cell it branches from, joined there by a manhole shaft
         for (const c of r) {
@@ -586,6 +642,20 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
           net.set(c, { k: oldK.get(c) ?? e, seen: e });
         }
         const isOld = (c: number) => oldK.has(c);
+        // THE FACE (2026-11-20, "건물과의 상대 포지셔닝"): a building's water leaves it from the middle of the face it is
+        // routed out of — the pipe began at the middle of the free cell beside it, half a cell off the wall and
+        // pipeDepth below its foot, in the air — and comes down that face from the building's foot (a DROP)
+        let face: [number, number] | null = null;
+        if (back >= 0 && !isOld(r[0])) {
+          const [ax, az] = centre(r[0]), [bx, bz] = centre(back);
+          face = [(ax + bx) / 2, (az + bz) / 2];
+          if (cfg.pipeDepth > 0) pipes.push({ ax: face[0], az: face[1], bx: face[0], bz: face[1], k: e, flow: Math.max(flowAt[r[0]], 1), drop: true });
+          // (a building right beside the network: half a cell from its face to the pipe it joins)
+          if (r.length === 1) {
+            const [cx, cz] = centre(r[0]);
+            pipes.push({ ax: face[0], az: face[1], bx: cx, bz: cz, k: e, flow: Math.max(flowAt[r[0]], 1), route: routeSeq++, seq: 0 });
+          }
+        }
         for (let i = 0; i < r.length; ) {
           if (isOld(r[i])) {
             i++;
@@ -602,8 +672,13 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
             const key = `${a2}>${z2}`;
             if (pipeEdges.has(key) || pipeEdges.has(`${z2}>${a2}`)) continue;
             pipeEdges.add(key);
-            const [ax, az] = centre(a2), [bx, bz] = centre(z2);
+            const [ax, az] = face && a2 === r[0] ? face : centre(a2), [bx, bz] = centre(z2);
             pipes.push({ ax, az, bx, bz, k: e, flow: Math.max(flowAt[a2], flowAt[z2], 1), route: routeId, seq: seq++ });
+          }
+          // THE MOUTH: the sewer comes up at its outfall to the ground its stream runs on (it ended in the air below it)
+          if (mouth && j === r.length - 1 && cfg.pipeDepth > 0) {
+            const [cx, cz] = centre(r[j]);
+            pipes.push({ ax: cx, az: cz, bx: cx, bz: cz, k: e, flow: Math.max(flowAt[r[j]], 1), drop: true });
           }
           // MANHOLES: where the new stretch meets the old network (at its ends), a shaft from the old pipe up to it
           for (const c of [stretch[0], stretch[stretch.length - 1]]) {
@@ -698,10 +773,23 @@ export function drainage(events: readonly PEvent[], seeds: readonly Seed[], cfg:
   return { streams: kept, pipes: [...fz.pipes, ...pipes.filter((p) => p.k > fz.upToK)] };
 }
 
+/** routeOut's scratch, grown as needed and never cleared: a state's entries count only when its stamp is the route's. */
+let rDist = new Float64Array(0), rPrev = new Int32Array(0), rSeen = new Int32Array(0), rDone = new Int32Array(0);
+let rStamp = 0;
+
+/** Whether a route runs straight through its i-th cell (the step in and the step out the same). */
+function straightAt(cells: readonly number[], i: number, nx: number): boolean {
+  const a = cells[i - 1], b = cells[i], c = cells[i + 1];
+  return (b % nx) - (a % nx) === (c % nx) - (b % nx) && Math.floor(b / nx) - Math.floor(a / nx) === Math.floor(c / nx) - Math.floor(b / nx);
+}
+
 /**
  * A building's way out to open ground: Dijkstra from the free cells around its block (multi-source) to the first
  * cell that is open (sealed share < openShare, not sealed) — cheap under paths and along laid pipes, never through
- * a standing building; right angles, or also 45° (`diagonal` > 0). Cell indices from the building's edge outwards.
+ * a standing building (nor through a cell in `taken`, unless it is the goal); right angles, or also 45° (`diagonal`
+ * > 0). Cell indices from the building's edge outwards; `back` = the building's cell it leaves from.
+ * (2026-11-20) Over the cell AND the way it is heading: every bend costs PIPE_TURN, and the first step goes straight out
+ * of the face it leaves from — so a pipe leaves a building at right angles to its wall and bends only where it must.
  */
 function routeOut(
   from: readonly Building[],
@@ -713,18 +801,42 @@ function routeOut(
   idx: (cx: number, cz: number) => number,
   cfg: WaterConfig,
   isGoal: (c: number) => boolean,
-): { cells: number[]; from: number } | null {
+  taken?: Uint8Array,
+): { cells: number[]; from: number; back: number } | null {
   const n = nx * nz;
-  const dist = new Float64Array(n).fill(Infinity);
-  const prev = new Int32Array(n).fill(-1);
-  const done = new Uint8Array(n);
+  const steps: [number, number, number][] = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1]];
+  if (cfg.diagonal > 0) {
+    const d = Math.SQRT2 * (1 + (1 - Math.min(1, cfg.diagonal)));
+    steps.push([1, 1, d], [1, -1, d], [-1, 1, d], [-1, -1, d]);
+  }
+  const D = steps.length;
+  // (a bend's cost by its angle: 90° = PIPE_TURN, 45° in proportion; turning back never)
+  const turn = new Float64Array(D * D);
+  for (let a = 0; a < D; a++) {
+    for (let b = 0; b < D; b++) {
+      const [ai, aj] = steps[a], [bi, bj] = steps[b];
+      const cos = (ai * bi + aj * bj) / (Math.hypot(ai, aj) * Math.hypot(bi, bj));
+      const ang = Math.acos(Math.max(-1, Math.min(1, cos)));
+      turn[a * D + b] = ang > Math.PI * 0.6 ? Infinity : (PIPE_TURN * ang) / (Math.PI / 2);
+    }
+  }
+  const S = n * D;
+  if (rDist.length < S) {
+    rDist = new Float64Array(S);
+    rPrev = new Int32Array(S);
+    rSeen = new Int32Array(S);
+    rDone = new Int32Array(S);
+    rStamp = 0;
+  }
+  const stamp = ++rStamp;
+  const dist = (s: number) => (rSeen[s] === stamp ? rDist[s] : Infinity);
   const heap: number[] = [];
   const push = (v: number) => {
     heap.push(v);
     let c = heap.length - 1;
     while (c > 0) {
       const p = (c - 1) >> 1;
-      if (dist[heap[p]] <= dist[heap[c]]) break;
+      if (rDist[heap[p]] <= rDist[heap[c]]) break;
       [heap[p], heap[c]] = [heap[c], heap[p]];
       c = p;
     }
@@ -738,8 +850,8 @@ function routeOut(
       for (;;) {
         const l = 2 * c + 1, r = l + 1;
         let m = c;
-        if (l < heap.length && dist[heap[l]] < dist[heap[m]]) m = l;
-        if (r < heap.length && dist[heap[r]] < dist[heap[m]]) m = r;
+        if (l < heap.length && rDist[heap[l]] < rDist[heap[m]]) m = l;
+        if (r < heap.length && rDist[heap[r]] < rDist[heap[m]]) m = r;
         if (m === c) break;
         [heap[m], heap[c]] = [heap[c], heap[m]];
         c = m;
@@ -747,37 +859,37 @@ function routeOut(
     }
     return top;
   };
-  // the block's edge: free cells next to it — those on a path (or touching one) if any: a building drains into the
-  // sewer under its street, not out of its back
-  const edge = new Set<number>();
-  const owner = new Map<number, number>(); // edge cell → its building
+  const open = (c: number) => block[c] < 0 && (!taken || !taken[c] || isGoal(c));
+  // the block's edge: free cells next to it, each with the way straight out of the face it lies against — those on a
+  // path (or touching one) if any: a building drains into the sewer under its street, not out of its back
+  const edge: [number, number][] = []; // [cell, direction]
+  const owner = new Map<number, number>(); // the building's cells → the building
+  for (const b of from) for (const s of b.seeds) owner.set(idx(Math.floor(s.x / CELL_SIZE), Math.floor(s.z / CELL_SIZE)), b.id);
   for (const b of from) {
     for (const s of b.seeds) {
       const cx = Math.floor(s.x / CELL_SIZE), cz = Math.floor(s.z / CELL_SIZE);
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const c = idx(cx + dx, cz + dz);
-        if (c < 0 || c >= n || block[c] >= 0) continue;
-        edge.add(c);
-        if (!owner.has(c)) owner.set(c, b.id);
+      for (let d = 0; d < 4; d++) {
+        const c = idx(cx + steps[d][0], cz + steps[d][1]);
+        if (c < 0 || c >= n || !open(c)) continue;
+        edge.push([c, d]);
       }
     }
   }
-  const onStreet = [...edge].filter((c) => {
+  const nearPath = (c: number) => {
     if (path[c]) return true;
     const i = c % nx, j = (c - i) / nx;
     return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([di, dj]) => {
       const ii = i + di, jj = j + dj;
       return ii >= 0 && jj >= 0 && ii < nx && jj < nz && path[jj * nx + ii] === 1;
     });
-  });
-  for (const c of onStreet.length && (cfg.pathPull ?? 1) > 0.5 ? onStreet : edge) {
-    dist[c] = 0;
-    push(c);
-  }
-  const steps: [number, number, number][] = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1]];
-  if (cfg.diagonal > 0) {
-    const d = Math.SQRT2 * (1 + (1 - Math.min(1, cfg.diagonal)));
-    steps.push([1, 1, d], [1, -1, d], [-1, 1, d], [-1, -1, d]);
+  };
+  const onStreet = edge.filter(([c]) => nearPath(c));
+  for (const [c, d] of onStreet.length && (cfg.pathPull ?? 1) > 0.5 ? onStreet : edge) {
+    const s = c * D + d;
+    rSeen[s] = stamp;
+    rDist[s] = 0;
+    rPrev[s] = -1;
+    push(s);
   }
   // (how a path weighs on a pipe's step: cheaper under it — pull > 0 — or dearer on it and beside it — pull < 0)
   const pull = Math.max(-1, Math.min(1, cfg.pathPull ?? 1));
@@ -786,36 +898,46 @@ function routeOut(
   const besidePath = (i: number, j: number) => (i > 0 && path[j * nx + i - 1] === 1) || (i + 1 < nx && path[j * nx + i + 1] === 1) || (j > 0 && path[(j - 1) * nx + i] === 1) || (j + 1 < nz && path[(j + 1) * nx + i] === 1);
   let goal = -1;
   while (heap.length) {
-    const u = pop();
-    if (done[u]) continue;
-    done[u] = 1;
+    const s = pop();
+    if (rDone[s] === stamp) continue;
+    rDone[s] = stamp;
+    const u = Math.floor(s / D), du = s - u * D;
     if (isGoal(u)) {
-      goal = u;
+      goal = s;
       break;
     }
     const ui = u % nx, uj = (u - ui) / nx;
-    for (const [di, dj, len] of steps) {
+    for (let dv = 0; dv < D; dv++) {
+      const bend = turn[du * D + dv];
+      if (bend === Infinity) continue;
+      const [di, dj, len] = steps[dv];
       const vi = ui + di, vj = uj + dj;
       if (vi < 0 || vj < 0 || vi >= nx || vj >= nz) continue;
-      const v = vj * nx + vi;
-      if (done[v] || block[v] >= 0) continue;
+      const v = vj * nx + vi, sv = v * D + dv;
+      if (rDone[sv] === stamp || !open(v)) continue;
       // no corner cutting past a building on a diagonal
       if (di && dj && (block[uj * nx + vi] >= 0 || block[vj * nx + ui] >= 0)) continue;
       // (a pipe already laid is cheap to join wherever it lies — but not one that lies on a path the pipes keep off)
       const cost = path[v] ? (piped[v] && pull >= 0 ? COST_PIPE : onPath) : piped[v] ? COST_PIPE : pull < 0 && besidePath(vi, vj) ? byPath : COST_GROUND;
-      const dd = dist[u] + len * cost;
-      if (dd < dist[v]) {
-        dist[v] = dd;
-        prev[v] = u;
-        push(v);
+      const dd = rDist[s] + len * cost + bend;
+      if (dd < dist(sv)) {
+        rSeen[sv] = stamp;
+        rDist[sv] = dd;
+        rPrev[sv] = s;
+        push(sv);
       }
     }
   }
   if (goal < 0) return null;
-  const out: number[] = [];
-  for (let v = goal; v >= 0; v = prev[v]) out.push(v);
-  out.reverse();
-  return { cells: out, from: owner.get(out[0]) ?? from[0].id };
+  const states: number[] = [];
+  for (let s = goal; s >= 0; s = rPrev[s]) states.push(s);
+  states.reverse();
+  const cells = states.map((s) => Math.floor(s / D));
+  // (the building's cell the route leaves from: one step back from its first cell, against its first heading)
+  const d0 = states[0] - cells[0] * D;
+  const i0 = cells[0] % nx, j0 = (cells[0] - i0) / nx;
+  const back = (j0 - steps[d0][1]) * nx + (i0 - steps[d0][0]);
+  return { cells, from: owner.get(back) ?? from[0].id, back: owner.has(back) ? back : -1 };
 }
 
 /** Dense buildings grouped into QUARTERS: those whose seeds come within `gap` (world) of each other. */
@@ -1093,7 +1215,8 @@ export function pipeLines(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
   for (const p of pipes) {
     const to = p.k >= fromK ? live : kept;
     const y = (p.k - cfg.pipeDepth) * unit;
-    to.push(p.ax, p.k0 !== undefined ? (p.k0 - cfg.pipeDepth) * unit : y, p.az, p.bx, y, p.bz);
+    if (p.drop) to.push(p.ax, y, p.az, p.ax, p.k * unit, p.az);
+    else to.push(p.ax, p.k0 !== undefined ? (p.k0 - cfg.pipeDepth) * unit : y, p.az, p.bx, y, p.bz);
   }
   return { live: Float32Array.from(live), kept: Float32Array.from(kept) };
 }
@@ -1107,6 +1230,11 @@ export function pipeSegments(pipes: readonly PipeRun[], unit: number, cfg: Water
     if (p.k0 !== undefined) {
       // a manhole shaft: from the older network up to this one
       out.set([p.ax, (p.k0 - cfg.pipeDepth) * unit, p.az, p.bx, y, p.bz, cfg.pipeRadius * 1.6], i * 7);
+      return;
+    }
+    if (p.drop) {
+      // a drop: up from the pipe to the ground of its slot
+      out.set([p.ax, y, p.az, p.ax, p.k * unit, p.az, cfg.pipeRadius * Math.sqrt(Math.max(1, p.flow))], i * 7);
       return;
     }
     out.set([p.ax, y, p.az, p.bx, y, p.bz, cfg.pipeRadius * Math.sqrt(Math.max(1, p.flow))], i * 7);
@@ -1163,6 +1291,13 @@ export function pipeParts(pipes: readonly PipeRun[], unit: number, cfg: WaterCon
       cyls.push({ a: [p.ax, y(p.k) + r * 0.8, p.az], b: [p.ax, y(p.k) + r * (0.8 + cfg.coverHeight), p.az], r: r * cfg.coverRadius, live, shaft: true, decay: d }); // the cover
       end(cyls.length - 2, 0);
       end(cyls.length - 2, 1);
+      continue;
+    }
+    if (p.drop) {
+      // a DROP: up from the pipe to the ground of its slot — its foot meets its run at a right angle (an elbow); its
+      // head is at the building's foot or the outfall's mouth (no fitting there)
+      cyls.push({ a: [p.ax, y(p.k), p.az], b: [p.ax, p.k * unit, p.az], r: rad(p), live, shaft: false, decay: dec(p) });
+      end(cyls.length - 1, 0);
       continue;
     }
     cyls.push({ a: [p.ax, y(p.k), p.az], b: [p.bx, y(p.k), p.bz], r: rad(p), live, shaft: false, decay: dec(p) });

@@ -877,12 +877,12 @@ export class SpaceModel {
     if (!fuse.fusePipes || !wc) return [];
     const share = Math.max(0, Math.min(1, fuse.trunkShare ?? 0.4));
     const most = new Map<number, number>();
-    for (const p of this.drain.pipes) if (p.k0 === undefined && p.flow > (most.get(p.k) ?? 0)) most.set(p.k, p.flow);
+    for (const p of this.drain.pipes) if (p.k0 === undefined && !p.drop && p.flow > (most.get(p.k) ?? 0)) most.set(p.k, p.flow);
     const yOf = (k: number) => (k - wc.pipeDepth) * u;
     const out: (FuseTube & { share?: number })[] = [];
     for (const p of this.drain.pipes) {
       const top = most.get(p.k) ?? 0;
-      if (p.k0 !== undefined || p.flow < Math.max(2, top * share)) continue;
+      if (p.k0 !== undefined || p.drop || p.flow < Math.max(2, top * share)) continue;
       out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k, share: top > 0 ? p.flow / top : 1 });
     }
     return out;
@@ -898,6 +898,7 @@ export class SpaceModel {
       for (const p of this.drain.pipes) {
         if (p.k > kMax) continue;
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay: 1, kind: "pipe", k: p.k });
+        else if (p.drop) out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.ax, y1: p.k * u, z1: p.az, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k });
       }
     }
@@ -2164,6 +2165,7 @@ export class SpaceModel {
         if (left <= 0) continue;
         const decay = quant20(bc && bc.erode.pipes !== false ? worn * left * bc.old(p.k, (p.ax + p.bx) / 2, (p.az + p.bz) / 2) : this.pipeDecayAt(p.k, w));
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay, kind: "pipe", k: p.k });
+        else if (p.drop) out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.ax, y1: p.k * u, z1: p.az, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
       }
     }
