@@ -576,7 +576,23 @@ function blurLine(src: Float32Array, dst: Float32Array, o: number, st: number, n
   const inv = 1 / (2 * r + 1);
   let sum = 0;
   for (let t = -r; t <= r; t++) sum += src[o + Math.min(n - 1, Math.max(0, t)) * st];
-  for (let t = 0; t < n; t++) {
+  // (the line's two ends clamp their reads; the stretch between runs without — the blur is the volume stages' hot
+  // loop, 2026-11-21: three passes over every sample for each field blurred)
+  const a = Math.min(n, r), b = Math.max(a, n - r - 1);
+  let t = 0;
+  for (; t < a; t++) {
+    dst[o + t * st] = sum * inv;
+    sum += src[o + Math.min(n - 1, t + r + 1) * st] - src[o + Math.max(0, t - r) * st];
+  }
+  let pOut = o + t * st, pAdd = o + (t + r + 1) * st, pSub = o + (t - r) * st;
+  for (; t < b; t++) {
+    dst[pOut] = sum * inv;
+    sum += src[pAdd] - src[pSub];
+    pOut += st;
+    pAdd += st;
+    pSub += st;
+  }
+  for (; t < n; t++) {
     dst[o + t * st] = sum * inv;
     sum += src[o + Math.min(n - 1, t + r + 1) * st] - src[o + Math.max(0, t - r) * st];
   }
@@ -1140,6 +1156,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   // growths are lumpy and start as sparse specks: only where the noise exceeds (1 − progress) do they show, so a
   // young growth is a few small lumps and a full one a continuous crust
   const lf = 1 / Math.max(0.1, cfg.lump);
+  let anyA = false;
   for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const p = idx(i, j, k);
     const a = A[p];
@@ -1147,8 +1164,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const nz3 = noise3((I0 + i) * vs * lf, (J0 + j) * vs * lf, (K0 + k) * vs * lf, 21);
     const prog = Math.min(1, a / Math.max(1e-6, cfg.accretion));
     A[p] = nz3 > 1 - prog ? a * (0.6 + 1.4 * (nz3 - (1 - prog)) / Math.max(1e-6, prog)) : 0;
+    if (A[p] > 0) anyA = true;
   }
-  blur3(A, tmp, nx, ny, nz, 1);
+  // (no growths anywhere — the exhibition's accretion is 0 — and a blur of nothing is nothing: skipped)
+  if (anyA) blur3(A, tmp, nx, ny, nz, 1);
 
   // vegetation sediment sticks to decaying concrete (never a slab of its own)
   if (h && cfg.natureWeight > 0 && !crust) {
@@ -1223,7 +1242,11 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     const S = inside.slice();
     blur3(S, tmp, nx, ny, nz, rOld);
     let S2: Float32Array | null = null;
-    if (rYoung !== rOld) {
+    // (the young thickness counts only in rows under shellSplit: the seeded mass is made at age 1 — every row old —
+    // and its blur would be mixed in at 0: skipped, 2026-11-21)
+    let anyYoung = false;
+    for (let j = 0; j < ny && !anyYoung; j++) if (rowQ[j] < st.shellSplit + 0.08) anyYoung = true;
+    if (rYoung !== rOld && anyYoung) {
       S2 = inside;
       blur3(S2, tmp, nx, ny, nz, rYoung);
     }
