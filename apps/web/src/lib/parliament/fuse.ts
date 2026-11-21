@@ -170,10 +170,12 @@ export interface FuseConfig {
   /**
    * ROUND (the artist, 2026-11-21 night: "떠 있는 조각이나 부스러기는 괜찮아, 내 말은 둥글게 하라고 둥글게"): 0 … 1.5 — the
    * field is blurred before its surface is taken (corners, the outline's cut, the ribs' edges come out rounded; over
-   * round × 3 samples, mixed in by as much, lifted so slender parts are not thinned away) and the surface is smoothed
-   * round × 10 more times. Absent / 0 = as before. (The wall gives it in the fossil's stages only.)
+   * round × 3 samples, mixed in by as much, lifted so slender parts are not thinned away) — the BODY, before its rooms
+   * are carved and its shell hollowed and opened — and the surface is smoothed round × 3 more times. Absent / 0 = as before. (The wall gives it in the fossil's stages only.)
    */
   roundness?: number;
+  /** THE FOSSIL IN STAGES: the shell's wall at least this thick (world); absent / 0 = 껍질 벽의 두께 as it is. */
+  stageWall?: number;
   /**
    * THE PIECES THE SEEDED MASS IS MADE IN (spaceModel sendUnits → the worker beside; the artist, 2026-11-20: "현재
    * 상태에서도 화석 생성 단위 묶음/타일 더 촘촘하게 만들 수 있지 않나?"): cells of ground a side, and slots of height
@@ -425,6 +427,8 @@ export const FRAME_KINDS: ReadonlySet<Box["kind"]> = new Set<Box["kind"]>(["slab
 export const FILL_MAX_GAP = 6;
 /** ROUND (FuseConfig.roundness): how much of the iso the rounded field is lifted by at full roundness. */
 const ROUND_LIFT = 0.5;
+/** ROUND: how much of the rims' light blur is mixed in at full roundness (after the holes are open). */
+const ROUND_RIM = 0.8;
 
 /** B FILL: how much the blurred mass may still swell outside the rooms (× gain). */
 const FILL_OUTSIDE = 0.35;
@@ -1237,6 +1241,12 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   // minus round voids (old layers) and minus fragmenting at the edges (young layers)
   const iso = cfg.iso;
   const F = new Float32Array(n);
+  // ROUND (FuseConfig.roundness) — THE BODY FIRST (the artist, 2026-11-21 night: "구멍 나서 방 안의 부재가 드러나게 하는 과거
+  // 리브 효과 버리고 싶지 않은데 애초에 그냥 벽에 두께가 있도록 하면 잘려도 괜찮지 않나"): the mass's body is rounded before its
+  // rooms are carved and before its shell is hollowed and opened, so the holes and ribs are cut into a round body —
+  // their rims are smoothed lightly after, not filled in
+  const round = Math.max(0, Math.min(1.5, cfg.roundness ?? 0));
+  const cavH = round > 0.001 && Rm && cav > 0 ? new Float32Array(n) : null;
   for (let k = 0; k < nz; k++) {
     for (let j = 0; j < ny; j++) {
       const q = rowQ[j];
@@ -1255,7 +1265,9 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         // themselves (Praw) are kept, so the plates and walls remain as membranes between the cavities
         if (Rm && cav > 0 && Rm[p] > 0.12 && f > iso * 0.5) {
           const h = cav * fossilAt(q, (I0 + i) * vs, yRow, (K0 + k) * vs) * smoothRamp(Rm[p], 0.12, 0.6) * (1 - Math.min(1, Praw![p] * 1.5));
-          if (h > 0) f -= h * (f - iso * 0.5 + 0.3);
+          // (ROUND: the body is rounded first, the rooms carved after — cavH)
+          if (cavH) cavH[p] = h;
+          else if (h > 0) f -= h * (f - iso * 0.5 + 0.3);
         }
         // ENVELOPE: outside the building's outline (mask < 0.5 = past a face) the mass is cut to air, however strong
         // the field — so the outer faces come out as the building's planes, whatever swells inside
@@ -1277,13 +1289,28 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   }
 
   lap("ms blur");
+  if (round > 0.001) {
+    // the body blurred towards its round form — a box's corner, the outline's cut come out rounded — and lifted by as
+    // much as the blur takes off a slender part (the pipes, the first stage's frame), so it is rounded, not shrunk
+    const Fr2 = F.slice();
+    const rr = Math.max(1, Math.round(round * 3));
+    blur3(Fr2, tmp, nx, ny, nz, rr);
+    blur3(Fr2, tmp, nx, ny, nz, rr);
+    const lift = round * iso * ROUND_LIFT, mixR = Math.min(1, round);
+    for (let p = 0; p < n; p++) F[p] += (Fr2[p] - F[p]) * mixR + (Fr2[p] > 0.02 ? lift : 0);
+    // …then the rooms carved into it (ROOMS → CAVITIES, as the loop above would have)
+    if (cavH) for (let p = 0; p < n; p++) if (cavH[p] > 0 && F[p] > iso * 0.5) F[p] -= cavH[p] * (F[p] - iso * 0.5 + 0.3);
+  }
   // C SHELL: hollow the mass (whatever lies deeper than the shell's thickness), then open some of the cells that touch
   // each other so only ribs remain between them; old layers are opened most. FOAM: the same cells carved through the
   // volume without hollowing (sponge bone, ref 9579)
   if (st && (st.shell || st.foam || crust)) {
     if (st.shell || crust) {
     // two thicknesses: thin in the young layers, thick in the old ones (blended over a short band of layer age)
-    const rOld = Math.max(1, Math.round(st.shellThick)), rYoung = Math.max(1, Math.round(st.shellThickYoung));
+    // (THE FOSSIL IN STAGES — a wall with a body to it: at least stageWall world thick, so an opening shows a cut wall and
+    // the room behind it, not a paper skin)
+    const wallMin = (cfg.stageWall ?? 0) > 0 ? Math.round((cfg.stageWall ?? 0) / vs) : 0;
+    const rOld = Math.max(1, Math.round(st.shellThick), wallMin), rYoung = Math.max(1, Math.round(st.shellThickYoung), wallMin);
     const inside = new Float32Array(n);
     for (let p = 0; p < n; p++) inside[p] = F[p] > iso ? 1 : 0;
     const S = inside.slice();
@@ -1404,6 +1431,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  // (ROUND — THE RIMS: once the holes are open, a light blur of one sample rounds their rims and the ribs' edges without
+  // closing them — the holes are cells across, the ribs at least a sample and a half — lifted a little so a rib keeps
+  // its width)
+  if (round > 0.001 && st && (st.shell || st.foam)) {
+    const Fr3 = F.slice();
+    blur3(Fr3, tmp, nx, ny, nz, 1);
+    const mixT = Math.min(1, round) * ROUND_RIM, liftT = Math.min(1, round) * iso * 0.15;
+    for (let p = 0; p < n; p++) F[p] += (Fr3[p] - F[p]) * mixT + (Fr3[p] > 0.02 ? liftT : 0);
+  }
   // SPIKES: out of a hashed share of the surface cells a thin spike of the same mass grows outward along the field's
   // gradient (one voxel thick, its own length up to spikeLen); the smoothing rounds them a little
   if (cfg.spikes > 0 && cfg.spikeLen > 0) {
@@ -1434,21 +1470,6 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   }
 
   lap("ms shell");
-  // ROUND (FuseConfig.roundness): the field blurred towards its round form before the surface is taken — a box's corner,
-  // the outline's cut, a rib's edge come out rounded; crumbs stay crumbs, round ones
-  const round = Math.max(0, Math.min(1.5, cfg.roundness ?? 0));
-  if (round > 0.001) {
-    const Fr2 = F.slice();
-    const rr = Math.max(1, Math.round(round * 3));
-    blur3(Fr2, tmp, nx, ny, nz, rr);
-    blur3(Fr2, tmp, nx, ny, nz, rr);
-    // (…and lifted by as much as the blur takes off a slender part — the pipes, the first stage's frame — so rounding
-    // does not thin them away: a part is rounded, not shrunk)
-    const lift = round * cfg.iso * ROUND_LIFT;
-    const mixR = Math.min(1, round);
-    for (let p = 0; p < n; p++) F[p] += (Fr2[p] - F[p]) * mixR + (Fr2[p] > 0.02 ? lift : 0);
-  }
-
   // ── naive surface nets ──
   const cubeVert = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1);
   const cidx = (i: number, j: number, k: number) => (k * (ny - 1) + j) * (nx - 1) + i;
@@ -1624,8 +1645,8 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const NV = P.length / 3;
   const Nn = Float32Array.from(nor);
   const anyBlocky = wgt.some((w) => w < 1);
-  // (ROUND: so many more passes of the smoothing)
-  const smoothN = Math.round(cfg.smooth) + Math.round(round * 10);
+  // (ROUND: a few more passes of the smoothing — the holes' rims and the ribs rounded, not filled in)
+  const smoothN = Math.round(cfg.smooth) + Math.round(round * 3);
   if (smoothN > 0 && NV > 0) taubin(P, quads, NV, smoothN, anyBlocky ? Float32Array.from(wgt) : undefined);
   if (smoothN > 0 && NV > 0) faceNormals(P, quads, Nn);
   lap("ms smooth");
