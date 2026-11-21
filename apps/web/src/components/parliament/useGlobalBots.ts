@@ -118,7 +118,20 @@ export function useGlobalBots(
   cfg: FoldConfig,
   enabled: boolean,
   order = 1.5,
-  opts?: { clock?: Clock; local?: boolean; setDepth?: (slots: number) => void; setVillages?: (v: WaterConfig["villages"] | null) => void; slotSec?: number; unit?: number },
+  opts?: {
+    clock?: Clock;
+    local?: boolean;
+    setDepth?: (slots: number) => void;
+    setVillages?: (v: WaterConfig["villages"] | null) => void;
+    slotSec?: number;
+    unit?: number;
+    /** A WORLD TAKEN ONCE, NO BOTS (the lab, useLabWorld.ts): nothing is emitted here whatever the switch says; the
+     *  block's window, its depth and its villages are those of the world that was taken — its epoch (`epochMs`, 0 =
+     *  not taken yet) against the lab's own clock. `taken` counts the takings: the tails are laid again for each. */
+    still?: boolean;
+    epochMs?: number;
+    taken?: number;
+  },
 ): number {
   // ONE 단 FOR EVERYTHING (the artist, 2026-11-17: "레바에서 조정한 단 값이 전체에 다 적용되도록 해"). The herds counted
   // their 단 as 20 s whatever the wall's time axis said; with the axis at 10 s the bots lived in a window twice as deep
@@ -129,6 +142,9 @@ export function useGlobalBots(
   // the lab: its own clock, its own world — nothing written to the shared storage, no history window
   const clock = opts?.clock ?? sharedClock;
   const local = !!opts?.local;
+  const still = !!opts?.still;
+  const takenEpoch = useRef(0);
+  takenEpoch.current = still ? (opts?.epochMs ?? 0) : 0;
   const show = () => enabled;
   // THE BOTS, ONE SYSTEM (the artist, 2026-11-12: "레바 지금 거 다 없애고 싹 다 새로 만들어도 되니까"): herds in the
   // block. The resident crowd, the arrivals by rate and their knobs are gone from the wall (lib/parliament/bots.ts and
@@ -203,8 +219,8 @@ export function useGlobalBots(
   // 열든 봇은 돌아간 상태여야"): this view only reads them. They run in this tab only in the lab (its own world) or
   // with ?botserver=0. `sees`: the bots are in this view's world (its window, its depth, its readout).
   const server = useMemo(() => !local && botServerOn(), [local]);
-  const on = enabled && b.botOn && !server;
-  const sees = enabled && b.botOn;
+  const on = enabled && b.botOn && !server && !still;
+  const sees = enabled && (b.botOn || still);
   const session = true;
   const sizeMin = Math.min(b.hSizeMin, b.hSizeMax), sizeMax = Math.max(b.hSizeMin, b.hSizeMax);
   /** The most at once: every herd at its largest and the loners (the hard ceiling is 60 events a second). */
@@ -247,13 +263,17 @@ export function useGlobalBots(
     botGround.trail = b.hTrail;
   }, [b.hTrail]);
   // the tails' rules; when they change (and at first) the field is laid again from everything the log holds
+  // (…and for every world the lab takes: its log is filled at once, not sample by sample)
+  const taken = opts?.taken ?? 0;
+  const tailsOf = useRef(0);
   useEffect(() => {
     if (!enabled) return;
     const changed = tailField.configure({ ...DEFAULT_TAILS, slotSec, tailSec: b.hTailSec, minLeg: b.hTailLeg });
-    if (!changed && tailField.steps > 0) return;
+    if (!changed && tailField.steps > 0 && tailsOf.current === taken) return;
+    tailsOf.current = taken;
     tailField.clear();
     for (const e of [...log.all()].sort((p, q) => p.s - q.s)) tailField.add(e);
-  }, [enabled, log, slotSec, b.hTailSec, b.hTailLeg]);
+  }, [enabled, log, slotSec, b.hTailSec, b.hTailLeg, taken]);
   // the wall freezes no part's shape while the bots write below the present (ParliamentSpace)
   // (where the block's top is now, in seconds of its time axis: the wall reads it — botGround.topSec)
   const shiftRef = useRef({ shift: 0, depthSec: 0, tail: 0, stop: false });
@@ -262,6 +282,8 @@ export function useGlobalBots(
     if (!sees) return;
     const f = () => {
       const { shift, depthSec, tail, stop } = shiftRef.current;
+      // (a world taken once: its own epoch — the rise's state came with it, and the knob moves it from there)
+      if (still) epochMs.current = takenEpoch.current;
       const elapsed = epochMs.current ? Math.max(0, (clock.now() - epochMs.current) / 1000) : 0;
       // (the rise stopped or let go: rise.ts — the seating of the bots, lifecycle.ts, reads the same state)
       // (on the bot server the server keeps it, and useBotServer puts it here)
@@ -285,7 +307,7 @@ export function useGlobalBots(
     return () => {
       if (botGround.window === f) botGround.window = null;
     };
-  }, [sees, server, clock]);
+  }, [sees, server, clock, still]);
   const setDepth = opts?.setDepth;
   const deep = sees ? b.hDepth : 0;
   useEffect(() => {
@@ -397,7 +419,8 @@ export function useGlobalBots(
     if (log.drops !== seenDrops.current) {
       seenDrops.current = log.drops;
       if (log.lastDrop === "clear") {
-        tailField.clear();
+        // (a world taken once is put in whole, emptied first: its tails are laid by the effect above, not lost here)
+        if (!still) tailField.clear();
         pending.current = [];
         botStartMs.current = 0;
         lastSampleMs.current = 0;
@@ -407,6 +430,7 @@ export function useGlobalBots(
         if (local) epochMs.current = clock.now();
       }
     }
+    if (still) epochMs.current = takenEpoch.current;
     const { on: isOn, cfg: foldCfg, fold: theFold, lc: lcCfg } = live.current;
     // (on the bot server: the world's epoch is the server's, as this browser keeps it — never made here)
     if (server) epochMs.current = Number(currentEpochKey()) || 0;

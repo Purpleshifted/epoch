@@ -545,6 +545,22 @@ export interface FuseMesh {
    * Absent = all frame (no delay).
    */
   late?: Float32Array;
+  /**
+   * THE PROVISIONAL SKIN (the artist, 2026-11-21: of what a piece shows while its neighbour is being made or waited
+   * for, "둘 다 넣는데, 그러면 가장자리에 노이즈 처리나 부피감을 넣어서 뚝 잘린 단면처럼 안 보이게 해"). Per vertex: 0 = a
+   * vertex of the piece's own faces; otherwise the faces beyond its own tile or rows (FuseChunkInput.ring) — a copy of
+   * the vertex, and which of the six sides it lies beyond (bits: above 1, below 2, +x 4, −x 8, +z 16, −z 32). The
+   * worker shows them while the neighbour there is not on the screen (fuseUnits). Absent = none.
+   */
+  side?: Float32Array;
+  /**
+   * …AND WHAT CHANGES, CHANGES SOFTLY (the same request): per vertex (4) — the provisional skin's share before the
+   * last change, the clock that change came at (fuseUnits' seconds; −1e9 = none), a cross-dissolve (+1 = a piece
+   * coming in, −1 = one going out, 0 = neither), and the skin's share now (1 = all of it; the own faces: 1 → 1). The
+   * wall's shader goes from the old share to the new and lets the skin go through a noise of the world where it is
+   * less than whole; it dissolves the pieces over its blend time. Absent = 1, no change.
+   */
+  blend?: Float32Array;
   resinStart: number;
 }
 
@@ -778,6 +794,9 @@ export interface FuseChunkInput {
   layerDecay?: (k: number) => number;
   /** EXTERNAL PARTS that fuse too (pipes, walkways, fossil steel), as capsules with their own decay. */
   tubes?: readonly FuseTube[];
+  /** THE PROVISIONAL SKIN (FuseMesh.side): the faces this far (world) beyond `own` across the ground, and `reachY`
+   *  beyond the chunk's rows, are kept too — as copies marked by their side. Absent = only the own faces. */
+  ring?: { reach: number; reachY: number };
   cfg: FuseConfig;
 }
 
@@ -1507,20 +1526,42 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   // faces: one quad per sign-changing sample edge. All are collected (padding too) so that smoothing and normals see
   // the same neighbourhood in neighbouring chunks; each is kept by the chunk whose rows contain the edge's start.
   const quads: number[] = []; // a b c d flip owned
+  /** Per quad (THE PROVISIONAL SKIN): 0 = not provisional, else the sides (FuseMesh.side bits) its edge lies beyond. */
+  const qSide: number[] = [];
+  let sideNow = 0;
   const quad = (a: number, b: number, c: number, d: number, flip: boolean, own: boolean) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return;
     quads.push(a, b, c, d, flip ? 1 : 0, own ? 1 : 0);
+    qSide.push(own ? 0 : sideNow);
   };
   const owned = (j: number) => J0 + j >= Jlo && J0 + j < Jhi;
   const ow = input.own;
   const Ilo = ow ? Math.floor((ow.x0 * CELL_SIZE) / vs) : -Infinity, Ihi = ow ? Math.floor((ow.x1 * CELL_SIZE) / vs) : Infinity;
   const Klo = ow ? Math.floor((ow.z0 * CELL_SIZE) / vs) : -Infinity, Khi = ow ? Math.floor((ow.z1 * CELL_SIZE) / vs) : Infinity;
+  // THE PROVISIONAL SKIN: the faces in a ring beyond the own ones, while they lie well inside the padded grid (its
+  // outermost samples see a field cut short by the grid's edge)
+  const rg = input.ring;
+  const rI = rg && ow ? Math.ceil(rg.reach / vs) : 0, rJ = rg ? Math.ceil(rg.reachY / vs) : 0;
+  const inH = (g: number, n0: number, n: number) => g >= n0 + Math.ceil(pad / 2) && g <= n0 + n - 1 - Math.ceil(pad / 2);
+  const sideOf = (I: number, J: number, K: number): number => {
+    if (!rg) return -1;
+    let b = 0;
+    if (J >= Jhi) b |= J < Jhi + rJ ? 1 : 64;
+    else if (J < Jlo) b |= J >= Jlo - rJ ? 2 : 64;
+    if (I >= Ihi) b |= I < Ihi + rI ? 4 : 64;
+    else if (I < Ilo) b |= I >= Ilo - rI ? 8 : 64;
+    if (K >= Khi) b |= K < Khi + rI ? 16 : 64;
+    else if (K < Klo) b |= K >= Klo - rI ? 32 : 64;
+    if (b & 64 || !b || !inH(I, I0, nx) || !inH(J, J0, ny) || !inH(K, K0, nz)) return -1;
+    return b;
+  };
   for (let k = 1; k < nz - 1; k++) {
     const ownK = K0 + k >= Klo && K0 + k < Khi;
     for (let j = 1; j < ny - 1; j++) {
       const ownJK = ownK && owned(j);
       for (let i = 1; i < nx - 1; i++) {
         const own = ownJK && I0 + i >= Ilo && I0 + i < Ihi;
+        sideNow = own ? 0 : sideOf(I0 + i, J0 + j, K0 + k);
         const f0 = F[idx(i, j, k)] > iso;
         // edge along x: (i,j,k)→(i+1,j,k), cubes around it in (j,k)
         if (f0 !== F[idx(i + 1, j, k)] > iso) {
@@ -1580,12 +1621,32 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
 
   const ind: number[] = [];
   const resinInd: number[] = [];
+  // THE PROVISIONAL SKIN: its faces get vertices of their own (copies, one per vertex and side), so the worker can
+  // hide them without touching the own faces they meet
+  let Pv: Float32Array = P, Nv: Float32Array = Nn, colA: Float32Array = Float32Array.from(col), extA: Float32Array = Float32Array.from(ext), lateA: Float32Array | undefined = late;
+  let sideA: Float32Array | undefined;
+  const copyOf = new Map<number, number>();
+  const addV: number[] = [], addS: number[] = [];
+  const vOf = (v: number, sd: number): number => {
+    if (!sd) return v;
+    const key = v * 64 + sd;
+    let c = copyOf.get(key);
+    if (c === undefined) {
+      c = NV + addV.length;
+      copyOf.set(key, c);
+      addV.push(v);
+      addS.push(sd);
+    }
+    return c;
+  };
   for (let t = 0; t < quads.length; t += 6) {
-    if (!quads[t + 5]) continue;
-    const a = quads[t], b = quads[t + 1], c = quads[t + 2], d = quads[t + 3];
+    const sd = qSide[t / 6];
+    if (!quads[t + 5] && !(sd > 0)) continue;
+    const a = vOf(quads[t], sd > 0 ? sd : 0), b = vOf(quads[t + 1], sd > 0 ? sd : 0), c = vOf(quads[t + 2], sd > 0 ? sd : 0), d = vOf(quads[t + 3], sd > 0 ? sd : 0);
+    const ra = quads[t];
     // the face goes to the resin group if its first vertex lies in a resin layer (a noisy boundary: the resin layer
     // does not start at one exact height)
-    const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
+    const ax = P[ra * 3], ay = P[ra * 3 + 1], az = P[ra * 3 + 2];
     const qa = layerAge(Math.floor(ay / unit)) + (noise3(ax * 0.5, ay * 0.5, az * 0.5, 41) - 0.5) * 0.3;
     const to = cfg.resinShare <= 1 && qa >= cfg.resinShare ? resinInd : ind;
     if (quads[t + 4]) to.push(a, c, b, a, d, c);
@@ -1594,20 +1655,40 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const index = new Uint32Array(ind.length + resinInd.length);
   index.set(ind);
   index.set(resinInd, ind.length);
+  if (rg) {
+    const m = addV.length, NT = NV + m;
+    const grow = (src: Float32Array, k: number): Float32Array => {
+      const out = new Float32Array(NT * k);
+      out.set(src);
+      for (let e = 0; e < m; e++) for (let c = 0; c < k; c++) out[(NV + e) * k + c] = src[addV[e] * k + c];
+      return out;
+    };
+    if (m) {
+      Pv = grow(P, 3);
+      Nv = grow(Nn, 3);
+      colA = grow(colA, 3);
+      extA = grow(extA, 4);
+      if (lateA) lateA = grow(lateA, 1);
+    }
+    sideA = new Float32Array(NT);
+    for (let e = 0; e < m; e++) sideA[NV + e] = addS[e];
+  }
   lap("ms finish");
-  return { position: P, normal: Nn, color: Float32Array.from(col), extra: Float32Array.from(ext), index, resinStart: ind.length, ...(late ? { late } : {}) };
+  return { position: Pv, normal: Nv, color: colA, extra: extA, index, resinStart: ind.length, ...(lateA ? { late: lateA } : {}), ...(sideA ? { side: sideA } : {}) };
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
 export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   let nv = 0, ni = 0, nr = 0;
-  let seeded = false, anyLate = false;
+  let seeded = false, anyLate = false, anySide = false, anyBlend = false;
   for (const p of parts) {
     nv += p.position.length;
     ni += p.index.length;
     nr += p.index.length - p.resinStart;
     if (p.anchor) seeded = true;
     if (p.late) anyLate = true;
+    if (p.side) anySide = true;
+    if (p.blend) anyBlend = true;
   }
   const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 4), index: new Uint32Array(ni), resinStart: ni - nr };
   // (the growing data rides along when any part has it; a part without it is whole as it is)
@@ -1618,9 +1699,17 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   }
   // (the frame-first mark rides along when any part has it; a part without it is all frame: 0)
   if (anyLate) out.late = new Float32Array(nv / 3);
+  // (the provisional skin's sides, and the pending changes: none = own faces, no change — −1e9 is "no change")
+  if (anySide) out.side = new Float32Array(nv / 3);
+  if (anyBlend) out.blend = new Float32Array((nv / 3) * 4);
   let ov = 0, oo = 0, or = ni - nr;
   for (const p of parts) {
     if (out.late && p.late) out.late.set(p.late, ov / 3);
+    if (out.side && p.side) out.side.set(p.side, ov / 3);
+    if (out.blend) {
+      if (p.blend) out.blend.set(p.blend, (ov / 3) * 4);
+      else for (let v = ov / 3; v < (ov + p.position.length) / 3; v++) [out.blend[v * 4], out.blend[v * 4 + 1], out.blend[v * 4 + 3]] = [1, -1e9, 1];
+    }
     out.position.set(p.position, ov);
     out.normal.set(p.normal, ov);
     out.color.set(p.color, ov);

@@ -26,6 +26,7 @@ export default function HomeScreen() {
           note="with Leva"
           entries={[
             { href: "/rehearsal/global", name: "Global", sub: "the wall, for tuning" },
+            { href: "/rehearsal/lab", name: "Visual lab", sub: "the wall's world taken once · no bots · for tuning the look" },
             { href: "/rehearsal/future", name: "Future", sub: "the layer above only, live · light to draw" },
             { href: "/rehearsal/personal", name: "Personal", sub: "the visitor's screen, for tuning" },
             { href: "/rehearsal/management", name: "Management", sub: "sound bench · lab · other views" },

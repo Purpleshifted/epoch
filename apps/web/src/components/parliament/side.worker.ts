@@ -114,10 +114,13 @@ function turn(): void {
     scope.postMessage(out, transfer);
     lastEmit = now;
   }
+  // (a piece dissolving off the screen is let go when its dissolve is over: fuseUnits sweep)
+  const wake = units.sweep();
   // (nothing was made: every piece left is one that stands and rests — looked at again when the first of them may be)
   if (left && made !== null) schedule();
   else if (units.hasDirty()) schedule(EMIT_MS);
-  else if (left && units.waitMs < Infinity) schedule(Math.min(units.waitMs + 20, 5000));
+  else if (left && units.waitMs < Infinity) schedule(Math.min(units.waitMs + 20, wake + 20, 5000));
+  else if (wake < Infinity) schedule(Math.min(wake + 20, 5000));
 }
 
 // ── the ways ──

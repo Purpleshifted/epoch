@@ -18,7 +18,7 @@ export default function ManagementScreen() {
           note="around the work"
           entries={[
             { href: "/v2/sound", name: "Sound", sub: "NoiseCraft bench · patches · knob registration" },
-            { href: "/v2/global/lab", name: "Lab", sub: "3D timespace · a world of its own, paused, for tuning the strata" },
+            { href: "/v2/global/lab", name: "Lab", sub: "3D timespace · the wall's world taken once, no bots, paused · for tuning the look" },
           ]}
         />
         <EntryGroup
