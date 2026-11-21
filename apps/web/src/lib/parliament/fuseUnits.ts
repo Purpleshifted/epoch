@@ -580,9 +580,8 @@ interface Made {
   /** A piece of a building that joined this one: it stands until this building's own piece there is made again. */
   orphanOf?: string;
   after?: number;
-  /** THE OPEN FACES (fadeEdges): how much of the fossil the vegetation makes, per vertex, as made (fuseGrowB.y) — and
-   *  which of the six faces it is faded towards now (bits: above, below, +x, −x, +z, −z). */
-  veg?: Float32Array;
+  /** Which of the six neighbours (bits: above, below, +x, −x, +z, −z) are wanted and not made yet (fadeEdges): the
+   *  order makes those first. */
   mask?: number;
   /** THE PROVISIONAL SKIN: which of the six neighbours are on the screen now (its skin there is hidden), and per
    *  vertex how much of the skin is kept by its distance past the piece's own bounds (1 for the own faces). */
@@ -664,6 +663,17 @@ const PROV_PATCH = 2.2;
  * same number (ParliamentSpace uGrowBlend).
  */
 export const FUSE_BLEND_S = 6;
+
+/** A mesh's pending changes, none yet (FuseMesh.blend): the skin's share 1 → 1, no change, no dissolve. */
+function blendOf(nv: number): Float32Array {
+  const bl = new Float32Array(nv * 4);
+  for (let v = 0; v < nv; v++) {
+    bl[v * 4] = 1;
+    bl[v * 4 + 1] = -1e9;
+    bl[v * 4 + 3] = 1;
+  }
+  return bl;
+}
 
 /** The pieces a piece meets face to face — above, below, +x, −x, +z, −z (its key: `${k0}:${tx}:${tz}`). */
 function faceNeighbours(key: string, seg: number, tile: number): string[] {
@@ -825,8 +835,8 @@ export class FuseUnits {
   private fadeEdges(q: Unit, key: string): void {
     const m = q.done.get(key), j = q.job;
     if (!m || m.orphanOf !== undefined || !j) return;
-    const B = m.mesh.growB, P = m.mesh.position;
-    if (!B || !P.length) return;
+    const P = m.mesh.position;
+    if (!P.length) return;
     // (wanted and not made: the faces the order closes first — `mask`; on the screen: the skin there is hidden)
     let mask = 0, shownBits = 0;
     faceNeighbours(key, j.seg, j.tile).forEach((n, f) => {
@@ -835,46 +845,34 @@ export class FuseUnits {
     });
     m.mask = mask;
     const side = m.mesh.side;
-    const fresh = !m.veg;
-    if (!fresh && (m.shownBits ?? -1) === shownBits) return;
-    if (!m.veg) {
-      m.veg = new Float32Array(B.length / 2);
-      for (let v = 0; v < m.veg.length; v++) m.veg[v] = B[v * 2 + 1];
-    }
-    m.shownBits = shownBits;
-    if (side && !m.prov) m.prov = this.provOf(m, key, j);
-    const nv = m.veg.length;
+    const nv = P.length / 3;
     let bl = m.mesh.blend;
+    const fresh = !bl;
     if (!bl) {
-      bl = m.mesh.blend = new Float32Array(nv * 4);
-      for (let v = 0; v < nv; v++) bl[v * 4 + 1] = -1e9;
-    }
+      bl = m.mesh.blend = blendOf(nv);
+    } else if ((m.shownBits ?? -1) === shownBits) return;
+    m.shownBits = shownBits;
+    if (!side) return;
+    if (!m.prov) m.prov = this.provOf(m, key, j);
     const tNow = this.now();
     for (let v = 0; v < nv; v++) {
-      const g = m.veg[v];
-      if (g < 0) {
-        B[v * 2 + 1] = g;
+      const sd = side[v];
+      if (!sd) continue;
+      // the skin's share: hidden where the neighbour on its side is on the screen, thinning towards its far end
+      const target = sd & shownBits ? 0 : m.prov[v];
+      const was = bl[v * 4 + 3];
+      if (target === was) continue;
+      if (fresh || bl[v * 4 + 2] !== 0) {
+        // (not on the screen yet, or dissolving in or out: the share is set as it is — the dissolve carries it)
+        bl[v * 4] = target;
+        bl[v * 4 + 3] = target;
         continue;
       }
-      const sd = side ? side[v] : 0;
-      const f = !sd ? 1 : sd & shownBits ? 0 : m.prov ? m.prov[v] : 1;
-      const nb = g * f;
-      const old = B[v * 2 + 1];
-      if (nb === old) continue;
       // (from what is on the screen now — mid-way through an earlier change, where it stands — to the new share)
-      if (!fresh) {
-        const t = Math.max(0, Math.min(1, (tNow - bl[v * 4 + 1]) / FUSE_BLEND_S));
-        // (one clock per vertex: a piece still dissolving in keeps it — the share jumps; one whose dissolve is over
-        // is no longer dissolving)
-        if (bl[v * 4 + 2] > 0 && t < 1) {
-          B[v * 2 + 1] = nb;
-          continue;
-        }
-        bl[v * 4 + 2] = 0;
-        bl[v * 4] = bl[v * 4] + (old - bl[v * 4]) * t;
-        bl[v * 4 + 1] = tNow;
-      }
-      B[v * 2 + 1] = nb;
+      const t = Math.max(0, Math.min(1, (tNow - bl[v * 4 + 1]) / FUSE_BLEND_S));
+      bl[v * 4] = bl[v * 4] + (was - bl[v * 4]) * t;
+      bl[v * 4 + 1] = tNow;
+      bl[v * 4 + 3] = target;
     }
     this.dirty.add(m.chunk);
   }
@@ -912,23 +910,19 @@ export class FuseUnits {
 
   /** A piece off the screen: it dissolves out over FUSE_BLEND_S (drawn until then from `leaving`). */
   private leave(q: Unit, m: Made): void {
-    const B = m.mesh.growB;
-    if (B && m.mesh.position.length) {
-      const nv = B.length / 2;
-      let bl = m.mesh.blend;
-      if (!bl) {
-        bl = m.mesh.blend = new Float32Array(nv * 4);
-        for (let v = 0; v < nv; v++) bl[v * 4 + 1] = -1e9;
-      }
+    const nv = m.mesh.position.length / 3;
+    if (nv) {
+      const bl = (m.mesh.blend ??= blendOf(nv));
       const tNow = this.now();
       for (let v = 0; v < nv; v++) {
+        // (its skin stays as it is on the screen now; the dissolve takes the whole away)
         const t = Math.max(0, Math.min(1, (tNow - bl[v * 4 + 1]) / FUSE_BLEND_S));
-        bl[v * 4] = bl[v * 4] + (B[v * 2 + 1] - bl[v * 4]) * t;
+        const S = bl[v * 4] + (bl[v * 4 + 3] - bl[v * 4]) * t;
+        bl[v * 4] = S;
+        bl[v * 4 + 3] = S;
         bl[v * 4 + 1] = tNow;
         bl[v * 4 + 2] = -1;
       }
-      // (what it showed stays its share: the dissolve, not a shrinking, takes it away)
-      for (let v = 0; v < nv; v++) if (B[v * 2 + 1] >= 0) B[v * 2 + 1] = bl[v * 4];
       q.leaving.push({ made: m, until: performance.now() + FUSE_BLEND_S * 1000 + 200 });
     }
     this.dirty.add(m.chunk);
@@ -966,7 +960,7 @@ export class FuseUnits {
     // MADE AGAIN: it dissolves in over the one it replaces, which dissolves out (FUSE_BLEND_S)
     if (was && was !== made) {
       const nv = made.mesh.position.length / 3;
-      const bl = (made.mesh.blend = new Float32Array(nv * 4));
+      const bl = (made.mesh.blend = blendOf(nv));
       const tNow = this.now();
       for (let v = 0; v < nv; v++) {
         bl[v * 4 + 1] = tNow;
@@ -985,11 +979,6 @@ export class FuseUnits {
     }
     for (const key of keys) this.fused.push(key);
     this.fadeEdges(q, k);
-    // (coming in by the dissolve: at its own share from the start — the dissolve, not a growing, brings it)
-    if (was && was !== made && made.mesh.blend && made.mesh.growB) {
-      const bl = made.mesh.blend, B = made.mesh.growB;
-      for (let v = 0; v < bl.length / 4; v++) bl[v * 4] = B[v * 2 + 1];
-    }
     if (q.job) for (const n of faceNeighbours(k, q.job.seg, q.job.tile)) this.fadeEdges(q, n);
   }
 

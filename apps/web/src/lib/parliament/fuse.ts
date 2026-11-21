@@ -546,10 +546,11 @@ export interface FuseMesh {
    */
   side?: Float32Array;
   /**
-   * …AND WHAT CHANGES, CHANGES SOFTLY (the same request): per vertex (4) — the share it was let out by before the
-   * last change (fuseGrowB.y's old value), the clock that change came at (fuseUnits' seconds; −1e9 = none), and a
-   * cross-dissolve (+1 = a piece coming in, −1 = one going out, 0 = neither). The wall's shader goes from the old share
-   * to the new and dissolves the pieces over its blend time. Absent = no change pending.
+   * …AND WHAT CHANGES, CHANGES SOFTLY (the same request): per vertex (4) — the provisional skin's share before the
+   * last change, the clock that change came at (fuseUnits' seconds; −1e9 = none), a cross-dissolve (+1 = a piece
+   * coming in, −1 = one going out, 0 = neither), and the skin's share now (1 = all of it; the own faces: 1 → 1). The
+   * wall's shader goes from the old share to the new and lets the skin go through a noise of the world where it is
+   * less than whole; it dissolves the pieces over its blend time. Absent = 1, no change.
    */
   blend?: Float32Array;
   resinStart: number;
@@ -1656,7 +1657,7 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
     if (out.side && p.side) out.side.set(p.side, ov / 3);
     if (out.blend) {
       if (p.blend) out.blend.set(p.blend, (ov / 3) * 4);
-      else for (let v = ov / 3; v < (ov + p.position.length) / 3; v++) out.blend[v * 4 + 1] = -1e9;
+      else for (let v = ov / 3; v < (ov + p.position.length) / 3; v++) [out.blend[v * 4], out.blend[v * 4 + 1], out.blend[v * 4 + 3]] = [1, -1e9, 1];
     }
     out.position.set(p.position, ov);
     out.normal.set(p.normal, ov);
