@@ -156,6 +156,7 @@ export function fuseTilesOf(
           sediment: sed,
           layerDecay,
           cfg: fuse,
+          stages,
         });
       meshes.push(tileMesh);
       const dtTile = performance.now() - tTile;
@@ -171,7 +172,10 @@ export function fuseTilesOf(
       }
     }
   }
-  return mergeMeshes(meshes);
+  const tMerge = performance.now();
+  const out = mergeMeshes(meshes);
+  stages["ms merge"] = (stages["ms merge"] ?? 0) + (performance.now() - tMerge);
+  return out;
 }
 
 /**
@@ -182,7 +186,7 @@ export function fuseTilesOf(
  */
 /** How far off its unit's surface a vertex of the mass is pressed (world): clear of the wall drawn there. */
 const ANCHOR_OUT = 0.08;
-export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[], unit = 0): void {
+export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number[] }[], unit = 0, stages?: Record<string, number>): void {
   const nv = mesh.position.length / 3;
   const anchor = new Float32Array(nv * 3), A = new Float32Array(nv * 4), B = new Float32Array(nv * 2);
   const G = 2, REACH = 3;
@@ -244,7 +248,11 @@ export function growData(mesh: FuseMesh, parts: readonly { b: Box; grow?: number
       B[v * 2 + 1] = g[5];
     } else B[v * 2 + 1] = -1;
   }
-  if (unit > 0) placeValues(mesh, parts, unit, A, B);
+  if (unit > 0) {
+    const tPlace = performance.now();
+    placeValues(mesh, parts, unit, A, B);
+    if (stages) stages["ms place values"] = (stages["ms place values"] ?? 0) + (performance.now() - tPlace);
+  }
   mesh.anchor = anchor;
   mesh.growA = A;
   mesh.growB = B;
@@ -590,6 +598,14 @@ export interface UnitStats {
   ways?: number;
   /** The stamp of the code this worker runs (build.ts). */
   build?: string;
+  /** WHERE A PIECE'S TIME GOES (2026-11-21): mean ms per piece made since the last message, by stage (fuse.ts fuseChunk's
+   *  laps: field, blur, shell, nets, quads, smooth, finish; then merge, grow (of it: place values), and a helper's
+   *  transfer); and the mean grid samples of a piece. */
+  stageMs?: Record<string, number>;
+  samples?: number;
+  /** Pieces standing (made, on the screen or held), and the vertices of the chunks shown. */
+  pieces?: number;
+  verts?: number;
 }
 
 /** To the view: the chunks of the space whose mass is other than it was (a chunk with nothing left is dropped). */
@@ -601,6 +617,8 @@ export interface UnitChunks {
   stats: UnitStats;
   /** Date.now() at which this side's clock began: a piece's stamp (fuseGrowB.x) is seconds since. */
   clock0: number;
+  /** When it was sent (ms since the epoch): the view measures the transfer. */
+  sentAt?: number;
 }
 
 // ── THE POOL (2026-11-20; the artist sees the buildings' simplification as a compromise of speed and would rather
@@ -609,9 +627,10 @@ export interface UnitChunks {
 // growData: the seconds — is handed to helper workers. A piece's mesh depends only on what it is made from, so it is
 // the same whoever makes it; the order they are chosen in is the same order. ──
 
-/** What every piece of a job is made with: said to a helper once per job (by its serial). */
+/** What every piece of a job is made with: said to a helper once per job (by its serial); a helper keeps the latest per ground (`id`). */
 export interface PieceCtx {
   type: "ctx";
+  id: string;
   serial: number;
   h: NatureHistory | null;
   u: number;
@@ -626,6 +645,7 @@ export interface PieceCtx {
 export interface PieceTask {
   type: "piece";
   ticket: number;
+  id: string;
   serial: number;
   k0: number;
   k1: number;
@@ -646,6 +666,8 @@ export interface PieceDone {
   mesh: FuseMesh;
   ms: number;
   stages?: Record<string, number>;
+  /** When the helper sent it (ms since the epoch — performance.timeOrigin + now: the workers' clocks differ). */
+  sentAt?: number;
 }
 
 /** A piece's mesh: the same function on this side (step) and in a helper. */
@@ -660,7 +682,11 @@ export function makePiece(
 ): FuseMesh {
   const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: [...p.ps], tubes: p.tubes, x0: p.tx, z0: p.tz, nx: c.tile, nz: c.tile }, c.h, c.u, c.sed, look, c.fuse, c.tile, stages);
   turnBack(mesh, c.ang);
-  if (grows && own.length) growData(mesh, own, c.u);
+  if (grows && own.length) {
+    const tGrow = performance.now();
+    growData(mesh, own, c.u, stages);
+    stages["ms grow"] = (stages["ms grow"] ?? 0) + (performance.now() - tGrow);
+  }
   return mesh;
 }
 
@@ -774,8 +800,12 @@ export class FuseUnits {
   readonly clock0 = Date.now();
   private units = new Map<string, Unit>();
   private dirty = new Set<string>();
-  private shown = new Map<string, number>();
+  /** The chunks on the screen: [triangles, vertices] each. */
+  private shown = new Map<string, [number, number]>();
   private cleared = false;
+  /** The stages' ms (and grid samples) summed over the pieces made since the last flush, and how many. */
+  private stageSum: Record<string, number> = {};
+  private stageN = 0;
   private made = 0;
   private madeMs = 0;
   private maxMs = 0;
@@ -1064,8 +1094,18 @@ export class FuseUnits {
     const p = this.pick();
     if (!p) return null;
     const t0 = performance.now();
-    const mesh = makePiece(p.j, p.unit.look, p.p, p.own, this.stages, p.grows);
+    const st: Record<string, number> = {};
+    const mesh = makePiece(p.j, p.unit.look, p.p, p.own, st, p.grows);
+    this.takeStages(st);
     return this.finish(p.unit, p.j, p.p, p.own, p.keys, mesh, performance.now() - t0, p.grows);
+  }
+
+  /** A piece's account of its time (fuseTilesOf / fuseChunk stages): the slowest tile kept, the counts added, the stages summed. */
+  private takeStages(st: Record<string, number>): void {
+    if ((st["slow tile ms"] ?? 0) > (this.stages["slow tile ms"] ?? 0)) for (const [k, v] of Object.entries(st)) if (k.startsWith("slow tile")) this.stages[k] = v;
+    for (const k of ["fuse tiles (n)", "fuse cells (n)"]) if (st[k]) this.stages[k] = (this.stages[k] ?? 0) + st[k];
+    for (const [k, v] of Object.entries(st)) if (k.startsWith("ms ") || k === "grid samples (n)") this.stageSum[k] = (this.stageSum[k] ?? 0) + v;
+    this.stageN++;
   }
 
   /** The next piece by the order above, taken out of its building's list (null when nothing may be made now). */
@@ -1177,8 +1217,8 @@ export class FuseUnits {
     this.flights.set(ticket, { ...p, helper });
     const j = p.j;
     return {
-      ctx: { type: "ctx", serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
-      task: { type: "piece", ticket, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk }) => ({ b, d, up, sk })), tubes: p.p.tubes, own: p.own, grows: p.grows },
+      ctx: { type: "ctx", id: j.id, serial: j.serial, h: j.h, u: j.u, sed: j.sed, look: j.look, fuse: j.fuse, tile: j.tile, ang: j.ang },
+      task: { type: "piece", ticket, id: j.id, serial: j.serial, k0: p.p.k0, k1: p.p.k1, tx: p.p.tx, tz: p.p.tz, ps: p.p.ps.map(({ b, d, up, sk }) => ({ b, d, up, sk })), tubes: p.p.tubes, own: p.own, grows: p.grows },
     };
   }
 
@@ -1187,10 +1227,9 @@ export class FuseUnits {
     const f = this.flights.get(m.ticket);
     if (!f) return null;
     this.flights.delete(m.ticket);
-    // (the helper's account of its piece: its slowest tile kept if slower than any here; the counts added)
     const st = m.stages ?? {};
-    if ((st["slow tile ms"] ?? 0) > (this.stages["slow tile ms"] ?? 0)) Object.assign(this.stages, st);
-    else for (const k of ["fuse tiles (n)", "fuse cells (n)"]) if (st[k]) this.stages[k] = (this.stages[k] ?? 0) + st[k];
+    if (m.sentAt) st["ms transfer"] = (st["ms transfer"] ?? 0) + Math.max(0, performance.timeOrigin + performance.now() - m.sentAt);
+    this.takeStages(st);
     if (!this.live(f.unit) || f.unit.job?.cfg !== f.j.cfg || f.unit.sigs.get(f.p.key) !== f.p.sig) return null;
     return this.finish(f.unit, f.j, f.p, f.own, f.keys, m.mesh, m.ms, f.grows);
   }
@@ -1232,6 +1271,7 @@ export class FuseUnits {
       set: [],
       drop: [],
       clock0: this.clock0,
+      sentAt: performance.timeOrigin + performance.now(),
       stats: { waiting: fresh, remake: again, held: this.held(), made: this.made, pieceMaxMs: this.maxMs, pieceMeanMs: this.made ? this.madeMs / this.made : 0, tris: 0, chunks: 0, units: this.units.size, voxel: this.voxel, build: WALL_BUILD, tubes: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.length ?? 0), 0), ways: [...this.units.values()].reduce((n, q) => n + (q.job?.tubes?.filter((t) => t.kind === "walk").length ?? 0), 0) },
     };
     if (this.cleared) {
@@ -1245,12 +1285,25 @@ export class FuseUnits {
         continue;
       }
       const mesh = mergeMeshes(list);
-      this.shown.set(id, mesh.index.length / 3);
+      this.shown.set(id, [mesh.index.length / 3, mesh.position.length / 3]);
       out.set.push({ id, mesh });
       for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late]) if (a) transfer.push(a.buffer as ArrayBuffer);
     }
-    for (const n of this.shown.values()) out.stats.tris += n;
+    out.stats.verts = 0;
+    for (const [n, v] of this.shown.values()) {
+      out.stats.tris += n;
+      out.stats.verts += v;
+    }
     out.stats.chunks = this.shown.size;
+    out.stats.pieces = 0;
+    for (const unit of this.units.values()) out.stats.pieces += unit.done.size + unit.staged.size;
+    if (this.stageN) {
+      out.stats.stageMs = {};
+      for (const [k, v] of Object.entries(this.stageSum)) if (k.startsWith("ms ")) out.stats.stageMs[k.slice(3)] = v / this.stageN;
+      out.stats.samples = (this.stageSum["grid samples (n)"] ?? 0) / this.stageN;
+    }
+    this.stageSum = {};
+    this.stageN = 0;
     this.dirty.clear();
     this.cleared = false;
     this.made = 0;

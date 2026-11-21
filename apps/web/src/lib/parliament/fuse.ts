@@ -724,6 +724,9 @@ function faceNormals(P: Float32Array, quads: readonly number[], N: Float32Array)
 }
 
 export interface FuseChunkInput {
+  /** WHERE A PIECE'S TIME GOES (2026-11-21; the readout): each stage of the chunk adds its ms to `stages["ms <stage>"]`,
+   *  and the grid's samples to `stages["grid samples (n)"]`. Absent = not timed. */
+  stages?: Record<string, number>;
   /**
    * TILE OWNERSHIP (cells, optional): the grid covers x0 … x0 + nx (± padding) but only the faces whose edge starts in
    * own.x0 … own.x1 × own.z0 … own.z1 are kept — the same rule as the chunk's own rows (k0 … k1), across the ground, so
@@ -775,6 +778,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const { cfg, unit, sediment: sed, history: h } = input;
   if (!cfg.enabled || input.nx <= 0 || input.nz <= 0) return EMPTY;
   const vs = cfg.voxel;
+  // (the stages' clock: a lap adds the time since the last to the stage named — FuseChunkInput.stages)
+  const stg = input.stages;
+  let tLap = stg ? performance.now() : 0;
+  const lap = (name: string) => {
+    if (!stg) return;
+    const now = performance.now();
+    stg[name] = (stg[name] ?? 0) + (now - tLap);
+    tLap = now;
+  };
   const iso0 = cfg.iso;
   const GROW = cfg.growthColor ?? GROWTH;
   /** The age of a layer (0 … 1): the parts' corrosion clock when given, else the sediment clock. */
@@ -792,6 +804,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const nx = I1 - I0 + 1, ny = J1 - J0 + 1, nz = K1 - K0 + 1;
   const n = nx * ny * nz;
   if (n > 6e6) return EMPTY; // safety: refuse absurd grids
+  if (stg) stg["grid samples (n)"] = (stg["grid samples (n)"] ?? 0) + n;
   const idx = (i: number, j: number, k: number) => (k * ny + j) * nx + i;
 
   // age of each sample row (sediment share): porosity and colour
@@ -1053,6 +1066,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  lap("ms field");
   const tmp = new Float32Array(n);
   const Cb = C.slice();
   blur3(Cb, tmp, nx, ny, nz, Math.round(cfg.blur));
@@ -1196,6 +1210,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  lap("ms blur");
   // C SHELL: hollow the mass (whatever lies deeper than the shell's thickness), then open some of the cells that touch
   // each other so only ribs remain between them; old layers are opened most. FOAM: the same cells carved through the
   // volume without hollowing (sponge bone, ref 9579)
@@ -1348,6 +1363,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     for (const p of adds) if (F[p] < iso + 0.25) F[p] = iso + 0.25;
   }
 
+  lap("ms shell");
   // ── naive surface nets ──
   const cubeVert = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1);
   const cidx = (i: number, j: number, k: number) => (k * (ny - 1) + j) * (nx - 1) + i;
@@ -1464,6 +1480,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  lap("ms nets");
   // faces: one quad per sign-changing sample edge. All are collected (padding too) so that smoothing and normals see
   // the same neighbourhood in neighbouring chunks; each is kept by the chunk whose rows contain the edge's start.
   const quads: number[] = []; // a b c d flip owned
@@ -1495,12 +1512,14 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
       }
     }
   }
+  lap("ms quads");
   const P = Float32Array.from(pos);
   const NV = P.length / 3;
   const Nn = Float32Array.from(nor);
   const anyBlocky = wgt.some((w) => w < 1);
   if (cfg.smooth > 0 && NV > 0) taubin(P, quads, NV, Math.round(cfg.smooth), anyBlocky ? Float32Array.from(wgt) : undefined);
   if (cfg.smooth > 0 && NV > 0) faceNormals(P, quads, Nn);
+  lap("ms smooth");
   // PITS ON THE BROAD FACES: the pits' coverage drawn toward the flat middles of the large faces — a vertex whose
   // neighbours' normals agree with its own (flat) and that lies deep in a closed cell (broadM) keeps its pits; rims,
   // ribs, edges and small curved bits lose them, by pitBroad
@@ -1552,6 +1571,7 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const index = new Uint32Array(ind.length + resinInd.length);
   index.set(ind);
   index.set(resinInd, ind.length);
+  lap("ms finish");
   return { position: P, normal: Nn, color: Float32Array.from(col), extra: Float32Array.from(ext), index, resinStart: ind.length, ...(late ? { late } : {}) };
 }
 
