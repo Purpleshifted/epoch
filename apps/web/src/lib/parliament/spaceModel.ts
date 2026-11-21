@@ -67,6 +67,105 @@ const SEEDED_TUBES: boolean = true;
  *  a place hardens only while there is room — no run is ever pushed out by another (its pieces would be made again
  *  without it, and the trunk would blink). */
 const TRUNK_CAP = 1200;
+/** …and of the ways' main lines (waysNow: a way straightened is a few tubes), counted the same way and apart from the
+ *  pipes — neither takes the other's room. */
+const WAY_CAP = 800;
+
+/**
+ * A WAY'S LINE AS A FEW STRAIGHT STRETCHES (the artist, 2026-11-21: "길도 넣어"). A way is drawn as a smoothed line of
+ * dozens of short pieces — every one of them a tube was what made the field 570 155 tubes on 11/16. Here: the points
+ * of the line [x, y, z, …] that are left when every point lying within `eps` of the straight stretch between its
+ * neighbours kept is dropped (Douglas–Peucker, in space — a ramp's rise counts). The indices of the points kept.
+ */
+function straightened(line: ArrayLike<number>, eps: number): number[] {
+  const n = Math.floor(line.length / 3);
+  if (n < 2) return [];
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    if (b - a < 2) continue;
+    const ax = line[a * 3], ay = line[a * 3 + 1], az = line[a * 3 + 2];
+    const dx = line[b * 3] - ax, dy = line[b * 3 + 1] - ay, dz = line[b * 3 + 2] - az, l2 = dx * dx + dy * dy + dz * dz || 1;
+    let far = -1, most = eps * eps;
+    for (let i = a + 1; i < b; i++) {
+      const px = line[i * 3] - ax, py = line[i * 3 + 1] - ay, pz = line[i * 3 + 2] - az;
+      const t = Math.max(0, Math.min(1, (px * dx + py * dy + pz * dz) / l2));
+      const qx = px - dx * t, qy = py - dy * t, qz = pz - dz * t, d2 = qx * qx + qy * qy + qz * qz;
+      if (d2 > most) [far, most] = [i, d2];
+    }
+    if (far < 0) continue;
+    keep[far] = 1;
+    stack.push([a, far], [far, b]);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(i);
+  return out;
+}
+
+/**
+ * TUBES THAT LIE IN ONE LINE, END TO END, ARE ONE TUBE (the artist, 2026-11-21, of the trunks' straight runs left
+ * apart: "일단 머지하고"). Only what is the same thing: one kind, one layer, hardened at the same moment (one age — a
+ * tube's fossil comes out by it), meeting at an end and going on in the same direction. The thicker of them is the
+ * tube's thickness. What is joined does not change afterwards: hardened runs stay as they lay, and a run that hardens
+ * later is of another age — it stays a tube of its own, so no piece along a trunk is made again for it.
+ */
+function joinTubes<T extends FuseTube & { born?: number; share?: number }>(list: readonly T[]): T[] {
+  if (list.length < 2) return [...list];
+  const Q = 1000;
+  const at = (x: number, y: number, z: number) => `${Math.round(x * Q)}:${Math.round(y * Q)}:${Math.round(z * Q)}`;
+  const same = (t: T) => `${t.kind}:${t.k}:${t.born ?? ""}|`;
+  const ends = new Map<string, number[]>();
+  const put = (key: string, i: number) => {
+    const l = ends.get(key);
+    if (l) l.push(i);
+    else ends.set(key, [i]);
+  };
+  list.forEach((t, i) => {
+    put(same(t) + at(t.x0, t.y0, t.z0), i);
+    put(same(t) + at(t.x1, t.y1, t.z1), i);
+  });
+  const used = new Uint8Array(list.length);
+  const out: T[] = [];
+  for (let i = 0; i < list.length; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const t = list[i], g = same(t);
+    // (the two ends as they stand: [0] the start, [1] the end — each is carried on while a tube goes on from it)
+    const end: [number, number, number][] = [[t.x0, t.y0, t.z0], [t.x1, t.y1, t.z1]];
+    let r = t.r, share = t.share;
+    const len = Math.hypot(t.x1 - t.x0, t.y1 - t.y0, t.z1 - t.z0);
+    if (len > 1e-6) {
+      const ux = (t.x1 - t.x0) / len, uy = (t.y1 - t.y0) / len, uz = (t.z1 - t.z0) / len;
+      for (const side of [1, 0] as const) {
+        const sgn = side ? 1 : -1;
+        for (;;) {
+          const p = end[side];
+          let next = -1, far: [number, number, number] | null = null;
+          for (const j of ends.get(g + at(p[0], p[1], p[2])) ?? []) {
+            if (used[j]) continue;
+            const o = list[j];
+            const atStart = Math.abs(o.x0 - p[0]) + Math.abs(o.y0 - p[1]) + Math.abs(o.z0 - p[2]) < 2 / Q;
+            const f: [number, number, number] = atStart ? [o.x1, o.y1, o.z1] : [o.x0, o.y0, o.z0];
+            const vx = f[0] - p[0], vy = f[1] - p[1], vz = f[2] - p[2], vl = Math.hypot(vx, vy, vz);
+            // (going on the same way: not a turn, not folding back)
+            if (vl < 1e-6 || (vx * ux + vy * uy + vz * uz) * sgn < vl * 0.9999) continue;
+            [next, far] = [j, f];
+            break;
+          }
+          if (next < 0 || !far) break;
+          used[next] = 1;
+          end[side] = far;
+          r = Math.max(r, list[next].r);
+          if (list[next].share !== undefined) share = Math.max(share ?? 0, list[next].share!);
+        }
+      }
+    }
+    out.push({ ...t, x0: end[0][0], y0: end[0][1], z0: end[0][2], x1: end[1][0], y1: end[1][1], z1: end[1][2], r, share } as T);
+  }
+  return out;
+}
 /** A round of ways asked of the other worker that has not come back within this is asked again (ms). */
 const WALK_LOST_MS = 180000;
 const LEAVE_KEEP_S = 20;
@@ -838,21 +937,28 @@ export class SpaceModel {
    * water of their layer (trunksNow — a run is already a straight stretch of its route, a few to a layer), no
    * manhole shafts, no ways; each a BONE in the mass, `trunkThick` times its pipe; born on the same clock as a
    * building's part, so it comes out by its age and its life ends as theirs does (FuseInput.dead: let go for good).
+   *
+   * …AND THE WAYS' MAIN LINES (2026-11-21, "길도 넣어" — waysNow): the most used ways of a layer, each straightened into
+   * a few tubes, hardened and let go by the same rules; counted apart from the pipes (WAY_CAP).
    */
   private seededTubes(fuse: FuseConfig, u: number): (FuseTube & { born?: number })[] {
     const bc = this.blockClock;
     // (by the clock on the wall: the model's own time is the latest thing written, and does not run on in the block)
     const now = Date.now() / 1000, hardenS = Math.max(20, bc ? fossilWaitSec(bc.erode) : 40), GRACE_S = 25;
     const thick = Math.max(1, fuse.trunkThick ?? 3), least = fuse.voxel * 1.5, share = Math.max(0, Math.min(1, fuse.trunkShare ?? 0.4));
+    // (a way is among the main ones while its place among its layer's — 1 the most used … 0 — is above this)
+    const wayFrom = 1 - Math.max(0, Math.min(1, fuse.wayShare ?? 0.3));
     const here = new Map<string, (FuseTube & { share?: number })[]>();
-    for (const t of this.trunksNow(fuse, u)) {
+    for (const t of [...this.trunksNow(fuse, u), ...this.waysNow(fuse)]) {
       const key = `${t.kind}:${t.k}:${Math.floor((t.x0 + t.x1) / 2 / CELL)}:${Math.floor((t.z0 + t.z1) / 2 / CELL)}:${Math.abs(t.y1 - t.y0) > Math.abs(t.x1 - t.x0) + Math.abs(t.z1 - t.z0) ? "v" : "h"}`;
       const l = here.get(key);
       if (l) l.push(t);
       else here.set(key, [t]);
     }
-    let room = TRUNK_CAP;
-    for (const e of this.tubeSeen.values()) if (e.hard) room -= e.hard.length;
+    // (the room left, the pipes' and the ways' each their own)
+    const room = { pipe: TRUNK_CAP, walk: WAY_CAP };
+    const roomOf = (key: string): "pipe" | "walk" => (key.startsWith("walk") ? "walk" : "pipe");
+    for (const [key, e] of this.tubeSeen) if (e.hard) room[roomOf(key)] -= e.hard.length;
     for (const [key, l] of here) {
       const e = this.tubeSeen.get(key);
       if (!e) this.tubeSeen.set(key, { k: l[0].k, first: now, seen: now, hard: null });
@@ -860,14 +966,14 @@ export class SpaceModel {
         e.seen = now;
         // (born on the age's clock — the top's way and what went on while it stood, as a part's is: on a standing
         // window the top alone never moves, and every trunk would be as old as the wall)
-        if (!e.hard && now - e.first >= hardenS && room >= l.length) {
+        if (!e.hard && now - e.first >= hardenS && room[roomOf(key)] >= l.length) {
           e.hard = l.map((t) => ({ ...t, born: bc ? bc.top + Math.max(0, bc.erode.stood ?? 0) : t.k }));
-          room -= l.length;
+          room[roomOf(key)] -= l.length;
         }
       }
     }
     const out: (FuseTube & { born?: number })[] = [];
-    let soft = 0;
+    let soft = 0, softWays = 0, ways = 0;
     // (a trunk whose fossil's life is over is let go for good, as a part's is — FuseInput.dead; on the same stepped
     // clock, so the trunks of a while go together and their ground is not told again for every one of them)
     const dead = this.fossilDead, deadStep = dead ? Math.max(1, dead.at / 10) : 1;
@@ -883,11 +989,53 @@ export class SpaceModel {
         if (dead && bc && (ageNow - born - dead.after) * (1 - dead.deep * (1 - Math.max(0, Math.min(1, (bc.top - (e.k + 0.5)) / H)))) >= dead.at) e.hard = [];
         // (each a bone in the mass: `trunkThick` times its pipe's radius, never thinner than the grid — and only
         // what is a trunk by the knob AS IT STANDS: turned up, the thinner ones leave with the next making)
-        else for (const t of e.hard) if ((t.share ?? 1) >= share) out.push({ ...t, r: Math.max(least, t.r * thick) });
-      } else soft++;
+        // (a way: the knob's radius as it stands, and only while it is among the main ones by the knob as it stands)
+        else
+          for (const t of e.hard) {
+            if (t.kind === "walk") {
+              if ((t.share ?? 1) < wayFrom) continue;
+              out.push({ ...t, r: Math.max(least, fuse.wayRadius ?? 0.45) });
+              ways++;
+            } else if ((t.share ?? 1) >= share) out.push({ ...t, r: Math.max(least, t.r * thick) });
+          }
+      } else if (roomOf(key) === "walk") softWays++;
+      else soft++;
     }
     this.stages["pipe trunks hardening (places)"] = soft;
-    this.stages["pipe trunks in the mass (runs)"] = out.length;
+    this.stages["pipe trunks in the mass (runs)"] = out.length - ways;
+    this.stages["ways hardening (places)"] = softWays;
+    this.stages["ways in the mass (stretches)"] = ways;
+    return out;
+  }
+
+  /**
+   * THE WAYS' MAIN LINES, as tubes whole (the artist, 2026-11-21: "길도 넣어"): of the lines drawn in a layer, the most
+   * used — `wayShare` of them, at least one — each straightened into a few stretches (`straightened`: no farther from
+   * the drawn way than three quarters of a cell, or the bone's own radius — a way that steps cell by cell across the
+   * ground is one stretch, lying in or beside its bone). A stretch carries its way's place among its layer's (`share`:
+   * 1 the most used … towards 0), so the knob turned leaves or takes without a new round.
+   */
+  private waysNow(fuse: FuseConfig): (FuseTube & { share?: number })[] {
+    if (!fuse.fuseWalks) return [];
+    const keep = Math.max(0, Math.min(1, fuse.wayShare ?? 0.3));
+    if (keep <= 0) return [];
+    const r = Math.max(0.05, fuse.wayRadius ?? 0.45), eps = Math.max(CELL * 0.75, r);
+    const out: (FuseTube & { share?: number })[] = [];
+    for (const l of this.walks.layers) {
+      const n = l.lines.length;
+      if (!n || l.k < this.floorDone) continue;
+      // (by how much each is used — the line's own number, kept from when it was laid; the same again for a layer
+      // that stands as it was)
+      const order = l.lines.map((_, i) => i).sort((a, b) => (l.use?.[b] ?? 1) - (l.use?.[a] ?? 1) || a - b);
+      const take = Math.max(1, Math.ceil(n * keep));
+      for (let q = 0; q < take; q++) {
+        const line = l.lines[order[q]], pts = straightened(line, eps), share = 1 - q / n;
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1] * 3, b = pts[i] * 3;
+          out.push({ x0: line[a], y0: line[a + 1], z0: line[a + 2], x1: line[b], y1: line[b + 1], z1: line[b + 2], r, decay: 1, kind: "walk", k: l.k, share });
+        }
+      }
+    }
     return out;
   }
 
@@ -901,12 +1049,12 @@ export class SpaceModel {
     if (!fuse.fusePipes || !wc) return [];
     const share = Math.max(0, Math.min(1, fuse.trunkShare ?? 0.4));
     const most = new Map<number, number>();
-    for (const p of this.drain.pipes) if (p.k0 === undefined && p.flow > (most.get(p.k) ?? 0)) most.set(p.k, p.flow);
+    for (const p of this.drain.pipes) if (p.k0 === undefined && !p.drop && p.flow > (most.get(p.k) ?? 0)) most.set(p.k, p.flow);
     const yOf = (k: number) => (k - wc.pipeDepth) * u;
     const out: (FuseTube & { share?: number })[] = [];
     for (const p of this.drain.pipes) {
       const top = most.get(p.k) ?? 0;
-      if (p.k0 !== undefined || p.flow < Math.max(2, top * share)) continue;
+      if (p.k0 !== undefined || p.drop || p.flow < Math.max(2, top * share)) continue;
       out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k, share: top > 0 ? p.flow / top : 1 });
     }
     return out;
@@ -922,6 +1070,7 @@ export class SpaceModel {
       for (const p of this.drain.pipes) {
         if (p.k > kMax) continue;
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay: 1, kind: "pipe", k: p.k });
+        else if (p.drop) out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.ax, y1: p.k * u, z1: p.az, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay: 1, kind: "pipe", k: p.k });
       }
     }
@@ -1369,8 +1518,9 @@ export class SpaceModel {
       // world: once the places hardened, 43 → 225,170 → 570,155 tubes were in the field within seven minutes (a way is
       // drawn as thousands of short pieces, in every layer), a piece of the mass went from ~1 s to 7.9 s, the model's
       // round to 14 s and the screen to 3 fps.
-      // BACK IN, THE PIPES' TRUNKS ONLY (2026-11-20, seededTubes): at most TRUNK_CAP runs. The ways stay out until
-      // it is decided how few tubes a way may be.
+      // BACK IN, THE PIPES' TRUNKS ONLY (2026-11-20, seededTubes): at most TRUNK_CAP runs.
+      // …AND THE WAYS' MAIN LINES (2026-11-21, "길도 넣어"): the most used of a layer, each a few straight stretches —
+      // at most WAY_CAP of them (waysNow).
       for (const t of SEEDED_TUBES ? this.seededTubes(fuse, u) : []) {
         const id = `ground:${box.variety ? Math.round(districtOf((t.x0 + t.x1) / 2, (t.z0 + t.z1) / 2, box.variety).angle * 1e4) : 0}`;
         if (!lists.has(id)) continue;
@@ -1378,11 +1528,18 @@ export class SpaceModel {
         if (l) l.push(t);
         else tubesOf.set(id, [t]);
       }
-      for (const [id, l] of tubesOf) {
+      let sentTubes = 0;
+      for (const [id, l0] of tubesOf) {
+        // (what lies in one line end to end is one tube — within a ground: a tube is fused in the field of the ground
+        // its middle lies in, and one joined across two grounds would leave the other's buildings)
+        const l = joinTubes(l0);
+        tubesOf.set(id, l);
+        sentTubes += l.length;
         let sg = 0;
         for (const t of l) sg += t.x0 * 3.1 + t.y0 * 7.3 + t.z0 * 11.7 + t.x1 * 13.9 + t.y1 * 17.1 + t.z1 * 19.3 + t.r * 23.9;
         tubeSig.set(id, `${l.length}:${sg.toFixed(2)}`);
       }
+      this.stages["tubes handed to the fossil, joined (n)"] = sentTubes;
     }
     let first = false;
     if (!this.remoteOn) {
@@ -2204,6 +2361,7 @@ export class SpaceModel {
         if (left <= 0) continue;
         const decay = quant20(bc && bc.erode.pipes !== false ? worn * left * bc.old(p.k, (p.ax + p.bx) / 2, (p.az + p.bz) / 2) : this.pipeDecayAt(p.k, w));
         if (p.k0 !== undefined) out.push({ x0: p.ax, y0: yOf(p.k0), z0: p.az, x1: p.ax, y1: yOf(p.k), z1: p.az, r: wc.pipeRadius * wc.shaftRadius, decay, kind: "pipe", k: p.k });
+        else if (p.drop) out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.ax, y1: p.k * u, z1: p.az, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
         else out.push({ x0: p.ax, y0: yOf(p.k), z0: p.az, x1: p.bx, y1: yOf(p.k), z1: p.bz, r: wc.pipeRadius * Math.pow(Math.max(1, p.flow), wc.flowGain), decay, kind: "pipe", k: p.k });
       }
     }

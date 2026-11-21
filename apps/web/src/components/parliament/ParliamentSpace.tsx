@@ -1887,7 +1887,8 @@ function SpaceWorld({
     const req: Extract<SpaceRequest, { type: "compute" }> = { type: "compute", id, now: nowS, parts: { fold: f, box: cfg, wear: wr, weather: wx, fuse: fu, water: waterCfg, walk: wk, edges: e, lod, steady: oneClk, density: dens, futureOnly: futureOnly(), clock: wallClock() } };
     if (pl && dens?.path) req.paths = { rise: pl.rise, smooth: pl.smooth };
     // (…with what is left under the ground: FutureUnder.tsx's knob)
-    if (REDESIGN && dens && futureLink.cfg) req.future = futureUnder.cfg ? { ...futureLink.cfg, ...futureUnder.cfg } : futureLink.cfg;
+    // (not asked for at all while the layer is off — off by default since 2026-11-20, "디폴트로 미래 모습은 안 보이게")
+    if (REDESIGN && dens && futureLink.cfg?.on) req.future = futureUnder.cfg ? { ...futureLink.cfg, ...futureUnder.cfg } : futureLink.cfg;
     // (the layer above alone — futureOnly.ts: no vegetation of the present, no fossil)
     if (withNature && nat && !futureOnly()) {
       if (!nat.unlived) req.nature = { fold: f, box: cfg, nature: nat.cfg, window: nat.window, focusK, margin: nat.margin };
@@ -4306,7 +4307,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
   const fu = useLevaControls(
     FU,
     savable(FU, {
-      fuseOn: { value: DEFAULT_FUSE.enabled, label: REDESIGN ? "켜기 (덩어리: 부식 = 침식의 자리 값 · 작용 띠는 '침식'의 시작 … 다 깎이는 깊이)" : "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
+      fuseOn: { value: DEFAULT_FUSE.enabled, label: REDESIGN ? "켜기 (화석: 단순화된 건물에서, 굳은 뒤의 나이로 나오고 삭아 사라짐)" : "켜기 (풍화 · 지층의 '마모'와 '지층'이 켜져 있어야 함)" },
       // A SET OF VALUES TO CHOOSE (presets/exhibitionFusion.ts FUSION_PRESETS; the artist, 2026-11-20: "프리셋 선택할 수 있게
       // 레바 추가하고 거기 전시 버전 넣어줘"): choosing one puts its values on this folder's knobs, in this tab — saved
       // only by the folder's save. What it shows afterwards is the set last chosen, not a promise nothing was moved since.
@@ -4334,7 +4335,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         render: () => REDESIGN,
       },
       // (for the parts' own skins too since 2026-11-16 — a new key, so what was saved for the crust does not carry over)
-      massVeg: { value: 0.5, min: 0, max: 1, step: 0.05, label: "식생이 덩어리를 만드는 정도 (0 = 식생과 무관하게 진행만큼 … 1 = 식생이 모인 곳에만)", render: () => REDESIGN },
+      // (WHAT IT DOES IN THE NEW WAY — the artist, 2026-11-20: "정확하게 뭘 조절하고 어떤 영향을 미치냐": a part's fossil
+      // comes out to at most 1 − this × (1 − the vegetation gathered at its cell and slot); under 0.05 it is not made)
+      massVeg: { value: 0.5, min: 0, max: 1, step: 0.05, label: "식생이 모인 자리에서만 화석이 다 나옴 (0 = 어디서나 끝까지 나옴 · 클수록 식생이 안 모인 자리 — 오래 머문 곳 — 의 화석이 덜 부풀어 얇게 남음 · 1 = 그런 자리에는 화석이 아예 없음)", render: () => REDESIGN },
       // THE MASS'S SHAPE IS MADE ONCE AND GROWS ON THE SCREEN (fuse.ts seeded; the artist, 2026-11-16: "만들어서 보여줘")
       fuseGrow: {
         options: { "모양은 한 번만 만들고, 부재에서 부풀어 나옴 (새 방식)": "seed", "진행이 바뀔 때마다 다시 만듦 (예전)": "state" },
@@ -4428,7 +4431,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         immutable: { value: 60, min: 10, max: 300, step: 5, label: "완전불변 층 (현재에서 ↓단; 그 아래는 그때 모습으로 굳어 다시 계산하지 않음)", render: (get) => isV2 && !REDESIGN && get(BAKE_PATH) },
         // THE BLOCK: the count of layers multiplied in (fuse.ts freshSlots; the artist, 2026-11-15: "제일 최신 층은 화석화
         // 되면 안 되는데" → "딱 잘려보이는데, 다른 로직에 곱하거나 하는 식으로(단수를)") — new names: a factor now, not a line
-        layerSlots: { value: 24, min: 0, max: 240, step: 1, label: "층수를 곱함: 꼭대기 0 → 이 단수 아래에서 1 (0 = 층수 안 봄)", render: () => REDESIGN },
+        // (the new fossil does not read it — its ruler is the age; the BUILDINGS' erosion still does: spaceModel `old`)
+        layerSlots: { value: 24, min: 0, max: 240, step: 1, label: "꼭대기 가까운 층의 건물은 덜 깎임: 꼭대기에서 0 → 이 단수 아래부터 제 속도 (0 = 안 봄 · 지금은 건물이 깎이는 속도에만 곱해짐 — 화석의 나이와는 무관)", render: () => REDESIGN },
         layerSpread: { value: 0.5, min: 0, max: 1, step: 0.05, label: "부재마다 늙는 속도가 다름 (0 = 같은 나이는 똑같이 → 띠로 보임 · 1 = 어떤 것은 훨씬 먼저, 어떤 것은 훨씬 나중)", render: () => REDESIGN },
         // THE BLOCK: how much of a fused part the mass takes the place of (fuse.ts absorb; the artist, 2026-11-15:
         // "건물이 녹는 게 아니라 건물에 엉겨붙도록 하는 게 예전 느낌에 더 맞는 것 같은데")
@@ -4456,7 +4460,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
             // 원한 게 아님")
             scatter: { value: REDESIGN ? 0 : DEFAULT_FUSE.scatter, min: 0, max: 2, step: 0.05, label: "얇은 덩어리를 조각냄 (0 = 안 함 · 올리면 조약돌처럼 부서짐)", render: (get) => get(BODY_PATH) !== "crust" },
             porosity: { value: DEFAULT_FUSE.porosity, min: 0, max: 2, step: 0.05, label: "둥근 구멍 양 (오래된 층일수록 많이)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
-            poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드; 껍질 · 거품의 '둥근 구멍' 모양도 이 크기)", render: (get) => !get(SHELL_PATH) && !get(FOAM_PATH) },
+            poreSize: { value: DEFAULT_FUSE.poreSize, min: 0.3, max: 4, step: 0.05, label: "둥근 구멍 크기 (월드; 껍질 · 거품의 '둥근 구멍' 모양도 이 크기)", render: (get) => (!get(SHELL_PATH) && !get(FOAM_PATH)) || get(HOLE_PATH) === "round" },
             skeleton: { value: DEFAULT_FUSE.skeleton, min: 0, max: 1, step: 0.01, label: "뼈대로 남는 부재 비율 (날카로운 직교 형태 유지)", render: (get) => get(BODY_PATH) !== "crust" },
             skeletonWrap: { value: DEFAULT_FUSE.skeletonWrap, min: 0, max: 1, step: 0.05, label: "뼈대가 덩어리에 덮이는 정도 (0 = 안 덮임, 1 = 다른 부재와 같게)", render: (get) => get(BODY_PATH) !== "crust" && get(SKEL_PATH) > 0 },
             spikes: { value: DEFAULT_FUSE.spikes, min: 0, max: 1, step: 0.01, label: "가시: 표면에서 뻗어 나오는 양 (0 = 없음)" },
@@ -4467,7 +4471,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
                 voxel: { value: DEFAULT_FUSE.voxel, min: 0.15, max: 1.2, step: 0.05, label: "격자 간격 (월드; 작을수록 세밀하고 무거움)" },
                 iso: { value: DEFAULT_FUSE.iso, min: 0.05, max: 0.9, step: 0.01, label: "덩어리로 치는 밀도 기준 (낮출수록 두꺼워지고 더 멀리 이어짐)" },
                 smooth: { value: DEFAULT_FUSE.smooth, min: 0, max: 6, step: 1, label: "표면 다듬기 횟수 (0 = 각진 격자 그대로; 껍질은 3 권장)" },
-                natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생 퇴적물이 덩어리에 섞이는 양", render: (get) => get(BODY_PATH) !== "crust" },
+                // (fuse.ts N: the vegetation gathered at a cell and slot — the block's own, spaceModel blockHistory — is
+                // added to the field's density there, × this, only close to the parts' mass: never a body of its own)
+                natureWeight: { value: DEFAULT_FUSE.natureWeight, min: 0, max: 2, step: 0.05, label: "식생이 모인 칸에서 화석이 더 두껍게 붙음 (그 칸과 옆 칸의 부재 둘레에 덩어리를 더함 — 사이가 더 메워지고 더 멀리 부풂 · 부재가 없는 곳에는 안 생김 · 0 = 식생과 무관한 모양)", render: (get) => get(BODY_PATH) !== "crust" },
               },
               { collapsed: true },
             ),
@@ -4522,7 +4528,12 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
               fusePipes: { value: DEFAULT_FUSE.fusePipes, label: REDESIGN ? "배관의 본줄기가 화석 덩어리에 들어감 (굳은 뒤, 부재처럼 나이로 나오고 삭아 사라짐)" : "배관이 덩어리에 들어감 (관 그대로, 자기 부식 시계)" },
               trunkShare: { value: 0.4, min: 0.05, max: 1, step: 0.05, label: "본줄기로 치는 관 — 그 층에서 물을 가장 많이 나르는 관의 몇 배 이상인가 (작을수록 가지까지 들어감)", render: (get) => REDESIGN && !!get(PIPES_PATH) },
               trunkThick: { value: 3, min: 1, max: 8, step: 0.25, label: "본줄기의 뼈 굵기 — 관 굵기의 몇 배로 덩어리에 들어가나", render: (get) => REDESIGN && !!get(PIPES_PATH) },
-              fuseWalks: { value: DEFAULT_FUSE.fuseWalks, label: "다리가 덩어리에 들어감 (층의 나이로 늙음)" },
+              // (…AND THE WAYS' MAIN LINES, 2026-11-21 — "길도 넣어": the most used ways of a layer, each straightened into
+              // a few stretches, hardened and let go as the trunks are — spaceModel.ts waysNow. `walkRadius` is the old
+              // way's: a tenth of a unit, under what the mass's grid can hold — the bone has a radius of its own)
+              fuseWalks: { value: DEFAULT_FUSE.fuseWalks, label: REDESIGN ? "길의 큰 줄기가 화석 덩어리에 들어감 (굳은 뒤, 부재처럼 나이로 나오고 삭아 사라짐)" : "다리가 덩어리에 들어감 (층의 나이로 늙음)" },
+              wayShare: { value: 0.3, min: 0.05, max: 1, step: 0.05, label: "화석에 드는 길 — 그 층에 놓인 길 중 가장 많이 다닌 것부터 이 몫까지 (0.3 = 위 30 % · 층마다 적어도 하나 · 1 = 전부)", render: (get) => REDESIGN && !!get(WALKS_PATH) },
+              wayThick: { value: 0.45, min: 0.1, max: 2, step: 0.05, label: "길의 뼈 굵기 (월드 · 반지름 · 화석 격자 1.5칸보다 가늘어지지 않음)", render: (get) => REDESIGN && !!get(WALKS_PATH) },
               walkRadius: { value: DEFAULT_FUSE.walkRadius, min: 0.05, max: 0.6, step: 0.01, label: "다리 관 굵기 (월드)", render: (get) => get(WALKS_PATH) },
               steelFossil: { value: isV2 ? 0.35 : 0, min: 0, max: 1, step: 0.05, label: "철골 중 화석으로 남는 비율 (0 = 철골은 녹슬어 사라짐; 가장 오래 버티는 것부터)" },
             },
@@ -4671,6 +4682,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       fusePipes: fu.fusePipes,
       trunkShare: fu.trunkShare,
       trunkThick: fu.trunkThick,
+      wayShare: fu.wayShare,
+      wayRadius: fu.wayThick,
       fuseWalks: fu.fuseWalks,
       walkRadius: fu.walkRadius,
       steelFossil: fu.steelFossil,
@@ -4751,7 +4764,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.trunkShare, fu.trunkThick, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.meltPick, fu.meltFrame, fu.meltLump, fu.meltSteer, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.trunkShare, fu.trunkThick, fu.wayShare, fu.wayThick, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.meltPick, fu.meltFrame, fu.meltLump, fu.meltSteer, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   // A SHAPE KNOB TURNED SHOWS NOTHING AT ONCE (the artist, 2026-11-20, of the shell's thickness: "레바 손잡이 바꿔도 뭐가 확
   // 보이질 않으니"): the mass's shape is made in the worker beside, piece after piece — minutes for the whole wall —
@@ -5191,7 +5204,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
           {stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
-            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 덩어리에 든 배관 본줄기 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
+            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 덩어리에 든 배관 본줄기 ${(stats.fuseSide.tubes ?? 0) - (stats.fuseSide.ways ?? 0)} · 길 ${stats.fuseSide.ways ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
           {stats.build && stats.build !== WALL_BUILD ? ` · ⚠ 건물 워커가 옛 코드(${stats.build}) — 새로고침(⌘R) 필요` : ""}
           {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림${fossilLife}` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
