@@ -63,7 +63,7 @@ export const boneU = {
   uBoneWrap: { value: 0.5 },
   /** the colour of the light that wraps round and of the rim — a warm peach, which on the grey fossil reads pink (the
    *  artist, 2026-11-20: "이거 색이 왜 묘하게 핑크색이지?", then "좋다고 그냥 내가 조절 가능하게 해달라고") */
-  uBoneWarm: { value: new THREE.Color("#ffcca3") },
+  uBoneWarm: { value: new THREE.Color("#ffffff") },
   /** WHAT IS INSIDE SHOWS THROUGH (the artist, 2026-11-20: "부재나 식생 색도 비쳐보이면 멋질듯"): how see-through the
    *  fossil is everywhere, and more where a part lies right under its skin (the mesh's ghost) — what is drawn inside
    *  it, the parts and the clouds, in their own colours */

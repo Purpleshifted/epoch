@@ -102,6 +102,7 @@ import { HeroCapture, HeroFrame, useHeroShot } from "./HeroShot";
 import { EXHIBITION_FUSION, FUSION_PRESETS } from "@/presets/exhibitionFusion";
 import { arriveCompile, arriveDepthMaterial, makeArriveUniforms, setArrive, type ArriveWay } from "@/lib/parliament/arriveMaterial";
 import { setLevaFocus } from "./levaFocus";
+import { useLabWorld, type TakenWorld } from "./useLabWorld";
 import { type CameraState, type Sequence as ShotSequence, type Shot, type ShotDriver, type StepInput, STALL_SEC, cameraStateOf, clockSec, createShotDriver, placeCamera, shotStatus, stepShotDriver } from "@/lib/parliament/cameraShots";
 import { botKinds, botReadout, useGlobalBots, type BotKind } from "./useGlobalBots";
 import { useParliamentVersion } from "./version";
@@ -977,7 +978,7 @@ function corrodingPipeMaterial(color: THREE.ColorRepresentation, roughness: numb
       .replace("#include <common>", "#include <common>\nvarying float vDecay;\nvarying vec3 vWorldP;\nuniform float uHoles, uOnset, uDark, uGrain, uUnit, uDepth;\nfloat pipeHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }\nfloat pipeNoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f); float a = mix(mix(pipeHash(i), pipeHash(i + vec3(1,0,0)), f.x), mix(pipeHash(i + vec3(0,1,0)), pipeHash(i + vec3(1,1,0)), f.x), f.y); float b = mix(mix(pipeHash(i + vec3(0,0,1)), pipeHash(i + vec3(1,0,1)), f.x), mix(pipeHash(i + vec3(0,1,1)), pipeHash(i + vec3(1,1,1)), f.x), f.y); return mix(a, b, f.z); }" + (clock ? `${BONE_GLSL}${FOSSIL_AT_GLSL}` : "\nconst float uBonePipes = 0.0;\nfloat fossilAt( float s ) { return 0.0; }\nfloat bonePattern( vec3 p, float b ) { return 1.0; }\nconst float uBoneFill = 0.0;"))
       .replace(
         "#include <clipping_planes_fragment>",
-        "#include <clipping_planes_fragment>\nfloat pipeF = fossilAt(vWorldP.y / max(1e-4, uUnit) + uDepth) * uBonePipes;\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish — none once it is bone\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nfloat pipeEat = eat * uHoles * (1.0 - 0.6 * pipeF);\nif (pn < pipeEat) discard;",
+        "#include <clipping_planes_fragment>\n// (a pipe is bone only once the mass round it is WHOLE — before that it is the pipe as it was, metal, corroding: the artist,\n// 2026-11-21, 관이랑 관의 화석화는 다른 거잖아; it used to start turning the moment its age counted, a little from the first slots)\nfloat pipeF = smoothstep(0.9, 1.0, fossilAt(vWorldP.y / max(1e-4, uUnit) + uDepth)) * uBonePipes;\n// holes: fine noise, more of it eaten as the pipe decays; before the onset only tarnish — none once it is bone\nfloat pn = 0.6 * pipeNoise(vWorldP * uGrain) + 0.4 * pipeNoise(vWorldP * uGrain * 2.65);\nfloat eat = smoothstep(uOnset, 1.0, vDecay);\nfloat pipeEat = eat * uHoles * (1.0 - 0.6 * pipeF);\nif (pn < pipeEat) discard;",
       )
       .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - uDark * vDecay * (1.0 - pipeF);\nif (pipeF > 0.0) diffuseColor.rgb *= mix(1.0, bonePattern(vWorldP, pipeEat > 0.0 ? 1.0 - smoothstep(0.0, 0.1, pn - pipeEat) : 0.0), pipeF);")
       .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= 1.0 - pipeF;")
@@ -1221,12 +1222,16 @@ function SpaceWorld({
   arrive,
   clock,
   local,
+  takenEpochMs = 0,
 }: {
   log: EventLog;
   /** The clock this view runs on (rate 0 = paused: the view is pinned and settings apply at once). */
   clock: Clock;
   /** A world of this tab only (the lab): its present is the log's end moved on by `clock`, not the shared epoch's. */
   local: boolean;
+  /** …and, when that world was TAKEN from the wall's (useLabWorld.ts), the epoch it came with: its present is then
+   *  counted as the wall counts its own — the lab's clock against that epoch. 0 = a world begun here. */
+  takenEpochMs?: number;
   fold: FoldConfig;
   boxCfg: BoxConfig;
   showEdges: boolean;
@@ -1790,7 +1795,8 @@ function SpaceWorld({
     // shared epoch; lab: the column's end moved on by the lab's own clock (so the time rate ages the world even
     // with nobody in it; the model takes the later of this and its latest event)
     let nowS: number | undefined;
-    if (local) {
+    if (local && takenEpochMs > 0) nowS = Math.min(sessionSeconds(clock.now(), takenEpochMs, 0), latestS(events) + IDLE_AGE_MAX_S);
+    else if (local) {
       if (!labAnchor.current) labAnchor.current = { ms: clock.now(), s: latestS(events) };
       nowS = labAnchor.current.s + (clock.now() - labAnchor.current.ms) / 1000;
     } else nowS = Math.min(sessionSeconds(clock.now(), getEpochMs(), 0), latestS(events) + IDLE_AGE_MAX_S);
@@ -3209,9 +3215,24 @@ function Markers({
   );
 }
 
+/** The lab's line of the readout: which world it holds, how far its own clock has gone since, or why it has none. */
+function LabLine({ world, note, clock }: { world: TakenWorld | null; note: string; clock: Clock }) {
+  if (!world) return <div>랩: {note || "세계 없음"}</div>;
+  const at = new Date(world.takenAt);
+  const hhmm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}:${String(at.getSeconds()).padStart(2, "0")}`;
+  const gone = Math.max(0, Math.round((clock.now() - world.nowMs) / 1000));
+  return (
+    <div>
+      랩: 벽의 세계를 {hhmm}에 한 번 따옴 ({world.from === "server" ? "봇 서버" : "이 브라우저에 남은 기록"} · 표본 {world.count.toLocaleString()}개) · 봇 없음 · 따온 뒤 흐른 시간 {Math.floor(gone / 60)}:{String(gone % 60).padStart(2, "0")}
+      {note ? ` · ${note}` : ""} · 저장은 벽과 같은 폴더
+    </div>
+  );
+}
+
 /**
- * `lab`: the WORK ROOM (/v2/global/lab) — a world of this tab only (a test column on opening, never the shared
- * storage), its own clock (paused at first), no history window; the same Leva, saved under the shared view's key.
+ * `lab`: the WORK ROOM (/v2/global/lab) — the wall's world taken once (useLabWorld.ts: no bots, nothing built after;
+ * this tab only, never the shared storage), its own clock (standing still at first), no history window; the same
+ * Leva, saved under the shared view's key.
  */
 export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {}) {
   const isV2 = useParliamentVersion() === "v2";
@@ -3220,7 +3241,10 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   useKeepWindowControl(log, -2, !lab, REDESIGN); // the shared history window (log.ts), the first folder
   // (the lab's test column is gone, 2026-11-12: the lab opens empty and the bots write it — the time rate fills it fast)
   // the clock the view and its bots run on: the shared world clock, or the lab's own (this tab only)
-  const clk = useMemo<Clock>(() => (lab ? makeLocalClock(0) : sharedClock), [lab]);
+  const labClock = useMemo(() => makeLocalClock(0), []);
+  const clk: Clock = lab ? labClock : sharedClock;
+  // THE LAB'S WORLD: the wall's, taken once when the lab opens — no bots here, nothing built after (useLabWorld.ts)
+  const labWorld = useLabWorld(log, labClock, lab);
   const params = useMemo(() => (typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)), []);
   const hideUi = demo || params.get("ui") === "0";
   // THE FUSION'S FOLDER LISTS ONLY WHAT IS BEING WORKED ON (levaFocus.ts; every other folder is whole) — set while
@@ -3692,8 +3716,8 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [botVillages, setBotVillages] = useState<WaterConfig["villages"] | null>(null);
   // (the herds count a 단 as the wall's time axis does — its seconds and its height: useGlobalBots slotSec)
   const botOpts = useMemo(
-    () => ({ ...(lab ? { clock: clk, local: true } : {}), setDepth: setBotDepth, setVillages: setBotVillages, slotSec: tAxis.secPerUnit, unit: tAxis.unit }),
-    [lab, clk, tAxis.secPerUnit, tAxis.unit],
+    () => ({ ...(lab ? { clock: clk, local: true, still: true, epochMs: labWorld.world?.epochMs ?? 0, taken: labWorld.world?.id ?? 0 } : {}), setDepth: setBotDepth, setVillages: setBotVillages, slotSec: tAxis.secPerUnit, unit: tAxis.unit }),
+    [lab, clk, labWorld.world, tAxis.secPerUnit, tAxis.unit],
   );
   const globalBots = useGlobalBots(log, fold, isV2, lab ? 7 : 1.5, botOpts);
   // EMPTY THE WORLD AND LET IT BE MADE AGAIN (the artist, 2026-11-15: "지우고 다시 생성하기 레바 버튼 넣기"), at the top
@@ -3702,13 +3726,33 @@ export default function ParliamentSpace({ lab = false }: { lab?: boolean } = {})
   const [worldResets, setWorldResets] = useState(0);
   const resetWorld = useRef(() => {});
   resetWorld.current = () => {
-    if (!lab) {
-      if (!window.confirm("세계를 비우고 처음부터 다시 생성할까요? (열려 있는 다른 탭도 따라옵니다)")) return;
-      clearWorld();
+    // (the lab makes no world of its own: its world is taken from the wall's again — the wall's is not touched)
+    if (lab) {
+      labWorld.retake();
+      return;
     }
+    if (!window.confirm("세계를 비우고 처음부터 다시 생성할까요? (열려 있는 다른 탭도 따라옵니다)")) return;
+    clearWorld();
     log.clear();
     setWorldResets((n) => n + 1);
   };
+  // (the bots' copy of what is built is made again from the log for every world the lab takes)
+  const takenId = labWorld.world?.id ?? 0;
+  useEffect(() => {
+    if (takenId > 0) setWorldResets((n) => n + 1);
+  }, [takenId]);
+  // THE LAB'S OWN BUTTONS (not saved): the world taken again, the moment of taking, and time jumped ahead — the rate
+  // itself is 시간축 › 시간 배율 (standing still at first)
+  useLevaControls(
+    "랩 — 벽의 세계를 한 번 따온 것 (봇 없음 · 이 탭만)",
+    {
+      "다시 따오기 (지금 벽의 세계)": button(() => labWorld.retake()),
+      "따온 순간으로 되돌리기 (같은 세계 · 시간만 처음으로)": button(() => labWorld.rewind()),
+      "시간 건너뛰기": buttonGroup({ label: "시간 건너뛰기", opts: { "+30초": () => labWorld.skip(30), "+1분": () => labWorld.skip(60), "+5분": () => labWorld.skip(300), "+20분": () => labWorld.skip(1200) } }),
+    },
+    { order: -3, collapsed: false, render: () => lab },
+    [labWorld.retake, labWorld.rewind, labWorld.skip],
+  );
   // A RENDER MODE FOR TESTING (the artist, 2026-11-15: "테스트 할 때 쓸 퍼포먼스 렌더모드 좀 도입해줘. 이리저리
   // 이터레이션 돌려보는 것도 이게 랙이 적어야 가능한 거니까"): what is computed stays the same — the picture is drawn
   // cheaper. Remembered in this browser (not with the saved looks, and never on the exhibition wall, ?ui=0);
@@ -4475,7 +4519,12 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
               fusePipes: { value: DEFAULT_FUSE.fusePipes, label: REDESIGN ? "배관의 본줄기가 화석 덩어리에 들어감 (굳은 뒤, 부재처럼 나이로 나오고 삭아 사라짐)" : "배관이 덩어리에 들어감 (관 그대로, 자기 부식 시계)" },
               trunkShare: { value: 0.4, min: 0.05, max: 1, step: 0.05, label: "본줄기로 치는 관 — 그 층에서 물을 가장 많이 나르는 관의 몇 배 이상인가 (작을수록 가지까지 들어감)", render: (get) => REDESIGN && !!get(PIPES_PATH) },
               trunkThick: { value: 3, min: 1, max: 8, step: 0.25, label: "본줄기의 뼈 굵기 — 관 굵기의 몇 배로 덩어리에 들어가나", render: (get) => REDESIGN && !!get(PIPES_PATH) },
-              fuseWalks: { value: DEFAULT_FUSE.fuseWalks, label: "다리가 덩어리에 들어감 (층의 나이로 늙음)" },
+              // (…AND THE WAYS' MAIN LINES, 2026-11-21 — "길도 넣어": the most used ways of a layer, each straightened into
+              // a few stretches, hardened and let go as the trunks are — spaceModel.ts waysNow. `walkRadius` is the old
+              // way's: a tenth of a unit, under what the mass's grid can hold — the bone has a radius of its own)
+              fuseWalks: { value: DEFAULT_FUSE.fuseWalks, label: REDESIGN ? "길의 큰 줄기가 화석 덩어리에 들어감 (굳은 뒤, 부재처럼 나이로 나오고 삭아 사라짐)" : "다리가 덩어리에 들어감 (층의 나이로 늙음)" },
+              wayShare: { value: 0.3, min: 0.05, max: 1, step: 0.05, label: "화석에 드는 길 — 그 층에 놓인 길 중 가장 많이 다닌 것부터 이 몫까지 (0.3 = 위 30 % · 층마다 적어도 하나 · 1 = 전부)", render: (get) => REDESIGN && !!get(WALKS_PATH) },
+              wayThick: { value: 0.45, min: 0.1, max: 2, step: 0.05, label: "길의 뼈 굵기 (월드 · 반지름 · 화석 격자 1.5칸보다 가늘어지지 않음)", render: (get) => REDESIGN && !!get(WALKS_PATH) },
               walkRadius: { value: DEFAULT_FUSE.walkRadius, min: 0.05, max: 0.6, step: 0.01, label: "다리 관 굵기 (월드)", render: (get) => get(WALKS_PATH) },
               steelFossil: { value: isV2 ? 0.35 : 0, min: 0, max: 1, step: 0.05, label: "철골 중 화석으로 남는 비율 (0 = 철골은 녹슬어 사라짐; 가장 오래 버티는 것부터)" },
             },
@@ -4592,7 +4641,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           boneFill: { value: 0.25, min: 0, max: 1, step: 0.05, label: "뼈 — 속빛 (빛이 조금 지나오는 듯 · 그늘을 덜어 줌)" },
           boneWrap: { value: 0.5, min: 0, max: 1, step: 0.05, label: "뼈 — 빛이 그늘 쪽으로 감겨 듦 (반투명 · 보송함)" },
           boneRim: { value: 0.35, min: 0, max: 1, step: 0.05, label: "뼈 — 가장자리가 밝아짐 (눈에서 돌아가는 면)" },
-          boneWarm: { value: "#ffcca3", label: "뼈 — 감겨 드는 빛 · 가장자리 빛의 색 (살구색 = 회색 위에서 분홍빛 · 흰색 = 중성)" },
+          boneWarm: { value: "#ffffff", label: "뼈 — 감겨 드는 빛 · 가장자리 빛의 색 (흰색 = 중성 · 따뜻한 색은 회색 위에서 붉게 보임)" },
           boneSee: { value: 0, min: 0, max: 0.9, step: 0.05, label: "뼈 — 속이 비쳐 보임: 덩어리 전체 (속의 부재 · 식생이 제 색으로 · 0 = 불투명)" },
           boneSeeParts: { value: 0, min: 0, max: 0.9, step: 0.05, label: "뼈 — 속이 비쳐 보임: 부재가 껍질 바로 밑일수록 더" },
           transmission: { value: 0.85, min: 0, max: 1, step: 0.01, label: "굴절 · 투과 (0 = 불투명 유리, 1 = 맑은 유리)", render: (get) => get(RESIN_MODE_PATH) === "refract" },
@@ -4624,6 +4673,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       fusePipes: fu.fusePipes,
       trunkShare: fu.trunkShare,
       trunkThick: fu.trunkThick,
+      wayShare: fu.wayShare,
+      wayRadius: fu.wayThick,
       fuseWalks: fu.fuseWalks,
       walkRadius: fu.walkRadius,
       steelFossil: fu.steelFossil,
@@ -4704,7 +4755,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           }
         : undefined,
     }),
-    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.trunkShare, fu.trunkThick, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.meltPick, fu.meltFrame, fu.meltLump, fu.meltSteer, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
+    [fuseInBlock, fu.layerSlots, fu.layerSpread, fu.goneMass, fu.cling, fu.fuseUnit, fu.unitChange, fu.fuseBody, fu.massVeg, fu.fuseFrom, fu.fuseGrow, fu.voxelTie, fu.pieceTile, fu.pieceSeg, isV2, fu.fusePipes, fu.trunkShare, fu.trunkThick, fu.wayShare, fu.wayThick, fu.fuseWalks, fu.walkRadius, fu.steelFossil, fu.foam, fu.cavity, fu.cavityRound, fu.fossilFrom, fu.fossilTo, fu.blocky, fu.platesStay, fu.pipeThickLarge, fu.pipeJoint, fu.pipeFossil, fu.ribLip, fu.envelope, fu.fossilNoise, fu.massMode, fu.meltPick, fu.meltFrame, fu.meltLump, fu.meltSteer, fu.fill, fu.fillAmount, fu.fillInset, fu.shell, fu.shellThick, fu.shellThickYoung, fu.shellSplit, fu.ribCell, fu.ribWidth, fu.ribOpen, fu.holeShape, fu.pits, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitCover, fu.pitDepth, fu.pitGather, fu.pitPatch, fu.sizeSmall, fu.sizeLarge, fu.sizeJitter, fu.pipeSmall, fu.pipeLarge, fu.holeVoronoiSmall, fu.holeVoronoiLarge, fu.pitSmall, fu.pitLarge, fu.pitBroad, fu.pipeRadius, fu.spikes, fu.spikeLen, fu.fuseOn, fu.fuseOnset, fu.freezeSlots, botDepth, dn.densityOn, fu.fuseFull, fu.voxel, fu.blur, fu.gain, fu.porosity, fu.iso, fu.natureWeight, fu.resinShare, fu.sag, fu.smooth, fu.poreSize, fu.scatter, fu.skeleton, fu.skeletonUntil, fu.skeletonWrap],
   );
   // A SHAPE KNOB TURNED SHOWS NOTHING AT ONCE (the artist, 2026-11-20, of the shell's thickness: "레바 손잡이 바꿔도 뭐가 확
   // 보이질 않으니"): the mass's shape is made in the worker beside, piece after piece — minutes for the whole wall —
@@ -5087,6 +5138,9 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           arrive={arriveLeave}
           clock={clk}
           local={lab}
+          takenEpochMs={lab ? (labWorld.world?.epochMs ?? 0) : 0}
+          // (a world the lab takes is made from nothing: a model and workers of its own for each)
+          key={lab ? `lab-${takenId}` : "wall"}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
         <FocusFollow
@@ -5143,7 +5197,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           seeds {stats.seeds} · parts {stats.boxes} · t {Math.round(stats.t)} s · top {stats.top.toFixed(1)} · focus{" "}
           {stats.focusIsMe ? "me" : "latest"} @ {Math.round(stats.focusS)} s
           {stats.fuseSide && stats.fuseSide.chunks + stats.fuseSide.waiting + stats.fuseSide.remake > 0
-            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 덩어리에 든 배관 본줄기 ${stats.fuseSide.tubes ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
+            ? ` · 화석(별도 워커) ${stats.fuseSide.tris}△ · 남은 조각 ${stats.fuseSide.waiting} (다시 만들 것 ${stats.fuseSide.remake}${(stats.fuseSide as { held?: number }).held ? ` · 이웃 기다리는 것 ${(stats.fuseSide as { held?: number }).held}` : ""}) · 조각 ${Math.round(stats.fuseSide.pieceMeanMs)} ms (최대 ${Math.round(stats.fuseSide.pieceMaxMs)}) · 격자 ${stats.fuseSide.voxel} · 굳어서 덩어리에 든 배관 본줄기 ${(stats.fuseSide.tubes ?? 0) - (stats.fuseSide.ways ?? 0)} · 길 ${stats.fuseSide.ways ?? 0}${stats.fuseSide.build !== WALL_BUILD ? " · ⚠ 화석 워커가 옛 코드 — 새로고침(⌘R) 필요" : ""}`
             : ` · 덩어리 ${stats.fuseTris}△ (레진 ${stats.fuseResin}△)`}
           {stats.build && stats.build !== WALL_BUILD ? ` · ⚠ 건물 워커가 옛 코드(${stats.build}) — 새로고침(⌘R) 필요` : ""}
           {stats.fuseOut !== undefined && stats.fuseOut >= 0 ? ` · 화석: 부재에서 나온 곳 ${Math.round(stats.fuseOut * 100)}% · 평균 ${Math.round((stats.fuseOutMean ?? 0) * 100)}% 풀림${fossilLife}` : ""}{stats.lagS > boxCfg.secPerUnit ? ` · 지연 ${Math.round(stats.lagS)} s (계산이 시계보다 늦음)` : ""}
@@ -5169,8 +5223,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
         <div>x, z = ground · y = time (1 step = {boxCfg.secPerUnit} s) · concrete needs ≥ {fold.minVisitors} visitors</div>
         {clock.timeRate !== 1 && <div>{clock.timeRate > 0 ? `time × ${clock.timeRate} (1 step every ${(boxCfg.secPerUnit / clock.timeRate).toFixed(1)} s)` : "PAUSED (rate 0): settings apply at once, the view is pinned"}</div>}
         <div>preset: {presetSource()}{tabModified ? " · tab-modified" : ""}{params.get("cam") === "band" ? " · cam=band" : ""}</div>
-        {globalBots > 0 && <div>{botReadout() ?? `bots: ${globalBots}`} ({lab ? "lab, this tab only" : "global"})</div>}
-        {lab && <div>LAB: a world of this tab only · saved settings are the shared global view's</div>}
+        {globalBots > 0 && !lab && <div>{botReadout() ?? `bots: ${globalBots}`} (global)</div>}
+        {lab && <LabLine world={labWorld.world} note={labWorld.note} clock={labClock} />}
         {depths && (
           <div>
             깊이 (현재에서 ↓단): 식생 모임 {depths.gather} · 부패 시작 {depths.rot} · 엉김 {depths.acc ?? "–"} · 융합 {depths.fuse ?? "–"} · 레진 {depths.resin ?? "없음"}{isV2 ? (fu.bake ? ` · 불변 ${fu.immutable}+` : " · 굽기 없음 (창 20분)") : ""}

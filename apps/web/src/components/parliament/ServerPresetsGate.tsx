@@ -6,7 +6,11 @@ import { pullPresets, showNote } from "./levaSave";
 
 /** The page whose saved Leva values this path reads (the lab tunes the shared view's — see /v2/global/lab). */
 function levaPageOf(pathname: string): string {
-  return pathname === "/v2/global/lab" ? "/v2/global/space" : pathname;
+  if (pathname !== "/v2/global/lab") return pathname;
+  // (the lab under another set of values, ?values=<name>: that set's own page — it was saved to the server under it
+  // and never read back from there)
+  const set = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("values");
+  return set && /^[a-z0-9-]{1,24}$/.test(set) ? `/v2/global/lab-${set}` : "/v2/global/space";
 }
 
 /**

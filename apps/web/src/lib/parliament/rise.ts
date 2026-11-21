@@ -20,7 +20,7 @@
 
 export const risePause: { at: number | null; lost: number; epoch: number } = { at: null, lost: 0, epoch: 0 };
 
-const LS_RISE = "parliament.riseStop";
+export const LS_RISE = "parliament.riseStop";
 
 /** The seconds the rise is counted by, of `elapsed` seconds gone by. */
 export function riseSeconds(elapsed: number): number {

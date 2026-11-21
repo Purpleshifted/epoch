@@ -209,12 +209,28 @@ export interface SavedMigration {
   set: Record<string, unknown>;
 }
 
-/** Applies a migration to the values saved under `key` (if any), once: a marker remembers it was done. */
+/** The end of the day a migration was written, from the date its tag ends with ("…-2026-11-15"); null = no date. */
+function migrationDay(tag: string): number | null {
+  const m = /(\d{4})-(\d{2})-(\d{2})$/.exec(tag);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1).getTime() : null;
+}
+
+/**
+ * Applies a migration to the values saved under `key` (if any), once: a marker remembers it was done.
+ *
+ * A MIGRATION IS FOR WHAT WAS SAVED BEFORE IT (the save audit, 2026-11-20). The marker is this browser's, so a browser
+ * that had never opened the page — every new preview address, the exhibition's machine — ran every migration ever
+ * written over the values it had just taken from the server: the fusion's 11/15 set replaced 23 knobs the artist had
+ * saved on 11/20 (rib cell 2.4 → 5, pipe 0.85 → 0.45, scatter 1.6 → 0 …), and a look was judged there on values nobody
+ * had saved. A save dated after the migration's day already carries it, or has been tuned past it: it is left alone.
+ */
 function migrateSaved(key: string, m: SavedMigration): void {
   const marker = `${key}:migrated:${m.tag}`;
   try {
     if (window.localStorage.getItem(marker) !== null) return;
     window.localStorage.setItem(marker, String(Date.now()));
+    const day = migrationDay(m.tag);
+    if (day !== null && Number(window.localStorage.getItem(`${key}:savedAt`) ?? 0) > day) return;
     const raw = window.localStorage.getItem(key);
     if (!raw) return; // nothing saved: the defaults apply anyway
     const v = { ...(JSON.parse(raw) as Record<string, unknown>), ...m.set };
