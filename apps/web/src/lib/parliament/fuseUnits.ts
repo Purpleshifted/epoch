@@ -91,6 +91,8 @@ export function fuseTilesOf(
   fuse: FuseConfig,
   TILE = 24,
   stages: Record<string, number> = {},
+  /** THE PROVISIONAL SKIN (fuse.ts FuseChunkInput.ring): faces beyond the tile and the rows too, marked by their side. */
+  ring?: { reach: number; reachY: number },
 ): FuseMesh {
   const MARGIN = 4;
   const meshes: FuseMesh[] = [];
@@ -155,6 +157,7 @@ export function fuseTilesOf(
           unit: u,
           sediment: sed,
           layerDecay,
+          ...(ring ? { ring } : {}),
           cfg: fuse,
         });
       meshes.push(tileMesh);
@@ -623,10 +626,18 @@ interface Made {
   /** A piece of a building that joined this one: it stands until this building's own piece there is made again. */
   orphanOf?: string;
   after?: number;
-  /** THE OPEN FACES (fadeEdges): how much of the fossil the vegetation makes, per vertex, as made (fuseGrowB.y) — and
-   *  which of the six faces it is faded towards now (bits: above, below, +x, −x, +z, −z). */
-  veg?: Float32Array;
+  /** Which of the six neighbours (bits: above, below, +x, −x, +z, −z) are wanted and not made yet (fadeEdges): the
+   *  order makes those first. */
   mask?: number;
+  /** THE PROVISIONAL SKIN: which of the six neighbours are on the screen now (its skin there is hidden), and per
+   *  vertex how much of the skin is kept by its distance past the piece's own bounds (1 for the own faces). */
+  shownBits?: number;
+  prov?: Float32Array;
+}
+/** A piece on its way off the screen (made again, or no more): drawn, dissolving, until `until` (performance.now()). */
+interface Leaving {
+  made: Made;
+  until: number;
 }
 /**
  * A PIECE MADE AGAIN IS NOT SHOWN AT ONCE (2026-11-18; the artist: "아니 화석 위에가 잘려 보일 때가 있다니깐??" — then,
@@ -665,6 +676,8 @@ interface Unit {
   /** How far past being pressed each piece's oldest part is (slots of the fossil's age, at the job's time): what is
    *  out on the screen is made first. */
   vis: Map<string, number>;
+  /** Pieces dissolving off the screen (show / commit). */
+  leaving: Leaving[];
 }
 
 /**
@@ -672,20 +685,41 @@ interface Unit {
  * the whole from the screen. Longer than PIECE_REST_MS — a neighbour resting is made within it.
  */
 const HOLD_MAX_MS = 240000;
-/** How far in from a face whose neighbour is not there yet the fossil is pressed back into its parts (world: about
- *  two slots of the artist's, 1.8 each — wide enough that the open rim lies under the shader's discard). */
-const EDGE_FADE = 4;
+/** (Until 2026-11-21 a face whose neighbour was not made yet was pressed back into its parts over 4 world, through a
+ *  ragged noise: still the piece's outline. The provisional skin below goes past it instead.) */
+
 /**
- * …AND THE EDGE IS NOT A PLANE (the artist, 2026-11-20: "여전히 잘려보이는 단면이 간간이 발생하는데, 생성 중에 보이는 비주얼도
- * 안 잘려보이도록"). Pressed back by its distance from the open face alone, the mass ended along a straight line a few
- * units inside the piece — still the piece's outline, only softer. The distance is now read through a noise fixed in
- * the world (up to EDGE_RAG further in, patch by patch, EDGE_PATCH wide): where the neighbour is not made yet the mass
- * ends in an uneven fringe — tongues of it reaching towards the face, bays reaching in — as something still growing
- * does, and no line across it.
+ * THE PROVISIONAL SKIN (the artist, 2026-11-21, of the cut while a piece's neighbour is made again or waited for: "둘 다
+ * 넣는데, 그러면 가장자리에 노이즈 처리나 부피감을 넣어서 뚝 잘린 단면처럼 안 보이게 해"). A piece's mass is no longer cut at its
+ * own tile and rows: it goes on PROV_REACH (world) across the ground — PROV_REACH_Y up and down — as a skin of its own
+ * (fuse.ts FuseMesh.side), shown wherever the neighbour there is not on the screen and hidden where it is. The skin
+ * thins out towards its far end through a noise of the world (PROV_RAG further in, patch by patch, PROV_PATCH wide)
+ * and, thinned, is pressed into its parts by the wall's shader (its seal): it ends in a ragged, rounded fringe that
+ * closes into the parts, not in a plane. Where the neighbour has no mass of its own at all, the skin simply stays.
  */
-const EDGE_RAG = 6;
-/** …the width of a tongue or a bay of the fringe (world). */
-const EDGE_PATCH = 3.5;
+const PROV_REACH = 3.6;
+const PROV_REACH_Y = 1.8;
+const PROV_FADE = 1.6;
+const PROV_RAG = 1.4;
+const PROV_PATCH = 2.2;
+/**
+ * …AND WHAT CHANGES, CHANGES SOFTLY (the same request): a skin hidden or shown, a face pressed or let out, goes from
+ * its old share to its new over this many seconds; a piece made again DISSOLVES into the one it replaces (the old one
+ * drawn where a screen noise is over the time gone, the new one where it is under it) — the wall's shader, with the
+ * same number (ParliamentSpace uGrowBlend).
+ */
+export const FUSE_BLEND_S = 6;
+
+/** A mesh's pending changes, none yet (FuseMesh.blend): the skin's share 1 → 1, no change, no dissolve. */
+function blendOf(nv: number): Float32Array {
+  const bl = new Float32Array(nv * 4);
+  for (let v = 0; v < nv; v++) {
+    bl[v * 4] = 1;
+    bl[v * 4 + 1] = -1e9;
+    bl[v * 4 + 3] = 1;
+  }
+  return bl;
+}
 
 /** The pieces a piece meets face to face — above, below, +x, −x, +z, −z (its key: `${k0}:${tx}:${tz}`). */
 function faceNeighbours(key: string, seg: number, tile: number): string[] {
@@ -725,7 +759,7 @@ export class FuseUnits {
 
   private job(j: UnitJob): void {
     let unit = this.units.get(j.id);
-    if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), staged: new Map(), vis: new Map() }));
+    if (!unit) this.units.set(j.id, (unit = { job: null, ps: [], look: undefined, todo: [], done: new Map(), serial: -1, keys: new Set(), staged: new Map(), vis: new Map(), leaving: [] }));
     const c = Math.cos(j.ang), sn = Math.sin(j.ang);
     // (a turned district is fused in its own frame, where its boxes lie along the grid: seeds.ts' turn undone)
     const ps: Turned[] = j.parts.map((e, i) => ({ b: j.ang ? { ...e.b, x: e.b.x * c - e.b.z * sn, z: e.b.x * sn + e.b.z * c, yaw: 0 } : e.b, d: e.d, up: e.up, sk: e.sk, i }));
@@ -794,12 +828,14 @@ export class FuseUnits {
       return;
     }
     for (const [k, m] of a.done) b.done.set(`${k}~${from}`, { ...m, orphanOf: m.orphanOf ?? k, after: b.serial });
+    b.leaving.push(...a.leaving);
   }
 
   private drop(id: string): void {
     const unit = this.units.get(id);
     if (!unit) return;
     for (const m of unit.done.values()) this.dirty.add(m.chunk);
+    for (const l of unit.leaving) this.dirty.add(l.made.chunk);
     this.units.delete(id);
   }
 
@@ -836,58 +872,124 @@ export class FuseUnits {
   }
 
   /**
-   * NO OPEN FACE (2026-11-18): a piece on the screen whose neighbour across a face is wanted but not made yet would
-   * end there in a flat, open cut. Instead its fossil is pressed back into its parts towards that face — the share the
-   * vegetation makes (fuseGrowB.y, what the wall's shader multiplies the coming-out by) falls to nothing over
-   * EDGE_FADE: the mass thins out where its neighbour will be, and comes out there when the neighbour is shown. Only the
-   * numbers are written again (no fusing); the piece's chunk is sent again when a face opens or closes.
+   * THE FACES TOWARDS THE NEIGHBOURS (2026-11-18; since 2026-11-21 the provisional skin): what each vertex is let out by
+   * — the vegetation's share as made (fuseGrowB.y) — times, on the provisional skin, 0 where the neighbour on that side
+   * is on the screen (it draws its own) and the skin's thinning towards its far end (provOf) where it is not. A change
+   * goes over FUSE_BLEND_S from what is on the screen (FuseMesh.blend). Only the numbers are written again (no fusing);
+   * the piece's chunk is sent again when a neighbour comes or goes.
    */
   private fadeEdges(q: Unit, key: string): void {
     const m = q.done.get(key), j = q.job;
     if (!m || m.orphanOf !== undefined || !j) return;
-    const B = m.mesh.growB, P = m.mesh.position;
-    if (!B || !P.length) return;
-    let mask = 0;
+    const P = m.mesh.position;
+    if (!P.length) return;
+    // (wanted and not made: the faces the order closes first — `mask`; on the screen: the skin there is hidden)
+    let mask = 0, shownBits = 0;
     faceNeighbours(key, j.seg, j.tile).forEach((n, f) => {
       if (q.keys.has(n) && !q.done.has(n)) mask |= 1 << f;
+      if (q.done.has(n)) shownBits |= 1 << f;
     });
-    if ((m.mask ?? 0) === mask) return;
-    if (!m.veg) {
-      m.veg = new Float32Array(B.length / 2);
-      for (let v = 0; v < m.veg.length; v++) m.veg[v] = B[v * 2 + 1];
-    }
     m.mask = mask;
-    const [k0, tx, tz] = key.split(":").map(Number);
-    const vs = j.fuse.voxel;
-    // the piece's own bounds, as fuseChunk keeps them (its rows; its tile, in the district's own frame)
-    const y0 = Math.floor((k0 * j.u) / vs) * vs, y1 = Math.floor(((k0 + j.seg) * j.u) / vs) * vs;
-    const x0 = Math.floor((tx * CELL) / vs) * vs, x1 = Math.floor(((tx + j.tile) * CELL) / vs) * vs;
-    const z0 = Math.floor((tz * CELL) / vs) * vs, z1 = Math.floor(((tz + j.tile) * CELL) / vs) * vs;
-    const c = Math.cos(j.ang), sn = Math.sin(j.ang);
-    const ramp = (d: number) => {
-      const t = Math.max(0, Math.min(1, d / EDGE_FADE));
-      return t * t * (3 - 2 * t);
-    };
-    for (let v = 0; v < m.veg.length; v++) {
-      const g = m.veg[v];
-      if (!mask || g < 0) {
-        B[v * 2 + 1] = g;
+    const side = m.mesh.side;
+    const nv = P.length / 3;
+    let bl = m.mesh.blend;
+    const fresh = !bl;
+    if (!bl) {
+      bl = m.mesh.blend = blendOf(nv);
+    } else if ((m.shownBits ?? -1) === shownBits) return;
+    m.shownBits = shownBits;
+    if (!side) return;
+    if (!m.prov) m.prov = this.provOf(m, key, j);
+    const tNow = this.now();
+    for (let v = 0; v < nv; v++) {
+      const sd = side[v];
+      if (!sd) continue;
+      // the skin's share: hidden where the neighbour on its side is on the screen, thinning towards its far end
+      const target = sd & shownBits ? 0 : m.prov[v];
+      const was = bl[v * 4 + 3];
+      if (target === was) continue;
+      if (fresh || bl[v * 4 + 2] !== 0) {
+        // (not on the screen yet, or dissolving in or out: the share is set as it is — the dissolve carries it)
+        bl[v * 4] = target;
+        bl[v * 4 + 3] = target;
         continue;
       }
-      const wx = P[v * 3], y = P[v * 3 + 1], wz = P[v * 3 + 2];
-      const x = wx * c - wz * sn, z = wx * sn + wz * c;
-      // (how much further in the fringe lies here: the same for both pieces at a place — the noise is the world's)
-      const rag = EDGE_RAG * noise3(wx / EDGE_PATCH, y / EDGE_PATCH, wz / EDGE_PATCH, 97);
-      let f = 1;
-      if (mask & 1) f *= ramp(y1 - y - rag);
-      if (mask & 2) f *= ramp(y - y0 - rag);
-      if (mask & 4) f *= ramp(x1 - x - rag);
-      if (mask & 8) f *= ramp(x - x0 - rag);
-      if (mask & 16) f *= ramp(z1 - z - rag);
-      if (mask & 32) f *= ramp(z - z0 - rag);
-      B[v * 2 + 1] = g * f;
+      // (from what is on the screen now — mid-way through an earlier change, where it stands — to the new share)
+      const t = Math.max(0, Math.min(1, (tNow - bl[v * 4 + 1]) / FUSE_BLEND_S));
+      bl[v * 4] = bl[v * 4] + (was - bl[v * 4]) * t;
+      bl[v * 4 + 1] = tNow;
+      bl[v * 4 + 3] = target;
     }
     this.dirty.add(m.chunk);
+  }
+
+  /** THE PROVISIONAL SKIN's share kept per vertex: 1 within PROV_REACH − PROV_FADE of the own bounds, thinning to 0 at
+   *  PROV_REACH through the noise of the world (the own faces: 1). */
+  private provOf(m: Made, key: string, j: UnitJob): Float32Array {
+    const side = m.mesh.side!, P = m.mesh.position, nv = side.length;
+    const out = new Float32Array(nv).fill(1);
+    const [k0, tx, tz] = key.split(":").map(Number);
+    const y0 = k0 * j.u, y1 = (k0 + j.seg) * j.u;
+    const x0 = tx * CELL, x1 = (tx + j.tile) * CELL, z0 = tz * CELL, z1 = (tz + j.tile) * CELL;
+    const c = Math.cos(j.ang), sn = Math.sin(j.ang);
+    for (let v = 0; v < nv; v++) {
+      const sd = side[v];
+      if (!sd) continue;
+      const wx = P[v * 3], y = P[v * 3 + 1], wz = P[v * 3 + 2];
+      const x = wx * c - wz * sn, z = wx * sn + wz * c;
+      // (how far past its own bounds, by the side it lies beyond: the larger of the two across the ground, or up/down)
+      let past = 0, reach = PROV_REACH;
+      if (sd & 4) past = Math.max(past, x - x1);
+      if (sd & 8) past = Math.max(past, x0 - x);
+      if (sd & 16) past = Math.max(past, z - z1);
+      if (sd & 32) past = Math.max(past, z0 - z);
+      if (sd & 3) {
+        const py = sd & 1 ? y - y1 : y0 - y;
+        if (py / PROV_REACH_Y > past / PROV_REACH) [past, reach] = [py, PROV_REACH_Y];
+      }
+      const rag = PROV_RAG * (reach / PROV_REACH) * noise3(wx / PROV_PATCH, y / PROV_PATCH, wz / PROV_PATCH, 131);
+      const t = Math.max(0, Math.min(1, (reach - rag - Math.max(0, past)) / (PROV_FADE * (reach / PROV_REACH))));
+      out[v] = t * t * (3 - 2 * t);
+    }
+    return out;
+  }
+
+  /** A piece off the screen: it dissolves out over FUSE_BLEND_S (drawn until then from `leaving`). */
+  private leave(q: Unit, m: Made): void {
+    const nv = m.mesh.position.length / 3;
+    if (nv) {
+      const bl = (m.mesh.blend ??= blendOf(nv));
+      const tNow = this.now();
+      for (let v = 0; v < nv; v++) {
+        // (its skin stays as it is on the screen now; the dissolve takes the whole away)
+        const t = Math.max(0, Math.min(1, (tNow - bl[v * 4 + 1]) / FUSE_BLEND_S));
+        const S = bl[v * 4] + (bl[v * 4 + 3] - bl[v * 4]) * t;
+        bl[v * 4] = S;
+        bl[v * 4 + 3] = S;
+        bl[v * 4 + 1] = tNow;
+        bl[v * 4 + 2] = -1;
+      }
+      q.leaving.push({ made: m, until: performance.now() + FUSE_BLEND_S * 1000 + 200 });
+    }
+    this.dirty.add(m.chunk);
+  }
+
+  /** The pieces whose dissolve is over are let go; returns ms until the next one is (Infinity = none). */
+  sweep(): number {
+    const now = performance.now();
+    let next = Infinity;
+    for (const q of this.units.values()) {
+      if (!q.leaving.length) continue;
+      q.leaving = q.leaving.filter((l) => {
+        if (l.until > now) {
+          next = Math.min(next, l.until - now);
+          return true;
+        }
+        this.dirty.add(l.made.chunk);
+        return false;
+      });
+    }
+    return next;
   }
 
   /** A piece comes onto the screen: stamped (one new on the screen grows out of its parts from now; one made again
@@ -900,6 +1002,17 @@ export class FuseUnits {
       made.stamp = stamp;
       const B = made.mesh.growB;
       if (B) for (let v = 0; v < B.length; v += 2) B[v] = stamp;
+    }
+    // MADE AGAIN: it dissolves in over the one it replaces, which dissolves out (FUSE_BLEND_S)
+    if (was && was !== made) {
+      const nv = made.mesh.position.length / 3;
+      const bl = (made.mesh.blend = blendOf(nv));
+      const tNow = this.now();
+      for (let v = 0; v < nv; v++) {
+        bl[v * 4 + 1] = tNow;
+        bl[v * 4 + 2] = 1;
+      }
+      this.leave(q, was);
     }
     q.done.set(k, made);
     this.dirty.add(made.chunk);
@@ -956,7 +1069,8 @@ export class FuseUnits {
         const was = q.done.get(k);
         if (was) {
           q.done.delete(k);
-          this.dirty.add(was.chunk);
+          if (was.orphanOf === undefined) this.leave(q, was);
+          else this.dirty.add(was.chunk);
         }
       }
       // (the empty ones are gone first, so a shown piece's faces are read against what is left)
@@ -982,6 +1096,7 @@ export class FuseUnits {
   step(): number[] | null {
     const now = performance.now();
     this.waitMs = Infinity;
+    this.sweep();
     // (groups whose waiting is over — or that were waiting for nothing any more)
     for (const q of this.units.values()) this.commit(q);
     let unit: Unit | null = null, at = -1;
@@ -1017,7 +1132,7 @@ export class FuseUnits {
     const j = unit.job;
     const p = unit.todo.splice(at, 1)[0];
     const t0 = performance.now();
-    const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: p.ps, tubes: p.tubes, x0: p.tx, z0: p.tz, nx: j.tile, nz: j.tile }, j.h, j.u, j.sed, unit.look, j.fuse, j.tile, this.stages);
+    const mesh = fuseTilesOf({ c0: p.k0, c1: p.k1, ps: p.ps, tubes: p.tubes, x0: p.tx, z0: p.tz, nx: j.tile, nz: j.tile }, j.h, j.u, j.sed, unit.look, j.fuse, j.tile, this.stages, j.fuse.seeded ? { reach: PROV_REACH, reachY: PROV_REACH_Y } : undefined);
     turnBack(mesh, j.ang);
     const own: UnitPart[] = p.ps.map((e) => j.parts[e.i]);
     // (a pipe or a way is, for what its mass grows by, a part of its own: as old as its slot, and all of it fuses —
@@ -1070,6 +1185,11 @@ export class FuseUnits {
         const l = by.get(m.chunk);
         if (l && m.mesh.index.length) l.push(m.mesh);
       }
+      // (the pieces dissolving out are drawn with their chunk until they are gone)
+      for (const lv of unit.leaving) {
+        const l = by.get(lv.made.chunk);
+        if (l && lv.made.mesh.index.length) l.push(lv.made.mesh);
+      }
     }
     const [fresh, again] = this.pending();
     const out: UnitChunks = {
@@ -1090,9 +1210,10 @@ export class FuseUnits {
         continue;
       }
       const mesh = mergeMeshes(list);
+      delete mesh.side; // (the worker's own: the view does not read it)
       this.shown.set(id, mesh.index.length / 3);
       out.set.push({ id, mesh });
-      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late]) if (a) transfer.push(a.buffer as ArrayBuffer);
+      for (const a of [mesh.position, mesh.normal, mesh.color, mesh.extra, mesh.index, mesh.anchor, mesh.growA, mesh.growB, mesh.late, mesh.blend]) if (a) transfer.push(a.buffer as ArrayBuffer);
     }
     for (const n of this.shown.values()) out.stats.tris += n;
     out.stats.chunks = this.shown.size;

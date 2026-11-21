@@ -88,7 +88,7 @@ import {
   handleSpaceRequest,
   blockSlots,
 } from "@/lib/parliament";
-import type { UnitChunks, UnitStats } from "@/lib/parliament/fuseUnits";
+import { FUSE_BLEND_S, type UnitChunks, type UnitStats } from "@/lib/parliament/fuseUnits";
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
@@ -324,6 +324,9 @@ interface ResinLook {
   /** IT SWELLS OUT OF ITS OWN UNIT (the shader's press): 0 = the whole surface stands back along its normal, one body
    *  … 1 = every vertex is pressed into its own part (unit) and swells out of it — the first seeded mass (11/16). */
   growPress?: number;
+  /** THE EDGE IS EATEN, NOT CUT (the shader's seal): below this much out, the mass goes through a noise of the world
+   *  (holes of 삭는 구멍의 크기) rather than ending in an open line (0 = off). */
+  growSeal?: number;
   /** THE FRAME FIRST (fuse.ts FuseMesh.late): how far into the fossil's progress the filling (boxes, plates, rooms)
    *  waits behind the frame (0 = all at once … 0.9), and how much it fills from each layer's floor upward (0 … 1). */
   growLate?: number;
@@ -451,6 +454,10 @@ interface FuseUniforms {
   uGrowReach: THREE.IUniform;
   /** …and how much a vertex is pressed into its own unit while it is not out (ResinLook.growPress). */
   uGrowPress: THREE.IUniform;
+  /** …and below how much out the mass is eaten through a noise of the world (ResinLook.growSeal). */
+  uGrowSeal: THREE.IUniform;
+  /** …and the seconds a change of the worker's (a skin hidden or shown, a piece made again) takes (fuseUnits FUSE_BLEND_S). */
+  uGrowBlend: THREE.IUniform;
   /** …how far the filling waits behind the frame, and how much it rises from each layer's floor (ResinLook.growLate). */
   uGrowLate: THREE.IUniform;
   /** …and how far the top would have risen while its rise was stopped (rise.ts; slots): the fossil's AGE is read off
@@ -473,7 +480,7 @@ function makeFuseUniforms(): FuseUniforms {
   return {
     uGhost: { value: 0 }, uPitDark: { value: 0 }, uPitCover: { value: 0 }, uPitSize: { value: 0.35 }, uPitJitter: { value: 0.5 }, uPitSoft: { value: 0.12 }, uPitDepth: { value: 0 },
     uGrowOn: { value: 0 }, uGrowTop: { value: 0 }, uGrowHeight: { value: 1 }, uGrowStart: { value: 0 }, uGrowFull: { value: 1 }, uGrowVegPull: { value: 0 }, uGrowLifeTop: { value: 1 }, uGrowWaitTop: { value: 0 }, uGrowAfter: { value: 0 }, uGrowOver: { value: 3 },
-    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 },
+    uGrowClock: { value: 1e9 }, uGrowAppear: { value: 10 }, uGrowFloor: { value: -1e9 }, uGrowThin: { value: 0.6 }, uGrowAgeSpan: { value: 40 }, uGrowDeep: { value: 0.6 }, uGrowMelt: { value: 0.6 }, uGrowReach: { value: 2 }, uGrowPress: { value: 1 }, uGrowSeal: { value: 0 }, uGrowBlend: { value: FUSE_BLEND_S },
     uGrowLate: { value: 0 }, uGrowRise: { value: 0 }, uGrowStood: { value: 0 },
     uGrowDie: { value: 0 }, uGrowDieAfter: { value: 60 }, uGrowDieSpan: { value: 30 },
     uGrowDieHoles: { value: 0 }, uGrowDieGrain: { value: 1.2 }, uGrowDieRag: { value: 0 }, uGrowDiePatch: { value: 9 },
@@ -493,7 +500,11 @@ attribute vec3 fuseAnchor;
 attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
 attribute float fuseLate;
-uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowMelt, uGrowReach, uGrowPress, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
+attribute vec4 fuseBlend;
+varying vec2 vSwap;
+varying float vSkin;
+uniform float uGrowBlend;
+uniform float uGrowOn, uGrowTop, uGrowHeight, uGrowAfter, uGrowOver, uGrowClock, uGrowAppear, uGrowFloor, uGrowThin, uGrowAgeSpan, uGrowDeep, uGrowMelt, uGrowReach, uGrowPress, uGrowSeal, uGrowLate, uGrowRise, uGrowStood, uGrowDie, uGrowDieAfter, uGrowDieSpan, uGrowDieHoles;
 varying float vGrow;
 varying float vGone;
 varying vec3 vGonePos;`;
@@ -504,6 +515,9 @@ varying vec3 vGonePos;`;
  * What stands inside (the parts that did not erode) shows through them.
  */
 const FUSE_GONE_FRAG_HEAD = `
+varying vec2 vSwap;
+varying float vSkin;
+uniform float uGrowSeal;
 varying float vGrow;
 varying float vGone;
 varying vec3 vGonePos;
@@ -516,6 +530,23 @@ float goneNoise( vec3 p ) {
               mix( mix( goneHash( i + vec3( 0.0, 0.0, 1.0 ) ), goneHash( i + vec3( 1.0, 0.0, 1.0 ) ), f.x ), mix( goneHash( i + vec3( 0.0, 1.0, 1.0 ) ), goneHash( i + vec3( 1.0, 1.0, 1.0 ) ), f.x ), f.y ), f.z );
 }`;
 const FUSE_GONE_FRAG_BODY = `
+// A PIECE MADE AGAIN DISSOLVES INTO THE ONE IT REPLACES (the artist, 2026-11-21: "둘 다 넣는데"; fuseUnits FUSE_BLEND_S):
+// the one coming in is drawn where a screen noise is under the time gone, the one going out where it is over it — the
+// two are drawn together, pixel by pixel one or the other, and where they are the same surface nothing changes
+if ( vSwap.x != 0.0 ) {
+  float swapN = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) + 0.71 ) );
+  if ( vSwap.x > 0.0 ? swapN >= vSwap.y : swapN < vSwap.y ) discard;
+}
+// THE EDGE IS EATEN, NOT CUT (the artist, 2026-11-21, of the first try at a closed edge: "열자마자 잘려보이는디" — a vertex
+// pressed all the way into its unit lay on the unit's box, and the boxes' faces read as flat cuts). Where the mass is
+// barely out (vGrow under uGrowSeal) and where the provisional skin thins towards its far end (vSkin), it goes through
+// a noise fixed in the world — the same holes the fossil's life eats it by (삭는 구멍의 크기): islands and bays, no plane
+float edgeK = min( uGrowSeal > 0.0 ? vGrow / uGrowSeal : 1.0, vSkin );
+if ( edgeK < 1.0 ) {
+  vec3 edgeP = vGonePos / max( 0.05, uGrowDieGrain ) + 3.1;
+  float edgeN = clamp( ( 0.65 * goneNoise( edgeP ) + 0.35 * goneNoise( edgeP * 2.7 + 5.3 ) - 0.5 ) * 1.9 + 0.5, 0.001, 0.999 );
+  if ( edgeN > edgeK ) discard;
+}
 // NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): where everything of a layer is as
 // old as its depth, the going was one value per layer — holes over a few slots, and nothing below: a cut. Each PATCH of
 // the world is now ahead of or behind the going by its own amount (a wide noise), so the going's edge wanders up
@@ -536,6 +567,8 @@ if ( goneAt > 0.001 ) {
 const FUSE_GROW_VERT_BODY = `
 vGrow = 1.0;
 vGone = 0.0;
+vSwap = vec2( 0.0 );
+vSkin = 1.0;
 vGonePos = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
 if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // (the vegetation is a FACTOR of how much comes out — fuseGrowB.y — not a depth added: with the artist's own
@@ -589,7 +622,14 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   vec3 growOff = position - fuseAnchor;
   growWait = max( growWait, uGrowMelt * clamp( ( length( growOff ) + max( 0.0, - growOff.y ) ) / max( 0.1, uGrowReach ), 0.0, 1.0 ) );
   float growSpan = min( mix( uGrowLate > 0.05 ? uGrowLate : 1.0, 1.0 - growWait, fuseLate ), 1.0 - growWait );
-  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * fuseGrowB.y;
+  // WHAT CHANGES, CHANGES SOFTLY (the artist, 2026-11-21: "둘 다 넣는데"): the provisional skin's share (hidden where
+  // the neighbour is on the screen, thinning towards its far end — fuseUnits fadeEdges) goes from what it was to what it
+  // is over uGrowBlend seconds from the change (fuseBlend: the old share, the change's clock, the dissolve, the new)
+  float growBlendT = clamp( ( uGrowClock - fuseBlend.y ) / max( 0.01, uGrowBlend ), 0.0, 1.0 );
+  float growVeg = fuseGrowB.y;
+  vSkin = mix( fuseBlend.x, fuseBlend.w, growBlendT );
+  vSwap = vec2( fuseBlend.z, growBlendT );
+  vGrow = clamp( ( growTime - growWait ) / max( 0.05, growSpan ), 0.0, 1.0 ) * growVeg;
   // ONE BODY (the artist, 2026-11-16: "근데 부푸는 건 진짜 개별로던데"): a vertex is no longer pressed to its own part's
   // box — neighbours pressed to different boxes split the mass along the parts. What it reads is the value of its
   // PLACE (fuseUnits.ts placeValues: the parts' values blurred over the space; the layer off its own height), and it
@@ -600,7 +640,11 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // mass (11/16), given up then because the mass split along its many small parts. The units are now a building's
   // few wide bodies (spaceModel fossilUnits), and how far each is out is still read off its place.
   float growEase = vGrow * vGrow * ( 3.0 - 2.0 * vGrow );
+  // (the barely-out edge is eaten through a noise in the fragment shader — FUSE_GONE_FRAG_BODY, uGrowSeal — instead of
+  // being pressed into its unit: pressed all the way, it lay flat on the unit's box, 2026-11-21)
   transformed = mix( transformed - normal * uGrowThin * ( 1.0 - growEase ), mix( fuseAnchor, transformed, growEase ), uGrowPress );
+  // (…and the skin thins towards its far end, as it is eaten there: a tapering body, not a sheet)
+  transformed -= normal * 0.35 * ( 1.0 - vSkin );
 }`;
 
 /**
@@ -799,6 +843,13 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?:
     g.setAttribute("fuseGrowB", new THREE.BufferAttribute(r.growB!, 2));
     // (the frame-first mark; none = all frame)
     g.setAttribute("fuseLate", new THREE.BufferAttribute(r.late && r.late.length * 3 === r.position.length ? r.late : new Float32Array(r.position.length / 3), 1));
+    // (the worker's pending changes; none = no change: its clock far in the past)
+    let blend = r.blend && r.blend.length * 3 === r.position.length * 4 ? r.blend : null;
+    if (!blend) {
+      blend = new Float32Array((r.position.length / 3) * 4);
+      for (let v = 0; v < blend.length; v += 4) [blend[v], blend[v + 1], blend[v + 3]] = [1, -1e9, 1];
+    }
+    g.setAttribute("fuseBlend", new THREE.BufferAttribute(blend, 4));
     // (the vertices move in the shader: the mesh's bounds are not where it is drawn)
     mesh.frustumCulled = false;
   }
@@ -1430,6 +1481,7 @@ function SpaceWorld({
     fuseU.uGrowMelt.value = Math.max(0, Math.min(0.9, resin.growMelt ?? 0.6));
     fuseU.uGrowReach.value = Math.max(0.1, resin.growReach ?? 2);
     fuseU.uGrowPress.value = Math.max(0, Math.min(1, resin.growPress ?? 1));
+    fuseU.uGrowSeal.value = Math.max(0, Math.min(1, resin.growSeal ?? 0));
     fuseU.uGrowLate.value = Math.max(0, Math.min(0.9, resin.growLate ?? 0));
     fuseU.uGrowRise.value = Math.max(0, Math.min(1, resin.growRise ?? 0));
     // (the fossil's life: off unless the look says so — a look without the knobs is the fossil as it was)
@@ -4318,6 +4370,8 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growReach: { value: 2, min: 0.2, max: 8, step: 0.1, label: "번져 나오는 거리 (월드 · 화석이 부재에서 가장 멀리 부푼 두께쯤)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // OUT OF ITS OWN UNIT (the shader's press; the artist, 2026-11-20: "부재별 감싸기가 난 훨씬 좋아보여")
       growPress: { value: 1, min: 0, max: 1, step: 0.05, label: "제 단위에서 부풀어 나옴 (1 = 꼭짓점마다 제 덩이 속에 눌려 있다가 부풀어 나옴 — 11/16의 부재별 감싸기 · 0 = 표면 전체가 한 몸으로 조금씩 두꺼워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+      // (the artist, 2026-11-20: "다시 계산하거나 기다릴 때 경계면 뚝 잘려보이는 것만 어떻게 처리하면")
+      growSeal: { value: 0.3, min: 0, max: 0.8, step: 0.05, label: "덜 나온 가장자리는 구멍이 나며 삭아 들어감 (나온 정도가 이 아래면 세계에 고정된 노이즈로 · 구멍 크기 = 삭는 구멍의 크기 · 0 = 끔)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
       // ONE BODY: how much thinner the mass is where it is least out (the shader: back along the normal)
       growThin: { value: 0.6, min: 0, max: 2, step: 0.05, label: "덜 나온 곳이 얇아지는 두께 (월드 · '제 단위에서 부풀어 나옴'이 1보다 작을 때만)", render: (get: (path: string) => unknown) => REDESIGN && Number(get(`${FU}.growPress`) ?? 1) < 1 },
       // THE FRAME FIRST, THE PLATES AND ROOMS AFTER (the artist, 2026-11-17: "A2" — the multipipe's melting form back;
@@ -4752,6 +4806,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       growMelt: fu.growMelt,
       growReach: fu.growReach,
       growPress: fu.growPress,
+      growSeal: fu.growSeal,
       growLate: fu.growLate,
       growRise: fu.growRise,
       growDie: fu.growDie,
@@ -4776,7 +4831,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       attenuationColor: fu.attenuationColor,
       attenuationDistance: fu.attenuationDistance,
     }),
-    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance, fu.boneSee, fu.boneSeeParts],
+    [fu.fuseFade, fu.growThin, fu.growAgeMin, fu.growDeep, fu.growMelt, fu.growReach, fu.growPress, fu.growSeal, fu.growLate, fu.growRise, fu.growDie, fu.growDieAfterMin, fu.growDieSpanMin, fu.growDieHoles, fu.growDieGrain, fu.growDieRag, fu.growDiePatch, isV2, fu.shell, fu.foam, fu.pits, fu.pitCover, fu.pitSize, fu.pitJitter, fu.pitSoft, fu.pitDepth, fu.resinMode, fu.resinOpacity, fu.resinRim, fu.resinGhost, fu.resinGlow, fu.massBody, fu.massOpacity, fu.resinShade, fu.resinColor, fu.transmission, fu.resinRoughness, fu.thickness, fu.attenuationColor, fu.attenuationDistance, fu.boneSee, fu.boneSeeParts],
   );
   // (the bone's knobs, in the material folder, read by reference by every material that draws it — boneLook.ts; the
   // pipes and the ways follow the mass: what has fossilised of them is bone too)
