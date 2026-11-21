@@ -161,6 +161,32 @@ export interface FuseConfig {
    */
   voxelTie?: number;
   /**
+   * THE FOSSIL IN STAGES (spaceModel FuseInput.stages): how many stages, and over how many seconds a group of pieces
+   * made again is put on the screen — a slot at a time from the bottom up, each at once (fuseUnits show). Absent / 0 =
+   * the mass made once.
+   */
+  stageN?: number;
+  stageSweep?: number;
+  /**
+   * ROUND (the artist, 2026-11-21 night: "떠 있는 조각이나 부스러기는 괜찮아, 내 말은 둥글게 하라고 둥글게"): 0 … 1.5 — the
+   * field is blurred before its surface is taken (corners, the outline's cut, the ribs' edges come out rounded; over
+   * round × 3 samples, mixed in by as much, lifted so slender parts are not thinned away) — the BODY, before its rooms
+   * are carved and its shell hollowed and opened — and the surface is smoothed round × 3 more times. Absent / 0 = as before. (The wall gives it in the fossil's stages only.)
+   */
+  roundness?: number;
+  /** THE FOSSIL IN STAGES: the shell's wall at least this thick (world); absent / 0 = 껍질 벽의 두께 as it is. */
+  stageWall?: number;
+  /**
+   * THE EXHIBITION'S MAKING IN THE STAGES' ORDER (the artist, 2026-11-21 night: "비주얼은 확실히 전시판이 낫다" / "생기는
+   * 순서는 단계별이 낫거든 … 타협점 없나?" → "Build it"): the mass is not seeded — each building is made whole from one
+   * state in the model's worker, as the exhibition's was (spaceModel fuseBuildings) — but a part's progress is its STAGE
+   * on the fossil's ruler (spaceModel FuseInput.stages), not 1 − its survival; and a building's new mass melts out of
+   * the old one over `meltSec` seconds (FuseMesh.morph) instead of a cross-fade.
+   */
+  wholeStages?: boolean;
+  /** WHOLE STAGES: the seconds a building's mass takes to melt from one stage into the next (0 = at once). */
+  meltSec?: number;
+  /**
    * THE PIECES THE SEEDED MASS IS MADE IN (spaceModel sendUnits → the worker beside; the artist, 2026-11-20: "현재
    * 상태에서도 화석 생성 단위 묶음/타일 더 촘촘하게 만들 수 있지 않나?"): cells of ground a side, and slots of height
    * (absent: 14 × 10, as it was). A smaller piece is made sooner — a change is on the screen sooner, and less is
@@ -409,6 +435,11 @@ const PLATE_FRAME = 0.3;
 export const FRAME_KINDS: ReadonlySet<Box["kind"]> = new Set<Box["kind"]>(["slab", "plinth"]);
 /** B FILL: the tallest room between two plates (slots); taller = not one room (empty time lies between). */
 export const FILL_MAX_GAP = 6;
+/** ROUND (FuseConfig.roundness): how much of the iso the rounded field is lifted by at full roundness. */
+const ROUND_LIFT = 0.5;
+/** ROUND: how much of the rims' light blur is mixed in at full roundness (after the holes are open). */
+const ROUND_RIM = 0.8;
+
 /** B FILL: how much the blurred mass may still swell outside the rooms (× gain). */
 const FILL_OUTSIDE = 0.35;
 
@@ -561,6 +592,17 @@ export interface FuseMesh {
    * less than whole; it dissolves the pieces over its blend time. Absent = 1, no change.
    */
   blend?: Float32Array;
+  /**
+   * THE MASS MELTS FROM ONE STAGE INTO THE NEXT (the artist, 2026-11-21 night: "차라리 전시판 키프레임 사이에 바뀔 때 녹아들도록
+   * 해서 자연스럽게 보이게 하면 안 되나" — then "Build it", the compromise: the exhibition's making, the stages' order).
+   * Per vertex (4): where the vertex is drawn from (or goes to) as an offset from its position, and the clock the change
+   * began at (spaceModel's morph clock, seconds; ≥ 0 = a surface coming in: it starts at position + offset and moves to
+   * its own; < 0 = a surface going: its clock is −w − 1, it moves from its own by the offset and is not drawn once there;
+   * −1e9 = neither). Absent = no change.
+   */
+  morph?: Float32Array;
+  /** The morph clock's origin (ms since the epoch), set on the mesh the model sends: the view reads its clock off it. */
+  morphT0?: number;
   resinStart: number;
 }
 
@@ -1220,6 +1262,12 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   // minus round voids (old layers) and minus fragmenting at the edges (young layers)
   const iso = cfg.iso;
   const F = new Float32Array(n);
+  // ROUND (FuseConfig.roundness) — THE BODY FIRST (the artist, 2026-11-21 night: "구멍 나서 방 안의 부재가 드러나게 하는 과거
+  // 리브 효과 버리고 싶지 않은데 애초에 그냥 벽에 두께가 있도록 하면 잘려도 괜찮지 않나"): the mass's body is rounded before its
+  // rooms are carved and before its shell is hollowed and opened, so the holes and ribs are cut into a round body —
+  // their rims are smoothed lightly after, not filled in
+  const round = Math.max(0, Math.min(1.5, cfg.roundness ?? 0));
+  const cavH = round > 0.001 && Rm && cav > 0 ? new Float32Array(n) : null;
   for (let k = 0; k < nz; k++) {
     for (let j = 0; j < ny; j++) {
       const q = rowQ[j];
@@ -1238,7 +1286,9 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
         // themselves (Praw) are kept, so the plates and walls remain as membranes between the cavities
         if (Rm && cav > 0 && Rm[p] > 0.12 && f > iso * 0.5) {
           const h = cav * fossilAt(q, (I0 + i) * vs, yRow, (K0 + k) * vs) * smoothRamp(Rm[p], 0.12, 0.6) * (1 - Math.min(1, Praw![p] * 1.5));
-          if (h > 0) f -= h * (f - iso * 0.5 + 0.3);
+          // (ROUND: the body is rounded first, the rooms carved after — cavH)
+          if (cavH) cavH[p] = h;
+          else if (h > 0) f -= h * (f - iso * 0.5 + 0.3);
         }
         // ENVELOPE: outside the building's outline (mask < 0.5 = past a face) the mass is cut to air, however strong
         // the field — so the outer faces come out as the building's planes, whatever swells inside
@@ -1260,13 +1310,28 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   }
 
   lap("ms blur");
+  if (round > 0.001) {
+    // the body blurred towards its round form — a box's corner, the outline's cut come out rounded — and lifted by as
+    // much as the blur takes off a slender part (the pipes, the first stage's frame), so it is rounded, not shrunk
+    const Fr2 = F.slice();
+    const rr = Math.max(1, Math.round(round * 3));
+    blur3(Fr2, tmp, nx, ny, nz, rr);
+    blur3(Fr2, tmp, nx, ny, nz, rr);
+    const lift = round * iso * ROUND_LIFT, mixR = Math.min(1, round);
+    for (let p = 0; p < n; p++) F[p] += (Fr2[p] - F[p]) * mixR + (Fr2[p] > 0.02 ? lift : 0);
+    // …then the rooms carved into it (ROOMS → CAVITIES, as the loop above would have)
+    if (cavH) for (let p = 0; p < n; p++) if (cavH[p] > 0 && F[p] > iso * 0.5) F[p] -= cavH[p] * (F[p] - iso * 0.5 + 0.3);
+  }
   // C SHELL: hollow the mass (whatever lies deeper than the shell's thickness), then open some of the cells that touch
   // each other so only ribs remain between them; old layers are opened most. FOAM: the same cells carved through the
   // volume without hollowing (sponge bone, ref 9579)
   if (st && (st.shell || st.foam || crust)) {
     if (st.shell || crust) {
     // two thicknesses: thin in the young layers, thick in the old ones (blended over a short band of layer age)
-    const rOld = Math.max(1, Math.round(st.shellThick)), rYoung = Math.max(1, Math.round(st.shellThickYoung));
+    // (THE FOSSIL IN STAGES — a wall with a body to it: at least stageWall world thick, so an opening shows a cut wall and
+    // the room behind it, not a paper skin)
+    const wallMin = (cfg.stageWall ?? 0) > 0 ? Math.round((cfg.stageWall ?? 0) / vs) : 0;
+    const rOld = Math.max(1, Math.round(st.shellThick), wallMin), rYoung = Math.max(1, Math.round(st.shellThickYoung), wallMin);
     const inside = new Float32Array(n);
     for (let p = 0; p < n; p++) inside[p] = F[p] > iso ? 1 : 0;
     const S = inside.slice();
@@ -1387,6 +1452,15 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     }
   }
 
+  // (ROUND — THE RIMS: once the holes are open, a light blur of one sample rounds their rims and the ribs' edges without
+  // closing them — the holes are cells across, the ribs at least a sample and a half — lifted a little so a rib keeps
+  // its width)
+  if (round > 0.001 && st && (st.shell || st.foam)) {
+    const Fr3 = F.slice();
+    blur3(Fr3, tmp, nx, ny, nz, 1);
+    const mixT = Math.min(1, round) * ROUND_RIM, liftT = Math.min(1, round) * iso * 0.15;
+    for (let p = 0; p < n; p++) F[p] += (Fr3[p] - F[p]) * mixT + (Fr3[p] > 0.02 ? liftT : 0);
+  }
   // SPIKES: out of a hashed share of the surface cells a thin spike of the same mass grows outward along the field's
   // gradient (one voxel thick, its own length up to spikeLen); the smoothing rounds them a little
   if (cfg.spikes > 0 && cfg.spikeLen > 0) {
@@ -1592,8 +1666,10 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
   const NV = P.length / 3;
   const Nn = Float32Array.from(nor);
   const anyBlocky = wgt.some((w) => w < 1);
-  if (cfg.smooth > 0 && NV > 0) taubin(P, quads, NV, Math.round(cfg.smooth), anyBlocky ? Float32Array.from(wgt) : undefined);
-  if (cfg.smooth > 0 && NV > 0) faceNormals(P, quads, Nn);
+  // (ROUND: a few more passes of the smoothing — the holes' rims and the ribs rounded, not filled in)
+  const smoothN = Math.round(cfg.smooth) + Math.round(round * 3);
+  if (smoothN > 0 && NV > 0) taubin(P, quads, NV, smoothN, anyBlocky ? Float32Array.from(wgt) : undefined);
+  if (smoothN > 0 && NV > 0) faceNormals(P, quads, Nn);
   lap("ms smooth");
   // PITS ON THE BROAD FACES: the pits' coverage drawn toward the flat middles of the large faces — a vertex whose
   // neighbours' normals agree with its own (flat) and that lies deep in a closed cell (broadM) keeps its pits; rims,
@@ -1729,9 +1805,89 @@ export function compactFuseMesh(mesh: FuseMesh): FuseMesh {
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */
+/**
+ * THE MELT BETWEEN TWO STAGES (FuseMesh.morph; fuse.ts wholeStages): for every vertex of `mesh`, the offset to the
+ * nearest point of `other`'s surface (its vertices, a few a cell of a hash) when one lies within `reach` — else straight
+ * in along its own normal by `sink` (a mass with nothing before it comes out of its parts; one with nothing after it goes
+ * back into them). Written as a surface coming in (`going` false: it starts on the other and moves to its own) or one
+ * going (it moves from its own onto the other and is not drawn once there), from `clock` (seconds). Nearest over the
+ * 27 cells about the vertex first, wider only when nothing is that near: a shape that changed a little costs little.
+ */
+export function meltMorph(mesh: FuseMesh, other: FuseMesh | null, clock: number, going: boolean, reach = 2.4, sink = 0.6): void {
+  const P = mesh.position, N = mesh.normal, nv = P.length / 3;
+  const out = new Float32Array(nv * 4);
+  const w = going ? -clock - 1 : clock;
+  // (the other's points in a dense grid of cells over its bounds — a few a cell, kept in order of the cells)
+  const Q = other?.position ?? new Float32Array(0), nq = Q.length / 3, PER = 6;
+  let cell = Math.max(0.25, reach / 4);
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < Q.length; i += 3) {
+    x0 = Math.min(x0, Q[i]); x1 = Math.max(x1, Q[i]);
+    y0 = Math.min(y0, Q[i + 1]); y1 = Math.max(y1, Q[i + 1]);
+    z0 = Math.min(z0, Q[i + 2]); z1 = Math.max(z1, Q[i + 2]);
+  }
+  let gx = 0, gy = 0, gz = 0;
+  for (;;) {
+    gx = Math.floor((x1 - x0) / cell) + 1; gy = Math.floor((y1 - y0) / cell) + 1; gz = Math.floor((z1 - z0) / cell) + 1;
+    if (!nq || gx * gy * gz <= 4_000_000) break;
+    cell *= 1.5; // (a wide mesh: coarser cells, as many as can be held)
+  }
+  const cellOf = (x: number, y: number, z: number) => (Math.floor((x - x0) / cell) * gy + Math.floor((y - y0) / cell)) * gz + Math.floor((z - z0) / cell);
+  const nc = nq ? gx * gy * gz : 0;
+  const cnt = new Int32Array(nc + 1);
+  for (let i = 0; i < nq; i++) { const c = cellOf(Q[i * 3], Q[i * 3 + 1], Q[i * 3 + 2]); if (cnt[c] < PER) cnt[c]++; }
+  const start = new Int32Array(nc + 1);
+  for (let c = 0; c < nc; c++) start[c + 1] = start[c] + cnt[c];
+  const pts = new Float32Array(start[nc] * 3), fill = new Int32Array(nc);
+  for (let i = 0; i < nq; i++) {
+    const c = cellOf(Q[i * 3], Q[i * 3 + 1], Q[i * 3 + 2]);
+    if (fill[c] >= cnt[c]) continue;
+    const o = (start[c] + fill[c]++) * 3;
+    pts[o] = Q[i * 3]; pts[o + 1] = Q[i * 3 + 1]; pts[o + 2] = Q[i * 3 + 2];
+  }
+  const R = Math.ceil(reach / cell), reach2 = reach * reach;
+  for (let v = 0; v < nv; v++) {
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    let best = reach2, bx = 0, by = 0, bz = 0, found = false;
+    if (nc) {
+      const cx = Math.floor((x - x0) / cell), cy = Math.floor((y - y0) / cell), cz = Math.floor((z - z0) / cell);
+      for (let r = 1; r <= R; r++) {
+        for (let ix = cx - r; ix <= cx + r; ix++) {
+          if (ix < 0 || ix >= gx) continue;
+          for (let iy = cy - r; iy <= cy + r; iy++) {
+            if (iy < 0 || iy >= gy) continue;
+            for (let iz = cz - r; iz <= cz + r; iz++) {
+              if (iz < 0 || iz >= gz) continue;
+              // (ring r: only its shell — the inside was looked at already)
+              if (r > 1 && Math.abs(ix - cx) < r && Math.abs(iy - cy) < r && Math.abs(iz - cz) < r) continue;
+              const c = (ix * gy + iy) * gz + iz;
+              for (let j = start[c] * 3, e = start[c + 1] * 3; j < e; j += 3) {
+                const ex = pts[j] - x, ey = pts[j + 1] - y, ez = pts[j + 2] - z, dd = ex * ex + ey * ey + ez * ez;
+                if (dd < best) {
+                  best = dd; bx = ex; by = ey; bz = ez; found = true;
+                }
+              }
+            }
+          }
+        }
+        // (a point within this ring's reach is the nearest there is: none farther out can be nearer)
+        if (found && best <= r * cell * r * cell) break;
+      }
+    }
+    if (!found) {
+      bx = -N[v * 3] * sink; by = -N[v * 3 + 1] * sink; bz = -N[v * 3 + 2] * sink;
+    }
+    out[v * 4] = bx;
+    out[v * 4 + 1] = by;
+    out[v * 4 + 2] = bz;
+    out[v * 4 + 3] = w;
+  }
+  mesh.morph = out;
+}
+
 export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   let nv = 0, ni = 0, nr = 0;
-  let seeded = false, anyLate = false, anySide = false, anyBlend = false;
+  let seeded = false, anyLate = false, anySide = false, anyBlend = false, anyMorph = false;
   for (const p of parts) {
     nv += p.position.length;
     ni += p.index.length;
@@ -1740,6 +1896,7 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
     if (p.late) anyLate = true;
     if (p.side) anySide = true;
     if (p.blend) anyBlend = true;
+    if (p.morph) anyMorph = true;
   }
   const out: FuseMesh = { position: new Float32Array(nv), normal: new Float32Array(nv), color: new Float32Array(nv), extra: new Float32Array((nv / 3) * 4), index: new Uint32Array(ni), resinStart: ni - nr };
   // (the growing data rides along when any part has it; a part without it is whole as it is)
@@ -1753,8 +1910,14 @@ export function mergeMeshes(parts: readonly FuseMesh[]): FuseMesh {
   // (the provisional skin's sides, and the pending changes: none = own faces, no change — −1e9 is "no change")
   if (anySide) out.side = new Float32Array(nv / 3);
   if (anyBlend) out.blend = new Float32Array((nv / 3) * 4);
+  // (the melt between stages: none = −1e9, no change)
+  if (anyMorph) out.morph = new Float32Array((nv / 3) * 4);
   let ov = 0, oo = 0, or = ni - nr;
   for (const p of parts) {
+    if (out.morph) {
+      if (p.morph) out.morph.set(p.morph, (ov / 3) * 4);
+      else for (let v = ov / 3; v < (ov + p.position.length) / 3; v++) out.morph[v * 4 + 3] = -1e9;
+    }
     if (out.late && p.late) out.late.set(p.late, ov / 3);
     if (out.side && p.side) out.side.set(p.side, ov / 3);
     if (out.blend) {
