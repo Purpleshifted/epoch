@@ -1194,7 +1194,7 @@ function fossilStageLine(s: UnitStats): string {
 function fossilSceneLine(st: Stats): string {
   const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${Math.round(n)}`);
   let out = "";
-  if (st.fuseScene) out += ` · 화면: 청크 ${st.fuseScene.chunks} · 정점 ${k(st.fuseScene.verts)} · △ ${k(st.fuseScene.tris)}${st.fuseSide?.pieces !== undefined ? ` · 조각 ${st.fuseSide.pieces}` : ""}`;
+  if (st.fuseScene) out += ` · 화면: 청크 ${st.fuseScene.chunks} · 정점 ${k(st.fuseScene.verts)} · △ ${k(st.fuseScene.tris)}${st.fuseSide?.pieces !== undefined ? ` · 조각 ${st.fuseSide.pieces}` : ""}${st.fuseSide?.simplified ? ` · 삼각형 줄인 청크 ${st.fuseSide.simplified}` : ""}`;
   const u = st.fuseUpload;
   if (u && u.n) out += ` · 올리기: 전송 ${Math.round(u.transferMs)} · 적용 ${Math.round(u.applyMs)} (최대 ${Math.round(u.applyMax)}) · 첫 그리기 ${Math.round(u.drawMs)} (최대 ${Math.round(u.drawMax)}) ms`;
   return out;
@@ -1260,9 +1260,12 @@ function SpaceWorld({
   takenEpochMs = 0,
   fuseWorkers = 1,
   uploadMB = 0,
+  fossilSimplify = 0,
 }: {
   /** MB of new geometry of the mass put on the screen per frame (렌더 › 작업 분담); 0 = all of a message at once. */
   uploadMB?: number;
+  /** The share of triangles taken off the fossil's settled chunks (렌더 › 작업 분담); 0 = none. */
+  fossilSimplify?: number;
   /** How many workers make the pieces of the mass side by side (렌더 › 작업 분담); 1 = the worker of the mass alone. */
   fuseWorkers?: number;
   log: EventLog;
@@ -1969,6 +1972,11 @@ function SpaceWorld({
     };
     // (declared after the effect that starts the worker of the mass: it runs after it, and sees it)
   }, [fuseWorkers]);
+  // FEWER TRIANGLES FOR THE SETTLED CHUNKS (렌더 › 작업 분담 › 굳은 화석 조각의 삼각형 줄이기): the worker of the mass does
+  // it (fuseUnits settleSimplify); 0 puts the chunks back as they were
+  useEffect(() => {
+    fuseSide.current?.postMessage({ type: "simplify", ratio: fossilSimplify });
+  }, [fossilSimplify]);
 
   // (the world's clock as the bots' window has it — spaceModel WallClock; none without the window)
   const wallClock = (): WallClock | undefined => {
@@ -5353,6 +5361,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           key={lab ? `lab-${takenId}` : "wall"}
           fuseWorkers={ro.fuseWorkers}
           uploadMB={ro.uploadMB}
+          fossilSimplify={ro.fossilSimplify}
         />
         {/* THE WALL (ui=0): a landscape — no orbiting, zooming, panning or click focus; the stage camera turns it */}
         <FocusFollow

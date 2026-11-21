@@ -1673,8 +1673,48 @@ export function fuseChunk(input: FuseChunkInput): FuseMesh {
     sideA = new Float32Array(NT);
     for (let e = 0; e < m; e++) sideA[NV + e] = addS[e];
   }
+  // ONLY THE VERTICES A FACE USES (2026-11-21): the nets make a vertex for every surface cube of the grid, padding
+  // included — the smoothing and the normals need them — but a chunk keeps only the faces its own rows and tile own:
+  // about two vertices in three were carried, stored, grown, transferred and uploaded for nothing. Dropped here, every
+  // per-vertex array compacted by one remap; nothing drawn changes.
+  const out = compactFuseMesh({ position: Pv, normal: Nv, color: colA, extra: extA, index, resinStart: ind.length, ...(lateA ? { late: lateA } : {}), ...(sideA ? { side: sideA } : {}) });
   lap("ms finish");
-  return { position: Pv, normal: Nv, color: colA, extra: extA, index, resinStart: ind.length, ...(lateA ? { late: lateA } : {}), ...(sideA ? { side: sideA } : {}) };
+  return out;
+}
+
+/**
+ * The mesh with only the vertices its index uses, every per-vertex array compacted by the same remap (first use first),
+ * the index rewritten. Nothing drawn changes. The mesh itself when nothing is unused.
+ */
+export function compactFuseMesh(mesh: FuseMesh): FuseMesh {
+  const nv = mesh.position.length / 3;
+  const remap = new Int32Array(nv).fill(-1);
+  let used = 0;
+  const index = new Uint32Array(mesh.index.length);
+  for (let i = 0; i < mesh.index.length; i++) {
+    const v = mesh.index[i];
+    if (remap[v] < 0) remap[v] = used++;
+    index[i] = remap[v];
+  }
+  if (used === nv) return mesh;
+  const take = <T extends Float32Array | undefined>(a: T, k: number): T => {
+    if (!a) return a;
+    const out = new Float32Array(used * k);
+    for (let v = 0; v < nv; v++) {
+      const t = remap[v];
+      if (t < 0) continue;
+      for (let c = 0; c < k; c++) out[t * k + c] = a[v * k + c];
+    }
+    return out as T;
+  };
+  const out: FuseMesh = { position: take(mesh.position, 3), normal: take(mesh.normal, 3), color: take(mesh.color, 3), extra: take(mesh.extra, 4), index, resinStart: mesh.resinStart };
+  if (mesh.anchor) out.anchor = take(mesh.anchor, 3);
+  if (mesh.growA) out.growA = take(mesh.growA, 4);
+  if (mesh.growB) out.growB = take(mesh.growB, 2);
+  if (mesh.late) out.late = take(mesh.late, 1);
+  if (mesh.side) out.side = take(mesh.side, 1);
+  if (mesh.blend) out.blend = take(mesh.blend, 4);
+  return out;
 }
 
 /** Concatenates chunk meshes into one (all opaque faces first, then all resin faces). */

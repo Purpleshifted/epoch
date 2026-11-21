@@ -22,6 +22,7 @@
 
 import { FuseUnits, lookFn, makePiece, type PieceCtx, type PieceDone, type PieceTask, type UnitFused, type UnitRequest } from "@/lib/parliament/fuseUnits";
 import type { FuseMesh } from "@/lib/parliament/fuse";
+import { MeshoptSimplifier } from "three/examples/jsm/libs/meshopt_simplifier.module.js";
 import { walkways, type WalkRequest, type WalkResult } from "@/lib/parliament/walkways";
 import type { PEvent } from "@/lib/parliament/types";
 
@@ -30,6 +31,12 @@ let port: MessagePort | null = null;
 
 // ── the mass ──
 const units = new FuseUnits();
+// (fewer triangles for the settled chunks — fuseUnits simplifyMesh: meshoptimizer's simplifier, index only, the chunk's
+// open edges locked, the surface moved by at most half a voxel; nothing until its WASM is ready, nothing at ratio 0)
+MeshoptSimplifier.ready.then(() => {
+  units.simplifier = (indices, positions, lock, target, errorAbs) => MeshoptSimplifier.simplifyWithAttributes(indices, positions, 3, new Float32Array(0), 0, [], lock, target, errorAbs, ["LockBorder", "ErrorAbsolute"])[0];
+  schedule();
+});
 /** At least this long between two messages to the view (ms): a chunk is merged and sent anew each time. */
 const EMIT_MS = 350;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -114,6 +121,8 @@ function turn(): void {
     scope.postMessage(out, transfer);
     lastEmit = now;
   }
+  // (nothing to make: one settled chunk may be given fewer triangles — sent at the next flush)
+  if (made === null && units.settleSimplify()) schedule(EMIT_MS);
   // (a piece dissolving off the screen is let go when its dissolve is over: fuseUnits sweep)
   const wake = units.sweep();
   // (nothing was made: every piece left is one that stands and rests — looked at again when the first of them may be)
@@ -183,7 +192,9 @@ type FromView =
   /** To the worker of the mass: helpers to hand pieces to, and helpers that are no more. */
   | { type: "helpers"; add?: { id: number; port: MessagePort }[]; remove?: number[] }
   /** To a helper: its end of the channel to the worker of the mass. */
-  | { type: "helper"; port: MessagePort };
+  | { type: "helper"; port: MessagePort }
+  /** To the worker of the mass: the share of triangles to take off the settled chunks (렌더 › 작업 분담). */
+  | { type: "simplify"; ratio: number };
 
 self.onmessage = (ev: MessageEvent<FromView>) => {
   const m = ev.data;
@@ -195,6 +206,11 @@ self.onmessage = (ev: MessageEvent<FromView>) => {
   if (m.type === "helper") {
     const p = m.port;
     p.onmessage = (e: MessageEvent<PieceCtx | PieceTask>) => onTask(p, e);
+    return;
+  }
+  if (m.type === "simplify") {
+    units.setSimplify(m.ratio);
+    schedule();
     return;
   }
   if (m.type === "helpers") {
