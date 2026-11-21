@@ -596,18 +596,22 @@ export function SessionHud({
               height: `min(calc(100dvh - ${coarse ? 20.5 : 12.5}rem), calc((100vw - 2rem) * ${orient === "landscape" ? "54 / 86" : "86 / 54"}))`,
             }}
           />
-          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-2 text-[15px]`}>
-            {(["paper", "screen"] as const).map((k) => (
-              <button key={k} type="button" data-hud-control onClick={() => setPaper(k)} className={pick(theme === k)}>
-                {k === "paper" ? S.ended.paperWhite : S.ended.paperBlack}
-              </button>
-            ))}
-            <span className="w-2" />
-            {(["portrait", "landscape"] as const).map((o) => (
-              <button key={o} type="button" data-hud-control onClick={() => setTurned(o)} className={pick(orient === o)}>
-                {o === "portrait" ? S.ended.orientPortrait : S.ended.orientLandscape}
-              </button>
-            ))}
+          {/* the two pairs keep together: a narrow screen breaks the row between them, not inside one */}
+          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[15px]`}>
+            <span className="flex gap-2">
+              {(["paper", "screen"] as const).map((k) => (
+                <button key={k} type="button" data-hud-control onClick={() => setPaper(k)} className={pick(theme === k)}>
+                  {k === "paper" ? S.ended.paperWhite : S.ended.paperBlack}
+                </button>
+              ))}
+            </span>
+            <span className="flex gap-2">
+              {(["portrait", "landscape"] as const).map((o) => (
+                <button key={o} type="button" data-hud-control onClick={() => setTurned(o)} className={pick(orient === o)}>
+                  {o === "portrait" ? S.ended.orientPortrait : S.ended.orientLandscape}
+                </button>
+              ))}
+            </span>
           </div>
           <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-2 text-[15px]`}>
             <button
