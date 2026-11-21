@@ -506,6 +506,8 @@ attribute vec4 fuseGrowA;
 attribute vec2 fuseGrowB;
 attribute float fuseLate;
 attribute vec4 fuseBlend;
+attribute vec3 fuseKey1;
+attribute vec3 fuseKey2;
 varying vec2 vSwap;
 varying float vSkin;
 varying float vEdge;
@@ -547,17 +549,8 @@ if ( vSwap.x != 0.0 ) {
   float swapN = clamp( ( 0.65 * goneNoise( swapP ) + 0.35 * goneNoise( swapP * 2.7 + 2.9 ) - 0.5 ) * 1.9 + 0.5, 0.001, 0.999 );
   if ( vSwap.x > 0.0 ? swapN >= vSwap.y : swapN < vSwap.y ) discard;
 }
-// THE EDGE IS EATEN, NOT CUT (the artist, 2026-11-21, of the first try at a closed edge: "열자마자 잘려보이는디" — a vertex
-// pressed all the way into its unit lay on the unit's box, and the boxes' faces read as flat cuts). Where the mass is
-// barely out (vGrow under uGrowSeal) and where the provisional skin thins towards its far end (vSkin), it goes through
-// a noise fixed in the world — holes of their own size (uGrowSealGrain: the life's holes, 4 world with the artist's
-// values, were blotches, not an edge): islands and bays, no plane
-float edgeK = min( uGrowSeal > 0.0 ? vEdge / uGrowSeal : 1.0, vSkin );
-if ( edgeK < 1.0 ) {
-  vec3 edgeP = vGonePos / max( 0.05, uGrowSealGrain ) + 3.1;
-  float edgeN = clamp( ( 0.65 * goneNoise( edgeP ) + 0.35 * goneNoise( edgeP * 2.7 + 5.3 ) - 0.5 ) * 1.9 + 0.5, 0.001, 0.999 );
-  if ( edgeN > edgeK ) discard;
-}
+// (until 2026-11-21 the barely-out edge and the skin's end were eaten through a noise here — every hole showed the
+// hollow inside: "열린 단면이 보여서 속이 비어 보이는 시간". The fossil now comes out as a volume: FUSE_GROW_VERT_BODY's keyframes)
 // NO LINE ACROSS THE WALL (the artist, 2026-11-18: "지금 화석화 잘리는 구간 생기는데?"): where everything of a layer is as
 // old as its depth, the going was one value per layer — holes over a few slots, and nothing below: a cut. Each PATCH of
 // the world is now ahead of or behind the going by its own amount (a wide noise), so the going's edge wanders up
@@ -654,12 +647,17 @@ if ( uGrowOn > 0.5 && fuseGrowB.y >= 0.0 ) {
   // from (fuseAnchor: the nearest point of it, a little inside) and swells out of it as it comes — the first seeded
   // mass (11/16), given up then because the mass split along its many small parts. The units are now a building's
   // few wide bodies (spaceModel fossilUnits), and how far each is out is still read off its place.
-  float growEase = vGrow * vGrow * ( 3.0 - 2.0 * vGrow );
-  // (the barely-out edge is eaten through a noise in the fragment shader — FUSE_GONE_FRAG_BODY, uGrowSeal — instead of
-  // being pressed into its unit: pressed all the way, it lay flat on the unit's box, 2026-11-21)
-  transformed = mix( transformed - normal * uGrowThin * ( 1.0 - growEase ), mix( fuseAnchor, transformed, growEase ), uGrowPress );
-  // (…and the skin thins towards its far end, as it is eaten there: a tapering body, not a sheet)
-  transformed -= normal * 0.35 * ( 1.0 - vSkin );
+  // THE FOSSIL IS A VOLUME ALL THE WAY (the artist, 2026-11-21: "키프레임을 두고 내내 고체로만 보이도록", "애초에 화석
+  // 자체를 열린 면이 있을 수 없도록 부피로 계산하면" — "e 진행해보자"). Nothing of the surface is cut away while it comes:
+  // every vertex is MOVED, from inside its part (fuseAnchor) to its place on the first keyframe (fuseKey1: lumps round
+  // the parts' cores — the mass had its parts fused KEY_SHARES[0] of the way), on to the second (fuseKey2), on to where
+  // it is — one closed surface at every moment, its shape a mass the parts could have made. How far along is the
+  // coming-out times the vegetation's share (vGrow: where little gathered it stops at a smaller keyframe) times the
+  // provisional skin's (vSkin: towards its far end, and where the neighbour is on the screen, it sinks into the parts).
+  float growQ = vGrow * vSkin;
+  float growA0 = smoothstep( 0.0, 0.3, growQ ), growA1 = smoothstep( 0.3, 0.65, growQ ), growA2 = smoothstep( 0.65, 1.0, growQ );
+  transformed = mix( mix( mix( fuseAnchor, fuseKey1, growA0 ), fuseKey2, growA1 ), transformed, growA2 );
+  vGrow = growQ;
 }`;
 
 /**
@@ -868,6 +866,10 @@ function setFused(mesh: THREE.Mesh | null, r: FuseMesh | null | undefined, was?:
       for (let v = 0; v < blend.length; v += 4) [blend[v], blend[v + 1], blend[v + 3]] = [1, -1e9, 1];
     }
     g.setAttribute("fuseBlend", new THREE.BufferAttribute(blend, 4));
+    // (the keyframes of the volume — a mesh without them stands where it is on each)
+    const keysOk = !!(r.key1 && r.key2 && r.key1.length === r.position.length && r.key2.length === r.position.length);
+    g.setAttribute("fuseKey1", new THREE.BufferAttribute(keysOk ? r.key1! : r.position, 3));
+    g.setAttribute("fuseKey2", new THREE.BufferAttribute(keysOk ? r.key2! : r.position, 3));
     // (the vertices move in the shader: the mesh's bounds are not where it is drawn)
     mesh.frustumCulled = false;
   }
@@ -4501,7 +4503,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           growRise: { value: 0.6, min: 0, max: 1, step: 0.05, label: "판·방이 층 바닥부터 차오름 (0 = 높이 상관없이)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
           // IT MELTS OUT OF ITS PARTS (the shader's growFar; the artist, 2026-11-20: "자연스럽게 녹아내려서 생기질 않고 … 바로
           // 껍데기로 생기는데")
-          growMelt: { value: 0.6, min: 0, max: 0.9, step: 0.05, label: "부재에서부터 번져 나옴 (0 = 화석 전체가 한꺼번에 옅게 생김 → 껍데기로 보임 · 클수록 부재에 붙은 곳부터, 멀리 부푼 곳과 아래로 처진 곳은 나중)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
+          growMelt: { value: 0.6, min: 0, max: 0.9, step: 0.05, label: "부재에서부터 번져 나옴 (0 = 화석 전체가 같은 때에 작은 덩이 → 큰 덩이 → 다 된 모양으로 · 클수록 부재에 붙은 곳부터, 멀리 부푼 곳과 아래로 처진 곳은 나중)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
           growReach: { value: 2, min: 0.2, max: 8, step: 0.1, label: "번져 나오는 거리 (월드 · 화석이 부재에서 가장 멀리 부푼 두께쯤)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
           // OUT OF ITS OWN UNIT (the shader's press; the artist, 2026-11-20: "부재별 감싸기가 난 훨씬 좋아보여")
           growPress: { value: 1, min: 0, max: 1, step: 0.05, label: "제 단위에서 부풀어 나옴 (1 = 꼭짓점마다 제 덩이 속에 눌려 있다가 부풀어 나옴 — 11/16의 부재별 감싸기 · 0 = 표면 전체가 한 몸으로 조금씩 두꺼워짐)", render: (get: (path: string) => unknown) => REDESIGN && get(`${FU}.fuseGrow`) === "seed" },
