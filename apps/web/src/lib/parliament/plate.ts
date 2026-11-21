@@ -478,3 +478,12 @@ function worldline(p: PlateInput, box: { left: number; right: number; top: numbe
   out.push(text(rx - 16, ly + 10, fmtClock(tEnd), 28, C.ink, "end"));
   return out.join("");
 }
+
+/** The worldline alone as an SVG of its own, `w` × `h` in the card's units (20 per millimetre at the card's size): for
+ * a card laid out elsewhere — the minimal card on the design canvas (2026-11-21). The ruler sits in its first 214. */
+export function plateFigureSvg(p: PlateInput, opts: { w: number; h: number; theme?: PlateTheme; font?: PlateFont }): string {
+  const C = PALETTES[opts.theme ?? "paper"];
+  const family = `${PLATE_FONTS[opts.font ?? "galmuriMono11"].family}, monospace`;
+  const body = worldline(p, { left: 214, right: opts.w - 16, top: 16, bottom: opts.h - 16 }, C);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${opts.w} ${opts.h}" font-family="${esc(family)}">${body}</svg>`;
+}
