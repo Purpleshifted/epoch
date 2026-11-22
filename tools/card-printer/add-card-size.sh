@@ -3,10 +3,12 @@
 # it ("54mmx86mm") — the way 출력하기 prints when the print helper (server.mjs) is not running. The card's page is always
 # 54 × 86: a landscape card is stood up on it (SpecimenCard printInBrowser), as the helper does. Run once on the
 # machine with the printer (it changes the printer's description, so it needs the admin password):
-#   sudo sh tools/card-printer/add-card-size.sh            (PRINTER=<queue> for another queue; DEFAULT=1 also makes it the default)
+#   sudo sh tools/card-printer/add-card-size.sh            (the default printer; sudo PRINTER=<queue> sh … for another; DEFAULT=1 also makes the size its default)
 # The printer's description before the change is kept beside it (<queue>.ppd.before-card). Again: says it is there.
 set -e
-P="${PRINTER:-NIIMBOT_B21_Pro}"
+# (the queue: PRINTER, else the system's default printer — the plugged-in label printer, the B2 Pro since 2026-11-22)
+P="${PRINTER:-$(lpstat -d 2>/dev/null | sed -n 's/.*destination: *//p')}"
+[ -n "$P" ] || P=NIIMBOT_B2_Pro
 SRC="/etc/cups/ppd/$P.ppd"
 [ -f "$SRC" ] || { echo "no printer description at $SRC"; exit 1; }
 if grep -q "w153h244" "$SRC"; then echo "54mmx86mm is already there"; else
