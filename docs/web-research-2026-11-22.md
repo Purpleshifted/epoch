@@ -139,6 +139,12 @@
 
 **지금 당장 쓸 다섯**: ① Heckel의 감쇠 핑퐁을 사람 층에(= TD 피드백) ② 스윕 선 uniform으로 스캔 등장 ③ 오프스크린 속도장 텍스처로 "내가 미는" 식생·비움 ④ 멜로디 엔벨로프 → 스무딩된 맥동 ⑤ 거리순 정렬된 스냅샷 판. 나머지는 노브.
 
+## 8. 유니티 — "웹이랑 엮어서 유니티 써야 한다면… 최후에는… 비싼가" (작가, 2026-11-22 밤)
+
+- **값**: Personal **무료**(연 매출·투자 20만 달러 이하; 2026-03-01부터 좌석 수 제한 없음), Pro **연 $2,310/좌석**(월 $210; 2026-01-12부터 5 % 인상 반영), Enterprise는 별도 견적(연 매출 2,500만 달러 초과). 2023년의 런타임 수수료는 **2024-10에 철회**됨. [Unity pricing updates](https://unity.com/products/pricing-updates), [Plans & Pricing](https://unity.com/products?c=unity+engine) → 우리 규모(개인 작가)는 **무료**.
+- **웹 빌드의 현실**: Unity 6의 Web 빌드는 데스크톱 브라우저는 좋고, **모바일 브라우저는 2025-04에 "지원"으로 바뀌었지만 고급 기기 기준**(iOS Safari 15+); **WebGPU 백엔드는 아직 실험 단계**(제작 비권장), 모바일 WebGPU 없음; 빈 빌드도 RAM 200 MB(커뮤니티 보고), 다운로드 수십 MB(Brotli·LTO로 줄임). [Web runtime updates](https://unity.com/blog/engine-platform/web-runtime-updates-enhance-browser-experience), [browser compatibility](https://docs.unity3d.com/Manual/webgl-browsercompatibility), [mobile optimization](https://docs.unity.com/en-us/engine/6000.6/manual/platform-specific/webgl/building-distribution/web-optimization-mobile), [memory thread](https://discussions.unity.com/t/web-build-memory-consumption-on-unity-6/1613334)
+- **우리에게**: 원격 관객이 폰으로 삶을 사는 구조(B안)에는 Unity Web이 **약점**(폰 메모리·로딩·배터리). 쓴다면 **벽(전시장 기계)만 네이티브 Unity**로 만들고 폰은 웹으로 두는 분리인데, 그러면 세계 규칙을 두 번 구현하게 된다. three.js에서 못 하는 것이 생겼을 때(대규모 컴퓨트, VFX Graph급 입자, 정교한 후처리 스택)만 "최후"로. 지금 필요한 장노출 피드백·점 스캔·스냅샷 판은 전부 WebGL 안에서 된다.
+
 ## 5. 조심할 것
 - 투명 판 정렬(§2.1) — 첫날부터 거리순 renderOrder를 넣을 것.
 - 피드백 타깃은 float(half-float)로, 아니면 꼬리가 띠처럼 끊긴다; Firefox는 RGB 포맷 속도 버퍼가 깨진 사례(RGBA로).
