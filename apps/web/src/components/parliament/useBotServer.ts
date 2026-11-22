@@ -24,6 +24,26 @@ export function botServerOn(): boolean {
   return !!BOT_SERVER && new URLSearchParams(window.location.search).get("botserver") !== "0";
 }
 
+/**
+ * THE BOTS' OWNER (the artist, 2026-11-22: "응, 막아" — at 15:17 that day a view that was not hers cleared the shared
+ * world and its setup switched the bots off): only a browser marked as the owner sends the bot server the bots' setup,
+ * the clock's rate and a clear; every other view — a test tab, another session's browser, a visitor's phone — only
+ * reads, and sends its people. A browser is marked by opening any page of the app once with `?botadmin=1`
+ * (`?botadmin=0` unmarks it). Sessions never use it: they are not the owner. docs/bot-server.md.
+ */
+const BOT_ADMIN_KEY = "anthropocene:bot-admin:v1";
+export function botAdmin(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const q = new URLSearchParams(window.location.search).get("botadmin");
+    if (q === "1") localStorage.setItem(BOT_ADMIN_KEY, "1");
+    else if (q === "0") localStorage.removeItem(BOT_ADMIN_KEY);
+    return localStorage.getItem(BOT_ADMIN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const SAVE_EVERY_MS = 2000;
 const PEOPLE_EVERY_MS = 1000;
 const RETRY_MS = [1000, 2000, 5000, 10000];
@@ -47,6 +67,14 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
     let gone = false, tries = 0, retry = 0;
     let epoch = 0;
     let sentSetup: string | null = null;
+    // only the owner's browser changes the server's bots, clock or world (botAdmin)
+    const admin = botAdmin();
+    let saidNotOwner = false;
+    const notOwner = () => {
+      if (saidNotOwner) return;
+      saidNotOwner = true;
+      console.info("[bots] this browser is not the bots' owner: its knobs and clears stay here (open the app once with ?botadmin=1 on the owner's browser)");
+    };
     // the clock's rate as the server last said it: a rate set here (the 시간축 knob) is sent on
     let serverRate: number | null = null;
     let openedDensity: string | null = null;
@@ -138,8 +166,10 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
           // (a server that has never been told the bots' setup: this view's)
           const mine = json();
           if (mine && (!d.setup || turned())) {
-            sentSetup = mine;
-            ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+            if (admin) {
+              sentSetup = mine;
+              ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+            } else notOwner();
           }
           return;
         }
@@ -176,6 +206,7 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
     // THE WORLD WAS EMPTIED HERE (the wall's 지우고 다시 생성하기): the server begins a new one, and every view follows
     const onCleared = () => {
       const ws = sock.current;
+      if (!admin) return notOwner();
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "clear" }));
     };
     window.addEventListener(WORLD_CLEARED_EVENT, onCleared);
@@ -192,13 +223,15 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
       const rate = timeRate();
       if (serverRate !== null && Math.abs(rate - serverRate) > 1e-6) {
         serverRate = rate;
-        ws.send(JSON.stringify({ t: "rate", rate }));
+        if (admin) ws.send(JSON.stringify({ t: "rate", rate }));
+        else notOwner();
       }
-      // the knobs turned here: the server's bots follow
+      // the knobs turned here: the server's bots follow (the owner's browser only)
       const mine = json();
       if (mine && mine !== sentSetup && turned()) {
         sentSetup = mine;
-        ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+        if (admin) ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+        else notOwner();
       }
       const all = log.all();
       if (lookedDrops !== log.drops) {

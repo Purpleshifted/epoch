@@ -63,7 +63,7 @@ import {
 import { savable } from "./levaSave";
 import { useTicker } from "./useTicker";
 import { useFoldState } from "./useWorld";
-import { botServerOn, useBotServer } from "./useBotServer";
+import { botAdmin, botServerOn, useBotServer } from "./useBotServer";
 import type { BotSetup } from "@/lib/parliament/botWorld";
 
 const TICK_MS = 250;
@@ -152,7 +152,8 @@ export function useGlobalBots(
   const b = useControls(
     GROUP,
     savable(GROUP, {
-      botOn: { value: false, label: "봇 활성화", render: show },
+      // (only the owner's browser sends these to the bot server: useBotServer botAdmin, 2026-11-22)
+      botOn: { value: false, label: botAdmin() ? "봇 활성화" : "봇 활성화 (이 브라우저는 서버 봇을 못 바꿈: ?botadmin=1)", render: show },
       "무리": folder(
         {
           hCountMin: { value: DEFAULT_HERD.count, min: 0, max: 12, step: 1, label: "무리 수 최소 (동시)" },
