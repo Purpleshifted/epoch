@@ -67,6 +67,8 @@ import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, t
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
 import { blockFrameFor, botServerOn, useVisitorLink } from "./useBotServer";
+import { onLifeEvent } from "./lifeEvents";
+import { newWordMotifOf } from "@/lib/parliament/glyph";
 import { blockSeatOffset } from "@/lib/parliament/rise";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
@@ -74,6 +76,8 @@ import { muffleSound, type LifeSignal } from "./useLifeSession";
 import { markSpan } from "./usePerfMeter";
 import type { GrassVisual, MarksVisual } from "./usePersonalVisuals";
 
+/** The answer starts on the next bar's edge, or the one after when that is nearer than this (ms). */
+const ANSWER_REST_MS = 600;
 const VIEW_RADIUS = 24;
 const FOLD_EVERY = 0.5;
 const BURST_Y = 0.2; // an answer's burst goes off at the height of the visitor's own square
@@ -242,6 +246,36 @@ export function RoleField({
   const wordsRef = useRef<WordSpot[]>([]);
   // answers already turned into a seed head (the count lives in ParliamentScene, across lives), and the last one's burst here
   const answered = useRef(answers?.current ?? 0);
+  // THE CALL AND THE ANSWER IN THE SOUND (the artist, 2026-11-10, on the shared-world branch; the redesign never had it
+  // until 2026-11-22 — "말을 걸고 대답했을 때의 소리가 안 들어가고"): whoever asks me something is the clearest voice
+  // around while the question is open (engine ASKER_LEVEL), and my answer is heard on the next bar's edge — my melody
+  // and theirs together for a bar, then the new word the record wrote down (engine.playAnswer). From the record's lines
+  // (lifeEvents: SessionHud's witness), so the sound and the stream say the same thing.
+  const askerNow = useRef<{ o: string; until: number } | null>(null);
+  const answerDue = useRef<{ other: string; seed: number } | null>(null);
+  useEffect(
+    () =>
+      onLifeEvent((e) => {
+        if ((e.kind === "word.new" || e.kind === "word.asked") && e.who) askerNow.current = { o: e.who, until: performance.now() + DEFAULT_WITNESS.askOpenSec * 1000 };
+        else if (e.kind === "word.answered" && e.who) {
+          askerNow.current = null;
+          answerDue.current = { other: e.who, seed: Math.floor(e.lifeT ?? 0) };
+        }
+      }),
+    [],
+  );
+  useFrame(() => {
+    const a = answerDue.current;
+    if (!a || !sound) return;
+    answerDue.current = null;
+    const m = sound.engine.musicStep;
+    if (!m) return;
+    const now = performance.now();
+    const stepMs = (sound.engine.musicBarSec() * 1000) / 8;
+    let startMs = now + (8 - (m.step + m.into)) * stepMs;
+    if (startMs - now < ANSWER_REST_MS) startMs += 8 * stepMs;
+    sound.engine.playAnswer(startMs, stepMs, a.other, newWordMotifOf(me.current.id, a.other, a.seed));
+  });
   const burst = useRef<BurstAt | null>(null);
   // who has been sending samples (aliveOwners)
   const seenOwners = useRef(new Map<string, { s: number; at: number }>());
@@ -508,7 +542,7 @@ export function RoleField({
         const present = !lifeRef || lifeRef.current.phase === "live";
         sound.engine.update(
           present ? me.current.id : "",
-          present ? sig : { ...sig, neighbours: [] },
+          present ? { ...sig, asker: askerNow.current && performance.now() < askerNow.current.until ? askerNow.current.o : null } : { ...sig, neighbours: [] },
           muffleSound(sound.params, lifeRef?.current),
           playerYawRef?.current ?? 0,
           epochMs.current,

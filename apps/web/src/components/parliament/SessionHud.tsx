@@ -338,7 +338,7 @@ export function SessionHud({
     for (const e of rec.entries) {
       if (emitted.current.has(e)) continue;
       emitted.current.add(e);
-      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t });
+      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t, who: (e.args as { who?: { o?: string } } | undefined)?.who?.o });
     }
   }, [rec.entries, lang]);
 

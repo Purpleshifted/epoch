@@ -74,6 +74,12 @@ export interface PersonalSignals {
   coBuilders?: string[];
   /** My largest weight on those slabs (0 when none). */
   myBuild?: number;
+  /**
+   * Who is speaking to me now (the record's open question: witness `word.new` / `word.asked`, until I answer or it
+   * closes): their voice is the clearest thing around (engine ASKER_LEVEL, HRTF, unblurred, on the grid). The artist,
+   * 2026-11-10; brought into the redesign 2026-11-22.
+   */
+  asker?: string | null;
 }
 
 /** A BUILDING: sealed slabs that touch, as one; its harmonic zone grows with its mass (tonality.ts). */

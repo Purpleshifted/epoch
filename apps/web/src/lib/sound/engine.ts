@@ -233,6 +233,10 @@ interface Voice {
 const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
+/** The voice of who has asked me something, against the others' level: the clearest thing around (the artist, 2026-11-10). */
+const ASKER_LEVEL = 2.2;
+/** My answer to a call: how loud it is said against my ordinary motif (the artist, 2026-11-10: it must leap out, to anyone). */
+const ANSWER_VEL = 2.2;
 const MAGENTA_AFTER_MS = 4000;
 /** The others heard at once (nearest first): an HRTF panner per bot was what lagged with a dozen bots (v4 A1). */
 const MAX_VOICES = 4;
@@ -467,6 +471,44 @@ export class SoundEngine {
    * the lock (a path, building together) tightens it by `clockPull`. The patch receives this value. With the Web
    * Audio instrument alone the bar stays the Leva length (the epoch grid must not jump).
    */
+  /** Where the bars are counted from (wall ms): the patch's clock carries the phase when it plays (anchor), else the epoch. */
+  private gridEpochMs(barSec: number): number {
+    return this.params.instrument !== "webaudio" && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
+  }
+
+  /** Where the music is: the step of its bar (8 to a bar) and how far into it; null before it runs. */
+  get musicStep(): { step: number; into: number } | null {
+    if (!this.running || !this.epochMs) return null;
+    const barSec = this.musicBarSec();
+    const inBar = (((Date.now() - this.gridEpochMs(barSec)) / 1000 / barSec) % 1) + 1;
+    const pos = (inBar % 1) * 8;
+    const step = Math.floor(pos);
+    return { step, into: pos - step };
+  }
+
+  /**
+   * MY ANSWER (the artist, 2026-11-10: "the merged structure must leap out, to anyone"; brought into the redesign
+   * 2026-11-22): two bars from `startPerfMs` (performance.now() basis, a bar's edge), `stepMs` a step — first my melody
+   * and `other`'s together, then the new `word` they became (glyph.ts newWordMotifOf, what the record writes down), on
+   * the place's chord, loud, laid over whatever the bars hold. Nothing in the bar plans changes.
+   */
+  playAnswer(startPerfMs: number, stepMs: number, other: string, word: Motif): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.running || !this.me || !this.key || this.params.dead || this.afterlife) return;
+    const chord = this.plans.get(this.planned)?.chord ?? null;
+    const theirs = this.motifs.get(other) ?? makeMotif(other);
+    const cycleSec = (word.steps * stepMs) / 1000;
+    const at0 = ctx.currentTime + Math.max(0, startPerfMs - performance.now()) / 1000;
+    const their = this.voices.get(other);
+    for (const n of realize(this.me.motif, this.key, chord, 1, this.planned)) this.note(this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+    for (const n of realize(theirs, this.key, chord, 1, this.planned)) this.note(their?.filt ?? this.me.filt, n.freq, at0 + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, theirs.timbre, 0, !their);
+    for (const n of realize(word, this.key, chord, 1, this.planned + 1)) this.note(this.me.filt, n.freq, at0 + cycleSec + n.at * cycleSec, n.len * cycleSec, ANSWER_VEL, this.me.motif.timbre, 0, true);
+    this.answersPlayed++;
+  }
+
+  /** How many answers have sounded (debug: engine.answersPlayed). */
+  answersPlayed = 0;
+
   musicBarSec(): number {
     const p = this.params;
     if (p.instrument === "webaudio" || !this.sig) return p.barSec;
@@ -923,6 +965,9 @@ export class SoundEngine {
     // closeness accumulates while they are near
     const alive = new Set<string>();
     const heard = sig.neighbours.filter((n) => n.dist <= params.hearRadius).slice(0, MAX_VOICES);
+    // who speaks to me is always heard, however many are nearer
+    const asking = sig.asker ? sig.neighbours.find((n) => n.o === sig.asker) : undefined;
+    if (asking && !heard.includes(asking)) heard.push(asking);
     heard.forEach((n, rank) => {
       alive.add(n.o);
       let v = this.voices.get(n.o);
@@ -931,15 +976,18 @@ export class SoundEngine {
         this.voices.set(n.o, v);
       }
       v.seen = t;
-      v.level = params.othersLevel;
-      v.gain.gain.setTargetAtTime(v.level, t, 0.4);
+      const calls = n.o === sig.asker;
+      v.level = calls ? params.othersLevel * ASKER_LEVEL : params.othersLevel;
+      v.gain.gain.setTargetAtTime(v.level, t, calls ? 0.1 : 0.4);
       if (v.panner) {
-        const model = rank === 0 ? "HRTF" : "equalpower";
+        // who speaks is placed by HRTF too (the artist, 2026-11-10: out of sight it could not be told where the call
+        // came from; equal-power panning says left or right only, never front or behind)
+        const model = rank === 0 || calls ? "HRTF" : "equalpower";
         if (v.panner.panningModel !== model) v.panner.panningModel = model;
         v.panner.positionX.setTargetAtTime(Math.sin(n.angle) * n.dist, t, 0.1);
         v.panner.positionZ.setTargetAtTime(Math.cos(n.angle) * n.dist, t, 0.1);
       }
-      v.filt.frequency.setTargetAtTime(v.blur > 0 ? 4000 * Math.pow(0.12, v.blur) : 4000, t, 0.3);
+      v.filt.frequency.setTargetAtTime(v.blur > 0 && !calls ? 4000 * Math.pow(0.12, v.blur) : 4000, t, calls ? 0.05 : 0.3);
       const near = n.dist < params.hearRadius * 0.5;
       this.closeness.set(n.o, Math.max(0, Math.min(1, (this.closeness.get(n.o) ?? 0) + dt * (near ? 0.12 : -0.08))));
     });
@@ -1368,10 +1416,7 @@ export class SoundEngine {
     const p = this.params;
     const now = ctx.currentTime;
     const barSec = this.musicBarSec();
-    // the grid: the patch's clock carries the phase when it plays (anchor), else the epoch on the wall clock
-    const nc = p.instrument !== "webaudio";
-    const epoch = nc && this.anchor ? this.anchor.wallMs - this.anchor.bar * barSec * 1000 : this.epochMs;
-    const { bar, start } = barClock(epoch, Date.now(), now, barSec);
+    const { bar, start } = barClock(this.gridEpochMs(barSec), Date.now(), now, barSec);
     if (this.planned < bar) this.planned = bar; // never schedule a bar already under way (or a burst after a hidden tab)
     if (this.planned > bar + 1) {
       // the grid moved back (the patch's clock took over from the epoch grid, or the other way round): the bars
@@ -1393,7 +1438,13 @@ export class SoundEngine {
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
-      for (const n of vb.notes) this.note(v.filt, n.freq, nextStart + n.at * barSec + human() * 0.5, n.len * barSec, plan.answer ? 1 : 0.8, v.motif.timbre, v.blur);
+      // who speaks to me (the artist, 2026-11-10: heard at once, like a call, plainly the pattern): their melody on the
+      // grid's own steps, in the motif's own instrument instead of a bot's blur
+      const calls = vb.o === sig.asker;
+      for (const n of vb.notes) {
+        const at = nextStart + n.at * barSec + (calls ? 0 : human() * 0.5);
+        this.note(v.filt, n.freq, at, n.len * barSec, plan.answer || calls ? 1 : 0.8, v.motif.timbre, calls ? 0 : v.blur);
+      }
     }
     // the arrival's wave and breath (v4 A4c): the swell rises through the dominant bar; everything dips for a
     // breath, then the tonic breaks — the contrast the hall alone could not give in a sound already wet
