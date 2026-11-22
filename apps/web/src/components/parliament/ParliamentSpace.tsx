@@ -1316,6 +1316,7 @@ function SpaceWorld({
   followLift,
   link,
   followWho,
+  meTrialMid,
   quietSec,
   controls,
   onStats,
@@ -1373,6 +1374,8 @@ function SpaceWorld({
    * "auto" — me unless me has been quiet for `quietSec` exhibition seconds (the wall with only bots running, and a
    * stale me id left in storage, used to stand still at me's last moment — the artist, 2026-10-30). */
   followWho: FollowWho;
+  /** The markers' trial (MeLook.trialMid): "me" is drawn at half the block's height, so the follow goes there too. */
+  meTrialMid: boolean;
   quietSec: number;
   controls: React.MutableRefObject<Orbit | null>;
   onStats: (s: Stats) => void;
@@ -2122,6 +2125,12 @@ function SpaceWorld({
     const focusS = modelT !== undefined && modelT > 0 ? Math.min(wantS, modelT + 2 * cfg.secPerUnit) : wantS;
     focus.current = { focusS, focusIsMe: useMe };
     focusY.current = events.length ? (focusS / cfg.secPerUnit) * cfg.unit : null;
+    // THE MARKERS' TRIAL (MeLook.trialMid, the artist 2026-11-22): "me" is drawn at half the block's height — the
+    // follow goes to where it is drawn, not to the sample's time (which today lies far above the block)
+    if (meTrialMid && useMe && last.current && last.current.top > 1) {
+      focusY.current = last.current.top * 0.5;
+      focus.current = { focusS: (focusY.current / cfg.unit) * cfg.secPerUnit, focusIsMe: true };
+    }
 
     const o = controls.current;
     // TIME STANDING STILL (rate 0): the camera the LOD and the vegetation window follow is pinned too, so moving the
@@ -2708,6 +2717,12 @@ interface MeLook {
   /** Its brightness follows my melody's onsets on the shared bar (glyph.ts rhythmOf · stepAt) — the glyph always does. */
   pulse: boolean;
   others: OthersStyle;
+  /**
+   * A TRIAL, DRAWING ONLY (the artist, 2026-11-22: "봇이 없으니… 느껴질 리가…" → "스위치 넣고 고침도 기다려"): until the
+   * visitor is seated in the block's time (future-presence), their sample sits far above the block and the light
+   * column has nothing to reach. On, "me" is DRAWN at half the block's height — the record is untouched.
+   */
+  trialMid: boolean;
 }
 /** The quiet others: a bot and a visitor as small achromatic points (the old visitor's #111111 is invisible on the black wall). */
 const QUIET_COLOR = { me: "#ffffff", bot: "#8a8f96", visitor: "#d4d7db" } as const;
@@ -3745,7 +3760,11 @@ function Markers({
     <>
       {marks.map((m) => {
         const y = (m.s / secPerUnit) * unit;
-        if (m.kind === "me") return <MeMark key={m.id} m={m} y={y} look={look} topRef={topRef} label={labels ? `${m.stale ? "me (silent)" : "me"} · ${m.role}` : null} />;
+        if (m.kind === "me") {
+          // the trial: drawn at half the block's height (the block's top as the view knows it; the record stays)
+          const yMe = look.trialMid && topRef.current > 1 ? topRef.current * 0.5 : y;
+          return <MeMark key={m.id} m={m} y={yMe} look={look} topRef={topRef} label={labels ? `${m.stale ? "me (silent)" : "me"} · ${m.role}${look.trialMid ? " · 시험 높이" : ""}` : null} />;
+        }
         const kind = tint && m.kind === "bot" ? botKinds.get(m.id) : undefined;
         const color = kind ? BOT_KIND_COLOR[kind] : quiet ? QUIET_COLOR[m.kind] : MARK_COLOR[m.kind];
         const big = quiet ? (m.kind === "bot" ? 0.2 : 0.24) : 0.32;
@@ -4617,12 +4636,13 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
       meColor: { options: { "주황 (지금)": "orange", "흰색 (색은 자연에만)": "white" }, value: "orange", label: "\"나\"의 색" },
       mePulse: { value: false, label: "내 박자로 깜빡임 (내 멜로디의 온셋 · 2 s 마디)" },
       others: { options: { "지금 (파랑 · 검정 공 + 바닥 선)": "now", "무채색 작게 (봇 회색 점 · 타인 밝은 점 · 선 없음)": "quiet", "무채색 작게 · 타인은 작은 기호": "glyph" }, value: "now" as OthersStyle, label: "봇 · 타인" },
+      meTrialMid: { value: false, label: "시험: 나를 블록 가운데 높이에 그리기 (표시만 · 기록은 그대로 · 관객이 블록 시간에 앉을 때까지)" },
     }),
     { order: lab ? 7.2 : 1.55 },
   );
   const meLook = useMemo<MeLook>(
-    () => ({ style: mk.meStyle as MeStyle, scale: mk.meScale, white: mk.meColor === "white", pulse: mk.mePulse, others: mk.others as OthersStyle }),
-    [mk.meStyle, mk.meScale, mk.meColor, mk.mePulse, mk.others],
+    () => ({ style: mk.meStyle as MeStyle, scale: mk.meScale, white: mk.meColor === "white", pulse: mk.mePulse, others: mk.others as OthersStyle, trialMid: mk.meTrialMid }),
+    [mk.meStyle, mk.meScale, mk.meColor, mk.mePulse, mk.others, mk.meTrialMid],
   );
   // BROUGHT OVER (the artist, 2026-11-12: "길 로직은 예전 버전 따를 수 있나?" — judged on the ground, between
   // buildings: walkways.ts): the old walkways, on the density's buildings
@@ -5758,6 +5778,7 @@ arriveLift: { value: 1.5, min: 0, max: 10, step: 0.1, label: "내려앉는 높�
           followLift={camView.camLift}
           link={camLink}
           followWho={cam.camFollow as FollowWho}
+          meTrialMid={mk.meTrialMid}
           quietSec={cam.camQuietSec}
           controls={controls}
           onStats={setStats}
