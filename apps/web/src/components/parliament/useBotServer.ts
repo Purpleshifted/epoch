@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, announceEpochWritten, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, timeRate, type EventLog, type PEvent } from "@/lib/parliament";
 import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
+import type { DensityConfig } from "@/lib/parliament/density";
 import { risePause } from "@/lib/parliament/rise";
 
 /** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
@@ -232,6 +233,10 @@ function handKey(s: BotSetup | null): string {
   return s ? JSON.stringify({ ...s, density: null }) : "";
 }
 
+/** What the phone knows of the world's rules (from the server's hello): the buildings' density config, null until it
+ *  came or when the server has none. `version` bumps when it changed (FuturePresence.tsx reads it). */
+export const visitorWorld: { density: DensityConfig | null; version: number } = { density: null, version: 0 };
+
 /**
  * THE VISITOR'S SAMPLES TO THE BOT SERVER (the personal view, a phone): the phone joins the world's epoch and clock,
  * and what it sends is its visitor where they stand, a few times a second. The walls see them, and the bots go to
@@ -271,6 +276,14 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           // epoch's change, and what came before would go with it)
           if (epoch && currentEpochKey() === String(epoch) && joined()) log.addMany((d as { events?: PEvent[] }).events ?? []);
           return;
+        }
+        // THE WORLD'S RULES, FOR THE FUTURE UNDER THE VISITOR'S FEET (futurePresence.ts, 2026-11-22): the server's
+        // buildings' density rule — the wall's, as it last sent it — so the phone infers the same layer the wall does
+        if (d.t === "hello" || d.t === "setup") {
+          const su = (d as { setup?: { density?: DensityConfig | null } | null }).setup;
+          visitorWorld.density = su?.density ?? null;
+          visitorWorld.version++;
+          if (d.t === "setup") return;
         }
         if ((d.t !== "hello" && d.t !== "clock") || !d.clock || typeof d.serverNow !== "number") return;
         const skew = d.serverNow - Date.now();

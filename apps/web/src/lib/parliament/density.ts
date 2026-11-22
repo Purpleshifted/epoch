@@ -863,6 +863,33 @@ export class DensityField {
   }
 
   /**
+   * EVERY CELL-SLOT ONE VISITOR PUT ANYTHING INTO (the personal view, futurePresence.ts — the artist, 2026-11-22: how
+   * one's own trace and influence read): their weight there (uncapped), the cell-slot's level, and whether it is
+   * building BECAUSE OF THEM — `decisive` = it is building and would not be, or would be a level lower, were their
+   * share taken out (the levels are a sum: taking one share out is one more call of levelOf). Read-only.
+   */
+  cellsOf(owner: string): { cx: number; cz: number; k: number; mine: number; level: number; decisive: boolean }[] {
+    const out: { cx: number; cz: number; k: number; mine: number; level: number; decisive: boolean }[] = [];
+    const o = this.owners.get(owner);
+    if (o === undefined) return out;
+    this.merge();
+    for (const col of this.cols.values()) {
+      for (const [k, cs] of col.slots) {
+        const mine = cs.by.get(o);
+        if (!(mine !== undefined && mine > 0)) continue;
+        let decisive = false;
+        if (cs.level >= 1) {
+          const rest = new Map(cs.by);
+          rest.delete(o);
+          decisive = levelOf(rest, this.cfg) < cs.level;
+        }
+        out.push({ cx: col.cx, cz: col.cz, k, mine, level: cs.level, decisive });
+      }
+    }
+    return out;
+  }
+
+  /**
    * WHAT IS BEING LIVED IN: the cell-slots (by their Seed's id, and the slot) that got a sample of their own time since
    * this was last asked — the wall starts their life over (spaceModel: what is lived in does not fossilise, and a
    * place that had gone stands again when people come back to it).

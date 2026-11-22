@@ -20,6 +20,7 @@
 
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import type * as THREE from "three";
 import {
   LS_PARLIAMENT_ME_KEY,
   ONE_FLOCK,
@@ -61,6 +62,7 @@ import {
 } from "@/lib/parliament";
 import { KEY_NAMES, personalSignals, worldKey, type WorldKey } from "@/lib/sound";
 import { DitherGround } from "./DitherGround";
+import { FuturePresence, futurePeek, type FuturePresenceVisual } from "./FuturePresence";
 import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
@@ -142,9 +144,13 @@ export function RoleField({
   answers,
   sessionNo = 0,
   visitorRef,
+  future,
 }: {
   playerPosRef: React.MutableRefObject<{ x: number; z: number; vx?: number; vz?: number }>;
   role: RoleId;
+  /** THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22): the layer of what is found after
+   *  the people are gone, read off this view's own log at the visitor's slot; absent / off = nothing. */
+  future?: FuturePresenceVisual;
   cfg: FoldConfig;
   natureCfg: NatureConfig;
   pointSize: number;
@@ -241,6 +247,9 @@ export function RoleField({
   const seenOwners = useRef(new Map<string, { s: number; at: number }>());
   // V2 sound: the epoch's tonal field (harmony.ts), made once per epoch
   const tonal = useRef<{ epochMs: number; key: WorldKey } | null>(null);
+  // the visitor's assigned time as of the last frame (the future layer reads its slot), and the present's drawing
+  const sNow = useRef(0);
+  const present = useRef<THREE.Group>(null);
 
   useEffect(() => {
     epochMs.current = getEpochMs();
@@ -372,6 +381,9 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const dt = Math.min(delta, 0.05);
     const sMe = sessionSeconds(worldNow(), epochMs.current, me.current.offset);
+    sNow.current = sMe;
+    // (the peek into the future: the present's drawing goes dark while F — the phone's button — is held)
+    if (present.current) present.current.visible = !(future?.on && future.mode === "peek" && futurePeek.on);
     if (answers && answers.current > answered.current) {
       answered.current = answers.current;
       const { x, z } = playerPosRef.current;
@@ -523,6 +535,8 @@ export function RoleField({
   // where a path has formed). Slabs appear in the Top and Side views.
   return (
     <>
+      {future?.on && <FuturePresence log={log} meRef={me} getS={() => sNow.current} playerPosRef={playerPosRef} cfg={future} />}
+      <group ref={present}>
       {grass?.style === "dither" || grass?.style === "field" ? (
         <DitherGround
           playerPosRef={playerPosRef}
@@ -569,6 +583,7 @@ export function RoleField({
       )}
       {marks?.concrete.on && marks.concrete.style === "lines" && <ConcreteLines getMarks={() => marksRef.current} height={marks.concrete.height} bright={marks.concrete.bright} />}
       {marks?.concrete.on && marks.concrete.style === "outline" && <ConcreteOutline getMarks={() => marksRef.current} scale={marks.concrete.outlineScale} />}
+      </group>
     </>
   );
 }
