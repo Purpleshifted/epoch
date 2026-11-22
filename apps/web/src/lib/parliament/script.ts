@@ -133,6 +133,8 @@ export interface Script {
     actState: (act: "print" | "save" | "post", s: "busy" | "done" | "failed" | "noServer") => string;
     back: string;
     keepNote: string;
+    /** After a post (or a print, which posts): the way to the posted lives (/exhibition/gallery). */
+    viewGallery: string;
     /** A print keeps the life: the two said at once. */
     printedKept: string;
   };
@@ -201,6 +203,7 @@ export const SCRIPT: Record<Lang, Script> = {
           : ({ print: ["출력 중", "출력했습니다", "출력하지 못했습니다"], save: ["저장 중", "저장했습니다", "저장하지 못했습니다"], post: ["게시 중", "게시했습니다", "게시하지 못했습니다"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
       back: "돌아가기",
       keepNote: "게시하거나 출력하면 이 삶이 갤러리에 남습니다. 그러지 않은 삶은 갤러리에 남지 않습니다.",
+      viewGallery: "갤러리 보기",
       printedKept: "출력했습니다 · 게시되었습니다",
     },
   },
@@ -266,6 +269,7 @@ export const SCRIPT: Record<Lang, Script> = {
           : ({ print: ["Printing", "Printed", "Could not print"], save: ["Saving", "Saved", "Could not save"], post: ["Posting", "Posted", "Could not post"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
       back: "Back",
       keepNote: "Posted or printed, this life stays in the gallery. A life that is neither does not.",
+      viewGallery: "View gallery",
       printedKept: "Printed · posted",
     },
   },

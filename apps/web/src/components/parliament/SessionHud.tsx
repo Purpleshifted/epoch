@@ -385,10 +385,10 @@ export function SessionHud({
     const two = (v: number) => String(v).padStart(2, "0");
     return `specimen-${individualNo(plate.me)}-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
   }, [plate]);
-  /** Keep the life: its recording up first (if it is only here), then the card's values to the archive. */
-  /** The recording's page: here already, or sent up now (posting or printing sends it; the artist: kept only then). It
-   * waits for the afterlife's reverb if the recorder is still taking it. */
+  /** The recording's page: known from the end (the life's own /rec/<id>), else the upload's (it waits for the afterlife's
+   * reverb if the recorder is still taking it). */
   const recordingNow = useCallback(async () => recordingUrl ?? (uploadRecording ? await uploadRecording().catch(() => null) : null), [recordingUrl, uploadRecording]);
+  /** Keep the life in the gallery: the card's values and its recording's page to the archive (/api/lives). */
   const keep = useCallback(
     async (via: "post" | "print", got?: string | null): Promise<"done" | "failed" | "noServer"> => {
       if (!plate) return "failed";
@@ -429,6 +429,8 @@ export function SessionHud({
   );
   /** The print kept the life: the two said at once, no 게시하기 after it. */
   const printKept = acts.print === "done" && kept.current;
+  /** The life is in the gallery now: the way there opens (the artist, 2026-11-22). */
+  const inGallery = acts.post === "done" || printKept;
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
@@ -650,6 +652,11 @@ export function SessionHud({
               >
                 {acts.post ? S.ended.actState("post", acts.post) : S.ended.act.post}
               </button>
+            )}
+            {inGallery && (
+              <a href={`/exhibition/gallery${lang === "en" ? "?lang=en" : ""}`} data-hud-control className="pointer-events-auto border border-white px-4 py-1 text-white outline-none">
+                {S.ended.viewGallery}
+              </a>
             )}
             <button type="button" data-hud-control onClick={() => setStep("record")} className="pointer-events-auto border border-white/40 px-3 py-1 text-white/70 outline-none">
               {S.ended.back}

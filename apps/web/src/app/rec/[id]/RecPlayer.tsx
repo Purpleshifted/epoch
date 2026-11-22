@@ -106,7 +106,13 @@ export default function RecPlayer({ id }: { id: string }) {
   return (
     <main className="min-h-[100dvh] bg-black px-4 py-6 font-mono text-[14px] leading-[1.45] text-white">
       <div className="mx-auto w-full max-w-[34rem]">
-        <div className="text-[#8c8c8c]">기록된 소리 · {id}</div>
+        <div className="flex items-baseline justify-between gap-4">
+          <div className="text-[#8c8c8c]">기록된 소리 · {id}</div>
+          {/* the posted lives, this one among them if it was posted (LivesGallery) */}
+          <a href="/exhibition/gallery" className="text-white/80 underline decoration-white/30 underline-offset-4">
+            갤러리
+          </a>
+        </div>
         {state === "loading" && <div className="mt-8 text-[#8c8c8c]">불러오는 중…</div>}
         {state === "waiting" && <div className="mt-8 text-[#8c8c8c]">녹음이 올라오기를 기다리는 중… 삶의 잔향이 다 울리면 올라옵니다.</div>}
         {state === "missing" && <div className="mt-8">이 기록은 아직 없습니다.</div>}
