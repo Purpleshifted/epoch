@@ -422,6 +422,9 @@ export default function ParliamentScene() {
   const role: RoleId = isV2 ? "worker" : roleChoice;
   // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
   const sound = useSound({ escMute: !withSession });
+  // a word another left, found (SessionHud's record): the headset plays the leaver's melody once
+  const soundEngine = sound?.engine;
+  const onFound = useCallback((o: string) => soundEngine?.found(o), [soundEngine]);
   // V2: the life's sound recorded from the name to the end of the reverb (useLifeRecording.ts; the card's QR)
   const recording = useLifeRecording(withSession ? session : null, sound, visitorRef, sound?.record ?? NO_RECORDING);
   // the card's QR from the moment the card is up: the life's own page (/rec/<id>), which waits for the recording — it
@@ -512,7 +515,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

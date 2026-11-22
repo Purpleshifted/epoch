@@ -133,6 +133,11 @@ export interface SoundParams {
   afterlifeTail: number;
   /** After the afterlife: the room's speakers' sound, faintly, in the headset (0 = none) — so the sound met on taking the headset off is already known. */
   afterglow: number;
+  /**
+   * A word another left, found underfoot (witness `word.found`): the leaver's melody once, on the next bar, in the
+   * name's voice — this times the level the name sounds at (1 = as loud as the name, 0 = not heard).
+   */
+  foundLevel: number;
   /** How much of my motif goes into the long open space (0..1): the signal sent out, its tail. */
   motifVerb: number;
   /** How much of the building's dullness the patch gets (0 = none, 1 = as everything else). */
@@ -211,6 +216,7 @@ export const DEFAULT_SOUND: SoundParams = {
   dead: false,
   afterlifeTail: 5, // 10 before A5e: the artist found it too long
   afterglow: 0.12,
+  foundLevel: 1,
   ncDull: 0.7,
   ncMap: true,
   ncMapDepth: 0.8,
@@ -231,6 +237,8 @@ interface Voice {
 }
 
 const LOOKAHEAD = 0.3; // s: a bar is scheduled this long before it starts
+/** A found word not played within this many bars of being found (an arrival's cadence held it, a stalled tab) is let go. */
+const FOUND_WAIT_BARS = 4;
 const TICK_MS = 50;
 const OTHER_FADE_SEC = 1.5;
 /** The voice of who has asked me something, against the others' level: the clearest thing around (the artist, 2026-11-10). */
@@ -282,6 +290,8 @@ export interface SoundDebug {
   nc: string;
   /** The building's tonality where I stand: "D Dorian · in" / "· ring", empty in the open. */
   place: string;
+  /** The found words' melodies so far (found()): how many have sounded, and the last one — whose, on which bar. */
+  found: { played: number; last: string; waiting: string | null };
 }
 
 export class SoundEngine {
@@ -327,6 +337,12 @@ export class SoundEngine {
   private me: Voice | null = null;
   /** The name's melody on its way to the limiter (announce). */
   private nameOut: GainNode | null = null;
+  /** A found word's melody on its way to the master (found): made at the first, let go at a death. */
+  private foundOut: GainNode | null = null;
+  /** The found word waiting for its bar (found → tick): whose, and when it was found (context seconds). */
+  private foundWaiting: { id: string; at: number } | null = null;
+  private foundPlayed = 0;
+  private foundLast = "";
   /**
    * The recording's tap (recorder.ts): a sink on the limiter's output, made once when a life is first recorded. It
    * carries exactly what goes to the device — the name's melody included — whatever device that is; no processing.
@@ -399,6 +415,7 @@ export class SoundEngine {
       voices: this.voices.size,
       nc: this.ncStatus + (this.nc ? " → engine" : ""),
       place: this.placeLine + (this.lastPlan?.arrival ? ` · 도착 ${this.lastPlan.arrival}` : ""),
+      found: { played: this.foundPlayed, last: this.foundLast, waiting: this.foundWaiting?.id ?? null },
     };
   }
 
@@ -804,6 +821,8 @@ export class SoundEngine {
     this.afterRoom = null;
     this.ncFeed = null;
     this.nameOut = null;
+    this.foundOut = null;
+    this.foundWaiting = null;
     this.tapOut = null;
     this.afterlife = null;
     this.wasDead = false;
@@ -847,6 +866,34 @@ export class SoundEngine {
     this.nameOut = null;
     out.gain.setTargetAtTime(0, ctx.currentTime, 0.06);
     setTimeout(() => out.disconnect(), 800);
+  }
+
+  /**
+   * A word another left is found (the witness's `word.found`, SessionHud): `id` = the one who left it, whose melody the
+   * line draws (glyphOf). It sounds ONCE, on the next bar the scheduler plans (tick → playFound), in the name's voice;
+   * that bar my own motif keeps quiet. Nothing while the name is up, at the end, or with the engine stopped (muted) —
+   * a word found then is not played later.
+   */
+  found(id: string): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.timer || this.nameOut || this.afterlife || this.params.dead || this.params.foundLevel <= 0) return;
+    this.foundWaiting = { id, at: ctx.currentTime };
+  }
+
+  /** The found word's melody from `at` (a bar's start): the leaver's motif in the key I stand in, every note in tune, like the name. */
+  private playFound(id: string, at: number, bar: number, key: WorldKey, barSec: number): void {
+    const ctx = this.ctx!;
+    if (!this.foundOut) {
+      this.foundOut = ctx.createGain();
+      // into the master, not the limiter as the name: the master is open at the level the name is announced at, and a
+      // death's fade takes the found word down with everything else
+      this.foundOut.connect(this.master);
+    }
+    this.foundOut.gain.value = this.params.foundLevel;
+    const m = this.motifOf(id);
+    for (const n of realize(m, key, null, 1, 0)) this.note(this.foundOut, n.freq, at + n.at * barSec, n.len * barSec, 1, m.timbre, 0, true);
+    this.foundPlayed++;
+    this.foundLast = `${id} @${bar}`;
   }
 
   private motifOf(id: string): Motif {
@@ -1201,6 +1248,14 @@ export class SoundEngine {
     this.afterlife = { at: t, until: t + tail, feedUntil: t + FEED };
     // the living sources let go (short releases, not chops — a chopped note reverberating sounded wrong)
     this.voiceBus.gain.setTargetAtTime(0, t + 0.25, 0.15);
+    // a found word still sounding lets go with the voices; one still waiting is not played (tick plans nothing now)
+    this.foundWaiting = null;
+    const fo = this.foundOut;
+    if (fo) {
+      this.foundOut = null;
+      fo.gain.setTargetAtTime(0, t + 0.25, 0.15);
+      setTimeout(() => fo.disconnect(), 2000);
+    }
     this.pad.level.gain.setTargetAtTime(0, t + 0.2, 0.25);
     this.bassGain.gain.setTargetAtTime(0, t, 0.1);
     this.wave.gain.gain.setTargetAtTime(0, t, 0.15);
@@ -1434,7 +1489,18 @@ export class SoundEngine {
     const jitter = p.jitterMax * (1 - plan.lock);
     const human = () => (jitter > 0 ? (Math.random() * 2 - 1) * jitter : 0);
 
-    for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
+    // a found word takes this bar (found()): in my voice, so my motif keeps quiet; an arrival's two bars stay the
+    // cadence's (the word waits for the bar after), and a word that has waited longer than a few bars is let go
+    const fw = this.foundWaiting;
+    let foundBar = false;
+    if (fw && now - fw.at > FOUND_WAIT_BARS * barSec) this.foundWaiting = null;
+    else if (fw && !plan.arrival) {
+      this.foundWaiting = null;
+      this.playFound(fw.id, nextStart, next, this.zoneKey ?? key, barSec);
+      foundBar = true;
+    }
+
+    if (!foundBar) for (const n of plan.me) this.note(this.me.filt, n.freq, nextStart + n.at * barSec + human(), n.len * barSec, 1, this.me.motif.timbre, 0, true);
     for (const vb of plan.others) {
       const v = this.voices.get(vb.o);
       if (!v || v.level <= 0.001) continue;
