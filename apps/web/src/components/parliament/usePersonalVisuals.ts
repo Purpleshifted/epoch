@@ -207,8 +207,8 @@ export function usePersonalVisuals(): PersonalVisuals {
       // the look under review no longer leans on sit in 시험, collapsed, their saves kept.
       "길거리 (시험 · 11/22)": folder(
         {
-          streetOn: { value: false, label: "켜기 (끄면 아래 모두 꺼짐)", render: v2 },
-          paperOn: { value: false, label: "흰 바탕 — 장노출 (끄면 검은 바탕의 상자)", render: v2 },
+          streetOn: { value: true, label: "켜기 (끄면 아래 모두 꺼짐)", render: v2 },
+          paperOn: { value: true, label: "흰 바탕 — 장노출 (끄면 검은 바탕의 상자)", render: v2 },
           "눈": folder({
             eyeOn: { value: true, label: "눈높이 카메라", render: v2 },
             eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
