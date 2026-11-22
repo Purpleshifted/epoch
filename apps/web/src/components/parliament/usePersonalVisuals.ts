@@ -224,7 +224,7 @@ export function usePersonalVisuals(): PersonalVisuals {
           ppFog: { value: DEFAULT_PEOPLE.fog, label: "점이 안개를 받음", render: v2 },
           eyeOn: { value: true, label: "눈높이 — 카메라를 사람 키에, 걷는 이 바로 뒤", render: v2 },
           eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
-          eyeBack: { value: 3, min: 0, max: 8, step: 0.1, label: "걷는 이에서 뒤로 (m; 0 = 1인칭, 내 상자는 안 보임)", render: v2 },
+          eyeBack: { value: 0, min: 0, max: 8, step: 0.1, label: "걷는 이에서 뒤로 (m; 0 = 1인칭 — 작가 결정 11/22 밤; 내 상자는 발밑)", render: v2 },
           eyeLook: { value: 6, min: 2, max: 20, step: 0.5, label: "시선이 닿는 거리 (m)", render: v2 },
           meBody: { value: DEFAULT_PEOPLE.meBody, label: "나 = 내 등 (점 몸; 사각형 대신 — 멜로디는 몸이 깜박임)", render: v2 },
           meRest: { value: DEFAULT_PEOPLE.meRest, min: 0, max: 1, step: 0.05, label: "멜로디가 쉴 때 내 몸의 밝기", render: v2 },
