@@ -7,7 +7,7 @@ import RecPlayer from "./RecPlayer";
  * purpose: how the card looks is decided elsewhere. docs/recording.md.
  */
 export const metadata: Metadata = { title: "기록된 소리", robots: { index: false, follow: false } };
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#000000" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#ffffff" };
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

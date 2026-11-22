@@ -30,6 +30,9 @@ export interface RecordingMeta {
   bytes: number;
   mime: string;
   events: RecordingMarker[];
+  /** The life's summary as the end screen had it (the record's numbers: plate.ts PlateInput without the worldline's
+   * trail and cells): the 발굴노트 the recording page links to (/rec/<id>/note). Absent in recordings before 2026-11-22. */
+  note?: Record<string, unknown>;
 }
 
 export interface RecordingFormat {

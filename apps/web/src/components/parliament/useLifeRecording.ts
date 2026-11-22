@@ -100,6 +100,17 @@ interface Run {
 
 let lastLocalUrl: string | null = null;
 
+/** The lives' summaries the end screen hands over (setLifeNote), by life id: each goes up with its recording. */
+const notes = new Map<string, Record<string, unknown>>();
+
+/** The end screen's summary of a life (its record's numbers), to go up with that life's recording as its 발굴노트. */
+export function setLifeNote(id: string, note: Record<string, unknown>): void {
+  if (!id) return;
+  notes.set(id, note);
+  // only the last few lives are wanted here
+  while (notes.size > 4) notes.delete(notes.keys().next().value as string);
+}
+
 /** The life whose recording is finishing or finished here: what uploadLifeRecording() sends when the card is posted. */
 let latest: { id: string; done: Promise<{ blob: Blob; meta: RecordingMeta } | null> } | null = null;
 
@@ -125,6 +136,7 @@ function finish(r: Run, ext: string): void {
       bytes: blob.size,
       mime: blob.type || r.rec.format.mime,
       events: tidyMarkers(r.events, seconds),
+      note: notes.get(r.id),
     };
     if (lastLocalUrl) URL.revokeObjectURL(lastLocalUrl);
     const localUrl = URL.createObjectURL(blob);
