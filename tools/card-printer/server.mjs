@@ -96,4 +96,25 @@ const server = createServer(async (req, res) => {
   send(res, 404, { error: "not found" });
 });
 
-server.listen(PORT, "127.0.0.1", async () => console.log(`card printer helper on http://127.0.0.1:${PORT} → ${await printer()} (looked up again for every print)`));
+// AN OLDER HELPER STILL ON THE PORT (2026-11-22: the artist restarted it and got EADDRINUSE — the one started hours
+// before still sent to the unplugged printer): if what holds the port is this same helper, it is stopped and this one
+// takes its place; anything else on the port is left alone and said
+server.on("error", async (err) => {
+  if (err.code !== "EADDRINUSE" || server.retried) throw err;
+  server.retried = true;
+  const pid = (await run("lsof", ["-tiTCP:" + PORT, "-sTCP:LISTEN"])).out.split("\n")[0];
+  const cmd = pid ? (await run("ps", ["-o", "command=", "-p", pid])).out : "";
+  if (!pid || !/card-printer\/server\.mjs/.test(cmd)) {
+    console.error(`port ${PORT} is taken by something else (${cmd || "unknown"}): PORT=<another> node tools/card-printer/server.mjs`);
+    process.exit(1);
+  }
+  console.log(`an older card printer helper (pid ${pid}) held port ${PORT}: stopping it`);
+  try {
+    process.kill(Number(pid));
+  } catch {
+    /* already gone */
+  }
+  setTimeout(() => server.listen(PORT, "127.0.0.1"), 800);
+});
+server.on("listening", async () => console.log(`card printer helper on http://127.0.0.1:${PORT} → ${await printer()} (looked up again for every print)`));
+server.listen(PORT, "127.0.0.1");
