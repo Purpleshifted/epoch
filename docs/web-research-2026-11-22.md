@@ -73,7 +73,7 @@
 
 ### 3.1 더 찾은 사례 (작가: "여기 예시들 너무 좋음, 더 찾아줘!!")
 
-**종이·수채·먹 — 우리 흰 바탕의 마감에 바로 닿는 것**
+**종이·수채·먹 — 참고만.** (작가 2026-11-22 밤: "그 잉크식 마감은 TD feedback이랑 효과만 같으면 억지로 그림처럼 만들 필요 없음. 난 장노출 사진이 어쩌다보니 먹처럼 보이는 게 좋은 거지 억지로 먹 효과 넣는 건 싫어." → **화풍 필터(Kuwahara·수채·수묵)는 쓰지 않는다.** 룩은 장노출 = 피드백 누적에서 나와야 하고, 흰 바탕은 종이가 아니라 과노출의 흰색.)
 - **Susurrus** (Codrops 2026-04): three.js + R3F로 만든 **수채화 세계**. 룩 전체가 **Kuwahara 필터**(가장자리를 지키는 평활화 → 붓자국) 한 패스 위에 서 있고, 성능을 위해 단순화한 버전. [Codrops](https://tympanus.net/codrops/2026/04/24/susurrus-crafting-a-cozy-watercolor-world-with-three-js-and-shaders/)
 - **Maxime Heckel, *On Crafting Painterly Shaders*** — R3F 위에 Kuwahara를 후처리로 얹는 GLSL 전문. 수채·구아슈 느낌의 출발점. [blog](https://blog.maximeheckel.com/posts/on-crafting-painterly-shaders), [Moebius 스타일](https://blog.maximeheckel.com/posts/moebius-style-post-processing)
 - **Alexander Hong, 실시간 수채 셰이더**(Luft & Deussen 2003을 three.js로): 종이 질감·가장자리 어두워짐(wet edge)·번짐의 고전 구현. [article](https://alexanderhong.github.io/articles/watercolor)
@@ -115,6 +115,29 @@
 5. **슬릿 왜곡**: 판을 찍는 링버퍼를 `Data3DTexture`로 두면 "슬릿" 노브가 공짜로 생긴다(행마다 다른 시간). (§2.3)
 6. **종이 위의 식생**: `vegFlow` 핑퐁 그대로 + 남은 부재를 덮는 자람에 **점균/반응확산 256² 텍스처** 한 장(미래 층). (§3)
 7. **TD는 스케치북**: 작가가 TD/Shadertoy/Hydra에서 번짐·스캔·글리치를 만들면 그 GLSL을 우리 ShaderMaterial로 옮긴다(uniform 직접 선언, GLSL 버전 손질, uv 좌표 차이). Leva = TD의 파라미터 창. (§1 c)
+
+## 6. 어떻게 쓸지 (작가: "어떻게 쓸지 고려해봐" → 같은 밤 "조악하면 안 돼, 마감" → "억지로 먹 효과는 싫다"로 고쳐 적음)
+
+- **원칙**: 패키지는 거의 안 들인다(조건부: `postprocessing`은 Scanline·Noise가 필요할 때 개인뷰만, `three-wboit`는 판 정렬이 거리순으로 안 풀릴 때). 참고 구현을 보고 우리 파일에 직접 쓴다. **TD는 스케치북, Leva가 TD의 파라미터 창** — 작가의 TD 셰이더를 그대로 붙여 볼 전체 화면 패스 하나(`uTime·uResolution·tDiffuse`)를 개인뷰에 둘 수 있다. 모든 것은 스위치 뒤, 기본은 지금 룩. 층 하나 ≤ 2 ms(M2), 개인뷰 전체 ≤ 8 ms, 폰은 해상도 1/2·점 1/5.
+- **마감이 기능보다 먼저**(11/22 밤): 픽셀 없음(dpr 1.5–2, 둥근 점, 1 px 하드라인 금지) · 번짐은 **시간의 누적**(피드백, half-float, 밴딩 없음)이지 화풍 필터가 아님 · 흰 바탕은 과노출의 흰색(soft clip; 종이 섬유 텍스처 없음, 곡물은 사진 입자 1 %) · 원시 도형 금지(창은 가장자리 부드러운 필름, 라벨은 작은 모노스페이스 + 머리카락 지시선) · 톤 넷 · 모든 등장·퇴장 이징 ≥ 200 ms(의도된 떨림만 예외) · 깊이 = 밝기 + 흐림 한 규칙 · 타이포 같은 체계 · **한 파이프라인(장노출 누적)을 street-feel이 소유**하고 future-presence가 받아 씀 · 검수는 고정 시험 장면을 1080×1920·폰 크기로 레퍼런스(`mobile_view_refs/IMG_1580·1575·1576·1582` 장노출, `1564` 스캔)와 나란히 — 통과할 때만 보고. **노브를 늘리는 것은 마감이 아니다.**
+- **기능별**: 2D 프레임/관찰자 창 = 렌더 타깃 스냅샷 + `depthWrite:false` + 거리순 renderOrder(§2.1) · 사람의 번짐 = 위치 링버퍼 + 사람 층 핑퐁 피드백(§2.2) · 사라짐 = 누적이 풀리는 감쇠 먼저, 세로 흘러내림(의사 픽셀 소팅 한 패스, §2.4)은 노브 · 현재의 스캔 = `Points` + 스캔 선 uniform(§2.5, §7) · 슬릿 = `Data3DTexture` 링버퍼(§2.3) · 식생의 자람 = `vegFlow` + 점균/반응확산 256²(§3) · 말 걸기 = `lifeEvents` → 맥동.
+- **안 쓰는 것**: cables.gl·Hydra를 런타임으로, 가우시안 스플랫(정적 소품 외), 속도 버퍼 모션블러, Potree, Kuwahara·수채·수묵 필터, 지금의 WebGPU 이전.
+
+## 7. 리액티브로 구현된 사례 — 레퍼런스 비주얼별 (작가: "예술적 무언가보다는 웹이란 환경에서 우리 레퍼런스 비주얼을 리액티브하게 이룩한 예가 있나 보라는 거였어. 써야 하잖아?")
+
+| 레퍼런스 비주얼 | 웹에서 실시간으로 해낸 것 | 가져다 쓸 것 |
+|---|---|---|
+| **장노출 사람 번짐** (1575–1583) | **Motion Ghost**: 웹캠 움직임이 빛나는 자국으로 **누적**되는 브라우저 앱(Trace 모드, 꼬리 길이 노브, 소스 공개). **Maxime Heckel *Shading Motion***: 프레임 차 + 감쇠 핑퐁 — "이전 자국 × decay + 새 움직임, 버퍼 교환" = TD Feedback TOP 그대로. **We Cargo**(FBO에 새 프레임을 더하고 이전을 옅게), **Recursive Trail Ping-Pong**, p5 WEBGL `fboPrev/fboNext`(Pagurek *Webcam Feedback*). [Motion Ghost](https://gh.r-mj.com/Kinosaur/motion-ghost-camera), [Shading Motion](https://blog.maximeheckel.com/posts/shading-motion), [We Cargo](https://medium.com/epicagency/behind-the-scenes-of-we-cargo-3999f5f559c), [Recursive Trail](https://discourse.threejs.org/t/recursive-trail-ping-pong-three-js-render-to-texture-feedback/89718), [Webcam Feedback](https://openprocessing.org/sketch/2242345/embed) | **그대로**: 사람 층을 따로 타깃에 그리고 Heckel의 감쇠 핑퐁을 건다(입력이 웹캠이 아니라 우리 렌더 층일 뿐). 서 있으면 진해지고 걸으면 늘어지는 것이 저절로 나온다 |
+| **사람 = 점 실루엣** (1561·1562·2697) | **TF.js/MediaPipe 몸 분할** → 마스크를 격자로 샘플 → 매 프레임 `BufferGeometry` 점 위치 갱신(Codrops의 MediaPipe+three 패턴: 분석은 ref에 쓰고 three가 자기 루프에서 읽음); p5 분할 입자; Kinectron(깊이 → 점). [TF.js body-segmentation](https://blog.tensorflow.org/2022/01/body-segmentation.html), [Codrops MediaPipe+Three](https://tympanus.net/codrops/?p=120430), [p5 분할 입자](https://editor.p5js.org/danniwang/sketches/RezBauOfG), [Kinectron](https://github.com/kinectron/Three-Kinectron) | 우리 몸은 서버 표본이라 구운 실루엣이 맞지만, **마스크 → 격자 샘플 → 점** 파이프라인은 같다. 전시장 기계에 웹캠을 달아 **실제 관객을 점 실루엣으로** 벽에 넣는 길도 이 조합(아이디어, 미결정) |
+| **내가 지나가면 세계가 밀림** (풀 반응, 분쟁의 비움) | **Google *Optical Flow Effects*·*Gush***: 웹캠 → 광학 흐름 속도장 → WebGL 입자; `oflow` 라이브러리; **jjroox interactive-particles**: 입자가 **오프스크린 텍스처**로 입력에 반응. [Optical Flow Effects](https://experiments.withgoogle.com/optical-flow-effects), [Gush](https://experiments.withgoogle.com/gush), [interactive-particles](https://github.com/jjroox/interactive-particles) | **속도장 텍스처가 입자를 민다**는 구조 = 우리 "내 걸음이 식생 점을 민다"(`getMine`)의 GPU판. 분쟁의 비움도 같은 텍스처에 음의 압력으로 |
+| **스캔 선·리빌** (1586·1587, KritB) | **Codrops WebGPU 깊이맵 스캐닝 이펙트**(TSL, 세 변주), **wireframe scan reveal**(세계 좌표의 스캔이 퍼지며 와이어가 면보다 앞서고 타서 사라짐), 소나 고리, `atan2` 레이더 스윕, prisoner849의 레이저 스캔. [Codrops 스캔](https://tympanus.net/codrops/2025/03/31/webgpu-scanning-effect-with-depth-maps/), [scan reveal](https://www.ui-skills.com/skills/mengto/build-wireframe-scan-reveal), [sonar](https://discourse.threejs.org/t/sonar-effect-with-three-webgl/17678), [laser scan pen](https://codepen.io/prisoner849/pen/mdxQjeW) | **스윕 선 uniform 하나**: 선이 지나간 점만 켜진다(정점 셰이더 `step`). 우리 흰 스캔 선과 "한 줄씩 쌓이는" 현재 스캔이 이것 |
+| **소리에 맥동** (말 걸면 점구름 파문) | three.js + Web Audio 스타터(저·중·고역·파형을 **정규화·스무딩**해 점·메시에 매핑 — "장면 복잡도보다 정규화와 스무딩이 결과를 가른다"), Codrops 2023 입자 비주얼라이저, 웹캠+오디오 비주얼라이저. [starter](https://discourse.threejs.org/t/audio-reactive-3d-visualizer-three-js-web-audio-api-with-in-browser-mp4-export/92234), [write-up](https://dev.to/7g3n/how-i-built-an-audio-reactive-3d-visualizer-with-threejs-and-the-web-audio-api-6an), [Codrops 2023](https://tympanus.net/codrops/2023/12/19/creating-audio-reactive-visuals-with-dynamic-particles-in-three-js/) | 우리는 분석기 대신 **엔진의 멜로디 엔벨로프**를 직접 읽을 수 있다(더 정확). 스무딩·정규화 교훈만 가져온다 |
+| **지나간 이의 창·꼬리, 남의 흔적** (각자의 윈도우, 관찰자 창이 남음) | **recorded-ghost 웹사이트**: 이전 방문자들의 행동이 기록돼 다음 방문자에게 **유령으로 재생**(이름도 남김); **Encursors**: 모든 방문자의 커서를 실시간으로; **playhtml 앰비언트 코프레즌스**: 떠난 이가 겹치는 꼬리를 남김. [recorded ghosts](https://archive.hackclub.com/archive/lYVbH/mhtml/html), [Encursors](https://github.com/anfragment/encursors), [playhtml PRD](https://coda.io/@spencer/playhtml/prd-ambient-co-presence-25) | 개념이 우리와 같다 — 기록의 서버(봇 서버·삶의 기록)에서 **지난 삶을 유령으로 재생**하는 것이 "발굴자"와 "남는 창"의 웹 선례 |
+| **슬릿·타임큐브** (10·11·1573) | **Temporalis**(슬릿스캔 웹캠, 캔버스), Time Cube 도구(Google Flow), `Data3DTexture` 부분 갱신. [Temporalis](https://experiments.withgoogle.com/temporalis), [texture3d partial update](https://threejs.org/docs/api/en/textures/Data3DTexture.html) | 링버퍼 하나로 "슬릿" 노브 |
+| **글리치 사라짐** (1588–1599) | **Codrops 데이터모시**(제스처 동안 갱신을 억제해 이전 프레임이 끌려옴 — 상호작용형), GlitchPass. [Codrops Datamosh](https://tympanus.net/codrops/2026/09/02/breaking-the-frame-building-a-real-time-datamosh-effect-with-three-js/) | 사라짐의 변주 노브 |
+| **겹친 반투명 판** (1401·1585·1602) | 렌더 타깃 스냅샷 판(Heckel), `three-wboit`. [Heckel render targets](https://blog.maximeheckel.com/posts/beautiful-and-mind-bending-effects-with-webgl-render-targets/), [three-wboit](https://github.com/stevinz/three-wboit) | 관찰자 창·남는 창 |
+
+**지금 당장 쓸 다섯**: ① Heckel의 감쇠 핑퐁을 사람 층에(= TD 피드백) ② 스윕 선 uniform으로 스캔 등장 ③ 오프스크린 속도장 텍스처로 "내가 미는" 식생·비움 ④ 멜로디 엔벨로프 → 스무딩된 맥동 ⑤ 거리순 정렬된 스냅샷 판. 나머지는 노브.
 
 ## 5. 조심할 것
 - 투명 판 정렬(§2.1) — 첫날부터 거리순 renderOrder를 넣을 것.
