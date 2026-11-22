@@ -396,7 +396,9 @@ export function SessionHud({
     delete note.qr;
     setLifeNote(plate.me, note);
   }, [plate]);
-  const [paper, setPaper] = useState<PlateTheme | null>(null);
+  // white paper only (the artist, 2026-11-22: the label printer's head is 48 mm on 54 mm paper, so a black card prints
+  // with white strips at its sides — "그냥 흰색만 제공하고 검정색 선택하는 ui 는 없애자")
+  const paper: PlateTheme | null = "paper";
   const [turned, setTurned] = useState<PlateOrient | null>(null);
   const theme = paper ?? card.theme;
   const orient = turned ?? card.orient;
@@ -657,15 +659,8 @@ export function SessionHud({
               height: `min(calc(100dvh - ${coarse ? 20.5 : 12.5}rem), calc((100vw - 2rem) * ${orient === "landscape" ? "54 / 86" : "86 / 54"}))`,
             }}
           />
-          {/* the two pairs keep together: a narrow screen breaks the row between them, not inside one */}
+          {/* the way it stands (white paper only since 2026-11-22) */}
           <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[15px]`}>
-            <span className="flex gap-2">
-              {(["paper", "screen"] as const).map((k) => (
-                <button key={k} type="button" data-hud-control onClick={() => setPaper(k)} className={pick(theme === k)}>
-                  {k === "paper" ? S.ended.paperWhite : S.ended.paperBlack}
-                </button>
-              ))}
-            </span>
             <span className="flex gap-2">
               {(["portrait", "landscape"] as const).map((o) => (
                 <button key={o} type="button" data-hud-control onClick={() => setTurned(o)} className={pick(orient === o)}>

@@ -110,7 +110,8 @@ export function usePersonalVisuals(): PersonalVisuals {
     ROOT,
     savable(ROOT, {
       look: { options: LOOK_OPTIONS, value: "brutal" as Look, label: "판", render: v2 },
-      cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: v2 },
+      // (hidden since 2026-11-22: white paper only — the card is always white; its saved value stays)
+      cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: () => false },
       cardOrient: { options: CARD_ORIENTS, value: "portrait" as PlateOrient, label: "표본 카드 방향 (처음; 관객이 바꿀 수 있음)", render: v2 },
       footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
       "브루털": folder({
@@ -203,6 +204,6 @@ export function usePersonalVisuals(): PersonalVisuals {
     }),
     [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
-  const card = useMemo<CardVisual>(() => ({ theme: c.cardTheme, orient: c.cardOrient }), [c.cardTheme, c.cardOrient]);
+  const card = useMemo<CardVisual>(() => ({ theme: "paper", orient: c.cardOrient }), [c.cardOrient]);
   return { look: c.look, footprint: c.footprint, card, grass, marks };
 }
