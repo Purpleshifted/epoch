@@ -34,6 +34,7 @@ import { uploadLifeRecording, useLifeRecording } from "./useLifeRecording";
 import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
+import { FuturePeekButton, useFuturePresenceControls } from "./FuturePresence";
 import { SessionHud } from "./SessionHud";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 import {
@@ -438,6 +439,8 @@ export default function ParliamentScene() {
   // V2: what the player view adds so the visitor's effect on the ground lands (Leva 개인뷰 비주얼)
   const visuals = usePersonalVisuals();
   const brutal = isV2 && visuals.look === "brutal";
+  // THE FUTURE UNDER THE VISITOR'S FEET (FuturePresence.tsx, a trial of 2026-11-22; Leva 미래 (개인뷰 · 시험), ?future=)
+  const future = useFuturePresenceControls(isV2);
   const getRhythm = useCallback(() => (witnessRef.current ? rhythmOf(witnessRef.current.me) : null), []);
 
   useEffect(() => {
@@ -508,8 +511,11 @@ export default function ParliamentScene() {
           grass={isV2 ? visuals.grass : undefined}
           marks={isV2 ? visuals.marks : undefined}
           answers={answers}
+          future={isV2 ? future : undefined}
         />
       </Canvas>
+      {/* the peek into the future (FuturePresence.tsx mode "peek"): the phone's button, the desktop's key, while live */}
+      {isV2 && future.on && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}
 
       {withSession && !demo && (
         <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} />
