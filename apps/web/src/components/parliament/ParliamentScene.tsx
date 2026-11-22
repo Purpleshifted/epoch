@@ -35,6 +35,7 @@ import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
 import { FuturePeekButton, useFuturePresenceControls } from "./FuturePresence";
+import { futureHold } from "./FutureEncounter";
 import { SessionHud } from "./SessionHud";
 import { useReloadOnContextLoss } from "./useReloadOnContextLoss";
 import {
@@ -267,8 +268,15 @@ function Controller({
     const damp = 1.0 - Math.exp(-drag * dt);
     p.vx += (tvx - p.vx) * damp;
     p.vz += (tvz - p.vz) * damp;
-    p.x += p.vx * dt;
-    p.z += p.vz * dt;
+    // (the future's scan holds the visitor where they stand: their walking makes the future flow to them instead —
+    // FutureEncounter.tsx futureHold; the artist, 2026-11-22: "나는 가만히 있고 풍경이 닥쳐오듯")
+    const held = futureHold.on;
+    futureHold.vx = held ? p.vx : 0;
+    futureHold.vz = held ? p.vz : 0;
+    if (!held) {
+      p.x += p.vx * dt;
+      p.z += p.vz * dt;
+    }
     // the world is finite and wraps (world.ts): over the edge, in from the other side — the camera and the look-at
     // move by the same jump, so nothing is seen to happen (the ground is laid out around the player)
     const wx = wrapCoord(p.x);
@@ -281,7 +289,7 @@ function Controller({
       p.x = wx;
       p.z = wz;
     }
-    playerPosRef.current = { x: p.x, z: p.z, vx: p.vx, vz: p.vz };
+    playerPosRef.current = { x: p.x, z: p.z, vx: held ? 0 : p.vx, vz: held ? 0 : p.vz };
     playerYawRef.current = y;
     group.current?.position.set(p.x, ORB_Y, p.z);
 

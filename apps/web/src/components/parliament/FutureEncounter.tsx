@@ -31,6 +31,10 @@ import { markSpan } from "./usePerfMeter";
 /** The last encounter, for the record (RoleField puts it on the observation; witness.ts writes its line once); and
  *  whether the present is to be dark now (the future holds — RoleField hides its drawing). */
 export const futureMeet: { last: { id: string; found: boolean } | null; dark: boolean } = { last: null, dark: false };
+/** THE SCAN HOLDS THE VISITOR STILL (the artist, 2026-11-22: "나는 가만히 있고 풍경이 닥쳐오듯"): while `on`, the
+ *  Controller (ParliamentScene.tsx) does not move the visitor — it leaves here the velocity their walking would have had,
+ *  and the scanned future flows to them by it instead (their turning still turns). */
+export const futureHold = { on: false, vx: 0, vz: 0 };
 
 /** The wall's density rule as the artist had it (2026-11-20) — until the server's hello says its own. */
 const FALLBACK_DENSITY: DensityConfig = { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: NO_PATHS }, slotSec: 20, gapSec: 20, maxBuilt: 8000, mergeGap: 3, mergeThick: 2, liveAt: 0.25, minVisitors: 4, step: 40, maxLevel: 6, ratio: 3, massRatio: 1.45, visitorCap: 60, radius: 2.75, timeSec: 60, down: 0.5 };
@@ -171,7 +175,7 @@ const SCAN_CAPTURE_VERT = `
 attribute vec3 color;
 attribute vec4 aSeed;
 uniform float uScale, uSplat, uR;
-uniform vec3 uOrigin;
+uniform vec3 uOrigin, uShift;
 varying vec3 vC;
 varying float vKind;
 varying float vLum;
@@ -186,10 +190,11 @@ void main() {
   vec3 p = position;
   // (the place's ragged edge, as the dream's window)
   float win = 1.0 - length(p.xz - uOrigin.xz) / uR + n3(p * 0.35) * 0.55 + n3(p * 1.3) * 0.2 - 0.35;
-  vC = p;
+  // (where the place is now: it rushes in, and flows to the visitor as they walk — uShift)
+  vC = p + uShift;
   vKind = aSeed.y;
   vLum = clamp(dot(color, vec3(0.3333)), 0.0, 0.99);
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vec4 mv = modelViewMatrix * vec4(vC, 1.0);
   gl_Position = win < 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * mv;
   // (big enough for the level a ground sample lies on, seen low; the fragments outside it are dropped)
   gl_PointSize = clamp(2.6 * uSplat * uScale / max(0.1, -mv.z), 1.5, 24.0);
@@ -201,7 +206,7 @@ void main() {
 const SCAN_CAPTURE_FRAG = `
 uniform mat4 uInvVP, uVP;
 uniform vec4 uView;
-uniform vec3 uCamPos, uOrigin;
+uniform vec3 uCamPos, uOrigin, uShift;
 uniform float uSplat;
 varying vec3 vC;
 varying float vKind;
@@ -226,14 +231,15 @@ void main() {
   gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;
   // what it is: 0 ground and remains, 1 plants and trees, 2 the visitor's own cells
   float cls = vKind > 5.5 ? 2.0 : (vKind > 1.5 && vKind < 3.5) ? 1.0 : 0.0;
-  gl_FragColor = vec4(P - uOrigin, 1.0 + cls * 2.0 + vLum);
+  // (kept in the place's own frame, so what was taken moves with the place)
+  gl_FragColor = vec4(P - uOrigin - uShift, 1.0 + cls * 2.0 + vLum);
 }`;
 const SCAN_VERT = `
 uniform sampler2D uAtlas;
 uniform vec2 uFrame, uAtlasSize, uDir;
 uniform float uCols, uK, uNewest, uCount, uT, uIn, uOutAt, uOut, uBase, uGain, uNew, uPx, uGlow, uPixAng;
 uniform float uSeed[${SCAN_MAX}];
-uniform vec3 uOrigin, uCam, uPlant;
+uniform vec3 uOrigin, uCam, uPlant, uShift;
 varying vec3 vColor;
 varying float vA;
 uint pcg(uint v) { uint s = v * 747796405u + 2891336453u; uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u; return (w >> 22u) ^ w; }
@@ -259,7 +265,7 @@ void main() {
   vec2 px = vec2(float(pix % W), float(pix / W));
   vec4 c = at(slot, px);
   if (c.w < 0.5) return;
-  vec3 P = c.xyz + uOrigin;
+  vec3 P = c.xyz + uOrigin + uShift;
   float foot = max(0.3, length(P - uCam)) * uPixAng;
   float cls = clsOf(c), lum = c.w - 1.0 - cls * 2.0;
   // THE CHANGE IN THE FRAME: an outline (a neighbour empty or of another kind), an edge (the second difference of the
@@ -320,7 +326,9 @@ const isCoarse = () => typeof window !== "undefined" && typeof window.matchMedia
 
 export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, getLive, playerPosRef, cfg, sound = null, getYaw }: { log: EventLog; meRef: React.MutableRefObject<{ id: string }>; getS: () => number; getWorldSec: () => number; getEpochMs: () => number; getLive: () => boolean; playerPosRef: React.MutableRefObject<{ x: number; z: number }>; cfg: FuturePresenceVisual; sound?: SoundSetup | null; getYaw?: () => number }) {
   const field = useRef<{ f: DensityField; key: string; fed: number; drops: number } | null>(null);
-  const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0, scan: false });
+  // (the scan's place: where it came from (arrive: a direction × a distance), how far the visitor's walking has drawn it
+  // (flow), and where it is now (shift = the two))
+  const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0, scan: false, arrive: new THREE.Vector3(), flow: new THREE.Vector3(), shift: new THREE.Vector3() });
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(CAP * 3), 3));
@@ -366,7 +374,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
   // points they make
   const scan = useRef({ rt: null as THREE.WebGLRenderTarget | null, W: 0, H: 0, K: 0, count: 0, newest: -1, n: 0, lastAt: -Infinity, dir: new THREE.Vector3(), pos: new THREE.Vector3(), ms: 0 });
   const scanCam = useMemo(() => new THREE.PerspectiveCamera(), []);
-  const captureMat = useMemo(() => new THREE.ShaderMaterial({ vertexShader: SCAN_CAPTURE_VERT, fragmentShader: SCAN_CAPTURE_FRAG, uniforms: { uScale: { value: 100 }, uSplat: { value: 0.14 }, uR: { value: 9 }, uOrigin: { value: new THREE.Vector3() }, uInvVP: { value: new THREE.Matrix4() }, uVP: { value: new THREE.Matrix4() }, uView: { value: new THREE.Vector4() }, uCamPos: { value: new THREE.Vector3() } } }), []);
+  const captureMat = useMemo(() => new THREE.ShaderMaterial({ vertexShader: SCAN_CAPTURE_VERT, fragmentShader: SCAN_CAPTURE_FRAG, uniforms: { uScale: { value: 100 }, uSplat: { value: 0.14 }, uR: { value: 9 }, uOrigin: { value: new THREE.Vector3() }, uInvVP: { value: new THREE.Matrix4() }, uVP: { value: new THREE.Matrix4() }, uView: { value: new THREE.Vector4() }, uCamPos: { value: new THREE.Vector3() }, uShift: { value: new THREE.Vector3() } } }), []);
   const captureScene = useMemo(() => {
     const sc = new THREE.Scene();
     const pts = new THREE.Points(geom, captureMat);
@@ -383,7 +391,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         depthWrite: false,
         // (added light: where the frames overlap, the residue is brighter)
         blending: THREE.AdditiveBlending,
-        uniforms: { uAtlas: { value: null }, uFrame: { value: new THREE.Vector2(1, 1) }, uAtlasSize: { value: new THREE.Vector2(1, 1) }, uDir: { value: new THREE.Vector2(1, 0) }, uCols: { value: SCAN_COLS }, uK: { value: 1 }, uNewest: { value: 0 }, uCount: { value: 0 }, uT: { value: 0 }, uIn: { value: 1 }, uOutAt: { value: 10 }, uOut: { value: 2.7 }, uBase: { value: 0.12 }, uGain: { value: 2.5 }, uNew: { value: 0.8 }, uPx: { value: 1.6 }, uGlow: { value: 0.3 }, uPixAng: { value: 0.01 }, uSeed: { value: new Float32Array(SCAN_MAX) }, uOrigin: { value: new THREE.Vector3() }, uCam: { value: new THREE.Vector3() }, uPlant: { value: new THREE.Color() } },
+        uniforms: { uAtlas: { value: null }, uFrame: { value: new THREE.Vector2(1, 1) }, uAtlasSize: { value: new THREE.Vector2(1, 1) }, uDir: { value: new THREE.Vector2(1, 0) }, uCols: { value: SCAN_COLS }, uK: { value: 1 }, uNewest: { value: 0 }, uCount: { value: 0 }, uT: { value: 0 }, uIn: { value: 1 }, uOutAt: { value: 10 }, uOut: { value: 2.7 }, uBase: { value: 0.12 }, uGain: { value: 2.5 }, uNew: { value: 0.8 }, uPx: { value: 1.6 }, uGlow: { value: 0.3 }, uPixAng: { value: 0.01 }, uSeed: { value: new Float32Array(SCAN_MAX) }, uOrigin: { value: new THREE.Vector3() }, uCam: { value: new THREE.Vector3() }, uPlant: { value: new THREE.Color() }, uShift: { value: new THREE.Vector3() } },
       }),
     [],
   );
@@ -408,9 +416,11 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
   useEffect(() => {
     futureMeet.last = null;
     futureMeet.dark = false;
+    futureHold.on = false;
     return () => {
       futureMeet.last = null;
       futureMeet.dark = false;
+      futureHold.on = false;
       geom.dispose();
       mat.dispose();
       dreamMat.dispose();
@@ -465,15 +475,42 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     scanMat.uniforms.uNewest.value = sc.newest;
     scanMat.uniforms.uCount.value = sc.count;
     cam.getWorldDirection(sc.dir);
-    cam.getWorldPosition(sc.pos);
+    cam.getWorldPosition(sc.pos).sub(st.current.shift);
     sc.lastAt = now;
     sc.ms = performance.now() - t0;
     markSpan("future-scan", sc.ms);
-    (window as unknown as { __futureScan?: unknown }).__futureScan = { n: sc.n, count: sc.count, W: sc.W, H: sc.H, K: sc.K, ms: Math.round(sc.ms * 100) / 100, t: Math.round((now - st.current.t0) * 10) / 10, outAt: Math.round(st.current.outAt * 10) / 10, dark: futureMeet.dark };
+    (window as unknown as { __futureScan?: unknown }).__futureScan = { n: sc.n, count: sc.count, W: sc.W, H: sc.H, K: sc.K, ms: Math.round(sc.ms * 100) / 100, t: Math.round((now - st.current.t0) * 10) / 10, outAt: Math.round(st.current.outAt * 10) / 10, dark: futureMeet.dark, held: futureHold.on, shift: st.current.shift.toArray().map((q) => Math.round(q * 10) / 10) };
   };
 
+  /** THE ATLAS of a look round: as many points a frame as asked, of the screen's shape; a phone half, 16 frames. Made
+   *  (and put on the GPU) before the first encounter — made at the encounter it stalled the first frame by up to 90 ms. */
+  const ensureAtlas = (gl: THREE.WebGLRenderer, phone: boolean) => {
+    const sc = scan.current, U = scanMat.uniforms;
+    const el = gl.domElement, aspect = Math.max(0.2, el.width / Math.max(1, el.height));
+    const per = Math.max(2000, cfg.scanPix * 1000 * (phone ? 0.5 : 1));
+    const W = Math.max(16, Math.round(Math.sqrt(per * aspect))), H = Math.max(16, Math.round(per / W));
+    const K = Math.max(2, Math.min(SCAN_MAX, phone ? Math.min(16, cfg.scanFrames) : cfg.scanFrames));
+    if (!sc.rt || sc.W !== W || sc.H !== H || sc.K !== K) {
+      sc.rt?.dispose();
+      const rows = Math.ceil(K / SCAN_COLS);
+      sc.rt = new THREE.WebGLRenderTarget(W * SCAN_COLS, H * rows, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, generateMipmaps: false });
+      Object.assign(sc, { W, H, K });
+      scanPoints.geometry.dispose();
+      // (one vertex a pixel of a frame; its place is read from the atlas by its index)
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(W * H * K), 1));
+      // (the vertices hold no place of their own; a sphere big enough so three.js does not measure them)
+      g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+      scanPoints.geometry = g;
+      U.uAtlas.value = sc.rt.texture;
+      U.uFrame.value.set(W, H);
+      U.uAtlasSize.value.set(W * SCAN_COLS, H * rows);
+      U.uK.value = K;
+      gl.initRenderTarget(sc.rt);
+    }
+  };
   const compiled = useRef(false);
-  useFrame((state) => {
+  useFrame((state, delta) => {
     // (the scan's two programs made before the first encounter: their compile stalled the first look by half a second)
     if (!compiled.current) {
       compiled.current = true;
@@ -481,6 +518,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       tmp.add(new THREE.Points(scanPoints.geometry, scanMat));
       state.gl.compile(tmp, state.camera);
       state.gl.compile(captureScene, state.camera);
+      if (cfg.scan) ensureAtlas(state.gl, isCoarse());
     }
     // THE FIELD: this view's log through the wall's density rule, fed a little every frame
     const dcfg = visitorWorld.density ?? FALLBACK_DENSITY;
@@ -534,7 +572,15 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       // (the present is dark while the future holds; it comes back as the cloud streams away — the afterimage)
       futureMeet.dark = (s.scan ? cfg.scanDark : cfg.darkPresent && !cfg.dream) && t < s.outAt;
       if (s.scan) {
-        // ONE LOOKS ROUND: a frame each time the eye has turned (or walked) enough, or has rested a moment
+        // THE PLACE COMES (B): from far ahead it rushes in, slowing as it reaches the visitor; and (A) while it holds the
+        // visitor stands where they are — their walking draws the place to them instead
+        futureHold.on = cfg.scanFlow && t < s.outAt;
+        if (futureHold.on) s.flow.add(tmpPos.set(-futureHold.vx, 0, -futureHold.vz).multiplyScalar(Math.min(delta, 0.05)));
+        const u = cfg.scanArrive ? Math.min(1, t / Math.max(0.1, cfg.scanArriveSec)) : 1;
+        s.shift.copy(s.arrive).multiplyScalar(Math.pow(1 - u, 2.5)).add(s.flow);
+        scanMat.uniforms.uShift.value.copy(s.shift);
+        captureMat.uniforms.uShift.value.copy(s.shift);
+        // ONE LOOKS ROUND: a frame each time the eye has turned (or walked, or the place has moved) enough, or has rested
         const sc = scan.current, cam = state.camera;
         cam.getWorldPosition(tmpPos);
         if (t < s.outAt && sc.rt) {
@@ -543,9 +589,12 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
           const turned = sc.count === 0 ? Infinity : THREE.MathUtils.radToDeg(tmpDir.angleTo(sc.dir));
           // (only while the place is in view: a frame of nothing would push a frame of it out of the ring)
           tmpFrustum.setFromProjectionMatrix(tmpMat.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
-          tmpSphere.set(scanMat.uniforms.uOrigin.value, captureMat.uniforms.uR.value);
+          tmpSphere.center.copy(scanMat.uniforms.uOrigin.value).add(s.shift);
+          tmpSphere.radius = captureMat.uniforms.uR.value;
           const inView = tmpFrustum.intersectsSphere(tmpSphere);
-          if (inView && ((since >= 0.08 && (turned >= cfg.scanTurn || tmpPos.distanceTo(sc.pos) >= 0.3)) || since >= cfg.scanStill)) capture(state.gl, cam, now);
+          // (the eye's place in the place's own frame: it moves when the visitor walks or the place comes)
+          const rel = tmpPos.clone().sub(s.shift);
+          if (inView && ((since >= 0.08 && (turned >= cfg.scanTurn || rel.distanceTo(sc.pos) >= 0.3)) || since >= cfg.scanStill)) capture(state.gl, cam, now);
         }
         const U = scanMat.uniforms;
         U.uT.value = t;
@@ -559,9 +608,11 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         U.uGlow.value = cfg.scanGlow;
         scanPoints.visible = true;
       }
+      if (t >= s.outAt) futureHold.on = false;
       if (t > s.outAt + outLen + 1) {
         s.active = false;
         futureMeet.dark = false;
+        futureHold.on = false;
         geom.setDrawRange(0, 0);
         lineMat.opacity = 0;
         scanPoints.visible = false;
@@ -741,30 +792,18 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     M.uniforms.uOut.value = cfg.outSec;
     M.uniforms.uT.value = 0;
     if (cfg.scan) {
-      // THE ATLAS of this look round: as many points a frame as asked, of the screen's shape; a phone half, 16 frames
       const sc = scan.current, U = scanMat.uniforms;
-      const el = state.gl.domElement, aspect = Math.max(0.2, el.width / Math.max(1, el.height));
-      const per = Math.max(2000, cfg.scanPix * 1000 * (phone ? 0.5 : 1));
-      const W = Math.max(16, Math.round(Math.sqrt(per * aspect))), H = Math.max(16, Math.round(per / W));
-      const K = Math.max(2, Math.min(SCAN_MAX, phone ? Math.min(16, cfg.scanFrames) : cfg.scanFrames));
-      if (!sc.rt || sc.W !== W || sc.H !== H || sc.K !== K) {
-        sc.rt?.dispose();
-        const rows = Math.ceil(K / SCAN_COLS);
-        sc.rt = new THREE.WebGLRenderTarget(W * SCAN_COLS, H * rows, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, generateMipmaps: false });
-        Object.assign(sc, { W, H, K });
-        scanPoints.geometry.dispose();
-        // (one vertex a pixel of a frame; its place is read from the atlas by its index)
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(W * H * K), 1));
-        // (the vertices hold no place of their own; a sphere big enough so three.js does not measure them)
-        g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
-        scanPoints.geometry = g;
-        U.uAtlas.value = sc.rt.texture;
-        U.uFrame.value.set(W, H);
-        U.uAtlasSize.value.set(W * SCAN_COLS, H * rows);
-        U.uK.value = K;
-      }
+      ensureAtlas(state.gl, phone);
       Object.assign(sc, { count: 0, newest: -1, n: 0, lastAt: -Infinity });
+      // (it comes from where the visitor looks: that far ahead, level)
+      state.camera.getWorldDirection(tmpDir);
+      tmpDir.y = 0;
+      if (tmpDir.lengthSq() < 1e-6) tmpDir.set(0, 0, -1);
+      s.arrive.copy(tmpDir.normalize()).multiplyScalar(cfg.scanArrive ? cfg.scanArriveDist : 0);
+      s.flow.set(0, 0, 0);
+      s.shift.copy(s.arrive);
+      U.uShift.value.copy(s.shift);
+      captureMat.uniforms.uShift.value.copy(s.shift);
       U.uCount.value = 0;
       U.uT.value = 0;
       U.uIn.value = cfg.inSec;

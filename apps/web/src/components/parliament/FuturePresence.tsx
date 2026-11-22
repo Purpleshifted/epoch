@@ -92,6 +92,12 @@ export interface FuturePresenceVisual extends PresenceConfig {
   scanHold: number;
   /** The present dark while one looks round the future. */
   scanDark: boolean;
+  /** THE PLACE COMES (the artist, 2026-11-22: "나는 가만히 있고 풍경이 닥쳐오듯"): it rushes in from this far ahead in this
+   *  long (B); and while it holds the visitor stands still, their walking drawing the place to them (A). */
+  scanArrive: boolean;
+  scanArriveDist: number;
+  scanArriveSec: number;
+  scanFlow: boolean;
 }
 
 /** The peek (mode "peek"): held while F is down, or the phone's button. Read every frame by the drawers. */
@@ -152,8 +158,12 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
           scanPx: { value: 1.6, min: 1, max: 5, step: 0.1, label: "점 크기 (px)", render: v2 },
           scanGlow: { value: 0.6, min: 0.02, max: 1, step: 0.01, label: "점의 빛 (겹칠수록 밝아짐)", render: v2 },
           scanSplat: { value: 0.14, min: 0.03, max: 0.5, step: 0.01, label: "프레임에 찍히는 표면 조각 (월드 · 클수록 빈틈 적음)", render: v2 },
-          scanHold: { value: 14, min: 3, max: 40, step: 1, label: "둘러볼 수 있는 시간 (s · 발굴자가 곁에 있으면 더)", render: v2 },
+          scanHold: { value: 14, min: 3, max: 40, step: 1, label: "둘러볼 수 있는 시간 (s · 발굴자가 곁에 있으면 더 · 그동안 나는 제자리)", render: v2 },
           scanDark: { value: true, label: "둘러보는 동안 현재를 끔", render: v2 },
+          scanArrive: { value: true, label: "닥쳐옴 — 미래가 앞에서 밀려와 내 자리에 멈춤", render: v2 },
+          scanArriveDist: { value: 40, min: 5, max: 120, step: 1, label: "닥쳐오는 거리 (월드 · 시선 앞)", render: v2 },
+          scanArriveSec: { value: 2.5, min: 0.3, max: 10, step: 0.1, label: "닥쳐오는 시간 (s · 처음 빠르고 닿으며 느려짐)", render: v2 },
+          scanFlow: { value: true, label: "나는 제자리 — 걸으면 내가 가는 대신 미래가 흘러옴 (현재의 나는 서 있음)", render: v2 },
         },
         { collapsed: true },
       ),
@@ -230,8 +240,12 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       scanSplat: k.scanSplat,
       scanHold: k.scanHold,
       scanDark: k.scanDark,
+      scanArrive: k.scanArrive,
+      scanArriveDist: k.scanArriveDist,
+      scanArriveSec: k.scanArriveSec,
+      scanFlow: k.scanFlow,
     };
-  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx, k.scan, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark]);
+  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx, k.scan, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow]);
 }
 
 const MAX_EDGE_VERTS = 120000;
