@@ -6,7 +6,8 @@
 
 브랜치 `claude/street-feel-18603e`(재편 `claude/artwork-redesign-continue-385cb8` 33edd36에서; 11/22 저녁 재편 head e4f7d46 —
 future-presence의 봇 옆 출생·발굴자 마주침, me-marker, 대화 소리 — 를 합쳐 둠), 개발 서버 `web-street` :3028.
-**작가가 보는 곳**: Vercel 브랜치 프리뷰 `https://anthropocene-redesign-git-claude-st-50db43-hesse-parks-projects.vercel.app` —
+**작가가 보는 곳**: **`https://anthropocene-street-feel.vercel.app`**(짧은 별칭; 푸시마다 최신 배포에 다시 붙임) = Vercel 브랜치 프리뷰
+`https://anthropocene-redesign-git-claude-st-50db43-hesse-parks-projects.vercel.app`(자동) —
 `/v2/mobile?lang=ko`에서 Leva `개인뷰 비주얼 › 길거리 (시험 · 11/22) › 켜기`를 켜고 본다(기본은 지금 룩; `/exhibition/personal`은 Leva가
 없으니 거기선 바뀐 것이 없다). 폰도 같은 주소.
 레퍼런스는 `docs/reference-study-2026-11-22.md`(브랜치 `claude/personal-impact-logic-d235cf`) §1의 5·12·13·14·15·16·3.
