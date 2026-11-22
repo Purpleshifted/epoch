@@ -7,6 +7,8 @@ import { EntryGroup } from "./EntryGroup";
  * wall opens in a window of its own, for the second display); REHEARSAL = the same two with Leva, and MANAGEMENT for
  * the tools around the work (the sound bench, the lab, the database later). Exhibition and rehearsal land on the same
  * pages, so the Leva values saved while rehearsing are the ones the exhibition loads. "Global" is the 3D timespace.
+ * "Personal · gallery" is the same screen on the gallery machine (?venue=gallery): the end card prints (출력하기) instead
+ * of saving, and the gallery comes back to it (the artist, 2026-11-22: "베뉴 갤러리가 설정된 버튼을 홈화면에 추가해줘").
  */
 export default function HomeScreen() {
   return (
@@ -19,6 +21,7 @@ export default function HomeScreen() {
           entries={[
             { href: "/exhibition/global", name: "Global", sub: "the wall · opens in its own window", main: true, window: true },
             { href: "/exhibition/personal", name: "Personal", sub: "the visitor's screen", main: true },
+            { href: "/exhibition/personal?venue=gallery", name: "Personal · gallery", sub: "the gallery machine · 출력하기 prints the card", main: true },
           ]}
         />
         <EntryGroup
@@ -29,6 +32,7 @@ export default function HomeScreen() {
             { href: "/rehearsal/lab", name: "Visual lab", sub: "the wall's world taken once · no bots · for tuning the look" },
             { href: "/rehearsal/future", name: "Future", sub: "the layer above only, live · light to draw" },
             { href: "/rehearsal/personal", name: "Personal", sub: "the visitor's screen, for tuning" },
+            { href: "/rehearsal/personal?venue=gallery", name: "Personal · gallery", sub: "the gallery machine's screen (출력하기), for tuning" },
             { href: "/rehearsal/management", name: "Management", sub: "sound bench · lab · other views" },
           ]}
         />
