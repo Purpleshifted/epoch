@@ -6,6 +6,8 @@
  * much of the cell is lit; without it (the default since the artist found the dither hard on the eyes) the density is
  * simply how bright the field is, smooth from cell to cell. Where the walker goes the field goes dark at once. It ends in
  * a hard circle: no fog, no fade. Far cheaper than the cloud: a small texture instead of tens of thousands of points.
+ * 길거리 (2026-11-22): when the scene HAS a fog (the street trial's 깊이 안개 switch — the brutal look has none otherwise) the
+ * field takes it, and its rim fades into the fog's colour instead of being cut, so the ground ends in a horizon, not a disc.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -19,9 +21,11 @@ const REFRESH = 0.1;
 
 const VERT = /* glsl */ `
 varying vec2 vXZ;
+varying vec3 vW;
 void main() {
   vec4 w = modelMatrix * vec4(position, 1.0);
   vXZ = w.xz;
+  vW = w.xyz;
   gl_Position = projectionMatrix * viewMatrix * w;
 }`;
 
@@ -34,19 +38,27 @@ uniform float uRadius;
 uniform float uPx;
 uniform vec3 uColor;
 uniform float uDither;
+uniform float uFog;
+uniform float uFogNear;
+uniform float uFogFar;
+uniform vec3 uFogColor;
 varying vec2 vXZ;
+varying vec3 vW;
 float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
 float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
 void main() {
-  if (distance(vXZ, uCentre) > uRadius) discard;
+  float dc = distance(vXZ, uCentre);
+  if (dc > uRadius) discard;
   float g = texture2D(uG, (vXZ - uOrigin) / uSpan).r;
+  // the scene's fog (when there is one), and the rim fading into it
+  float fk = uFog * max(smoothstep(uFogNear, uFogFar, distance(vW, cameraPosition)), smoothstep(uRadius * 0.55, uRadius, dc));
   if (uDither < 0.5) {
-    gl_FragColor = vec4(uColor * g, 1.0);
+    gl_FragColor = vec4(mix(uColor * g, uFogColor, fk), 1.0);
     return;
   }
   if (g <= bayer8(floor(gl_FragCoord.xy / uPx))) discard;
-  gl_FragColor = vec4(uColor, 1.0);
+  gl_FragColor = vec4(mix(uColor, uFogColor, fk), 1.0);
 }`;
 
 export function DitherGround({
@@ -106,6 +118,10 @@ export function DitherGround({
           uPx: { value: pixel },
           uColor: { value: new THREE.Color(color) },
           uDither: { value: dither ? 1 : 0 },
+          uFog: { value: 0 },
+          uFogNear: { value: 1 },
+          uFogFar: { value: 100 },
+          uFogColor: { value: new THREE.Color("#000000") },
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,12 +136,20 @@ export function DitherGround({
     [tex, geom, mat],
   );
 
-  useFrame(({ gl }, dt) => {
+  useFrame(({ gl, scene }, dt) => {
     const p = playerPosRef.current;
     mesh.current?.position.set(p.x, 0.005, p.z);
     const u = mat.uniforms;
     (u.uCentre.value as THREE.Vector2).set(p.x, p.z);
     u.uRadius.value = radius;
+    // the scene's fog, if any (길거리 › 깊이 안개 in the brutal look; the soft look never draws this field)
+    const fog = scene.fog as THREE.Fog | null;
+    u.uFog.value = fog && fog.isFog ? 1 : 0;
+    if (fog && fog.isFog) {
+      u.uFogNear.value = fog.near;
+      u.uFogFar.value = fog.far;
+      (u.uFogColor.value as THREE.Color).copy(fog.color);
+    }
     u.uPx.value = pixel * gl.getPixelRatio();
     (u.uColor.value as THREE.Color).set(color);
     u.uDither.value = dither ? 1 : 0;

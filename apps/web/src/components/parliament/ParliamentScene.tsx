@@ -21,6 +21,7 @@ import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
+import { PointPeople } from "./PointPeople";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -130,6 +131,7 @@ function Controller({
   tiltRef,
   coarse = false,
   getRhythm,
+  eye,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -146,6 +148,8 @@ function Controller({
   coarse?: boolean;
   /** The visitor's square blinks their melody (lib/parliament/glyph.ts). */
   getRhythm?: () => boolean[] | null;
+  /** 길거리 (2026-11-22, a trial): the eye at a person's height just behind the walker, looking level; off = as it was. */
+  eye?: { on: boolean; height: number; back: number; look: number };
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -284,13 +288,24 @@ function Controller({
     playerYawRef.current = y;
     group.current?.position.set(p.x, ORB_Y, p.z);
 
-    const hd = camDist * Math.cos(pitch.current);
-    const vd = camDist * Math.sin(pitch.current);
-    const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + 0.4, p.z - Math.cos(y) * hd);
-    camPos.current.lerp(desired, camLerp);
-    camera.position.copy(camPos.current);
-    lookAt.current.lerp(new THREE.Vector3(p.x, ORB_Y + 0.2, p.z), camLerp * 2);
-    camera.lookAt(lookAt.current);
+    if (eye?.on) {
+      // 길거리: the eye at a person's height, just behind the walker; the pitch the look gives tilts a level gaze
+      const tilt = pitch.current - 0.45;
+      const desired = new THREE.Vector3(p.x - Math.sin(y) * eye.back, eye.height, p.z - Math.cos(y) * eye.back);
+      camPos.current.lerp(desired, camLerp);
+      camera.position.copy(camPos.current);
+      const ahead = eye.look * Math.cos(tilt);
+      lookAt.current.lerp(new THREE.Vector3(p.x + Math.sin(y) * ahead, eye.height - eye.look * Math.sin(tilt), p.z + Math.cos(y) * ahead), camLerp * 2);
+      camera.lookAt(lookAt.current);
+    } else {
+      const hd = camDist * Math.cos(pitch.current);
+      const vd = camDist * Math.sin(pitch.current);
+      const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + 0.4, p.z - Math.cos(y) * hd);
+      camPos.current.lerp(desired, camLerp);
+      camera.position.copy(camPos.current);
+      lookAt.current.lerp(new THREE.Vector3(p.x, ORB_Y + 0.2, p.z), camLerp * 2);
+      camera.lookAt(lookAt.current);
+    }
   });
 
   return (
@@ -466,7 +481,7 @@ export default function ParliamentScene() {
         style={{ background: brutal ? "#000" : FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
         <color attach="background" args={[brutal ? "#000000" : FOG_COLOR]} />
-        {!brutal && <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />}
+        {(!brutal || (isV2 && visuals.street.fog)) && <fog attach="fog" args={[brutal ? "#000000" : FOG_COLOR, fogNear, fogFar]} />}
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
         {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
@@ -483,6 +498,7 @@ export default function ParliamentScene() {
           tiltRef={tiltRef}
           coarse={coarse}
           getRhythm={withSession ? getRhythm : undefined}
+          eye={isV2 ? visuals.street.eye : undefined}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -509,6 +525,8 @@ export default function ParliamentScene() {
           marks={isV2 ? visuals.marks : undefined}
           answers={answers}
         />
+        {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}
+        {isV2 && withSession && visuals.street.people && <PointPeople getOthers={() => witnessRef.current?.far ?? null} playerPosRef={playerPosRef} look={visuals.street.look} phone={coarse} />}
       </Canvas>
 
       {withSession && !demo && (

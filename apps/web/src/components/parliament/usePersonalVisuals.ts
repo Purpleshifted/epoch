@@ -10,12 +10,15 @@
  *   grass       how the grass reacts to the walker at once and how it is drawn (DitherGround, NatureCloud)
  *   marks       the others, the concrete (Marks.tsx, lib/parliament/marks.ts), the seed heads the answers left
  *               (Dandelions.tsx); the paths stay on the ground (PathLines)
+ *   street      길거리 (2026-11-22, a trial behind a switch; docs/street-feel.md): the others as walking point silhouettes
+ *               (PointPeople.tsx), the eye at a person's height, a depth fog in the brutal look — off = the look as it was
  */
 
 import { useMemo } from "react";
 import { folder, useControls } from "leva";
 import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
+import { DEFAULT_PEOPLE, type PeopleLook } from "./PointPeople";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 
@@ -60,12 +63,25 @@ export interface CardVisual {
   orient: PlateOrient;
 }
 
+/** 길거리 (2026-11-22): what the street trial switches on; `on` false = nothing of it runs. */
+export interface StreetVisual {
+  on: boolean;
+  /** The others as walking point silhouettes (PointPeople) in place of the squares. */
+  people: boolean;
+  look: PeopleLook;
+  /** The eye at a person's height just behind the walker, looking level. */
+  eye: { on: boolean; height: number; back: number; look: number };
+  /** A black depth fog in the brutal look (the 화면 folder's near / far). */
+  fog: boolean;
+}
+
 export interface PersonalVisuals {
   look: Look;
   footprint: boolean;
   card: CardVisual;
   grass: GrassVisual;
   marks: MarksVisual;
+  street: StreetVisual;
 }
 
 const ROOT = "개인뷰 비주얼";
@@ -159,6 +175,31 @@ export function usePersonalVisuals(): PersonalVisuals {
         concreteBright: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "밝기", render: v2 },
         concreteRadius: { value: 36, min: 6, max: 80, step: 1, label: "보이는 반경 (월드)", render: v2 },
       }),
+      // 길거리 (2026-11-22): a trial — everything here is off by default, so the look stays what it was
+      "길거리 (시험 · 11/22)": folder(
+        {
+          streetOn: { value: false, label: "켜기 (끄면 아래 모두 꺼짐)", render: v2 },
+          streetPeople: { value: true, label: "사람 = 걷는 점 실루엣 (네모 대신)", render: v2 },
+          ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "몸 하나의 점 수", render: v2 },
+          ppPointsPhone: { value: DEFAULT_PEOPLE.pointsPhone, min: 32, max: 480, step: 16, label: "폰: 점 수", render: v2 },
+          ppDot: { value: DEFAULT_PEOPLE.dot, min: 0.01, max: 0.2, step: 0.005, label: "점 크기 (월드)", render: v2 },
+          ppGrey: { value: DEFAULT_PEOPLE.grey, min: 0.2, max: 1, step: 0.02, label: "회색 밝기", render: v2 },
+          ppHeight: { value: DEFAULT_PEOPLE.height, min: 1, max: 2.4, step: 0.05, label: "키 (월드 = m)", render: v2 },
+          ppMaxSpeed: { value: DEFAULT_PEOPLE.maxSpeed, min: 1, max: 6, step: 0.1, label: "표본 사이 최고 속도 (월드/s)", render: v2 },
+          ppBreath: { value: DEFAULT_PEOPLE.breath, min: 0, max: 3, step: 0.1, label: "서 있을 때 숨 (0 = 없음)", render: v2 },
+          ppSmearSec: { value: DEFAULT_PEOPLE.smearSec, min: 0, max: 8, step: 0.25, label: "시간의 번짐 — 몇 초 뒤까지 (0 = 없음; 폰은 늘 없음)", render: v2 },
+          ppSmearCopies: { value: DEFAULT_PEOPLE.smearCopies, min: 1, max: 8, step: 1, label: "번짐 복사본 수", render: v2 },
+          ppPlate: { value: DEFAULT_PEOPLE.plate, label: "세운 판 (criswvr; 희미하게)", render: v2 },
+          ppPlateAlpha: { value: DEFAULT_PEOPLE.plateAlpha, min: 0.02, max: 0.5, step: 0.01, label: "판 불투명도", render: v2 },
+          ppFog: { value: DEFAULT_PEOPLE.fog, label: "점이 안개를 받음", render: v2 },
+          eyeOn: { value: false, label: "눈높이 — 카메라를 사람 키에, 걷는 이 바로 뒤", render: v2 },
+          eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (월드 = m)", render: v2 },
+          eyeBack: { value: 1.6, min: 0, max: 6, step: 0.1, label: "걷는 이에서 뒤로 (월드)", render: v2 },
+          eyeLook: { value: 6, min: 2, max: 20, step: 0.5, label: "시선이 닿는 거리 (월드)", render: v2 },
+          streetFog: { value: false, label: "깊이 안개 (브루털에도; 화면 › fogNear/fogFar)", render: v2 },
+        },
+        { collapsed: false },
+      ),
     }),
     { collapsed: false, order: 1 },
   );
@@ -184,7 +225,8 @@ export function usePersonalVisuals(): PersonalVisuals {
   const marks = useMemo<MarksVisual>(
     () => ({
       others: {
-        on: c.othersOn,
+        // the street trial's silhouettes stand in for the squares
+        on: c.othersOn && !(c.streetOn && c.streetPeople),
         size: brutal ? c.otherSquare : c.otherSize,
         height: brutal ? 0.2 : c.otherHeight,
         bright: c.otherBright,
@@ -201,8 +243,32 @@ export function usePersonalVisuals(): PersonalVisuals {
       burst: { on: c.burstOn, count: c.burstCount, reach: c.burstReach, lifeSec: c.burstLife, dot: c.burstDot },
       on: c.othersOn || c.concreteOn,
     }),
-    [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
+    [brutal, c.othersOn, c.streetOn, c.streetPeople, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
   const card = useMemo<CardVisual>(() => ({ theme: c.cardTheme, orient: c.cardOrient }), [c.cardTheme, c.cardOrient]);
-  return { look: c.look, footprint: c.footprint, card, grass, marks };
+  const street = useMemo<StreetVisual>(
+    () => ({
+      on: c.streetOn,
+      people: c.streetOn && c.streetPeople,
+      look: {
+        points: c.ppPoints,
+        pointsPhone: c.ppPointsPhone,
+        dot: c.ppDot,
+        grey: c.ppGrey,
+        height: c.ppHeight,
+        plate: c.ppPlate,
+        plateAlpha: c.ppPlateAlpha,
+        smearSec: c.ppSmearSec,
+        smearCopies: c.ppSmearCopies,
+        breath: c.ppBreath,
+        fog: c.ppFog,
+        maxSpeed: c.ppMaxSpeed,
+        recentSec: c.otherRecent,
+      },
+      eye: { on: c.streetOn && c.eyeOn, height: c.eyeHeight, back: c.eyeBack, look: c.eyeLook },
+      fog: c.streetOn && c.streetFog,
+    }),
+    [c.streetOn, c.streetPeople, c.ppPoints, c.ppPointsPhone, c.ppDot, c.ppGrey, c.ppHeight, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog],
+  );
+  return { look: c.look, footprint: c.footprint, card, grass, marks, street };
 }
