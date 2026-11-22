@@ -29,7 +29,7 @@ import { futureOnly } from "@/lib/parliament/futureOnly";
 import { plantTone, tone as plantColor } from "@/lib/parliament/plantTone";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { futureLink } from "./FutureVillage";
-import { futureLifeU, futureTicker, recSum, setFutureRender, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
+import { edgeFade, futureEdgeU, futureLifeU, futureTicker, recSum, setFutureRender, lifeDissolve, lifePoints, liveAndFading, newKeyedLife, placeKey, setLifeAttr } from "./futureLife";
 import { newPlantLife, plantBaseGeometry, plantMaterial, setFlowerBloom, setPlantClouds } from "./plantCloudsGpu";
 import { savable } from "./levaSave";
 
@@ -233,6 +233,8 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
           renderAo: { value: false, label: "AO (그늘 패스 · 미래 뷰에서만 · 켜면 가장 무거움)" },
           renderShadows: { value: false, label: "해 그림자 (미래 뷰에서만 · 켜면 무거움)" },
           ticker: { value: 3, min: 0, max: 12, step: 0.5, label: "건물 · 나무가 바뀌는 차례가 다 도는 시간 (초 · 하나씩 탁탁 붙고 떨어짐 · 0 = 한꺼번에)" },
+          // ("미래에서 멀리서 바라봤을 때 … 경계가 잘려있는 게 마음에 안 들어, 그라데이션으로 요소들이 사라지면", 2026-11-22)
+          edgeFade: { value: 14, min: 0, max: 60, step: 1, label: "층의 가장자리에서 서서히 사라짐 (칸 · 가장자리 안쪽 이만큼에 걸쳐 성글어짐 · 0 = 잘린 그대로)" },
           lifeGrow: { value: 8, min: 0, max: 60, step: 0.5, label: "식생이 새로 나타나는 데 걸리는 시간 (초 · 점이 하나씩 · 0 = 곧바로)" },
           lifeFade: { value: 8, min: 0, max: 60, step: 0.5, label: "식생이 사라지는 데 걸리는 시간 (초 · 0 = 곧바로)" },
           lod: { value: 0.6, min: 0, max: 0.95, step: 0.05, label: "식생 점 LOD — 먼 곳에서 줄이는 몫 (0 = 끔 · 먼 점일수록 크게 그려 덮임은 유지)" },
@@ -614,6 +616,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             "#include <fog_vertex>",
           ].join("\n"),
         );
+      edgeFade(shader);
     };
     m.customProgramCacheKey = () => "future-tree-clumps";
     return m;
@@ -676,6 +679,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
             "transformed.y = (transformed.y + 0.5) * kG - 0.5;",
           ].join("\n"),
         );
+      edgeFade(shader);
     };
     m.customProgramCacheKey = () => "future-tree-stems";
     return m;
@@ -772,8 +776,9 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
   const waterPts = useRef<THREE.Points>(null);
   const drawnWater = useRef("");
   const sizedPoints = useMemo(
-    () => (shader: { vertexShader: string }) => {
+    () => (shader: { uniforms: Record<string, unknown>; vertexShader: string; fragmentShader: string }) => {
       shader.vertexShader = shader.vertexShader.replace("void main() {", "attribute float psize;\nvoid main() {").replace("gl_PointSize = size;", "gl_PointSize = size * psize;");
+      edgeFade(shader);
     },
     [],
   );
@@ -1152,6 +1157,10 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         (U.uLod.value as THREE.Vector3).set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
         (U.uLife.value as THREE.Vector3).set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
         lifeU.value.set(performance.now() / 1000, k.lifeGrow, k.lifeFade);
+        // (the layer's edge: the ground it was read from — everything thins out over edgeFade cells inside it)
+        if (r.ground && r.ground.length >= 4) futureEdgeU.uEdgeRect.value.set(r.ground[0], r.ground[1], r.ground[2], r.ground[3]);
+        futureEdgeU.uEdgeW.value = Math.max(0, k.edgeFade) * CELL_SIZE;
+        futureEdgeU.uEdgeWorld.value = 160 * CELL_SIZE;
         futureTicker.sec = k.ticker;
         setFutureRender({ ao: k.renderAo, shadows: k.renderShadows });
         lodU.value.set(k.lodNear, Math.max(k.lodNear + 1, k.lodFar), k.lod);
@@ -1625,12 +1634,12 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
         frustumCulled={false}
       >
         <cylinderGeometry args={[1, 1, 1, 8]} />
-        <meshStandardMaterial color={k.color} roughness={0.9} metalness={0} />
+        <meshStandardMaterial color={k.color} roughness={0.9} metalness={0} onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-pipes"} />
       </instancedMesh>
       {/* the water's belt of plants (stage: "물길은 … 식생 띠로") */}
       <points ref={waterPts} frustumCulled={false}>
         <bufferGeometry />
-        <pointsMaterial vertexColors size={0.12} sizeAttenuation />
+        <pointsMaterial vertexColors size={0.12} sizeAttenuation onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-points"} />
       </points>
       {/* the mounds on the layer's ground: a unit shape standing on y = 0 (the knob's), scaled a mound, a tier */}
       <instancedMesh
@@ -1695,7 +1704,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       </points>
       <points ref={wildPts} frustumCulled={false}>
         <bufferGeometry />
-        <pointsMaterial vertexColors size={0.12} sizeAttenuation />
+        <pointsMaterial vertexColors size={0.12} sizeAttenuation onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-points"} />
       </points>
       {/* the mounds and the dark earth as points (the knob depositPoints), each point with its own size */}
       <points ref={depPts} frustumCulled={false}>
@@ -1705,7 +1714,7 @@ export function FutureUnder({ unit, top }: { unit: number; top: THREE.IUniform<n
       {/* the other plants, of ground that was built on for long (stage 5) */}
       <points ref={other} frustumCulled={false}>
         <bufferGeometry />
-        <pointsMaterial vertexColors size={0.12} sizeAttenuation />
+        <pointsMaterial vertexColors size={0.12} sizeAttenuation onBeforeCompile={edgeFade} customProgramCacheKey={() => "future-edge-points"} />
       </points>
     </>
   );

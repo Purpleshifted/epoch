@@ -6,6 +6,7 @@
  * many of its points show, their size, the plants' colours — and its FLOWERS (rules 1 and 4 of the literature: most
  * where grass meets scrub, white on long-used ground). Every knob is a uniform: turning it redraws nothing on the CPU.
  */
+import { edgeFade } from "./futureLife";
 import * as THREE from "three";
 import { useSyncExternalStore } from "react";
 
@@ -273,6 +274,8 @@ export function plantMaterial(halo = false, shared?: PlantUniforms): { mat: THRE
       )
       .replace("#include <begin_vertex>", "vec3 transformed = tPos;")
       .replace("#include <fog_vertex>", "gl_PointSize *= pScale;\n#include <fog_vertex>");
+    // (thinning out at the layer's edge: futureLife.ts edgeFade)
+    edgeFade(shader);
   };
   mat.customProgramCacheKey = () => (halo ? "future-plant-flower-glow" : "future-plant-clouds");
   return { mat, u };
