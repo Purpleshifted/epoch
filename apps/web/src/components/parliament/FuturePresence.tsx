@@ -69,6 +69,29 @@ export interface FuturePresenceVisual extends PresenceConfig {
   /** The dream's piece of the future: its radius (world) and its points' size (px). */
   dreamR: number;
   dreamPx: number;
+  /** THE SCAN (the artist, 2026-11-22: "내가 미래의 그 장소에 있다 생각하고 둘러볼 때마다 생성되는 2d 프레임을 점으로 렌더해서
+   *  쌓고 그 잔흔이 합쳐져서 … 홀로그래픽 하도록" · "변화량이나 이런 거 감지해서 포인트 거리 정하게 하는 방식"): each look
+   *  round is a small depth frame of the future taken from the eye, kept as points; the frames stack into a residue, and
+   *  each frame keeps its points where it changes (edges, outlines, what was not seen a moment ago) and few where it is
+   *  flat. FutureEncounter.tsx; over the dream's sampling of the place. */
+  scan: boolean;
+  scanR: number;
+  /** Points in one frame (thousands; a phone half), frames kept, the turn (degrees) or the wait (s) that takes another. */
+  scanPix: number;
+  scanFrames: number;
+  scanTurn: number;
+  scanStill: number;
+  /** What a frame keeps: on a flat surface (0 … 1), how much an edge adds, how much what is new adds. */
+  scanBase: number;
+  scanGain: number;
+  scanNew: number;
+  /** A point's size (px), its light (added), a surface sample's size in the frame (world), how long one may look (s). */
+  scanPx: number;
+  scanGlow: number;
+  scanSplat: number;
+  scanHold: number;
+  /** The present dark while one looks round the future. */
+  scanDark: boolean;
 }
 
 /** The peek (mode "peek"): held while F is down, or the phone's button. Read every frame by the drawers. */
@@ -115,6 +138,25 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
         },
         { collapsed: false },
       ),
+      "스캔 (둘러볼 때마다 프레임이 점으로 쌓임 · 변화량이 점 간격을 정함)": folder(
+        {
+          scan: { value: false, label: "스캔으로 보기 (주소 ?future=scan · 켜면 꿈 대신)", render: v2 },
+          scanR: { value: 14, min: 3, max: 24, step: 0.5, label: "스캔되는 미래의 반경 (월드 · 그 자리에 남음: 폰은 돌아보면 걸으니 지나며 쌓임)", render: v2 },
+          scanPix: { value: 20, min: 4, max: 60, step: 1, label: "한 프레임의 점 (천 개 · 폰은 절반)", render: v2 },
+          scanFrames: { value: 32, min: 4, max: 48, step: 1, label: "쌓이는 프레임 수 (폰은 최대 16)", render: v2 },
+          scanTurn: { value: 3, min: 0.5, max: 20, step: 0.5, label: "이만큼 돌아보면 한 장 더 (도)", render: v2 },
+          scanStill: { value: 0.6, min: 0.1, max: 3, step: 0.1, label: "가만히 있어도 한 장 더 (s · 조금씩 어긋나게 찍혀 촘촘해짐)", render: v2 },
+          scanBase: { value: 0.12, min: 0, max: 1, step: 0.01, label: "변화 없는 면에 남는 점 (0 … 1)", render: v2 },
+          scanGain: { value: 2.5, min: 0, max: 10, step: 0.1, label: "모서리·윤곽 (공간 변화량)이 더하는 점", render: v2 },
+          scanNew: { value: 0.8, min: 0, max: 3, step: 0.05, label: "방금 안 보이던 것 (프레임 사이 변화량)이 더하는 점", render: v2 },
+          scanPx: { value: 1.6, min: 1, max: 5, step: 0.1, label: "점 크기 (px)", render: v2 },
+          scanGlow: { value: 0.6, min: 0.02, max: 1, step: 0.01, label: "점의 빛 (겹칠수록 밝아짐)", render: v2 },
+          scanSplat: { value: 0.14, min: 0.03, max: 0.5, step: 0.01, label: "프레임에 찍히는 표면 조각 (월드 · 클수록 빈틈 적음)", render: v2 },
+          scanHold: { value: 14, min: 3, max: 40, step: 1, label: "둘러볼 수 있는 시간 (s · 발굴자가 곁에 있으면 더)", render: v2 },
+          scanDark: { value: true, label: "둘러보는 동안 현재를 끔", render: v2 },
+        },
+        { collapsed: true },
+      ),
       radius: { value: 14, min: 4, max: 40, step: 1, label: "렌즈 반경 (월드 · 렌즈 방식에서만)", render: v2 },
       everySec: { value: 2, min: 0.5, max: 10, step: 0.5, label: "미래를 다시 읽는 간격 (s)", render: v2 },
       readLatest: { value: true, label: "읽는 단 — 켬: 둘레에서 가장 최근에 지어진 단 (벽과 같음 · 혼자여도 남의 폐허가 보임) · 끔: 내 시각 (내 시간대에 지어진 것만)", render: v2 },
@@ -135,7 +177,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
     { collapsed: true, order: 1.2, render: v2 },
   );
   return useMemo<FuturePresenceVisual>(() => {
-    const urlMode = url === "dream" ? "encounter" : url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
+    const urlMode = url === "dream" || url === "scan" ? "encounter" : url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
     const mode = (urlMode ?? k.mode) as PresenceMode;
     return {
       on: url ? url !== "0" : k.on,
@@ -174,8 +216,22 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       dream: url === "dream" ? true : k.dream,
       dreamR: k.dreamR,
       dreamPx: k.dreamPx,
+      scan: url === "scan" ? true : url === "dream" ? false : k.scan,
+      scanR: k.scanR,
+      scanPix: k.scanPix,
+      scanFrames: k.scanFrames,
+      scanTurn: k.scanTurn,
+      scanStill: k.scanStill,
+      scanBase: k.scanBase,
+      scanGain: k.scanGain,
+      scanNew: k.scanNew,
+      scanPx: k.scanPx,
+      scanGlow: k.scanGlow,
+      scanSplat: k.scanSplat,
+      scanHold: k.scanHold,
+      scanDark: k.scanDark,
     };
-  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx]);
+  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream, k.dreamR, k.dreamPx, k.scan, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark]);
 }
 
 const MAX_EDGE_VERTS = 120000;
