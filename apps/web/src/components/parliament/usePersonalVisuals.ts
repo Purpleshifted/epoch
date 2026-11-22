@@ -253,6 +253,11 @@ export function usePersonalVisuals(): PersonalVisuals {
           paperAspectMin: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "종이: 창 비율 최소 (폭/키; 봇마다 씨앗으로 정함)", render: v2 },
           paperAspectMax: { value: 1.3, min: 0.2, max: 2.5, step: 0.05, label: "종이: 창 비율 최대", render: v2 },
           paperTail: { value: 1.6, min: 0.2, max: 6, step: 0.1, label: "종이: 사라질 때 꼬리가 남는 시간 (s)", render: v2 },
+          paperVariety: { value: 1, min: 0, max: 1, step: 0.05, label: "종이: 사람 다양성 — 걷는 법 4종 · 진하기 · 번짐 · 창의 기울기", render: v2 },
+          paperOverlap: { value: true, label: "종이: 겹치면 확 진하게 (곱하기)", render: v2 },
+          paperFrame: { value: 1, min: 0, max: 2, step: 0.1, label: "종이: 창 테두리 세기 (모서리 브래킷; 박자·말 걸 때 굵어짐)", render: v2 },
+          askTurn: { value: true, label: "말 걸면 시선이 1.2 s 동안 그쪽으로 돌아감 (손대면 멈춤)", render: v2 },
+          askRipple: { value: true, label: "말 걸면 창에서 사각 파문이 퍼짐", render: v2 },
           walkSpeed: { value: 2.5, min: 0.5, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 전엔 7 · 봇 2.2)", render: v2 },
           ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있을 때 가까운 이를 마주 봄", render: v2 },
           ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
@@ -333,6 +338,11 @@ export function usePersonalVisuals(): PersonalVisuals {
         aspectMin: Math.min(c.paperAspectMin, c.paperAspectMax),
         aspectMax: Math.max(c.paperAspectMin, c.paperAspectMax),
         tailSec: c.paperTail,
+        overlap: c.paperOverlap,
+        frame: c.paperFrame,
+        askTurn: c.askTurn,
+        ripple: c.askRipple,
+        paperVariety: c.paperVariety,
         boxAspect: c.ppBoxAspect,
         boxRest: c.ppBoxRest,
         cue: c.ppCue,
@@ -367,7 +377,7 @@ export function usePersonalVisuals(): PersonalVisuals {
       logPlace: c.streetOn ? c.logPlace : "bottom",
       paper: c.streetOn && c.paperOn,
     }),
-    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperOverlap, c.paperFrame, c.askTurn, c.askRipple, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {

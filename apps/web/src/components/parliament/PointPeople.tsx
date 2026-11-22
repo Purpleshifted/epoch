@@ -21,7 +21,8 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
 import { Glyph } from "./Glyph";
-import { DEFAULT_BODY, DEFAULT_MOTION, bakeWalk, jointsAt, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { DEFAULT_BODY, DEFAULT_MOTION, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { streetGaze } from "./streetLook";
 import { onLifeEvent } from "./lifeEvents";
 
 export type PeopleMode = "boxes" | "points";
@@ -54,6 +55,14 @@ export interface PeopleLook {
   aspectMin: number;
   aspectMax: number;
   tailSec: number;
+  /** Paper (the artist, 2026-11-22 night): overlapping blots multiply darker; the frame's strength (crisp corner brackets,
+   *  TD-like); the eye turns towards whoever asks; square ripples spread from the asker; how different the people are in
+   *  their walk, ink, softness and tilt (0 … 1). */
+  overlap: boolean;
+  frame: number;
+  askTurn: boolean;
+  ripple: boolean;
+  paperVariety: number;
   /** The box's width as a share of its height, and its grey while the melody rests (the old square's SQUARE_REST). */
   boxAspect: number;
   boxRest: number;
@@ -99,7 +108,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, overlap: true, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -146,6 +155,9 @@ const SHAKE_SEC = 0.14;
 const SHEET_FRAMES = 16;
 const SHEET_W = 48;
 const SHEET_H = 96;
+/** The sheet's rows: the ways of walking, then the wave (the asker's). */
+const SHEET_ROWS = WALK_STYLES.length + 1;
+const WAVE_ROW = WALK_STYLES.length;
 
 /**
  * The walking silhouette as a SPRITE SHEET: the stride's frames drawn side-on (the body walking to the right), white on
@@ -155,7 +167,7 @@ const SHEET_H = 96;
 function walkSheet(blurPx = 0): THREE.Texture {
   const c = document.createElement("canvas");
   c.width = SHEET_W * SHEET_FRAMES;
-  c.height = SHEET_H;
+  c.height = SHEET_H * SHEET_ROWS;
   const g = c.getContext("2d")!;
   // the paper's blot: the same figure, its edge blurred (the long exposure's softness)
   if (blurPx > 0) g.filter = `blur(${blurPx}px)`;
@@ -164,9 +176,10 @@ function walkSheet(blurPx = 0): THREE.Texture {
   g.fillStyle = "#fff";
   g.lineCap = "round";
   g.lineJoin = "round";
+  for (let row = 0; row < SHEET_ROWS; row++)
   for (let f = 0; f < SHEET_FRAMES; f++) {
-    const J = jointsAt(f / SHEET_FRAMES);
-    const ox = f * SHEET_W + SHEET_W / 2, oy = SHEET_H - 2;
+    const J = jointsAt(f / SHEET_FRAMES, row === WAVE_ROW ? WAVE_STYLE : WALK_STYLES[row]);
+    const ox = f * SHEET_W + SHEET_W / 2, oy = row * SHEET_H + SHEET_H - 2;
     const X = (p: readonly number[]) => ox + p[2] * k;
     const Y = (p: readonly number[]) => oy - p[1] * k;
     const limb = (a: readonly number[], b: readonly number[], w: number) => {
@@ -200,31 +213,45 @@ function walkSheet(blurPx = 0): THREE.Texture {
 
 const BOX_VERT = /* glsl */ `
 uniform float uFrames;
+uniform float uRows;
 uniform float uAspect;
-attribute vec4 iBox;      // x, z, height, flip
-attribute vec4 iBoxAnim;  // phase, lit, alpha, cue
+attribute vec4 iBox;      // x, z, height, heading (the plate stands ALONG the way they go — not facing the eye)
+attribute vec4 iBoxAnim;  // phase, lit, alpha, cue (0 none · 1 the asker · 2 a ripple: frame only)
 attribute vec4 iBox2;     // stretch (walking), dark (near = 1), this window's aspect, 0
+attribute vec4 iBox3;     // softness (0 sharp … 1 blurred), ink ×, tilt (rad), the sheet's row (the way of walking)
 varying vec2 vUv;
 varying vec2 vLocal;
 varying float vLit;
 varying float vAlpha;
 varying float vDark;
+varying float vCue;
+varying float vSoft;
+varying float vInkK;
 #include <fog_pars_vertex>
 void main() {
   float h = iBox.z;
   float w = h * (iBox2.z > 0.0 ? iBox2.z : uAspect) * (1.0 + iBox2.x);
-  // a billboard: the box stands facing the eye, its foot on the ground
-  vec4 mvPosition = modelViewMatrix * vec4(iBox.x, 0.0, iBox.y, 1.0);
-  mvPosition.xy += vec2(position.x * w, position.y * h);
+  // the plate (the artist, 2026-11-22 night: "꼭 나한테 평행할 필요 없어! 각자의 진행방향과 잔상을 남겨야"): a translucent film
+  // standing in the world ALONG the being's heading — its width runs the way they go, the silhouette walks along it, the
+  // stretch and the tail lie behind them in the world; seen side-on it is whole, from ahead or behind it is thin. It leans
+  // a little its own way (tilt about its own normal). Its foot is on the ground.
+  vec3 fwd = vec3(sin(iBox.w), 0.0, cos(iBox.w));
+  float ct = cos(iBox3.z), st = sin(iBox3.z);
+  vec2 corner = vec2(position.x * w, position.y * h);
+  corner = vec2(corner.x * ct - corner.y * st, corner.x * st + corner.y * ct);
+  vec3 wp = vec3(iBox.x, 0.0, iBox.y) + fwd * corner.x + vec3(0.0, corner.y, 0.0);
+  vec4 mvPosition = modelViewMatrix * vec4(wp, 1.0);
   gl_Position = projectionMatrix * mvPosition;
   float u = position.x + 0.5;
-  if (iBox.w > 0.5) u = 1.0 - u;
   float f = floor(fract(iBoxAnim.x) * uFrames);
-  vUv = vec2((f + u) / uFrames, position.y);
+  vUv = vec2((f + u) / uFrames, (iBox3.w + position.y) / uRows);
   vLocal = vec2(position.x + 0.5, position.y);
   vLit = iBoxAnim.y;
   vAlpha = iBoxAnim.z;
   vDark = iBox2.y;
+  vCue = iBoxAnim.w;
+  vSoft = iBox3.x;
+  vInkK = iBox3.y;
   #include <fog_vertex>
 }`;
 
@@ -234,23 +261,35 @@ uniform sampler2D uSheetSoft;
 uniform float uRest;
 uniform float uPaper;
 uniform float uInk;
+uniform float uFrame;
+uniform float uMultiply;
 varying vec2 vUv;
 varying vec2 vLocal;
 varying float vLit;
 varying float vAlpha;
 varying float vDark;
+varying float vCue;
+varying float vSoft;
+varying float vInkK;
 #include <fog_pars_fragment>
 void main() {
   if (vAlpha < 0.01) discard;
   if (uPaper > 0.5) {
-    // the paper: a black blot with a soft edge, darker the nearer; the box a faint pencil frame that darkens on a beat
-    float ink = texture2D(uSheetSoft, vUv).a * uInk * vDark;
+    // the paper: a black blot, its edge as soft as this person's, darker the nearer and darker where blots overlap
+    // (multiply); the window a CRISP frame (TD): corner brackets that thicken on a beat and for the asker, a hairline
+    // border; a ripple (cue 2) is the frame alone
+    float ink = vCue > 1.5 ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft) * uInk * vDark * vInkK;
     float bx = min(vLocal.x, 1.0 - vLocal.x), by = min(vLocal.y, 1.0 - vLocal.y);
-    float frame = (bx < 0.025 || by < 0.014) ? 1.0 : 0.0;
-    float frameA = frame * mix(0.22, 0.55, vLit) * vDark;
+    float thick = 0.03 + 0.03 * vLit + 0.04 * step(0.5, vCue);
+    float bracket = ((bx < thick && by < 0.2) || (by < thick * 0.6 && bx < 0.2)) ? 1.0 : 0.0;
+    float hair = (bx < 0.008 || by < 0.005) ? 0.35 : 0.0;
+    float frameA = max(bracket * mix(0.55, 1.0, vLit), hair) * uFrame * (0.4 + 0.6 * vDark);
+    if (vCue > 1.5) frameA = bracket * 0.9 + hair;
     float a = max(ink, frameA) * vAlpha;
     if (a < 0.015) discard;
-    gl_FragColor = vec4(mix(vec3(0.5), vec3(0.05), step(frameA, ink)), a);
+    vec3 col = mix(vec3(0.3), vec3(0.03), step(frameA, ink));
+    if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), col, a), 1.0);
+    else gl_FragColor = vec4(col, a);
     #include <fog_fragment>
     return;
   }
@@ -400,6 +439,7 @@ export function PointPeople({
     g.setAttribute("iBox", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute("iBoxAnim", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute("iBox2", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBox3", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
     g.instanceCount = 0;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     return g;
@@ -407,16 +447,19 @@ export function PointPeople({
   const boxMat = useMemo(
     () =>
       new THREE.ShaderMaterial({
-        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 } }]),
+        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uRows: { value: SHEET_ROWS }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 }, uFrame: { value: 1 }, uMultiply: { value: 0 } }]),
         vertexShader: BOX_VERT,
         fragmentShader: BOX_FRAG,
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
         fog: fogOn,
+        // on paper overlapping blots multiply into something darker (the artist: "겹친 부분은 확 더 진하게")
+        blending: look.paper && look.overlap ? THREE.MultiplyBlending : THREE.NormalBlending,
       }),
-    [fogOn],
+    [fogOn, look.paper, look.overlap],
   );
+  const gazeId = useRef<string | null>(null);
   useEffect(
     () => () => {
       boxGeom.dispose();
@@ -540,17 +583,18 @@ export function PointPeople({
     const BX = iBox.array as Float32Array, BY = iBoxAnim.array as Float32Array;
     const iBox2 = boxGeom.getAttribute("iBox2") as THREE.InstancedBufferAttribute;
     const BZ = iBox2.array as Float32Array;
+    const iBox3 = boxGeom.getAttribute("iBox3") as THREE.InstancedBufferAttribute;
+    const BW = iBox3.array as Float32Array;
     const boxes = look.mode === "boxes";
+    const pv = look.paperVariety;
     const paper = look.paper;
     const fadeU = Math.max(0.5, look.fadeDist);
     let n = 0, nb = 0;
     const plates = plateMesh.current;
     let np = 0;
     const smearEvery = copies > 0 ? look.smearSec / copies : Infinity;
-    // the melody's step now, and the eye's right (for which way a silhouette walks on the screen)
+    // the melody's step now
     const step = stepAt(performance.now());
-    const cm = state.camera.matrixWorld.elements;
-    const rightX = cm[0], rightZ = cm[2];
     const nowMs = performance.now();
     for (const [id, p] of P) {
       const gone = now - p.seen > GONE_SEC;
@@ -607,9 +651,8 @@ export function PointPeople({
       const cue = look.cue && askUntil !== undefined && nowMs < askUntil ? 1 : 0;
       if (boxes) {
         if (nb < MAX_INSTANCES) {
-          // which way the silhouette walks on the screen: with the eye's right, or mirrored; a standing one keeps its way
-          const along = p.vx * rightX + p.vz * rightZ;
-          if (speed > motion.standBelow) p.flip = along < 0 ? 1 : 0;
+          // the plate stands along the heading (a standing one keeps its last way)
+          if (speed > motion.standBelow) p.flip = 0;
           // paper: nearer = darker and sharper; walking = stretched along the screen
           const dist = Math.hypot(p.x - me.x, p.z - me.z);
           const dark = paper ? 0.2 + 0.8 * Math.max(0, 1 - dist / fadeU) : 1;
@@ -622,23 +665,24 @@ export function PointPeople({
           if (paper && look.stretchGain > 0) {
             const age = now - p.sampleAt;
             const kk = gone ? 1.6 : Math.max(0, 1 - age / SAMPLE_SEC);
-            const along = Math.abs(p.sdx * rightX + p.sdz * rightZ) * look.stretchGain * kk;
+            // the move between samples, in the world, along the being's own way
+            const along = Math.hypot(p.sdx, p.sdz) * look.stretchGain * kk;
             const w0 = Math.max(0.05, heightU * p.hs * aspect);
             stretch = Math.min(6, along / w0);
             cx -= 0.5 * p.sdx * kk;
             cz -= 0.5 * p.sdz * kk;
             if (now < p.shakeUntil && look.shake > 0) {
               const sh = Math.sin(now * 90) * look.shake * 0.01 * k;
-              cx += sh * rightX;
-              cz += sh * rightZ;
+              cx += sh * Math.sin(p.heading);
+              cz += sh * Math.cos(p.heading);
             }
           }
           // beyond the blot radius the present's scan carries them (future-presence): nothing drawn here
           const cut = paper ? Math.max(0, Math.min(1, 1 - (dist - look.blotDist) / 1.5)) : 1;
           BX[nb * 4] = cx;
           BX[nb * 4 + 1] = cz;
-          BX[nb * 4 + 2] = heightU * p.hs * (1 + 0.2 * cue);
-          BX[nb * 4 + 3] = p.flip;
+          BX[nb * 4 + 2] = heightU * p.hs * (1 + 0.35 * cue);
+          BX[nb * 4 + 3] = p.heading;
           BY[nb * 4] = p.phase;
           BY[nb * 4 + 1] = lit;
           BY[nb * 4 + 2] = p.alpha * cut;
@@ -646,7 +690,44 @@ export function PointPeople({
           BZ[nb * 4] = stretch;
           BZ[nb * 4 + 1] = dark;
           BZ[nb * 4 + 2] = aspect;
+          // this person's way: a walk of their own (the sheet's row), their ink, the softness of their edge, their lean;
+          // the asker waves instead of walking
+          const row = cue ? WAVE_ROW : Math.floor(frac(p.hash * 29.7) * WALK_STYLES.length);
+          BW[nb * 4] = pv * frac(p.hash * 41.3);
+          BW[nb * 4 + 1] = 1 + pv * (0.4 * frac(p.hash * 53.1) - 0.2);
+          BW[nb * 4 + 2] = pv * (frac(p.hash * 61.7) - 0.5) * 0.14;
+          BW[nb * 4 + 3] = row;
+          const baseNb = nb;
           nb++;
+          // the asker: the wave runs on its own time; square ripples spread from the window on the bar; the eye turns
+          if (cue) {
+            p.phase = (p.phase + dt * 0.9) % 1;
+            if (gazeId.current !== id) {
+              gazeId.current = id;
+              streetGaze.x = p.x;
+              streetGaze.z = p.z;
+              streetGaze.until = now + 1.2;
+              streetGaze.on = look.askTurn;
+            }
+            if (paper && look.ripple) {
+              for (let r = 0; r < 2; r++) {
+                if (nb >= MAX_INSTANCES) break;
+                const t = ((now * 0.9 + r * 0.5) % 1);
+                const grow = 1.15 + 0.7 * t;
+                for (let q = 0; q < 4; q++) {
+                  BX[nb * 4 + q] = BX[baseNb * 4 + q];
+                  BY[nb * 4 + q] = BY[baseNb * 4 + q];
+                  BZ[nb * 4 + q] = BZ[baseNb * 4 + q];
+                  BW[nb * 4 + q] = BW[baseNb * 4 + q];
+                }
+                BX[nb * 4 + 2] = heightU * p.hs * grow;
+                BY[nb * 4 + 2] = p.alpha * cut * (1 - t) * 0.8;
+                BY[nb * 4 + 3] = 2;
+                BZ[nb * 4] = stretch;
+                nb++;
+              }
+            }
+          } else if (gazeId.current === id) gazeId.current = null;
           // paper: the trail — the body's past places as paler blots behind it (the long exposure's drag)
           if (paper) {
             for (const c of p.trail) {
@@ -655,7 +736,7 @@ export function PointPeople({
               BX[nb * 4] = c.x;
               BX[nb * 4 + 1] = c.z;
               BX[nb * 4 + 2] = heightU * p.hs;
-              BX[nb * 4 + 3] = p.flip;
+              BX[nb * 4 + 3] = c.heading;
               BY[nb * 4] = c.phase;
               BY[nb * 4 + 1] = 0;
               BY[nb * 4 + 2] = p.alpha * cut * 0.6 * (1 - age) * (1 - age);
@@ -663,6 +744,7 @@ export function PointPeople({
               BZ[nb * 4] = stretch;
               BZ[nb * 4 + 1] = dark;
               BZ[nb * 4 + 2] = aspect;
+              for (let q = 0; q < 4; q++) BW[nb * 4 + q] = BW[baseNb * 4 + q];
               nb++;
             }
           }
@@ -736,10 +818,12 @@ export function PointPeople({
     iBox.addUpdateRange(0, nb * 4);
     iBoxAnim.addUpdateRange(0, nb * 4);
     iBox2.addUpdateRange(0, nb * 4);
+    iBox3.addUpdateRange(0, nb * 4);
     iBox.needsUpdate = true;
     iBoxAnim.needsUpdate = true;
     iBox2.needsUpdate = true;
-    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink });
+    iBox3.needsUpdate = true;
+    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink, uFrame: look.frame, uMultiply: paper && look.overlap ? 1 : 0 });
     // the paper's labels, a few times a second: the nearest three within labelDist
     labelTimer.current += dt;
     if (labelTimer.current > 0.3) {
@@ -786,8 +870,9 @@ export function PointPeople({
         labels.map((l) => (
           <Html key={l.id} position={[l.x, l.y, l.z]} style={{ pointerEvents: "none" }} zIndexRange={[5, 0]}>
             <div style={{ transform: "translate(6px, -34px)", width: 26, height: 28, borderLeft: "1px solid #444", borderBottom: "1px solid #444", borderRadius: "0 0 0 1px" }} />
-            <div className="hud-ko" style={{ position: "absolute", left: 34, top: -44, whiteSpace: "nowrap", fontSize: 11, color: "#111", letterSpacing: "0.04em" }}>
-              개체 {l.id.replace(/[^0-9a-z]/gi, "").slice(-4).toUpperCase()}
+            {/* the name is the melody (the artist: "이름은 봇_숫자가 아니라 멜로디 음형으로") */}
+            <div style={{ position: "absolute", left: 34, top: -46, filter: "invert(1)" }}>
+              <Glyph dots={glyphOf(l.id)} cell={2} live />
             </div>
           </Html>
         ))}

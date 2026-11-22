@@ -41,6 +41,9 @@ export interface StreetGroundLook {
 
 /** The paper's white, and the vegetation's light green on it. */
 export const PAPER = "#f4f2ec";
+
+/** Whoever asked me something last, and until when the eye may turn towards them (frame s): set by PointPeople, read by the controller. */
+export const streetGaze: { x: number; z: number; until: number; on: boolean } = { x: 0, z: 0, until: 0, on: false };
 export const PAPER_GREEN = "#b7d3a4";
 
 export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false, paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, blotDist: 8 };

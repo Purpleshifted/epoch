@@ -23,7 +23,7 @@ import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { PointPeople } from "./PointPeople";
 import { StreetHud, type LogPlace } from "./StreetHud";
-import { PAPER } from "./streetLook";
+import { PAPER, streetGaze } from "./streetLook";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -170,6 +170,8 @@ function Controller({
   const group = useRef<THREE.Group>(null);
   /** A phone: a finger is on the screen (= walking). */
   const pressing = useRef(false);
+  /** When the visitor last turned the look themself (ms): the gaze's turn to an asker yields to it. */
+  const lastLook = useRef(0);
 
   useEffect(() => {
     const c = gl.domElement;
@@ -181,6 +183,7 @@ function Controller({
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
+      lastLook.current = performance.now();
       yaw.current -= e.movementX * 0.0025 * look;
       pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + e.movementY * 0.002 * look));
     };
@@ -224,6 +227,7 @@ function Controller({
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
+      if (Math.abs(dx) > 2) lastLook.current = performance.now();
       yaw.current -= dx * TOUCH_TURN_RAD_PER_PX * look;
       pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + dy * TOUCH_PITCH_RAD_PER_PX * look));
     };
@@ -250,7 +254,7 @@ function Controller({
     };
   }, [gl, setLocked, lifeRef, coarse]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const p = player.current;
     const k = keys.current;
     const dt = Math.min(delta, 0.05);
@@ -264,6 +268,13 @@ function Controller({
     const tl = tiltRef?.current;
     const tilt = !dead && coarse && tl?.active ? tl : null;
     if (tilt && tilt.turn !== 0) yaw.current -= tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * dt;
+    // 길거리: whoever asked me something draws the eye — a soft turn their way for a moment, unless I am turning myself
+    const gz = streetGaze;
+    if (gz.on && state.clock.elapsedTime < gz.until && performance.now() - lastLook.current > 400) {
+      let diff = Math.atan2(gz.x - p.x, gz.z - p.z) - yaw.current;
+      diff = ((((diff + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+      yaw.current += diff * Math.min(1, dt * 2.5);
+    }
     const y = yaw.current;
     const tiltFwd = tilt ? (tilt.fwd >= 0 ? tilt.fwd : tilt.fwd * 0.4) : 0;
     const pressFwd = !dead && coarse && pressing.current ? 1 : 0;

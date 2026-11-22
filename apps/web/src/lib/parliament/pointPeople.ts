@@ -81,8 +81,8 @@ const wrap = (phi: number): number => ((phi % TAU) + TAU) % TAU;
  * folds in the swing (the thigh coming forward, most as it passes under the body) and never quite locks in the stance;
  * the heel lifts towards toe-off and the toes hang in the swing.
  */
-function leg(hip: V3, phi: number, thigh: number, shin: number) {
-  const theta = 0.4 * Math.sin(phi); // thigh forward (+) / back (−)
+function leg(hip: V3, phi: number, thigh: number, shin: number, step = 0.4) {
+  const theta = step * Math.sin(phi); // thigh forward (+) / back (−)
   const swing = Math.max(0, Math.sin(phi + 1.3)); // 1 in mid-swing, 0 through the stance
   const knee = 0.08 + 0.8 * Math.pow(swing, 1.6);
   const k = hang(hip, thigh, theta);
@@ -97,8 +97,8 @@ function leg(hip: V3, phi: number, thigh: number, shin: number) {
 }
 
 /** One arm at `phi` (opposite to the leg of the same side): the elbow bends more as the arm comes forward. */
-function arm(sh: V3, phi: number, upper: number, fore: number) {
-  const alpha = 0.3 * Math.sin(phi);
+function arm(sh: V3, phi: number, upper: number, fore: number, swing = 0.3) {
+  const alpha = swing * Math.sin(phi);
   const e = hang(sh, upper, alpha);
   const w = hang(e, fore, alpha + 0.35 + 0.3 * Math.max(0, Math.sin(phi)));
   return { elbow: e, wrist: w };
@@ -112,23 +112,55 @@ const across = (c: V3, d: number, yaw: number): V3 => add(c, [d * Math.cos(yaw),
  * with the legs and sways towards the standing leg, the shoulders turn against it, the trunk leans a little forward,
  * the head rides steadier than the pelvis.
  */
-export function jointsAt(phase: number): Joints {
+/**
+ * A WAY OF WALKING (the artist, 2026-11-22 night: "걷거나 하는 제스처도 다양해야 할듯. 지금보다 훨씬 더"): the stride's
+ * amplitudes, the lean, the bounce — and `wave`, which is not a walk at all: standing, one arm raised and waving (the one
+ * who asks me something: "말 걸 때도 지금 걷는거랑 동작이 같으니 와닿지 않아").
+ */
+export interface WalkStyle {
+  /** The thigh's swing (rad), the arms' swing (rad), the trunk's forward lean (m), the bounce (m). */
+  step: number;
+  swing: number;
+  lean: number;
+  bob: number;
+  /** Standing and waving instead of walking. */
+  wave?: boolean;
+}
+
+export const WALK_STYLES: readonly WalkStyle[] = [
+  { step: 0.4, swing: 0.3, lean: 0.035, bob: 0.02 }, // the plain walk
+  { step: 0.5, swing: 0.45, lean: 0.08, bob: 0.03 }, // a hurried, leaning stride
+  { step: 0.3, swing: 0.15, lean: 0.0, bob: 0.012 }, // a short, quiet step, arms still
+  { step: 0.36, swing: 0.55, lean: -0.02, bob: 0.028 }, // a loose, swinging walk, a little back
+];
+export const WAVE_STYLE: WalkStyle = { step: 0, swing: 0, lean: 0.02, bob: 0, wave: true };
+
+export function jointsAt(phase: number, style: WalkStyle = WALK_STYLES[0]): Joints {
   const phi = phase * TAU;
-  const bob = 0.02 * Math.cos(2 * phi); // highest twice a stride, at mid-stance
-  const sway = 0.018 * Math.sin(phi + 0.6); // the weight over the standing leg
-  const pelvisYaw = 0.13 * Math.sin(phi); // the left hip forward with the left leg
-  const shoulderYaw = -0.09 * Math.sin(phi); // against it
+  const bob = style.bob * Math.cos(2 * phi); // highest twice a stride, at mid-stance
+  const sway = (style.wave ? 0.006 : 0.018) * Math.sin(phi + 0.6); // the weight over the standing leg
+  const pelvisYaw = (style.wave ? 0 : 0.13) * Math.sin(phi); // the left hip forward with the left leg
+  const shoulderYaw = (style.wave ? 0.04 : -0.09) * Math.sin(phi); // against it
   const pelvis: V3 = [sway, 0.95 + bob, 0];
-  const shoulders: V3 = [sway * 0.4, 1.45 + bob * 0.8, 0.035];
-  const head: V3 = [sway * 0.2, 1.59 + bob * 0.5, 0.045];
+  const shoulders: V3 = [sway * 0.4, 1.45 + bob * 0.8, style.lean];
+  const head: V3 = [sway * 0.2, 1.59 + bob * 0.5, style.lean + 0.01];
   const hipL = across(add(pelvis, [0, -0.02, 0]), -0.1, pelvisYaw);
   const hipR = across(add(pelvis, [0, -0.02, 0]), 0.1, pelvisYaw);
-  const L = leg(hipL, phi, 0.44, 0.44);
-  const R = leg(hipR, phi + Math.PI, 0.44, 0.44);
+  const L = leg(hipL, phi, 0.44, 0.44, style.step);
+  const R = leg(hipR, phi + Math.PI, 0.44, 0.44, style.step);
   const shL = across(shoulders, -0.19, shoulderYaw);
   const shR = across(shoulders, 0.19, shoulderYaw);
-  const AL = arm(shL, phi + Math.PI, 0.3, 0.27);
-  const AR = arm(shR, phi, 0.3, 0.27);
+  if (style.wave) {
+    // the wave: the right arm up and swinging from the elbow twice a cycle, the left hanging, the head a touch up
+    const elbowR: V3 = add(shR, [0.1, 0.27, 0.08]);
+    const wristR: V3 = add(elbowR, [0.18 * Math.sin(2 * phi), 0.24, 0.02]);
+    const elbowL: V3 = add(shL, [0, -0.3, 0.02]);
+    const wristL: V3 = add(elbowL, [0, -0.27, 0.04]);
+    const feetL = leg(hipL, 0.3, 0.44, 0.44, 0.12), feetR = leg(hipR, 0.3 + Math.PI, 0.44, 0.44, 0.12);
+    return { pelvis, shoulders, head: [head[0], head[1] + 0.01, head[2]], hipL, hipR, kneeL: feetL.knee, kneeR: feetR.knee, ankleL: feetL.ankle, ankleR: feetR.ankle, toeL: feetL.toe, toeR: feetR.toe, shL, shR, elbowL, elbowR, wristL, wristR };
+  }
+  const AL = arm(shL, phi + Math.PI, 0.3, 0.27, style.swing);
+  const AR = arm(shR, phi, 0.3, 0.27, style.swing);
   return { pelvis, shoulders, head, hipL, hipR, kneeL: L.knee, kneeR: R.knee, ankleL: L.ankle, ankleR: R.ankle, toeL: L.toe, toeR: R.toe, shL, shR, elbowL: AL.elbow, elbowR: AR.elbow, wristL: AL.wrist, wristR: AR.wrist };
 }
 
