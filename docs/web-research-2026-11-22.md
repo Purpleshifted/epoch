@@ -71,6 +71,39 @@
 | **Physarum**(점균) | 100만 입자 실시간(2019 MBP), WebGL2 transform feedback 구현, gpu-io 예제 | WebGL | **남은 부재를 먹는 식생의 자람** 텍스처로 256² 한 장이면 충분 | [brandosha](https://github.com/brandosha/physarum), [Klein WebGL2](https://maximilianklein.github.io/showcase/physarum), [gpu-io physarum](https://apps.amandaghassaei.com/gpu-io/examples/physarum/) |
 | 반응확산 | 두 물질 A·B의 상호작용, WebGL1 16비트 패킹 | WebGL | 이끼·곰팡이 무늬 | [piellardj](https://github.com/piellardj/reaction-diffusion-webgl), [Derivative RD 튜토리얼](https://derivative.ca/community-post/tutorial/reaction-diffusion-effect-techniques/69616) |
 
+### 3.1 더 찾은 사례 (작가: "여기 예시들 너무 좋음, 더 찾아줘!!")
+
+**종이·수채·먹 — 우리 흰 바탕의 마감에 바로 닿는 것**
+- **Susurrus** (Codrops 2026-04): three.js + R3F로 만든 **수채화 세계**. 룩 전체가 **Kuwahara 필터**(가장자리를 지키는 평활화 → 붓자국) 한 패스 위에 서 있고, 성능을 위해 단순화한 버전. [Codrops](https://tympanus.net/codrops/2026/04/24/susurrus-crafting-a-cozy-watercolor-world-with-three-js-and-shaders/)
+- **Maxime Heckel, *On Crafting Painterly Shaders*** — R3F 위에 Kuwahara를 후처리로 얹는 GLSL 전문. 수채·구아슈 느낌의 출발점. [blog](https://blog.maximeheckel.com/posts/on-crafting-painterly-shaders), [Moebius 스타일](https://blog.maximeheckel.com/posts/moebius-style-post-processing)
+- **Alexander Hong, 실시간 수채 셰이더**(Luft & Deussen 2003을 three.js로): 종이 질감·가장자리 어두워짐(wet edge)·번짐의 고전 구현. [article](https://alexanderhong.github.io/articles/watercolor)
+- **Forgotten Colors — 수묵을 3D로**(bentobaux): 색 램프를 재질마다 따로 조정해야 했다는 교훈. [post](https://bentobaux.github.io/posts/forgotten-colors-capturing-sumi-e-in-3d)
+- **inkField**: p5/WebGL 피드백 셰이더로 먹 흐름·번짐·마른 붓. [tech](https://ileivoivm.github.io/inkField/tech/en/index.html)
+- **Still**(앞 표) — 수묵 정원, 꽃은 VAT(구운 정점 애니메이션) + 절차적 변주.
+
+**풍경 토큰·작품**
+- **Matt DesLauriers — *Meridian*(2021, 1,000점)·*Subscapes*(2021, 650점)**: 세로 포맷의 끝없는 풍경 한 조각을 작은 색 획 수천 개로 쌓음, 코드 15–17 kB. 자연/인공의 경계를 묻는 풍경. [Meridian notes](https://mattdesl.substack.com/p/notes-on-meridian), [Subscapes 대화](https://www.artblocks.io/article/in-conversation-with-matt-deslauriers-on-subscapes), [GitHub](https://github.com/mattdesl/subscapes)
+- **Penderecki's Garden**(HUNCWOT, Awwwards): 정원을 GLSL 입자로, 소리 분석과 입자 움직임을 묶음. [Awwwards](https://www.awwwards.com/pendereckis-garden-by-huncwot.html)
+- **Celestial Grove**(reyrove, 2024, fxhash): 나무 구조 + 달의 밤 숲. **The Piece of Nature**(unsleeping_ik, 2025): 풀·나무·꽃이 **그려지는 과정이 보이는** 생성. **Deep Forest**(Matt Perkins). [raster.art](https://www.raster.art/artwork/celestial-grove-by-reyrove/about), [raster.art](https://www.raster.art/artwork/the-piece-of-nature-by-unsleeping-ik/about), [raster.art](https://www.raster.art/artwork/deep-forest-by-matt-perkins/about)
+- **Ganges Sands**: 금강경에서 온 three.js 입자 명상. [discourse](https://discourse.threejs.org/t/ganges-sands-a-diamond-sutra-inspired-particle-meditation-in-three-js/95012)
+
+**살아 있는 생태계 — 멈추지 않는 세계 (우리 전시 세계와 같은 종류)**
+- **Fruiting Bodies**(fruitingbodies.life): 브라우저에서 **쉬지 않고 도는** 생성 작품, 일주기·계절·달의 시간에 반응, 생성 앰비언트 드론. [cifra](https://cifra.com/project/fruiting-bodies-fruitingbodieslife)
+- **nom nom**(Xin Liu, Google Arts & Culture): 수백만 입자의 진화하는 생태, **신경 세포 자동자** + 날씨. [A&C](https://artsandculture.google.com/experiment/xin-liu-nom-nom/-wGAP_EYEvH37w)
+- **DIORAMAS**(앞 표): 자라고 번성하다 **결국 먼지로 돌아감** — 우리 화석화·잊힘과 같은 서사. [CAN](https://www.creativeapplications.net/nft/dioramas-itsgalo/)
+- **Browser Botanical**(백그라운드에서 자라는 나무), **Digital Garden**(날씨가 성장 속도), **Reef Dive**(보는 동안 산호가 돋음), **Evo Lumen Life**, **Joel Simon의 생태계 모델링**. [itch](https://itskellen.itch.io/browser-botanical), [digital_garden](https://awesome.ecosyste.ms/projects/github.com%2Fwebmatze%2Fdigital_garden), [Reef Dive](https://arcade.pirillo.com/reef-dive.html), [Evo Lumen](https://joelholder.com/2026/03/02/evo-lumen-life-building-a-living-artificial-ecosystem-in-the-browser), [Joel Simon](https://www.joelsimon.net/ecosystem-modelling)
+
+**스캔된 자연의 계보 (점구름 미학)**
+- **Quayola — *Remains***(진행 중): 라이다로 숲을 수십억 점으로 떠서 대형 종이에 인쇄; *Jardins d'été*(정원 스캔), *Pointillisme: Provence*(2023 — **스캐너가 나뭇잎을 못 푸는 실패**를 작품으로). 우리 "현재의 스캔"의 가장 가까운 형. [Ars Electronica](https://ars.electronica.art/center/?p=500), [Quayola](https://quayola.com/?p=6272), [Meer](https://www.meer.com/en/37443-vestiges)
+- 학술: *The Point Cloud Aesthetic*(Virtual Creativity 2023) — Quayola·Stefano Caimi·Dan Holdsworth. [EBSCO](https://www.ebsco.com/articles/social-sciences-and-humanities/76e252c9-cf60-5297-9d55-1e1c3051be3a/the-point-cloud-aesthetic-defining-a-new-visual-language-in-media-art)
+
+**성장 알고리즘 (남은 부재를 덮는 자람, 유기적 형태)**
+- **Andy Lomas — *Cellular Forms***: 세포 분열·스프링·반발로 5천만 세포의 형태(C++/CUDA; 웹은 축소판만 가능). [SIGGRAPH](https://history.siggraph.org/experience/cellular-forms-an-artistic-exploration-of-morphogenesis-by-lomas)
+- **L-시스템**: three.js로 실시간 나무 정원(L-System-Trees), `lindenmayer` 라이브러리(2D/3D three.js). [L-System-Trees](https://github.com/FrancescoGradi/L-System-Trees), [lindenmayer](https://github.com/nylki/lindenmayer)
+- 절차 나무: **Fractals to Forests**(Codrops 2025-01), **Procedural Instanced Forest**(2025-12, 수백 그루·잎 흔들림·LOD), **Florasynth**. [Codrops](https://tympanus.net/codrops/2025/01/27/fractals-to-forests-creating-realistic-3d-trees-with-three-js/), [discourse](https://discourse.threejs.org/t/procedural-instanced-forest-high-performance-real-trees/88610), [Florasynth](https://discourse.threejs.org/t/florasynth-procedural-tree-generator/58740)
+- 풀: **100만 잎 60 fps**(three.js), **WebGPU 고성능 풀**. [discourse](https://discourse.threejs.org/t/real-time-grass-simulation-in-the-browser-over-1-million-blades-at-60-fps/82808), [discourse](https://discourse.threejs.org/t/high-performance-grass-rendering-in-three-js-webgpu/94175.md)
+- 고전: iq의 **Elevated**(텍스처 없이 산·하늘·안개 전부 셰이더), **Rainforest**. [Elevated 포팅](https://discussions.unity.com/t/elevated-shader-in-unity3d/674737)
+
 경향: 2025–26의 "유기적 풍경"은 WebGPU(컴퓨트 셰이더)로 많이 넘어갔다. 우리는 WebGL로 가되 TSL(WGSL/GLSL 둘 다 출력)로 쓰면 나중에 옮길 수 있다 — 단, 지금 코드베이스는 GLSL ShaderMaterial이라 당장은 그대로.
 
 ## 4. 우리에게 — 추천
