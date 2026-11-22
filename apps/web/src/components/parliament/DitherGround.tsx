@@ -8,6 +8,9 @@
  * a hard circle: no fog, no fade. Far cheaper than the cloud: a small texture instead of tens of thousands of points.
  * 길거리 (2026-11-22): when the scene HAS a fog (the street trial's 깊이 안개 switch — the brutal look has none otherwise) the
  * field takes it, and its rim fades into the fog's colour instead of being cut, so the ground ends in a horizon, not a disc.
+ * And with the trial on (streetLook.ts, read per frame): where a path has formed the cell is WORN — an achromatic grey (a
+ * human trace) with a grain, and a dark seam where two cells' wear differs (a kerb's line) — and slow waves of shade cross
+ * the grass (wind). The texture carries two channels: r = the grass density, g = the path's strength.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -16,6 +19,7 @@ import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { WORLD_SIZE, grassDensity, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
 import { markSpan } from "./usePerfMeter";
+import { streetGround } from "./streetLook";
 
 const REFRESH = 0.1;
 
@@ -42,22 +46,59 @@ uniform float uFog;
 uniform float uFogNear;
 uniform float uFogFar;
 uniform vec3 uFogColor;
+uniform float uStreet;
+uniform float uCell;
+uniform float uWear;
+uniform float uWearGrey;
+uniform float uSeam;
+uniform float uGrain;
+uniform float uWind;
+uniform float uWindSpeed;
+uniform float uTime;
 varying vec2 vXZ;
 varying vec3 vW;
 float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
 float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
+float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+// the worn share of the cell whose texel centre is uv (a path from 0.08 up is worn, fully from 0.6)
+float wearAt(vec2 uv) { return smoothstep(0.08, 0.6, texture2D(uG, uv).g) * uWear; }
 void main() {
   float dc = distance(vXZ, uCentre);
   if (dc > uRadius) discard;
-  float g = texture2D(uG, (vXZ - uOrigin) / uSpan).r;
+  vec2 rel = vXZ - uOrigin;
+  float g = texture2D(uG, rel / uSpan).r;
+  // 길거리: the worn ground where a path has formed (achromatic), per cell, with a grain and a seam where two cells'
+  // wear differs; the wind as slow waves of shade over the grass
+  float wear = 0.0, seam = 0.0, grain = 1.0, wind = 1.0;
+  if (uStreet > 0.5) {
+    vec2 cell = floor(rel / uCell);
+    vec2 cuv = (cell + 0.5) * uCell / uSpan;
+    wear = wearAt(cuv);
+    grain = 1.0 - uGrain * 0.35 * hash12(floor(vXZ * 9.0));
+    vec2 f = fract(rel / uCell);
+    float t = 0.03 / uCell;
+    vec2 o = vec2(uCell / uSpan, 0.0);
+    if (f.x < t) seam = max(seam, step(0.1, abs(wear - wearAt(cuv - o.xy))));
+    if (f.x > 1.0 - t) seam = max(seam, step(0.1, abs(wear - wearAt(cuv + o.xy))));
+    if (f.y < t) seam = max(seam, step(0.1, abs(wear - wearAt(cuv - o.yx))));
+    if (f.y > 1.0 - t) seam = max(seam, step(0.1, abs(wear - wearAt(cuv + o.yx))));
+    wind = 1.0 - uWind * 0.18 * (0.5 + 0.5 * sin(dot(vXZ, vec2(0.6, 0.35)) * 0.8 + uTime * uWindSpeed * 1.1 + 1.5 * sin(vXZ.y * 0.21 - uTime * uWindSpeed * 0.37)));
+  }
   // the scene's fog (when there is one), and the rim fading into it
   float fk = uFog * max(smoothstep(uFogNear, uFogFar, distance(vW, cameraPosition)), smoothstep(uRadius * 0.55, uRadius, dc));
+  vec3 worn = vec3(uWearGrey) * grain * (1.0 - 0.6 * seam * uSeam);
   if (uDither < 0.5) {
-    gl_FragColor = vec4(mix(uColor * g, uFogColor, fk), 1.0);
+    vec3 c = mix(uColor * g * wind, worn, wear);
+    gl_FragColor = vec4(mix(c, uFogColor, fk), 1.0);
     return;
   }
-  if (g <= bayer8(floor(gl_FragCoord.xy / uPx))) discard;
+  float b = bayer8(floor(gl_FragCoord.xy / uPx));
+  if (wear * grain > b) {
+    gl_FragColor = vec4(mix(worn, uFogColor, fk), 1.0);
+    return;
+  }
+  if (g * wind <= b) discard;
   gl_FragColor = vec4(mix(uColor, uFogColor, fk), 1.0);
 }`;
 
@@ -95,9 +136,10 @@ export function DitherGround({
   const derived = useRef<{ snap: Snapshot | null; pathAt: Map<string, number>; sealed: Set<string> }>({ snap: null, pathAt: new Map(), sealed: new Set() });
   const n = Math.ceil(radius / CELL_SIZE);
   const size = 2 * n + 1;
-  const data = useMemo(() => new Uint8Array(size * size), [size]);
+  // two channels a cell: r = the grass density, g = the path's strength (the street's wear)
+  const data = useMemo(() => new Uint8Array(size * size * 2), [size]);
   const tex = useMemo(() => {
-    const t = new THREE.DataTexture(data, size, size, THREE.RedFormat, THREE.UnsignedByteType);
+    const t = new THREE.DataTexture(data, size, size, THREE.RGFormat, THREE.UnsignedByteType);
     t.magFilter = t.minFilter = THREE.NearestFilter;
     t.generateMipmaps = false;
     t.needsUpdate = true;
@@ -122,6 +164,15 @@ export function DitherGround({
           uFogNear: { value: 1 },
           uFogFar: { value: 100 },
           uFogColor: { value: new THREE.Color("#000000") },
+          uStreet: { value: 0 },
+          uCell: { value: CELL_SIZE },
+          uWear: { value: 0 },
+          uWearGrey: { value: 0.42 },
+          uSeam: { value: 0.6 },
+          uGrain: { value: 0.5 },
+          uWind: { value: 0 },
+          uWindSpeed: { value: 1 },
+          uTime: { value: 0 },
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,12 +187,22 @@ export function DitherGround({
     [tex, geom, mat],
   );
 
-  useFrame(({ gl, scene }, dt) => {
+  useFrame(({ gl, scene, clock }, dt) => {
     const p = playerPosRef.current;
     mesh.current?.position.set(p.x, 0.005, p.z);
     const u = mat.uniforms;
     (u.uCentre.value as THREE.Vector2).set(p.x, p.z);
     u.uRadius.value = radius;
+    // 길거리 (streetLook.ts): the worn ground and the wind, nothing unless the trial is on
+    const st = streetGround;
+    u.uStreet.value = st.on ? 1 : 0;
+    u.uWear.value = st.wear;
+    u.uWearGrey.value = st.wearGrey;
+    u.uSeam.value = st.seam;
+    u.uGrain.value = st.grain;
+    u.uWind.value = st.wind;
+    u.uWindSpeed.value = st.windSpeed;
+    u.uTime.value = clock.elapsedTime;
     // the scene's fog, if any (길거리 › 깊이 안개 in the brutal look; the soft look never draws this field)
     const fog = scene.fog as THREE.Fog | null;
     u.uFog.value = fog && fog.isFog ? 1 : 0;
@@ -187,7 +248,10 @@ export function DitherGround({
         const wz = wrapCell(cz0 - n + j);
         const key = `${wx},${wz}`;
         const S = (stress?.get(key) ?? 0) + (quick?.get(key) ?? 0);
-        data[j * size + i] = Math.min(255, Math.round(255 * density * grassDensity(wx, wz, S, pathAt.get(key) ?? 0, sealed.has(key), cfg)));
+        const pp = pathAt.get(key) ?? 0;
+        const k = (j * size + i) * 2;
+        data[k] = Math.min(255, Math.round(255 * density * grassDensity(wx, wz, S, pp, sealed.has(key), cfg)));
+        data[k + 1] = Math.min(255, Math.round(255 * Math.min(1, pp)));
       }
     }
     tex.needsUpdate = true;

@@ -133,6 +133,7 @@ function Controller({
   coarse = false,
   getRhythm,
   eye,
+  walkSpeed = 7,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -151,6 +152,8 @@ function Controller({
   getRhythm?: () => boolean[] | null;
   /** 길거리 (2026-11-22, a trial): the eye at a person's height just behind the walker, looking level; off = as it was. */
   eye?: { on: boolean; height: number; back: number; look: number };
+  /** Forward speed (world/s; 7 as it was — 길거리 has a knob); sideways is 4.5/7 of it. */
+  walkSpeed?: number;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -263,8 +266,8 @@ function Controller({
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
     const left = !dead && (k.has("KeyA") || k.has("ArrowLeft")) ? 1 : 0;
     const rgt = !dead && (k.has("KeyD") || k.has("ArrowRight")) ? 1 : 0;
-    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd + pressFwd)) * 7.0 * gain;
-    const tgtStrafe = (rgt - left) * 4.5 * gain;
+    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd + pressFwd)) * walkSpeed * gain;
+    const tgtStrafe = (rgt - left) * walkSpeed * (4.5 / 7) * gain;
     const tvx = Math.sin(y) * tgtFwd + -Math.cos(y) * tgtStrafe;
     const tvz = Math.cos(y) * tgtFwd + Math.sin(y) * tgtStrafe;
     const drag = (2.0 + (1 - viscosity) * 13.0) * (h?.response ?? 1);
@@ -505,6 +508,7 @@ export default function ParliamentScene() {
           coarse={coarse}
           getRhythm={withSession ? getRhythm : undefined}
           eye={isV2 ? visuals.street.eye : undefined}
+          walkSpeed={isV2 ? visuals.street.walkSpeed : 7}
         />
         <RoleField
           key={`field-${session.sessionNo}`}

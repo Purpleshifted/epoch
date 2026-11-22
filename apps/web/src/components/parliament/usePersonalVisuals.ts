@@ -14,11 +14,12 @@
  *               (PointPeople.tsx), the eye at a person's height, a depth fog in the brutal look — off = the look as it was
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { folder, useControls } from "leva";
 import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
 import { DEFAULT_PEOPLE, type PeopleLook } from "./PointPeople";
+import { setStreetGround } from "./streetLook";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 
@@ -73,6 +74,8 @@ export interface StreetVisual {
   eye: { on: boolean; height: number; back: number; look: number };
   /** A black depth fog in the brutal look (the 화면 folder's near / far). */
   fog: boolean;
+  /** The walker's speed (world/s; 7 as it was — a person walks 1.4, a bot 2.2). */
+  walkSpeed: number;
 }
 
 export interface PersonalVisuals {
@@ -197,6 +200,18 @@ export function usePersonalVisuals(): PersonalVisuals {
           eyeBack: { value: 1.6, min: 0, max: 6, step: 0.1, label: "걷는 이에서 뒤로 (월드)", render: v2 },
           eyeLook: { value: 6, min: 2, max: 20, step: 0.5, label: "시선이 닿는 거리 (월드)", render: v2 },
           streetFog: { value: false, label: "깊이 안개 (브루털에도; 화면 › fogNear/fogFar)", render: v2 },
+          walkSpeed: { value: 7, min: 1, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 지금 7 · 사람 1.4 · 봇 2.2)", render: v2 },
+          ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있을 때 가까운 이를 마주 봄", render: v2 },
+          ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (월드)", render: v2 },
+          // the ground (streetLook.ts → DitherGround / NatureCloud)
+          groundOn: { value: true, label: "땅: 길이 난 칸의 닳음 (무채색)", render: v2 },
+          groundWear: { value: 0.7, min: 0, max: 1, step: 0.05, label: "닳음 세기", render: v2 },
+          groundGrey: { value: 0.42, min: 0.05, max: 1, step: 0.02, label: "닳은 땅의 회색", render: v2 },
+          groundSeam: { value: 0.6, min: 0, max: 1, step: 0.05, label: "턱 — 칸 사이 줄눈의 어두움", render: v2 },
+          groundGrain: { value: 0.5, min: 0, max: 1, step: 0.05, label: "결 — 닳은 땅의 알갱이", render: v2 },
+          windDepth: { value: 0.5, min: 0, max: 1, step: 0.05, label: "바람: 풀 면을 지나는 결 (0 = 없음)", render: v2 },
+          windSpeed: { value: 1, min: 0.2, max: 4, step: 0.1, label: "바람 속도", render: v2 },
+          grassSway: { value: 0.5, min: 0, max: 2, step: 0.1, label: "네모 점 풀의 흔들림 (0 = 없음)", render: v2 },
         },
         { collapsed: false },
       ),
@@ -264,11 +279,18 @@ export function usePersonalVisuals(): PersonalVisuals {
         fog: c.ppFog,
         maxSpeed: c.ppMaxSpeed,
         recentSec: c.otherRecent,
+        faceEach: c.ppFaceEach,
+        faceRadius: c.ppFaceRadius,
       },
       eye: { on: c.streetOn && c.eyeOn, height: c.eyeHeight, back: c.eyeBack, look: c.eyeLook },
       fog: c.streetOn && c.streetFog,
+      walkSpeed: c.streetOn ? c.walkSpeed : 7,
     }),
-    [c.streetOn, c.streetPeople, c.ppPoints, c.ppPointsPhone, c.ppDot, c.ppGrey, c.ppHeight, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog],
+    [c.streetOn, c.streetPeople, c.ppPoints, c.ppPointsPhone, c.ppDot, c.ppGrey, c.ppHeight, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
+  // the ground's part of the street look goes to the components RoleField mounts, through the module value
+  useEffect(() => {
+    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway });
+  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway]);
   return { look: c.look, footprint: c.footprint, card, grass, marks, street };
 }

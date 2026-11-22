@@ -45,9 +45,16 @@ export interface PeopleLook {
   maxSpeed: number;
   /** Seconds after the last sample from which the body fades (its age); the record's own recent window. */
   recentSec: number;
+  /** A standing body turns to face the nearest other within `faceRadius` (a group stands together, not in a row). */
+  faceEach: boolean;
+  faceRadius: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { points: 480, pointsPhone: 200, dot: 0.045, grey: 0.78, height: 1.7, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10 };
+export const DEFAULT_PEOPLE: PeopleLook = { points: 480, pointsPhone: 200, dot: 0.045, grey: 0.78, height: 1.7, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3 };
+
+const TAU = Math.PI * 2;
+/** How fast a standing body turns to face someone (rad/s) — slower than a walker turns. */
+const FACE_TURN = 1.5;
 
 const MAX_PEOPLE = 96;
 const MAX_COPIES = 8;
@@ -250,6 +257,24 @@ export function PointPeople({
         p.trail.length = 0;
       }
       stepPerson(p, dt, motion);
+      // standing near someone, the body turns to face the nearest of them (slowly): a group, not a row
+      if (look.faceEach && Math.hypot(p.vx, p.vz) < motion.standBelow) {
+        let best: Person | null = null, bd = look.faceRadius;
+        for (const q of P.values()) {
+          if (q === p) continue;
+          const d = Math.hypot(q.x - p.x, q.z - p.z);
+          if (d < bd) {
+            bd = d;
+            best = q;
+          }
+        }
+        if (best) {
+          let diff = Math.atan2(best.x - p.x, best.z - p.z) - p.heading;
+          diff = ((((diff + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+          const maxTurn = FACE_TURN * dt;
+          p.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+        }
+      }
       const target = gone ? 0 : p.bright;
       p.alpha += (target - p.alpha) * Math.min(1, dt / FADE_SEC) * (gone ? 1 : 3);
       const speed = Math.hypot(p.vx, p.vz);
