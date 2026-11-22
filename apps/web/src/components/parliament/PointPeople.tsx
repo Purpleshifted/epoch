@@ -23,6 +23,7 @@ import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } 
 import { Glyph } from "./Glyph";
 import { DEFAULT_BODY, DEFAULT_MOTION, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
 import { streetGaze } from "./streetLook";
+import { EXPOSURE_LAYER } from "./InkPaper";
 import { onLifeEvent } from "./lifeEvents";
 
 export type PeopleMode = "boxes" | "points";
@@ -58,7 +59,8 @@ export interface PeopleLook {
   /** Paper (the artist, 2026-11-22 night): overlapping blots multiply darker; the frame's strength (crisp corner brackets,
    *  TD-like); the eye turns towards whoever asks; square ripples spread from the asker; how different the people are in
    *  their walk, ink, softness and tilt (0 … 1). */
-  overlap: boolean;
+  /** The exposure a frame adds (the feedback's gain). */
+  exposure: number;
   frame: number;
   askTurn: boolean;
   ripple: boolean;
@@ -108,7 +110,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, overlap: true, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -262,7 +264,7 @@ uniform float uRest;
 uniform float uPaper;
 uniform float uInk;
 uniform float uFrame;
-uniform float uMultiply;
+uniform float uGain;
 varying vec2 vUv;
 varying vec2 vLocal;
 varying float vLit;
@@ -275,22 +277,17 @@ varying float vInkK;
 void main() {
   if (vAlpha < 0.01) discard;
   if (uPaper > 0.5) {
-    // the paper: a black blot, its edge as soft as this person's, darker the nearer and darker where blots overlap
-    // (multiply); the window a CRISP frame (TD): corner brackets that thicken on a beat and for the asker, a hairline
-    // border; a ripple (cue 2) is the frame alone
-    float ink = vCue > 1.5 ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft) * uInk * vDark * vInkK;
+    // THE EXPOSURE (the long exposure, not ink): this writes a DENSITY, additively, into the feedback buffer — the body as
+    // a sharp silhouette (time softens it, not a brush), the plate as an acetate film whose edges melt and which breathes
+    // with the melody, deeper for the asker; a ripple (cue 2) is a film alone. Standing accumulates, walking smears.
+    float body = vCue > 1.5 ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft * 0.5) * uInk * vInkK;
     float bx = min(vLocal.x, 1.0 - vLocal.x), by = min(vLocal.y, 1.0 - vLocal.y);
-    float thick = 0.03 + 0.03 * vLit + 0.04 * step(0.5, vCue);
-    float bracket = ((bx < thick && by < 0.2) || (by < thick * 0.6 && bx < 0.2)) ? 1.0 : 0.0;
-    float hair = (bx < 0.008 || by < 0.005) ? 0.35 : 0.0;
-    float frameA = max(bracket * mix(0.55, 1.0, vLit), hair) * uFrame * (0.4 + 0.6 * vDark);
-    if (vCue > 1.5) frameA = bracket * 0.9 + hair;
-    float a = max(ink, frameA) * vAlpha;
-    if (a < 0.015) discard;
-    vec3 col = mix(vec3(0.3), vec3(0.03), step(frameA, ink));
-    if (uMultiply > 0.5) gl_FragColor = vec4(mix(vec3(1.0), col, a), 1.0);
-    else gl_FragColor = vec4(col, a);
-    #include <fog_fragment>
+    float edge = smoothstep(0.0, 0.09, bx) * smoothstep(0.0, 0.06, by);
+    float film = edge * (0.05 + 0.03 * vLit + 0.07 * step(0.5, vCue)) * uFrame;
+    if (vCue > 1.5) film = edge * 0.08;
+    float dens = max(body, film) * vAlpha * uGain;
+    if (dens < 0.002) discard;
+    gl_FragColor = vec4(vec3(dens), 1.0);
     return;
   }
   // the box blinks the being's melody as the square did (white on a beat, dark grey at rest); the silhouette inside is
@@ -447,18 +444,20 @@ export function PointPeople({
   const boxMat = useMemo(
     () =>
       new THREE.ShaderMaterial({
-        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uRows: { value: SHEET_ROWS }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 }, uFrame: { value: 1 }, uMultiply: { value: 0 } }]),
+        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uRows: { value: SHEET_ROWS }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 }, uFrame: { value: 1 }, uGain: { value: 0.5 } }]),
         vertexShader: BOX_VERT,
         fragmentShader: BOX_FRAG,
         transparent: true,
         depthWrite: false,
+        depthTest: !look.paper,
         side: THREE.DoubleSide,
-        fog: fogOn,
-        // on paper overlapping blots multiply into something darker (the artist: "겹친 부분은 확 더 진하게")
-        blending: look.paper && look.overlap ? THREE.MultiplyBlending : THREE.NormalBlending,
+        fog: fogOn && !look.paper,
+        // on paper the people are a density added into the exposure (InkPaper's feedback); overlap darkens by itself
+        blending: look.paper ? THREE.AdditiveBlending : THREE.NormalBlending,
       }),
-    [fogOn, look.paper, look.overlap],
+    [fogOn, look.paper],
   );
+  const boxMesh = useRef<THREE.Mesh>(null);
   const gazeId = useRef<string | null>(null);
   useEffect(
     () => () => {
@@ -692,7 +691,8 @@ export function PointPeople({
           BZ[nb * 4 + 2] = aspect;
           // this person's way: a walk of their own (the sheet's row), their ink, the softness of their edge, their lean;
           // the asker waves instead of walking
-          const row = cue ? WAVE_ROW : Math.floor(frac(p.hash * 29.7) * WALK_STYLES.length);
+          // (the canvas's rows count from the top, the texture's v from the bottom: the row is written mirrored)
+          const row = SHEET_ROWS - 1 - (cue ? WAVE_ROW : Math.floor(frac(p.hash * 29.7) * WALK_STYLES.length));
           BW[nb * 4] = pv * frac(p.hash * 41.3);
           BW[nb * 4 + 1] = 1 + pv * (0.4 * frac(p.hash * 53.1) - 0.2);
           BW[nb * 4 + 2] = pv * (frac(p.hash * 61.7) - 0.5) * 0.14;
@@ -728,8 +728,8 @@ export function PointPeople({
               }
             }
           } else if (gazeId.current === id) gazeId.current = null;
-          // paper: the trail — the body's past places as paler blots behind it (the long exposure's drag)
-          if (paper) {
+          // (the trail copies are not drawn on paper any more: the exposure's feedback leaves the real one)
+          if (false) {
             for (const c of p.trail) {
               if (nb >= MAX_INSTANCES) break;
               const age = (now - c.t) / Math.max(0.1, look.smearSec);
@@ -823,7 +823,9 @@ export function PointPeople({
     iBoxAnim.needsUpdate = true;
     iBox2.needsUpdate = true;
     iBox3.needsUpdate = true;
-    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink, uFrame: look.frame, uMultiply: paper && look.overlap ? 1 : 0 });
+    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink, uFrame: look.frame, uGain: look.exposure });
+    // on paper the boxes stand on the exposure layer (InkPaper draws it into the feedback); otherwise in the scene
+    if (boxMesh.current) boxMesh.current.layers.set(paper ? EXPOSURE_LAYER : 0);
     // the paper's labels, a few times a second: the nearest three within labelDist
     labelTimer.current += dt;
     if (labelTimer.current > 0.3) {
@@ -864,7 +866,7 @@ export function PointPeople({
 
   return (
     <>
-      {look.mode === "boxes" ? <mesh geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
+      {look.mode === "boxes" ? <mesh ref={boxMesh} geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
       {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
       {look.paper &&
         labels.map((l) => (

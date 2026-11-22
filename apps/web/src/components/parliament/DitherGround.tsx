@@ -62,6 +62,11 @@ float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75);
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
 float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float vnoise2(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), f.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), f.x), f.y);
+}
 // the worn share of the cell whose texel centre is uv (a path from 0.08 up is worn, fully from 0.6)
 float wearAt(vec2 uv) { return smoothstep(0.08, 0.6, texture2D(uG, uv).g) * uWear; }
 void main() {
@@ -92,8 +97,10 @@ void main() {
   // 흰 바탕: the vegetation a light green smudge on the paper (uFogColor is the paper), the worn ground a pressed grey — no
   // seams, the grain barely; everything pales into the paper with distance
   if (uPaper > 0.5) {
-    vec3 c = mix(uFogColor, vec3(0.72, 0.83, 0.64), clamp(g * wind * 0.8, 0.0, 1.0));
-    c = mix(c, vec3(0.6) * (1.0 - 0.15 * (1.0 - grain)), wear * 0.75);
+    // a mottled wash: the vegetation's density × a slow mottle at two scales (a brush's unevenness), one low-chroma green
+    float mottle = 0.55 + 0.45 * vnoise2(vXZ * 0.45) * (0.7 + 0.3 * vnoise2(vXZ * 2.3 + 11.0));
+    vec3 c = mix(uFogColor, vec3(0.55, 0.68, 0.46), clamp(g * wind * mottle, 0.0, 1.0));
+    c = mix(c, vec3(0.58) * (1.0 - 0.15 * (1.0 - grain)), wear * 0.75);
     gl_FragColor = vec4(mix(c, uFogColor, fk), 1.0);
     return;
   }

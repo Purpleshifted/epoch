@@ -24,6 +24,7 @@ import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { PointPeople } from "./PointPeople";
 import { StreetHud, type LogPlace } from "./StreetHud";
 import { PAPER, streetGaze } from "./streetLook";
+import { InkPaper } from "./InkPaper";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -496,8 +497,9 @@ export default function ParliamentScene() {
   // 흰 바탕 (오가닉): the brutal look on paper — a white ground, a white fog (things pale to nothing)
   const paper = isV2 && brutal && street.paper;
   const ground = brutal ? (paper ? PAPER : "#000000") : FOG_COLOR;
-  const fogN = viewOn ? street.view.radius * 0.45 : fogNear;
-  const fogF = viewOn ? street.view.radius : fogFar;
+  const paperFog = isV2 && brutal && street.paper && !viewOn;
+  const fogN = viewOn ? street.view.radius * 0.45 : paperFog ? 12 : fogNear;
+  const fogF = viewOn ? street.view.radius : paperFog ? 44 : fogFar;
   const logPlace: LogPlace = !isV2 || street.logPlace === "bottom" ? "bottom" : street.logPlace === "auto" ? (street.eye.on ? (coarse ? "top" : "left") : "bottom") : street.logPlace;
   const getFar = useCallback(() => witnessRef.current?.far, []);
 
@@ -510,7 +512,8 @@ export default function ParliamentScene() {
       <Leva hidden={hideChrome} theme={LEVA_THEME} />
       <Canvas
         camera={{ position: [0, 4.5, 7], fov: 60 }}
-        dpr={pixelDpr}
+        // 흰 바탕: the personal view is not pixel-bound — the paper is drawn at the device's own density (up to 2), edges soft
+        dpr={paper ? Math.min(2, Math.max(pixelDpr, typeof window !== "undefined" ? window.devicePixelRatio : 1, 1.5)) : pixelDpr}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
         style={{ background: ground, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
@@ -564,6 +567,8 @@ export default function ParliamentScene() {
           future={isV2 ? future : undefined}
         />
         {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}
+        {/* 먹과 종이: the finish pass over the whole frame while the paper look is on (InkPaper) */}
+        {paper && <InkPaper look={street.ink} fogFar={fogF} />}
         {isV2 && withSession && visuals.street.people && (
           <PointPeople
             getOthers={() => witnessRef.current?.far ?? null}
