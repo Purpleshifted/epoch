@@ -308,7 +308,7 @@ export function PointPeople({
     setUniforms(mat.uniforms, { uBody: body, uSize: look.dot, uGrey: look.grey, uBreath: look.breath, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
     // a readout for the console (like __parliament): how many bodies and copies are drawn, and the nearest body
     let nearest: { d: number; x: number; z: number; speed: number } | null = null;
-    for (const p of P) {
+    for (const p of P.values()) {
       const d = Math.hypot(p.x - me.x, p.z - me.z);
       if (!nearest || d < nearest.d) nearest = { d: +d.toFixed(1), x: +p.x.toFixed(1), z: +p.z.toFixed(1), speed: +Math.hypot(p.vx, p.vz).toFixed(2) };
     }
