@@ -62,13 +62,17 @@ void main() {
   // own cells coral, the ground itself cream to a pale blue. Gathered as what each takes from white light (on the
   // white ground) or gives (on the black), so where they overlap they mix as inks or as lights do.
   if (uRich > 0.5) {
-    float n = n3(p * 0.7 + 3.0), f = h3(floor(p * 2.3) + 9.0);
+    // (the ground in patches a few steps across, each of one hue — so what overlaps in a patch shares its colour and
+    // stays clear instead of mixing to mud: what people left takes the warm one of the patch, what grew the cool one)
+    float n = n3(p * 0.3 + 3.0);
+    float a = smoothstep(0.4, 0.44, n), b = smoothstep(0.56, 0.6, n);
+    vec3 warm = mix(mix(vec3(0.89, 0.38, 0.06), vec3(0.90, 0.69, 0.27), a), vec3(0.72, 0.19, 0.42), b);
+    vec3 cool = mix(mix(vec3(0.24, 0.44, 0.70), vec3(0.62, 0.72, 0.25), a), vec3(0.58, 0.64, 0.90), b);
     vec3 hue =
-      kind < 0.5 ? mix(vec3(0.85, 0.79, 0.66), vec3(0.58, 0.64, 0.90), n)
-      : kind < 1.5 ? mix(mix(vec3(0.89, 0.38, 0.06), vec3(0.24, 0.44, 0.70), smoothstep(0.38, 0.62, n)), vec3(0.12, 0.18, 0.42), (1.0 - lum) * 0.35)
-      : kind < 2.5 ? (f > 0.86 ? vec3(0.72, 0.19, 0.42) : mix(vec3(0.62, 0.72, 0.25), vec3(0.90, 0.69, 0.27), n))
-      : kind < 3.5 ? mix(vec3(0.18, 0.36, 0.31), vec3(0.24, 0.44, 0.70), n * 0.6)
-      : kind < 4.5 ? vec3(0.90, 0.69, 0.27)
+      kind < 0.5 ? mix(vec3(1.0), cool, 0.35)
+      : kind < 1.5 ? warm
+      : kind < 3.5 ? cool
+      : kind < 4.5 ? warm
       : kind < 5.5 ? vec3(0.12, 0.18, 0.42)
       : vec3(0.93, 0.45, 0.35);
     vInk = (uOnWhite > 0.5 ? 1.0 - hue : hue) * w * edge;

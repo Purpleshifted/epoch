@@ -163,6 +163,8 @@ export interface FuturePresenceVisual extends PresenceConfig {
   /** How far the body is dragged within one frame while the shutter is open (of its height): the smear inside it. */
   winDrag: number;
   winBoost: number;
+  /** A person's height (world) when the observer is a person. */
+  winPersonH: number;
   /** THE FUTURE AS A SIGNAL THAT ARRIVES BROKEN (in the observer's body): how far its three colours come apart (of the
    *  screen), how much of it is torn sideways in bands, how many blocks jump out of place (0 = none … 1). */
   winAberr: number;
@@ -233,16 +235,17 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       ),
       "창": folder(
         {
-          winH: { value: 2.4, min: 0.5, max: 8, step: 0.1, label: "창의 키" },
+          winH: { value: 2.4, min: 0.3, max: 8, step: 0.05, label: "창의 키" },
           winShape: { options: { "걷는 몸 모양": "body", "사각 창": "sheet", "장노출 사람 (시험 · 주소 ?body=person)": "person" }, value: "body", label: "창의 모양" },
-          winSee: { value: 0.9, min: 0, max: 1, step: 0.05, label: "몸의 진하기 (몸으로 비치는 미래)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
-          winBoost: { value: 3, min: 1, max: 10, step: 0.25, label: "몸 안에서 미래를 더 진하게 읽는 배수", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winSee: { value: 1, min: 0, max: 1, step: 0.05, label: "몸의 진하기 (몸으로 비치는 미래)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winPersonH: { value: 0.8, min: 0.3, max: 4, step: 0.05, label: "사람의 키 (월드 · 0.7 ≈ 1.7 m)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winBoost: { value: 12, min: 0.5, max: 40, step: 0.5, label: "몸 안의 색 진하기", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winAberr: { value: 0.006, min: 0, max: 0.04, step: 0.001, label: "색수차 (세 색이 갈라지는 폭 · 화면 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winTear: { value: 0.5, min: 0, max: 1, step: 0.05, label: "찢김 (가로 띠가 밀려남)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winGlitch: { value: 0.35, min: 0, max: 1, step: 0.05, label: "글리치 (블록이 튐)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winExposure: { value: 0.7, min: 0.03, max: 3, step: 0.01, label: "장노출 길이 (s · 길수록 끌림이 김)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winShake: { value: 0.035, min: 0, max: 0.1, step: 0.002, label: "세로 끌림 (화면 높이 대비)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
-          winDrag: { value: 0.12, min: 0, max: 0.5, step: 0.01, label: "몸 안의 끌림 (키 대비 · 옷의 경계가 번지는 길이)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
+          winDrag: { value: 0.09, min: 0, max: 0.5, step: 0.01, label: "몸 안의 끌림 (키 대비 · 옷의 경계가 번지는 길이)", render: (get) => get(`${GROUP}.창.winShape`) === "person" || bodyUrl === "person" },
           winGap: { value: 2, min: 0.3, max: 6, step: 0.1, label: "창과 창 사이 (관찰자가 걸은 거리)" },
           winStay: { value: 20, min: 2, max: 120, step: 1, label: "창이 남는 시간 (s)" },
           winMax: { value: 10, min: 2, max: 12, step: 1, label: "서 있는 창 수" },
@@ -280,7 +283,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       ),
       "그림": folder(
         {
-          frameTone: { options: { "다채 — 미래의 것마다 제 색 (창에서)": "rich", "회색": "grey", "세피아": "sepia", "청회색": "blue", "없음 — 식생은 초록, 내 칸은 따로": "none" }, value: "rich", label: "톤" },
+          frameTone: { options: { "다채 — 미래의 것마다 제 색 (창에서)": "rich", "회색": "grey", "세피아": "sepia", "청회색": "blue", "없음 — 식생은 초록, 내 칸은 따로": "none" }, value: "grey", label: "톤" },
           frameDistort: { options: { "없음": "none", "세로 늘림": "stretch", "슬릿 띠": "slit", "글리치 블록": "glitch", "굴절 · 유리": "glass" }, value: "none", label: "왜곡" },
           frameDistortAmt: { value: 0.5, min: 0, max: 1, step: 0.05, label: "왜곡 세기" },
           frameInk: { value: 2, min: 0.2, max: 5, step: 0.1, label: "진하기" },
@@ -366,6 +369,8 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       scan: { value: false, label: "scan (옛)", render: hidden },
       frames: { value: false, label: "frames (옛)", render: hidden },
       windows: { value: false, label: "windows (옛)", render: hidden },
+      // (2026-11-23: the observer's body has no clothes of its own — what was saved under it is kept, not shown, not read)
+      winColor: { value: "colour", label: "옷의 색 (옛)", render: hidden },
     }),
     { collapsed: true, order: 1.2, render: v2 },
   );
@@ -440,6 +445,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       winShake: k.winShake,
       winDrag: k.winDrag,
       winBoost: k.winBoost,
+      winPersonH: k.winPersonH,
       winAberr: k.winAberr,
       winTear: k.winTear,
       winGlitch: k.winGlitch,
@@ -478,7 +484,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       frameCurve: k.frameCurve,
       frameReread: k.frameReread,
     };
-  }, [url, k.on, k.look, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, bodyUrl, k.winSee, k.winExposure, k.winShake, k.winDrag, k.winBoost, k.winAberr, k.winTear, k.winGlitch, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
+  }, [url, k.on, k.look, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dreamR, k.dreamPx, k.scanR, k.scanPix, k.scanFrames, k.scanTurn, k.scanStill, k.scanBase, k.scanGain, k.scanNew, k.scanPx, k.scanGlow, k.scanSplat, k.scanHold, k.scanDark, k.scanArrive, k.scanArriveDist, k.scanArriveSec, k.scanFlow, k.frameR, k.frameEvery, k.frameTurn, k.frameMove, k.frameMax, k.frameHold, k.frameLife, k.frameH, k.frameAlpha, k.frameFilm, k.frameInk, k.frameSplat, k.frameSmear, k.frameJitter, k.frameArriveSec, k.frameRest, k.framePass, k.frameRevealSec, k.frameBody, k.frameOut, k.framePaper, k.frameTone, k.frameDistort, k.frameDistortAmt, k.frameEdge, k.frameCurve, k.frameReread, k.winR, k.winSeeR, k.winH, k.winShape, bodyUrl, k.winSee, k.winExposure, k.winShake, k.winDrag, k.winBoost, k.winPersonH, k.winAberr, k.winTear, k.winGlitch, k.winGap, k.winStay, k.winMax, k.winFillR, k.winFillFull, k.winFillAlpha, k.winFillHow]);
 }
 
 const MAX_EDGE_VERTS = 120000;

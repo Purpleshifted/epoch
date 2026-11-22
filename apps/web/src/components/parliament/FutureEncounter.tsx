@@ -23,7 +23,6 @@ import { excavatorsAt } from "@/lib/parliament/excavators";
 import { futurePresence, waterDistance } from "@/lib/parliament/futurePresence";
 import { FutureFrames } from "./futureFrames";
 import { FutureWindows } from "./futureWindows";
-import { paperLook } from "./paperLook";
 import { playFuturePassing } from "./futureSound";
 import type { SoundSetup } from "./useSound";
 import { CELL_SIZE } from "@/lib/stratum/field";
@@ -424,9 +423,6 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
   // THE FRAMES (futureFrames.ts): the place taken from the eye as pictures, each a translucent plate that comes
   const frames = useMemo(() => new FutureFrames(geom), [geom]);
   const framesKey = useRef("");
-  /** ?paper=1 — the trial's white ground (until the street look's is here): a white sky, and the present (still drawn for
-   *  the black ground) put away while the frames stand, so they are seen as they will be on paper. A trial's hook only. */
-  const paperTrial = useRef(false);
   const fixScene = useRef<{ set: boolean; x: number; z: number; rx: number; rz: number; t0: number; i: number } | null>(null);
   useEffect(() => () => frames.dispose(), [frames]);
   // THE WINDOWS (futureWindows.ts): the observer a large window onto the future, windows left where it passed, the screen
@@ -540,15 +536,9 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       state.gl.compile(tmp, state.camera);
       state.gl.compile(captureScene, state.camera);
       if (cfg.scan) ensureAtlas(state.gl, isCoarse());
-      // (a trial's hook until the street look's white ground is here: ?paper=1 = the view on paper)
-      // (?futurefix=<n>: the fixed scene, with observer number n − 1 — its clothes, as a long-exposure person)
+      // (?futurefix=<n>: the fixed scene, with observer number n − 1)
       const fixN = Number(new URLSearchParams(window.location.search).get("futurefix"));
       if (fixN >= 1) fixScene.current = { set: false, x: 0, z: 0, rx: 1, rz: 0, t0: 0, i: Math.floor(fixN) - 1 };
-      if (new URLSearchParams(window.location.search).get("paper") === "1") {
-        paperTrial.current = true;
-        paperLook.on = true;
-        state.scene.background = new THREE.Color(paperLook.paper);
-      }
     }
     // (the frames' plates and programs made before the first encounter, and again when their number or size changes)
     if (cfg.frames) {
@@ -586,7 +576,9 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         tmpDir.y = 0;
         if (tmpDir.lengthSq() < 1e-6) tmpDir.set(0, 0, -1);
         tmpDir.normalize();
-        Object.assign(f, { set: true, x: p.x + tmpDir.x * 3.2, z: p.z + tmpDir.z * 3.2, rx: -tmpDir.z, rz: tmpDir.x, t0: now });
+        // (?futurefixaway=1: it walks away from the visitor and back, instead of across)
+        const away = new URLSearchParams(window.location.search).get("futurefixaway") === "1";
+        Object.assign(f, { set: true, x: p.x + tmpDir.x * (away ? 4.5 : 3.2), z: p.z + tmpDir.z * (away ? 4.5 : 3.2), rx: away ? tmpDir.x : -tmpDir.z, rz: away ? tmpDir.z : tmpDir.x, t0: now });
       }
       const ph = (now - f.t0) * 0.25, side = 2.4 * Math.sin(ph), sg = Math.cos(ph) >= 0 ? 1 : -1;
       exs = [{ i: f.i, x: f.x + f.rx * side, z: f.z + f.rz * side, dx: f.rx * sg, dz: f.rz * sg, standing: false }];
@@ -802,7 +794,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       lineMat.opacity = s.frames || s.windows ? 0 : 0.7 * env;
       // (the present is dark while the future holds; it comes back as the cloud streams away — the afterimage)
       // (the frames stand in the present, translucent: it stays)
-      futureMeet.dark = s.frames || s.windows ? paperTrial.current : (s.scan ? cfg.scanDark : cfg.darkPresent && !cfg.dream) && t < s.outAt;
+      futureMeet.dark = s.frames || s.windows ? false : (s.scan ? cfg.scanDark : cfg.darkPresent && !cfg.dream) && t < s.outAt;
       // (the living future: the place read again while the frames stand — what the visitor does is in the next pictures)
       if (s.frames && cfg.frameReread > 0 && t < s.outAt && now - s.readAt >= cfg.frameReread) {
         s.readAt = now;
@@ -820,7 +812,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
           windows.place(p, readPlace(s.seed).R);
           markSpan("future-reread", performance.now() - t1);
         }
-        standing = windows.update({ gl: state.gl, cam: state.camera, now, t, ex: ex ? { x: nearestImage(ex.x, p.x), z: nearestImage(ex.z, p.z), standing: ex.standing } : null, me: p, cfg });
+        standing = windows.update({ gl: state.gl, cam: state.camera, now, t, ex: ex ? { x: nearestImage(ex.x, p.x), z: nearestImage(ex.z, p.z), dx: ex.dx, dz: ex.dz, standing: ex.standing } : null, me: p, cfg });
         if (t > 90) standing = 0;
       }
       if (s.frames) frames.update({ gl: state.gl, cam: state.camera, now, t, outAt: s.outAt, outLen, ex: ex ? { x: nearestImage(ex.x, p.x), z: nearestImage(ex.z, p.z), standing: ex.standing } : null, cfg });

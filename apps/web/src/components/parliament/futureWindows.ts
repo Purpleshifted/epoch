@@ -19,6 +19,7 @@
 import * as THREE from "three";
 import type { FuturePresenceVisual } from "./FuturePresence";
 import { CAPTURE_FRAG, CAPTURE_VERT } from "./futureFrames";
+import { WALK_CYCLES, jointsOfCycle, standingPhase, type Joints } from "@/lib/parliament/pointPeople";
 import { LongExposure } from "./longExposure";
 import { EXPOSE_GLSL, paperLook } from "./paperLook";
 import { markSpan } from "./usePerfMeter";
@@ -110,13 +111,12 @@ void main() {
   gl_FragColor = vec4(mix(uBack, k.rgb, k.a) + dn, m * uA);
 }`;
 /**
- * THE OBSERVER AS A PERSON IN A LONG EXPOSURE (uShape "person" — the artist, 2026-11-22 night: "사람 레퍼런스처럼 만들도록 …
- * 색감도 말이야"; the references: walkers seen from behind in long exposures, IMG_1575 · 1576 in colour, 1580 · 1582 in
- * black and white). Not a filter: a person is drawn — a back view in a person's proportions, the clothes flat fields of
- * colour (top, trousers, hair, skin, shoes), the legs thinning out towards the ground — into a picture that is never
- * cleared, only faded (previous × decay + this frame: TouchDesigner's Feedback), while the view shakes up and down as a
- * hand-held camera's does. What stays in it is the smear the references have: drawn out vertically, the sides crisper,
- * the stride a ghost. The future shows through the body as through the window before.
+ * THE OBSERVER AS A PERSON IN A LONG EXPOSURE (uShape "person" — the artist, 2026-11-22 night: "사람 레퍼런스처럼 만들도록 …";
+ * 2026-11-23: "애초에 골격도 근데 너무 부자연스러운 픽토그램같어"): the body is a real walk — the joints of a captured
+ * stride (pointPeople.ts, four CMU walks, read only), turned the way the observer walks and seen from where the visitor's
+ * eye is, so it is a back, a side or a front as it happens — with flesh blended smoothly onto the bones. It has no colour
+ * of its own: drawn into a picture that is never cleared, only faded (street-feel's longExposure.ts), while the view drifts
+ * as a hand-held camera's does; what stays is the smear the references have, and through it the future.
  */
 const PERSON_VERT = `
 uniform vec2 uShake;
@@ -128,79 +128,72 @@ void main() {
   gl_Position.xy += uShake * gl_Position.w;
 }`;
 const PERSON_FRAG = `
-uniform float uA, uPose, uWalk, uGain, uHem, uHairLen, uBuild, uLean, uBend;
-uniform vec2 uDrag;
-uniform float uTick;
+uniform float uA, uGain, uBuild, uTick;
+uniform vec2 uDrag, uMapAt, uMapSpan;
+// (the 17 joints at the shutter's opening and at its closing, in the body's units — its 1.8 m = 1 — on this sheet:
+// pelvis, spine top, head base, hips, knees, ankles, toes, shoulders, elbows, wrists; left before right)
+uniform vec2 uJ0[17], uJ1[17];
 varying vec2 vUv;
-float capT(vec2 p, vec2 a, vec2 b, float ra, float rb) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h) - mix(ra, rb, h); }
+float capT(vec2 p, vec2 a, vec2 b, float ra, float rb) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0.0, 1.0); return length(pa - ba * h) - mix(ra, rb, h); }
 float ell(vec2 p, vec2 c, vec2 r) { return (length((p - c) / r) - 1.0) * min(r.x, r.y); }
-// (a rounded trapezoid about the body's axis: half-width w0 at y0 to w1 at y1)
-float trap(vec2 p, float y0, float w0, float y1, float w1, float r) {
-  float w = mix(w0, w1, clamp((p.y - y0) / (y1 - y0), 0.0, 1.0));
-  vec2 d = vec2(abs(p.x) - w, max(y0 - p.y, p.y - y1)) + r;
-  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
-}
-void lay(inout float cov, float d) {
-  // (soft, and nothing darker at its rim: no outline is drawn)
-  cov = max(cov, 1.0 - smoothstep(-0.014, 0.014, d));
-}
-// (the person at one instant, seen at p: rgb the colour × how much is there, a how much is there)
-vec4 figure(vec2 p, float sw) {
-  // (a weight on one leg, a shoulder lower: nobody stands as a diagram)
-  // (nobody stands as a diagram: the body leans from its feet, the spine curves, the stride turns the shoulders)
-  p.x += uLean * (p.y - 0.1) + 0.014 * sin(p.y * 3.1 + uLean * 30.0) + sw * 0.012 * (p.y - 0.5);
-  // (a slighter or a broader body)
-  p.x /= uBuild;
-  float cov = 0.0;
-  float fl = -0.062 - sw * 0.085, fr = 0.062 + sw * 0.085;
-  lay(cov, ell(p, vec2(fl, 0.02), vec2(0.03, 0.018)));
-  lay(cov, ell(p, vec2(fr, 0.02), vec2(0.03, 0.018)));
-  // (each leg in two: thigh to knee, knee to ankle — the knee gives a little as it swings)
-  vec2 kl = vec2(-0.054 - sw * 0.05, 0.3 + abs(sw) * 0.012), kr = vec2(0.054 + sw * 0.05, 0.3 + abs(sw) * 0.012);
-  float dq;
-  dq = capT(p, vec2(-0.05, 0.53), kl, 0.046, 0.034); lay(cov, dq);
-  dq = capT(p, vec2(0.05, 0.53), kr, 0.046, 0.034); lay(cov, dq);
-  dq = capT(p, kl, vec2(fl, 0.05), 0.034, 0.021); lay(cov, dq);
-  dq = capT(p, kr, vec2(fr, 0.05), 0.034, 0.021); lay(cov, dq);
-  dq = ell(p, vec2(0.0, 0.55), vec2(0.09, 0.05)); lay(cov, dq);
-  // (one arm hangs, the other is bent — a hand at a strap, in a pocket)
-  float hl = -0.158 + sw * 0.05, hr = 0.158 - sw * 0.05 - uBend * 0.05;
-  float wl = 0.5, wr = 0.5 + uBend * 0.11;
-  dq = capT(p, vec2(-0.13, 0.8), vec2(hl, wl), 0.032, 0.02); lay(cov, dq);
-  dq = capT(p, vec2(0.13, 0.8), vec2(hr, wr), 0.032, 0.02); lay(cov, dq);
-  lay(cov, ell(p, vec2(hl, wl - 0.022), vec2(0.019, 0.025)));
-  lay(cov, ell(p, vec2(hr, wr - 0.022), vec2(0.019, 0.025)));
-  // (the top to its hem: a shirt to the waist, a jacket over the hips, a coat to the thigh — a little wider at the hem)
-  dq = trap(p, uHem, 0.086 + (0.54 - uHem) * 0.12, 0.83, 0.122, 0.045); lay(cov, dq);
-  lay(cov, capT(p, vec2(0.0, 0.825), vec2(0.0, 0.888), 0.026, 0.022));
-  // (hair: cropped, or falling over the shoulders)
-  if (uHairLen > 0.01) { dq = trap(p, 0.93 - uHairLen, 0.062, 0.93, 0.05, 0.03); lay(cov, dq); }
-  lay(cov, ell(p, vec2(0.0, 0.933), vec2(0.046, 0.057)));
-  // (the legs thin out towards the ground, as an exposure loses what moves most)
-  cov *= mix(0.12, 1.0, smoothstep(0.0, 0.24, p.y));
-  // (only where the body is: it has no colour of its own — it is a window, and its colour is the future's)
-  return vec4(vec3(cov), cov);
+// (limbs run into each other as flesh does, not as parts laid on parts)
+float smin(float a, float b, float k) { float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
+float M(float metres) { return metres / 1.8 * uBuild; }
+float body(vec2 p, vec2 J[17]) {
+  float k = M(0.05);
+  vec2 shM = (J[11] + J[12]) * 0.5, hipM = (J[3] + J[4]) * 0.5;
+  // the trunk: from the hips to the shoulders, as deep as it is wide when seen from the side
+  // (rounded at the shoulders: they slope down from the neck, not a box)
+  float d = capT(p, J[0], J[1], M(0.12), M(0.12));
+  d = smin(d, capT(p, J[3], J[4], M(0.095), M(0.095)), k);
+  d = smin(d, capT(p, J[11] + vec2(0.0, -M(0.03)), J[12] + vec2(0.0, -M(0.03)), M(0.055), M(0.055)), k);
+  d = smin(d, capT(p, J[3], J[11] + vec2(0.0, -M(0.05)), M(0.075), M(0.06)), k);
+  d = smin(d, capT(p, J[4], J[12] + vec2(0.0, -M(0.05)), M(0.075), M(0.06)), k);
+  // neck and head (the head joint is the skull's base)
+  d = smin(d, capT(p, shM, J[2], M(0.06), M(0.055)), k);
+  d = smin(d, ell(p, J[2] + vec2(0.0, M(0.09)), vec2(M(0.085), M(0.11))), M(0.03));
+  // the legs: thigh, shin, foot
+  for (int s = 0; s < 2; s++) {
+    vec2 hip = J[3 + s], knee = J[5 + s], ank = J[7 + s], toe = J[9 + s];
+    d = smin(d, capT(p, hip, knee, M(0.078), M(0.056)), k);
+    d = smin(d, capT(p, knee, ank, M(0.052), M(0.034)), M(0.03));
+    d = smin(d, capT(p, ank, toe, M(0.036), M(0.026)), M(0.02));
+  }
+  // the arms: upper, fore, hand
+  for (int s = 0; s < 2; s++) {
+    vec2 sh = J[11 + s], el = J[13 + s], wr = J[15 + s];
+    d = smin(d, capT(p, sh, el, M(0.052), M(0.043)), M(0.035));
+    d = smin(d, capT(p, el, wr, M(0.041), M(0.03)), M(0.025));
+    vec2 dir = wr - el;
+    d = smin(d, capT(p, wr, wr + dir / max(length(dir), 1e-5) * M(0.08), M(0.034), M(0.024)), M(0.015));
+  }
+  return d;
 }
 void main() {
-  // (1 = the body's height; the sheet it is drawn on is 0.6 of that wide)
-  vec2 p = vec2((vUv.x - 0.5) * 0.6, vUv.y);
-  float sw = sin(uPose * 6.0) * uWalk;
-  // THE SHUTTER IS OPEN WHILE THE BODY MOVES: within this one frame the person is taken at eight instants along the
-  // way it is dragged (the camera's drift, the stride a little further on at each) and they are averaged — so the
-  // smear is in the body, not round it: the hem runs into the trousers, the hair into the shoulders, the hands into
-  // the hips; and nothing has an edge of its own.
-  vec4 sum = vec4(0.0);
-  for (int i = 0; i < 8; i++) {
+  // (1 = the body's height; the sheet it is drawn on is 0.8 of that wide)
+  vec2 p = vec2((vUv.x - 0.5) * 0.8, vUv.y);
+  // THE SHUTTER IS OPEN WHILE THE BODY MOVES: within this one frame the body is taken at six instants, its joints going
+  // from where they were to where they are going and the whole dragged as the camera drifts, and they are averaged — the
+  // smear is in the body, not round it, and nothing has an edge of its own.
+  float sum = 0.0;
+  vec2 J[17];
+  for (int i = 0; i < 6; i++) {
     // (the instants fall elsewhere each frame, so the exposure evens them out: no stipple is left at the soft edges)
-    float t = (float(i) + fract(sin(dot(gl_FragCoord.xy + uTick * 61.7, vec2(12.9898, 78.233))) * 43758.5453)) / 8.0 - 0.5;
-    sum += figure(p - uDrag * t, sw + t * 0.5 * uWalk);
+    float t = (float(i) + fract(sin(dot(gl_FragCoord.xy + uTick * 61.7, vec2(12.9898, 78.233))) * 43758.5453)) / 6.0 - 0.5;
+    for (int q = 0; q < 17; q++) J[q] = mix(uJ0[q], uJ1[q], t + 0.5) + uDrag * t;
+    float d = body(p, J);
+    sum += 1.0 - smoothstep(-M(0.025), M(0.025), d);
   }
-  sum /= 8.0;
-  float a = uA * uGain;
-  if (sum.a * a < 1e-5) discard;
-  gl_FragColor = vec4(sum.rgb * a, 1.0);
+  float cov = sum / 6.0;
+  // (the legs thin out towards the ground, as an exposure loses what moves most)
+  cov *= mix(0.12, 1.0, smoothstep(0.0, 0.24, p.y));
+  float a = cov * uA * uGain;
+  if (a < 1e-5) discard;
+  // (how much of the body is here — and where on the future's ground this bit of it reads: the ground where it stands,
+  // its height the way ahead, its width the way across; gathered with it, so it smears as the body does)
+  vec2 at = uMapAt + (vec2(vUv.x, vUv.y) - 0.5) * uMapSpan;
+  gl_FragColor = vec4(a, at * a, 1.0);
 }`;
-/** The exposure laid on the screen: where it has gathered, the person — and through them, the future. */
 /**
  * The exposure laid on the screen: where it has gathered, the body — and the body is THE FUTURE SEEN THROUGH IT, as a
  * signal from another time arrives (the artist, 2026-11-23: "미래 모습을 그냥 그렇게 번역만 할 게 아니라 비주얼 이펙트나
@@ -223,26 +216,41 @@ vec2 broken(vec2 uv) {
   uv += step(1.0 - 0.18 * uGlitch, hh2(cell + tb)) * (vec2(hh2(cell + tb + 3.1), hh2(cell + tb + 7.7)) - 0.5) * vec2(0.14, 0.03) * uGlitch;
   return uv;
 }
-// (the picture dragged down the body as the body itself was: what stands above and below runs together in it)
-vec4 through(vec2 uv) {
+// (the future's ground from above, in colour, read at one place: rgb the colour, a how much is there)
+uniform sampler2D uMap;
+vec4 ground(vec2 at) {
+  // (its hue apart from how much of it there is: many points of one hue stay that hue, clear, instead of every channel
+  // being taken at once and going to mud)
+  vec3 g = texture2D(uMap, clamp(at, 0.0, 1.0)).rgb;
+  float top = max(g.r, max(g.g, g.b));
+  vec3 hue = g / max(top, 1e-4);
+  float dens = 1.0 - exp(-uBoost * 0.25 * top);
+  if (uPaper > 0.5) return vec4(1.0 - hue * 0.95, dens);
+  return vec4(hue, dens);
+}
+// (dragged along the body as the body itself was: what lies ahead and behind runs together in it)
+vec4 through(vec2 at) {
   vec4 k = vec4(0.0);
-  for (int i = 0; i < 5; i++) k += inkAt(uv + vec2(0.0, (float(i) / 4.0 - 0.5) * uBlur), uSmear * 3.0);
+  for (int i = 0; i < 5; i++) k += ground(at + vec2(0.0, (float(i) / 4.0 - 0.5) * uBlur));
   return k / 5.0;
 }
 void main() {
   vec2 uv = broken(vUv);
-  float m = clamp(texture2D(uAcc, uv).r, 0.0, 1.0);
+  vec3 acc = texture2D(uAcc, uv).rgb;
+  float m = clamp(acc.r, 0.0, 1.0);
   // (nothing here: leave what is behind exactly as it is — no rim where the exposure thins out to nothing)
   if (m < 0.0015) discard;
-  inkBoost = uBoost;
+  // THE BODY IS THE FUTURE OF THE GROUND IT STANDS ON, seen through it: its three colours apart along the drag
+  vec2 at = acc.gb / max(acc.r, 1e-4);
   vec2 ab = vec2(uAberr * 0.5, uAberr);
-  vec4 kr = through(uv + ab), kg = through(uv), kb = through(uv - ab);
+  vec4 kr = through(at + ab), kg = through(at), kb = through(at - ab);
   vec4 k = vec4(kr.r, kg.g, kb.b, max(kr.a, max(kg.a, kb.a)));
   float g = filmGrain(gl_FragCoord.xy, uTime, 0.01) * m;
-  float see = m * uSee;
+  // (the body's middle is all there; only its drawn-out ends thin)
+  float see = smoothstep(0.0, 0.3, m) * uSee;
   if (uPaper > 0.5) {
     // (multiplied onto what is behind: a little of the body's own shade, so it is there where the future is bare)
-    vec3 seen = mix(vec3(0.86), k.rgb * 0.94, k.a);
+    vec3 seen = mix(vec3(0.8), k.rgb * 0.92, k.a);
     gl_FragColor = vec4(mix(vec3(1.0), seen, see) + g, 1.0);
   } else {
     gl_FragColor = vec4(mix(vec3(0.14), k.rgb, k.a) * see + g, 1.0);
@@ -286,6 +294,11 @@ interface Win {
   mat: THREE.ShaderMaterial;
   born: number;
   alive: boolean;
+  /** As a person: where in its stride it is (0 … 1), and the way it walks — the observer's own, or as it was when left. */
+  phase: number;
+  fx: number;
+  fz: number;
+  walking: number;
 }
 
 export interface WindowsTick {
@@ -295,7 +308,7 @@ export interface WindowsTick {
   /** Since the encounter began (s). */
   t: number;
   /** The observer (nearest image to the visitor), or null when it is not known this frame. */
-  ex: { x: number; z: number; standing: boolean } | null;
+  ex: { x: number; z: number; dx: number; dz: number; standing: boolean } | null;
   /** Where the visitor stands. */
   me: { x: number; z: number };
   cfg: FuturePresenceVisual;
@@ -311,6 +324,21 @@ const ease = (x: number) => {
   return u * u * (3 - 2 * u);
 };
 
+/** The joints in the order PERSON_FRAG reads them. */
+const JOINTS: readonly (keyof Joints)[] = ["pelvis", "shoulders", "head", "hipL", "hipR", "kneeL", "kneeR", "ankleL", "ankleR", "toeL", "toeR", "shL", "shR", "elbowL", "elbowR", "wristL", "wristR"];
+const newJoints = () => Array.from({ length: JOINTS.length }, () => new THREE.Vector2());
+/** A captured pose put on a sheet that faces the eye: the body walks towards (fx, fz), the sheet's right is at `theta`
+ *  (its rotation about the vertical); out in the body's units, its 1.8 m = 1. */
+function poseOnSheet(out: THREE.Vector2[], J: Joints, fx: number, fz: number, theta: number): void {
+  const bx = Math.cos(theta), bz = -Math.sin(theta);
+  for (let i = 0; i < JOINTS.length; i++) {
+    const [x, y, z] = J[JOINTS[i]];
+    // (the body's +z is the way it walks, its +x to the side)
+    const wx = x * fz + z * fx, wz = -x * fx + z * fz;
+    out[i].set((wx * bx + wz * bz) / 1.8, y / 1.8);
+  }
+}
+
 export class FutureWindows {
   readonly group = new THREE.Group();
   private rt: THREE.WebGLRenderTarget | null = null;
@@ -323,6 +351,7 @@ export class FutureWindows {
   private ms = 0;
   private lastNow = 0;
   private ownSeenAt = 0;
+  private stepAt = 0;
   private readonly exPos = new THREE.Vector3();
   private readonly capMat: THREE.ShaderMaterial;
   private readonly capScene = new THREE.Scene();
@@ -338,6 +367,12 @@ export class FutureWindows {
   private readonly shake = { value: new THREE.Vector2() };
   private readonly gain = { value: 0.1 };
   private readonly tick = { value: 0 };
+  // (the future's ground from above, in colour: taken once each time the place is read)
+  private map: THREE.WebGLRenderTarget | null = null;
+  private readonly mapCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+  private readonly mapSpan = { value: new THREE.Vector2(0.1, 0.3) };
+  private mapStale = true;
+  private mapR = 14;
   /** The way the body is dragged while the shutter is open (of its height): mostly down, turning slowly. */
   private readonly drag = { value: new THREE.Vector2(0, 0.1) };
   private who = 0;
@@ -397,7 +432,7 @@ export class FutureWindows {
       blendDst: THREE.OneFactor,
       depthTest: false,
       depthWrite: false,
-      uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: 0.61 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uAcc: { value: null }, uSee: { value: 0.9 }, uPaper: { value: 0 }, uBlur: { value: 0.2 }, uBoost: { value: 3 }, uAberr: { value: 0.006 }, uTear: { value: 0.5 }, uGlitch: { value: 0.35 } },
+      uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: 0.61 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uAcc: { value: null }, uSee: { value: 0.9 }, uPaper: { value: 0 }, uBlur: { value: 0.2 }, uBoost: { value: 3 }, uMap: { value: null }, uAberr: { value: 0.006 }, uTear: { value: 0.5 }, uGlitch: { value: 0.35 } },
     });
     this.exposedMesh = new THREE.Mesh(f, this.exposedMat);
     this.exposedMesh.frustumCulled = false;
@@ -449,7 +484,7 @@ export class FutureWindows {
         mesh.visible = false;
         mesh.renderOrder = 2;
         this.group.add(mesh);
-        this.wins.push({ mesh, mat, born: 0, alive: false });
+        this.wins.push({ mesh, mat, born: 0, alive: false, phase: 0, fx: 0, fz: 1, walking: 0 });
         const pm = new THREE.ShaderMaterial({
           vertexShader: PERSON_VERT,
           fragmentShader: PERSON_FRAG,
@@ -462,7 +497,7 @@ export class FutureWindows {
           depthTest: false,
           depthWrite: false,
           side: THREE.DoubleSide,
-          uniforms: { uShake: this.shake, uDrag: this.drag, uTick: this.tick, uGain: this.gain, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uHem: { value: 0.54 }, uHairLen: { value: 0 }, uBuild: { value: 1 }, uLean: { value: 0 }, uBend: { value: 0 } },
+          uniforms: { uShake: this.shake, uDrag: this.drag, uMapAt: { value: new THREE.Vector2(0.5, 0.5) }, uMapSpan: this.mapSpan, uTick: this.tick, uGain: this.gain, uA: { value: 0 }, uBuild: { value: 1 }, uJ0: { value: newJoints() }, uJ1: { value: newJoints() } },
         });
         const person = new THREE.Mesh(this.winGeom, pm);
         person.frustumCulled = false;
@@ -523,6 +558,8 @@ export class FutureWindows {
   place(origin: { x: number; z: number }, R: number): void {
     this.capMat.uniforms.uOrigin.value.set(origin.x, 0, origin.z);
     this.capMat.uniforms.uR.value = R;
+    this.mapR = R;
+    this.mapStale = true;
   }
 
   end(): void {
@@ -560,6 +597,7 @@ export class FutureWindows {
     S.uDens.value = 0.03 * cfg.frameInk;
     S.uMono.value = tone === "none" ? 0 : 1;
     // (the future in colour: taken so, and read so)
+    // (a person's body is always the future in colour)
     const rich = tone === "rich";
     S.uRich.value = rich ? 1 : 0;
     S.uOnWhite.value = paper ? 1 : 0;
@@ -572,9 +610,63 @@ export class FutureWindows {
     gl.getDrawingBufferSize(S.uRes.value);
     // ② the observer's own window (the first), while it is in sight; ③ one more left where it was, every so far
     const stay = Math.max(1, cfg.winStay), h = cfg.winH, shape = cfg.winShape === "sheet" ? 1 : 0, person = cfg.winShape === "person" && !!this.acc;
-    const wide = shape ? h * 0.75 : person ? h * 0.6 : h;
+    // (as a person it is a person's size)
+    const tall = person ? cfg.winPersonH : h, wide = shape ? h * 0.75 : person ? tall * 0.8 : h;
+    // THE GROUND'S FUTURE FROM ABOVE, in colour — what a person's body shows: taken when the place has been read
+    if (person && (this.mapStale || !this.map)) {
+      this.mapStale = false;
+      if (!this.map) {
+        this.map = new THREE.WebGLRenderTarget(384, 384, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false });
+        this.exposedMat.uniforms.uMap.value = this.map.texture;
+      }
+      const o = this.capMat.uniforms.uOrigin.value as THREE.Vector3, R = this.mapR * 1.4, c = this.mapCam, CU = this.capMat.uniforms;
+      c.left = -R;
+      c.right = R;
+      c.top = R;
+      c.bottom = -R;
+      c.updateProjectionMatrix();
+      c.position.set(o.x, 80, o.z);
+      c.up.set(0, 0, -1);
+      c.lookAt(o.x, 0, o.z);
+      c.updateMatrixWorld(true);
+      const was = [CU.uScale.value, CU.uSplat.value, CU.uRich.value, CU.uOnWhite.value];
+      // (a point's size in the picture: its size on the ground, whatever its height)
+      CU.uScale.value = (384 / (2 * R)) * 80;
+      CU.uSplat.value = Math.max(cfg.frameSplat, 0.35);
+      CU.uRich.value = 1;
+      CU.uOnWhite.value = paper ? 1 : 0;
+      const prevT = gl.getRenderTarget(), prevAuto = gl.autoClear, prevA = gl.getClearAlpha();
+      gl.getClearColor(clearTmp);
+      gl.setRenderTarget(this.map);
+      gl.setClearColor(0x000000, 0);
+      gl.clear(true, false, false);
+      gl.autoClear = false;
+      gl.render(this.capScene, c);
+      gl.autoClear = prevAuto;
+      gl.setClearColor(clearTmp, prevA);
+      gl.setRenderTarget(prevT);
+      [CU.uScale.value, CU.uSplat.value, CU.uRich.value, CU.uOnWhite.value] = was;
+    }
+    // (a body shows the ground 3 across and 9 along where it stands)
+    this.mapSpan.value.set(3 / (2 * this.mapR * 1.4), 9 / (2 * this.mapR * 1.4));
     if (o.ex) this.exPos.set(o.ex.x, 0, o.ex.z);
     this.walk += ((o.ex && !o.ex.standing ? 1 : 0) - this.walk) * 0.1;
+    // (as a person: its own stride goes on at a person's pace while it walks, and comes to the feet together as it stops;
+    // it faces the way it walks)
+    const cycle = WALK_CYCLES[((this.who % WALK_CYCLES.length) + WALK_CYCLES.length) % WALK_CYCLES.length];
+    const sdt = Math.max(0, Math.min(0.1, now - this.stepAt));
+    this.stepAt = now;
+    {
+      const w0 = this.wins[0];
+      if (this.walk > 0.5) w0.phase = (w0.phase + sdt / cycle.cycleSec) % 1;
+      else w0.phase += (standingPhase(w0.phase) - w0.phase) * Math.min(1, sdt * 4);
+      w0.walking = this.walk;
+      const dl = o.ex ? Math.hypot(o.ex.dx, o.ex.dz) : 0;
+      if (o.ex && dl > 1e-4) {
+        w0.fx = o.ex.dx / dl;
+        w0.fz = o.ex.dz / dl;
+      }
+    }
     const seen = !!o.ex && Math.hypot(this.exPos.x - me.x, this.exPos.z - me.z) <= cfg.winSeeR;
     const own = this.wins[0];
     if (seen && !own.alive) {
@@ -591,6 +683,8 @@ export class FutureWindows {
           w.mesh.position.copy(this.last);
           w.mat.uniforms.uPose.value = now;
           w.mat.uniforms.uWalk.value = this.walk;
+          // (as a person, it stays in the stride it had there)
+          Object.assign(w, { phase: this.wins[0].phase, fx: this.wins[0].fx, fz: this.wins[0].fz, walking: 0 });
         }
         this.dropped = true;
         this.last.copy(this.exPos);
@@ -624,24 +718,22 @@ export class FutureWindows {
       alive++;
       // (upright, turned to the eye)
       w.mesh.rotation.set(0, Math.atan2(eye.x - w.mesh.position.x, eye.z - w.mesh.position.z), 0);
-      w.mesh.scale.set(wide, h, 1);
+      w.mesh.scale.set(wide, tall, 1);
       U.uA.value = a;
       U.uShape.value = shape;
       if (person) {
         q.mesh.position.copy(w.mesh.position);
         q.mesh.rotation.copy(w.mesh.rotation);
         q.mesh.scale.copy(w.mesh.scale);
-        const P = q.mat.uniforms;
+        const P = q.mat.uniforms, O = this.capMat.uniforms.uOrigin.value as THREE.Vector3, span = 2 * this.mapR * 1.4;
+        // (where it stands on the chart: east to the right, north up)
+        (P.uMapAt.value as THREE.Vector2).set(0.5 + (w.mesh.position.x - O.x) / span, 0.5 - (w.mesh.position.z - O.z) / span);
         P.uA.value = a;
-        P.uPose.value = U.uPose.value;
-        P.uWalk.value = U.uWalk.value;
-        // (its outline — the cut of what it wears, its hair, its build, its lean — by its number)
-        const n = this.who;
-        P.uHem.value = [0.54, 0.47, 0.54, 0.38, 0.5][(n * 5 + 1) % 5];
-        P.uHairLen.value = [0, 0.16, 0, 0.1, 0.22][(n * 3 + 2) % 5];
-        P.uBuild.value = [1, 0.9, 1.08, 0.95, 1.14][(n * 11 + 4) % 5];
-        P.uLean.value = [0.05, -0.035, 0.02, -0.06, 0.04, -0.015][(n * 5 + 3) % 6];
-        P.uBend.value = [1, 0, 0.6, 0, 1, 0.3][(n * 7 + 1) % 6];
+        // (the captured stride at the shutter's opening and a little further on at its closing — the walk smears)
+        const theta = w.mesh.rotation.y;
+        poseOnSheet(P.uJ0.value as THREE.Vector2[], jointsOfCycle(cycle, w.phase), w.fx, w.fz, theta);
+        poseOnSheet(P.uJ1.value as THREE.Vector2[], jointsOfCycle(cycle, w.phase + 0.1 * w.walking), w.fx, w.fz, theta);
+        P.uBuild.value = [1, 0.92, 1.06, 0.96, 1.1][((this.who * 11 + 4) % 5 + 5) % 5];
       }
       // ④ how near the visitor is to it
       const d = Math.hypot(w.mesh.position.x - me.x, w.mesh.position.z - me.z);
@@ -706,7 +798,7 @@ export class FutureWindows {
     }
     this.exposedMesh.visible = showEx;
     this.exposedMat.uniforms.uSee.value = cfg.winSee;
-    this.exposedMat.uniforms.uBlur.value = cfg.winDrag * 1.6;
+    this.exposedMat.uniforms.uBlur.value = cfg.winDrag * 0.5;
     this.exposedMat.uniforms.uBoost.value = cfg.winBoost;
     this.exposedMat.uniforms.uAberr.value = cfg.winAberr;
     this.exposedMat.uniforms.uTear.value = cfg.winTear;
@@ -721,6 +813,8 @@ export class FutureWindows {
     this.rt = null;
     this.acc?.dispose();
     this.acc = null;
+    this.map?.dispose();
+    this.map = null;
     for (const q of this.people) q.mat.dispose();
     this.people = [];
     this.exposedMat.dispose();
