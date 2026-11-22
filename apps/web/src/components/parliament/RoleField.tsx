@@ -631,7 +631,7 @@ export function RoleField({
     <>
       {future?.on && future.mode !== "encounter" && <FuturePresence log={log} meRef={me} getS={() => sNow.current} playerPosRef={playerPosRef} cfg={future} />}
       {future?.on && future.mode === "encounter" && (
-        <FutureEncounter log={log} meRef={me} getS={() => sNow.current} getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} getLive={() => !lifeRef || lifeRef.current.phase === "live"} playerPosRef={playerPosRef} cfg={future} />
+        <FutureEncounter log={log} meRef={me} getS={() => sNow.current} getWorldSec={() => (worldNow() - epochMs.current) / 1000} getEpochMs={() => epochMs.current} getLive={() => !lifeRef || lifeRef.current.phase === "live"} playerPosRef={playerPosRef} cfg={future} sound={sound} getYaw={() => playerYawRef?.current ?? 0} />
       )}
       <group ref={present}>
       {grass?.style === "dither" || grass?.style === "field" ? (

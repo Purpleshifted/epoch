@@ -60,6 +60,8 @@ export interface FuturePresenceVisual extends PresenceConfig {
   cooldownSec: number;
   /** The present goes dark while the future holds (and comes back as it streams away). */
   darkPresent: boolean;
+  /** The passing's sound (futureSound.ts): its level, 0 = none. */
+  fxLevel: number;
 }
 
 /** The peek (mode "peek"): held while F is down, or the phone's button. Read every frame by the drawers. */
@@ -99,6 +101,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
           outSec: { value: 1.8, min: 0.3, max: 6, step: 0.1, label: "흩어지는 시간 (s · 발굴자가 가는 쪽으로)", render: v2 },
           cooldownSec: { value: 20, min: 2, max: 120, step: 1, label: "같은 발굴자를 다시 마주치기까지 (s)", render: v2 },
           darkPresent: { value: true, label: "미래가 머무는 동안 현재를 끔 (흩어질 때 돌아옴)", render: v2 },
+          fxLevel: { value: 0.8, min: 0, max: 1, step: 0.05, label: "스쳐 가는 소리 크기 (꽃밭 = 반짝임 · 물 = 강물 · 발견 = 종 · 0 = 없음)", render: v2 },
         },
         { collapsed: false },
       ),
@@ -157,8 +160,9 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       outSec: k.outSec,
       cooldownSec: k.cooldownSec,
       darkPresent: k.darkPresent,
+      fxLevel: k.fxLevel,
     };
-  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent]);
+  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel]);
 }
 
 const MAX_EDGE_VERTS = 120000;
