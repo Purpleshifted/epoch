@@ -68,8 +68,8 @@ import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
-import { blockFrameFor, botServerOn, useVisitorLink } from "./useBotServer";
-import { blockSeatOffset } from "@/lib/parliament/rise";
+import { blockFrameFor, botServerOn, livingBotsNear, useVisitorLink } from "./useBotServer";
+import { blockSeatOffset, herdSeatOffset } from "@/lib/parliament/rise";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
@@ -92,6 +92,10 @@ export interface ParliamentDebug {
   role: RoleId;
   s: number;
   offset: number;
+  /** How the life was seated in time: the clock's top (no block told) · a random height of the window · beside a bot. */
+  seat?: "clock" | "random" | "herd";
+  /** How many others the record counts as here now (aliveOwners). */
+  alive?: number;
   events: number;
   slabs: number;
   paths: number;
@@ -208,7 +212,11 @@ export function RoleField({
   const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
   const stressAt = useStressState(log, natureCfg);
   /** `rand`: where in the block's window this life is seated; `seatEpoch`: the world it was seated in (0 = not yet). */
-  const me = useRef({ id: "v_anon", offset: 0, tag: "t", rand: 0.5, seatEpoch: 0 });
+  const me = useRef({ id: "v_anon", offset: 0, tag: "t", rand: 0.5, seatEpoch: 0, rand2: 0.5, herdEpoch: 0, seat: "clock" as "clock" | "random" | "herd" });
+  /** How many others the record counts as here (aliveOwners), as of the last fold: the readout. */
+  const aliveN = useRef(0);
+  /** `?seat=random`: the life keeps its random seat in the window (no moving beside the bots) — for comparing. */
+  const seatRandomOnly = useRef(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("seat") === "random");
   /** My own samples, in time order (what the ledger reads; a life is a few hundred). */
   const myEvents = useRef<PEvent[]>([]);
   const ledgerMs = useRef(0);
@@ -266,6 +274,9 @@ export function RoleField({
       tag: Math.random().toString(36).slice(2, 6),
       rand: Math.random(),
       seatEpoch: 0,
+      rand2: Math.random(),
+      herdEpoch: 0,
+      seat: "clock",
     };
     if (visitorRef) visitorRef.current = { no: sessionNo, id: me.current.id };
     try {
@@ -317,7 +328,29 @@ export function RoleField({
       if (off !== null) {
         me.current.offset = off;
         me.current.seatEpoch = epochMs.current;
+        me.current.seat = "random";
         rejoined.current = true;
+      }
+    }
+    // BORN WHERE THE BOTS ARE (the artist, 2026-11-22: "봇이 어느 정도 있는 시간대면 좋겠는데. 무작위로"): the server tells
+    // a phone what is written near its visitor only once it has had a sample of them — so the life begins at its
+    // random seat, and a few seconds into it, once the live stream of the bots near has run for a moment, it is seated
+    // again beside one of them (rise.ts herdSeatOffset: a random one of the living bots near, within ±20 s). Once per
+    // world; with no bot near within 8 s the random seat stays. The first few samples stand at the random seat.
+    if (!seatRandomOnly.current && me.current.seatEpoch === epochMs.current && me.current.herdEpoch !== epochMs.current && (!lifeRef || lifeRef.current.phase === "live")) {
+      // (the first message is the world round the visitor as it was — its bots may be long gone: only what came after
+      // it, in the last 3 s, is living; so the reading waits past that message)
+      const near = livingBotsNear(3000);
+      const listened = near.since > 0 ? wall - near.since : 0;
+      if (listened >= 4500) {
+        const b = blockFrameFor(epochMs.current);
+        const off = b && near.bots.length ? herdSeatOffset(b.frame, b.gone, live.current.lifeSec, near.bots.map((q) => q.s), me.current.rand, me.current.rand2) : null;
+        if (off !== null) {
+          me.current.offset = off;
+          me.current.seat = "herd";
+          me.current.herdEpoch = epochMs.current;
+          rejoined.current = true;
+        } else if (listened >= 8000) me.current.herdEpoch = epochMs.current;
       }
     }
     const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold } = live.current;
@@ -444,6 +477,7 @@ export function RoleField({
       // who is here now: everyone within the assignment window, whatever time slot they live in
       heads.current = dandelionsIn(events);
       const alive = aliveOwners(events, me.current.id, seenOwners.current, performance.now(), ALIVE_HOLD_MS, sMe, Math.max(offsetWindow, DEFAULT_WITNESS.recentSec));
+      aliveN.current = alive.size;
       snap.current = fold.at(sMe, { x: p.x, z: p.z, r: readR });
       stress.current = stressAt(sMe, { x: p.x, z: p.z, r: VIEW_RADIUS });
       markSpan("fold", performance.now() - tFold);
@@ -535,6 +569,8 @@ export function RoleField({
         role,
         s: +sMe.toFixed(1),
         offset: +me.current.offset.toFixed(1),
+        seat: me.current.seat,
+        alive: aliveN.current,
         events: log.size,
         x: +p.x.toFixed(1),
         z: +p.z.toFixed(1),

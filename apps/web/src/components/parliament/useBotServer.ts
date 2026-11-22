@@ -258,6 +258,22 @@ export function blockFrameFor(epochMs: number): { frame: BlockFrame; gone: numbe
   return { frame: b.frame, gone: Math.max(0, (b.clock.v + (Date.now() - b.clock.r) * b.clock.rate - epochMs) / 1000) };
 }
 
+/**
+ * THE BOTS LIVING NEAR THE VISITOR, as the server writes them (2026-11-22: a life is born where the bots are —
+ * rise.ts herdSeatOffset): each bot's latest sample's block time and when it came (wall ms). The server sends a
+ * phone what is written within 40 world units of where its visitor last stood — so these are the bots near in space;
+ * one whose sample came in the last few seconds is living now (the first message is the world round the visitor as
+ * it was: those bots may be long gone, so a reading waits for the live stream — `since`).
+ */
+const nearBots = new Map<string, { s: number; x: number; z: number; at: number }>();
+/** Wall ms the first message of the world near the visitor came (0 = none yet). */
+let nearSince = 0;
+export function livingBotsNear(withinMs = 3000): { since: number; bots: { o: string; s: number; x: number; z: number }[] } {
+  const now = Date.now(), bots: { o: string; s: number; x: number; z: number }[] = [];
+  for (const [o, b] of nearBots) if (now - b.at <= withinMs) bots.push({ o, s: b.s, x: b.x, z: b.z });
+  return { since: nearSince, bots };
+}
+
 export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epochMs: number) => void {
   const queue = useRef<{ e: PEvent; epochMs: number }[]>([]);
   useEffect(() => {
@@ -286,9 +302,18 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           return;
         }
         if (d.t === "ev") {
+          const evs = (d as { events?: PEvent[] }).events ?? [];
+          // (the bots near, as they write: livingBotsNear)
+          const at = Date.now();
+          if (!nearSince && evs.length) nearSince = at;
+          for (const e of evs) {
+            if (e.k !== "p" || !e.o.startsWith("bot")) continue;
+            const b = nearBots.get(e.o);
+            if (!b || e.s >= b.s) nearBots.set(e.o, { s: e.s, x: e.x, z: e.z, at });
+          }
           // (only once the phone's own world has ended and it is in the server's: useWorld empties the log on the
           // epoch's change, and what came before would go with it)
-          if (epoch && currentEpochKey() === String(epoch) && joined()) log.addMany((d as { events?: PEvent[] }).events ?? []);
+          if (epoch && currentEpochKey() === String(epoch) && joined()) log.addMany(evs);
           return;
         }
         // THE WORLD'S RULES, FOR THE FUTURE UNDER THE VISITOR'S FEET (futurePresence.ts, 2026-11-22): the server's
@@ -315,6 +340,10 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           // (no storage)
         }
         if (d.t === "hello" && typeof d.epochMs === "number") {
+          if (epoch !== d.epochMs) {
+            nearBots.clear();
+            nearSince = 0;
+          }
           epoch = d.epochMs;
           // the block the bots live in: the visitor is seated in its time (RoleField), not at "seconds since the epoch"
           const h = (d as { setup?: { lc?: { herd?: { shift?: number; depthSec?: number } } } }).setup?.lc?.herd;
