@@ -151,6 +151,10 @@ export function planBar(inp: BarInputs): BarPlan {
   const d = density(sig.speed, p.speedMax);
   const company = Math.min(1, sig.neighbours.length / 2);
   const staying = sig.stay > 0.5 && sig.neighbours.length > 0;
+  // someone has asked me something (sig.asker): theirs is the voice that plays along, whatever I am doing — the bar
+  // is only added to, nothing is taken out (the artist, 2026-11-10: emptying the sequencer made the sound stumble)
+  const asking = sig.asker ? sig.neighbours.find((n) => n.o === sig.asker) : undefined;
+  const lead = asking ?? sig.neighbours[0];
   // call and response while staying among others: odd bars are theirs
   const answer = staying && bar % 2 === 1;
   const motifCfg = { ...DEFAULT_MOTIF, microtone: p.microtone ?? 1 };
@@ -166,9 +170,8 @@ export function planBar(inp: BarInputs): BarPlan {
       mine = cyc.map((n) => ({ at: n.at, len: n.len, pitch: n.pitch, freq: midiToHz(n.pitch, me.colour), locked: false }));
     } else {
       let motif = me;
-      const nearest = sig.neighbours[0];
-      const amount = nearest ? inp.closeness.get(nearest.o) ?? 0 : 0;
-      const theirs = nearest ? inp.others.get(nearest.o) : undefined;
+      const amount = lead ? inp.closeness.get(lead.o) ?? 0 : 0;
+      const theirs = lead ? inp.others.get(lead.o) : undefined;
       if (theirs && amount > 0) motif = blend(me, theirs, amount, bar);
       mine = placeInBar(realize(motif, key, chord, lock, bar, motifCfg), d, bar);
     }
@@ -193,12 +196,12 @@ export function planBar(inp: BarInputs): BarPlan {
   for (const n of sig.neighbours) {
     const m = inp.others.get(n.o);
     if (!m) continue;
-    if (staying && !answer && n !== sig.neighbours[0]) {
-      // while staying, the others wait for their bar — except the nearest, who plays along with me softly
+    if (staying && !answer && n !== lead) {
+      // while staying, the others wait for their bar — except the nearest (or who asked), who plays along softly
       continue;
     }
-    if (staying && answer && n !== sig.neighbours[0]) continue;
-    const notes = realize(m, key, chord, Math.max(lock, staying ? 0.8 : 0), bar, motifCfg);
+    if (staying && answer && n !== lead) continue;
+    const notes = realize(m, key, chord, Math.max(lock, staying || asking ? 0.8 : 0), bar, motifCfg);
     others.push({ o: n.o, notes });
   }
 

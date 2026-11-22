@@ -13,6 +13,8 @@ export interface LifeEvent {
   level: number;
   /** Session seconds the line carries (the life's clock), where it has one. */
   lifeT?: number;
+  /** The id of whom the line is about (its `{}`), where it names someone: who asked, whom I answered. */
+  who?: string;
 }
 
 const listeners = new Set<(e: LifeEvent) => void>();
