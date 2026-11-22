@@ -14,6 +14,7 @@
  */
 
 import { hash2 } from "./nature";
+import walkCyclesJson from "./walkCycles.json";
 
 export interface BodyConfig {
   /** Points a body is made of (all frames the same). */
@@ -135,6 +136,36 @@ export const WALK_STYLES: readonly WalkStyle[] = [
 ];
 export const WAVE_STYLE: WalkStyle = { step: 0, swing: 0, lean: 0.02, bob: 0, wave: true };
 
+/**
+ * REAL WALKS (the artist, 2026-11-22 night: a person must read like the long-exposure references — "진짜 몸의 비례와 비대칭
+ * 걸음"): cycles from the CMU Graphics Lab Motion Capture Database (mocap.cs.cmu.edu — free for research and commercial use;
+ * the data itself may not be resold), baked offline (scratch mocap/bake.mjs: ASF/AMC forward kinematics, a left heel strike
+ * to the next, 16 frames, in place, facing +z, 1.7 m, feet on y = 0) into walkCycles.json: subjects 07 (two walks), 02 and
+ * 35 — four real gaits, each with its own weight shift, arm swing and head nod.
+ */
+export interface WalkCycle {
+  frames: number;
+  /** The stride's length (m) and its time (s) as captured. */
+  strideM: number;
+  cycleSec: number;
+  joints: Record<keyof Joints, [number, number, number][]>;
+  source: string;
+}
+export const WALK_CYCLES: readonly WalkCycle[] = (walkCyclesJson as unknown as { cycles: WalkCycle[] }).cycles;
+
+/** The joints at `phase` (0 … 1) of a captured cycle, the frames blended. */
+export function jointsOfCycle(cycle: WalkCycle, phase: number): Joints {
+  const n = cycle.frames;
+  const f = (((phase % 1) + 1) % 1) * n;
+  const i0 = Math.floor(f) % n, i1 = (i0 + 1) % n, t = f - Math.floor(f);
+  const out = {} as Joints;
+  for (const k of Object.keys(cycle.joints) as (keyof Joints)[]) {
+    const a = cycle.joints[k][i0], b = cycle.joints[k][i1];
+    out[k] = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  }
+  return out;
+}
+
 export function jointsAt(phase: number, style: WalkStyle = WALK_STYLES[0]): Joints {
   const phi = phase * TAU;
   const bob = style.bob * Math.cos(2 * phi); // highest twice a stride, at mid-stance
@@ -194,7 +225,7 @@ function onLimb(a: V3, b: V3, t: number, ang: number, rx: number, rz: number, ou
  * The stride as points: a Float32Array of frames × points × 4 (x, y, z, 1), frame-major, the body `cfg.height` tall
  * (the skeleton is 1.7 m and scaled). The fourth channel is 1 for every point (room for a weight later).
  */
-export function bakeWalk(cfg: BodyConfig = DEFAULT_BODY): Float32Array {
+export function bakeWalk(cfg: BodyConfig = DEFAULT_BODY, cycle?: WalkCycle): Float32Array {
   const { points: n, frames, height, seed } = cfg;
   const out = new Float32Array(frames * n * 4);
   const k = height / 1.7;
@@ -209,7 +240,7 @@ export function bakeWalk(cfg: BodyConfig = DEFAULT_BODY): Float32Array {
   }
   const tmp = new Float32Array(3);
   for (let f = 0; f < frames; f++) {
-    const J = jointsAt(f / frames);
+    const J = cycle ? jointsOfCycle(cycle, f / frames) : jointsAt(f / frames);
     for (let i = 0; i < n; i++) {
       const o = (f * n + i) * 4;
       const t = T[i], ang = A[i], r = R[i];

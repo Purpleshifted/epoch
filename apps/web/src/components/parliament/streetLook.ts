@@ -29,6 +29,8 @@ export interface StreetGroundLook {
    * component of the personal view (and by future-presence for its frames): `streetGround.paper`.
    */
   paper: boolean;
+  /** Whether the ground plane is drawn on the white ground at all (the artist, 2026-11-22: the floor is read from the vegetation). */
+  groundOnPaper: boolean;
   /** How dark a person's blot is (0 … 1), the blur of its edge (px of the sprite sheet), the distance (world) over which
    *  a person pales to nothing, and within which a small label with its number stands by it. */
   ink: number;
@@ -46,7 +48,7 @@ export const PAPER = "#f4f2ec";
 export const streetGaze: { x: number; z: number; until: number; on: boolean } = { x: 0, z: 0, until: 0, on: false };
 export const PAPER_GREEN = "#b7d3a4";
 
-export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false, paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, blotDist: 8 };
+export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false, paper: false, groundOnPaper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, blotDist: 8 };
 
 export function setStreetGround(v: Partial<StreetGroundLook>): void {
   const was = streetGround.paper;

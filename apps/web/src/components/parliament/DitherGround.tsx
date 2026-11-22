@@ -56,6 +56,7 @@ uniform float uWind;
 uniform float uWindSpeed;
 uniform float uTime;
 uniform float uPaper;
+uniform float uGroundOnPaper;
 varying vec2 vXZ;
 varying vec3 vW;
 float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
@@ -72,6 +73,8 @@ float wearAt(vec2 uv) { return smoothstep(0.08, 0.6, texture2D(uG, uv).g) * uWea
 void main() {
   float dc = distance(vXZ, uCentre);
   if (dc > uRadius) discard;
+  // 흰 바탕: no ground plane unless asked — the floor is read from the vegetation (the artist, 2026-11-22)
+  if (uPaper > 0.5 && uGroundOnPaper < 0.5) discard;
   vec2 rel = vXZ - uOrigin;
   float g = texture2D(uG, rel / uSpan).r;
   // 길거리: the worn ground where a path has formed (achromatic), per cell, with a grain and a seam where two cells'
@@ -190,6 +193,7 @@ export function DitherGround({
           uWindSpeed: { value: 1 },
           uTime: { value: 0 },
           uPaper: { value: 0 },
+          uGroundOnPaper: { value: 0 },
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,6 +225,7 @@ export function DitherGround({
     u.uWindSpeed.value = st.windSpeed;
     u.uTime.value = clock.elapsedTime;
     u.uPaper.value = st.on && st.paper ? 1 : 0;
+    u.uGroundOnPaper.value = st.groundOnPaper ? 1 : 0;
     // the scene's fog, if any (길거리 › 깊이 안개 in the brutal look; the soft look never draws this field)
     const fog = scene.fog as THREE.Fog | null;
     u.uFog.value = fog && fog.isFog ? 1 : 0;

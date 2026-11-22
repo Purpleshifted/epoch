@@ -21,7 +21,7 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
 import { Glyph } from "./Glyph";
-import { DEFAULT_BODY, DEFAULT_MOTION, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { DEFAULT_BODY, DEFAULT_MOTION, WALK_CYCLES, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, jointsOfCycle, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
 import { streetGaze } from "./streetLook";
 import { EXPOSURE_LAYER } from "./InkPaper";
 import { onLifeEvent } from "./lifeEvents";
@@ -85,6 +85,8 @@ export interface PeopleLook {
   height: number;
   /** How different the bodies are (0 = all alike, 1 = ±8 % height, ±10 % build, ±15 % pace). */
   variety: number;
+  /** The walks: captured (CMU, four real gaits) or the sine skeleton. */
+  gait: "mocap" | "sine";
   /** The legs never cycle faster than this (strides/s). */
   maxCadence: number;
   /** The faint standing plate behind each body, and its opacity. */
@@ -110,7 +112,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", gait: "mocap", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -157,16 +159,17 @@ const SHAKE_SEC = 0.14;
 const SHEET_FRAMES = 16;
 const SHEET_W = 48;
 const SHEET_H = 96;
-/** The sheet's rows: the ways of walking, then the wave (the asker's). */
-const SHEET_ROWS = WALK_STYLES.length + 1;
-const WAVE_ROW = WALK_STYLES.length;
+/** The sheet's rows: the ways of walking (as many as the captured cycles, or the sine styles), then the wave (the asker's). */
+const WALK_ROWS = Math.max(WALK_STYLES.length, WALK_CYCLES.length);
+const SHEET_ROWS = WALK_ROWS + 1;
+const WAVE_ROW = WALK_ROWS;
 
 /**
  * The walking silhouette as a SPRITE SHEET: the stride's frames drawn side-on (the body walking to the right), white on
  * nothing, each frame SHEET_W × SHEET_H for a 1.9 m frame — the stroke of each limb is its thickness. Nearest-filtered:
  * the edge stays hard (brutal). Needs a document (a canvas).
  */
-function walkSheet(blurPx = 0): THREE.Texture {
+function walkSheet(blurPx = 0, gait: "mocap" | "sine" = "mocap"): THREE.Texture {
   const c = document.createElement("canvas");
   c.width = SHEET_W * SHEET_FRAMES;
   c.height = SHEET_H * SHEET_ROWS;
@@ -180,7 +183,7 @@ function walkSheet(blurPx = 0): THREE.Texture {
   g.lineJoin = "round";
   for (let row = 0; row < SHEET_ROWS; row++)
   for (let f = 0; f < SHEET_FRAMES; f++) {
-    const J = jointsAt(f / SHEET_FRAMES, row === WAVE_ROW ? WAVE_STYLE : WALK_STYLES[row]);
+    const J = row === WAVE_ROW ? jointsAt(f / SHEET_FRAMES, WAVE_STYLE) : gait === "mocap" && WALK_CYCLES.length ? jointsOfCycle(WALK_CYCLES[row % WALK_CYCLES.length], f / SHEET_FRAMES) : jointsAt(f / SHEET_FRAMES, WALK_STYLES[row % WALK_STYLES.length]);
     const ox = f * SHEET_W + SHEET_W / 2, oy = row * SHEET_H + SHEET_H - 2;
     const X = (p: readonly number[]) => ox + p[2] * k;
     const Y = (p: readonly number[]) => oy - p[1] * k;
@@ -282,9 +285,11 @@ void main() {
     // with the melody, deeper for the asker; a ripple (cue 2) is a film alone. Standing accumulates, walking smears.
     float body = vCue > 1.5 ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft * 0.5) * uInk * vInkK;
     float bx = min(vLocal.x, 1.0 - vLocal.x), by = min(vLocal.y, 1.0 - vLocal.y);
-    float edge = smoothstep(0.0, 0.09, bx) * smoothstep(0.0, 0.06, by);
-    float film = edge * (0.05 + 0.03 * vLit + 0.07 * step(0.5, vCue)) * uFrame;
-    if (vCue > 1.5) film = edge * 0.08;
+    // (the film is faint and its edges wide: the window is a frame of record, and on the white ground it must not read as a
+    // drawn rectangle)
+    float edge = smoothstep(0.0, 0.2, bx) * smoothstep(0.0, 0.14, by);
+    float film = edge * (0.02 + 0.015 * vLit + 0.05 * step(0.5, vCue)) * uFrame;
+    if (vCue > 1.5) film = edge * 0.05;
     float dens = max(body, film) * vAlpha * uGain;
     if (dens < 0.002) discard;
     gl_FragColor = vec4(vec3(dens), 1.0);
@@ -404,12 +409,12 @@ export function PointPeople({
 
   // the stride as a float texture: one row a frame, one texel a point (an average body; each differs by its hash)
   const body = useMemo(() => {
-    const data = bakeWalk({ ...DEFAULT_BODY, points, height: heightU });
+    const data = bakeWalk({ ...DEFAULT_BODY, points, height: heightU }, look.gait === "mocap" ? WALK_CYCLES[0] : undefined);
     const t = new THREE.DataTexture(data, points, frames, THREE.RGBAFormat, THREE.FloatType);
     t.magFilter = t.minFilter = THREE.NearestFilter;
     t.needsUpdate = true;
     return t;
-  }, [points, frames, heightU]);
+  }, [points, frames, heightU, look.gait]);
 
   const geom = useMemo(() => {
     const g = new THREE.InstancedBufferGeometry();
@@ -426,8 +431,9 @@ export function PointPeople({
   }, [points]);
 
   // the boxes: a billboard quad an instance, the walking silhouette as a sprite sheet
-  const sheet = useMemo(() => walkSheet(), []);
-  const sheetSoft = useMemo(() => walkSheet(look.blur), [look.blur]);
+  const sheet = useMemo(() => walkSheet(0, look.gait), [look.gait]);
+  const sheetSoft = useMemo(() => walkSheet(look.blur, look.gait), [look.blur, look.gait]);
+  useEffect(() => () => sheet.dispose(), [sheet]);
   useEffect(() => () => sheetSoft.dispose(), [sheetSoft]);
   const boxGeom = useMemo(() => {
     const g = new THREE.InstancedBufferGeometry();
@@ -692,7 +698,7 @@ export function PointPeople({
           // this person's way: a walk of their own (the sheet's row), their ink, the softness of their edge, their lean;
           // the asker waves instead of walking
           // (the canvas's rows count from the top, the texture's v from the bottom: the row is written mirrored)
-          const row = SHEET_ROWS - 1 - (cue ? WAVE_ROW : Math.floor(frac(p.hash * 29.7) * WALK_STYLES.length));
+          const row = SHEET_ROWS - 1 - (cue ? WAVE_ROW : Math.floor(frac(p.hash * 29.7) * WALK_ROWS));
           BW[nb * 4] = pv * frac(p.hash * 41.3);
           BW[nb * 4 + 1] = 1 + pv * (0.4 * frac(p.hash * 53.1) - 0.2);
           BW[nb * 4 + 2] = pv * (frac(p.hash * 61.7) - 0.5) * 0.14;
