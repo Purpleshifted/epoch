@@ -35,7 +35,7 @@ const SKIRT = 0.45;
 export const CAPTURE_VERT = `
 attribute vec3 color;
 attribute vec4 aSeed;
-uniform float uScale, uSplat, uR;
+uniform float uScale, uSplat, uR, uRich, uOnWhite;
 uniform vec3 uOrigin;
 varying vec3 vInk;
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -55,6 +55,24 @@ void main() {
   // how heavy its ink: the ground a haze (by its own tone), what is left of a building heavy, mounds and dark earth between
   float w = kind < 0.5 ? 0.1 + 0.7 * lum : kind < 1.5 ? 5.0 : kind < 2.5 ? 2.5 : kind < 3.5 ? 4.0 : kind < 4.5 ? 1.5 : kind < 5.5 ? 2.5 : 0.7;
   vInk = (kind > 5.5 ? vec3(0.0, 0.0, 1.0) : (kind > 1.5 && kind < 3.5) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)) * w * edge;
+  // THE FUTURE IN COLOUR (uRich — the artist, 2026-11-23: "옷 색이 아니라 비쳐보이는 미래 색으로 보여야 하는데 미래 색을
+  // 다채롭게 번역할 생각을 해야지"): each kind of thing the future holds has hues of its own, and a slow noise over the
+  // ground chooses between them — what is left of the buildings rust-orange to denim, the grass yellow-green to
+  // mustard with the magenta of what flowers, the trees teal, the mounds mustard, the dark earth navy, the visitor's
+  // own cells coral, the ground itself cream to a pale blue. Gathered as what each takes from white light (on the
+  // white ground) or gives (on the black), so where they overlap they mix as inks or as lights do.
+  if (uRich > 0.5) {
+    float n = n3(p * 0.7 + 3.0), f = h3(floor(p * 2.3) + 9.0);
+    vec3 hue =
+      kind < 0.5 ? mix(vec3(0.85, 0.79, 0.66), vec3(0.58, 0.64, 0.90), n)
+      : kind < 1.5 ? mix(mix(vec3(0.89, 0.38, 0.06), vec3(0.24, 0.44, 0.70), smoothstep(0.38, 0.62, n)), vec3(0.12, 0.18, 0.42), (1.0 - lum) * 0.35)
+      : kind < 2.5 ? (f > 0.86 ? vec3(0.72, 0.19, 0.42) : mix(vec3(0.62, 0.72, 0.25), vec3(0.90, 0.69, 0.27), n))
+      : kind < 3.5 ? mix(vec3(0.18, 0.36, 0.31), vec3(0.24, 0.44, 0.70), n * 0.6)
+      : kind < 4.5 ? vec3(0.90, 0.69, 0.27)
+      : kind < 5.5 ? vec3(0.12, 0.18, 0.42)
+      : vec3(0.93, 0.45, 0.35);
+    vInk = (uOnWhite > 0.5 ? 1.0 - hue : hue) * w * edge;
+  }
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = edge <= 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * mv;
   float s = (kind < 0.5 || kind > 3.5) ? uSplat : uSplat * 0.6;

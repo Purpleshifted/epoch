@@ -28,7 +28,9 @@ export const WINDOWS_MAX = 12;
 /** How a pixel reads the picture (the frames' tone and bend, the same knobs) and turns its ink into a colour. */
 const INK = `
 uniform sampler2D uTex;
-uniform float uDens, uMono, uDistort, uDistAmt, uTime, uSeed, uSmear;
+uniform float uDens, uMono, uDistort, uDistAmt, uTime, uSeed, uSmear, uRich, uOnWhite;
+// (how much denser the picture is read: 1 as it is; the observer's body reads it stronger)
+float inkBoost = 1.0;
 uniform vec3 uInk, uPlant, uOwn;
 float h1(float x) { return fract(sin(x * 127.1 + uSeed * 311.7) * 43758.5453); }
 float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed * 74.7) * 43758.5453); }
@@ -55,7 +57,15 @@ vec2 warp(vec2 uv) {
 vec4 inkAt(vec2 uv, float smear) {
   vec2 w = clamp(warp(uv), 0.0, 1.0);
   vec3 s = (texture2D(uTex, w - vec2(smear, 0.0)).rgb + texture2D(uTex, w).rgb + texture2D(uTex, w + vec2(smear, 0.0)).rgb) / 3.0;
-  vec3 ink = 1.0 - exp(-uDens * s);
+  if (uRich > 0.5) {
+    // (the picture in colour: on the white ground what is left of white light after its inks, on the black the light)
+    vec3 t = exp(-uDens * inkBoost * 1.6 * s);
+    if (uOnWhite > 0.5) return vec4(t, 1.0 - min(t.r, min(t.g, t.b)));
+    vec3 l = 1.0 - t;
+    float top = max(l.r, max(l.g, l.b));
+    return vec4(l / max(top, 1e-4), top);
+  }
+  vec3 ink = 1.0 - exp(-uDens * inkBoost * s);
   float a = 1.0 - (1.0 - ink.r) * (1.0 - ink.g) * (1.0 - ink.b);
   vec3 c = uMono > 0.5 ? uInk : (uInk * ink.r + uPlant * ink.g + uOwn * ink.b) / max(1e-3, ink.r + ink.g + ink.b);
   return vec4(c, a);
@@ -118,8 +128,9 @@ void main() {
   gl_Position.xy += uShake * gl_Position.w;
 }`;
 const PERSON_FRAG = `
-uniform vec3 uTop, uBottom, uHair, uSkin, uShoe;
-uniform float uA, uPose, uWalk, uGain, uSleeve, uOnWhite, uHem, uHairLen, uBuild, uLean, uBend;
+uniform float uA, uPose, uWalk, uGain, uHem, uHairLen, uBuild, uLean, uBend;
+uniform vec2 uDrag;
+uniform float uTick;
 varying vec2 vUv;
 float capT(vec2 p, vec2 a, vec2 b, float ra, float rb) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h) - mix(ra, rb, h); }
 float ell(vec2 p, vec2 c, vec2 r) { return (length((p - c) / r) - 1.0) * min(r.x, r.y); }
@@ -129,84 +140,112 @@ float trap(vec2 p, float y0, float w0, float y1, float w1, float r) {
   vec2 d = vec2(abs(p.x) - w, max(y0 - p.y, p.y - y1)) + r;
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
 }
-float hx(float x) { return fract(sin(x * 91.7) * 43758.5453); }
-// (cloth is not a flat colour: folds run down it, and it turns away at its sides)
-vec3 cloth(vec3 c, vec2 p, float d, float seed) {
-  float q = p.x * 46.0 + seed * 37.0, f = floor(q), u = fract(q);
-  float fold = mix(hx(f), hx(f + 1.0), u * u * (3.0 - 2.0 * u));
-  return c * (1.0 - 0.12 * fold) * (1.0 - 0.3 * smoothstep(-0.03, 0.0, d));
+void lay(inout float cov, float d) {
+  // (soft, and nothing darker at its rim: no outline is drawn)
+  cov = max(cov, 1.0 - smoothstep(-0.014, 0.014, d));
 }
-void lay(inout vec3 col, inout float cov, float d, vec3 c) {
-  float a = 1.0 - smoothstep(-0.009, 0.009, d);
-  col = mix(col, c, a);
-  cov = max(cov, a);
-}
-void main() {
-  // (1 = the body's height; the sheet it is drawn on is 0.6 of that wide)
-  vec2 p = vec2((vUv.x - 0.5) * 0.6, vUv.y);
-  float sw = sin(uPose * 6.0) * uWalk;
+// (the person at one instant, seen at p: rgb the colour × how much is there, a how much is there)
+vec4 figure(vec2 p, float sw) {
   // (a weight on one leg, a shoulder lower: nobody stands as a diagram)
   // (nobody stands as a diagram: the body leans from its feet, the spine curves, the stride turns the shoulders)
   p.x += uLean * (p.y - 0.1) + 0.014 * sin(p.y * 3.1 + uLean * 30.0) + sw * 0.012 * (p.y - 0.5);
   // (a slighter or a broader body)
   p.x /= uBuild;
-  vec3 col = vec3(0.0);
   float cov = 0.0;
   float fl = -0.062 - sw * 0.085, fr = 0.062 + sw * 0.085;
-  lay(col, cov, ell(p, vec2(fl, 0.02), vec2(0.03, 0.018)), uShoe);
-  lay(col, cov, ell(p, vec2(fr, 0.02), vec2(0.03, 0.018)), uShoe);
+  lay(cov, ell(p, vec2(fl, 0.02), vec2(0.03, 0.018)));
+  lay(cov, ell(p, vec2(fr, 0.02), vec2(0.03, 0.018)));
   // (each leg in two: thigh to knee, knee to ankle — the knee gives a little as it swings)
   vec2 kl = vec2(-0.054 - sw * 0.05, 0.3 + abs(sw) * 0.012), kr = vec2(0.054 + sw * 0.05, 0.3 + abs(sw) * 0.012);
   float dq;
-  dq = capT(p, vec2(-0.05, 0.53), kl, 0.046, 0.034); lay(col, cov, dq, cloth(uBottom, p, dq, 1.0));
-  dq = capT(p, vec2(0.05, 0.53), kr, 0.046, 0.034); lay(col, cov, dq, cloth(uBottom, p, dq, 2.0));
-  dq = capT(p, kl, vec2(fl, 0.05), 0.034, 0.021); lay(col, cov, dq, cloth(uBottom, p, dq, 1.0));
-  dq = capT(p, kr, vec2(fr, 0.05), 0.034, 0.021); lay(col, cov, dq, cloth(uBottom, p, dq, 2.0));
-  dq = ell(p, vec2(0.0, 0.55), vec2(0.09, 0.05)); lay(col, cov, dq, cloth(uBottom, p, dq, 3.0));
+  dq = capT(p, vec2(-0.05, 0.53), kl, 0.046, 0.034); lay(cov, dq);
+  dq = capT(p, vec2(0.05, 0.53), kr, 0.046, 0.034); lay(cov, dq);
+  dq = capT(p, kl, vec2(fl, 0.05), 0.034, 0.021); lay(cov, dq);
+  dq = capT(p, kr, vec2(fr, 0.05), 0.034, 0.021); lay(cov, dq);
+  dq = ell(p, vec2(0.0, 0.55), vec2(0.09, 0.05)); lay(cov, dq);
   // (one arm hangs, the other is bent — a hand at a strap, in a pocket)
   float hl = -0.158 + sw * 0.05, hr = 0.158 - sw * 0.05 - uBend * 0.05;
   float wl = 0.5, wr = 0.5 + uBend * 0.11;
-  vec3 arm = p.y > uSleeve ? uTop : uSkin;
-  dq = capT(p, vec2(-0.13, 0.8), vec2(hl, wl), 0.032, 0.02); lay(col, cov, dq, cloth(arm, p, dq, 4.0));
-  dq = capT(p, vec2(0.13, 0.8), vec2(hr, wr), 0.032, 0.02); lay(col, cov, dq, cloth(arm, p, dq, 5.0));
-  lay(col, cov, ell(p, vec2(hl, wl - 0.022), vec2(0.019, 0.025)), uSkin);
-  lay(col, cov, ell(p, vec2(hr, wr - 0.022), vec2(0.019, 0.025)), uSkin);
+  dq = capT(p, vec2(-0.13, 0.8), vec2(hl, wl), 0.032, 0.02); lay(cov, dq);
+  dq = capT(p, vec2(0.13, 0.8), vec2(hr, wr), 0.032, 0.02); lay(cov, dq);
+  lay(cov, ell(p, vec2(hl, wl - 0.022), vec2(0.019, 0.025)));
+  lay(cov, ell(p, vec2(hr, wr - 0.022), vec2(0.019, 0.025)));
   // (the top to its hem: a shirt to the waist, a jacket over the hips, a coat to the thigh — a little wider at the hem)
-  dq = trap(p, uHem, 0.086 + (0.54 - uHem) * 0.12, 0.83, 0.122, 0.045); lay(col, cov, dq, cloth(uTop, p, dq, 6.0));
-  lay(col, cov, capT(p, vec2(0.0, 0.825), vec2(0.0, 0.888), 0.026, 0.022), uSkin);
+  dq = trap(p, uHem, 0.086 + (0.54 - uHem) * 0.12, 0.83, 0.122, 0.045); lay(cov, dq);
+  lay(cov, capT(p, vec2(0.0, 0.825), vec2(0.0, 0.888), 0.026, 0.022));
   // (hair: cropped, or falling over the shoulders)
-  if (uHairLen > 0.01) { dq = trap(p, 0.93 - uHairLen, 0.062, 0.93, 0.05, 0.03); lay(col, cov, dq, cloth(uHair, p, dq, 7.0)); }
-  lay(col, cov, ell(p, vec2(0.0, 0.933), vec2(0.046, 0.057)), uHair);
+  if (uHairLen > 0.01) { dq = trap(p, 0.93 - uHairLen, 0.062, 0.93, 0.05, 0.03); lay(cov, dq); }
+  lay(cov, ell(p, vec2(0.0, 0.933), vec2(0.046, 0.057)));
   // (the legs thin out towards the ground, as an exposure loses what moves most)
   cov *= mix(0.12, 1.0, smoothstep(0.0, 0.24, p.y));
-  float a = cov * uA * uGain;
-  if (a < 1e-5) discard;
-  // (what the exposure gathers: on the white ground how much each colour is darkened, on the black how much it is lit)
-  vec3 d = uOnWhite > 0.5 ? 1.0 - col : mix(col, vec3(1.0), 0.16);
-  gl_FragColor = vec4(d * a, 1.0);
+  // (only where the body is: it has no colour of its own — it is a window, and its colour is the future's)
+  return vec4(vec3(cov), cov);
+}
+void main() {
+  // (1 = the body's height; the sheet it is drawn on is 0.6 of that wide)
+  vec2 p = vec2((vUv.x - 0.5) * 0.6, vUv.y);
+  float sw = sin(uPose * 6.0) * uWalk;
+  // THE SHUTTER IS OPEN WHILE THE BODY MOVES: within this one frame the person is taken at eight instants along the
+  // way it is dragged (the camera's drift, the stride a little further on at each) and they are averaged — so the
+  // smear is in the body, not round it: the hem runs into the trousers, the hair into the shoulders, the hands into
+  // the hips; and nothing has an edge of its own.
+  vec4 sum = vec4(0.0);
+  for (int i = 0; i < 8; i++) {
+    // (the instants fall elsewhere each frame, so the exposure evens them out: no stipple is left at the soft edges)
+    float t = (float(i) + fract(sin(dot(gl_FragCoord.xy + uTick * 61.7, vec2(12.9898, 78.233))) * 43758.5453)) / 8.0 - 0.5;
+    sum += figure(p - uDrag * t, sw + t * 0.5 * uWalk);
+  }
+  sum /= 8.0;
+  float a = uA * uGain;
+  if (sum.a * a < 1e-5) discard;
+  gl_FragColor = vec4(sum.rgb * a, 1.0);
 }`;
 /** The exposure laid on the screen: where it has gathered, the person — and through them, the future. */
+/**
+ * The exposure laid on the screen: where it has gathered, the body — and the body is THE FUTURE SEEN THROUGH IT, as a
+ * signal from another time arrives (the artist, 2026-11-23: "미래 모습을 그냥 그렇게 번역만 할 게 아니라 비주얼 이펙트나
+ * 글리치나 색수차나 다양하게"): its three colours come apart along the drag (chromatic aberration), bands of it are torn
+ * sideways a few at a time, blocks of it jump out of place — and the body tears with it.
+ */
 const EXPOSED_FRAG = `
 ${INK}
 ${EXPOSE_GLSL}
 uniform sampler2D uAcc;
-uniform float uSee, uGrey, uPaper;
+uniform float uSee, uPaper, uBlur, uBoost, uAberr, uTear, uGlitch;
 varying vec2 vUv;
+float hh(float x) { return fract(sin(x * 91.7 + 1.3) * 43758.5453); }
+float hh2(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+vec2 broken(vec2 uv) {
+  float tk = floor(uTime * 9.0), band = floor(uv.y * 70.0);
+  uv.x += step(1.0 - 0.3 * uTear, hh(band * 1.7 + tk * 0.37)) * (hh(band + tk) - 0.5) * 0.16 * uTear;
+  vec2 cell = floor(uv * vec2(9.0, 16.0));
+  float tb = floor(uTime * 5.0);
+  uv += step(1.0 - 0.18 * uGlitch, hh2(cell + tb)) * (vec2(hh2(cell + tb + 3.1), hh2(cell + tb + 7.7)) - 0.5) * vec2(0.14, 0.03) * uGlitch;
+  return uv;
+}
+// (the picture dragged down the body as the body itself was: what stands above and below runs together in it)
+vec4 through(vec2 uv) {
+  vec4 k = vec4(0.0);
+  for (int i = 0; i < 5; i++) k += inkAt(uv + vec2(0.0, (float(i) / 4.0 - 0.5) * uBlur), uSmear * 3.0);
+  return k / 5.0;
+}
 void main() {
-  vec3 d = clamp(texture2D(uAcc, vUv).rgb, 0.0, 1.0);
-  float m = max(d.r, max(d.g, d.b));
-  if (m < 0.003) discard;
-  if (uGrey > 0.5) d = vec3(dot(d, vec3(0.299, 0.587, 0.114)));
-  vec4 k = inkAt(vUv, uSmear);
-  float body = clamp(m * 2.5, 0.0, 1.0);
-  float g = filmGrain(gl_FragCoord.xy, uTime, 0.01) * body;
+  vec2 uv = broken(vUv);
+  float m = clamp(texture2D(uAcc, uv).r, 0.0, 1.0);
+  // (nothing here: leave what is behind exactly as it is — no rim where the exposure thins out to nothing)
+  if (m < 0.0015) discard;
+  inkBoost = uBoost;
+  vec2 ab = vec2(uAberr * 0.5, uAberr);
+  vec4 kr = through(uv + ab), kg = through(uv), kb = through(uv - ab);
+  vec4 k = vec4(kr.r, kg.g, kb.b, max(kr.a, max(kg.a, kb.a)));
+  float g = filmGrain(gl_FragCoord.xy, uTime, 0.01) * m;
+  float see = m * uSee;
   if (uPaper > 0.5) {
-    // (multiplied onto what is behind: the person, and through them the future, as what the light did not reach)
-    vec3 keep = (1.0 - d) * (1.0 - k.a * uSee * body * (1.0 - k.rgb));
-    gl_FragColor = vec4(exposeTone(keep, 1.0) + g, 1.0);
+    // (multiplied onto what is behind: a little of the body's own shade, so it is there where the future is bare)
+    vec3 seen = mix(vec3(0.86), k.rgb * 0.94, k.a);
+    gl_FragColor = vec4(mix(vec3(1.0), seen, see) + g, 1.0);
   } else {
-    // (added: the person as light, the future lit through them)
-    gl_FragColor = vec4(d + k.rgb * k.a * uSee * body + g, 1.0);
+    gl_FragColor = vec4(mix(vec3(0.14), k.rgb, k.a) * see + g, 1.0);
   }
 }`;
 const FILL_VERT = `
@@ -272,13 +311,6 @@ const ease = (x: number) => {
   return u * u * (3 - 2 * u);
 };
 
-/** The clothes of the references (IMG_1575 · 1576): tops, trousers, hair, skin — an observer wears one of each, by its number. */
-const TOPS = ["#17181c", "#f1eee6", "#93a4e6", "#e58a3c", "#b7306a", "#2f5d50", "#d9c9a8", "#5b7fd1"];
-const BOTTOMS = ["#e2620f", "#e6b045", "#3d6fb3", "#1f2f6b", "#202227", "#d8d0bf", "#7a4b2a", "#2b5fa8"];
-const HAIRS = ["#17110d", "#3a2415", "#6b4a2a", "#c7a268", "#8a1f1a"];
-const SKINS = ["#e6b697", "#c98d6b", "#8b5a3c", "#f0cbb0"];
-const pick = (list: string[], i: number, salt: number) => list[Math.abs(Math.imul(i + 1, 2654435761) + Math.imul(salt, 40503)) % list.length];
-
 export class FutureWindows {
   readonly group = new THREE.Group();
   private rt: THREE.WebGLRenderTarget | null = null;
@@ -305,7 +337,9 @@ export class FutureWindows {
   private readonly exposedMesh: THREE.Mesh;
   private readonly shake = { value: new THREE.Vector2() };
   private readonly gain = { value: 0.1 };
-  private readonly onWhite = { value: 0 };
+  private readonly tick = { value: 0 };
+  /** The way the body is dragged while the shutter is open (of its height): mostly down, turning slowly. */
+  private readonly drag = { value: new THREE.Vector2(0, 0.1) };
   private who = 0;
   private exposing = 0;
   private readonly fillMat: THREE.ShaderMaterial;
@@ -313,7 +347,7 @@ export class FutureWindows {
   private readonly plant = new THREE.Color("#2f8f3f");
   private readonly tones = { ink: new THREE.Color(), plant: new THREE.Color(), own: new THREE.Color(), film: new THREE.Color(), line: new THREE.Color(1, 1, 1), back: new THREE.Color() };
   /** The uniforms every window and the sheet share (one object each: set once a frame). */
-  private readonly shared = { uTex: { value: null as THREE.Texture | null }, uDens: { value: 0.06 }, uMono: { value: 1 }, uDistort: { value: 0 }, uDistAmt: { value: 0.5 }, uTime: { value: 0 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uSmear: { value: 0.004 }, uRes: { value: new THREE.Vector2(1, 1) }, uBack: { value: this.tones.back } };
+  private readonly shared = { uTex: { value: null as THREE.Texture | null }, uDens: { value: 0.06 }, uMono: { value: 1 }, uDistort: { value: 0 }, uDistAmt: { value: 0.5 }, uTime: { value: 0 }, uInk: { value: this.tones.ink }, uPlant: { value: this.tones.plant }, uOwn: { value: this.tones.own }, uSmear: { value: 0.004 }, uRich: { value: 0 }, uOnWhite: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uBack: { value: this.tones.back } };
 
   /** `cloud`: the encounter's sampling of the future (position, color, aSeed.y = what a point is). */
   constructor(cloud: THREE.BufferGeometry) {
@@ -327,7 +361,7 @@ export class FutureWindows {
       blendDstAlpha: THREE.OneFactor,
       depthTest: false,
       depthWrite: false,
-      uniforms: { uScale: { value: 400 }, uSplat: { value: 0.3 }, uR: { value: 14 }, uOrigin: { value: new THREE.Vector3() } },
+      uniforms: { uScale: { value: 400 }, uSplat: { value: 0.3 }, uR: { value: 14 }, uOrigin: { value: new THREE.Vector3() }, uRich: { value: 0 }, uOnWhite: { value: 0 } },
     });
     const pts = new THREE.Points(cloud, this.capMat);
     pts.frustumCulled = false;
@@ -344,7 +378,7 @@ export class FutureWindows {
       transparent: true,
       depthTest: false,
       depthWrite: false,
-      uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: 0.37 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uFill: { value: 0 }, uAlpha: { value: 0.85 }, uFilm: { value: 0.08 }, uHow: { value: 0 }, uFilmColor: { value: this.tones.film }, uLine: { value: this.tones.line } },
+      uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: 0.37 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uFill: { value: 0 }, uAlpha: { value: 0.85 }, uFilm: { value: 0.08 }, uHow: { value: 0 }, uFilmColor: { value: this.tones.film }, uLine: { value: this.tones.line } },
     });
     const f = new THREE.BufferGeometry();
     f.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
@@ -363,7 +397,7 @@ export class FutureWindows {
       blendDst: THREE.OneFactor,
       depthTest: false,
       depthWrite: false,
-      uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: 0.61 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uAcc: { value: null }, uSee: { value: 0.3 }, uGrey: { value: 0 }, uPaper: { value: 0 } },
+      uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: 0.61 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uAcc: { value: null }, uSee: { value: 0.9 }, uPaper: { value: 0 }, uBlur: { value: 0.2 }, uBoost: { value: 3 }, uAberr: { value: 0.006 }, uTear: { value: 0.5 }, uGlitch: { value: 0.35 } },
     });
     this.exposedMesh = new THREE.Mesh(f, this.exposedMat);
     this.exposedMesh.frustumCulled = false;
@@ -408,7 +442,7 @@ export class FutureWindows {
           transparent: true,
           depthWrite: false,
           side: THREE.DoubleSide,
-          uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: i * 0.37 + 0.11 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRes: S.uRes, uBack: S.uBack, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uShape: { value: 0 } },
+          uniforms: { uTex: S.uTex, uDens: S.uDens, uMono: S.uMono, uDistort: S.uDistort, uDistAmt: S.uDistAmt, uTime: S.uTime, uSeed: { value: i * 0.37 + 0.11 }, uInk: S.uInk, uPlant: S.uPlant, uOwn: S.uOwn, uSmear: S.uSmear, uRich: S.uRich, uOnWhite: S.uOnWhite, uRes: S.uRes, uBack: S.uBack, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uShape: { value: 0 } },
         });
         const mesh = new THREE.Mesh(this.winGeom, mat);
         mesh.frustumCulled = false;
@@ -428,7 +462,7 @@ export class FutureWindows {
           depthTest: false,
           depthWrite: false,
           side: THREE.DoubleSide,
-          uniforms: { uShake: this.shake, uGain: this.gain, uOnWhite: this.onWhite, uTop: { value: new THREE.Color() }, uBottom: { value: new THREE.Color() }, uHair: { value: new THREE.Color() }, uSkin: { value: new THREE.Color() }, uShoe: { value: new THREE.Color(0.08, 0.08, 0.09) }, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uSleeve: { value: 0.6 }, uHem: { value: 0.54 }, uHairLen: { value: 0 }, uBuild: { value: 1 }, uLean: { value: 0 }, uBend: { value: 0 } },
+          uniforms: { uShake: this.shake, uDrag: this.drag, uTick: this.tick, uGain: this.gain, uA: { value: 0 }, uPose: { value: 0 }, uWalk: { value: 0 }, uHem: { value: 0.54 }, uHairLen: { value: 0 }, uBuild: { value: 1 }, uLean: { value: 0 }, uBend: { value: 0 } },
         });
         const person = new THREE.Mesh(this.winGeom, pm);
         person.frustumCulled = false;
@@ -525,6 +559,12 @@ export class FutureWindows {
     }
     S.uDens.value = 0.03 * cfg.frameInk;
     S.uMono.value = tone === "none" ? 0 : 1;
+    // (the future in colour: taken so, and read so)
+    const rich = tone === "rich";
+    S.uRich.value = rich ? 1 : 0;
+    S.uOnWhite.value = paper ? 1 : 0;
+    this.capMat.uniforms.uRich.value = rich ? 1 : 0;
+    this.capMat.uniforms.uOnWhite.value = paper ? 1 : 0;
     S.uDistort.value = cfg.frameDistort === "stretch" ? 1 : cfg.frameDistort === "slit" ? 2 : cfg.frameDistort === "glitch" ? 3 : cfg.frameDistort === "glass" ? 4 : 0;
     S.uDistAmt.value = cfg.frameDistortAmt;
     S.uTime.value = now % 1000;
@@ -591,23 +631,17 @@ export class FutureWindows {
         q.mesh.position.copy(w.mesh.position);
         q.mesh.rotation.copy(w.mesh.rotation);
         q.mesh.scale.copy(w.mesh.scale);
-        const P = q.mat.uniforms, grey = cfg.winColor === "grey";
+        const P = q.mat.uniforms;
         P.uA.value = a;
         P.uPose.value = U.uPose.value;
         P.uWalk.value = U.uWalk.value;
-        shown(P.uTop.value, pick(TOPS, this.who, 1));
-        shown(P.uBottom.value, pick(BOTTOMS, this.who, 2));
-        shown(P.uHair.value, pick(HAIRS, this.who, 3));
-        shown(P.uSkin.value, pick(SKINS, this.who, 4));
-        // (the cut of what it wears, its hair and its build, by its number too)
+        // (its outline — the cut of what it wears, its hair, its build, its lean — by its number)
         const n = this.who;
-        P.uSleeve.value = (n * 7 + 3) % 3 === 0 ? 0.72 : 0.5;
         P.uHem.value = [0.54, 0.47, 0.54, 0.38, 0.5][(n * 5 + 1) % 5];
         P.uHairLen.value = [0, 0.16, 0, 0.1, 0.22][(n * 3 + 2) % 5];
         P.uBuild.value = [1, 0.9, 1.08, 0.95, 1.14][(n * 11 + 4) % 5];
         P.uLean.value = [0.05, -0.035, 0.02, -0.06, 0.04, -0.015][(n * 5 + 3) % 6];
         P.uBend.value = [1, 0, 0.6, 0, 1, 0.3][(n * 7 + 1) % 6];
-        this.exposedMat.uniforms.uGrey.value = grey ? 1 : 0;
       }
       // ④ how near the visitor is to it
       const d = Math.hypot(w.mesh.position.x - me.x, w.mesh.position.z - me.z);
@@ -652,11 +686,12 @@ export class FutureWindows {
       this.exposing = alive > 0 ? 1 : this.exposing * decay;
       if (showEx) {
         this.gain.value = 1 - decay;
-        this.onWhite.value = paper ? 1 : 0;
         // (a hand's drift, not a pendulum: three paces that never agree, so it dwells nowhere — and a little sideways)
         const sy = (Math.sin(now * 5.3) + Math.sin(now * 8.9 + 1.3) + Math.sin(now * 13.7 + 2.1)) / 3;
         const sx = (Math.sin(now * 4.1 + 0.7) + Math.sin(now * 9.7 + 2.9)) / 2;
         this.shake.value.set(cfg.winShake * 0.3 * sx, cfg.winShake * sy);
+        this.tick.value = (this.tick.value + 1) % 1024;
+        this.drag.value.set(cfg.winDrag * 0.25 * Math.sin(now * 0.9 + 0.4), cfg.winDrag * (0.8 + 0.2 * Math.sin(now * 1.7)));
         // (street-feel's feedback buffer: what it held × decay, left bound — the people are drawn into it, added)
         const prev = gl.getRenderTarget(), prevAuto = gl.autoClear;
         this.acc.decayInto(gl, decay, 1);
@@ -671,6 +706,11 @@ export class FutureWindows {
     }
     this.exposedMesh.visible = showEx;
     this.exposedMat.uniforms.uSee.value = cfg.winSee;
+    this.exposedMat.uniforms.uBlur.value = cfg.winDrag * 1.6;
+    this.exposedMat.uniforms.uBoost.value = cfg.winBoost;
+    this.exposedMat.uniforms.uAberr.value = cfg.winAberr;
+    this.exposedMat.uniforms.uTear.value = cfg.winTear;
+    this.exposedMat.uniforms.uGlitch.value = cfg.winGlitch;
     this.exposedMat.uniforms.uPaper.value = paper ? 1 : 0;
     (window as unknown as { __futureWindows?: unknown }).__futureWindows = { alive, seen, fill: Math.round(this.fill * 100) / 100, near: Math.round(near * 100) / 100, W: this.rt.width, H: this.rt.height, ms: Math.round(this.ms * 100) / 100, t: Math.round(t * 10) / 10, paper };
     return alive;
