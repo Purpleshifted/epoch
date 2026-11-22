@@ -48,8 +48,9 @@ function embeddedFace(): Promise<string> {
 }
 
 /** The card as a PNG blob, `scale` × its card units (1: 20 px a millimetre); `turn` stands a landscape card up (a quarter
- * turn clockwise), for a printer whose paper runs one way. */
-export async function cardPng(plate: PlateInput, look: CardLook, opts: { scale?: number; turn?: boolean } = {}): Promise<Blob> {
+ * turn clockwise), for a printer whose paper runs one way; `fit` (0…1) draws the card that much smaller, centred on
+ * white, the picture keeping its size (the printer's head is narrower than its paper: PRINT_FIT). */
+export async function cardPng(plate: PlateInput, look: CardLook, opts: { scale?: number; turn?: boolean; fit?: number } = {}): Promise<Blob> {
   const fontCss = await embeddedFace().catch(() => "");
   const svg = plateSvg(plate, glyphOf, { ...look, fontCss });
   const { w, h } = plateSize(look.orient);
@@ -71,11 +72,17 @@ export async function cardPng(plate: PlateInput, look: CardLook, opts: { scale?:
       g.translate(H, 0);
       g.rotate(Math.PI / 2);
     }
+    // fitted smaller (centred, white round it) when asked
+    const f = Math.max(0.5, Math.min(1, opts.fit ?? 1));
+    const draw = () => {
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, W, H);
+      g.drawImage(img, (W * (1 - f)) / 2, (H * (1 - f)) / 2, W * f, H * f);
+    };
     // Safari lays an SVG image's embedded face out a moment late: draw, wait a frame, draw again
-    g.drawImage(img, 0, 0, W, H);
+    draw();
     await new Promise((r) => setTimeout(r, 120));
-    g.clearRect(0, 0, W, H);
-    g.drawImage(img, 0, 0, W, H);
+    draw();
     return await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/png"));
   } finally {
     URL.revokeObjectURL(url);
@@ -109,6 +116,18 @@ export async function saveCard(plate: PlateInput, look: CardLook, name: string):
 /** The gallery machine's print helper (tools/card-printer): on the machine itself; `?printer=<url>` names another. */
 const PRINT_HELPER = "http://127.0.0.1:7313";
 const DPI = 300;
+/**
+ * The printed card drawn this much smaller, centred on its paper (the artist, 2026-11-22: a landscape card's QR came
+ * out cut — "배율 안전빵으로"): the NIIMBOT B2 Pro's head prints 48 mm across 54 mm paper, about 3 mm unprinted at each
+ * side, and the card's own margin is 4 mm. 46 / 54 keeps all of it inside the head with a millimetre to spare.
+ * `?printfit=0.9` on the address tries another.
+ */
+const PRINT_FIT = 46 / 54;
+function printFit(): number {
+  if (typeof window === "undefined") return PRINT_FIT;
+  const q = Number(new URLSearchParams(window.location.search).get("printfit"));
+  return q > 0.5 && q <= 1 ? q : PRINT_FIT;
+}
 
 function helperUrl(): string {
   if (typeof window === "undefined") return PRINT_HELPER;
@@ -124,7 +143,7 @@ export async function printCard(plate: PlateInput, look: CardLook): Promise<"pri
   const up = await fetch(`${base}/status`, { signal: AbortSignal.timeout(1500) }).then((r) => r.ok, () => false);
   if (up) {
     // 54 mm at 300 dpi: 637.8 px — the PNG is printed as it is (ppi 300), so its size is the card's
-    const png = await cardPng(plate, one, { scale: DPI / 25.4 / 20, turn: true });
+    const png = await cardPng(plate, one, { scale: DPI / 25.4 / 20, turn: true, fit: printFit() });
     const r = await fetch(`${base}/print?w=54&h=86`, { method: "POST", headers: { "content-type": "image/png" }, body: png, signal: AbortSignal.timeout(20000) }).catch(() => null);
     return r?.ok ? "printed" : "failed";
   }
@@ -142,7 +161,12 @@ async function printInBrowser(plate: PlateInput, look: CardLook): Promise<void> 
   box.id = "specimen-card-print";
   box.innerHTML = `<div class="card">${plateSvg(plate, glyphOf, look)}</div>`;
   const style = document.createElement("style");
-  const card = land ? "width:86mm;height:54mm;transform-origin:0 0;transform:translateX(54mm) rotate(90deg)" : "width:54mm;height:86mm";
+  // (fitted smaller, centred, as the helper's: PRINT_FIT)
+  const f = printFit();
+  const fit = `translate(${((1 - f) / 2) * 54}mm,${((1 - f) / 2) * 86}mm) scale(${f})`;
+  const card = land
+    ? `width:86mm;height:54mm;transform-origin:0 0;transform:${fit} translateX(54mm) rotate(90deg)`
+    : `width:54mm;height:86mm;transform-origin:0 0;transform:${fit}`;
   style.textContent = `#specimen-card-print{display:none}@media print{@page{size:54mm 86mm;margin:0}html,body{margin:0!important;padding:0!important;background:#fff!important}body>*:not(#specimen-card-print){display:none!important}#specimen-card-print{display:block!important;width:54mm;height:86mm;overflow:hidden}#specimen-card-print .card{${card}}#specimen-card-print svg{display:block;width:100%;height:100%}}`;
   document.head.appendChild(style);
   document.body.appendChild(box);
