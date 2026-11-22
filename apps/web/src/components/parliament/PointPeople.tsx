@@ -15,8 +15,9 @@
  * Nothing here decides who is there or where they stand (RoleField's seat and fold); this only draws.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
+import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { DEFAULT_WITNESS, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
 import { DEFAULT_BODY, DEFAULT_MOTION, bakeWalk, jointsAt, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
@@ -29,6 +30,14 @@ export interface PeopleLook {
    *  되고"): "boxes" = the old blinking square, body-high, with a walking silhouette inside (a sprite sheet, one draw);
    *  "points" = the point bodies. */
   mode: PeopleMode;
+  /** 흰 바탕 (오가닉): a person is a black BLOT on the paper (the long exposure, 1578–1583) — a smear when standing, stretched
+   *  and trailed when walking, darker and sharper the nearer (distance = lightness); the box a faint pencil frame; within
+   *  `labelDist` a small label with the being's number and a leader line (9954 · 1571). */
+  paper: boolean;
+  ink: number;
+  blur: number;
+  fadeDist: number;
+  labelDist: number;
   /** The box's width as a share of its height, and its grey while the melody rests (the old square's SQUARE_REST). */
   boxAspect: number;
   boxRest: number;
@@ -74,7 +83,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -118,11 +127,13 @@ const SHEET_H = 96;
  * nothing, each frame SHEET_W × SHEET_H for a 1.9 m frame — the stroke of each limb is its thickness. Nearest-filtered:
  * the edge stays hard (brutal). Needs a document (a canvas).
  */
-function walkSheet(): THREE.Texture {
+function walkSheet(blurPx = 0): THREE.Texture {
   const c = document.createElement("canvas");
   c.width = SHEET_W * SHEET_FRAMES;
   c.height = SHEET_H;
   const g = c.getContext("2d")!;
+  // the paper's blot: the same figure, its edge blurred (the long exposure's softness)
+  if (blurPx > 0) g.filter = `blur(${blurPx}px)`;
   const k = SHEET_H / 1.9; // px a metre
   g.strokeStyle = "#fff";
   g.fillStyle = "#fff";
@@ -167,13 +178,16 @@ uniform float uFrames;
 uniform float uAspect;
 attribute vec4 iBox;      // x, z, height, flip
 attribute vec4 iBoxAnim;  // phase, lit, alpha, cue
+attribute vec4 iBox2;     // paper: stretch (walking), dark (near = 1), 0, 0
 varying vec2 vUv;
+varying vec2 vLocal;
 varying float vLit;
 varying float vAlpha;
+varying float vDark;
 #include <fog_pars_vertex>
 void main() {
   float h = iBox.z;
-  float w = h * uAspect;
+  float w = h * uAspect * (1.0 + iBox2.x);
   // a billboard: the box stands facing the eye, its foot on the ground
   vec4 mvPosition = modelViewMatrix * vec4(iBox.x, 0.0, iBox.y, 1.0);
   mvPosition.xy += vec2(position.x * w, position.y * h);
@@ -182,20 +196,39 @@ void main() {
   if (iBox.w > 0.5) u = 1.0 - u;
   float f = floor(fract(iBoxAnim.x) * uFrames);
   vUv = vec2((f + u) / uFrames, position.y);
+  vLocal = vec2(position.x + 0.5, position.y);
   vLit = iBoxAnim.y;
   vAlpha = iBoxAnim.z;
+  vDark = iBox2.y;
   #include <fog_vertex>
 }`;
 
 const BOX_FRAG = /* glsl */ `
 uniform sampler2D uSheet;
+uniform sampler2D uSheetSoft;
 uniform float uRest;
+uniform float uPaper;
+uniform float uInk;
 varying vec2 vUv;
+varying vec2 vLocal;
 varying float vLit;
 varying float vAlpha;
+varying float vDark;
 #include <fog_pars_fragment>
 void main() {
   if (vAlpha < 0.01) discard;
+  if (uPaper > 0.5) {
+    // the paper: a black blot with a soft edge, darker the nearer; the box a faint pencil frame that darkens on a beat
+    float ink = texture2D(uSheetSoft, vUv).a * uInk * vDark;
+    float bx = min(vLocal.x, 1.0 - vLocal.x), by = min(vLocal.y, 1.0 - vLocal.y);
+    float frame = (bx < 0.025 || by < 0.014) ? 1.0 : 0.0;
+    float frameA = frame * mix(0.22, 0.55, vLit) * vDark;
+    float a = max(ink, frameA) * vAlpha;
+    if (a < 0.015) discard;
+    gl_FragColor = vec4(mix(vec3(0.5), vec3(0.05), step(frameA, ink)), a);
+    #include <fog_fragment>
+    return;
+  }
   // the box blinks the being's melody as the square did (white on a beat, dark grey at rest); the silhouette inside is
   // the other way round, so it reads in both
   float s = texture2D(uSheet, vUv).a;
@@ -300,7 +333,7 @@ export function PointPeople({
   /** 시야 반경: the points take the scene's fog whatever look.fog says. */
   viewFog?: boolean;
 }) {
-  const fogOn = look.fog || !!viewFog;
+  const fogOn = look.fog || !!viewFog || look.paper;
   const points = Math.max(32, Math.round(phone ? look.pointsPhone : look.points));
   const copies = phone || look.smearSec <= 0 ? 0 : Math.min(MAX_COPIES, Math.max(0, Math.round(look.smearCopies)));
   const frames = DEFAULT_BODY.frames;
@@ -333,12 +366,15 @@ export function PointPeople({
 
   // the boxes: a billboard quad an instance, the walking silhouette as a sprite sheet
   const sheet = useMemo(() => walkSheet(), []);
+  const sheetSoft = useMemo(() => walkSheet(look.blur), [look.blur]);
+  useEffect(() => () => sheetSoft.dispose(), [sheetSoft]);
   const boxGeom = useMemo(() => {
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0]), 3));
     g.setIndex([0, 1, 2, 0, 2, 3]);
-    g.setAttribute("iBox", new THREE.InstancedBufferAttribute(new Float32Array(MAX_PEOPLE * 4), 4).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute("iBoxAnim", new THREE.InstancedBufferAttribute(new Float32Array(MAX_PEOPLE * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBox", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBoxAnim", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBox2", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
     g.instanceCount = 0;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     return g;
@@ -346,7 +382,7 @@ export function PointPeople({
   const boxMat = useMemo(
     () =>
       new THREE.ShaderMaterial({
-        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uFrames: { value: SHEET_FRAMES }, uAspect: { value: 0.55 }, uRest: { value: 0.22 } }]),
+        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 } }]),
         vertexShader: BOX_VERT,
         fragmentShader: BOX_FRAG,
         transparent: true,
@@ -364,6 +400,9 @@ export function PointPeople({
     },
     [boxGeom, boxMat, sheet],
   );
+  // the paper's labels: the nearest few, within labelDist, each with its number and a leader line (drei Html)
+  const [labels, setLabels] = useState<{ id: string; x: number; y: number; z: number }[]>([]);
+  const labelTimer = useRef(0);
   // whoever asks me something (the record's lines, as RoleField hears them for the sound): cued while the question is open
   const asking = useRef(new Map<string, number>());
   useEffect(
@@ -454,7 +493,11 @@ export function PointPeople({
     const iBox = boxGeom.getAttribute("iBox") as THREE.InstancedBufferAttribute;
     const iBoxAnim = boxGeom.getAttribute("iBoxAnim") as THREE.InstancedBufferAttribute;
     const BX = iBox.array as Float32Array, BY = iBoxAnim.array as Float32Array;
+    const iBox2 = boxGeom.getAttribute("iBox2") as THREE.InstancedBufferAttribute;
+    const BZ = iBox2.array as Float32Array;
     const boxes = look.mode === "boxes";
+    const paper = look.paper;
+    const fadeU = Math.max(0.5, look.fadeDist);
     let n = 0, nb = 0;
     const plates = plateMesh.current;
     let np = 0;
@@ -511,19 +554,44 @@ export function PointPeople({
       const askUntil = asking.current.get(id);
       const cue = look.cue && askUntil !== undefined && nowMs < askUntil ? 1 : 0;
       if (boxes) {
-        if (nb < MAX_PEOPLE) {
+        if (nb < MAX_INSTANCES) {
           // which way the silhouette walks on the screen: with the eye's right, or mirrored; a standing one keeps its way
           const along = p.vx * rightX + p.vz * rightZ;
           if (speed > motion.standBelow) p.flip = along < 0 ? 1 : 0;
+          // paper: nearer = darker and sharper; walking = stretched along the screen
+          const dist = Math.hypot(p.x - me.x, p.z - me.z);
+          const dark = paper ? 0.2 + 0.8 * Math.max(0, 1 - dist / fadeU) : 1;
+          const stretch = paper ? Math.min(1.4, speed * 0.4) : 0;
+          const lit = rhythmOf(id)[step] ? 1 : 0;
           BX[nb * 4] = p.x;
           BX[nb * 4 + 1] = p.z;
           BX[nb * 4 + 2] = heightU * p.hs * (1 + 0.2 * cue);
           BX[nb * 4 + 3] = p.flip;
           BY[nb * 4] = p.phase;
-          BY[nb * 4 + 1] = rhythmOf(id)[step] ? 1 : 0;
+          BY[nb * 4 + 1] = lit;
           BY[nb * 4 + 2] = p.alpha;
           BY[nb * 4 + 3] = cue;
+          BZ[nb * 4] = stretch;
+          BZ[nb * 4 + 1] = dark;
           nb++;
+          // paper: the trail — the body's past places as paler blots behind it (the long exposure's drag)
+          if (paper) {
+            for (const c of p.trail) {
+              if (nb >= MAX_INSTANCES) break;
+              const age = (now - c.t) / Math.max(0.1, look.smearSec);
+              BX[nb * 4] = c.x;
+              BX[nb * 4 + 1] = c.z;
+              BX[nb * 4 + 2] = heightU * p.hs;
+              BX[nb * 4 + 3] = p.flip;
+              BY[nb * 4] = c.phase;
+              BY[nb * 4 + 1] = 0;
+              BY[nb * 4 + 2] = p.alpha * 0.6 * (1 - age) * (1 - age);
+              BY[nb * 4 + 3] = 0;
+              BZ[nb * 4] = stretch;
+              BZ[nb * 4 + 1] = dark;
+              nb++;
+            }
+          }
         }
       } else if (n < MAX_INSTANCES) {
         A[n * 4] = p.x;
@@ -536,7 +604,8 @@ export function PointPeople({
         B[n * 4 + 3] = p.hash;
         n++;
       }
-      if (boxes) p.trail.length = 0;
+      if (boxes && !paper) p.trail.length = 0;
+      if (boxes) continue;
       for (const c of p.trail) {
         if (n >= MAX_INSTANCES) break;
         const age = (now - c.t) / Math.max(0.1, look.smearSec);
@@ -592,14 +661,31 @@ export function PointPeople({
     setInstanceCount(boxGeom, nb);
     iBox.addUpdateRange(0, nb * 4);
     iBoxAnim.addUpdateRange(0, nb * 4);
+    iBox2.addUpdateRange(0, nb * 4);
     iBox.needsUpdate = true;
     iBoxAnim.needsUpdate = true;
-    setUniforms(boxMat.uniforms, { uSheet: sheet, uAspect: look.boxAspect, uRest: look.boxRest });
+    iBox2.needsUpdate = true;
+    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink });
+    // the paper's labels, a few times a second: the nearest three within labelDist
+    labelTimer.current += dt;
+    if (labelTimer.current > 0.3) {
+      labelTimer.current = 0;
+      if (paper && look.labelDist > 0) {
+        const near: { id: string; x: number; y: number; z: number; d: number }[] = [];
+        for (const [id, p] of P) {
+          const d = Math.hypot(p.x - me.x, p.z - me.z);
+          if (d <= look.labelDist * k && p.alpha > 0.3) near.push({ id, x: p.x, y: heightU * p.hs, z: p.z, d });
+        }
+        near.sort((a, b) => a.d - b.d);
+        const next = near.slice(0, 3).map(({ id, x, y, z }) => ({ id, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2) }));
+        setLabels((prev) => (prev.length === next.length && prev.every((l, i) => l.id === next[i].id && l.x === next[i].x && l.z === next[i].z) ? prev : next));
+      } else if (labels.length) setLabels([]);
+    }
     if (plates) {
       plates.count = look.plate ? np : 0;
       if (np) plates.instanceMatrix.needsUpdate = true;
     }
-    setUniforms(mat.uniforms, { uBody: body, uSize: look.dot * k, uMaxPx: look.maxPx, uGrey: look.grey, uBreath: look.breath, uVariety: look.variety, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
+    setUniforms(mat.uniforms, { uBody: body, uSize: look.dot * k, uMaxPx: look.maxPx, uGrey: paper ? 0.08 : look.grey, uBreath: look.breath, uVariety: look.variety, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
     // a readout for the console (like __parliament): how many bodies and copies are drawn, and the nearest body
     let nearest: { d: number; x: number; z: number; speed: number } | null = null;
     for (const p of P.values()) {
@@ -612,6 +698,16 @@ export function PointPeople({
   return (
     <>
       {look.mode === "boxes" ? <mesh geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
+      {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
+      {look.paper &&
+        labels.map((l) => (
+          <Html key={l.id} position={[l.x, l.y, l.z]} style={{ pointerEvents: "none" }} zIndexRange={[5, 0]}>
+            <div style={{ transform: "translate(6px, -34px)", width: 26, height: 28, borderLeft: "1px solid #444", borderBottom: "1px solid #444", borderRadius: "0 0 0 1px" }} />
+            <div className="hud-ko" style={{ position: "absolute", left: 34, top: -44, whiteSpace: "nowrap", fontSize: 11, color: "#111", letterSpacing: "0.04em" }}>
+              개체 {l.id.replace(/[^0-9a-z]/gi, "").slice(-4).toUpperCase()}
+            </div>
+          </Html>
+        ))}
       {look.plate && look.mode === "points" && (
         <instancedMesh ref={plateMesh} args={[plateGeom, undefined, MAX_PEOPLE]} frustumCulled={false} renderOrder={8}>
           <meshBasicMaterial color="#ffffff" transparent opacity={look.plateAlpha} depthWrite={false} side={THREE.DoubleSide} fog={fogOn} />

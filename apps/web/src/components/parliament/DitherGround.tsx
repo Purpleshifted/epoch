@@ -55,6 +55,7 @@ uniform float uGrain;
 uniform float uWind;
 uniform float uWindSpeed;
 uniform float uTime;
+uniform float uPaper;
 varying vec2 vXZ;
 varying vec3 vW;
 float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
@@ -88,6 +89,14 @@ void main() {
   // the scene's fog (when there is one), and the rim fading into it
   float fk = uFog * max(smoothstep(uFogNear, uFogFar, distance(vW, cameraPosition)), smoothstep(uRadius * 0.55, uRadius, dc));
   vec3 worn = vec3(uWearGrey) * grain * (1.0 - 0.6 * seam * uSeam);
+  // 흰 바탕: the vegetation a light green smudge on the paper (uFogColor is the paper), the worn ground a pressed grey — no
+  // seams, the grain barely; everything pales into the paper with distance
+  if (uPaper > 0.5) {
+    vec3 c = mix(uFogColor, vec3(0.72, 0.83, 0.64), clamp(g * wind * 0.8, 0.0, 1.0));
+    c = mix(c, vec3(0.6) * (1.0 - 0.15 * (1.0 - grain)), wear * 0.75);
+    gl_FragColor = vec4(mix(c, uFogColor, fk), 1.0);
+    return;
+  }
   if (uDither < 0.5) {
     vec3 c = mix(uColor * g * wind, worn, wear);
     gl_FragColor = vec4(mix(c, uFogColor, fk), 1.0);
@@ -173,6 +182,7 @@ export function DitherGround({
           uWind: { value: 0 },
           uWindSpeed: { value: 1 },
           uTime: { value: 0 },
+          uPaper: { value: 0 },
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,6 +213,7 @@ export function DitherGround({
     u.uWind.value = st.wind;
     u.uWindSpeed.value = st.windSpeed;
     u.uTime.value = clock.elapsedTime;
+    u.uPaper.value = st.on && st.paper ? 1 : 0;
     // the scene's fog, if any (길거리 › 깊이 안개 in the brutal look; the soft look never draws this field)
     const fog = scene.fog as THREE.Fog | null;
     u.uFog.value = fog && fog.isFog ? 1 : 0;

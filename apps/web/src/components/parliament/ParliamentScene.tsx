@@ -23,6 +23,7 @@ import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
 import { PointPeople } from "./PointPeople";
 import { StreetHud, type LogPlace } from "./StreetHud";
+import { PAPER } from "./streetLook";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -481,6 +482,9 @@ export default function ParliamentScene() {
   // 길거리: the fog pulled in to the view radius; the log's place by the eye and the device
   const street = visuals.street;
   const viewOn = isV2 && street.view.on;
+  // 흰 바탕 (오가닉): the brutal look on paper — a white ground, a white fog (things pale to nothing)
+  const paper = isV2 && brutal && street.paper;
+  const ground = brutal ? (paper ? PAPER : "#000000") : FOG_COLOR;
   const fogN = viewOn ? street.view.radius * 0.45 : fogNear;
   const fogF = viewOn ? street.view.radius : fogFar;
   const logPlace: LogPlace = !isV2 || street.logPlace === "bottom" ? "bottom" : street.logPlace === "auto" ? (street.eye.on ? (coarse ? "top" : "left") : "bottom") : street.logPlace;
@@ -498,10 +502,10 @@ export default function ParliamentScene() {
         dpr={pixelDpr}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
-        style={{ background: brutal ? "#000" : FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
+        style={{ background: ground, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
-        <color attach="background" args={[brutal ? "#000000" : FOG_COLOR]} />
-        {(!brutal || (isV2 && (visuals.street.fog || viewOn))) && <fog attach="fog" args={[brutal ? "#000000" : FOG_COLOR, fogN, fogF]} />}
+        <color attach="background" args={[ground]} />
+        {(!brutal || (isV2 && (visuals.street.fog || viewOn || paper))) && <fog attach="fog" args={[ground, fogN, fogF]} />}
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
         {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
@@ -563,6 +567,9 @@ export default function ParliamentScene() {
       {/* the peek into the future (FuturePresence.tsx mode "peek"): the phone's button, the desktop's key, while live */}
       {isV2 && future.on && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}
 
+      {/* 흰 바탕: the log keeps its shape and place, its colours turned for paper while the life runs (the dark screens
+          before and after stay as they are) */}
+      <div className="pointer-events-none absolute inset-0" style={paper && session.phase === "live" ? { filter: "invert(1)" } : undefined}>
       {withSession && !demo && (
         <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} logPlace={logPlace} />
       )}
@@ -570,6 +577,7 @@ export default function ParliamentScene() {
       {withSession && !demo && isV2 && street.hints.on && session.phase === "live" && (
         <StreetHud getFar={getFar} playerPosRef={playerPosRef} playerYawRef={playerYawRef} place={logPlace} lang={lang} coarse={coarse} nearRadius={viewOn ? street.view.radius : 8} farRadius={street.hints.radius} everySec={street.hints.everySec} />
       )}
+      </div>
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
       {sound && withSession && <AfterglowSound sound={sound} />}

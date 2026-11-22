@@ -25,7 +25,10 @@ import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { WORLD_SIZE, grassDensity, hash2, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
 import { markSpan } from "./usePerfMeter";
-import { streetGround } from "./streetLook";
+import { PAPER_GREEN, streetGround } from "./streetLook";
+
+const PAPER_GREEN_C = new THREE.Color(PAPER_GREEN);
+const PAPER_PALE = new THREE.Color(0.92, 0.94, 0.9);
 
 const RADIUS = 22; // world units around the player
 const MAX_POINTS = 90000;
@@ -206,7 +209,8 @@ export function NatureCloud({
           P[k * 3] = (ix + u) * CELL_SIZE;
           P[k * 3 + 1] = y;
           P[k * 3 + 2] = (iz + v) * CELL_SIZE;
-          if (flatColor) tmp.copy(flatColor);
+          if (streetGround.on && streetGround.paper) tmp.copy(PAPER_GREEN_C).lerp(PAPER_PALE, 1 - G);
+          else if (flatColor) tmp.copy(flatColor);
           else tmp.copy(GREEN_DEEP).lerp(GREEN_FRESH, h).lerp(DRY, Math.min(1, worn * 1.3 + (1 - G) * 0.25 + flat));
           Cc[k * 3] = tmp.r;
           Cc[k * 3 + 1] = tmp.g;

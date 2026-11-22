@@ -5,6 +5,8 @@
  * no React; `on` false = nothing of it runs and the ground is drawn as it was.
  */
 
+import { paperLook } from "./paperLook";
+
 export interface StreetGroundLook {
   on: boolean;
   /** The worn ground where a path has formed: how much of the grass it takes (0 … 1) and its grey (a human trace). */
@@ -21,10 +23,33 @@ export interface StreetGroundLook {
   sway: number;
   /** 시야 반경: the concrete's outlines (Marks.tsx, fog-less by design) take the scene's fog too, so nothing shows beyond it. */
   viewFog: boolean;
+  /**
+   * 흰 바탕 (오가닉) — the artist, 2026-11-22 night, after the 43-image study: the personal view on white PAPER, the lines, grid,
+   * outlines and squares given up for the long exposure's smear and the overlap of acetate sheets. Read per frame by every
+   * component of the personal view (and by future-presence for its frames): `streetGround.paper`.
+   */
+  paper: boolean;
+  /** How dark a person's blot is (0 … 1), the blur of its edge (px of the sprite sheet), the distance (world) over which
+   *  a person pales to nothing, and within which a small label with its number stands by it. */
+  ink: number;
+  blur: number;
+  fadeDist: number;
+  labelDist: number;
 }
 
-export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false };
+/** The paper's white, and the vegetation's light green on it. */
+export const PAPER = "#f4f2ec";
+export const PAPER_GREEN = "#b7d3a4";
+
+export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false, paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4 };
 
 export function setStreetGround(v: Partial<StreetGroundLook>): void {
+  const was = streetGround.paper;
   Object.assign(streetGround, v);
+  // the same flag for the sessions that only read it (paperLook.ts, byte-identical on their branches)
+  paperLook.on = streetGround.paper;
+  paperLook.paper = PAPER;
+  paperLook.ink = "#141414";
+  // the flag's change, for whoever renders from React rather than per frame (future-presence's frames)
+  if (streetGround.paper !== was && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("street-look", { detail: { paper: streetGround.paper } }));
 }

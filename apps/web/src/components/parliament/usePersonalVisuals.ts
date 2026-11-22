@@ -83,6 +83,8 @@ export interface StreetVisual {
   hints: { on: boolean; radius: number; everySec: number };
   /** Where the log stands: "auto" = with the eye at a person's height, a left column on a laptop and a top strip on a phone. */
   logPlace: LogPlace | "auto";
+  /** 흰 바탕 (오가닉): the personal view on paper (streetLook.ts). */
+  paper: boolean;
 }
 
 const PEOPLE_MODES: Record<string, PeopleMode> = {
@@ -236,6 +238,12 @@ export function usePersonalVisuals(): PersonalVisuals {
           hintRadius: { value: 12, min: 4, max: 24, step: 0.5, label: "말이 닿는 거리 (월드; 시야 반경 밖 ~ 여기)", render: v2 },
           hintEvery: { value: 6, min: 2, max: 20, step: 1, label: "말 사이 간격 (s)", render: v2 },
           logPlace: { options: LOG_PLACES, value: "auto" as LogPlace | "auto", label: "로그의 자리", render: v2 },
+          // 흰 바탕 (오가닉) — 2026-11-22 night: paper, the long exposure's smear, the overlap of sheets
+          paperOn: { value: false, label: "흰 바탕 (오가닉) — 종이 위 장노출의 번짐; 선·격자·외곽선·네모를 버림", render: v2 },
+          paperInk: { value: 0.9, min: 0.2, max: 1, step: 0.05, label: "종이: 사람 얼룩의 진하기", render: v2 },
+          paperBlur: { value: 3, min: 0, max: 8, step: 0.5, label: "종이: 얼룩 가장자리의 번짐 (px)", render: v2 },
+          paperFade: { value: 12, min: 3, max: 30, step: 0.5, label: "종이: 멀수록 옅어지는 거리 (월드)", render: v2 },
+          paperLabel: { value: 4, min: 0, max: 12, step: 0.5, label: "종이: 이 안이면 개체 라벨과 지시선 (월드; 0 = 없음)", render: v2 },
           walkSpeed: { value: 2.5, min: 0.5, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 전엔 7 · 봇 2.2)", render: v2 },
           ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있을 때 가까운 이를 마주 봄", render: v2 },
           ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
@@ -303,6 +311,11 @@ export function usePersonalVisuals(): PersonalVisuals {
       people: c.streetOn && c.streetPeople,
       look: {
         mode: c.ppMode,
+        paper: c.streetOn && c.paperOn,
+        ink: c.paperInk,
+        blur: c.paperBlur,
+        fadeDist: c.paperFade,
+        labelDist: c.paperLabel,
         boxAspect: c.ppBoxAspect,
         boxRest: c.ppBoxRest,
         cue: c.ppCue,
@@ -335,12 +348,13 @@ export function usePersonalVisuals(): PersonalVisuals {
       view: { on: c.streetOn && c.viewOn, radius: c.viewRadius },
       hints: { on: c.streetOn && c.hintsOn, radius: c.hintRadius, everySec: c.hintEvery },
       logPlace: c.streetOn ? c.logPlace : "bottom",
+      paper: c.streetOn && c.paperOn,
     }),
-    [c.streetOn, c.streetPeople, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {
-    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway, viewFog: c.streetOn && c.viewOn });
-  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway, c.viewOn]);
+    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway, viewFog: c.streetOn && c.viewOn, paper: c.streetOn && c.paperOn, ink: c.paperInk, blur: c.paperBlur, fadeDist: c.paperFade, labelDist: c.paperLabel });
+  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway, c.viewOn, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel]);
   return { look: c.look, footprint: c.footprint, card, grass, marks, street };
 }
