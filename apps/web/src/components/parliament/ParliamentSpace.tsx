@@ -94,6 +94,7 @@ import { FUSE_BLEND_S, type UnitChunks, type UnitStats } from "@/lib/parliament/
 import { WALL_BUILD } from "@/lib/parliament/build";
 import { FutureVillage, futureLink } from "./FutureVillage";
 import { FutureUnder, futureUnder } from "./FutureUnder";
+import { FutureExcavatorsWall } from "./FutureExcavatorsWall";
 import { futureOnly } from "@/lib/parliament/futureOnly";
 import { DEFAULT_ERODE, erosionAt, fossilWaitSec, type ErodeConfig } from "@/lib/parliament/erode";
 import { useTicker } from "./useTicker";
@@ -2281,6 +2282,8 @@ function SpaceWorld({
       {/* what is to come, inferred from the window's latest slots: apart from the column, above its top */}
       {REDESIGN && !!density && <FutureVillage unit={boxCfg.unit} top={fuseU.uGrowTop} kindColor={KIND_COLOR} />}
       {REDESIGN && !!density && <FutureUnder unit={boxCfg.unit} top={fuseU.uGrowTop} />}
+      {/* the future's archaeologists, and the light where they meet a visitor (FutureExcavatorsWall.tsx, 2026-11-22) */}
+      {REDESIGN && !!density && <FutureExcavatorsWall log={log} unit={boxCfg.unit} top={fuseU.uGrowTop} secPerUnit={boxCfg.secPerUnit} />}
       <group visible={!futureOnly()}>
       {/* what the mass was, while the new comes in (setFused; hidden otherwise) */}
       <mesh ref={fusedWas} frustumCulled={false} castShadow receiveShadow visible={false} material={fusedWasMats}>

@@ -18,6 +18,8 @@ import { DEFAULT_FUTURE, inferFuture, type FutureConfig } from "./futureVillage"
 import { hash2 } from "./nature";
 import { PART_KINDS, RECIPES, boxesOfSeed, halfHeight, type Box, type BoxConfig, type PartKind, type Seed } from "./seeds";
 import { wrapDelta } from "./world";
+import { villageSites, type HerdConfig } from "./lifecycle";
+import { nearestOnBorder, villageBorders } from "./villageBorders";
 
 const CELL = CELL_SIZE;
 
@@ -250,7 +252,9 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
           }
         }
         const scrub = u < 0.45;
-        extra.push(x, z, 0, (0.6 + 0.9 * hash2(cx, cz, 9312)) * CELL, scrub ? 0.12 + 0.2 * own : 0.03 + 0.05 * own, scrub ? 1 : 0, 0, 0, 1, own, 1, 0);
+        // (a meadow flowers here and there: most where grass meets scrub — futureVillage.ts F3)
+        const fl = !scrub && hash2(cx, cz, 9313) < 0.4 ? 0.4 + 0.6 * hash2(cx, cz, 9314) : 0;
+        extra.push(x, z, 0, (0.6 + 0.9 * hash2(cx, cz, 9312)) * CELL, scrub ? 0.12 + 0.2 * own : 0.03 + 0.05 * own, scrub ? 1 : 0, fl, 0, 1, own, 1, 0);
       }
     }
     if (extra.length) {
@@ -278,6 +282,27 @@ export function futurePresence(field: DensityField, me: string, K: number, kMe: 
     surface: Float32Array.from(surface),
     ms: Math.round((performance.now() - t0) * 10) / 10,
   };
+}
+
+/**
+ * WHERE THE FUTURE'S WATER RUNS NEAR A PLACE (the encounter's sound — FutureEncounter.tsx): the wall's courses run along
+ * the borders between the villages alive at a time (water.ts bordersAt, villageBorders.ts); the phone has no courses,
+ * but the villages follow from the world's epoch and the herds' setup (lifecycle.ts villageSites). The distance (world)
+ * from (x, z) to the nearest border alive at block time `s`; Infinity when there are no villages or only one.
+ */
+export function waterDistance(epochMs: number, herd: HerdConfig | null, s: number, x: number, z: number): number {
+  if (!herd || !herd.villages) return Infinity;
+  const sites = villageSites(epochMs, herd, s + 1);
+  const alive: { i: number; x: number; z: number }[] = [];
+  let groundR = 1;
+  sites.forEach((q, i) => {
+    if (q.from <= s && s < q.to) alive.push({ i, x: q.x, z: q.z });
+    groundR = Math.max(groundR, Math.hypot(q.x, q.z) + Math.max(1, herd.villages!.radius * (q.ch?.size ?? 1)) * 1.3);
+  });
+  if (alive.length < 2) return Infinity;
+  let best = Infinity;
+  for (const b of villageBorders(alive, groundR)) best = Math.min(best, nearestOnBorder(b, x, z).d);
+  return best;
 }
 
 /** The PartKind list, for whoever colours the edges by kind later. */

@@ -20,7 +20,9 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { DEFAULT_BOXES, DEFAULT_DENSITY, DEFAULT_PATH, DEFAULT_VARIETY, DensityField, NO_PATHS, nearestImage, wrapDist, type BoxConfig, type DensityConfig, type EventLog } from "@/lib/parliament";
 import { excavatorsAt } from "@/lib/parliament/excavators";
-import { futurePresence } from "@/lib/parliament/futurePresence";
+import { futurePresence, waterDistance } from "@/lib/parliament/futurePresence";
+import { playFuturePassing } from "./futureSound";
+import type { SoundSetup } from "./useSound";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import type { FuturePresenceVisual } from "./FuturePresence";
 import { visitorWorld } from "./useBotServer";
@@ -78,7 +80,7 @@ void main() {
   gl_FragColor = vec4(vColor, vA);
 }`;
 
-export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, getLive, playerPosRef, cfg }: { log: EventLog; meRef: React.MutableRefObject<{ id: string }>; getS: () => number; getWorldSec: () => number; getEpochMs: () => number; getLive: () => boolean; playerPosRef: React.MutableRefObject<{ x: number; z: number }>; cfg: FuturePresenceVisual }) {
+export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, getLive, playerPosRef, cfg, sound = null, getYaw }: { log: EventLog; meRef: React.MutableRefObject<{ id: string }>; getS: () => number; getWorldSec: () => number; getEpochMs: () => number; getLive: () => boolean; playerPosRef: React.MutableRefObject<{ x: number; z: number }>; cfg: FuturePresenceVisual; sound?: SoundSetup | null; getYaw?: () => number }) {
   const field = useRef<{ f: DensityField; key: string; fed: number; drops: number } | null>(null);
   const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0 });
   const geom = useMemo(() => {
@@ -228,10 +230,12 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     }
     // the plants: grass a low carpet, scrub a dome — each cloud a few dozen points
     size = 0.9;
+    let flowering = 0;
     for (let o = 0; o + 11 < r.plantClouds.length; o += 12) {
       const x = r.plantClouds[o], z = r.plantClouds[o + 1], rad = r.plantClouds[o + 3], tall = r.plantClouds[o + 4] * cfg.unit, kind = r.plantClouds[o + 5], own = Math.floor(r.plantClouds[o + 9] * 1e6);
       if ((nearestImage(x, p.x) - p.x) ** 2 + (nearestImage(z, p.z) - p.z) ** 2 > (R + 2) ** 2) continue;
       const n = Math.min(120, 20 + Math.round(rad * rad * 25));
+      if (r.plantClouds[o + 6] > 0.3) flowering++;
       for (let i = 0; i < n; i++) {
         const th = hash(own, i, 1) * Math.PI * 2, rr = rad * Math.sqrt(hash(own, i, 2)), u = hash(own, i, 3);
         const y = kind >= 1 ? tall * (1 - (rr / Math.max(1e-3, rad)) ** 2) * u : tall * u * 0.5 + 0.01;
@@ -282,8 +286,14 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     mat.uniforms.uT.value = 0;
     Object.assign(s, { active: true, t0: now, ex: ex.i, outAt: cfg.inSec + cfg.holdSec });
     s.cool.set(ex.i, now + cfg.cooldownSec);
+    // THE PASSING, HEARD (futureSound.ts): glitter where the meadow flowers, a river where the future's water runs near,
+    // from the side it comes from to the side it goes to (the listener's right: the camera's yaw)
+    const wd = waterDistance(epoch, visitorWorld.herd, sNow, p.x, p.z);
+    const yaw = getYaw?.() ?? 0, rx = -Math.cos(yaw), rz = Math.sin(yaw);
+    const side = Math.max(-1, Math.min(1, ex.dx * rx + ex.dz * rz));
+    const heard = cfg.fxLevel > 0 && playFuturePassing(sound, { glitter: Math.min(1, flowering / 15), river: wd <= 10 ? 1 - wd / 10 : 0, found, panFrom: -side * 0.8, panTo: side * 0.8, dur: cfg.inSec + cfg.holdSec + cfg.outSec, level: cfg.fxLevel });
     markSpan("future-meet", performance.now() - t0);
-    (window as unknown as { __futureMeet?: unknown }).__futureMeet = { at: Math.round(getWorldSec()), ex: ex.i, found, points: v, ms: Math.round(performance.now() - t0), k: K, kMe, n: r.n, surface: r.surface.length / 4, plants: r.plantClouds.length / 12, trees: r.vegTree.length / 5, mounds: r.mounds.length / 4, stains: r.stains.length / 4, traces: r.traces.length / 4 };
+    (window as unknown as { __futureMeet?: unknown }).__futureMeet = { at: Math.round(getWorldSec()), ex: ex.i, found, heard, flowering, water: Number.isFinite(wd) ? Math.round(wd * 10) / 10 : null, points: v, ms: Math.round(performance.now() - t0), k: K, kMe, n: r.n, surface: r.surface.length / 4, plants: r.plantClouds.length / 12, trees: r.vegTree.length / 5, mounds: r.mounds.length / 4, stains: r.stains.length / 4, traces: r.traces.length / 4 };
   });
 
   return (

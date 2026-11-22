@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, announceEpochWritten, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, timeRate, type EventLog, type PEvent } from "@/lib/parliament";
 import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
 import type { DensityConfig } from "@/lib/parliament/density";
+import type { HerdConfig } from "@/lib/parliament/lifecycle";
 import { risePause, type BlockFrame } from "@/lib/parliament/rise";
 
 /** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
@@ -235,7 +236,7 @@ function handKey(s: BotSetup | null): string {
 
 /** What the phone knows of the world's rules (from the server's hello): the buildings' density config, null until it
  *  came or when the server has none. `version` bumps when it changed (FuturePresence.tsx reads it). */
-export const visitorWorld: { density: DensityConfig | null; version: number } = { density: null, version: 0 };
+export const visitorWorld: { density: DensityConfig | null; herd: HerdConfig | null; version: number } = { density: null, herd: null, version: 0 };
 
 /**
  * THE VISITOR'S SAMPLES TO THE BOT SERVER (the personal view, a phone): the phone joins the world's epoch and clock,
@@ -319,8 +320,10 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
         // THE WORLD'S RULES, FOR THE FUTURE UNDER THE VISITOR'S FEET (futurePresence.ts, 2026-11-22): the server's
         // buildings' density rule — the wall's, as it last sent it — so the phone infers the same layer the wall does
         if (d.t === "hello" || d.t === "setup") {
-          const su = (d as { setup?: { density?: DensityConfig | null } | null }).setup;
+          const su = (d as { setup?: { density?: DensityConfig | null; lc?: { herd?: HerdConfig } } | null }).setup;
           visitorWorld.density = su?.density ?? null;
+          // (and the herds' setup: where the villages are, and so where the future's water runs — futurePresence.ts)
+          visitorWorld.herd = su?.lc?.herd ?? null;
           visitorWorld.version++;
           if (d.t === "setup") return;
         }
