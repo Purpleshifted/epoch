@@ -17,6 +17,7 @@ import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
 import type { DensityConfig } from "@/lib/parliament/density";
 import type { HerdConfig } from "@/lib/parliament/lifecycle";
 import { risePause, type BlockFrame } from "@/lib/parliament/rise";
+import { savedValuesReady } from "./levaSave";
 
 /** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
 export const BOT_SERVER = process.env.NEXT_PUBLIC_BOT_SERVER ?? "wss://anthropocene-bots.anthropocene-hesse.workers.dev";
@@ -49,24 +50,30 @@ export function botServerOn(): boolean {
  */
 const BOT_ADMIN_KEY = "anthropocene:bot-admin:v1";
 /**
- * ON PRODUCTION THE WALL IS THE OWNER (the artist, 2026-11-22: "걍 일반창 버튼이 어드민이면 되는 거 아냐?; 어차피 다른 사람이
- * 뭐 건드리게 할 것도 아니고"): since every test page joins "rehearsal" (botWorldHere), the only walls on the
- * exhibition's world are hers — so a production wall owns the bots without being marked. Not a browser driven by a
- * script (navigator.webdriver: the sessions' headless checks), and not one unmarked with `?botadmin=0`.
+ * ON PRODUCTION THE ARTIST'S WALL IS THE OWNER (the artist, 2026-11-22: "걍 일반창 버튼이 어드민이면 되는 거 아냐?;
+ * 어차피 다른 사람이 뭐 건드리게 할 것도 아니고"): since every test page joins "rehearsal" (botWorldHere), a wall WITH ITS
+ * PANEL on the exhibition's world (/v2/global/space, which /rehearsal/global opens) owns the bots without being marked.
+ * Never the exhibition's wall or the audience's pages (?ui=0 — /exhibition/global lands there with it — and anything
+ * else: the QR's /exhibition/* pages, phones), never a browser driven by a script (navigator.webdriver, HeadlessChrome),
+ * and never one unmarked with `?botadmin=0`.
  */
 export function botAdmin(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    const q = new URLSearchParams(window.location.search).get("botadmin");
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("botadmin");
     if (q === "1" || q === "0") localStorage.setItem(BOT_ADMIN_KEY, q);
     const mark = localStorage.getItem(BOT_ADMIN_KEY);
     if (mark === "1") return true;
     if (mark === "0") return false;
-    return BOT_WORLD === "redesign" && !navigator.webdriver;
+    const scripted = navigator.webdriver || /HeadlessChrome/.test(navigator.userAgent);
+    return BOT_WORLD === "redesign" && window.location.pathname === "/v2/global/space" && params.get("ui") !== "0" && !scripted;
   } catch {
     return false;
   }
 }
+/** The wall's bots group (useGlobalBots): its saves must be in before the owner brings the server to them. */
+const BOT_GROUP = "봇 (글로벌에서 돌리기)";
 
 const SAVE_EVERY_MS = 2000;
 const PEOPLE_EVERY_MS = 1000;
@@ -91,6 +98,9 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
     let gone = false, tries = 0, retry = 0;
     let epoch = 0;
     let sentSetup: string | null = null;
+    /** The server's setup as its hello said it (null = no hello yet), and whether the owner has compared its saved knobs. */
+    let serverSetup: string | null = null;
+    let synced = false;
     // only the owner's browser changes the server's bots, clock or world (botAdmin)
     const admin = botAdmin();
     let saidNotOwner = false;
@@ -192,8 +202,11 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
           // THE OWNER'S WALL IS THE TRUTH (the artist, 2026-11-22: after the 15:17 clear the server kept another view's setup
           // — 20 s a slot, a rising window stopped at 1330 s — while her wall drew a standing block of 15 s slots: the bots
           // and the vegetation stood above the future layer, "제발 나 신경쇠약좀 안걸리게"): the owner's browser brings the
-          // server to its own knobs whenever they differ, not only when a knob is turned
-          if (mine && (!d.setup || turned() || (admin && mine !== JSON.stringify(d.setup)))) {
+          // server to its own knobs when they differ — but NOT HERE: a fresh browser's knobs may still be the code's defaults
+          // (bots off) when the hello comes; the check below (every second) waits until its saves are in (savedValuesReady)
+          serverSetup = d.setup ? JSON.stringify(d.setup) : "";
+          synced = false;
+          if (mine && turned()) {
             if (admin) {
               sentSetup = mine;
               ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
@@ -256,6 +269,14 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
       }
       // the knobs turned here: the server's bots follow (the owner's browser only)
       const mine = json();
+      // …and once per joining, the owner brings the server to its SAVED knobs if they differ (see the hello)
+      if (admin && !synced && serverSetup !== null && savedValuesReady(BOT_GROUP)) {
+        synced = true;
+        if (mine && mine !== serverSetup) {
+          sentSetup = mine;
+          ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));
+        }
+      }
       if (mine && mine !== sentSetup && turned()) {
         sentSetup = mine;
         if (admin) ws.send(JSON.stringify({ t: "setup", setup: JSON.parse(mine) }));

@@ -522,8 +522,36 @@ export async function pushPreset(key: string, values: Record<string, unknown>): 
  * mounted by then and this page shows the old values until it reloads.
  */
 export function pullPresets(page: string, onLate?: (changed: string[]) => void): Promise<string[]> {
-  if (typeof window === "undefined" || presetsDefault()) return Promise.resolve([]);
-  return holdThenLate(fetchPresets(page), PRESET_HOLD_MS, [], onLate);
+  if (typeof window === "undefined" || presetsDefault()) {
+    presetsDone = true;
+    return Promise.resolve([]);
+  }
+  const all = fetchPresets(page).finally(() => {
+    presetsDone = true;
+  });
+  return holdThenLate(all, PRESET_HOLD_MS, [], (changed) => {
+    if (changed.length) presetsLate = true;
+    onLate?.(changed);
+  });
+}
+
+/** The server's saves have come in and none arrived after Leva had mounted (pullPresets). */
+let presetsDone = false;
+let presetsLate = false;
+/**
+ * WHETHER THIS PAGE'S KNOBS OF `group` ARE ITS SAVED ONES (the bot server's owner brings the server to them only then —
+ * useBotServer, 2026-11-22: a fresh browser's defaults, bots off, must never reach the exhibition's world): the server's
+ * saves have finished arriving, none came late (Leva would show the old ones until a reload), and the group has a save
+ * here or in the bundled preset.
+ */
+export function savedValuesReady(group: string): boolean {
+  if (typeof window === "undefined" || !presetsDone || presetsLate) return false;
+  try {
+    const key = `${PREFIX}:${levaPage()}:${group}`;
+    return window.localStorage.getItem(key) !== null || isObj(PRESET[key]);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchPresets(page: string): Promise<string[]> {
