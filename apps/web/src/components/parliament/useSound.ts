@@ -88,6 +88,8 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       arrivalGapMs: { value: DEFAULT_SOUND.arrivalGapMs, min: 0, max: 400, step: 10, label: "으뜸 직전의 숨 (ms, 전부 잠깐 비움 — 0 = 없음; 파도 정점에서 먹히는 느낌의 원인이었음)", render: v2 },
       afterglow: { value: DEFAULT_SOUND.afterglow, min: 0, max: 0.5, step: 0.01, label: "죽은 뒤 여운: 스피커(글로벌) 소리를 헤드셋에 얇게 (0 = 없음)", render: v2 },
       afterlifeTail: { value: DEFAULT_SOUND.afterlifeTail, min: 1, max: 30, step: 0.5, label: "죽음의 잔향 (s) — 끝난 뒤 들리는 유일한 것; 뒤 절반에 페이드가 겹침", render: v2 },
+      // a word another left, found underfoot (witness word.found): the leaver's melody once, on the next bar, in the name's voice
+      foundLevel: { value: DEFAULT_SOUND.foundLevel, min: 0, max: 1.5, step: 0.05, label: "찾은 말의 멜로디 크기 — 남긴 이의 이름 멜로디가 다음 마디에 한 번 (1 = 이름과 같은 크기, 0 = 안 들림)", render: v2 },
       // the life's recording (useLifeRecording.ts, docs/recording.md): the headset's mix from the name's melody to the
       // end of the reverb, kept here and sent up; the specimen card's QR opens it
       record: { value: true, label: "녹음 — 이름의 멜로디부터 죽음의 잔향 끝까지, 헤드셋 믹스만 (표본 카드의 QR)", render: v2 },
@@ -227,16 +229,16 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, sealRadius, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
     motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
     motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
-    bassFrom, pathRadius, afterlifeTail, afterglow,
+    bassFrom, pathRadius, afterlifeTail, afterglow, foundLevel,
   } = c;
   const params = useMemo<SoundParams>(
     () => ({
       master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop,
       motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb,
       motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb,
-      bassFrom, afterlifeTail, afterglow, dead: false,
+      bassFrom, afterlifeTail, afterglow, foundLevel, dead: false,
     }),
-    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow],
+    [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow, foundLevel],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
   const { record: recordOn, recordKbps } = c;

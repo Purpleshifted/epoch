@@ -19,7 +19,21 @@ import { risePause, type BlockFrame } from "@/lib/parliament/rise";
 
 /** The bot server and the world on it. `?botserver=0` on a view's address: the old way (the bots in this tab). */
 export const BOT_SERVER = process.env.NEXT_PUBLIC_BOT_SERVER ?? "wss://anthropocene-bots.anthropocene-hesse.workers.dev";
-export const BOT_WORLD = process.env.NEXT_PUBLIC_BOT_WORLD ?? "redesign";
+/**
+ * WHICH WORLD ON THE BOT SERVER (the artist, 2026-11-22: "응, 분리해" — after a page that was not the exhibition's
+ * cleared its world): production's own ("redesign", the exhibition's world, the one the artist's wall runs); everything
+ * else — branch previews, `next dev`, every session's test page — "rehearsal", so nothing tried elsewhere reaches the
+ * exhibition's bots or world. Production is known by its build (NEXT_PUBLIC_VERCEL_ENV) or, failing that, its
+ * address. NEXT_PUBLIC_BOT_WORLD overrides both.
+ */
+const PRODUCTION_HOSTS = ["anthropocene-redesign.vercel.app", "anthropocene-redesign-hesse-parks-projects.vercel.app"];
+function botWorldHere(): string {
+  if (process.env.NEXT_PUBLIC_BOT_WORLD) return process.env.NEXT_PUBLIC_BOT_WORLD;
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV === "production") return "redesign";
+  if (typeof window !== "undefined" && PRODUCTION_HOSTS.includes(window.location.hostname)) return "redesign";
+  return "rehearsal";
+}
+export const BOT_WORLD = botWorldHere();
 export function botServerOn(): boolean {
   if (typeof window === "undefined") return false;
   return !!BOT_SERVER && new URLSearchParams(window.location.search).get("botserver") !== "0";
