@@ -43,9 +43,10 @@ const PATH_LIGHT = new THREE.Color(0xc9c2b4);
 export type GrassMode = "off" | "press" | "flatten" | "mine";
 
 /** The sway uniforms are set through this every frame (a plain function on the objects). */
-function setSway(u: { uSway: { value: number }; uTime: { value: number } }, sway: number, t: number): void {
+function setSway(u: { uSway: { value: number }; uTime: { value: number }; uNearFade: { value: number } }, sway: number, t: number, nearFade = 0): void {
   u.uSway.value = sway;
   u.uTime.value = t;
+  u.uNearFade.value = nearFade;
 }
 
 /** How the cloud reacts to the walker (Leva 개인뷰 비주얼). */
@@ -120,21 +121,29 @@ export function NatureCloud({
   const nearGeom = useMemo(() => makeGeom(NEAR_MAX), []);
   const tmp = useMemo(() => new THREE.Color(), []);
   // 길거리 (streetLook.ts): the points sway in a wind — the higher a point, the more; nothing unless the trial is on
-  const swayU = useMemo(() => ({ uSway: { value: 0 }, uTime: { value: 0 } }), []);
+  const swayU = useMemo(() => ({ uSway: { value: 0 }, uTime: { value: 0 }, uNearFade: { value: 0 } }), []);
   const onBeforeCompile = useMemo(
     () => (shader: THREE.WebGLProgramParametersWithUniforms) => {
       shader.uniforms.uSway = swayU.uSway;
       shader.uniforms.uTime = swayU.uTime;
+      shader.uniforms.uNearFade = swayU.uNearFade;
+      // 흰 바탕: the grass at the visitor's feet pales into the white (an overexposed floor, as in the references) — it
+      // is the far field that tells a meadow; near squares were large green blots over the frame
       shader.vertexShader =
-        "uniform float uSway;\nuniform float uTime;\n" +
-        shader.vertexShader.replace(
-          "#include <begin_vertex>",
-          "#include <begin_vertex>\n  transformed.x += uSway * transformed.y * 0.9 * sin(uTime * 1.6 + transformed.z * 0.7 + transformed.x * 0.4);\n  transformed.z += uSway * transformed.y * 0.5 * sin(uTime * 1.1 + transformed.x * 0.6);",
-        );
+        "uniform float uSway;\nuniform float uTime;\nuniform float uNearFade;\n" +
+        shader.vertexShader
+          .replace(
+            "#include <begin_vertex>",
+            "#include <begin_vertex>\n  transformed.x += uSway * transformed.y * 0.9 * sin(uTime * 1.6 + transformed.z * 0.7 + transformed.x * 0.4);\n  transformed.z += uSway * transformed.y * 0.5 * sin(uTime * 1.1 + transformed.x * 0.6);",
+          )
+          .replace(
+            "#include <project_vertex>",
+            "#include <project_vertex>\n#ifdef USE_COLOR\n  if (uNearFade > 0.0) vColor.rgb = mix(vec3(0.95, 0.95, 0.93), vColor.rgb, smoothstep(uNearFade * 0.5, uNearFade * 1.6, -mvPosition.z));\n#endif",
+          );
     },
     [swayU],
   );
-  const cacheKey = useMemo(() => () => "nature-cloud-sway", []);
+  const cacheKey = useMemo(() => () => "nature-cloud-sway-near", []);
   /** The path strengths and sealed cells of the latest snapshot — built once per snapshot, not once per pass. */
   const derived = useRef<{ snap: Snapshot | null; pathAt: Map<string, number>; sealed: Set<string> }>({ snap: null, pathAt: new Map(), sealed: new Set() });
 
@@ -209,7 +218,7 @@ export function NatureCloud({
           P[k * 3] = (ix + u) * CELL_SIZE;
           P[k * 3 + 1] = y;
           P[k * 3 + 2] = (iz + v) * CELL_SIZE;
-          if (streetGround.on && streetGround.paper) tmp.copy(PAPER_GREEN_C).lerp(PAPER_PALE, 1 - G);
+          if (streetGround.on && streetGround.paper) tmp.copy(PAPER_GREEN_C).lerp(PAPER_PALE, 1 - 0.6 * G);
           else if (flatColor) tmp.copy(flatColor);
           else tmp.copy(GREEN_DEEP).lerp(GREEN_FRESH, h).lerp(DRY, Math.min(1, worn * 1.3 + (1 - G) * 0.25 + flat));
           Cc[k * 3] = tmp.r;
@@ -241,7 +250,8 @@ export function NatureCloud({
   useFrame((state, dt) => {
     timer.current += dt;
     nearTimer.current += dt;
-    setSway(swayU, streetGround.on ? streetGround.sway : 0, state.clock.elapsedTime);
+    // (the near fade in world units: 1 world ≈ 2.5 m — pale within ~2.5 m, full beyond ~8 m)
+    setSway(swayU, streetGround.on ? streetGround.sway : 0, state.clock.elapsedTime, streetGround.on && streetGround.paper ? 2 : 0);
     const p = playerPosRef.current;
     const jumped = Number.isFinite(laidAt.current.x) && Math.hypot(p.x - laidAt.current.x, p.z - laidAt.current.z) > WORLD_SIZE / 4;
     const on = !!grass && grass.mode !== "off";

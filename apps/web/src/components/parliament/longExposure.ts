@@ -11,6 +11,17 @@
 
 import * as THREE from "three";
 
+/**
+ * THE EXPOSURE'S WEIGHT this frame: 1 − decay^dtFrames. A layer drawn additively into the feedback multiplies by it, so the
+ * buffer is a time-weighted AVERAGE of the frames (a long exposure proper): a body that stands converges to its own
+ * density, no more; one that walks leaves the fraction of the time it covered a pixel; two at once add. Set per frame by
+ * whoever runs the feedback (InkPaper); read by the layers (PointPeople).
+ */
+export const exposureRate = { weight: 0.06 };
+export function setExposureWeight(decay: number, dtFrames: number): void {
+  exposureRate.weight = 1 - Math.pow(Math.max(0, Math.min(0.999, decay)), Math.max(0.01, dtFrames));
+}
+
 const VERT = /* glsl */ `
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;

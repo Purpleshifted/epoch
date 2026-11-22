@@ -23,12 +23,14 @@ export const EXPOSURE_LAYER = 2;
 /**
  * The GLSL half (paste into a fragment shader; declare nothing else):
  *   exposeOnWhite(base, density, maxDark)  the ground darkened by an accumulated density (0 … 1): base × (1 − density × maxDark)
+ *                                          (density a float, or a vec3 — a coloured body's absorption per channel)
  *   exposeOnBlack(base, density, light)    the same on the black ground: base + density × light
  *   exposeTone(col, rolloff)               an overexposed photograph: the highlights roll off softly above a knee of 0.8
  *   filmGrain(frag, t, amount)             a fine living grain (~0.01) plus a dither against banding — add to the colour
  */
 export const EXPOSE_GLSL = /* glsl */ `
 vec3 exposeOnWhite(vec3 base, float density, float maxDark) { return base * (1.0 - clamp(density, 0.0, 1.0) * maxDark); }
+vec3 exposeOnWhite(vec3 base, vec3 density, float maxDark) { return base * (1.0 - clamp(density, 0.0, 1.0) * maxDark); }
 vec3 exposeOnBlack(vec3 base, float density, float light) { return base + vec3(clamp(density, 0.0, 1.0) * light); }
 vec3 exposeTone(vec3 col, float rolloff) {
   float l = dot(col, vec3(0.299, 0.587, 0.114));
