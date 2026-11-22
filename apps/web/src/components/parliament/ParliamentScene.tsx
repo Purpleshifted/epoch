@@ -59,6 +59,7 @@ import {
   QUICK_RESTART_SEC,
 } from "@/lib/parliament";
 import { announcePersonalOpen } from "@/lib/sound/personalOpen";
+import { recordingPageUrl } from "@/lib/sound/recordingUpload";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
@@ -423,6 +424,9 @@ export default function ParliamentScene() {
   const sound = useSound({ escMute: !withSession });
   // V2: the life's sound recorded from the name to the end of the reverb (useLifeRecording.ts; the card's QR)
   const recording = useLifeRecording(withSession ? session : null, sound, visitorRef, sound?.record ?? NO_RECORDING);
+  // the card's QR from the moment the card is up: the life's own page (/rec/<id>), which waits for the recording — it
+  // goes up by itself once the reverb has rung out (the artist, 2026-11-22); none when nothing is being recorded
+  const recordingQr = recording.url ?? (recording.id && recording.phase !== "failed" && recording.phase !== "idle" ? recordingPageUrl(recording.id) : undefined);
   // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
   const perf = usePerfMeter(!hideChrome);
   // a mute never carries over to the next visitor (sound wiring)
@@ -507,7 +511,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recording.url} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}

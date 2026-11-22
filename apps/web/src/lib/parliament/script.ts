@@ -200,7 +200,7 @@ export const SCRIPT: Record<Lang, Script> = {
           ? "게시할 곳이 아직 연결되지 않았습니다"
           : ({ print: ["출력 중", "출력했습니다", "출력하지 못했습니다"], save: ["저장 중", "저장했습니다", "저장하지 못했습니다"], post: ["게시 중", "게시했습니다", "게시하지 못했습니다"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
       back: "돌아가기",
-      keepNote: "게시하거나 출력하면 이 기록과 녹음이 보관됩니다. 그러지 않은 삶은 보관되지 않습니다.",
+      keepNote: "게시하거나 출력하면 이 삶이 갤러리에 남습니다. 그러지 않은 삶은 갤러리에 남지 않습니다.",
       printedKept: "출력했습니다 · 게시되었습니다",
     },
   },
@@ -265,7 +265,7 @@ export const SCRIPT: Record<Lang, Script> = {
           ? "Nowhere to post yet"
           : ({ print: ["Printing", "Printed", "Could not print"], save: ["Saving", "Saved", "Could not save"], post: ["Posting", "Posted", "Could not post"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
       back: "Back",
-      keepNote: "Posted or printed, this record and its recording are kept. A life that is neither is not kept.",
+      keepNote: "Posted or printed, this life stays in the gallery. A life that is neither does not.",
       printedKept: "Printed · posted",
     },
   },

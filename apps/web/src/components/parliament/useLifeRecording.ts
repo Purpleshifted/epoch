@@ -9,10 +9,11 @@
  *            came up; recordings a visitor posted but whose upload failed are retried behind this one
  *   ENDED  → a marker with how the life ended; the recorder runs on until the afterlife's reverb has rung out
  *            (engine.afterlifeOver, or `죽음의 잔향` + 4 s if the engine never says), then stops
- *   stop   → the Blob goes into IndexedDB under the life's id (recordingStore.ts) and STAYS here: it goes up to the
- *            Worker (recordingUpload.ts) only when the visitor posts or prints the end card (uploadLifeRecording, called
- *            by the card); `url` is set only once it is there. Not posted → thrown away when the next recording begins
- *            (the artist, 2026-11-21)
+ *   stop   → the Blob goes into IndexedDB under the life's id (recordingStore.ts) and goes up to the Worker
+ *            (recordingUpload.ts) at once, posted or not: the card's QR carries the life's own page (`/rec/<id>`) from
+ *            the moment the card is up, and the page waits for the recording (the artist, 2026-11-22: "카드가 뜨자마자
+ *            QR이 보이게"; until then it went up only when the card was posted or printed). A life not posted or
+ *            printed is left out of the gallery, not out of the Worker; `url` is set once the upload is through
  *   a visitor who walks away at the name screen (back to IDLE without living) leaves no recording; the next visitor
  *   arriving before the tail is out ends the previous recording where it is
  *
@@ -103,9 +104,8 @@ let lastLocalUrl: string | null = null;
 let latest: { id: string; done: Promise<{ blob: Blob; meta: RecordingMeta } | null> } | null = null;
 
 /**
- * The recorder stopped: kept on this machine (IndexedDB) and nothing more — it goes up only if the visitor posts or
- * prints the end card (uploadLifeRecording; the artist, 2026-11-21: "게시하면 … 녹음본 db로 넘기고 굳이 게시 안 하면
- * 걍 버리고 … 출력한 경우도 게시랑 똑같이"). Runs on after the hook has let go of the run.
+ * The recorder stopped: kept on this machine (IndexedDB), then sent up (uploadLifeRecording — every life since
+ * 2026-11-22, see the header). Runs on after the hook has let go of the run.
  */
 function finish(r: Run, ext: string): void {
   const seconds = r.rec.seconds;
@@ -132,20 +132,36 @@ function finish(r: Run, ext: string): void {
     const kept = await putRecording(r.id, blob, meta);
     // (a post pressed while the tail was still being recorded has already said so: keep its phase)
     if (current.id !== r.id || current.phase === "recording")
-      publish({ ...base, phase: "done", bytes: blob.size, localUrl, note: kept ? undefined : "로컬 보관 못 함", line: recStatusLine(seconds, blob.size, kept ? "로컬 보관 (게시·출력하면 올라감)" : "로컬 보관 못 함") });
+      publish({ ...base, phase: "done", bytes: blob.size, localUrl, note: kept ? undefined : "로컬 보관 못 함", line: recStatusLine(seconds, blob.size, kept ? "로컬 보관" : "로컬 보관 못 함") });
     return { blob, meta };
   })();
   latest = { id: r.id, done };
+  // up at once, whether the card is posted or not (the QR is already on it)
+  if (current.id === r.id) void uploadLifeRecording();
 }
 
+/** The upload under way (or done) for a life: a post or a print joins it instead of sending the recording twice. */
+let inflight: { id: string; p: Promise<string | null> } | null = null;
+
 /**
- * The visitor posted or printed the end card: this life's recording goes up (waiting for the reverb's end if the
- * recorder is still taking it). Resolves with the page the QR carries (`/rec/<id>`), or null when there is no
- * recording or the upload failed (then it stays here, marked wanted, and is retried behind the next life).
+ * This life's recording goes up (waiting for the reverb's end if the recorder is still taking it): started by the
+ * recorder's end itself, joined by the card's post or print. Resolves with the page the QR carries (`/rec/<id>`), or
+ * null when there is no recording or the upload failed (then it stays here, marked wanted, and is retried behind the
+ * next life; a later call tries again).
  */
-export async function uploadLifeRecording(): Promise<string | null> {
-  // this life's: if the reverb is still being recorded, wait for it (the card is up from the moment of death)
+export function uploadLifeRecording(): Promise<string | null> {
   const want = current.id;
+  if (inflight && inflight.id === want) return inflight.p;
+  const p = sendLatest(want);
+  inflight = { id: want, p };
+  void p.then((url) => {
+    if (!url && inflight?.p === p) inflight = null;
+  });
+  return p;
+}
+
+async function sendLatest(want: string): Promise<string | null> {
+  // this life's: if the reverb is still being recorded, wait for it (the card is up from the moment of death)
   if (!want || current.phase === "failed") return null;
   if (current.url) return current.url;
   for (let i = 0; i < 300 && latest?.id !== want; i++) await new Promise((r) => setTimeout(r, 200));
@@ -247,7 +263,7 @@ export function useLifeRecording(session: LifeSession | null, sound: SoundSetup 
         events.push({ t: 0, kind: "name", text: "", level: 0 });
         const off = onLifeEvent((e) => events.push({ t: (Date.now() - startedAt) / 1000, kind: e.kind, text: e.text, level: e.level }));
         run.current = { id: v.id, sessionNo: s.sessionNo, rec, events, startedAt, lived: false, endedAt: 0, off };
-        // the last visitor's recording, if they did not post or print their card, is thrown away (the artist)
+        // whatever an earlier life left here that is not waiting to go up is cleared away
         void discardUnwanted(v.id);
         publish({ ...IDLE, id: v.id, phase: "recording", ext: format.ext, line: recStatusLine(0, 0) });
       } catch (e) {

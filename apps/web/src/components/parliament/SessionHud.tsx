@@ -212,11 +212,13 @@ export function SessionHud({
   card?: CardVisual;
   /** The `venue` URL parameter, kept with the card; "gallery" is the exhibition's own machine (출력하기, not 저장하기). */
   venue?: string | null;
-  /** The life's recording (the life-recording session's hook) and the card's own page, when there are such: the card
-   * carries the QR of the one there is (the recording first); without either its place stays empty. */
+  /** The life's recording page (/rec/<id>: there from the end, before the recording has gone up — the page waits for it)
+   * and the card's own page, when there are such: the card carries the QR of the one there is (the recording first);
+   * without either its place stays empty. */
   recordingUrl?: string;
   cardUrl?: string;
-  /** Uploads the life's recording when the visitor posts or prints (the artist: kept only then), giving its URL. */
+  /** Sends the life's recording up (it goes by itself at the end; this joins that upload), giving its URL: for a post or
+   * a print when the recording page was not known yet. */
   uploadRecording?: () => Promise<string | null>;
   /** The visitor answered someone: it leaves a seed head (RoleField). */
   onAnswer?: () => void;

@@ -20,9 +20,14 @@ function markerText(e: RecordingMarker): string {
 
 type Source = { src: string; meta: RecordingMeta | null; from: "server" | "local" };
 
+/** The card shows its QR from the moment the life ends; the recording goes up once the reverb has rung out (2026-11-22).
+ * A page opened before that looks again every WAIT_MS, for WAIT_TRIES times (about three minutes), then says so. */
+const WAIT_MS = 4000;
+const WAIT_TRIES = 45;
+
 export default function RecPlayer({ id }: { id: string }) {
   const [source, setSource] = useState<Source | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "missing">(() => (RECORDING_ID.test(id) ? "loading" : "missing"));
+  const [state, setState] = useState<"loading" | "waiting" | "ready" | "missing">(() => (RECORDING_ID.test(id) ? "loading" : "missing"));
   const audio = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [t, setT] = useState(0);
@@ -33,30 +38,35 @@ export default function RecPlayer({ id }: { id: string }) {
     let cancelled = false;
     let objectUrl: string | null = null;
     (async () => {
-      try {
-        const head = await fetch(recordingAudioUrl(id), { method: "HEAD" });
-        if (head.ok) {
-          const meta = await fetch(recordingMetaUrl(id))
-            .then((r) => (r.ok ? (r.json() as Promise<RecordingMeta>) : null))
-            .catch(() => null);
-          if (!cancelled) {
-            setSource({ src: recordingAudioUrl(id), meta, from: "server" });
-            setState("ready");
+      for (let i = 0; i < WAIT_TRIES && !cancelled; i++) {
+        try {
+          const head = await fetch(recordingAudioUrl(id), { method: "HEAD", cache: "no-store" });
+          if (head.ok) {
+            const meta = await fetch(recordingMetaUrl(id), { cache: "no-store" })
+              .then((r) => (r.ok ? (r.json() as Promise<RecordingMeta>) : null))
+              .catch(() => null);
+            if (!cancelled) {
+              setSource({ src: recordingAudioUrl(id), meta, from: "server" });
+              setState("ready");
+            }
+            return;
           }
+        } catch {
+          /* the Worker is not there (yet): this device's own copy */
+        }
+        const row = await getRecording(id);
+        if (cancelled) return;
+        if (row) {
+          objectUrl = URL.createObjectURL(row.blob);
+          setSource({ src: objectUrl, meta: row.meta, from: "local" });
+          setState("ready");
           return;
         }
-      } catch {
-        /* the Worker is not there (yet): this device's own copy */
+        // not up yet (the life's reverb is still ringing, or the upload is on its way): look again
+        setState("waiting");
+        await new Promise((r) => setTimeout(r, WAIT_MS));
       }
-      const row = await getRecording(id);
-      if (cancelled) return;
-      if (!row) {
-        setState("missing");
-        return;
-      }
-      objectUrl = URL.createObjectURL(row.blob);
-      setSource({ src: objectUrl, meta: row.meta, from: "local" });
-      setState("ready");
+      if (!cancelled) setState("missing");
     })();
     return () => {
       cancelled = true;
@@ -98,6 +108,7 @@ export default function RecPlayer({ id }: { id: string }) {
       <div className="mx-auto w-full max-w-[34rem]">
         <div className="text-[#8c8c8c]">기록된 소리 · {id}</div>
         {state === "loading" && <div className="mt-8 text-[#8c8c8c]">불러오는 중…</div>}
+        {state === "waiting" && <div className="mt-8 text-[#8c8c8c]">녹음이 올라오기를 기다리는 중… 삶의 잔향이 다 울리면 올라옵니다.</div>}
         {state === "missing" && <div className="mt-8">이 기록은 아직 없습니다.</div>}
         {state === "ready" && source && (
           <>
