@@ -199,6 +199,7 @@ export function SessionHud({
   cardUrl,
   uploadRecording,
   onAnswer,
+  onFound,
 }: {
   session: LifeSession;
   witnessRef: React.MutableRefObject<Observation | null>;
@@ -236,6 +237,8 @@ export function SessionHud({
   uploadRecording?: () => Promise<string | null>;
   /** The visitor answered someone: it leaves a seed head (RoleField). */
   onAnswer?: () => void;
+  /** A word another left was found (the record's `word.found`): whose it is — the headset plays their melody once. */
+  onFound?: (o: string) => void;
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
   // the end's screens have their own KR / EN (the visitor's pick), set in the Korean pixel face either way
@@ -274,7 +277,8 @@ export function SessionHud({
       const obs = witnessRef.current;
       if (!obs || obs === lastObs.current) return;
       lastObs.current = obs;
-      log.push(obs);
+      // a word another left, found: its melody sounds once (ParliamentScene → SoundEngine.found)
+      for (const e of log.push(obs)) if (e.key === "word.found" && e.args.who) onFound?.(e.args.who.o);
       // the ledger's lines go into the same record
       const L = ledgerRef.current;
       if (L) for (const e of watch.feed(L, obs.surface, log.roleOf)) log.note(e);
@@ -285,7 +289,7 @@ export function SessionHud({
       setRec({ me: obs.me, entries: [...log.entries], status: log.status(), near: log.nearNow(), ledger: L, t: obs.t, ...log.summary(), asking: log.asking(), controls });
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef]);
+  }, [phase, witnessRef, ledgerRef, log, watch, locked, coarse, session.lifeRef, onFound]);
 
   // 살아가기: into the world, taking the pointer on the way (a click or a key is what the browser wants for that); the
   // keys count only once the name has been up a moment, so a key pressed for the headset does not go straight through
