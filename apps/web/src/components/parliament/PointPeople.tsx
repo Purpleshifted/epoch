@@ -28,8 +28,9 @@ export interface PeopleLook {
   /** THE SCALE: metres a world unit is (the artist, 2026-11-22: the bodies were too big beside the buildings' bays and
    *  the vegetation) — every length below in metres is divided by it. */
   scale: number;
-  /** A point's size (metres, shrinking with distance; never under 1 px). */
+  /** A point's size (metres, shrinking with distance; never under 1 px, never over `maxPx`). */
   dot: number;
+  maxPx: number;
   /** The grey of the points (0 … 1). */
   grey: number;
   /** Height of an average body (metres); bodies differ by `variety`. */
@@ -61,7 +62,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -109,6 +110,7 @@ uniform float uScale;
 uniform float uTime;
 uniform float uBreath;
 uniform float uVariety;
+uniform float uMaxPx;
 attribute float aPoint;
 attribute vec4 iPos;   // x, y, z, heading
 attribute vec4 iAnim;  // phase, alpha, standing (0 … 1), hash
@@ -135,7 +137,7 @@ void main() {
   vec3 w = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + iPos.xyz;
   vec4 mvPosition = modelViewMatrix * vec4(w, 1.0);
   gl_Position = projectionMatrix * mvPosition;
-  gl_PointSize = max(1.0, uSize * (uScale / -mvPosition.z));
+  gl_PointSize = clamp(uSize * (uScale / -mvPosition.z), 1.0, uMaxPx);
   vAlpha = iAnim.y;
   #include <fog_vertex>
 }`;
@@ -170,6 +172,7 @@ export function PointPeople({
   look = DEFAULT_PEOPLE,
   phone = false,
   me: selfIn,
+  viewFog = false,
 }: {
   /** Everyone within the view, nearest first (the record's `far`); null before the first fold. */
   getOthers: () => readonly Other[] | null;
@@ -179,7 +182,10 @@ export function PointPeople({
   phone?: boolean;
   /** The visitor themself (drawn as a body when look.meBody). */
   me?: MeInput;
+  /** 시야 반경: the points take the scene's fog whatever look.fog says. */
+  viewFog?: boolean;
 }) {
+  const fogOn = look.fog || !!viewFog;
   const points = Math.max(32, Math.round(phone ? look.pointsPhone : look.points));
   const copies = phone || look.smearSec <= 0 ? 0 : Math.min(MAX_COPIES, Math.max(0, Math.round(look.smearCopies)));
   const frames = DEFAULT_BODY.frames;
@@ -215,17 +221,17 @@ export function PointPeople({
       new THREE.ShaderMaterial({
         uniforms: THREE.UniformsUtils.merge([
           THREE.UniformsLib.fog,
-          { uBody: { value: null }, uFrames: { value: frames }, uPoints: { value: points }, uSize: { value: look.dot }, uScale: { value: 400 }, uTime: { value: 0 }, uBreath: { value: 1 }, uGrey: { value: look.grey }, uVariety: { value: 1 } },
+          { uBody: { value: null }, uFrames: { value: frames }, uPoints: { value: points }, uSize: { value: look.dot }, uScale: { value: 400 }, uTime: { value: 0 }, uBreath: { value: 1 }, uGrey: { value: look.grey }, uVariety: { value: 1 }, uMaxPx: { value: 6 } },
         ]),
         vertexShader: VERT,
         fragmentShader: FRAG,
         transparent: true,
         depthWrite: false,
-        fog: look.fog,
+        fog: fogOn,
       }),
     // (the material is remade only when the fog switch or the body changes; the size and grey are set per frame)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [look.fog, points, frames],
+    [fogOn, points, frames],
   );
   useEffect(
     () => () => {
@@ -401,7 +407,7 @@ export function PointPeople({
       plates.count = look.plate ? np : 0;
       if (np) plates.instanceMatrix.needsUpdate = true;
     }
-    setUniforms(mat.uniforms, { uBody: body, uSize: look.dot * k, uGrey: look.grey, uBreath: look.breath, uVariety: look.variety, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
+    setUniforms(mat.uniforms, { uBody: body, uSize: look.dot * k, uMaxPx: look.maxPx, uGrey: look.grey, uBreath: look.breath, uVariety: look.variety, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
     // a readout for the console (like __parliament): how many bodies and copies are drawn, and the nearest body
     let nearest: { d: number; x: number; z: number; speed: number } | null = null;
     for (const p of P.values()) {
@@ -416,7 +422,7 @@ export function PointPeople({
       <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />
       {look.plate && (
         <instancedMesh ref={plateMesh} args={[plateGeom, undefined, MAX_PEOPLE]} frustumCulled={false} renderOrder={8}>
-          <meshBasicMaterial color="#ffffff" transparent opacity={look.plateAlpha} depthWrite={false} side={THREE.DoubleSide} fog={look.fog} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={look.plateAlpha} depthWrite={false} side={THREE.DoubleSide} fog={fogOn} />
         </instancedMesh>
       )}
     </>

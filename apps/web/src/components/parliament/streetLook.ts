@@ -19,9 +19,11 @@ export interface StreetGroundLook {
   windSpeed: number;
   /** The sway of square-point grass in that wind (0 = none). */
   sway: number;
+  /** 시야 반경: the concrete's outlines (Marks.tsx, fog-less by design) take the scene's fog too, so nothing shows beyond it. */
+  viewFog: boolean;
 }
 
-export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5 };
+export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false };
 
 export function setStreetGround(v: Partial<StreetGroundLook>): void {
   Object.assign(streetGround, v);

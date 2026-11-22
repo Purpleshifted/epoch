@@ -20,6 +20,7 @@ import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
 import { DEFAULT_PEOPLE, type PeopleLook } from "./PointPeople";
 import { setStreetGround } from "./streetLook";
+import type { LogPlace } from "./StreetHud";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 
@@ -76,7 +77,20 @@ export interface StreetVisual {
   fog: boolean;
   /** The walker's speed (world/s; 7 as it was — a person walks 1.4, a bot 2.2). */
   walkSpeed: number;
+  /** 시야 반경 (2026-11-22 evening): the fog pulled in to this radius (world) — beyond it nothing shows, like a night street. */
+  view: { on: boolean; radius: number };
+  /** 방향 말: a line of words for the nearest one between the eye's reach and this radius (world), every so often. */
+  hints: { on: boolean; radius: number; everySec: number };
+  /** Where the log stands: "auto" = with the eye at a person's height, a left column on a laptop and a top strip on a phone. */
+  logPlace: LogPlace | "auto";
 }
+
+const LOG_PLACES: Record<string, LogPlace | "auto"> = {
+  "자동 — 눈높이면 랩탑은 왼쪽 패널 · 폰은 위쪽 띠, 아니면 아래": "auto",
+  "아래 (지금)": "bottom",
+  "왼쪽 세로 패널": "left",
+  "위쪽 띠": "top",
+};
 
 export interface PersonalVisuals {
   look: Look;
@@ -187,6 +201,7 @@ export function usePersonalVisuals(): PersonalVisuals {
           ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "몸 하나의 점 수", render: v2 },
           ppPointsPhone: { value: DEFAULT_PEOPLE.pointsPhone, min: 32, max: 480, step: 16, label: "폰: 점 수", render: v2 },
           ppDot: { value: DEFAULT_PEOPLE.dot, min: 0.01, max: 0.3, step: 0.005, label: "점 크기 (m)", render: v2 },
+          ppMaxPx: { value: DEFAULT_PEOPLE.maxPx, min: 2, max: 24, step: 1, label: "점 최대 크기 (px; 코앞의 몸이 뭉개지지 않게)", render: v2 },
           ppGrey: { value: DEFAULT_PEOPLE.grey, min: 0.2, max: 1, step: 0.02, label: "회색 밝기", render: v2 },
           ppHeight: { value: DEFAULT_PEOPLE.height, min: 1, max: 2.4, step: 0.05, label: "키 (m, 평균)", render: v2 },
           ppVariety: { value: DEFAULT_PEOPLE.variety, min: 0, max: 1, step: 0.05, label: "사람마다 다르게 — 키 ±8 % · 체격 ±10 % · 걸음 ±15 %", render: v2 },
@@ -205,6 +220,13 @@ export function usePersonalVisuals(): PersonalVisuals {
           meBody: { value: DEFAULT_PEOPLE.meBody, label: "나 = 내 등 (점 몸; 사각형 대신 — 멜로디는 몸이 깜박임)", render: v2 },
           meRest: { value: DEFAULT_PEOPLE.meRest, min: 0, max: 1, step: 0.05, label: "멜로디가 쉴 때 내 몸의 밝기", render: v2 },
           streetFog: { value: false, label: "깊이 안개 (브루털에도; 화면 › fogNear/fogFar)", render: v2 },
+          // "가까이 가야 안다" (2026-11-22 evening): the three rings — sound (as it is) · words · the eye
+          viewOn: { value: false, label: "시야 반경 — 바깥은 밤길처럼 안 보임 (안개를 바싹 당김; 외곽선도)", render: v2 },
+          viewRadius: { value: 8, min: 2, max: 24, step: 0.5, label: "시야 반경 (월드)", render: v2 },
+          hintsOn: { value: true, label: "방향 말 — 안 보이는 거리의 누군가를 로그 곁에 한 줄로", render: v2 },
+          hintRadius: { value: 12, min: 4, max: 24, step: 0.5, label: "말이 닿는 거리 (월드; 시야 반경 밖 ~ 여기)", render: v2 },
+          hintEvery: { value: 6, min: 2, max: 20, step: 1, label: "말 사이 간격 (s)", render: v2 },
+          logPlace: { options: LOG_PLACES, value: "auto" as LogPlace | "auto", label: "로그의 자리", render: v2 },
           walkSpeed: { value: 2.5, min: 0.5, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 전엔 7 · 봇 2.2)", render: v2 },
           ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있을 때 가까운 이를 마주 봄", render: v2 },
           ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
@@ -275,6 +297,7 @@ export function usePersonalVisuals(): PersonalVisuals {
         pointsPhone: c.ppPointsPhone,
         scale: c.ppScale,
         dot: c.ppDot,
+        maxPx: c.ppMaxPx,
         grey: c.ppGrey,
         height: c.ppHeight,
         variety: c.ppVariety,
@@ -296,12 +319,15 @@ export function usePersonalVisuals(): PersonalVisuals {
       eye: { on: c.streetOn && c.eyeOn, height: c.eyeHeight / c.ppScale, back: c.eyeBack / c.ppScale, look: c.eyeLook / c.ppScale },
       fog: c.streetOn && c.streetFog,
       walkSpeed: c.streetOn ? c.walkSpeed : 7,
+      view: { on: c.streetOn && c.viewOn, radius: c.viewRadius },
+      hints: { on: c.streetOn && c.hintsOn, radius: c.hintRadius, everySec: c.hintEvery },
+      logPlace: c.streetOn ? c.logPlace : "bottom",
     }),
-    [c.streetOn, c.streetPeople, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [c.streetOn, c.streetPeople, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {
-    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway });
-  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway]);
+    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway, viewFog: c.streetOn && c.viewOn });
+  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway, c.viewOn]);
   return { look: c.look, footprint: c.footprint, card, grass, marks, street };
 }

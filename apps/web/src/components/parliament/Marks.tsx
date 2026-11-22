@@ -17,6 +17,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { hash2, outlineSegments, rhythmOf, scatterPoints, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
+import { streetGround } from "./streetLook";
 
 export interface MarksData {
   others: OtherMark[];
@@ -260,8 +261,17 @@ export function ConcreteLines({ getMarks, height = 40, bright = 0.6 }: { getMark
 export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => MarksData | null; scale?: number }) {
   const geom = useMemo(() => lineGeom(MAX_OUTLINE_SEGS * 2), []);
   const timer = useRef(10);
+  const mat = useRef<THREE.LineBasicMaterial>(null);
   useEffect(() => () => geom.dispose(), [geom]);
   useFrame((_, dt) => {
+    // 길거리 › 시야 반경 (streetLook.ts): beyond it nothing shows, the outlines included — the fog is switched on the
+    // material (a recompile, once per change); off = fog-less, as it was
+    const m = mat.current;
+    const want = streetGround.on && streetGround.viewFog;
+    if (m && m.fog !== want) {
+      m.fog = want;
+      m.needsUpdate = true;
+    }
     timer.current += dt;
     if (timer.current < REFRESH) return;
     timer.current = 0;
@@ -277,7 +287,7 @@ export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => Marks
   });
   return (
     <lineSegments geometry={geom} frustumCulled={false}>
-      <lineBasicMaterial vertexColors fog={false} />
+      <lineBasicMaterial ref={mat} vertexColors fog={false} />
     </lineSegments>
   );
 }
