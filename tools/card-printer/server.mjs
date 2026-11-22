@@ -10,9 +10,7 @@
  *   GET  /status              200 { ok, printer, state } (the page asks first; `lpstat -p`'s line for the printer)
  *   POST /print?w=54&h=86     the PNG as the body → lp -d $PRINTER -o media=Custom.<w>x<h>mm -o ppi=300 → 200 { job }
  *
- * The printer: the label printer plugged in NOW — the system's default if it is a NIIMBOT and not offline, else the
- * first NIIMBOT queue that is not offline — looked up for every print, so swapping printers needs no restart (the
- * artist moved from the B21 Pro to the B2 Pro on 2026-11-22; the helper kept sending to the unplugged B21).
+ * The printer: the NIIMBOT B2 Pro, always (the artist, 2026-11-22: moved from the B21 Pro, "앞으로 그냥 B21은 쓰질 마").
  * env: PRINTER (a queue name: always that one), PORT (default 7313), VOFF (driver steps, -20…20: the print up or down on the
  * label), MEDIA ("54x86": the paper's size in mm when it is not the card's). Listens on 127.0.0.1 only. The page is on
  * another origin (Vercel), so it answers CORS and Chrome's local-network preflight; Chrome may ask once whether the
@@ -27,17 +25,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** The queue to print on (see the header): PRINTER when set, else the plugged-in NIIMBOT. */
+/** The queue to print on: PRINTER when set, else the B2 Pro — the only card printer (the artist, 2026-11-22: "앞으로
+ * 그냥 B21은 쓰질 마"; the B21 Pro is never chosen, even when it is the default or the only one plugged in). */
+const CARD_PRINTER = "NIIMBOT_B2_Pro";
 async function printer() {
-  if (process.env.PRINTER) return process.env.PRINTER;
-  const def = (await run("lpstat", ["-d"])).out.match(/destination:\s*(\S+)/)?.[1] ?? "";
-  const queues = (await run("lpstat", ["-p"])).out
-    .split(/\n(?=printer )/)
-    .map((b) => ({ name: b.match(/^printer (\S+)/)?.[1], offline: /offline/i.test(b) }))
-    .filter((q) => q.name);
-  const up = (n) => queues.some((q) => q.name === n && !q.offline);
-  if (/NIIMBOT/i.test(def) && up(def)) return def;
-  return queues.find((q) => /NIIMBOT/i.test(q.name) && !q.offline)?.name || def || "NIIMBOT_B2_Pro";
+  return process.env.PRINTER || CARD_PRINTER;
 }
 const PORT = Number(process.env.PORT || 7313);
 const VOFF = String(Number(process.env.VOFF || 0));
@@ -116,5 +108,5 @@ server.on("error", async (err) => {
   }
   setTimeout(() => server.listen(PORT, "127.0.0.1"), 800);
 });
-server.on("listening", async () => console.log(`card printer helper on http://127.0.0.1:${PORT} → ${await printer()} (looked up again for every print)`));
+server.on("listening", async () => console.log(`card printer helper on http://127.0.0.1:${PORT} → ${await printer()}`));
 server.listen(PORT, "127.0.0.1");
