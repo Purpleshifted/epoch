@@ -62,6 +62,10 @@ export interface FuturePresenceVisual extends PresenceConfig {
   darkPresent: boolean;
   /** The passing's sound (futureSound.ts): its level, 0 = none. */
   fxLevel: number;
+  /** THE DREAM (the reference study of 2026-11-22: Pointcloud Walks, To paint time, the 4D captures): the cloud
+   *  sampled finer and thinner with distance, drifting, soft round points of many sizes blurred near and far, cut by
+   *  a ragged window of noise, coming and going point by point — over the present, which stays. Off = as before. */
+  dream: boolean;
 }
 
 /** The peek (mode "peek"): held while F is down, or the phone's button. Read every frame by the drawers. */
@@ -102,6 +106,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
           cooldownSec: { value: 20, min: 2, max: 120, step: 1, label: "같은 발굴자를 다시 마주치기까지 (s)", render: v2 },
           darkPresent: { value: true, label: "미래가 머무는 동안 현재를 끔 (흩어질 때 돌아옴)", render: v2 },
           fxLevel: { value: 0.8, min: 0, max: 1, step: 0.05, label: "스쳐 가는 소리 크기 (꽃밭 = 반짝임 · 물 = 강물 · 발견 = 종 · 0 = 없음)", render: v2 },
+          dream: { value: false, label: "꿈처럼 (레퍼런스 조리법: 표면 샘플 · 표류 · 둥근 점과 보케 · 너덜한 창 · 점 단위로 왔다 감 — 현재 위에 겹침)", render: v2 },
         },
         { collapsed: false },
       ),
@@ -125,7 +130,7 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
     { collapsed: true, order: 1.2, render: v2 },
   );
   return useMemo<FuturePresenceVisual>(() => {
-    const urlMode = url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
+    const urlMode = url === "dream" ? "encounter" : url && (Object.values(MODES) as string[]).includes(url) ? (url as PresenceMode) : null;
     const mode = (urlMode ?? k.mode) as PresenceMode;
     return {
       on: url ? url !== "0" : k.on,
@@ -161,8 +166,9 @@ export function useFuturePresenceControls(isV2: boolean): FuturePresenceVisual {
       cooldownSec: k.cooldownSec,
       darkPresent: k.darkPresent,
       fxLevel: k.fxLevel,
+      dream: url === "dream" ? true : k.dream,
     };
-  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel]);
+  }, [url, k.on, k.mode, k.radius, k.everySec, k.readLatest, k.unit, k.band, k.ruin, k.maxBuildings, k.strip, k.lastSteel, k.lastPile, k.showTraces, k.showRemains, k.showPlants, k.showDeposits, k.edgeColor, k.plantColor, k.excCount, k.excRoam, k.excLegSec, k.meetR, k.cloudR, k.pointSize, k.surface, k.wild, k.inSec, k.holdSec, k.outSec, k.cooldownSec, k.darkPresent, k.fxLevel, k.dream]);
 }
 
 const MAX_EDGE_VERTS = 120000;

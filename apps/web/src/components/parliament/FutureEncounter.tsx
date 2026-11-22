@@ -35,7 +35,7 @@ export const futureMeet: { last: { id: string; found: boolean } | null; dark: bo
 /** The wall's density rule as the artist had it (2026-11-20) — until the server's hello says its own. */
 const FALLBACK_DENSITY: DensityConfig = { ...DEFAULT_DENSITY, path: { ...DEFAULT_PATH, step: NO_PATHS }, slotSec: 20, gapSec: 20, maxBuilt: 8000, mergeGap: 3, mergeThick: 2, liveAt: 0.25, minVisitors: 4, step: 40, maxLevel: 6, ratio: 3, massRatio: 1.45, visitorCap: 60, radius: 2.75, timeSec: 60, down: 0.5 };
 const FEED_PER_FRAME = 150;
-const CAP = 70000;
+const CAP = 90000;
 /** How near (world) one's own cells must be for the future to have found one's life. */
 const FOUND_NEAR = 5;
 
@@ -80,6 +80,72 @@ void main() {
   gl_FragColor = vec4(vColor, vA);
 }`;
 
+/**
+ * THE DREAM (FuturePresenceVisual.dream — the reference study of 2026-11-22): five details, all in the vertex shader.
+ * ① the points are the future's surfaces sampled (finer, and thinner with distance: on the CPU, once an encounter);
+ * ② they drift, breathing in a slow noise, and smear along the way the archaeologist walks as they go;
+ * ③ soft round points of many sizes, blurred and fainter near and far (a bokeh without a depth-of-field pass), added
+ *    lightly, their pixel size capped;
+ * ④ a RAGGED WINDOW: what is shown is cut by a 3D noise threshold round the meeting, not by a circle;
+ * ⑤ they come and go POINT BY POINT — each its own threshold against a density that rises and falls (where the
+ *    visitor's own cells are the threshold is lower: they come first and stay longest).
+ * No full-screen pass; the present stays under it.
+ */
+const DREAM_VERT = `
+attribute vec3 color;
+attribute vec4 aSeed;
+attribute float aSize;
+uniform float uT, uIn, uOutAt, uOut, uSize, uScale, uR, uMaxPx;
+uniform vec2 uDir;
+uniform vec3 uOrigin;
+varying vec3 vColor;
+varying float vA;
+varying float vBlur;
+float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float n3(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1, 0, 0)), f.x), mix(h3(i + vec3(0, 1, 0)), h3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+void main() {
+  vec3 p = position;
+  float d = length(p.xz - uOrigin.xz);
+  // ④ the ragged window
+  float edge = n3(p * 0.35 + vec3(0.0, uT * 0.05, 0.0)) * 0.55 + n3(p * 1.3) * 0.2;
+  float win = 1.0 - d / uR + edge - 0.35;
+  // ⑤ point by point
+  float dens = smoothstep(0.0, uIn, uT) * (1.0 - smoothstep(uOutAt, uOutAt + uOut, uT));
+  float keep = step(aSeed.w, dens * clamp(win * 3.0, 0.0, 1.0));
+  // ② drift, and the smear as it goes
+  float t = uT * 0.6;
+  vec3 drift = vec3(n3(p * 0.5 + vec3(t, 0.0, 0.0)) - 0.5, n3(p * 0.5 + vec3(0.0, t, 7.0)) - 0.5, n3(p * 0.5 + vec3(3.0, 0.0, t)) - 0.5) * 0.35;
+  float go = smoothstep(uOutAt, uOutAt + uOut, uT);
+  p += drift + vec3(uDir.x, 0.0, uDir.y) * (aSeed.x * 0.6 + go * (1.5 + 3.0 * aSeed.w));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  float z = max(0.1, -mv.z);
+  // ③ blurred near and far
+  float blur = smoothstep(4.0, 1.5, z) + smoothstep(uR * 1.2, uR * 2.5, z);
+  vBlur = clamp(blur, 0.0, 1.0);
+  vA = keep * (0.35 + 0.65 * clamp(win * 2.0, 0.0, 1.0)) * (1.0 - 0.6 * vBlur);
+  vColor = color;
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = min(uMaxPx, max(1.0, uSize * aSize * uScale / z * (1.0 + 2.5 * vBlur)));
+}`;
+const DREAM_FRAG = `
+varying vec3 vColor;
+varying float vA;
+varying float vBlur;
+void main() {
+  vec2 c = gl_PointCoord * 2.0 - 1.0;
+  float r = dot(c, c);
+  if (r > 1.0) discard;
+  float a = vA * mix(1.0 - r, exp(-r * 3.0), vBlur) * 0.85;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(vColor * a, a);
+}`;
+const isCoarse = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(pointer: fine)").matches;
+
 export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, getLive, playerPosRef, cfg, sound = null, getYaw }: { log: EventLog; meRef: React.MutableRefObject<{ id: string }>; getS: () => number; getWorldSec: () => number; getEpochMs: () => number; getLive: () => boolean; playerPosRef: React.MutableRefObject<{ x: number; z: number }>; cfg: FuturePresenceVisual; sound?: SoundSetup | null; getYaw?: () => number }) {
   const field = useRef<{ f: DensityField; key: string; fed: number; drops: number } | null>(null);
   const st = useRef({ active: false, t0: 0, ex: -1, cool: new Map<number, number>(), outAt: 0 });
@@ -99,7 +165,20 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
         fragmentShader: FRAG,
         transparent: true,
         depthWrite: false,
-        uniforms: { uT: { value: 0 }, uIn: { value: 1 }, uOutAt: { value: 3 }, uOut: { value: 1.8 }, uSize: { value: 0.07 }, uScale: { value: 400 }, uDir: { value: new THREE.Vector2(1, 0) }, uOrigin: { value: new THREE.Vector3() } },
+        // (uR and uMaxPx are the dream's; set on both materials alike)
+        uniforms: { uT: { value: 0 }, uIn: { value: 1 }, uOutAt: { value: 3 }, uOut: { value: 1.8 }, uSize: { value: 0.07 }, uScale: { value: 400 }, uDir: { value: new THREE.Vector2(1, 0) }, uOrigin: { value: new THREE.Vector3() }, uR: { value: 12 }, uMaxPx: { value: 28 } },
+      }),
+    [],
+  );
+  const dreamMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: DREAM_VERT,
+        fragmentShader: DREAM_FRAG,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { uT: { value: 0 }, uIn: { value: 1 }, uOutAt: { value: 3 }, uOut: { value: 1.8 }, uSize: { value: 0.07 }, uScale: { value: 400 }, uDir: { value: new THREE.Vector2(1, 0) }, uOrigin: { value: new THREE.Vector3() }, uR: { value: 12 }, uMaxPx: { value: 28 } },
       }),
     [],
   );
@@ -119,10 +198,11 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       futureMeet.dark = false;
       geom.dispose();
       mat.dispose();
+      dreamMat.dispose();
       line.dispose();
       lineMat.dispose();
     };
-  }, [geom, mat, line, lineMat]);
+  }, [geom, mat, dreamMat, line, lineMat]);
 
   useFrame((state) => {
     // THE FIELD: this view's log through the wall's density rule, fed a little every frame
@@ -143,18 +223,23 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     const epoch = getEpochMs();
     const exCfg = { count: cfg.excCount, roam: cfg.excRoam, legSec: cfg.excLegSec, stand: 0.35 };
     const exs = epoch > 0 ? excavatorsAt(epoch, getWorldSec(), exCfg) : [];
-    mat.uniforms.uScale.value = state.gl.domElement.height / 2;
-    mat.uniforms.uSize.value = cfg.pointSize;
+    // (the dream's own material, or today's — the same uniforms are set on both)
+    const M = cfg.dream ? dreamMat : mat;
+    if (points.current && points.current.material !== M) points.current.material = M;
+    for (const m of [mat, dreamMat]) {
+      m.uniforms.uScale.value = state.gl.domElement.height / 2;
+      m.uniforms.uSize.value = cfg.pointSize;
+    }
     if (s.active) {
       const t = now - s.t0;
       const ex = exs.find((e) => e.i === s.ex);
       const inside = !!ex && wrapDist(ex.x, ex.z, p.x, p.z) <= cfg.meetR * 1.6;
       // (it holds while the archaeologist is there, at least `hold` seconds; then it streams away)
       if (inside) s.outAt = Math.max(s.outAt, Math.min(t + 0.5, cfg.inSec + 12));
-      mat.uniforms.uT.value = t;
-      mat.uniforms.uOutAt.value = s.outAt;
+      M.uniforms.uT.value = t;
+      M.uniforms.uOutAt.value = s.outAt;
       if (ex) {
-        mat.uniforms.uDir.value.set(ex.dx, ex.dz);
+        M.uniforms.uDir.value.set(ex.dx, ex.dz);
         const x = nearestImage(ex.x, p.x), z = nearestImage(ex.z, p.z);
         const a = line.getAttribute("position") as THREE.BufferAttribute;
         (a.array as Float32Array).set([x, 0, z, x, 6, z]);
@@ -163,7 +248,7 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       const env = Math.min(1, t / Math.max(0.1, cfg.inSec)) * (1 - Math.min(1, Math.max(0, (t - s.outAt) / Math.max(0.1, cfg.outSec))));
       lineMat.opacity = 0.7 * env;
       // (the present is dark while the future holds; it comes back as the cloud streams away — the afterimage)
-      futureMeet.dark = cfg.darkPresent && t < s.outAt;
+      futureMeet.dark = cfg.darkPresent && !cfg.dream && t < s.outAt;
       if (t > s.outAt + cfg.outSec + 1) {
         s.active = false;
         futureMeet.dark = false;
@@ -187,7 +272,8 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     }
     const box: BoxConfig = { ...DEFAULT_BOXES, secPerUnit: Math.max(1, dcfg.slotSec), unit: cfg.unit, width: 0.8, density: 1.4, variety: DEFAULT_VARIETY, buildSlots: 0 };
     const me = meRef.current.id;
-    const r = futurePresence(h.f, me, K, kMe, p, { ...cfg, radius: cfg.cloudR, surface: cfg.surface, wild: cfg.wild, traces: true }, box);
+    const dream = cfg.dream, phone = isCoarse();
+    const r = futurePresence(h.f, me, K, kMe, p, { ...cfg, radius: cfg.cloudR, surface: cfg.surface * (dream ? (phone ? 0.6 : 2.5) : 1), wild: cfg.wild, traces: true }, box);
     // FOUND: the visitor stayed in that ground (their own cells near, whenever in their life)
     let found = false;
     for (const c of h.f.cellsOf(me)) if (wrapDist((c.cx + 0.5) * CELL_SIZE, (c.cz + 0.5) * CELL_SIZE, p.x, p.z) <= FOUND_NEAR) {
@@ -203,10 +289,17 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
     let size = 1;
     let v = 0;
     const R = cfg.cloudR;
+    // (the dream: up to 90 000 points — a phone a fifth — thinner the further from the visitor; the visitor's own cells
+    // lower the threshold of what is near them: their life comes first and stays longest)
+    const cap = dream ? Math.min(CAP, phone ? 18000 : 90000) : CAP;
+    const mine: number[] = [];
+    for (let o = 0; o + 3 < r.traces.length; o += 4) mine.push(r.traces[o], r.traces[o + 1]);
     const put = (x0: number, y: number, z0: number, r0: number, g0: number, b0: number) => {
-      if (v >= CAP) return;
+      if (v >= cap) return;
       const x = nearestImage(x0, p.x), z = nearestImage(z0, p.z);
-      if ((x - p.x) ** 2 + (z - p.z) ** 2 > R * R) return;
+      const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
+      if (d2 > R * R * (dream ? 1.6 : 1)) return;
+      if (dream && hash(v, 23, Math.round(x * 7 + z * 13)) > 1 - 0.75 * Math.pow(Math.sqrt(d2) / (R * 1.26), 1.5)) return;
       P[v * 3] = x;
       P[v * 3 + 1] = y;
       P[v * 3 + 2] = z;
@@ -218,10 +311,19 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       S[v * 4 + 1] = c;
       S[v * 4 + 2] = Math.sin(a) * q;
       S[v * 4 + 3] = hash(v, 17, 3);
-      Z[v] = size;
+      if (dream) {
+        S[v * 4] = hash(v, 17, 4) - 0.5;
+        let nearMine = false;
+        for (let m = 0; m + 1 < mine.length && !nearMine; m += 2) if ((x - nearestImage(mine[m], p.x)) ** 2 + (z - nearestImage(mine[m + 1], p.z)) ** 2 < 4) nearMine = true;
+        if (nearMine) S[v * 4 + 3] *= 0.4;
+      }
+      // (sizes: the kind's, and in the dream each its own — from a third to twice)
+      Z[v] = dream ? size * (0.35 + 1.65 * hash(v, 17, 5) ** 2) : size;
       v++;
     };
+    // (the dream's plants paler: only the plants carry colour)
     const green = new THREE.Color(cfg.plantColor);
+    if (dream) green.lerp(new THREE.Color("#ffffff"), 0.45);
     // the parts that are left, on their surfaces
     size = 1;
     for (let o = 0; o + 3 < r.surface.length; o += 4) {
@@ -278,12 +380,13 @@ export function FutureEncounter({ log, meRef, getS, getWorldSec, getEpochMs, get
       put(p.x + Math.cos(th) * rr, 0.005, p.z + Math.sin(th) * rr, 0.2, 0.2, 0.2);
     }
     geom.setDrawRange(0, v);
+    M.uniforms.uR.value = R;
     for (const name of ["position", "color", "aSeed", "aSize"]) (geom.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
-    mat.uniforms.uOrigin.value.set(p.x, 0, p.z);
-    mat.uniforms.uDir.value.set(ex.dx, ex.dz);
-    mat.uniforms.uIn.value = cfg.inSec;
-    mat.uniforms.uOut.value = cfg.outSec;
-    mat.uniforms.uT.value = 0;
+    M.uniforms.uOrigin.value.set(p.x, 0, p.z);
+    M.uniforms.uDir.value.set(ex.dx, ex.dz);
+    M.uniforms.uIn.value = cfg.inSec;
+    M.uniforms.uOut.value = cfg.outSec;
+    M.uniforms.uT.value = 0;
     Object.assign(s, { active: true, t0: now, ex: ex.i, outAt: cfg.inSec + cfg.holdSec });
     s.cool.set(ex.i, now + cfg.cooldownSec);
     // THE PASSING, HEARD (futureSound.ts): glitter where the meadow flowers, a river where the future's water runs near,
