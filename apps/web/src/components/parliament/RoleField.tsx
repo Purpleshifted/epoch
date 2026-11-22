@@ -180,9 +180,14 @@ export function RoleField({
   answers?: React.MutableRefObject<number>;
 }) {
   const pending = useRef<PEvent[]>([]);
+  /** The epoch changed under this life: the history window is set again on the next frame, in the new epoch's time. */
+  const rejoined = useRef(false);
   const log = useWorld(() => {
     pending.current = [];
     epochMs.current = getEpochMs(); // the world was cleared: join the NEW epoch (and its history window is unset)
+    // (the old cutoff was in the old epoch's time: joining the bot server's world it threw away everything the server
+    // sent as hours too old)
+    rejoined.current = true;
   });
   const epochMs = useRef(0);
   // the visitor where they stand, to the bot server: the walls see them and the bots go to them; and what is written
@@ -330,7 +335,8 @@ export function RoleField({
 
     // the history window rolls on: only the last KEEP_WINDOW_SEC before now are kept (performance, for now)
     // (in world time, but at most every KEEP_MIN_WALL_MS of wall time when the clock runs fast)
-    if (now - lastKeepMs.current >= KEEP_EVERY_MS && wall - lastKeepWall.current >= KEEP_MIN_WALL_MS) {
+    if (rejoined.current || (now - lastKeepMs.current >= KEEP_EVERY_MS && wall - lastKeepWall.current >= KEEP_MIN_WALL_MS)) {
+      rejoined.current = false;
       lastKeepMs.current = now;
       lastKeepWall.current = wall;
       setKeepFrom(sessionSeconds(now, epochMs.current, me.current.offset));

@@ -121,6 +121,24 @@ export interface Script {
     nextTouch: string;
     /** One line of help, shown after a suicide only when the knob is on. */
     help: string;
+    /** The specimen card (plate.ts): the paper it is shown on … */
+    paperWhite: string;
+    paperBlack: string;
+    /** … which way the card stands … */
+    orientPortrait: string;
+    orientLandscape: string;
+    /** … what the visitor does with the card (print on the gallery machine, save elsewhere, post), how it went, the way
+     * back to the record, and what posting or printing means (the life is kept; otherwise it is not). */
+    act: Record<"print" | "save" | "post", string>;
+    actState: (act: "print" | "save" | "post", s: "busy" | "done" | "failed" | "noServer") => string;
+    back: string;
+    keepNote: string;
+    /** After a post (or a print, which posts): the way to the posted lives (/exhibition/gallery). */
+    viewGallery: string;
+    /** 갤러리 보기 pressed while the recording is still going up: it waits for it (leaving would cut it off). */
+    galleryWait: string;
+    /** A print keeps the life: the two said at once. */
+    printedKept: string;
   };
 }
 
@@ -176,6 +194,20 @@ export const SCRIPT: Record<Lang, Script> = {
       next: "SPACE — 다음 삶",
       nextTouch: "화면을 누르면 — 다음 삶",
       help: "자살예방상담전화 109",
+      paperWhite: "흰 바탕",
+      paperBlack: "검은 바탕",
+      orientPortrait: "세로",
+      orientLandscape: "가로",
+      act: { print: "출력하기", save: "저장하기", post: "게시하기" },
+      actState: (a, s) =>
+        s === "noServer"
+          ? "게시할 곳이 아직 연결되지 않았습니다"
+          : ({ print: ["출력 중", "출력했습니다", "출력하지 못했습니다"], save: ["저장 중", "저장했습니다", "저장하지 못했습니다"], post: ["게시 중", "게시했습니다", "게시하지 못했습니다"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
+      back: "돌아가기",
+      keepNote: "게시하거나 출력하면 이 삶이 갤러리에 남습니다. 그러지 않은 삶은 갤러리에 남지 않습니다.",
+      viewGallery: "갤러리 보기",
+      galleryWait: "녹음을 올리는 중…",
+      printedKept: "출력했습니다 · 게시되었습니다",
     },
   },
   en: {
@@ -229,9 +261,36 @@ export const SCRIPT: Record<Lang, Script> = {
       next: "SPACE — next life",
       nextTouch: "Tap — next life",
       help: "Lifeline 109",
+      paperWhite: "White",
+      paperBlack: "Black",
+      orientPortrait: "Portrait",
+      orientLandscape: "Landscape",
+      act: { print: "Print", save: "Save", post: "Post" },
+      actState: (a, s) =>
+        s === "noServer"
+          ? "Nowhere to post yet"
+          : ({ print: ["Printing", "Printed", "Could not print"], save: ["Saving", "Saved", "Could not save"], post: ["Posting", "Posted", "Could not post"] } as const)[a][s === "busy" ? 0 : s === "done" ? 1 : 2],
+      back: "Back",
+      keepNote: "Posted or printed, this life stays in the gallery. A life that is neither does not.",
+      viewGallery: "View gallery",
+      galleryWait: "Uploading the recording…",
+      printedKept: "Printed · posted",
     },
   },
 };
+
+/**
+ * Where a life ended (the `venue` URL parameter; kept with the card in the archive): a known key is named in the
+ * language; any other value as it is (cut at 24 letters); no parameter, no place.
+ */
+export const VENUE_NAME: Record<string, Record<Lang, string>> = {
+  gallery: { ko: "세지갤러리", en: "Seji Gallery" },
+};
+export function venueName(param: string | null | undefined, lang: Lang): string | null {
+  const v = (param ?? "").trim();
+  if (!v) return null;
+  return VENUE_NAME[v]?.[lang] ?? [...v].slice(0, 24).join("");
+}
 
 /** The title to show for a language: the English one, or the Korean working title while there is none. */
 export function titleFor(lang: Lang): { main: string; sub: string | null } {

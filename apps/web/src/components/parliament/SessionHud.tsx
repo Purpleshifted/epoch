@@ -7,14 +7,20 @@
  *     block, in plain words in the chosen language: the visitor's own melody written down (Glyph), who comes and goes,
  *     what the life does to the ground (lib/parliament/ledger.ts), the important lines reversed, black on white;
  *     a banner now and then saying how to stop living, the dark that comes up while X is held, and the line when it fails
- *   - at the end: the being's record card in the voice of a specimen (script.ts ended, from the record and ledger.ts
- *     ledgerSummary), the cause of death (intake.ts) and, behind a knob, the footprint map (FootprintMap)
+ *   - at the end: the being's record card in the voice of a specimen as it was (script.ts ended, from the record and
+ *     ledger.ts ledgerSummary), the cause of death (intake.ts) and, behind a knob, the footprint map (FootprintMap); under
+ *     it 출력하기 (the gallery machine, `venue=gallery`) or 저장하기 (a phone, a remote screen) and 게시하기. Either
+ *     opens the specimen card (SpecimenCard, lib/parliament/plate.ts — 2026-11-21: minimal, the life's worldline, its
+ *     melody, its number, the QR of its recording) where the visitor picks the paper (white / black) and the way it
+ *     stands (portrait / landscape), then prints or saves it, and posts it. Posting or printing keeps the life (and its
+ *     recording) in the archive (/api/lives); a life neither posted nor printed is not kept. KR / EN at the top of the
+ *     end's screens turns their words, in the same pixel face
  * The words are lib/parliament/script.ts (ko / en), the record's too (LOG · formatEntry). VT323 has no Hangul, so the
  * Korean lines use the pixel face `.hud-ko` (globals.css). Mount it with key = sessionNo: a new visitor, a new record.
  */
 
 import { VT323 } from "next/font/google";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CAUSE_NAME,
   GLYPH_COLS,
@@ -32,6 +38,8 @@ import {
   glyphOf,
   individualNo,
   ledgerSummary,
+  plateCells,
+  venueName,
   linesShown,
   pageDone,
   titleFor,
@@ -41,6 +49,9 @@ import {
   type LogEntry,
   type NearItemArgs,
   type Observation,
+  type PlateInput,
+  type PlateOrient,
+  type PlateTheme,
   type RoleId,
   type SessionPhase,
   type StatusArgs,
@@ -49,6 +60,11 @@ import {
 import type { Visitor } from "./RoleField";
 import { FootprintMap } from "./FootprintMap";
 import { Glyph } from "./Glyph";
+import { qrModules } from "@/lib/qr";
+import { emitLifeEvent } from "./lifeEvents";
+import { setLifeNote } from "./useLifeRecording";
+import { SpecimenCard, printCard, saveCard, type CardAct } from "./SpecimenCard";
+import type { CardVisual } from "./usePersonalVisuals";
 import type { LifeSession } from "./useLifeSession";
 
 const mono = VT323({ weight: "400", subsets: ["latin"], display: "swap" });
@@ -115,6 +131,9 @@ function RecordWords({ text, dots, className = "" }: { text: string; dots?: read
   );
 }
 
+/** A choice on the card's step (paper, which way it stands): the picked one filled. */
+const pick = (on: boolean) => `pointer-events-auto border px-3 py-1 outline-none ${on ? "border-white bg-white text-black" : "border-white/40 text-white/70"}`;
+
 /** One row of the record card: its label and what it reads. */
 function CardRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -132,6 +151,19 @@ function Centre({ className = "", children }: { className?: string; children: Re
       <div className={`w-full max-w-[30rem] ${className}`}>{children}</div>
     </div>
   );
+}
+
+/** How long 갤러리 보기 waits for the recording to finish going up before it leaves anyway (ms). */
+const GALLERY_WAIT_MS = 30_000;
+
+/** The gallery from the end card: its language, the venue (the gallery machine's gallery comes back by itself) and the
+ * way back to this experience, as it was opened. */
+function galleryHref(lang: Lang, venue: string | null | undefined): string {
+  const q = new URLSearchParams();
+  if (lang === "en") q.set("lang", "en");
+  if (venue) q.set("venue", venue);
+  if (typeof window !== "undefined") q.set("back", window.location.pathname + window.location.search);
+  return `/exhibition/gallery?${q.toString()}`;
 }
 
 /** Lines that come on one after another, `lineSec` apart (hard cuts); the ones not yet up keep their room. */
@@ -155,12 +187,17 @@ export function SessionHud({
   ledgerRef,
   locked,
   lifeSec,
-  lang = "ko",
+  lang: langProp = "ko",
   helpLine = false,
   holdSec = HOLD_SEC,
   noticeLineSec = NOTICE_LINE_SEC,
   coarse = false,
   footprint = true,
+  card = { theme: "paper", orient: "portrait" },
+  venue = null,
+  recordingUrl,
+  cardUrl,
+  uploadRecording,
   onAnswer,
 }: {
   session: LifeSession;
@@ -183,14 +220,29 @@ export function SessionHud({
   noticeLineSec?: number;
   /** A phone-like device: the lines say tap / tilt / hold instead of keys, click and mouse; no pointer lock. */
   coarse?: boolean;
-  /** The end screen's footprint map (Leva 개인뷰 비주얼). */
+  /** The record card's footprint map (Leva 개인뷰 비주얼; the record card of 11/01 only). */
   footprint?: boolean;
+  /** The specimen card's first paper and the way it first stands (Leva 개인뷰 비주얼; the visitor turns both). */
+  card?: CardVisual;
+  /** The `venue` URL parameter, kept with the card; "gallery" is the exhibition's own machine (출력하기, not 저장하기). */
+  venue?: string | null;
+  /** The life's recording page (/rec/<id>: there from the end, before the recording has gone up — the page waits for it)
+   * and the card's own page, when there are such: the card carries the QR of the one there is (the recording first);
+   * without either its place stays empty. */
+  recordingUrl?: string;
+  cardUrl?: string;
+  /** Sends the life's recording up (it goes by itself at the end; this joins that upload), giving its URL: for a post or
+   * a print when the recording page was not known yet. */
+  uploadRecording?: () => Promise<string | null>;
   /** The visitor answered someone: it leaves a seed head (RoleField). */
   onAnswer?: () => void;
 }) {
   const { phase, page, phaseAt, attempt, stopOn, stopHint, attemptFailed, attempts } = session;
+  // the end's screens have their own KR / EN (the visitor's pick), set in the Korean pixel face either way
+  const [endLang, setEndLang] = useState<Lang | null>(null);
+  const lang = phase === "ended" && endLang ? endLang : langProp;
   const S = SCRIPT[lang];
-  const say = lang === "ko" ? "hud-ko" : "";
+  const say = lang === "ko" || phase === "ended" ? "hud-ko" : "";
   const [log] = useState(() => new WitnessLog());
   const [watch] = useState(() => new LedgerWatch());
   const lastObs = useRef<Observation | null>(null);
@@ -270,12 +322,25 @@ export function SessionHud({
 
   // a failed attempt to stop living goes into the record as two flat lines
   const seenAttempts = useRef(0);
+  /** The life seconds of the failed attempts (the card marks them on the worldline). */
+  const attemptsAt = useRef<number[]>([]);
   useEffect(() => {
     if (attempts <= seenAttempts.current) return;
     seenAttempts.current = attempts;
+    attemptsAt.current.push(session.lifeRef.current.t);
     log.attempt(session.lifeRef.current.t, session.lastAttemptNear);
     setRec((r) => ({ ...r, entries: [...log.entries], ...log.summary() }));
   }, [attempts, log, session.lifeRef, session.lastAttemptNear]);
+
+  // every new line of the record goes out once as an event (lifeEvents.ts): the life's recording keeps it as a marker
+  const emitted = useRef(new WeakSet<LogEntry>());
+  useEffect(() => {
+    for (const e of rec.entries) {
+      if (emitted.current.has(e)) continue;
+      emitted.current.add(e);
+      emitLifeEvent({ kind: e.key, text: formatEntry(e, lang).text.replace(/\{\}/g, "♪"), level: e.level, lifeT: e.t });
+    }
+  }, [rec.entries, lang]);
 
   const since = Math.max(0, (now - phaseAt) / 1000);
 
@@ -287,6 +352,123 @@ export function SessionHud({
       : null;
   const title = titleFor(lang);
   const sum = phase === "ended" && rec.ledger ? ledgerSummary(rec.ledger) : null;
+
+  // the specimen card: what the record and the ledger hold at the end, nothing else
+  const gallery = venue === "gallery";
+  const qrUrl = recordingUrl ?? cardUrl;
+  const lived = endedBy === "self" ? rec.t : lifeSec;
+  const plate = useMemo<PlateInput | null>(() => {
+    if (phase !== "ended" || !cause || !rec.me) return null;
+    const s = rec.ledger ? ledgerSummary(rec.ledger) : null;
+    return {
+      lang,
+      me: rec.me,
+      lifeSec: lived,
+      group: rec.group,
+      ensembleSec: rec.ensembleSec,
+      newWords: rec.newWords,
+      asked: rec.asked,
+      found: rec.found,
+      stillSec: rec.stillSec,
+      attempts: rec.attempts,
+      attemptsAt: attemptsAt.current.slice(),
+      sum: s,
+      unmet: (s?.with ?? []).filter((o) => !rec.group.includes(o)).length,
+      cause: CAUSE_NAME[lang][cause],
+      venue: venueName(venue, lang),
+      endedAt: phaseAt,
+      trail: rec.ledger?.trail ?? [],
+      cells: rec.ledger ? plateCells(rec.ledger) : [],
+      qr: qrUrl ? qrModules(qrUrl) : null,
+    };
+  }, [phase, cause, rec, lang, lived, venue, phaseAt, qrUrl]);
+  // the life's summary goes up with its recording: the 발굴노트 its QR page links to (the record's numbers, not the
+  // worldline's trail and cells)
+  useEffect(() => {
+    if (!plate) return;
+    const note: Record<string, unknown> = { ...plate };
+    delete note.trail;
+    delete note.cells;
+    delete note.qr;
+    setLifeNote(plate.me, note);
+  }, [plate]);
+  const [paper, setPaper] = useState<PlateTheme | null>(null);
+  const [turned, setTurned] = useState<PlateOrient | null>(null);
+  const theme = paper ?? card.theme;
+  const orient = turned ?? card.orient;
+  const look = useMemo(() => ({ theme, orient }), [theme, orient]);
+  // the end's two steps: the record as it was, then (출력하기 / 저장하기 / 게시하기) the card, where the paper and the
+  // way it stands are picked and the acts are made: print (the gallery machine) or save (elsewhere), and post
+  const [step, setStep] = useState<"record" | "card">("record");
+  const primary: CardAct = gallery ? "print" : "save";
+  const [acts, setActs] = useState<Partial<Record<CardAct, "busy" | "done" | "failed" | "noServer">>>({});
+  const kept = useRef(false);
+  const name = useMemo(() => {
+    if (!plate) return "specimen";
+    const d = new Date(plate.endedAt);
+    const two = (v: number) => String(v).padStart(2, "0");
+    return `specimen-${individualNo(plate.me)}-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+  }, [plate]);
+  /** The recording's page: known from the end (the life's own /rec/<id>), else the upload's (it waits for the afterlife's
+   * reverb if the recorder is still taking it). */
+  const recordingNow = useCallback(async () => recordingUrl ?? (uploadRecording ? await uploadRecording().catch(() => null) : null), [recordingUrl, uploadRecording]);
+  /** Keep the life in the gallery: the card's values and its recording's page to the archive (/api/lives). */
+  const keep = useCallback(
+    async (via: "post" | "print", got?: string | null): Promise<"done" | "failed" | "noServer"> => {
+      if (!plate) return "failed";
+      const url = got !== undefined ? got : await recordingNow();
+      const r = await fetch("/api/lives", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: name, card: { ...plate, qr: null }, look, via, venue, recordingUrl: url }),
+      }).catch(() => null);
+      if (r?.status === 503) return "noServer";
+      return r?.ok ? "done" : "failed";
+    },
+    [plate, recordingNow, name, look, venue],
+  );
+  const doAct = useCallback(
+    async (a: CardAct) => {
+      if (!plate || acts[a] === "busy") return;
+      const set = (v: "busy" | "done" | "failed" | "noServer" | undefined) => setActs((s) => ({ ...s, [a]: v }));
+      set("busy");
+      try {
+        if (a === "save") {
+          const r = await saveCard(plate, look, name);
+          set(r === "cancelled" ? undefined : "done");
+          return;
+        }
+        // the printed card carries the recording's QR: the recording goes up first
+        const url = a === "print" ? await recordingNow() : undefined;
+        if (a === "print" && (await printCard(url ? { ...plate, qr: qrModules(url) } : plate, look)) === "failed") return set("failed");
+        const k = await keep(a, url);
+        if (k === "done") kept.current = true;
+        // a print that the archive did not take is still a print (게시하기 stays to try again)
+        set(a === "print" && k !== "done" ? "done" : k);
+      } catch {
+        set("failed");
+      }
+    },
+    [plate, acts, look, name, keep, recordingNow],
+  );
+  /** The print kept the life: the two said at once, no 게시하기 after it. */
+  const printKept = acts.print === "done" && kept.current;
+  /** The life is in the gallery now: the way there opens (the artist, 2026-11-22). */
+  const inGallery = acts.post === "done" || printKept;
+  /** 갤러리 보기 pressed: the recording goes up first — leaving the page now would cut its upload off (it would go up
+   * only behind the next life, and the card's QR would find nothing until then). At most GALLERY_WAIT_MS. */
+  const [leaving, setLeaving] = useState(false);
+  const toGallery = useCallback(
+    async (e: React.MouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+      if (leaving) return;
+      const href = e.currentTarget.href;
+      setLeaving(true);
+      if (uploadRecording) await Promise.race([uploadRecording().catch(() => null), new Promise((r) => setTimeout(r, GALLERY_WAIT_MS))]);
+      window.location.href = href;
+    },
+    [leaving, uploadRecording],
+  );
 
   return (
     <div className={`${mono.className} pointer-events-none absolute inset-0 select-none text-white`}>
@@ -442,9 +624,96 @@ export function SessionHud({
         </div>
       )}
 
-      {/* the end: the being's record card, with the footprint (Leva 개인뷰 비주얼 › 퇴장 화면 발자국 지도) */}
+      {/* KR / EN on the end's screens (the visitor's pick), large enough to read as a choice */}
       {phase === "ended" && cause && (
-        <div className="absolute inset-0 flex items-center justify-center overflow-hidden px-6">
+        <div className={`hud-ko absolute flex ${coarse ? "right-4 top-[14px] gap-1.5 text-[18px]" : "right-6 top-5 gap-2 text-[20px]"}`}>
+          {(["ko", "en"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              data-hud-control
+              onClick={() => setEndLang(l)}
+              className={`pointer-events-auto border outline-none ${coarse ? "min-h-[44px] min-w-[56px] px-3.5 py-2" : "min-h-[48px] min-w-[68px] px-[18px] py-2"} ${lang === l ? "border-white bg-white text-black" : "border-white/40 text-white/70"}`}
+            >
+              {l === "ko" ? "KR" : "EN"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* the end, second step: the specimen card at the printed card's proportion; the paper (white / black) and the way
+          it stands (portrait / landscape) on one row, the acts (출력하기 or 저장하기, 게시하기) and the way back on the next */}
+      {phase === "ended" && cause && step === "card" && plate && (
+        <div className={`absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-hidden px-4 ${coarse ? "pb-5 pt-[72px]" : "py-5"}`}>
+          <SpecimenCard
+            plate={plate}
+            look={look}
+            className="min-h-0 shrink outline outline-1 outline-white/20"
+            style={{
+              height: `min(calc(100dvh - ${coarse ? 20.5 : 12.5}rem), calc((100vw - 2rem) * ${orient === "landscape" ? "54 / 86" : "86 / 54"}))`,
+            }}
+          />
+          {/* the two pairs keep together: a narrow screen breaks the row between them, not inside one */}
+          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[15px]`}>
+            <span className="flex gap-2">
+              {(["paper", "screen"] as const).map((k) => (
+                <button key={k} type="button" data-hud-control onClick={() => setPaper(k)} className={pick(theme === k)}>
+                  {k === "paper" ? S.ended.paperWhite : S.ended.paperBlack}
+                </button>
+              ))}
+            </span>
+            <span className="flex gap-2">
+              {(["portrait", "landscape"] as const).map((o) => (
+                <button key={o} type="button" data-hud-control onClick={() => setTurned(o)} className={pick(orient === o)}>
+                  {o === "portrait" ? S.ended.orientPortrait : S.ended.orientLandscape}
+                </button>
+              ))}
+            </span>
+          </div>
+          <div className={`${say} flex shrink-0 flex-wrap items-center justify-center gap-2 text-[15px]`}>
+            <button
+              type="button"
+              data-hud-control
+              onClick={() => doAct(primary)}
+              disabled={acts[primary] === "busy" || printKept}
+              className="pointer-events-auto border border-white bg-white px-4 py-1 text-black outline-none"
+            >
+              {printKept ? S.ended.printedKept : acts[primary] ? S.ended.actState(primary, acts[primary]) : S.ended.act[primary]}
+            </button>
+            {!printKept && (
+              <button
+                type="button"
+                data-hud-control
+                onClick={() => doAct("post")}
+                disabled={acts.post === "busy" || acts.post === "done"}
+                className="pointer-events-auto border border-white px-4 py-1 text-white outline-none"
+              >
+                {acts.post ? S.ended.actState("post", acts.post) : S.ended.act.post}
+              </button>
+            )}
+            {inGallery && (
+              <a
+                href={galleryHref(lang, venue)}
+                onClick={toGallery}
+                data-hud-control
+                className="pointer-events-auto border border-white px-4 py-1 text-white outline-none"
+              >
+                {leaving ? S.ended.galleryWait : S.ended.viewGallery}
+              </a>
+            )}
+            <button type="button" data-hud-control onClick={() => setStep("record")} className="pointer-events-auto border border-white/40 px-3 py-1 text-white/70 outline-none">
+              {S.ended.back}
+            </button>
+          </div>
+          <div className={`${say} max-w-[30rem] shrink-0 text-center text-[13px] leading-[1.5] text-white/45`}>{S.ended.keepNote}</div>
+          <div className={`${say} h-5 shrink-0 text-[15px] tracking-[0.2em] text-white`}>{session.restartReady && <span className="hud-blink">{coarse ? S.ended.nextTouch : S.ended.next}</span>}</div>
+        </div>
+      )}
+
+      {/* the end, first step, as it was on 11/01: the being's record card, with the footprint (Leva 개인뷰 비주얼 › 기록표의
+          발자국 지도); under it the way on to the card: 출력하기 on the gallery machine, 저장하기 elsewhere, and 게시하기 */}
+      {phase === "ended" && cause && step === "record" && (
+        <div className={`absolute inset-0 flex items-center justify-center overflow-hidden px-6 ${coarse ? "pb-7 pt-20" : ""}`}>
           <div className={`${say} w-full max-w-[46rem] text-[17px] leading-[1.3] tracking-[0.03em]`}>
             <div className="mb-3 text-[24px] text-white">{S.ended.title}</div>
             <div className="flex flex-wrap items-stretch border border-white">
@@ -483,6 +752,21 @@ export function SessionHud({
             </div>
             <div className="pt-3 text-[#8c8c8c]">{S.ended.kept}</div>
             <div className="text-[#8c8c8c]">{S.ended.read}</div>
+            {plate && (
+              <div className="flex flex-wrap items-center gap-2 pt-4 text-[16px]">
+                {([gallery ? "print" : "save", "post"] as const).map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    data-hud-control
+                    onClick={() => setStep("card")}
+                    className="pointer-events-auto border border-white px-4 py-1 text-white outline-none hover:bg-white hover:text-black"
+                  >
+                    {S.ended.act[a]}
+                  </button>
+                ))}
+              </div>
+            )}
             {helpLine && cause === "suicide" && <div className="pt-3 text-[#8c8c8c]">{S.ended.help}</div>}
             {session.restartReady && <div className="hud-blink pt-4 text-[16px] tracking-[0.2em] text-white">{coarse ? S.ended.nextTouch : S.ended.next}</div>}
           </div>

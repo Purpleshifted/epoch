@@ -302,6 +302,8 @@ export class SoundEngine {
   private space!: GainNode;
   /** The NoiseCraft patch's stream (out=parent) through its own dullness into the master. */
   private nc: { source: MediaStreamAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null = null;
+  /** The patch's stream as last attached: a context made again (start after dispose) joins it again. */
+  private ncStream: MediaStream | null = null;
   /** The path's heartbeat: a soft clip for weight, then dry, and the hall's room darkened by bassSpread. */
   private bassSpread!: GainNode;
   private noise!: AudioBuffer;
@@ -321,6 +323,11 @@ export class SoundEngine {
   private me: Voice | null = null;
   /** The name's melody on its way to the limiter (announce). */
   private nameOut: GainNode | null = null;
+  /**
+   * The recording's tap (recorder.ts): a sink on the limiter's output, made once when a life is first recorded. It
+   * carries exactly what goes to the device — the name's melody included — whatever device that is; no processing.
+   */
+  private tapOut: MediaStreamAudioDestinationNode | null = null;
   private voices = new Map<string, Voice>();
   private motifs = new Map<string, Motif>();
   private closeness = new Map<string, number>();
@@ -358,6 +365,21 @@ export class SoundEngine {
 
   get running(): boolean {
     return !!this.ctx && this.ctx.state === "running";
+  }
+
+  /**
+   * The headset mix as a MediaStream, for the life's recording (useLifeRecording): the limiter's output tapped by a
+   * MediaStreamAudioDestinationNode, beside the device — not instead of it. Null before the graph exists (start()
+   * has not run on a gesture yet). The same stream is handed out every time.
+   */
+  tapOutput(): MediaStream | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.limiter) return null;
+    if (!this.tapOut) {
+      this.tapOut = ctx.createMediaStreamDestination();
+      this.limiter.connect(this.tapOut);
+    }
+    return this.tapOut.stream;
   }
 
   get debug(): SoundDebug {
@@ -472,6 +494,7 @@ export class SoundEngine {
       }
       this.nc = null;
     }
+    this.ncStream = stream;
     if (!stream || !ctx) return;
     const source = ctx.createMediaStreamSource(stream);
     const filter = ctx.createBiquadFilter();
@@ -694,6 +717,8 @@ export class SoundEngine {
       this.space = room(2.4, 1.3, 0, 0.45, 0); // 4 s → 3.2 (A4c) → 2.4 s (A5)
       dark.connect(this.space);
       this.lastUpdate = ctx.currentTime;
+      // the patch's stream, when it was attached to a context since closed (dispose → start), joins this one
+      if (this.ncStream && !this.nc) this.attachNoiseCraft(this.ncStream);
     }
     if (this.ctx.state !== "running") await this.ctx.resume();
     if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
@@ -721,6 +746,25 @@ export class SoundEngine {
     this.ctx = null;
     this.voices.clear();
     this.me = null;
+    // every node kept outside the graph belonged to that context: a later start() makes a new one, and a node of the
+    // closed one cannot be connected to it (React's dev double mount disposes once before the first life — the
+    // afterlife's room stayed from the first context and the death threw every frame, 2026-11-22)
+    if (this.nc) {
+      try {
+        this.nc.source.disconnect();
+        this.nc.filter.disconnect();
+        this.nc.gain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.nc = null; // ncStream kept: start() attaches it again
+    }
+    this.afterRoom = null;
+    this.ncFeed = null;
+    this.nameOut = null;
+    this.tapOut = null;
+    this.afterlife = null;
+    this.wasDead = false;
   }
 
   /** Where this engine plays (output.ts): the chosen device's label, or the default. */
@@ -1169,6 +1213,7 @@ export class SoundEngine {
   private afterlifeRoom(seconds: number): { send: GainNode; conv: ConvolverNode } {
     const ctx = this.ctx!;
     const sec = Math.max(1, Math.min(30, seconds));
+    if (this.afterRoom && this.afterRoom.conv.context !== ctx) this.afterRoom = null; // a closed context's room
     if (this.afterRoom && Math.abs(this.afterRoom.seconds - sec) < 0.26) return this.afterRoom;
     if (this.afterRoom) {
       try {

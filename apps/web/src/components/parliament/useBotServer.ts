@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
-import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, timeRate, type EventLog, type PEvent } from "@/lib/parliament";
+import { LS_PARLIAMENT_EPOCH_KEY, LS_TIME_RATE_KEY, WORLD_CLEARED_EVENT, announceEpochWritten, botGround, currentEpochKey, keepWindowSec, saveMerged, setKeepFrom, tailField, timeRate, type EventLog, type PEvent } from "@/lib/parliament";
 import type { BotKind, BotSetup } from "@/lib/parliament/botWorld";
 import { risePause } from "@/lib/parliament/rise";
 
@@ -123,6 +123,7 @@ export function useBotServer(log: EventLog, active: boolean, getSetup: () => Bot
                 waitDrops = log.drops;
                 waitUntil = Date.now() + 4000;
               }
+              announceEpochWritten(); // useWorld looks at once (not on its next poll)
             }
           } catch {
             // (no storage: this tab follows the server all the same)
@@ -279,6 +280,9 @@ export function useVisitorLink(active: boolean, log: EventLog): (e: PEvent, epoc
           if (d.t === "hello" && typeof d.epochMs === "number" && currentEpochKey() !== String(d.epochMs)) {
             if (currentEpochKey() !== null) waitDrops = log.drops;
             localStorage.setItem(LS_PARLIAMENT_EPOCH_KEY, String(d.epochMs));
+            // useWorld looks at once: the life ends its own world and joins this one (its first life too — before
+            // 2026-11-21 a fresh browser's first life missed the change and stayed alone in a world of its own)
+            announceEpochWritten();
           }
         } catch {
           // (no storage)

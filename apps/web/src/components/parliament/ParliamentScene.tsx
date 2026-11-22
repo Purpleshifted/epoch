@@ -30,6 +30,7 @@ import AfterglowSound from "@/components/sound/AfterglowSound";
 import { usePerfMeter } from "./usePerfMeter";
 import { useParliamentVersion } from "./version";
 import { useLifeSession, type LifeSignal } from "./useLifeSession";
+import { uploadLifeRecording, useLifeRecording } from "./useLifeRecording";
 import { useTilt, type TiltState } from "./useTilt";
 import { usePageLock } from "./usePageLock";
 import { usePersonalVisuals } from "./usePersonalVisuals";
@@ -58,9 +59,12 @@ import {
   QUICK_RESTART_SEC,
 } from "@/lib/parliament";
 import { announcePersonalOpen } from "@/lib/sound/personalOpen";
+import { recordingPageUrl } from "@/lib/sound/recordingUpload";
 import { CELL_SIZE } from "@/lib/stratum/field";
 
 const FOG_COLOR = "#01020a";
+/** No sound (V1): nothing to record. */
+const NO_RECORDING = { on: false, kbps: 64 };
 const ORB_Y = 0.45;
 /** A phone: a horizontal drag of about 300 px is a half turn; a vertical one of 300 px runs the camera's whole pitch range. */
 const TOUCH_TURN_RAD_PER_PX = Math.PI / 300;
@@ -315,6 +319,9 @@ export default function ParliamentScene() {
   useReloadOnContextLoss(hideChrome && !demo);
   // the language the apparatus speaks: ?lang=ko|en on the exhibition URL wins over the Leva knob
   const [langParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null));
+  // where the visitor is: ?venue=gallery is the exhibition's own machine (the card's QR, no save); any venue is printed
+  // on the card ("세지갤러리 · … 출토"); none (a remote visitor) prints the date and time only
+  const [venueParam] = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("venue") : null));
   const [locked, setLocked] = useState(false);
   const playerPosRef = useRef<PlayerState>({ x: 0, z: 0, vx: 0, vz: 0 });
   const playerYawRef = useRef(Math.PI);
@@ -415,6 +422,11 @@ export default function ParliamentScene() {
   const role: RoleId = isV2 ? "worker" : roleChoice;
   // V2: the headset sound (null in V1); with a session ESC releases the look, so it is not the mute key then
   const sound = useSound({ escMute: !withSession });
+  // V2: the life's sound recorded from the name to the end of the reverb (useLifeRecording.ts; the card's QR)
+  const recording = useLifeRecording(withSession ? session : null, sound, visitorRef, sound?.record ?? NO_RECORDING);
+  // the card's QR from the moment the card is up: the life's own page (/rec/<id>), which waits for the recording — it
+  // goes up by itself once the reverb has rung out (the artist, 2026-11-22); none when nothing is being recorded
+  const recordingQr = recording.url ?? (recording.id && recording.phase !== "failed" && recording.phase !== "idle" ? recordingPageUrl(recording.id) : undefined);
   // the frame rate on the screen (sound wiring: the lag the artist feels, measured where it happens)
   const perf = usePerfMeter(!hideChrome);
   // a mute never carries over to the next visitor (sound wiring)
@@ -499,7 +511,7 @@ export default function ParliamentScene() {
       </Canvas>
 
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} onAnswer={onAnswer} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} />
       )}
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
@@ -526,6 +538,7 @@ export default function ParliamentScene() {
             </div>
           )}
           {debug?.sound && <div>♪ {debug.sound}</div>}
+          {recording.phase !== "idle" && <div>● {recording.line}</div>}
           {perf && (
             <div>
               ⏱ {perf.fps} fps · 가장 느린 프레임 {perf.p95Ms} ms · 50 ms 넘는 프레임 {perf.slowPerMin}/분{perf.heapMb ? ` · heap ${perf.heapMb} MB` : ""}

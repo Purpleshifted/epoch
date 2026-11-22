@@ -1,0 +1,307 @@
+"use client";
+/**
+ * useLifeRecording — one life's sound, recorded as it was heard (the artist, 2026-11-21: a recording, not a replay),
+ * kept here, sent up, and given an address the specimen card's QR can carry. docs/recording.md.
+ *
+ *   NAME   → the recorder starts on the engine's tap (engine.ts tapOutput: the limiter's output, the headset's mix,
+ *            nothing else — no microphone) the moment the engine is running; the name's melody is the first thing on it
+ *   LIVE   → a marker; from here the record's lines (SessionHud → lifeEvents.ts) become markers with the second they
+ *            came up; recordings a visitor posted but whose upload failed are retried behind this one
+ *   ENDED  → a marker with how the life ended; the recorder runs on until the afterlife's reverb has rung out
+ *            (engine.afterlifeOver, or `죽음의 잔향` + 4 s if the engine never says), then stops
+ *   stop   → the Blob goes into IndexedDB under the life's id (recordingStore.ts) and goes up to the Worker
+ *            (recordingUpload.ts) at once, posted or not: the card's QR carries the life's own page (`/rec/<id>`) from
+ *            the moment the card is up, and the page waits for the recording (the artist, 2026-11-22: "카드가 뜨자마자
+ *            QR이 보이게"; until then it went up only when the card was posted or printed). A life not posted or
+ *            printed is left out of the gallery, not out of the Worker; `url` is set once the upload is through
+ *   a visitor who walks away at the name screen (back to IDLE without living) leaves no recording; the next visitor
+ *   arriving before the tail is out ends the previous recording where it is
+ *
+ * The state is also in a small store outside React (useLifeRecordingState) so the end screen's card — drawn by
+ * another session — can read it wherever it sits, without a prop through SessionHud.
+ */
+
+import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
+import type { LifeSession } from "./useLifeSession";
+import type { SoundSetup } from "./useSound";
+import type { Visitor } from "./RoleField";
+import { onLifeEvent } from "./lifeEvents";
+import { LifeRecorder, recStatusLine, recordingFormatHere, tidyMarkers, type RecordingMarker, type RecordingMeta } from "@/lib/sound/recorder";
+import { discardUnwanted, markUploaded, markWanted, putRecording } from "@/lib/sound/recordingStore";
+import { recordingPageUrl, retryPendingUploads, uploadRecording } from "@/lib/sound/recordingUpload";
+
+export type LifeRecordingPhase = "idle" | "recording" | "uploading" | "done" | "failed";
+
+export interface LifeRecordingState {
+  phase: LifeRecordingPhase;
+  /** The life's id (the visitor's: RoleField `me`), empty when idle. */
+  id: string;
+  seconds: number;
+  bytes: number;
+  /** The page the card's QR points to (`/rec/<id>` on this app) — only once the upload is through. */
+  url?: string;
+  /** This machine's copy (an object URL) for a download on the end screen; there whether or not the upload went. */
+  localUrl?: string;
+  /** The download's file extension (m4a / webm). */
+  ext?: string;
+  /** The audio went up (false after a failed upload: kept here, retried behind the next life). */
+  uploaded: boolean;
+  /** Why it failed, or why the upload did not go. */
+  note?: string;
+  /** One line for the status: `REC 1:32 · 1.1 MB` (+ a note after the end). */
+  line: string;
+}
+
+const IDLE: LifeRecordingState = { phase: "idle", id: "", seconds: 0, bytes: 0, uploaded: false, line: "" };
+
+let current: LifeRecordingState = IDLE;
+const subs = new Set<() => void>();
+function publish(s: LifeRecordingState) {
+  current = s;
+  for (const fn of subs) fn();
+}
+const subscribe = (fn: () => void) => {
+  subs.add(fn);
+  return () => {
+    subs.delete(fn);
+  };
+};
+const read = () => current;
+const readServer = () => IDLE;
+
+/** The recording's state from anywhere (the end screen's card): the same object the hook returns. */
+export function useLifeRecordingState(): LifeRecordingState {
+  return useSyncExternalStore(subscribe, read, readServer);
+}
+
+export interface LifeRecordingOptions {
+  /** Leva `녹음`. */
+  on: boolean;
+  /** Leva `녹음 비트레이트` (kbps). */
+  kbps: number;
+}
+
+const TICK_MS = 250;
+/** How long past the end the recorder waits for the engine to say the tail is out before stopping anyway (s). */
+const TAIL_GRACE_SEC = 4;
+
+interface Run {
+  id: string;
+  sessionNo: number;
+  rec: LifeRecorder;
+  events: RecordingMarker[];
+  startedAt: number;
+  /** The life began (LIVE was seen). */
+  lived: boolean;
+  /** Wall ms the end was seen (0 = not yet). */
+  endedAt: number;
+  off: () => void;
+}
+
+let lastLocalUrl: string | null = null;
+
+/** The lives' summaries the end screen hands over (setLifeNote), by life id: each goes up with its recording. */
+const notes = new Map<string, Record<string, unknown>>();
+
+/** The end screen's summary of a life (its record's numbers), to go up with that life's recording as its 발굴노트. */
+export function setLifeNote(id: string, note: Record<string, unknown>): void {
+  if (!id) return;
+  notes.set(id, note);
+  // only the last few lives are wanted here
+  while (notes.size > 4) notes.delete(notes.keys().next().value as string);
+}
+
+/** The life whose recording is finishing or finished here: what uploadLifeRecording() sends when the card is posted. */
+let latest: { id: string; done: Promise<{ blob: Blob; meta: RecordingMeta } | null> } | null = null;
+
+/**
+ * The recorder stopped: kept on this machine (IndexedDB), then sent up (uploadLifeRecording — every life since
+ * 2026-11-22, see the header). Runs on after the hook has let go of the run.
+ */
+function finish(r: Run, ext: string): void {
+  const seconds = r.rec.seconds;
+  const base = { id: r.id, seconds: +seconds.toFixed(1), uploaded: false, ext };
+  const done = (async () => {
+    let blob: Blob;
+    try {
+      blob = await r.rec.stop();
+    } catch (e) {
+      publish({ ...IDLE, ...base, phase: "failed", note: `녹음 실패 (${(e as Error)?.message ?? e})`, line: recStatusLine(seconds, 0, "녹음 실패") });
+      return null;
+    }
+    const meta: RecordingMeta = {
+      id: r.id,
+      startedAt: new Date(r.startedAt).toISOString(),
+      seconds: +seconds.toFixed(2),
+      bytes: blob.size,
+      mime: blob.type || r.rec.format.mime,
+      events: tidyMarkers(r.events, seconds),
+      note: notes.get(r.id),
+    };
+    if (lastLocalUrl) URL.revokeObjectURL(lastLocalUrl);
+    const localUrl = URL.createObjectURL(blob);
+    lastLocalUrl = localUrl;
+    const kept = await putRecording(r.id, blob, meta);
+    // (a post pressed while the tail was still being recorded has already said so: keep its phase)
+    if (current.id !== r.id || current.phase === "recording")
+      publish({ ...base, phase: "done", bytes: blob.size, localUrl, note: kept ? undefined : "로컬 보관 못 함", line: recStatusLine(seconds, blob.size, kept ? "로컬 보관" : "로컬 보관 못 함") });
+    return { blob, meta };
+  })();
+  latest = { id: r.id, done };
+  // up at once, whether the card is posted or not (the QR is already on it)
+  if (current.id === r.id) void uploadLifeRecording();
+}
+
+/** The upload under way (or done) for a life: a post or a print joins it instead of sending the recording twice. */
+let inflight: { id: string; p: Promise<string | null> } | null = null;
+
+/**
+ * This life's recording goes up (waiting for the reverb's end if the recorder is still taking it): started by the
+ * recorder's end itself, joined by the card's post or print. Resolves with the page the QR carries (`/rec/<id>`), or
+ * null when there is no recording or the upload failed (then it stays here, marked wanted, and is retried behind the
+ * next life; a later call tries again).
+ */
+export function uploadLifeRecording(): Promise<string | null> {
+  const want = current.id;
+  if (inflight && inflight.id === want) return inflight.p;
+  const p = sendLatest(want);
+  inflight = { id: want, p };
+  void p.then((url) => {
+    if (!url && inflight?.p === p) inflight = null;
+  });
+  return p;
+}
+
+async function sendLatest(want: string): Promise<string | null> {
+  // this life's: if the reverb is still being recorded, wait for it (the card is up from the moment of death)
+  if (!want || current.phase === "failed") return null;
+  if (current.url) return current.url;
+  for (let i = 0; i < 300 && latest?.id !== want; i++) await new Promise((r) => setTimeout(r, 200));
+  const l = latest;
+  if (!l || l.id !== want) return null;
+  const got = await l.done;
+  if (!got) return null;
+  const { blob, meta } = got;
+  await markWanted(l.id);
+  const keep = { id: l.id, seconds: +meta.seconds.toFixed(1), bytes: blob.size, localUrl: current.id === l.id ? current.localUrl : undefined, ext: current.ext };
+  publish({ ...IDLE, ...keep, phase: "uploading", uploaded: false, line: recStatusLine(meta.seconds, blob.size, "올리는 중") });
+  try {
+    await uploadRecording(l.id, blob, meta);
+    await markUploaded(l.id);
+    const url = recordingPageUrl(l.id);
+    publish({ ...IDLE, ...keep, phase: "done", url, uploaded: true, line: recStatusLine(meta.seconds, blob.size, url.replace(/^https?:\/\//, "")) });
+    return url;
+  } catch (e) {
+    const why = (e as Error)?.message ?? String(e);
+    publish({ ...IDLE, ...keep, phase: "done", uploaded: false, note: `업로드 실패 (${why}) · 로컬 보관, 다음 삶 때 재시도`, line: recStatusLine(meta.seconds, blob.size, `업로드 실패 ${why}`) });
+    return null;
+  }
+}
+
+/**
+ * @param session  the life (null without one: nothing is recorded)
+ * @param sound    the headset's engine and knobs (null in V1)
+ * @param visitorRef  who this life's visitor is (its id is the recording's)
+ */
+export function useLifeRecording(session: LifeSession | null, sound: SoundSetup | null, visitorRef: RefObject<Visitor | null>, opts: LifeRecordingOptions): LifeRecordingState {
+  const run = useRef<Run | null>(null);
+  const live = useRef({ session, sound, opts });
+  useEffect(() => {
+    live.current = { session, sound, opts };
+  }, [session, sound, opts]);
+  /** The session a failure was reported for (so it is said once, not four times a second). */
+  const failedFor = useRef(-1);
+
+  // for measuring from DevTools / a headless test (the card calls uploadLifeRecording itself): no UI reads this
+  useEffect(() => {
+    (window as unknown as { __lifeRecording?: unknown }).__lifeRecording = { upload: uploadLifeRecording, state: () => current };
+  }, []);
+
+  useEffect(() => {
+    let ticks = 0;
+    const id = setInterval(() => {
+      const { session: s, sound: snd, opts: o } = live.current;
+      const r = run.current;
+      const now = Date.now();
+      if (!s || !snd) {
+        if (r) discard(r);
+        return;
+      }
+      if (r) {
+        if (r.sessionNo !== s.sessionNo) {
+          // the next visitor is here: what was recorded ends where it is
+          if (r.lived) end(r);
+          else discard(r);
+          return;
+        }
+        if (!r.lived && s.phase !== "name" && s.phase !== "live" && s.phase !== "ended") {
+          discard(r); // walked away at the name screen: nothing was lived, nothing is kept
+          return;
+        }
+        if (s.phase === "live" && !r.lived) {
+          r.lived = true;
+          r.events.push({ t: (now - r.startedAt) / 1000, kind: "life.begin", text: "", level: 0 });
+          void retryPendingUploads(r.id);
+        } else if (s.phase === "ended" && !r.endedAt) {
+          r.endedAt = now;
+          r.events.push({ t: (now - r.startedAt) / 1000, kind: "ended", text: s.endedBy ?? "lifespan", level: 2 });
+        } else if (s.phase === "ended" && r.endedAt) {
+          const tailOut = snd.engine.afterlifeOver || now - r.endedAt > (Math.max(1, snd.params.afterlifeTail) + TAIL_GRACE_SEC) * 1000;
+          if (tailOut) {
+            end(r);
+            return;
+          }
+        }
+        if (++ticks % 4 === 0) publish({ ...current, seconds: r.rec.seconds, bytes: r.rec.bytes, line: recStatusLine(r.rec.seconds, r.rec.bytes) });
+        return;
+      }
+      // nothing running: the name screen is where a recording begins
+      if (s.phase !== "name" || !o.on) return;
+      const v = visitorRef.current;
+      if (!v || v.no !== s.sessionNo) return;
+      if (!snd.engine.running) return; // the engine starts on a gesture; it comes
+      if (failedFor.current === s.sessionNo) return;
+      const format = recordingFormatHere();
+      const stream = format ? snd.engine.tapOutput() : null;
+      if (!format || !stream) {
+        failedFor.current = s.sessionNo;
+        publish({ ...IDLE, id: v.id, phase: "failed", note: format ? "엔진에 탭을 달 수 없음" : "이 브라우저는 녹음 형식이 없음 (MediaRecorder)", line: "REC 불가" });
+        return;
+      }
+      try {
+        const rec = new LifeRecorder(stream, format, { kbps: o.kbps });
+        const events: RecordingMarker[] = [];
+        const startedAt = rec.startedAt;
+        events.push({ t: 0, kind: "name", text: "", level: 0 });
+        const off = onLifeEvent((e) => events.push({ t: (Date.now() - startedAt) / 1000, kind: e.kind, text: e.text, level: e.level }));
+        run.current = { id: v.id, sessionNo: s.sessionNo, rec, events, startedAt, lived: false, endedAt: 0, off };
+        // whatever an earlier life left here that is not waiting to go up is cleared away
+        void discardUnwanted(v.id);
+        publish({ ...IDLE, id: v.id, phase: "recording", ext: format.ext, line: recStatusLine(0, 0) });
+      } catch (e) {
+        failedFor.current = s.sessionNo;
+        publish({ ...IDLE, id: v.id, phase: "failed", note: `녹음 시작 실패 (${(e as Error)?.message ?? e})`, line: "REC 불가" });
+      }
+    }, TICK_MS);
+
+    const end = (r: Run) => {
+      run.current = null;
+      r.off();
+      void finish(r, r.rec.format.ext);
+    };
+    const discard = (r: Run) => {
+      run.current = null;
+      r.off();
+      r.rec.stop().catch(() => {});
+      publish(IDLE);
+    };
+
+    return () => {
+      clearInterval(id);
+      const r = run.current;
+      if (r) (r.lived ? end : discard)(r);
+    };
+  }, [visitorRef]);
+
+  return useLifeRecordingState();
+}

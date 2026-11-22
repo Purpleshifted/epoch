@@ -4,7 +4,9 @@
  * visitor's effect on it lands, and what stands in the frame — switchable, so the artist compares versions
  * (docs/session-logic.md §12).
  *   look        브루털: black, white, one green, hard edges, no fog / glow / grid (2026-11-01); 부드러움: what it was
- *   footprint   the end screen's footprint map (FootprintMap)
+ *   footprint   the end screen's record card: its footprint map (FootprintMap)
+ *   card        the specimen card the record card leads on to (SpecimenCard, lib/parliament/plate.ts — 2026-11-21): its
+ *               first paper and the way it first stands (the visitor picks both)
  *   grass       how the grass reacts to the walker at once and how it is drawn (DitherGround, NatureCloud)
  *   marks       the others, the concrete (Marks.tsx, lib/parliament/marks.ts), the seed heads the answers left
  *               (Dandelions.tsx); the paths stay on the ground (PathLines)
@@ -12,6 +14,7 @@
 
 import { useMemo } from "react";
 import { folder, useControls } from "leva";
+import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
@@ -50,9 +53,17 @@ export interface MarksVisual {
   on: boolean;
 }
 
+export interface CardVisual {
+  /** The paper the card first shows on (the visitor picks; the print is in one ink on that paper). */
+  theme: PlateTheme;
+  /** Which way the card first stands (54 × 86 or 86 × 54 mm; the visitor picks). */
+  orient: PlateOrient;
+}
+
 export interface PersonalVisuals {
   look: Look;
   footprint: boolean;
+  card: CardVisual;
   grass: GrassVisual;
   marks: MarksVisual;
 }
@@ -77,6 +88,16 @@ const GRASS_STYLES: Record<string, GrassStyle> = {
   "네모 점 — 점구름, 단색, 각진 점": "squares",
 };
 
+const CARD_THEMES: Record<string, PlateTheme> = {
+  "흰 바탕 — 인쇄(열전사)와 같음": "paper",
+  "검은 바탕": "screen",
+};
+
+const CARD_ORIENTS: Record<string, PlateOrient> = {
+  "세로 — 54 × 86 mm": "portrait",
+  "가로 — 86 × 54 mm": "landscape",
+};
+
 const CONCRETE_STYLES: Record<string, ConcreteStyle> = {
   "외곽선 — 건물의 테두리와 칸의 줄눈만, 속은 비침": "outline",
   "세로선 — 칸마다 1 px 선이 화면 위로": "lines",
@@ -89,6 +110,8 @@ export function usePersonalVisuals(): PersonalVisuals {
     ROOT,
     savable(ROOT, {
       look: { options: LOOK_OPTIONS, value: "brutal" as Look, label: "판", render: v2 },
+      cardTheme: { options: CARD_THEMES, value: "paper" as PlateTheme, label: "표본 카드 바탕 (처음; 관객이 바꿀 수 있음)", render: v2 },
+      cardOrient: { options: CARD_ORIENTS, value: "portrait" as PlateOrient, label: "표본 카드 방향 (처음; 관객이 바꿀 수 있음)", render: v2 },
       footprint: { value: true, label: "퇴장 화면 발자국 지도", render: v2 },
       "브루털": folder({
         grassStyle: { options: GRASS_STYLES, value: "field" as GrassStyle, label: "풀", render: v2 },
@@ -180,5 +203,6 @@ export function usePersonalVisuals(): PersonalVisuals {
     }),
     [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
-  return { look: c.look, footprint: c.footprint, grass, marks };
+  const card = useMemo<CardVisual>(() => ({ theme: c.cardTheme, orient: c.cardOrient }), [c.cardTheme, c.cardOrient]);
+  return { look: c.look, footprint: c.footprint, card, grass, marks };
 }

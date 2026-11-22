@@ -32,6 +32,7 @@ import {
   type Region,
   type ShardConfig,
   type Snapshot,
+  EPOCH_WRITTEN_EVENT,
 } from "@/lib/parliament";
 import type { ArchStyle } from "./Architecture";
 
@@ -74,9 +75,12 @@ export function useWorld(onCleared?: () => void, pollMs = 3000, shared = true): 
       } else sync();
     };
     window.addEventListener("storage", onStorage);
+    // this tab wrote the epoch itself (log.ts EPOCH_WRITTEN_EVENT): look now, so no epoch goes by unseen
+    window.addEventListener(EPOCH_WRITTEN_EVENT, sync);
     return () => {
       clearInterval(poll);
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener(EPOCH_WRITTEN_EVENT, sync);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log]);

@@ -21,6 +21,8 @@ export interface SoundSetup {
   /** This window's mute (the ♪ button / ESC) and its switch. */
   muted: boolean;
   toggleMute(): void;
+  /** The life's recording (useLifeRecording): on, and at what bitrate (kbps). */
+  record: { on: boolean; kbps: number };
 }
 
 export interface SoundOptions {
@@ -86,6 +88,10 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       arrivalGapMs: { value: DEFAULT_SOUND.arrivalGapMs, min: 0, max: 400, step: 10, label: "으뜸 직전의 숨 (ms, 전부 잠깐 비움 — 0 = 없음; 파도 정점에서 먹히는 느낌의 원인이었음)", render: v2 },
       afterglow: { value: DEFAULT_SOUND.afterglow, min: 0, max: 0.5, step: 0.01, label: "죽은 뒤 여운: 스피커(글로벌) 소리를 헤드셋에 얇게 (0 = 없음)", render: v2 },
       afterlifeTail: { value: DEFAULT_SOUND.afterlifeTail, min: 1, max: 30, step: 0.5, label: "죽음의 잔향 (s) — 끝난 뒤 들리는 유일한 것; 뒤 절반에 페이드가 겹침", render: v2 },
+      // the life's recording (useLifeRecording.ts, docs/recording.md): the headset's mix from the name's melody to the
+      // end of the reverb, kept here and sent up; the specimen card's QR opens it
+      record: { value: true, label: "녹음 — 이름의 멜로디부터 죽음의 잔향 끝까지, 헤드셋 믹스만 (표본 카드의 QR)", render: v2 },
+      recordKbps: { value: 64, min: 24, max: 160, step: 8, label: "녹음 비트레이트 (kbps) — 64 ≈ 3분에 1.4 MB", render: v2 },
       microtone: { value: DEFAULT_SOUND.microtone, min: 0, max: 1, step: 0.05, label: "모티프 미세음정 양 (0 = 패치와 같은 조율)", render: v2 },
       motifEcho: { value: DEFAULT_SOUND.motifEcho, min: 0, max: 1, step: 0.05, label: "모티프 에코 (마디에 맞춘 메아리)", render: v2 },
       motifPreset: {
@@ -151,7 +157,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
       { tag: "v4-a2f-radio", at: "2026-10-15", set: { motifWave: "sine", motifAttackMs: 60, motifDecayMs: 200, motifSustain: 0.8, motifRelease: 1.2, motifCutoff: 6000, motifOctaveLevel: 0.1, motifDetune: 4, motifBreath: 0.15, motifEcho: 0.6 } },
     ]),
     { collapsed: false, order: -1, render: v2 },
-  ) as unknown as SoundParams & { on: boolean; sealRadius: number; pathRadius: number };
+  ) as unknown as SoundParams & { on: boolean; sealRadius: number; pathRadius: number; record: boolean; recordKbps: number };
 
   const engine = useMemo(() => (isV2 && typeof window !== "undefined" ? new SoundEngine() : null), [isV2]);
   useEffect(() => {
@@ -233,5 +239,7 @@ export function useSound(opts: SoundOptions = {}): SoundSetup | null {
     [master, barSec, speedMax, reverbMax, jitterMax, lpOpen, lpSealed, noiseMax, hearRadius, othersLevel, botBlur, bassLevel, padLevel, magenta, instrument, clockPull, motifEvery, microtone, motifEcho, ncDull, ncMap, ncMapDepth, bassSpread, bassDub, bassDuck, bassDrop, motifWave, motifTranspose, motifLevel, motifAttackMs, motifDecayMs, motifSustain, motifRelease, motifCutoff, motifQ, motifFilterEnv, motifOctaveLevel, motifFifthLevel, motifDetune, motifVibrato, motifVibratoHz, motifBreath, motifTremolo, motifVerb, motifSynth, fmRatio, fmIndex, fmDecayMs, motifOctaveEvery, motifOctaveRange, zoneTonality, zoneRing, zoneMargin, bandCells, arrival, arrivalHall, arrivalWave, arrivalGapMs, waveVerb, waveHit, grassVerb, bassFrom, afterlifeTail, afterglow],
   );
   const sigCfg = useMemo<SignalConfig>(() => ({ ...DEFAULT_SIGNALS, hearRadius, sealRadius, pathRadius }), [hearRadius, sealRadius, pathRadius]);
-  return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute } : null), [engine, params, sigCfg, status, mutedState, toggleMute]);
+  const { record: recordOn, recordKbps } = c;
+  const record = useMemo(() => ({ on: recordOn, kbps: recordKbps }), [recordOn, recordKbps]);
+  return useMemo(() => (engine ? { engine, params, sigCfg, status, muted: mutedState, toggleMute, record } : null), [engine, params, sigCfg, status, mutedState, toggleMute, record]);
 }
