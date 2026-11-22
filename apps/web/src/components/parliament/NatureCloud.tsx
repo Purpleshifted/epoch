@@ -25,6 +25,10 @@ import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { WORLD_SIZE, grassDensity, hash2, wrapCell, type NatureConfig, type Snapshot } from "@/lib/parliament";
 import { markSpan } from "./usePerfMeter";
+import { PAPER_GREEN, streetGround } from "./streetLook";
+
+const PAPER_GREEN_C = new THREE.Color(PAPER_GREEN);
+const PAPER_PALE = new THREE.Color(0.92, 0.94, 0.9);
 
 const RADIUS = 22; // world units around the player
 const MAX_POINTS = 90000;
@@ -37,6 +41,12 @@ const DUST = new THREE.Color(0x8a7a62);
 const PATH_LIGHT = new THREE.Color(0xc9c2b4);
 
 export type GrassMode = "off" | "press" | "flatten" | "mine";
+
+/** The sway uniforms are set through this every frame (a plain function on the objects). */
+function setSway(u: { uSway: { value: number }; uTime: { value: number } }, sway: number, t: number): void {
+  u.uSway.value = sway;
+  u.uTime.value = t;
+}
 
 /** How the cloud reacts to the walker (Leva 개인뷰 비주얼). */
 export interface GrassReaction {
@@ -109,6 +119,22 @@ export function NatureCloud({
   const geom = useMemo(() => makeGeom(MAX_POINTS), []);
   const nearGeom = useMemo(() => makeGeom(NEAR_MAX), []);
   const tmp = useMemo(() => new THREE.Color(), []);
+  // 길거리 (streetLook.ts): the points sway in a wind — the higher a point, the more; nothing unless the trial is on
+  const swayU = useMemo(() => ({ uSway: { value: 0 }, uTime: { value: 0 } }), []);
+  const onBeforeCompile = useMemo(
+    () => (shader: THREE.WebGLProgramParametersWithUniforms) => {
+      shader.uniforms.uSway = swayU.uSway;
+      shader.uniforms.uTime = swayU.uTime;
+      shader.vertexShader =
+        "uniform float uSway;\nuniform float uTime;\n" +
+        shader.vertexShader.replace(
+          "#include <begin_vertex>",
+          "#include <begin_vertex>\n  transformed.x += uSway * transformed.y * 0.9 * sin(uTime * 1.6 + transformed.z * 0.7 + transformed.x * 0.4);\n  transformed.z += uSway * transformed.y * 0.5 * sin(uTime * 1.1 + transformed.x * 0.6);",
+        );
+    },
+    [swayU],
+  );
+  const cacheKey = useMemo(() => () => "nature-cloud-sway", []);
   /** The path strengths and sealed cells of the latest snapshot — built once per snapshot, not once per pass. */
   const derived = useRef<{ snap: Snapshot | null; pathAt: Map<string, number>; sealed: Set<string> }>({ snap: null, pathAt: new Map(), sealed: new Set() });
 
@@ -183,7 +209,8 @@ export function NatureCloud({
           P[k * 3] = (ix + u) * CELL_SIZE;
           P[k * 3 + 1] = y;
           P[k * 3 + 2] = (iz + v) * CELL_SIZE;
-          if (flatColor) tmp.copy(flatColor);
+          if (streetGround.on && streetGround.paper) tmp.copy(PAPER_GREEN_C).lerp(PAPER_PALE, 1 - G);
+          else if (flatColor) tmp.copy(flatColor);
           else tmp.copy(GREEN_DEEP).lerp(GREEN_FRESH, h).lerp(DRY, Math.min(1, worn * 1.3 + (1 - G) * 0.25 + flat));
           Cc[k * 3] = tmp.r;
           Cc[k * 3 + 1] = tmp.g;
@@ -211,9 +238,10 @@ export function NatureCloud({
     col.needsUpdate = true;
   };
 
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     timer.current += dt;
     nearTimer.current += dt;
+    setSway(swayU, streetGround.on ? streetGround.sway : 0, state.clock.elapsedTime);
     const p = playerPosRef.current;
     const jumped = Number.isFinite(laidAt.current.x) && Math.hypot(p.x - laidAt.current.x, p.z - laidAt.current.z) > WORLD_SIZE / 4;
     const on = !!grass && grass.mode !== "off";
@@ -241,7 +269,11 @@ export function NatureCloud({
     <>
       {[geom, nearGeom].map((g, i) => (
         <points key={`${i}-${flat ? "flat" : "soft"}`} geometry={g} frustumCulled={false}>
-          {flat ? <pointsMaterial size={pointSize} sizeAttenuation vertexColors /> : <pointsMaterial size={pointSize} sizeAttenuation vertexColors map={tex} alphaTest={0.3} transparent depthWrite />}
+          {flat ? (
+            <pointsMaterial size={pointSize} sizeAttenuation vertexColors onBeforeCompile={onBeforeCompile} customProgramCacheKey={cacheKey} />
+          ) : (
+            <pointsMaterial size={pointSize} sizeAttenuation vertexColors map={tex} alphaTest={0.3} transparent depthWrite onBeforeCompile={onBeforeCompile} customProgramCacheKey={cacheKey} />
+          )}
         </points>
       ))}
     </>

@@ -1,0 +1,902 @@
+"use client";
+/**
+ * PointPeople — THE OTHERS AS WALKING POINT SILHOUETTES (the artist, 2026-11-22: the personal view should feel like a
+ * 길거리; "네모 대신 현실 삶과 이어지는 느낌" — criswvr Synthetic Urban 9, vinils' 4D captures). Leva 개인뷰 비주얼 › 길거리.
+ *
+ * Every being within the view (the record's `far` list, RoleField → witnessRef, renewed with the fold) is a body of a
+ * few hundred grey points in the shape of a walking person (lib/parliament/pointPeople.ts: a stride baked as frames of
+ * the same points, read here as a float texture). The record gives a place every half second or so; between them the
+ * body EASES to its latest place with a top speed and an acceleration, turns to face where it goes, and its stride
+ * runs with its speed — standing, the legs come together and the body breathes. Where it has just been it may leave a
+ * TIME SMEAR (vinils: "the distance between people is time"): copies of the body at its places over the last seconds,
+ * fading. One draw call for all bodies and copies (instanced points); an optional faint standing PLATE behind each
+ * body (criswvr) is a second, instanced mesh. Greys only — human traces are achromatic.
+ *
+ * Nothing here decides who is there or where they stand (RoleField's seat and fold); this only draws.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
+import { Html } from "@react-three/drei";
+import * as THREE from "three";
+import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
+import { Glyph } from "./Glyph";
+import { DEFAULT_BODY, DEFAULT_MOTION, WALK_CYCLES, WALK_STYLES, WAVE_STYLE, bakeWalk, jointsAt, jointsOfCycle, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { streetGaze } from "./streetLook";
+import { EXPOSURE_LAYER } from "./InkPaper";
+import { onLifeEvent } from "./lifeEvents";
+
+export type PeopleMode = "boxes" | "points";
+
+export interface PeopleLook {
+  /** How the others are drawn (the artist, 2026-11-22 night: "깜빡이는 상자 속에서 사람 실루엣이 걸어가는 것처럼 … 점 낭비 안 해도
+   *  되고"): "boxes" = the old blinking square, body-high, with a walking silhouette inside (a sprite sheet, one draw);
+   *  "points" = the point bodies. */
+  mode: PeopleMode;
+  /** 흰 바탕 (오가닉): a person is a black BLOT on the paper (the long exposure, 1578–1583) — a smear when standing, stretched
+   *  and trailed when walking, darker and sharper the nearer (distance = lightness); the box a faint pencil frame; within
+   *  `labelDist` a small label with the being's number and a leader line (9954 · 1571). */
+  paper: boolean;
+  ink: number;
+  blur: number;
+  fadeDist: number;
+  labelDist: number;
+  /** 각자의 창 (the artist, 2026-11-22 night: "각자의 윈도우가 있고 그게 늘어져서 이동이 보이는… 사라지면서 꼬리를 남기고", "의도적
+   *  플리커링(디바운스랑 정렬해서)"): no interpolation — when a sample comes the window shakes once and moves; it stretches by the
+   *  move between samples (× stretchGain) and shrinks until the next; gone, it stays stretched and pales (the tail). Beyond
+   *  `blotDist` (world) a person is not drawn here (the present's scan carries them). `bubble`: a square frame with the
+   *  asker's melody glyph beside them while their question is open. */
+  flicker: boolean;
+  stretchGain: number;
+  shake: number;
+  blotDist: number;
+  bubble: boolean;
+  /** Each window's own proportion (width / height), drawn by the being's hash between these; and how long a gone one's
+   *  tail stays (s). */
+  aspectMin: number;
+  aspectMax: number;
+  tailSec: number;
+  /** Paper (the artist, 2026-11-22 night): overlapping blots multiply darker; the frame's strength (crisp corner brackets,
+   *  TD-like); the eye turns towards whoever asks; square ripples spread from the asker; how different the people are in
+   *  their walk, ink, softness and tilt (0 … 1). */
+  /** The exposure a frame adds (the feedback's gain). */
+  exposure: number;
+  frame: number;
+  askTurn: boolean;
+  ripple: boolean;
+  paperVariety: number;
+  /** The box's width as a share of its height, and its grey while the melody rests (the old square's SQUARE_REST). */
+  boxAspect: number;
+  boxRest: number;
+  /** Whoever asks me something is cued: their box (or body) grows and brightens while the question is open. */
+  cue: boolean;
+  /** Points a body is made of on a desktop, and on a phone (a prefix of the same body). */
+  points: number;
+  pointsPhone: number;
+  /** THE SCALE: metres a world unit is (the artist, 2026-11-22: the bodies were too big beside the buildings' bays and
+   *  the vegetation) — every length below in metres is divided by it. */
+  scale: number;
+  /** A point's size (metres, shrinking with distance; never under 1 px, never over `maxPx`). */
+  dot: number;
+  maxPx: number;
+  /** The grey of the points (0 … 1). */
+  grey: number;
+  /** Height of an average body (metres); bodies differ by `variety`. */
+  height: number;
+  /** How different the bodies are (0 = all alike, 1 = ±8 % height, ±10 % build, ±15 % pace). */
+  variety: number;
+  /** The walks: captured (CMU, four real gaits) or the sine skeleton. */
+  gait: "mocap" | "sine";
+  /** The legs never cycle faster than this (strides/s). */
+  maxCadence: number;
+  /** The faint standing plate behind each body, and its opacity. */
+  plate: boolean;
+  plateAlpha: number;
+  /** The time smear: how many seconds back the copies reach (0 = none), and how many copies. Off on a phone. */
+  smearSec: number;
+  smearCopies: number;
+  /** Breathing of a standing body (0 … 1). */
+  breath: number;
+  /** Whether the scene's fog takes the points. */
+  fog: boolean;
+  /** Top speed on the way to a sample (world/s). */
+  maxSpeed: number;
+  /** Seconds after the last sample from which the body fades (its age); the record's own recent window. */
+  recentSec: number;
+  /** A standing body turns to face the nearest other within `faceRadius` (metres; a group stands together, not in a row). */
+  faceEach: boolean;
+  faceRadius: number;
+  /** The visitor's own body (seen from behind in the eye view) in place of the square; its points blink their melody. */
+  meBody: boolean;
+  /** The body's brightness while its melody rests (1 = no blink). */
+  meRest: number;
+}
+
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", gait: "mocap", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, exposure: 0.5, frame: 1, askTurn: true, ripple: true, paperVariety: 1, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+
+/** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
+export interface MeInput {
+  get: () => { x: number; z: number; vx?: number; vz?: number; heading: number };
+  rhythm: () => boolean[] | null;
+}
+
+const TAU = Math.PI * 2;
+/** How fast a standing body turns to face someone (rad/s) — slower than a walker turns. */
+const FACE_TURN = 1.5;
+
+const MAX_PEOPLE = 96;
+const MAX_COPIES = 8;
+const MAX_INSTANCES = MAX_PEOPLE * (1 + MAX_COPIES);
+/** A being gone from the list for this long (s) fades out and is dropped. */
+const GONE_SEC = 2.5;
+const FADE_SEC = 0.8;
+
+interface Person extends PersonMotion {
+  seen: number;
+  /** 0 … 1 (the record's brightness × the fade when gone). */
+  bright: number;
+  alpha: number;
+  trail: { x: number; z: number; heading: number; phase: number; t: number }[];
+  lastTrailAt: number;
+  hash: number;
+  /** This body's own height factor, build factor and motion (variety). */
+  hs: number;
+  ws: number;
+  motion: MotionConfig;
+  /** Boxes: the silhouette walks leftwards on the screen (mirrored); kept while standing. */
+  flip: number;
+  /** The last sample's move (world) and when it came (frame s); the shake runs until `shakeUntil`. */
+  sdx: number;
+  sdz: number;
+  sampleAt: number;
+  shakeUntil: number;
+}
+
+/** The server's samples come about this often (s): the window's stretch lives this long, and a stride step is one sample. */
+const SAMPLE_SEC = 0.5;
+const SHAKE_SEC = 0.14;
+
+const SHEET_FRAMES = 16;
+const SHEET_W = 48;
+const SHEET_H = 96;
+/** The sheet's rows: the ways of walking (as many as the captured cycles, or the sine styles), then the wave (the asker's). */
+const WALK_ROWS = Math.max(WALK_STYLES.length, WALK_CYCLES.length);
+const SHEET_ROWS = WALK_ROWS + 1;
+const WAVE_ROW = WALK_ROWS;
+
+/**
+ * The walking silhouette as a SPRITE SHEET: the stride's frames drawn side-on (the body walking to the right), white on
+ * nothing, each frame SHEET_W × SHEET_H for a 1.9 m frame — the stroke of each limb is its thickness. Nearest-filtered:
+ * the edge stays hard (brutal). Needs a document (a canvas).
+ */
+function walkSheet(blurPx = 0, gait: "mocap" | "sine" = "mocap"): THREE.Texture {
+  const c = document.createElement("canvas");
+  c.width = SHEET_W * SHEET_FRAMES;
+  c.height = SHEET_H * SHEET_ROWS;
+  const g = c.getContext("2d")!;
+  // the paper's blot: the same figure, its edge blurred (the long exposure's softness)
+  if (blurPx > 0) g.filter = `blur(${blurPx}px)`;
+  const k = SHEET_H / 1.9; // px a metre
+  g.strokeStyle = "#fff";
+  g.fillStyle = "#fff";
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  for (let row = 0; row < SHEET_ROWS; row++)
+  for (let f = 0; f < SHEET_FRAMES; f++) {
+    const J = row === WAVE_ROW ? jointsAt(f / SHEET_FRAMES, WAVE_STYLE) : gait === "mocap" && WALK_CYCLES.length ? jointsOfCycle(WALK_CYCLES[row % WALK_CYCLES.length], f / SHEET_FRAMES) : jointsAt(f / SHEET_FRAMES, WALK_STYLES[row % WALK_STYLES.length]);
+    const ox = f * SHEET_W + SHEET_W / 2, oy = row * SHEET_H + SHEET_H - 2;
+    const X = (p: readonly number[]) => ox + p[2] * k;
+    const Y = (p: readonly number[]) => oy - p[1] * k;
+    const limb = (a: readonly number[], b: readonly number[], w: number) => {
+      g.lineWidth = w * k;
+      g.beginPath();
+      g.moveTo(X(a), Y(a));
+      g.lineTo(X(b), Y(b));
+      g.stroke();
+    };
+    limb(J.hipR, J.kneeR, 0.13);
+    limb(J.kneeR, J.ankleR, 0.11);
+    limb(J.ankleR, J.toeR, 0.08);
+    limb(J.shR, J.elbowR, 0.1);
+    limb(J.elbowR, J.wristR, 0.08);
+    limb(J.pelvis, J.shoulders, 0.3);
+    limb(J.shoulders, J.head, 0.1);
+    g.beginPath();
+    g.arc(X(J.head), Y(J.head), 0.11 * k, 0, Math.PI * 2);
+    g.fill();
+    limb(J.hipL, J.kneeL, 0.13);
+    limb(J.kneeL, J.ankleL, 0.11);
+    limb(J.ankleL, J.toeL, 0.08);
+    limb(J.shL, J.elbowL, 0.1);
+    limb(J.elbowL, J.wristL, 0.08);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  return t;
+}
+
+const BOX_VERT = /* glsl */ `
+uniform float uFrames;
+uniform float uRows;
+uniform float uAspect;
+attribute vec4 iBox;      // x, z, height, heading (the plate stands ALONG the way they go — not facing the eye)
+attribute vec4 iBoxAnim;  // phase, lit, alpha, cue (0 none · 1 the asker · 2 a ripple: frame only)
+attribute vec4 iBox2;     // stretch (walking), dark (near = 1), this window's aspect, 0
+attribute vec4 iBox3;     // softness (0 sharp … 1 blurred), ink ×, tilt (rad), the sheet's row (the way of walking)
+varying vec2 vUv;
+varying vec2 vLocal;
+varying float vLit;
+varying float vAlpha;
+varying float vDark;
+varying float vCue;
+varying float vSoft;
+varying float vInkK;
+#include <fog_pars_vertex>
+void main() {
+  float h = iBox.z;
+  float w = h * (iBox2.z > 0.0 ? iBox2.z : uAspect) * (1.0 + iBox2.x);
+  // the plate (the artist, 2026-11-22 night: "꼭 나한테 평행할 필요 없어! 각자의 진행방향과 잔상을 남겨야"): a translucent film
+  // standing in the world ALONG the being's heading — its width runs the way they go, the silhouette walks along it, the
+  // stretch and the tail lie behind them in the world; seen side-on it is whole, from ahead or behind it is thin. It leans
+  // a little its own way (tilt about its own normal). Its foot is on the ground.
+  vec3 fwd = vec3(sin(iBox.w), 0.0, cos(iBox.w));
+  float ct = cos(iBox3.z), st = sin(iBox3.z);
+  vec2 corner = vec2(position.x * w, position.y * h);
+  corner = vec2(corner.x * ct - corner.y * st, corner.x * st + corner.y * ct);
+  vec3 wp = vec3(iBox.x, 0.0, iBox.y) + fwd * corner.x + vec3(0.0, corner.y, 0.0);
+  vec4 mvPosition = modelViewMatrix * vec4(wp, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  float u = position.x + 0.5;
+  float f = floor(fract(iBoxAnim.x) * uFrames);
+  vUv = vec2((f + u) / uFrames, (iBox3.w + position.y) / uRows);
+  vLocal = vec2(position.x + 0.5, position.y);
+  vLit = iBoxAnim.y;
+  vAlpha = iBoxAnim.z;
+  vDark = iBox2.y;
+  vCue = iBoxAnim.w;
+  vSoft = iBox3.x;
+  vInkK = iBox3.y;
+  #include <fog_vertex>
+}`;
+
+const BOX_FRAG = /* glsl */ `
+uniform sampler2D uSheet;
+uniform sampler2D uSheetSoft;
+uniform float uRest;
+uniform float uPaper;
+uniform float uInk;
+uniform float uFrame;
+uniform float uGain;
+varying vec2 vUv;
+varying vec2 vLocal;
+varying float vLit;
+varying float vAlpha;
+varying float vDark;
+varying float vCue;
+varying float vSoft;
+varying float vInkK;
+#include <fog_pars_fragment>
+void main() {
+  if (vAlpha < 0.01) discard;
+  if (uPaper > 0.5) {
+    // THE EXPOSURE (the long exposure, not ink): this writes a DENSITY, additively, into the feedback buffer — the body as
+    // a sharp silhouette (time softens it, not a brush), the plate as an acetate film whose edges melt and which breathes
+    // with the melody, deeper for the asker; a ripple (cue 2) is a film alone. Standing accumulates, walking smears.
+    float body = vCue > 1.5 ? 0.0 : mix(texture2D(uSheet, vUv).a, texture2D(uSheetSoft, vUv).a, vSoft * 0.5) * uInk * vInkK;
+    float bx = min(vLocal.x, 1.0 - vLocal.x), by = min(vLocal.y, 1.0 - vLocal.y);
+    // (the film is faint and its edges wide: the window is a frame of record, and on the white ground it must not read as a
+    // drawn rectangle)
+    float edge = smoothstep(0.0, 0.2, bx) * smoothstep(0.0, 0.14, by);
+    float film = edge * (0.02 + 0.015 * vLit + 0.05 * step(0.5, vCue)) * uFrame;
+    if (vCue > 1.5) film = edge * 0.05;
+    float dens = max(body, film) * vAlpha * uGain;
+    if (dens < 0.002) discard;
+    gl_FragColor = vec4(vec3(dens), 1.0);
+    return;
+  }
+  // the box blinks the being's melody as the square did (white on a beat, dark grey at rest); the silhouette inside is
+  // the other way round, so it reads in both
+  float s = texture2D(uSheet, vUv).a;
+  vec3 box = mix(vec3(uRest), vec3(1.0), vLit);
+  vec3 sil = mix(vec3(0.82), vec3(0.05), vLit);
+  gl_FragColor = vec4(mix(box, sil, step(0.5, s)), vAlpha);
+  #include <fog_fragment>
+}`;
+
+/** The same functions of a body's hash the vertex shader uses: its height and build factors (variety 0 … 1). */
+const frac = (x: number) => x - Math.floor(x);
+const heightFactor = (hash: number, variety: number) => 1 + variety * (0.16 * frac(hash * 7.31) - 0.08);
+const buildFactor = (hash: number, variety: number) => 1 + variety * (0.2 * frac(hash * 13.7) - 0.1);
+const paceFactor = (hash: number, variety: number) => 1 + variety * (0.3 * frac(hash * 3.17) - 0.15);
+
+const VERT = /* glsl */ `
+uniform sampler2D uBody;
+uniform float uFrames;
+uniform float uPoints;
+uniform float uSize;
+uniform float uScale;
+uniform float uTime;
+uniform float uBreath;
+uniform float uVariety;
+uniform float uMaxPx;
+attribute float aPoint;
+attribute vec4 iPos;   // x, cue (0 … 1), z, heading
+attribute vec4 iAnim;  // phase, alpha, standing (0 … 1), hash
+varying float vAlpha;
+varying float vCue;
+#include <fog_pars_vertex>
+void main() {
+  float f = fract(iAnim.x) * uFrames;
+  float f0 = floor(f);
+  float f1 = mod(f0 + 1.0, uFrames);
+  float ft = f - f0;
+  float u = (aPoint + 0.5) / uPoints;
+  vec3 p0 = texture2D(uBody, vec2(u, (f0 + 0.5) / uFrames)).xyz;
+  vec3 p1 = texture2D(uBody, vec2(u, (f1 + 0.5) / uFrames)).xyz;
+  vec3 p = mix(p0, p1, ft);
+  // this body's own height and build (the same functions of its hash as the CPU's stride uses)
+  float hs = 1.0 + uVariety * (0.16 * fract(iAnim.w * 7.31) - 0.08);
+  float ws = 1.0 + uVariety * (0.2 * fract(iAnim.w * 13.7) - 0.1);
+  p.y *= hs;
+  p.xz *= ws;
+  // a standing body breathes: the chest rises a little, slowly, each in its own time
+  float breath = uBreath * iAnim.z * 0.012 * sin(uTime * 1.3 + iAnim.w * 6.2832);
+  p.y *= 1.0 + breath * smoothstep(0.6, 1.5, p.y / hs);
+  // cued (asking me something): a little larger
+  p *= 1.0 + 0.15 * iPos.y;
+  float c = cos(iPos.w), s = sin(iPos.w);
+  vec3 w = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + vec3(iPos.x, 0.0, iPos.z);
+  vCue = iPos.y;
+  vec4 mvPosition = modelViewMatrix * vec4(w, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  gl_PointSize = clamp(uSize * (uScale / -mvPosition.z), 1.0, uMaxPx);
+  vAlpha = iAnim.y;
+  #include <fog_vertex>
+}`;
+
+const FRAG = /* glsl */ `
+uniform float uGrey;
+varying float vAlpha;
+varying float vCue;
+#include <fog_pars_fragment>
+void main() {
+  if (vAlpha < 0.01) discard;
+  gl_FragColor = vec4(vec3(mix(uGrey, 1.0, vCue)), vAlpha);
+  #include <fog_fragment>
+}`;
+
+/** The instanced draw's count and the uniforms are set through these (plain functions on the objects, every frame). */
+function setInstanceCount(g: THREE.InstancedBufferGeometry, n: number): void {
+  g.instanceCount = n;
+}
+function setUniforms(u: Record<string, THREE.IUniform>, values: Record<string, unknown>): void {
+  for (const k in values) u[k].value = values[k];
+}
+
+function idHash(o: string): number {
+  let h = 0;
+  for (let i = 0; i < o.length; i++) h = (Math.imul(h, 31) + o.charCodeAt(i)) | 0;
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+export function PointPeople({
+  getOthers,
+  playerPosRef,
+  look = DEFAULT_PEOPLE,
+  phone = false,
+  me: selfIn,
+  viewFog = false,
+}: {
+  /** Everyone within the view, nearest first (the record's `far`); null before the first fold. */
+  getOthers: () => readonly Other[] | null;
+  playerPosRef: React.MutableRefObject<{ x: number; z: number }>;
+  look?: PeopleLook;
+  /** A phone: fewer points a body, no smear. */
+  phone?: boolean;
+  /** The visitor themself (drawn as a body when look.meBody). */
+  me?: MeInput;
+  /** 시야 반경: the points take the scene's fog whatever look.fog says. */
+  viewFog?: boolean;
+}) {
+  const fogOn = look.fog || !!viewFog || look.paper;
+  const points = Math.max(32, Math.round(phone ? look.pointsPhone : look.points));
+  const copies = phone || look.smearSec <= 0 ? 0 : Math.min(MAX_COPIES, Math.max(0, Math.round(look.smearCopies)));
+  const frames = DEFAULT_BODY.frames;
+  // metres → world units
+  const k = 1 / Math.max(0.1, look.scale);
+  const heightU = look.height * k;
+
+  // the stride as a float texture: one row a frame, one texel a point (an average body; each differs by its hash)
+  const body = useMemo(() => {
+    const data = bakeWalk({ ...DEFAULT_BODY, points, height: heightU }, look.gait === "mocap" ? WALK_CYCLES[0] : undefined);
+    const t = new THREE.DataTexture(data, points, frames, THREE.RGBAFormat, THREE.FloatType);
+    t.magFilter = t.minFilter = THREE.NearestFilter;
+    t.needsUpdate = true;
+    return t;
+  }, [points, frames, heightU, look.gait]);
+
+  const geom = useMemo(() => {
+    const g = new THREE.InstancedBufferGeometry();
+    // the base: one vertex a point of the body (its index); a position is needed for the draw count only
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(points * 3), 3));
+    const idx = new Float32Array(points);
+    for (let i = 0; i < points; i++) idx[i] = i;
+    g.setAttribute("aPoint", new THREE.BufferAttribute(idx, 1));
+    g.setAttribute("iPos", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iAnim", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.instanceCount = 0;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+    return g;
+  }, [points]);
+
+  // the boxes: a billboard quad an instance, the walking silhouette as a sprite sheet
+  const sheet = useMemo(() => walkSheet(0, look.gait), [look.gait]);
+  const sheetSoft = useMemo(() => walkSheet(look.blur, look.gait), [look.blur, look.gait]);
+  useEffect(() => () => sheet.dispose(), [sheet]);
+  useEffect(() => () => sheetSoft.dispose(), [sheetSoft]);
+  const boxGeom = useMemo(() => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0]), 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    g.setAttribute("iBox", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBoxAnim", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBox2", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBox3", new THREE.InstancedBufferAttribute(new Float32Array(MAX_INSTANCES * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.instanceCount = 0;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+    return g;
+  }, []);
+  const boxMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uSheetSoft: { value: null }, uFrames: { value: SHEET_FRAMES }, uRows: { value: SHEET_ROWS }, uAspect: { value: 0.55 }, uRest: { value: 0.22 }, uPaper: { value: 0 }, uInk: { value: 0.9 }, uFrame: { value: 1 }, uGain: { value: 0.5 } }]),
+        vertexShader: BOX_VERT,
+        fragmentShader: BOX_FRAG,
+        transparent: true,
+        depthWrite: false,
+        depthTest: !look.paper,
+        side: THREE.DoubleSide,
+        fog: fogOn && !look.paper,
+        // on paper the people are a density added into the exposure (InkPaper's feedback); overlap darkens by itself
+        blending: look.paper ? THREE.AdditiveBlending : THREE.NormalBlending,
+      }),
+    [fogOn, look.paper],
+  );
+  const boxMesh = useRef<THREE.Mesh>(null);
+  const gazeId = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      boxGeom.dispose();
+      boxMat.dispose();
+      sheet.dispose();
+    },
+    [boxGeom, boxMat, sheet],
+  );
+  // the paper's labels: the nearest few, within labelDist, each with its number and a leader line (drei Html)
+  const [labels, setLabels] = useState<{ id: string; x: number; y: number; z: number }[]>([]);
+  const [bubbles, setBubbles] = useState<{ id: string; x: number; y: number; z: number }[]>([]);
+  const labelTimer = useRef(0);
+  // whoever asks me something (the record's lines, as RoleField hears them for the sound): cued while the question is open
+  const asking = useRef(new Map<string, number>());
+  useEffect(
+    () =>
+      onLifeEvent((e) => {
+        if ((e.kind === "word.new" || e.kind === "word.asked") && e.who) asking.current.set(e.who, performance.now() + DEFAULT_WITNESS.askOpenSec * 1000);
+        else if (e.kind === "word.answered" && e.who) asking.current.delete(e.who);
+      }),
+    [],
+  );
+
+  const mat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.merge([
+          THREE.UniformsLib.fog,
+          { uBody: { value: null }, uFrames: { value: frames }, uPoints: { value: points }, uSize: { value: look.dot }, uScale: { value: 400 }, uTime: { value: 0 }, uBreath: { value: 1 }, uGrey: { value: look.grey }, uVariety: { value: 1 }, uMaxPx: { value: 6 } },
+        ]),
+        vertexShader: VERT,
+        fragmentShader: FRAG,
+        transparent: true,
+        depthWrite: false,
+        fog: fogOn,
+      }),
+    // (the material is remade only when the fog switch or the body changes; the size and grey are set per frame)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fogOn, points, frames],
+  );
+  useEffect(
+    () => () => {
+      geom.dispose();
+      mat.dispose();
+      body.dispose();
+    },
+    [geom, mat, body],
+  );
+
+  // the plates (criswvr): one faint standing quad behind each body
+  const plateMesh = useRef<THREE.InstancedMesh>(null);
+  const plateGeom = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
+  useEffect(() => () => plateGeom.dispose(), [plateGeom]);
+  const m4 = useMemo(() => new THREE.Matrix4(), []);
+  const q = useMemo(() => new THREE.Quaternion(), []);
+  const v3 = useMemo(() => new THREE.Vector3(), []);
+  const s3 = useMemo(() => new THREE.Vector3(), []);
+
+  const people = useRef(new Map<string, Person>());
+  const lastList = useRef<readonly Other[] | null>(null);
+  const motion = useMemo<MotionConfig>(() => ({ ...DEFAULT_MOTION, maxSpeed: look.maxSpeed, stride: strideLength(heightU), maxCadence: look.maxCadence }), [look.maxSpeed, heightU, look.maxCadence]);
+  /** This body's own motion: its pace and its stride follow its height and pace factors. */
+  const motionOf = (hash: number): MotionConfig => {
+    const hs = heightFactor(hash, look.variety), pace = paceFactor(hash, look.variety);
+    return { ...motion, maxSpeed: motion.maxSpeed * pace, accel: motion.accel * pace, stride: motion.stride * hs, turnRate: motion.turnRate * (0.8 + 0.4 * frac(hash * 5.3)) };
+  };
+  // the visitor's own body (look.meBody): its stride runs with their speed; its points blink their melody
+  const self = useRef({ phase: 0, breathe: 0 });
+
+  useFrame((state, delta) => {
+    const dt = Math.min(delta, 0.05);
+    const now = state.clock.elapsedTime;
+    const me = playerPosRef.current;
+    const P = people.current;
+    // the record's latest places (a new list after every fold)
+    const list = getOthers();
+    if (list && list !== lastList.current) {
+      lastList.current = list;
+      for (const o of list) {
+        const tx = nearestImage(o.x, me.x), tz = nearestImage(o.z, me.z);
+        const bright = Math.exp(-o.ageSec / Math.max(0.1, look.recentSec));
+        const p = P.get(o.o);
+        if (!p) {
+          if (P.size >= MAX_PEOPLE) continue;
+          const h = idHash(o.o);
+          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0, sdx: 0, sdz: 0, sampleAt: now, shakeUntil: 0 });
+        } else {
+          // the record's place is drawn where it lies round the walker (the world wraps): a far jump is the wrap, not a walk
+          const dx = tx - p.tx, dz = tz - p.tz;
+          if (dx !== 0 || dz !== 0) {
+            const d = Math.hypot(dx, dz);
+            if (d < motionOf(p.hash).snapDist) {
+              p.sdx = dx;
+              p.sdz = dz;
+              p.sampleAt = now;
+              p.shakeUntil = now + SHAKE_SEC;
+              // the flicker: the body is simply there, a stride step on, facing its move — no easing between samples
+              if (look.paper && look.flicker) {
+                p.x = tx;
+                p.z = tz;
+                p.vx = dx / SAMPLE_SEC;
+                p.vz = dz / SAMPLE_SEC;
+                p.phase = (p.phase + Math.min(0.5, d / p.motion.stride)) % 1;
+                p.heading = Math.atan2(dx, dz);
+              }
+            }
+          }
+          p.tx = tx;
+          p.tz = tz;
+          p.seen = now;
+          p.bright = bright;
+        }
+      }
+    }
+    // every body moves on; a gone one fades and is dropped
+    const iPos = geom.getAttribute("iPos") as THREE.InstancedBufferAttribute;
+    const iAnim = geom.getAttribute("iAnim") as THREE.InstancedBufferAttribute;
+    const A = iPos.array as Float32Array, B = iAnim.array as Float32Array;
+    const iBox = boxGeom.getAttribute("iBox") as THREE.InstancedBufferAttribute;
+    const iBoxAnim = boxGeom.getAttribute("iBoxAnim") as THREE.InstancedBufferAttribute;
+    const BX = iBox.array as Float32Array, BY = iBoxAnim.array as Float32Array;
+    const iBox2 = boxGeom.getAttribute("iBox2") as THREE.InstancedBufferAttribute;
+    const BZ = iBox2.array as Float32Array;
+    const iBox3 = boxGeom.getAttribute("iBox3") as THREE.InstancedBufferAttribute;
+    const BW = iBox3.array as Float32Array;
+    const boxes = look.mode === "boxes";
+    const pv = look.paperVariety;
+    const paper = look.paper;
+    const fadeU = Math.max(0.5, look.fadeDist);
+    let n = 0, nb = 0;
+    const plates = plateMesh.current;
+    let np = 0;
+    const smearEvery = copies > 0 ? look.smearSec / copies : Infinity;
+    // the melody's step now
+    const step = stepAt(performance.now());
+    const nowMs = performance.now();
+    for (const [id, p] of P) {
+      const gone = now - p.seen > GONE_SEC;
+      if (gone && p.alpha <= 0.01) {
+        P.delete(id);
+        continue;
+      }
+      // the wrap: if the walker crossed the edge since, the body's place is re-imaged beside its target
+      if (Math.abs(p.x - p.tx) > motion.snapDist || Math.abs(p.z - p.tz) > motion.snapDist) {
+        p.x = p.tx;
+        p.z = p.tz;
+        p.trail.length = 0;
+      }
+      const flick = paper && look.flicker;
+      if (flick) {
+        // flicker: no easing; the sample's velocity dies away before the next sample (the window shrinks back)
+        const decay = Math.exp(-dt / (SAMPLE_SEC * 0.5));
+        p.vx *= decay;
+        p.vz *= decay;
+      } else stepPerson(p, dt, p.motion);
+      // standing near someone, the body turns to face the nearest of them (slowly): a group, not a row
+      if (look.faceEach && Math.hypot(p.vx, p.vz) < motion.standBelow) {
+        let best: Person | null = null, bd = look.faceRadius * k;
+        for (const q of P.values()) {
+          if (q === p) continue;
+          const d = Math.hypot(q.x - p.x, q.z - p.z);
+          if (d < bd) {
+            bd = d;
+            best = q;
+          }
+        }
+        if (best) {
+          let diff = Math.atan2(best.x - p.x, best.z - p.z) - p.heading;
+          diff = ((((diff + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+          const maxTurn = FACE_TURN * dt;
+          p.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+        }
+      }
+      const target = gone ? 0 : p.bright;
+      // gone: the fade is the tail's length on paper
+      p.alpha += (target - p.alpha) * Math.min(1, dt / (gone && paper ? Math.max(0.2, look.tailSec) : FADE_SEC)) * (gone ? 1 : 3);
+      const speed = Math.hypot(p.vx, p.vz);
+      const standing = 1 - Math.min(1, speed / motion.standBelow);
+      // the smear: a copy of the body where it was, every smearEvery seconds, kept smearSec
+      if (copies > 0) {
+        if (now - p.lastTrailAt >= smearEvery && speed > motion.standBelow * 0.5) {
+          p.lastTrailAt = now;
+          p.trail.push({ x: p.x, z: p.z, heading: p.heading, phase: p.phase, t: now });
+          if (p.trail.length > copies) p.trail.shift();
+        }
+        while (p.trail.length && now - p.trail[0].t > look.smearSec) p.trail.shift();
+      } else if (p.trail.length) p.trail.length = 0;
+      const askUntil = asking.current.get(id);
+      const cue = look.cue && askUntil !== undefined && nowMs < askUntil ? 1 : 0;
+      if (boxes) {
+        if (nb < MAX_INSTANCES) {
+          // the plate stands along the heading (a standing one keeps its last way)
+          if (speed > motion.standBelow) p.flip = 0;
+          // paper: nearer = darker and sharper; walking = stretched along the screen
+          const dist = Math.hypot(p.x - me.x, p.z - me.z);
+          const dark = paper ? 0.2 + 0.8 * Math.max(0, 1 - dist / fadeU) : 1;
+          const lit = rhythmOf(id)[step] ? 1 : 0;
+          // 각자의 창: the window stretched by the last sample's move along the screen, shrinking until the next sample;
+          // gone, it stays stretched (the tail); the shake right after a sample
+          // this window's own proportion (paper): by the being's hash, between aspectMin and aspectMax
+          const aspect = paper ? look.aspectMin + (look.aspectMax - look.aspectMin) * frac(p.hash * 19.3) : look.boxAspect;
+          let cx = p.x, cz = p.z, stretch = paper ? Math.min(1.4, speed * 0.4) : 0;
+          if (paper && look.stretchGain > 0) {
+            const age = now - p.sampleAt;
+            const kk = gone ? 1.6 : Math.max(0, 1 - age / SAMPLE_SEC);
+            // the move between samples, in the world, along the being's own way
+            const along = Math.hypot(p.sdx, p.sdz) * look.stretchGain * kk;
+            const w0 = Math.max(0.05, heightU * p.hs * aspect);
+            stretch = Math.min(6, along / w0);
+            cx -= 0.5 * p.sdx * kk;
+            cz -= 0.5 * p.sdz * kk;
+            if (now < p.shakeUntil && look.shake > 0) {
+              const sh = Math.sin(now * 90) * look.shake * 0.01 * k;
+              cx += sh * Math.sin(p.heading);
+              cz += sh * Math.cos(p.heading);
+            }
+          }
+          // beyond the blot radius the present's scan carries them (future-presence): nothing drawn here
+          const cut = paper ? Math.max(0, Math.min(1, 1 - (dist - look.blotDist) / 1.5)) : 1;
+          BX[nb * 4] = cx;
+          BX[nb * 4 + 1] = cz;
+          BX[nb * 4 + 2] = heightU * p.hs * (1 + 0.35 * cue);
+          BX[nb * 4 + 3] = p.heading;
+          BY[nb * 4] = p.phase;
+          BY[nb * 4 + 1] = lit;
+          BY[nb * 4 + 2] = p.alpha * cut;
+          BY[nb * 4 + 3] = cue;
+          BZ[nb * 4] = stretch;
+          BZ[nb * 4 + 1] = dark;
+          BZ[nb * 4 + 2] = aspect;
+          // this person's way: a walk of their own (the sheet's row), their ink, the softness of their edge, their lean;
+          // the asker waves instead of walking
+          // (the canvas's rows count from the top, the texture's v from the bottom: the row is written mirrored)
+          const row = SHEET_ROWS - 1 - (cue ? WAVE_ROW : Math.floor(frac(p.hash * 29.7) * WALK_ROWS));
+          BW[nb * 4] = pv * frac(p.hash * 41.3);
+          BW[nb * 4 + 1] = 1 + pv * (0.4 * frac(p.hash * 53.1) - 0.2);
+          BW[nb * 4 + 2] = pv * (frac(p.hash * 61.7) - 0.5) * 0.14;
+          BW[nb * 4 + 3] = row;
+          const baseNb = nb;
+          nb++;
+          // the asker: the wave runs on its own time; square ripples spread from the window on the bar; the eye turns
+          if (cue) {
+            p.phase = (p.phase + dt * 0.9) % 1;
+            if (gazeId.current !== id) {
+              gazeId.current = id;
+              streetGaze.x = p.x;
+              streetGaze.z = p.z;
+              streetGaze.until = now + 1.2;
+              streetGaze.on = look.askTurn;
+            }
+            if (paper && look.ripple) {
+              for (let r = 0; r < 2; r++) {
+                if (nb >= MAX_INSTANCES) break;
+                const t = ((now * 0.9 + r * 0.5) % 1);
+                const grow = 1.15 + 0.7 * t;
+                for (let q = 0; q < 4; q++) {
+                  BX[nb * 4 + q] = BX[baseNb * 4 + q];
+                  BY[nb * 4 + q] = BY[baseNb * 4 + q];
+                  BZ[nb * 4 + q] = BZ[baseNb * 4 + q];
+                  BW[nb * 4 + q] = BW[baseNb * 4 + q];
+                }
+                BX[nb * 4 + 2] = heightU * p.hs * grow;
+                BY[nb * 4 + 2] = p.alpha * cut * (1 - t) * 0.8;
+                BY[nb * 4 + 3] = 2;
+                BZ[nb * 4] = stretch;
+                nb++;
+              }
+            }
+          } else if (gazeId.current === id) gazeId.current = null;
+          // (the trail copies are not drawn on paper any more: the exposure's feedback leaves the real one)
+          if (false) {
+            for (const c of p.trail) {
+              if (nb >= MAX_INSTANCES) break;
+              const age = (now - c.t) / Math.max(0.1, look.smearSec);
+              BX[nb * 4] = c.x;
+              BX[nb * 4 + 1] = c.z;
+              BX[nb * 4 + 2] = heightU * p.hs;
+              BX[nb * 4 + 3] = c.heading;
+              BY[nb * 4] = c.phase;
+              BY[nb * 4 + 1] = 0;
+              BY[nb * 4 + 2] = p.alpha * cut * 0.6 * (1 - age) * (1 - age);
+              BY[nb * 4 + 3] = 0;
+              BZ[nb * 4] = stretch;
+              BZ[nb * 4 + 1] = dark;
+              BZ[nb * 4 + 2] = aspect;
+              for (let q = 0; q < 4; q++) BW[nb * 4 + q] = BW[baseNb * 4 + q];
+              nb++;
+            }
+          }
+        }
+      } else if (n < MAX_INSTANCES) {
+        A[n * 4] = p.x;
+        A[n * 4 + 1] = cue;
+        A[n * 4 + 2] = p.z;
+        A[n * 4 + 3] = p.heading;
+        B[n * 4] = p.phase;
+        B[n * 4 + 1] = p.alpha;
+        B[n * 4 + 2] = standing;
+        B[n * 4 + 3] = p.hash;
+        n++;
+      }
+      if (boxes && !paper) p.trail.length = 0;
+      if (boxes) continue;
+      for (const c of p.trail) {
+        if (n >= MAX_INSTANCES) break;
+        const age = (now - c.t) / Math.max(0.1, look.smearSec);
+        A[n * 4] = c.x;
+        A[n * 4 + 1] = 0;
+        A[n * 4 + 2] = c.z;
+        A[n * 4 + 3] = c.heading;
+        B[n * 4] = c.phase;
+        B[n * 4 + 1] = p.alpha * 0.55 * (1 - age) * (1 - age);
+        B[n * 4 + 2] = 0;
+        B[n * 4 + 3] = p.hash;
+        n++;
+      }
+      if (plates && look.plate && np < MAX_PEOPLE) {
+        v3.set(p.x, heightU * p.hs * 0.56, p.z);
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.heading);
+        s3.set(0.95 * heightU * p.ws * (1 / 1.7), heightU * p.hs * 1.12, 1);
+        m4.compose(v3, q, s3);
+        plates.setMatrixAt(np, m4);
+        np++;
+      }
+    }
+    // THE VISITOR'S OWN BODY (the artist, 2026-11-22: with the eye at a person's height, must "me" be a square in front
+    // of the gaze? — and then how is the melody carried?): their back, a body like the others, walking as they walk;
+    // its points go dim while their melody rests and bright on its beats (the square's blink, carried by the body)
+    if (selfIn && look.meBody && !boxes && n < MAX_INSTANCES) {
+      const m = selfIn.get();
+      const speed = Math.hypot(m.vx ?? 0, m.vz ?? 0);
+      const s = self.current;
+      if (speed > motion.standBelow) s.phase = (s.phase + Math.min(motion.maxCadence, speed / motion.stride) * dt) % 1;
+      else {
+        const target = s.phase > 0.25 && s.phase < 0.75 ? 0.5 : s.phase < 0.5 ? 0 : 1;
+        s.phase += (target - s.phase) * Math.min(1, 6 * dt);
+        if (s.phase >= 1) s.phase -= 1;
+      }
+      const r = selfIn.rhythm();
+      const lit = !r || r[stepAt(performance.now())];
+      A[n * 4] = m.x;
+      A[n * 4 + 1] = 0;
+      A[n * 4 + 2] = m.z;
+      A[n * 4 + 3] = m.heading;
+      B[n * 4] = s.phase;
+      B[n * 4 + 1] = lit ? 1 : look.meRest;
+      B[n * 4 + 2] = 1 - Math.min(1, speed / motion.standBelow);
+      B[n * 4 + 3] = 0.5;
+      n++;
+    }
+    setInstanceCount(geom, n);
+    iPos.addUpdateRange(0, n * 4);
+    iAnim.addUpdateRange(0, n * 4);
+    iPos.needsUpdate = true;
+    iAnim.needsUpdate = true;
+    setInstanceCount(boxGeom, nb);
+    iBox.addUpdateRange(0, nb * 4);
+    iBoxAnim.addUpdateRange(0, nb * 4);
+    iBox2.addUpdateRange(0, nb * 4);
+    iBox3.addUpdateRange(0, nb * 4);
+    iBox.needsUpdate = true;
+    iBoxAnim.needsUpdate = true;
+    iBox2.needsUpdate = true;
+    iBox3.needsUpdate = true;
+    setUniforms(boxMat.uniforms, { uSheet: sheet, uSheetSoft: sheetSoft, uAspect: look.boxAspect, uRest: look.boxRest, uPaper: paper ? 1 : 0, uInk: look.ink, uFrame: look.frame, uGain: look.exposure });
+    // on paper the boxes stand on the exposure layer (InkPaper draws it into the feedback); otherwise in the scene
+    if (boxMesh.current) boxMesh.current.layers.set(paper ? EXPOSURE_LAYER : 0);
+    // the paper's labels, a few times a second: the nearest three within labelDist
+    labelTimer.current += dt;
+    if (labelTimer.current > 0.3) {
+      labelTimer.current = 0;
+      if (paper && look.labelDist > 0) {
+        const near: { id: string; x: number; y: number; z: number; d: number }[] = [];
+        for (const [id, p] of P) {
+          const d = Math.hypot(p.x - me.x, p.z - me.z);
+          if (d <= look.labelDist * k && p.alpha > 0.3) near.push({ id, x: p.x, y: heightU * p.hs, z: p.z, d });
+        }
+        near.sort((a, b) => a.d - b.d);
+        const next = near.slice(0, 3).map(({ id, x, y, z }) => ({ id, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2) }));
+        setLabels((prev) => (prev.length === next.length && prev.every((l, i) => l.id === next[i].id && l.x === next[i].x && l.z === next[i].z) ? prev : next));
+      } else if (labels.length) setLabels([]);
+      // the bubbles: a square frame with the asker's melody beside whoever has a question open
+      const bl: { id: string; x: number; y: number; z: number }[] = [];
+      if (look.bubble && look.cue) {
+        for (const [id, until] of asking.current) {
+          const p = P.get(id);
+          if (p && nowMs < until && p.alpha > 0.3) bl.push({ id, x: +p.x.toFixed(2), y: +(heightU * p.hs).toFixed(2), z: +p.z.toFixed(2) });
+        }
+      }
+      setBubbles((prev) => (prev.length === bl.length && prev.every((b, i) => b.id === bl[i].id && b.x === bl[i].x && b.z === bl[i].z) ? prev : bl));
+    }
+    if (plates) {
+      plates.count = look.plate ? np : 0;
+      if (np) plates.instanceMatrix.needsUpdate = true;
+    }
+    setUniforms(mat.uniforms, { uBody: body, uSize: look.dot * k, uMaxPx: look.maxPx, uGrey: paper ? 0.08 : look.grey, uBreath: look.breath, uVariety: look.variety, uTime: now, uScale: (state.size.height * state.viewport.dpr) / 2 });
+    // a readout for the console (like __parliament): how many bodies and copies are drawn, and the nearest body
+    let nearest: { d: number; x: number; z: number; speed: number } | null = null;
+    for (const p of P.values()) {
+      const d = Math.hypot(p.x - me.x, p.z - me.z);
+      if (!nearest || d < nearest.d) nearest = { d: +d.toFixed(1), x: +p.x.toFixed(1), z: +p.z.toFixed(1), speed: +Math.hypot(p.vx, p.vz).toFixed(2) };
+    }
+    (window as unknown as { __street?: unknown }).__street = { mode: look.mode, people: P.size, instances: boxes ? nb : n, points, copies, nearest, me: { x: +me.x.toFixed(1), z: +me.z.toFixed(1) } };
+  });
+
+  return (
+    <>
+      {look.mode === "boxes" ? <mesh ref={boxMesh} geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
+      {/* 흰 바탕: the record device's labels — the being's number and a leader line, by the nearest few */}
+      {look.paper &&
+        labels.map((l) => (
+          <Html key={l.id} position={[l.x, l.y, l.z]} style={{ pointerEvents: "none" }} zIndexRange={[5, 0]}>
+            <div style={{ transform: "translate(6px, -34px)", width: 26, height: 28, borderLeft: "1px solid #444", borderBottom: "1px solid #444", borderRadius: "0 0 0 1px" }} />
+            {/* the name is the melody (the artist: "이름은 봇_숫자가 아니라 멜로디 음형으로") */}
+            <div style={{ position: "absolute", left: 34, top: -46, filter: "invert(1)" }}>
+              <Glyph dots={glyphOf(l.id)} cell={2} live />
+            </div>
+          </Html>
+        ))}
+      {/* the asker's bubble (TD): a square frame with their melody glyph, beating with the bar, beside them while the question is open */}
+      {bubbles.map((b) => (
+        <Html key={`bubble-${b.id}`} position={[b.x, b.y, b.z]} style={{ pointerEvents: "none" }} zIndexRange={[6, 0]}>
+          <div className="hud-blink" style={{ transform: "translate(14px, -46px)", border: `1px solid ${look.paper ? "#111" : "#fff"}`, background: look.paper ? "rgba(244,242,236,0.85)" : "rgba(0,0,0,0.6)", padding: "5px 6px", filter: look.paper ? "invert(1)" : undefined }}>
+            <Glyph dots={glyphOf(b.id)} cell={3} live />
+          </div>
+        </Html>
+      ))}
+      {look.plate && look.mode === "points" && (
+        <instancedMesh ref={plateMesh} args={[plateGeom, undefined, MAX_PEOPLE]} frustumCulled={false} renderOrder={8}>
+          <meshBasicMaterial color="#ffffff" transparent opacity={look.plateAlpha} depthWrite={false} side={THREE.DoubleSide} fog={fogOn} />
+        </instancedMesh>
+      )}
+    </>
+  );
+}

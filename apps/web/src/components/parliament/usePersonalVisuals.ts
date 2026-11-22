@@ -10,12 +10,18 @@
  *   grass       how the grass reacts to the walker at once and how it is drawn (DitherGround, NatureCloud)
  *   marks       the others, the concrete (Marks.tsx, lib/parliament/marks.ts), the seed heads the answers left
  *               (Dandelions.tsx); the paths stay on the ground (PathLines)
+ *   street      길거리 (2026-11-22, a trial behind a switch; docs/street-feel.md): the others as walking point silhouettes
+ *               (PointPeople.tsx), the eye at a person's height, a depth fog in the brutal look — off = the look as it was
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { folder, useControls } from "leva";
 import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
+import { DEFAULT_PEOPLE, type PeopleLook, type PeopleMode } from "./PointPeople";
+import { setStreetGround } from "./streetLook";
+import type { LogPlace } from "./StreetHud";
+import { DEFAULT_INK, type InkPaperLook } from "./InkPaper";
 import { savable } from "./levaSave";
 import { useParliamentVersion } from "./version";
 
@@ -60,12 +66,49 @@ export interface CardVisual {
   orient: PlateOrient;
 }
 
+/** 길거리 (2026-11-22): what the street trial switches on; `on` false = nothing of it runs. */
+export interface StreetVisual {
+  on: boolean;
+  /** The others as walking point silhouettes (PointPeople) in place of the squares. */
+  people: boolean;
+  look: PeopleLook;
+  /** The eye at a person's height just behind the walker, looking level. */
+  eye: { on: boolean; height: number; back: number; look: number };
+  /** A black depth fog in the brutal look (the 화면 folder's near / far). */
+  fog: boolean;
+  /** The walker's speed (world/s; 7 as it was — a person walks 1.4, a bot 2.2). */
+  walkSpeed: number;
+  /** 시야 반경 (2026-11-22 evening): the fog pulled in to this radius (world) — beyond it nothing shows, like a night street. */
+  view: { on: boolean; radius: number };
+  /** 방향 말: a line of words for the nearest one between the eye's reach and this radius (world), every so often. */
+  hints: { on: boolean; radius: number; everySec: number };
+  /** Where the log stands: "auto" = with the eye at a person's height, a left column on a laptop and a top strip on a phone. */
+  logPlace: LogPlace | "auto";
+  /** 흰 바탕 (오가닉): the personal view on paper (streetLook.ts). */
+  paper: boolean;
+  /** 먹과 종이: the finish pass (InkPaper). */
+  ink: InkPaperLook;
+}
+
+const PEOPLE_MODES: Record<string, PeopleMode> = {
+  "깜빡이는 상자 속 실루엣 — 상자는 지금 네모(멜로디로 깜빡임), 안에 걷는 실루엣": "boxes",
+  "점 실루엣 — 점 480개의 몸": "points",
+};
+
+const LOG_PLACES: Record<string, LogPlace | "auto"> = {
+  "자동 — 눈높이면 랩탑은 왼쪽 패널 · 폰은 위쪽 띠, 아니면 아래": "auto",
+  "아래 (지금)": "bottom",
+  "왼쪽 세로 패널": "left",
+  "위쪽 띠": "top",
+};
+
 export interface PersonalVisuals {
   look: Look;
   footprint: boolean;
   card: CardVisual;
   grass: GrassVisual;
   marks: MarksVisual;
+  street: StreetVisual;
 }
 
 const ROOT = "개인뷰 비주얼";
@@ -159,6 +202,103 @@ export function usePersonalVisuals(): PersonalVisuals {
         concreteBright: { value: 0.6, min: 0.1, max: 1, step: 0.05, label: "밝기", render: v2 },
         concreteRadius: { value: 36, min: 6, max: 80, step: 1, label: "보이는 반경 (월드)", render: v2 },
       }),
+      // 길거리 (2026-11-22): a trial — everything here is off by default, so the look stays what it was. Grouped by what
+      // changes (the artist, 2026-11-22 night: "레바 좀 정리해가면서"); keys unchanged, so saved values carry over; the knobs
+      // the look under review no longer leans on sit in 시험, collapsed, their saves kept.
+      "길거리 (시험 · 11/22)": folder(
+        {
+          streetOn: { value: true, label: "켜기 (끄면 아래 모두 꺼짐)", render: v2 },
+          paperOn: { value: true, label: "흰 바탕 — 장노출 (끄면 검은 바탕의 상자)", render: v2 },
+          "눈": folder({
+            eyeOn: { value: true, label: "눈높이 카메라", render: v2 },
+            eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
+            eyeBack: { value: 0, min: 0, max: 8, step: 0.1, label: "뒤로 (m; 0 = 1인칭)", render: v2 },
+            eyeLook: { value: 6, min: 2, max: 20, step: 0.5, label: "시선이 닿는 거리 (m)", render: v2 },
+            walkSpeed: { value: 2.5, min: 0.5, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 봇 2.2)", render: v2 },
+            ppScale: { value: DEFAULT_PEOPLE.scale, min: 0.5, max: 8, step: 0.1, label: "척도 — 1 월드 = 몇 m", render: v2 },
+          }),
+          "사람": folder({
+            streetPeople: { value: true, label: "사람을 아래 방식으로 (끄면 옛 네모)", render: v2 },
+            ppMode: { options: PEOPLE_MODES, value: DEFAULT_PEOPLE.mode, label: "그리기", render: v2 },
+            ppGait: { options: { "모캡 걷기 — CMU 실제 보행 넷 (사람마다 하나)": "mocap", "사인 걷기 — 절차적 골격": "sine" } as Record<string, "mocap" | "sine">, value: DEFAULT_PEOPLE.gait, label: "걸음", render: v2 },
+            ppHeight: { value: DEFAULT_PEOPLE.height, min: 1, max: 2.4, step: 0.05, label: "키 (m, 평균)", render: v2 },
+            ppVariety: { value: DEFAULT_PEOPLE.variety, min: 0, max: 1, step: 0.05, label: "다양성 — 키·체격·걸음", render: v2 },
+            paperVariety: { value: 1, min: 0, max: 1, step: 0.05, label: "다양성 — 진하기·번짐·창의 기울기", render: v2 },
+            ppMaxCadence: { value: DEFAULT_PEOPLE.maxCadence, min: 0.8, max: 4, step: 0.1, label: "걸음 박자 상한 (걸음/s)", render: v2 },
+            ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있으면 가까운 이를 마주 봄", render: v2 },
+            ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
+          }),
+          "지나간 자리": folder({
+            paperExposure: { value: 0.5, min: 0.05, max: 2, step: 0.05, label: "노출 — 한 프레임이 남기는 양", render: v2 },
+            inkDecay: { value: DEFAULT_INK.decay, min: 0.8, max: 0.99, step: 0.005, label: "잔상 — 프레임당 남는 비율", render: v2 },
+            inkDensity: { value: DEFAULT_INK.density, min: 0.2, max: 1, step: 0.02, label: "쌓인 것의 최대 어두움", render: v2 },
+            paperInk: { value: 0.9, min: 0.2, max: 1, step: 0.05, label: "몸의 진하기", render: v2 },
+            paperFlicker: { value: true, label: "표본마다 점프 (보간 없음)", render: v2 },
+            paperStretch: { value: 1, min: 0, max: 3, step: 0.1, label: "창이 이동만큼 늘어남 (배수)", render: v2 },
+            paperShake: { value: 2, min: 0, max: 8, step: 0.5, label: "표본이 올 때 떨림 (cm)", render: v2 },
+            paperTail: { value: 1.6, min: 0.2, max: 6, step: 0.1, label: "사라질 때 꼬리 (s)", render: v2 },
+            paperFrame: { value: 1, min: 0, max: 2, step: 0.1, label: "창 필름의 세기", render: v2 },
+            paperAspectMin: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "창 비율 최소 (폭/키)", render: v2 },
+            paperAspectMax: { value: 1.3, min: 0.2, max: 2.5, step: 0.05, label: "창 비율 최대", render: v2 },
+          }),
+          "사진": folder({
+            inkNarrow: { value: DEFAULT_INK.narrow, min: 0, max: 8, step: 0.1, label: "가까운 흐림 (px)", render: v2 },
+            inkWide: { value: DEFAULT_INK.wide, min: 0, max: 24, step: 0.5, label: "먼 흐림 (px)", render: v2 },
+            inkFade: { value: DEFAULT_INK.fade, min: 0, max: 1, step: 0.05, label: "멀수록 옅어짐", render: v2 },
+            inkRolloff: { value: DEFAULT_INK.rolloff, min: 0, max: 1, step: 0.05, label: "밝은 쪽이 부드럽게 날아감", render: v2 },
+            inkGrain: { value: DEFAULT_INK.grain, min: 0, max: 0.03, step: 0.001, label: "입자", render: v2 },
+          }),
+          "말 걸기": folder({
+            ppCue: { value: DEFAULT_PEOPLE.cue, label: "말 거는 이의 창이 커짐", render: v2 },
+            askTurn: { value: true, label: "시선이 그쪽으로 돌아감 (손대면 멈춤)", render: v2 },
+            askRipple: { value: true, label: "창에서 사각 파문", render: v2 },
+            paperBubble: { value: true, label: "옆에 멜로디 기호 버블", render: v2 },
+          }),
+          "거리": folder({
+            paperBlot: { value: 8, min: 2, max: 24, step: 0.5, label: "여기서 그리는 반경 (월드; 밖은 스캔)", render: v2 },
+            paperLabel: { value: 4, min: 0, max: 12, step: 0.5, label: "개체 라벨 거리 (월드; 0 = 없음)", render: v2 },
+            hintsOn: { value: true, label: "안 보이는 이를 말로 — 방향 말", render: v2 },
+            hintRadius: { value: 12, min: 4, max: 24, step: 0.5, label: "말이 닿는 거리 (월드)", render: v2 },
+            hintEvery: { value: 6, min: 2, max: 20, step: 1, label: "말 사이 간격 (s)", render: v2 },
+            viewOn: { value: false, label: "시야 반경 — 밖은 안 보임", render: v2 },
+            viewRadius: { value: 8, min: 2, max: 24, step: 0.5, label: "시야 반경 (월드)", render: v2 },
+          }),
+          logPlace: { options: LOG_PLACES, value: "auto" as LogPlace | "auto", label: "로그의 자리", render: v2 },
+          "땅": folder({
+            groundOn: { value: true, label: "길이 난 칸의 닳음", render: v2 },
+            groundWear: { value: 0.7, min: 0, max: 1, step: 0.05, label: "닳음 세기", render: v2 },
+            groundGrey: { value: 0.42, min: 0.05, max: 1, step: 0.02, label: "닳은 땅의 회색", render: v2 },
+            windDepth: { value: 0.5, min: 0, max: 1, step: 0.05, label: "바람 — 풀 면의 결", render: v2 },
+            windSpeed: { value: 1, min: 0.2, max: 4, step: 0.1, label: "바람 속도", render: v2 },
+            grassSway: { value: 0.5, min: 0, max: 2, step: 0.1, label: "네모 점 풀의 흔들림", render: v2 },
+            groundOnPaper: { value: false, label: "흰 바탕에서도 땅 면을 그림", render: v2 },
+          }),
+          "시험 (점 몸 · 옛 노브)": folder({
+            ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "점 몸: 점 수", render: v2 },
+            ppPointsPhone: { value: DEFAULT_PEOPLE.pointsPhone, min: 32, max: 480, step: 16, label: "점 몸: 폰 점 수", render: v2 },
+            ppDot: { value: DEFAULT_PEOPLE.dot, min: 0.01, max: 0.3, step: 0.005, label: "점 몸: 점 크기 (m)", render: v2 },
+            ppMaxPx: { value: DEFAULT_PEOPLE.maxPx, min: 2, max: 24, step: 1, label: "점 몸: 점 최대 (px)", render: v2 },
+            ppGrey: { value: DEFAULT_PEOPLE.grey, min: 0.2, max: 1, step: 0.02, label: "점 몸: 회색", render: v2 },
+            ppBreath: { value: DEFAULT_PEOPLE.breath, min: 0, max: 3, step: 0.1, label: "점 몸: 숨", render: v2 },
+            ppSmearSec: { value: DEFAULT_PEOPLE.smearSec, min: 0, max: 8, step: 0.25, label: "점 몸: 번짐 (s)", render: v2 },
+            ppSmearCopies: { value: DEFAULT_PEOPLE.smearCopies, min: 1, max: 8, step: 1, label: "점 몸: 번짐 복사본", render: v2 },
+            ppPlate: { value: DEFAULT_PEOPLE.plate, label: "점 몸: 세운 판", render: v2 },
+            ppPlateAlpha: { value: DEFAULT_PEOPLE.plateAlpha, min: 0.02, max: 0.5, step: 0.01, label: "점 몸: 판 불투명도", render: v2 },
+            ppFog: { value: DEFAULT_PEOPLE.fog, label: "점 몸: 안개를 받음", render: v2 },
+            ppMaxSpeed: { value: DEFAULT_PEOPLE.maxSpeed, min: 1, max: 6, step: 0.1, label: "보간 최고 속도 (월드/s)", render: v2 },
+            meBody: { value: DEFAULT_PEOPLE.meBody, label: "나 = 내 등 (점 몸)", render: v2 },
+            meRest: { value: DEFAULT_PEOPLE.meRest, min: 0, max: 1, step: 0.05, label: "내 몸: 쉴 때 밝기", render: v2 },
+            ppBoxAspect: { value: DEFAULT_PEOPLE.boxAspect, min: 0.3, max: 1.2, step: 0.05, label: "검은 바탕 상자: 폭", render: v2 },
+            ppBoxRest: { value: DEFAULT_PEOPLE.boxRest, min: 0.05, max: 0.6, step: 0.01, label: "검은 바탕 상자: 쉴 때 회색", render: v2 },
+            streetFog: { value: false, label: "검은 바탕: 깊이 안개", render: v2 },
+            paperBlur: { value: 3, min: 0, max: 8, step: 0.5, label: "옛: 시트 번짐 (px)", render: v2 },
+            paperFade: { value: 12, min: 3, max: 30, step: 0.5, label: "옛: 필름 옅어지는 거리", render: v2 },
+            groundSeam: { value: 0.6, min: 0, max: 1, step: 0.05, label: "옛: 턱", render: v2 },
+            groundGrain: { value: 0.5, min: 0, max: 1, step: 0.05, label: "옛: 결", render: v2 },
+          }, { collapsed: true }),
+        },
+        { collapsed: false },
+      ),
     }),
     { collapsed: false, order: 1 },
   );
@@ -184,7 +324,8 @@ export function usePersonalVisuals(): PersonalVisuals {
   const marks = useMemo<MarksVisual>(
     () => ({
       others: {
-        on: c.othersOn,
+        // the street trial's silhouettes stand in for the squares
+        on: c.othersOn && !(c.streetOn && c.streetPeople),
         size: brutal ? c.otherSquare : c.otherSize,
         height: brutal ? 0.2 : c.otherHeight,
         bright: c.otherBright,
@@ -201,8 +342,74 @@ export function usePersonalVisuals(): PersonalVisuals {
       burst: { on: c.burstOn, count: c.burstCount, reach: c.burstReach, lifeSec: c.burstLife, dot: c.burstDot },
       on: c.othersOn || c.concreteOn,
     }),
-    [brutal, c.othersOn, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
+    [brutal, c.othersOn, c.streetOn, c.streetPeople, c.otherSquare, c.otherSize, c.otherHeight, c.otherBright, c.otherRecent, c.otherHalo, c.otherHaloStrength, c.otherFog, c.otherPulse, c.otherHold, c.otherSnap, c.concreteOn, c.concreteHeight, c.concreteBright, c.concreteRadius, c.concreteStyle, c.outlineScale, c.burstOn, c.burstCount, c.burstReach, c.burstLife, c.burstDot],
   );
   const card = useMemo<CardVisual>(() => ({ theme: c.cardTheme, orient: c.cardOrient }), [c.cardTheme, c.cardOrient]);
-  return { look: c.look, footprint: c.footprint, card, grass, marks };
+  const street = useMemo<StreetVisual>(
+    () => ({
+      on: c.streetOn,
+      people: c.streetOn && c.streetPeople,
+      look: {
+        mode: c.ppMode,
+        paper: c.streetOn && c.paperOn,
+        ink: c.paperInk,
+        blur: c.paperBlur,
+        fadeDist: c.paperFade,
+        labelDist: c.paperLabel,
+        flicker: c.paperFlicker,
+        stretchGain: c.paperStretch,
+        shake: c.paperShake,
+        blotDist: c.viewOn ? c.viewRadius : c.paperBlot,
+        bubble: c.paperBubble,
+        aspectMin: Math.min(c.paperAspectMin, c.paperAspectMax),
+        aspectMax: Math.max(c.paperAspectMin, c.paperAspectMax),
+        tailSec: c.paperTail,
+        exposure: c.paperExposure,
+        frame: c.paperFrame,
+        askTurn: c.askTurn,
+        ripple: c.askRipple,
+        paperVariety: c.paperVariety,
+        boxAspect: c.ppBoxAspect,
+        boxRest: c.ppBoxRest,
+        cue: c.ppCue,
+        points: c.ppPoints,
+        pointsPhone: c.ppPointsPhone,
+        scale: c.ppScale,
+        dot: c.ppDot,
+        maxPx: c.ppMaxPx,
+        grey: c.ppGrey,
+        height: c.ppHeight,
+        variety: c.ppVariety,
+        gait: c.ppGait,
+        maxCadence: c.ppMaxCadence,
+        plate: c.ppPlate,
+        plateAlpha: c.ppPlateAlpha,
+        smearSec: c.ppSmearSec,
+        smearCopies: c.ppSmearCopies,
+        breath: c.ppBreath,
+        fog: c.ppFog,
+        maxSpeed: c.ppMaxSpeed,
+        recentSec: c.otherRecent,
+        faceEach: c.ppFaceEach,
+        faceRadius: c.ppFaceRadius,
+        meBody: c.meBody,
+        meRest: c.meRest,
+      },
+      // the eye's lengths are metres: divided by the scale into world units
+      eye: { on: c.streetOn && c.eyeOn, height: c.eyeHeight / c.ppScale, back: c.eyeBack / c.ppScale, look: c.eyeLook / c.ppScale },
+      fog: c.streetOn && c.streetFog,
+      walkSpeed: c.streetOn ? c.walkSpeed : 7,
+      view: { on: c.streetOn && c.viewOn, radius: c.viewRadius },
+      hints: { on: c.streetOn && c.hintsOn, radius: c.hintRadius, everySec: c.hintEvery },
+      logPlace: c.streetOn ? c.logPlace : "bottom",
+      paper: c.streetOn && c.paperOn,
+      ink: { narrow: c.inkNarrow, wide: c.inkWide, decay: c.inkDecay, gain: c.paperExposure, density: c.inkDensity, fade: c.inkFade, grain: c.inkGrain, rolloff: c.inkRolloff },
+    }),
+    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.paperVariety, c.paperExposure, c.paperFrame, c.askTurn, c.askRipple, c.inkNarrow, c.inkWide, c.inkDecay, c.inkDensity, c.inkFade, c.inkGrain, c.inkRolloff, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.ppGait, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+  );
+  // the ground's part of the street look goes to the components RoleField mounts, through the module value
+  useEffect(() => {
+    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway, viewFog: c.streetOn && c.viewOn, paper: c.streetOn && c.paperOn, groundOnPaper: c.groundOnPaper, ink: c.paperInk, blur: c.paperBlur, fadeDist: c.paperFade, labelDist: c.paperLabel, blotDist: c.viewOn ? c.viewRadius : c.paperBlot });
+  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway, c.viewOn, c.viewRadius, c.paperOn, c.groundOnPaper, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperBlot]);
+  return { look: c.look, footprint: c.footprint, card, grass, marks, street };
 }

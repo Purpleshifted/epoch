@@ -21,6 +21,10 @@ import * as THREE from "three";
 import { Leva, folder, useControls } from "leva";
 import { PlayerCursor } from "@/components/mobile/scene/PlayerCursor";
 import { RoleField, type ParliamentDebug, type Visitor } from "./RoleField";
+import { PointPeople } from "./PointPeople";
+import { StreetHud, type LogPlace } from "./StreetHud";
+import { PAPER, streetGaze } from "./streetLook";
+import { InkPaper } from "./InkPaper";
 import { LEVA_THEME, useFoldControls, useNatureControls } from "./useWorld";
 import { savable } from "./levaSave";
 import { useSound } from "./useSound";
@@ -132,6 +136,9 @@ function Controller({
   tiltRef,
   coarse = false,
   getRhythm,
+  eye,
+  walkSpeed = 7,
+  hideCursor = false,
 }: {
   playerPosRef: React.MutableRefObject<PlayerState>;
   playerYawRef: React.MutableRefObject<number>;
@@ -148,6 +155,12 @@ function Controller({
   coarse?: boolean;
   /** The visitor's square blinks their melody (lib/parliament/glyph.ts). */
   getRhythm?: () => boolean[] | null;
+  /** 길거리 (2026-11-22, a trial): the eye at a person's height just behind the walker, looking level; off = as it was. */
+  eye?: { on: boolean; height: number; back: number; look: number };
+  /** Forward speed (world/s; 7 as it was — 길거리 has a knob); sideways is 4.5/7 of it. */
+  walkSpeed?: number;
+  /** 길거리: the visitor's own body (PointPeople) stands in for the square. */
+  hideCursor?: boolean;
 }) {
   const { camera, gl } = useThree();
   const keys = useKeys();
@@ -159,6 +172,8 @@ function Controller({
   const group = useRef<THREE.Group>(null);
   /** A phone: a finger is on the screen (= walking). */
   const pressing = useRef(false);
+  /** When the visitor last turned the look themself (ms): the gaze's turn to an asker yields to it. */
+  const lastLook = useRef(0);
 
   useEffect(() => {
     const c = gl.domElement;
@@ -170,6 +185,7 @@ function Controller({
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
+      lastLook.current = performance.now();
       yaw.current -= e.movementX * 0.0025 * look;
       pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + e.movementY * 0.002 * look));
     };
@@ -213,6 +229,7 @@ function Controller({
       const h = L ? hindrance(L.warn, performance.now() / 1000) : null;
       if (h?.dropped) return;
       const look = h?.look ?? 1;
+      if (Math.abs(dx) > 2) lastLook.current = performance.now();
       yaw.current -= dx * TOUCH_TURN_RAD_PER_PX * look;
       pitch.current = Math.max(0.05, Math.min(1.2, pitch.current + dy * TOUCH_PITCH_RAD_PER_PX * look));
     };
@@ -239,7 +256,7 @@ function Controller({
     };
   }, [gl, setLocked, lifeRef, coarse]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const p = player.current;
     const k = keys.current;
     const dt = Math.min(delta, 0.05);
@@ -253,6 +270,13 @@ function Controller({
     const tl = tiltRef?.current;
     const tilt = !dead && coarse && tl?.active ? tl : null;
     if (tilt && tilt.turn !== 0) yaw.current -= tilt.turn * TILT_TURN_RATE * (h?.look ?? 1) * dt;
+    // 길거리: whoever asked me something draws the eye — a soft turn their way for a moment, unless I am turning myself
+    const gz = streetGaze;
+    if (gz.on && state.clock.elapsedTime < gz.until && performance.now() - lastLook.current > 400) {
+      let diff = Math.atan2(gz.x - p.x, gz.z - p.z) - yaw.current;
+      diff = ((((diff + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+      yaw.current += diff * Math.min(1, dt * 2.5);
+    }
     const y = yaw.current;
     const tiltFwd = tilt ? (tilt.fwd >= 0 ? tilt.fwd : tilt.fwd * 0.4) : 0;
     const pressFwd = !dead && coarse && pressing.current ? 1 : 0;
@@ -260,8 +284,8 @@ function Controller({
     const bwd = !dead && (k.has("KeyS") || k.has("ArrowDown")) ? 1 : 0;
     const left = !dead && (k.has("KeyA") || k.has("ArrowLeft")) ? 1 : 0;
     const rgt = !dead && (k.has("KeyD") || k.has("ArrowRight")) ? 1 : 0;
-    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd + pressFwd)) * 7.0 * gain;
-    const tgtStrafe = (rgt - left) * 4.5 * gain;
+    const tgtFwd = Math.max(-1, Math.min(1, fwd - bwd * 0.4 + tiltFwd + pressFwd)) * walkSpeed * gain;
+    const tgtStrafe = (rgt - left) * walkSpeed * (4.5 / 7) * gain;
     const tvx = Math.sin(y) * tgtFwd + -Math.cos(y) * tgtStrafe;
     const tvz = Math.cos(y) * tgtFwd + Math.sin(y) * tgtStrafe;
     const drag = (2.0 + (1 - viscosity) * 13.0) * (h?.response ?? 1);
@@ -293,18 +317,29 @@ function Controller({
     playerYawRef.current = y;
     group.current?.position.set(p.x, ORB_Y, p.z);
 
-    const hd = camDist * Math.cos(pitch.current);
-    const vd = camDist * Math.sin(pitch.current);
-    const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + 0.4, p.z - Math.cos(y) * hd);
-    camPos.current.lerp(desired, camLerp);
-    camera.position.copy(camPos.current);
-    lookAt.current.lerp(new THREE.Vector3(p.x, ORB_Y + 0.2, p.z), camLerp * 2);
-    camera.lookAt(lookAt.current);
+    if (eye?.on) {
+      // 길거리: the eye at a person's height, just behind the walker; the pitch the look gives tilts a level gaze
+      const tilt = pitch.current - 0.45;
+      const desired = new THREE.Vector3(p.x - Math.sin(y) * eye.back, eye.height, p.z - Math.cos(y) * eye.back);
+      camPos.current.lerp(desired, camLerp);
+      camera.position.copy(camPos.current);
+      const ahead = eye.look * Math.cos(tilt);
+      lookAt.current.lerp(new THREE.Vector3(p.x + Math.sin(y) * ahead, eye.height - eye.look * Math.sin(tilt), p.z + Math.cos(y) * ahead), camLerp * 2);
+      camera.lookAt(lookAt.current);
+    } else {
+      const hd = camDist * Math.cos(pitch.current);
+      const vd = camDist * Math.sin(pitch.current);
+      const desired = new THREE.Vector3(p.x - Math.sin(y) * hd, ORB_Y + vd + 0.4, p.z - Math.cos(y) * hd);
+      camPos.current.lerp(desired, camLerp);
+      camera.position.copy(camPos.current);
+      lookAt.current.lerp(new THREE.Vector3(p.x, ORB_Y + 0.2, p.z), camLerp * 2);
+      camera.lookAt(lookAt.current);
+    }
   });
 
   return (
     <group ref={group}>
-      <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />
+      {!hideCursor && <PlayerCursor position={[0, -0.25, 0]} getWarn={lifeRef ? () => lifeRef.current.warn : undefined} getRhythm={getRhythm} />}
     </group>
   );
 }
@@ -464,6 +499,17 @@ export default function ParliamentScene() {
   }, [hideChrome]);
 
   const grid = useMemo(() => 100 * CELL_SIZE, []);
+  // 길거리: the fog pulled in to the view radius; the log's place by the eye and the device
+  const street = visuals.street;
+  const viewOn = isV2 && street.view.on;
+  // 흰 바탕 (오가닉): the brutal look on paper — a white ground, a white fog (things pale to nothing)
+  const paper = isV2 && brutal && street.paper;
+  const ground = brutal ? (paper ? PAPER : "#000000") : FOG_COLOR;
+  const paperFog = isV2 && brutal && street.paper && !viewOn;
+  const fogN = viewOn ? street.view.radius * 0.45 : paperFog ? 12 : fogNear;
+  const fogF = viewOn ? street.view.radius : paperFog ? 44 : fogFar;
+  const logPlace: LogPlace = !isV2 || street.logPlace === "bottom" ? "bottom" : street.logPlace === "auto" ? (street.eye.on ? (coarse ? "top" : "left") : "bottom") : street.logPlace;
+  const getFar = useCallback(() => witnessRef.current?.far, []);
 
   return (
     <div
@@ -474,13 +520,14 @@ export default function ParliamentScene() {
       <Leva hidden={hideChrome} theme={LEVA_THEME} />
       <Canvas
         camera={{ position: [0, 4.5, 7], fov: 60 }}
-        dpr={pixelDpr}
+        // 흰 바탕: the personal view is not pixel-bound — the paper is drawn at the device's own density (up to 2), edges soft
+        dpr={paper ? Math.min(2, Math.max(pixelDpr, typeof window !== "undefined" ? window.devicePixelRatio : 1, 1.5)) : pixelDpr}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         // the pixel feel lives in the text (2026-10-28): the 3D is smooth unless the resolution knob is turned down
-        style={{ background: brutal ? "#000" : FOG_COLOR, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
+        style={{ background: ground, imageRendering: pixelDpr < 1 ? "pixelated" : "auto" }}
       >
-        <color attach="background" args={[brutal ? "#000000" : FOG_COLOR]} />
-        {!brutal && <fog attach="fog" args={[FOG_COLOR, fogNear, fogFar]} />}
+        <color attach="background" args={[ground]} />
+        {(!brutal || (isV2 && (visuals.street.fog || viewOn || paper))) && <fog attach="fog" args={[ground, fogN, fogF]} />}
         <ambientLight intensity={0.35} />
         <directionalLight position={[8, 15, 6]} intensity={0.9} color="#c8d8f0" />
         {/* the ground: faint cell lines (one cell = CELL_SIZE), carried along under the player */}
@@ -497,6 +544,9 @@ export default function ParliamentScene() {
           tiltRef={tiltRef}
           coarse={coarse}
           getRhythm={withSession ? getRhythm : undefined}
+          eye={isV2 ? visuals.street.eye : undefined}
+          walkSpeed={isV2 ? visuals.street.walkSpeed : 7}
+          hideCursor={(isV2 && withSession && visuals.street.people && visuals.street.look.meBody) || paper}
         />
         <RoleField
           key={`field-${session.sessionNo}`}
@@ -524,13 +574,34 @@ export default function ParliamentScene() {
           answers={answers}
           future={isV2 ? future : undefined}
         />
+        {/* 길거리 (2026-11-22, a trial): the others as walking point silhouettes, read from the record's far list */}
+        {/* 먹과 종이: the finish pass over the whole frame while the paper look is on (InkPaper) */}
+        {paper && <InkPaper look={street.ink} fogFar={fogF} />}
+        {isV2 && withSession && visuals.street.people && (
+          <PointPeople
+            getOthers={() => witnessRef.current?.far ?? null}
+            playerPosRef={playerPosRef}
+            look={visuals.street.look}
+            phone={coarse}
+            me={{ get: () => ({ ...playerPosRef.current, heading: playerYawRef.current }), rhythm: getRhythm }}
+            viewFog={viewOn}
+          />
+        )}
       </Canvas>
       {/* the peek into the future (FuturePresence.tsx mode "peek"): the phone's button, the desktop's key, while live */}
       {isV2 && future.on && future.mode === "peek" && (!withSession || session.phase === "live") && <FuturePeekButton coarse={coarse} />}
 
+      {/* 흰 바탕: the log keeps its shape and place, its colours turned for paper while the life runs (the dark screens
+          before and after stay as they are) */}
+      <div className="pointer-events-none absolute inset-0" style={paper && session.phase === "live" ? { filter: "invert(1)" } : undefined}>
       {withSession && !demo && (
-        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} />
+        <SessionHud key={session.sessionNo} session={session} witnessRef={witnessRef} visitorRef={visitorRef} ledgerRef={ledgerRef} locked={locked} lifeSec={lifeSec} lang={lang} helpLine={helpLine} holdSec={holdSec} noticeLineSec={noticeLineSec} coarse={coarse} footprint={visuals.footprint} card={visuals.card} venue={venueParam} recordingUrl={recordingQr} uploadRecording={uploadLifeRecording} onAnswer={onAnswer} onFound={onFound} logPlace={logPlace} />
       )}
+      {/* 길거리 › 방향 말: the nearest one beyond the eye's reach, as a line beside the log (StreetHud) */}
+      {withSession && !demo && isV2 && street.hints.on && session.phase === "live" && (
+        <StreetHud getFar={getFar} playerPosRef={playerPosRef} playerYawRef={playerYawRef} place={logPlace} lang={lang} coarse={coarse} nearRadius={viewOn ? street.view.radius : 8} farRadius={street.hints.radius} everySec={street.hints.everySec} />
+      )}
+      </div>
       {/* sound wiring (v4 A2): the artist's NoiseCraft patch as a hidden instrument, playing while LIVE */}
       {sound && sound.params.instrument !== "webaudio" && <NoiseCraftHost sound={sound} live={!withSession || session.phase === "live"} />}
       {sound && withSession && <AfterglowSound sound={sound} />}

@@ -17,6 +17,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CELL_SIZE } from "@/lib/stratum/field";
 import { hash2, outlineSegments, rhythmOf, scatterPoints, stepAt, type ConcreteLine, type OtherMark } from "@/lib/parliament";
+import { streetGround } from "./streetLook";
 
 export interface MarksData {
   others: OtherMark[];
@@ -260,12 +261,60 @@ export function ConcreteLines({ getMarks, height = 40, bright = 0.6 }: { getMark
 export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => MarksData | null; scale?: number }) {
   const geom = useMemo(() => lineGeom(MAX_OUTLINE_SEGS * 2), []);
   const timer = useRef(10);
-  useEffect(() => () => geom.dispose(), [geom]);
+  const mat = useRef<THREE.LineBasicMaterial>(null);
+  // 흰 바탕 (streetLook.ts): the building as a soft grey SMUDGE on the paper — one soft point a cell (two for a tall one),
+  // overlapping into a mass; the outline is hidden then
+  const smudgeGeom = useMemo(() => lineGeom(MAX_CONCRETE * 2), []);
+  const smudgeTex = useMemo(() => glowTexture(), []);
+  const lines = useRef<THREE.LineSegments>(null);
+  const smudge = useRef<THREE.Points>(null);
+  useEffect(
+    () => () => {
+      geom.dispose();
+      smudgeGeom.dispose();
+      smudgeTex.dispose();
+    },
+    [geom, smudgeGeom, smudgeTex],
+  );
   useFrame((_, dt) => {
+    const paper = streetGround.on && streetGround.paper;
+    if (lines.current) lines.current.visible = !paper;
+    if (smudge.current) smudge.current.visible = paper;
+    // 길거리 › 시야 반경 (streetLook.ts): beyond it nothing shows, the outlines included — the fog is switched on the
+    // material (a recompile, once per change); off = fog-less, as it was
+    const m = mat.current;
+    const want = streetGround.on && streetGround.viewFog;
+    if (m && m.fog !== want) {
+      m.fog = want;
+      m.needsUpdate = true;
+    }
     timer.current += dt;
     if (timer.current < REFRESH) return;
     timer.current = 0;
-    const segs = outlineSegments(getMarks()?.concrete ?? [], scale);
+    const cells = getMarks()?.concrete ?? [];
+    if (paper) {
+      const pos = smudgeGeom.getAttribute("position") as THREE.BufferAttribute;
+      const col = smudgeGeom.getAttribute("color") as THREE.BufferAttribute;
+      const P = pos.array as Float32Array, C = col.array as Float32Array;
+      let v = 0;
+      for (const c of cells) {
+        if (v + 2 > MAX_CONCRETE * 2) break;
+        const top = Math.max(0.2, c.h * scale);
+        const shade = 0.55 - 0.15 * Math.min(1, c.h / 3);
+        for (const y of top > 1.6 ? [top * 0.3, top * 0.75] : [top * 0.5]) {
+          P[v * 3] = c.x;
+          P[v * 3 + 1] = y;
+          P[v * 3 + 2] = c.z;
+          C[v * 3] = C[v * 3 + 1] = C[v * 3 + 2] = shade;
+          v++;
+        }
+      }
+      smudgeGeom.setDrawRange(0, v);
+      pos.needsUpdate = true;
+      col.needsUpdate = true;
+      return;
+    }
+    const segs = outlineSegments(cells, scale);
     const pos = geom.getAttribute("position") as THREE.BufferAttribute;
     const col = geom.getAttribute("color") as THREE.BufferAttribute;
     const n = Math.min(segs.length / 6, MAX_OUTLINE_SEGS);
@@ -276,9 +325,14 @@ export function ConcreteOutline({ getMarks, scale = 1 }: { getMarks: () => Marks
     col.needsUpdate = true;
   });
   return (
-    <lineSegments geometry={geom} frustumCulled={false}>
-      <lineBasicMaterial vertexColors fog={false} />
-    </lineSegments>
+    <>
+      <lineSegments ref={lines} geometry={geom} frustumCulled={false}>
+        <lineBasicMaterial ref={mat} vertexColors fog={false} />
+      </lineSegments>
+      <points ref={smudge} geometry={smudgeGeom} frustumCulled={false} visible={false} renderOrder={3}>
+        <pointsMaterial size={CELL_SIZE * 2.2} sizeAttenuation vertexColors map={smudgeTex} transparent opacity={0.4} depthWrite={false} />
+      </points>
+    </>
   );
 }
 
