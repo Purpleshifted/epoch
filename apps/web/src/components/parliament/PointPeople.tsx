@@ -18,10 +18,22 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { nearestImage, stepAt, type Other } from "@/lib/parliament";
-import { DEFAULT_BODY, DEFAULT_MOTION, bakeWalk, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { DEFAULT_WITNESS, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
+import { DEFAULT_BODY, DEFAULT_MOTION, bakeWalk, jointsAt, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
+import { onLifeEvent } from "./lifeEvents";
+
+export type PeopleMode = "boxes" | "points";
 
 export interface PeopleLook {
+  /** How the others are drawn (the artist, 2026-11-22 night: "깜빡이는 상자 속에서 사람 실루엣이 걸어가는 것처럼 … 점 낭비 안 해도
+   *  되고"): "boxes" = the old blinking square, body-high, with a walking silhouette inside (a sprite sheet, one draw);
+   *  "points" = the point bodies. */
+  mode: PeopleMode;
+  /** The box's width as a share of its height, and its grey while the melody rests (the old square's SQUARE_REST). */
+  boxAspect: number;
+  boxRest: number;
+  /** Whoever asks me something is cued: their box (or body) grows and brightens while the question is open. */
+  cue: boolean;
   /** Points a body is made of on a desktop, and on a phone (a prefix of the same body). */
   points: number;
   pointsPhone: number;
@@ -62,7 +74,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -93,7 +105,105 @@ interface Person extends PersonMotion {
   hs: number;
   ws: number;
   motion: MotionConfig;
+  /** Boxes: the silhouette walks leftwards on the screen (mirrored); kept while standing. */
+  flip: number;
 }
+
+const SHEET_FRAMES = 16;
+const SHEET_W = 48;
+const SHEET_H = 96;
+
+/**
+ * The walking silhouette as a SPRITE SHEET: the stride's frames drawn side-on (the body walking to the right), white on
+ * nothing, each frame SHEET_W × SHEET_H for a 1.9 m frame — the stroke of each limb is its thickness. Nearest-filtered:
+ * the edge stays hard (brutal). Needs a document (a canvas).
+ */
+function walkSheet(): THREE.Texture {
+  const c = document.createElement("canvas");
+  c.width = SHEET_W * SHEET_FRAMES;
+  c.height = SHEET_H;
+  const g = c.getContext("2d")!;
+  const k = SHEET_H / 1.9; // px a metre
+  g.strokeStyle = "#fff";
+  g.fillStyle = "#fff";
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  for (let f = 0; f < SHEET_FRAMES; f++) {
+    const J = jointsAt(f / SHEET_FRAMES);
+    const ox = f * SHEET_W + SHEET_W / 2, oy = SHEET_H - 2;
+    const X = (p: readonly number[]) => ox + p[2] * k;
+    const Y = (p: readonly number[]) => oy - p[1] * k;
+    const limb = (a: readonly number[], b: readonly number[], w: number) => {
+      g.lineWidth = w * k;
+      g.beginPath();
+      g.moveTo(X(a), Y(a));
+      g.lineTo(X(b), Y(b));
+      g.stroke();
+    };
+    limb(J.hipR, J.kneeR, 0.13);
+    limb(J.kneeR, J.ankleR, 0.11);
+    limb(J.ankleR, J.toeR, 0.08);
+    limb(J.shR, J.elbowR, 0.1);
+    limb(J.elbowR, J.wristR, 0.08);
+    limb(J.pelvis, J.shoulders, 0.3);
+    limb(J.shoulders, J.head, 0.1);
+    g.beginPath();
+    g.arc(X(J.head), Y(J.head), 0.11 * k, 0, Math.PI * 2);
+    g.fill();
+    limb(J.hipL, J.kneeL, 0.13);
+    limb(J.kneeL, J.ankleL, 0.11);
+    limb(J.ankleL, J.toeL, 0.08);
+    limb(J.shL, J.elbowL, 0.1);
+    limb(J.elbowL, J.wristL, 0.08);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  return t;
+}
+
+const BOX_VERT = /* glsl */ `
+uniform float uFrames;
+uniform float uAspect;
+attribute vec4 iBox;      // x, z, height, flip
+attribute vec4 iBoxAnim;  // phase, lit, alpha, cue
+varying vec2 vUv;
+varying float vLit;
+varying float vAlpha;
+#include <fog_pars_vertex>
+void main() {
+  float h = iBox.z;
+  float w = h * uAspect;
+  // a billboard: the box stands facing the eye, its foot on the ground
+  vec4 mvPosition = modelViewMatrix * vec4(iBox.x, 0.0, iBox.y, 1.0);
+  mvPosition.xy += vec2(position.x * w, position.y * h);
+  gl_Position = projectionMatrix * mvPosition;
+  float u = position.x + 0.5;
+  if (iBox.w > 0.5) u = 1.0 - u;
+  float f = floor(fract(iBoxAnim.x) * uFrames);
+  vUv = vec2((f + u) / uFrames, position.y);
+  vLit = iBoxAnim.y;
+  vAlpha = iBoxAnim.z;
+  #include <fog_vertex>
+}`;
+
+const BOX_FRAG = /* glsl */ `
+uniform sampler2D uSheet;
+uniform float uRest;
+varying vec2 vUv;
+varying float vLit;
+varying float vAlpha;
+#include <fog_pars_fragment>
+void main() {
+  if (vAlpha < 0.01) discard;
+  // the box blinks the being's melody as the square did (white on a beat, dark grey at rest); the silhouette inside is
+  // the other way round, so it reads in both
+  float s = texture2D(uSheet, vUv).a;
+  vec3 box = mix(vec3(uRest), vec3(1.0), vLit);
+  vec3 sil = mix(vec3(0.82), vec3(0.05), vLit);
+  gl_FragColor = vec4(mix(box, sil, step(0.5, s)), vAlpha);
+  #include <fog_fragment>
+}`;
 
 /** The same functions of a body's hash the vertex shader uses: its height and build factors (variety 0 … 1). */
 const frac = (x: number) => x - Math.floor(x);
@@ -112,9 +222,10 @@ uniform float uBreath;
 uniform float uVariety;
 uniform float uMaxPx;
 attribute float aPoint;
-attribute vec4 iPos;   // x, y, z, heading
+attribute vec4 iPos;   // x, cue (0 … 1), z, heading
 attribute vec4 iAnim;  // phase, alpha, standing (0 … 1), hash
 varying float vAlpha;
+varying float vCue;
 #include <fog_pars_vertex>
 void main() {
   float f = fract(iAnim.x) * uFrames;
@@ -133,8 +244,11 @@ void main() {
   // a standing body breathes: the chest rises a little, slowly, each in its own time
   float breath = uBreath * iAnim.z * 0.012 * sin(uTime * 1.3 + iAnim.w * 6.2832);
   p.y *= 1.0 + breath * smoothstep(0.6, 1.5, p.y / hs);
+  // cued (asking me something): a little larger
+  p *= 1.0 + 0.15 * iPos.y;
   float c = cos(iPos.w), s = sin(iPos.w);
-  vec3 w = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + iPos.xyz;
+  vec3 w = vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) + vec3(iPos.x, 0.0, iPos.z);
+  vCue = iPos.y;
   vec4 mvPosition = modelViewMatrix * vec4(w, 1.0);
   gl_Position = projectionMatrix * mvPosition;
   gl_PointSize = clamp(uSize * (uScale / -mvPosition.z), 1.0, uMaxPx);
@@ -145,10 +259,11 @@ void main() {
 const FRAG = /* glsl */ `
 uniform float uGrey;
 varying float vAlpha;
+varying float vCue;
 #include <fog_pars_fragment>
 void main() {
   if (vAlpha < 0.01) discard;
-  gl_FragColor = vec4(vec3(uGrey), vAlpha);
+  gl_FragColor = vec4(vec3(mix(uGrey, 1.0, vCue)), vAlpha);
   #include <fog_fragment>
 }`;
 
@@ -216,6 +331,50 @@ export function PointPeople({
     return g;
   }, [points]);
 
+  // the boxes: a billboard quad an instance, the walking silhouette as a sprite sheet
+  const sheet = useMemo(() => walkSheet(), []);
+  const boxGeom = useMemo(() => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0]), 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    g.setAttribute("iBox", new THREE.InstancedBufferAttribute(new Float32Array(MAX_PEOPLE * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("iBoxAnim", new THREE.InstancedBufferAttribute(new Float32Array(MAX_PEOPLE * 4), 4).setUsage(THREE.DynamicDrawUsage));
+    g.instanceCount = 0;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+    return g;
+  }, []);
+  const boxMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSheet: { value: null }, uFrames: { value: SHEET_FRAMES }, uAspect: { value: 0.55 }, uRest: { value: 0.22 } }]),
+        vertexShader: BOX_VERT,
+        fragmentShader: BOX_FRAG,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: fogOn,
+      }),
+    [fogOn],
+  );
+  useEffect(
+    () => () => {
+      boxGeom.dispose();
+      boxMat.dispose();
+      sheet.dispose();
+    },
+    [boxGeom, boxMat, sheet],
+  );
+  // whoever asks me something (the record's lines, as RoleField hears them for the sound): cued while the question is open
+  const asking = useRef(new Map<string, number>());
+  useEffect(
+    () =>
+      onLifeEvent((e) => {
+        if ((e.kind === "word.new" || e.kind === "word.asked") && e.who) asking.current.set(e.who, performance.now() + DEFAULT_WITNESS.askOpenSec * 1000);
+        else if (e.kind === "word.answered" && e.who) asking.current.delete(e.who);
+      }),
+    [],
+  );
+
   const mat = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -278,7 +437,7 @@ export function PointPeople({
         if (!p) {
           if (P.size >= MAX_PEOPLE) continue;
           const h = idHash(o.o);
-          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h) });
+          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0 });
         } else {
           // the record's place is drawn where it lies round the walker (the world wraps): a far jump is the wrap, not a walk
           p.tx = tx;
@@ -292,10 +451,19 @@ export function PointPeople({
     const iPos = geom.getAttribute("iPos") as THREE.InstancedBufferAttribute;
     const iAnim = geom.getAttribute("iAnim") as THREE.InstancedBufferAttribute;
     const A = iPos.array as Float32Array, B = iAnim.array as Float32Array;
-    let n = 0;
+    const iBox = boxGeom.getAttribute("iBox") as THREE.InstancedBufferAttribute;
+    const iBoxAnim = boxGeom.getAttribute("iBoxAnim") as THREE.InstancedBufferAttribute;
+    const BX = iBox.array as Float32Array, BY = iBoxAnim.array as Float32Array;
+    const boxes = look.mode === "boxes";
+    let n = 0, nb = 0;
     const plates = plateMesh.current;
     let np = 0;
     const smearEvery = copies > 0 ? look.smearSec / copies : Infinity;
+    // the melody's step now, and the eye's right (for which way a silhouette walks on the screen)
+    const step = stepAt(performance.now());
+    const cm = state.camera.matrixWorld.elements;
+    const rightX = cm[0], rightZ = cm[2];
+    const nowMs = performance.now();
     for (const [id, p] of P) {
       const gone = now - p.seen > GONE_SEC;
       if (gone && p.alpha <= 0.01) {
@@ -340,9 +508,26 @@ export function PointPeople({
         }
         while (p.trail.length && now - p.trail[0].t > look.smearSec) p.trail.shift();
       } else if (p.trail.length) p.trail.length = 0;
-      if (n < MAX_INSTANCES) {
+      const askUntil = asking.current.get(id);
+      const cue = look.cue && askUntil !== undefined && nowMs < askUntil ? 1 : 0;
+      if (boxes) {
+        if (nb < MAX_PEOPLE) {
+          // which way the silhouette walks on the screen: with the eye's right, or mirrored; a standing one keeps its way
+          const along = p.vx * rightX + p.vz * rightZ;
+          if (speed > motion.standBelow) p.flip = along < 0 ? 1 : 0;
+          BX[nb * 4] = p.x;
+          BX[nb * 4 + 1] = p.z;
+          BX[nb * 4 + 2] = heightU * p.hs * (1 + 0.2 * cue);
+          BX[nb * 4 + 3] = p.flip;
+          BY[nb * 4] = p.phase;
+          BY[nb * 4 + 1] = rhythmOf(id)[step] ? 1 : 0;
+          BY[nb * 4 + 2] = p.alpha;
+          BY[nb * 4 + 3] = cue;
+          nb++;
+        }
+      } else if (n < MAX_INSTANCES) {
         A[n * 4] = p.x;
-        A[n * 4 + 1] = 0;
+        A[n * 4 + 1] = cue;
         A[n * 4 + 2] = p.z;
         A[n * 4 + 3] = p.heading;
         B[n * 4] = p.phase;
@@ -351,6 +536,7 @@ export function PointPeople({
         B[n * 4 + 3] = p.hash;
         n++;
       }
+      if (boxes) p.trail.length = 0;
       for (const c of p.trail) {
         if (n >= MAX_INSTANCES) break;
         const age = (now - c.t) / Math.max(0.1, look.smearSec);
@@ -376,7 +562,7 @@ export function PointPeople({
     // THE VISITOR'S OWN BODY (the artist, 2026-11-22: with the eye at a person's height, must "me" be a square in front
     // of the gaze? — and then how is the melody carried?): their back, a body like the others, walking as they walk;
     // its points go dim while their melody rests and bright on its beats (the square's blink, carried by the body)
-    if (selfIn && look.meBody && n < MAX_INSTANCES) {
+    if (selfIn && look.meBody && !boxes && n < MAX_INSTANCES) {
       const m = selfIn.get();
       const speed = Math.hypot(m.vx ?? 0, m.vz ?? 0);
       const s = self.current;
@@ -403,6 +589,12 @@ export function PointPeople({
     iAnim.addUpdateRange(0, n * 4);
     iPos.needsUpdate = true;
     iAnim.needsUpdate = true;
+    setInstanceCount(boxGeom, nb);
+    iBox.addUpdateRange(0, nb * 4);
+    iBoxAnim.addUpdateRange(0, nb * 4);
+    iBox.needsUpdate = true;
+    iBoxAnim.needsUpdate = true;
+    setUniforms(boxMat.uniforms, { uSheet: sheet, uAspect: look.boxAspect, uRest: look.boxRest });
     if (plates) {
       plates.count = look.plate ? np : 0;
       if (np) plates.instanceMatrix.needsUpdate = true;
@@ -414,13 +606,13 @@ export function PointPeople({
       const d = Math.hypot(p.x - me.x, p.z - me.z);
       if (!nearest || d < nearest.d) nearest = { d: +d.toFixed(1), x: +p.x.toFixed(1), z: +p.z.toFixed(1), speed: +Math.hypot(p.vx, p.vz).toFixed(2) };
     }
-    (window as unknown as { __street?: unknown }).__street = { people: P.size, instances: n, points, copies, nearest, me: { x: +me.x.toFixed(1), z: +me.z.toFixed(1) } };
+    (window as unknown as { __street?: unknown }).__street = { mode: look.mode, people: P.size, instances: boxes ? nb : n, points, copies, nearest, me: { x: +me.x.toFixed(1), z: +me.z.toFixed(1) } };
   });
 
   return (
     <>
-      <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />
-      {look.plate && (
+      {look.mode === "boxes" ? <mesh geometry={boxGeom} material={boxMat} frustumCulled={false} renderOrder={9} /> : <points geometry={geom} material={mat} frustumCulled={false} renderOrder={9} />}
+      {look.plate && look.mode === "points" && (
         <instancedMesh ref={plateMesh} args={[plateGeom, undefined, MAX_PEOPLE]} frustumCulled={false} renderOrder={8}>
           <meshBasicMaterial color="#ffffff" transparent opacity={look.plateAlpha} depthWrite={false} side={THREE.DoubleSide} fog={fogOn} />
         </instancedMesh>

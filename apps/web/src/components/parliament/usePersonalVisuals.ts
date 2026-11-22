@@ -18,7 +18,7 @@ import { useEffect, useMemo } from "react";
 import { folder, useControls } from "leva";
 import type { PlateOrient, PlateTheme } from "@/lib/parliament";
 import type { GrassMode } from "./NatureCloud";
-import { DEFAULT_PEOPLE, type PeopleLook } from "./PointPeople";
+import { DEFAULT_PEOPLE, type PeopleLook, type PeopleMode } from "./PointPeople";
 import { setStreetGround } from "./streetLook";
 import type { LogPlace } from "./StreetHud";
 import { savable } from "./levaSave";
@@ -84,6 +84,11 @@ export interface StreetVisual {
   /** Where the log stands: "auto" = with the eye at a person's height, a left column on a laptop and a top strip on a phone. */
   logPlace: LogPlace | "auto";
 }
+
+const PEOPLE_MODES: Record<string, PeopleMode> = {
+  "깜빡이는 상자 속 실루엣 — 상자는 지금 네모(멜로디로 깜빡임), 안에 걷는 실루엣": "boxes",
+  "점 실루엣 — 점 480개의 몸": "points",
+};
 
 const LOG_PLACES: Record<string, LogPlace | "auto"> = {
   "자동 — 눈높이면 랩탑은 왼쪽 패널 · 폰은 위쪽 띠, 아니면 아래": "auto",
@@ -196,7 +201,11 @@ export function usePersonalVisuals(): PersonalVisuals {
       "길거리 (시험 · 11/22)": folder(
         {
           streetOn: { value: false, label: "켜기 (끄면 아래 모두 꺼짐)", render: v2 },
-          streetPeople: { value: true, label: "사람 = 걷는 점 실루엣 (네모 대신)", render: v2 },
+          streetPeople: { value: true, label: "사람 — 아래 방식으로 (끄면 지금 네모)", render: v2 },
+          ppMode: { options: PEOPLE_MODES, value: DEFAULT_PEOPLE.mode, label: "사람 =", render: v2 },
+          ppBoxAspect: { value: DEFAULT_PEOPLE.boxAspect, min: 0.3, max: 1.2, step: 0.05, label: "상자: 폭 (키의 배수)", render: v2 },
+          ppBoxRest: { value: DEFAULT_PEOPLE.boxRest, min: 0.05, max: 0.6, step: 0.01, label: "상자: 멜로디가 쉴 때 회색", render: v2 },
+          ppCue: { value: DEFAULT_PEOPLE.cue, label: "말 거는 이에게 큐 — 질문이 열린 동안 상자/몸이 커지고 밝아짐", render: v2 },
           ppScale: { value: DEFAULT_PEOPLE.scale, min: 0.5, max: 8, step: 0.1, label: "척도 — 1 월드 = 몇 m (아래 m 값을 나눔; 칸 1.2 월드)", render: v2 },
           ppPoints: { value: DEFAULT_PEOPLE.points, min: 64, max: 800, step: 16, label: "몸 하나의 점 수", render: v2 },
           ppPointsPhone: { value: DEFAULT_PEOPLE.pointsPhone, min: 32, max: 480, step: 16, label: "폰: 점 수", render: v2 },
@@ -213,9 +222,9 @@ export function usePersonalVisuals(): PersonalVisuals {
           ppPlate: { value: DEFAULT_PEOPLE.plate, label: "세운 판 (criswvr; 희미하게)", render: v2 },
           ppPlateAlpha: { value: DEFAULT_PEOPLE.plateAlpha, min: 0.02, max: 0.5, step: 0.01, label: "판 불투명도", render: v2 },
           ppFog: { value: DEFAULT_PEOPLE.fog, label: "점이 안개를 받음", render: v2 },
-          eyeOn: { value: false, label: "눈높이 — 카메라를 사람 키에, 걷는 이 바로 뒤", render: v2 },
+          eyeOn: { value: true, label: "눈높이 — 카메라를 사람 키에, 걷는 이 바로 뒤", render: v2 },
           eyeHeight: { value: 1.6, min: 0.6, max: 4, step: 0.05, label: "눈높이 (m)", render: v2 },
-          eyeBack: { value: 1.6, min: 0, max: 8, step: 0.1, label: "걷는 이에서 뒤로 (m)", render: v2 },
+          eyeBack: { value: 3, min: 0, max: 8, step: 0.1, label: "걷는 이에서 뒤로 (m; 0 = 1인칭, 내 상자는 안 보임)", render: v2 },
           eyeLook: { value: 6, min: 2, max: 20, step: 0.5, label: "시선이 닿는 거리 (m)", render: v2 },
           meBody: { value: DEFAULT_PEOPLE.meBody, label: "나 = 내 등 (점 몸; 사각형 대신 — 멜로디는 몸이 깜박임)", render: v2 },
           meRest: { value: DEFAULT_PEOPLE.meRest, min: 0, max: 1, step: 0.05, label: "멜로디가 쉴 때 내 몸의 밝기", render: v2 },
@@ -293,6 +302,10 @@ export function usePersonalVisuals(): PersonalVisuals {
       on: c.streetOn,
       people: c.streetOn && c.streetPeople,
       look: {
+        mode: c.ppMode,
+        boxAspect: c.ppBoxAspect,
+        boxRest: c.ppBoxRest,
+        cue: c.ppCue,
         points: c.ppPoints,
         pointsPhone: c.ppPointsPhone,
         scale: c.ppScale,
@@ -323,7 +336,7 @@ export function usePersonalVisuals(): PersonalVisuals {
       hints: { on: c.streetOn && c.hintsOn, radius: c.hintRadius, everySec: c.hintEvery },
       logPlace: c.streetOn ? c.logPlace : "bottom",
     }),
-    [c.streetOn, c.streetPeople, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [c.streetOn, c.streetPeople, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {
