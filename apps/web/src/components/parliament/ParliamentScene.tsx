@@ -524,7 +524,7 @@ export default function ParliamentScene() {
           getRhythm={withSession ? getRhythm : undefined}
           eye={isV2 ? visuals.street.eye : undefined}
           walkSpeed={isV2 ? visuals.street.walkSpeed : 7}
-          hideCursor={isV2 && withSession && visuals.street.people && visuals.street.look.meBody}
+          hideCursor={(isV2 && withSession && visuals.street.people && visuals.street.look.meBody) || paper}
         />
         <RoleField
           key={`field-${session.sessionNo}`}

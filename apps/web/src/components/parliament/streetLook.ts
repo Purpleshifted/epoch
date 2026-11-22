@@ -35,13 +35,15 @@ export interface StreetGroundLook {
   blur: number;
   fadeDist: number;
   labelDist: number;
+  /** Within this radius (world) a person is a blot by this look; beyond it the present's scan (future-presence) carries them. */
+  blotDist: number;
 }
 
 /** The paper's white, and the vegetation's light green on it. */
 export const PAPER = "#f4f2ec";
 export const PAPER_GREEN = "#b7d3a4";
 
-export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false, paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4 };
+export const streetGround: StreetGroundLook = { on: false, wear: 0.7, wearGrey: 0.42, seam: 0.6, grain: 0.5, wind: 0.5, windSpeed: 1, sway: 0.5, viewFog: false, paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, blotDist: 8 };
 
 export function setStreetGround(v: Partial<StreetGroundLook>): void {
   const was = streetGround.paper;
@@ -50,6 +52,7 @@ export function setStreetGround(v: Partial<StreetGroundLook>): void {
   paperLook.on = streetGround.paper;
   paperLook.paper = PAPER;
   paperLook.ink = "#141414";
+  paperLook.near = streetGround.blotDist;
   // the flag's change, for whoever renders from React rather than per frame (future-presence's frames)
   if (streetGround.paper !== was && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("street-look", { detail: { paper: streetGround.paper } }));
 }

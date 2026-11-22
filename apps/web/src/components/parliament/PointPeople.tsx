@@ -19,7 +19,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
-import { DEFAULT_WITNESS, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
+import { DEFAULT_WITNESS, glyphOf, nearestImage, rhythmOf, stepAt, type Other } from "@/lib/parliament";
+import { Glyph } from "./Glyph";
 import { DEFAULT_BODY, DEFAULT_MOTION, bakeWalk, jointsAt, stepPerson, strideLength, type MotionConfig, type PersonMotion } from "@/lib/parliament/pointPeople";
 import { onLifeEvent } from "./lifeEvents";
 
@@ -38,6 +39,21 @@ export interface PeopleLook {
   blur: number;
   fadeDist: number;
   labelDist: number;
+  /** 각자의 창 (the artist, 2026-11-22 night: "각자의 윈도우가 있고 그게 늘어져서 이동이 보이는… 사라지면서 꼬리를 남기고", "의도적
+   *  플리커링(디바운스랑 정렬해서)"): no interpolation — when a sample comes the window shakes once and moves; it stretches by the
+   *  move between samples (× stretchGain) and shrinks until the next; gone, it stays stretched and pales (the tail). Beyond
+   *  `blotDist` (world) a person is not drawn here (the present's scan carries them). `bubble`: a square frame with the
+   *  asker's melody glyph beside them while their question is open. */
+  flicker: boolean;
+  stretchGain: number;
+  shake: number;
+  blotDist: number;
+  bubble: boolean;
+  /** Each window's own proportion (width / height), drawn by the being's hash between these; and how long a gone one's
+   *  tail stays (s). */
+  aspectMin: number;
+  aspectMax: number;
+  tailSec: number;
   /** The box's width as a share of its height, and its grey while the melody rests (the old square's SQUARE_REST). */
   boxAspect: number;
   boxRest: number;
@@ -83,7 +99,7 @@ export interface PeopleLook {
   meRest: number;
 }
 
-export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
+export const DEFAULT_PEOPLE: PeopleLook = { mode: "boxes", paper: false, ink: 0.9, blur: 3, fadeDist: 12, labelDist: 4, flicker: true, stretchGain: 1, shake: 2, blotDist: 8, bubble: true, aspectMin: 0.5, aspectMax: 1.3, tailSec: 1.6, boxAspect: 0.55, boxRest: 0.22, cue: true, points: 480, pointsPhone: 200, scale: 2.5, dot: 0.07, maxPx: 6, grey: 0.78, height: 1.7, variety: 1, maxCadence: 2.2, plate: false, plateAlpha: 0.08, smearSec: 2.5, smearCopies: 6, breath: 1, fog: false, maxSpeed: 2.6, recentSec: 10, faceEach: true, faceRadius: 3, meBody: false, meRest: 0.4 };
 
 /** The visitor, for their own body: where they stand and look (the controller's yaw), and their melody. */
 export interface MeInput {
@@ -116,7 +132,16 @@ interface Person extends PersonMotion {
   motion: MotionConfig;
   /** Boxes: the silhouette walks leftwards on the screen (mirrored); kept while standing. */
   flip: number;
+  /** The last sample's move (world) and when it came (frame s); the shake runs until `shakeUntil`. */
+  sdx: number;
+  sdz: number;
+  sampleAt: number;
+  shakeUntil: number;
 }
+
+/** The server's samples come about this often (s): the window's stretch lives this long, and a stride step is one sample. */
+const SAMPLE_SEC = 0.5;
+const SHAKE_SEC = 0.14;
 
 const SHEET_FRAMES = 16;
 const SHEET_W = 48;
@@ -178,7 +203,7 @@ uniform float uFrames;
 uniform float uAspect;
 attribute vec4 iBox;      // x, z, height, flip
 attribute vec4 iBoxAnim;  // phase, lit, alpha, cue
-attribute vec4 iBox2;     // paper: stretch (walking), dark (near = 1), 0, 0
+attribute vec4 iBox2;     // stretch (walking), dark (near = 1), this window's aspect, 0
 varying vec2 vUv;
 varying vec2 vLocal;
 varying float vLit;
@@ -187,7 +212,7 @@ varying float vDark;
 #include <fog_pars_vertex>
 void main() {
   float h = iBox.z;
-  float w = h * uAspect * (1.0 + iBox2.x);
+  float w = h * (iBox2.z > 0.0 ? iBox2.z : uAspect) * (1.0 + iBox2.x);
   // a billboard: the box stands facing the eye, its foot on the ground
   vec4 mvPosition = modelViewMatrix * vec4(iBox.x, 0.0, iBox.y, 1.0);
   mvPosition.xy += vec2(position.x * w, position.y * h);
@@ -402,6 +427,7 @@ export function PointPeople({
   );
   // the paper's labels: the nearest few, within labelDist, each with its number and a leader line (drei Html)
   const [labels, setLabels] = useState<{ id: string; x: number; y: number; z: number }[]>([]);
+  const [bubbles, setBubbles] = useState<{ id: string; x: number; y: number; z: number }[]>([]);
   const labelTimer = useRef(0);
   // whoever asks me something (the record's lines, as RoleField hears them for the sound): cued while the question is open
   const asking = useRef(new Map<string, number>());
@@ -476,9 +502,28 @@ export function PointPeople({
         if (!p) {
           if (P.size >= MAX_PEOPLE) continue;
           const h = idHash(o.o);
-          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0 });
+          P.set(o.o, { x: tx, z: tz, vx: 0, vz: 0, heading: h * Math.PI * 2, phase: h, tx, tz, seen: now, bright, alpha: 0, trail: [], lastTrailAt: now, hash: h, hs: heightFactor(h, look.variety), ws: buildFactor(h, look.variety), motion: motionOf(h), flip: 0, sdx: 0, sdz: 0, sampleAt: now, shakeUntil: 0 });
         } else {
           // the record's place is drawn where it lies round the walker (the world wraps): a far jump is the wrap, not a walk
+          const dx = tx - p.tx, dz = tz - p.tz;
+          if (dx !== 0 || dz !== 0) {
+            const d = Math.hypot(dx, dz);
+            if (d < motionOf(p.hash).snapDist) {
+              p.sdx = dx;
+              p.sdz = dz;
+              p.sampleAt = now;
+              p.shakeUntil = now + SHAKE_SEC;
+              // the flicker: the body is simply there, a stride step on, facing its move — no easing between samples
+              if (look.paper && look.flicker) {
+                p.x = tx;
+                p.z = tz;
+                p.vx = dx / SAMPLE_SEC;
+                p.vz = dz / SAMPLE_SEC;
+                p.phase = (p.phase + Math.min(0.5, d / p.motion.stride)) % 1;
+                p.heading = Math.atan2(dx, dz);
+              }
+            }
+          }
           p.tx = tx;
           p.tz = tz;
           p.seen = now;
@@ -519,7 +564,13 @@ export function PointPeople({
         p.z = p.tz;
         p.trail.length = 0;
       }
-      stepPerson(p, dt, p.motion);
+      const flick = paper && look.flicker;
+      if (flick) {
+        // flicker: no easing; the sample's velocity dies away before the next sample (the window shrinks back)
+        const decay = Math.exp(-dt / (SAMPLE_SEC * 0.5));
+        p.vx *= decay;
+        p.vz *= decay;
+      } else stepPerson(p, dt, p.motion);
       // standing near someone, the body turns to face the nearest of them (slowly): a group, not a row
       if (look.faceEach && Math.hypot(p.vx, p.vz) < motion.standBelow) {
         let best: Person | null = null, bd = look.faceRadius * k;
@@ -539,7 +590,8 @@ export function PointPeople({
         }
       }
       const target = gone ? 0 : p.bright;
-      p.alpha += (target - p.alpha) * Math.min(1, dt / FADE_SEC) * (gone ? 1 : 3);
+      // gone: the fade is the tail's length on paper
+      p.alpha += (target - p.alpha) * Math.min(1, dt / (gone && paper ? Math.max(0.2, look.tailSec) : FADE_SEC)) * (gone ? 1 : 3);
       const speed = Math.hypot(p.vx, p.vz);
       const standing = 1 - Math.min(1, speed / motion.standBelow);
       // the smear: a copy of the body where it was, every smearEvery seconds, kept smearSec
@@ -561,18 +613,39 @@ export function PointPeople({
           // paper: nearer = darker and sharper; walking = stretched along the screen
           const dist = Math.hypot(p.x - me.x, p.z - me.z);
           const dark = paper ? 0.2 + 0.8 * Math.max(0, 1 - dist / fadeU) : 1;
-          const stretch = paper ? Math.min(1.4, speed * 0.4) : 0;
           const lit = rhythmOf(id)[step] ? 1 : 0;
-          BX[nb * 4] = p.x;
-          BX[nb * 4 + 1] = p.z;
+          // 각자의 창: the window stretched by the last sample's move along the screen, shrinking until the next sample;
+          // gone, it stays stretched (the tail); the shake right after a sample
+          // this window's own proportion (paper): by the being's hash, between aspectMin and aspectMax
+          const aspect = paper ? look.aspectMin + (look.aspectMax - look.aspectMin) * frac(p.hash * 19.3) : look.boxAspect;
+          let cx = p.x, cz = p.z, stretch = paper ? Math.min(1.4, speed * 0.4) : 0;
+          if (paper && look.stretchGain > 0) {
+            const age = now - p.sampleAt;
+            const kk = gone ? 1.6 : Math.max(0, 1 - age / SAMPLE_SEC);
+            const along = Math.abs(p.sdx * rightX + p.sdz * rightZ) * look.stretchGain * kk;
+            const w0 = Math.max(0.05, heightU * p.hs * aspect);
+            stretch = Math.min(6, along / w0);
+            cx -= 0.5 * p.sdx * kk;
+            cz -= 0.5 * p.sdz * kk;
+            if (now < p.shakeUntil && look.shake > 0) {
+              const sh = Math.sin(now * 90) * look.shake * 0.01 * k;
+              cx += sh * rightX;
+              cz += sh * rightZ;
+            }
+          }
+          // beyond the blot radius the present's scan carries them (future-presence): nothing drawn here
+          const cut = paper ? Math.max(0, Math.min(1, 1 - (dist - look.blotDist) / 1.5)) : 1;
+          BX[nb * 4] = cx;
+          BX[nb * 4 + 1] = cz;
           BX[nb * 4 + 2] = heightU * p.hs * (1 + 0.2 * cue);
           BX[nb * 4 + 3] = p.flip;
           BY[nb * 4] = p.phase;
           BY[nb * 4 + 1] = lit;
-          BY[nb * 4 + 2] = p.alpha;
+          BY[nb * 4 + 2] = p.alpha * cut;
           BY[nb * 4 + 3] = cue;
           BZ[nb * 4] = stretch;
           BZ[nb * 4 + 1] = dark;
+          BZ[nb * 4 + 2] = aspect;
           nb++;
           // paper: the trail — the body's past places as paler blots behind it (the long exposure's drag)
           if (paper) {
@@ -585,10 +658,11 @@ export function PointPeople({
               BX[nb * 4 + 3] = p.flip;
               BY[nb * 4] = c.phase;
               BY[nb * 4 + 1] = 0;
-              BY[nb * 4 + 2] = p.alpha * 0.6 * (1 - age) * (1 - age);
+              BY[nb * 4 + 2] = p.alpha * cut * 0.6 * (1 - age) * (1 - age);
               BY[nb * 4 + 3] = 0;
               BZ[nb * 4] = stretch;
               BZ[nb * 4 + 1] = dark;
+              BZ[nb * 4 + 2] = aspect;
               nb++;
             }
           }
@@ -680,6 +754,15 @@ export function PointPeople({
         const next = near.slice(0, 3).map(({ id, x, y, z }) => ({ id, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2) }));
         setLabels((prev) => (prev.length === next.length && prev.every((l, i) => l.id === next[i].id && l.x === next[i].x && l.z === next[i].z) ? prev : next));
       } else if (labels.length) setLabels([]);
+      // the bubbles: a square frame with the asker's melody beside whoever has a question open
+      const bl: { id: string; x: number; y: number; z: number }[] = [];
+      if (look.bubble && look.cue) {
+        for (const [id, until] of asking.current) {
+          const p = P.get(id);
+          if (p && nowMs < until && p.alpha > 0.3) bl.push({ id, x: +p.x.toFixed(2), y: +(heightU * p.hs).toFixed(2), z: +p.z.toFixed(2) });
+        }
+      }
+      setBubbles((prev) => (prev.length === bl.length && prev.every((b, i) => b.id === bl[i].id && b.x === bl[i].x && b.z === bl[i].z) ? prev : bl));
     }
     if (plates) {
       plates.count = look.plate ? np : 0;
@@ -708,6 +791,14 @@ export function PointPeople({
             </div>
           </Html>
         ))}
+      {/* the asker's bubble (TD): a square frame with their melody glyph, beating with the bar, beside them while the question is open */}
+      {bubbles.map((b) => (
+        <Html key={`bubble-${b.id}`} position={[b.x, b.y, b.z]} style={{ pointerEvents: "none" }} zIndexRange={[6, 0]}>
+          <div className="hud-blink" style={{ transform: "translate(14px, -46px)", border: `1px solid ${look.paper ? "#111" : "#fff"}`, background: look.paper ? "rgba(244,242,236,0.85)" : "rgba(0,0,0,0.6)", padding: "5px 6px", filter: look.paper ? "invert(1)" : undefined }}>
+            <Glyph dots={glyphOf(b.id)} cell={3} live />
+          </div>
+        </Html>
+      ))}
       {look.plate && look.mode === "points" && (
         <instancedMesh ref={plateMesh} args={[plateGeom, undefined, MAX_PEOPLE]} frustumCulled={false} renderOrder={8}>
           <meshBasicMaterial color="#ffffff" transparent opacity={look.plateAlpha} depthWrite={false} side={THREE.DoubleSide} fog={fogOn} />

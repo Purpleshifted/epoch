@@ -244,6 +244,15 @@ export function usePersonalVisuals(): PersonalVisuals {
           paperBlur: { value: 3, min: 0, max: 8, step: 0.5, label: "종이: 얼룩 가장자리의 번짐 (px)", render: v2 },
           paperFade: { value: 12, min: 3, max: 30, step: 0.5, label: "종이: 멀수록 옅어지는 거리 (월드)", render: v2 },
           paperLabel: { value: 4, min: 0, max: 12, step: 0.5, label: "종이: 이 안이면 개체 라벨과 지시선 (월드; 0 = 없음)", render: v2 },
+          // 각자의 창 (2026-11-22 night): the window stretches by the move between the server's samples; the walk is a flicker
+          paperFlicker: { value: true, label: "종이: 의도적 플리커링 — 표본(0.5 s)이 올 때 창이 떨리고 자리를 옮김 (보간 없음)", render: v2 },
+          paperStretch: { value: 1, min: 0, max: 3, step: 0.1, label: "종이: 창이 표본 사이 이동만큼 늘어남 (배수)", render: v2 },
+          paperShake: { value: 2, min: 0, max: 8, step: 0.5, label: "종이: 표본이 올 때의 떨림 (cm)", render: v2 },
+          paperBlot: { value: 8, min: 2, max: 24, step: 0.5, label: "종이: 번짐 반경 (월드) — 그 밖은 스캔 점(future-presence); 시야 반경을 켜면 그 값", render: v2 },
+          paperBubble: { value: true, label: "종이: 말 거는 이 옆에 사각 테두리 + 멜로디 기호 버블", render: v2 },
+          paperAspectMin: { value: 0.5, min: 0.2, max: 2, step: 0.05, label: "종이: 창 비율 최소 (폭/키; 봇마다 씨앗으로 정함)", render: v2 },
+          paperAspectMax: { value: 1.3, min: 0.2, max: 2.5, step: 0.05, label: "종이: 창 비율 최대", render: v2 },
+          paperTail: { value: 1.6, min: 0.2, max: 6, step: 0.1, label: "종이: 사라질 때 꼬리가 남는 시간 (s)", render: v2 },
           walkSpeed: { value: 2.5, min: 0.5, max: 10, step: 0.5, label: "걷는 속도 (월드/s; 전엔 7 · 봇 2.2)", render: v2 },
           ppFaceEach: { value: DEFAULT_PEOPLE.faceEach, label: "서 있을 때 가까운 이를 마주 봄", render: v2 },
           ppFaceRadius: { value: DEFAULT_PEOPLE.faceRadius, min: 1, max: 8, step: 0.5, label: "마주 보는 거리 (m)", render: v2 },
@@ -316,6 +325,14 @@ export function usePersonalVisuals(): PersonalVisuals {
         blur: c.paperBlur,
         fadeDist: c.paperFade,
         labelDist: c.paperLabel,
+        flicker: c.paperFlicker,
+        stretchGain: c.paperStretch,
+        shake: c.paperShake,
+        blotDist: c.viewOn ? c.viewRadius : c.paperBlot,
+        bubble: c.paperBubble,
+        aspectMin: Math.min(c.paperAspectMin, c.paperAspectMax),
+        aspectMax: Math.max(c.paperAspectMin, c.paperAspectMax),
+        tailSec: c.paperTail,
         boxAspect: c.ppBoxAspect,
         boxRest: c.ppBoxRest,
         cue: c.ppCue,
@@ -350,11 +367,11 @@ export function usePersonalVisuals(): PersonalVisuals {
       logPlace: c.streetOn ? c.logPlace : "bottom",
       paper: c.streetOn && c.paperOn,
     }),
-    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
+    [c.streetOn, c.streetPeople, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperFlicker, c.paperStretch, c.paperShake, c.paperBlot, c.paperBubble, c.paperAspectMin, c.paperAspectMax, c.paperTail, c.ppMode, c.ppBoxAspect, c.ppBoxRest, c.ppCue, c.ppPoints, c.ppPointsPhone, c.ppScale, c.ppDot, c.ppMaxPx, c.viewOn, c.viewRadius, c.hintsOn, c.hintRadius, c.hintEvery, c.logPlace, c.ppGrey, c.ppHeight, c.ppVariety, c.ppMaxCadence, c.ppPlate, c.ppPlateAlpha, c.ppSmearSec, c.ppSmearCopies, c.ppBreath, c.ppFog, c.ppMaxSpeed, c.otherRecent, c.ppFaceEach, c.ppFaceRadius, c.meBody, c.meRest, c.eyeOn, c.eyeHeight, c.eyeBack, c.eyeLook, c.streetFog, c.walkSpeed],
   );
   // the ground's part of the street look goes to the components RoleField mounts, through the module value
   useEffect(() => {
-    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway, viewFog: c.streetOn && c.viewOn, paper: c.streetOn && c.paperOn, ink: c.paperInk, blur: c.paperBlur, fadeDist: c.paperFade, labelDist: c.paperLabel });
-  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway, c.viewOn, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel]);
+    setStreetGround({ on: c.streetOn, wear: c.groundOn ? c.groundWear : 0, wearGrey: c.groundGrey, seam: c.groundSeam, grain: c.groundGrain, wind: c.windDepth, windSpeed: c.windSpeed, sway: c.grassSway, viewFog: c.streetOn && c.viewOn, paper: c.streetOn && c.paperOn, ink: c.paperInk, blur: c.paperBlur, fadeDist: c.paperFade, labelDist: c.paperLabel, blotDist: c.viewOn ? c.viewRadius : c.paperBlot });
+  }, [c.streetOn, c.groundOn, c.groundWear, c.groundGrey, c.groundSeam, c.groundGrain, c.windDepth, c.windSpeed, c.grassSway, c.viewOn, c.viewRadius, c.paperOn, c.paperInk, c.paperBlur, c.paperFade, c.paperLabel, c.paperBlot]);
   return { look: c.look, footprint: c.footprint, card, grass, marks, street };
 }
