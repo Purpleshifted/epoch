@@ -72,3 +72,31 @@ export function syncRisePause(stop: boolean, elapsed: number, epoch: number, per
     }
   }
 }
+
+/** The block as a view that does not step the bots is told it (the bot server's hello: the herd's window, the rise). */
+export interface BlockFrame {
+  /** HerdConfig.shift: how fast the window's foot rises with the clock. */
+  shift: number;
+  /** HerdConfig.depthSec: the window's height (0 = no block: the old time slots). */
+  depthSec: number;
+  /** The rise's stop as the server keeps it (riseState), null = never stopped. */
+  rise: { at: number | null; lost: number } | null;
+}
+
+/**
+ * WHERE A VISITOR STANDS IN THE BLOCK'S TIME (2026-11-22: the personal view stood at "seconds since the epoch", hours
+ * above the block the bots live in, and saw none of them): the offset that seats a life of `lifeSec` seconds the way
+ * a loner bot is seated (lifecycle.ts seatLoner) — `rand` of the way up the window, low enough that the life ends
+ * under its top. `gone` = the world's seconds since the epoch. Null when there is no block (the old time slots).
+ * Pure: the rise's stop is the frame's, not this page's (risePause).
+ */
+export function blockSeatOffset(f: BlockFrame, gone: number, lifeSec: number, rand: number): number | null {
+  const depth = Math.max(0, f.depthSec);
+  if (!(depth > 0)) return null;
+  const shift = Math.max(0, Math.min(1, f.shift));
+  const stopped = f.rise?.at !== null && f.rise?.at !== undefined;
+  const counted = Math.max(0, (stopped ? Math.min(f.rise!.at!, gone) : gone) - (f.rise?.lost ?? 0));
+  const bottom = shift * counted;
+  const still = stopped ? 1 : 1 - shift;
+  return rand * Math.max(0, depth - still * Math.max(0, lifeSec)) - (gone - bottom);
+}

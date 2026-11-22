@@ -32,6 +32,7 @@ import {
   steerBot,
   getEpochMs,
   pickOffset,
+  DEFAULT_LIFE,
   saveMerged,
   setKeepFrom,
   observe,
@@ -65,7 +66,8 @@ import { NatureCloud, type GrassReaction } from "./NatureCloud";
 import { AnswerBurst, ConcreteLines, ConcreteOutline, OtherDots, type BurstAt, type MarksData } from "./Marks";
 import { PathLines } from "./PathLines";
 import { useTicker } from "./useTicker";
-import { botServerOn, useVisitorLink } from "./useBotServer";
+import { blockFrameFor, botServerOn, useVisitorLink } from "./useBotServer";
+import { blockSeatOffset } from "@/lib/parliament/rise";
 import type { SoundSetup } from "./useSound";
 import { useFoldState, useStressState, useWorld } from "./useWorld";
 import { muffleSound, type LifeSignal } from "./useLifeSession";
@@ -128,6 +130,7 @@ export function RoleField({
   pathDots = 1,
   pathLine = 1,
   offsetWindow,
+  lifeSec = DEFAULT_LIFE.lifeSec,
   botCount,
   botRole,
   botFlock = ONE_FLOCK,
@@ -153,6 +156,8 @@ export function RoleField({
   /** Brightness of the path LINES (PathLines; 0 = none, 1 = white). */
   pathLine?: number;
   offsetWindow: number;
+  /** The life's length (s): a visitor seated in the bots' block ends their life under its top (blockSeatOffset). */
+  lifeSec?: number;
   botCount: number;
   /** "mixed" (V2): the bots take the session roles in turn. */
   botRole: RoleId | "mixed";
@@ -196,7 +201,8 @@ export function RoleField({
   // the ground, folded as it grows (foldState.ts): the whole world is folded, the region only chooses what is read
   const fold = useFoldState(log, cfg, PLAYER_FOLD_OPTS);
   const stressAt = useStressState(log, natureCfg);
-  const me = useRef({ id: "v_anon", offset: 0, tag: "t" });
+  /** `rand`: where in the block's window this life is seated; `seatEpoch`: the world it was seated in (0 = not yet). */
+  const me = useRef({ id: "v_anon", offset: 0, tag: "t", rand: 0.5, seatEpoch: 0 });
   /** My own samples, in time order (what the ledger reads; a life is a few hundred). */
   const myEvents = useRef<PEvent[]>([]);
   const ledgerMs = useRef(0);
@@ -211,14 +217,14 @@ export function RoleField({
   /** My trail at the fold's cadence (the footprint map draws it; the ledger itself reads the world less often). */
   const trail = useRef<{ x: number; z: number; t: number }[]>([]);
   // the ticker reads the latest Leva values through this ref
-  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold });
+  const live = useRef({ role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold, lifeSec });
   // V2: what bots walk on — trodden ground (G per cell) and the cells buildings stand on; refreshed every few seconds
   const botGround = useRef<{ at: number; level: Map<string, number>; built: Set<string> } | null>(null);
   // V2: each migration's route, chosen once (on the ground as it was) and kept until it is over
   const botRoutes = useRef(new Map<string, number[]>());
   useEffect(() => {
-    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold };
-  }, [role, botCount, botRole, botFlock, cfg, fold]);
+    live.current = { role, botCount, botRole, botFlock, sampleSec: cfg.sampleSec, cfg, fold, lifeSec };
+  }, [role, botCount, botRole, botFlock, cfg, fold, lifeSec]);
   const snap = useRef<Snapshot | null>(null);
   const stress = useRef<Map<string, number> | null>(null);
   // the grass reaction (NatureCloud): the walker's own recent trail as a second, visual-only stress state, fed from
@@ -249,6 +255,8 @@ export function RoleField({
       id: "v_" + Math.random().toString(36).slice(2, 7),
       offset: pickOffset(Math.random(), offsetWindow),
       tag: Math.random().toString(36).slice(2, 6),
+      rand: Math.random(),
+      seatEpoch: 0,
     };
     if (visitorRef) visitorRef.current = { no: sessionNo, id: me.current.id };
     try {
@@ -290,6 +298,19 @@ export function RoleField({
     if (epochMs.current === 0) return;
     const now = worldNow();
     const wall = Date.now();
+    // SEATED IN THE BLOCK (2026-11-22): the bots live in the block's time (a window of depthSec seconds), not at
+    // "seconds since the epoch" — a visitor left there stood hours above them and saw none of them. Once the bot server
+    // has told this world's block, the life is seated in it as a loner bot is (once per world; the history window
+    // follows on this frame)
+    if (me.current.seatEpoch !== epochMs.current) {
+      const b = blockFrameFor(epochMs.current);
+      const off = b ? blockSeatOffset(b.frame, b.gone, live.current.lifeSec, me.current.rand) : null;
+      if (off !== null) {
+        me.current.offset = off;
+        me.current.seatEpoch = epochMs.current;
+        rejoined.current = true;
+      }
+    }
     const { role: myRole, botCount: nBots, botRole: theirRole, botFlock: flock, sampleSec, cfg: foldCfg, fold: theFold } = live.current;
     // V2: bots walk where others walked (bundling) and around buildings (detour)
     const flow = foldCfg.flow?.enabled ? foldCfg.flow : null;
